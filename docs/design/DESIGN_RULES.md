@@ -624,6 +624,7 @@ Mocks reach every variant and state through the "Preview states" menu. The app r
 | L / M / D | Projects, a project open | focus Log progress / add a milestone / mark the selected thread or milestone done (Projects only: on an Inbox question, L is still "Not now") |
 | ← / → | Projects, the band focused | step along the band's nodes; ⏎ opens the node's source in the Reader |
 | ⌥↑ / ⌥↓ · ⌥⌘[ | Reader | previous / next cited span · back |
+| ⌘Y | Looks, a look open | enlarge its screenshot over the board, in one frame (as Quick Look); Esc closes it first |
 | Esc | anywhere | close the rightmost open thing (DR-28) |
 | ⌘, · ⌘+ ⌘− ⌘0 · ⇧⌘I | anywhere | Settings panel · chrome zoom · Import… (via `IntakeRouter`) |
 

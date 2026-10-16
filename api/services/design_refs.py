@@ -220,18 +220,44 @@ def specimen_rel(ref_id: str, n: int) -> str:
     return f"{'/'.join(ASSETS)}/{ref_id}.type-{n}.png"
 
 
+def _side(value, cap: int) -> int | None:
+    """A specimen's side as written, or None when it is not a whole number in ``0..cap`` (a hand edit)."""
+    if isinstance(value, bool):
+        return None
+    if value is None:
+        return 0
+    if isinstance(value, int):
+        n = value
+    elif isinstance(value, str) and value.strip().isdigit():
+        n = int(value.strip())
+    else:
+        return None
+    return n if 0 <= n <= cap else None
+
+
 def _stored_specimens(ref_id: str, raw) -> list[dict]:
-    """The frontmatter's specimens, each only at its own name (a hand-edited path never points elsewhere)."""
+    """The frontmatter's specimens: entry ``n`` (from 1) only at its own name ``…type-<n>.png`` (a hand-edited path
+    never points elsewhere), and one with a hand-broken field is skipped — never a failed read of the board."""
     out: list[dict] = []
-    for item in list(raw or [])[: design_tokens.MAX_SPECIMENS] if isinstance(raw, list) else []:
+    for n, item in enumerate(list(raw or [])[: design_tokens.MAX_SPECIMENS] if isinstance(raw, list) else [], 1):
         if not isinstance(item, dict) or not isinstance(item.get("family"), str):
             continue
-        if item.get("file") != specimen_rel(ref_id, len(out) + 1):
+        if item.get("file") != specimen_rel(ref_id, n):
+            continue
+        width, height = _side(item.get("width"), SPECIMEN_MAX_W), _side(item.get("height"), SPECIMEN_MAX_H)
+        if width is None or height is None:
             continue
         out.append({"family": item["family"][: design_tokens.MAX_FAMILY], "file": item["file"],
-                    "sha256": str(item.get("sha256") or ""), "width": int(item.get("width") or 0),
-                    "height": int(item.get("height") or 0)})
+                    "sha256": str(item.get("sha256") or "")[:64], "width": width, "height": height})
     return out
+
+
+def specimen_number(ref_id: str, entry: dict) -> int | None:
+    """Which ``n`` a stored specimen is (its file's own number), or None."""
+    for n in range(1, design_tokens.MAX_SPECIMENS + 1):
+        if entry.get("file") == specimen_rel(ref_id, n):
+            return n
+    return None
 
 
 def _note_by(fm: dict) -> str:
@@ -293,10 +319,10 @@ def image_file(memory_path, ref: Reference) -> tuple[Path, str] | None:
 
 def specimen_file(memory_path, ref: Reference, n: int) -> Path | None:
     """Specimen ``n`` (from 1)'s path, only inside the bank's own ``assets/design/`` and only when it is there."""
-    if not isinstance(n, int) or not 1 <= n <= len(ref.specimens):
+    if not isinstance(n, int) or not 1 <= n <= design_tokens.MAX_SPECIMENS:
         return None
     rel = specimen_rel(ref.id, n)
-    if ref.specimens[n - 1].get("file") != rel:
+    if not any(s.get("file") == rel for s in ref.specimens):
         return None
     path = Path(memory_path) / rel
     return path if path.is_file() else None
@@ -600,8 +626,9 @@ def remove_ref(memory_path, ref_id: str, *, author: str = USER) -> dict:
     if found is not None:
         found[0].unlink(missing_ok=True)
         paths.append(ref.image_path)
-    for n in range(1, len(ref.specimens) + 1):
-        if (spec := specimen_file(memory_path, ref, n)) is not None:
+    for n in range(1, design_tokens.MAX_SPECIMENS + 1):
+        spec = Path(memory_path) / specimen_rel(ref.id, n)   # a skipped (hand-broken) entry's file goes too
+        if spec.is_file():
             spec.unlink(missing_ok=True)
             paths.append(specimen_rel(ref.id, n))
     (Path(memory_path) / ref.path).unlink(missing_ok=True)

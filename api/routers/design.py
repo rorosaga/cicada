@@ -178,7 +178,8 @@ def _type_roles(ref: design_refs.Reference) -> list[DesignTypeRole]:
 
 def _specimens(ref: design_refs.Reference) -> list[DesignSpecimen]:
     """The specimen model (``design_tokens.specimens``) with each family's drawn "Aa", when the look keeps one."""
-    drawn = {str(s.get("family") or "").lower(): (n, s) for n, s in enumerate(ref.specimens, 1)}
+    drawn = {str(s.get("family") or "").lower(): (n, s) for s in ref.specimens
+             if (n := design_refs.specimen_number(ref.id, s)) is not None}
     out = []
     for spec in design_tokens.specimens(ref.computed):
         image = None

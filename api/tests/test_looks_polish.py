@@ -177,6 +177,44 @@ def test_the_api_serves_each_family_with_its_drawn_aa_or_none(client):
     assert c.get("/design/2026-01-01-nothing/type/1").status_code == 404
 
 
+def test_one_hand_broken_specimen_is_skipped_and_the_board_still_reads(client):
+    from api.services import markdown_parser
+
+    c, bank = client
+    ref = design_refs.add_ref(bank, image=LIGHT, computed=TOKENS, look=([], []),
+                              specimens=[{"family": "Newsreader", "data": _png(180, 120)},
+                                         {"family": "Inter", "data": _png(200, 120)}])["ref"]
+    parsed = markdown_parser.parse(bank / ref.path)
+    fm = dict(parsed.frontmatter)
+    fm["specimens"] = [{**fm["specimens"][0], "width": "wide"}, fm["specimens"][1]]
+    markdown_parser.write(bank / ref.path, fm, parsed.body)
+    again = design_refs.get_ref(bank, ref.id)
+    assert [s["family"] for s in again.specimens] == ["Inter"], "the broken one is skipped, the other kept"
+    for bad in ({"width": None, "height": [1]}, {"width": -4}, {"width": 10 ** 9}, {"width": True}, {"height": 3.5}):
+        assert design_refs._stored_specimens(ref.id, [{**fm["specimens"][1], "file": ref.specimens[0]["file"],
+                                                       **bad}]) == []
+    board = c.get("/design")
+    assert board.status_code == 200 and board.json()["refs"][0]["id"] == ref.id
+    specs = c.get(f"/design/{ref.id}").json()["specimens"]
+    assert specs[0]["family"] == "Newsreader" and specs[0]["image"] is None
+    assert specs[1]["image"]["url"].startswith(f"/design/{ref.id}/type/2?v="), "it keeps its own number"
+    assert c.get(f"/design/{ref.id}/type/2").status_code == 200
+    assert c.get(f"/design/{ref.id}/type/1").status_code == 404, "the skipped one is not served"
+    removed = design_refs.remove_ref(bank, ref.id)
+    assert not any((bank / "assets" / "design").glob(f"{ref.id}*")), "its file goes with the look all the same"
+    assert ref.specimens[0]["file"] in removed["paths"]
+
+
+def test_the_cap_holds_with_no_frame_grab_past_it(monkeypatch):
+    # The layout is still from 8.0 s (quiet at 8.5 s), the pixels never stop, a frame grab costs 0.3 s: a grab at the
+    # cap would end past it, so none starts there.
+    got, at, ns = _settle_on(monkeypatch, layout_until=7.9, moving_until=999, frame_cost=0.3)
+    assert got["timed_out"] is True and got["waiting_on"] == ["motion"]
+    assert at <= ns["SETTLE_CAP"] + 0.3, "at most one grab already under way when the cap arrives"
+    got, at, ns = _settle_on(monkeypatch, fonts_at=999, frame_cost=5.0)
+    assert got["timed_out"] and at <= ns["SETTLE_CAP"] + 0.01, "no frame is grabbed while the DOM is pending"
+
+
 def _ctx(bank, harness="claude-code", session="s1", **kw):
     return mcp_tools.ToolContext(memory_path=lambda: bank, session_id=session, harness=harness, **kw)
 
@@ -235,10 +273,11 @@ class FakePage:
     """A page whose state is a function of the fake clock: each condition settles at its own time."""
 
     def __init__(self, ns: dict, *, fonts_at=0.0, images_at=0.0, layout_until=0.0, finite_until=0.0,
-                 infinite=False, moving_until=0.0, unread=False):
+                 infinite=False, moving_until=0.0, unread=False, frame_cost=0.0):
         self.ns, self.t = ns, 0.0
         self.fonts_at, self.images_at, self.layout_until = fonts_at, images_at, layout_until
         self.finite_until, self.infinite, self.moving_until, self.unread = finite_until, infinite, moving_until, unread
+        self.frame_cost = frame_cost
 
     def js(self, expr):
         if expr != self.ns["_SETTLE_JS"]:
@@ -253,6 +292,7 @@ class FakePage:
 
     def cdp(self, method, **params):
         if method == "Page.captureScreenshot":
+            self.t += self.frame_cost
             frame = f"f{int(self.t * 100)}" if self.t < self.moving_until else "still"
             return {"data": frame}
         return {}

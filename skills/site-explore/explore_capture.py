@@ -357,6 +357,8 @@ def _settle(cap=SETTLE_CAP):
             graced = now - start >= SETTLE_MOTION_GRACE
             if state.get("infinite") and graced:
                 motion = "looping"
+            elif time.monotonic() >= deadline:
+                pending.append("motion")   # no frame grab past the cap
             else:
                 frame = _frame()
                 if frame is not None and frame == last_frame:

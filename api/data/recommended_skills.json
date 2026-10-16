@@ -316,7 +316,7 @@
         "sha": "2a9b5990dfc329308b571457754be97fc743f6e7",
         "path": "skills/site-explore",
         "skillMdSha256": "9d83c1cc8b97eda9f36c820619f6376ed90bacb1a932642c2096e1467b91ddfb",
-        "files": {"explore_capture.py": "d2784b7bbde1763fd81b5222146972da1dabbf06d36dc479b04d6e794dfe5f5e"}
+        "files": {"explore_capture.py": "a8b898bc081e6535ad9152dace0089a56c1f5bd64d50b03c6e9eccaf9bd8dba7"}
       },
       "agents": {
         "claude-code": {"method": "skills-cli"},
