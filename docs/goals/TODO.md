@@ -8,6 +8,18 @@
 
 ## Current state and evidence
 
+- **2026-10-16 — people from LinkedIn connections: the export enriches who is already in memory, and a skill for the
+  rest (G154's pattern, G71, G166; branch `feat/linkedin-people`, not merged).** Owner: "extracting people profiles from
+  my LinkedIn connections (maybe could be a skill) would be nice". `linkedin_people.py` reads `Connections.csv` (or the
+  export zip; notes preamble, credentials after a comma, the email column never read) behind
+  `POST /sources/linkedin-connections/preview|import` (demo 409, admitted, one `user` commit); exactly one existing
+  `person` page per connection — never a new page — gains the profile link as a source and dated `external:linkedin`
+  `works-at`/`role`/`connected-on` claims, newest wins; removal respected; re-import a no-op. The directory waits at
+  `$CICADA_HOME/people/<bank>/` and Sleep's tail (`_rematch_linkedin_safely`, own `cicada` commit) matches later pages.
+  Skill `skills/linkedin-people` (own bundle) + stdio-only `cicada_record_profile` (the one listed link, reading on,
+  ≤ 10/day, episode with `page` spans). App: the LinkedIn tile's **Connections** (`LinkedInConnectionsPanel`).
+  Tests: `test_linkedin_people.py`, `LinkedInConnectionsTests`. Pick up: review and merge; the owner drops his
+  Connections.csv in the tile, reads the preview counts, and asks an agent "what does <a known person> do now?".
 - **2026-10-16 — Messages follow-ups: a chat's shared photo is its page's picture, and a mark always reaches Sleep
   (G179; branch `fix/messages-followups`, not merged).** The app reads each ticked chat's shared Messages photo (at most
   hourly, from a copy) and posts changes to `PUT /sources/messages/photos` (409 unticked or demo, 422 bad bytes);

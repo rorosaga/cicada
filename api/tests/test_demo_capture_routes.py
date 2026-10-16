@@ -45,6 +45,9 @@ GATED = {
     # G71 (2026-10-16): the YouTube videos watched in Chrome — day episodes.
     ("POST", "/sources/watch-history/sync"): "/sources/watch-history/sync",
     ("POST", "/sources/contacts-local/sync"): "/sources/contacts-local/sync",
+    # 2026-10-16: LinkedIn connections — the import writes person pages; the preview is pointless into a demo bank.
+    ("POST", "/sources/linkedin-connections/preview"): "/sources/linkedin-connections/preview",
+    ("POST", "/sources/linkedin-connections/import"): "/sources/linkedin-connections/import",
     # G179: the Messages conversations the person ticked — the rows, the settings, and the list (computes only, but
     # a demo bank takes no conversation in, so offering to pick one is pointless).
     ("POST", "/sources/messages/sync"): "/sources/messages/sync",

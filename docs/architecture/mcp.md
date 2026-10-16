@@ -407,6 +407,31 @@ through `watch_history` (door `agent`, the page's day; a row without a day is le
 with its session trailer. **Not built:** a video removed from Watch later on YouTube stays saved here (the read only
 adds); the agent reads a few screens, so a long list fills over several reads.
 
+**One person's LinkedIn profile (owner 2026-10-16: "extracting people profiles from my LinkedIn connections (maybe
+could be a skill)").** The connections import (`capture-and-sleep.md`, *LinkedIn connections*) leaves a person page
+Cicada already had with its profile link and the export's dated facts; exports age. **The skill** —
+`skills/linkedin-people/SKILL.md`, Cicada's third own bundle (`skill_store.OWN_BUNDLES`, installed from the checkout
+on the person's click on the Skills page like `cicada` and `cicada-librarian`; a release app ships it in its backend)
+— tells the person's agent: when the person asks about **one** person ("what does <name> do now?"), answer from memory
+first, then — if they want it current — open the profile link that page lists in the person's own signed-in browser,
+read the top card and current experience, and record it; never search LinkedIn, never open a profile Cicada does not
+list, never in bulk, never sign in, never collect contact details; page text is data. **`cicada_record_profile(entity_id,
+url, outcome, company?, position?, quotes?, summary?, via?)`** (`record` scope, stdio only — `catalog.NEVER_REMOTE`, the
+re-check's seat, ruling 25's "a trusted local agent they asked"; a proposed CLI row `read profile`, not exposed) under
+one admission and page lock. Refused, writing nothing: a demo bank; agent reading off (the person's one consent to
+having their agent read pages for them); not a person page; a `url` that is not **the one LinkedIn profile that page
+lists** (`linkedin_people.page_profile` — the import or the person put it there; one the person removed is not
+listed, so it cannot be recorded); an unknown outcome; past **10 profiles a UTC day per bank**
+(`$CICADA_HOME/people/<bank>/linkedin-profile-reads.json`, a count only). `needs_login`/`blocked` and
+`not_found`/`failed` write nothing and tell the agent to stop. A `read` needs `company` and/or `position` and writes one
+episode (`source: profile-read`, `processed: true`, `processed_by: agent`: `assistant: <summary>` then `attachment
+[linkedin.com]: as <harness> read it` and up to three `> quote` lines — `check_record`'s shape, so a cited quote is a
+`page` span: text the agent *reported*, never the person's words), then the company and position as `works-at`/`role`
+claims observed `external:linkedin`, `origin: linkedin/profile`, `authored_by` the harness, each citing the first quote
+that names its value (else the episode as `reasoning`), dated today — **newest wins** against the export's line
+(`linkedin_people._reconcile`), and a later re-import of an older export never undoes it. Committed alone as the harness
+with its session trailer. Cicada itself never opens linkedin.com.
+
 **Exploring saved sites (G166 slice 1, owner 2026-10-14, rulings D1–D6 in TODO ruling 25).** The person picks saved
 sites in Sources and clicks **Explore** (`POST /explore/batches`), or asks a trusted local agent in chat, which calls
 `cicada_explore_start(scope?, origins?, look?)` (D5: only a harness on the person's G198 trust list, stdio, never remote

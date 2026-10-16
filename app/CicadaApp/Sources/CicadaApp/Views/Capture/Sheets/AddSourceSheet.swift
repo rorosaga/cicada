@@ -95,7 +95,7 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         case .pinterest: "Boards and pins, pulled straight from your account."
         case .reddit: "Saved posts and comments, pulled every night."
         case .tiktok: "Favourites and likes, from a data export."
-        case .linkedin: "Saved items — links and dates, nothing more."
+        case .linkedin: "Saved items, and your connections for the people you already know."
         case .x: "Bookmarks, pulled straight from your account."
         }
     }
@@ -636,6 +636,12 @@ struct AddSourceSheet: View {
                     ImportPreviewSection(stage: stage,
                                          onConfirm: { confirmImport($0) },
                                          onCancel: { stage = .idle })
+                    if tile.offersConnections {
+                        // 2026-10-16 (G154's pattern): the people the person is connected to, enriching only the
+                        // people Cicada already has — its own drop target, never the save-list importer above.
+                        Divider()
+                        LinkedInConnectionsPanel()
+                    }
                 }
                 // A flip after the preview previews again, so Confirm imports what the counts say.
                 .onChange(of: includeHistory) { _, _ in

@@ -2650,6 +2650,24 @@ actor APIClient {
         return try decoder.decode(T.self, from: data)
     }
 
+    /// `POST /sources/linkedin-connections/preview` — how many of the export's connections are people Cicada already
+    /// knows. Writes nothing; Confirm re-posts the same file to `/import`.
+    func previewLinkedInConnections(fileURL: URL, exportedOn: String?) async throws -> LinkedInConnectionsPreview {
+        try await uploadMultipart(path: "/sources/linkedin-connections/preview" + Self.exportedOnQuery(exportedOn),
+                                  fileURL: fileURL)
+    }
+
+    /// `POST /sources/linkedin-connections/import` — enrich the people Cicada already has; never adds anyone.
+    func importLinkedInConnections(fileURL: URL, exportedOn: String?) async throws -> LinkedInConnectionsImport {
+        try await uploadMultipart(path: "/sources/linkedin-connections/import" + Self.exportedOnQuery(exportedOn),
+                                  fileURL: fileURL)
+    }
+
+    static func exportedOnQuery(_ day: String?) -> String {
+        guard let day, day.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil else { return "" }
+        return "?exported_on=\(day)"
+    }
+
     /// `POST /sources/upload?preview=true` — describe a file without importing
     /// any of it. Safe to call on every drop: the backend stages nothing.
     func previewSource(fileURL: URL, includeHistory: Bool = false) async throws -> UploadPreview {

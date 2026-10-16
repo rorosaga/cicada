@@ -169,6 +169,10 @@ person's words also back stays `agent` (`capture-and-sleep.md`, Stage 1). The cl
 their own page — a `tool` for an agent, a `person` for a person, a new one always under `<id>-agent` / `<id>-person` —
 never on a same-name page of another type; below the promotion bar they are held on the pending line keyed by that id
 (`correspondents`; `capture-and-sleep.md`, *Entity promotion*). The observer stays `external:<name>`, the correspondent's name, whatever id the page has.
+`external:linkedin` (2026-10-16) is what LinkedIn listed — a connections export or one profile the person's agent read —
+on a page Cicada already had: `works-at`, `role`, `connected-on`, dated, `source_trust: external`, origin
+`linkedin/connections|profile`; `linkedin_people` keeps that slot one dated line per predicate, newest wins, and never
+touches another observer's claim (`capture-and-sleep.md`, *LinkedIn connections*; `mcp.md`).
 
 **The fence is JSON Lines (DECIDE-1, owner 2026-10-08).** A page's claims live in one ` ```claims ` fence, one claim
 per line, each line `claims._jsonl_line(Claim.to_dict())` — the one encoder every writer uses (a raw writer passes its

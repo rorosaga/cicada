@@ -1469,7 +1469,8 @@ async def ingest_feed(
 #: Export files that hold other people, never saves — refused by name even when
 #: dropped alone, where the generic URL-list parser would otherwise read them.
 _NOT_SAVES = {
-    "connections.csv": "Connections.csv lists the people you are connected to, not things you saved.",
+    "connections.csv": ("Connections.csv lists the people you are connected to, not things you saved — add it from "
+                        "LinkedIn → Connections instead."),
 }
 
 
