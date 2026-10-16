@@ -34,7 +34,8 @@ import Foundation
 /// width) whatever the page, and no other toolbar surface measured has it. So the bubble is recognised only by a shape
 /// a bookmark confirmed: the measured 448 × 224 (± `shapeSlack`), plus any shape learned **positively** — an anchored
 /// window of an unknown shape opens nothing, but when the file then names one new bookmark whose own instant (Chrome's
-/// `date_added`, the click) fits the moment that window appeared (`confirms`), its shape is remembered. A window that
+/// `date_added`, to the microsecond) lies between that click and the moment the window was seen (`confirms`) — Chrome
+/// makes the bookmark before it shows the bubble — its shape is remembered. A window that
 /// came with no bookmark is never remembered, so the person's own failed match (v3's flaw) can refuse nothing. A
 /// Chrome update or a font change that resizes the bubble costs one slower question — that save is caught by the file
 /// (≈ 2.5 s, as ⌘D is) and teaches the new shape — and the next star click is instant again.
@@ -100,19 +101,19 @@ enum BookmarkBubblePolicy {
     /// A window of an unknown shape is remembered as the bubble only if the file names one new bookmark within this of
     /// its appearance …
     static let learnWithin: TimeInterval = 20
-    /// … whose own instant (Chrome's `date_added`, the click, floored to the second) lies at most `learnLead` after and
-    /// `learnLag` before the window appeared — the window came with the click that made that bookmark: the bubble shows
-    /// ≤ 400 ms after the click, and flooring moves the instant back by up to 1 s. When two such windows fit one
-    /// bookmark (the star, then the puzzle piece a second later) neither is learned.
+    /// … whose own instant (Chrome's `date_added`, to the microsecond) lies between the click (less this, for the
+    /// monitor's delivery lag) and the moment the window was seen. Chrome makes the bookmark *before* it shows the
+    /// bubble, so the bubble's bookmark always falls inside; a bookmark made after the window was seen — a ⌘D with a
+    /// menu open, an extension saving from its own popup, a bookmark synced in — never does, so it can never teach a
+    /// menu's shape (review 2026-10-16: the seconds-floored instant with 0.5 s / 1.6 s slack let a ⌘D up to ≈ 1.5 s
+    /// after the Extensions menu opened teach the menu's shape for good). Both instants are this Mac's wall clock.
     static let learnLead: TimeInterval = 0.5
-    static let learnLag: TimeInterval = 1.6
 
-    /// Whether a bookmark made at `addedAt` (the browser's own instant, floored to the second) is the one the window seen
-    /// at `seenAt` came with.
-    static func confirms(seenAt: Date, addedAt: Date?, now: Date) -> Bool {
+    /// Whether a bookmark made at `addedAt` (the browser's own instant, exact) is the one the window first seen at
+    /// `seenAt`, after a click at `clickAt`, came with.
+    static func confirms(clickAt: Date, seenAt: Date, addedAt: Date?, now: Date) -> Bool {
         guard let addedAt, now.timeIntervalSince(seenAt) <= learnWithin else { return false }
-        let lag = seenAt.timeIntervalSince(addedAt)
-        return lag >= -learnLead && lag <= learnLag
+        return addedAt >= clickAt.addingTimeInterval(-learnLead) && addedAt <= seenAt
     }
 
     /// Whether `window` hangs from a click at `point` (window-list coordinates).
@@ -260,7 +261,8 @@ final class BookmarkBubbleWatcher {
     private let date: () -> Date
     /// G191 v5 — the anchored windows of an unknown shape toolbar clicks opened in the last `learnWithin`, in memory
     /// only, until a bookmark the file names confirms one: its shape, when it appeared, and where.
-    private(set) var unconfirmed: [(shape: BubbleShape, seenAt: Date, bundleId: String, channel: String)] = []
+    private(set) var unconfirmed: [(shape: BubbleShape, clickAt: Date, seenAt: Date, bundleId: String,
+                                    channel: String)] = []
     private var armed: (pid: pid_t, bundleId: String, channel: String)?
     private var monitor: Any?
     private var burst: Task<Void, Never>?
@@ -344,6 +346,7 @@ final class BookmarkBubbleWatcher {
     func clicked(at point: CGPoint) {
         guard let armed, isWanted(armed.channel) else { return }
         let at = clock()
+        let clickAt = date()
         reads += 1
         let now = windows(armed.pid)
         guard BookmarkBubbleDetector.toolbarWindow(at: point, in: now) != nil else { return }
@@ -359,6 +362,8 @@ final class BookmarkBubbleWatcher {
                 if since > BookmarkBubblePolicy.inputWindow { break }
                 self.reads += 1
                 if detector.observe(self.windows(armed.pid), sinceClick: since) != nil {
+                    // A confirmed bubble explains the bookmark that follows: no held window may claim it.
+                    self.unconfirmed.removeAll { $0.channel == armed.channel }
                     if self.isWanted(armed.channel) { self.onBubble(armed.channel) }
                     break
                 }
@@ -368,7 +373,7 @@ final class BookmarkBubbleWatcher {
                     let seenAt = self.date()
                     self.unconfirmed = self.unconfirmed.filter {
                         seenAt.timeIntervalSince($0.seenAt) <= BookmarkBubblePolicy.learnWithin
-                    } + [(BubbleShape(other.bounds.size), seenAt, armed.bundleId, armed.channel)]
+                    } + [(BubbleShape(other.bounds.size), clickAt, seenAt, armed.bundleId, armed.channel)]
                     break
                 }
             }
@@ -379,14 +384,16 @@ final class BookmarkBubbleWatcher {
     /// G191 v5 — the app's own diff of `item.channel`'s file named one new bookmark (live reads only). If an anchored
     /// window of an unknown shape appeared with the click that made it (`BookmarkBubblePolicy.confirms`), that window
     /// was the bookmark bubble: its shape is remembered, so the next star click opens the question at once. Two
-    /// windows that both fit (the star, then the puzzle piece a second later) teach nothing, and anything else teaches
-    /// nothing either — no shape is ever refused.
+    /// windows that both fit teach nothing, a bookmark made after the window was seen (a ⌘D with a menu open) teaches
+    /// nothing, and anything else teaches nothing either — no shape is ever refused. A bookmark with no exact instant
+    /// (anything but the app's own diff of a Chromium file) teaches nothing.
     func bookmarkNamed(_ item: FreshBookmark) {
         let now = date()
         unconfirmed = unconfirmed.filter { now.timeIntervalSince($0.seenAt) <= BookmarkBubblePolicy.learnWithin }
         let fits = unconfirmed.indices.filter { i in
             unconfirmed[i].channel == item.channel
-                && BookmarkBubblePolicy.confirms(seenAt: unconfirmed[i].seenAt, addedAt: item.addedDate, now: now)
+                && BookmarkBubblePolicy.confirms(clickAt: unconfirmed[i].clickAt, seenAt: unconfirmed[i].seenAt,
+                                                 addedAt: item.addedInstant, now: now)
         }
         guard !fits.isEmpty else { return }
         let seen = unconfirmed[fits[0]]

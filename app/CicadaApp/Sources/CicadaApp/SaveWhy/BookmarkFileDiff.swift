@@ -31,10 +31,15 @@ struct BookmarkEntry: Equatable, Sendable {
 
     /// The browser's own instant as the backend writes it (aware UTC ISO, seconds).
     var addedAt: String? {
-        guard let addedMicros, addedMicros > 0 else { return nil }
-        let seconds = Double(addedMicros) / 1_000_000 - 11_644_473_600
-        guard seconds > 0 else { return nil }
-        return ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: seconds.rounded(.down)))
+        guard let exact = addedMicros.flatMap(Self.instant(micros:)) else { return nil }
+        return ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: exact.timeIntervalSince1970.rounded(.down)))
+    }
+
+    /// Chromium's `date_added` (microseconds since 1601-01-01 UTC) as a `Date`, to the microsecond.
+    static func instant(micros: Int64) -> Date? {
+        guard micros > 0 else { return nil }
+        let seconds = Double(micros) / 1_000_000 - 11_644_473_600
+        return seconds > 0 ? Date(timeIntervalSince1970: seconds) : nil
     }
 }
 
@@ -183,7 +188,8 @@ final class BookmarkFileDiff {
         guard saved.count == 1, let entry = saved.first else { return nil }
         let origin = channel.replacingOccurrences(of: "-bookmarks", with: "-bookmark")
         return FreshBookmark(url: entry.url, title: entry.title, origin: origin, channel: channel, episodeId: "",
-                             addedAt: entry.addedAt, resave: before.urls.contains(entry.url))
+                             addedAt: entry.addedAt, resave: before.urls.contains(entry.url),
+                             addedMicros: entry.addedMicros)
     }
 }
 

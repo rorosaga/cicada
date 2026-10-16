@@ -539,9 +539,12 @@ are the measured 448 × 224, in code, plus any learned **positively** (`BubbleSh
 `cicada.saveWhy.bubbleShapes.<bundle id>`, shapes only, newest first, at most 4): an anchored window of an unknown shape
 opens nothing and is held in memory; when the app's diff then names one new bookmark on that browser
 (`SaveWhyCenter.onNamed` → `BookmarkBubbleWatcher.bookmarkNamed`, any decision, a muted site included) whose own
-instant (Chrome's `date_added`, the click, floored to the second) lies from 1.6 s before to 0.5 s after the window
-appeared, within 20 s, that shape is remembered — unless two held windows fit (the star, then the puzzle piece a second
-later): then neither is. Nothing is ever refused or counted against a shape, so a bookmark that fails to match teaches
+instant (Chrome's `date_added`, microseconds since 1601 read to the microsecond from the file, never the backend's
+seconds-floored `addedAt`) lies between the click (less 0.5 s of monitor lag) and the moment the window was seen, within
+20 s, that shape is remembered — Chrome makes the bookmark before it shows the bubble, so a ⌘D with a menu open, an
+extension saving from its popup or a bookmark synced in falls after the window and teaches nothing (review 2026-10-16:
+the floored instant with 1.6 s / 0.5 s slack let a ⌘D ≈ 1.5 s after the Extensions menu teach the menu for good). Two
+held windows that both fit teach nothing, and a measured bubble drops every held window on its browser. Nothing is ever refused or counted against a shape, so a bookmark that fails to match teaches
 nothing (v3's flaw); a menu followed seconds later by a ⌘D is not that window's bookmark. A Chrome
 update or a font change that resizes the bubble costs one slower question — that save is caught by the file (≈ 2.5 s,
 as ⌘D is) and teaches the new shape — and the next star click is instant again. Still no permission, no title, no

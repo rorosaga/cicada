@@ -434,6 +434,10 @@ struct FreshBookmark: Codable, Equatable, Sendable {
     /// G191 v3 — a link Cicada already held, saved again in this browser (removed and bookmarked again). Optional so
     /// an older backend still decodes.
     var resave: Bool? = nil
+    /// G191 v5 — Chromium's own `date_added` (WebKit microseconds since 1601), set only by the app's diff of the file,
+    /// never by the backend: the bubble watcher's teacher needs the instant to the millisecond, not floored to the
+    /// second as `addedAt` is.
+    var addedMicros: Int64? = nil
 
     /// The page's host without `www.`, lower-cased — the key "Don't ask for this site" remembers.
     var host: String? {
@@ -445,6 +449,9 @@ struct FreshBookmark: Codable, Equatable, Sendable {
         guard let addedAt else { return nil }
         return ISO8601DateFormatter().date(from: addedAt)
     }
+
+    /// G191 v5 — the exact instant the browser made it (`addedMicros`), when the app's diff read it.
+    var addedInstant: Date? { addedMicros.flatMap(BookmarkEntry.instant(micros:)) }
 }
 
 /// `POST /sources/sync-bookmarks` result — aggregate new/skipped plus the

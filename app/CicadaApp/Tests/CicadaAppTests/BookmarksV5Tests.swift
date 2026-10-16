@@ -103,22 +103,37 @@ final class BookmarksV5Tests: XCTestCase {
     }
 
     func testABookmarkConfirmsOnlyTheWindowItCameWith() {
-        let seen = Date(timeIntervalSince1970: 1_800_000_000.3)
-        let floored = Date(timeIntervalSince1970: 1_800_000_000)
-        XCTAssertTrue(BookmarkBubblePolicy.confirms(seenAt: seen, addedAt: floored, now: seen.addingTimeInterval(3)))
-        // The click at …999.9, the bubble at …000.2: the instant floors to …999.
-        XCTAssertTrue(BookmarkBubblePolicy.confirms(seenAt: Date(timeIntervalSince1970: 1_800_000_000.2),
-                                                    addedAt: Date(timeIntervalSince1970: 1_799_999_999),
-                                                    now: seen.addingTimeInterval(3)))
-        XCTAssertFalse(BookmarkBubblePolicy.confirms(seenAt: seen, addedAt: floored.addingTimeInterval(3),
-                                                     now: seen.addingTimeInterval(6)),
-                       "a ⌘D seconds after the menu opened is not that window's bookmark")
-        XCTAssertFalse(BookmarkBubblePolicy.confirms(seenAt: seen, addedAt: floored.addingTimeInterval(-60),
-                                                     now: seen.addingTimeInterval(3)),
+        let click = Date(timeIntervalSince1970: 1_800_000_000.95)
+        let seen = click.addingTimeInterval(0.2)
+        let later = seen.addingTimeInterval(3)
+        // Chrome makes the bookmark between the click and the bubble — across a second boundary, too.
+        XCTAssertTrue(BookmarkBubblePolicy.confirms(clickAt: click, seenAt: seen, addedAt: click.addingTimeInterval(0.1),
+                                                    now: later))
+        XCTAssertTrue(BookmarkBubblePolicy.confirms(clickAt: click, seenAt: seen, addedAt: click.addingTimeInterval(-0.3),
+                                                    now: later), "the monitor's delivery lag")
+        XCTAssertFalse(BookmarkBubblePolicy.confirms(clickAt: click, seenAt: seen, addedAt: seen.addingTimeInterval(0.3),
+                                                     now: later),
+                       "a ⌘D 0.3 s after the menu was seen is not that window's bookmark (the floored instant allowed it)")
+        XCTAssertFalse(BookmarkBubblePolicy.confirms(clickAt: click, seenAt: seen, addedAt: click.addingTimeInterval(-60),
+                                                     now: later),
                        "an older bookmark (a sync from another device) is not either")
-        XCTAssertFalse(BookmarkBubblePolicy.confirms(seenAt: seen, addedAt: nil, now: seen.addingTimeInterval(3)))
-        XCTAssertFalse(BookmarkBubblePolicy.confirms(seenAt: seen, addedAt: floored, now: seen.addingTimeInterval(30)),
-                       "too long after")
+        XCTAssertFalse(BookmarkBubblePolicy.confirms(clickAt: click, seenAt: seen, addedAt: nil, now: later))
+        XCTAssertFalse(BookmarkBubblePolicy.confirms(clickAt: click, seenAt: seen, addedAt: click,
+                                                     now: seen.addingTimeInterval(30)), "too long after")
+    }
+
+    /// Chromium's `date_added` is microseconds since 1601-01-01 UTC, kept to the microsecond for the teacher and
+    /// floored to the second for the backend's `addedAt`.
+    func testChromiumInstantIsExactAndTheWireValueFloored() {
+        let entry = BookmarkEntry(url: "https://alpha.example/", title: "", addedMicros: 13_355_526_400_750_000)
+        XCTAssertEqual(entry.addedAt, "2024-03-21T20:26:40Z")
+        let exact = BookmarkEntry.instant(micros: 13_355_526_400_750_000)!
+        XCTAssertEqual(exact.timeIntervalSince1970, 1_711_052_800.75, accuracy: 0.000_01)
+        XCTAssertNil(BookmarkEntry.instant(micros: 0))
+        let fresh = FreshBookmark(url: entry.url, addedAt: entry.addedAt, addedMicros: entry.addedMicros)
+        XCTAssertEqual(fresh.addedInstant!.timeIntervalSince1970, 1_711_052_800.75, accuracy: 0.000_01)
+        XCTAssertNil(FreshBookmark(url: entry.url, addedAt: entry.addedAt).addedInstant,
+                     "the backend's floored instant teaches nothing")
     }
 
     // MARK: - The watcher, end to end on synthetic window lists
@@ -137,7 +152,8 @@ final class BookmarksV5Tests: XCTestCase {
     }
 
     private func named(_ url: String, at date: Date, channel: String = "chrome-bookmarks") -> FreshBookmark {
-        FreshBookmark(url: url, origin: "chrome-bookmark", channel: channel, addedAt: iso(date))
+        FreshBookmark(url: url, origin: "chrome-bookmark", channel: channel, addedAt: iso(date),
+                      addedMicros: Int64(((date.timeIntervalSince1970 + 11_644_473_600) * 1_000_000).rounded()))
     }
 
     /// The bug: the puzzle piece opens the Extensions menu — again and again, then a ⌘D a few seconds later — and the
@@ -163,6 +179,13 @@ final class BookmarksV5Tests: XCTestCase {
         // A ⌘D three seconds after the menu: Chrome's instant is the keystroke's, not the menu's.
         now = now.addingTimeInterval(5.5)
         watcher.bookmarkNamed(named("https://alpha.example/a", at: now.addingTimeInterval(-2.5)))
+        // Review 2026-10-16: a ⌘D (or an extension saving from the menu) one second after the menu was seen — inside
+        // the old floored window — teaches nothing either: Chrome's instant is after the window.
+        shown = [window]
+        watcher.clicked(at: puzzle)
+        shown = [window, extensionsMenu(110)]
+        try await eventually("the burst to end at the menu") { !watcher.isScanning }
+        watcher.bookmarkNamed(named("https://alpha.example/b", at: now.addingTimeInterval(1.0)))
         XCTAssertEqual(BubbleShapeMemory.learned(defaults, bundleId: "com.google.Chrome"), [], "nothing learned")
         XCTAssertNil(defaults.object(forKey: BubbleShapeMemory.key("com.google.Chrome")))
 
@@ -188,7 +211,8 @@ final class BookmarksV5Tests: XCTestCase {
         watcher.arm(pid: 77, bundleId: "com.google.Chrome", channel: "chrome-bookmarks")
 
         watcher.clicked(at: star)
-        let clickAt = now.addingTimeInterval(-0.2)
+        let clickAt = now.addingTimeInterval(0.1)   // Chrome makes the bookmark, then shows its bubble
+        now = now.addingTimeInterval(0.2)
         shown = [window, bubble(300, height: 260)]
         try await eventually("the burst to end") { !watcher.isScanning }
         XCTAssertEqual(bubbles, [], "an unconfirmed shape opens nothing")
@@ -214,29 +238,84 @@ final class BookmarksV5Tests: XCTestCase {
         watcher.disarm()
     }
 
-    /// The star opens a resized bubble, and a second later the puzzle piece opens the Extensions menu: both fit the
-    /// bookmark's instant, so neither shape is learned.
+    /// The star opens a resized bubble, and 0.3 s later the puzzle piece opens the Extensions menu, the bookmark's
+    /// instant falling where both windows could have come with it: neither shape is learned. A bookmark made before
+    /// the second click is the first window's alone.
     func testTwoWindowsThatFitOneBookmarkTeachNothing() async throws {
         let defaults = UserDefaults(suiteName: "cicada.v5.\(UUID().uuidString)")!
         var shown: [ListedWindow] = [window]
-        var now = Date(timeIntervalSince1970: 1_800_000_000.25)
+        let start = Date(timeIntervalSince1970: 1_800_000_000.25)
+        var now = start
         let watcher = BookmarkBubbleWatcher(defaults: defaults, windows: { _ in shown }, date: { now })
         watcher.isWanted = { _ in true }
         watcher.arm(pid: 77, bundleId: "com.google.Chrome", channel: "chrome-bookmarks")
-        watcher.clicked(at: star)
-        let clickAt = now.addingTimeInterval(-0.2)
-        shown = [window, bubble(400, height: 260)]
-        try await eventually("the burst to end") { !watcher.isScanning }
-        now = now.addingTimeInterval(0.8)
-        shown = [window]
-        watcher.clicked(at: puzzle)
-        shown = [window, extensionsMenu(401)]
-        try await eventually("the burst to end") { !watcher.isScanning }
-        XCTAssertEqual(watcher.unconfirmed.count, 2)
-        now = now.addingTimeInterval(2)
-        watcher.bookmarkNamed(named("https://alpha.example/a", at: clickAt))
+        func twoWindows() async throws {
+            now = start
+            shown = [window]
+            watcher.clicked(at: star)
+            now = start.addingTimeInterval(0.2)
+            shown = [window, bubble(400, height: 260)]
+            try await eventually("the burst to end") { !watcher.isScanning }
+            now = start.addingTimeInterval(0.3)
+            shown = [window]
+            watcher.clicked(at: puzzle)
+            now = start.addingTimeInterval(0.4)
+            shown = [window, extensionsMenu(401)]
+            try await eventually("the burst to end") { !watcher.isScanning }
+            XCTAssertEqual(watcher.unconfirmed.count, 2)
+            now = start.addingTimeInterval(3)
+        }
+        try await twoWindows()
+        watcher.bookmarkNamed(named("https://alpha.example/a", at: start.addingTimeInterval(0.15)))
         XCTAssertEqual(BubbleShapeMemory.learned(defaults, bundleId: "com.google.Chrome"), [])
         XCTAssertEqual(watcher.unconfirmed.count, 0)
+
+        // The puzzle piece a second after the star instead: the bookmark (made with the star) fits only the bubble.
+        now = start
+        shown = [window]
+        watcher.clicked(at: star)
+        now = start.addingTimeInterval(0.2)
+        shown = [window, bubble(402, height: 260)]
+        try await eventually("the burst to end") { !watcher.isScanning }
+        now = start.addingTimeInterval(1.2)
+        shown = [window]
+        watcher.clicked(at: puzzle)
+        now = start.addingTimeInterval(1.3)
+        shown = [window, extensionsMenu(403)]
+        try await eventually("the burst to end") { !watcher.isScanning }
+        now = start.addingTimeInterval(3)
+        watcher.bookmarkNamed(named("https://alpha.example/b", at: start.addingTimeInterval(0.1)))
+        XCTAssertEqual(BubbleShapeMemory.learned(defaults, bundleId: "com.google.Chrome"),
+                       [BubbleShape(width: 448, height: 260)], "the bubble's shape, never the menu's")
+        watcher.disarm()
+    }
+
+    /// A menu of an unknown shape, then the star's measured bubble: the bookmark that follows is the bubble's, so the
+    /// held menu is dropped and can never claim it.
+    func testAMeasuredBubbleDropsTheHeldWindows() async throws {
+        let defaults = UserDefaults(suiteName: "cicada.v5.\(UUID().uuidString)")!
+        var shown: [ListedWindow] = [window]
+        var bubbles: [String] = []
+        let start = Date(timeIntervalSince1970: 1_800_000_000.25)
+        var now = start
+        let watcher = BookmarkBubbleWatcher(defaults: defaults, windows: { _ in shown }, date: { now })
+        watcher.isWanted = { _ in true }
+        watcher.onBubble = { bubbles.append($0) }
+        watcher.arm(pid: 77, bundleId: "com.google.Chrome", channel: "chrome-bookmarks")
+        watcher.clicked(at: puzzle)
+        now = start.addingTimeInterval(0.3)
+        shown = [window, extensionsMenu(500)]
+        try await eventually("the burst to end") { !watcher.isScanning }
+        XCTAssertEqual(watcher.unconfirmed.count, 1)
+        now = start.addingTimeInterval(0.35)
+        shown = [window]
+        watcher.clicked(at: star)
+        shown = [window, bubble(501)]
+        try await eventually("the bubble") { bubbles == ["chrome-bookmarks"] }
+        XCTAssertEqual(watcher.unconfirmed.count, 0)
+        now = start.addingTimeInterval(3)
+        watcher.bookmarkNamed(named("https://alpha.example/a", at: start.addingTimeInterval(0.2)))
+        XCTAssertNil(defaults.object(forKey: BubbleShapeMemory.key("com.google.Chrome")))
         watcher.disarm()
     }
 
