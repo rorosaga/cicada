@@ -212,7 +212,8 @@ struct ReadoutRow: Equatable, Identifiable {
 }
 
 func readoutRows(entityCount: Int?, sourceCount: Int?, lastDurationMs: Int?, lastEngine: String?,
-                 engineDetail: String?, lastIsOneBatch: Bool = false, locale: Locale = .autoupdatingCurrent) -> [ReadoutRow] {
+                 engineDetail: String?, lastIsOneBatch: Bool = false, hasFinishedCycle: Bool = true,
+                 locale: Locale = .autoupdatingCurrent) -> [ReadoutRow] {
     let entities = entityCount.map { "\(UsageFormat.count($0, locale: locale)) \($0 == 1 ? "entity" : "entities")" }
     let sources = sourceCount.map { "\(UsageFormat.count($0, locale: locale)) \($0 == 1 ? "source" : "sources")" }
     let engine = lastEngine.map { id in
@@ -225,9 +226,13 @@ func readoutRows(entityCount: Int?, sourceCount: Int?, lastDurationMs: Int?, las
                    reason: sourceCount == nil ? Copy.sourceOverviewNotLoaded : nil, engine: nil),
         ReadoutRow(id: "lastCycle", key: lastIsOneBatch ? Copy.SleepDetailsWords.lastBatchTook : Copy.SleepDetailsWords.lastCycleTook,
                    value: SleepHistoryPresentation.durationText(ms: lastDurationMs),
-                   reason: lastDurationMs == nil ? Copy.noTimingRecorded : nil, engine: nil),
+                   reason: lastDurationMs != nil ? nil
+                       : hasFinishedCycle ? Copy.noTimingRecorded : Copy.SleepDetailsWords.noFinishedCycle,
+                   engine: nil),
         ReadoutRow(id: "engine", key: Copy.SleepDetailsWords.lastEngine, value: engine ?? "—",
-                   reason: lastEngine == nil ? Copy.SleepDetailsWords.noEngineYet : nil, engine: lastEngine),
+                   reason: lastEngine != nil ? nil
+                       : hasFinishedCycle ? Copy.SleepDetailsWords.noEngineYet : Copy.SleepDetailsWords.noFinishedCycle,
+                   engine: lastEngine),
     ]
 }
 
@@ -258,15 +263,17 @@ struct SleepReadoutView: View {
     /// The sums of `resolveOriginCounts` — the running meter's two numbers.
     let read: Int
     let total: Int
-    /// The newest `kind == "sleep"` commit's measured duration
-    /// (`SleepPageModel.lastCycle`, Z-P3). It used to be read here as
-    /// `history.first { $0.kind != "decay" }`, which also matched an inbox
-    /// resolution commit — the person's own answer timed as "the last cycle".
+    /// The latest finished cycle's measured time (`LastCycleFigures`: a drain's whole run, Z-P3's
+    /// `kind == "sleep"` rule kept — an inbox resolution is never timed as "the last cycle").
     let lastDurationMs: Int?
-    /// The newest history commit is one batch of a multi-batch run (G163): the duration row says so.
+    /// The figures are one batch's because its run summary is missing (G163): the duration row says so.
     var lastIsOneBatch: Bool = false
+    /// The engine that latest finished cycle's commits name — not the status's in-memory engine, which every run
+    /// start resets.
     let lastEngine: String?
     let engineDetail: String?
+    /// Whether history holds a finished cycle at all: a dash then says there is none yet, not "not recorded".
+    var hasFinishedCycle: Bool = true
 
     /// R-HS15 — the meter is a sentence and the tiles and the engine line are key–value rows, under
     /// the section's label, no card (DR-37). R-A5 still holds: `heroMeter` returning `nil` is what
@@ -296,7 +303,8 @@ struct SleepReadoutView: View {
             }
             ForEach(readoutRows(entityCount: activeBankEntityCount, sourceCount: feedingSourceCount,
                                 lastDurationMs: lastDurationMs, lastEngine: lastEngine,
-                                engineDetail: engineDetail, lastIsOneBatch: lastIsOneBatch)) { readoutRow($0) }
+                                engineDetail: engineDetail, lastIsOneBatch: lastIsOneBatch,
+                                hasFinishedCycle: hasFinishedCycle)) { readoutRow($0) }
         }
     }
 

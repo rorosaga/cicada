@@ -2788,6 +2788,10 @@ class SleepRunRef(CamelModel):
     finished_at: Optional[str] = None
     state: Optional[str] = None            # running | paused | finished | failed | ended
     started_by: str = "user"
+    # 2026-10-16 — the whole run's cost, summed by ``drain_id`` over every call of every batch (as
+    # ``GET /sleep/runs/{id}`` sums it). The Sleep page's Last cycle reads this: a drain is one cycle, and a batch
+    # row's own ``usage_summary`` is one batch. ``None`` = not recorded (telemetry off, or an older ledger).
+    usage_summary: Optional[CycleUsageSummary] = None
 
 
 class SleepRunPause(CamelModel):

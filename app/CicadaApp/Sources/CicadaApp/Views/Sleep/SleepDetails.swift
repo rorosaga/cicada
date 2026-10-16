@@ -57,11 +57,13 @@ struct SleepDetails: View {
         LastCycleRow.canRetryParked(isRunning: page.isRunning, isPaused: runPaused || page.paused != nil)
     }
 
-    /// The newest cycle's one-line cost, only when one was recorded — "not recorded" belongs to Past
+    /// The latest finished cycle's three figures — time, engine, cost — from one history record.
+    private var lastFigures: LastCycleFigures? { LastCycleFigures.latest(history) }
+
+    /// The latest finished cycle's one-line cost, only when one was recorded — "not recorded" belongs to Past
     /// nights, where every row can say it, and never opens this section by itself.
     private var lastCycleUsage: String? {
-        guard let last = page.lastCycle, last.usageSummary != nil else { return nil }
-        return CycleUsageText.summaryLine(kind: last.kind, summary: last.usageSummary)
+        CycleUsageText.lastCycleLine(lastFigures?.usage)
     }
 
     var body: some View {
@@ -74,7 +76,8 @@ struct SleepDetails: View {
                 LastCycleSection(pageError: pageError, status: status, cancelled: page.cancelled,
                                  capped: page.capped, indexWarning: page.indexWarning, drain: page.drain,
                                  planPauseLapsed: page.planPauseLapsed, usageLine: lastCycleUsage,
-                                 usageHelp: CycleUsageText.summaryHelp(page.lastCycle?.usageSummary),
+                                 usageIsOneBatch: lastFigures?.isOneBatch ?? false,
+                                 usageHelp: CycleUsageText.summaryHelp(lastFigures?.usage),
                                  runRows: runRows, onRetryParked: canRetry ? { onRetryParked(nil) } : nil)
                     .id(DetailsSection.lastCycle.anchorID)
             }
@@ -88,9 +91,13 @@ struct SleepDetails: View {
                 .id(DetailsSection.waiting.anchorID)
                 .saturation(liveness.saturation)
             SleepReadoutView(mood: page.mood, debt: page.debt, read: page.read, total: page.total,
-                             lastDurationMs: page.lastCycle?.durationMs,
-                             lastIsOneBatch: (page.drain?.batches ?? 0) > 1,
-                             lastEngine: status?.lastEngine, engineDetail: status?.engineDetail)
+                             lastDurationMs: lastFigures?.durationMs,
+                             lastIsOneBatch: lastFigures?.isOneBatch ?? false,
+                             lastEngine: lastFigures?.engine,
+                             // The status's reason describes the engine the backend last resolved; it is shown only
+                             // beside that same engine, never under another cycle's.
+                             engineDetail: status?.lastEngine == lastFigures?.engine ? status?.engineDetail : nil,
+                             hasFinishedCycle: lastFigures != nil)
                 .id(DetailsSection.readout.anchorID)
                 .saturation(liveness.saturation)
             ConsolidationHistoryCard(entries: history, details: details, expanded: expanded,
@@ -116,6 +123,34 @@ struct SleepDetailsSection<Content: View>: View {
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Details' three "last cycle" figures — how long it took, its engine, what it cost — read from ONE record: the newest
+/// finished consolidation in history (live report, 2026-10-16: after a scheduled drain and then a plan drain, Details
+/// still showed one batch's charge and time from the history row, and a dash for the engine from a status read before
+/// either run). A drain is one cycle: its run's own reading time (`run.readMs`), the engine its commits name
+/// (`Cicada-Engine`), and the run's cost summed over every batch (`run.usageSummary`). A run still reading or paused is
+/// not finished, so the figures stay on the cycle before it. Only a batch whose run summary is missing (an older
+/// backend, a lost machine-local summary) falls back to its own figures, titled as one batch.
+struct LastCycleFigures: Equatable {
+    var durationMs: Int?
+    var engine: String?
+    var usage: CycleUsageSummary?
+    var isOneBatch = false
+
+    static let unfinishedStates: Set<String> = ["running", "paused"]
+
+    static func latest(_ history: [SleepHistoryEntry]) -> LastCycleFigures? {
+        guard let entry = history.first(where: { $0.kind == "sleep" && !unfinishedStates.contains($0.run?.state ?? "") })
+        else { return nil }
+        if let run = entry.run {
+            return LastCycleFigures(durationMs: run.readMs > 0 ? run.readMs : nil,
+                                    engine: entry.engine ?? run.usageSummary?.engine ?? entry.usageSummary?.engine,
+                                    usage: run.usageSummary)
+        }
+        return LastCycleFigures(durationMs: entry.durationMs, engine: entry.engine ?? entry.usageSummary?.engine,
+                                usage: entry.usageSummary, isOneBatch: (entry.batches ?? 0) > 1)
     }
 }
 
@@ -164,7 +199,7 @@ struct LastCycleRow: Equatable, Identifiable {
     }
 
     static func rows(pageError: String?, cancelled: Bool, capped: Bool, indexWarning: String?,
-                     status: SleepStatusResponse?, usageLine: String? = nil,
+                     status: SleepStatusResponse?, usageLine: String? = nil, usageIsOneBatch: Bool = false,
                      drain: SleepDrainInfo? = nil, planPauseLapsed: Bool = false,
                      locale: Locale = .autoupdatingCurrent) -> [LastCycleRow] {
         var rows: [LastCycleRow] = []
@@ -217,8 +252,9 @@ struct LastCycleRow: Equatable, Identifiable {
         }
         // 2026-09-28 — what the newest cycle cost, last: it is information, not news that needs you.
         if let usageLine {
-            // The newest history commit is one batch of a multi-batch run; the title says so (ruling 12: a basis).
-            let title = (drain?.batches ?? 0) > 1 ? Copy.SleepUsage.lastBatchTitle : Copy.SleepUsage.lastCycleTitle
+            // A drain's figure is the whole run's (`LastCycleFigures`); only a batch whose run summary is missing is
+            // titled as one batch (ruling 12: a basis).
+            let title = usageIsOneBatch ? Copy.SleepUsage.lastBatchTitle : Copy.SleepUsage.lastCycleTitle
             rows.append(LastCycleRow(kind: .usage, title: title, text: usageLine))
         }
         return rows
@@ -244,6 +280,7 @@ struct LastCycleSection: View {
     var drain: SleepDrainInfo? = nil
     var planPauseLapsed: Bool = false
     var usageLine: String? = nil
+    var usageIsOneBatch: Bool = false
     var usageHelp: String? = nil
     /// Sleep page v5 — the run's rows; they replace the pre-v5 drain and pause rows (`LastCycleRow.merged`).
     var runRows: [LastCycleRow] = []
@@ -253,7 +290,8 @@ struct LastCycleSection: View {
         SleepDetailsSection(title: "Last cycle") {
             ForEach(LastCycleRow.merged(legacy: LastCycleRow.rows(pageError: pageError, cancelled: cancelled,
                                                                   capped: capped, indexWarning: indexWarning,
-                                                                  status: status, usageLine: usageLine, drain: drain,
+                                                                  status: status, usageLine: usageLine,
+                                                                  usageIsOneBatch: usageIsOneBatch, drain: drain,
                                                                   planPauseLapsed: planPauseLapsed),
                                         run: runRows)) { row in
                 HStack(alignment: .top, spacing: CicadaTheme.scaled(10)) {

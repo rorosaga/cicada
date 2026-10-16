@@ -1594,6 +1594,12 @@ async def get_sleep_history(memory_path: Path, limit: int = 15) -> list[SleepHis
         events = telemetry.read_events(start=oldest)
         sleep_history.attach_durations(out, events)
         cycle_usage.attach_usage(out, events, memory_path=memory_path)
+        # A drain is one cycle: its batches' rows also carry the whole run's cost. A run that began before the
+        # oldest listed commit (one page of history can be a long run's tail) needs its earlier calls too.
+        run_start = cycle_usage.run_ledger_start(out)
+        if run_start is not None and run_start < oldest:
+            events = telemetry.read_events(start=run_start)
+        cycle_usage.attach_run_usage(out, events)
     return out
 
 

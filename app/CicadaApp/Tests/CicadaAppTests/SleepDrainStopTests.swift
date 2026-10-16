@@ -227,16 +227,19 @@ final class SleepDrainStopTests: XCTestCase {
         XCTAssertEqual(roomSentence(c).tail, "Stopped early — nothing was lost.")
     }
 
-    func test_aMultiBatchRunTitlesTheCostAndDurationAsTheLastBatch() throws {
+    /// 2026-10-16: a drain's cost and time are the whole run's (`LastCycleFigures`), so a multi-batch run is titled as
+    /// the cycle it is; only figures that fell back to one batch (its run summary missing) say "last batch".
+    func test_aMultiBatchRunTitlesTheCostAsTheCycleUnlessItFellBackToOneBatch() throws {
         let status = try scenario("finished")
         let drain = try XCTUnwrap(status.drain)
         XCTAssertGreaterThan(drain.batches, 1)
         let rows = LastCycleRow.rows(pageError: nil, cancelled: false, capped: false, indexWarning: nil,
                                      status: status, usageLine: "12 calls", drain: drain, locale: en)
-        XCTAssertEqual(rows.last?.title, Copy.SleepUsage.lastBatchTitle)
+        XCTAssertEqual(rows.last?.title, Copy.SleepUsage.lastCycleTitle)
         let one = LastCycleRow.rows(pageError: nil, cancelled: false, capped: false, indexWarning: nil,
-                                    status: status, usageLine: "12 calls", locale: en)
-        XCTAssertEqual(one.last?.title, Copy.SleepUsage.lastCycleTitle)
+                                    status: status, usageLine: "12 calls", usageIsOneBatch: true, drain: drain,
+                                    locale: en)
+        XCTAssertEqual(one.last?.title, Copy.SleepUsage.lastBatchTitle)
         let took = readoutRows(entityCount: 1, sourceCount: 1, lastDurationMs: 1000, lastEngine: nil, engineDetail: nil,
                                lastIsOneBatch: true, locale: en).first { $0.id == "lastCycle" }
         XCTAssertEqual(took?.key, "Last batch took")

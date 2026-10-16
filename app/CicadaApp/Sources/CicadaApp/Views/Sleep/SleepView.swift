@@ -287,10 +287,17 @@ struct SleepView: View {
         }
         .onAppear { consumeDetailsRoute() }
         .onChange(of: appRouter.pendingSleepDetails) { _, _ in consumeDetailsRoute() }
-        .task {
+        // Keyed on the Store's newest Sleep time too: a cycle this page did not start (a scheduled drain, the CLI)
+        // that finished while it is open reruns this, so Details' Last cycle rereads what it describes.
+        .task(id: store.status.value?.lastSleepAt) {
             if !loadedOnce {
                 loadedOnce = true
                 await sleepVM.load()
+            } else {
+                // A later visit, or a cycle finished meanwhile: the status and history in hand may predate it (a
+                // scheduled drain polls nothing), and Details' Last cycle must describe the newest finished one.
+                await sleepVM.refreshStatus()
+                await sleepVM.loadHistory()
             }
             // R-HS12 — every visit, unconditionally: the chooser's response may have been loaded
             // long before (Home's Getting started loads it at launch), and the page reads it FIRST,

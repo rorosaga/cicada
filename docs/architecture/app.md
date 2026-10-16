@@ -117,7 +117,10 @@ menu — and nowhere else yet.** This supersedes the 2026-09-03 ruling ("prices 
 in the app") for those two surfaces only: no cost tiles, no `$`/token columns and no cost-per-day chart elsewhere, and
 the `/consumption/*` endpoints are unchanged. Every figure states its basis in words ("charged", "at list price", a
 plan window's share) and a plan's before → after carries the honest limit that it covers all use of the plan
-(`CycleUsageText`, `UsageFormat.currency`).
+(`CycleUsageText`, `UsageFormat.currency`). Details' Last cycle describes the latest *finished* cycle from one history
+record (`LastCycleFigures`, 2026-10-16): a drain is one cycle — its run's reading time, the engine its commits name,
+and the whole run's cost (`run.usageSummary`); a plan run's line is its window and no price
+(`CycleUsageText.lastCycleLine`); past nights' rows keep each batch's own figures.
 
 **Navigation (Direction D, DS-1).** A 56 pt icon rail (`Views/Shell/NavRail.swift`): Home, Graph, Clusters, Feed,
 Sleep, Inbox, Sources, Projects, Looks at ⌘1–9 in `AppTab.allCases` order (`RailItem`; a page switch is instant), each cell's tooltip
