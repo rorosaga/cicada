@@ -327,10 +327,11 @@ struct PileBookButton: View {
                 }
             }
         }
-        // A lift is one whole cell, on the lattice like every sprite; the lifted book draws over the one above it.
+        // A lift is one whole cell, on the lattice like every sprite: a jump, never a tween (a tween passes through
+        // fractional offsets and smears the pixels); the lifted book draws over the one above it.
         .offset(y: lifted && !reduceMotion ? -cell : 0)
         .zIndex(lifted ? 1 : 0)
-        .animation(SleepMotion.hover(reduceMotion: reduceMotion), value: lifted)
+        .transaction(value: lifted) { $0.animation = nil }
     }
 
     private var art: some View {
