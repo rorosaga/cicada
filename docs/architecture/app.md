@@ -1022,8 +1022,8 @@ Each queued episode row (`EpisodeRow`, also in the spine popover) is one button:
 `roomSentence` / `wormAnswers`, pure
 `SentenceLine` values over `SleepPageModel` (lead ≤ 40, tail ≤ 80, clock-free; a missing fact
 omits its rung, never shows a guess); the floating bubble is retired. The slot reserves one lead line and **one** tail
-line (R-Z5 as amended 2026-10-16, `SentenceSlot`): a tail takes one line at 22 pt, else one line at the 20 pt display
-floor, and only a tail too long for that wraps to a second — so a tail-less sentence sits one line above the control,
+line (R-Z5 as amended 2026-10-16, `SentenceSlot`): a tail takes one line at 17 pt, else one line at 15 pt (17/15 since
+2026-10-16, it was 22/20 in the display face), and only a tail too long for that wraps to a second — so a tail-less sentence sits one line above the control,
 not two, and a budget tail (80 characters) never moves it at 1×. **Two kinds of art (R-Z1, amended by ruling 18):**
 *state art* — the owner's worm on a 160 × 64 lattice (5/4/3 pt per cell by the column's width since 2026-10-16), the real pile, the lamp (= the schedule)
 and its pixel-size fly, the bean bag, mood-edge yawn/stretch and the Sleep moment overlays — and *response art* (gaze,
