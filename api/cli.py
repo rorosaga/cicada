@@ -914,6 +914,8 @@ def main(argv: list[str] | None = None) -> int:
                     boot = bootstrap()
                 except PermissionError:
                     raise                      # a sandboxed shell: exit 5 with the MCP fallback, below
+                except BootstrapError:
+                    raise                      # already says what is wrong (a client's address names its rule)
                 except Exception as exc:  # noqa: BLE001
                     raise BootstrapError(type(exc).__name__) from None
                 if boot.client:
