@@ -371,6 +371,43 @@ def test_waiting_counts_the_messages_of_sittings_sleep_has_not_read(bank, chat):
     assert messages_source.waiting(bank) == []
 
 
+
+def _page(bank, page_id, name, type_, **extra):
+    fm = "".join(f"{k}: {v}\n" for k, v in {"id": page_id, "name": name, "type": type_, **extra}.items())
+    (bank / "entities" / f"{page_id}.md").write_text(f"---\n{fm}---\n\n# {name}\n", encoding="utf-8")
+    bank_index.invalidate()
+
+
+def test_waiting_names_the_correspondents_own_page_never_a_same_name_one(bank, chat):
+    """2026-10-16: the bubble draws the chat with its page's picture, so the row carries that page's id — the page
+    Stage 2 resolves the decided correspondent to (its type, its folded name), never a page that only shares the
+    letters, and none while there is no such page."""
+    _tick(bank, chat.chat_guid(chat.instinct))
+    _sync(bank, chat, chat.instinct, **AGENT_CADENCE)
+    _page(bank, "instinct", "Instinct", "concept")                 # the ordinary word: another type
+    (row,) = messages_source.waiting(bank)
+    assert row["kind"] == "agent" and row["page"] is None
+    _page(bank, "instinct-agent", "Instinct", "tool")
+    (row,) = messages_source.waiting(bank)
+    assert row["page"] == "instinct-agent"
+
+
+def test_an_undecided_correspondent_has_no_page_even_when_a_page_shares_its_name(bank, chat):
+    _tick(bank, chat.chat_guid(chat.other), name="Bob Example")
+    _sync(bank, chat, chat.other, name="Bob Example", from_me=0, from_them=1)
+    _page(bank, "bob-example", "Bob Example", "person")
+    (row,) = messages_source.waiting(bank)
+    assert row["kind"] == "unknown" and row["page"] is None
+
+
+def test_a_person_the_person_marked_has_their_page(bank, chat):
+    _tick(bank, chat.chat_guid(chat.other), name="Bob Example", actor={"kind": "person"})
+    _sync(bank, chat, chat.other, name="Bob Example", from_me=0, from_them=1)
+    _page(bank, "bob-example-person", "Bob Example", "person")
+    _page(bank, "bob-example", "Bob Example", "tool")               # same letters, another type
+    (row,) = messages_source.waiting(bank)
+    assert (row["kind"], row["page"]) == ("person", "bob-example-person")
+
 # --- the channel, the card and the routes ---------------------------------------------------------------------------
 
 
@@ -413,6 +450,7 @@ def test_the_routes(client, bank, chat):
     assert r.status_code == 200 and r.json()["created"] == 2 and r.json()["bank"] == bank.name
     waiting = client.get("/sources/messages/waiting").json()
     assert waiting["messages"] == 7 and waiting["conversations"][0]["name"] == "Instinct"
+    assert "page" in waiting["conversations"][0] and waiting["conversations"][0]["page"] is None   # the wire key
     bad = dict(body, conversation=dict(body["conversation"], id="not-a-hash"))
     assert client.post("/sources/messages/sync", json=bad).status_code == 422
     marked = client.put("/sources/messages/settings", json={"conversation": {"id": cid, "actor": {"kind": "person"}}})

@@ -256,6 +256,33 @@ final class MessagesWatcherTests: XCTestCase {
         XCTAssertEqual(w.waiting.count, 1)
         XCTAssertEqual(w.name(ofWaiting: w.waiting[0]), "Instinct Contact")
     }
+
+    /// The photo a chat shares in Messages is looked up only for a TICKED conversation's handle, once per session.
+    func testTheSharedPhotoIsReadOnlyForTickedChats() async throws {
+        let api = FakeMessagesAPI()
+        let otherId = MessagesReader.conversationId(chatGuid: "iMessage;-;+15550000003")
+        api.waitingItems = [MessagesWaitingItem(conversation: instinctId, name: "Agent Example", kind: "agent", messages: 3),
+                            MessagesWaitingItem(conversation: otherId, name: "Bob Example", messages: 1)]
+        let asked = AskedHandles()
+        let w = MessagesWatcher(api: api, reader: MessagesReader(database: synthetic.url), defaults: defaults,
+                                folder: synthetic.dir, debounce: .milliseconds(10), minimumInterval: .zero,
+                                makeWatch: { _, _ in nil }, bank: { [unowned self] in self.bank },
+                                lookUpCards: { _ in [:] },
+                                lookUpSharedPhotos: { handles in
+                                    await asked.add(handles)
+                                    return Dictionary(uniqueKeysWithValues: handles.map { ($0, Data([7])) })
+                                })
+        await w.refreshWaiting()
+        XCTAssertTrue(w.sharedPhotos.isEmpty, "nothing is ticked: nothing is read")
+        let asked0 = await asked.all
+        XCTAssertEqual(asked0, [])
+        api.ticked = [instinctId]
+        await w.bankChanged()
+        await w.refreshWaiting()
+        XCTAssertEqual(Set(w.sharedPhotos.keys), [instinctId])
+        let asked1 = await asked.all
+        XCTAssertEqual(asked1, ["+15550000001"], "only the ticked chat's handle, and only once")
+    }
 }
 
 /// G179 — the bubbles, pure.
@@ -289,6 +316,48 @@ final class MessageBubblesTests: XCTestCase {
         XCTAssertEqual(model.messages, 48)
         XCTAssertEqual(model.label, "48 messages")
         XCTAssertEqual(model.shown[1].initials, "BE")
+    }
+
+    /// The chat's page is the one the backend linked by the conversation's correspondent (2026-10-16), by id — never a
+    /// page that only shares the chat's name.
+    func testThePagePictureIsTheLinkedPagesNeverANameMatch() {
+        func node(_ id: String, _ name: String, _ source: String?) -> GraphNode {
+            GraphNode(id: id, name: name, type: .tool, picture: source.map { _ in "/entities/\(id)/picture?v=abc123def456" },
+                      pictureSource: source)
+        }
+        let linked = node("agent-example-agent", "Agent Example", "upload")
+        let homonym = node("agent-example", "Agent Example", "upload")
+        XCTAssertEqual(MessageBubbles.pagePicture(page: "agent-example-agent", nodes: [homonym, linked])?.url,
+                       "/entities/agent-example-agent/picture?v=abc123def456")
+        XCTAssertNil(MessageBubbles.pagePicture(page: nil, nodes: [homonym]), "no link, no page — whatever the names")
+        XCTAssertNil(MessageBubbles.pagePicture(page: "gone", nodes: [homonym]))
+    }
+
+    /// The precedence (owner, 2026-10-16): the person's choice → the Contacts photo → the photo shared in Messages →
+    /// the monogram.
+    func testTheFacePrecedence() {
+        let upload = EntityPictureRef(url: "/entities/a/picture?v=abc123def456", source: .upload)
+        let contactsRung = EntityPictureRef(url: "/entities/a/picture?v=0123456789ab", source: .contacts)
+        let logo = EntityPictureRef(url: "/entities/a/logo", source: .logo)
+        let card = Data([1]), shared = Data([2])
+        XCTAssertEqual(MessageBubbles.face(page: upload, contacts: card, shared: shared),
+                       .picture(.api(path: "/entities/a/picture?v=abc123def456")))
+        XCTAssertEqual(MessageBubbles.face(page: EntityPictureRef(url: nil, source: .initials), contacts: card, shared: shared),
+                       .monogram, "the monogram the person chose wins")
+        XCTAssertEqual(MessageBubbles.face(page: logo, contacts: card, shared: shared), .photo(card))
+        XCTAssertEqual(MessageBubbles.face(page: contactsRung, contacts: nil, shared: shared),
+                       .picture(.api(path: "/entities/a/picture?v=0123456789ab")))
+        XCTAssertEqual(MessageBubbles.face(page: logo, contacts: nil, shared: shared), .photo(shared))
+        XCTAssertEqual(MessageBubbles.face(page: nil, contacts: nil, shared: shared), .photo(shared))
+        XCTAssertEqual(MessageBubbles.face(page: logo, contacts: nil, shared: nil), .monogram)
+    }
+
+    func testTheWaitingRowCarriesItsPageOffTheWire() throws {
+        let json = #"{"conversations":[{"conversation":"c1","name":"Agent Example","kind":"agent","messages":2,"page":"agent-example-agent"},{"conversation":"c2","messages":1,"page":null}]}"#
+        let answer = try JSONDecoder().decode(MessagesWaitingAnswer.self, from: Data(json.utf8))
+        XCTAssertEqual(answer.conversations.map(\.page), ["agent-example-agent", nil])
+        let model = try XCTUnwrap(MessageBubbles.model(answer.conversations, name: { $0.name }))
+        XCTAssertEqual(model.shown.first?.page, "agent-example-agent")
     }
 
     func testTheNameIsThePersonsOwnWhenTheyHaveOne() throws {
@@ -335,4 +404,9 @@ final class MessagesWhoIsWhoTests: XCTestCase {
         let doc = try JSONDecoder().decode(EpisodeText.self, from: Data(json.utf8))
         XCTAssertEqual(doc.correspondent, "Instinct")
     }
+}
+
+actor AskedHandles {
+    private(set) var all: [String] = []
+    func add(_ handles: [String]) { all += handles }
 }

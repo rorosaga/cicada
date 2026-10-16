@@ -641,6 +641,10 @@ Round 4 (C2–C4):
   media page's preview → a ring monogram), resolved at read onto `/graph` nodes and the entity; the app's
   `EntityPictureResolver` is its twin over `api/tests/fixtures/entity_picture.json`. A person never gets a logo and no
   service is sent a person's name (G159).
+  **A Messages chat's bubble (owner, 2026-10-16)** draws its linked page's choice, then the Contacts photo, then the
+  photo the chat shares in Messages (read by the app from `NickNameCache` for ticked chats only, held in memory), then
+  a monogram (`app.md`, the Messages bubbles). That shared photo is a rung of the bubble only: it is not posted, so a
+  page's resolved picture, the graph and the card are unchanged by it.
   `POST /entities/{id}/picture/pdf` (a `media` page only; ≤ 32 MB; nothing fetched) is the same write with a PDF the
   person gave: `pdf_page` renders page 1 in the backend — the bundled PDFium wheel (`pypdfium2`) in a child process,
   encoded to PNG with `zlib`, ≤ 480 px wide and ≤ 1024 px tall — and the PNG is stored and committed as an upload

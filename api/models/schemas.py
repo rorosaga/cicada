@@ -4471,6 +4471,8 @@ class MessagesWaitingConversation(CamelModel):
     sittings: int = 0
     latest: str = ""
     ticked: bool = False
+    #: The correspondent's own page (`messages_source.waiting`), so the app draws the chat with its picture.
+    page: Optional[str] = None
 
 
 class MessagesWaitingResponse(CamelModel):

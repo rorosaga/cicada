@@ -14,6 +14,8 @@ TIMES=['day','dusk','night']
 WEATHER=[base+'-'+time for base in BASES for time in TIMES]
 SKYFX=['mist-day','mist-dusk','mist-night','rainbow-day','rainbow-dusk','shootingstar-night']
 CLOCK=['face','face-night','hour','hour-night','minute','minute-night','second','second-night']
+BOOK_KINDS=['chat','message','page','note','video','other']
+BOOK_ROWS=[7,9,11,13]
 CONTRACT = {
  'room-backdrop':((160,64),['dark','lit','night-dark','night-lit'],['glow']),
  'room-window':((40,38),['idle','night-dark','night-lit'],['glass']),
@@ -25,7 +27,8 @@ CONTRACT = {
  'room-beanbag':((62,12),['idle','night-dark','night-lit'],['ink','seat']),
  'room-plant':((12,22),['idle','night-dark','night-lit'],['ink']),
  'room-mug':((8,9),['idle','night-dark','night-lit'],['ink']),
- 'room-spines':((24,12),['chat','page','note','video','other'],[])}
+ # 2026-10-16 (owner pick "A · Stack"): the waiting pile is pixel-art books; the spine masks retired with their sheet.
+ 'room-books':((24,13),[t for k in BOOK_KINDS for t in (k,k+'-night')],[])}
 # G176 2026-10-02: rain holds 100 ms to leave the full room below the unchanged redraw cap.
 WEATHER_MS={base+'-'+time:([500]*36 if base=='sunny' else [200]*72 if base=='cloudy' else [120]*36 if base=='windy' else [100]*48 if base=='rainy' else [600,300]*4) for base in BASES for time in TIMES}
 WEATHER_MS['sunny-dusk']=[300]*36;WEATHER_MS['sunny-night']=[200]*24
@@ -87,11 +90,11 @@ def verify_room(report,palette):
    for t in data['meta']['frameTags']:
     label=name+'/'+t['name'];check(t['direction']=='forward' and t['from']<=t['to'] and t.get('repeat',0)==0,label+': direction')
     ms=[f['duration'] for f in data['frames'][t['from']:t['to']+1]];images=tag_images(data,ims,t['name'])
-    want=WEATHER_MS[t['name']] if name=='room-weather' else FX_MS[t['name']] if name=='room-skyfx' else CLOCK_MS[t['name']] if name=='room-clock' else (FLY_MS if name=='room-fly' else [1000]*(3 if name=='room-spines' else 1))
+    want=WEATHER_MS[t['name']] if name=='room-weather' else FX_MS[t['name']] if name=='room-skyfx' else CLOCK_MS[t['name']] if name=='room-clock' else (FLY_MS if name=='room-fly' else [1000]*(len(BOOK_ROWS) if name=='room-books' else 1))
     check(ms==want,label+': exact timing')
     check(ms==[f['ms'] for f in regtags[t['name']]['frames']],label+': registry timing')
     check([f['index'] for f in regtags[t['name']]['frames']]==list(range(t['from'],t['to']+1)),label+': registry indices')
-    if len(ms)>1 and name not in ('room-spines','room-clock'): check(all(40<=m<=4000 for m in ms) and 400<=sum(ms)<=30000,label+': caps')
+    if len(ms)>1 and name not in ('room-books','room-clock'): check(all(40<=m<=4000 for m in ms) and 400<=sum(ms)<=30000,label+': caps')
     if name in ('room-weather','room-skyfx'):check(len({im.tobytes() for im in images})>1,label+': actual pixel motion')
     out=ART/'qa'/name;out.mkdir(exist_ok=True);gif=out/f'{t["name"]}@6x.gif'
     if name!='room-clock':
@@ -199,22 +202,28 @@ def verify_room(report,palette):
     if e['name'].startswith('leaf.'):
      check(step['x']==1,'leaf horizontal drift')
      check(step['y'] in (0,-1) or (p['x']==35 and q['x']==0 and step['y']==11),'leaf height reset at jamb')
- sd,spines=all_data['room-spines'];marks=[]
- for kind in ['chat','page','note','video','other']:
-  masks=tag_images(sd,spines,kind)
-  for im in masks:
-   check(len({p for p in im.get_flattened_data() if p[3]})==1,'single mask colour')
-   for x in range(20):check(len({im.getpixel((x,y)) for y in range(1,11)})==1,'spine vertical stretch')
-   for y in range(12):check(len({im.getpixel((x,y)) for x in range(4,20)})==1,'spine horizontal stretch')
-  marks.append(tuple(any(m.getpixel((x,y))[3] for m in masks[1:]) for y in range(4,7) for x in range(20,24)))
- check(len(set(marks))==5,'spine middle-three-row marks')
+ bd,books=all_data['room-books'];mids=set();night_ramps=palette_data()['night']['ramps']
+ shadow={tuple(bytes.fromhex(c['hex'][1:]))+(255,):tuple(bytes.fromhex(night_ramps[c['key']][0][1:]))+(255,) for c in palette}
+ for kind in BOOK_KINDS:
+  day=tag_images(bd,books,kind);night=tag_images(bd,books,kind+'-night')
+  check(len(day)==len(night)==len(BOOK_ROWS),kind+': one frame per count step')
+  for rows,im,dark in zip(BOOK_ROWS,day,night):
+   check(bbox(points(im))==dict(x=0,y=0,w=24,h=rows),f'{kind}/{rows}: a book from the top row, {rows} rows')
+   for x in range(4,16):check(all(im.getpixel((x,y))==im.getpixel((4,y)) for y in range(13)),f'{kind}/{rows}: tileable middle')
+   check(not any(im.getpixel(c)[3] for c in [(0,0),(23,0),(0,rows-1),(23,rows-1)]),f'{kind}/{rows}: rounded corners')
+   for y in range(13):
+    for x in range(24):
+     p=im.getpixel((x,y));q=dark.getpixel((x,y))
+     check(q==shadow[p] if p[3] else not q[3],f'{kind}/{rows}: night is the shadow band of day')
+  mids.add(day[0].getpixel((4,3)))
+ check(len(mids)==len(BOOK_KINDS),'a colour per kind')
  report['paletteColors']=len(palette);report['bytes']=sum(p.stat().st_size for p in RES.iterdir() if p.suffix in ['.png','.json'])
  manifest=json.loads((RES/'sprites.manifest.json').read_text());entries=manifest['assets']
  check(len(entries)==len(expected) and {a['id'] for a in entries}==expected,'manifest complete coverage')
  for a in entries:
   required=['id','png','json','role','generator','script','source','authoring','date','licence','processing','pngSha256','jsonSha256']
   check(all(isinstance(a.get(k),str) and a[k] for k in required),'manifest required provenance')
-  check(a['role'] in ['worm','worm-small','room','weather','skyfx','fly','spines'],'manifest role')
+  check(a['role'] in ['worm','worm-small','room','weather','skyfx','fly','books'],'manifest role')
   check(bool(re.fullmatch(r'\d{4}-\d{2}-\d{2}',a['date'])),'manifest date')
   for ext in ['png','json']:
    check(a[ext]==a['id']+'.'+ext,'manifest relative basename')
@@ -226,4 +235,4 @@ def verify_room(report,palette):
  check(report['bytes']<=6*1024*1024,'sprite byte budget');report['roomChecks']='passed'
  decoded=sum(Image.open(p).width*Image.open(p).height for p in RES.glob('*.png'))
  check(decoded<=8388608,'decoded pixel budget');report['decodedPixels']=decoded
- print('room visibility, fly, storm, seams, spines, plan and budgets: OK')
+ print('room visibility, fly, storm, seams, books, plan and budgets: OK')

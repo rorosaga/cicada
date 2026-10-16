@@ -134,10 +134,10 @@ struct StudyRoom: View {
                 RoomClock(lighting: scenery.lighting, cell: scene.cell, onScreen: onScreen)
                     .offset(x: CGFloat(clock.cellX) * scene.cell, y: -CGFloat(clock.cellY) * scene.cell)
             }
-            // The REAL pile, in the column the layout reserves for it —
-            // never a painted stack (P10).
+            // The REAL pile, in the column the layout reserves for it: books placed from the queue, their art the
+            // room's sprites in the room's lighting, their counts on solid plates (P10, DR-13).
             BookPileView(books: page.books, rows: page.rows, episodes: episodes, room: room,
-                         onOpenDetails: onOpenDetails, layout: scene)
+                         onOpenDetails: onOpenDetails, layout: scene, night: scenery.lighting == .dark)
                 .frame(width: scene.pileFrame.width, height: scene.pileFrame.height, alignment: .bottomLeading)
                 .offset(x: scene.pileFrame.minX, y: -scene.pileFrame.minY)
             if let lamp = spots[.lamp] {

@@ -33,7 +33,8 @@ def verify_night(report):
     placements={l['sheet']:(l['x'],64-l['y']-l['h']) for l in plan['layers']}
 
     baseline=json.loads((ART/'day-art-contract.json').read_text())['sheets']
-    check(len(baseline)==18,'day baseline coverage')
+    # 2026-10-16: room-spines retired (the pile is room-books, built after this baseline), so 17 of the 18 remain.
+    check(len(baseline)==17,'day baseline coverage')
     for name,contract in baseline.items():
         if name=='room-weather':continue
         d,ims=load(name);ranges={t['name']:t for t in d['meta']['frameTags']}

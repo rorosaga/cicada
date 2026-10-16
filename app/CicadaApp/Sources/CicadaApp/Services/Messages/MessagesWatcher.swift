@@ -31,6 +31,9 @@ final class MessagesWatcher {
     private(set) var states: [String: MessagesConversationState] = [:]
     /// Names and Contacts photos by conversation id (only when Contacts is allowed).
     private(set) var cards: [String: MessagesContactCard] = [:]
+    /// The photo each TICKED conversation's other side shares through Messages ("Share Name and Photo"), small PNG
+    /// bytes by conversation id — the bubble's rung after the Contacts photo (`MessagesSharedPhotos`). In memory only.
+    private(set) var sharedPhotos: [String: Data] = [:]
     private(set) var tickedIds: Set<String> = []
     private(set) var listing = false
     /// The detectors' suggestions (G188) — on unless the person turned them off for this memory.
@@ -49,6 +52,9 @@ final class MessagesWatcher {
     @ObservationIgnored private let makeWatch: FolderWatchFactory
     @ObservationIgnored private let bank: @MainActor () -> String
     @ObservationIgnored private let lookUpCards: @Sendable ([String]) async -> [String: MessagesContactCard]
+    @ObservationIgnored private let lookUpSharedPhotos: @Sendable ([String]) async -> [String: Data]
+    /// Conversations whose shared photo was already looked up this session (found or not): one read per chat.
+    @ObservationIgnored private var sharedLookedUp: Set<String> = []
     @ObservationIgnored private var watch: FSEventsWatch?
     @ObservationIgnored private var pending: Task<Void, Never>?
     @ObservationIgnored private var running: Task<String, Error>?
@@ -59,7 +65,8 @@ final class MessagesWatcher {
          folder: URL = MessagesWatcher.messagesFolder, debounce: Duration = .seconds(10),
          minimumInterval: Duration = .seconds(60), makeWatch: FolderWatchFactory? = nil,
          bank: @escaping @MainActor () -> String = { "default" },
-         lookUpCards: @escaping @Sendable ([String]) async -> [String: MessagesContactCard] = { await MessagesContacts.cards(for: $0) }) {
+         lookUpCards: @escaping @Sendable ([String]) async -> [String: MessagesContactCard] = { await MessagesContacts.cards(for: $0) },
+         lookUpSharedPhotos: (@Sendable ([String]) async -> [String: Data])? = nil) {
         self.api = api
         self.reader = reader
         self.lights = lights
@@ -71,6 +78,11 @@ final class MessagesWatcher {
         self.makeWatch = makeWatch ?? { path, onChange in FSEventsWatch(path: path, handler: onChange) }
         self.bank = bank
         self.lookUpCards = lookUpCards
+        // The shared photos live under the same Messages folder the watcher reads (a test's synthetic folder there).
+        let nicknames = folder.appendingPathComponent(MessagesSharedPhotos.folderName, isDirectory: true)
+        self.lookUpSharedPhotos = lookUpSharedPhotos ?? { handles in
+            await Task.detached(priority: .utility) { MessagesSharedPhotos.photos(for: handles, folder: nicknames) }.value
+        }
     }
 
     private func cursorKey(_ bank: String, _ id: String) -> String { "cicada.messages.cursor.\(bank).\(id)" }
@@ -93,6 +105,8 @@ final class MessagesWatcher {
     func bankChanged() async {
         tickedIds = (try? await api.fetchMessagesSettings().tickedIds) ?? []
         waiting = []
+        sharedPhotos = sharedPhotos.filter { tickedIds.contains($0.key) }
+        sharedLookedUp.formIntersection(tickedIds)
         guard !tickedIds.isEmpty else {
             disarm()
             return
@@ -188,7 +202,13 @@ final class MessagesWatcher {
     func setTicked(_ conversation: MessagesConversation, _ on: Bool) async throws {
         _ = try await api.updateMessagesConversation(id: conversation.id, name: postedName(of: conversation), ticked: on,
                                                      mark: nil)
-        if on { tickedIds.insert(conversation.id) } else { tickedIds.remove(conversation.id) }
+        if on {
+            tickedIds.insert(conversation.id)
+        } else {
+            tickedIds.remove(conversation.id)
+            sharedPhotos[conversation.id] = nil
+            sharedLookedUp.remove(conversation.id)
+        }
         await describe()
         if on {
             arm()
@@ -285,7 +305,11 @@ final class MessagesWatcher {
     func refreshWaiting() async {
         guard let answer = try? await api.fetchMessagesWaiting() else { return }
         waiting = answer.conversations
-        let unknown = Set(waiting.map(\.conversation).filter { cards[$0] == nil })
+        let noCard = Set(waiting.map(\.conversation).filter { cards[$0] == nil })
+        // The shared photo is read only for a conversation the person ticked (G179's rule for everything under
+        // ~/Library/Messages), once per chat per session.
+        let noShared = Set(waiting.map(\.conversation).filter { tickedIds.contains($0) && !sharedLookedUp.contains($0) })
+        let unknown = noCard.union(noShared)
         guard !unknown.isEmpty else { return }
         var handles = conversations.filter { unknown.contains($0.id) }
         let missing = unknown.subtracting(handles.map(\.id))
@@ -293,9 +317,20 @@ final class MessagesWatcher {
             let reader = self.reader
             handles += (try? await Task.detached(priority: .utility) { try reader.conversations(ids: missing) }.value) ?? []
         }
-        let found = await lookUpCards(handles.map(\.handle))
-        for conversation in handles {
-            if let card = found[conversation.handle] { cards[conversation.id] = card }
+        let carded = handles.filter { noCard.contains($0.id) }
+        if !carded.isEmpty {
+            let found = await lookUpCards(carded.map(\.handle))
+            for conversation in carded {
+                if let card = found[conversation.handle] { cards[conversation.id] = card }
+            }
+        }
+        let shared = handles.filter { noShared.contains($0.id) && !$0.handle.isEmpty }
+        if !shared.isEmpty {
+            let found = await lookUpSharedPhotos(shared.map(\.handle))
+            for conversation in shared {
+                sharedLookedUp.insert(conversation.id)
+                if let photo = found[conversation.handle] { sharedPhotos[conversation.id] = photo }
+            }
         }
     }
 

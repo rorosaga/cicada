@@ -11,6 +11,8 @@ struct MessageBubble: Identifiable, Equatable {
     let messages: Int
     let isAgent: Bool
     let help: String
+    /// The correspondent's own page (`MessagesWaitingItem.page`), whose picture the bubble draws.
+    var page: String? = nil
 }
 
 enum MessageBubbles {
@@ -33,6 +35,37 @@ enum MessageBubbles {
         var accessibility: String
     }
 
+    /// The chat's page's resolved picture: the page the backend linked by the conversation's correspondent
+    /// (`MessagesWaitingItem.page`), never a page found by name. Nil without a link or with no such page loaded.
+    static func pagePicture(page: String?, nodes: [GraphNode]) -> EntityPictureRef? {
+        guard let page, !page.isEmpty else { return nil }
+        return nodes.first(where: { $0.id == page })?.pictureRef
+    }
+
+    /// What a bubble draws.
+    enum Face: Equatable {
+        case picture(PictureURL)
+        case photo(Data)
+        case monogram
+    }
+
+    /// The picture precedence for a chat (owner, 2026-10-16): the person's choice on the chat's page (their upload, or
+    /// the monogram they chose) → the chat's Contacts photo (the card on this Mac, else the page's own Contacts rung) →
+    /// the photo the chat shares in Messages → the monogram. A page's logo or public-profile rung is not a chat's face.
+    static func face(page: EntityPictureRef?, contacts: Data?, shared: Data?) -> Face {
+        if let page {
+            switch page.source {
+            case .upload: if let url = PictureURL.parse(page.url) { return .picture(url) }
+            case .initials: return .monogram
+            default: break
+            }
+        }
+        if let contacts, !contacts.isEmpty { return .photo(contacts) }
+        if let page, page.source == .contacts, let url = PictureURL.parse(page.url) { return .picture(url) }
+        if let shared, !shared.isEmpty { return .photo(shared) }
+        return .monogram
+    }
+
     /// Most messages first; nil when nothing is waiting (the stack is not drawn then).
     static func model(_ items: [MessagesWaitingItem], name: (MessagesWaitingItem) -> String) -> Model? {
         let waiting = items.filter { $0.messages > 0 }.sorted {
@@ -44,7 +77,7 @@ enum MessageBubbles {
             let shown = named.isEmpty ? item.name : named
             return MessageBubble(id: item.conversation, name: shown, initials: LogoImage.monogram(for: shown),
                                  messages: item.messages, isAgent: item.kind == "agent",
-                                 help: Copy.Messages.bubbleHelp(name: shown, messages: item.messages))
+                                 help: Copy.Messages.bubbleHelp(name: shown, messages: item.messages), page: item.page)
         }
         let total = waiting.reduce(0) { $0 + $1.messages }
         return Model(shown: Array(bubbles.prefix(maxShown)), hidden: max(bubbles.count - maxShown, 0), messages: total,
@@ -53,14 +86,15 @@ enum MessageBubbles {
     }
 }
 
-/// The stack itself: each conversation's Contacts photo, else a monogram (`EntityPictureFallback`: a person's initials in
-/// their 1.5 pt hue ring); nothing from the web. Each face sits inside a ring of the ground's own colour, never over it,
+/// The stack itself: each conversation's face by `MessageBubbles.face` (its page's chosen picture, the Contacts photo,
+/// the photo it shares in Messages, else a monogram); nothing from the web. Each face sits inside a ring of the ground's own colour, never over it,
 /// so the monogram's hue ring stays whole. Hovering a bubble names it; clicking the stack (when `interactive`) lists the
 /// names.
 struct MessageBubbleStack: View {
     var size: CGFloat = 20
     var interactive = true
     @Environment(MessagesWatcher.self) private var watcher: MessagesWatcher?
+    @Environment(Store.self) private var store: Store?
     @State private var expanded = false
 
     var body: some View {
@@ -94,7 +128,9 @@ struct MessageBubbleStack: View {
         let side = CicadaTheme.scaled(size)
         return HStack(spacing: -side * MessageBubbles.overlap) {
             ForEach(model.shown) { bubble in
-                MessageBubbleFace(name: bubble.name, photo: watcher.cards[bubble.id]?.thumbnail, size: size)
+                MessageBubbleFace(name: bubble.name, photo: watcher.cards[bubble.id]?.thumbnail, size: size,
+                                  page: MessageBubbles.pagePicture(page: bubble.page, nodes: store?.graph.value?.nodes ?? []),
+                                  shared: watcher.sharedPhotos[bubble.id])
                     .help(bubble.help)
             }
             if model.hidden > 0 {
@@ -109,19 +145,31 @@ struct MessageBubbleStack: View {
     }
 }
 
-/// One bubble: the face (a Contacts photo, else the person's monogram) inset by `MessageBubbles.groundRing` inside a
-/// disc of the ground's colour. Depth is a ring, not a shadow (DR-9): the disc is what cuts this bubble from the one
-/// under it.
+/// One bubble: the face (`MessageBubbles.face`: the person's chosen picture, the Contacts photo, the photo the chat
+/// shares in Messages, else the monogram) inset by
+/// `MessageBubbles.groundRing` inside a disc of the ground's colour. Depth is a ring, not a shadow (DR-9): the disc is
+/// what cuts this bubble from the one under it.
 struct MessageBubbleFace: View {
     let name: String
     let photo: Data?
     var size: CGFloat = 20
+    /// The chat's page's resolved picture (`MessageBubbles.pagePicture`), loaded from Cicada's own store.
+    var page: EntityPictureRef? = nil
+    /// The photo the chat shares in Messages (`MessagesWatcher.sharedPhotos`).
+    var shared: Data? = nil
+
+    @Environment(Store.self) private var store: Store?
+    @State private var pageImage: NSImage?
+
+    private var face: MessageBubbles.Face { MessageBubbles.face(page: page, contacts: photo, shared: shared) }
 
     var body: some View {
         let side = CicadaTheme.scaled(size)
         let inner = CicadaTheme.scaled(MessageBubbles.faceUnits(size))
         Group {
-            if let photo, let image = NSImage(data: photo) {
+            if case .picture = face, let pageImage {
+                Image(nsImage: pageImage).resizable().scaledToFill()
+            } else if case .photo(let data) = face, let image = NSImage(data: data) {
                 Image(nsImage: image).resizable().scaledToFill()
             } else {
                 EntityPictureFallback(type: .person, name: name, units: MessageBubbles.faceUnits(size),
@@ -132,25 +180,36 @@ struct MessageBubbleFace: View {
         .clipShape(Circle())
         .frame(width: side, height: side)
         .background(Circle().fill(CicadaTheme.bgBase))
+        .task(id: face) {
+            guard case .picture(let url) = face, let bank = store?.bank else { pageImage = nil; return }
+            pageImage = await PictureStore.shared.image(url, bank: bank)
+        }
     }
 }
 
-/// One read-only row in the Sleep page's Details › What's waiting, beside the videos' row: the stacked bubbles,
-/// "Messages" and the count. It starts nothing (the page's one cycle control is untouched) and is drawn only while a
-/// ticked conversation has messages Sleep has not read.
+/// The Waiting tab's Messages line when no Messages source row is there to carry the bubbles (the conversations'
+/// messages are waiting but no episode is queued yet): the same grammar as a source row — the Messages mark, its name,
+/// the stacked pictures and the count. With a source row present (`inline`), the bubbles ride that row instead
+/// (`StudyListCard`) and this draws nothing, but still refreshes the waiting list when the queue moves. It starts
+/// nothing (the page's one cycle control is untouched).
 struct MessagesWaitingRow: View {
+    var inline = false
     @Environment(MessagesWatcher.self) private var watcher: MessagesWatcher?
     @Environment(Store.self) private var store
     @State private var hovering = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let watcher, !watcher.waiting.isEmpty {
+            if !inline, let watcher, !watcher.waiting.isEmpty {
                 HStack(spacing: CicadaTheme.spacingSM) {
+                    // The source rows' chevron column, empty: this line has nothing to disclose.
+                    Color.clear.frame(width: CicadaTheme.scaled(12))
+                    OriginMark(origin: MessagesWatcher.channel, size: CicadaTheme.scaled(14))
                     Text(Copy.Messages.sleepRowTitle)
                         .font(CicadaTheme.rowFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
-                    MessageBubbleStack()
+                        .lineLimit(1)
+                    MessageBubbleStack(size: 18)
                     Spacer(minLength: CicadaTheme.spacingSM)
                 }
                 .padding(.horizontal, CicadaTheme.scaled(10))

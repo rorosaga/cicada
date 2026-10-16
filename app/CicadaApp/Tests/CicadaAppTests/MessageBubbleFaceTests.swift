@@ -6,7 +6,8 @@ import XCTest
 /// G179 (live report, 2026-10-16): on the Sleep page in dark appearance a waiting conversation with no Contacts photo
 /// drew as a near-black disc with a hairline letter — the ground-coloured ring was stroked OVER the monogram's own hue
 /// ring, and the letter was 7 pt medium. The face now sits inside the ground ring and a small monogram's letters are
-/// half its height, semibold. Rendered offscreen (never the app), light and dark, at the Sleep page's 20 pt and Home's
+/// half its height, semibold; since the owner's look at the one Messages row (2026-10-16) it is a filled disc, because a
+/// hue ring round one letter read as "ⓘ". Rendered offscreen (never the app), light and dark, at the Sleep page's 20 pt and Home's
 /// 18 pt.
 @MainActor
 final class MessageBubbleFaceTests: XCTestCase {
@@ -27,27 +28,34 @@ final class MessageBubbleFaceTests: XCTestCase {
         XCTAssertEqual(MessageBubbles.faceUnits(20), 17)
     }
 
-    /// The monogram reads as a picture: its hue ring is whole (the ring of pixels just inside the face is the person's
-    /// hue all the way round), its letter is there in the hue, and the outermost ring is the ground's own colour.
-    func testTheMonogramReadsInLightAndDark() throws {
+    /// The monogram reads as a picture, never as an info glyph (owner, 2026-10-16): a disc filled with the person's hue
+    /// over the ground (no ring around one letter), the letter in the primary text colour, and the outermost ring the
+    /// ground's own colour so the bubbles stay cut apart.
+    func testTheMonogramIsAFilledDiscInLightAndDark() throws {
         for mode in [AppColorScheme.light, .dark] {
             for size: CGFloat in [20, 18] {
                 CicadaTheme.mode = mode
                 let bitmap = try render(MessageBubbleFace(name: "Bob Example", photo: nil, size: size), mode: mode)
                 let hue = rgb(CicadaTheme.entityColor(for: .person))
                 let ground = rgb(CicadaTheme.bgBase)
+                let text = rgb(CicadaTheme.textPrimary)
                 let label = "\(mode == .dark ? "dark" : "light") \(Int(size)) pt"
                 let side = size * Self.scale
                 let centre = side / 2
 
-                // The face's own ring: one sample every 10° just inside the face's edge.
+                // The face's edge is one fill all the way round — the hue over the ground, strictly between the two in
+                // every channel (whatever space the renderer blends in): no hue ring, no bare ground.
                 let faceRadius = MessageBubbles.faceUnits(size) / 2 * Self.scale
-                let ringHits = stride(from: 0.0, to: 360.0, by: 10.0).filter { degrees in
+                let edge = stride(from: 0.0, to: 360.0, by: 10.0).map { degrees -> (Double, Double, Double) in
                     let r = faceRadius - 0.75 * Self.scale
                     let a = degrees * .pi / 180
-                    return close(pixel(bitmap, x: centre + r * cos(a), y: centre + r * sin(a)), hue)
+                    return pixel(bitmap, x: centre + r * cos(a), y: centre + r * sin(a))
                 }
-                XCTAssertEqual(ringHits.count, 36, "\(label): the monogram's hue ring is whole")
+                let fill = edge[0]
+                func between(_ v: Double, _ a: Double, _ b: Double) -> Bool { v > min(a, b) + 0.02 && v < max(a, b) - 0.02 }
+                XCTAssertTrue(between(fill.0, hue.0, ground.0) && between(fill.1, hue.1, ground.1)
+                              && between(fill.2, hue.2, ground.2), "\(label): the fill is the hue over the ground")
+                XCTAssertEqual(edge.filter { close($0, fill, tolerance: 0.02) }.count, 36, "\(label): filled to its edge")
 
                 // The ground ring outside it.
                 let groundHits = stride(from: 0.0, to: 360.0, by: 30.0).filter { degrees in
@@ -57,14 +65,14 @@ final class MessageBubbleFaceTests: XCTestCase {
                 }
                 XCTAssertEqual(groundHits.count, 12, "\(label): the ring that cuts bubbles apart is the ground's colour")
 
-                // The letter: hue-coloured pixels inside the ring, a real share of the inner disc, not a hairline.
+                // The letter: text-coloured pixels inside, a real share of the disc, not a hairline.
                 let inner = faceRadius - 2 * Self.scale
                 var inside = 0, letter = 0
                 for y in stride(from: centre - inner, to: centre + inner, by: 1) {
                     for x in stride(from: centre - inner, to: centre + inner, by: 1)
                     where (x - centre) * (x - centre) + (y - centre) * (y - centre) <= inner * inner {
                         inside += 1
-                        if close(pixel(bitmap, x: x, y: y), hue, tolerance: 0.25) { letter += 1 }
+                        if close(pixel(bitmap, x: x, y: y), text, tolerance: 0.25) { letter += 1 }
                     }
                 }
                 let share = Double(letter) / Double(max(inside, 1))
