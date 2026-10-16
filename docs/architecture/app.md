@@ -197,7 +197,9 @@ the app starts no backend, stops a background service left from This Mac (`Backe
 `launchctl bootout`, plist kept), *Keep memory working* says it is not needed, an update repairs no service, the demo is
 refused before any request (`ServerLinkError.demoStaysLocal`), and Advanced's token row names `device_token`; a reader's
 post the server did not take waits in `ReaderOutbox` (`$CICADA_HOME/spool/app/`; a newer post on its route waits
-behind it, never overtakes it) and is flushed when the event stream connects (`headless.md`, "The Mac app as a client"). **Settings → Devices** (`DevicesSettingsView`,
+behind it, never overtakes it) and is flushed when the event stream connects, lane by lane (route + memory: another
+memory's refused post waits without blocking the active memory's — owner decision 6, 2026-10-16; no answer or a
+refused token still stops the flush; `headless.md`, "The Mac app as a client"). **Settings → Devices** (`DevicesSettingsView`,
 `DevicesPageModel`; not a Store domain): *This app* — where the memory lives, reachable or not as of when (DR-58),
 captures waiting with *Send now* — and *Your devices* (name, added, last seen, *this Mac*; Add a device with its
 token shown once and Revoke on This Mac only, the server's two commands named on a client). Where memory came from is
@@ -474,7 +476,13 @@ per-file events (`BrowserFileEvents`), filtered to the bookmark file's own name,
 sees only entries added, removed or renamed in that folder, and its descriptor was opened once at launch, when
 Safari's folder may still have been refused. A stream armed while the file was refused is armed again once an open
 says it is readable (`BrowserWatcher.refreshAccess`: on the app becoming active, and every 5 s while one is refused),
-with a catch-up that is never live. *No self-opening field* — every chip and click from the panel goes through
+with a catch-up that is never live. *Per memory* (owner decision 5, 2026-10-16): what was synced is kept per connection
+AND per memory (`BrowserWatcher.signatureKey(channel, bank:)`), so a bank switch catches the newly active memory up on
+the browsers' bookmarks like every other reader (`bankChanged`, from the app's bank-change hook); each sync's posts are
+bound to the memory it read for (`BankScope.bound`) and its signature is recorded under that memory; a demo memory is
+never read for. The old per-connection signature moves, once, to the first memory that reads it (the one on screen at
+the first launch after the upgrade), and the consent it implied is written down explicitly so no other memory reads as
+turned off. *No self-opening field* — every chip and click from the panel goes through
 `SaveWhyCenter.input`, which ignores a choice (and a click elsewhere) within `SaveWhyPolicy.armDelay` (0.5 s) of the
 panel showing — at 0.5 s after a save the hand is still on the page beneath — and `SaveWhyNSPanel.canBecomeKey` is false
 until a mouse-down lands in it, so no activation or stray key can press a chip or type; only `tapOther` opens the field.
@@ -1166,6 +1174,16 @@ Normal ticks start on whole seconds; Reduce Motion removes the second hand and t
 in the system's short format, after the window and before the lamp; it is not a button. The 15 × 15 clock at
 `(94,34)`, z1, follows the verified art plan and clears every worm frame/beat/transition, the window, lamp and pile column; art acceptance
 also checks every new night frame. The preview includes the same clock leaf. Motion sidecars exclude its state angles.
+
+**Settings → Sleep → Scheduled runs (TODO ruling 4b, owner 2026-10-16).** One switch, *Scheduled runs may use my
+plan* (`SettingsRowID.sleepUsePlan`, in the find index), off by default: the machine's `scheduledUsePlan` on
+`/sleep/run-options` (`SleepRunOptionsChange.scheduledUsePlan`). Its detail says what it costs where it is turned on
+(runs on their own count against the plan's limits; a limit pauses one and the next picks up after the reset) and,
+off, that a run on its own reads only with a key or a local model. Writing it reloads the schedule (its warning) and
+the engine previews (the scheduled line). While the schedule runs on its own and the server says a scheduled run would
+have no engine it may use (`ScheduleConfig.warning`/`warningCode`, decoded only, never sent back), the Runs card shows
+that sentence with the app's own fix, connecting a plan first (`Copy.ServerPlan`, provider-neutral). The engine menu's
+and the chooser's caption and `Copy.sleepEngineExplainer` say a scheduled cycle uses a plan only when allowed here.
 
 **Settings → Sleep → The scenery.** One group in the in-app Settings panel's existing list grammar:
 Source (Local weather · How Sleep is doing · Choose), then Time of day and Weather under Choose, then Preview.

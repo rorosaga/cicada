@@ -436,10 +436,14 @@ API gives no one Watch later or watch history, so there are three doors, and the
   preview says before Confirm ("N watched videos over D days").
 - **One identity.** A video is `media_ingestor.url_hash` of its canonical URL — the key Watch later, bookmarks and
   Takeout playlists share — so `youtu.be/<id>`, `/shorts/<id>` and `watch?v=<id>&t=…` are one video. Within a day a
-  video is one row (`watched` in frontmatter: `url, title, channel, times, via`); a watch less than 30 minutes after the
-  last one kept is the same watch, a later one a re-watch whose time is added. A door that knows only the day (the
-  agent reading the history page, TikTok's export) merges into the row a timed door wrote. A re-read writes nothing
-  (the stager's hash); a day changes only when its words do, so `via` names the doors that wrote its words.
+  video is one row (`watched` in frontmatter: `url, title, channel, times, via, seen`); a watch less than 30 minutes
+  after the last one kept is the same watch, a later one a re-watch whose time is added. **`times` is derived, every
+  merge, from `seen`** — every instant a door reported, distinct, the earliest 48 (`MAX_SEEN`) — so the order doors
+  arrive in never changes a day (owner 2026-10-16, from the backend hunt: thinning only the kept times made Chrome,
+  then Takeout, then Chrome again report a phantom re-watch). A door that knows only the day (the agent reading the
+  history page, TikTok's export) merges into the row a timed door wrote. A re-read writes nothing (the stager's hash);
+  a day changes only when its words do, so `via` names the doors that wrote its words — except `seen`, which a day
+  whose words did not move still records in its frontmatter alone (no re-queue).
 - **Door 1, Takeout (once).** `watch-history.json` and the default `watch-history.html` (read per activity entry; an ad,
   a removed video or a post is left out; the HTML's date is read in this machine's zone, the English layout only), only
   with `include_history`. Before this a dropped `watch-history.html` went to the bookmark parser and every watched video
@@ -556,8 +560,11 @@ extractor keeps crosses the wire:
   401/403, 409, 5xx) is kept; 400/404/413/422 are dropped (a resend cannot fix them). A session keeps one entry, its
   newest (posts are cumulative); a live post that lands deletes it. Each firing that lands then flushes the rest,
   oldest first, inside the hook's 4 s client budget (under its registered 5 s; a SessionEnd flush never flushes), one
-  flusher at a time (`flock`), refreshing a session's `transcript_size` from its file. Per-turn posts (Cursor, Gemini
-  CLI) are FIFO and a new turn waits behind any waiting turn, so the episode keeps their order; Cursor's prompt hook
+  flusher at a time (`flock`), refreshing a session's `transcript_size` from its file. No answer or a refused token
+  (401/403) stops the flush; any other answer that is not final (a 5xx, a 409) is about that post: a session's entry
+  is skipped and kept, so one stuck session never holds back the turns behind it (backend hunt, 2026-10-16). Per-turn
+  posts (Cursor, Gemini CLI) are FIFO and a new turn waits behind any waiting turn (a turn that does not land holds
+  the turns after it), so the episode keeps their order; Cursor's prompt hook
   never flushes (it holds the person's message). Bounded at 2,000 entries / 128 MiB, oldest dropped and counted in
   the log. The recall hooks read the same base and token; they do not spool (a read).
 
@@ -734,8 +741,9 @@ things (`web_settle.classify`, `mcp.md`) are looked up, one engine call each, an
 settled with a cited claim and moved to `inbox/settled/` (features.md). **Gate:** `CICADA_ALLOW_CONNECTOR_FETCH`; a
 demo bank never. **Engine (ruling 4):** resolved lazily, only when there is something to look up: a person-started run
 on the Claude plan gets one `claude -p` whose ONE tool is the plan's web search (`--tools WebSearch --allowedTools
-WebSearch`, `agent_engine.ALLOWED_TOOLS`); a scheduled run never uses a plan — not even under an explicit
-`CICADA_LLM_MODE` pin — and a metered engine whose model litellm lists with web search uses the provider's own search
+WebSearch`, `agent_engine.ALLOWED_TOOLS`); a scheduled run uses the Claude plan's search only when the person let
+scheduled runs use their plan (ruling 4b, `engine_select.scheduled_plan_allowed`) — never on an explicit
+`CICADA_LLM_MODE` pin alone — and a metered engine whose model litellm lists with web search uses the provider's own search
 (`web_search_options: {search_context_size: low}`, one search) at its price, scheduled or not, **only on a provider
 whose searches litellm reports with their query** (`web_lookup.SEARCH_REPORTED_PROVIDERS`: Anthropic, whose
 `server_tool_use` comes back as a `web_search` tool call). Any other metered engine — OpenRouter (the router bills, so
@@ -825,7 +833,15 @@ auth or quota matching; a timeout stays a timeout despite an unrelated unsupport
 An id another writer marked processed meanwhile is `skipped`, and a bank switch between batches stops the run (`bank_switched`; `activate`, `demo`,
 `leave-demo` and the active bank's rename answer **409** while `SleepState.drain_run`). **A scheduled cycle drains too**
 (ruling 16: both scheduler entry points pass `drain=True`) but with `user_triggered=False`, so automatic engine
-selection never chooses a plan (ruling 4); on a metered engine it spends until the queue is empty, with no limit Cicada sets, and the engine menu and Details
+selection never chooses a plan (ruling 4) **unless the person turned on "Scheduled runs may use my plan"** (ruling 4b,
+2026-10-16: `sleep_run_prefs.scheduled_use_plan`, machine-wide, off by default; `PUT /sleep/run-options
+{"scheduledUsePlan"}`, Settings → Sleep, `cicada sleep schedule --use-plan on|off`). With it on, a scheduled run
+resolves exactly as one the person starts would — the Claude or the ChatGPT plan, each only when it is the chosen
+engine and signed in (`engine_select.SCHEDULE_PLAN_MODES`, the switch being `SUBSCRIPTION_MODES`' only door besides
+the dotfile pin) — and drains like any scheduled run; its plan-limit pause (`plan_window`, `plan_weekly`) is the
+schedule's to replace once the limit has reset (the vendor's `resets_at`, else after `ENGINE_RETRY_S`), since on a
+server nobody presses Continue; extra usage stays the person's, and continue-after-reset (ruling 15) still never arms
+from a scheduled run. The dotfile pin keeps its one batch (ruling 16); on a metered engine it spends until the queue is empty, with no limit Cicada sets, and the engine menu and Details
 say so in words. The default scheduled BYOK/local selection is unchanged; an explicit `CICADA_LLM_MODE` CLI
 override also reaches the transient retry/pause policy. Such a scheduled engine pause is eligible for replacement
 by a fresh unattended run only after six hours (`sleep_paused.ENGINE_RETRY_S`), rather than the next scheduler tick.
@@ -862,7 +878,7 @@ note is logged, the link backfill still runs).
 **Sleep page v5, backend (2026-09-30; TODO rulings 15 and 16; the boards are applied on top of the drain).**
 - **Reading options** — `GET/PUT /sleep/run-options` (`sleep_run_prefs`, machine-wide in `~/.cicada/connections.json` under `sleep-run`, snapshotted when a run starts, never 409s): batch size 10/25/50, *Continue after a plan reset* (off), *Leave room in my plan* (off, set in the engine menu). "Read faster" is **not** built (owner, 2026-09-30): no parallel reading and no small-model map.
 - **Machine-local state, never in a bank** (`sleep_local`: `$CICADA_HOME/sleep/<bank>-<hash>/`, 0700 dir, 0600 files, ids and counts and enums only, never a title): `run.json` (the run's sidecar), `parked.json`, `runs.json` (one summary per run, the newest 100).
-- **Paused is a fact about a run, not a state of Sleep.** A run that stops with conversations still waiting (Pause = the cancel path, a plan limit, the engine going away, the reserve line, or a restart) leaves a `paused` record in its sidecar (`sleep_paused`); `status` stays `idle`, `is_writing()` is false, nothing is held. `POST /sleep/trigger {"continue": true}` rebuilds the drain from it (same run id, the frozen list minus what is filed, the counters carried, batch numbering from what was committed); **a no-body trigger stays a fresh run and clears it** (the documented curl); `POST /sleep/run/end` forgets it (409 while reading); `POST /sleep/parked/retry` unparks and reads exactly those ids (409 while running or paused). **The scheduler reads nothing while a paused run waits** — except a *scheduled* run's pause no person chose: a `restart`, or an `engine` pause at least 6 hours old, is ended (Past nights says `ended`) and replaced by a fresh unattended drain (`sleep_paused.schedule_may_replace`) — it still runs the engine-free tail (`run(tail_only=True)`: expiry, follow-ups, the state refresh, the polls, the link backfill; the after-import probe at most once a day), and the paused record stays on the wire meanwhile — and counts *readable* conversations (`sleep_debt`'s `readableCount` = waiting minus `parkedCount`). `sync_service`'s `sleep` component and the SSE event carry the pause, so the app hears it. Only the Sleep page continues a paused run (the app's doors route to it; the server stays permissive).
+- **Paused is a fact about a run, not a state of Sleep.** A run that stops with conversations still waiting (Pause = the cancel path, a plan limit, the engine going away, the reserve line, or a restart) leaves a `paused` record in its sidecar (`sleep_paused`); `status` stays `idle`, `is_writing()` is false, nothing is held. `POST /sleep/trigger {"continue": true}` rebuilds the drain from it (same run id, the frozen list minus what is filed, the counters carried, batch numbering from what was committed); **a no-body trigger stays a fresh run and clears it** (the documented curl); `POST /sleep/run/end` forgets it (409 while reading); `POST /sleep/parked/retry` unparks and reads exactly those ids (409 while running or paused). **The scheduler reads nothing while a paused run waits** — except a *scheduled* run's pause no person chose: a `restart`, an `engine` pause at least 6 hours old, or (ruling 4b) a plan-limit pause whose limit has reset, is ended (Past nights says `ended`) and replaced by a fresh unattended drain (`sleep_paused.schedule_may_replace`) — it still runs the engine-free tail (`run(tail_only=True)`: expiry, follow-ups, the state refresh, the polls, the link backfill; the after-import probe at most once a day), and the paused record stays on the wire meanwhile — and counts *readable* conversations (`sleep_debt`'s `readableCount` = waiting minus `parkedCount`). `sync_service`'s `sleep` component and the SSE event carry the pause, so the app hears it. Only the Sleep page continues a paused run (the app's doors route to it; the server stays permissive).
 - **Honest live progress** on `drain` and the SSE event (every key optional): `startedBy`, `firstRun`, `calls` (each spawned engine call; only grows, a discarded batch's included), `elapsedMs`/`pausedMs` (measured, never a remaining time), `batchState`, `stages` (Read/Sort/Decide fill only from finished work; Notice and File carry no number), `byOrigin` (frozen = filed + read + waiting + couldNotBeRead + parked + skipped), a live `arrivedSince`, `ownerPage` beliefs, `reserve`. `GET /sleep/queue` serves the per-conversation rows from frontmatter only (≤ 200). Neither it nor `GET /sleep/run-options` / `GET /sleep/runs/{id}` is a Store domain (no `VersionVector` mapping; in-memory caches in the app, emptied on a bank switch).
 - **The reserve is a soft stop** (`sleep_reserve`): Stage 1 stops *starting* reads once a plan window is past the line, what was read is filed, the rest is not an attempt; the run pauses with "Paused to leave room in your plan." A line, not a guarantee: overshoot is unmeasured, a window the engine never reports is served `enforced: false`, and the ChatGPT plan is read from the pre-flight snapshot each batch already takes. Off leaves the Claude rung's own R-E12 90% stop; a reserve lifts it for that run.
 - **Continue after a plan reset** (`sleep_autocontinue`, ruling 15): a one-shot job per bank (`job_id`; a trigger or End in one bank never drops another's, and a bank's activation re-arms its own), for a run the person started, only after a 5-hour window (or the reserve on one, or extra usage) that gave a reset time, at most twice, within 36 hours, same engine, never weekly, never scheduled; `run(continue_from=…)` is called from the Continue route and this module only.

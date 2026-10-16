@@ -8,6 +8,20 @@
 
 ## Current state and evidence
 
+- **2026-10-16 — server and readers: the owner's decisions after headless QA and the hunts (G181, ruling 4b; branch
+  `feat/server-readers`, not merged).** Ruling 4b (above): scheduled runs may use the person's plan — Claude or
+  ChatGPT — behind an off-by-default switch (Settings → Sleep, `cicada sleep schedule --use-plan`), and
+  `cicada engine connect claude-plan|chatgpt-plan` signs a plan in on a server through its own CLI. A schedule with no
+  engine it may use warns (schedule, `engine list`, `ask`), plan first. `/healthz` without a token says only status,
+  version and bank ids. A client install makes no memory folder. Bookmarks keep what was synced per memory and catch up
+  on a bank switch (never the demo); the app's outbox flushes lane by lane, so another memory's refused post never
+  blocks the active one's. From the backend hunt: raw watch instants per day (merge order never matters), agent writes
+  commit someone else's uncommitted edit apart, long path ids are 404, the session and Messages-photo bodies are bounded
+  before parsing, one stuck spool session never blocks turns, Watch later duplicates save `url_index`, a timed-out tool
+  write says it may have written; from headless QA: duplicate device names warn, the doctor hint names `doctor.sh`
+  where there is no `make`, `sleep status` names the running stage once. Tests: `test_server_readers.py`,
+  `test_headless_server.py`, `ServerReadersTests.swift`. Pick up: review and merge; on the home server run
+  `cicada engine connect claude-plan`, `cicada sleep engine --mode agent`, `cicada sleep schedule --use-plan on`.
 - **2026-10-16 — people from LinkedIn connections: the export enriches who is already in memory, and a skill for the
   rest (G154's pattern, G71, G166; branch `feat/linkedin-people`, not merged).** Owner: "extracting people profiles from
   my LinkedIn connections (maybe could be a skill) would be nice". `linkedin_people.py` reads `Connections.csv` (or the
@@ -237,7 +251,7 @@ Markdown, evidence and git hold memory. Embeddings provide semantic recall and c
 
 ## Consolidation boundaries
 
-Use a separate named real test bank or an explicitly chosen existing bank, with a recoverable committed baseline. New exports are imported normally; do not wipe the bank or mark every episode unprocessed to force a rerun. Inspect the import preview, preserve dates/speakers, then run a small batch with the selected engine. An API-funded run needs a budget; a user-started plan engine respects its plan limits and pause behavior. Scheduled plan use remains forbidden by ruling 4. Runbook details: [G10 trial](2026-10-06-first-memory-trial.md).
+Use a separate named real test bank or an explicitly chosen existing bank, with a recoverable committed baseline. New exports are imported normally; do not wipe the bank or mark every episode unprocessed to force a rerun. Inspect the import preview, preserve dates/speakers, then run a small batch with the selected engine. An API-funded run needs a budget; a user-started plan engine respects its plan limits and pause behavior. Scheduled plan use needs the person's switch (ruling 4b). Runbook details: [G10 trial](2026-10-06-first-memory-trial.md).
 
 ## Unstructured follow-ups retained from the old handoff
 
@@ -276,6 +290,26 @@ A whole row moves to DONE only after its remaining implementation and required a
    `engine_select.SUBSCRIPTION_MODES`, so a third plan engine cannot forget the guard (Track E,
    2026-09-23). Only an explicit `CICADA_LLM_MODE` in `api/.env` runs a plan on the schedule. The UI
    copy says "never on the nightly schedule" and that is literally true for both plans.
+   **4b — amended (owner, 2026-10-16): "The server should be allowed to use plans too. Just have to set them up
+   somehow."** and, on the ChatGPT plan, the same day: **"Yeah chat too."** A machine may let **scheduled** runs use
+   the person's plan behind an explicit switch, **off by default**: "Scheduled runs may use my plan" in Settings → Sleep,
+   `cicada sleep schedule --use-plan on|off`, stored machine-wide as `sleep_run_prefs.scheduled_use_plan`; where it is
+   turned on it says once that nightly runs then count against the plan's limits. With it on, a scheduled run resolves
+   exactly as one the person starts would — the Claude or the ChatGPT plan, each only when it is the engine the person's
+   own choice resolves to and it is signed in (`engine_select.SCHEDULE_PLAN_MODES`). `SUBSCRIPTION_MODES` stays the one
+   guard; the switch is its only door besides an explicit `CICADA_LLM_MODE`. Such a run drains like any scheduled run
+   (the dotfile pin keeps ruling 16's one batch); a plan limit pauses it, Past reads shows the plan share (#317), and the
+   schedule replaces its `plan_window`/`plan_weekly` pause once the limit has reset (the vendor's `resets_at`, else after
+   six hours) since on a server nobody presses Continue; extra usage stays the person's and ruling 15's continue never
+   arms from a scheduled run. The scheduled web lookup (ruling 27) may use the Claude plan's search under the switch too.
+   **Setting a plan up headless:** `cicada engine connect claude-plan` (Claude Code's own `claude auth login
+   --claudeai`; where it cannot finish, `claude setup-token` elsewhere and `CLAUDE_CODE_OAUTH_TOKEN` in the unit's own
+   environment, which reads as `oauth_token`, a plan) and `cicada engine connect chatgpt-plan` (the Codex CLI's own
+   `codex login --device-auth`, in Cicada's own `CODEX_HOME`): in the person's own terminal on the server, through the
+   CLI's own sign-in; Cicada never sees, prints or stores the token. **Owner decision 2, same day:** a schedule with no
+   engine it may use says so — when it is turned on (`/sleep/schedule`'s `warning`), in `engine list` ("no key"), and
+   `ask` says it has no engine — each offering to connect a plan first. Revisit if a scheduled run is found to have
+   spent a plan without the switch on, or if the switch's disclosure is found missing where it is turned on.
 5. **Raw storage does not replace Sleep** (G101). Text cannot decay — only a belief can go stale or
    be contradicted — so "time as a signal" needs a belief object.
 6. **Capture is agent-judgment and that is a measured problem** (G105): 0 MCP invocations in 12

@@ -1236,6 +1236,12 @@ stored.
   author kind folds `git_service.AUTHOR_SHAPE` into its ETag; bump it when the buckets move.
   Powers `GET /contributors`: one `git log --name-only --root --no-renames --no-show-signature` over the whole history (a `diff-tree` per
   commit cost ~18 s at 1,043 commits and ran again on every commit, the ETag being HEAD; 2026-10-16).
+  **An agent's commit carries only the agent's change** (owner 2026-10-16, from the backend
+  hunt): every door that runs a mutating tool — the stdio MCP server, the tool door (`/tools/call`), the CLI's in-process
+  mirrors — snapshots the bank's dirty pages first (`agent_commits.setting_apart`, `git_service.snapshot_dirty_sync`),
+  and `agent_commits.commit_write` (and the agent's web-check settle) then commits an edit that was already on a path
+  it takes apart, first, as `Uncommitted edit kept apart <date>` with no author (`commit_touched_sync`, trigger
+  `agent/kept-apart`), the way the inbox routes do; a path the agent did not change keeps its edit uncommitted.
 - **`Cicada-Engine:`** — exactly one per main commit (`claude-cli|ollama|litellm`), **omitted
   entirely rather than guessed** when no LLM ran. Read back via git's own
   `%(trailers:key=…,valueonly)` directive, not a Python parse of `%b` — pulling the whole body to
