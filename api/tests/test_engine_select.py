@@ -477,7 +477,7 @@ def test_powered_connection_reads_the_byok_pref_model_before_the_env_model():
     """Round 4 final review: the OpenRouter card and the key-provider picker
     write the byok pref's model; POWERS and /status must name the card that
     model bills, not the env default's (or none)."""
-    prefs = {"sleep-engine": {"mode": "byok", "model": "openrouter/~openai/gpt-mini-latest"}}
+    prefs = {"sleep-engine": {"mode": "byok", "model": "openrouter/openai/gpt-oss-120b"}}
     pick = engine_select.powered_connection_id
     assert pick(Settings(), _FakeRegistry(prefs=prefs), {"byok-openrouter"}) == "byok-openrouter"
     assert pick(Settings(), _FakeRegistry(prefs=prefs), {"byok-openai", "byok-openrouter"}) == "byok-openrouter"

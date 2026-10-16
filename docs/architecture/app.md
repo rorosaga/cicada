@@ -115,7 +115,8 @@ server's sentence (`SourceDraft.afterAdd` decides what the field holds), and a s
 **Ruling (2026-09-28, TODO ruling 12): plan usage and model prices show on the Sleep page's Details and its engine
 menu — and nowhere else yet.** This supersedes the 2026-09-03 ruling ("prices and token usage are not shown anywhere
 in the app") for those two surfaces only: no cost tiles, no `$`/token columns and no cost-per-day chart elsewhere, and
-the `/consumption/*` endpoints are unchanged. Every figure states its basis in words ("charged", "at list price", a
+the `/consumption/*` endpoints are unchanged, except that a cost bucket no call priced is `null` (unknown), never
+`0.0` (2026-10-16). Every figure states its basis in words ("charged", "at list price", a
 plan window's share) and a plan's before → after carries the honest limit that it covers all use of the plan
 (`CycleUsageText`, `UsageFormat.currency`). Details' Last cycle describes the latest *finished* cycle from one history
 record the backend finds, `/sleep/status`'s `lastFinishedCycle` (`LastCycleFigures.resolve`, 2026-10-16): a drain is
@@ -308,6 +309,10 @@ the callback path) or *Paste a key instead*; under the hood it is `byok` with an
 unchanged and `PUT {mode: "openrouter"}` is a 422 — every card becomes a mode through `EngineWrite.mode(of:)`, and
 `selected` on the wire names the card. The API key card is a provider picker (Anthropic, OpenAI, Gemini, xAI, Groq,
 Mistral), each writing its tested default model and offering its key field in place; a key's model pins its judge.
+The defaults live in `byok.PROVIDERS` and must be in the installed litellm's bundled table, priced and with structured
+output (`test_byok_providers`; the table is never fetched, `network.md`): OpenRouter's is `openrouter/openai/gpt-oss-120b`
+and xAI's `xai/grok-4-1-fast-reasoning-latest` since 2026-10-16 — the earlier `openrouter/~openai/gpt-mini-latest` and
+`xai/grok-4.5-latest` were only ever in the fetched table.
 Ollama wears a *Local* tag and no card says "slower". Under the cards, `LeavesMacNote` — a pure function — says
 where reads leave the Mac and to whom, only for engines that send data out (never Ollama, nor Auto resolving to it).
 A preview line or the Sleep page's button that runs on an `openrouter/` model names and marks OpenRouter.

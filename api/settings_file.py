@@ -27,11 +27,14 @@ from collections.abc import MutableMapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from api import LITELLM_PINNED
+
 #: The file's name inside this package's folder, and the one way `/status` and the docs refer to it.
 DISPLAY_NAME = "api/.env"
 
-#: Names the settings file can never set: the switch that keeps litellm's walk-up `.env` load off.
-CONTROL_KEYS = ("LITELLM_MODE",)
+#: Names the settings file can never set: the switch that keeps litellm's walk-up `.env` load off, and the one that
+#: keeps its price table the bundled copy (`api.LITELLM_PINNED`).
+CONTROL_KEYS = ("LITELLM_MODE", *LITELLM_PINNED)
 
 _PREFIX = "CICADA_"
 

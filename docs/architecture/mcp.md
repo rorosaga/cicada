@@ -721,8 +721,9 @@ the CLI.
   (`cli_map.exposed_tools()`). A reply therefore never names an action the command line lacks.
 - **One bootstrap, before any service import.** In order:
   - The caller's folder is recorded and is never used to find configuration.
-  - `LITELLM_MODE=PRODUCTION` is forced, so litellm's import-time `load_dotenv` stays off. It is forced again after
-    every overlay: no config file can set it, or the root keys.
+  - `LITELLM_MODE=PRODUCTION` is forced, so litellm's import-time `load_dotenv` stays off, and with it
+    `LITELLM_LOCAL_MODEL_COST_MAP=True` (`api.pin_litellm`, `network.md`). Both are forced again after every overlay: no
+    config file can set them, or the root keys.
   - The memory root is resolved as **one field**: caller `CICADA_MEMORY_PATH` > caller `CICADA_MEMORY_ROOT` > a
     developer checkout's `api/.env` PATH > ROOT > `~/cicada/memory`. The checkout file's other keys are overlaid (the
     file wins, as in the app-spawned dev backend).

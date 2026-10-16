@@ -98,6 +98,14 @@ person chooses Cicada → Check for Updates…. The requests carry no cookies, t
 the app before anything is unzipped, and nothing reaches the backend. The tester's install line
 (`scripts/install-release.sh`) is the person's own command and fetches the same two files with `curl`.
 
+**litellm fetches nothing at import (2026-10-16).** `import litellm` used to request its model price-and-capability
+table from GitHub (5 s timeout, falling back to the copy it ships), on every process start and behind no gate. `api/__init__.py`
+forces `LITELLM_LOCAL_MODEL_COST_MAP=True` before any module can import litellm — the backend, the CLI, the MCP server and the
+test suite all import that package first — and the CLI bootstrap and the settings file treat the name as a control key no
+file can set. The table is the installed litellm's own, so prices and the key providers' tested defaults change only with
+a litellm upgrade. A model the table does not list still runs; its cost is unknown (`None`) on the ledger, the Sleep page's
+cost lines and the Usage aggregates, never `$0` (ruling 12).
+
 **The Neural Engine search model's download (owner 2026-10-09).** EmbeddingGemma 2 (`api/services/model_fetch.py`) is
 fetched only when the person asks: *Turn on* beside *Understand what you mean* in Settings → Search & files, or the
 *Download* in the confirm a *Sharper* pick under its Advanced raises — a selection alone never downloads

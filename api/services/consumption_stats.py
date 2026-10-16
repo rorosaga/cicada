@@ -111,8 +111,16 @@ def _events_in(range_: str, today: date) -> list[UsageEvent]:
 
 
 def _sum_cost(events: list[UsageEvent], attr: str) -> float | None:
+    """The known figures summed; ``None`` when no event carried one. A call litellm could not price (a model its
+    bundled table does not list) records ``None``, and a range of only such calls is unknown, never ``0.0``."""
     vals = [getattr(e, attr) for e in events if getattr(e, attr) is not None]
     return round(sum(vals), 6) if vals else None
+
+
+def _add_cost(row: dict, key: str, value: float | None) -> None:
+    """Add a figure to a bucket that starts unknown (``None``); an unknown figure leaves it as it was."""
+    if value is not None:
+        row[key] = (row[key] or 0.0) + value
 
 
 async def summary(memory_path: Path, *, range_: str, today: date) -> dict:
@@ -123,8 +131,8 @@ async def summary(memory_path: Path, *, range_: str, today: date) -> dict:
     active = set(writes) | {e.ts[:10] for e in events}
     cur, best = streaks(active, today)
     return {
-        "cost_usd": _sum_cost(events, "cost_usd") or 0.0,
-        "equiv_cost_usd": _sum_cost(events, "equiv_cost_usd") or 0.0,
+        "cost_usd": _sum_cost(events, "cost_usd"),
+        "equiv_cost_usd": _sum_cost(events, "equiv_cost_usd"),
         "invocations": sum(e.invocations for e in events if e.kind in ("llm_call", "ask")),
         "tokens": sum(e.tokens for e in events),
         "memory_writes": sum(writes.values()),
@@ -171,15 +179,15 @@ async def calendar(memory_path: Path, *, weeks: int, today: date) -> list[dict]:
     for i in range(weeks * 7):
         d = (start + timedelta(days=i)).isoformat()
         per_day[d] = {"date": d, "memory_writes": writes.get(d, 0), "events": 0, "tokens": 0,
-                      "cost_usd": 0.0, "equiv_cost_usd": 0.0}
+                      "cost_usd": None, "equiv_cost_usd": None}
     for e in events:
         row = per_day.get(e.ts[:10])
         if row is None:
             continue
         row["events"] += 1
         row["tokens"] += e.tokens
-        row["cost_usd"] += e.cost_usd or 0.0
-        row["equiv_cost_usd"] += e.equiv_cost_usd or 0.0
+        _add_cost(row, "cost_usd", e.cost_usd)
+        _add_cost(row, "equiv_cost_usd", e.equiv_cost_usd)
     # Activity score for the colour level: memory writes, ledger events, and
     # token volume all contribute — tokens dominate at typical scale (a
     # single sizeable LLM call outweighs a couple of memory-write commits),
@@ -188,22 +196,23 @@ async def calendar(memory_path: Path, *, weeks: int, today: date) -> list[dict]:
     levels = _levels(score)
     for d, r in per_day.items():
         r["level"] = levels[d]
-        r["cost_usd"] = round(r["cost_usd"], 6)
-        r["equiv_cost_usd"] = round(r["equiv_cost_usd"], 6)
+        for key in ("cost_usd", "equiv_cost_usd"):
+            if r[key] is not None:
+                r[key] = round(r[key], 6)
     return list(per_day.values())
 
 
 async def contributor_calendar(memory_path: Path, *, author: str, weeks: int, today: date) -> list[dict]:
     """The ``/consumption/calendar`` shape for ONE contributor (G124 R14):
     memory writes per UTC day, level from writes alone, every other counter
-    zero so ``HeatmapView`` renders it with no new cell type."""
+    zero (cost unknown, ``None``) so ``HeatmapView`` renders it with no new cell type."""
     start = today - timedelta(days=weeks * 7 - 1)
     writes = await memory_write_days_by_author(memory_path, author)
     rows: dict[str, dict] = {}
     for i in range(weeks * 7):
         d = (start + timedelta(days=i)).isoformat()
         rows[d] = {"date": d, "memory_writes": writes.get(d, 0), "events": 0, "tokens": 0,
-                   "cost_usd": 0.0, "equiv_cost_usd": 0.0}
+                   "cost_usd": None, "equiv_cost_usd": None}
     levels = _levels({d: float(r["memory_writes"]) for d, r in rows.items()})
     for d, r in rows.items():
         r["level"] = levels[d]
@@ -278,12 +287,12 @@ async def stats(memory_path: Path, *, range_: str, today: date) -> dict:
             hours[int(e.ts[11:13])] += 1
         except ValueError:
             pass
-    by_day: dict[str, dict] = defaultdict(lambda: {"tokens": 0, "cost_usd": 0.0, "equiv_cost_usd": 0.0, "events": 0})
+    by_day: dict[str, dict] = defaultdict(lambda: {"tokens": 0, "cost_usd": None, "equiv_cost_usd": None, "events": 0})
     for e in events:
         d = by_day[e.ts[:10]]
         d["tokens"] += e.tokens
-        d["cost_usd"] += e.cost_usd or 0.0
-        d["equiv_cost_usd"] += e.equiv_cost_usd or 0.0
+        _add_cost(d, "cost_usd", e.cost_usd)
+        _add_cost(d, "equiv_cost_usd", e.equiv_cost_usd)
         d["events"] += 1
     series = [{"date": d, **{k: (round(v, 6) if isinstance(v, float) else v) for k, v in row.items()}}
               for d, row in sorted(by_day.items())]
