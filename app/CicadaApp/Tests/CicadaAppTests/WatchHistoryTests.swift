@@ -129,6 +129,16 @@ final class ChromeWatchHistoryReaderTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: scratch.path), [], "the private copy is deleted")
     }
 
+    func testAnUnreadableCopyIsDeletedToo() throws {
+        history.close()
+        try Data("not a database".utf8).write(to: history.url)
+        XCTAssertThrowsError(try reader().read(after: 0)) { error in
+            XCTAssertEqual(error as? WatchHistoryReadError, .unreadable)
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: scratch.path), [],
+                       "the private copy is deleted on the error path as well")
+    }
+
     func testPassesResumePastTheCursorAndAClearedHistoryStartsAgain() throws {
         for i in 1...3 {
             history.visit("https://www.youtube.com/watch?v=video000000\(i)", title: "Video \(i)",
