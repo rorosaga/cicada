@@ -16,7 +16,7 @@ from pathlib import Path
 from . import isolate
 
 #: The routes the app polls or opens on, plus the read tools an agent calls every turn.
-HOT = ["/status", "/sleep/status", "/graph", "/inbox", "/search?q=alpha", "/search/quick?q=alp",
+HOT = ["/status", "/sleep/status", "/graph", "/inbox", "/search?q=alpha", "/search?q=alp&mode=prefix",
        "/sources/messages/waiting", "/sync/version"]
 #: Every Store domain's GET (`SyncAPI` / `APIClient.getConditional`): the cold-launch hydration set.
 STORE = ["/graph", "/inbox", "/banks", "/sources?sort=relevance", "/sources/channels", "/sources/feeds",
