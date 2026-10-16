@@ -17,6 +17,36 @@ to install, and it updates itself (Settings → General → *Install updates aut
 the zip from the Releases page in a browser works too, but because the app isn't notarized yet macOS
 asks once: System Settings → Privacy & Security → **Open Anyway**. Details: [`docs/RELEASING.md`](docs/RELEASING.md).
 
+## A server, or Homebrew (no app)
+
+On a **Linux** machine with systemd, as the user who will own the memory (not root):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-server.sh | bash
+```
+
+It checks for `git`, `curl` and `uv` and names whichever is missing with the line that installs it; then it
+installs the latest release, the `cicada` command and a background service that listens on this machine only. Run it
+again to update; add `bash -s -- --uninstall` to remove it (the memory stays). It never asks for or prints a key or a
+token. If it says lingering is off, the service stops at logout until the person runs the `sudo loginctl
+enable-linger` line it prints — that is the person's step, not the agent's.
+
+With **Homebrew** (a Mac or Linux), the same backend and command without the app:
+
+```sh
+brew tap rorosaga/cicada https://github.com/rorosaga/cicada
+brew install cicada
+cicada-setup
+```
+
+**Both lines work from the next release on** (`main` is still 0.3.1 and has neither file; a `main` URL answers 404
+until then). Before it, a tester installs from `dev`:
+`curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/dev/scripts/install-server.sh | CICADA_REF=dev bash`,
+or for Homebrew `git clone -b dev https://github.com/rorosaga/cicada && brew tap rorosaga/cicada "$PWD/cicada" && brew
+install --HEAD cicada`.
+
+Connecting other machines to a server, and the topology: `docs/architecture/headless.md`.
+
 The rest of this page installs Cicada **from source**, for developers.
 
 ## The one-paste way

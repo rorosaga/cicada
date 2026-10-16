@@ -4,8 +4,9 @@
     check_version.py agree [--root DIR] [--info-plist PATH] [--latest-json PATH]
     git ls-remote --tags --refs origin 'refs/tags/v*' | check_version.py plan [--root DIR] [--dry-run]
 
-`agree` holds every file that stamps a version to `VERSION` (api/pyproject.toml, uv.lock's cicada-api entry, and,
-when given, a built app's CFBundleShortVersionString and a release's latest.json) and exits 1 naming the one that
+`agree` holds every file that stamps a version to `VERSION` (api/pyproject.toml, uv.lock's cicada-api entry, the
+Homebrew formula's tag when Formula/cicada.rb exists, and, when given, a built app's CFBundleShortVersionString and a
+release's latest.json) and exits 1 naming the one that
 disagrees. `plan` reads tags (ls-remote lines or bare names) on stdin and prints GitHub outputs:
 
     version=X.Y.Z   status=released|new|behind   latest=true|false   previous=vA.B.C
@@ -91,6 +92,15 @@ def _lock_version(text: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
+def _formula_version(text: str) -> Optional[str]:
+    """The stable `url`'s tag in Formula/cicada.rb (G181), without its `v`."""
+    m = re.search(r'^\s*url\s+"[^"]*",\s*tag:\s*"v([^"]*)"', text, re.M)
+    return m.group(1) if m else None
+
+
+FORMULA = "Formula/cicada.rb"
+
+
 def agree(root: Path, info_plist: Optional[Path] = None, latest_json: Optional[Path] = None) -> str:
     version = _read(root, "VERSION").strip()
     key(version)
@@ -98,6 +108,8 @@ def agree(root: Path, info_plist: Optional[Path] = None, latest_json: Optional[P
         "api/pyproject.toml": _pyproject_version(_read(root, "api/pyproject.toml")),
         "api/uv.lock (cicada-api)": _lock_version(_read(root, "api/uv.lock")),
     }
+    if (root / FORMULA).is_file():
+        found[f"{FORMULA} (url tag)"] = _formula_version(_read(root, FORMULA))
     if info_plist is not None:
         with open(info_plist, "rb") as fh:
             found[f"{info_plist} CFBundleShortVersionString"] = plistlib.load(fh).get("CFBundleShortVersionString")

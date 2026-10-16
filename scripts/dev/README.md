@@ -61,3 +61,14 @@ next tick retries. Only a refused connection (nothing listening) or a missing to
 error or an unreadable answer means a busy backend, so it defers too.
 `CICADA_AUTOUPDATE_FORCE=1` skips the check. The backend restarts only when runtime code moved (`api` outside
 `api/tests`, `mcp`, the dependency files); a test-only or benchmark-only merge never restarts it.
+
+## Install tests in Docker (G181)
+
+- `scripts/dev/test-install-linux.sh [ubuntu|fedora]` — the one-line Linux install (`scripts/install-server.sh`) on
+  real systemd: missing prerequisite, install, loopback-only listener, CLI, token never printed, re-run no-op, update
+  restarts, `--uninstall`.
+- `scripts/dev/test-install-brew.sh` — the Homebrew formula on Linuxbrew: `brew style`, `brew audit --new --strict`,
+  install, `brew test`, `cicada-setup`, upgrade, uninstall.
+
+Both serve the committed HEAD from a local bare repo (commit first), never fetch Cicada from GitHub, and remove every
+container and image they build. `CICADA_TEST_CACHE` (Linux) shares uv's and the model's downloads between runs.

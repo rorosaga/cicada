@@ -282,13 +282,16 @@ def test_it_sets_the_identity_once_and_only_in_the_bank(tmp_path, no_identity):
 # --------------------------------------------------------------------------- install.sh picks the service by platform
 
 
-def _install_dry_run(tmp_path: Path, os_name: str) -> tuple[subprocess.CompletedProcess, Path]:
+def _install_dry_run(tmp_path: Path, os_name: str, api_base: str = "") -> tuple[subprocess.CompletedProcess, Path]:
     import re
 
     home = tmp_path / "home"
     bin_dir = tmp_path / "bin"
     home.mkdir()
     bin_dir.mkdir()
+    if api_base:
+        (home / ".cicada").mkdir()
+        (home / ".cicada" / "api_base").write_text(api_base + "\n")
     _fake(bin_dir, "uname", f'if [ "$1" = "-m" ]; then echo x86_64; else echo {os_name}; fi\n')
     _fake(bin_dir, "uv", "exit 0\n")
     # install.sh probes a fixed :8000 and skips step 6 when a backend answers; on a developer's Mac one does.
@@ -317,6 +320,15 @@ def test_install_on_a_mac_keeps_launchd(tmp_path):
     assert done.returncode == 0, done.stderr + done.stdout[-2000:]
     assert "6. Backend service (launchd)" in done.stdout and "launchctl bootstrap" in done.stdout
     assert "systemctl" not in done.stdout
+
+
+@pytest.mark.parametrize("os_name", ["Darwin", "Linux"])
+def test_install_on_a_server_client_installs_no_local_backend(tmp_path, os_name):
+    """#313: a machine whose memory lives on a server (the app's api_base) runs no backend of its own."""
+    done, _ = _install_dry_run(tmp_path, os_name, api_base="https://server.example.invalid")
+    assert done.returncode == 0, done.stderr + done.stdout[-2000:]
+    assert "memory lives on a server" in done.stdout
+    assert "launchctl bootstrap" not in done.stdout and "systemctl --user restart" not in done.stdout
 
 
 def test_doctor_checks_the_service_of_its_platform():

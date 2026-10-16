@@ -434,7 +434,18 @@ if [ "$OS_NAME" = "Linux" ]; then
 else
   hdr "6. Backend service (launchd)"
 fi
-if backend_healthy; then
+# G181 phase 3: a machine whose memory lives on a server (CICADA_API_BASE, or the app's $CICADA_HOME/api_base) runs no
+# backend of its own — its hooks, MCP and `cicada` already talk to the server (the same rule as hook_client.raw_base).
+CLIENT_OF=""
+if [ -n "$(printf '%s' "${CICADA_API_BASE:-}" | tr -d '[:space:]')" ]; then
+  CLIENT_OF="CICADA_API_BASE"
+elif [ -s "${CICADA_HOME:-$HOME/.cicada}/api_base" ] \
+    && [ -n "$(tr -d '[:space:]' < "${CICADA_HOME:-$HOME/.cicada}/api_base" 2>/dev/null)" ]; then
+  CLIENT_OF="${CICADA_HOME:-$HOME/.cicada}/api_base"
+fi
+if [ -n "$CLIENT_OF" ]; then
+  ok "This machine's memory lives on a server ($CLIENT_OF) — no local backend service"
+elif backend_healthy; then
   ok "A Cicada backend is already serving /healthz on :$PORT — skipping the service install"
 elif [ "$OS_NAME" = "Linux" ]; then
   step "Installing the background service (scripts/install-backend-service.sh)"

@@ -4,7 +4,7 @@
 # it never pushes main, never tags and never force-pushes.
 #
 #   release.sh bump X.Y.Z [--dry-run] [--yes]   (make release VERSION=X.Y.Z)
-#       Bumps VERSION, api/pyproject.toml and uv.lock's project line on a `release/vX.Y.Z` branch off the remote's
+#       Bumps VERSION, api/pyproject.toml, uv.lock's project line and Formula/cicada.rb's tag on a `release/vX.Y.Z` branch off the remote's
 #       dev, pushes that branch and opens a PR to dev titled `chore(release): X.Y.Z`. Refuses a version that is
 #       already tagged or not greater than the latest tag. When dev already says X.Y.Z there is nothing to bump.
 #   release.sh pr [--dry-run] [--yes]           (make release-pr)
@@ -70,7 +70,10 @@ judge() {
 
 # dev's own version files, checked to agree.
 mkdir -p "$TMP/dev"
-git -C "$REPO" archive "$REMOTE/dev" VERSION api/pyproject.toml api/uv.lock | tar -x -C "$TMP/dev"
+# The Homebrew formula (G181) stamps the version too, once dev carries it.
+DEV_STAMPS=(VERSION api/pyproject.toml api/uv.lock)
+git -C "$REPO" cat-file -e "$REMOTE/dev:Formula/cicada.rb" 2>/dev/null && DEV_STAMPS+=(Formula/cicada.rb)
+git -C "$REPO" archive "$REMOTE/dev" "${DEV_STAMPS[@]}" | tar -x -C "$TMP/dev"
 python3 "$CHECK" agree --root "$TMP/dev"
 DEV_VERSION="$(tr -d '[:space:]' < "$TMP/dev/VERSION")"
 
@@ -98,14 +101,18 @@ from pathlib import Path
 root, version = Path(sys.argv[1]), sys.argv[2]
 (root / "VERSION").write_text(version + "\n", encoding="utf-8")
 for rel, pattern in (("api/pyproject.toml", r'(\[project\][^\[]*?^version = ")[^"]+(")'),
-                     ("api/uv.lock", r'(^name = "cicada-api"\nversion = ")[^"]+(")')):
+                     ("api/uv.lock", r'(^name = "cicada-api"\nversion = ")[^"]+(")'),
+                     ("Formula/cicada.rb", r'(^\s*url\s+"[^"]*",\s*tag:\s*"v)[^"]+(")')):
     path = root / rel
+    if rel.startswith("Formula/") and not path.is_file():
+        continue
     text, n = re.subn(pattern, rf"\g<1>{version}\g<2>", path.read_text(encoding="utf-8"), count=1, flags=re.M | re.S)
     assert n == 1, f"{rel}: the version line was not found"
     path.write_text(text, encoding="utf-8")
 PY
   python3 "$CHECK" agree --root "$WORK"
   git -C "$WORK" add VERSION api/pyproject.toml api/uv.lock
+  [ -f "$WORK/Formula/cicada.rb" ] && git -C "$WORK" add Formula/cicada.rb
   git -C "$WORK" commit -q -m "chore(release): $VERSION"
   echo "Release $TAG — step 1 of 2"
   echo "  branch $BRANCH → $(git -C "$WORK" rev-parse --short HEAD)  ($DEV_VERSION → $VERSION, off $REMOTE/dev)"
@@ -118,7 +125,7 @@ PY
   confirm "Push $BRANCH and open its PR to dev?"
   git -C "$WORK" push -q "$REMOTE" "HEAD:refs/heads/$BRANCH"
   (cd "$REPO" && gh pr create --base dev --head "$BRANCH" --title "chore(release): $VERSION" \
-    --body "Bumps VERSION, api/pyproject.toml and api/uv.lock to $VERSION (G182). After it merges, \`make release-pr\` opens the dev → main release PR.")
+    --body "Bumps VERSION, api/pyproject.toml, api/uv.lock and Formula/cicada.rb to $VERSION (G182). After it merges, \`make release-pr\` opens the dev → main release PR.")
   echo "✓ Next: merge that PR into dev, then run make release-pr"
   exit 0
 fi

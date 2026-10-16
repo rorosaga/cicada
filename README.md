@@ -121,6 +121,37 @@ on-device search model, so nothing else needs installing, and it keeps itself up
 [Releases](https://github.com/rorosaga/cicada/releases) works too; until the app is notarized, macOS asks once
 (System Settings → Privacy & Security → Open Anyway). How releases are cut: [`docs/RELEASING.md`](docs/RELEASING.md).
 
+## Install on a server (Linux), or with Homebrew
+
+A headless Cicada — the backend, Sleep, the `cicada` command and the MCP server, no app — on a Linux machine with
+systemd, as the user who will own the memory:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-server.sh | bash
+```
+
+It needs `git`, `curl` and [uv](https://github.com/astral-sh/uv), and says exactly which one is missing. It installs
+the latest release into `~/.local/share/cicada`, the memory into `~/cicada/memory`, and a systemd user service bound to
+`127.0.0.1:8000`. Run the same line to update; `… | bash -s -- --uninstall` removes everything but the memory.
+`CICADA_REF=dev` installs a branch instead. Reaching it from your other machines, and giving each its own token:
+[`docs/architecture/headless.md`](docs/architecture/headless.md).
+
+On a Mac (or Linux) with Homebrew — the same backend, CLI and MCP server, without the app:
+
+```sh
+brew tap rorosaga/cicada https://github.com/rorosaga/cicada
+brew install cicada
+cicada-setup          # memory folder, search model, agent hooks, background service
+```
+
+**Not live yet:** both lines arrive with the next release (`main` is still 0.3.1, which has neither file). To try them
+before that, from `dev`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/dev/scripts/install-server.sh | CICADA_REF=dev bash
+git clone -b dev https://github.com/rorosaga/cicada && brew tap rorosaga/cicada "$PWD/cicada" && brew install --HEAD cicada
+```
+
 ## Quick start (from source)
 
 Requirements: macOS 14+, Python 3.12, [uv](https://github.com/astral-sh/uv), Xcode command
