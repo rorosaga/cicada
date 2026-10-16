@@ -201,7 +201,7 @@ preflight() {
   os="$(uname -s)"
   if [ "$os" != "Linux" ]; then
     if [ "$os" = "Darwin" ]; then
-      err "This installs the Linux server. On a Mac: the app (scripts/install-release.sh), or Homebrew — brew tap rorosaga/cicada https://github.com/rorosaga/cicada && brew install cicada"
+      err "This installs the Linux server. On a Mac: the app (scripts/install-release.sh), or Homebrew — brew tap rorosaga/cicada https://github.com/rorosaga/cicada && brew install rorosaga/cicada/cicada"
     else
       err "Cicada's server install runs on Linux (this is $os)."
     fi

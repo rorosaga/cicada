@@ -140,7 +140,7 @@ On a Mac (or Linux) with Homebrew — the same backend, CLI and MCP server, with
 
 ```sh
 brew tap rorosaga/cicada https://github.com/rorosaga/cicada
-brew install cicada
+brew install rorosaga/cicada/cicada
 cicada-setup          # memory folder, search model, agent hooks, background service
 ```
 
@@ -149,7 +149,7 @@ before that, from `dev`:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/dev/scripts/install-server.sh | CICADA_REF=dev bash
-git clone -b dev https://github.com/rorosaga/cicada && brew tap rorosaga/cicada "$PWD/cicada" && brew install --HEAD cicada
+git clone -b dev https://github.com/rorosaga/cicada && brew tap rorosaga/cicada "$PWD/cicada" && brew install --HEAD rorosaga/cicada/cicada
 ```
 
 ## Quick start (from source)

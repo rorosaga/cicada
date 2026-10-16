@@ -433,3 +433,14 @@ def test_a_client_install_asks_the_server_and_never_starts_a_local_backend(world
     calls = _calls(world)
     assert "cicada status --json" in calls
     assert not any(c.startswith("service") for c in calls)                # no unit on a client, update or not
+
+
+def test_every_brew_install_line_names_the_formula_in_full():
+    """QA 2026-10-16, Homebrew 7.0.9: `brew install cicada` from a freshly added tap answers "Refusing to load formula
+    rorosaga/cicada/cicada from untrusted tap" and installs nothing; `brew install rorosaga/cicada/cicada` installs."""
+    bare = re.compile(r"brew\s+install\s+(?:--HEAD\s+)?cicada\b")
+    for rel in ("README.md", "install.md", "docs/architecture/headless.md", "Formula/cicada.rb",
+                "scripts/install-server.sh"):
+        text = (ROOT / rel).read_text()
+        assert not bare.search(text), f"{rel} tells the person to install by the short name"
+        assert "brew install" not in text or "rorosaga/cicada/cicada" in text

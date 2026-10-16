@@ -35,7 +35,7 @@ With **Homebrew** (a Mac or Linux), the same backend and command without the app
 
 ```sh
 brew tap rorosaga/cicada https://github.com/rorosaga/cicada
-brew install cicada
+brew install rorosaga/cicada/cicada
 cicada-setup
 ```
 
@@ -43,7 +43,7 @@ cicada-setup
 until then). Before it, a tester installs from `dev`:
 `curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/dev/scripts/install-server.sh | CICADA_REF=dev bash`,
 or for Homebrew `git clone -b dev https://github.com/rorosaga/cicada && brew tap rorosaga/cicada "$PWD/cicada" && brew
-install --HEAD cicada`.
+install --HEAD rorosaga/cicada/cicada`.
 
 Connecting other machines to a server, and the topology: `docs/architecture/headless.md`.
 

@@ -52,9 +52,12 @@ This repository is its own tap; the formula is `Formula/cicada.rb`:
 
 ```sh
 brew tap rorosaga/cicada https://github.com/rorosaga/cicada
-brew install cicada        # --HEAD follows dev
-cicada-setup               # memory folder, search model, hooks, background service
+brew install rorosaga/cicada/cicada        # --HEAD follows dev
+cicada-setup                               # memory folder, search model, hooks, background service
 ```
+
+The formula is named in full: Homebrew 7 refuses to load a formula by its short name from a tap the person
+has not trusted — "Refusing to load formula rorosaga/cicada/cicada from untrusted tap"; the full name installs it (so does `brew trust rorosaga/cicada`, once).
 
 - **What it installs:** the backend, the MCP server and the `cicada` command (`api`, `mcp`, `scripts`, `skills`,
   `install.sh`; no app sources, docs or tests) into `libexec`, with a venv built by the same
@@ -74,7 +77,7 @@ cicada-setup               # memory folder, search model, hooks, background serv
 - **The version:** the stable `url` is the git tag `v$VERSION`. `make release` stamps it and `check_version.py agree`
   holds it equal to `VERSION`, so the formula on `main` names the release that merge creates. The tap is the repo's
   default branch (`main`), so the formula is live from the next release on; until then, tap a clone of `dev`
-  (`brew tap rorosaga/cicada <path-to-a-dev-clone>`) and `brew install --HEAD`.
+  (`brew tap rorosaga/cicada <path-to-a-dev-clone>`) and `brew install --HEAD rorosaga/cicada/cicada`.
 - **No cask.** The release app carries its own backend and is installed by `scripts/install-release.sh`. A cask for
   the not-yet-notarized zip would be quarantined by Homebrew's download, and Gatekeeper would block it on every
   machine until the person clicks Open Anyway — exactly what the curl installer avoids. A cask follows notarization
