@@ -236,3 +236,18 @@ def test_the_real_environment_reads_the_file(tmp_path, monkeypatch):
     from api import cli
 
     assert cli._client_mode(os.environ)
+
+
+def test_a_garbled_api_base_file_fails_closed_and_the_hook_spools(tmp_path):
+    """Review fix: bytes that are not UTF-8 never crash a hook or fall back to this machine's bank — the machine is
+    still a client, the address is refused, and the hook's target names a problem (so capture spools)."""
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "api_base").write_bytes(b"\xff\xfe\x00garbage\n")
+    env = {"CICADA_HOME": str(home)}
+    assert runtime_layout.is_client(env) and hook_client.is_client(env)
+    assert hook_client.raw_base(env) == runtime_layout._raw_base(env)
+    with pytest.raises(ValueError):
+        runtime_layout.api_base(env)
+    base, _token, problem = hook_client.target(env)
+    assert base is None and problem and "garbage" not in problem

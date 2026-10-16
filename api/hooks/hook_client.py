@@ -60,7 +60,7 @@ def raw_base(environ) -> str:
         return ""
     folder = Path(home).expanduser() if home else Path.home() / ".cicada"
     try:
-        return (folder / "api_base").read_text(encoding="utf-8").strip()
+        return (folder / "api_base").read_bytes().decode("utf-8", "replace").strip()
     except OSError:
         return ""
 

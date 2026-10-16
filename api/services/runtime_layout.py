@@ -87,7 +87,9 @@ def _raw_base(environ=os.environ) -> str:
     if environ is not os.environ and not (environ.get("CICADA_HOME") or "").strip():
         return ""
     try:
-        return (cicada_home(environ) / API_BASE_FILE).read_text(encoding="utf-8").strip()
+        # Undecodable bytes are replaced, never raised: a garbled file still means "not this machine's bank", so
+        # ``api_base`` refuses it and capture spools instead of the hook dying (or a local bank being written).
+        return (cicada_home(environ) / API_BASE_FILE).read_bytes().decode("utf-8", "replace").strip()
     except OSError:
         return ""
 
