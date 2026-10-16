@@ -83,6 +83,7 @@ enum SettingsIndex {
         .calendarApp, .contactsApp, .saveWhy,
         .agentsInstall, .agentsCloud, .agentsSkill, .agentsAutoRecall, .agentsEditors, .agentsReading,
         .readingAgent, .readingExploreSignedIn, .readingNeverExplore, .readingMethods, .watchingMethods, .readingSites,
+        .readingYouTube,
         // Cicada's own skills — per-item ids (a `:`), so outside the bare-name lint
         .skill(CicadaSkillBundle.cicada.rawValue), .skill(CicadaSkillBundle.cicadaLibrarian.rawValue),
         .remoteSwitch, .remoteReach, .remoteNew,
@@ -194,6 +195,9 @@ enum SettingsIndex {
                       keywords: ["explore", "exploring", "bookmarks", "saved sites", "signed in", "private", "cookies",
                                  "incognito", "screenshots"],
                       detail: Copy.Explore.signedInDetail),
+        SettingsEntry(.readingYouTube, .reading, Copy.Reading.youtubeGroup,
+                      keywords: ["youtube", "watch later", "watch history", "history", "videos", "agent", "browser"],
+                      detail: Copy.Reading.youtubeIntro),
         SettingsEntry(.readingNeverExplore, .reading, Copy.Explore.neverTitle,
                       keywords: ["never explore", "explore", "exclude", "block", "skip", "site", "bookmarks"],
                       detail: Copy.Explore.neverDetail),

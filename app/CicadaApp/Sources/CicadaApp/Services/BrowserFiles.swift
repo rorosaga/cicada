@@ -23,6 +23,9 @@ enum BrowserFile: CaseIterable {
     /// G179: the Messages database. Read only for the conversations the person ticked (`MessagesReader`); a refused
     /// read shows the same Full Disk Access fix as the browsers.
     case messagesDatabase
+    /// G71 (2026-10-16): Chrome's default-profile `History` database — copied, never opened in place, and only its
+    /// YouTube video pages read (`ChromeWatchHistoryReader`), after the person turned it on.
+    case chromeHistory
 
     /// Round 4 (C9): a browser's bookmarks file by its `BrowserInventory` id.
     static func bookmarks(forBrowser id: String) -> BrowserFile? {
@@ -71,6 +74,8 @@ enum BrowserFile: CaseIterable {
             return [appSupport.appendingPathComponent("Google/Chrome/Default/Sessions")]
         case .messagesDatabase:
             return [MessagesReader.standardDatabase]
+        case .chromeHistory:
+            return [ChromeWatchHistoryReader.standardHistory]
         }
     }
 
@@ -86,6 +91,7 @@ enum BrowserFile: CaseIterable {
         case .diaBookmarks: "Dia bookmarks"
         case .chromeSessions: "Chrome's open tabs"
         case .messagesDatabase: "Messages"
+        case .chromeHistory: "Chrome's history"
         }
     }
 
@@ -155,6 +161,8 @@ enum BrowserFileError: Error, Equatable, LocalizedError {
                 return "Chrome hasn't saved any open windows on this Mac yet."
             case .messagesDatabase:
                 return "Messages hasn't kept any conversations on this Mac yet."
+            case .chromeHistory:
+                return "Chrome isn't installed, or has no history in its main profile yet."
             }
         }
     }

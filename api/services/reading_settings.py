@@ -20,6 +20,11 @@
   means a private, cookie-less browser context. Every capture records which.
 * ``never_explore`` — ``{site: day}``: sites the person said never to explore (a
   standing deny, machine-wide, D3).
+* ``youtube_lists`` — ``{list: day}`` (G71, owner 2026-10-16): the YouTube lists
+  (``watch_later``, ``history``) the person asked their own agent to keep current
+  from their signed-in browser (``youtube_lists``). Off by default; each is the
+  site permission for that page of youtube.com, needs a current acknowledgement
+  to turn on, and counts only while the master switch is on.
 * ``agent_ack`` — ``{date, v}``: the person's "I understand" on the first-use
   sheet. Turning the switch on needs a current one; a change of the sheet's
   wording bumps ``ACK_VERSION`` and asks again (until they do, the switch reads
@@ -141,8 +146,25 @@ def never_explore() -> dict[str, str]:
     return out
 
 
+#: The YouTube lists an agent may be asked to read (``youtube_lists.LISTS``' keys).
+YOUTUBE_LISTS = ("watch_later", "history")
+
+
+def youtube_lists() -> dict[str, str]:
+    """``{list: day granted}`` as stored. NOT gated on the master switch — see :func:`youtube_list_allowed`."""
+    raw = _load().get("youtube_lists")
+    if not isinstance(raw, dict):
+        return {}
+    return {k: str(raw[k] or "")[:10] for k in YOUTUBE_LISTS if k in raw}
+
+
+def youtube_list_allowed(name: str) -> bool:
+    return agent_enabled() and name in youtube_lists()
+
+
 def snapshot() -> dict:
     held = ack()
+    lists = youtube_lists()
     return {
         "agentEnabled": agent_enabled(),
         "allowedSites": allowed_sites(),
@@ -150,6 +172,7 @@ def snapshot() -> dict:
         "ackCurrent": ack_current(),
         "exploreSignedIn": explore_signed_in(),
         "neverExplore": never_explore(),
+        "youtubeLists": {"watchLater": "watch_later" in lists, "history": "history" in lists},
     }
 
 
@@ -159,7 +182,7 @@ class SettingsError(ValueError):
 
 def update(*, agent_enabled_: bool | None = None, acknowledge: bool = False, sites=None,
            surfaced=None, today: date | None = None, explore_signed_in_: bool | None = None,
-           never_explore_=None) -> dict:
+           never_explore_=None, youtube_lists_=None) -> dict:
     """Apply one change and return the new snapshot.
 
     Turning the switch on needs a current acknowledgement — either already
@@ -208,6 +231,24 @@ def update(*, agent_enabled_: bool | None = None, acknowledge: bool = False, sit
             data["never_explore"] = dict(sorted(held_never.items()))
         else:
             data.pop("never_explore", None)
+    if youtube_lists_ is not None:
+        if not isinstance(youtube_lists_, dict) or any(str(k) not in YOUTUBE_LISTS for k in youtube_lists_):
+            raise SettingsError("youtubeLists must be a map of watch_later or history to true or false. "
+                                "Nothing was changed.")
+        if any(youtube_lists_.values()) and not _ack_ok(data):
+            raise SettingsError(
+                "Read the sheet and tick I understand before turning this on. Nothing was changed.")
+        held_lists = data.get("youtube_lists") if isinstance(data.get("youtube_lists"), dict) else {}
+        held_lists = {k: str(v) for k, v in held_lists.items() if k in YOUTUBE_LISTS}
+        for key, on in youtube_lists_.items():
+            if on:
+                held_lists.setdefault(str(key), (today or date.today()).isoformat())
+            else:
+                held_lists.pop(str(key), None)
+        if held_lists:
+            data["youtube_lists"] = dict(sorted(held_lists.items()))
+        else:
+            data.pop("youtube_lists", None)
     if agent_enabled_ is not None:
         if agent_enabled_ and not _ack_ok(data):
             raise SettingsError(

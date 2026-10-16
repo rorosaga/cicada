@@ -381,6 +381,28 @@ toasts a link that just hit one (`ReadWords.newlyWalled`; the first look after l
 nothing). The wall reads in the text ladder with a neutral glyph, never `warning` (DR-7), and the agent's own note shows
 as "<agent> noted: …". No line says "in your browser" of what an agent did, or promises what it will not do.
 
+**YouTube lists (G71 / G166, owner 2026-10-16: "the agent being able to go to youtube using the browser to monitor
+stuff … like for youtube watch later/history").** The third door onto the watch record (`capture-and-sleep.md`, *Watch
+history*), on this section's rails: Cicada never spawns a browser, never signs in and never fetches either page; it only
+offers. **Consent:** agent reading on (its sheet acknowledged) AND the person turned the list on in Reading the web
+(`reading.json` `youtube_lists`, `{watch_later|history: day}`, off by default; the switch is the site permission for
+that page of youtube.com, refused without a current acknowledgement). **The offer** (`youtube_lists.py`; state in
+`$CICADA_HOME/youtube_lists.json`, ids, enums, counts and times only, `flock`ed): a list is *due* when allowed, not
+paused and not read for this bank in 20 hours; `cicada_reading_queue` (stdio only) appends its lines — the page
+(`https://www.youtube.com/playlist?list=WL`, `https://www.youtube.com/feed/history`), what to read (link, title,
+channel, and for history the day the page files it under), never click anything that changes a list, never sign in —
+and `reading_queue.counts` counts a due list as one of the person's asks, so the recall hook's "N links are waiting"
+hears it. **`cicada_record_youtube_list(list, outcome, videos?, via?)`** (`record` scope, stdio only —
+`catalog.NEVER_REMOTE`, the re-check's seat; a proposed CLI row `read youtube`, not exposed) under one admission and
+page lock: refused, writing nothing, in a demo bank, with reading off, for an unknown list or outcome, or a list not
+turned on; `needs_login`/`blocked` pause both lists for 7 days (no bank write; turning a list on again, or a later
+successful read, lifts it); `failed` is noted. A `read` (≤ 500 videos a call, YouTube video pages only, the rest
+counted): Watch later → saves through `media_ingestor.write_prepared` with the page's title and channel, no fetch,
+folder `Watch later`, origin `youtube-playlist` — a video already saved by any door is a duplicate; history → day rows
+through `watch_history` (door `agent`, the page's day; a row without a day is left out). Committed alone as the harness
+with its session trailer. **Not built:** a video removed from Watch later on YouTube stays saved here (the read only
+adds); the agent reads a few screens, so a long list fills over several reads.
+
 **Exploring saved sites (G166 slice 1, owner 2026-10-14, rulings D1–D6 in TODO ruling 25).** The person picks saved
 sites in Sources and clicks **Explore** (`POST /explore/batches`), or asks a trusted local agent in chat, which calls
 `cicada_explore_start(scope?, origins?, look?)` (D5: only a harness on the person's G198 trust list, stdio, never remote

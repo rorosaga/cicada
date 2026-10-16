@@ -20,9 +20,13 @@ What this module decides, and nothing more:
   may fall back to are never used inside an archive: a LinkedIn
   ``Connections.csv`` has a URL column too, and it holds other people.
 * **History is not a save.** Watch and browse history (YouTube's
-  ``watch-history.json``, TikTok's browsing history) is read only when the
-  caller opts in (G69/G71 §3: ambient exhaust, not saves); otherwise its size
-  is said in a warning so the preview never hides what the archive contains.
+  ``watch-history.json`` or ``.html``, TikTok's browsing history) is read only
+  when the caller opts in (G69/G71 §3: ambient exhaust, not saves); otherwise
+  its size is said in a warning so the preview never hides what the archive
+  contains. Read, a history row keeps its ``-history`` origin and every door
+  hands it to ``watch_history`` — one episode per day of what was watched —
+  never to the save path (2026-10-16). History rows are never merged here: the
+  same video watched on two days is two watches.
 * **One item per saved thing.** The same post can sit in two files of one
   archive (Instagram lists every save in ``saved_posts.json`` and again under
   its collection). Items merge on the same identity ``url_index`` uses
@@ -88,6 +92,8 @@ _TIKTOK_TXT = {
     "browsing history.txt": ("Browsing History", True),
     "watch history.txt": ("Browsing History", True),
 }
+#: Takeout's YouTube watch history: JSON when the person picked it, HTML (Takeout's default) otherwise.
+YOUTUBE_HISTORY_FILES = frozenset({"watch-history.json", "watch-history.html"})
 #: Extensions never opened inside an archive.
 _UNREAD_EXT = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".mp4", ".mov", ".m4a", ".mp3", ".webm",
                ".srt", ".vtt", ".pdf", ".woff", ".woff2", ".ttf", ".css", ".svg", ".ico")
@@ -115,11 +121,12 @@ class ArchiveResult:
 
 
 def history_warning(n: int) -> str:
-    """What every door says about history it left out. It names no switch: the
-    app's drop has none (the command line's ``--include-history`` and the API's
-    ``?include_history=true`` are the ways to ask)."""
+    """What every door says about history it left out. Every door has a way to ask
+    (the app's drop shows a switch beside this line, the command line has
+    ``--include-history``, the API ``?include_history=true``), so the sentence says
+    what asking does rather than naming one door's control."""
     return (f"Left out {n} watch or browsing history item{'s' if n != 1 else ''}: "
-            "history is not something you saved.")
+            "history is not something you saved. Include watch history to keep it as one entry per day.")
 
 
 def is_member_name(filename: str) -> bool:
@@ -143,7 +150,7 @@ def is_save_list(path: str) -> bool:
         return True
     if base.startswith("user_data") and base.endswith(".json"):
         return True
-    if base == "watch-history.json" or (base.endswith(".csv") and "playlists/" in low):
+    if base in YOUTUBE_HISTORY_FILES or (base.endswith(".csv") and "playlists/" in low):
         return True
     if base.endswith(".csv") and (media_ingestor._is_reddit_saved_filename(base)
                                   or media_ingestor._is_linkedin_saved_filename(base)):
@@ -193,9 +200,10 @@ def parse_member(path: str, data: bytes, *, include_history: bool = False) -> tu
             excluded = len(media_ingestor.parse_tiktok_export(parsed, include_history=True)) - len(items)
         return items, "tiktok", excluded
 
-    if base == "watch-history.json":
+    if base in YOUTUBE_HISTORY_FILES:
         try:
-            items = media_ingestor.parse_youtube_takeout(data, base)
+            items = (media_ingestor.parse_youtube_history_html(data) if base.endswith(".html")
+                     else media_ingestor.parse_youtube_takeout(data, base))
         except ValueError:
             return [], "youtube", 0
         if not include_history:
@@ -229,6 +237,7 @@ def parse_members(members: Iterable[tuple[str, int, Reader]], *, include_history
     """
     out = ArchiveResult()
     merged: dict[str, RawItem] = {}
+    history: list[RawItem] = []
     read = 0
     oversized = 0
     for path, size, reader in members:
@@ -263,8 +272,11 @@ def parse_members(members: Iterable[tuple[str, int, Reader]], *, include_history
         if items and platform not in out.platforms:
             out.platforms.append(platform)
         for item in items:
-            _merge(merged, item)
-    out.items = list(merged.values())
+            if (item.origin or "").endswith("-history"):
+                history.append(item)   # a watch, not a save: every one is kept (two days, two watches)
+            else:
+                _merge(merged, item)
+    out.items = list(merged.values()) + history
     if oversized:
         out.warnings.append(f"Skipped {oversized} file(s) over {MAX_MEMBER_BYTES // (1024 * 1024)} MB inside the archive.")
     if out.history_excluded:

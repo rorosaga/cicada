@@ -105,4 +105,16 @@ enum IntakeSummary {
         let channel = ChatVendor.allCases.first { $0.origin == origin }?.channelId ?? "files"
         return SourceDisplayName.of(id: channel)   // Views/Sources/SourceDisplayName.swift
     }
+
+    /// G71 (2026-10-16): the line under "Include watch history" — what it would do, or what is left out.
+    static func historyLine(_ p: IntakePreview, included: Bool, locale: Locale = .autoupdatingCurrent) -> String {
+        if included, p.historyVideos > 0 {
+            return Copy.importHistoryDays(videos: p.historyVideos, days: p.historyDays, locale: locale) + ". "
+                + Copy.importIncludeHistoryDetail
+        }
+        if p.historyExcluded > 0 {
+            return Copy.importHistoryLeftOut(p.historyExcluded, locale: locale) + ". " + Copy.importIncludeHistoryDetail
+        }
+        return Copy.importIncludeHistoryDetail
+    }
 }

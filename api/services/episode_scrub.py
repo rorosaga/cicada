@@ -41,6 +41,7 @@ WRITERS = frozenset({
     "video_queue",  # G162: a release reason an agent wrote for a video it could not do
     "saved-why",  # G191: the person's answer to "what made you save this?"
     "imessage",  # G179: a ticked Messages conversation's words, both sides
+    "watch-history",  # G71 (2026-10-16): a watched video's title and channel, one day's episode
 })
 
 # Secret shapes (G105 R6), moved verbatim from transcript_extract. Ordered

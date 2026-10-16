@@ -14,6 +14,9 @@ file; one snapshot per group is posted here.
 macOS Contacts (round 4, G154): the app reads the address book after one prompt and posts names plus which facts each
 card holds; the backend enriches person pages it already has, never creates one.
 
+YouTube watch history (G71, 2026-10-16): the app reads Chrome's own History on this Mac — a copy, YouTube watch pages
+only — and posts the visits; the backend keeps one episode per day of what was watched, never a save.
+
 Messages (G179): the app reads the conversations the person ticked from ``chat.db`` (Full Disk Access) and posts their
 rows; the backend decodes, splits into sittings and stages them — refusing any conversation not ticked.
 """
@@ -45,6 +48,8 @@ from api.models.schemas import (
     MessagesWaitingResponse,
     TabGroupsSyncRequest,
     TabGroupsSyncResponse,
+    WatchHistorySyncRequest,
+    WatchHistorySyncResponse,
     WisprFlowCaptureResponse,
     WisprFlowPayload,
     WisprFlowSettings,
@@ -59,6 +64,7 @@ from api.services import (
     papers,
     sync_state,
     tab_groups,
+    watch_history,
     wispr_flow,
     write_admission,
 )
@@ -323,6 +329,30 @@ async def sync_tab_groups(req: TabGroupsSyncRequest, settings: Settings = Depend
     await folder_source.commit_paths_for(memory_path, out.pop("paths"), subject="Tab groups sync",
                                          trigger="capture/tab-groups", channel=channel)
     return TabGroupsSyncResponse(**out, bank=memory_path.name)
+
+
+@router.post("/sources/watch-history/sync", response_model=WatchHistorySyncResponse, dependencies=_DEMO_GATE)
+async def sync_watch_history(req: WatchHistorySyncRequest, settings: Settings = Depends(get_settings)):
+    """G71 (2026-10-16): the YouTube videos the person watched in a browser, read by the app from the browser's own
+    History file (a copy; only YouTube watch pages leave the app) after the person turned this on. Episodes only —
+    one per day of what was watched, through the stager — so it is capture, ungated like every Awake writer. 413
+    above ``watch_history.MAX_VISITS``; 422 for a browser or profile the backend does not read. One ``user`` commit
+    per sync (trigger ``capture/watch-history``), scoped to the days it wrote — a re-read with nothing new commits
+    nothing."""
+    memory_path = settings.memory_path
+    if len(req.visits) > watch_history.MAX_VISITS:
+        raise HTTPException(413, f"at most {watch_history.MAX_VISITS} visits per sync — send them in batches")
+    try:
+        out = await run_in_threadpool(watch_history.sync_browser, memory_path, req.model_dump(by_alias=False),
+                                      bank=memory_path.name)
+    except watch_history.PayloadError as exc:
+        raise HTTPException(422, str(exc))
+    channel = watch_history.channel_id(req.browser.strip().lower())
+    # The row's count is what memory holds (every door's days), never this pass's few new visits.
+    sync_state.record_sync(memory_path, channel, count=out["videos"], extra={"days": out.pop("days")})
+    await folder_source.commit_paths_for(memory_path, out.pop("paths"), subject="Watch history sync",
+                                         trigger="capture/watch-history", channel=channel)
+    return WatchHistorySyncResponse(**out, bank=memory_path.name)
 
 
 @router.post("/sources/contacts-local/sync", response_model=ContactsLocalSyncResponse, dependencies=_DEMO_GATE)

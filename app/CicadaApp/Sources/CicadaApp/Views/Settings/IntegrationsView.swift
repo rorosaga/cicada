@@ -247,6 +247,7 @@ private struct IntegrationChannelRow: View {
     /// through the watcher. The `Settings{}` scene injects it for this reason.
     @Environment(CalendarReader.self) private var calendarReader: CalendarReader?
     @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
+    @Environment(WatchHistoryWatcher.self) private var watchHistory: WatchHistoryWatcher?
     @Environment(MessagesWatcher.self) private var messages: MessagesWatcher?
     @Environment(ContactsReader.self) private var contacts: ContactsReader?
     @Environment(BrowserWatcher.self) private var watcher
@@ -322,12 +323,12 @@ private struct IntegrationChannelRow: View {
         } else if channel.actions.contains("disconnect") {
             HStack(spacing: CicadaTheme.spacingSM) {
                 if channel.actions.contains("sync") {
-                    actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader, tabGroups: tabGroups, contacts: contacts, messages: messages) }
+                    actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader, tabGroups: tabGroups, contacts: contacts, messages: messages, watchHistory: watchHistory) }
                 }
                 NeutralButton(title: "Manage", size: .compact) { showConnector = true }
             }
         } else if channel.actions.contains("sync") {
-            actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader, tabGroups: tabGroups, contacts: contacts, messages: messages) }
+            actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader, tabGroups: tabGroups, contacts: contacts, messages: messages, watchHistory: watchHistory) }
         } else if channel.actions.contains("poll") {
             actionButton("Poll now") { try await ChannelActions.poll(channel.id) }
         }

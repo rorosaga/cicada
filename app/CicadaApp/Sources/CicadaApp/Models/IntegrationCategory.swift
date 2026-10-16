@@ -48,7 +48,9 @@ enum IntegrationCategory: String, CaseIterable, Identifiable {
         case "chrome-bookmarks", "safari-bookmarks", "safari-tabs",
              "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks",
              // Round 4 (G160): Chrome's open tab groups sit under Chrome's row.
-             "chrome-tab-groups":
+             "chrome-tab-groups",
+             // G71 (2026-10-16): the YouTube videos watched in Chrome sit under Chrome's row too.
+             WatchHistoryWatcher.channel:
             return .browsers
         case "pinterest", "reddit", "x":
             return .socialAndSaved

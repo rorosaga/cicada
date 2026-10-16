@@ -92,6 +92,19 @@ Sidebar and Settings navigation foundation. Remaining adjacent work: G106/G137 c
 
 Save-with-reason, Imports page and implemented connector foundation. Remaining adjacent work: Later individual adapters retain their own IDs.
 
+**2026-10-16 — YouTube Watch later and watch history (owner: "my watch later videos from youtube and maybe also sync
+history"; branch `feat/youtube-sync`, not merged).** YouTube's API gives no one either list; the owner picked Takeout
+once plus Chrome's history live, then added the person's own agent. Three doors, one record: Watch later is a save
+(Takeout's `playlists/Watch later*.csv`, current and older layouts, or the agent's read — one `url_index` identity, a
+duplicate never a second page); history is experience, never Saved — one episode per platform per day
+(`watch_history`, G94's aggregate-not-samples rule), keyed by `url_hash` and merged across doors. Takeout's default
+`watch-history.html` is now read as history (it went to the bookmark parser before: every watched video and channel
+link became a bookmark); the app's drop and the YouTube tile gained **Include watch history**; Chrome's History is read
+by the app from a copy, YouTube video pages only, behind its own switch (`POST /sources/watch-history/sync`); the agent
+reads both pages in the person's signed-in browser only while agent reading and that list are on
+(`cicada_record_youtube_list`, stdio; `needs_login` pauses a week). Open: localized Takeout names; a video removed from
+Watch later on YouTube stays saved; other browsers' history.
+
 ### G75
 
 Initialize handshake and schema/primer parity. Remaining adjacent work: G180 leaner CLI/MCP.

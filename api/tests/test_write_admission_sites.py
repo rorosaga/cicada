@@ -399,6 +399,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/rss": (INTAKE, None),
     "POST /sources/sync-bookmarks": (INTAKE, None),
     "POST /sources/sync-bookmarks/fresh": (NONE, None),   # G191 live: the early look parses and reads the index
+    "POST /sources/watch-history/sync": (CAPTURE, None),  # G71: Chrome's YouTube history as day episodes
     "POST /sources/sync-safari-tabs": (INTAKE, None),
     "POST /sources/feeds": (REGISTRY, None),
     "DELETE /sources/feeds": (REGISTRY, None),
@@ -506,6 +507,8 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     # G61, ruling 26: the claim touches only the lease file outside the bank; the record writes the page, committed alone.
     "cicada_refresh_claim": (OUTSIDE, None),
     "cicada_record_refresh": (ADMITTED, "record_refresh"),
+    # G71 (2026-10-16): Watch later saves media pages, history writes day episodes — committed alone, in one hold.
+    "cicada_record_youtube_list": (ADMITTED, "record_youtube_list"),
     # G110: reads the bank's transcript episodes only (projection + paging); its metadata index and session registry
     # live in $CICADA_HOME/continuity, outside every bank — a reader, never a bank write.
     "cicada_continue": (NONE, None),

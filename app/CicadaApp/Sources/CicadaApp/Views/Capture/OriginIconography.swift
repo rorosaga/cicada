@@ -35,6 +35,8 @@ enum OriginIconography {
         "telegram", "rss", "calendar", "share-sheet", "bookmark", "saved-link",
         "instagram-saved", "youtube-playlist", "pinterest", "reddit-saved", "reddit",
         "x-bookmarks", "x-likes", "x", "linkedin-saved", "tiktok-saved", "tiktok-history", "unknown",
+        // G71 (2026-10-16): YouTube watch history — one episode per day (`watch_history.ORIGINS`).
+        "youtube-history",
         // G133 / G134 — a watched folder's episodes and Wispr Flow's.
         "folder", "wispr-flow",
         // Round-4 D2 (C6, R-FA13): the Calendar app read on this Mac — the backend track stamps it.
@@ -96,6 +98,7 @@ enum OriginIconography {
         case "share-sheet": "Share Sheet"
         case "instagram-saved": "Instagram Saved"
         case "youtube-playlist": "YouTube Playlist"
+        case "youtube-history": "YouTube History"
         case "pinterest": "Pinterest"
         case "reddit-saved": "Reddit Saved"
         case "x-bookmarks": "X Bookmarks"
@@ -163,6 +166,7 @@ enum OriginIconography {
         case "share-sheet": "square.and.arrow.up"
         case "instagram-saved": "camera.fill"
         case "youtube-playlist": "play.rectangle.fill"
+        case "youtube-history": "clock.arrow.circlepath"
         case "pinterest": "pin.fill"
         case "reddit-saved", "reddit": "bubble.left.and.text.bubble.right.fill"
         case "x-bookmarks", "x-likes", "x": "x.circle"
@@ -206,7 +210,7 @@ enum OriginIconography {
         case "apple-notes": Color(hex: 0xFFCC00)
         case "share-sheet": Color(hex: 0x8896FF)
         case "instagram-saved": Color(hex: 0xE1306C)
-        case "youtube-playlist": Color(hex: 0xFF0000)
+        case "youtube-playlist", "youtube-history": Color(hex: 0xFF0000)
         case "pinterest": Color(hex: 0xE60023)
         case "reddit-saved", "reddit": Color(hex: 0xFF4500)
         case "x-bookmarks", "x-likes", "x": Color(hex: 0x14171A)
@@ -267,7 +271,7 @@ enum OriginIconography {
         case "linkedin-saved": "linkedin"
         case "tiktok-saved", "tiktok-history": "tiktok"
         case "instagram-saved": "instagram"
-        case "youtube-playlist": "youtube"
+        case "youtube-playlist", "youtube-history": "youtube"
         // G135 R-R26/R-R34 — a remote app wears the same mark as its local
         // twin. Perplexity and `remote-app` stay nil: the only Commons
         // Perplexity file is a wordmark, and "Other" has no brand.

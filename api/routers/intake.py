@@ -41,7 +41,7 @@ from api.models.schemas import (
     IntakeTitle,
 )
 from api.routers import conversations as conv
-from api.services import bank_registry, demo_guard, episode_staging, intake_jobs, media_ingestor
+from api.services import bank_registry, demo_guard, episode_staging, intake_jobs, media_ingestor, saved_exports
 
 router = APIRouter()
 
@@ -452,22 +452,29 @@ def _import_response(result: ImportResult, job: intake_jobs.Job | None = None) -
 # --- Sniff (R-IA11) -----------------------------------------------------------
 
 
-def _saved_sniff(content: bytes, filename: str) -> IntakeSniffResponse | None:
-    saved = media_ingestor.preview_upload(content, filename)
+def _saved_sniff(content: bytes, filename: str, include_history: bool = False) -> IntakeSniffResponse | None:
+    saved = media_ingestor.preview_upload(content, filename, include_history=include_history)
     if not saved.recognized:
         return None
     return IntakeSniffResponse(recognized=True, kind="saved", platform=saved.platform,
                                members=[PurePosixPath(filename or "").name], counts=IntakeCounts(items=saved.total),
-                               warnings=saved.warnings)
+                               warnings=saved.warnings, history_excluded=saved.history_excluded,
+                               history_videos=saved.history_videos, history_days=saved.history_days)
 
 
-def sniff_bytes(content: bytes, filename: str, settings: Settings, bank: str | None) -> IntakeSniffResponse:
+def sniff_bytes(content: bytes, filename: str, settings: Settings, bank: str | None,
+                include_history: bool = False) -> IntakeSniffResponse:
+    if PurePosixPath((filename or "").replace("\\", "/")).name.lower() in saved_exports.YOUTUBE_HISTORY_FILES:
+        # Takeout's watch history by itself (G71, 2026-10-16): never a chat, and its HTML must not reach the
+        # Gemini reader's "another product" refusal — it is history the person may include.
+        saved = _saved_sniff(content, filename, include_history)
+        return saved or IntakeSniffResponse(recognized=False, reason=EMPTY_EXPORT_REASON)
     try:
         parsed = parse_export(content, filename)
     except HTTPException as exc:
         reason = str(exc.detail)
         if reason not in FINAL_REFUSALS:
-            saved = _saved_sniff(content, filename)
+            saved = _saved_sniff(content, filename, include_history)
             if saved is not None:
                 return saved
         return IntakeSniffResponse(recognized=False, reason=reason)
@@ -475,7 +482,7 @@ def sniff_bytes(content: bytes, filename: str, settings: Settings, bank: str | N
         # A platform archive the chat reader found no chat in, though it named
         # a member it skips (Takeout's per-product activity pages): its save
         # lists are still offered (``saved_exports``).
-        saved = _saved_sniff(content, filename)
+        saved = _saved_sniff(content, filename, include_history)
         if saved is not None:
             return saved
     if not parsed.episodes:
@@ -510,13 +517,15 @@ def sniff_bytes(content: bytes, filename: str, settings: Settings, bank: str | N
 async def sniff(
     file: UploadFile,
     bank: str | None = Query(None, max_length=128),
+    include_history: bool = Query(False),
     settings: Settings = Depends(get_settings),
 ) -> IntakeSniffResponse:
     """What a dropped file IS — vendor, counts, date range, new · grown · already
     here, the titles — staging nothing (G71 §4.3). Titles cross loopback to the
-    one panel that asked and are never logged or stored."""
+    one panel that asked and are never logged or stored. ``include_history``
+    previews a saved-content file's watch history as the days it becomes."""
     content = await file.read()
-    return await run_in_threadpool(sniff_bytes, content, file.filename or "", settings, bank)
+    return await run_in_threadpool(sniff_bytes, content, file.filename or "", settings, bank, include_history)
 
 
 @router.post("/intake/import", response_model=IntakeImportResponse)

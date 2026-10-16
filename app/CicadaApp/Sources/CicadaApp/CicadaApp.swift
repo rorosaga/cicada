@@ -101,6 +101,9 @@ struct CicadaApp: App {
     /// Round 4 (G160 first slice): Chrome's open tab groups, read by the app from its session file only after the
     /// person turns on their own switch (R-SR3), and posted per memory.
     @State private var tabGroups: TabGroupWatcher
+    /// G71 (2026-10-16): the YouTube videos watched in Chrome, read by the app from Chrome's History (a copy, YouTube
+    /// video pages only) only after the person turns on its own switch, and posted per memory as one entry per day.
+    @State private var watchHistory: WatchHistoryWatcher
     /// Round 4 (G154): the Mac's address book, read by the app only after Connect in Settings → Integrations and
     /// posted per memory, where it enriches the people Cicada already knows (R-SR8, R-SR10).
     @State private var contactsReader: ContactsReader
@@ -195,6 +198,8 @@ struct CicadaApp: App {
         _browserWatcher = State(initialValue: lights)
         _localSources = State(initialValue: LocalSourceWatcher(lights: lights))
         _tabGroups = State(initialValue: TabGroupWatcher(lights: lights, activity: activity, bank: { [store] in store.bank }))
+        _watchHistory = State(initialValue: WatchHistoryWatcher(lights: lights, activity: activity,
+                                                                bank: { [store] in store.bank }))
         _contactsReader = State(initialValue: ContactsReader(activity: activity, bank: { [store] in store.bank }))
         _messages = State(initialValue: MessagesWatcher(lights: lights, activity: activity, bank: { [store] in store.bank }))
         _inventory = State(initialValue: LocalInventory(probes: LocalInventory.live(watcher: lights)))
@@ -247,6 +252,7 @@ struct CicadaApp: App {
                 .environment(localSources)
                 .environment(calendarReader)
                 .environment(tabGroups)
+                .environment(watchHistory)
                 .environment(contactsReader)
                 .environment(messages)
                 .environment(loginItems)
@@ -295,6 +301,8 @@ struct CicadaApp: App {
                     Task { await calendarReader.bankChanged() }
                     // G160 — the new memory gets the open groups too (its digest is its own).
                     Task { await tabGroups.bankChanged() }
+                    // G71 — the new memory's YouTube history, past its own cursor.
+                    Task { await watchHistory.bankChanged() }
                     // G154 (R-SR10) — the new memory's people get their Contacts sources too.
                     Task { await contactsReader.bankChanged() }
                     // G179 — the new memory's ticked conversations, past their own cursors.
@@ -362,6 +370,8 @@ struct CicadaApp: App {
                     calendarReader.start()
                     // G160 (R-SR3) — reads only if the person turned the tab-groups switch on.
                     tabGroups.start()
+                    // G71 — reads only if the person turned the YouTube history switch on.
+                    watchHistory.start()
                     // G154 (R-SR10) — reads only after Connect, and on launch only when the book moved or a day passed.
                     contactsReader.start()
                     // G179 — reads only the conversations this memory has ticked.

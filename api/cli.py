@@ -497,19 +497,35 @@ def _import_platform_export(boot: Boot, args) -> Result:
     described = media_ingestor.describe_items(items, label, warnings)
     data = {"source": label, "platform": described.platform, "total": described.total,
             "collections": described.collections}
+    if described.history_videos:
+        data.update(history_videos=described.history_videos, history_days=described.history_days)
     warnings = list(described.warnings) + _root_warnings(boot)
     if args.preview:
         lines = [f"{label}: {described.total} saved item(s)"]
         lines += [f"  {c['name']}: {c['count']}" for c in described.collections]
+        if described.history_videos:
+            lines.append(f"  Watch history: {described.history_videos} video(s) over {described.history_days} day(s), "
+                         "one entry per day, not saves")
         return Result(text="\n".join(lines), data=data, warnings=warnings)
     if not described.recognized:
         raise Refusal("not_an_export", f"Found no saved links in {path.name}.")
     if len(items) > media_ingestor.MAX_UPLOAD_ITEMS:
         raise Refusal("too_large", f"{len(items):,} items is past the {media_ingestor.MAX_UPLOAD_ITEMS:,}-item "
                                    "import cap; nothing was imported.")
+    # History is experience, never a save (G71, 2026-10-16): one episode per day, committed alone first.
+    from api.services import watch_history
+
+    items, history_rows = watch_history.split(items)
+    history_text = ""
+    if history_rows:
+        history = asyncio.run(watch_history.import_history(bank, history_rows, door="takeout",
+                                                           trigger="user/watch_history"))
+        data.update(history_added=history.added, history_days_created=history.days_created,
+                    history_days_updated=history.days_updated)
+        history_text = " " + watch_history.summary(history)
     created, duplicates = asyncio.run(media_ingestor.ingest_chunked(items, bank, from_bookmark_file))
     data.update(created=created, duplicates=duplicates)
-    return Result(text=f"Imported {created} new item(s) from {label}; {duplicates} already in memory.",
+    return Result(text=f"Imported {created} new item(s) from {label}; {duplicates} already in memory.{history_text}",
                   data=data, warnings=warnings)
 
 

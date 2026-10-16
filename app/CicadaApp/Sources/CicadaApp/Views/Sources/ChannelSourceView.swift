@@ -14,6 +14,7 @@ struct ChannelSourceView: View {
     @Environment(Store.self) private var store
     @Environment(CalendarReader.self) private var calendarReader: CalendarReader?
     @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
+    @Environment(WatchHistoryWatcher.self) private var watchHistory: WatchHistoryWatcher?
     @Environment(MessagesWatcher.self) private var messages: MessagesWatcher?
     @Environment(ContactsReader.self) private var contacts: ContactsReader?
     @Environment(BrowserWatcher.self) private var watcher
@@ -131,7 +132,7 @@ struct ChannelSourceView: View {
             TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
                 SourceRow(model: model, now: context.date, onCancel: { activity.cancel(channel.id) }) {
                     if channel.actions.contains("sync") {
-                        actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader, tabGroups: tabGroups, contacts: contacts, messages: messages) }
+                        actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader, tabGroups: tabGroups, contacts: contacts, messages: messages, watchHistory: watchHistory) }
                     }
                     if channel.actions.contains("poll") {
                         actionButton("Poll now") { try await ChannelActions.poll(channel.id) }

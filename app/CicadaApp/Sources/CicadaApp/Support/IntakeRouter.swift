@@ -67,9 +67,15 @@ struct IntakePreview: Equatable {
     var titlesTruncated = false
     var skipped: [IntakeIgnored] = []
     var warnings: [String] = []
+    /// G71 (2026-10-16): watch history left out, or — included — the watched videos and their days.
+    var historyExcluded = 0
+    var historyVideos = 0
+    var historyDays = 0
 
-    /// Import N = new + grew, plus saved items (design §5.2).
-    var importCount: Int { delta.new + delta.grown + counts.items }
+    /// Import N = new + grew, plus saved items (design §5.2), plus watched videos the person included.
+    var importCount: Int { delta.new + delta.grown + counts.items + historyVideos }
+    /// Whether the preview offers "Include watch history": the drop holds history, left out or brought in.
+    var offersHistory: Bool { historyExcluded > 0 || historyVideos > 0 }
 
     /// "Into: New memory…" — nothing is in a bank that does not exist yet.
     func assumingEmptyBank() -> IntakePreview {
@@ -97,6 +103,9 @@ struct IntakePreview: Equatable {
             if s.kind == "saved" {
                 p.savedFiles.append(f.url)
                 p.counts = p.counts + IntakeCounts(items: s.counts.items)
+                p.historyExcluded += s.historyExcluded
+                p.historyVideos += s.historyVideos
+                p.historyDays += s.historyDays
                 p.platform = p.platform ?? s.platform
                 continue
             }
@@ -210,10 +219,11 @@ protocol IntakeAPI: Sendable {
     /// `name`: a walked folder's file, named by its path inside the folder (`export/data/like.js`). The backend
     /// reads such a file only when it is a save list, by the same allow-list as a zip's members; nil sends the
     /// file's own name (a file the person dropped by itself).
-    func sniffIntake(fileURL: URL, bank: String?, name: String?) async throws -> IntakeSniff
+    /// `includeHistory` (G71, 2026-10-16): preview a saved-content file's watch history as the days it becomes.
+    func sniffIntake(fileURL: URL, bank: String?, name: String?, includeHistory: Bool) async throws -> IntakeSniff
     func importIntake(fileURL: URL, bank: String?) async throws -> IntakeImportResponse
     func intakeJob(id: String) async throws -> IntakeJobStatus
-    func uploadSaved(fileURL: URL, name: String?) async throws -> UploadResponse
+    func uploadSaved(fileURL: URL, name: String?, includeHistory: Bool) async throws -> UploadResponse
 }
 
 /// Track I T5 (design §5.1, spec decision 13) — every way a file arrives goes
@@ -280,10 +290,14 @@ final class IntakeRouter {
         let name = url.lastPathComponent.lowercased()
         switch url.pathExtension.lowercased() {
         case "json", "zip": return true
-        case "html", "htm": return chatPages.contains(name)
+        case "html", "htm": return chatPages.contains(name) || watchHistoryPages.contains(name)
         default: return isSaveListPath(url.path)
         }
     }
+
+    /// G71 (2026-10-16): Takeout's YouTube watch history in its default HTML form (`saved_exports.YOUTUBE_HISTORY_FILES`).
+    /// Sent so the preview can offer it; the backend reads it only when the person includes history, as days.
+    nonisolated static let watchHistoryPages: Set<String> = ["watch-history.html"]
 
     /// Each walked file's path inside the folder it was dropped in, the folder's own name first
     /// (`Takeout/YouTube and YouTube Music/playlists/Later-videos.csv`). A file dropped by itself has none. Each
@@ -349,6 +363,9 @@ final class IntakeRouter {
     /// The last sniff's preview, for the importing line's noun and the Into
     /// picker's "new memory" delta.
     private(set) var sniffedPreview: IntakePreview?
+    /// G71 (2026-10-16): the preview's "Include watch history" switch — off for every new drop. On, the sniff shows
+    /// the history as the days it becomes and the import brings it in that way (never as saved links).
+    private(set) var includeHistory = false
 
     /// Track I part b (R-IB15) — `ContentView` sets this while the Welcome shows:
     /// every arrival (window, Dock, menu bar, File → Import) is sniffed and staged
@@ -461,6 +478,7 @@ final class IntakeRouter {
             files = found
             capped = wasCapped
             target = .active
+            includeHistory = false
             sniff()
             return .accepted
         }
@@ -490,6 +508,13 @@ final class IntakeRouter {
         }
     }
 
+    /// The preview's switch: sniff again so the counts say what the import will do.
+    func setIncludeHistory(_ on: Bool) {
+        guard on != includeHistory else { return }
+        includeHistory = on
+        if case .preview = phase { sniff() }
+    }
+
     // MARK: Sniff
 
     private var targetSlug: String? {
@@ -503,6 +528,7 @@ final class IntakeRouter {
         let files = self.files
         let bank = targetSlug
         let capped = self.capped
+        let history = includeHistory
         phase = .reading(files.map(\.lastPathComponent))
         task?.cancel()
         task = Task { [weak self] in
@@ -511,7 +537,10 @@ final class IntakeRouter {
             for url in files {
                 guard gen == self.generation else { return }
                 do {
-                    let s = try await self.tracked { try await self.api.sniffIntake(fileURL: url, bank: bank, name: self.memberNames[url]) }
+                    let s = try await self.tracked {
+                        try await self.api.sniffIntake(fileURL: url, bank: bank, name: self.memberNames[url],
+                                                       includeHistory: history)
+                    }
                     results.append(IntakeFileSniff(url: url, sniff: s))
                 } catch {
                     results.append(IntakeFileSniff(url: url, error: AddSourceSheet.friendlyError(error)))
@@ -568,7 +597,10 @@ final class IntakeRouter {
             }
             for url in preview.savedFiles {
                 do {
-                    let r = try await self.tracked { try await self.api.uploadSaved(fileURL: url, name: self.memberNames[url]) }
+                    let r = try await self.tracked {
+                        try await self.api.uploadSaved(fileURL: url, name: self.memberNames[url],
+                                                       includeHistory: self.includeHistory)
+                    }
                     outcome.savedCreated += r.episodesCreated
                     outcome.unchanged += r.duplicatesSkipped
                 } catch {
@@ -639,7 +671,10 @@ final class IntakeRouter {
             var results: [IntakeFileSniff] = []
             for url in files {
                 do {
-                    let s = try await self.tracked { try await self.api.sniffIntake(fileURL: url, bank: nil, name: self.memberNames[url]) }
+                    let s = try await self.tracked {
+                        try await self.api.sniffIntake(fileURL: url, bank: nil, name: self.memberNames[url],
+                                                       includeHistory: false)
+                    }
                     results.append(IntakeFileSniff(url: url, sniff: s))
                 } catch {
                     results.append(IntakeFileSniff(url: url, error: AddSourceSheet.friendlyError(error)))
@@ -712,7 +747,7 @@ final class IntakeRouter {
         }
         for url in preview.savedFiles {
             do {
-                let r = try await tracked { try await api.uploadSaved(fileURL: url, name: memberNames[url]) }
+                let r = try await tracked { try await api.uploadSaved(fileURL: url, name: memberNames[url], includeHistory: false) }
                 outcome.savedCreated += r.episodesCreated
                 outcome.unchanged += r.duplicatesSkipped
             } catch {

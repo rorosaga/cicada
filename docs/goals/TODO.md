@@ -8,6 +8,16 @@
 
 ## Current state and evidence
 
+- **2026-10-16 — YouTube Watch later and watch history (G71 follow-up, G94, G166; branch `feat/youtube-sync`, not
+  merged).** Owner: "my watch later videos from youtube and maybe also sync history" (Takeout once plus Chrome's history
+  live), then "the agent being able to go to youtube using the browser … like for youtube watch later/history". Three
+  doors, one record: Watch later is a save (`url_index`, one identity across Takeout, bookmarks and the agent); history
+  is one episode per platform per day (`watch_history`), never Saved. Built: Takeout's `watch-history.html` read as
+  history (it was parsed as bookmarks before), **Include watch history** on the drop and the YouTube tile, the app's
+  Chrome History reader (a copy, YouTube video pages only, its own switch under Chrome), `POST
+  /sources/watch-history/sync`, and `cicada_record_youtube_list` with Reading the web's two YouTube list switches (the
+  reading queue offers a due list; `needs_login` pauses a week). Pick up: review; the owner turns the Chrome switch on
+  and checks a day's episode; a real Takeout of a non-English account is not recognised by name yet.
 - **2026-10-16 — a web lookup settles questions about public things (ruling 27, G61; branch `feat/web-settles`, not
   merged).** `web_settle` (the filter, the pinned query, the one settle/undo writer, `inbox/settled/`), `web_lookup` (the
   Sleep-tail step: plan search on a run the person started, a metered provider's search at its price, the pinned-query

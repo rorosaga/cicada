@@ -667,8 +667,33 @@ def parse_chrome_bookmarks_json(data: dict) -> list[RawItem]:
     return items
 
 
+#: Takeout's watch-history rows that are not a watch the person chose: an ad YouTube played.
+_TAKEOUT_AD_DETAILS = ("From Google Ads",)
+#: What every watch-history row from Takeout is filed under, in a preview and in the history episodes.
+WATCH_HISTORY_FOLDER = "Watch history"
+
+
+def _takeout_history_item(url: str, title: str | None, channel: str | None, when: str | None) -> RawItem:
+    """One Takeout watch as a history row (G71, 2026-10-16): ``origin`` ``youtube-history`` marks it as experience,
+    never a save — ``watch_history.split`` takes it out of the save path at every door — and ``added_at`` keeps
+    the instant, so the watch lands on the day it was watched."""
+    return RawItem(
+        url=url,
+        title=title or None,
+        channel=channel or None,
+        added=saved_at.from_iso8601(when),
+        added_at=saved_at.validate_instant(when),
+        folder=WATCH_HISTORY_FOLDER,
+        origin="youtube-history",
+    )
+
+
 def parse_youtube_takeout(content: bytes, filename: str) -> list[RawItem]:
-    """Google Takeout watch-later/history — JSON or CSV."""
+    """Google Takeout's YouTube watch history — ``watch-history.json`` (or the legacy CSV).
+
+    Every row is a history row (``origin: youtube-history``), never a save: the caller asked for history, and
+    ``watch_history`` turns it into one episode per day. An ad YouTube played (``details: From Google Ads``), a
+    removed video (no ``titleUrl``) and a row that is not a video page (a post, a survey) are left out."""
     items: list[RawItem] = []
     if filename.endswith(".csv"):
         import csv
@@ -681,6 +706,8 @@ def parse_youtube_takeout(content: bytes, filename: str) -> list[RawItem]:
             if vid:
                 items.append(RawItem(
                     url=f"https://www.youtube.com/watch?v={vid}",
+                    folder=WATCH_HISTORY_FOLDER,
+                    origin="youtube-history",
                 ))
         return items
 
@@ -691,18 +718,123 @@ def parse_youtube_takeout(content: bytes, filename: str) -> list[RawItem]:
         if not isinstance(entry, dict):
             continue
         url = entry.get("titleUrl") or entry.get("url")
-        if not url:
+        if not url or not isinstance(url, str) or _youtube_video_id(urlparse(url)) is None:
+            continue
+        details = entry.get("details") or []
+        if isinstance(details, list) and any(isinstance(d, dict) and str(d.get("name") or "") in _TAKEOUT_AD_DETAILS
+                                             for d in details):
             continue
         channel = None
         subs = entry.get("subtitles") or []
         if isinstance(subs, list) and subs and isinstance(subs[0], dict):
             channel = subs[0].get("name")
-        items.append(RawItem(
-            url=url,
-            title=entry.get("title") or None,
-            channel=channel,
-            added=saved_at.from_iso8601(entry.get("time")),
-        ))
+        items.append(_takeout_history_item(url, entry.get("title"), channel, entry.get("time")))
+    return items
+
+
+#: Takeout's HTML activity date: ``Jan 5, 2024, 9:14:03 PM CET`` (English layout; a narrow no-break space may sit
+#: before AM/PM). The zone abbreviation is ambiguous, so the time is read in this machine's own zone — the one
+#: Takeout wrote it in for the same person.
+_TAKEOUT_HTML_DATE = re.compile(
+    r"([A-Z][a-z]{2}) (\d{1,2}), (\d{4}), (\d{1,2}):(\d{2}):(\d{2})\s?([AP]M)", re.ASCII)
+_MONTHS = {m: i for i, m in enumerate(("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
+                                         "Nov", "Dec"), start=1)}
+
+
+def _takeout_html_instant(text: str) -> str | None:
+    m = _TAKEOUT_HTML_DATE.search(text.replace("\u202f", " ").replace("\xa0", " "))
+    if not m or m.group(1) not in _MONTHS:
+        return None
+    hour = int(m.group(4)) % 12 + (12 if m.group(7) == "PM" else 0)
+    try:
+        local = datetime(int(m.group(3)), _MONTHS[m.group(1)], int(m.group(2)), hour, int(m.group(5)),
+                         int(m.group(6))).astimezone()
+    except ValueError:
+        return None
+    return local.isoformat()
+
+
+def parse_youtube_history_html(content: bytes) -> list[RawItem]:
+    """Takeout's DEFAULT watch-history format, ``watch-history.html`` (G71, 2026-10-16).
+
+    Takeout writes My Activity as HTML unless the person picks JSON, and before this reader a dropped
+    ``watch-history.html`` went to the Netscape bookmark parser — every watched video AND every channel link became a
+    saved bookmark. Here each activity cell is read for its first link (the video), its second (the channel) and its
+    date; a cell whose first link is not a video page (a post, a survey) or that names an ad is left out. Rows are
+    history rows, like the JSON reader's. Unparseable bytes yield ``[]``."""
+    from html.parser import HTMLParser
+
+    class _Cells(HTMLParser):
+        """Activity entries: each ``outer-cell`` holds a body cell (the links and the date) and a caption cell (the
+        products and, for an ad, "From Google Ads"). A page with no outer cells is read cell by cell."""
+
+        def __init__(self) -> None:
+            super().__init__(convert_charrefs=True)
+            self.entries: list[dict] = []
+            self._stack: list[str] = []      # each open div's role: "outer", "content" or ""
+            self._entry: dict | None = None  # the open outer cell
+            self._cell: dict | None = None   # the open content cell
+            self._link: dict | None = None
+
+        def handle_starttag(self, tag, attrs):
+            if tag == "div":
+                cls = dict(attrs).get("class") or ""
+                role = "outer" if "outer-cell" in cls else "content" if "content-cell" in cls else ""
+                if role == "outer" and self._entry is None:
+                    self._entry = {"cells": [], "text": []}
+                elif role == "content" and self._cell is None:
+                    self._cell = {"links": [], "text": []}
+                else:
+                    role = ""
+                self._stack.append(role)
+            elif tag == "a" and self._cell is not None:
+                self._link = {"href": dict(attrs).get("href") or "", "text": []}
+
+        def handle_endtag(self, tag):
+            if tag == "a" and self._cell is not None and self._link is not None:
+                self._cell["links"].append((self._link["href"], "".join(self._link["text"]).strip()))
+                self._link = None
+            elif tag == "div" and self._stack:
+                role = self._stack.pop()
+                if role == "content" and self._cell is not None:
+                    if self._entry is not None:
+                        self._entry["cells"].append(self._cell)
+                    else:
+                        self.entries.append({"cells": [self._cell], "text": list(self._cell["text"])})
+                    self._cell = None
+                elif role == "outer" and self._entry is not None:
+                    self.entries.append(self._entry)
+                    self._entry = None
+
+        def handle_data(self, data):
+            if self._entry is not None:
+                self._entry["text"].append(data)
+            if self._cell is None:
+                return
+            if self._link is not None:
+                self._link["text"].append(data)
+            else:
+                self._cell["text"].append(data)
+
+    parser = _Cells()
+    try:
+        parser.feed(content.decode("utf-8", errors="replace"))
+        parser.close()
+    except Exception:  # noqa: BLE001 — a broken page is no history, never a crash
+        return []
+    items: list[RawItem] = []
+    for entry in parser.entries:
+        if any(ad in " ".join(entry["text"]) for ad in _TAKEOUT_AD_DETAILS):
+            continue
+        body = next((c for c in entry["cells"] if c["links"]), None)
+        if body is None:
+            continue
+        url, title = body["links"][0]
+        if _youtube_video_id(urlparse(url)) is None:
+            continue
+        channel = body["links"][1][1] if len(body["links"]) > 1 else None
+        instant = _takeout_html_instant(" ".join(body["text"]))
+        items.append(_takeout_history_item(url, title, channel, instant))
     return items
 
 
@@ -1333,18 +1465,28 @@ def parse_upload(
     *,
     include_history: bool = False,
     warnings: list[str] | None = None,
+    stats: dict | None = None,
 ) -> tuple[list[RawItem], str, bool]:
     """Route an uploaded file to the right parser by extension + sniff.
 
     Returns ``(items, source_label, from_bookmark_file)``.
 
-    ``include_history`` (G71 §3) opts a TikTok export's Browsing History in —
-    default off, because ambient watch/browse exhaust is noise, not a save.
-    ``warnings`` is an optional sink a caller (the preview endpoint) passes so
-    partial-parse detail reaches the user instead of only the debug log; every
-    existing positional caller is unaffected.
+    ``include_history`` (G71 §3) opts watch and browsing history in (YouTube's
+    Takeout history, TikTok's Browsing History) — default off, because history
+    is not a save. Even when it is in, a history row carries a ``-history``
+    origin and every door hands it to ``watch_history`` (one episode per day),
+    never to the save path. ``warnings`` is an optional sink a caller (the
+    preview endpoint) passes so partial-parse detail reaches the user instead of
+    only the debug log; ``stats`` an optional sink for ``history_excluded`` (how
+    many history rows were left out), so a preview can offer the switch.
     """
     from api.services import saved_exports
+
+    def excluded(n: int) -> None:
+        if n and warnings is not None:
+            warnings.append(saved_exports.history_warning(n))
+        if n and stats is not None:
+            stats["history_excluded"] = stats.get("history_excluded", 0) + n
 
     if saved_exports.is_member_name(filename):
         # One file of an export folder the app walked, named by its path inside
@@ -1353,17 +1495,24 @@ def parse_upload(
         # message file) is never read as links.
         if not saved_exports.is_save_list(filename):
             raise ValueError("This file in the export folder is not a list of saves.")
-        items, platform, excluded = saved_exports.parse_member(filename, content, include_history=include_history)
+        items, platform, left_out = saved_exports.parse_member(filename, content, include_history=include_history)
         if platform is None:
             raise ValueError("This file in the export folder is not a list of saves.")
-        if excluded and warnings is not None:
-            warnings.append(saved_exports.history_warning(excluded))
+        excluded(left_out)
         return items, saved_exports.LABEL_BY_PLATFORM[platform], False
     name = (filename or "").lower()
     if Path(name).name in _NOT_SAVES:
         raise ValueError(_NOT_SAVES[Path(name).name])
     if name.endswith(".xml") or name.endswith(".rss") or name.endswith(".atom"):
         return parse_rss(content.decode("utf-8", errors="replace")), "RSS Feed", False
+    if Path(name).name in saved_exports.YOUTUBE_HISTORY_FILES:
+        # Takeout's watch history, dropped by itself — JSON or the default HTML.
+        # Before 2026-10-16 the HTML went to the bookmark parser below and every
+        # watched video and channel link became a saved bookmark.
+        items, _platform, left_out = saved_exports.parse_member(Path(name).name, content,
+                                                                include_history=include_history)
+        excluded(left_out)
+        return items, "YouTube Takeout", False
     if name.endswith(".html") or name.endswith(".htm"):
         # parse_safari_bookmarks falls through to parse_netscape_bookmarks for
         # non-plist bytes, so this is byte-for-byte the same output as before
@@ -1386,7 +1535,7 @@ def parse_upload(
         # never collide with the Instagram (`saved_*`) or Takeout (list) sniffs.
         if _is_tiktok_export_json(data):
             items = parse_tiktok_export(data, include_history=include_history)
-            if not include_history and warnings is not None:
+            if not include_history and (warnings is not None or stats is not None):
                 # Browsing History was intentionally dropped by the
                 # ``include_history`` opt-in above — a preview caller must
                 # still be told it exists, or "recognized" silently hides
@@ -1394,9 +1543,7 @@ def parse_upload(
                 # Task 4 brief under-specified this). Re-run with history
                 # included just to size the gap; cheap in-memory JSON walk,
                 # no I/O.
-                excluded = len(parse_tiktok_export(data, include_history=True)) - len(items)
-                if excluded > 0:
-                    warnings.append(saved_exports.history_warning(excluded))
+                excluded(max(0, len(parse_tiktok_export(data, include_history=True)) - len(items)))
             return items, "TikTok Export", False
         # Takeout JSON is a list of watch entries; otherwise a generic URL list.
         if isinstance(data, list) and data and isinstance(data[0], dict) and (
@@ -1407,8 +1554,7 @@ def parse_upload(
             history = parse_youtube_takeout(content, name)
             if include_history:
                 return history, "YouTube Takeout", False
-            if history and warnings is not None:
-                warnings.append(saved_exports.history_warning(len(history)))
+            excluded(len(history))
             return [], "YouTube Takeout", False
         # Generic JSON URL list: list[str] or list[{url}].
         items: list[RawItem] = []
@@ -1444,6 +1590,8 @@ def parse_upload(
         result = saved_exports.parse_archive(content, include_history=include_history)
         if warnings is not None:
             warnings.extend(result.warnings)
+        if stats is not None and result.history_excluded:
+            stats["history_excluded"] = stats.get("history_excluded", 0) + result.history_excluded
         return result.items, result.label, False
     if name.endswith(".js"):
         # X's archive keeps every list as ``window.YTD.<name>.part0 = [...]``;
@@ -1458,9 +1606,8 @@ def parse_upload(
         base = Path(filename or name).name
         if saved_exports.is_save_list(base):
             # TikTok's TXT export, one file per list.
-            items, _platform, excluded = saved_exports.parse_member(base, content, include_history=include_history)
-            if excluded and warnings is not None:
-                warnings.append(saved_exports.history_warning(excluded))
+            items, _platform, left_out = saved_exports.parse_member(base, content, include_history=include_history)
+            excluded(left_out)
             return items, saved_exports.LABEL_BY_PLATFORM["tiktok"], False
         return parse_url_list(content.decode("utf-8", errors="replace")), "URL List", False
     raise ValueError(
@@ -1517,6 +1664,11 @@ class UploadPreview:
     total: int
     collections: list[dict]  # [{"name": str, "kind": str, "count": int}]
     warnings: list[str]
+    #: Watch and browsing history (G71, 2026-10-16): rows left out because the caller did not ask for history, and —
+    #: when it did — the videos and days it would become (one episode per day, never saves).
+    history_excluded: int = 0
+    history_videos: int = 0
+    history_days: int = 0
 
 
 def preview_upload(
@@ -1531,9 +1683,10 @@ def preview_upload(
     "recognized" about it would be a lie the overlay then repeats.
     """
     warnings: list[str] = []
+    stats: dict = {}
     try:
         items, label, _ = parse_upload(
-            content, filename, include_history=include_history, warnings=warnings
+            content, filename, include_history=include_history, warnings=warnings, stats=stats
         )
     except ValueError as e:
         # `parse_upload`'s own "Unsupported file format" message already names
@@ -1550,15 +1703,29 @@ def preview_upload(
             [f"Could not parse {filename or 'this file'}: {type(e).__name__}: {e}"],
         )
 
-    return describe_items(items, label, warnings)
+    return describe_items(items, label, warnings, history_excluded=int(stats.get("history_excluded", 0)))
 
 
-def describe_items(items: list[RawItem], label: str, warnings: list[str] | None = None) -> UploadPreview:
+def describe_items(items: list[RawItem], label: str, warnings: list[str] | None = None, *,
+                   history_excluded: int = 0) -> UploadPreview:
     """Count parsed items by collection — the preview's body, shared with the
-    command line's ``cicada import --preview`` (a folder it walked itself)."""
+    command line's ``cicada import --preview`` (a folder it walked itself).
+
+    History rows are not saves: they are counted apart (``history_videos`` over
+    ``history_days``, the episodes ``watch_history`` would write) and never as a
+    collection, and a preview that holds only history is still recognized."""
+    from api.services import watch_history
+
     warnings = list(warnings or [])
     platform = PLATFORM_BY_LABEL.get(label, "unknown")
     kind = COLLECTION_KIND_BY_PLATFORM.get(platform, "list")
+    items, history = watch_history.split(items)
+    history_videos, history_days = watch_history.describe(history)
+    if history_videos:
+        warnings.append(
+            f"Watch history: {history_videos:,} watched video{'s' if history_videos != 1 else ''} over "
+            f"{history_days:,} day{'s' if history_days != 1 else ''}, kept as one entry per day of what you "
+            "watched, not as saves.")
 
     counts: dict[str, int] = {}
     for item in items:
@@ -1568,7 +1735,7 @@ def describe_items(items: list[RawItem], label: str, warnings: list[str] | None 
         counts[name] = counts.get(name, 0) + 1
 
     total = sum(counts.values())
-    if total == 0:
+    if total == 0 and not history_videos and not history_excluded:
         warnings.append(
             f"Read this as {label} but found no saved links in it — if you dropped "
             "an archive, unzip it and drop the individual export file instead."
@@ -1581,9 +1748,9 @@ def describe_items(items: list[RawItem], label: str, warnings: list[str] | None 
     # Confirm still hard-rejects rather than silently importing a truncated
     # first slice, so this preview must not claim partial success either.
     # Below the cap a large upload is imported `MAX_BATCH` at a time.
-    if len(items) > MAX_UPLOAD_ITEMS:
+    if len(items) + len(history) > MAX_UPLOAD_ITEMS:
         warnings.append(
-            f"{len(items):,} items exceeds the {MAX_UPLOAD_ITEMS:,}-item import cap — "
+            f"{len(items) + len(history):,} items exceeds the {MAX_UPLOAD_ITEMS:,}-item import cap — "
             "Confirm will reject this import; split the export into smaller "
             "files first."
         )
@@ -1592,7 +1759,12 @@ def describe_items(items: list[RawItem], label: str, warnings: list[str] | None 
         {"name": n, "kind": kind, "count": counts[n]}
         for n in sorted(counts, key=lambda n: (-counts[n], n))
     ]
-    return UploadPreview(total > 0, platform, total, collections, warnings)
+    # An export holding only history the caller left out is still recognized: it is a YouTube or TikTok export,
+    # and the switch that brings its history in is the person's to flip.
+    return UploadPreview(total > 0 or history_videos > 0 or history_excluded > 0, platform, total, collections,
+                         warnings,
+                         history_excluded=history_excluded, history_videos=history_videos,
+                         history_days=history_days)
 
 
 # --- Relevance metric (§3.4, feed sorting) ---------------------------------
