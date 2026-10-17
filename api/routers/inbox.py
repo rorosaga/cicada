@@ -26,7 +26,9 @@ async def list_inbox(
     etag = sync_service.etag_for(settings.memory_path, "inbox", "entities", "episodes", extra=kind or "")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
-    items = inbox_service.load_inbox(settings.memory_path)
+    # Off the event loop (inbox lag, 2026-10-17): the read parses every inbox file and the pages they name, and a
+    # synchronous call here held every other request — the SSE stream, the other panes — behind it.
+    items = await asyncio.to_thread(inbox_service.load_inbox, settings.memory_path)
     if kind:
         wanted = {k.strip() for k in kind.split(",") if k.strip()}
         items = [i for i in items if i.kind.value in wanted]

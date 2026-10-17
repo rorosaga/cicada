@@ -1,5 +1,7 @@
 # DEPRECATED: use /inbox. Thin projection over the unified inbox/ dir kept so
 # the SwiftUI app and any external caller keep working mid-migration.
+import asyncio
+
 from fastapi import APIRouter, Depends, Response
 
 from api.config import Settings, get_settings
@@ -20,7 +22,7 @@ async def list_clarifications(
     response: Response, settings: Settings = Depends(get_settings)
 ):
     response.headers["Deprecation"] = "true"
-    items = inbox_service.load_inbox(settings.memory_path)
+    items = await asyncio.to_thread(inbox_service.load_inbox, settings.memory_path)
     return [
         ClarificationResponse(
             id=item.id,

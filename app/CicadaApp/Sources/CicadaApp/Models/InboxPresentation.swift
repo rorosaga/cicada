@@ -4,17 +4,14 @@ import Foundation
 /// the cause line, the age phrase (same wording as the server's
 /// `inbox_questions.humanize_age`), the bolded excerpt, and the collapse rule.
 enum InboxAge {
+    private static let utc = TimeZone(identifier: "UTC")!
+
     /// The instant an ISO date or timestamp names; `nil` if unparseable. A bare day is UTC midnight.
     static func date(_ iso: String?) -> Date? {
         guard let iso, !iso.isEmpty else { return nil }
-        let full = ISO8601DateFormatter()
-        full.formatOptions = [.withInternetDateTime]
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let dayOnly = DateFormatter()
-        dayOnly.dateFormat = "yyyy-MM-dd"
-        dayOnly.timeZone = TimeZone(identifier: "UTC")
-        return full.date(from: iso) ?? fractional.date(from: iso) ?? dayOnly.date(from: String(iso.prefix(10)))
+        // Formatters built once (`ISOStamp`); the day-only reading keeps its default locale, as it always had.
+        return ISOStamp.internetDate(iso)
+            ?? ISOStamp.date(String(iso.prefix(10)), format: "yyyy-MM-dd", timeZone: utc, posix: false)
     }
 
     /// Whole days between an ISO date/timestamp and `now`; `nil` if unparseable.
