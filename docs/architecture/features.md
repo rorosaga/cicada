@@ -49,7 +49,8 @@ the backend by one table, `api/tests/fixtures/entity_bands.json` (`EntityBandsTe
 name, the page's Summary, Back ⌘[ and ×; text tabs Content · Perspectives · History · Timeline with counts once
 known (the belief counts once the claims are read, when a section or tab asks), Timeline drawn only while a belief is
 contested or a belief's clock has it open (no "Timeline 0", 2026-10-17), and — while Content shows — the page's source
-toggle and Copy at the end of that same row, never a second tab row (`EntityCardHeader.pageTools`). **Content opens on the page (owner
+toggle and Copy at the end of that same row, never a second tab row (`EntityCardHeader.pageTools`); where the row cannot
+hold both, the tools step down to their own line rather than cut a tab label (DR-45). **Content opens on the page (owner
 2026-10-09): every type, a person's too, shows its prose first as an article, and everything else waits behind a
 click.** Content: the article; its folder or repository in words; then the sections, each a
 remembered disclosure (`CardDisclosure`, DR-39) that reads its data only when opened — What Cicada believes (the

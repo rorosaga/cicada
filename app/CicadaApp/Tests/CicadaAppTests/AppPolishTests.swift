@@ -86,6 +86,58 @@ final class EntityCardPolishTests: XCTestCase {
         }
     }
 
+    /// PR #330 review — DR-45 at the 440 pt floor: with every tab and count showing (Timeline included) and the page
+    /// tools on, no tab label is cut. The tabs alone fit the floor at every zoom; where tabs + tools do not, the tools
+    /// step down to their own line (the header grows by that line) instead of squeezing the labels.
+    @MainActor
+    func test_atTheFloorTheToolsNeverSqueezeATabLabel() throws {
+        let store = Store(cache: SnapshotCache(
+            root: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        ), api: FakeSyncAPI())
+        let entity = Entity(id: "alpha-project", name: "Alpha project", type: .project, status: .active,
+                            confidence: 0.9, created: "2026-01-05", lastReferenced: "2026-10-16", decayRate: 0.05,
+                            sourceEpisodes: [], tags: [], related: [], version: 1,
+                            markdownContent: "## Summary\nA synthetic project.", history: [])
+        let tabs: [TextTab<EntityCardTab>] = [
+            TextTab(id: .content, label: EntityCardTab.content.label),
+            TextTab(id: .perspectives, label: EntityCardTab.perspectives.label, count: 24),
+            TextTab(id: .history, label: EntityCardTab.history.label, count: 186),
+            TextTab(id: .timeline, label: EntityCardTab.timeline.label, count: 3),
+        ]
+        for scale in [0.8, 1.0, 1.4] {
+            CicadaTheme.uiScale = scale
+            let width = GraphColumns.entityMin * CGFloat(scale)
+            func render<V: View>(_ view: V) throws -> CGSize {
+                let renderer = ImageRenderer(content: view)
+                renderer.proposedSize = ProposedViewSize(width: width, height: nil)
+                return try XCTUnwrap(renderer.nsImage).size
+            }
+            func header(tools: Bool) -> some View {
+                EntityCardHeader(
+                    entity: entity, summary: "A synthetic project.", isStub: false, canGoBack: false,
+                    backTargetName: nil, onBack: {}, showsClose: true, onClose: {},
+                    tabs: tabs, selection: .constant(.content), inset: EntityCardStyle.column.inset,
+                    showsSource: tools ? .constant(false) : nil, onCopy: tools ? {} : nil
+                ).environment(store)
+            }
+            // The row the tabs get: the column less the header's insets, plus the tabs' own leading pull-in.
+            let available = width - CicadaTheme.scaled(EntityCardStyle.column.inset) - CicadaTheme.scaled(20)
+                + CicadaTheme.scaled(TextTabs<EntityCardTab>.horizontalPadding)
+            let ideal = try render(TextTabs(tabs: tabs, selection: .constant(.content)).fixedSize()).width
+            XCTAssertLessThanOrEqual(ideal, available + 0.5, "\(scale): the tabs alone fit the floor, every label whole")
+            let tools = 2 * CicadaTheme.scaled(28) + CicadaTheme.spacingXS + CicadaTheme.spacingSM
+            let with = try render(header(tools: true))
+            let without = try render(header(tools: false))
+            XCTAssertLessThanOrEqual(with.width, width + 0.5, "\(scale)")
+            if ideal + tools > available {
+                XCTAssertGreaterThan(with.height, without.height + CicadaTheme.scaled(20),
+                                     "\(scale): the tools take their own line rather than cut a label")
+            } else {
+                XCTAssertLessThanOrEqual(with.height, without.height + 2 * CGFloat(scale) + 0.5, "\(scale): one row")
+            }
+        }
+    }
+
     /// The card draws no second tab row: its only `TextTabs` is the header's.
     func test_theCardHasNoSecondTabRow() throws {
         let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()

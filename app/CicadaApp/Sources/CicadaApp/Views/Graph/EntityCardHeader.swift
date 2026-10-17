@@ -91,12 +91,22 @@ struct EntityCardHeader: View {
                                   inputs: pictureInputs, quietWhenEmpty: true)
                     .padding(.top, CicadaTheme.scaled(4))
             }
-            HStack(spacing: CicadaTheme.spacingXS) {
-                TextTabs(tabs: tabs, selection: Binding(get: { selection }, set: { if let tab = $0 { selection = tab } }))
-                    .padding(.leading, -CicadaTheme.scaled(TextTabs<EntityCardTab>.horizontalPadding))
-                Spacer(minLength: 0)
-                if selection == .content {
-                    pageTools
+            // DR-45 — a tab label is never truncated: the tools share the tab row when it all fits; at a narrow column
+            // (the 440 pt floor with every count showing) they step down to their own line, trailing, under the tabs.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    tabRow
+                    Spacer(minLength: CicadaTheme.spacingSM)
+                    if selection == .content { pageTools }
+                }
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                    tabRow
+                    if selection == .content {
+                        HStack(spacing: CicadaTheme.spacingXS) {
+                            Spacer(minLength: 0)
+                            pageTools
+                        }
+                    }
                 }
             }
             .padding(.top, CicadaTheme.spacingLG)
@@ -105,6 +115,12 @@ struct EntityCardHeader: View {
         .padding(.leading, CicadaTheme.scaled(inset))
         .padding(.trailing, CicadaTheme.scaled(20))
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var tabRow: some View {
+        TextTabs(tabs: tabs, selection: Binding(get: { selection }, set: { if let tab = $0 { selection = tab } }))
+            .fixedSize()
+            .padding(.leading, -CicadaTheme.scaled(TextTabs<EntityCardTab>.horizontalPadding))
     }
 
     /// The source toggle (a sticky `IconButton`, the Graph pan button's grammar — selected fill, never the accent) and

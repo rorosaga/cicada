@@ -1062,8 +1062,8 @@ Each queued episode row (`EpisodeRow`, also in the spine popover) is one button:
 omits its rung, never shows a guess); the floating bubble is retired. The slot reserves nothing (R-Z5 as amended
 2026-10-16 and 2026-10-17, `SentenceSlot.drawsTail`): a line with no tail is the lead alone, with no empty line under the
 headline; a tail takes one line at 17 pt, else one line at 15 pt (17/15 since 2026-10-16, it was 22/20 in the display
-face), and only a tail too long for that wraps to a second. A poke's answer with a tail moves the control row down by
-that line at once (DR-60: a key can poke the worm). **Two kinds of art (R-Z1, amended by ruling 18):**
+face), and only a tail too long for that wraps to a second. A poke's answer with a tail steps the control row down by
+that line as it appears, and back once its cross-fade ends — never a slide (DR-60: a key can poke the worm). **Two kinds of art (R-Z1, amended by ruling 18):**
 *state art* — the owner's worm on a 160 × 64 lattice (5/4/3 pt per cell by the column's width since 2026-10-16), the real pile, the lamp (= the schedule)
 and its pixel-size fly, the bean bag, mood-edge yawn/stretch and the Sleep moment overlays — and *response art* (gaze,
 perk, talk, cheer), transient and never contradicting state. **Environment art (2026-10-02)** is the time, base weather

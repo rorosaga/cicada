@@ -518,7 +518,8 @@ struct RoomSentenceView: View {
                     .minimumScaleFactor(Self.leadMinimumScale)
                 // A line with no tail is the lead alone: no empty line is held under the headline (owner QA
                 // 2026-10-17, amending R-Z5's one reserved tail line). A tail the worm adds on a poke takes its line
-                // then; the control row below moves by it, at once (DR-60: a key can poke the worm).
+                // as the answer comes up, and gives it back once the answer's cross-fade has finished (the outgoing
+                // line holds its place while it fades); the control row steps, never slides (DR-60: a key can poke).
                 if SentenceSlot.drawsTail(shown) { tailView(shown) }
             }
             // Keyed on the kind of line so a status ⇄ answer ⇄ feed change
