@@ -1,0 +1,1005 @@
+"""Sleep tends the inbox (ruling 29, owner 2026-10-17; amends G21 and G113).
+
+The owner, 2026-10-17: "a single consolidation also should take care of cleaning up the inbox. … sleep would also
+take into account the inbox so that, as conversations come through, questions get answered. There are also many
+things that maybe can be assumed, like they don't have to be explicit … There are little things that are honestly
+not that big of a deal."
+
+Two moves, one writer.
+
+**1 — Answered in conversation** (:func:`conversation_pass`). For each open question whose subject a batch's
+conversations touched (the ask gate's own relevance rule, ``inbox_ask_gate.relevant``, over the person's turns only),
+the engine reads the person's lines about it and says whether their own words already answer it, copying the words.
+The words must be found, exactly (``evidence.verify``: exact → whitespace → case, never fuzzy), in one of the person's
+own turns (``kind: user``) — or nothing is settled. The conversation that raised a question never answers it (its
+words are already the question's cause or one option's evidence).
+
+**2 — Small stuff is assumed** (:func:`policy`). Engine-free rules, plus one bounded judge for duplicate pages
+(the full table is in ``docs/architecture/features.md``, "Settled by Sleep"):
+
+* any kind but a proposed edit — what it asks about is gone (merged away, archived, dropped): retired;
+* ``merge_suggestion`` — the same name once spelling is folded, same type, not a person: merged; else the judge reads
+  both pages: ``same`` ≥ 0.9 merges, ``different`` ≥ 0.9 keeps the pair apart; unsure stays;
+* ``normalization`` — the two labels differ only in spelling (case, separators, a plural): "Correct fold";
+* ``decay`` — a one-off nobody would miss (a concept, tool, media or company page on one conversation, never kept, no
+  words of the person's on it): archived;
+* ``conflict`` — the newest dated statement settles it (single-valued, one option said strictly later than every
+  other, never a machine claim over the person's own);
+* everything else — a clarification, a follow-up, a proposed edit — stays for the person (move 1 aside).
+
+Never a question about who a person is, or merging two people, without the person's own words on the record (move 1).
+
+**One writer.** A settle goes through ``inbox_service``'s own resolver — the one the person's answer uses — with
+``inbox_actor`` saying Sleep answered: the commit is Sleep's (``Inbox settled by Sleep``, trigger
+``inbox/<kind>/settled:<label>``, the judging model or ``cicada`` as author), the G113 ledger row says ``by: sleep``
+and its rule, and the settle's record (``inbox/settled/<id>.md``, ``settled.group: sleep``) rides in that same commit.
+:func:`undo` takes back exactly that commit — the reverse of its diff, applied three-way onto each file as it is now,
+refused whole if anything since conflicts with it — and puts the question back, marked so Sleep never settles it
+again (user authority).
+"""
+from __future__ import annotations
+
+import asyncio
+import os
+import re
+import subprocess
+import tempfile
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import date
+from pathlib import Path
+from typing import Any
+
+from loguru import logger
+
+from api.services import bank_index, inbox_actor, inbox_questions, markdown_parser, text_fold
+
+GROUP = "sleep"
+SETTLED_DIR = "settled"
+#: The restored question remembers the person took Sleep's answer back: Sleep never settles it again.
+UNDONE_KEY = "sleep_settle"
+STAGE = "inbox_tend"
+TRIGGER = "sleep/inbox-tend"
+
+#: The rules, and the words the Inbox shows for each ("Settled by Sleep").
+RULES: dict[str, str] = {
+    "said_in_conversation": "You answered this in a conversation",
+    "subject_gone": "What it asked about is no longer in your memory",
+    "same_spelling": "The same name, spelled differently",
+    "judged_same": "Both pages describe the same thing",
+    "judged_different": "The two pages describe different things",
+    "spelling_fold": "The two labels differ only in spelling",
+    "one_off": "Mentioned once and nothing else rests on it",
+    "newest_evidence": "Your newest dated statement settles it",
+}
+#: Kinds the person's words in a conversation may answer (decay is answered by the mention itself; a fold and a
+#: proposed edit are the app's; a follow-up is progress, written only by `progress.py`).
+CONVERSATION_KINDS = frozenset({"conflict", "clarification", "merge_suggestion"})
+NEVER = frozenset({"page_edit"})
+#: The page types a decay question may be assumed for ("pages nobody would miss").
+ONE_OFF_TYPES = frozenset({"concept", "tool", "media", "company"})
+JUDGE_THRESHOLD = 0.9
+#: Per batch: how many touched questions the engine reads, and how many duplicate pairs the judge reads.
+CONVERSATION_CAP = 8
+JUDGE_CAP = 6
+MAX_LINES = 6
+MAX_LINE_CHARS = 400
+MAX_PAGE_CHARS = 2000
+MAX_ANSWER_CHARS = 120
+_GENERIC_KEYS = frozenset({"both", "neither", "other", "remind_later"})
+
+
+class NotUndoable(ValueError):
+    """The settle cannot be taken back as asked; the reason is said in words and nothing was written."""
+
+
+@dataclass
+class Decision:
+    item_id: str
+    kind: str
+    rule: str
+    #: The resolver call: ``{"action": ..., "option_key": ..., "merge_target": ..., "answer": ...}``; ``None`` retires
+    #: the question (its subject is gone) without a resolver.
+    request: dict | None
+    #: What Sleep answered, in words, for the settled list.
+    answer: str = ""
+    #: The person's own words, ``{"episode", "quote"}`` (move 1 only).
+    quote: dict | None = None
+    model: str | None = None
+    #: The item file's bytes when it was decided: a question changed since is left alone.
+    fingerprint: bytes = b""
+
+
+@dataclass
+class Report:
+    settled: int = 0
+    asked: int = 0
+    judged: int = 0
+    read: int = 0
+    by_kind: dict[str, dict[str, int]] = field(default_factory=dict)
+    stopped: str | None = None
+    engine: str | None = None
+
+    def count(self, kind: str, outcome: str) -> None:
+        row = self.by_kind.setdefault(kind or "unknown", {})
+        row[outcome] = row.get(outcome, 0) + 1
+
+    def as_dict(self) -> dict:
+        out = {"settled": self.settled, "asked": self.asked, "judged": self.judged, "read": self.read,
+               "by_kind": {k: dict(sorted(v.items())) for k, v in sorted(self.by_kind.items())}}
+        if self.stopped:
+            out["stopped"] = self.stopped
+        if self.engine:
+            out["engine"] = self.engine
+        return out
+
+
+# --------------------------------------------------------------------------- reading the inbox
+
+
+def _inbox(memory_path: Path) -> Path:
+    return Path(memory_path) / "inbox"
+
+
+def pending(memory_path: Path) -> list[tuple[Path, dict, str]]:
+    """Every open question on disk, ``(path, frontmatter, body)``, by id. Unreadable files are skipped."""
+    out = []
+    for path in sorted(_inbox(memory_path).glob("inbox-*.md")):
+        try:
+            parsed = markdown_parser.parse(path)
+        except Exception:  # noqa: BLE001 — an unreadable question is never settled
+            continue
+        out.append((path, dict(parsed.frontmatter), parsed.body))
+    return out
+
+
+def _page(memory_path: Path, entity_id: str) -> tuple[Path, dict, str] | None:
+    from api.services.id_utils import resolve_entity_file
+
+    if not entity_id:
+        return None
+    path = resolve_entity_file(Path(memory_path), entity_id)
+    if path is None:
+        return None
+    try:
+        parsed = markdown_parser.parse(path)
+    except Exception:  # noqa: BLE001
+        return None
+    return path, dict(parsed.frontmatter), parsed.body
+
+
+def _type_of(fm: dict | None, fallback: str = "") -> str:
+    raw = str((fm or {}).get("type") or fallback or "").strip().lower()
+    return raw.split(" ")[0].split("—")[0].strip()
+
+
+def _fold_name(text) -> str:
+    return " ".join(text_fold.words(str(text or "")))
+
+
+def _names(fm: dict) -> set[str]:
+    out = {_fold_name(fm.get("name"))}
+    out |= {_fold_name(a) for a in (fm.get("aliases") or [])}
+    return {n for n in out if n}
+
+
+def _blocked(fm: dict, today: str) -> str | None:
+    """Why Sleep never touches this question: the person took a settle back, or put it off."""
+    if str(fm.get(UNDONE_KEY) or "") == "undone" or str(fm.get("web_check") or "") == "undone":
+        return "undone"
+    if inbox_questions.is_deferred(fm, today):
+        return "deferred"
+    kind = str(fm.get("kind") or "")
+    if kind in NEVER:
+        return "person_only"
+    return None
+
+
+def _gone(memory_path: Path, fm: dict) -> bool:
+    from api.services import inbox_service
+
+    kind = str(fm.get("kind") or "")
+    anchor = inbox_service._fold_anchor(memory_path, fm)
+    return inbox_service._subject_gone(memory_path, anchor, inbox_service._hiding_kind(kind, fm.get("asks")))
+
+
+# --------------------------------------------------------------------------- the policy (engine-free)
+
+
+def _merge_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | None, str]:
+    target_id = str(fm.get("merge_target_hint") or "").strip()
+    target = _page(memory_path, target_id)
+    if target is None:
+        return None, "no_target"
+    mention = _page(memory_path, str(fm.get("entity_id") or ""))
+    mention_fm = mention[1] if mention else {}
+    mention_type = _type_of(mention_fm, str(fm.get("suggested_classification") or ""))
+    target_type = _type_of(target[1])
+    if "person" in (mention_type, target_type):
+        return None, "person"     # who someone is: only the person's own words settle it (move 1)
+    if mention is not None and mention[0] == target[0]:
+        return None, "same_page"
+    if mention_type and target_type and mention_type != target_type:
+        return None, "judgement"
+    name = _fold_name(fm.get("entity_name") or fm.get("entity_mention") or mention_fm.get("name"))
+    if name and name in _names(target[1]):
+        return Decision(item_id, "merge_suggestion", "same_spelling",
+                        {"action": "merge", "merge_target": target[0].stem},
+                        answer=f"Same as {target[1].get('name') or target[0].stem}"), ""
+    return None, "needs_judge"
+
+
+def _spelling(label: str) -> str:
+    from api.services import predicates
+
+    s = re.sub(r"[^a-z0-9]", "", predicates._slugify_predicate(label))
+    return s.removesuffix("s")
+
+
+def _normalization_rule(item_id: str, fm: dict) -> tuple[Decision | None, str]:
+    raw = str(fm.get("raw_predicate") or "")
+    canonical = str(fm.get("canonical_predicate") or "")
+    if not raw or not canonical:
+        return None, "judgement"
+    if _spelling(raw) and _spelling(raw) == _spelling(canonical):
+        return Decision(item_id, "normalization", "spelling_fold", {"action": "resolve", "option_key": "0"},
+                        answer=f"{raw} is {canonical}"), ""
+    return None, "judgement"
+
+
+def _decay_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | None, str]:
+    from api.services import decay_policy
+    from api.services.claim_reconciler import is_human
+    from api.services.claims import MalformedClaimsBlockError, parse_claims
+
+    page = _page(memory_path, str(fm.get("entity_id") or ""))
+    if page is None:
+        return None, "judgement"
+    _path, pfm, body = page
+    if _type_of(pfm) not in ONE_OFF_TYPES or pfm.get("owner"):
+        return None, "judgement"
+    cls, _rate = decay_policy.resolve(pfm)
+    if cls.value in ("evergreen", "durable"):
+        return None, "judgement"
+    if decay_policy.conversations(pfm.get("source_episodes")) > 1 or decay_policy.kept_dates(pfm):
+        return None, "judgement"
+    try:
+        claims = parse_claims(body, strict=True)
+    except MalformedClaimsBlockError:
+        return None, "judgement"
+    if any(is_human(c) for c in claims):
+        return None, "judgement"
+    return Decision(item_id, "decay", "one_off", {"action": "archive"}, answer="Archived"), ""
+
+
+def _said(claim) -> str:
+    """The latest day a claim was said: its evidence's conversations and its own ``valid_from``."""
+    from api.services import episode_ids
+
+    days = [str(claim.valid_from or "")[:10]]
+    for ev in claim.evidence or []:
+        parsed = episode_ids.parse_episode_id(str(getattr(ev, "episode", "") or ""))
+        if parsed is not None:
+            days.append(str(parsed[0]))
+    return max((d for d in days if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d)), default="")
+
+
+def _conflict_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | None, str]:
+    from api.services import predicates
+    from api.services.claim_reconciler import is_human
+    from api.services.claims import MalformedClaimsBlockError, is_event, parse_claims
+
+    predicate = str(fm.get("predicate") or "description")
+    if predicates.cardinality(memory_path, predicate) == "multi":
+        return None, "judgement"
+    page = _page(memory_path, str(fm.get("entity_id") or ""))
+    if page is None:
+        return None, "judgement"
+    if _type_of(page[1]) == "person" and predicate in ("is-a", "type", "kind", "name", "description"):
+        return None, "person"
+    try:
+        claims = {c.id: c for c in parse_claims(page[2], strict=True)}
+    except MalformedClaimsBlockError:
+        return None, "judgement"
+    options = [o for o in inbox_questions.normalize_options(fm.get("options"))
+               if str(o.get("key")) not in _GENERIC_KEYS]
+    picked = []
+    for o in options:
+        claim = claims.get(str(o.get("claim_id") or ""))
+        if claim is None or claim.valid_to is not None or is_event(claim):
+            return None, "judgement"
+        picked.append((o, claim, _said(claim)))
+    if len(picked) < 2 or any(not said for _, _, said in picked):
+        return None, "judgement"
+    picked.sort(key=lambda row: row[2], reverse=True)
+    newest, rest = picked[0], picked[1:]
+    if any(said >= newest[2] for _, _, said in rest):
+        return None, "judgement"
+    if not is_human(newest[1]) and any(is_human(c) for _, c, _ in rest):
+        return None, "judgement"    # a machine's reading never closes the person's own statement
+    return Decision(item_id, "conflict", "newest_evidence",
+                    {"action": "resolve", "option_key": str(newest[0].get("key"))},
+                    answer=str(newest[0].get("label") or "")), ""
+
+
+def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None) -> tuple[Decision | None, str]:
+    """The engine-free rule for one open question: ``(decision, "")`` or ``(None, why it stays)``. ``needs_judge``
+    means a duplicate pair only the judge can read."""
+    today = today or date.today().isoformat()
+    item_id, kind = path.stem, str(fm.get("kind") or "")
+    blocked = _blocked(fm, today)
+    if blocked:
+        return None, blocked
+    if _gone(memory_path, fm):
+        return Decision(item_id, kind, "subject_gone", None, answer="Retired"), ""
+    if kind == "merge_suggestion":
+        return _merge_rule(memory_path, item_id, fm)
+    if kind == "normalization":
+        return _normalization_rule(item_id, fm)
+    if kind == "decay":
+        return _decay_rule(memory_path, item_id, fm)
+    if kind == "conflict":
+        return _conflict_rule(memory_path, item_id, fm)
+    return None, "needs_person"
+
+
+# --------------------------------------------------------------------------- the engine
+
+
+def _content(resp: Any) -> str:
+    try:
+        return str(resp["choices"][0]["message"]["content"] or "")
+    except (TypeError, KeyError, IndexError):
+        pass
+    try:
+        return str(resp.choices[0].message.content or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _model_of(resp: Any) -> str | None:
+    model = None
+    try:
+        model = resp["model"]
+    except (TypeError, KeyError):
+        model = getattr(resp, "model", None)
+    return str(model) if model else None
+
+
+def default_llm_fn(settings, *, sink: Callable[..., None] | None = None) -> Callable[..., Any]:
+    """The engine Sleep resolved (or the person's chosen one, for the tidy): a blocking call, run off the loop.
+    ``sink`` replaces the usage ledger (a dry run passes a no-op: it writes nothing)."""
+    from api.services import providers
+
+    model = (getattr(settings, "litellm_disambiguation_model", "") or None)
+    if str(getattr(settings, "llm_mode", "")).lower() in ("agent", "codex"):
+        return providers.resolve_llm_fn(settings, stage=STAGE, is_async=False, sink=sink)
+    import litellm
+
+    return providers.resolve_llm_fn(settings, model=model, stage=STAGE, completion=litellm.completion, sink=sink)
+
+
+async def _ask(llm_fn: Callable[..., Any], prompt: str) -> tuple[dict, str | None]:
+    from api.services import json_parse
+
+    resp = await asyncio.to_thread(llm_fn, messages=[{"role": "user", "content": prompt}],
+                                   response_format={"type": "json_object"})
+    return json_parse.parse_json_object_or(_content(resp), {}), _model_of(resp)
+
+
+def _page_text(page: tuple[Path, dict, str] | None, fallback: str = "") -> str:
+    from api.services.claims import strip_claims_block
+
+    if page is None:
+        return fallback[:MAX_PAGE_CHARS]
+    _path, fm, body = page
+    head = f"name: {fm.get('name') or _path.stem}\ntype: {fm.get('type') or ''}\n"
+    return (head + strip_claims_block(body))[:MAX_PAGE_CHARS]
+
+
+async def judge_merge(memory_path: Path, path: Path, fm: dict, body: str, llm_fn) -> tuple[Decision | None, str]:
+    """G21's judge, on one duplicate question: both pages' context, same / different / unsure."""
+    target = _page(memory_path, str(fm.get("merge_target_hint") or ""))
+    if target is None:
+        return None, "no_target"
+    mention = _page(memory_path, str(fm.get("entity_id") or ""))
+    mention_text = _page_text(mention, f"name: {fm.get('entity_name') or ''}\n"
+                                       f"type: {fm.get('suggested_classification') or ''}\n{body}")
+    prompt = (
+        "Two entries in one person's memory may name the SAME real-world thing. Read both and decide. "
+        "Say \"same\" only when they are clearly one thing, \"different\" only when they are clearly two, and "
+        "\"unsure\" otherwise. Reply JSON {\"verdict\":\"same|different|unsure\",\"confidence\":0..1}.\n\n"
+        f"ENTRY A:\n{mention_text}\n\nENTRY B:\n{_page_text(target)}"
+    )
+    verdict, model = await _ask(llm_fn, prompt)
+    word = str(verdict.get("verdict") or "").strip().lower()
+    try:
+        confidence = float(verdict.get("confidence") or 0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    if confidence < JUDGE_THRESHOLD or word not in ("same", "different"):
+        return None, "unsure"
+    name = str(target[1].get("name") or target[0].stem)
+    if word == "same":
+        return Decision(path.stem, "merge_suggestion", "judged_same",
+                        {"action": "merge", "merge_target": target[0].stem}, answer=f"Same as {name}",
+                        model=model), ""
+    return Decision(path.stem, "merge_suggestion", "judged_different",
+                    {"action": "reject", "merge_target": target[0].stem}, answer=f"Not the same as {name}",
+                    model=model), ""
+
+
+# --------------------------------------------------------------------------- move 1: answered in conversation
+
+
+def person_turns(episode: dict) -> list[str]:
+    """The person's own turns of one conversation (``kind: user``), never an agent's or someone else's."""
+    from api.services import evidence
+
+    text = str(episode.get("content") or "")
+    if not text:
+        return []
+    out = []
+    for t in evidence.turns(text, override=episode.get("evidence_kind"), gaps=episode.get("gaps") or ()):
+        if t.role == "user":
+            line = text[t.content_start:t.end].strip()
+            if line:
+                out.append(line)
+    return out
+
+
+def _cited_episodes(memory_path: Path, fm: dict) -> set[str]:
+    """The conversations a question already rests on: the one that raised it and each option claim's evidence."""
+    from api.services.claims import parse_claims
+
+    out = {str(fm.get("source_episode") or "")}
+    ids = {str(o.get("claim_id")) for o in inbox_questions.normalize_options(fm.get("options")) if o.get("claim_id")}
+    if ids:
+        page = _page(memory_path, str(fm.get("entity_id") or ""))
+        if page is not None:
+            try:
+                for c in parse_claims(page[2]):
+                    if c.id in ids:
+                        out |= {str(e.episode) for e in c.evidence or []}
+            except Exception:  # noqa: BLE001
+                pass
+    return {e for e in out if e}
+
+
+def touched(memory_path: Path, episodes: list[dict], items: list[tuple[Path, dict, str]],
+            *, today: str | None = None) -> list[tuple[Path, dict, str, list[str]]]:
+    """``(item path, frontmatter, episode id, the person's lines about it)`` for each open question one of these
+    conversations is about — by the ask gate's rule, over the person's own words."""
+    from api.services import inbox_ask_gate
+
+    today = today or date.today().isoformat()
+    out = []
+    convos = [(str(ep.get("id") or ""), person_turns(ep)) for ep in episodes]
+    convos = [(eid, lines) for eid, lines in convos if eid and lines]
+    for path, fm, _body in items:
+        kind = str(fm.get("kind") or "")
+        if kind not in CONVERSATION_KINDS or _blocked(fm, today) == "undone":
+            continue
+        full = inbox_ask_gate.with_page_names(memory_path, fm)
+        cited = None
+        for eid, lines in convos:
+            ok, _why = inbox_ask_gate.relevant(full, "\n".join(lines))
+            if not ok:
+                continue
+            cited = _cited_episodes(memory_path, fm) if cited is None else cited
+            if eid in cited:
+                continue   # the conversation that raised it never answers it
+            about = [ln for ln in lines if inbox_ask_gate.named_in(full, ln)] or lines
+            out.append((path, fm, eid, [ln[:MAX_LINE_CHARS] for ln in about[-MAX_LINES:]]))
+            break
+    return out
+
+
+def _question_prompt(memory_path: Path, fm: dict, lines: list[str]) -> tuple[str, dict[str, str]]:
+    kind = str(fm.get("kind") or "")
+    name = str(fm.get("entity_name") or fm.get("entity_mention") or fm.get("entity_id") or "")
+    choices: dict[str, str] = {}
+    if kind == "conflict":
+        for o in inbox_questions.normalize_options(fm.get("options")):
+            key = str(o.get("key"))
+            if key != "neither":
+                choices[key] = str(o.get("label") or "")
+        how = ("Pick the option their words state. Options:\n"
+               + "\n".join(f"- {k}: {v}" for k, v in choices.items()))
+    elif kind == "merge_suggestion":
+        target = _page(memory_path, str(fm.get("merge_target_hint") or ""))
+        other = str((target[1].get("name") if target else "") or fm.get("merge_target_hint") or "")
+        choices = {"merge": f"{name} is {other}", "different": f"{name} is not {other}"}
+        how = "Options:\n" + "\n".join(f"- {k}: {v}" for k, v in choices.items())
+    elif str(fm.get("asks") or "") == "name":
+        how = "Give only the person's name, exactly as they wrote it, in \"answer\"."
+    else:
+        how = (f"Give the answer as a short phrase (at most {MAX_ANSWER_CHARS} characters) in their words, "
+               "in \"answer\".")
+    question = str(fm.get("question") or fm.get("title") or f"About {name}")
+    numbered = "\n".join(f"{i + 1}. {ln}" for i, ln in enumerate(lines))
+    prompt = (
+        "You read what a person said in their own conversations and decide whether THEIR OWN WORDS already answer "
+        "one open question their memory holds. Answer only from their words: never infer, never guess, never use "
+        "what you know. If the words do not plainly answer it, say answered=false.\n\n"
+        f"Question: {question}\n{how}\n\nThe person's own words (one line per turn):\n{numbered}\n\n"
+        "Reply JSON {\"answered\": true|false, \"option\": \"<key>\"|null, \"answer\": \"<short>\"|null, "
+        "\"quote\": \"<the exact words from one line that answer it, copied character for character, at most 200 "
+        "characters>\"}."
+    )
+    return prompt, choices
+
+
+async def read_answer(memory_path: Path, path: Path, fm: dict, episode_id: str, lines: list[str],
+                      llm_fn) -> tuple[Decision | None, str]:
+    """Ask the engine whether the person's lines answer the question; a decision only on their located words."""
+    from api.services import evidence, inbox_ask_gate
+
+    prompt, choices = _question_prompt(memory_path, fm, lines)
+    reply, model = await _ask(llm_fn, prompt)
+    if reply.get("answered") is not True:
+        return None, "not_answered"
+    quote = inbox_ask_gate.clean_quote(str(reply.get("quote") or ""), limit=evidence.MAX_QUOTE_CHARS)
+    ev = evidence.verify(memory_path, episode_id, quote) if quote else None
+    if ev is None or not ev.is_span() or ev.kind != "user":
+        return None, "quote_not_found"   # spans, never a guess
+    kind = str(fm.get("kind") or "")
+    words = {"episode": episode_id, "quote": quote}
+    if kind == "conflict":
+        key = str(reply.get("option") or "").strip()
+        if key not in choices:
+            return None, "no_option"
+        return Decision(path.stem, kind, "said_in_conversation", {"action": "resolve", "option_key": key},
+                        answer=choices[key], quote=words, model=model), ""
+    if kind == "merge_suggestion":
+        key = str(reply.get("option") or "").strip()
+        target = str(fm.get("merge_target_hint") or "")
+        if key not in choices or not target:
+            return None, "no_option"
+        request = ({"action": "merge", "merge_target": target} if key == "merge"
+                   else {"action": "reject", "merge_target": target})
+        return Decision(path.stem, kind, "said_in_conversation", request, answer=choices[key], quote=words,
+                        model=model), ""
+    answer = " ".join(str(reply.get("answer") or "").split())[:MAX_ANSWER_CHARS]
+    if not answer:
+        return None, "no_answer"
+    return Decision(path.stem, kind, "said_in_conversation", {"action": "answer", "answer": answer},
+                    answer=answer, quote=words, model=model), ""
+
+
+# --------------------------------------------------------------------------- the one writer
+
+
+def _head(memory_path: Path) -> str:
+    proc = subprocess.run(["git", "-C", str(memory_path), "rev-parse", "-q", "--verify", "HEAD"],
+                          capture_output=True, text=True)
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def _record(fm: dict, d: Decision, by: str, evidence_span: dict | None) -> dict:
+    rec = {
+        "group": GROUP, "at": _now(), "by": by, "by_kind": GROUP, "rule": d.rule, "reason": RULES.get(d.rule, ""),
+        "answer": d.answer, "entity_id": str(fm.get("entity_id") or ""),
+        "entity_name": str(fm.get("entity_name") or fm.get("entity_mention") or ""),
+        "predicate": str(fm.get("predicate") or ""),
+    }
+    if evidence_span:
+        rec["evidence"] = evidence_span
+    return rec
+
+
+def _now() -> str:
+    from api.services import episode_ids
+
+    return episode_ids.utc_now_iso()
+
+
+async def apply(memory_path: Path, settings, d: Decision, *, engine: str | None = None) -> bool:
+    """Settle one question through the person's own resolver, as Sleep. The caller holds the bank (Sleep's window,
+    or the tidy's per-item admission). True when it settled and committed; False leaves the question as it was."""
+    from api.models.schemas import InboxResolveRequest
+    from api.services import evidence, inbox_service
+
+    memory_path = Path(memory_path)
+    path = _inbox(memory_path) / f"{d.item_id}.md"
+    if not path.exists() or not (memory_path / ".git").exists():
+        return False
+    raw = path.read_bytes()
+    if d.fingerprint and raw != d.fingerprint:
+        return False   # the question changed since it was read: it is read again next time
+    parsed = markdown_parser.parse(path)
+    fm, body = dict(parsed.frontmatter), parsed.body
+    span = None
+    if d.quote:
+        ev = evidence.verify(memory_path, d.quote["episode"], d.quote["quote"])
+        if not ev.is_span() or ev.kind != "user":
+            return False
+        span = {"episode": ev.episode, "start": ev.start, "end": ev.end}
+    authors = [d.model] if d.model else ["cicada"]
+    record_rel = f"inbox/{SETTLED_DIR}/{d.item_id}.md"
+    record_path = memory_path / record_rel
+    if record_path.exists():
+        return False   # a settled question of this number already waits for its undo
+    line = f"{record_rel}: created (source: {d.item_id}, trigger: {TRIGGER}:{d.rule})"
+    # The record is written by the commit itself (after the resolver's dirty snapshot), so it rides in that commit.
+    actor = inbox_actor.Actor(rule=d.rule, authors=authors, engine=engine if d.model else None,
+                              extra_paths=[record_rel], extra_lines=[line],
+                              record=(record_path, {**fm, "settled": _record(fm, d, authors[0], span)}, body))
+    token = inbox_actor.set_actor(actor)
+    quote_token = inbox_service._ANSWER_QUOTE.set([d.quote] if d.quote else None)
+    try:
+        if d.request is None:
+            await asyncio.to_thread(_retire, memory_path, path, fm, d, actor)
+        else:
+            request = InboxResolveRequest(**d.request)
+            await inbox_service._resolve_admitted(d.item_id, request, settings, None)
+    except Exception as exc:  # noqa: BLE001 — one question that will not settle never stops the others
+        logger.info(f"inbox tend: {d.item_id} left for the person ({type(exc).__name__})")
+        if not actor.committed:
+            record_path.unlink(missing_ok=True)
+            bank_index.invalidate(memory_path)
+        return False
+    finally:
+        inbox_service._ANSWER_QUOTE.reset(quote_token)
+        inbox_actor.reset(token)
+    if not actor.committed or path.exists():
+        # Skipped by its resolver: nothing of ours may linger for another writer to sweep up.
+        if not actor.committed:
+            record_path.unlink(missing_ok=True)
+            bank_index.invalidate(memory_path)
+        return False
+    return True   # the resolver committed under Sleep's name (`git_service.commit_resolution_sync`)
+
+
+def _retire(memory_path: Path, path: Path, fm: dict, d: Decision, actor: inbox_actor.Actor) -> None:
+    """A question whose subject is gone: moved to its settled record, nothing else touched, one Sleep commit."""
+    from api.services import git_service, telemetry
+
+    rel = path.relative_to(memory_path).as_posix()
+    before = git_service.snapshot_dirty_sync(memory_path)
+    path.unlink()
+    inbox_actor.write_record(actor)
+    bank_index.invalidate(memory_path)
+    lines = [f"{rel}: settled (source: {d.item_id}, trigger: {TRIGGER}:{d.rule})", *actor.extra_lines]
+    message = git_service.build_commit_message(
+        f"Inbox settled by Sleep ({d.kind}) {date.today().isoformat()}", lines, authors=actor.authors)
+    git_service.commit_touched_sync(memory_path, message, [rel, *actor.extra_paths], before=before,
+                                    kept_subject=f"Uncommitted edit kept apart {date.today().isoformat()}",
+                                    kept_trigger="inbox/kept-apart")
+    actor.committed = True
+    try:
+        telemetry.record(telemetry.UsageEvent(
+            kind="resolution", stage="feedback", bank=Path(memory_path).name, invocations=0, billing="free",
+            refs={"item_id": d.item_id, "kind": d.kind, "entity_id": str(fm.get("entity_id") or "") or None,
+                  "action": "retire", "verdict": "neutral", "by": GROUP, "rule": d.rule}))
+    except Exception:  # noqa: BLE001 — a ledger row never fails a settle
+        pass
+
+
+# --------------------------------------------------------------------------- the passes
+
+
+async def _settle_all(memory_path: Path, settings, decisions: list[Decision], report: Report, *,
+                      engine: str | None, admitted: bool) -> None:
+    from api.services import write_admission
+    from api.services.sleep_refusal import SleepWriting
+
+    for d in decisions:
+        if admitted:
+            try:
+                ok = await write_admission.run_admitted(
+                    memory_path, lambda d=d: apply(memory_path, settings, d, engine=engine),
+                    refuse=lambda: SleepWriting("Sleep is running"))
+            except SleepWriting:
+                report.stopped = "sleep_running"
+                return
+        else:
+            ok = await apply(memory_path, settings, d, engine=engine)
+        if ok:
+            report.settled += 1
+            report.count(d.kind, d.rule)
+        else:
+            report.asked += 1
+            report.count(d.kind, "left")
+
+
+def _plan_paused(exc: BaseException) -> str | None:
+    """A plan limit (or a sign-out) stops the pass — a pause, never a failure."""
+    from api.services import agent_engine
+
+    reason = agent_engine.breaker_reason()
+    if reason:
+        return "plan_limit"
+    name = type(exc).__name__.lower()
+    return "plan_limit" if "limit" in name or "throttl" in name else None
+
+
+async def policy_pass(memory_path: Path, settings, report: Report, *, llm_fn=None, judge_cap: int | None = JUDGE_CAP,
+                      limit: int | None = None, dry_run: bool = False, judge: bool = True,
+                      admitted: bool = False, engine: str | None = None) -> list[Decision]:
+    """Move 2 over every open question: the engine-free rules, then the judge on up to ``judge_cap`` duplicate
+    pairs (``None``: no cap). ``dry_run`` decides and counts, writing nothing."""
+    today = date.today().isoformat()
+    decisions: list[Decision] = []
+    judged = 0
+    for path, fm, body in pending(memory_path):
+        if limit is not None and len(decisions) + report.asked >= limit:
+            break
+        kind = str(fm.get("kind") or "")
+        try:
+            fingerprint = path.read_bytes()
+        except OSError:
+            continue
+        d, why = policy(memory_path, path, fm, today=today)
+        if d is None and why == "needs_judge":
+            if not judge or llm_fn is None or (judge_cap is not None and judged >= judge_cap) or report.stopped:
+                why = "needs_judge"
+            else:
+                judged += 1
+                report.judged += 1
+                try:
+                    d, why = await judge_merge(memory_path, path, fm, body, llm_fn)
+                except Exception as exc:  # noqa: BLE001
+                    paused = _plan_paused(exc)
+                    if paused:
+                        report.stopped = paused
+                    d, why = None, "judge_failed"
+        if d is None:
+            report.asked += 1
+            report.count(kind, f"ask:{why}")
+            continue
+        d.fingerprint = fingerprint
+        if dry_run:
+            report.settled += 1
+            report.count(kind, d.rule)
+            continue
+        decisions.append(d)
+    if not dry_run:
+        await _settle_all(memory_path, settings, decisions, report, engine=engine, admitted=admitted)
+    return decisions
+
+
+async def conversation_pass(memory_path: Path, settings, episodes: list[dict], report: Report, *, llm_fn,
+                            cap: int = CONVERSATION_CAP, engine: str | None = None, dry_run: bool = False) -> None:
+    """Move 1: questions the batch's conversations touched, answered only by the person's own located words."""
+    if llm_fn is None:
+        return
+    items = pending(memory_path)
+    decisions: list[Decision] = []
+    for path, fm, eid, lines in touched(memory_path, episodes, items)[:max(0, cap)]:
+        kind = str(fm.get("kind") or "")
+        report.read += 1
+        try:
+            fingerprint = path.read_bytes()
+            d, why = await read_answer(memory_path, path, fm, eid, lines, llm_fn)
+        except Exception as exc:  # noqa: BLE001
+            paused = _plan_paused(exc)
+            if paused:
+                report.stopped = paused
+                break
+            d, why = None, "read_failed"
+        if d is None:
+            report.count(kind, f"conversation:{why}")
+            continue
+        d.fingerprint = fingerprint
+        if dry_run:
+            report.settled += 1
+            report.count(kind, d.rule)
+        else:
+            decisions.append(d)
+    if decisions:
+        await _settle_all(memory_path, settings, decisions, report, engine=engine, admitted=False)
+
+
+async def tend(memory_path: Path, settings, *, episodes: list[dict], run_policy: bool, llm_fn=None,
+               engine: str | None = None) -> Report:
+    """One Sleep batch's tending, inside Sleep's own write window, after the batch's commit: move 1 for what its
+    conversations touched, and (once per drain) move 2 over the whole inbox. Each settle commits alone; the state
+    projection is left to the run's tail."""
+    memory_path = Path(memory_path)
+    report = Report(engine=engine)
+    if not (memory_path / ".git").exists() or not _inbox(memory_path).is_dir():
+        return report
+    if llm_fn is None:
+        try:
+            llm_fn = default_llm_fn(settings)
+        except Exception as exc:  # noqa: BLE001 — no engine: the engine-free rules still run
+            logger.info(f"inbox tend: no engine ({type(exc).__name__}); engine-free rules only")
+            llm_fn = None
+    await conversation_pass(memory_path, settings, episodes, report, llm_fn=llm_fn, engine=engine)
+    if run_policy and not report.stopped:
+        await policy_pass(memory_path, settings, report, llm_fn=llm_fn, engine=engine)
+    # The state projection is refreshed by Sleep's own tail at the end of the run, once.
+    return report
+
+
+# --------------------------------------------------------------------------- the one-time tidy
+
+_TIDY: dict[str, Any] = {"running": False, "report": None}
+
+
+def tidy_status() -> dict:
+    report = _TIDY.get("report")
+    return {"running": bool(_TIDY.get("running")), "report": report.as_dict() if report is not None else None}
+
+
+async def tidy(memory_path: Path, settings, *, dry_run: bool = True, limit: int | None = None, judge: bool = False,
+               llm_fn=None) -> dict:
+    """The one-time tidy of the existing backlog: the same policy (move 2) over every open question. ``dry_run``
+    writes nothing and prints counts per kind and per decision — never a title, a name or any text. ``judge`` lets
+    the duplicate judge read pairs with the person's chosen engine (their Claude plan included, owner 2026-10-17); a
+    plan limit pauses it (``stopped: plan_limit``) and what it settled stays settled. A real run settles each
+    question under the bank's write admission, one commit each, and stops if Sleep starts."""
+    from api.services import engine_select
+
+    memory_path = Path(memory_path)
+    report = Report()
+    if not _inbox(memory_path).is_dir():
+        return report.as_dict()
+    if not dry_run and not (memory_path / ".git").exists():
+        report.stopped = "no_git"
+        return report.as_dict()
+    engine = None
+    if judge and llm_fn is None:
+        resolved, _why = await engine_select.resolve_settings(settings, user_triggered=True)
+        engine = engine_select.engine_label(resolved)
+        llm_fn = default_llm_fn(resolved, sink=(lambda _event: None) if dry_run else None)
+    report.engine = engine
+    _TIDY.update(running=True, report=report)
+    try:
+        from api.services import agent_engine
+
+        with agent_engine.use_scope(f"inbox-tidy:{memory_path.name}"):
+            await policy_pass(memory_path, settings, report, llm_fn=llm_fn if judge else None, judge_cap=None,
+                              limit=limit, dry_run=dry_run, judge=judge, admitted=True, engine=engine)
+        if report.settled and not dry_run:
+            try:
+                from api.services import state_dictionary
+
+                await state_dictionary.refresh_and_commit(memory_path, settings)
+            except Exception:  # noqa: BLE001
+                pass
+    finally:
+        _TIDY["running"] = False
+    out = report.as_dict()
+    out["dry_run"] = dry_run
+    return out
+
+
+# --------------------------------------------------------------------------- the list and the undo
+
+
+def quote_for(memory_path: Path, rec: dict) -> tuple[str, str]:
+    """``(quote, episode)`` for a Sleep record that rests on the person's words, read through its span."""
+    from api.services import evidence
+
+    span = rec.get("evidence") if isinstance(rec.get("evidence"), dict) else None
+    if not span:
+        return "", ""
+    episode = str(span.get("episode") or "")
+    text = evidence.source_text(Path(memory_path), episode) or ""
+    try:
+        start, end = int(span.get("start")), int(span.get("end"))
+    except (TypeError, ValueError):
+        return "", episode
+    return " ".join(text[start:end].split())[:240], episode
+
+
+def _git_bytes(memory_path: Path, rev_path: str) -> bytes | None:
+    proc = subprocess.run(["git", "-C", str(memory_path), "cat-file", "blob", rev_path], capture_output=True)
+    return proc.stdout if proc.returncode == 0 else None
+
+
+def _commit_of(memory_path: Path, record_rel: str) -> str:
+    proc = subprocess.run(["git", "-C", str(memory_path), "log", "-1", "--diff-filter=A", "--format=%H", "--",
+                           record_rel], capture_output=True, text=True)
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def _changed(memory_path: Path, sha: str) -> list[str]:
+    proc = subprocess.run(["git", "-C", str(memory_path), "diff-tree", "-r", "-z", "--no-commit-id", "--name-only",
+                           "--no-renames", f"{sha}^", sha], capture_output=True)
+    if proc.returncode != 0:
+        raise NotUndoable("The settle's commit could not be read; nothing was changed.")
+    return [p for p in proc.stdout.decode("utf-8", "replace").split("\0") if p]
+
+
+def _reverse(memory_path: Path, current: bytes, after: bytes, before: bytes) -> bytes | None:
+    """``current`` with the change ``before → after`` taken back (three-way; ``None`` on a conflict)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        files = []
+        for name, data in (("current", current), ("after", after), ("before", before)):
+            p = os.path.join(tmp, name)
+            with open(p, "wb") as fh:
+                fh.write(data)
+            files.append(p)
+        proc = subprocess.run(["git", "merge-file", "-p", "-q", *files], capture_output=True)
+    return proc.stdout if proc.returncode == 0 else None
+
+
+def _write_bytes(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def undo(memory_path: Path, item_id: str) -> tuple[str, list[str], list[str], dict]:
+    """Take back one of Sleep's settles: the reverse of its commit, applied onto each file as it is now (refused whole
+    when anything since conflicts with it), and the question back in the inbox, marked so Sleep never settles it
+    again. Returns ``(restored id, paths, manifest lines, the record)``. The caller holds the bank and commits."""
+    from api.services import inbox_service
+
+    memory_path = Path(memory_path)
+    if not re.fullmatch(r"inbox-\d{3,}", item_id or ""):
+        raise NotUndoable("No such settled question.")
+    record_rel = f"inbox/{SETTLED_DIR}/{item_id}.md"
+    rec_path = memory_path / record_rel
+    if not rec_path.exists():
+        raise NotUndoable("No such settled question.")
+    parsed = markdown_parser.parse(rec_path)
+    fm = dict(parsed.frontmatter)
+    rec = fm.pop("settled", None)
+    if not isinstance(rec, dict) or rec.get("group") != GROUP:
+        raise NotUndoable("No such settled question.")
+    sha = _commit_of(memory_path, record_rel)
+    if not sha:
+        raise NotUndoable("The settle's commit could not be found; nothing was changed.")
+    writes: list[tuple[str, bytes | None]] = []
+    for rel in _changed(memory_path, sha):
+        if rel in (f"inbox/{item_id}.md", record_rel):
+            continue   # the question and its record are put back below
+        before = _git_bytes(memory_path, f"{sha}^:{rel}")
+        after = _git_bytes(memory_path, f"{sha}:{rel}")
+        target = memory_path / rel
+        current = target.read_bytes() if target.is_file() else None
+        if current == before:
+            continue
+        if current == after:
+            writes.append((rel, before))
+        elif None not in (current, after, before):
+            merged = _reverse(memory_path, current, after, before)
+            if merged is None:
+                raise NotUndoable("The page changed since Sleep settled this, in the same place; nothing was "
+                                  "changed. Answer the question on the page instead.")
+            writes.append((rel, merged))
+        else:
+            raise NotUndoable("A page this settle wrote was moved or removed since; nothing was changed.")
+    paths, lines = [], []
+    for rel, data in writes:
+        target = memory_path / rel
+        if data is None:
+            target.unlink(missing_ok=True)
+        else:
+            _write_bytes(target, data)
+        paths.append(rel)
+        lines.append(f"{rel}: updated (source: {item_id}, trigger: inbox/sleep-settle/undone)")
+    inbox_dir = _inbox(memory_path)
+    restored = item_id
+    if (inbox_dir / f"{restored}.md").exists():   # never replace a question that took the number since
+        restored = f"inbox-{inbox_service.next_inbox_num(inbox_dir):03d}"
+    markdown_parser.write(inbox_dir / f"{restored}.md", {**fm, UNDONE_KEY: "undone"}, parsed.body)
+    rec_path.unlink()
+    bank_index.invalidate(memory_path)
+    markdown_parser.invalidate_pages(os.path.realpath(memory_path))
+    paths += [f"inbox/{restored}.md", record_rel]
+    lines.append(f"inbox/{restored}.md: reopened (source: {item_id}, trigger: inbox/sleep-settle/undone)")
+    return restored, paths, lines, rec
+
+
+def record_undo(memory_path: Path, item_id: str, rec: dict) -> None:
+    """The person took Sleep's assumption back: a grounded reward against that rule (G113), ids and enums only."""
+    from api.services import telemetry
+
+    try:
+        telemetry.record(telemetry.UsageEvent(
+            kind="resolution", stage="feedback", bank=Path(memory_path).name, invocations=0, billing="free",
+            refs={"item_id": item_id, "kind": None, "action": "undo", "verdict": "overruled", "by": "person",
+                  "settled_by": GROUP, "rule": str(rec.get("rule") or "") or None}))
+    except Exception:  # noqa: BLE001
+        pass

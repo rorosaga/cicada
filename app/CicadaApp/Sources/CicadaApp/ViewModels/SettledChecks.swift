@@ -58,7 +58,7 @@ final class SettledChecks {
             await then()
         } catch {
             rows.insert(row, at: min(at, rows.count))
-            message = Copy.Inbox.settledUndoFailed
+            message = row.bySleep ? Copy.Inbox.settledSleepUndoFailed : Copy.Inbox.settledUndoFailed
         }
     }
 

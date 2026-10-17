@@ -1779,6 +1779,11 @@ def commit_resolution_sync(
     page lock in a worker thread and commits inside it (G98/G115: a
     normalization answer's pages, map and item are one critical section)."""
     date_str = date.today().isoformat()
+    from api.services import inbox_actor
+
+    # Ruling 29: Sleep settles through the same resolvers; the commit then names Sleep, never the person.
+    actor = inbox_actor.current()
+    trigger = inbox_actor.trigger(trigger)
     # trigger is "inbox/<kind>/resolved[:<label>]" — tag the kind into the
     # subject so the dashboard can distinguish a conflict adjudication from a
     # decay archive. G113 R1: the ``:<label>`` suffix names the action the user
@@ -1789,24 +1794,30 @@ def commit_resolution_sync(
     parts = trigger.split("/")
     if len(parts) >= 2 and parts[0] == "inbox":
         kind = parts[1]
-    subject = (
-        f"Inbox resolution ({kind}) {date_str}" if kind
-        else f"Inbox resolution {date_str}"
-    )
+    what = "Inbox settled by Sleep" if actor is not None else "Inbox resolution"
+    subject = f"{what} ({kind}) {date_str}" if kind else f"{what} {date_str}"
     body_lines = [f"entities/{entity_id}.md: {change} (trigger: {trigger})"]
     # The manifest is a SET of file lines: a caller that closes N claims on one
     # page must not repeat that page's line N times.
-    for line in extra_lines or []:
+    for line in [*(extra_lines or []), *(actor.extra_lines if actor is not None else [])]:
+        line = inbox_actor.trigger(line) if actor is not None else line
         if line not in body_lines:
             body_lines.append(line)
     # An inbox resolution is a user/companion-app action -> attribute to "user". An answer an agent relayed from a
     # conversation (owner, 2026-10-14) also names that agent and the conversation, so git says who carried it.
-    message = build_commit_message(subject, body_lines, authors=["user", *([relayed_by] if relayed_by else [])],
-                                   sessions=sessions)
+    # Sleep's settle (ruling 29) is Sleep's: the model that judged it, or `cicada` for an engine-free rule.
+    authors = list(actor.authors) if actor is not None else ["user", *([relayed_by] if relayed_by else [])]
+    message = build_commit_message(subject, body_lines, authors=authors, sessions=sessions,
+                                   engine=actor.engine if actor is not None else None)
     touched = [line.split(": ", 1)[0].strip() for line in body_lines if ": " in line]
     touched += list(paths or [])
+    if actor is not None:
+        touched += list(actor.extra_paths)
+        inbox_actor.write_record(actor)
     commit_touched_sync(memory_path, message, touched, before=before,
                         kept_subject=f"Uncommitted edit kept apart {date_str}", kept_trigger="inbox/kept-apart")
+    if actor is not None:
+        actor.committed = True
 
 
 # G147 — the manifest line `commit_resolution` writes for a decay answer. Its

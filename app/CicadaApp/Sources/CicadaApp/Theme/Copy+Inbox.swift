@@ -30,6 +30,15 @@ extension Copy {
         static let settledTrackHelp = "Add this page to the places Cicada re-checks for this page's facts"
         static let settledTracked = "Tracked"
         static let settledUndoFailed = "That check couldn't be undone. It's still settled."
+        // Ruling 29 — "Settled by Sleep": what Sleep answered from the person's own words, or assumed.
+        static let settledSleepTitle = "Settled by Sleep"
+        static func settledSleepHeader(_ n: Int) -> String { "Settled by Sleep · \(UsageFormat.count(n))" }
+        static let settledSleepShowHelp = "Show the questions Sleep answered from your conversations or assumed for you"
+        static func settledSleepMeta(_ reason: String, _ when: String) -> String {
+            reason.isEmpty ? when : "\(reason) · \(when)"
+        }
+        static let settledSleepUndoHelp = "Put the question back and take back what Sleep changed for it"
+        static let settledSleepUndoFailed = "That couldn't be undone — the page changed since. Answer the question there instead."
         static let settledTrackFailed = "That page couldn't be added as a source."
 
         // The Undo row (R-DI5)

@@ -798,6 +798,20 @@ plan limit stops the step (the rest waits for the next run); a drain stopped at 
 settle touches is snapshotted first; a failed step or commit puts them all back, unstages them and clears their memo
 rows (`web_lookup.restore`), so nothing dangles for a later `git add -A` to commit under the wrong author.
 
+**Sleep tends the inbox (owner ruling 2026-10-17, TODO ruling 29; `sleep_cycle._tend_inbox_safely`, `inbox_tend`).**
+Every batch, right after `_finalize`'s commit and still inside its write window (so no person's answer lands between
+its read and its settle), Sleep: **(1)** reads the open `conflict` / `clarification` / `merge_suggestion` questions this
+batch's conversations are about (the ask gate's rule over the person's own turns; at most 8 a batch, one engine call
+each, stage `inbox_tend`) and settles one only when the engine copies the person's words and they are found exactly in
+the person's own turn (`evidence.verify`, kind `user`) — the conversation that raised a question never answers it; and
+**(2)**, once per drain (the batch that runs decay), assumes the small stuff by engine-free rules plus the duplicate
+judge on at most 6 page pairs (`features.md` has the table). Each settle goes through the person's own resolver and
+commits alone as Sleep's (`Inbox settled by Sleep`, trigger `inbox/<kind>/settled:<label>`), undoable under "Settled by
+Sleep"; the state projection is refreshed once after. The engine is the batch's own, so ruling 4 holds as for every
+stage; a plan limit stops the tending and trips the batch's breaker, so the drain pauses as for a Stage-1 limit. A
+cancel requested before the tending skips it. `inbox_settled` counts the run's settles on the wire. The one-time tidy
+of an existing backlog (`POST /inbox/tidy`) is the same policy outside Sleep, each settle under write admission.
+
 **Consolidate reads everything (owner, 2026-09-29; TODO ruling 13; scheduled runs too since 2026-09-30, ruling 16).** "I don't want to cap the max episodes per sleep —
 it's just progress Cicada has to go through." A **person-started** run (`POST /sleep/trigger`, so every Consolidate door:
 the Sleep page, Home's and the intake card's *Read now*, the menu-bar worm) — and, since ruling 16, a **scheduled** one, on the scheduled engine — is a **drain** — `run(..., drain=True)`, one

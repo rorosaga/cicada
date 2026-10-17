@@ -375,7 +375,14 @@ async def feedback(memory_path: Path, *, range_: str, today: date) -> dict:
     """
     start = resolve_range(range_, today)
     events = [e for e in _events_in(range_, today) if e.kind in telemetry.FEEDBACK_KINDS]
-    resolutions = [e for e in events if e.kind == "resolution"]
+    # Ruling 29: Sleep's own settles and the person's undo of one are not the person's verdict on the extractor;
+    # they are counted apart (`sleep_settles`) — an undo is the grounded reward against the rule that settled it.
+    def _sleeps(e) -> bool:
+        refs = e.refs or {}
+        return refs.get("by") == "sleep" or refs.get("settled_by") == "sleep"
+
+    sleep_rows = [e for e in events if e.kind == "resolution" and _sleeps(e)]
+    resolutions = [e for e in events if e.kind == "resolution" and not _sleeps(e)]
 
     per_kind: dict[str, dict] = defaultdict(lambda: {"total": 0, "agreed": 0, "overruled": 0})
     actions: Counter[str] = Counter()
@@ -419,9 +426,18 @@ async def feedback(memory_path: Path, *, range_: str, today: date) -> dict:
     audits = Counter(str((e.refs or {}).get("action")) for e in events if e.kind == "audit")
     dedup_events = [e for e in events if e.kind == "dedup_verdict"]
     dedup_verdicts = Counter(str((e.refs or {}).get("verdict")) for e in dedup_events)
+    settled_rows = [e for e in sleep_rows if (e.refs or {}).get("by") == "sleep"]
+    undone_rows = [e for e in sleep_rows if (e.refs or {}).get("settled_by") == "sleep"]
+    by_rule: dict[str, dict[str, int]] = defaultdict(lambda: {"settled": 0, "undone": 0})
+    for e in settled_rows:
+        by_rule[str((e.refs or {}).get("rule") or "unknown")]["settled"] += 1
+    for e in undone_rows:
+        by_rule[str((e.refs or {}).get("rule") or "unknown")]["undone"] += 1
     return {
         "range": range_,
         "since": start.isoformat() if start else None,
+        "sleep_settles": {"settled": len(settled_rows), "undone": len(undone_rows),
+                          "by_rule": {k: dict(v) for k, v in sorted(by_rule.items())}},
         "resolutions": len(resolutions),
         "corrections": overruled,
         "rate": _rate(agreed, overruled),

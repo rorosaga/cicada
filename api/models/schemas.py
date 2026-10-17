@@ -2305,6 +2305,11 @@ class SettledCheck(CamelModel):
     episode: str = ""
     held: bool = False
     has_page: bool = False
+    #: Ruling 29: ``check`` (a web lookup or the person's agent) or ``sleep`` (Sleep answered it from the person's
+    #: own words, or assumed it). ``rule`` is the enum that settled it, ``reason`` its words for the Inbox.
+    group: str = "check"
+    rule: str = ""
+    reason: str = ""
 
 
 class CheckCensus(CamelModel):
@@ -2641,6 +2646,8 @@ class SleepStatusResponse(CamelModel):
     # G60 — open-question re-scoring outcomes for the Sleep dashboard.
     questions_refreshed: int = 0
     organic_resolutions: int = 0
+    # Ruling 29: inbox questions Sleep settled (answered in conversation, or assumed), "Settled by Sleep".
+    inbox_settled: int = 0
     # G74(a) — which engine this cycle ran on, and one sentence about its
     # state ("Claude Code is signed out — run `claude auth login`").
     last_engine: Optional[str] = None
@@ -4809,6 +4816,8 @@ class ConsumptionFeedback(CamelModel):
     by_action: list[dict] = []
     audits: dict = {}
     dedup: dict = {}
+    #: Ruling 29: Sleep's settles, kept apart from the person's verdicts, and how many the person took back, by rule.
+    sleep_settles: dict = {}
 
 
 class ConnectionConsumption(CamelModel):
