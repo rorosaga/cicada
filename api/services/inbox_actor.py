@@ -74,6 +74,13 @@ def claim_author() -> str:
     return "user" if actor is None else (actor.authors[0] if actor.authors else "cicada")
 
 
+def claim_origin(default: str = "clarification") -> str:
+    """``origin`` for a claim an answer writes. The person's inbox answer is a human origin (overwrite-protected,
+    ``claim_reconciler.is_human``); Sleep's reading of their words is not — it stands where an extraction of those
+    words would, so a later statement of theirs can still supersede it."""
+    return default if _ACTOR.get() is None else "inbox-tend"
+
+
 def confirmed_by() -> str:
     """The words a resolver's prose uses for who confirmed it."""
     return "user" if _ACTOR.get() is None else "Sleep"

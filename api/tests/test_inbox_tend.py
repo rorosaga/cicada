@@ -534,3 +534,22 @@ def test_every_batch_tends_and_the_policy_runs_once_per_drain(tmp_path, monkeypa
     assert [len(ids) for ids, _ in seen] == [2, 2, 1]          # each batch's own conversations
     assert [policy for _, policy in seen] == [False, False, True]   # the small stuff once, with decay
     state.status, state.drain, state.drain_run = "idle", None, False
+
+
+def test_a_clarification_answered_in_conversation_is_sleeps_reading_not_the_persons_inbox_answer(memory):
+    from api.services.claim_reconciler import is_human
+
+    _entity(memory, "example-gadget", type="tool", name="Example Gadget", status="active")
+    _item(memory, "inbox-001", kind="clarification", entity_id="example-gadget", entity_name="Example Gadget",
+          title="Who or what is Example Gadget?", source_episode="ep_2026-09-01_001")
+    ep = _episode(memory, "ep_2026-10-03_001", "user: Example Gadget is the soldering station on my desk.")
+    _commit(memory)
+    fn = _fake({"answered": True, "answer": "a soldering station",
+                "quote": "Example Gadget is the soldering station on my desk"})
+    report = run(inbox_tend.tend(memory, _Settings(memory), episodes=[ep], run_policy=False, llm_fn=fn))
+    assert report.settled == 1
+    claim = [c for c in parse_claims((memory / "entities" / "example-gadget.md").read_text())
+             if c.object == "a soldering station"][0]
+    assert claim.authored_by == "fake-model" and claim.origin == "inbox-tend"
+    assert not is_human(claim), "Sleep's reading stands where an extraction would, never as the person's inbox answer"
+    assert claim.evidence and claim.evidence[0].kind == "user" and claim.evidence[0].is_span()

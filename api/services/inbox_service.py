@@ -1794,7 +1794,7 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
                     observer=option_claims[0].observer if option_claims else _owner_observer(settings, settings.memory_path),
                     context=option_claims[0].context if option_claims else "general",
                     source_trust="user_stated",
-                    origin="clarification",
+                    origin=inbox_actor.claim_origin(),
                     authored_by=inbox_actor.claim_author(),
                     confidence=0.95,
                     valid_from=today,
@@ -2412,8 +2412,9 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                         predicate, entity.frontmatter.get("name", entity_id), answer_text
                     ),
                     subject=entity_id, predicate=predicate, object=answer_text, object_kind="literal",
-                    observer=_owner_observer(settings, settings.memory_path), source_trust="user_stated", origin="clarification",
-                    authored_by=inbox_actor.claim_author(), confidence=0.95, valid_from=today, recorded_at=today,
+                    observer=_owner_observer(settings, settings.memory_path), source_trust="user_stated",
+                    origin=inbox_actor.claim_origin(), authored_by=inbox_actor.claim_author(), confidence=0.95,
+                    valid_from=today, recorded_at=today,
                     evidence=_quote_spans(settings.memory_path),
                 ))
                 body = write_claims(body, claims)
