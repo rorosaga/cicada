@@ -416,7 +416,8 @@ def apply(memory_path, result: Survey, *, sleep_running: Callable[[], bool], set
 
 def run(memory_path, settings, *, mode: str, sleep_running: Callable[[], bool] = lambda: True,
         entity_ids=None, limit: int | None = None, rewrite: bool = False, preview_dir=None,
-        allow_metered: bool = False, batch_size: int = 25) -> Survey:
+        allow_metered: bool = False, batch_size: int = 25,
+        backend_problem: Callable[[], str | None] = lambda: None) -> Survey:
     """``mode``: ``"dry"`` (counts), ``"preview"`` (calls, files in ``preview_dir``) or ``"apply"``.
 
     The engine is resolved first, as a person-started Sleep resolves it (:func:`resolve_engine`), and named in the
@@ -426,7 +427,20 @@ def run(memory_path, settings, *, mode: str, sleep_running: Callable[[], bool] =
     ``apply`` goes ``batch_size`` pages at a time — the calls, then that batch's one commit — so a stop keeps every
     batch before it: an engine stop (a plan limit is a pause, never retried here; ruling 15) commits what its batch
     wrote, and Sleep starting between batches ends the run there. Either way ``stopped`` says why, and running the
-    command again continues with the pages not yet articles."""
+    command again continues with the pages not yet articles.
+
+    ``backend_problem`` says why the last ``sleep_running()`` could not establish that Sleep is idle when the cause
+    was the backend (slow, unreachable, unreadable) rather than a run, so a stop never claims "Sleep started" for a
+    backend that was only slow (2026-10-17)."""
+
+    def why(sleeping: str) -> str:
+        try:
+            problem = backend_problem()
+        except Exception:  # noqa: BLE001 — a reason that cannot be read is the old sentence
+            problem = None
+        return f"{problem}; the batches before it are committed — run again to continue" if problem else sleeping
+
+    stopped_by_sleep = "Sleep started; the batches before it are committed — run again after it ends"
     result = survey(memory_path, settings, entity_ids=entity_ids, limit=limit, rewrite=rewrite,
                     batch_size=batch_size)
     try:
@@ -439,7 +453,9 @@ def run(memory_path, settings, *, mode: str, sleep_running: Callable[[], bool] =
     if mode == "dry" or not result._jobs:
         return result
     if mode == "apply" and sleep_running():
-        raise SleepRunning("a Sleep run is in progress; rebuild after it ends")   # before spending a call
+        problem = backend_problem()
+        raise SleepRunning(f"{problem}; nothing was written — run again once it answers" if problem
+                           else "a Sleep run is in progress; rebuild after it ends")   # before spending a call
     if mode == "preview":
         asyncio.run(write(result, settings))
         result.written = preview(result, preview_dir)
@@ -448,7 +464,7 @@ def run(memory_path, settings, *, mode: str, sleep_running: Callable[[], bool] =
     for start in range(0, len(jobs), result.batch_size):
         batch = jobs[start:start + result.batch_size]
         if start and sleep_running():
-            result.stopped = "Sleep started; the batches before it are committed — run again after it ends"
+            result.stopped = why(stopped_by_sleep)
             break
         asyncio.run(write(result, settings, batch))
         try:
@@ -456,7 +472,7 @@ def run(memory_path, settings, *, mode: str, sleep_running: Callable[[], bool] =
         except SleepRunning:
             if not start:
                 raise
-            result.stopped = "Sleep started; the batches before it are committed — run again after it ends"
+            result.stopped = why(stopped_by_sleep)
             break
         if result.stopped:
             break

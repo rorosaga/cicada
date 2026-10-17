@@ -12,7 +12,8 @@ the estimated calls (one a page) and the batches an apply commits. ``--limit N``
 narrow the sample. ``--preview-dir`` makes the calls and writes ``<id>.before.md`` / ``<id>.after.md`` there, never
 touching the bank (the directory must be outside it). ``--apply`` makes the calls and writes the pages
 ``--batch-size`` (25) at a time, one commit a batch; it is refused unless the backend says Sleep is idle, and stops
-between batches if Sleep starts. ``--rewrite`` also rewrites pages that already have an article (one written today
+between batches if Sleep starts. A slow or absent backend is asked again before either, and the refusal or stop says
+which it was — Sleep running, or the backend slow, unreachable or unreadable. ``--rewrite`` also rewrites pages that already have an article (one written today
 counts as done, so a rerun continues).
 
 The engine is the one a Sleep run the person starts would use: the engine chosen in Settings → Engines (a plan when
@@ -23,8 +24,8 @@ rebuild on a metered key spends money, so it is agreed to by name.
 The bank is named explicitly; nothing is resolved from the environment's active bank. Prints one JSON object of
 counts (never a page name or a word of the bank). Exit 0 done, 2 not a bank or a bad preview directory, 3 refused
 because Sleep is running or holds the pages, 4 refused because no engine resolves or it is metered without
-``--allow-metered``, 5 stopped early (a plan limit, an unreachable engine, pages failing in a row, or Sleep starting between
-batches): every batch before the stop is committed, and the stopped batch's finished pages too (``stopped`` says why,
+``--allow-metered``, 5 stopped early (a plan limit, an unreachable engine, pages failing in a row, or Sleep starting — or the backend not
+confirming it idle — between batches): every batch before the stop is committed, and the stopped batch's finished pages too (``stopped`` says why,
 ``not_attempted`` how many were never asked; run it again to continue — finished pages are already articles). One page's malformed answer, timeout or refusal never
 stops the run: that page is skipped and counted under ``page_failures``.
 """
@@ -35,7 +36,7 @@ import json
 import sys
 from pathlib import Path
 
-from api.scripts.migrate_claims_jsonl import backend_running
+from api.scripts.migrate_claims_jsonl import backend_problem, backend_running
 
 
 def main(argv=None) -> int:
@@ -70,7 +71,8 @@ def main(argv=None) -> int:
     try:
         result = rebuild.run(bank, settings, mode=mode_name, sleep_running=backend_running,
                              entity_ids=args.entity, limit=args.limit, rewrite=args.rewrite, preview_dir=preview,
-                             allow_metered=args.allow_metered, batch_size=max(1, args.batch_size))
+                             allow_metered=args.allow_metered, batch_size=max(1, args.batch_size),
+                             backend_problem=backend_problem)
     except rebuild.SleepRunning as exc:
         print(json.dumps({"refused": str(exc)}))
         return 3

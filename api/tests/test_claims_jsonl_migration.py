@@ -11,6 +11,7 @@ import json
 import socket
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -226,9 +227,86 @@ def test_the_command_refuses_when_no_backend_answers(bank, tmp_path, monkeypatch
 
     monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home" / ".cicada"))
     monkeypatch.setenv("CICADA_PORT", str(_free_port()))
+    monkeypatch.setattr(cmd, "PROBE_RETRY_S", 0.01)
     before = _snapshot(bank)
     assert cmd.main(["--bank", str(bank), "--apply"]) == 3
     assert _snapshot(bank) == before
+
+
+def _serve_after(slow_first: int, body: bytes, delay: float):
+    """Answer ``body``, but the first ``slow_first`` requests only after ``delay`` seconds."""
+    seen = {"n": 0}
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 — the stdlib's name
+            seen["n"] += 1
+            if seen["n"] <= slow_first:
+                time.sleep(delay)
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(body)
+            except OSError:
+                pass
+
+        def log_message(self, *_a):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, seen
+
+
+@pytest.fixture
+def quick_probe(tmp_path, monkeypatch):
+    from api.scripts import migrate_claims_jsonl as cmd
+
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home" / ".cicada"))
+    monkeypatch.delenv("CICADA_API_TOKEN", raising=False)
+    monkeypatch.setattr(cmd, "PROBE_TIMEOUT_S", 0.3)
+    monkeypatch.setattr(cmd, "PROBE_RETRY_S", 0.01)
+    return cmd
+
+
+def test_a_slow_answer_is_asked_again_before_anything_stops(quick_probe, monkeypatch):
+    """2026-10-17: one slow answer stopped a long rebuild as if Sleep had started."""
+    server, seen = _serve_after(1, b'{"status": "idle", "writing": false}', delay=1.0)
+    monkeypatch.setenv("CICADA_PORT", str(server.server_address[1]))
+    try:
+        assert quick_probe.backend_running() is False and seen["n"] == 2
+        assert quick_probe.backend_problem() is None
+    finally:
+        server.shutdown()
+
+
+def test_a_backend_slow_every_time_is_named_slow_not_sleep(quick_probe, monkeypatch):
+    server, seen = _serve_after(99, b'{"status": "idle", "writing": false}', delay=1.0)
+    monkeypatch.setenv("CICADA_PORT", str(server.server_address[1]))
+    try:
+        assert quick_probe.backend_running() is True and seen["n"] == quick_probe.PROBE_TRIES
+        problem = quick_probe.backend_problem()
+        assert problem and "did not answer" in problem and "Sleep" in problem and "started" not in problem
+    finally:
+        server.shutdown()
+
+
+def test_no_backend_is_named_unreachable_after_the_retries(quick_probe, monkeypatch, bank, capsys):
+    monkeypatch.setenv("CICADA_PORT", str(_free_port()))
+    assert quick_probe.backend_running() is True
+    assert "not reachable" in quick_probe.backend_problem()
+    assert quick_probe.main(["--bank", str(bank), "--apply"]) == 3
+    assert "not reachable" in capsys.readouterr().out
+
+
+def test_a_running_sleep_is_not_asked_again_and_has_no_backend_problem(quick_probe, monkeypatch):
+    server, seen = _serve_after(0, b'{"status": "running", "writing": true}', delay=0)
+    monkeypatch.setenv("CICADA_PORT", str(server.server_address[1]))
+    try:
+        assert quick_probe.backend_running() is True and seen["n"] == 1
+        assert quick_probe.backend_problem() is None
+    finally:
+        server.shutdown()
 
 
 def test_the_command_proceeds_only_on_a_clear_idle_answer(bank, tmp_path, monkeypatch):

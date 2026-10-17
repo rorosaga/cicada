@@ -155,6 +155,10 @@ SUBSCRIPTION_MODES = ("agent", "codex")
 #: the guard's only door besides an explicit ``CICADA_LLM_MODE``.
 SCHEDULE_PLAN_MODES = ("agent", "codex")
 
+#: Why a scheduled run resolved to the metered engine: ruling 4 kept it off a plan because the person's switch is
+#: off. ``sleep_cycle`` reads it to name the switch as a fix when that engine then refuses every call.
+SCHEDULE_DEGRADED = "scheduled cycle — Sleep engine selection is user-triggered only"
+
 
 def scheduled_plan_allowed(registry) -> bool:
     """The machine's "Scheduled runs may use my plan" switch (ruling 4b). Off when unset, unreadable or not ``True``
@@ -455,7 +459,7 @@ async def resolve_llm_mode(
         # untouched by trigger source (unchanged from before G122).
         if configured in SUBSCRIPTION_MODES and not env_explicit and not user_triggered:
             if not _schedule_may_use(configured, registry):
-                return "byok", "scheduled cycle — Sleep engine selection is user-triggered only"
+                return "byok", SCHEDULE_DEGRADED
             return configured, "scheduled runs may use your plan (Settings → Sleep)"
         return configured, (
             f"CICADA_LLM_MODE={configured}" if env_explicit
@@ -490,7 +494,7 @@ async def resolve_llm_mode(
     # Ruling 4b: with the person's switch on, a scheduled run walks the same ladder a run they start would, minus
     # every plan the switch does not open (`_schedule_may_use`).
     if not user_triggered and not _schedule_may_use("agent", registry):
-        return "byok", "scheduled cycle — Sleep engine selection is user-triggered only"
+        return "byok", SCHEDULE_DEGRADED
 
     # Fix round 1, L3: an unrecognized ``llm_mode`` (a typo, or a future
     # value this module doesn't know yet) must degrade to byok WITHOUT ever
