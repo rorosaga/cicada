@@ -75,6 +75,7 @@ class BatchLive:
     skipped: set[str] = field(default_factory=set)           # never started: the reserve line said stop
     pause_class: bool = False                                # some failure was the engine's, not the conversation's
     pause_sentence: str | None = None
+    engine_cause: str | None = None                          # what the provider said it was (``engine_cause.CAUSES``)
     transient_stop: DrainStop | None = None           # discard this batch before its first write
     timeouts: set[str] = field(default_factory=set)    # compare episode-specific failures across Continues
     unnamed_failed: set[str] = field(default_factory=set)  # CLI rejected this input without a classified cause

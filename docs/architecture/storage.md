@@ -196,7 +196,9 @@ legacy page converts on its first write; `append_claim_entries`, which must not 
 form. `python -m api.scripts.migrate_claims_jsonl --bank <path>` reports counts (a dry run); `--apply` converts every
 remaining legacy fence in one `cicada` commit — never automatically, never while Sleep runs. Its own process cannot see
 Sleep's flag, so it asks the backend and fails closed like claim recovery: only a 200 saying `writing: false` and not
-`running` lets it write (no backend refuses too); a page with uncommitted changes, or written again during the run, is
+`running` lets it write (no backend refuses too; a slow or absent answer is asked again, three tries of 8 s, and a
+refusal says whether Sleep was running or the backend was slow, unreachable or unreadable, `backend_problem`; every
+maintenance command that imports `backend_running` gets the retries); a page with uncommitted changes, or written again during the run, is
 left out of the commit for its own writer. Why: PyYAML builds every
 node in Python even on the C loader (~150 µs a claim: 0.5 s for a 3,500-claim page, ~3 s for a 2,000-page bank's
 claims, paid by every full-bank reader); a JSON line is ~3 µs (`benchmarks/scale`). Spans are unaffected: a `page`
