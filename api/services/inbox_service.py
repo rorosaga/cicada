@@ -22,6 +22,7 @@ from api.models.schemas import InboxCause, InboxCheck, InboxCheckFinding, InboxI
 from api.services import (
     bank_index,
     decay_policy,
+    entity_types,
     fact_sources,
     inbox_context,
     inbox_questions,
@@ -2418,9 +2419,9 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 body = entity.body.rstrip() + f"\n\n{answer_text}"
             markdown_parser.write(entity_path, entity.frontmatter, body)
         else:
-            entity_type = str(
+            entity_type = entity_types.in_set(str(
                 parsed.frontmatter.get("suggested_classification", "concept")
-            ).split(" ")[0].lower()
+            ).split(" ")[0])
             frontmatter = {
                 "name": entity_mention,
                 "type": entity_type,

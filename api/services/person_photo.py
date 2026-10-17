@@ -19,7 +19,9 @@ from an identifier **already on that person's page or the person's own record**:
   "never through someone else's service") — `https://x.com/<handle>` (or twitter.com) and
   `https://www.linkedin.com/in/<slug>`, profile URLs only, never a post or a company page — asked of the unavatar.io
   avatar proxy, which is handed the handle. Behind its OWN gate, `CICADA_ALLOW_PERSON_PHOTO_PROXY`, **off by default**:
-  each lookup tells a third party whom the person knows. With it off, such a link is no identifier at all. At most
+  each lookup tells a third party whom the person knows. With it off, such a link is no identifier at all. A LinkedIn
+  link the person's own connections export put on a page it matched confidently counts as given (owner 2026-10-17,
+  :func:`is_own_account`); an alias-only match waits for the person to take it. At most
   :data:`PROXY_DAILY_BUDGET` lookups a UTC day across the install (the proxy's anonymous allowance), counted in
   `$CICADA_HOME/pictures/proxy_budget.json`, outside every bank; over budget is a transient miss, asked again the
   next day.
@@ -212,13 +214,19 @@ def is_own_account(source: dict) -> bool:
     """Review B2 — a link counts as the person's OWN account only when somebody said so: the person added or took it
     (`fact_sources.trusted`) with no fact attached or a profile predicate (a person's `works-at` link to an org is the
     org's), or an identified agent added it with no fact attached or a profile predicate. Never Cicada's own writers,
-    never an unidentified proposal, never an "Only I know" note."""
-    from api.services import fact_sources
+    never an unidentified proposal, never an "Only I know" note — with one exception (owner 2026-10-17): the profile
+    link the person's own LinkedIn connections put on a page they matched confidently (`linkedin_people`: the page's
+    own name or a link the person or an identified agent listed as their account — never an alias-only guess, which waits for the person to take
+    it). "If it's because I'm connected", it is that person's account."""
+    from api.services import fact_sources, linkedin_people
 
     predicate = str(source.get("predicate") or "").strip().lower()
     if fact_sources.trusted(source):
         return not predicate or predicate in _PERSON_PREDICATES
     who = str(source.get("added_by") or "").strip().lower()
+    if (who == linkedin_people.AUTHOR and predicate == linkedin_people.SOURCE_PREDICATE
+            and source.get(linkedin_people.MATCH_KEY) in linkedin_people.CONFIDENT_MATCHES):
+        return True
     if not who or who in _NOT_AN_AGENT:
         return False
     return not predicate or predicate in PROFILE_PREDICATES

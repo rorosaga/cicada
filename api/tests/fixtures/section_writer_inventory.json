@@ -923,6 +923,14 @@
       "disposition": "uninstrumented_guarded"
     }
   ],
+  "services/entity_type_repair.py": [
+    {
+      "function": "apply",
+      "method": "write",
+      "frontmatter": "{**parsed.frontmatter, 'type': new}",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
   "services/skill_pages.py": [
     {
       "function": "_ensure_admitted",

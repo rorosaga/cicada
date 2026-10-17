@@ -50,6 +50,16 @@ claims_ledger: {claims: 5835, hash: 1a2b3c4d5e6f}  # only on a page whose older 
 `media` (ingested item with an agent-generated summary), `directory` (a filesystem path, split out
 from `location` in G18).
 
+**The set is held where a type comes from a model (2026-10-17).** A plain-JSON engine is held only by the
+extraction prompt's list, and a model's `organization`, `product` or `program` once reached a page unchanged.
+`entity_types.producible` is the one coercion (`organization` → `company`, `product` → `tool`, `program` → `project`,
+an unknown word → `concept`), applied at extraction (`entity_extractor.sanitize_entity_type`); where a page is born
+from a model's word (the Sleep create branch, an inbox answer that creates a page) `entity_types.in_set` keeps any of
+the 10 and maps only a word outside them — the decay-class rail's two places. A bank with pages from before is repaired by the person: `python -m api.scripts.repair_entity_types
+--bank <path>` (dry run, counts and type words only; `--list` adds page ids for their own terminal; `--apply` one
+`cicada` commit, `maintenance/entity-types`; `--as <id>=<type>` overrides the mapping for one page). Only `type`
+changes; a page dirty in git is skipped; it refuses while Sleep runs.
+
 **Two exclusions matter (G17).** `deadline` still renders for legacy pages but is **no longer
 produced by Stage-1 extraction** — `PRODUCIBLE_ENTITY_TYPES` excludes it; due-dates attach as a
 `due` claim on the relevant project instead of spawning a standalone entity. `media` is likewise
@@ -696,7 +706,9 @@ Round 4 (C2–C4):
   best-ranked GitHub profile link (`https://github.com/<username>`, one path segment) among the page's `sources:` that
   somebody gave as the person's OWN account (`person_photo.is_own_account`): the person's or one they took, with no
   fact attached, a profile predicate or `website`; or an identified agent's with no fact attached or a profile predicate
-  (`PROFILE_PREDICATES`) — never Cicada's own writers, an unidentified proposal, an "Only I know" note, or a link Stage
+  (`PROFILE_PREDICATES`); or the LinkedIn link the person's connections export added on a confident match (`match:
+  name|link`, owner 2026-10-17; an alias-only match waits for the person to take it) — otherwise never Cicada's own
+  writers, an unidentified proposal, an "Only I know" note, or a link Stage
   5.56 attached from a claim's cited words (always under a `world`/`artifact` predicate, which no profile predicate
   is; a test pins it) — then, only while `CICADA_ALLOW_PERSON_PHOTO_PROXY` is on (off by
   default, owner 2026-10-09), an X profile link and a LinkedIn `/in/` link, asked through the avatar proxy within an

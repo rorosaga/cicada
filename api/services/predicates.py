@@ -91,12 +91,11 @@ def install_predicate_map(memory_path: Path) -> Path:
     runtime = memory_path / RUNTIME_FILE
 
     if runtime.exists():
-        try:
-            existing = yaml.safe_load(runtime.read_text(encoding="utf-8"))
-        except yaml.YAMLError:
-            existing = None
-        # Only the empty/placeholder map is replaced; a populated one is kept.
-        if existing and (existing.get("canonical") or existing.get("synonyms")):
+        # The one reader of the runtime map (stat-keyed parse cache, libyaml when present): a malformed or
+        # non-mapping file reads as ``{}``, the placeholder this replaces. Only the empty/placeholder map is
+        # replaced; a populated one is kept.
+        existing = _read_runtime_map(memory_path)
+        if existing.get("canonical") or existing.get("synonyms"):
             return runtime
 
     seed = _load_seed_map()

@@ -162,7 +162,7 @@ def test_an_import_enriches_exactly_the_pages_it_matches_and_commits_once_as_the
     bob = _page(memory, "bob-example").frontmatter
     (src,) = [s for s in bob["sources"] if s["predicate"] == "linkedin"]
     assert src == {"ref": "https://www.linkedin.com/in/bob-example", "kind": "url", "predicate": "linkedin",
-                   "added_by": "cicada", "added_at": src["added_at"]}
+                   "added_by": "cicada", "added_at": src["added_at"], "match": "name"}
     works, role, connected = (_li(memory, "bob-example", p)[0] for p in ("works-at", "role", "connected-on"))
     assert works.object == "acme-labs" and works.object_kind == "node"   # the company page Cicada already has
     assert role.object == "Staff Engineer" and role.object_kind == "literal"
@@ -428,3 +428,116 @@ def test_the_tail_never_matches_into_a_demo_bank(client, monkeypatch):
     head = _git(memory, "rev-parse", "HEAD")
     asyncio.run(sleep_cycle._rematch_linkedin_safely(memory))
     assert _git(memory, "rev-parse", "HEAD") == head and not _li(memory, "dana-one")
+
+
+# --- the photo (owner 2026-10-17) -------------------------------------------------------------------------------
+
+
+def _li_source(memory, eid):
+    (src,) = [s for s in _page(memory, eid).frontmatter["sources"] if s.get("predicate") == "linkedin"]
+    return src
+
+
+def test_a_confident_match_draws_the_photo_and_an_alias_only_match_waits(client):
+    """"If it's because I'm connected, unless the agent says 'Oh I'm not sure,' then we don't." A connection whose full
+    name is the page's own name is the person's connection: its link is a photo identifier at once (the proxy gate
+    still decides whether it is asked). One matched only through an alias waits until the person takes the source."""
+    from api.services import person_photo
+
+    c, memory = client
+    assert _post(c, exported_on="2026-01-15").status_code == 200
+    bob, carol, jose = (_li_source(memory, e) for e in ("bob-example", "carol-example", "jose-nunez"))
+    assert (bob["match"], carol["match"], jose["match"]) == ("name", "alias", "name")
+
+    def photo_ids(eid):
+        return [(x.provider, x.value) for x in person_photo.candidates(_page(memory, eid).frontmatter, owner={},
+                                                                         proxy=True)]
+
+    assert photo_ids("bob-example") == [("linkedin", "bob-example")]
+    assert photo_ids("jose-nunez") == [("linkedin", "jose-nunez-ex")]
+    assert photo_ids("carol-example") == []
+    # The proxy gate off: no LinkedIn link is an identifier at all, confident or not.
+    assert person_photo.candidates(_page(memory, "bob-example").frontmatter, owner={}, proxy=False) == []
+
+    # The person takes the alias-only link: now it is theirs.
+    fm = _page(memory, "carol-example").frontmatter
+    for source in fm["sources"]:
+        if source.get("predicate") == "linkedin":
+            source["accepted"] = True
+    assert person_photo.candidates(fm, owner={}, proxy=True)[0].value == "carol-example-1a2b3c"
+
+
+def test_cicadas_other_links_still_never_count_as_the_persons_account():
+    from api.services import person_photo
+
+    base = {"ref": "https://www.linkedin.com/in/bob-example", "kind": "url", "added_by": "cicada"}
+    assert person_photo.is_own_account({**base, "predicate": "linkedin", "match": "name"})
+    assert person_photo.is_own_account({**base, "predicate": "linkedin", "match": "link"})
+    assert not person_photo.is_own_account({**base, "predicate": "linkedin", "match": "alias"})
+    assert not person_photo.is_own_account({**base, "predicate": "linkedin"})            # no match recorded
+    assert not person_photo.is_own_account({**base, "predicate": "works-at", "match": "name"})
+    assert not person_photo.is_own_account({**base, "predicate": "linkedin", "match": "name", "added_by": "agent"})
+
+
+def test_a_link_written_before_the_match_field_gets_it_at_the_next_import_then_nothing_more(client):
+    c, memory = client
+    assert _post(c, exported_on="2026-01-15").status_code == 200
+    path = memory / "entities" / "bob-example.md"
+    parsed = _page(memory, "bob-example")
+    fm = dict(parsed.frontmatter)
+    for source in fm["sources"]:
+        source.pop("match", None)          # as an import before 2026-10-17 left it
+    markdown_parser.write(path, fm, parsed.body)
+    _git(memory, "commit", "-qam", "older import")
+    bank_index.invalidate()
+
+    r = _post(c, exported_on="2026-01-15")
+    assert r.status_code == 200 and r.json()["sourcesAdded"] == 0
+    assert _li_source(memory, "bob-example")["match"] == "name"
+    head = _git(memory, "rev-parse", "HEAD")
+    assert _post(c, exported_on="2026-01-15").status_code == 200
+    assert _git(memory, "rev-parse", "HEAD") == head                   # a third import is a no-op again
+
+
+def test_a_link_the_person_listed_matches_as_link_and_keeps_their_source(client):
+    c, memory = client
+    fact_sources.add_source(memory, "erin-repeat", "https://www.linkedin.com/in/erin-repeat-2", predicate="linkedin")
+    _git(memory, "commit", "-qam", "the person's link")
+    bank_index.invalidate()
+    idx = linkedin_people._index(memory)
+    conn = [x for x in linkedin_people.parse(_csv()).connections if x.url.endswith("erin-repeat-2")][0]
+    assert linkedin_people.basis(idx, "erin-repeat", conn) == "link"
+
+
+@pytest.mark.parametrize("added_by, predicate", [
+    ("some-model-id", "works-at"),   # a link a model attached from a claim's cited words (Stage 5.56)
+    ("agent", None),                 # an unidentified proposal
+    ("agent", "linkedin"),
+])
+def test_a_link_nobody_vouched_for_never_makes_an_alias_match_confident(client, added_by, predicate):
+    """Review blocker on #334: only a link that passes the photo rung's own test (the person's, or an identified
+    agent's as a profile) may upgrade an alias-only match to ``link``."""
+    from api.services import person_photo
+
+    c, memory = client
+    assert _post(c, exported_on="2026-01-15").status_code == 200
+    assert _li_source(memory, "carol-example")["match"] == "alias"
+    fact_sources.add_source(memory, "carol-example", "https://www.linkedin.com/in/carol-example-1a2b3c", kind="url",
+                            predicate=predicate, added_by=added_by)
+    bank_index.invalidate()
+    linkedin_people.apply(memory, linkedin_people.parse(_csv()).connections, day="2026-01-15")
+    bank_index.invalidate()
+    fm = _page(memory, "carol-example").frontmatter
+    ours = [s for s in fm["sources"] if s.get("added_by") == "cicada" and s.get("predicate") == "linkedin"]
+    assert [s.get("match") for s in ours] in ([], ["alias"])
+    assert person_photo.candidates(fm, owner={}, proxy=True) == []
+
+
+def test_an_identified_agents_profile_link_does_vouch(client):
+    c, memory = client
+    fact_sources.add_source(memory, "carol-example", "https://www.linkedin.com/in/carol-example-1a2b3c", kind="url",
+                            predicate="linkedin", added_by="claude-code")
+    bank_index.invalidate()
+    idx = linkedin_people._index(memory)
+    conn = [x for x in linkedin_people.parse(_csv()).connections if x.url.endswith("carol-example-1a2b3c")][0]
+    assert linkedin_people.basis(idx, "carol-example", conn) == "link"
