@@ -305,6 +305,40 @@ def test_sleep_starting_between_batches_stops_and_a_rerun_continues(tmp_path, mo
     assert rebuild.survey(bank, _settings()).selected == 0
 
 
+def test_a_slow_backend_between_batches_is_named_as_such_not_as_sleep(tmp_path, monkeypatch):
+    """2026-10-17: a long rebuild stopped with "Sleep started" while Sleep was idle — the backend was only slow."""
+    bank = _bank(tmp_path)
+    _one_conversation_page(bank)
+    _fake(monkeypatch, [])
+    checks = iter([False, False, True])
+    problem = "the backend did not answer within 8 s (3 tries), so Sleep could not be confirmed idle"
+    result = rebuild.run(bank, _settings(), mode="apply", sleep_running=lambda: next(checks, True), batch_size=1,
+                         backend_problem=lambda: problem)
+    assert result.written == 1 and result.stopped.startswith(problem)
+    assert "Sleep started" not in result.stopped and "batches before it are committed" in result.stopped
+
+
+def test_a_backend_that_never_answers_refuses_with_that_reason(tmp_path, monkeypatch):
+    bank = _bank(tmp_path)
+    _one_conversation_page(bank)
+    calls = []
+    _fake(monkeypatch, calls)
+    with pytest.raises(rebuild.SleepRunning, match="not reachable"):
+        rebuild.run(bank, _settings(), mode="apply", sleep_running=lambda: True,
+                    backend_problem=lambda: "the backend is not reachable (3 tries)")
+    assert calls == [], "refused before any call"
+
+
+def test_a_real_sleep_between_batches_still_says_sleep_started(tmp_path, monkeypatch):
+    bank = _bank(tmp_path)
+    _one_conversation_page(bank)
+    _fake(monkeypatch, [])
+    checks = iter([False, False, True])
+    result = rebuild.run(bank, _settings(), mode="apply", sleep_running=lambda: next(checks, True), batch_size=1,
+                         backend_problem=lambda: None)
+    assert result.stopped.startswith("Sleep started")
+
+
 def test_rewrite_counts_a_page_written_today_as_done(tmp_path, monkeypatch):
     bank = _bank(tmp_path)
     calls = []

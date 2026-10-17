@@ -262,6 +262,46 @@ already on the page committed apart first) and, for a public citation on a subje
 calls the person's own add-source route — a citation is never a tracked source by itself (`storage.md`). Questions
 about whether a PR or a G row merged are answered from the commit by a trusted local agent, never searched.
 
+**Settled by Sleep (owner ruling 2026-10-17, TODO ruling 29).** "A single consolidation also should take care of
+cleaning up the inbox … as conversations come through, questions get answered … many things … can be assumed." Sleep
+tends the inbox (`inbox_tend`, `capture-and-sleep.md`) in two moves, through the **person's own resolvers** (the
+`_resolve_*` writers `POST /inbox/{id}/resolve` uses), with `inbox_actor` saying Sleep answered:
+
+| kind | Sleep settles it when | otherwise |
+|---|---|---|
+| any but `page_edit` | what it asks about is gone (merged away, archived, dropped) — retired, nothing else touched | — |
+| `conflict`, `clarification`, `merge_suggestion` | **the person's own words in a conversation answer it**: a batch's conversation is about it (`inbox_ask_gate.relevant`, over the person's turns only), the engine copies the words, and they are found exactly in one of the person's own turns (`evidence.verify`, kind `user`, never fuzzy); the conversation that raised the question (or an option's evidence) never answers it | ask |
+| `merge_suggestion` | same name once spelling is folded, same type, not a person (`same_spelling`); or the judge reads both pages: `same` ≥ 0.9 merges (`judged_same`), `different` ≥ 0.9 keeps them apart (`_merge_rejected.yaml`, `judged_different`). A merge of two existing pages **folds the duplicate's page into the target** (`entity_merge.merge_entities`: its claims, ledger, sources and references follow; undo brings it back) | ask (unsure; a person — only their own words merge two people) |
+| `normalization` | the two labels differ only in spelling (case, separators, a plural): "Correct fold" (`spelling_fold`); else the judge: same meaning ≥ 0.9 folds (`judged_fold`) | ask (the meaning changes, or unsure) |
+| `decay` | a one-off nobody would miss: a `concept`/`tool`/`media`/`company` page on one conversation, not evergreen or durable, never kept, no claim of the person's own → archive (`one_off`); any other such page: the judge reads the page and its last mentions — clearly passing → archive (`judged_archive`), clearly live → marked active only (`judged_keep`: no mention dated today, no claim reopened, no confidence lifted — the person's "still true" stays theirs) | ask (the person's projects, skills, people, places; unsure) |
+| `conflict` | a multi-valued predicate: every value was already kept, the question closes with nothing touched (`multi_valued`); the newest dated statement settles it: single-valued, every option an open claim, one said strictly later than every other (`newest_evidence`); else the judge reads each option's dates and evidence lines: one clearly better supported or newer ≥ 0.9 (`judged_conflict`) — never what only the person knows. **The owner's words:** a claim resting on the person's own words (their inbox answer, or a span in their own turn) is closed only by one that does too, or by a tracked source's dated re-check (ruling 26) — by no rule and no judge otherwise | ask (the owner's page; what a person is or is called; unsure) |
+| `clarification`, `followup`, `divergence`, `removal` | only from the person's own words (above), or never | ask |
+| `page_edit` | never — the person's alone (G198) | ask |
+
+A question the person deferred, or one whose settle (or check) they took back, is never touched. **Never stale:** each
+question is decided and settled at once, one at a time; a decision carries the content hash of every page it read, and
+the settle (inside Sleep's window, or the tidy's admission, with the page lock held from the resolver's first read through its commit) goes ahead only when those pages are unchanged and an
+engine-free rule still decides the same — a conversation, an edit or a Sleep batch landing in between leaves the
+question for the next look (`left:changed`). A judged settle carries the judge's one-line reason, shown in its row.
+**What a settle writes:** exactly what the person's answer would, in one commit that is Sleep's — `Inbox settled by Sleep (<kind>)
+<date>`, trigger `inbox/<kind>/settled:<label>` (never `resolved:`, so G147's reader and every "the person said" reader
+skip it), `Cicada-Author` the judging model or `cicada` — with the question's record `inbox/settled/<id>.md`
+(`settled.group: sleep`, its `rule`, `reason`, and for move 1 the span of the person's words, never a copy). A claim it
+writes is authored by Sleep; prose says "confirmed by Sleep". The G113 row is `by: sleep` with its rule, kept apart from
+the person's verdicts (`GET /consumption/feedback` → `sleepSettles`). **The Inbox shows these under "Settled by Sleep"**
+(`SettledChecksSection`, a second closed group beside "Settled by a check"): the answer, the person's words when it
+rests on them, the rule's reason and when, and **Undo** — the same `POST /inbox/settled/{id}/undo`, which for a Sleep
+record (`inbox_tend.undo`) takes back exactly that commit: the reverse of its diff applied three-way onto each file as
+it is now (`git merge-file`), refused whole — nothing written, 409 — when something since overlaps it; the question
+returns marked `sleep_settle: undone` so Sleep never settles it again, committed as the person's (`Sleep's settle undone
+<date>`), and the ledger records the undo against the rule. **The one-time tidy:** `POST /inbox/tidy` applies the same
+policy to every open question — `dryRun=true` (the default) answers counts per kind and per decision only;
+`dryRun=false` runs in the background (one at a time: a second start is 409), each question settling alone under the
+bank's write admission and the tidy stopping before any judge call or settle once Sleep holds the pages; `GET
+/inbox/tidy` its counts; `judge=true` lets the judges (duplicates, conflicts, label folds, fading pages) read with the
+person's chosen engine, their plan included (a plan limit pauses it). `api/scripts/inbox_tidy_dry_run.py --bank <path>
+[--judge]` measures it offline, writing nothing.
+
 **Decay is no longer the special case.** Served as `Still tracking {name}?` with `archive` / `keep`,
 synthesised at read from the page's `last_referenced`, never written. (The item *file* Sleep writes for
 a decay nudge is only the anchor the app answers; **it is keyed `(entity_id)` and asked once**: an

@@ -55,6 +55,8 @@ class SleepState:
     # questions answered by later conversation and closed without the user acting.
     questions_refreshed: int = 0
     organic_resolutions: int = 0
+    # Ruling 29: inbox questions Sleep settled this batch (answered in conversation, or assumed).
+    inbox_settled: int = 0
     # G141 PJ-0 (R-CS3): claims Stage 5.56 could neither write nor hold (PJ-0b)
     # because their subject has no page, and how many page-less subjects there
     # were. Counts only — G141's M3 measure, carried into the `sleep_run`
@@ -805,7 +807,8 @@ def _requeue_note(requeued: int, breaker: str | None) -> str:
     return f" — {requeued} episode(s) requeued ({breaker or 're-run to continue'})"
 
 
-def _stage1_failure_message(engine: str, engine_detail: str | None = None) -> str:
+def _stage1_failure_message(engine: str, engine_detail: str | None = None, *,
+                            cause: str | None = None, scheduled: bool = False) -> str:
     """The user-visible reason Stage 1 produced nothing — per engine.
 
     L3 (Task 4 review, handed to Task 5): Stage 1 swallows ``EngineThrottled``
@@ -856,7 +859,24 @@ def _stage1_failure_message(engine: str, engine_detail: str | None = None) -> st
     # a second "was anything configured" probe (R8). This branch must sit
     # AFTER the claude-cli/ollama checks above (unaffected by it) and BEFORE
     # the generic byok return below (the one it replaces for this one case).
-    if engine_detail and "no sleep engine chosen" in engine_detail.lower():
+    from api.services import engine_cause
+
+    def said(c: str) -> str:
+        # What the provider said, in plain words, with the fix (2026-10-17: a key that reached its own spending
+        # cap read as "check the model id" and the real cause never reached the person).
+        words = engine_cause.sentence(c, plan_hint=_plan_hint(scheduled))
+        return (f"Sleep stopped: {words[0].lower()}{words[1:]} "
+                "What was waiting is still waiting; Continue once it is fixed.")
+
+    nothing_chosen = bool(engine_detail and "no sleep engine chosen" in engine_detail.lower())
+    if cause in engine_cause.CAUSES:
+        # The provider's own answer outranks G117's guess below; a key it refused on an install that never chose
+        # an engine names both doors.
+        msg = said(cause)
+        if cause == "auth" and nothing_chosen:
+            msg += " Or pick another engine in Settings → Engines."
+        return msg
+    if nothing_chosen:
         return "Stage 1 extracted nothing — no engine chosen — pick one in Settings → Engines."
     return (
         "Stage 1 extracted nothing — every episode failed on the API engine "
@@ -1200,6 +1220,25 @@ async def _web_check_safely(memory_path: Path, settings: Settings, *, user_trigg
         # Never left dangling for a later `git add -A` to commit under the wrong author (the G85 smear): undone.
         logger.warning(f"Web check commit failed — undoing {report.settled} settle(s): {type(exc).__name__}")
         await asyncio.to_thread(web_lookup.restore, memory_path, report)
+
+
+async def _tend_inbox_safely(memory_path: Path, settings: Settings, episodes: list[dict], *, run_policy: bool,
+                             engine: str | None) -> None:
+    """Ruling 29 — Sleep tends the inbox (`inbox_tend`): what this batch's conversations answered in the person's own
+    words, and (``run_policy``) the small stuff assumed. Counts only in the log. Never raises."""
+    try:
+        from api.services import inbox_tend
+
+        report = await inbox_tend.tend(memory_path, settings, episodes=episodes, run_policy=run_policy,
+                                       engine=engine)
+    except Exception as exc:  # noqa: BLE001 — tending never fails a batch that already committed
+        logger.warning(f"Inbox tending skipped: {type(exc).__name__}: {exc}")
+        return
+    _state.inbox_settled = report.settled
+    if report.settled or report.read or report.judged:
+        logger.info(f"Inbox tending: {report.settled} settled, {report.read} read in conversations, "
+                    f"{report.judged} duplicate pair(s) judged" + (f" — stopped ({report.stopped})"
+                                                                   if report.stopped else ""))
 
 
 async def _run_engine_independent_tail(
@@ -1557,6 +1596,7 @@ def _reset_batch_counters() -> None:
     _state.claims_waiting = 0
     _state.decay_nudges_deferred = 0
     _state.decay_nudges_refreshed = 0
+    _state.inbox_settled = 0
     _state.write_started = False
 
 
@@ -2153,6 +2193,14 @@ def _ae_breaker() -> str | None:
     return agent_engine.breaker_reason()
 
 
+def _plan_hint(scheduled: bool) -> bool:
+    """Whether "Scheduled runs may use my plan" is a fix worth naming: a scheduled run that ruling 4 kept on the
+    metered engine because that switch is off. Named, never flipped (ruling 4b)."""
+    from api.services import engine_select
+
+    return bool(scheduled) and _state.engine_detail == engine_select.SCHEDULE_DEGRADED
+
+
 def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainState") -> dict:
     """Stage 1's per-conversation hooks for a drain's batch: what started, what was
     read, what failed and whether that was the conversation's or the engine's, what
@@ -2164,7 +2212,7 @@ def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainSta
         live.read.add(ep["id"])
 
     def failed(ep: dict, exc: BaseException) -> None:
-        from api.services import engine_errors
+        from api.services import engine_cause, engine_errors
 
         if isinstance(exc, engine_errors.EngineTimeout):
             live.timeouts.add(ep["id"])
@@ -2180,6 +2228,13 @@ def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainSta
         if kind == "pause":
             live.engine_failed.add(ep["id"])
             live.pause_class = True
+            # A provider's refusal (a metered key: spending cap, bad key, unknown model, rate limit) is said in
+            # plain words with its fix; Cicada's own engine errors already are, and keep theirs.
+            cause = None if isinstance(exc, engine_errors.EngineError) else engine_cause.classify(exc)
+            if cause and live.engine_cause is None:
+                live.engine_cause = cause
+                live.pause_sentence = engine_cause.sentence(
+                    cause, plan_hint=_plan_hint(getattr(ds, "started_by", None) == "schedule"))
             live.pause_sentence = live.pause_sentence or str(exc).strip()[:300]
             if isinstance(exc, engine_errors.TRANSIENT):
                 live.transient_stop = live.transient_stop or sleep_drain.classify(exc)
@@ -2483,7 +2538,9 @@ async def _run_stages(
         _state.progress = f"{label}Could not read {len(unread_content)} conversation(s)"
         return _StageOutcome(unread=unread_content)
     if episodes and not extracted:
-        msg = _stage1_failure_message(_state.last_engine or "litellm", _state.engine_detail)
+        msg = _stage1_failure_message(_state.last_engine or "litellm", _state.engine_detail,
+                                      cause=live.engine_cause if live is not None else None,
+                                      scheduled=not user_triggered)
         # Fix round 1, L2: `engine_detail` is now set on EVERY resolved
         # cycle (Task 7), not just an agent-rung pre-flight abort — a plain
         # byok install's `engine_detail` is just "why we're on byok"
@@ -2884,6 +2941,14 @@ async def _run_stages(
                                f" (batch {batch.index} of {batch.of})" if batch.of > 1 else ""),
         }),
     )
+
+    # Ruling 29 (owner, 2026-10-17): Sleep tends the inbox — after the batch's own commit, still inside its write
+    # window, so no person's answer can land between its read and its settle. Questions this batch's conversations
+    # touched are answered only by the person's own located words; the small stuff is assumed once per drain (the
+    # batch that runs decay). Each settle commits alone, as Sleep's, undoable under "Settled by Sleep".
+    if not _state.cancel_requested:
+        await _tend_inbox_safely(memory_path, settings, processed_episodes,
+                                 run_policy=batch is None or bool(batch.decay), engine=engine)
 
     # Logo warm-up and the connector poll (final-review H1: the poll must
     # run AFTER `_finalize`'s commit so its own `git add -A` finds a clean

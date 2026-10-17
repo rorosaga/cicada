@@ -603,6 +603,10 @@ final class UpdateInstallerTests: XCTestCase {
         XCTAssertEqual(SleepProbe.classify(statusCode: 200, body: body(#"{"status":"running","writing":false}"#), error: nil),
                        .busy, "a drain between batches still stops if the backend is booted out")
         XCTAssertEqual(SleepProbe.classify(statusCode: 200, body: body(#"{"status":"idle","writing":true}"#), error: nil), .busy)
+        // 2026-10-17: a paused run holds nothing in flight — its sidecar outlives the restart — so it never defers.
+        XCTAssertEqual(SleepProbe.classify(statusCode: 200, body: body(
+            #"{"status":"idle","writing":false,"drain":{"active":false,"finished":false},"paused":{"reason":"engine"}}"#),
+            error: nil), .idle)
         XCTAssertEqual(SleepProbe.classify(statusCode: 200, body: body(#"{"other":1}"#), error: nil), .ambiguous)
         XCTAssertEqual(SleepProbe.classify(statusCode: 401, body: body("{}"), error: nil), .ambiguous)
         XCTAssertEqual(SleepProbe.classify(statusCode: nil, body: nil, error: URLError(.cannotConnectToHost)), .noAnswer)

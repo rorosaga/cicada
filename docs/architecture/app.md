@@ -1439,7 +1439,11 @@ and, for a public citation on a subject with a page, Track this source (`Settled
 `addEntitySource`, then "Tracked", disabled). `SettledChecks` is in memory, not a Store domain: loaded when the Inbox
 appears, on a bank switch and whenever its questions change (`SettledChecksAPI`, faked in `SettledChecksTests`). Its
 rows are per memory (their ids are inbox ids, which repeat across banks): another bank's read starts empty, and Undo
-and Track name the bank the row was read in (G183(d)), so a row left on screen across a switch is refused. A
+and Track name the bank the row was read in (G183(d)), so a row left on screen across a switch is refused.
+**Settled by Sleep (ruling 29, 2026-10-17)** is the same section's second closed group ("Settled by Sleep · N"), from the
+same list (`SettledCheck.group == "sleep"`, `bySleep`): the subject and Sleep's answer, the person's own words when it
+rests on them, then the rule's reason and when (`settledSleepMeta`); Undo only (no Track — Sleep's settle cites no
+page), its failure saying the page changed since (`settledSleepUndoFailed`). Neutral buttons, no accent (DR-40). A
 `page_edit` item (G198, an agent's proposed change to a page's words or aliases) is `InboxKind.pageEdit` ("Page edit",
 `pencil`, clarification's hue in both palettes — no new hue, DR-8) and renders as an options card (`apply` / `dismiss`
 from the server, Not now); `InboxBodyPreview` draws its `body` — "Why: …" and the changes as "- Replace “old” with
@@ -1651,7 +1655,8 @@ installs when the person quits — or at once with *Restart to update* — never
 helper (`posix_spawn` in its own session) waits for the app to exit, boots out `com.cicada.backend` if its plist
 exists, swaps the two copies by rename in the same folder, moves the old one to the Trash, bootstraps the service
 again (three tries) and relaunches. The backend is asked fresh whether Sleep is writing — by the app at hand-off and by
-the helper just before it stops the service — and a busy answer defers the swap to the next quit
+the helper just before it stops the service — busy means a cycle `running` or `writing: true`; a paused run waiting
+on Continue is neither (its sidecar outlives the restart, 2026-10-17) — and a busy answer defers the swap to the next quit
 (`~/.cicada/update-deferred.json`; the staged copy and its `.Cicada.app.update.json` sidecar are kept, so nothing is
 downloaded twice). Any failure puts the old copy back and leaves `~/.cicada/update-failed.json`, which the next launch
 shows once in the Version row ("couldn't be installed … You're still on 0.3.0"); a service that didn't start again is

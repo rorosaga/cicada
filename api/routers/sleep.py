@@ -249,6 +249,7 @@ async def sleep_status(settings: Settings = Depends(get_settings)):
         episodes_requeued=counter("episodes_requeued"),
         questions_refreshed=counter("questions_refreshed"),
         organic_resolutions=counter("organic_resolutions"),
+        inbox_settled=counter("inbox_settled"),
         last_engine=state.last_engine,
         engine_detail=state.engine_detail,
         episode_cap=state.episode_cap,

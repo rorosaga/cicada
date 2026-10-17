@@ -153,4 +153,47 @@ final class SettledChecksTests: XCTestCase {
         await model.undo(film)
         XCTAssertEqual(api.writeBanks, ["alpha", "alpha"], "a stale row is refused by the server, never applied in beta")
     }
+
+    // MARK: - Ruling 29: "Settled by Sleep"
+
+    private let assumed = SettledCheck(id: "inbox-401", kind: "decay", entityId: "example-gadget",
+                                       entityName: "Example Gadget", answer: "Archived", hasPage: true,
+                                       group: "sleep", rule: "one_off",
+                                       reason: "Mentioned once and nothing else rests on it")
+
+    func testSleepsSettlesDecodeAsTheirOwnGroup() throws {
+        let json = """
+        [{"id": "inbox-401", "kind": "conflict", "entityId": "tool-a", "entityName": "Tool A", "answer": "agent harness",
+          "quote": "Tool A is an agent harness", "episode": "ep_2026-10-01_001", "settledByKind": "sleep",
+          "hasPage": true, "group": "sleep", "rule": "said_in_conversation",
+          "reason": "You answered this in a conversation"},
+         {"id": "inbox-101", "hasPage": true, "ref": "https://films.film-example.net/x"}]
+        """
+        let rows = try JSONDecoder().decode([SettledCheck].self, from: Data(json.utf8))
+        XCTAssertTrue(rows[0].bySleep)
+        XCTAssertEqual(rows[0].rule, "said_in_conversation")
+        XCTAssertFalse(rows[0].canTrack, "Sleep's settle has no citation to track")
+        XCTAssertFalse(rows[1].bySleep, "an older server's row is a check's")
+        XCTAssertEqual(rows[1].group, "check")
+    }
+
+    func testAFailedSleepUndoSaysThePageChanged() async {
+        let api = FakeSettledChecksAPI()
+        api.rows = [film, assumed]
+        api.failUndo = true
+        let model = SettledChecks(api: api)
+        await model.load()
+        await model.undo(assumed)
+        XCTAssertEqual(model.rows.map(\.id), ["inbox-101", "inbox-401"])
+        XCTAssertEqual(model.message, Copy.Inbox.settledSleepUndoFailed)
+    }
+
+    func testTrackingNeverTouchesSleepsSettles() async {
+        let api = FakeSettledChecksAPI()
+        api.rows = [assumed]
+        let model = SettledChecks(api: api)
+        await model.load()
+        await model.track(assumed)
+        XCTAssertTrue(api.trackedCalls.isEmpty)
+    }
 }
