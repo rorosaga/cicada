@@ -516,11 +516,13 @@ struct RoomSentenceView: View {
                     .tracking(CicadaTheme.displayTracking(size: Self.leadSize))
                     .lineLimit(1)
                     .minimumScaleFactor(Self.leadMinimumScale)
-                tailView(shown)
+                // A line with no tail is the lead alone: no empty line is held under the headline (owner QA
+                // 2026-10-17, amending R-Z5's one reserved tail line). A tail the worm adds on a poke takes its line
+                // then; the control row below moves by it, at once (DR-60: a key can poke the worm).
+                if SentenceSlot.drawsTail(shown) { tailView(shown) }
             }
             // Keyed on the kind of line so a status ⇄ answer ⇄ feed change
-            // cross-fades (opacity only — the slot's height is reserved, so
-            // nothing slides).
+            // cross-fades (opacity only — nothing slides).
             .id(slot)
             .transition(.opacity)
         }
@@ -595,22 +597,15 @@ struct RoomSentenceView: View {
         }
     }
 
-    /// The slot's reserve (one tail line), then the first form that fits the column: one line at 17 pt, one line at
-    /// 15 pt, else two lines at 17 pt. `ViewThatFits` measures each form's ideal width, which for a
-    /// one-line text is its unwrapped width, so a form is picked only when the whole tail fits it.
+    /// The first form that fits the column: one line at 17 pt, one line at 15 pt, else two lines at 17 pt.
+    /// `ViewThatFits` measures each form's ideal width, which for a one-line text is its unwrapped width, so a form is
+    /// picked only when the whole tail fits it.
     private func tailText(_ line: SentenceLine) -> some View {
-        ZStack(alignment: .top) {
-            Text(verbatim: " ")
-                .font(Self.tailFont(size: Self.tailSize))
-                .lineLimit(SentenceSlot.reservedTailLines, reservesSpace: true)
-                .hidden()
-                .accessibilityHidden(true)
-            // In `SentenceSlot.TailForm`'s order.
-            ViewThatFits(in: .horizontal) {
-                tailForm(line, .oneLine)
-                tailForm(line, .oneLineAtFloor)
-                tailForm(line, .twoLines)
-            }
+        // In `SentenceSlot.TailForm`'s order.
+        ViewThatFits(in: .horizontal) {
+            tailForm(line, .oneLine)
+            tailForm(line, .oneLineAtFloor)
+            tailForm(line, .twoLines)
         }
     }
 
@@ -638,11 +633,14 @@ struct RoomSentenceView: View {
     }
 }
 
-/// The sentence slot's geometry (R-Z5 as amended 2026-10-16): what it reserves, and the forms a tail may take, in
-/// the order the slot tries them.
+/// The sentence slot's geometry (R-Z5 as amended 2026-10-16 and 2026-10-17): the forms a tail may take, in the order
+/// the slot tries them. The slot reserves nothing: it is as tall as the line it shows.
 enum SentenceSlot {
-    /// One lead line plus this many tail lines are always reserved.
-    static let reservedTailLines = 1
+    /// Whether the line under the lead is drawn: only when there is a tail to put in it (a mark rides a tail).
+    static func drawsTail(_ line: SentenceLine) -> Bool {
+        guard let tail = line.tail else { return false }
+        return !tail.trimmingCharacters(in: .whitespaces).isEmpty
+    }
 
     enum TailForm: CaseIterable, Hashable {
         /// One line at the tail's own 17 pt.
