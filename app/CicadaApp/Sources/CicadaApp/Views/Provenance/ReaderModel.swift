@@ -145,20 +145,16 @@ enum ReaderTime {
     }
 
     /// An ISO stamp in any of the shapes a bank holds, or nil.
+    /// Its formatters are built once and its answer kept per stamp (`ISOStamp`): every Inbox row calls this, three
+    /// times, each time the list draws.
     static func instant(_ raw: String, timeZone: TimeZone = .autoupdatingCurrent) -> Date? {
-        let aware = ISO8601DateFormatter()
-        aware.formatOptions = [.withInternetDateTime]
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let d = aware.date(from: raw) ?? fractional.date(from: raw) { return d }
-        let naive = DateFormatter()
-        naive.locale = Locale(identifier: "en_US_POSIX")
-        naive.timeZone = timeZone
-        for format in ["yyyy-MM-dd'T'HH:mm:ss.SSSSSS", "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd"] {
-            naive.dateFormat = format
-            if let d = naive.date(from: raw) { return d }
+        ISOStamp.remembered(raw, timeZone: timeZone) {
+            if let d = ISOStamp.internetDate(raw) { return d }
+            for format in ["yyyy-MM-dd'T'HH:mm:ss.SSSSSS", "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd"] {
+                if let d = ISOStamp.date(raw, format: format, timeZone: timeZone) { return d }
+            }
+            return nil
         }
-        return nil
     }
 
     /// "3 Sep 2026" for the header's meta line, from the episode's timestamp
@@ -178,11 +174,7 @@ enum ReaderTime {
     static func episodeDate(_ episode: String, timeZone: TimeZone = .autoupdatingCurrent) -> Date? {
         guard episode.hasPrefix("ep_"), episode.count >= 13 else { return nil }
         let day = String(episode.dropFirst(3).prefix(10))
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = timeZone
-        f.dateFormat = "yyyy-MM-dd"
-        return f.date(from: day)
+        return ISOStamp.date(day, format: "yyyy-MM-dd", timeZone: timeZone)
     }
 }
 

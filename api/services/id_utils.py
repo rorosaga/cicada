@@ -13,6 +13,7 @@ must go through :func:`sanitize_id` so the filesystem layout stays flat.
 
 import os
 import re
+import time
 import unicodedata
 from pathlib import Path
 
@@ -58,7 +59,15 @@ def _fold(name: str) -> str:
     return unicodedata.normalize("NFC", name).casefold()
 
 
-_LISTINGS: dict[str, tuple[int, frozenset[str]]] = {}
+#: A directory listing is trusted while the directory's mtime is unchanged — and only once the listing was taken at
+#: least this long after that mtime (git's "racy clean" rule): a filesystem whose clock is coarse (Linux stamps a
+#: directory at jiffy granularity, up to 10 ms) can add an entry within the same tick a listing was taken, leaving the
+#: mtime equal. Inside the window the folder is simply listed again.
+_RACY_NS = 100_000_000
+
+_LISTINGS: dict[str, tuple[int, int, frozenset[str]]] = {}
+#: directory -> (the listing it was built from, lowercased ``*.md`` stem -> on-disk filename).
+_STEMS: dict[str, tuple[frozenset[str], dict[str, str]]] = {}
 
 
 def _listing(directory: Path) -> frozenset[str] | None:
@@ -68,13 +77,33 @@ def _listing(directory: Path) -> frozenset[str] | None:
     try:
         stamp = os.stat(directory).st_mtime_ns
         cached = _LISTINGS.get(key)
-        if cached is not None and cached[0] == stamp:
-            return cached[1]
+        if cached is not None and cached[0] == stamp and cached[1] - stamp >= _RACY_NS:
+            return cached[2]
+        listed_at = time.time_ns()
         names = frozenset(os.listdir(directory))
     except OSError:
         return None
-    _LISTINGS[key] = (stamp, names)
+    _LISTINGS[key] = (stamp, listed_at, names)
     return names
+
+
+def _stem_index(directory: Path) -> dict[str, str] | None:
+    """``{stem.lower(): filename}`` over the directory's ``*.md`` entries, rebuilt only when :func:`_listing` changes
+    (inbox lag, 2026-10-17). On a tie the first filename in sorted order wins, so the answer never depends on the
+    order the filesystem lists entries in."""
+    names = _listing(directory)
+    if names is None:
+        return None
+    key = str(directory)
+    cached = _STEMS.get(key)
+    if cached is not None and (cached[0] is names or cached[0] == names):
+        return cached[1]
+    index: dict[str, str] = {}
+    for name in sorted(names):
+        if name.endswith(".md"):
+            index.setdefault(name[: -len(".md")].lower(), name)
+    _STEMS[key] = (names, index)
+    return index
 
 
 def on_disk(path: Path) -> Path:
@@ -104,7 +133,7 @@ def resolve_entity_file(memory_path: Path, name_or_slug: str) -> Path | None:
 
     1. exact slug — ``entities/<name_or_slug>.md`` as given;
     2. sanitized — ``entities/<sanitize_id(name_or_slug)>.md``;
-    3. case-insensitive stem scan over ``entities/*.md``.
+    3. case-insensitive stem match over ``entities/*.md`` (one cached listing, re-read when the folder changes).
 
     Returns the resolved ``Path`` — always spelled as the file is on disk (:func:`on_disk`) — or ``None`` when
     nothing matches.
@@ -122,14 +151,15 @@ def resolve_entity_file(memory_path: Path, name_or_slug: str) -> Path | None:
     if sanitized.exists():
         return on_disk(sanitized)
 
-    if not entities_dir.exists():
+    # The case-insensitive stem match reads one cached index of the folder, not a fresh `glob` per call: a caller
+    # resolving many names that have no page (``load_inbox`` asks about every item's subject, most of them merged
+    # away or renamed) listed 4,700 pages per name — 3.5 M paths and ~6 s per inbox read (inbox lag, 2026-10-17).
+    index = _stem_index(entities_dir)
+    if index is None:
         return None
-    target = raw.lower()
-    sanitized_target = sanitize_id(raw)
-    for filepath in entities_dir.glob("*.md"):
-        stem = filepath.stem.lower()
-        if stem == target or stem == sanitized_target:
-            return filepath
+    for key in (raw.lower(), sanitize_id(raw)):
+        if key in index:
+            return entities_dir / index[key]
     return None
 
 

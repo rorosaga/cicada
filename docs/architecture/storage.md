@@ -314,7 +314,9 @@ supersession links follow; a re-run after a crash finds its earlier copy); a cla
 once; two open claims that disagree stay two — a merge never closes a belief. A corrupt fence on either page aborts
 the merge (the inbox answers 409), and two ids for one file (a case-insensitive disk) are refused. **A ref resolves to
 the page's own id whatever case was typed (2026-10-14):** `id_utils.resolve_entity_file` returns the path spelled as
-the directory lists it (`id_utils.on_disk`; the listing is cached by the folder's mtime), because macOS finds
+the directory lists it (`id_utils.on_disk`; the listing is cached by the folder's mtime, trusted only once it was taken
+100 ms past that mtime — git's racy-clean rule, for a filesystem with a coarse clock; its last rung, a ref matched to a
+stem ignoring case, reads one index built from that listing, never a glob per call), because macOS finds
 `entities/Cicada.md` when the page is `cicada.md` and a caller that took that stem as the id knew no page by it —
 `cicada_note_progress(project="Cicada")` called a project "a page". The readers that join a ref onto `entities/`
 themselves (`recall_detail`, `sources`, progress participants, the backlog's project page) use the same rule. Before the loser's

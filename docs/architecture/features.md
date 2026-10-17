@@ -159,6 +159,14 @@ one whose subject is archived, dropped or (for every kind but `clarification`) g
 on disk. `inbox_service.served_counts` applies the same `_hidden` predicate over `bank_index`
 frontmatter, and it is the only source of `/status`'s `inbox.total`/`byKind` (the menu bar) and the
 hub's pending count — on 2026-10-06 the raw file count said 49 while the inbox served 35.
+**The read is one listing, not one per item (inbox lag, 2026-10-17).** Most hidden items name a subject with no page
+under any spelling (merged away, renamed), and `resolve_entity_file`'s case-insensitive rung used to glob `entities/`
+for each: ~6 s per `GET /inbox` at 4,700 pages and 900 items. It now reads one cached stem index of the folder
+(`id_utils._stem_index`, rebuilt when the folder changes), the subject's status comes from `bank_index`, and
+`GET /inbox` (and the deprecated `/nudges`, `/clarifications`) run `load_inbox` in a worker thread, never on the event
+loop (`test_inbox_load_perf.py`; the 0.5 s budget at that scale is opt-in, `CICADA_BENCH=1`). In the app, an Inbox row's
+age and source day parse through formatters built once with each stamp's answer kept (`ISOStamp`), since the question
+list is a non-lazy stack that draws every row on each render.
 
 **Question object (G60).** Every item carries `question`, `options: [{key, label, description, …}]`,
 `allow_other`, `allow_defer`, `predicate` and an optional `hint`. Descriptions lead with the age
