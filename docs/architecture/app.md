@@ -1439,7 +1439,11 @@ and, for a public citation on a subject with a page, Track this source (`Settled
 `addEntitySource`, then "Tracked", disabled). `SettledChecks` is in memory, not a Store domain: loaded when the Inbox
 appears, on a bank switch and whenever its questions change (`SettledChecksAPI`, faked in `SettledChecksTests`). Its
 rows are per memory (their ids are inbox ids, which repeat across banks): another bank's read starts empty, and Undo
-and Track name the bank the row was read in (G183(d)), so a row left on screen across a switch is refused. A
+and Track name the bank the row was read in (G183(d)), so a row left on screen across a switch is refused.
+**Settled by Sleep (ruling 29, 2026-10-17)** is the same section's second closed group ("Settled by Sleep · N"), from the
+same list (`SettledCheck.group == "sleep"`, `bySleep`): the subject and Sleep's answer, the person's own words when it
+rests on them, then the rule's reason and when (`settledSleepMeta`); Undo only (no Track — Sleep's settle cites no
+page), its failure saying the page changed since (`settledSleepUndoFailed`). Neutral buttons, no accent (DR-40). A
 `page_edit` item (G198, an agent's proposed change to a page's words or aliases) is `InboxKind.pageEdit` ("Page edit",
 `pencil`, clarification's hue in both palettes — no new hue, DR-8) and renders as an options card (`apply` / `dismiss`
 from the server, Not now); `InboxBodyPreview` draws its `body` — "Why: …" and the changes as "- Replace “old” with

@@ -623,6 +623,10 @@ Round 4 (C2–C4):
   counts those numbers, so the undo can put the question back under its own (`web_settle.undo`, which takes back only
   the claims in `claim_ids` — from the pending line or the page — and the closures whose claim still reads as `after`;
   the episode stays; the question returns with `web_check: undone`, so no check settles it again).
+  **Sleep's own settles (ruling 29)** share `inbox/settled/`: `settled: {group: sleep, at, by, by_kind: sleep, rule,
+  reason, answer, entity_id, entity_name, predicate, evidence?: {episode, start, end}}` — a span into the person's words,
+  never a copy — committed in the resolver's own commit, which is what `inbox_tend.undo` reverses (three-way); the
+  question returns with `sleep_settle: undone`.
 - `website` (G61 S3-b) — the official-site ROLE: a `sources:` entry with `predicate: website`, many allowed. Stage 1 may
   propose ONE for a `company`, `tool` or `project` (an optional `website` field on the extracted entity;
   `site_sources.sanitize_website` keeps only an https origin of a public host that is not a platform (`PLATFORM_HOSTS`:

@@ -625,6 +625,12 @@
       "disposition": "preserve_frontmatter_guarded"
     },
     {
+      "function": "_resolve_decay",
+      "method": "write",
+      "frontmatter": "entity.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
       "function": "_resolve_removal",
       "method": "write",
       "frontmatter": "entity.frontmatter",
@@ -1137,6 +1143,22 @@
       "method": "write",
       "frontmatter": "fm",
       "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/inbox_actor.py": [
+    {
+      "function": "write_record",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/inbox_tend.py": [
+    {
+      "function": "undo",
+      "method": "write",
+      "frontmatter": "{**fm, UNDONE_KEY: 'undone'}",
+      "disposition": "uninstrumented_guarded"
     }
   ]
 }

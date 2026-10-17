@@ -206,6 +206,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   read only through `write_admission` (G183): a writer holds it shared through its own commit (async: `run_admitted`),
   Sleep sets its flag then waits holders out — past the bound it pauses, never reads; order admission → page → git;
   never held across a model call or a fetch.
+- **Sleep tends the inbox (ruling 29):** after each batch's commit it settles questions the person's own words answer
+  (spans in their own turns, never a guess) and, per drain, the small stuff by rule, through the person's own resolvers
+  as Sleep's commit (`inbox/<kind>/settled:`), each undoable; never a person's identity without their words (`features.md`).
 - **Entity promotion:** a first mention stays in the index; a page needs 2+ conversations, >3 exchanges with the person's
   own words, or a link the person made to a high-confidence page other than the owner's — counted on the conversation,
   never guessed (`promotion`). What is said about a name with no page yet is held (`pending_store`), never lost.
@@ -386,7 +389,7 @@ is revisited only on the trigger its row names.
 | Batch over real-time consolidation | Conversations don't have clean endings. Batch sees patterns across a full day. Clean evaluation. |
 | Entity promotion over upfront extraction | Avoids polluting the graph with noise from single mentions. |
 | Temporal decay as an active signal | Absence of mention is informative. No other system does this. |
-| Clarification queue over silent drops | Ask rather than guess or discard. Prevents cascading hallucination. |
+| Clarification queue over silent drops | Ask rather than guess or discard. Prevents cascading hallucination. **Dated exception (ruling 29, 2026-10-17):** Sleep settles what the person already said in their own located words and assumes the small stuff, each undoable under "Settled by Sleep"; never who a person is without their words. |
 | MCP-native + export fallback | MCP for real-time, export for ChatGPT/Claude. Source-agnostic pipeline. |
 | SwiftUI + FastAPI | Native macOS feel. Python backend for the LLM/ML ecosystem. |
 | d3-force in WKWebView | Best graph-visualization ecosystem. Sufficient at personal scale (G109). |

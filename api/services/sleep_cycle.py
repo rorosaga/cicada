@@ -55,6 +55,8 @@ class SleepState:
     # questions answered by later conversation and closed without the user acting.
     questions_refreshed: int = 0
     organic_resolutions: int = 0
+    # Ruling 29: inbox questions Sleep settled this batch (answered in conversation, or assumed).
+    inbox_settled: int = 0
     # G141 PJ-0 (R-CS3): claims Stage 5.56 could neither write nor hold (PJ-0b)
     # because their subject has no page, and how many page-less subjects there
     # were. Counts only — G141's M3 measure, carried into the `sleep_run`
@@ -1220,6 +1222,25 @@ async def _web_check_safely(memory_path: Path, settings: Settings, *, user_trigg
         await asyncio.to_thread(web_lookup.restore, memory_path, report)
 
 
+async def _tend_inbox_safely(memory_path: Path, settings: Settings, episodes: list[dict], *, run_policy: bool,
+                             engine: str | None) -> None:
+    """Ruling 29 — Sleep tends the inbox (`inbox_tend`): what this batch's conversations answered in the person's own
+    words, and (``run_policy``) the small stuff assumed. Counts only in the log. Never raises."""
+    try:
+        from api.services import inbox_tend
+
+        report = await inbox_tend.tend(memory_path, settings, episodes=episodes, run_policy=run_policy,
+                                       engine=engine)
+    except Exception as exc:  # noqa: BLE001 — tending never fails a batch that already committed
+        logger.warning(f"Inbox tending skipped: {type(exc).__name__}: {exc}")
+        return
+    _state.inbox_settled = report.settled
+    if report.settled or report.read or report.judged:
+        logger.info(f"Inbox tending: {report.settled} settled, {report.read} read in conversations, "
+                    f"{report.judged} duplicate pair(s) judged" + (f" — stopped ({report.stopped})"
+                                                                   if report.stopped else ""))
+
+
 async def _run_engine_independent_tail(
     memory_path: Path, settings: Settings, outcome: _StageOutcome, *, user_triggered: bool = True,
     skip_links: bool = False,
@@ -1575,6 +1596,7 @@ def _reset_batch_counters() -> None:
     _state.claims_waiting = 0
     _state.decay_nudges_deferred = 0
     _state.decay_nudges_refreshed = 0
+    _state.inbox_settled = 0
     _state.write_started = False
 
 
@@ -2919,6 +2941,14 @@ async def _run_stages(
                                f" (batch {batch.index} of {batch.of})" if batch.of > 1 else ""),
         }),
     )
+
+    # Ruling 29 (owner, 2026-10-17): Sleep tends the inbox — after the batch's own commit, still inside its write
+    # window, so no person's answer can land between its read and its settle. Questions this batch's conversations
+    # touched are answered only by the person's own located words; the small stuff is assumed once per drain (the
+    # batch that runs decay). Each settle commits alone, as Sleep's, undoable under "Settled by Sleep".
+    if not _state.cancel_requested:
+        await _tend_inbox_safely(memory_path, settings, processed_episodes,
+                                 run_policy=batch is None or bool(batch.decay), engine=engine)
 
     # Logo warm-up and the connector poll (final-review H1: the poll must
     # run AFTER `_finalize`'s commit so its own `git add -A` finds a clean

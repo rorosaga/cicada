@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Owner ruling 2026-10-16 — "Settled by a check", under the Inbox's questions: what a web lookup (or the person's own
+/// Owner ruling 2026-10-16 — "Settled by a check", under the Inbox's questions (and, ruling 29, "Settled by Sleep":
+/// what Sleep answered from the person's own words or assumed, each with its reason): what a web lookup (or the person's own
 /// agent) answered for them, each with its answer, the page and quote it rests on, and two neutral actions — Undo puts
 /// the question back and takes back only what the check wrote; Track this source makes the citation one of the places
 /// Cicada re-checks (only on this tap; a citation is never a tracked source by itself). Closed until asked for — the
@@ -11,41 +12,65 @@ struct SettledChecksSection: View {
     /// The Inbox refreshes its questions after an undo — the question is back there.
     let onUndone: @MainActor () async -> Void
 
+    var body: some View {
+        // Ruling 29: two groups, one machinery — what a check settled, and what Sleep answered or assumed.
+        let checks = model.rows.filter { !$0.bySleep }
+        let sleep = model.rows.filter(\.bySleep)
+        if !model.rows.isEmpty {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                SettledGroup(rows: checks, model: model, onUndone: onUndone, title: Copy.Inbox.settledTitle,
+                             header: Copy.Inbox.settledHeader(checks.count), help: Copy.Inbox.settledShowHelp)
+                SettledGroup(rows: sleep, model: model, onUndone: onUndone, title: Copy.Inbox.settledSleepTitle,
+                             header: Copy.Inbox.settledSleepHeader(sleep.count), help: Copy.Inbox.settledSleepShowHelp)
+                if let message = model.message {
+                    Text(message)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+            }
+            .padding(.top, CicadaTheme.spacingMD)
+        }
+    }
+}
+
+/// One collapsible group of settled questions — closed until asked for (UX 4).
+private struct SettledGroup: View {
+    let rows: [SettledCheck]
+    let model: SettledChecks
+    let onUndone: @MainActor () async -> Void
+    let title: String
+    let header: String
+    let help: String
+
     @State private var open = false
 
     var body: some View {
-        if !model.rows.isEmpty {
+        if !rows.isEmpty {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 Button { Instant.run { open.toggle() } } label: {
                     HStack(spacing: CicadaTheme.spacingXS) {
                         Image(systemName: open ? "chevron.down" : "chevron.right")
                             .font(CicadaTheme.captionFont)
-                        Text(Copy.Inbox.settledHeader(model.rows.count))
+                        Text(header)
                             .font(CicadaTheme.metaMediumFont)
                     }
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.cicadaPlain)
-                .help(Copy.Inbox.settledShowHelp)
-                .accessibilityLabel(Copy.Inbox.settledTitle)
+                .help(help)
+                .accessibilityLabel(title)
                 .accessibilityValue(open ? "expanded" : "collapsed")
 
                 if open {
-                    ForEach(model.rows) { row in
+                    ForEach(rows) { row in
                         SettledCheckRow(row: row, tracked: model.tracked.contains(row.id),
                                         busy: model.busy.contains(row.id),
                                         undo: { Task { await model.undo(row, then: onUndone) } },
                                         track: { Task { await model.track(row) } })
                     }
-                    if let message = model.message {
-                        Text(message)
-                            .font(CicadaTheme.metaFont)
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                    }
                 }
             }
-            .padding(.top, CicadaTheme.spacingMD)
         }
     }
 }
@@ -78,13 +103,20 @@ struct SettledCheckRow: View {
                     .lineLimit(3)
                     .textSelection(.enabled)
             }
-            Text(Copy.Inbox.settledMeta(row.host, when, who))
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .help(row.ref)
+            if row.bySleep {
+                Text(Copy.Inbox.settledSleepMeta(row.reason, when))
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            } else {
+                Text(Copy.Inbox.settledMeta(row.host, when, who))
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .help(row.ref)
+            }
             HStack(spacing: CicadaTheme.spacingSM) {
                 NeutralButton(title: Copy.Inbox.settledUndo, size: .compact, isDisabled: busy,
-                              help: Copy.Inbox.settledUndoHelp, action: undo)
+                              help: row.bySleep ? Copy.Inbox.settledSleepUndoHelp : Copy.Inbox.settledUndoHelp,
+                              action: undo)
                 if row.canTrack {
                     NeutralButton(title: tracked ? Copy.Inbox.settledTracked : Copy.Inbox.settledTrack, size: .compact,
                                   isDisabled: tracked || busy, help: Copy.Inbox.settledTrackHelp, action: track)

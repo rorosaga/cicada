@@ -24,6 +24,7 @@ from api.services import (
     decay_policy,
     entity_types,
     fact_sources,
+    inbox_actor,
     inbox_context,
     inbox_questions,
     markdown_parser,
@@ -938,6 +939,8 @@ def _emit_resolution(
                     and (str(request.option_key or "").strip().lower() == rec or label == rec),
                     # G141 PJ-6 (R-PJB24): ids and enums only — never the sentence.
                     **(extra_refs or {}),
+                    # Ruling 29: Sleep's settle is recorded as Sleep's (`by: sleep` + its rule), never the person's.
+                    **inbox_actor.ledger_refs(),
                 },
             )
         )
@@ -1120,7 +1123,9 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
     session_id = _relay_id(request.session_id)
     quote_episode = (_write_relay_episode(settings.memory_path, parsed.frontmatter, item_id, words,
                                           relayed_by=relayed_by, session_id=session_id) if words else None)
-    token = _ANSWER_QUOTE.set([{"episode": quote_episode, "quote": words}] if quote_episode else None)
+    # Sleep's settle (ruling 29) sets the person's own located words before calling in; a request never does.
+    token = _ANSWER_QUOTE.set([{"episode": quote_episode, "quote": words}] if quote_episode
+                              else (_ANSWER_QUOTE.get() if inbox_actor.is_sleep() else None))
     try:
         entity_id, skipped, extra_lines, emit_extra, committed = await _route_resolution(
             kind, path, parsed, request, settings, item_id, label, synthesis, before)
@@ -1235,7 +1240,8 @@ async def _commit_answer(settings, item_id: str, kind: str, label: str, entity_i
     try:
         from api.services import state_dictionary
 
-        await state_dictionary.refresh_and_commit(settings.memory_path, settings)
+        if not inbox_actor.is_sleep():   # Sleep refreshes once, after its whole tending pass
+            await state_dictionary.refresh_and_commit(settings.memory_path, settings)
     except Exception as exc:
         logger.warning(f"state refresh after resolution skipped: {type(exc).__name__}: {exc}")
     out = {"status": "resolved", "id": item_id}
@@ -1292,7 +1298,16 @@ async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
     entity_id = parsed.frontmatter.get("entity_id", "")
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
 
-    if request.action == "keep_active" and entity_path.exists():
+    if request.action == "keep_active" and entity_path.exists() and inbox_actor.is_sleep():
+        # Ruling 29 (review 2026-10-17): Sleep's "still live" only stops the page reading as fading. It invents no
+        # mention (age counts from when it was said, never from when it was read), reopens no claim and lifts no
+        # confidence — that is the person's "still true" (G113 3c), theirs alone.
+        entity = markdown_parser.parse(entity_path)
+        entity.frontmatter["status"] = "active"
+        markdown_parser.write(entity_path, entity.frontmatter, entity.body)
+        path.unlink()
+
+    elif request.action == "keep_active" and entity_path.exists():
         entity = markdown_parser.parse(entity_path)
         entity.frontmatter["status"] = "active"
         entity.frontmatter["confidence"] = max(
@@ -1759,7 +1774,7 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
         # The chosen label IS the answer, claim-backed or not.
         sentence = (
             f"{predicates.predicate_phrase(predicate, name, chosen['label'])} "
-            f"(confirmed by user on {today})."
+            f"(confirmed by {inbox_actor.confirmed_by()} on {today})."
         )
 
     else:
@@ -1770,7 +1785,7 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
                     claim.context = f"as of {claim.valid_from or today}"
                 labels.append(claim.object)
             sentence = (
-                f"Both are true: {' and '.join(labels)} (confirmed by user on {today})."
+                f"Both are true: {' and '.join(labels)} (confirmed by {inbox_actor.confirmed_by()} on {today})."
                 if labels else sentence
             )
 
@@ -1788,8 +1803,8 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
                     observer=option_claims[0].observer if option_claims else _owner_observer(settings, settings.memory_path),
                     context=option_claims[0].context if option_claims else "general",
                     source_trust="user_stated",
-                    origin="clarification",
-                    authored_by="user",
+                    origin=inbox_actor.claim_origin(),
+                    authored_by=inbox_actor.claim_author(),
                     confidence=0.95,
                     valid_from=today,
                     recorded_at=today,
@@ -1801,7 +1816,7 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
                 claim_list.append(new_claim)
                 sentence = (
                     f"{predicates.predicate_phrase(predicate, name, answer)} "
-                    f"(stated by user on {today})."
+                    f"(stated by {inbox_actor.confirmed_by()} on {today})."
                 )
             else:
                 for loser in option_claims:
@@ -2406,8 +2421,9 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                         predicate, entity.frontmatter.get("name", entity_id), answer_text
                     ),
                     subject=entity_id, predicate=predicate, object=answer_text, object_kind="literal",
-                    observer=_owner_observer(settings, settings.memory_path), source_trust="user_stated", origin="clarification",
-                    authored_by="user", confidence=0.95, valid_from=today, recorded_at=today,
+                    observer=_owner_observer(settings, settings.memory_path), source_trust="user_stated",
+                    origin=inbox_actor.claim_origin(), authored_by=inbox_actor.claim_author(), confidence=0.95,
+                    valid_from=today, recorded_at=today,
                     evidence=_quote_spans(settings.memory_path),
                 ))
                 body = write_claims(body, claims)
@@ -2515,7 +2531,8 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             # sources and references follow. Any other item was asked about a mention: a page promoted under that
             # slug since is not what the person answered about, so it is left alone (the note above, as before).
             mention_path = (resolve_entity_file(settings.memory_path, entity_id)
-                            if entity_id and parsed.frontmatter.get("fold_page") is True else None)
+                            if entity_id and (parsed.frontmatter.get("fold_page") is True
+                                              or inbox_actor.folds_pages()) else None)
             if mention_path is not None and not mention_path.samefile(target_path):
                 try:
                     merged = merge_entities(settings.memory_path, loser_id=mention_path.stem,

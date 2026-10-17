@@ -36,7 +36,7 @@ UNREAD_REASONS = ("empty_answer", "timed_out", "unparseable", "refused", "other"
 #: ledger row carries); the wire adds them up.
 CUMULATIVE_COUNTERS = (
     "entities_created", "entities_updated", "relationships_created", "skills_detected",
-    "episodes_processed", "episodes_requeued", "questions_refreshed", "organic_resolutions",
+    "episodes_processed", "episodes_requeued", "questions_refreshed", "organic_resolutions", "inbox_settled",
 )
 
 #: A conversation that fails for its own reasons gets this many tries before it is parked.
