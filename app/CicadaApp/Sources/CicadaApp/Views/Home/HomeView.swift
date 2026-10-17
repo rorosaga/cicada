@@ -1,10 +1,10 @@
 import SwiftUI
 
 /// Home — the front door at ⌘1 (G108, ruled 2026-09-23 as spec decision 12;
-/// design §6), drawn in Direction D as the approved D-Home mock (DS-3b, R-HS2):
-/// the painted band, the headline on the window under it, the palette's own
-/// field (`FindPanelBody` in `.page` placement, R-IB6), then Today / Needs you /
-/// Last read as labelled blocks — every number once, each a link to the page
+/// design §6), drawn in Direction D (DS-3b, R-HS2; the painted band retired
+/// 2026-10-16): the headline, the palette's own field (`FindPanelBody` in
+/// `.page` placement, R-IB6), then Needs you / Today / Last read as labelled
+/// blocks — every number once, each a link to the page
 /// that owns it (R-IB9). There is no Consolidate here: one Consolidate, on the
 /// Sleep page (G125 R10, R-HS3). The first keystroke replaces the blocks with
 /// results (design H2); Esc clears the field and brings them back.
