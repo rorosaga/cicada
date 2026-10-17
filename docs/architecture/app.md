@@ -1655,7 +1655,8 @@ installs when the person quits — or at once with *Restart to update* — never
 helper (`posix_spawn` in its own session) waits for the app to exit, boots out `com.cicada.backend` if its plist
 exists, swaps the two copies by rename in the same folder, moves the old one to the Trash, bootstraps the service
 again (three tries) and relaunches. The backend is asked fresh whether Sleep is writing — by the app at hand-off and by
-the helper just before it stops the service — busy means a cycle `running` or `writing: true`; a paused run waiting
+the helper just before it stops the service — busy means a cycle `running`, `writing: true`, or a real inbox tidy
+settling questions (`inboxTidy: true`, ruling 29); a paused run waiting
 on Continue is neither (its sidecar outlives the restart, 2026-10-17) — and a busy answer defers the swap to the next quit
 (`~/.cicada/update-deferred.json`; the staged copy and its `.Cicada.app.update.json` sidecar are kept, so nothing is
 downloaded twice). Any failure puts the old copy back and leaves `~/.cicada/update-failed.json`, which the next launch

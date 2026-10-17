@@ -29,6 +29,21 @@ words are already the question's cause or one option's evidence).
 
 Never a question about who a person is, or merging two people, without the person's own words on the record (move 1).
 
+**3 — Answered already, anywhere in the record** (:func:`read_record_answer`, part 2, 2026-10-17). A clarification,
+a follow-up or a conflict still open after moves 1 and 2 is looked for across the whole bank, not just the batch: the
+conversations the subject's page points at (its claims' evidence and ``source_episodes`` — the pointers Ask's source
+words follow) plus the bank's conversations that name it (the lexical index, every spelling of the page). Only the
+person's own turns that name the subject reach the engine, each tagged with its conversation; the answer settles
+only on the person's words located exactly in that conversation's own turn (``kind: user`` span, never fuzzy,
+never an agent's words), recorded as the evidence. A conflict is answered only by words said after every side of it,
+a follow-up only by words said after its thread was last heard. Inside Sleep a few questions per drain
+(:data:`RECORD_CAP`); in the tidy only with ``judge=true``, every eligible question.
+
+**Label-only conflicts** (an older format: every option a label, no ``claim_id``) are judged too: each label is tied
+to the page's open claims by folded text (:func:`label_matches` — no model, never fuzzy), and the judge reads the
+labels with those claims and their evidence lines. A side with nothing on the record is never picked, and the
+owner's-words rail (:func:`may_close`) holds over the tied claims.
+
 **One writer.** A settle goes through ``inbox_service``'s own resolver — the one the person's answer uses — with
 ``inbox_actor`` saying Sleep answered: the commit is Sleep's (``Inbox settled by Sleep``, trigger
 ``inbox/<kind>/settled:<label>``, the judging model or ``cicada`` as author), the G113 ledger row says ``by: sleep``
@@ -76,6 +91,7 @@ RULES: dict[str, str] = {
     "judged_fold": "The two labels mean the same thing",
     "judged_archive": "Nothing suggests it is still live",
     "judged_keep": "It is still live",
+    "said_on_record": "You already said this in an earlier conversation",
 }
 #: The rules that read only the bank: re-run inside each settle, which goes ahead only when they still agree.
 ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "one_off", "newest_evidence",
@@ -99,6 +115,22 @@ MAX_LINE_CHARS = 400
 MAX_PAGE_CHARS = 2000
 MAX_ANSWER_CHARS = 120
 _GENERIC_KEYS = frozenset({"both", "neither", "other", "remind_later"})
+#: Move 3: the kinds the whole record may answer, and how many questions one drain searches it for (the tidy with
+#: ``judge=true``: every one).
+RECORD_KINDS = frozenset({"clarification", "followup", "conflict"})
+RECORD_CAP = 4
+#: Move 3's reading: at most this many conversations, the person's lines in each, and all lines in one prompt.
+MAX_RECORD_EPISODES = 6
+MAX_RECORD_LINES_PER_EPISODE = 2
+MAX_RECORD_LINES = 8
+#: Per spelling of the subject, how many conversations the lexical index is asked for.
+RECORD_SEARCH_PER_NAME = 8
+#: The follow-up answers Sleep may take from the person's words: never "that didn't happen" (a withdrawal) and never
+#: a moved date — those stay the person's to give.
+FOLLOWUP_KEYS = {"happened": ("done", "still", "stopped"), "milestone": ("done", "missed", "dropped"),
+                 "due": ("done", "missed", "dropped")}
+#: Why move 2 left a question that move 3 may still answer: everything but the person's own hold on it.
+_RECORD_SKIP = frozenset({"undone", "deferred", "person_only"})
 
 
 class NotUndoable(ValueError):
@@ -219,6 +251,31 @@ def _gone(memory_path: Path, fm: dict) -> bool:
     kind = str(fm.get("kind") or "")
     anchor = inbox_service._fold_anchor(memory_path, fm)
     return inbox_service._subject_gone(memory_path, anchor, inbox_service._hiding_kind(kind, fm.get("asks")))
+
+
+#: The kinds only ever raised FROM an existing page: their page missing means the question is dead (G98). A
+#: clarification may be about a page not made yet; a fold is anchored on any live covered page (``_fold_anchor``); a
+#: duplicate's mention may have no page.
+_PAGE_BOUND = frozenset({"conflict", "decay", "followup"})
+
+
+def _page_state(memory_path: Path, fm: dict) -> str:
+    """``ok`` | ``missing`` | ``unreadable`` for the page a page-bound question asks about (``ok`` for other kinds).
+    ``missing`` also covers a name that resolves to no file on disk; ``unreadable`` is a page that is there and cannot
+    be parsed — never read as gone."""
+    from api.services.id_utils import resolve_entity_file
+
+    entity_id = str(fm.get("entity_id") or "").strip()
+    if str(fm.get("kind") or "") not in _PAGE_BOUND or not entity_id:
+        return "ok"
+    path = resolve_entity_file(Path(memory_path), entity_id)
+    if path is None or not path.is_file():
+        return "missing"
+    try:
+        markdown_parser.parse(path)
+    except Exception:  # noqa: BLE001
+        return "unreadable"
+    return "ok"
 
 
 def _hash(path: Path) -> str | None:
@@ -353,6 +410,51 @@ def _said(claim) -> str:
     return max((d for d in days if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d)), default="")
 
 
+def _phrase_in(needle: str, hay: str) -> bool:
+    return bool(needle) and f" {needle} " in f" {hay} "
+
+
+#: A label carrying one of these says the opposite of the value it names ("No longer on alpha-os"): it ties to a
+#: claim only by equality, never by the value appearing inside it.
+_NEGATIONS = frozenset("""no not never nor without anymore longer former formerly ex stopped quit left isn doesn didn
+wasn weren aren don won hasn haven hadn nunca sin ya""".split())
+
+
+def label_matches(label: str, claim) -> bool:
+    """Is a label-only option about this claim? Matched on folded text (``text_fold.words``: case, accents and
+    punctuation folded, whole words) — never fuzzy, no model: the label equals the claim's object or its sentence; or
+    the claim's object (four characters or more) is a whole-word run inside the label ("Runs on alpha-os" ↔ object
+    ``alpha-os``); or the label (two words or more) is a whole-word run inside the claim's sentence."""
+    lab = _fold_name(label)
+    if not lab:
+        return False
+    obj, txt = _fold_name(getattr(claim, "object", "")), _fold_name(getattr(claim, "text", ""))
+    if lab in (obj, txt):
+        return True
+    if set(lab.split()) & _NEGATIONS:
+        return False   # "No longer on alpha-os" is not the claim that it runs on alpha-os
+    if len(obj) >= 4 and _phrase_in(obj, lab):
+        return True
+    return len(lab.split()) >= 2 and _phrase_in(lab, txt)
+
+
+def label_claims(options: list[dict], claims: list, predicate: str = "") -> dict[str, list]:
+    """``{option key: [open claims its label is tied to]}`` for a label-only conflict. Only open, non-event claims;
+    on the conflict's own predicate unless it is the entity path's literal ``description`` (that path compares whole
+    pages, so its labels may be about any belief on it). A claim tied to two labels supports neither."""
+    from api.services.claims import is_event
+
+    live = [c for c in claims if c.valid_to is None and not c.superseded_by and not is_event(c)]
+    if predicate and predicate != "description":
+        live = [c for c in live if c.predicate == predicate]
+    tied = {str(o.get("key")): [c for c in live if label_matches(str(o.get("label") or ""), c)] for o in options}
+    seen: dict[str, int] = {}
+    for found in tied.values():
+        for c in found:
+            seen[c.id] = seen.get(c.id, 0) + 1
+    return {key: [c for c in found if seen[c.id] == 1] for key, found in tied.items()}
+
+
 def _conflict_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | None, str]:
     from api.services import predicates
     from api.services.claims import MalformedClaimsBlockError, is_event, parse_claims
@@ -375,6 +477,10 @@ def _conflict_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision 
         return None, "judgement"
     options = [o for o in inbox_questions.normalize_options(fm.get("options"))
                if str(o.get("key")) not in _GENERIC_KEYS]
+    if len(options) >= 2 and not any(o.get("claim_id") for o in options):
+        # An older format: labels only. Only the judge reads it, and only when a label is tied to the record.
+        tied = label_claims(options, list(claims.values()), predicate)
+        return (None, "needs_judge") if any(tied.values()) else (None, "labels_not_on_record")
     picked = []
     for o in options:
         claim = claims.get(str(o.get("claim_id") or ""))
@@ -404,9 +510,12 @@ def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
     blocked = _blocked(fm, today)
     if blocked:
         return None, blocked
-    if _gone(memory_path, fm):
+    page_state = _page_state(memory_path, fm)
+    if page_state == "missing" or _gone(memory_path, fm):
         return Decision(item_id, kind, "subject_gone", None, answer="Retired",
                         guard=_guard(memory_path, str(fm.get("entity_id") or ""))), ""
+    if page_state == "unreadable":
+        return None, "unreadable_page"   # never retired on a read error: the person (or a repair) looks at it
     if kind == "merge_suggestion":
         return _merge_rule(memory_path, item_id, fm)
     if kind == "normalization":
@@ -557,29 +666,48 @@ def _mention_lines(memory_path: Path, fm: dict, limit: int = MAX_EVIDENCE_LINES)
 
 async def judge_conflict(memory_path: Path, path: Path, fm: dict, llm_fn) -> tuple[Decision | None, str]:
     """Owner, 2026-10-17: a conflict settles when the record clearly supports one side or one is clearly newer — never
-    a machine's reading over the person's own words, never what only the person knows."""
+    a machine's reading over the person's own words, never what only the person knows. A label-only conflict (no
+    option carries a claim) is read through the claims its labels are tied to (:func:`label_claims`)."""
     from api.services.claims import parse_claims
 
     page = _page(memory_path, str(fm.get("entity_id") or ""))
     if page is None:
         return None, "judgement"
     guard = _guard(memory_path, page[0].stem)   # what the judge reads, as read
-    claims = {c.id: c for c in parse_claims(page[2])}
-    rows = []
-    for o in inbox_questions.normalize_options(fm.get("options")):
-        key = str(o.get("key"))
-        claim = claims.get(str(o.get("claim_id") or ""))
-        if key in _GENERIC_KEYS or claim is None:
-            continue
-        rows.append((key, str(o.get("label") or ""), claim))
+    all_claims = parse_claims(page[2])
+    claims = {c.id: c for c in all_claims}
+    options = [o for o in inbox_questions.normalize_options(fm.get("options")) if str(o.get("key")) not in _GENERIC_KEYS]
+    label_only = len(options) >= 2 and not any(o.get("claim_id") for o in options)
+    rows: list[tuple[str, str, list]] = []
+    if label_only:
+        tied = label_claims(options, all_claims, str(fm.get("predicate") or "description"))
+        rows = [(str(o.get("key")), str(o.get("label") or ""), tied.get(str(o.get("key")), [])) for o in options]
+        if not any(found for _, _, found in rows):
+            return None, "labels_not_on_record"
+    else:
+        for o in options:
+            claim = claims.get(str(o.get("claim_id") or ""))
+            if claim is not None:
+                rows.append((str(o.get("key")), str(o.get("label") or ""), [claim]))
     if len(rows) < 2:
         return None, "judgement"
     lines = []
-    for key, label, claim in rows:
-        who = "the person's own words" if persons_words(claim) else "read from elsewhere"
-        lines.append(f"- option {key}: {label} (first said {claim.valid_from or 'unknown'}, last said "
-                     f"{_said(claim) or 'unknown'}; {who})")
-        lines += [f"    {ln}" for ln in _evidence_lines(memory_path, claim)]
+    for key, label, found in rows:
+        if not label_only:
+            claim = found[0]
+            who = "the person's own words" if persons_words(claim) else "read from elsewhere"
+            lines.append(f"- option {key}: {label} (first said {claim.valid_from or 'unknown'}, last said "
+                         f"{_said(claim) or 'unknown'}; {who})")
+            lines += [f"    {ln}" for ln in _evidence_lines(memory_path, claim)]
+            continue
+        lines.append(f"- option {key}: {label}")
+        if not found:
+            lines.append("    (nothing on the record states this option)")
+        for claim in found[:MAX_EVIDENCE_LINES]:
+            who = "the person's own words" if persons_words(claim) else "read from elsewhere"
+            lines.append(f"    belief: {' '.join(str(claim.text or claim.object or '').split())[:240]} (first said "
+                         f"{claim.valid_from or 'unknown'}, last said {_said(claim) or 'unknown'}; {who})")
+            lines += [f"      {ln}" for ln in _evidence_lines(memory_path, claim)]
     prompt = (
         "A person's memory holds two or more beliefs that cannot all be true now. Decide which one the record "
         "supports, from the dates and what was said. Pick an option only when it is CLEARLY better supported or "
@@ -594,7 +722,10 @@ async def judge_conflict(memory_path: Path, path: Path, fm: dict, llm_fn) -> tup
     chosen = next((r for r in rows if r[0] == word), None)
     if chosen is None or confidence < JUDGE_THRESHOLD:
         return None, "unsure"
-    if not may_close(chosen[2], [c for k, _, c in rows if k != chosen[0]]):
+    if not chosen[2]:
+        return None, "unsure"     # a side nothing on the record states is never picked
+    losers = [c for k, _, found in rows if k != chosen[0] for c in found]
+    if not any(may_close(w, losers) for w in chosen[2]):
         return None, "person"     # nothing but the person's own words overrules the person's own words
     return Decision(path.stem, "conflict", "judged_conflict", {"action": "resolve", "option_key": chosen[0]},
                     answer=chosen[1], model=model, guard=guard, reason=_reason(verdict)), ""
@@ -669,8 +800,17 @@ async def judge_item(memory_path: Path, path: Path, fm: dict, body: str, llm_fn)
 # --------------------------------------------------------------------------- move 1: answered in conversation
 
 
+def _agent_note(source, turn) -> bool:
+    """An unmarked block of an episode an agent saved through a tool door (``ask_sources.AGENT_SOURCES``): the
+    evidence reader calls it the person's (R4), but it is the agent's note — never the person's own words here."""
+    from api.services import ask_sources
+
+    return str(source or "") in ask_sources.AGENT_SOURCES and getattr(turn, "marker", None) is None
+
+
 def person_turns(episode: dict) -> list[str]:
-    """The person's own turns of one conversation (``kind: user``), never an agent's or someone else's."""
+    """The person's own turns of one conversation (``kind: user``), never an agent's, someone else's, or an agent's
+    saved note (an unmarked block of an episode a tool door wrote)."""
     from api.services import evidence
 
     text = str(episode.get("content") or "")
@@ -678,7 +818,7 @@ def person_turns(episode: dict) -> list[str]:
         return []
     out = []
     for t in evidence.turns(text, override=episode.get("evidence_kind"), gaps=episode.get("gaps") or ()):
-        if t.role == "user":
+        if t.role == "user" and not _agent_note(episode.get("source"), t):
             line = text[t.content_start:t.end].strip()
             if line:
                 out.append(line)
@@ -732,16 +872,46 @@ def touched(memory_path: Path, episodes: list[dict], items: list[tuple[Path, dic
     return out
 
 
-def _question_prompt(memory_path: Path, fm: dict, lines: list[str]) -> tuple[str, dict[str, str]]:
+def _followup_choices(memory_path: Path, fm: dict) -> tuple[dict[str, str], str, str]:
+    """``(choices, question, last heard day)`` for a follow-up, served as the app serves it — only the answers Sleep
+    may take (:data:`FOLLOWUP_KEYS`). Empty choices when its claim is gone or settled."""
+    from api.services import inbox_service
+    from api.services.claims import parse_claims
+
+    page = _page(memory_path, str(fm.get("entity_id") or ""))
+    if page is None:
+        return {}, "", ""
+    try:
+        claims = parse_claims(page[2])
+        served, _human = inbox_service.followup_synthesis(fm, claims, date.today().isoformat())
+    except Exception:  # noqa: BLE001 — a gone claim: nothing to answer
+        return {}, "", ""
+    allowed = FOLLOWUP_KEYS.get(str(fm.get("predicate") or ""), ())
+    choices = {str(o.get("key")): str(o.get("label") or "") for o in served.get("options") or []
+               if str(o.get("key")) in allowed}
+    claim = next((c for c in claims if c.id == str(fm.get("claim_id") or "")), None)
+    return choices, str(served.get("question") or ""), (_said(claim) if claim is not None else "")
+
+
+def _question_prompt(memory_path: Path, fm: dict, lines: list[str], *,
+                     tagged: bool = False) -> tuple[str, dict[str, str]]:
+    """The engine's prompt for one question over the person's own lines, and the option keys it may answer with.
+    ``tagged``: each line starts with its conversation's tag (``[C1, <day>]``) and the reply names the tag."""
     kind = str(fm.get("kind") or "")
     name = str(fm.get("entity_name") or fm.get("entity_mention") or fm.get("entity_id") or "")
     choices: dict[str, str] = {}
+    question = str(fm.get("question") or fm.get("title") or f"About {name}")
     if kind == "conflict":
         for o in inbox_questions.normalize_options(fm.get("options")):
             key = str(o.get("key"))
-            if key != "neither":
+            if key not in ("neither", "both", "other", "remind_later"):
                 choices[key] = str(o.get("label") or "")
         how = ("Pick the option their words state. Options:\n"
+               + "\n".join(f"- {k}: {v}" for k, v in choices.items()))
+    elif kind == "followup":
+        choices, served, _heard = _followup_choices(memory_path, fm)
+        question = served or question
+        how = ("Pick the option their words state about how it went. Options:\n"
                + "\n".join(f"- {k}: {v}" for k, v in choices.items()))
     elif kind == "merge_suggestion":
         target = _page(memory_path, str(fm.get("merge_target_hint") or ""))
@@ -753,40 +923,60 @@ def _question_prompt(memory_path: Path, fm: dict, lines: list[str]) -> tuple[str
     else:
         how = (f"Give the answer as a short phrase (at most {MAX_ANSWER_CHARS} characters) in their words, "
                "in \"answer\".")
-    question = str(fm.get("question") or fm.get("title") or f"About {name}")
-    numbered = "\n".join(f"{i + 1}. {ln}" for i, ln in enumerate(lines))
+    numbered = "\n".join(lines if tagged else [f"{i + 1}. {ln}" for i, ln in enumerate(lines)])
+    where = ("one line per turn, each tagged with its conversation and the day it was said"
+             if tagged else "one line per turn")
+    reply = ("{\"answered\": true|false, \"option\": \"<key>\"|null, \"answer\": \"<short>\"|null, "
+             + ("\"conversation\": \"<the tag of the line you quote, e.g. C1>\", " if tagged else "")
+             + "\"quote\": \"<the exact words from one line that answer it, copied character for character, at most "
+               "200 characters>\"}")
     prompt = (
         "You read what a person said in their own conversations and decide whether THEIR OWN WORDS already answer "
         "one open question their memory holds. Answer only from their words: never infer, never guess, never use "
         "what you know. If the words do not plainly answer it, say answered=false.\n\n"
-        f"Question: {question}\n{how}\n\nThe person's own words (one line per turn):\n{numbered}\n\n"
-        "Reply JSON {\"answered\": true|false, \"option\": \"<key>\"|null, \"answer\": \"<short>\"|null, "
-        "\"quote\": \"<the exact words from one line that answer it, copied character for character, at most 200 "
-        "characters>\"}."
+        f"Question: {question}\n{how}\n\nThe person's own words ({where}):\n{numbered}\n\n"
+        f"Reply JSON {reply}."
     )
     return prompt, choices
 
 
-async def read_answer(memory_path: Path, path: Path, fm: dict, episode_id: str, lines: list[str],
-                      llm_fn) -> tuple[Decision | None, str]:
-    """Ask the engine whether the person's lines answer the question; a decision only on their located words."""
+def persons_span(memory_path: Path, episode_id: str, quote: str):
+    """The person's own words, located: ``evidence.verify`` exact → whitespace → case (never fuzzy), in a ``user``
+    turn that is not an agent's saved note. ``None`` otherwise."""
+    from api.services import evidence
+
+    if not quote or not episode_id:
+        return None
+    ev = evidence.verify(memory_path, episode_id, quote)
+    if ev is None or not ev.is_span() or ev.kind != "user":
+        return None
+    doc = evidence.source_document(Path(memory_path), episode_id)
+    if doc is None:
+        return None
+    fm, text = doc
+    for t in evidence.turns(text, override=fm.get("evidence_kind"), gaps=evidence.gap_ranges(fm, text)):
+        if t.start <= ev.start < t.end:
+            return None if _agent_note(fm.get("source"), t) else ev
+    return None
+
+
+def _answer_decision(memory_path: Path, path: Path, fm: dict, reply: dict, choices: dict[str, str],
+                     episode_id: str, model: str | None, rule: str) -> tuple[Decision | None, str]:
+    """The engine's reply → a decision, only on the person's own words located exactly in ``episode_id``."""
     from api.services import evidence, inbox_ask_gate
 
-    prompt, choices = _question_prompt(memory_path, fm, lines)
-    reply, model = await _ask(llm_fn, prompt)
     if reply.get("answered") is not True:
         return None, "not_answered"
     quote = inbox_ask_gate.clean_quote(str(reply.get("quote") or ""), limit=evidence.MAX_QUOTE_CHARS)
-    ev = evidence.verify(memory_path, episode_id, quote) if quote else None
-    if ev is None or not ev.is_span() or ev.kind != "user":
-        return None, "quote_not_found"   # spans, never a guess
+    if persons_span(memory_path, episode_id, quote) is None:
+        return None, "quote_not_found"   # the person's own spans, never a guess, never an agent's note
     kind = str(fm.get("kind") or "")
     words = {"episode": episode_id, "quote": quote}
-    if kind == "conflict":
+    if kind in ("conflict", "followup"):
         key = str(reply.get("option") or "").strip()
         if key not in choices:
             return None, "no_option"
-        return Decision(path.stem, kind, "said_in_conversation", {"action": "resolve", "option_key": key},
+        return Decision(path.stem, kind, rule, {"action": "resolve", "option_key": key},
                         answer=choices[key], quote=words, model=model), ""
     if kind == "merge_suggestion":
         key = str(reply.get("option") or "").strip()
@@ -795,13 +985,228 @@ async def read_answer(memory_path: Path, path: Path, fm: dict, episode_id: str, 
             return None, "no_option"
         request = ({"action": "merge", "merge_target": target} if key == "merge"
                    else {"action": "reject", "merge_target": target})
-        return Decision(path.stem, kind, "said_in_conversation", request, answer=choices[key], quote=words,
-                        model=model), ""
+        return Decision(path.stem, kind, rule, request, answer=choices[key], quote=words, model=model), ""
     answer = " ".join(str(reply.get("answer") or "").split())[:MAX_ANSWER_CHARS]
     if not answer:
         return None, "no_answer"
-    return Decision(path.stem, kind, "said_in_conversation", {"action": "answer", "answer": answer},
+    return Decision(path.stem, kind, rule, {"action": "answer", "answer": answer},
                     answer=answer, quote=words, model=model), ""
+
+
+async def read_answer(memory_path: Path, path: Path, fm: dict, episode_id: str, lines: list[str],
+                      llm_fn) -> tuple[Decision | None, str]:
+    """Ask the engine whether the person's lines answer the question; a decision only on their located words."""
+    prompt, choices = _question_prompt(memory_path, fm, lines)
+    reply, model = await _ask(llm_fn, prompt)
+    return _answer_decision(memory_path, path, fm, reply, choices, episode_id, model, "said_in_conversation")
+
+
+# --------------------------------------------------------------------------- move 3: answered anywhere in the record
+
+
+def _day(episode_id: str) -> str:
+    from api.services import episode_ids
+
+    parsed = episode_ids.parse_episode_id(str(episode_id or ""))
+    return parsed[0] if parsed else ""
+
+
+def _record_floor(memory_path: Path, fm: dict) -> str | None:
+    """The day the answering words must come strictly after: every side of a conflict (its option claims, or the
+    claims its labels are tied to; the day it was raised when a side has none), a follow-up's last heard day; ``""``
+    for a clarification (who or what something is does not go stale). ``None``: nothing can answer it."""
+    from api.services.claims import parse_claims
+
+    kind = str(fm.get("kind") or "")
+    if kind == "clarification":
+        return ""
+    if kind == "followup":
+        choices, _q, heard = _followup_choices(memory_path, fm)
+        return heard or None if choices else None
+    page = _page(memory_path, str(fm.get("entity_id") or ""))
+    if page is None:
+        return None
+    try:
+        claims = parse_claims(page[2])
+    except Exception:  # noqa: BLE001
+        return None
+    by_id = {c.id: c for c in claims}
+    options = [o for o in inbox_questions.normalize_options(fm.get("options")) if str(o.get("key")) not in _GENERIC_KEYS]
+    if len(options) < 2:
+        return None
+    if any(o.get("claim_id") for o in options):
+        sides = [[by_id[str(o.get("claim_id"))]] if str(o.get("claim_id") or "") in by_id else [] for o in options]
+    else:
+        tied = label_claims(options, claims, str(fm.get("predicate") or "description"))
+        sides = [tied.get(str(o.get("key")), []) for o in options]
+    def dated(day: str) -> bool:
+        return bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", day or ""))
+
+    days = [_said(c) for side in sides for c in side]
+    if any(not side for side in sides):
+        days.append(str(fm.get("created_date") or "")[:10])
+    if not days or not all(dated(d) for d in days):
+        return None   # a side with no date: "newer than every side" cannot be told, so the record never answers it
+    return max(days)
+
+
+def _record_cited(memory_path: Path, fm: dict) -> set[str]:
+    """The conversations the question already rests on — the one that raised it, its option claims' evidence, a
+    follow-up's thread, a label-only conflict's tied claims: never the answer to it."""
+    from api.services.claims import parse_claims
+
+    out = _cited_episodes(memory_path, fm)
+    kind = str(fm.get("kind") or "")
+    page = _page(memory_path, str(fm.get("entity_id") or "")) if kind in ("followup", "conflict") else None
+    if page is None:
+        return out
+    try:
+        claims = parse_claims(page[2])
+    except Exception:  # noqa: BLE001
+        return out
+    if kind == "followup":
+        claim = next((c for c in claims if c.id == str(fm.get("claim_id") or "")), None)
+        found = [claim] if claim is not None else []
+    else:
+        options = [o for o in inbox_questions.normalize_options(fm.get("options"))
+                   if str(o.get("key")) not in _GENERIC_KEYS]
+        if any(o.get("claim_id") for o in options):
+            return out   # a claim-backed conflict: its option claims' evidence is already counted above
+        found = [c for side in label_claims(options, claims, str(fm.get("predicate") or "")).values() for c in side]
+    for c in found:
+        out |= {str(e.episode) for e in c.evidence or [] if getattr(e, "episode", "")}
+        out |= {str(e) for e in (getattr(c, "source_episodes", None) or [])}
+    return {e for e in out if e}
+
+
+def _record_search(memory_path: Path, names: list[str]) -> list[str]:
+    """The bank's conversations that say one of the subject's spellings, through the lexical index (the derived FTS
+    index ``search_service`` serves recall and Ask from; words only — no embedding model inside Sleep)."""
+    from api.services import search_index, search_service
+
+    out: list[str] = []
+    try:
+        if search_index.ensure_fresh(memory_path) == "building":
+            search_index.ensure_fresh(memory_path, wait=True)   # as Ask does: a cold index is built, then read
+    except Exception as exc:  # noqa: BLE001
+        logger.info(f"inbox tend: record index unavailable ({type(exc).__name__})")
+    for name in names[:3]:
+        try:
+            hits = search_service.search(memory_path, name, kinds=("episode",), mode="prefix",
+                                         per_kind=RECORD_SEARCH_PER_NAME).results
+        except Exception as exc:  # noqa: BLE001 — a derived index never fails a settle; the graph's pointers remain
+            logger.info(f"inbox tend: record search unavailable ({type(exc).__name__})")
+            return out
+        out += [str(h.episode_id or h.id) for h in hits if str(h.episode_id or h.id or "").startswith("ep_")]
+    return out
+
+
+def _pointed(memory_path: Path, fm: dict) -> list[str]:
+    """The conversations the subject's page points at — its claims' evidence and its ``source_episodes`` (the pointers
+    Ask's source words follow, G118)."""
+    from api.services.claims import parse_claims
+
+    page = _page(memory_path, str(fm.get("entity_id") or ""))
+    if page is None:
+        return []
+    out = [str(e) for e in (page[1].get("source_episodes") or [])]
+    try:
+        for c in parse_claims(page[2]):
+            out += [str(e.episode) for e in c.evidence or [] if getattr(e, "episode", "")]
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def _served_fm(memory_path: Path, fm: dict) -> dict:
+    """The question as the ask gate reads it: a follow-up's question and options are served at read, never stored."""
+    if str(fm.get("kind") or "") != "followup":
+        return fm
+    choices, question, _heard = _followup_choices(memory_path, fm)
+    return {**fm, "question": question,
+            "options": [{"key": k, "label": v} for k, v in choices.items()]}
+
+
+def record_lines(memory_path: Path, fm: dict) -> list[tuple[str, str, str]]:
+    """``(tag, episode id, line)`` — the person's own lines that name the question's subject, across the whole record,
+    newest conversation first; only conversations the ask gate finds about the question (``relevant``), never one the
+    question rests on, never one said on or before :func:`_record_floor`. Empty: nothing to read (no engine call)."""
+    from api.services import evidence, inbox_ask_gate
+
+    floor = _record_floor(memory_path, fm)
+    if floor is None:
+        return []
+    full = inbox_ask_gate.with_page_names(memory_path, _served_fm(memory_path, fm))
+    cited = _record_cited(memory_path, fm)
+    candidates = [e for e in dict.fromkeys(_pointed(memory_path, fm)
+                                           + _record_search(memory_path, inbox_ask_gate.names(full)))
+                  if e and e not in cited and _day(e) and _day(e) > floor]
+    candidates.sort(key=lambda e: (_day(e), e), reverse=True)
+    out: list[tuple[str, str, str]] = []
+    convos = 0
+    for eid in candidates:
+        if convos >= MAX_RECORD_EPISODES or len(out) >= MAX_RECORD_LINES:
+            break
+        doc = evidence.source_document(Path(memory_path), eid)
+        if doc is None:
+            continue
+        ep_fm, text = doc
+        lines = person_turns({"content": text, "evidence_kind": ep_fm.get("evidence_kind"),
+                              "gaps": evidence.gap_ranges(ep_fm, text), "source": ep_fm.get("source")})
+        about = [ln for ln in lines if inbox_ask_gate.named_in(full, ln)]
+        if not about or not inbox_ask_gate.relevant(full, "\n".join(about))[0]:
+            continue
+        convos += 1
+        tag = f"C{convos}"
+        for ln in about[-MAX_RECORD_LINES_PER_EPISODE:]:
+            if len(out) < MAX_RECORD_LINES:
+                out.append((tag, eid, " ".join(ln.split())[:MAX_LINE_CHARS]))
+    return out
+
+
+#: ``(bank, question) → what move 3 last read for it and found no answer in``: the same lines are never sent to the
+#: engine twice, so a drain's few reads move on to questions with something new on the record. In this process only
+#: (ids and a hash; a restart reads each once more).
+_RECORD_READ: dict[tuple[str, str], str] = {}
+_NOT_ANSWERED = frozenset({"not_answered", "quote_not_found", "no_option", "no_answer"})
+
+
+def _record_key(memory_path: Path, path: Path) -> tuple[str, str]:
+    return os.path.realpath(memory_path), path.stem
+
+
+async def read_record_answer(memory_path: Path, path: Path, fm: dict, llm_fn) -> tuple[Decision | None, str]:
+    """Move 3 for one question: the person's own lines about it across the record, one engine call, and a decision
+    only on their words located exactly in the conversation the reply names. ``not_on_record``: no engine call
+    (nothing names it, or the same lines were already read without an answer)."""
+    import hashlib
+
+    guard = _guard(memory_path, str(fm.get("entity_id") or ""))   # the page whose claims and dates it reads, as read
+    found = await asyncio.to_thread(record_lines, memory_path, fm)   # file reads and the index, off the loop
+    if not found:
+        return None, "not_on_record"
+    if str(fm.get("kind") or "") == "followup" and not _followup_choices(memory_path, fm)[0]:
+        return None, "not_on_record"
+    episodes = {tag: eid for tag, eid, _ in found}
+    lines = [f"[{tag}, {_day(eid)}] {line}" for tag, eid, line in found]
+    seen = hashlib.sha256("\n".join([str(fm.get("kind") or ""), str(fm.get("question") or ""), *lines])
+                          .encode("utf-8")).hexdigest()
+    key = _record_key(memory_path, path)
+    if _RECORD_READ.get(key) == seen:
+        return None, "not_on_record"
+    prompt, choices = _question_prompt(memory_path, fm, lines, tagged=True)
+    reply, model = await _ask(llm_fn, prompt)
+    d, why = None, "not_answered"
+    if reply.get("answered") is True:
+        episode_id = episodes.get(str(reply.get("conversation") or "").strip().strip("[]").split(",")[0].strip(), "")
+        d, why = ((None, "quote_not_found") if not episode_id else
+                  _answer_decision(memory_path, path, fm, reply, choices, episode_id, model, "said_on_record"))
+    if d is not None:
+        d.guard = guard
+        _RECORD_READ.pop(key, None)
+    elif why in _NOT_ANSWERED:
+        _RECORD_READ[key] = seen
+    return d, why
 
 
 # --------------------------------------------------------------------------- the one writer
@@ -866,8 +1271,8 @@ async def apply(memory_path: Path, settings, d: Decision, *, engine: str | None 
     fm, body = dict(parsed.frontmatter), parsed.body
     span = None
     if d.quote:
-        ev = evidence.verify(memory_path, d.quote["episode"], d.quote["quote"])
-        if not ev.is_span() or ev.kind != "user":
+        ev = persons_span(memory_path, d.quote["episode"], d.quote["quote"])
+        if ev is None:
             return False
         span = {"episode": ev.episode, "start": ev.start, "end": ev.end}
     authors = [d.model] if d.model else ["cicada"]
@@ -999,13 +1404,16 @@ def _sleep_holds(admitted: bool) -> bool:
 
 async def policy_pass(memory_path: Path, settings, report: Report, *, llm_fn=None, judge_cap: int | None = JUDGE_CAP,
                       limit: int | None = None, dry_run: bool = False, judge: bool = True,
-                      admitted: bool = False, engine: str | None = None) -> None:
+                      admitted: bool = False, engine: str | None = None, record_cap: int | None = 0,
+                      progress: Callable[[], None] | None = None) -> None:
     """Move 2 over every open question, one at a time: decide (the engine-free rules, then the judge on up to
     ``judge_cap`` questions — ``None``: no cap) and settle it at once, so nothing decided waits while the bank moves.
-    ``dry_run`` decides and counts, writing nothing. ``admitted`` (the tidy) stops the moment Sleep holds the pages —
-    before a judge call and before a settle."""
+    A clarification, follow-up or conflict still open is then looked for across the whole record (move 3) on up to
+    ``record_cap`` questions (``None``: no cap; 0: never). ``dry_run`` decides and counts, writing nothing.
+    ``admitted`` (the tidy) stops the moment Sleep holds the pages — before an engine call and before a settle."""
     today = date.today().isoformat()
     judged = 0
+    searched = 0
     seen = 0
     for path, _fm, _body in pending(memory_path):
         if limit is not None and seen >= limit:
@@ -1036,16 +1444,41 @@ async def policy_pass(memory_path: Path, settings, report: Report, *, llm_fn=Non
                         report.stopped = paused
                     logger.info(f"inbox tend: judge failed ({type(exc).__name__}: {exc})")
                     d, why = None, "judge_failed"
+        if (d is None and kind in RECORD_KINDS and why not in _RECORD_SKIP and llm_fn is not None
+                and not report.stopped and (record_cap is None or searched < record_cap)):
+            if _sleep_holds(admitted):
+                report.stopped = "sleep_running"
+                break
+            try:
+                found, rwhy = await read_record_answer(memory_path, path, fm, llm_fn)
+            except Exception as exc:  # noqa: BLE001
+                paused = _plan_paused(exc)
+                if paused:
+                    report.stopped = paused
+                logger.info(f"inbox tend: record read failed ({type(exc).__name__})")
+                found, rwhy = None, "record_failed"
+            if rwhy != "not_on_record":
+                searched += 1    # an engine call was made (no lines on the record costs nothing)
+                report.read += 1
+            if found is not None:
+                d, why = found, ""
+            elif rwhy not in ("not_on_record",):
+                why = f"{why}+record:{rwhy}" if why else f"record:{rwhy}"
         if d is None:
             report.asked += 1
             report.count(kind, f"ask:{why}")
+            if progress is not None:
+                progress()
             continue
         d.fingerprint = fingerprint
         if dry_run:
             report.settled += 1
             report.count(kind, d.rule)
             continue
-        if not await _settle_one(memory_path, settings, d, report, engine=engine, admitted=admitted):
+        ok = await _settle_one(memory_path, settings, d, report, engine=engine, admitted=admitted)
+        if progress is not None:
+            progress()    # the counts so far survive a restart (the tidy's own file, outside the bank)
+        if not ok:
             break
 
 
@@ -1095,19 +1528,72 @@ async def tend(memory_path: Path, settings, *, episodes: list[dict], run_policy:
             llm_fn = None
     await conversation_pass(memory_path, settings, episodes, report, llm_fn=llm_fn, engine=engine)
     if run_policy and not report.stopped:
-        await policy_pass(memory_path, settings, report, llm_fn=llm_fn, engine=engine)
+        await policy_pass(memory_path, settings, report, llm_fn=llm_fn, engine=engine, record_cap=RECORD_CAP)
     # The state projection is refreshed by Sleep's own tail at the end of the run, once.
     return report
 
 
 # --------------------------------------------------------------------------- the one-time tidy
 
-_TIDY: dict[str, Any] = {"running": False, "report": None, "task": None}
+_TIDY: dict[str, Any] = {"running": False, "report": None, "task": None, "bank": None, "started_at": None}
+#: The tidy's counts survive a restart (2026-10-17: an update restarted the backend 285 settles into a real tidy, and
+#: ``GET /inbox/tidy`` answered null): one small JSON per bank OUTSIDE every bank — counts and enums only, never an id
+#: or a word — written as the run goes. A file still saying ``running`` that no live run owns was cut short:
+#: ``interrupted``.
+TIDY_DIR = "inbox_tidy"
 
 
-def tidy_status() -> dict:
+def _tidy_file(memory_path: Path) -> Path:
+    from api.services import auth, continuity_sessions
+
+    return auth.cicada_home() / TIDY_DIR / f"{continuity_sessions.bank_file_id(Path(memory_path))}.json"
+
+
+def _save_tidy(memory_path: Path, report: Report, *, running: bool, started_at: str | None) -> None:
+    import json
+
+    try:
+        body = {"running": running, "started_at": started_at, "updated_at": _now(), "report": report.as_dict()}
+        path = _tidy_file(memory_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _write_bytes(path, json.dumps(body, sort_keys=True).encode("utf-8"))
+    except Exception as exc:  # noqa: BLE001 — the counts are a convenience: never a reason to stop settling
+        logger.info(f"inbox tidy: report not saved ({type(exc).__name__})")
+
+
+def _load_tidy(memory_path: Path) -> dict | None:
+    import json
+
+    try:
+        body = json.loads(_tidy_file(memory_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return body if isinstance(body, dict) else None
+
+
+def tidy_running() -> bool:
+    """Is a real tidy settling questions in this process now? (``/sleep/status`` → ``inboxTidy``: an updater that
+    restarts the backend waits for it, as it waits for Sleep.)"""
+    return bool(_TIDY.get("running"))
+
+
+def tidy_status(memory_path: Path | None = None) -> dict:
+    """The running (or last) real tidy's counts. With ``memory_path``, a run this process no longer holds is read
+    back from its saved counts — ``interrupted: true`` when it was cut short (a restart mid-run)."""
     report = _TIDY.get("report")
-    return {"running": bool(_TIDY.get("running")), "report": report.as_dict() if report is not None else None}
+    same_bank = memory_path is None or _TIDY.get("bank") in (None, os.path.realpath(memory_path))
+    if report is not None and same_bank:
+        return {"running": bool(_TIDY.get("running")), "report": report.as_dict(),
+                "started_at": _TIDY.get("started_at")}
+    if memory_path is not None:
+        saved = _load_tidy(memory_path)
+        if saved is not None:
+            out = {"running": False, "report": saved.get("report"), "started_at": saved.get("started_at"),
+                   "updated_at": saved.get("updated_at")}
+            if saved.get("running"):
+                out["interrupted"] = True
+            return out
+    return {"running": bool(_TIDY.get("running")), "report": None}
 
 
 def start_tidy(memory_path: Path, settings, *, limit: int | None = None, judge: bool = False) -> bool:
@@ -1133,9 +1619,15 @@ async def tidy(memory_path: Path, settings, *, dry_run: bool = True, limit: int 
 
     memory_path = Path(memory_path)
     report = Report()
-    if not dry_run:
-        _TIDY.update(running=True, report=report)
+    started_at = _now()
+    progress = None
     try:
+        if not dry_run:
+            _TIDY.update(running=True, report=report, bank=os.path.realpath(memory_path), started_at=started_at)
+            _save_tidy(memory_path, report, running=True, started_at=started_at)
+
+            def progress() -> None:
+                _save_tidy(memory_path, report, running=True, started_at=started_at)
         if not _inbox(memory_path).is_dir():
             return report.as_dict()
         if not dry_run and not (memory_path / ".git").exists():
@@ -1151,7 +1643,8 @@ async def tidy(memory_path: Path, settings, *, dry_run: bool = True, limit: int 
 
         with agent_engine.use_scope(f"inbox-tidy:{memory_path.name}"):
             await policy_pass(memory_path, settings, report, llm_fn=llm_fn if judge else None, judge_cap=None,
-                              limit=limit, dry_run=dry_run, judge=judge, admitted=True, engine=engine)
+                              limit=limit, dry_run=dry_run, judge=judge, admitted=True, engine=engine,
+                              record_cap=None if judge else 0, progress=progress)
         if report.settled and not dry_run:
             try:
                 from api.services import state_dictionary
@@ -1162,6 +1655,7 @@ async def tidy(memory_path: Path, settings, *, dry_run: bool = True, limit: int 
     finally:
         if not dry_run:
             _TIDY["running"] = False
+            _save_tidy(memory_path, report, running=False, started_at=started_at)
     out = report.as_dict()
     out["dry_run"] = dry_run
     return out

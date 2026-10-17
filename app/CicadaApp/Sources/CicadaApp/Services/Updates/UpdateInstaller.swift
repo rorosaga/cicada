@@ -58,7 +58,7 @@ enum UpdateFailureMarker {
 /// G182 — "is Sleep writing right now?", asked of the backend itself at hand-off rather than read from the Store's
 /// cached status (which is nil before the first poll). Busy means `status == "running"` — the gate the app's own
 /// write controls once used (`ProjectWriteGate.sleepRunning` now), wider than G177's `writing` because installing stops the backend and
-/// would cut a drain between batches too — or `writing == true`. No answer at all (nothing listening, or no reply in
+/// would cut a drain between batches too — or `writing == true`, or `inboxTidy == true` (a real inbox tidy, ruling 29). No answer at all (nothing listening, or no reply in
 /// time) means no cycle is running there; an answer that can't be read is treated as busy.
 enum SleepProbe {
     enum Answer: Equatable, Sendable { case idle, busy, noAnswer, ambiguous }
@@ -78,7 +78,9 @@ enum SleepProbe {
         guard statusCode == 200, let body,
               let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any],
               let status = object["status"] as? String else { return .ambiguous }
-        return status == "running" || (object["writing"] as? Bool) == true ? .busy : .idle
+        // Ruling 29: a running inbox tidy settles question by question; a restart would cut it (and its counts) short.
+        let busy = status == "running" || (object["writing"] as? Bool) == true || (object["inboxTidy"] as? Bool) == true
+        return busy ? .busy : .idle
     }
 
     /// One GET with the backend's bearer token (when the file exists) and the given timeout.
@@ -497,7 +499,7 @@ struct UpdateInstaller: Sendable {
           esac
           answer=$(printf '%s' "$answer" | /usr/bin/tr -d ' \\n')
           case "$answer" in
-            *'"writing":true'*|*'"status":"running"'*) return 0 ;;
+            *'"writing":true'*|*'"status":"running"'*|*'"inboxTidy":true'*) return 0 ;;
             *'"status":'*) return 1 ;;
             *) return 0 ;;
           esac

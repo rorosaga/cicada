@@ -805,7 +805,10 @@ batch's conversations are about (the ask gate's rule over the person's own turns
 each, stage `inbox_tend`) and settles one only when the engine copies the person's words and they are found exactly in
 the person's own turn (`evidence.verify`, kind `user`) — the conversation that raised a question never answers it; and
 **(2)**, once per drain (the batch that runs decay), assumes the small stuff by engine-free rules plus the duplicate
-judges on at most 6 questions — duplicates, conflicts, label folds, fading pages (`features.md` has the table). Each settle goes through the person's own resolver and
+judges on at most 6 questions — duplicates, conflicts (label-only ones too), label folds, fading pages — and then, on at
+most 4 questions still open (a clarification, follow-up or conflict), **(3)** looks across the whole record for the
+person's own words already answering it (the page's evidence pointers plus the lexical index; located exactly in
+their own turn, `said_on_record`; `features.md` has the table). Each settle goes through the person's own resolver and
 commits alone as Sleep's (`Inbox settled by Sleep`, trigger `inbox/<kind>/settled:<label>`), undoable under "Settled by
 Sleep"; the state projection is refreshed once after. The engine is the batch's own, so ruling 4 holds as for every
 stage; a plan limit stops the tending and trips the batch's breaker, so the drain pauses as for a Stage-1 limit. A

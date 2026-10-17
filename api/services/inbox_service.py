@@ -1429,6 +1429,25 @@ async def _resolve_removal(path, parsed, request: InboxResolveRequest, settings)
 # `_defer` by `resolve` before any of these is read.
 _FOLLOWUP_KEYS = {"happened": ("done", "still", "stopped", "didnt"),
                   "milestone": ("done", "missed", "dropped"), "due": ("done", "missed", "dropped")}
+#: The answers Sleep may give a follow-up from the person's words (ruling 29 part 2; mirrors ``inbox_tend``).
+_SLEEP_FOLLOWUP_KEYS = {"happened": ("done", "still", "stopped"), "milestone": ("done", "missed", "dropped"),
+                        "due": ("done", "missed", "dropped")}
+
+
+def _said_day(items: list[dict] | None) -> date | None:
+    """The day the person's quoted words were said: their conversation's own date."""
+    from api.services import episode_ids
+
+    for item in items or []:
+        parsed = episode_ids.parse_episode_id(str((item or {}).get("episode") or ""))
+        if parsed is not None:
+            try:
+                return date.fromisoformat(parsed[0])
+            except ValueError:
+                continue
+    return None
+
+
 # The closed grammar a free-text answer is read with — a word, then an
 # optional day. Anything else on a thread is what happened, in the person's
 # words; anything else on a milestone is refused (it has only four answers).
@@ -1511,12 +1530,20 @@ async def _resolve_followup(path, parsed, request, settings, item_id: str,
         claim = _followup_claim(claims, str(fm.get("claim_id", "") or ""))
     settled = claim is None or bool(claim.superseded_by) or (
         predicate != "due" and (claim.valid_to is not None or (predicate == "happened" and claim.status != "ongoing")))
+    sleep_words = _ANSWER_QUOTE.get() if inbox_actor.is_sleep() else None
+    if settled and inbox_actor.is_sleep():
+        # Sleep never removes a question without its own commit: a thread settled since stays for the next look.
+        raise HTTPException(409, "The thread was settled since; nothing was written.")
     if settled:
         path.unlink(missing_ok=True)
         return entity_id, False, [], {}
 
     key = (request.option_key or "").strip().lower()
     answer = (request.answer or "").strip()
+    if inbox_actor.is_sleep() and (not key or key not in _SLEEP_FOLLOWUP_KEYS.get(predicate, ()) or not sleep_words):
+        # Ruling 29, part 2: Sleep answers a follow-up only with an option key, on the person's located words —
+        # never a withdrawal ("that didn't happen"), a moved date or a note of its own.
+        raise HTTPException(400, "Sleep settles a follow-up only by an option, on the person's own words.")
     tz_name = handshake.local_timezone() or "UTC"
     tz = when.zone(tz_name)
     today = date.today()        # the module's one clock (the tests pin it)
@@ -1528,13 +1555,21 @@ async def _resolve_followup(path, parsed, request, settings, item_id: str,
             raise HTTPException(400, f"Unknown optionKey {key!r} for {path.stem} — expected one of "
                                      f"{sorted((*allowed, 'remind_later'))}.")
         verb, day, basis = key, today, "person"
+        if sleep_words:
+            # Sleep's reading of the person's words: dated the day they said it, never the day Sleep read it.
+            said = _said_day(sleep_words)
+            if said is None:
+                raise HTTPException(400, "Sleep settles a follow-up only on the person's dated words.")
+            day, basis = said, "episode"
     elif answer:
         verb, day, basis, target = _read_followup_answer(answer, predicate, anchor)
     else:
         raise HTTPException(400, "Pick an answer, or say what happened")
 
     owner = _owner_observer(settings, memory)
-    who = dict(observer=owner, origin="clarification", authored_by="user", today=today, tz_name=tz_name)
+    who = dict(observer=owner, origin=inbox_actor.claim_origin(), authored_by=inbox_actor.claim_author(), today=today,
+               tz_name=tz_name)
+    said_with = {"evidence": sleep_words} if sleep_words else {}
     extra_paths: list[str] = []
     if predicate == "happened":
         if verb in ("done", "stopped", "still"):
@@ -1542,7 +1577,7 @@ async def _resolve_followup(path, parsed, request, settings, item_id: str,
                 memory, subject=entity_id, text=claim.text, status={"done": "done", "stopped": "dropped",
                                                                     "still": "ongoing"}[verb],
                 participants=claim.participants, settles=None if verb == "still" else claim.id,
-                day=day, date_basis=basis, **who)
+                day=day, date_basis=basis, **who, **said_with)
         elif verb == "didnt":
             result = progress.withdraw(memory, subject=entity_id, claim_id=claim.id, author="user",
                                        reason=FOLLOWUP_NOT_HAPPENED, origin="clarification", today=today)
@@ -1590,7 +1625,7 @@ async def _resolve_followup(path, parsed, request, settings, item_id: str,
             if predicate == "due" and verb == "done" and key and end:
                 day = date.fromisoformat(end)    # "Done (on its date)"
             result = progress.advance(memory, subject=entity_id, slug=slug, status=verb, on=day,
-                                      date_basis=basis, **who)
+                                      date_basis=basis, **who, **said_with)
     if result.get("action") == "error":
         raise HTTPException(400, result.get("error") or "That couldn't be saved")
     if result.get("action") == "not_found":
@@ -1612,6 +1647,22 @@ def _user_claim_id(entity_id: str, predicate: str, obj: str, today: str) -> str:
         f"{entity_id}\x00{predicate}\x00{obj}\x00user\x00{today}".encode("utf-8")
     ).hexdigest()[:8]
     return f"clm_{today}_user_{digest}"
+
+
+def said_on(today: str) -> str:
+    """The day an answer is TRUE from: today for the person's own answer; for Sleep's reading of the person's words,
+    the day they said them (ruling 29, "read on time": when a conversation is read never changes the result —
+    a March statement read in October is still March's). ``recorded_at`` stays today either way."""
+    if not inbox_actor.is_sleep():
+        return today
+    day = _said_day(_ANSWER_QUOTE.get())
+    return day.isoformat() if day is not None else today
+
+
+def _close_on(old, *, by, day: str) -> None:
+    """``_close_today`` at ``day`` — never before the claim's own ``valid_from`` (a statement older than the belief
+    it answers closes it no earlier than the belief began)."""
+    _close_today(old, by=by, today=max(day, str(old.valid_from or "")[:10] or day))
 
 
 def _close_today(old, *, by, today: str) -> None:
@@ -1757,13 +1808,13 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
                 continue
             if loser.valid_to is None:
                 if winner is not None:
-                    _close_today(loser, by=winner, today=today)
+                    _close_on(loser, by=winner, day=said_on(today))
                 else:
                     # The pick is claim-less, so there is no claim to point
                     # the supersession at — but the losing values are still
                     # no longer current, and leaving them open would just
                     # regenerate this question next cycle.
-                    loser.valid_to = today
+                    loser.valid_to = max(said_on(today), str(loser.valid_from or "")[:10] or today)
                 line = (
                     f"entities/{entity_id}.md: updated "
                     f"(source: {path.stem}, trigger: inbox/conflict/resolved)"
@@ -1806,13 +1857,13 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
                     origin=inbox_actor.claim_origin(),
                     authored_by=inbox_actor.claim_author(),
                     confidence=0.95,
-                    valid_from=today,
+                    valid_from=said_on(today),
                     recorded_at=today,
                     evidence=_quote_spans(settings.memory_path),
                 )
                 for loser in option_claims:
                     if loser.valid_to is None:
-                        _close_today(loser, by=new_claim, today=today)
+                        _close_on(loser, by=new_claim, day=said_on(today))
                 claim_list.append(new_claim)
                 sentence = (
                     f"{predicates.predicate_phrase(predicate, name, answer)} "
@@ -2423,7 +2474,7 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                     subject=entity_id, predicate=predicate, object=answer_text, object_kind="literal",
                     observer=_owner_observer(settings, settings.memory_path), source_trust="user_stated",
                     origin=inbox_actor.claim_origin(), authored_by=inbox_actor.claim_author(), confidence=0.95,
-                    valid_from=today, recorded_at=today,
+                    valid_from=said_on(today), recorded_at=today,
                     evidence=_quote_spans(settings.memory_path),
                 ))
                 body = write_claims(body, claims)

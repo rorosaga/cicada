@@ -139,6 +139,13 @@ def test_busy_running_defers_everything(rig):
     _assert_deferred(rig)
 
 
+def test_a_running_inbox_tidy_defers_everything(rig):
+    # 2026-10-17: a restart 285 settles into a real tidy cut it short and lost its counts.
+    rig.push_change("api/app.py")
+    rig.sleep_status(inboxTidy=True)
+    _assert_deferred(rig)
+
+
 # The real route shape of a paused run (api/routers/sleep.py, test_sleep_paused.py): idle, not writing,
 # an inactive unfinished drain (or none after a restart) and a top-level `paused` block.
 PAUSED = {"runId": "sleep_pz", "reason": "engine", "engineKind": "needs_fix", "filed": 0, "frozen": 9,

@@ -53,7 +53,8 @@ import json, sys
 try:
     b = json.load(sys.stdin)
     d = b.get("drain") if isinstance(b.get("drain"), dict) else {}
-    busy = b.get("status") == "running" or b.get("writing") is True or (d.get("active") is True and d.get("finished") is not True)
+    busy = (b.get("status") == "running" or b.get("writing") is True or b.get("inboxTidy") is True
+            or (d.get("active") is True and d.get("finished") is not True))
 except Exception:
     busy = True
 sys.exit(0 if busy else 1)' 2>/dev/null

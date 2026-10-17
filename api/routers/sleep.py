@@ -220,6 +220,12 @@ def _remembered_embedding_problem(state, settings: Settings) -> str | None:
     return embedding_health.sentence(problem["kind"]) if problem else None
 
 
+def _tidy_running() -> bool:
+    from api.services import inbox_tend
+
+    return inbox_tend.tidy_running()
+
+
 @router.get("/sleep/status", response_model=SleepStatusResponse)
 async def sleep_status(settings: Settings = Depends(get_settings)):
     state = get_sleep_state()
@@ -258,6 +264,7 @@ async def sleep_status(settings: Settings = Depends(get_settings)):
         cancel_requested=state.cancel_requested,
         cancelled=cancelled_is_visible(state),
         writing=is_writing(),
+        inbox_tidy=_tidy_running(),
         progress_pct=progress_pct(state),
         queue_by_origin=dict(state.queue_by_origin),
         read_by_origin=dict(state.read_by_origin),
