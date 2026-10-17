@@ -55,8 +55,8 @@ Cicada Local, and from then on a rebuild keeps them. This is a local signature, 
 ## The auto-updater waits out Sleep
 
 `auto-update.sh` asks the backend (`GET /sleep/status`, 10 s, the bearer token from `$CICADA_HOME/api_token`, port
-`$CICADA_PORT` or 8000) before it fetches. A running cycle, an open write window or an unfinished drain (paused
-included) logs `deferred: Sleep is running` and changes nothing — no fast-forward, restart, app build or stamp move; the
+`$CICADA_PORT` or 8000) before it fetches. A running cycle, an open write window, an unfinished drain (paused
+included) or a running inbox tidy (`inboxTidy`, ruling 29) logs `deferred: Sleep is running` and changes nothing — no fast-forward, restart, app build or stamp move; the
 next tick retries. Only a refused connection (nothing listening) or a missing token proceeds: a timeout, any other failure, an HTTP
 error or an unreadable answer means a busy backend, so it defers too.
 `CICADA_AUTOUPDATE_FORCE=1` skips the check. The backend restarts only when runtime code moved (`api` outside

@@ -167,11 +167,12 @@ async def tidy_inbox(
 
 
 @router.get("/inbox/tidy")
-async def tidy_status():
-    """The running (or last) tidy's counts — ids never, text never."""
+async def tidy_status(settings: Settings = Depends(get_settings)):
+    """The running (or last) tidy's counts — ids never, text never. A run a restart cut short is read back from its
+    saved counts, marked ``interrupted``."""
     from api.services import inbox_tend
 
-    return inbox_tend.tidy_status()
+    return inbox_tend.tidy_status(settings.memory_path)
 
 
 @router.post("/inbox/{item_id}/resolve")

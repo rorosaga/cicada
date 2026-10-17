@@ -1066,3 +1066,51 @@ def test_sleep_reads_the_record_for_a_few_questions_per_drain(memory):
     run(inbox_tend.tend(memory, _Settings(memory), episodes=[], run_policy=True,
                         llm_fn=_fake({"answered": False}, calls)))
     assert len(calls) == 2
+
+
+def test_a_running_tidy_counts_as_busy_for_an_updater_and_its_counts_survive_a_restart(memory, monkeypatch):
+    from api.routers import sleep as sleep_router
+
+    _entity(memory, "example-gadget", type="tool", source_episodes=["ep_2026-05-01_001"])
+    _item(memory, "inbox-001", kind="decay", entity_id="example-gadget")
+    _entity(memory, "tool-a", type="tool", name="Tool A", status="active")
+    _item(memory, "inbox-002", kind="clarification", entity_id="tool-a", entity_name="Tool A")
+    _commit(memory)
+    seen: list = []
+
+    async def watch(*a, **kw):   # what /sleep/status and the saved file say while the tidy runs
+        seen.append((sleep_router._tidy_running(), inbox_tend._load_tidy(memory)["running"]))
+        return await real(*a, **kw)
+
+    real = inbox_tend._settle_one
+    monkeypatch.setattr(inbox_tend, "_settle_one", watch)
+    monkeypatch.setattr(inbox_tend, "_TIDY", {"running": False, "report": None, "task": None, "bank": None,
+                                              "started_at": None})
+    out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=False))
+    assert seen == [(True, True)] and not inbox_tend.tidy_running()
+    saved = inbox_tend._load_tidy(memory)
+    assert saved["running"] is False and saved["report"]["settled"] == out["settled"] == 1
+    assert saved["report"]["by_kind"] == {"clarification": {"ask:needs_person": 1}, "decay": {"one_off": 1}}
+    assert "Tool A" not in str(saved) and "inbox-00" not in str(saved)      # counts only
+    assert not str(inbox_tend._tidy_file(memory)).startswith(str(memory))   # outside the bank
+
+    # A restart: the process forgets, the file remembers. One cut short mid-run says so.
+    monkeypatch.setattr(inbox_tend, "_TIDY", {"running": False, "report": None, "task": None, "bank": None,
+                                              "started_at": None})
+    status = inbox_tend.tidy_status(memory)
+    assert status["running"] is False and status["report"]["settled"] == 1 and "interrupted" not in status
+    inbox_tend._save_tidy(memory, inbox_tend.Report(settled=285), running=True, started_at="2026-10-17T10:00:00Z")
+    status = inbox_tend.tidy_status(memory)
+    assert status["interrupted"] is True and status["report"]["settled"] == 285 and status["running"] is False
+
+
+def test_sleep_status_says_when_a_tidy_runs(memory, monkeypatch):
+    from api.config import Settings
+    from api.routers import sleep as sleep_router
+
+    settings = Settings().model_copy(update={"memory_path": memory})
+    wire = run(sleep_router.sleep_status(settings=settings)).model_dump(mode="json")
+    assert wire["inboxTidy"] is False
+    monkeypatch.setitem(inbox_tend._TIDY, "running", True)
+    wire = run(sleep_router.sleep_status(settings=settings)).model_dump(mode="json")
+    assert wire["inboxTidy"] is True and wire["writing"] is False   # busy for an updater, never a write window

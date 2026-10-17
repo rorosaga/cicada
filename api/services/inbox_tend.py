@@ -1364,7 +1364,8 @@ def _sleep_holds(admitted: bool) -> bool:
 
 async def policy_pass(memory_path: Path, settings, report: Report, *, llm_fn=None, judge_cap: int | None = JUDGE_CAP,
                       limit: int | None = None, dry_run: bool = False, judge: bool = True,
-                      admitted: bool = False, engine: str | None = None, record_cap: int | None = 0) -> None:
+                      admitted: bool = False, engine: str | None = None, record_cap: int | None = 0,
+                      progress: Callable[[], None] | None = None) -> None:
     """Move 2 over every open question, one at a time: decide (the engine-free rules, then the judge on up to
     ``judge_cap`` questions — ``None``: no cap) and settle it at once, so nothing decided waits while the bank moves.
     A clarification, follow-up or conflict still open is then looked for across the whole record (move 3) on up to
@@ -1426,13 +1427,18 @@ async def policy_pass(memory_path: Path, settings, report: Report, *, llm_fn=Non
         if d is None:
             report.asked += 1
             report.count(kind, f"ask:{why}")
+            if progress is not None:
+                progress()
             continue
         d.fingerprint = fingerprint
         if dry_run:
             report.settled += 1
             report.count(kind, d.rule)
             continue
-        if not await _settle_one(memory_path, settings, d, report, engine=engine, admitted=admitted):
+        ok = await _settle_one(memory_path, settings, d, report, engine=engine, admitted=admitted)
+        if progress is not None:
+            progress()    # the counts so far survive a restart (the tidy's own file, outside the bank)
+        if not ok:
             break
 
 
@@ -1489,12 +1495,65 @@ async def tend(memory_path: Path, settings, *, episodes: list[dict], run_policy:
 
 # --------------------------------------------------------------------------- the one-time tidy
 
-_TIDY: dict[str, Any] = {"running": False, "report": None, "task": None}
+_TIDY: dict[str, Any] = {"running": False, "report": None, "task": None, "bank": None, "started_at": None}
+#: The tidy's counts survive a restart (2026-10-17: an update restarted the backend 285 settles into a real tidy, and
+#: ``GET /inbox/tidy`` answered null): one small JSON per bank OUTSIDE every bank — counts and enums only, never an id
+#: or a word — written as the run goes. A file still saying ``running`` that no live run owns was cut short:
+#: ``interrupted``.
+TIDY_DIR = "inbox_tidy"
 
 
-def tidy_status() -> dict:
+def _tidy_file(memory_path: Path) -> Path:
+    from api.services import auth, continuity_sessions
+
+    return auth.cicada_home() / TIDY_DIR / f"{continuity_sessions.bank_file_id(Path(memory_path))}.json"
+
+
+def _save_tidy(memory_path: Path, report: Report, *, running: bool, started_at: str | None) -> None:
+    import json
+
+    body = {"running": running, "started_at": started_at, "updated_at": _now(), "report": report.as_dict()}
+    try:
+        path = _tidy_file(memory_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _write_bytes(path, json.dumps(body, sort_keys=True).encode("utf-8"))
+    except OSError as exc:   # the counts are a convenience: never a reason to stop settling
+        logger.info(f"inbox tidy: report not saved ({type(exc).__name__})")
+
+
+def _load_tidy(memory_path: Path) -> dict | None:
+    import json
+
+    try:
+        body = json.loads(_tidy_file(memory_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return body if isinstance(body, dict) else None
+
+
+def tidy_running() -> bool:
+    """Is a real tidy settling questions in this process now? (``/sleep/status`` → ``inboxTidy``: an updater that
+    restarts the backend waits for it, as it waits for Sleep.)"""
+    return bool(_TIDY.get("running"))
+
+
+def tidy_status(memory_path: Path | None = None) -> dict:
+    """The running (or last) real tidy's counts. With ``memory_path``, a run this process no longer holds is read
+    back from its saved counts — ``interrupted: true`` when it was cut short (a restart mid-run)."""
     report = _TIDY.get("report")
-    return {"running": bool(_TIDY.get("running")), "report": report.as_dict() if report is not None else None}
+    same_bank = memory_path is None or _TIDY.get("bank") in (None, os.path.realpath(memory_path))
+    if report is not None and same_bank:
+        return {"running": bool(_TIDY.get("running")), "report": report.as_dict(),
+                "started_at": _TIDY.get("started_at")}
+    if memory_path is not None:
+        saved = _load_tidy(memory_path)
+        if saved is not None:
+            out = {"running": False, "report": saved.get("report"), "started_at": saved.get("started_at"),
+                   "updated_at": saved.get("updated_at")}
+            if saved.get("running"):
+                out["interrupted"] = True
+            return out
+    return {"running": bool(_TIDY.get("running")), "report": None}
 
 
 def start_tidy(memory_path: Path, settings, *, limit: int | None = None, judge: bool = False) -> bool:
@@ -1520,8 +1579,14 @@ async def tidy(memory_path: Path, settings, *, dry_run: bool = True, limit: int 
 
     memory_path = Path(memory_path)
     report = Report()
+    started_at = _now()
+    progress = None
     if not dry_run:
-        _TIDY.update(running=True, report=report)
+        _TIDY.update(running=True, report=report, bank=os.path.realpath(memory_path), started_at=started_at)
+        _save_tidy(memory_path, report, running=True, started_at=started_at)
+
+        def progress() -> None:
+            _save_tidy(memory_path, report, running=True, started_at=started_at)
     try:
         if not _inbox(memory_path).is_dir():
             return report.as_dict()
@@ -1539,7 +1604,7 @@ async def tidy(memory_path: Path, settings, *, dry_run: bool = True, limit: int 
         with agent_engine.use_scope(f"inbox-tidy:{memory_path.name}"):
             await policy_pass(memory_path, settings, report, llm_fn=llm_fn if judge else None, judge_cap=None,
                               limit=limit, dry_run=dry_run, judge=judge, admitted=True, engine=engine,
-                              record_cap=None if judge else 0)
+                              record_cap=None if judge else 0, progress=progress)
         if report.settled and not dry_run:
             try:
                 from api.services import state_dictionary
@@ -1550,6 +1615,7 @@ async def tidy(memory_path: Path, settings, *, dry_run: bool = True, limit: int 
     finally:
         if not dry_run:
             _TIDY["running"] = False
+            _save_tidy(memory_path, report, running=False, started_at=started_at)
     out = report.as_dict()
     out["dry_run"] = dry_run
     return out

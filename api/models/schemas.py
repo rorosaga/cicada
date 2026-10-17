@@ -2691,6 +2691,10 @@ class SleepStatusResponse(CamelModel):
     # app's writes and an agent's claim are refused / left uncommitted only while
     # this is true; `status == "running"` alone no longer means it.
     writing: bool = False
+    # Ruling 29 — a real inbox tidy is settling questions in this process (`inbox_tend.tidy_running`). Not a write
+    # window (the person's writes interleave with it), but an updater that restarts the backend waits for it as it
+    # waits for Sleep (`scripts/dev/auto-update.sh`, the release app's `SleepProbe` and its install helper).
+    inbox_tidy: bool = False
     # Sleep debt (G106) — always present, computed fresh from the current
     # queue + git log on every response. See `api/services/sleep_debt.py`
     # for the formula and full field contract.

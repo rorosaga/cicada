@@ -299,7 +299,10 @@ returns marked `sleep_settle: undone` so Sleep never settles it again, committed
 policy to every open question — `dryRun=true` (the default) answers counts per kind and per decision only;
 `dryRun=false` runs in the background (one at a time: a second start is 409), each question settling alone under the
 bank's write admission and the tidy stopping before any judge call or settle once Sleep holds the pages; `GET
-/inbox/tidy` its counts; `judge=true` lets the judges (duplicates, conflicts, label folds, fading pages) read with the
+/inbox/tidy` its counts. **A running tidy is busy for every updater** (`/sleep/status` → `inboxTidy: true`, read by
+`scripts/dev/auto-update.sh`, the app's `SleepProbe` and its install helper), and its counts are saved as it goes in
+`$CICADA_HOME/inbox_tidy/<bank-id>.json` (counts and enums only, outside every bank), so `GET /inbox/tidy` still
+answers after a restart — `interrupted: true` when the run was cut short (each settle had already committed alone); `judge=true` lets the judges (duplicates, conflicts, label folds, fading pages) read with the
 person's chosen engine, their plan included (a plan limit pauses it). `api/scripts/inbox_tidy_dry_run.py --bank <path>
 [--judge]` measures it offline, writing nothing.
 
