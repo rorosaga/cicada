@@ -602,14 +602,57 @@ def _words(text: str) -> list[str]:
     return text_fold.words(text)
 
 
-def _relation_in(sentence: str, own: set[str]) -> bool:
-    """A relation word in the sentence — never one of the name's own words ("Example Teacher" is no teacher)."""
+#: A relation counts only when it is someone's (review, 2026-10-17: "a decades-old family spot" is no relation): a
+#: possessive right before it, or one word before ("my older sister", "your teammate", "con mi primo", "X is my …").
+_POSSESSIVES = frozenset("""my your our his her their mi mis tu tus su sus nuestro nuestra nuestros nuestras vuestro
+vuestra vuestros vuestras""".split())
+#: What a saved page carries that is no one's words: links, and its metadata lines (``url: …``, ``folder: …``).
+_URL = re.compile(r"(?i)\b(?:https?://|www\.)\S+")
+_META_LINE = re.compile(r"(?im)^\s*(?:url|link|links|folder|origin|source|saved|saved_at|added|date|tags?|domain|site|"
+                        r"query|search|channel|playlist|id|guid|feed|visited|visit_count|author|byline)\s*:.*$")
+
+
+def _prose(text: str) -> str:
+    """Words someone wrote: links and metadata lines dropped (review: ``…&client=safari`` is no client)."""
+    return _URL.sub(" ", _META_LINE.sub(" ", text or ""))
+
+
+def _relation_in(text: str, own: set[str]) -> bool:
+    """A relation word tied to someone by a possessive (right before it, or one word before) — never one of the
+    name's own words ("Example Teacher" is no teacher), never a link or a metadata line."""
     rel = _relation_words()
-    return any((w in rel or (w.endswith("s") and w[:-1] in rel)) and w not in own for w in _words(sentence))
+    words = _words(_prose(text))
+    for i, w in enumerate(words):
+        if w in own or not (w in rel or (w.endswith("s") and w[:-1] in rel)):
+            continue
+        if (i >= 1 and words[i - 1] in _POSSESSIVES) or (i >= 2 and words[i - 2] in _POSSESSIVES):
+            return True
+    return False
 
 
-def _about_self(sentence: str) -> bool:
-    return bool(set(_words(sentence)) & _FIRST_PERSON)
+def _about_self(text: str) -> bool:
+    return bool(set(_words(_prose(text))) & _FIRST_PERSON)
+
+
+#: Where something saved comes from (a bookmark, a saved post, a feed, a watch or web history, a read page): its text
+#: is the page's, not the person's — a name in its title, link or byline is never "their own words".
+_SAVED_ORIGINS = frozenset({"bookmark", "saved-link", "media", "rss", "pdf", "ingest", "watch-history",
+                            "video-watch", "page-read", "profile-read", "web-check", "source-check", "web-history",
+                            "safari-tab", "chrome-tab-group", "tab-group"})
+_SAVED_SUFFIXES = ("-bookmark", "-bookmarks", "-saved", "-history", "-likes", "-playlist", "-tab", "-tabs")
+
+
+def _saved_item(ep_fm: dict, spans) -> bool:
+    """A saved item, not a conversation: no turn marker anywhere (nothing a person typed as a turn), and it came
+    from a saving door (its origin or source) or carries the page's ``url``."""
+    if any(getattr(t, "marker", None) is not None for t in spans):
+        return False
+    from api.services import source_overview
+
+    saved = set(_SAVED_ORIGINS)
+    saved |= {o for spec in source_overview.CATALOG if spec.kind in ("browser", "social", "feed") for o in spec.origins}
+    tags = {str(ep_fm.get(k) or "").strip().lower() for k in ("origin", "source")} - {""}
+    return bool(ep_fm.get("url")) or any(t in saved or t.endswith(_SAVED_SUFFIXES) for t in tags)
 
 
 _CODE_SHAPE = re.compile(r"\w_\w|::|\(\)|->|^[$@]\w|^--?\w|^`.+`$")
@@ -731,9 +774,11 @@ def passing_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | 
     if not inbox_ask_gate.named_in(full, text):
         return None, "unmeasured"
     gaps = evidence.gap_ranges(ep_fm, text)
+    spans = evidence.turns(text, override=ep_fm.get("evidence_kind"), gaps=gaps)
+    saved = _saved_item(ep_fm, spans)    # a saved page's title, link or byline is no one's own words
     turns: list[tuple[bool, str]] = []   # (the person's own turn, its words), in order
-    for t in evidence.turns(text, override=ep_fm.get("evidence_kind"), gaps=gaps):
-        mine = t.role in promotion.PERSON_KINDS and not _agent_note(ep_fm.get("source"), t)
+    for t in spans:
+        mine = t.role in promotion.PERSON_KINDS and not _agent_note(ep_fm.get("source"), t) and not saved
         turns.append((mine, text[t.content_start:t.end]))
     named = [i for i, (_mine, words) in enumerate(turns) if inbox_ask_gate.named_in(full, words)]
     code = code_identifier(name) and typ not in _PERSON_LIKE
@@ -785,6 +830,28 @@ _RAW_UNCLEAR = re.compile(
 
 def _plain(sentence: str) -> bool:
     return not _RAW_UNCLEAR.search(sentence.replace("\u2019", "'").replace("\u2018", "'"))
+
+
+#: The plain placements a label may follow for the mechanical path (re-review, 2026-10-17: a blocklist keeps leaking —
+#: "dropped", "ditched", "abandoned", "shut down" — so only these say "it is on X now"); anything else is the judge's.
+_PLACEMENTS = tuple(tuple(p.split()) for p in (
+    "is on", "runs on", "is running on", "uses", "is using", "moved to", "switched to", "migrated to", "now on",
+    "lives on", "is at", "corre en", "esta en", "usa", "se movio a", "paso a", "ahora en"))
+
+
+def _placed(folded: str, phrases: list[str]) -> bool:
+    """Does a phrase of the label directly follow a plain placement ("is on cluster-b", "corre en cluster-b")?"""
+    words = folded.split()
+    for phrase in phrases:
+        pw = phrase.split()
+        if any(tuple(pw[:len(p)]) == p for p in _PLACEMENTS):
+            starts = [i for i in range(len(words) - len(pw) + 1) if words[i:i + len(pw)] == pw]
+            if starts:
+                return True   # the label says its own placement ("Runs on alpha-os")
+        for i in range(len(words) - len(pw) + 1):
+            if words[i:i + len(pw)] == pw and any(tuple(words[max(0, i - len(p)):i]) == p for p in _PLACEMENTS):
+                return True
+    return False
 
 
 #: How many conversations naming the subject are read for a label conflict, newest first.
@@ -870,7 +937,8 @@ def label_lines(memory_path: Path, fm: dict, options: list[dict]) -> list[LabelL
                 # "Alpha Project is wrapped up. Beta Example moved to cluster-b." never settles Alpha).
                 clear = (len(keys) == 1 and not sentence.rstrip().endswith("?")
                          and not set(folded.split()) & _HEDGES and len(sentence) <= MAX_LINE_CHARS
-                         and inbox_ask_gate.named_in(full, sentence) and _plain(sentence))
+                         and inbox_ask_gate.named_in(full, sentence) and _plain(sentence)
+                         and _placed(folded, phrases[next(iter(keys))]))
                 out.append(LabelLine(_day(eid), eid, order, sentence, keys, clear))
     return out
 

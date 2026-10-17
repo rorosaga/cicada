@@ -31,7 +31,10 @@
   (27 `in_passing`, 6 `newest_words`; stays: 8 a person in the person's own words, 4 named again, 3 Messages, 4 label
   conflicts for the judge). Review fixes (B1, B2): a person said in the person's own turn never closes; company/place
   checks read the turn and its neighbours; the mechanical label path needs the subject in the stating sentence and no
-  negation/modal/avoidance on the raw text. Tests: `test_inbox_tend.py` (part 3 block). Pick up: the owner's `inbox_tidy_dry_run --judge`.
+  negation/modal/avoidance on the raw text. Re-review: a relation counts only when a possessive ties it to someone,
+  links and metadata lines are never words, a saved item's title/link/byline is never the person's own words, and the
+  mechanical label path needs a plain placement right before the label (allowlist; the blocklist stays a second
+  guard). Tests: `test_inbox_tend.py` (part 3 block). Pick up: the owner's `inbox_tidy_dry_run --judge`.
 - **2026-10-17 — Sleep tends the inbox, part 2 (ruling 29; branch `feat/inbox-sleep-2`, not merged).** What the
   first pass could not reach (owner's judged dry run: 55 conflicts never reached the judge, 69 clarifications never
   tried): label-only conflicts judged through the claims their labels are tied to (`label_matches`, folded words,

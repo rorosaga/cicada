@@ -1386,3 +1386,47 @@ def test_newest_words_never_settle_a_negated_avoided_or_other_subject_line(memor
     _episode(memory, "ep_2026-08-01_001", "user: Alpha Project is on cluster-b now.")
     _commit(memory)
     assert _decide(memory, "inbox-001")[0].rule == "newest_words"
+
+
+def test_a_link_or_metadata_line_is_never_a_relation_and_a_relation_needs_someones(memory):
+    """Re-review: `…&client=safari` in a saved search is no client; "a decades-old family spot" is no one's family."""
+    _passing(memory, "inbox-001", "Example Film", "ep_2026-06-01_001",
+             "Example Film - Search\nurl: https://www.example.com/search?q=example+film&client=safari",
+             typ="media", episode_fm={"origin": "safari-history", "url": "https://www.example.com/search"})
+    _passing(memory, "inbox-002", "Example Diner", "ep_2026-06-02_001",
+             "user: Example Diner had a long queue.\n\nassistant: It is a decades-old family spot.", typ="company")
+    _passing(memory, "inbox-003", "Example Bistro", "ep_2026-06-03_001",
+             "user: Example Bistro had a long queue.\n\nassistant: Your older sister mentioned it.", typ="company")
+    _commit(memory)
+    assert _decide(memory, "inbox-001")[0].rule == "in_passing"
+    assert _decide(memory, "inbox-002")[0].rule == "in_passing"
+    assert _decide(memory, "inbox-003") == (None, "relation")            # "your older sister": someone's
+
+
+def test_a_name_only_in_a_saved_pages_byline_is_not_the_persons_own_words(memory):
+    page = "Example Article Title\nauthor: Alice Writer\nurl: https://example.com/article"
+    _passing(memory, "inbox-001", "Alice Writer", "ep_2026-06-01_001", page,
+             episode_fm={"origin": "chrome-bookmark", "url": "https://example.com/article"})
+    _commit(memory)
+    assert _decide(memory, "inbox-001")[0].rule == "in_passing"
+    # The same words as the person's own note (no saving door, no link of its own): their words, so it stays.
+    _passing(memory, "inbox-002", "Alice Writer", "ep_2026-06-02_001", "Lunch with Alice Writer went well.")
+    _commit(memory)
+    assert _decide(memory, "inbox-002") == (None, "persons_words")
+
+
+def test_newest_words_settle_only_a_plain_placement(memory):
+    """Re-review: verbs of leaving leaked through the blocklist; only a plain placement is mechanical."""
+    _cluster_conflict(memory)
+    _episode(memory, "ep_2026-03-01_001", "user: Alpha Project runs on cluster-a.")
+    _commit(memory)
+    for newest in ("We dropped cluster-b for Alpha Project.", "Alpha Project ditched cluster-b last week.",
+                   "Alpha Project abandoned cluster-b.", "Shut down cluster-b for Alpha Project."):
+        _episode(memory, "ep_2026-08-01_001", f"user: {newest}")
+        _commit(memory)
+        assert _decide(memory, "inbox-001") == (None, "needs_judge"), newest
+    for newest in ("Alpha Project is on cluster-b these days.", "Alpha Project ahora corre en cluster-b."):
+        _episode(memory, "ep_2026-08-01_001", f"user: {newest}")
+        _commit(memory)
+        d, why = _decide(memory, "inbox-001")
+        assert why == "" and d.rule == "newest_words" and d.request["option_key"] == "b", newest
