@@ -65,7 +65,9 @@ in the file, which after a paragraph is a setext heading) is compiled prose: the
 header) and `## Article` holds `### <title>` sections of paragraphs with inline `[[links]]`, both rewritten freely
 by the article writer (`entity_article`, `capture-and-sleep.md` *Pages as articles*). Below it is the record — Key
 Facts, History, Links, Open Questions, Related, claims — unioned deterministically and never shortened by a writer.
-A page without an Article is the v2 fact sheet; nothing reads the two differently except the writers below.
+A page without an Article is the v2 fact sheet — a stub (one conversation, under the writer's material floor) or
+a bank with articles off; a page on 2+ conversations or with enough material, new pages included, gets the Article
+(2026-10-17, `capture-and-sleep.md` *Uncapped*). Nothing reads the two differently except the writers below.
 
 `article: {v: 1, hash: <12 hex>, written: YYYY-MM-DD}` stamps the lead and Article as the writer left them
 (`entity_article.stamp`). While it matches, the page is machine prose: no summary or legacy rewrite touches the lead,

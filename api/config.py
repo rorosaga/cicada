@@ -97,8 +97,12 @@ class Settings(BaseSettings):
     # G194 articles (owner 2026-10-09): a page resting on 2+ conversations is rewritten as an article — a lead and
     # prose sections compiled from its record — each time it gains material (`entity_article`). Opt-in until the
     # owner reviews the before/after and the call/size numbers, like the synthesis switch above; on, it replaces
-    # that call for those pages, and a one-conversation page keeps the deterministic merge with no call.
+    # that call for those pages. Since 2026-10-17 ("uncap what the agents can write to") a page on one conversation,
+    # a new page included, gets the writer too when its record holds `page_article_min_material` inputs (facts,
+    # dated lines, claims, questions, what the conversation said); below that it is a stub: the deterministic merge,
+    # no call.
     page_articles_enabled: bool = False      # CICADA_PAGE_ARTICLES_ENABLED
+    page_article_min_material: int = 4       # CICADA_PAGE_ARTICLE_MIN_MATERIAL (1 = every page with anything to say)
     # The writer's prompt is never clipped; a page whose inputs are larger keeps the deterministic merge.
     page_article_max_input_chars: int = 60000  # CICADA_PAGE_ARTICLE_MAX_INPUT_CHARS
 
