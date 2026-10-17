@@ -16,7 +16,14 @@ sign-in lives under the person's real home, so ``claude`` children — and only 
 ``CICADA_BENCH_CLAUDE_HOME``; Cicada itself never sees that folder. A plan limit pauses Sleep (exit 3) and a
 re-run continues it.
 
-Exit codes: 0 done, 3 paused on a plan limit (re-run to continue), 1 failed.
+**No settings file.** Before anything from ``api.services`` is imported, ``isolate_settings`` turns off both ways a
+checkout's ``api/.env`` reaches a process (``api.settings_file`` and ``Settings``' ``env_file``): every ``get_settings()``
+the production paths call (Ask's engine, the embedder) then reads this child's allowlisted environment alone, so a
+score never depends on whose machine ran it.
+
+Exit codes: 0 done; 3 paused on a plan limit (re-run to continue); 4 Sleep stopped for another resumable reason
+(engine signed out or unavailable, bank busy, cancelled — the reason is printed); 5 every step ran but some answers
+or judgments failed (re-run retries exactly those); 1 failed.
 """
 from __future__ import annotations
 
@@ -33,7 +40,35 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-PAUSED = 3
+PAUSED = 3          # a plan limit (window, weekly, overage) or Cicada's reserve
+STOPPED = 4         # resumable, not a plan limit: engine signed out/unavailable, bank busy, cancelled
+INCOMPLETE = 5      # some answers or judgments failed; a re-run retries them
+PLAN_STOPS = ("plan_limit", "reserve")
+
+
+def stop_exit(leg: dict, *, paused: bool) -> int | None:
+    """How a drain leg ends the unit: ``None`` to go on, ``PAUSED`` for a plan limit, ``STOPPED`` for any other
+    resumable stop; a failure raises (exit 1) — never reported as a plan limit."""
+    if leg["stop"] == "error" or (leg["error"] and not leg["stop"]):
+        raise RuntimeError(f"Sleep failed: {leg['error']}")
+    if leg["stop"] or paused:
+        return PAUSED if leg["stop"] in PLAN_STOPS else STOPPED
+    return None
+
+
+def answers_to_do(questions: list[dict], paths: list[str], rows: dict[str, dict]) -> list[tuple[dict, str]]:
+    """Every (question, path) with no answer yet or whose last answer failed: a failure is retried on every run."""
+    return [(q, p) for q in questions for p in paths
+            if f"{q['qid']}|{p}" not in rows or rows[f"{q['qid']}|{p}"].get("error")]
+
+
+def isolate_settings() -> None:
+    """Read no ``api/.env``: call before anything from ``api.services`` is imported (see the module docstring)."""
+    from api import settings_file
+    from api.config import disable_dotenv
+
+    settings_file.disable()
+    disable_dotenv()
 
 
 def _jsonl(path: Path) -> dict[str, dict]:
@@ -320,11 +355,11 @@ async def run_unit(job: dict) -> int:
             else:
                 state["sleep"]["drains"].append(leg)
             save_state()
-            if leg["stop"] or sleep_paused.get_paused(bank):
-                print(f"[{unit['unit_id']}] Sleep paused ({leg['stop']}); re-run to continue", file=sys.stderr)
-                return PAUSED
-            if leg["error"]:
-                raise RuntimeError(f"Sleep failed: {leg['error']}")
+            code = stop_exit(leg, paused=bool(sleep_paused.get_paused(bank)))
+            if code is not None:
+                print(f"[{unit['unit_id']}] Sleep stopped ({leg['stop']}: {leg['error'] or 'no detail'}); "
+                      "re-run with --resume to continue", file=sys.stderr)
+                return code
         state["slept"] = True
         state["bank"] = bank_stats(bank)
         save_state()
@@ -333,7 +368,8 @@ async def run_unit(job: dict) -> int:
     answers = Checkpoint(out / "answers.jsonl")
     judged = Checkpoint(out / "judgments.jsonl")
     paths = [p for p in job["paths"] if p]
-    todo = [(q, p) for q in unit["questions"] for p in paths if f"{q['qid']}|{p}" not in answers.rows]
+    # A failed answer is retried on every run until it succeeds; it is never silently dropped.
+    todo = answers_to_do(unit["questions"], paths, answers.rows)
     calls.phase = "answer"
     transcript = full_transcript(unit) if "full-context" in paths else ""
     answer_fn = make_answerers(bank, answer_settings, transcript)
@@ -396,8 +432,16 @@ async def run_unit(job: dict) -> int:
     if pending:
         with ThreadPoolExecutor(max_workers=int(job["concurrency"])) as pool:
             list(pool.map(judge_one, pending))
-    state["done"] = all(f"{q['qid']}|{p}" in judged.rows for q in unit["questions"] for p in paths)
+    keys = [f"{q['qid']}|{p}" for q in unit["questions"] for p in paths]
+    state["unanswered"] = sum(1 for k in keys if k not in answers.rows or answers.rows[k].get("error"))
+    state["ungraded"] = sum(1 for k in keys if k in answers.rows and not answers.rows[k].get("error")
+                            and (k not in judged.rows or judged.rows[k]["correct"] is None))
+    state["done"] = not state["unanswered"] and not state["ungraded"]
     save_state()
+    if not state["done"]:
+        print(f"[{unit['unit_id']}] {state['unanswered']} unanswered, {state['ungraded']} ungraded; "
+              "re-run with --resume to retry them", file=sys.stderr)
+        return INCOMPLETE
     return 0
 
 
@@ -458,6 +502,7 @@ def bank_stats(bank: Path) -> dict:
 
 
 def main() -> int:
+    isolate_settings()   # before run_unit imports anything from api.services
     job = json.loads(sys.stdin.read())
     try:
         return asyncio.run(run_unit(job))

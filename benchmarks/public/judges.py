@@ -71,7 +71,8 @@ def parse_mem0(reply: str) -> bool | None:
         if label in ("CORRECT", "WRONG"):
             return label == "CORRECT"
     upper = text.upper()
-    has_c, has_w = "CORRECT" in upper, "WRONG" in upper
+    # Whole words: "The answer is incorrect." must never read as CORRECT.
+    has_c, has_w = bool(re.search(r"\bCORRECT\b", upper)), bool(re.search(r"\bWRONG\b", upper))
     if has_c != has_w:
         return has_c
     return None

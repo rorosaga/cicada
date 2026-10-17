@@ -217,3 +217,79 @@ def test_answer_eval_grades_facts_stale_values_and_abstention():
     s = answer_eval.summarize(rows)
     assert s["overall"]["correct_pct"] == 33.3 and s["overall"]["answered_when_should_decline"] == 1
     assert s["tags"]["t"]["n"] == 2 and s["tags"]["(untagged)"]["n"] == 1
+
+
+def test_unit_child_reads_no_settings_file(tmp_path):
+    """A checkout's api/.env must not steer a benchmark child: scores never depend on whose machine ran them."""
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("CICADA_EMBEDDING_MODEL_LOCAL=sentinel-from-dotenv\n")
+    code = f"""
+import sys
+import benchmarks.public.unit as unit
+assert not [m for m in sys.modules if m.startswith("api.services")], "unit imports api.services before isolating"
+from api import config, settings_file
+config.Settings.model_config["env_file"] = {str(dotenv)!r}   # what <checkout>/api/.env does by absolute path
+config.get_settings.cache_clear()
+assert config.get_settings().embedding_model_local == "sentinel-from-dotenv"   # the leak, reproduced
+unit.isolate_settings()
+assert settings_file.path() is None and config.Settings.model_config["env_file"] is None
+assert config.get_settings().embedding_model_local != "sentinel-from-dotenv"
+print("isolated")
+"""
+    env = unit_env(tmp_path / "home", tmp_path / "bank", {"answer_model": "sonnet", "disambiguation_model": "haiku",
+                                                          "concurrency": 1, "embedding_model": ""}, str(tmp_path))
+    proc = subprocess.run([sys.executable, "-P", "-c", code], cwd=tmp_path, env=env, capture_output=True, text=True,
+                          timeout=120)
+    assert proc.returncode == 0 and "isolated" in proc.stdout, proc.stderr[-3000:]
+    import inspect
+
+    from benchmarks.public import unit
+    first = [line.strip() for line in inspect.getsource(unit.main).splitlines()[1:] if line.strip()][0]
+    assert first.startswith("isolate_settings()"), first
+
+
+def test_mem0_fallback_reads_whole_words():
+    assert judges.parse_mem0("The answer is incorrect.") is None
+    assert judges.parse_mem0("The answer is incorrect. WRONG") is False
+    assert judges.parse_mem0("Same date, so CORRECT") is True
+
+
+def test_report_counts_unanswered_and_ungraded_questions(tmp_path):
+    run = tmp_path / "run"
+    unit = run / "units" / "u1"
+    unit.mkdir(parents=True)
+    (run / "config.json").write_text(json.dumps({"dataset": "locomo", "paths": ["ask"], "sleep_model": "s",
+                                                 "disambiguation_model": "d", "answer_model": "a",
+                                                 "judge_model": "j"}))
+    qs = [{"qid": str(i), "question": "Q", "answer": "A", "category": "single-hop", "category_id": 4,
+           "abstention": False} for i in range(3)]
+    (unit / "unit.json").write_text(json.dumps({"questions": qs}))
+    (unit / "answers.jsonl").write_text("\n".join(json.dumps(a) for a in [
+        {"key": "0|ask", "path": "ask", "seconds": 1.0},
+        {"key": "1|ask", "path": "ask", "seconds": 1.0},
+        {"key": "2|ask", "path": "ask", "seconds": 1.0, "error": "EngineUnavailable: x"}]) + "\n")
+    (unit / "judgments.jsonl").write_text("\n".join(json.dumps(r) for r in [
+        {"key": "0|ask", "qid": "0", "path": "ask", "category": "single-hop", "abstention": False, "correct": True,
+         "f1": 1.0},
+        {"key": "1|ask", "qid": "1", "path": "ask", "category": "single-hop", "abstention": False, "correct": None,
+         "f1": 0.0}]) + "\n")
+    s = report.summarize(run)["paths"]["ask"]
+    assert (s["expected"], s["unanswered"], s["ungraded"]) == (3, 1, 1)
+    assert s["accuracy"] == 100.0 and s["accuracy_all"] == 33.3
+    assert "INCOMPLETE: 1 unanswered, 1 ungraded of 3" in report.render(report.summarize(run))
+
+
+def test_drain_stops_are_told_apart_and_failed_answers_retried():
+    from benchmarks.public import unit
+
+    leg = {"stop": None, "error": None}
+    assert unit.stop_exit(leg, paused=False) is None
+    assert unit.stop_exit({"stop": "plan_limit", "error": "window"}, paused=True) == unit.PAUSED
+    assert unit.stop_exit({"stop": "reserve", "error": "kept for you"}, paused=True) == unit.PAUSED
+    assert unit.stop_exit({"stop": "engine", "error": "signed out"}, paused=True) == unit.STOPPED
+    assert unit.stop_exit({"stop": "busy", "error": None}, paused=False) == unit.STOPPED
+    with pytest.raises(RuntimeError):
+        unit.stop_exit({"stop": "error", "error": "boom"}, paused=False)
+    qs = [{"qid": "a"}, {"qid": "b"}, {"qid": "c"}]
+    rows = {"a|ask": {"error": None}, "b|ask": {"error": "EngineUnavailable"}}
+    assert [(q["qid"], p) for q, p in unit.answers_to_do(qs, ["ask"], rows)] == [("b", "ask"), ("c", "ask")]

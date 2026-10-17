@@ -113,7 +113,7 @@ api/.venv/bin/python -m benchmarks.public.run report --run <run folder>
 - **Isolation** (`run.py`): every unit gets a marked throwaway bank under the run folder and a child process whose
   environment is an allowlist — `HOME`/`CICADA_HOME` the benchmark home, `CICADA_MEMORY_PATH` the unit's bank,
   capture, telemetry and every fetch gate off, no provider keys, `HF_HUB_OFFLINE`. The person's bank, `~/.cicada`
-  and `api/.env` are never read. `--cache` may not overlap the home folder, `~/.cicada`, `~/cicada` or the repo.
+  and `api/.env` are never read: the child turns off the settings file (`api.settings_file.disable()`, `api.config.disable_dotenv()`) before any service import, so the `get_settings()` calls inside Ask and the embedder see its allowlisted environment alone and a score never depends on whose checkout ran it (the gemma2 fetch in `prepare` does the same). `--cache` may not overlap the home folder, `~/.cicada`, `~/cicada` or the repo.
 - **The plan** (`unit.py`): `CICADA_LLM_MODE=agent`, so every call is Cicada's own `claude -p` (`--safe-mode`, no
   tools, no settings, no session persistence, `CICADA_CAPTURE=off`). The CLI's sign-in lives under the person's
   real home, so `claude` children — and only they — get `HOME=<--claude-home>` (default: the user's home); Cicada
@@ -131,7 +131,9 @@ api/.venv/bin/python -m benchmarks.public.run report --run <run folder>
   with LongMemEval's abstention prompt. Category numbers map as LoCoMo's own scorer treats them
   (1 multi-hop, 2 temporal, 3 open-domain, 4 single-hop, 5 adversarial).
 - **Resumable:** per-unit `state.json` (Sleep legs), `answers.jsonl`, `judgments.jsonl`; a plan limit pauses Sleep
-  (exit 3) and `--resume` continues the paused drain; finished answers and judgments are never redone. Slices are
+  (exit 3), any other resumable stop (engine signed out, bank busy) exits 4 with its reason, a Sleep failure exits 1;
+  `--resume` continues the paused drain and retries exactly the answers and judgments that failed (finished ones are
+  never redone). The report counts unanswered and ungraded questions and gives the score with them as not correct. Slices are
   deterministic (first N per category / per unit).
 - **Cost, measured:** every plan call is counted by phase (sleep / answer / judge) and stage with its wall seconds;
   `report.json` and the printed table carry them beside the scores. No dollar figure — a plan call has no price.

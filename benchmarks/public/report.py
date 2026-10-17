@@ -41,11 +41,14 @@ def _pct(hits: int, n: int) -> float | None:
 
 def summarize(run_dir: Path) -> dict:
     cfg = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
-    judged, answers, calls, units = [], [], [], []
+    judged, answers, calls, units, expected = [], [], [], [], []
     for unit_dir in sorted((run_dir / "units").glob("*")) if (run_dir / "units").is_dir() else []:
         judged += _rows(unit_dir / "judgments.jsonl")
         answers += _rows(unit_dir / "answers.jsonl")
         calls += _calls(unit_dir / "calls.jsonl")
+        if (unit_dir / "unit.json").is_file():
+            unit = json.loads((unit_dir / "unit.json").read_text(encoding="utf-8"))
+            expected += [q for q in unit["questions"] if not (cfg["dataset"] == "locomo" and q["abstention"])]
         state = json.loads((unit_dir / "state.json").read_text()) if (unit_dir / "state.json").is_file() else {}
         units.append({"unit": unit_dir.name, "done": bool(state.get("done")), "sleep_seconds":
                       (state.get("sleep") or {}).get("seconds"), "bank": state.get("bank")})
@@ -82,6 +85,15 @@ def summarize(run_dir: Path) -> dict:
         block["wrong_with_gap"] = sum(1 for r in wrong if (by_key.get(r.get("key")) or {}).get("gaps"))
         block["wrong_confident"] = len(wrong) - block["wrong_with_gap"]
         block["answer_errors"] = sum(1 for a in ans if a.get("error"))
+        # Honest denominators: a question with no answer (it failed) or no verdict (the judge failed) is never
+        # silently left out — it is counted here, and `accuracy_all` scores it as not correct.
+        graded_keys = {r["key"] for r in head}
+        answered = {a["key"] for a in ans if not a.get("error")}
+        want = [f"{q['qid']}|{path}" for q in expected]
+        block["expected"] = len(want)
+        block["unanswered"] = sum(1 for k in want if k not in answered)
+        block["ungraded"] = sum(1 for k in want if k in answered and k not in graded_keys)
+        block["accuracy_all"] = _pct(sum(r["correct"] for r in head), len(want)) if want else None
         block["abstained"] = sum(1 for a in ans if not a.get("cited") and path == "ask")
         secs = sorted(a["seconds"] for a in ans if a.get("seconds") is not None)
         block["answer_seconds_p50"] = secs[len(secs) // 2] if secs else None
@@ -115,6 +127,9 @@ def render(s: dict) -> str:
         lines.append(f"\n  {path}: {metric} {b['accuracy']}% over {b['n']} questions{extra}"
                      f" · answer p50 {b['answer_seconds_p50']} s, p95 {b['answer_seconds_p95']} s"
                      + (f" · {b['answer_errors']} answer errors" if b["answer_errors"] else ""))
+        if b.get("unanswered") or b.get("ungraded"):
+            lines.append(f"    INCOMPLETE: {b['unanswered']} unanswered, {b['ungraded']} ungraded of {b['expected']} — "
+                         f"counting them as not correct: {b['accuracy_all']}% (--resume retries them)")
         if b.get("wrong_with_gap") or b.get("wrong_confident"):
             lines.append(f"    wrong: {b['wrong_with_gap']} named a gap, {b['wrong_confident']} confidently wrong")
         for cat, c in b["categories"].items():

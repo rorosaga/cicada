@@ -95,7 +95,10 @@ def prepare(args) -> int:
     if args.embedding in ("small", "both"):
         subprocess.run(["bash", str(REPO / "scripts" / "fetch-embedding-model.sh"), str(models)], env=env, check=True)
     if args.embedding in ("gemma2", "both"):
-        subprocess.run([sys.executable, "-m", "api.services.model_fetch"], env=env, cwd=REPO, check=True)
+        # The fetcher reads no api/.env either: only the pinned files, into this benchmark home.
+        code = ("from api import settings_file; from api.config import disable_dotenv; settings_file.disable(); "
+                "disable_dotenv(); import runpy; runpy.run_module('api.services.model_fetch', run_name='__main__')")
+        subprocess.run([sys.executable, "-P", "-c", code], env=env, cwd=REPO, check=True)
     print(f"benchmark home {home} (models: {', '.join(sorted(p.name for p in models.iterdir())) if models.is_dir() else 'none'})")
     return 0
 
@@ -206,6 +209,15 @@ def run(args) -> int:
             print("  paused on a plan limit — re-run with --resume to continue", flush=True)
             status = 3
             break
+        if rc == 4:
+            print(f"  Sleep stopped (not a plan limit; reason in {out / 'child.log'}) — fix it, then --resume",
+                  flush=True)
+            status = 4
+            break
+        if rc == 5:
+            print("  some answers or judgments failed — --resume retries exactly those", flush=True)
+            status = 1
+            continue
         if rc != 0:
             print(f"  unit failed — see {out / 'child.log'}", flush=True)
             status = 1
