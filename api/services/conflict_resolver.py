@@ -672,7 +672,7 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             last_referenced = _latest_change_date(change) or created_date
             # The closed type set, held again where the page is born (`entity_types`): a pending line or a payload
             # read before the extraction rail existed may still carry `organization`.
-            entity_type = entity_types.producible(entity.get("type"))
+            entity_type = entity_types.in_set(entity.get("type"))
             # Stage-1 may PROPOSE a class; `agent_class` re-applies the rail here
             # so an `evergreen` that slipped past extraction can never be written.
             decay_class = (

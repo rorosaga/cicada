@@ -53,9 +53,9 @@ from `location` in G18).
 **The set is held where a type comes from a model (2026-10-17).** A plain-JSON engine is held only by the
 extraction prompt's list, and a model's `organization`, `product` or `program` once reached a page unchanged.
 `entity_types.producible` is the one coercion (`organization` → `company`, `product` → `tool`, `program` → `project`,
-an unknown word → `concept`), applied at extraction (`entity_extractor.sanitize_entity_type`) and again where a page
-is born from a model's word (the Sleep create branch, an inbox answer that creates a page) — the decay-class rail's
-two places. A bank with pages from before is repaired by the person: `python -m api.scripts.repair_entity_types
+an unknown word → `concept`), applied at extraction (`entity_extractor.sanitize_entity_type`); where a page is born
+from a model's word (the Sleep create branch, an inbox answer that creates a page) `entity_types.in_set` keeps any of
+the 10 and maps only a word outside them — the decay-class rail's two places. A bank with pages from before is repaired by the person: `python -m api.scripts.repair_entity_types
 --bank <path>` (dry run, counts and type words only; `--list` adds page ids for their own terminal; `--apply` one
 `cicada` commit, `maintenance/entity-types`; `--as <id>=<type>` overrides the mapping for one page). Only `type`
 changes; a page dirty in git is skipped; it refuses while Sleep runs.

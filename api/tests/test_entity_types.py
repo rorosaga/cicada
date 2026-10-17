@@ -41,6 +41,11 @@ def test_every_synonym_lands_inside_the_producible_set():
     assert not set(entity_types.SYNONYMS) & entity_types.ALL_TYPES
 
 
+def test_the_writers_backstop_keeps_any_of_the_ten_and_maps_the_rest():
+    assert entity_types.in_set("media") == "media" and entity_types.in_set("Deadline") == "deadline"
+    assert entity_types.in_set("organization") == "company" and entity_types.in_set(None) == "concept"
+
+
 def test_known_accepts_exactly_the_ten():
     assert {entity_types.known(t) for t in entity_types.ALL_TYPES} == entity_types.ALL_TYPES
     assert len(entity_types.ALL_TYPES) == 10

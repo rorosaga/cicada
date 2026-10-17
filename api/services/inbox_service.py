@@ -2417,7 +2417,7 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 body = entity.body.rstrip() + f"\n\n{answer_text}"
             markdown_parser.write(entity_path, entity.frontmatter, body)
         else:
-            entity_type = entity_types.producible(str(
+            entity_type = entity_types.in_set(str(
                 parsed.frontmatter.get("suggested_classification", "concept")
             ).split(" ")[0])
             frontmatter = {

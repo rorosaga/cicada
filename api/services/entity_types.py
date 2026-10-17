@@ -5,11 +5,11 @@ prompt lists them and a strict-schema engine enforces the enum, but an engine th
 LiteLLM model) is held only by the prompt — and a model that writes ``organization``, ``product`` or ``program``
 reached the page's frontmatter unchanged: nothing between the extraction and the create branch looked at the type.
 
-:func:`producible` is the one coercion, applied where the type comes in (``entity_extractor.sanitize_entity_type``)
-and again where a page is born from it (``conflict_resolver``'s create branch, an inbox answer that creates a page),
-the same two-place shape as the decay-class rail (G66). A word the set does not hold maps to the type it plainly
-means (``organization`` → ``company``, ``product`` → ``tool``, ``program`` → ``project``); anything else becomes
-``concept``. Pure: no I/O, never raises.
+:func:`producible` is the one coercion, applied where the type comes in (``entity_extractor.sanitize_entity_type``).
+Where a page is born from a model's word (``conflict_resolver``'s create branch, an inbox answer that creates a page),
+:func:`in_set` keeps any of the 10 and maps only a word outside them — the same two-place shape as the decay-class
+rail (G66). A word the set does not hold maps to the type it plainly means (``organization`` → ``company``,
+``product`` → ``tool``, ``program`` → ``project``); anything else becomes ``concept``. Pure: no I/O, never raises.
 """
 from __future__ import annotations
 
@@ -57,6 +57,12 @@ def producible(raw) -> str:
     if key in PRODUCIBLE:
         return key
     return SYNONYMS.get(key, FALLBACK)
+
+
+def in_set(raw) -> str:
+    """The writer's backstop: ``raw`` as one of the 10 when it already is one (a legacy ``deadline``, a ``media``
+    payload stays what it is), else what :func:`producible` maps it to."""
+    return known(raw) or producible(raw)
 
 
 def known(raw) -> str | None:
