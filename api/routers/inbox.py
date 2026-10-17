@@ -150,8 +150,8 @@ async def tidy_inbox(
 ):
     """Ruling 29 — the one-time tidy of the backlog: Sleep's own policy (``inbox_tend``) over every open question.
     ``dryRun`` (the default) writes nothing and answers COUNTS per kind and per decision — never a title, a name or
-    any text. ``judge`` lets the duplicate judge read page pairs with the person's chosen engine (their plan included;
-    a plan limit pauses it). A real run starts in the background — each question settles alone under the bank's
+    any text. ``judge`` lets the judge read duplicates, conflicts, label folds and fading pages with the person's
+    chosen engine (their plan included; a plan limit pauses it). A real run starts in the background — each question settles alone under the bank's
     write admission and commits — and ``GET /inbox/tidy`` reports it. 409 while Sleep runs or a tidy is running."""
     from api.services import inbox_tend, write_admission
 
@@ -161,8 +161,8 @@ async def tidy_inbox(
         raise HTTPException(409, "The inbox is already being tidied.")
     if dry_run:
         return await inbox_tend.tidy(settings.memory_path, settings, dry_run=True, limit=limit, judge=judge)
-    asyncio.get_running_loop().create_task(
-        inbox_tend.tidy(settings.memory_path, settings, dry_run=False, limit=limit, judge=judge))
+    if not inbox_tend.start_tidy(settings.memory_path, settings, limit=limit, judge=judge):
+        raise HTTPException(409, "The inbox is already being tidied.")
     return {"status": "started"}
 
 

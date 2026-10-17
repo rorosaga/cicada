@@ -1309,9 +1309,10 @@ async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
         # as one more week the page came up, so a page kept once fades a little
         # slower than one never answered for. Dates, not a counter:
         # `decay_policy.mention_weeks` unions them with the page's episode weeks.
-        entity.frontmatter[decay_policy.KEPT_ON_KEY] = decay_policy.record_keep(
-            entity.frontmatter, str(date.today())
-        )
+        if not inbox_actor.is_sleep():   # ruling 29: Sleep's "still live" is not the person's keep
+            entity.frontmatter[decay_policy.KEPT_ON_KEY] = decay_policy.record_keep(
+                entity.frontmatter, str(date.today())
+            )
         # G113 slice 3c: "still true" is a verdict on the CLAIM the decay nudge
         # was raised over, not just the entity's summary confidence — without
         # this, a `keep_active` left the claim itself faded (and, if decay had
@@ -2522,7 +2523,8 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             # sources and references follow. Any other item was asked about a mention: a page promoted under that
             # slug since is not what the person answered about, so it is left alone (the note above, as before).
             mention_path = (resolve_entity_file(settings.memory_path, entity_id)
-                            if entity_id and parsed.frontmatter.get("fold_page") is True else None)
+                            if entity_id and (parsed.frontmatter.get("fold_page") is True
+                                              or inbox_actor.folds_pages()) else None)
             if mention_path is not None and not mention_path.samefile(target_path):
                 try:
                     merged = merge_entities(settings.memory_path, loser_id=mention_path.stem,

@@ -141,7 +141,7 @@ def test_normalization_spelling_only(memory):
     _item(memory, "inbox-002", kind="normalization", entity_id="tool-a", raw_predicate="powered by",
           canonical_predicate="uses", claim_id="clm_y")
     assert _decide(memory, "inbox-001")[0].rule == "spelling_fold"
-    assert _decide(memory, "inbox-002") == (None, "judgement")
+    assert _decide(memory, "inbox-002") == (None, "needs_judge")   # a meaning, not a spelling: only the judge
 
 
 def test_decay_one_off_only(memory):
@@ -155,9 +155,9 @@ def test_decay_one_off_only(memory):
     for n, eid in enumerate(("example-gadget", "bob-example", "two-talks", "said-once"), start=1):
         _item(memory, f"inbox-00{n}", kind="decay", entity_id=eid, entity_name=eid)
     assert _decide(memory, "inbox-001")[0].request == {"action": "archive"}
-    assert _decide(memory, "inbox-002") == (None, "judgement")
-    assert _decide(memory, "inbox-003") == (None, "judgement")
-    assert _decide(memory, "inbox-004") == (None, "judgement")   # the person's own words rest on it
+    assert _decide(memory, "inbox-002") == (None, "judgement")    # a person: never assumed
+    assert _decide(memory, "inbox-003") == (None, "needs_judge")  # two conversations: only the judge
+    assert _decide(memory, "inbox-004") == (None, "needs_judge")  # the person's own words rest on it
 
 
 def _conflict_page(memory: Path, *, older_human: bool = False, same_day: bool = False) -> None:
@@ -185,9 +185,9 @@ def test_conflict_newest_dated_statement(memory):
 
 def test_conflict_same_day_or_over_a_human_stays(memory):
     _conflict_page(memory, same_day=True)
-    assert _decide(memory, "inbox-001") == (None, "judgement")
+    assert _decide(memory, "inbox-001") == (None, "needs_judge")
     _conflict_page(memory, older_human=True)
-    assert _decide(memory, "inbox-001") == (None, "judgement")   # a machine claim never closes the person's own
+    assert _decide(memory, "inbox-001") == (None, "needs_judge")   # never by rule; the judge may only keep theirs
 
 
 def test_gone_undone_deferred_and_edits(memory):
@@ -553,3 +553,225 @@ def test_a_clarification_answered_in_conversation_is_sleeps_reading_not_the_pers
     assert claim.authored_by == "fake-model" and claim.origin == "inbox-tend"
     assert not is_human(claim), "Sleep's reading stands where an extraction would, never as the person's inbox answer"
     assert claim.evidence and claim.evidence[0].kind == "user" and claim.evidence[0].is_span()
+
+
+# --------------------------------------------------------------------------- review blockers (2026-10-17)
+
+
+def _judge_fn(*replies, model: str = "fake-judge", before=None):
+    """A fake engine answering ``replies`` in turn; ``before(prompt)`` runs first (a change landing mid-judge)."""
+    import json
+
+    queue = list(replies)
+
+    def fn(messages, **_kw):
+        if before is not None:
+            before(messages[0]["content"])
+        return {"choices": [{"message": {"content": json.dumps(queue.pop(0))}}], "model": model}
+    return fn
+
+
+def _big_claims(eid: str, n: int = 170) -> str:
+    claims = [Claim(id=f"clm_{eid}_{i:03d}", text=f"{eid} note {i} " + "x" * 380, subject=eid, predicate="mentions",
+                    object=f"thing-{i}", valid_from="2026-05-01", recorded_at="2026-05-01") for i in range(n)]
+    return write_claims("## Summary\nA tool.\n", claims)
+
+
+def test_a_judged_same_really_merges_the_two_pages_and_undo_brings_the_duplicate_back(memory):
+    _entity(memory, "tool-b", type="tool", name="Tool B", status="active")
+    _entity(memory, "tool-bee", type="tool", name="Tool Bee", status="active", body=_big_claims("tool-bee"))
+    ledger = memory / "entities" / "tool-bee.claims.jsonl"
+    assert ledger.exists(), "the fixture page spills its claims to a ledger"
+    _item(memory, "inbox-001", kind="merge_suggestion", entity_id="tool-bee", entity_name="Tool Bee",
+          merge_target_hint="tool-b", suggested_classification="tool")
+    _commit(memory)
+    before = {p: (memory / p).read_bytes() for p in ("entities/tool-b.md", "entities/tool-bee.md",
+                                                       "entities/tool-bee.claims.jsonl")}
+    report = run(inbox_tend.tend(memory, _Settings(memory), episodes=[], run_policy=True,
+                                 llm_fn=_judge_fn({"verdict": "same", "confidence": 0.97, "reason": "one tool"})))
+    assert report.settled == 1
+    assert not (memory / "entities" / "tool-bee.md").exists() and not ledger.exists(), "the duplicate page is gone"
+    merged = parse_claims(markdown_parser.parse(memory / "entities" / "tool-b.md").body)
+    assert any(c.id.startswith("clm_tool-bee_") for c in merged), "its claims followed it"
+    assert web_settle.list_settled(memory)[0]["reason"] == "one tool"
+    assert not _git(memory, "status", "--porcelain").strip()
+
+    _r, paths, lines, _rec = inbox_tend.undo(memory, "inbox-001")
+    web_settle.commit_sync(memory, web_settle.commit_message("Sleep's settle undone", lines, authors=["user"]), paths)
+    assert {p: (memory / p).read_bytes() for p in before} == before, "both pages and the ledger, byte for byte"
+    assert not _git(memory, "status", "--porcelain").strip()
+
+
+def test_a_page_that_changed_since_the_decision_is_never_settled_on_the_stale_read(memory):
+    _entity(memory, "example-gadget", type="tool", source_episodes=["ep_2026-05-01_001"])
+    path = _item(memory, "inbox-001", kind="decay", entity_id="example-gadget")
+    _commit(memory)
+    d, _ = _decide(memory, "inbox-001")
+    assert d.rule == "one_off"
+    page = memory / "entities" / "example-gadget.md"
+    parsed = markdown_parser.parse(page)
+    markdown_parser.write(page, {**parsed.frontmatter,
+                                 "source_episodes": ["ep_2026-05-01_001", "ep_2026-10-01_001"]}, parsed.body)
+    _commit(memory, "a second conversation")
+    d.fingerprint = path.read_bytes()
+    assert not run(inbox_tend.apply(memory, _Settings(memory), d))
+    assert markdown_parser.parse(page).frontmatter["status"] == "decaying"
+    assert path.exists()
+
+
+def test_the_tidy_settles_each_question_right_after_judging_it_and_never_on_a_page_edited_meanwhile(memory):
+    _entity(memory, "example-gadget", type="tool", source_episodes=["ep_2026-05-01_001", "ep_2026-06-01_001"])
+    _item(memory, "inbox-001", kind="decay", entity_id="example-gadget")
+    _commit(memory)
+    page = memory / "entities" / "example-gadget.md"
+
+    def person_edits(_prompt):   # the person's edit lands while the judge reads
+        page.write_text(page.read_text() + "\nStill using it daily.\n")
+
+    out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=False, judge=True,
+                              llm_fn=_judge_fn({"verdict": "archive", "confidence": 0.95}, before=person_edits)))
+    assert out["settled"] == 0 and out["by_kind"]["decay"] == {"left:changed": 1}
+    assert markdown_parser.parse(page).frontmatter["status"] == "decaying"
+
+
+def test_the_tidy_stops_before_a_judge_call_once_sleep_holds_the_pages(memory, monkeypatch):
+    for n in (1, 2):
+        _entity(memory, f"gadget-{n}", type="tool", source_episodes=["ep_2026-05-01_001", "ep_2026-06-01_001"])
+        _item(memory, f"inbox-00{n}", kind="decay", entity_id=f"gadget-{n}")
+    _commit(memory)
+    calls: list = []
+
+    def sleep_starts(_prompt):
+        calls.append(1)
+        monkeypatch.setattr(sleep_cycle, "is_writing", lambda: True)
+
+    out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=False, judge=True,
+                              llm_fn=_judge_fn({"verdict": "archive", "confidence": 0.95},
+                                               {"verdict": "archive", "confidence": 0.95}, before=sleep_starts)))
+    assert out["stopped"] == "sleep_running" and out["settled"] == 0 and len(calls) == 1
+
+
+def test_two_quick_tidies_never_run_at_once(memory):
+
+    async def go():
+        assert inbox_tend.start_tidy(memory, _Settings(memory))
+        assert not inbox_tend.start_tidy(memory, _Settings(memory))
+        await inbox_tend._TIDY["task"]
+        assert not inbox_tend.tidy_status()["running"]
+    run(go())
+
+
+def test_a_deferred_question_is_never_answered_from_a_conversation(memory):
+    _tool_conflict(memory)
+    path = memory / "inbox" / "inbox-001.md"
+    parsed = markdown_parser.parse(path)
+    markdown_parser.write(path, {**parsed.frontmatter,
+                                 "remind_after": (date.today() + timedelta(days=9)).isoformat()}, parsed.body)
+    ep = _episode(memory, "ep_2026-10-01_001", "user: Tool A is an agent harness, not an agent itself.")
+    _commit(memory)
+    calls: list = []
+    report = run(inbox_tend.tend(memory, _Settings(memory), episodes=[ep], run_policy=False,
+                                 llm_fn=_fake({"answered": True, "option": "a", "quote": "x"}, calls)))
+    assert calls == [] and report.read == 0
+
+
+def test_undoing_a_kept_apart_pair_leaves_a_later_pair_alone(memory):
+    for a, b in (("tool-b", "tool-bee"), ("tool-c", "tool-cee")):
+        _entity(memory, a, type="tool", name=a.title())
+        _entity(memory, b, type="tool", name=b.title())
+    _item(memory, "inbox-001", kind="merge_suggestion", entity_id="tool-bee", entity_name="Tool Bee",
+          merge_target_hint="tool-b", suggested_classification="tool")
+    _item(memory, "inbox-002", kind="merge_suggestion", entity_id="tool-cee", entity_name="Tool Cee",
+          merge_target_hint="tool-c", suggested_classification="tool")
+    _commit(memory)
+    report = run(inbox_tend.tend(memory, _Settings(memory), episodes=[], run_policy=True,
+                                 llm_fn=_judge_fn({"verdict": "different", "confidence": 0.95},
+                                                  {"verdict": "different", "confidence": 0.95})))
+    assert report.settled == 2
+    _r, paths, lines, _rec = inbox_tend.undo(memory, "inbox-001")
+    from api.services import merge_rejections
+
+    assert merge_rejections.load_rejected(memory) == {("tool-c", "tool-cee")}
+
+
+# --------------------------------------------------------------------------- the judges (owner, 2026-10-17)
+
+
+def test_the_conflict_judge_settles_a_clear_answer_with_its_reason(memory):
+    _conflict_page(memory, same_day=True)
+    _commit(memory)
+    out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=False, judge=True,
+                              llm_fn=_judge_fn({"verdict": "b", "confidence": 0.93, "reason": "moved to beta-os"})))
+    assert out["by_kind"]["conflict"] == {"judged_conflict": 1}
+    row = web_settle.list_settled(memory)[0]
+    assert (row["rule"], row["answer"], row["reason"]) == ("judged_conflict", "beta-os", "moved to beta-os")
+
+
+def test_the_conflict_judge_never_lets_a_machine_claim_overrule_the_persons_own(memory):
+    _conflict_page(memory, older_human=True)
+    _commit(memory)
+    out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=True, judge=True,
+                              llm_fn=_judge_fn({"verdict": "b", "confidence": 0.99})))
+    assert out["by_kind"]["conflict"] == {"ask:person": 1}
+
+
+def test_a_multi_valued_conflict_keeps_every_value_without_a_judge(memory):
+    claims = [Claim(id=f"clm_{k}", text="x", subject="tool-a", predicate="uses", object=k, valid_from="2026-05-01",
+                    recorded_at="2026-05-01") for k in ("alpha-lib", "beta-lib")]
+    _entity(memory, "tool-a", type="tool", status="active", body=write_claims("## Summary\nA.\n", claims))
+    _item(memory, "inbox-001", kind="conflict", entity_id="tool-a", predicate="uses",
+          options=[{"key": "a", "label": "alpha-lib", "claim_id": "clm_alpha-lib"},
+                   {"key": "b", "label": "beta-lib", "claim_id": "clm_beta-lib"}])
+    _commit(memory)
+    d, _ = _decide(memory, "inbox-001")
+    assert d.rule == "multi_valued"
+    assert _settle(memory, d)
+    after = parse_claims((memory / "entities" / "tool-a.md").read_text())
+    assert all(c.valid_to is None for c in after), "nothing closed"
+
+
+def test_the_fold_judge_folds_a_same_meaning_and_leaves_a_changed_one(memory):
+    _entity(memory, "tool-a", type="tool")
+    _item(memory, "inbox-001", kind="normalization", entity_id="tool-a", raw_predicate="powered by",
+          canonical_predicate="uses", claim_id="clm_x")
+    _item(memory, "inbox-002", kind="normalization", entity_id="tool-a", raw_predicate="competes with",
+          canonical_predicate="related-to", claim_id="clm_y")
+    _commit(memory)
+    out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=False, judge=True,
+                              llm_fn=_judge_fn({"verdict": "same", "confidence": 0.95, "reason": "same relation"},
+                                               {"verdict": "different", "confidence": 0.95})))
+    assert out["by_kind"]["normalization"] == {"judged_fold": 1, "ask:meaning_changes": 1}
+    assert (memory / "inbox" / "inbox-002.md").exists()
+
+
+def test_the_decay_judge_keeps_a_live_page_without_calling_it_the_persons_keep(memory):
+    from api.services import decay_policy
+
+    _entity(memory, "example-gadget", type="tool", source_episodes=["ep_2026-05-01_001", "ep_2026-06-01_001"])
+    _item(memory, "inbox-001", kind="decay", entity_id="example-gadget")
+    _entity(memory, "alpha-project", type="project", source_episodes=["ep_2026-05-01_001"])
+    _item(memory, "inbox-002", kind="decay", entity_id="alpha-project")
+    _commit(memory)
+    calls: list = []
+    out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=False, judge=True,
+                              llm_fn=_judge_fn({"verdict": "keep", "confidence": 0.95, "reason": "still in use"},
+                                               before=calls.append)))
+    assert out["by_kind"] == {"decay": {"judged_keep": 1, "ask:judgement": 1}}
+    assert len(calls) == 1, "the person's project is never judged"
+    fm = markdown_parser.parse(memory / "entities" / "example-gadget.md").frontmatter
+    assert fm["status"] == "active" and not decay_policy.kept_dates(fm)
+
+
+def test_the_judges_never_see_the_owners_page_or_a_persons_identity(memory):
+    claims = [Claim(id=f"clm_{k}", text="x", subject="owner-example", predicate="lives-in", object=k,
+                    valid_from="2026-05-01", recorded_at="2026-05-01") for k in ("town-a", "town-b")]
+    _entity(memory, "owner-example", type="person", owner=True, status="active",
+            body=write_claims("## Summary\nO.\n", claims))
+    _item(memory, "inbox-001", kind="conflict", entity_id="owner-example", predicate="lives-in",
+          options=[{"key": "a", "label": "town-a", "claim_id": "clm_town-a"},
+                   {"key": "b", "label": "town-b", "claim_id": "clm_town-b"}])
+    _commit(memory)
+    calls: list = []
+    out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=True, judge=True,
+                              llm_fn=_judge_fn({"verdict": "a", "confidence": 0.99}, before=calls.append)))
+    assert calls == [] and out["by_kind"] == {"conflict": {"ask:person": 1}}

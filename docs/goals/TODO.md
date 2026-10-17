@@ -959,16 +959,25 @@ A whole row moves to DONE only after its remaining implementation and required a
     is folded, or one the judge reads as the same (≥ 0.9, both pages, same type) or as different; a predicate fold
     that only respells a label; a decay question on a one-off nobody would miss (a concept, tool, media or company page
     on one conversation, never kept, no words of the person's on it); a conflict the newest dated statement settles
-    (never a machine claim over the person's own). **Never assumed:** who a person is or merging two people (only the
+    (never a machine claim over the person's own); a conflict on a multi-valued predicate (every value already kept).
+    **The judges (owner, same day, after the first dry run on his bank: "the inbox keeps only what genuinely needs the
+    person"):** behind `judge=true` / once per drain, the person's chosen engine (plan included) also reads conflicts
+    (each option's dates and evidence lines; one clearly better supported or newer, never a machine claim over the
+    person's own), label folds (same meaning folds; a changed meaning stays) and fading concept/tool/media/company pages
+    (still live → kept, never recorded as the person's keep; clearly passing → archived); each judged settle shows the
+    judge's one-line reason. **Never assumed:** who a person is or merging two people (only the
     person's own words on the record), a proposed page edit, a follow-up, anything a rule cannot read — those stay.
     **One writer:** the person's own resolvers, committed as Sleep's (`Inbox settled by Sleep`, `inbox/<kind>/settled:`,
     never `resolved:`), each undoable under "Settled by Sleep" (the reverse of its commit, three-way, refused whole when
     something since overlaps); an undone question is never settled by Sleep again. The G113 ledger keeps Sleep's settles
     and the person's undos apart from the person's verdicts (`sleepSettles`). **Engine:** the batch's own (ruling 4
     unchanged); the tidy uses the person's chosen engine, their Claude plan included; a plan limit pauses, never fails.
+    **Review (same day):** a "same" on two existing pages folds the duplicate's page into the target (undo brings it
+    back); each question is decided and settled at once and only while every page it read is unchanged.
     **Why.** On the owner's bank (2026-10-17, counts only): 913 pending question files and 0 answered — 661 duplicate
     questions, 70 conflicts, 69 clarifications, 63 decay, 46 predicate folds, 3 proposed edits, 1 follow-up — served as
-    239 rows after grouping, over 4,693 pages (2,221 archived, 823 decaying, 1,649 active). UX principle 1, "never
+    239 rows after grouping, over 4,693 pages (2,221 archived, 823 decaying, 1,649 active). The first engine-free dry
+    run (no judge): 692 of 913 settled (660 dead duplicate questions), 221 still asked — the judges are for those. UX principle 1, "never
     require memory maintenance", was broken by the inbox itself. Measure with `api/scripts/inbox_tidy_dry_run.py --bank
     <path> [--judge]` (counts only, writes nothing). Revisit a rule if `GET /consumption/feedback`'s `sleepSettles`
     shows the person undoing it often, or at once if a settle is found to have decided who a person is without their

@@ -34,6 +34,9 @@ class Actor:
     #: The settle's own record, ``(path, frontmatter, body)``: written at the commit, after the resolver's dirty
     #: snapshot, so it is this commit's own file and never "an edit kept apart".
     record: tuple | None = None
+    #: A "same" settle on two existing pages folds the mention's page into the target (`entity_merge.merge_entities`),
+    #: as the person's answer does for a `fold_page` question — never a question deleted with both pages left.
+    fold_pages: bool = False
     #: Set by the commit hook once the commit returned: the resolver committed, and the record rode with it.
     committed: bool = False
 
@@ -79,6 +82,11 @@ def claim_origin(default: str = "clarification") -> str:
     ``claim_reconciler.is_human``); Sleep's reading of their words is not — it stands where an extraction of those
     words would, so a later statement of theirs can still supersede it."""
     return default if _ACTOR.get() is None else "inbox-tend"
+
+
+def folds_pages() -> bool:
+    actor = _ACTOR.get()
+    return bool(actor is not None and actor.fold_pages)
 
 
 def confirmed_by() -> str:
