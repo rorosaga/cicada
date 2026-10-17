@@ -34,7 +34,7 @@ in the person's own browser, when the person asks about that one person — the 
 ``cicada_record_profile``.
 
 **The photo (owner 2026-10-17).** The profile link this import adds records how the page was matched
-(``match``: :data:`MATCH_LINK` — the person or an agent already listed that link; :data:`MATCH_NAME` — the
+(``match``: :data:`MATCH_LINK` — the person or an identified agent already listed that link as their account; :data:`MATCH_NAME` — the
 connection's full name is the page's own name; :data:`MATCH_ALIAS` — it is only one of the page's aliases). A
 confident match (:data:`CONFIDENT_MATCHES`: link or name) is the person's connection, so its link drives the
 profile-photo rung right away (``person_photo.is_own_account``), behind that rung's own off-by-default proxy gate;
@@ -361,9 +361,21 @@ def _index(memory_path: Path) -> _Index:
             if slug := _slug(source.get("ref")):
                 idx.slugs.setdefault(slug, set()).add(f.stem)
                 idx.page_slugs.setdefault(f.stem, set()).add(slug)
-                if str(source.get("added_by") or fact_sources.USER).strip() != AUTHOR:
+                if _vouched(source):
                     idx.listed_by_others.setdefault(f.stem, set()).add(slug)
     return idx
+
+
+def _vouched(source: dict) -> bool:
+    """Did somebody other than Cicada give this link as the person's own account — the person (added or took it) or an
+    identified agent, with no fact attached or a profile predicate? The photo rung's own test
+    (``person_photo.is_own_account``), so a link a model attached from a claim's cited words or an unidentified
+    proposal can never turn an alias-only match into a confident one. Cicada's own link is never its own voucher."""
+    from api.services import person_photo
+
+    if str(source.get("added_by") or fact_sources.USER).strip().lower() == AUTHOR:
+        return False
+    return person_photo.is_own_account(source)
 
 
 def _name_keys(c: Connection) -> set[str]:
@@ -374,7 +386,7 @@ def _name_keys(c: Connection) -> set[str]:
 
 
 def basis(idx: _Index, entity_id: str, c: Connection) -> str | None:
-    """How ``c`` is this page's connection: the person or an agent already listed its link (``link``), its full name
+    """How ``c`` is this page's connection: the person or an identified agent already listed its link as their account (``link``, :func:`_vouched`), its full name
     is the page's own name (``name``), or only an alias (``alias``). ``None`` when only Cicada's own earlier link ties
     them (the page was renamed since) — the link keeps whatever it recorded then."""
     slug = _slug(c.url)

@@ -216,7 +216,7 @@ def is_own_account(source: dict) -> bool:
     org's), or an identified agent added it with no fact attached or a profile predicate. Never Cicada's own writers,
     never an unidentified proposal, never an "Only I know" note — with one exception (owner 2026-10-17): the profile
     link the person's own LinkedIn connections put on a page they matched confidently (`linkedin_people`: the page's
-    own name or a link the person or an agent listed — never an alias-only guess, which waits for the person to take
+    own name or a link the person or an identified agent listed as their account — never an alias-only guess, which waits for the person to take
     it). "If it's because I'm connected", it is that person's account."""
     from api.services import fact_sources, linkedin_people
 

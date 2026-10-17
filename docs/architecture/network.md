@@ -64,7 +64,7 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   the host and `net_guard` checks; a lookup over budget is a transient miss,
   asked again the next day, never a cached one. With the gate off, an X or LinkedIn link is not an identifier at all.
   **LinkedIn connections (owner 2026-10-17):** the profile link the person's own connections export put on a page it
-  matched confidently — the connection's full name is the page's own name, or the person or an agent already listed
+  matched confidently — the connection's full name is the page's own name, or the person or an identified agent already listed
   that link (`match: name|link`) — counts as given and is asked at once, without waiting for the person to take the
   source: "If it's because I'm connected, unless the agent says 'Oh I'm not sure,' then we don't." An alias-only match
   (`match: alias`) is not sure, and its link is no identifier until the person takes it. Everything above still applies.

@@ -48,7 +48,7 @@
   **Amendment (owner, 2026-10-17) — the photo:** a person page matched from the connections may use that profile link
   for its photo right away, without the person taking the source — "If it's because I'm connected, unless the agent
   says 'Oh I'm not sure,' then we don't." The link records how it matched (`match`): the page's own name or a link the
-  person or an agent already listed is confident and drives the photo rung at once (the proxy gate's rules unchanged,
+  person or an identified agent already listed as their account is confident and drives the photo rung at once (the proxy gate's rules unchanged,
   off by default); an alias-only match is not sure and waits for the person to take it; an ambiguous one writes
   nothing, as before (`linkedin_people.CONFIDENT_MATCHES`, `person_photo.is_own_account`).
 - **2026-10-16 — Messages follow-ups: a chat's shared photo is its page's picture, and a mark always reaches Sleep

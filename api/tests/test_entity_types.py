@@ -195,3 +195,20 @@ def test_the_command(bank, capsys, monkeypatch):
     assert repair_entity_types.main(["--bank", str(bank), "--apply", "--as", "odd-example=tool"]) == 0
     assert json.loads(capsys.readouterr().out)["repaired"] == 4
     assert _fm(bank, "odd-example")["type"] == "tool"
+
+
+def test_a_page_whose_ledger_is_dirty_is_skipped(bank):
+    ledger = bank / "entities" / "acme-example.claims.jsonl"
+    ledger.write_text('{"id": "c1"}\n', encoding="utf-8")   # someone else's uncommitted ledger change
+    result = entity_type_repair.apply(bank, sleep_running=_idle)
+    assert result.dirty == 1 and result.repaired == 3
+    assert _fm(bank, "acme-example")["type"] == "organization"
+    assert "acme-example.claims.jsonl" not in _git(bank, "show", "--name-only", "--format=", "HEAD")
+
+
+def test_an_unreachable_backend_is_said_as_such(bank, capsys, monkeypatch):
+    monkeypatch.setenv("CICADA_PORT", "9")
+    assert repair_entity_types.main(["--bank", str(bank), "--apply"]) == 3
+    out = json.loads(capsys.readouterr().out)
+    assert "unreachable" in out["refused"] and "Sleep run" not in out["refused"]
+    assert _fm(bank, "acme-example")["type"] == "organization"

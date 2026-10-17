@@ -14,8 +14,8 @@ shares the ``active`` default, and an explicit ``decay_class`` was the writer's,
 
 Deterministic, no model, no network. The dry run prints counts and type words only, never a page name or a word of
 the bank; ``--list`` prints each page id with its old and new type for the person's own terminal — never paste it into
-the repo or a PR. ``--apply`` refuses while Sleep runs or holds the pages; a page dirty in git, or written after the
-survey, is skipped. A second run changes nothing. Order: write admission → page lock → git.
+the repo or a PR. ``--apply`` refuses while Sleep runs or holds the pages, or when the backend cannot be asked; a page
+dirty in git (or whose claims ledger is), or written after the survey, is skipped. A second run changes nothing. Order: write admission → page lock → git.
 """
 from __future__ import annotations
 
@@ -115,7 +115,9 @@ def survey(memory_path, *, overrides: dict[str, str] | None = None) -> Survey:
             if entity_types._key(raw) not in entity_types.SYNONYMS:
                 result.fallback += 1
         mapped[f"{old.lower()} -> {new}"] += 1
-        if f"entities/{path.name}" in dirty:
+        if f"entities/{path.name}" in dirty or f"entities/{path.stem}.claims.jsonl" in dirty:
+            # The page or its claims ledger holds someone else's uncommitted change: committing it would put that
+            # change under this repair's name.
             result.dirty += 1
             continue
         result._todo[path] = (text, old, new)

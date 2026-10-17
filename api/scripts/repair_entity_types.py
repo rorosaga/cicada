@@ -22,6 +22,25 @@ from pathlib import Path
 from api.scripts.migrate_claims_jsonl import backend_running
 
 
+def _sleep_running() -> bool:
+    """``backend_running``, but an unreachable backend is said as such, never as a Sleep run."""
+    import os
+    import urllib.request
+
+    from api.cli import _backend_headers
+    from api.services import entity_type_repair, runtime_layout
+
+    url = f"{runtime_layout.local_backend_url(os.environ)}/healthz"
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(urllib.request.Request(url, headers=_backend_headers(os.environ)), timeout=4):
+            pass
+    except Exception as exc:  # noqa: BLE001 — any failure means the backend cannot answer
+        raise entity_type_repair.SleepRunning(
+            "the backend is unreachable; start Cicada and run again (the repair asks it whether Sleep is idle)") from exc
+    return backend_running()
+
+
 def _overrides(values: list[str]) -> dict[str, str]:
     out = {}
     for value in values or []:
@@ -56,7 +75,7 @@ def main(argv=None) -> int:
                 out["pages_to_retype"] = result.listing()
             print(json.dumps(out, ensure_ascii=False))
             return 0
-        result = repair.apply(bank, sleep_running=backend_running, overrides=overrides)
+        result = repair.apply(bank, sleep_running=_sleep_running, overrides=overrides)
     except (ValueError, repair.BadOverride) as exc:
         print(json.dumps({"error": str(exc)}))
         return 2

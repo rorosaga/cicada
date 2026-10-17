@@ -507,3 +507,37 @@ def test_a_link_the_person_listed_matches_as_link_and_keeps_their_source(client)
     idx = linkedin_people._index(memory)
     conn = [x for x in linkedin_people.parse(_csv()).connections if x.url.endswith("erin-repeat-2")][0]
     assert linkedin_people.basis(idx, "erin-repeat", conn) == "link"
+
+
+@pytest.mark.parametrize("added_by, predicate", [
+    ("some-model-id", "works-at"),   # a link a model attached from a claim's cited words (Stage 5.56)
+    ("agent", None),                 # an unidentified proposal
+    ("agent", "linkedin"),
+])
+def test_a_link_nobody_vouched_for_never_makes_an_alias_match_confident(client, added_by, predicate):
+    """Review blocker on #334: only a link that passes the photo rung's own test (the person's, or an identified
+    agent's as a profile) may upgrade an alias-only match to ``link``."""
+    from api.services import person_photo
+
+    c, memory = client
+    assert _post(c, exported_on="2026-01-15").status_code == 200
+    assert _li_source(memory, "carol-example")["match"] == "alias"
+    fact_sources.add_source(memory, "carol-example", "https://www.linkedin.com/in/carol-example-1a2b3c", kind="url",
+                            predicate=predicate, added_by=added_by)
+    bank_index.invalidate()
+    linkedin_people.apply(memory, linkedin_people.parse(_csv()).connections, day="2026-01-15")
+    bank_index.invalidate()
+    fm = _page(memory, "carol-example").frontmatter
+    ours = [s for s in fm["sources"] if s.get("added_by") == "cicada" and s.get("predicate") == "linkedin"]
+    assert [s.get("match") for s in ours] in ([], ["alias"])
+    assert person_photo.candidates(fm, owner={}, proxy=True) == []
+
+
+def test_an_identified_agents_profile_link_does_vouch(client):
+    c, memory = client
+    fact_sources.add_source(memory, "carol-example", "https://www.linkedin.com/in/carol-example-1a2b3c", kind="url",
+                            predicate="linkedin", added_by="claude-code")
+    bank_index.invalidate()
+    idx = linkedin_people._index(memory)
+    conn = [x for x in linkedin_people.parse(_csv()).connections if x.url.endswith("carol-example-1a2b3c")][0]
+    assert linkedin_people.basis(idx, "carol-example", conn) == "link"
