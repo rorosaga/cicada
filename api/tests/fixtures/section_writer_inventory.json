@@ -1138,5 +1138,21 @@
       "frontmatter": "fm",
       "disposition": "preserve_frontmatter_guarded"
     }
+  ],
+  "services/inbox_actor.py": [
+    {
+      "function": "write_record",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/inbox_tend.py": [
+    {
+      "function": "undo",
+      "method": "write",
+      "frontmatter": "{**fm, UNDONE_KEY: 'undone'}",
+      "disposition": "uninstrumented_guarded"
+    }
   ]
 }
