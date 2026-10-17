@@ -304,7 +304,9 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   names a *different* LinkedIn profile (the owner's page is known by its `owner: true` flag and by `resolve_observer`'s
   id), and two connections on one page (duplicate names) or one on two pages match
   neither. **It never creates a page.** A match gains its profile link as a source `{ref:
-  https://www.linkedin.com/in/<slug>, kind: url, predicate: linkedin, added_by: cicada}` and three claims observed
+  https://www.linkedin.com/in/<slug>, kind: url, predicate: linkedin, added_by: cicada, match: name|alias|link}` (how it
+  matched: the page's own name, only an alias, or a link the person or an agent already listed; a link from before the
+  field gets it at the next import or rematch) and three claims observed
   `external:linkedin` (`source_trust: external`, `authored_by: cicada`, `origin: linkedin/connections`, `reasoning`
   evidence — no episode holds an export): `works-at` (a `company` page's id when exactly one has that name, else the
   words), `role`, both `valid_from` the export's day, and `connected-on` (the day they connected). **Newest wins:**

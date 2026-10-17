@@ -8,6 +8,17 @@
 
 ## Current state and evidence
 
+- **2026-10-17 — small backend fixes and the LinkedIn photo decision (branch `fix/api-small`).** (1) The closed type
+  set: a plain-JSON engine is held only by the prompt's type list, and nothing between extraction and the create branch
+  checked the type, so a model's `organization`/`product`/`program` reached pages (3 on the owner's bank).
+  `entity_types.producible` now maps it at extraction and again where a page is born (Sleep create branch, inbox
+  answer); the person repairs an older bank with `python -m api.scripts.repair_entity_types --bank <path>` (dry run;
+  `--list`, `--as <id>=<type>`, `--apply`). (2) `install_predicate_map` reads the runtime map through
+  `_read_runtime_map`, the one reader. (3) Parked defects re-checked, all already fixed on dev with tests: media save
+  dates (G99d `saved_at`/`content_saved_at`), same-title media pages (`_media_entity_id` URL-hash suffix), and the
+  `<name>.com` logo guess (removed in G61 S3-b; `GUESSABLE_TYPES` is now only "types whose own site draws a mark").
+  (4) The LinkedIn photo amendment below. Tests: `test_entity_types.py`, `test_predicates_map_cache.py`,
+  `test_linkedin_people.py`.
 - **2026-10-16 — server and readers: the owner's decisions after headless QA and the hunts (G181, ruling 4b; branch
   `feat/server-readers`, not merged).** Ruling 4b (above): scheduled runs may use the person's plan — Claude or
   ChatGPT — behind an off-by-default switch (Settings → Sleep, `cicada sleep schedule --use-plan`), and
@@ -34,6 +45,12 @@
   ≤ 10/day, episode with `page` spans). App: the LinkedIn tile's **Connections** (`LinkedInConnectionsPanel`).
   Tests: `test_linkedin_people.py`, `LinkedInConnectionsTests`. Pick up: review and merge; the owner drops his
   Connections.csv in the tile, reads the preview counts, and asks an agent "what does <a known person> do now?".
+  **Amendment (owner, 2026-10-17) — the photo:** a person page matched from the connections may use that profile link
+  for its photo right away, without the person taking the source — "If it's because I'm connected, unless the agent
+  says 'Oh I'm not sure,' then we don't." The link records how it matched (`match`): the page's own name or a link the
+  person or an agent already listed is confident and drives the photo rung at once (the proxy gate's rules unchanged,
+  off by default); an alias-only match is not sure and waits for the person to take it; an ambiguous one writes
+  nothing, as before (`linkedin_people.CONFIDENT_MATCHES`, `person_photo.is_own_account`).
 - **2026-10-16 — Messages follow-ups: a chat's shared photo is its page's picture, and a mark always reaches Sleep
   (G179; branch `fix/messages-followups`, not merged).** The app reads each ticked chat's shared Messages photo (at most
   hourly, from a copy) and posts changes to `PUT /sources/messages/photos` (409 unticked or demo, 422 bad bytes);

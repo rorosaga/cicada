@@ -31,8 +31,16 @@ link and facts in the same run's own ``cicada`` commit. An older export never re
 
 No model runs and nothing is fetched: the profile link is stored, never opened. The person's agent may open it later
 in the person's own browser, when the person asks about that one person — the ``linkedin-people`` skill and
-``cicada_record_profile``; the profile-photo rung may use the link once the person takes the source, behind its own
-off-by-default gate (``person_photo``), unchanged.
+``cicada_record_profile``.
+
+**The photo (owner 2026-10-17).** The profile link this import adds records how the page was matched
+(``match``: :data:`MATCH_LINK` — the person or an agent already listed that link; :data:`MATCH_NAME` — the
+connection's full name is the page's own name; :data:`MATCH_ALIAS` — it is only one of the page's aliases). A
+confident match (:data:`CONFIDENT_MATCHES`: link or name) is the person's connection, so its link drives the
+profile-photo rung right away (``person_photo.is_own_account``), behind that rung's own off-by-default proxy gate;
+an alias-only match is a guess the person has not confirmed, and its link draws no photo until they take the source.
+An ambiguous match writes nothing at all, as before. A link written before the field existed gets it at the next
+import or Sleep's rematch.
 """
 from __future__ import annotations
 
@@ -73,6 +81,13 @@ DIRECTORY_FILE = "linkedin-connections.json"
 MAX_BYTES = 32 * 1024 * 1024
 MAX_CONNECTIONS = 30_000
 MAX_FIELD = 160
+#: How a connection's page was matched — stamped on the profile link this module adds (``match``).
+MATCH_KEY = "match"
+MATCH_LINK = "link"
+MATCH_NAME = "name"
+MATCH_ALIAS = "alias"
+#: The matches that are the person's connection beyond doubt: their link may draw the page's photo before they take it.
+CONFIDENT_MATCHES = frozenset({MATCH_LINK, MATCH_NAME})
 SLEEP_REFUSAL = "Cicada is tidying up your memory right now — add your LinkedIn connections again in a minute."
 _DATE_FORMATS = ("%d %b %Y", "%d %B %Y", "%Y-%m-%d", "%d-%b-%y", "%d-%b-%Y", "%m/%d/%y", "%m/%d/%Y")
 _SLUG_RE = re.compile(r"[^/?#\s]{1,100}")
@@ -291,6 +306,9 @@ class _Index:
     slugs: dict[str, set[str]]          # a profile slug a page already lists → that page
     page_slugs: dict[str, set[str]]     # page → every LinkedIn slug its sources name
     companies: dict[str, set[str]]      # folded company name → company page ids
+    page_names: dict[str, str] = field(default_factory=dict)          # page → its own folded name
+    page_aliases: dict[str, set[str]] = field(default_factory=dict)   # page → its folded aliases
+    listed_by_others: dict[str, set[str]] = field(default_factory=dict)  # page → slugs a non-Cicada source lists
 
 
 def _fold(text) -> str:
@@ -337,10 +355,14 @@ def _index(memory_path: Path) -> _Index:
         for label in labels:
             if key := _fold(label):
                 idx.names.setdefault(key, set()).add(f.stem)
+        idx.page_names[f.stem] = _fold(labels[0])
+        idx.page_aliases[f.stem] = {k for a in labels[1:] if (k := _fold(a))}
         for source in fact_sources.as_sources(fm.get("sources")):
             if slug := _slug(source.get("ref")):
                 idx.slugs.setdefault(slug, set()).add(f.stem)
                 idx.page_slugs.setdefault(f.stem, set()).add(slug)
+                if str(source.get("added_by") or fact_sources.USER).strip() != AUTHOR:
+                    idx.listed_by_others.setdefault(f.stem, set()).add(slug)
     return idx
 
 
@@ -349,6 +371,21 @@ def _name_keys(c: Connection) -> set[str]:
     if not first or not last:
         return set()
     return {f"{first} {last}", f"{last} {first}"}
+
+
+def basis(idx: _Index, entity_id: str, c: Connection) -> str | None:
+    """How ``c`` is this page's connection: the person or an agent already listed its link (``link``), its full name
+    is the page's own name (``name``), or only an alias (``alias``). ``None`` when only Cicada's own earlier link ties
+    them (the page was renamed since) — the link keeps whatever it recorded then."""
+    slug = _slug(c.url)
+    if slug and slug in idx.listed_by_others.get(entity_id, set()):
+        return MATCH_LINK
+    keys = _name_keys(c)
+    if idx.page_names.get(entity_id) in keys:
+        return MATCH_NAME
+    if keys & idx.page_aliases.get(entity_id, set()):
+        return MATCH_ALIAS
+    return None
 
 
 def match(memory_path: Path, connections: list[Connection]) -> tuple[dict[str, Connection], int, int]:
@@ -437,7 +474,7 @@ def _reconcile(claims: list[Claim], entity_id: str, name: str, predicate: str, v
 @page_lock.locked
 def _apply_page(memory_path: Path, entity_id: str, facts: dict[str, str], *, url: str | None, day: str, origin: str,
                 companies: dict[str, set[str]], report: Report, evidence_by: dict[str, list] | None = None,
-                authored_by: str = AUTHOR, add_source: bool = True) -> bool:
+                authored_by: str = AUTHOR, add_source: bool = True, how: str | None = None) -> bool:
     """Write one person's LinkedIn link and facts onto their page. Returns whether the page changed."""
     path = Path(memory_path) / "entities" / f"{entity_id}.md"
     if not path.exists():
@@ -458,9 +495,16 @@ def _apply_page(memory_path: Path, entity_id: str, facts: dict[str, str], *, url
             return False
         if not listed and len(current) < fact_sources.MAX_SOURCES:
             fm["sources"] = current + [{"ref": url, "kind": fact_sources.KIND_URL, "predicate": SOURCE_PREDICATE,
-                                        "added_by": AUTHOR, "added_at": today}]
+                                        "added_by": AUTHOR, "added_at": today, **({MATCH_KEY: how} if how else {})}]
             report.sources_added += 1
             changed = True
+        elif listed and how:
+            # Cicada's own link from an earlier import (or one from before ``match`` existed) records this match.
+            for source in current:
+                if (_slug(source.get("ref")) == _slug(url) and str(source.get("added_by") or "") == AUTHOR
+                        and source.get(MATCH_KEY) != how):
+                    source[MATCH_KEY] = how   # the same dict ``fm["sources"]`` holds
+                    changed = True
     body = parsed.body
     if any(facts.values()):
         try:
@@ -503,14 +547,15 @@ def apply(memory_path: Path, connections: list[Connection], *, day: str, skip: f
     report = Report(connections=len(connections), exported_on=day)
     matched, report.ambiguous, report.unmatched = match(memory_path, connections)
     report.matched = len(matched)
-    companies = _index(memory_path).companies if matched else {}
+    idx = _index(memory_path) if matched else None
+    companies = idx.companies if idx else {}
     for eid in sorted(matched):
         rel = f"entities/{eid}.md"
         if rel in skip:
             continue
         c = matched[eid]
         if _apply_page(memory_path, eid, _facts(c), url=c.url, day=day, origin=ORIGIN_EXPORT, companies=companies,
-                       report=report):
+                       report=report, how=basis(idx, eid, c)):
             report.paths.append(rel)
     if report.paths:
         bank_index.invalidate(memory_path)

@@ -13,8 +13,8 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import (correspondents, decay_policy, engine_errors, episode_time, evidence, fact_policy, promotion,
-                          section_provenance, source_dates)
+from api.services import (correspondents, decay_policy, engine_errors, entity_types, episode_time, evidence, fact_policy,
+                          promotion, section_provenance, source_dates)
 from api.services.json_parse import parse_json_object
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
@@ -266,6 +266,13 @@ def sanitize_decay_class(entity: dict) -> None:
     cls = decay_policy.agent_class(entity.pop("decay_class"))
     if cls is not None:
         entity["decay_class"] = cls.value
+
+
+def sanitize_entity_type(entity: dict) -> None:
+    """The closed-type rail, applied to ONE extracted entity dict (2026-10-17): the type becomes one Stage 1 may
+    produce (``entity_types.producible``: ``organization`` → ``company``, ``product`` → ``tool``, anything unknown →
+    ``concept``). A plain-JSON engine is held only by the prompt's list. Mutates in place; never raises."""
+    entity["type"] = entity_types.producible(entity.get("type"))
 
 
 def sanitize_website(entity: dict) -> None:
@@ -637,6 +644,7 @@ async def extract(
                     if untimed:
                         entity["untimed"] = True
                     entity["origin"] = ep_origin
+                    sanitize_entity_type(entity)
                     sanitize_decay_class(entity)
                     sanitize_website(entity)
                 if narration:

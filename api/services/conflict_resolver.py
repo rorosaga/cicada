@@ -12,8 +12,8 @@ from tqdm import tqdm
 from api.config import Settings
 from api.models.schemas import DecayClass
 from api.services import (
-    alias_policy, decay_policy, decay_tuning, engine_errors, entity_article, entity_body, episode_time, fact_sources,
-    json_parse, markdown_parser, page_edits, role_people, section_provenance, source_dates,
+    alias_policy, decay_policy, decay_tuning, engine_errors, entity_article, entity_body, entity_types, episode_time,
+    fact_sources, json_parse, markdown_parser, page_edits, role_people, section_provenance, source_dates,
 )
 from api.services.providers import resolve_llm_fn
 
@@ -670,7 +670,9 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             entity = change.get("entity", {})
             created_date = _earliest_change_date(change) or str(date.today())
             last_referenced = _latest_change_date(change) or created_date
-            entity_type = entity.get("type", "concept")
+            # The closed type set, held again where the page is born (`entity_types`): a pending line or a payload
+            # read before the extraction rail existed may still carry `organization`.
+            entity_type = entity_types.producible(entity.get("type"))
             # Stage-1 may PROPOSE a class; `agent_class` re-applies the rail here
             # so an `evergreen` that slipped past extraction can never be written.
             decay_class = (
