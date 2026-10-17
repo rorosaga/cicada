@@ -1,0 +1,35 @@
+# A TEMPLATE with placeholders only. Copy it to a gitignored file and write your own questions there:
+#   cp benchmarks/answer_eval.example.yaml benchmarks/answer_eval.local.yaml
+#   api/.venv/bin/python -m benchmarks.answer_eval --bank <your bank dir> --questions benchmarks/answer_eval.local.yaml
+#
+# expect:  facts a right answer must state (paraphrase is fine)
+# forbid:  facts it must NOT assert as current (an old value that changed)
+# abstain: true when memory should not know — the right answer says so
+# tags:    your own grouping, scored apart (a mix of easy, multi-session, changed and unknown things works best)
+questions:
+  - id: where-works
+    question: "Where does alice-example work now?"
+    expect: ["alice-example works at <employer-b>"]
+    forbid: ["alice-example works at <employer-a>"]   # her previous job
+    tags: [people, knowledge-update]
+
+  - id: alpha-stack
+    question: "What database did we pick for alpha-project, and why?"
+    expect: ["alpha-project uses <database-x>", "it was chosen because <reason>"]
+    tags: [projects, decisions]
+
+  - id: alpha-deadline
+    question: "When is the alpha-project demo?"
+    expect: ["the demo is on <date>"]
+    forbid: ["the demo is on <earlier date>"]   # the date it was moved from
+    tags: [projects, temporal]
+
+  - id: bob-intro
+    question: "Who introduced me to bob-example, and when?"
+    expect: ["<person> introduced them", "around <month year>"]
+    tags: [people, multi-session]
+
+  - id: unknown-thing
+    question: "What is bob-example's home address?"
+    abstain: true          # never discussed: the right answer says memory doesn't have it
+    tags: [abstention]
