@@ -414,6 +414,12 @@ def _phrase_in(needle: str, hay: str) -> bool:
     return bool(needle) and f" {needle} " in f" {hay} "
 
 
+#: A label carrying one of these says the opposite of the value it names ("No longer on alpha-os"): it ties to a
+#: claim only by equality, never by the value appearing inside it.
+_NEGATIONS = frozenset("""no not never nor without anymore longer former formerly ex stopped quit left isn doesn didn
+wasn weren aren don won hasn haven hadn nunca sin ya""".split())
+
+
 def label_matches(label: str, claim) -> bool:
     """Is a label-only option about this claim? Matched on folded text (``text_fold.words``: case, accents and
     punctuation folded, whole words) — never fuzzy, no model: the label equals the claim's object or its sentence; or
@@ -425,6 +431,8 @@ def label_matches(label: str, claim) -> bool:
     obj, txt = _fold_name(getattr(claim, "object", "")), _fold_name(getattr(claim, "text", ""))
     if lab in (obj, txt):
         return True
+    if set(lab.split()) & _NEGATIONS:
+        return False   # "No longer on alpha-os" is not the claim that it runs on alpha-os
     if len(obj) >= 4 and _phrase_in(obj, lab):
         return True
     return len(lab.split()) >= 2 and _phrase_in(lab, txt)
@@ -792,8 +800,17 @@ async def judge_item(memory_path: Path, path: Path, fm: dict, body: str, llm_fn)
 # --------------------------------------------------------------------------- move 1: answered in conversation
 
 
+def _agent_note(source, turn) -> bool:
+    """An unmarked block of an episode an agent saved through a tool door (``ask_sources.AGENT_SOURCES``): the
+    evidence reader calls it the person's (R4), but it is the agent's note — never the person's own words here."""
+    from api.services import ask_sources
+
+    return str(source or "") in ask_sources.AGENT_SOURCES and getattr(turn, "marker", None) is None
+
+
 def person_turns(episode: dict) -> list[str]:
-    """The person's own turns of one conversation (``kind: user``), never an agent's or someone else's."""
+    """The person's own turns of one conversation (``kind: user``), never an agent's, someone else's, or an agent's
+    saved note (an unmarked block of an episode a tool door wrote)."""
     from api.services import evidence
 
     text = str(episode.get("content") or "")
@@ -801,7 +818,7 @@ def person_turns(episode: dict) -> list[str]:
         return []
     out = []
     for t in evidence.turns(text, override=episode.get("evidence_kind"), gaps=episode.get("gaps") or ()):
-        if t.role == "user":
+        if t.role == "user" and not _agent_note(episode.get("source"), t):
             line = text[t.content_start:t.end].strip()
             if line:
                 out.append(line)
@@ -923,6 +940,26 @@ def _question_prompt(memory_path: Path, fm: dict, lines: list[str], *,
     return prompt, choices
 
 
+def persons_span(memory_path: Path, episode_id: str, quote: str):
+    """The person's own words, located: ``evidence.verify`` exact → whitespace → case (never fuzzy), in a ``user``
+    turn that is not an agent's saved note. ``None`` otherwise."""
+    from api.services import evidence
+
+    if not quote or not episode_id:
+        return None
+    ev = evidence.verify(memory_path, episode_id, quote)
+    if ev is None or not ev.is_span() or ev.kind != "user":
+        return None
+    doc = evidence.source_document(Path(memory_path), episode_id)
+    if doc is None:
+        return None
+    fm, text = doc
+    for t in evidence.turns(text, override=fm.get("evidence_kind"), gaps=evidence.gap_ranges(fm, text)):
+        if t.start <= ev.start < t.end:
+            return None if _agent_note(fm.get("source"), t) else ev
+    return None
+
+
 def _answer_decision(memory_path: Path, path: Path, fm: dict, reply: dict, choices: dict[str, str],
                      episode_id: str, model: str | None, rule: str) -> tuple[Decision | None, str]:
     """The engine's reply → a decision, only on the person's own words located exactly in ``episode_id``."""
@@ -931,9 +968,8 @@ def _answer_decision(memory_path: Path, path: Path, fm: dict, reply: dict, choic
     if reply.get("answered") is not True:
         return None, "not_answered"
     quote = inbox_ask_gate.clean_quote(str(reply.get("quote") or ""), limit=evidence.MAX_QUOTE_CHARS)
-    ev = evidence.verify(memory_path, episode_id, quote) if quote and episode_id else None
-    if ev is None or not ev.is_span() or ev.kind != "user":
-        return None, "quote_not_found"   # spans, never a guess
+    if persons_span(memory_path, episode_id, quote) is None:
+        return None, "quote_not_found"   # the person's own spans, never a guess, never an agent's note
     kind = str(fm.get("kind") or "")
     words = {"episode": episode_id, "quote": quote}
     if kind in ("conflict", "followup"):
@@ -1003,11 +1039,15 @@ def _record_floor(memory_path: Path, fm: dict) -> str | None:
     else:
         tied = label_claims(options, claims, str(fm.get("predicate") or "description"))
         sides = [tied.get(str(o.get("key")), []) for o in options]
+    def dated(day: str) -> bool:
+        return bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", day or ""))
+
     days = [_said(c) for side in sides for c in side]
     if any(not side for side in sides):
         days.append(str(fm.get("created_date") or "")[:10])
-    days = [d for d in days if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d or "")]
-    return max(days) if days else None
+    if not days or not all(dated(d) for d in days):
+        return None   # a side with no date: "newer than every side" cannot be told, so the record never answers it
+    return max(days)
 
 
 def _record_cited(memory_path: Path, fm: dict) -> set[str]:
@@ -1112,7 +1152,7 @@ def record_lines(memory_path: Path, fm: dict) -> list[tuple[str, str, str]]:
             continue
         ep_fm, text = doc
         lines = person_turns({"content": text, "evidence_kind": ep_fm.get("evidence_kind"),
-                              "gaps": evidence.gap_ranges(ep_fm, text)})
+                              "gaps": evidence.gap_ranges(ep_fm, text), "source": ep_fm.get("source")})
         about = [ln for ln in lines if inbox_ask_gate.named_in(full, ln)]
         if not about or not inbox_ask_gate.relevant(full, "\n".join(about))[0]:
             continue
@@ -1231,8 +1271,8 @@ async def apply(memory_path: Path, settings, d: Decision, *, engine: str | None 
     fm, body = dict(parsed.frontmatter), parsed.body
     span = None
     if d.quote:
-        ev = evidence.verify(memory_path, d.quote["episode"], d.quote["quote"])
-        if not ev.is_span() or ev.kind != "user":
+        ev = persons_span(memory_path, d.quote["episode"], d.quote["quote"])
+        if ev is None:
             return False
         span = {"episode": ev.episode, "start": ev.start, "end": ev.end}
     authors = [d.model] if d.model else ["cicada"]
@@ -1512,12 +1552,12 @@ def _tidy_file(memory_path: Path) -> Path:
 def _save_tidy(memory_path: Path, report: Report, *, running: bool, started_at: str | None) -> None:
     import json
 
-    body = {"running": running, "started_at": started_at, "updated_at": _now(), "report": report.as_dict()}
     try:
+        body = {"running": running, "started_at": started_at, "updated_at": _now(), "report": report.as_dict()}
         path = _tidy_file(memory_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         _write_bytes(path, json.dumps(body, sort_keys=True).encode("utf-8"))
-    except OSError as exc:   # the counts are a convenience: never a reason to stop settling
+    except Exception as exc:  # noqa: BLE001 — the counts are a convenience: never a reason to stop settling
         logger.info(f"inbox tidy: report not saved ({type(exc).__name__})")
 
 
@@ -1581,13 +1621,13 @@ async def tidy(memory_path: Path, settings, *, dry_run: bool = True, limit: int 
     report = Report()
     started_at = _now()
     progress = None
-    if not dry_run:
-        _TIDY.update(running=True, report=report, bank=os.path.realpath(memory_path), started_at=started_at)
-        _save_tidy(memory_path, report, running=True, started_at=started_at)
-
-        def progress() -> None:
-            _save_tidy(memory_path, report, running=True, started_at=started_at)
     try:
+        if not dry_run:
+            _TIDY.update(running=True, report=report, bank=os.path.realpath(memory_path), started_at=started_at)
+            _save_tidy(memory_path, report, running=True, started_at=started_at)
+
+            def progress() -> None:
+                _save_tidy(memory_path, report, running=True, started_at=started_at)
         if not _inbox(memory_path).is_dir():
             return report.as_dict()
         if not dry_run and not (memory_path / ".git").exists():

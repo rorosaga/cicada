@@ -1649,6 +1649,22 @@ def _user_claim_id(entity_id: str, predicate: str, obj: str, today: str) -> str:
     return f"clm_{today}_user_{digest}"
 
 
+def said_on(today: str) -> str:
+    """The day an answer is TRUE from: today for the person's own answer; for Sleep's reading of the person's words,
+    the day they said them (ruling 29, "read on time": when a conversation is read never changes the result —
+    a March statement read in October is still March's). ``recorded_at`` stays today either way."""
+    if not inbox_actor.is_sleep():
+        return today
+    day = _said_day(_ANSWER_QUOTE.get())
+    return day.isoformat() if day is not None else today
+
+
+def _close_on(old, *, by, day: str) -> None:
+    """``_close_today`` at ``day`` — never before the claim's own ``valid_from`` (a statement older than the belief
+    it answers closes it no earlier than the belief began)."""
+    _close_today(old, by=by, today=max(day, str(old.valid_from or "")[:10] or day))
+
+
 def _close_today(old, *, by, today: str) -> None:
     """Bi-temporally close ``old`` in favor of ``by``, but with ``valid_to``
     pinned to *today* (the resolution date) rather than ``_close``'s default of
@@ -1792,13 +1808,13 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
                 continue
             if loser.valid_to is None:
                 if winner is not None:
-                    _close_today(loser, by=winner, today=today)
+                    _close_on(loser, by=winner, day=said_on(today))
                 else:
                     # The pick is claim-less, so there is no claim to point
                     # the supersession at — but the losing values are still
                     # no longer current, and leaving them open would just
                     # regenerate this question next cycle.
-                    loser.valid_to = today
+                    loser.valid_to = max(said_on(today), str(loser.valid_from or "")[:10] or today)
                 line = (
                     f"entities/{entity_id}.md: updated "
                     f"(source: {path.stem}, trigger: inbox/conflict/resolved)"
@@ -1841,13 +1857,13 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
                     origin=inbox_actor.claim_origin(),
                     authored_by=inbox_actor.claim_author(),
                     confidence=0.95,
-                    valid_from=today,
+                    valid_from=said_on(today),
                     recorded_at=today,
                     evidence=_quote_spans(settings.memory_path),
                 )
                 for loser in option_claims:
                     if loser.valid_to is None:
-                        _close_today(loser, by=new_claim, today=today)
+                        _close_on(loser, by=new_claim, day=said_on(today))
                 claim_list.append(new_claim)
                 sentence = (
                     f"{predicates.predicate_phrase(predicate, name, answer)} "
@@ -2458,7 +2474,7 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                     subject=entity_id, predicate=predicate, object=answer_text, object_kind="literal",
                     observer=_owner_observer(settings, settings.memory_path), source_trust="user_stated",
                     origin=inbox_actor.claim_origin(), authored_by=inbox_actor.claim_author(), confidence=0.95,
-                    valid_from=today, recorded_at=today,
+                    valid_from=said_on(today), recorded_at=today,
                     evidence=_quote_spans(settings.memory_path),
                 ))
                 body = write_claims(body, claims)

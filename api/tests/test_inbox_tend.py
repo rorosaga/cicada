@@ -372,7 +372,7 @@ def test_the_persons_own_words_answer_a_question(memory):
     assert report.settled == 1 and report.read == 1
     assert "Noted." not in calls[0]          # only the person's turns reach the prompt
     claims = {c.id: c for c in parse_claims((memory / "entities" / "tool-a.md").read_text())}
-    assert claims["clm_g"].valid_to == TODAY
+    assert claims["clm_g"].valid_to == "2026-10-01"     # closed the day the person said it, never the day read
     spans = [e for e in claims["clm_h"].evidence if e.episode == "ep_2026-10-01_001"]
     assert spans and spans[0].kind == "user" and spans[0].is_span()
     message = _head_message(memory)
@@ -972,6 +972,8 @@ def test_a_clarification_answered_by_an_old_conversation_settles_from_the_whole_
     claim = [c for c in parse_claims((memory / "entities" / "example-gadget.md").read_text())
              if c.object == "a soldering station"][0]
     assert claim.origin == "inbox-tend" and claim.authored_by == "fake-model"
+    # Read on time: true from the day the person said it; only `recorded_at` is today.
+    assert claim.valid_from == "2026-03-02" and claim.recorded_at == TODAY
     span = claim.evidence[0]
     assert span.kind == "user" and span.is_span() and span.episode == "ep_2026-03-02_001"
     row = web_settle.list_settled(memory)[0]
@@ -1018,7 +1020,7 @@ def test_a_conflict_is_answered_on_the_record_only_by_words_newer_than_both_side
     assert out["by_kind"]["conflict"] == {"said_on_record": 1}
     assert "I read somewhere" not in calls[1] and "[C1, 2026-09-20]" in calls[1]   # older words never answer it
     claims = {c.id: c for c in parse_claims((memory / "entities" / "tool-a.md").read_text())}
-    assert claims["clm_g"].valid_to == TODAY
+    assert claims["clm_g"].valid_to == "2026-09-20"    # read on time: the day it was said
     assert any(e.episode == "ep_2026-09-20_001" and e.kind == "user" for e in claims["clm_h"].evidence)
 
 
@@ -1114,3 +1116,61 @@ def test_sleep_status_says_when_a_tidy_runs(memory, monkeypatch):
     monkeypatch.setitem(inbox_tend._TIDY, "running", True)
     wire = run(sleep_router.sleep_status(settings=settings)).model_dump(mode="json")
     assert wire["inboxTidy"] is True and wire["writing"] is False   # busy for an updater, never a write window
+
+
+# --------------------------------------------------------------------------- review of #338 (2026-10-17)
+
+
+def test_an_agents_saved_note_never_answers_as_the_persons_own_words(memory):
+    _gadget_clarification(memory)
+    _episode(memory, "ep_2026-03-02_001", "Example Gadget is the soldering station on the desk, per my reading.",
+             source="mcp", origin="mcp")
+    _commit(memory)
+    calls: list = []
+    fn = _fake({"answered": True, "answer": "a soldering station", "conversation": "C1",
+                "quote": "Example Gadget is the soldering station on the desk"}, calls)
+    out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=False, judge=True, llm_fn=fn))
+    assert out["settled"] == 0 and calls == []             # the note never even reaches the engine
+    assert (memory / "inbox" / "inbox-001.md").exists()
+    # And were it quoted anyway, the quote is not the person's: an agent's note is never located as their words.
+    assert inbox_tend.persons_span(memory, "ep_2026-03-02_001", "Example Gadget is the soldering station") is None
+    # Move 1 too: a batch's saved note is no answer.
+    ep = {"id": "ep_2026-03-02_001", "source": "mcp",
+          "content": markdown_parser.parse(memory / "episodes" / "ep_2026-03-02_001.md").body}
+    assert inbox_tend.person_turns(ep) == []
+
+
+def test_a_negated_label_is_never_tied_to_the_value_it_denies():
+    claim = Claim(id="clm_a", text="Tool A runs on alpha-os", subject="x", predicate="runs-on", object="alpha-os")
+    assert inbox_tend.label_matches("Runs on alpha-os", claim)
+    assert not inbox_tend.label_matches("No longer on alpha-os", claim)
+    assert not inbox_tend.label_matches("Doesn't run on alpha-os", claim)
+
+
+def test_a_conflict_side_with_no_date_is_never_answered_from_the_record(memory):
+    claims = [Claim(id="clm_h", text="Tool A is an agent harness", subject="tool-a", predicate="description",
+                    object="agent harness"),
+              Claim(id="clm_g", text="Tool A is an AI agent", subject="tool-a", predicate="description",
+                    object="AI agent", valid_from="2026-05-01")]
+    _entity(memory, "tool-a", type="tool", name="Tool A", status="active",
+            body=write_claims("## Summary\nA tool.\n", claims))
+    path = _item(memory, "inbox-001", kind="conflict", entity_id="tool-a", entity_name="Tool A",
+                 predicate="description", options=[{"key": "a", "label": "agent harness", "claim_id": "clm_h"},
+                                                   {"key": "b", "label": "AI agent", "claim_id": "clm_g"}])
+    assert inbox_tend._record_floor(memory, markdown_parser.parse(path).frontmatter) is None
+
+
+def test_a_tidy_that_fails_never_stays_busy(memory, monkeypatch):
+    _item(memory, "inbox-001", kind="conflict", entity_id="merged-away")
+    _commit(memory)
+    monkeypatch.setattr(inbox_tend, "_TIDY", {"running": False, "report": None, "task": None, "bank": None,
+                                              "started_at": None})
+
+    def boom(*_a, **_k):
+        raise RuntimeError("disk")
+
+    monkeypatch.setattr(inbox_tend, "_tidy_file", boom)          # the counts file cannot even be named
+    monkeypatch.setattr(inbox_tend, "_inbox", boom)               # and the run itself fails
+    with pytest.raises(RuntimeError):
+        run(inbox_tend.tidy(memory, _Settings(memory), dry_run=False))
+    assert not inbox_tend.tidy_running()
