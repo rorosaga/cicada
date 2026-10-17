@@ -44,6 +44,13 @@ to the page's open claims by folded text (:func:`label_matches` — no model, ne
 labels with those claims and their evidence lines. A side with nothing on the record is never picked, and the
 owner's-words rail (:func:`may_close`) holds over the tied claims.
 
+**Part 3 (2026-10-17): passing names and label conflicts.** A clarification about a name with no page, said in one
+conversation and only in passing there, with nothing tying it to the person's life, closes as mentioned in passing
+(:func:`passing_rule`, ``in_passing``: the person's own dismiss, nothing written about who it is). A label-only
+conflict is settled by the person's newest plain statement of one side (:func:`newest_words`, ``newest_words``,
+engine-free, located exactly in their own turn, dated that day); when that is not mechanical the conflict judge reads
+the same lines (:func:`label_lines`) and may rest its pick on one under the same guards.
+
 **One writer.** A settle goes through ``inbox_service``'s own resolver — the one the person's answer uses — with
 ``inbox_actor`` saying Sleep answered: the commit is Sleep's (``Inbox settled by Sleep``, trigger
 ``inbox/<kind>/settled:<label>``, the judging model or ``cicada`` as author), the G113 ledger row says ``by: sleep``
@@ -92,10 +99,12 @@ RULES: dict[str, str] = {
     "judged_archive": "Nothing suggests it is still live",
     "judged_keep": "It is still live",
     "said_on_record": "You already said this in an earlier conversation",
+    "in_passing": "Mentioned once in passing; nothing ties it to your life",
+    "newest_words": "Your newest words on it say this",
 }
 #: The rules that read only the bank: re-run inside each settle, which goes ahead only when they still agree.
 ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "one_off", "newest_evidence",
-                         "multi_valued"})
+                         "multi_valued", "in_passing", "newest_words"})
 #: The judged kinds (owner, 2026-10-17: the inbox keeps only what genuinely needs the person).
 JUDGED_KINDS = frozenset({"merge_suggestion", "conflict", "normalization", "decay"})
 MAX_REASON_CHARS = 160
@@ -478,9 +487,18 @@ def _conflict_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision 
     options = [o for o in inbox_questions.normalize_options(fm.get("options"))
                if str(o.get("key")) not in _GENERIC_KEYS]
     if len(options) >= 2 and not any(o.get("claim_id") for o in options):
-        # An older format: labels only. Only the judge reads it, and only when a label is tied to the record.
+        # An older format: labels only. The person's newest words on it settle it when they are mechanical (part 3);
+        # otherwise only the judge reads it, and only when a label is tied to the record or the person's lines say one.
+        guard = _guard(memory_path, page[0].stem)   # what the read rests on, as read
         tied = label_claims(options, list(claims.values()), predicate)
-        return (None, "needs_judge") if any(tied.values()) else (None, "labels_not_on_record")
+        lines = label_lines(memory_path, fm, options)
+        d, why = newest_words(memory_path, item_id, options, tied, lines)
+        if d is not None:
+            d.guard = guard
+            return d, ""
+        if any(tied.values()) or why == "needs_judge":
+            return None, "needs_judge"
+        return None, "labels_not_on_record"
     picked = []
     for o in options:
         claim = claims.get(str(o.get("claim_id") or ""))
@@ -524,7 +542,338 @@ def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
         return _decay_rule(memory_path, item_id, fm)
     if kind == "conflict":
         return _conflict_rule(memory_path, item_id, fm)
+    if kind == "clarification":
+        return passing_rule(memory_path, item_id, fm)
     return None, "needs_person"
+
+
+# --------------------------------------------------------------------------- part 3: names said in passing
+
+
+#: Part 3 (owner, 2026-10-17: "little things that are honestly not that big of a deal"). "Who or what is <name>?"
+#: about a name with no page, said in ONE conversation and only in passing there — at most this many of its exchanges
+#: name it (`promotion.exchanges`, the promotion rule's own unit; more than three would have made a page) — closes as
+#: mentioned in passing: nothing is written about who or what it is, the name stays where it was (the index, the
+#: pending store), and a later conversation that names it again may raise the question anew.
+PASSING_EXCHANGES = 2
+#: The person's own things whenever they come up: never assumed in passing.
+_OWN_TYPES = frozenset({"project", "skill", "deadline"})
+#: A name of these types (or of none) is assumed only when no line of the person's own that names it is about
+#: themselves ("I met …", "my …", "we moved to …"); a song, a tool or a term may be.
+_SELF_CHECKED_TYPES = frozenset({"person", "company", "location", ""})
+_FIRST_PERSON = frozenset("""i me my mine myself we us our ours ourselves yo mi mis conmigo nosotros nosotras nuestro
+nuestra nuestros nuestras""".split())
+#: Relation words beyond `role_people.ROLE_WORDS` (which names one relation each): a group of the person's.
+_GROUP_RELATIONS = frozenset("""family familia parents padres relative relatives pariente parientes in-laws
+suegro suegra""".split())
+#: Episodes the lexical index is asked for, per spelling, to tell one conversation from several.
+PASSING_SEARCH = 8
+
+
+def _relation_words() -> frozenset[str]:
+    from api.services import role_people, text_fold
+
+    out = set()
+    for word in role_people.ROLE_WORDS | _GROUP_RELATIONS:
+        folded = text_fold.words(word)
+        if len(folded) == 1:
+            out.add(folded[0])
+    return frozenset(out)
+
+
+def _sentences(text: str) -> list[str]:
+    return [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+", text or "") if s.strip()]
+
+
+def _words(text: str) -> list[str]:
+    from api.services import text_fold
+
+    return text_fold.words(text)
+
+
+def _relation_in(sentence: str, own: set[str]) -> bool:
+    """A relation word in the sentence — never one of the name's own words ("Example Teacher" is no teacher)."""
+    rel = _relation_words()
+    return any((w in rel or (w.endswith("s") and w[:-1] in rel)) and w not in own for w in _words(sentence))
+
+
+def _about_self(sentence: str) -> bool:
+    return bool(set(_words(sentence)) & _FIRST_PERSON)
+
+
+_CODE_SHAPE = re.compile(r"\w_\w|::|\(\)|->|^[$@]\w|^--?\w|^`.+`$")
+
+
+def code_identifier(name: str) -> bool:
+    """A name shaped like code — one token with an underscore, ``::``, ``()``, ``->``, a sigil or a flag dash, or
+    wrapped in backticks (``<field_id>``, ``parse_rows()``). Never a capitalised brand ("GitHub", "iPhone"): case
+    alone is never code."""
+    raw = str(name or "").strip()
+    return bool(raw) and not any(c.isspace() for c in raw.strip("`")) and bool(_CODE_SHAPE.search(raw))
+
+
+#: ``realpath → (entities stamp, folded names and aliases of every page)``: one listing per change of the folder.
+_PAGE_NAMES: dict[str, tuple[Any, frozenset[str]]] = {}
+
+
+def _page_names(memory_path: Path) -> frozenset[str]:
+    key = os.path.realpath(memory_path)
+    stamp = bank_index.dir_stamp(Path(memory_path), "entities")
+    hit = _PAGE_NAMES.get(key)
+    if hit is not None and hit[0] == stamp:
+        return hit[1]
+    names: set[str] = set()
+    for entry in bank_index.files(Path(memory_path), "entities"):
+        names |= _names(entry.frontmatter or {})
+        names.add(_fold_name(entry.stem.replace("-", " ")))
+    out = frozenset(n for n in names if n)
+    _PAGE_NAMES[key] = (stamp, out)
+    return out
+
+
+def _owner_pages_name(memory_path: Path, full: dict) -> bool:
+    from api.services import inbox_ask_gate
+
+    for entry in bank_index.files(Path(memory_path), "entities"):
+        if _is_owner_page(entry.frontmatter):
+            try:
+                if inbox_ask_gate.named_in(full, entry.body()):
+                    return True
+            except Exception:  # noqa: BLE001 — an unreadable owner page: nothing is assumed
+                return True
+    return False
+
+
+def _from_messages(ep_fm: dict) -> bool:
+    from api.services import messages_source
+
+    return messages_source.SOURCE in (str(ep_fm.get("source") or ""), str(ep_fm.get("origin") or ""))
+
+
+def _search(memory_path: Path, names: list[str], per_name: int) -> list[str] | None:
+    """The bank's conversations the lexical index finds by these spellings (words only, no model); ``None`` when the
+    index cannot be read."""
+    from api.services import search_index, search_service
+
+    try:
+        # Read fresh, inline: a conversation this batch just committed counts ("said again" must never be missed).
+        search_index.ensure_fresh(memory_path, wait=True, max_age_s=0)
+    except Exception as exc:  # noqa: BLE001
+        logger.info(f"inbox tend: record index unavailable ({type(exc).__name__})")
+    out: list[str] = []
+    for name in names[:3]:
+        try:
+            hits = search_service.search(memory_path, name, kinds=("episode",), mode="prefix",
+                                         per_kind=per_name).results
+        except Exception as exc:  # noqa: BLE001 — a derived index never fails a settle
+            logger.info(f"inbox tend: record search unavailable ({type(exc).__name__})")
+            return None
+        out += [str(h.episode_id or h.id) for h in hits if str(h.episode_id or h.id or "").startswith("ep_")]
+    return out
+
+
+def _other_conversations(memory_path: Path, full: dict, source: str) -> list[str] | None:
+    """The bank's other conversations whose own text names it (each confirmed on its text, whole words); ``None``
+    when the index cannot be read — nothing is assumed then."""
+    from api.services import evidence, inbox_ask_gate
+
+    found = _search(memory_path, inbox_ask_gate.names(full), PASSING_SEARCH)
+    if found is None:
+        return None
+    out = []
+    for eid in dict.fromkeys(found):
+        if eid != source and inbox_ask_gate.named_in(full, evidence.source_text(Path(memory_path), eid) or ""):
+            out.append(eid)
+    return out
+
+
+def passing_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | None, str]:
+    """``in_passing`` for a clarification about a name said once in passing, or ``(None, why it stays)``. Engine-free:
+    the item, the raising conversation's own text, the page names and the lexical index. Never a name with a page,
+    one of the person's own things (a project, a skill, a deadline), a relation question ("What's the name of your
+    <relation>?"), a name said beside a relation word ("my friend …", "your sister …"), a person, company or place in
+    a line of the person's about themselves ("I met …"), a name on the owner's page, or anything from a Messages chat.
+    A code identifier (``<field_id>``) is assumed however many conversations name it: who or what it is is the code."""
+    from api.services import evidence, inbox_ask_gate, promotion, role_people
+
+    if (str(fm.get("asks") or "") or fm.get("owner_role")
+            or str(fm.get("uncertainty_type") or "") == role_people.UNCERTAINTY):
+        return None, "needs_person"   # a relation's name: only the person knows it
+    name = str(fm.get("entity_name") or fm.get("entity_mention") or "").strip()
+    if not name:
+        return None, "needs_person"
+    typ = _type_of({}, str(fm.get("suggested_classification") or ""))
+    if typ in _OWN_TYPES:
+        return None, "own_type"
+    full = inbox_ask_gate.with_page_names(memory_path, fm)
+    entity_id = str(fm.get("entity_id") or "")
+    if _page(memory_path, entity_id) is not None or set(inbox_ask_gate.names(full)) & _page_names(memory_path):
+        return None, "needs_person"   # a page holds it: what it is belongs to the page (and move 3)
+    source = str(fm.get("source_episode") or "")
+    doc = evidence.source_document(Path(memory_path), source) if source else None
+    if doc is None:
+        return None, "unmeasured"     # the conversation that raised it cannot be read: nothing to judge "passing" by
+    ep_fm, text = doc
+    if _from_messages(ep_fm):
+        return None, "messages"
+    if not inbox_ask_gate.named_in(full, text):
+        return None, "unmeasured"
+    gaps = evidence.gap_ranges(ep_fm, text)
+    said: list[tuple[bool, str]] = []   # (the person's own line, the sentence) for every sentence that names it
+    for t in evidence.turns(text, override=ep_fm.get("evidence_kind"), gaps=gaps):
+        mine = t.role in promotion.PERSON_KINDS and not _agent_note(ep_fm.get("source"), t)
+        said += [(mine, s) for s in _sentences(text[t.content_start:t.end]) if inbox_ask_gate.named_in(full, s)]
+    own = {w for n in inbox_ask_gate.names(full) for w in n.split()}
+    if any(_relation_in(s, own) for _mine, s in said):
+        return None, "relation"
+    code = code_identifier(name) and typ != "person"
+    if typ in _SELF_CHECKED_TYPES and not code and any(mine and _about_self(s) for mine, s in said):
+        return None, "about_self"
+    if _owner_pages_name(memory_path, full):
+        return None, "owners_page"
+    if not code:
+        units = promotion.exchanges(text, override=ep_fm.get("evidence_kind"), gaps=gaps)
+        if sum(1 for _p, whole in units if inbox_ask_gate.named_in(full, whole)) > PASSING_EXCHANGES:
+            return None, "said_more"
+    others = _other_conversations(memory_path, full, source)
+    if others is None:
+        return None, "unmeasured"
+    if others and not code:
+        return None, "named_again"
+    for eid in others:
+        doc = evidence.source_document(Path(memory_path), eid)
+        if doc is not None and _from_messages(doc[0]):
+            return None, "messages"
+    return Decision(item_id, "clarification", "in_passing", {"action": "dismiss"},
+                    answer="Code, mentioned in passing" if code else "Mentioned in passing",
+                    guard=_guard(memory_path, entity_id)), ""
+
+
+# --------------------------------------------------------------------------- part 3: a label conflict's newest words
+
+
+#: A sentence carrying one of these is not a plain statement of one side ("no longer on …", "from … to …",
+#: "should we use … or …"): never read mechanically — the judge may read it.
+_HEDGES = _NEGATIONS | frozenset("""instead rather off from than vs versus or either whether maybe might perhaps
+considering thinking consider should could would if unless until planning plan""".split())
+#: How many conversations naming the subject are read for a label conflict, newest first.
+MAX_LABEL_EPISODES = 24
+
+
+@dataclass
+class LabelLine:
+    day: str
+    episode: str
+    order: int
+    text: str
+    keys: frozenset
+    clear: bool
+
+
+def _label_phrases(options: list[dict], subject: set[str]) -> dict[str, list[str]]:
+    """``{option key: [folded phrases that state it]}`` — the whole label, and its distinctive run: from its first
+    word no other label has (not a stop word, not the subject's own name) through the words after it, three
+    characters or more ("Runs on alpha-os" vs "Runs on beta-os" → ``alpha os``)."""
+    from api.services import text_fold
+
+    words = {str(o.get("key")): _words(str(o.get("label") or "")) for o in options}
+    out: dict[str, list[str]] = {}
+    for key, ws in words.items():
+        phrases = [" ".join(ws)] if ws else []
+        others = set().union(*(set(w) for k, w in words.items() if k != key)) if len(words) > 1 else set()
+        start = next((i for i, w in enumerate(ws) if w not in others and w not in text_fold.SUBJECT_STOPWORDS
+                      and w not in subject), None)
+        if start is not None:
+            end = start + 1
+            while end < len(ws) and ws[end] not in text_fold.SUBJECT_STOPWORDS:
+                end += 1
+            core = " ".join(ws[start:end])
+            if len(core) >= 3 and core not in phrases:
+                phrases.append(core)
+        out[key] = [p for p in phrases if p]
+    return out
+
+
+def _phrases_for(subject_names: list[str], options: list[dict]) -> dict[str, list[str]]:
+    return _label_phrases(options, {w for n in subject_names for w in n.split()})
+
+
+def _states(phrases: dict[str, list[str]], folded: str) -> frozenset:
+    """The option keys a folded sentence states, by whole-word phrase."""
+    return frozenset(k for k, ps in phrases.items() if any(_phrase_in(p, folded) for p in ps))
+
+
+def label_lines(memory_path: Path, fm: dict, options: list[dict]) -> list[LabelLine]:
+    """Every sentence of the person's own (``kind: user`` turns, never an agent's saved note) that states a label of
+    this conflict, in a turn that names its subject — across the conversations the page points at, the one that
+    raised it and the ones the lexical index finds by the subject's spellings; newest conversation first, at most
+    :data:`MAX_LABEL_EPISODES`. Engine-free."""
+    from api.services import evidence, inbox_ask_gate
+
+    full = inbox_ask_gate.with_page_names(memory_path, fm)
+    subject_names = inbox_ask_gate.names(full)
+    phrases = _phrases_for(subject_names, options)
+    found = _search(memory_path, subject_names, RECORD_SEARCH_PER_NAME) or []
+    candidates = [e for e in dict.fromkeys([str(fm.get("source_episode") or ""), *_pointed(memory_path, fm), *found])
+                  if e and _day(e)]
+    candidates.sort(key=lambda e: (_day(e), e), reverse=True)
+    out: list[LabelLine] = []
+    for eid in candidates[:MAX_LABEL_EPISODES]:
+        doc = evidence.source_document(Path(memory_path), eid)
+        if doc is None:
+            continue
+        ep_fm, text = doc
+        turns = person_turns({"content": text, "evidence_kind": ep_fm.get("evidence_kind"),
+                              "gaps": evidence.gap_ranges(ep_fm, text), "source": ep_fm.get("source")})
+        order = 0
+        for turn in turns:
+            if not inbox_ask_gate.named_in(full, turn):
+                continue
+            for sentence in _sentences(turn):
+                order += 1
+                folded = " ".join(_words(sentence))
+                keys = _states(phrases, folded)
+                if not keys:
+                    continue
+                clear = (len(keys) == 1 and not sentence.rstrip().endswith("?")
+                         and not set(folded.split()) & _HEDGES and len(sentence) <= MAX_LINE_CHARS)
+                out.append(LabelLine(_day(eid), eid, order, sentence, keys, clear))
+    return out
+
+
+def _other_side_days(tied: dict[str, list], key: str) -> list[str]:
+    return [_said(c) for k, found in tied.items() if k != key for c in found]
+
+
+def newest_words(memory_path: Path, item_id: str, options: list[dict], tied: dict[str, list],
+                 lines: list[LabelLine]) -> tuple[Decision | None, str]:
+    """A label-only conflict settled by the person's newest words (part 3): the newest day any line of theirs states
+    a side has only plain statements of ONE side; an older line of theirs (or a belief tied to another label) states
+    another side, and nothing for another side is as new; the line is located exactly in their own turn. The winner
+    rests on the person's own words, so the owner's-words rail (:func:`may_close`) holds by construction.
+    ``needs_judge`` when lines exist but are not mechanical; ``labels_not_on_record`` when none state a side."""
+    from api.services import evidence
+
+    if not lines:
+        return None, "labels_not_on_record"
+    newest = max(ln.day for ln in lines)
+    top = sorted((ln for ln in lines if ln.day == newest), key=lambda ln: (ln.episode, ln.order))
+    keys = {k for ln in top for k in ln.keys}
+    if len(keys) != 1 or not all(ln.clear for ln in top):
+        return None, "needs_judge"
+    key = next(iter(keys))
+    other_days = _other_side_days(tied, key)
+    if any(not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d or "") or d >= newest for d in other_days):
+        return None, "needs_judge"   # a belief for another side is as new, or undated: not "newer than every other"
+    if not (any(ln.day < newest and ln.keys - {key} for ln in lines) or other_days):
+        return None, "needs_judge"   # nothing on the record ever said another side: no change to read
+    pick = top[-1]
+    quote = pick.text[:evidence.MAX_QUOTE_CHARS]
+    if persons_span(memory_path, pick.episode, quote) is None:
+        return None, "needs_judge"
+    label = next((str(o.get("label") or "") for o in options if str(o.get("key")) == key), "")
+    return Decision(item_id, "conflict", "newest_words", {"action": "resolve", "option_key": key}, answer=label,
+                    quote={"episode": pick.episode, "quote": quote}), ""
 
 
 # --------------------------------------------------------------------------- the engine
@@ -679,10 +1028,13 @@ async def judge_conflict(memory_path: Path, path: Path, fm: dict, llm_fn) -> tup
     options = [o for o in inbox_questions.normalize_options(fm.get("options")) if str(o.get("key")) not in _GENERIC_KEYS]
     label_only = len(options) >= 2 and not any(o.get("claim_id") for o in options)
     rows: list[tuple[str, str, list]] = []
+    words: list[LabelLine] = []
+    tied: dict[str, list] = {}
     if label_only:
         tied = label_claims(options, all_claims, str(fm.get("predicate") or "description"))
         rows = [(str(o.get("key")), str(o.get("label") or ""), tied.get(str(o.get("key")), [])) for o in options]
-        if not any(found for _, _, found in rows):
+        words = label_lines(memory_path, fm, options)
+        if not any(found for _, _, found in rows) and not words:
             return None, "labels_not_on_record"
     else:
         for o in options:
@@ -702,33 +1054,71 @@ async def judge_conflict(memory_path: Path, path: Path, fm: dict, llm_fn) -> tup
             continue
         lines.append(f"- option {key}: {label}")
         if not found:
-            lines.append("    (nothing on the record states this option)")
+            lines.append("    (no belief on the record states this option)")
         for claim in found[:MAX_EVIDENCE_LINES]:
             who = "the person's own words" if persons_words(claim) else "read from elsewhere"
             lines.append(f"    belief: {' '.join(str(claim.text or claim.object or '').split())[:240]} (first said "
                          f"{claim.valid_from or 'unknown'}, last said {_said(claim) or 'unknown'}; {who})")
             lines += [f"      {ln}" for ln in _evidence_lines(memory_path, claim)]
+    tags: dict[str, str] = {}
+    said_lines: list[str] = []
+    for ln in sorted(words, key=lambda w: (w.day, w.episode, w.order), reverse=True)[:MAX_RECORD_LINES]:
+        tag = next((t for t, e in tags.items() if e == ln.episode), None)
+        if tag is None:
+            tag = f"C{len(tags) + 1}"
+            tags[tag] = ln.episode
+        said_lines.append(f"[{tag}, {ln.day}] {' '.join(ln.text.split())}")
+    said = ("\n\nThe person's own words that name an option (newest first, each tagged with its conversation and "
+            "the day it was said):\n" + "\n".join(said_lines)) if said_lines else ""
+    reply = ("{\"verdict\":\"<option key>|unsure\",\"confidence\":0..1,\"reason\":\"<one short line>\""
+             + (",\"conversation\":\"<the tag of the person's line your pick rests on, or null>\","
+                "\"quote\":\"<that line's words, copied character for character, or null>\"" if said_lines else "")
+             + "}")
     prompt = (
         "A person's memory holds two or more beliefs that cannot all be true now. Decide which one the record "
         "supports, from the dates and what was said. Pick an option only when it is CLEARLY better supported or "
         "clearly the newer statement of something that changes over time. If the answer depends on something only "
         "the person can know (their plans, feelings, relationships, private life), or the record is thin, say unsure."
-        " Reply JSON {\"verdict\":\"<option key>|unsure\",\"confidence\":0..1,\"reason\":\"<one short line>\"}.\n\n"
+        f" Reply JSON {reply}.\n\n"
         f"Subject: {page[1].get('name') or page[0].stem} ({page[1].get('type') or 'unknown'})\n"
-        f"Question: {fm.get('question') or fm.get('title') or ''}\n" + "\n".join(lines)
+        f"Question: {fm.get('question') or fm.get('title') or ''}\n" + "\n".join(lines) + said
     )
     verdict, model = await _ask(llm_fn, prompt)
     word, confidence = _verdict(verdict)
     chosen = next((r for r in rows if r[0] == word), None)
     if chosen is None or confidence < JUDGE_THRESHOLD:
         return None, "unsure"
-    if not chosen[2]:
+    quote = _judged_words(memory_path, fm, options, tied, words, tags, verdict, chosen[0]) if said_lines else None
+    if not chosen[2] and quote is None:
         return None, "unsure"     # a side nothing on the record states is never picked
     losers = [c for k, _, found in rows if k != chosen[0] for c in found]
-    if not any(may_close(w, losers) for w in chosen[2]):
+    if quote is None and not any(may_close(w, losers) for w in chosen[2]):
         return None, "person"     # nothing but the person's own words overrules the person's own words
     return Decision(path.stem, "conflict", "judged_conflict", {"action": "resolve", "option_key": chosen[0]},
-                    answer=chosen[1], model=model, guard=guard, reason=_reason(verdict)), ""
+                    answer=chosen[1], quote=quote, model=model, guard=guard, reason=_reason(verdict)), ""
+
+
+def _judged_words(memory_path: Path, fm: dict, options: list[dict], tied: dict[str, list], words: list[LabelLine],
+                  tags: dict[str, str], verdict: dict, key: str) -> dict | None:
+    """The person's line a judged label pick rests on, ``{"episode", "quote"}``, or ``None``: the judge named one of
+    the tagged conversations, its words are located exactly in one of the person's own turns there, they state the
+    picked label, and nothing for another side is as new — no line of theirs stating only another side on that day
+    or later, no belief tied to another label said that day or later (or undated)."""
+    from api.services import evidence, inbox_ask_gate
+
+    eid = tags.get(str(verdict.get("conversation") or "").strip().strip("[]").split(",")[0].strip(), "")
+    quote = inbox_ask_gate.clean_quote(str(verdict.get("quote") or ""), limit=evidence.MAX_QUOTE_CHARS)
+    if not eid or not quote or persons_span(memory_path, eid, quote) is None:
+        return None
+    full = inbox_ask_gate.with_page_names(memory_path, fm)
+    if key not in _states(_phrases_for(inbox_ask_gate.names(full), options), " ".join(_words(quote))):
+        return None
+    day = _day(eid)
+    if any(ln.day >= day and key not in ln.keys for ln in words):
+        return None
+    if any(not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d or "") or d >= day for d in _other_side_days(tied, key)):
+        return None
+    return {"episode": eid, "quote": quote}
 
 
 async def judge_fold(memory_path: Path, path: Path, fm: dict, llm_fn) -> tuple[Decision | None, str]:
@@ -1082,23 +1472,7 @@ def _record_cited(memory_path: Path, fm: dict) -> set[str]:
 def _record_search(memory_path: Path, names: list[str]) -> list[str]:
     """The bank's conversations that say one of the subject's spellings, through the lexical index (the derived FTS
     index ``search_service`` serves recall and Ask from; words only — no embedding model inside Sleep)."""
-    from api.services import search_index, search_service
-
-    out: list[str] = []
-    try:
-        if search_index.ensure_fresh(memory_path) == "building":
-            search_index.ensure_fresh(memory_path, wait=True)   # as Ask does: a cold index is built, then read
-    except Exception as exc:  # noqa: BLE001
-        logger.info(f"inbox tend: record index unavailable ({type(exc).__name__})")
-    for name in names[:3]:
-        try:
-            hits = search_service.search(memory_path, name, kinds=("episode",), mode="prefix",
-                                         per_kind=RECORD_SEARCH_PER_NAME).results
-        except Exception as exc:  # noqa: BLE001 — a derived index never fails a settle; the graph's pointers remain
-            logger.info(f"inbox tend: record search unavailable ({type(exc).__name__})")
-            return out
-        out += [str(h.episode_id or h.id) for h in hits if str(h.episode_id or h.id or "").startswith("ep_")]
-    return out
+    return _search(memory_path, names, RECORD_SEARCH_PER_NAME) or []
 
 
 def _pointed(memory_path: Path, fm: dict) -> list[str]:
