@@ -1964,6 +1964,9 @@ class SearchResponse(CamelModel):
 class AskRequest(CamelModel):
     query: str
     top_k: int = Field(default=6, ge=1, le=50)
+    # The conversations' own words behind the claims shown (`ask_sources`); False for a caller that may not see the
+    # person's verbatim words — a remote connector without `sources` (G135 R-R22).
+    source_words: bool = True
 
 
 class AskCitation(CamelModel):

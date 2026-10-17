@@ -77,9 +77,14 @@ def extraction_schema(*, strict: bool) -> dict:
         {"source": text, "target": text, "label": text, "evidence_quote": quote},
         ["source", "target", "label"], strict=strict,
     )
+    value = _object(
+        {"entity": text, "attribute": text, "value": text, "evidence_quote": quote},
+        ["entity", "attribute", "value"], strict=strict,
+    )
     root = _object({
         "entities": {"type": "array", "items": entity},
         "relationships": {"type": "array", "items": relationship},
+        "values": {"type": "array", "items": value},
     }, ["entities", "relationships"], strict=strict)
     return root if strict else {"$schema": DRAFT_07, **root}
 

@@ -36,7 +36,8 @@ from loguru import logger
 
 from api.models.schemas import DecayClass
 from api.services import decay_policy, episode_time, inbox_questions, predicates
-from api.services.claims import HAPPENED, MILESTONE, Claim, Evidence, event_cardinality, is_event, is_record
+from api.services.claims import (HAPPENED, MILESTONE, Claim, Evidence, event_cardinality, is_event, is_record,
+                                 is_value_claim, same_value_attribute)
 
 # A cardinality oracle: predicate -> True (single-valued) | False (multi-valued).
 CardinalityFn = Callable[[str], bool]
@@ -658,13 +659,16 @@ def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinalit
             slot.append(new)
             audit.append({"action": "after_departure", "kept_closed": new.id})
             return new
+    value = is_value_claim(new)
+    if value:
+        _adopt_value_attribute(new, slot)
     same_key_open = [c for c in slot if open_(c) and K(c) == K(new)]
 
     if not same_key_open:
         slot.append(_stamp_new(new, settings, today=today))
         return new
 
-    single = cardinality_fn(new.predicate)
+    single = value or cardinality_fn(new.predicate)
 
     if not single:
         # Multi-valued: coexist unless an exact-object duplicate exists.
@@ -682,6 +686,15 @@ def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinalit
         return existing
 
     action = trust_decision(new, existing)
+    if value and action == "CONFLICT_NUDGE" and _date_key(new.valid_from) < _date_key(existing.valid_from):
+        # A value said BEFORE the one the page holds (a drain reads conversations in any order): it is history,
+        # closed by the newer value — never a question, and never lost.
+        _stamp_new(new, settings, today=today)
+        new.valid_to = existing.valid_from
+        new.superseded_by = existing.id
+        slot.append(new)
+        audit.append({"action": "superseded_on_arrival", "kept": existing.id, "closed": new.id})
+        return new
     if action == "SUPERSEDE":
         _close(existing, by=_stamp_new(new, settings, today=today))
         slot.append(new)
@@ -699,6 +712,19 @@ def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinalit
         slot.append(_stamp_new(new, settings, today=today))
         return new
     return None
+
+
+def _adopt_value_attribute(new: Claim, slot: list[Claim]) -> None:
+    """A stated value takes the predicate of the open value on its slot that names the same attribute in other words
+    (``claims.same_value_attribute``) — the extractor reads each conversation alone, so "korean restaurants tried"
+    and "number of korean restaurants tried" are one belief, and only one key lets the newer close the older."""
+    if any(open_(c) and K(c) == K(new) for c in slot):
+        return
+    match = next((c for c in slot if open_(c) and is_value_claim(c) and c.subject == new.subject
+                  and c.context == new.context and c.observer == new.observer
+                  and same_value_attribute(c.predicate, new.predicate)), None)
+    if match is not None:
+        new.predicate = match.predicate
 
 
 def _place_ending(new: Claim, ending: "predicates.Ending", slot: list[Claim], settings, today: str,

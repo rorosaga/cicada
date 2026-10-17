@@ -337,7 +337,8 @@ def ask(ctx: ToolContext, query: str, top_k: int = 6) -> str:
     try:
         import urllib.request
 
-        payload = json.dumps({"query": query, "topK": top_k}).encode("utf-8")
+        # R-R22: the conversations' own words go to the answering model only for a caller that may see them.
+        payload = json.dumps({"query": query, "topK": top_k, "sourceWords": bool(ctx.raw_excerpts)}).encode("utf-8")
         req = urllib.request.Request(
             f"{ctx.backend_url}/ask",
             data=payload,
@@ -370,7 +371,8 @@ def ask(ctx: ToolContext, query: str, top_k: int = 6) -> str:
         try:
             from api.services import ask_service
 
-            result = ask_service.answer_query(ctx.memory_path(), query, top_k=top_k)
+            result = ask_service.answer_query(ctx.memory_path(), query, top_k=top_k,
+                                              source_words=bool(ctx.raw_excerpts))
         except Exception as e:
             return f"Error: could not answer ({type(e).__name__}: {e})"
 
