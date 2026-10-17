@@ -225,3 +225,54 @@ The assistant-side detail (a shift rota the assistant wrote) was not consolidate
 4. **Run the rest before trusting any number:** all 152 scorable LoCoMo questions of a conversation, then 2–3 more
    conversations; the owner's own `answer_eval` file. Validate the `sonnet` judge on ~50 hand-graded answers (the
    2026-09-24 note's pitfall 9) — the Penfield audit shows a lenient J judge can pass vague answers.
+
+---
+
+## Answer depth: closing the gap (2026-10-17, branch `feat/answer-depth`)
+
+**What changed.** (1) Ask reads a page item by item (`section_provenance.scan`: an article paragraph, a key fact, a
+history line), the items sharing the question's words first, each tagged with the day it was said; the old reader took
+a blank-line paragraph at a time, so a whole `## Key Facts` list was one paragraph clipped to 600 characters. (2) Ask
+follows the shown claims' evidence spans and the shown items' provenance into the cited episodes and puts those turns
+in front of the model as **WHAT WAS SAID** — dated, each naming who spoke, read at answer time, never stored
+(`api/services/ask_sources.py`). (3) Stage 1 returns stated values (`values[]`) as single-valued `value-of-<attribute>`
+literal claims, so a later count or record supersedes the earlier one in Stage 3. Details: `docs/architecture/mcp.md`
+("Ask reads pages item by item") and `docs/architecture/storage.md` ("A value that changes").
+
+**Why the knowledge updates did not supersede.** Neither miss had a claim to supersede: Stage 1 emitted only
+entity-to-entity relationships (`entities_to_claims`, `object_kind: node`), so "tried three" and "tried four" were two
+undated key-fact lines and the Ask reader cut the second one off. Bi-temporal supersession was never reached; and an
+unseen predicate is multi-valued by design (an uncertain cardinality never auto-closes), so even a literal claim would
+have coexisted. Stated values fix both: the `value-of-` shape is single-valued by itself.
+
+**Runs** — same model (`sonnet` for Sleep, answer and judge; `haiku` disambiguation), same judges, same slices
+(first N per category, deterministic), e5-small search, the Claude plan. "Ask only" re-answers on the banks the
+earlier Sleep built (only the answer changed); "full" re-runs Sleep with the new extraction too. conv-49 was not looked
+at while tuning (held out).
+
+| Slice | Path | Before (dev) | After: Ask only | After: full | Control (full context) |
+|---|---|---|---|---|---|
+| LoCoMo conv-26, 40 Qs | J | 52.5 (re-run 50.0) | **82.5** | 75.0 | 95.0 |
+| — single-hop / multi-hop / temporal / open-domain | | 30 / 50 / 60 / 70 | 80 / 80 / 80 / 90 | 80 / 50 / 80 / 90 | 100 / 90 / 90 / 100 |
+| LoCoMo **conv-49** (held out), 40 Qs | J | 52.5 | **85.0** | **92.5** | 92.5 |
+| — single-hop / multi-hop / temporal / open-domain | | 40 / 60 / 40 / 70 | 90 / 70 / 90 / 90 | 100 / 90 / 90 / 90 | 100 / 100 / 80 / 90 |
+| LongMemEval oracle, 20 Qs | accuracy | 70.0 | **85.0** | 80.0 | 85.0 |
+| — knowledge-update / multi-session / abstention | | 0/2 / 0/2 / 7/8 | 2/2 / 0/2 / 7/8 | 2/2 / 0/2 / 6/8 | 2/2 / 0/2 / 7/8 |
+| Ask answer latency (incl. the model call) | p50 / p95 s | conv-26 4.85 / 6.76 · conv-49 4.90 / 6.92 · LME 4.70 / 7.03 | conv-26 5.71 / 7.28 · conv-49 6.74 / 11.93¹ · LME 5.11 / 11.0 | conv-26 5.09 / 8.82 · conv-49 5.50 / 9.66 · LME 5.83 / 11.48 | — |
+
+¹ run beside another benchmark process on the same plan. Context build without the model (conv-26 bank, warm,
+40 questions): p50 15 → 20 ms, p95 20 → 27 ms; prompt p50 7.7k → 9.6k characters (max 9.3k → 17.8k).
+
+**Reading it.** 40 questions is about ±15 points at 95%; Sleep is not deterministic run to run. The Ask change alone
+closes most of the gap on both conversations (+30 and +32.5 J) and all of LongMemEval's (70 → 85 = the control), with
+no confident wrong answers added. The full run's spread (conv-26 75.0, conv-49 92.5) is Sleep variance: on conv-26 the
+fresh Sleep left "known these friends for 4 years" off the page and no shown line pointed at that turn. The one new
+LongMemEval abstention miss in the full run answered "none … no recorded visits in December" to a question whose gold
+is "0, you did not mention any"; the abstention judge rejected it. Knowledge updates: the full run wrote
+`value-of-korean-restaurants-tried-recently` 3 (closed 2023-09-30, superseded) → 4 (current); the 5K record landed as a
+value on two different pages (the race's and the owner's), which no key can join — Ask still answered it from the
+dated lines. Plan calls: ~750 for all the runs above (answers, judges and four Sleeps; the conv-49 baseline 188 of them).
+
+**Still open.** Multi-session counting (0/2 everywhere, the control too); list questions that need every mention
+across sessions (multi-hop "what activities …"); a value split across two pages; the judge validation on ~50 hand
+grades; larger slices.

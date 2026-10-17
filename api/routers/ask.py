@@ -56,6 +56,7 @@ async def ask(
         request.top_k,
         llm_fn=llm_fn,
         no_engine=engine_readiness.key_missing(resolved),
+        source_words=request.source_words,
     )
     return AskResponse(
         answer=result["answer"],

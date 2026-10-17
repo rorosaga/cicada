@@ -743,6 +743,38 @@ owner's page is never a source of links (it links to everyone) nor a linked pers
 synthesis rule 7 says what `also called` and `LINKED PEOPLE` are. `_claim_context` takes an id map (a scan per claim
 was ~1.7 s on a 6,008-claim page). `api/tests/test_ask_hub_context.py` reproduces both at hub scale.
 
+**Ask reads pages item by item, and the conversations' own words behind them (G148/G118, 2026-10-17).** LoCoMo conv-26
+through Cicada scored J 52.5 against 95.0 for the same reader given the raw conversation; 17 of 19 wrong answers said
+memory lacked a detail that was either on the page past a cut or in the conversation a shown claim points at. Two
+causes: prose was taken a blank-line paragraph at a time, so a page's whole `## Key Facts` list was one paragraph
+clipped to 600 characters; and Ask never read an episode although every claim carries evidence spans into one. Now:
+- **Items, dated.** A page is read as `section_provenance.scan` cuts it — an article paragraph, a key fact, a history
+  line, a link — in page order under its section label: the article's lead (or, with no article, the first items up to
+  700 characters), then the items sharing the most of the question's words, within 4,800 characters for the first three
+  pages (half after). The question's words exclude the retrieved pages' own names ("Caroline" is on every line of
+  Caroline's page). Each item carries `[said <day>]`, the days of the conversations its provenance cites (the latest
+  two); open questions are never read as memory. Claims go in without their empty optional fields (the validity
+  envelope — id, current, validity, valid_from, valid_to, text — always whole), within 3,000 characters.
+- **WHAT WAS SAID** (`ask_sources`). The shown claims and items that share the question's words point at episodes:
+  a claim's evidence span (asserted; a `stale` span points at its episode only, never at other words) or an item's
+  provenance (the episode). At most 8 episodes, ranked by how many question words the pointing claim or item shares;
+  inside them, a turn is kept when it holds a pointed span or shares the question's words (minus scaffolding such as
+  "how long"), at most 10 excerpts and 6,000 characters, each turn clipped around the span or first match, a short
+  reply with the turn it answers and a question with its reply, then sorted oldest first. Every line names its day and
+  who spoke from the episode's own turn markers — the person (by the owner page's name), the assistant, or another
+  person in a message conversation; an unmarked episode an agent saved through a tool door (`source` mcp/cli) is "an
+  agent's saved note", never the person — and Cicada's gap line is never one. Read at answer time from bank files only
+  (`evidence.source_document`): nothing is written, stored on a claim, indexed or logged, the question included.
+- **Rules 8–9.** Only the person's own words are the person's statements (another speaker's are theirs); when two
+  dated lines, claims or quotes give different values of something that changes, the later is current and the
+  earlier history; a quote is not newer for being quoted and never overrides a current claim or a later line (the
+  owner's eval, 2026-10-17: 19 → 31 of 56 right, but contradictions 1 → 4, older excerpts against a newer page fact);
+  an undated line and a dated quote that disagree are both given; a relative time is resolved against its day.
+- **The `sources` scope.** `answer_query(source_words=...)`, `POST /ask` `sourceWords` (default true): `cicada_ask`
+  passes `ctx.raw_excerpts`, so a remote connector without `sources` gets no conversation words in the prompt (R-R22).
+- **Cost.** On the benchmark bank the context build is ~20 ms (p95 ~30 ms, warm); the prompt grew from ~6–8k to
+  ~8–17k characters. `api/tests/test_ask_source_words.py`.
+
 **Ask grounding (G93/G118, 2026-10-07).** `/ask` and `cicada_ask` use the same
 validity-aware context. Each structured claim sent to synthesis has its id,
 observer/trust, current flag, start, close, stated end and successor; historical

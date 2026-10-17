@@ -103,7 +103,7 @@ def server(tmp_path, monkeypatch):
 
     monkeypatch.setattr(vector_index, "SqliteVecIndexer", _NoIndex)
     monkeypatch.setattr(urllib.request, "urlopen", _offline)
-    monkeypatch.setattr(ask_service, "answer_query", lambda memory_path, query, top_k=6: {
+    monkeypatch.setattr(ask_service, "answer_query", lambda memory_path, query, top_k=6, **_kw: {
         "answer": "Alpha uses sqlite-vec.", "confidence": 0.8,
         "citations": [{"entity_id": "alpha-project", "entity_name": "Alpha Project",
                        "source_episodes": ["ep_2026-01-05_001"]}],

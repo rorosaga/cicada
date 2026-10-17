@@ -50,6 +50,14 @@ Output valid JSON with this exact structure:
       "label": "specific relationship verb phrase",
       "evidence_quote": "the exact words from the transcript this relationship rests on (verbatim, at most 240 characters)"
     }
+  ],
+  "values": [
+    {
+      "entity": "Entity Name",
+      "attribute": "what is measured, in a few plain words",
+      "value": "the value as stated",
+      "evidence_quote": "the exact words from the transcript that state the value (verbatim, at most 240 characters)"
+    }
   ]
 }
 
@@ -136,6 +144,16 @@ TIME (every conversation is written up as of its own date):
 - Keep every explicit date the conversation states exactly as stated: the date something happened is not the date
   of the conversation, and one never replaces the other.
 - history_entries: the date the event happened when it is stated, otherwise the conversation's date.
+
+VALUES (values[]) — a value of something about an entity that a later conversation can replace with a new one:
+a count ("korean restaurants tried": "4"), a time, score or personal best ("charity 5k personal best": "25:50"),
+a price or amount, a size, a version or plan in use, a current status. One entry per value the conversation
+states as true at the time; when it states two for the same thing, the later one.
+- attribute: the thing measured, in plain lowercase words, without the entity's name and without the value — the
+  words someone would use for it again next time ("personal best 5k time", not "new record set last spring").
+- value: as stated, with its unit ("25:50", "4", "$1,200 a month"). Never a guess, never a list (several things
+  held at once are relationships), never the date something happened (that is history).
+- evidence_quote: as for relationships below. The value stays in key_facts too.
 
 EXTRACTION GUIDELINES:
 - The agent's own runtime (its working directory, platform, shell, git status, the date of the session)
@@ -603,6 +621,7 @@ async def extract(
                 # Extract from all chunks and merge results
                 all_entities = []
                 all_relationships = []
+                all_values = []
                 for ci, chunk in enumerate(chunks):
                     note = _gap_note(gaps, *spans[ci])
                     parsed = await _extract_chunk(
@@ -623,6 +642,11 @@ async def extract(
                         evidence.attach_relationship_evidence(rel, ep_id, content, window=spans[ci], kind_override=episode.get("evidence_kind"),
                                                               gaps=gaps)
                     all_relationships.extend(chunk_rels)
+                    chunk_values = [v for v in (parsed.get("values", []) or []) if isinstance(v, dict)]
+                    for value in chunk_values:
+                        evidence.attach_relationship_evidence(value, ep_id, content, window=spans[ci],
+                                                              kind_override=episode.get("evidence_kind"), gaps=gaps)
+                    all_values.extend(chunk_values)
 
                 ep_origin = episode.get("origin", "unknown")
                 # The promotion rule's "more than 3 exchanges" and "the person's own words", counted on the
@@ -663,6 +687,13 @@ async def extract(
                     rel.pop("observer", None)
                     if their_observer and _only_their_words(rel):
                         rel["observer"] = their_observer
+                for value in all_values:
+                    value["source_episode"] = ep_id
+                    value["source_episode_timestamp"] = episode.get("timestamp")
+                    value["origin"] = ep_origin
+                    value.pop("observer", None)
+                    if their_observer and _only_their_words(value):
+                        value["observer"] = their_observer
 
                 results[i] = {
                     "episode_id": ep_id,
@@ -670,6 +701,7 @@ async def extract(
                     "origin": ep_origin,
                     "entities": all_entities,
                     "relationships": all_relationships,
+                    "values": all_values,
                 }
                 # G179: the other side of a message conversation is its own page, of its own type — the entity
                 # that names them is marked (and typed) here, from the episode's own record (`correspondents`).
@@ -872,7 +904,49 @@ def entities_to_claims(
             setattr(claim, "predicate_raw", raw_label)
             by_id[cid] = claim
             claims.append(claim)
+        for value in extraction.get("values", []) or []:
+            claim = _value_claim(value, episode_id, origin, to_id)
+            if claim is None:
+                continue
+            if claim.id in by_id:
+                first = by_id[claim.id]
+                for ev in claim.evidence:
+                    if ev not in first.evidence:
+                        first.evidence.append(ev)
+                continue
+            by_id[claim.id] = claim
+            claims.append(claim)
     return claims
+
+
+def _value_claim(value: dict, episode_id: str, origin: str, to_id: Callable[[str], str]):
+    """One stated value (``values[]``, 2026-10-17) as a literal claim on its entity: predicate
+    ``claims.value_predicate(attribute)``, object the value as stated. A value predicate is single-valued
+    (``claims.is_value_claim``), so a later value of the same thing supersedes the earlier one in Stage 3 instead of
+    sitting beside it in prose — the LongMemEval knowledge-update misses of 2026-10-17 had no claim to supersede."""
+    from api.services.claims import Claim, Evidence, value_predicate
+
+    entity = str(value.get("entity", "") or "").strip()
+    attribute = str(value.get("attribute", "") or "").strip()
+    stated = " ".join(str(value.get("value", "") or "").split())
+    predicate = value_predicate(attribute)
+    if not entity or not predicate or not stated or len(stated) > 120:
+        return None
+    subject = str(value.get("source_page") or "") or to_id(entity)
+    if not subject:
+        return None
+    ep = str(value.get("source_episode", "") or episode_id)
+    valid_from = _claim_date(value.get("source_episode_timestamp"), ep)
+    raw_observer = str(value.get("observer") or "")
+    return Claim(
+        id=_emit_claim_id(subject, predicate, stated, valid_from),
+        text=f"{entity} {attribute}: {stated}",
+        subject=subject, predicate=predicate, object=stated, object_kind="literal",
+        observer=raw_observer if raw_observer.startswith("external:") else "agent",
+        context="general", epistemic="explicit", source_trust="agent_extracted", confidence=0.6,
+        valid_from=valid_from or None, source_episodes=[ep] if ep else [], origin=origin,
+        evidence=[Evidence.from_dict(e) for e in (value.get("evidence") or []) if isinstance(e, dict)],
+    )
 
 
 def _slug_label(label: str) -> str:

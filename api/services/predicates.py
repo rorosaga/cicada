@@ -384,6 +384,10 @@ def cardinality(memory_path: Path | None, predicate: str) -> str:
     # they existed must still never ask for a winner between two happenings.
     if event_cardinality(predicate):
         return "multi"
+    from api.services.claims import is_value_predicate
+
+    if is_value_predicate(predicate):
+        return "single"     # a stated value: one at a time, by its own shape (claims.VALUE_PREFIX)
     p = (predicate or "").strip().lower()
     if not p:
         return "unknown"
