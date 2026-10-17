@@ -1298,7 +1298,16 @@ async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
     entity_id = parsed.frontmatter.get("entity_id", "")
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
 
-    if request.action == "keep_active" and entity_path.exists():
+    if request.action == "keep_active" and entity_path.exists() and inbox_actor.is_sleep():
+        # Ruling 29 (review 2026-10-17): Sleep's "still live" only stops the page reading as fading. It invents no
+        # mention (age counts from when it was said, never from when it was read), reopens no claim and lifts no
+        # confidence — that is the person's "still true" (G113 3c), theirs alone.
+        entity = markdown_parser.parse(entity_path)
+        entity.frontmatter["status"] = "active"
+        markdown_parser.write(entity_path, entity.frontmatter, entity.body)
+        path.unlink()
+
+    elif request.action == "keep_active" and entity_path.exists():
         entity = markdown_parser.parse(entity_path)
         entity.frontmatter["status"] = "active"
         entity.frontmatter["confidence"] = max(
@@ -1309,10 +1318,9 @@ async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
         # as one more week the page came up, so a page kept once fades a little
         # slower than one never answered for. Dates, not a counter:
         # `decay_policy.mention_weeks` unions them with the page's episode weeks.
-        if not inbox_actor.is_sleep():   # ruling 29: Sleep's "still live" is not the person's keep
-            entity.frontmatter[decay_policy.KEPT_ON_KEY] = decay_policy.record_keep(
-                entity.frontmatter, str(date.today())
-            )
+        entity.frontmatter[decay_policy.KEPT_ON_KEY] = decay_policy.record_keep(
+            entity.frontmatter, str(date.today())
+        )
         # G113 slice 3c: "still true" is a verdict on the CLAIM the decay nudge
         # was raised over, not just the entity's summary confidence — without
         # this, a `keep_active` left the claim itself faded (and, if decay had

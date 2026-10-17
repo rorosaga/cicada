@@ -775,3 +775,91 @@ def test_the_judges_never_see_the_owners_page_or_a_persons_identity(memory):
     out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=True, judge=True,
                               llm_fn=_judge_fn({"verdict": "a", "confidence": 0.99}, before=calls.append)))
     assert calls == [] and out["by_kind"] == {"conflict": {"ask:person": 1}}
+
+
+# --------------------------------------------------------------------------- re-review (2026-10-17)
+
+
+def test_sleeps_keep_invents_no_mention_reopens_no_claim_and_lifts_no_confidence(memory):
+    faded = Claim(id="clm_faded", text="Example Gadget runs on alpha-os", subject="example-gadget", predicate="runs-on",
+                  object="alpha-os", confidence=0.2, valid_from="2026-05-01", recorded_at="2026-05-01",
+                  valid_to="2026-09-01")
+    _entity(memory, "example-gadget", type="tool", last_referenced="2026-06-01", confidence=0.3,
+            source_episodes=["ep_2026-05-01_001", "ep_2026-06-01_001"],
+            body=write_claims("## Summary\nA gadget.\n", [faded]))
+    _item(memory, "inbox-001", kind="decay", entity_id="example-gadget", claim_id="clm_faded")
+    _commit(memory)
+    out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=False, judge=True,
+                              llm_fn=_judge_fn({"verdict": "keep", "confidence": 0.95, "reason": "in use"})))
+    assert out["by_kind"]["decay"] == {"judged_keep": 1}
+    parsed = markdown_parser.parse(memory / "entities" / "example-gadget.md")
+    assert parsed.frontmatter["status"] == "active"
+    assert str(parsed.frontmatter["last_referenced"]) == "2026-06-01", "no mention dated today"
+    assert float(parsed.frontmatter["confidence"]) == 0.3
+    claim = parse_claims(parsed.body)[0]
+    assert (claim.valid_to, claim.confidence) == ("2026-09-01", 0.2), "the person's 'still true' is theirs alone"
+
+
+def _words_conflict(memory: Path, *, newer_says_it_too: bool = False, newer_tracked: bool = False) -> None:
+    ep_old = _episode(memory, "ep_2026-05-01_001", "user: Tool A runs on alpha-os for me.")["content"]
+    ep_new = _episode(memory, "ep_2026-08-03_001", "user: Tool A moved to beta-os last week.")["content"]
+    from api.services import evidence as ev
+
+    def span(eid, text, quote):
+        hit = ev.locate(text, quote)
+        return Evidence(episode=eid, start=hit[0], end=hit[1], kind="user", hash=ev.body_hash(text))
+
+    older = Claim(id="clm_old", text="Tool A runs on alpha-os", subject="tool-a", predicate="runs-on",
+                  object="alpha-os", valid_from="2026-05-01", recorded_at="2026-05-01",
+                  evidence=[span("ep_2026-05-01_001", ep_old, "Tool A runs on alpha-os")])
+    newer = Claim(id="clm_new", text="Tool A runs on beta-os", subject="tool-a", predicate="runs-on",
+                  object="beta-os", valid_from="2026-08-03", recorded_at="2026-08-03",
+                  evidence=([span("ep_2026-08-03_001", ep_new, "Tool A moved to beta-os")] if newer_says_it_too
+                            else [Evidence(episode="ep_2026-08-03_002", kind="assistant")]),
+                  origin="source-refresh" if newer_tracked else None)
+    _entity(memory, "tool-a", type="tool", status="active", body=write_claims("## Summary\nA tool.\n", [older, newer]))
+    _item(memory, "inbox-001", kind="conflict", entity_id="tool-a", predicate="runs-on",
+          options=[{"key": "a", "label": "alpha-os", "claim_id": "clm_old"},
+                   {"key": "b", "label": "beta-os", "claim_id": "clm_new"}])
+    _commit(memory)
+
+
+def test_the_persons_own_words_are_never_closed_by_a_newer_claim_that_is_not(memory):
+    _words_conflict(memory)
+    assert _decide(memory, "inbox-001") == (None, "needs_judge")   # no rule closes the person's words
+    out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=True, judge=True,
+                              llm_fn=_judge_fn({"verdict": "b", "confidence": 0.99})))
+    assert out["by_kind"]["conflict"] == {"ask:person": 1}, "nor does the judge"
+
+
+def test_newer_words_of_the_person_or_a_tracked_source_may_settle_it(tmp_path, memory):
+    _words_conflict(memory, newer_says_it_too=True)
+    d, _ = _decide(memory, "inbox-001")
+    assert d.rule == "newest_evidence" and d.request["option_key"] == "b"
+
+
+def test_a_tracked_sources_dated_recheck_still_wins(memory):
+    _words_conflict(memory, newer_tracked=True)
+    d, _ = _decide(memory, "inbox-001")
+    assert d.rule == "newest_evidence"   # ruling 26: the newest evidence wins
+
+
+def test_a_settle_holds_the_page_lock_from_its_first_read_through_its_commit(memory, monkeypatch):
+    from api.services import inbox_service, page_lock
+
+    _entity(memory, "tool-a", type="tool", name="Tool A", status="active")
+    _entity(memory, "tool-a-2", type="tool", name="tool a")
+    _item(memory, "inbox-001", kind="merge_suggestion", entity_id="tool-a-2", entity_name="tool a",
+          merge_target_hint="tool-a", suggested_classification="tool")
+    _commit(memory)
+    seen: list[bool] = []
+    real = inbox_service._resolve_clarification
+
+    async def watching(*a, **k):
+        seen.append(page_lock.held(memory))
+        return await real(*a, **k)
+
+    monkeypatch.setattr(inbox_service, "_resolve_clarification", watching)
+    out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=False))
+    assert out["settled"] == 1 and seen == [True]
+    assert not (memory / "entities" / "tool-a-2.md").exists()

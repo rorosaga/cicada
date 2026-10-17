@@ -964,7 +964,8 @@ A whole row moves to DONE only after its remaining implementation and required a
     person"):** behind `judge=true` / once per drain, the person's chosen engine (plan included) also reads conflicts
     (each option's dates and evidence lines; one clearly better supported or newer, never a machine claim over the
     person's own), label folds (same meaning folds; a changed meaning stays) and fading concept/tool/media/company pages
-    (still live → kept, never recorded as the person's keep; clearly passing → archived); each judged settle shows the
+    (still live → only marked active: no mention dated today, no claim reopened, no confidence lifted; clearly passing →
+    archived); each judged settle shows the
     judge's one-line reason. **Never assumed:** who a person is or merging two people (only the
     person's own words on the record), a proposed page edit, a follow-up, anything a rule cannot read — those stay.
     **One writer:** the person's own resolvers, committed as Sleep's (`Inbox settled by Sleep`, `inbox/<kind>/settled:`,
@@ -973,7 +974,9 @@ A whole row moves to DONE only after its remaining implementation and required a
     and the person's undos apart from the person's verdicts (`sleepSettles`). **Engine:** the batch's own (ruling 4
     unchanged); the tidy uses the person's chosen engine, their Claude plan included; a plan limit pauses, never fails.
     **Review (same day):** a "same" on two existing pages folds the duplicate's page into the target (undo brings it
-    back); each question is decided and settled at once and only while every page it read is unchanged.
+    back); each question is decided and settled at once and only while every page it read is unchanged, under the page
+    lock. Re-review: a claim resting on the person's own words (their inbox answer or a span in their own turn) is closed
+    only by one that does too or by a tracked source's dated re-check (ruling 26).
     **Why.** On the owner's bank (2026-10-17, counts only): 913 pending question files and 0 answered — 661 duplicate
     questions, 70 conflicts, 69 clarifications, 63 decay, 46 predicate folds, 3 proposed edits, 1 follow-up — served as
     239 rows after grouping, over 4,693 pages (2,221 archived, 823 decaying, 1,649 active). The first engine-free dry

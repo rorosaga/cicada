@@ -301,7 +301,6 @@ def _normalization_rule(item_id: str, fm: dict) -> tuple[Decision | None, str]:
 
 def _decay_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | None, str]:
     from api.services import decay_policy
-    from api.services.claim_reconciler import is_human
     from api.services.claims import MalformedClaimsBlockError, parse_claims
 
     page = _page(memory_path, str(fm.get("entity_id") or ""))
@@ -318,10 +317,28 @@ def _decay_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | N
     except MalformedClaimsBlockError:
         return None, "judgement"
     if (cls.value == "durable" or decay_policy.conversations(pfm.get("source_episodes")) > 1
-            or decay_policy.kept_dates(pfm) or any(is_human(c) for c in claims)):
+            or decay_policy.kept_dates(pfm) or any(persons_words(c) for c in claims)):
         return None, "needs_judge"   # the judge reads the page and its last mentions: still live?
     return Decision(item_id, "decay", "one_off", {"action": "archive"}, answer="Archived",
                     guard=_guard(memory_path, _path.stem)), ""
+
+
+def persons_words(claim) -> bool:
+    """Does the claim rest on the person's own words — their inbox answer (``is_human``), or a span in one of their
+    own turns (evidence kind ``user``)? Such a claim is closed only by another that does too (review 2026-10-17)."""
+    from api.services.claim_reconciler import is_human
+
+    return is_human(claim) or any(getattr(ev, "kind", "") == "user" and ev.is_span() for ev in claim.evidence or [])
+
+
+def may_close(winner, losers) -> bool:
+    """The owner's-words rail: the winner may close the others only when no loser rests on the person's own words,
+    or the winner does too, or it is a tracked source's dated re-check (ruling 26: the newest evidence wins)."""
+    from api.services import source_refresh
+
+    if persons_words(winner) or str(winner.origin or "") == source_refresh.ORIGIN:
+        return True
+    return not any(persons_words(c) for c in losers)
 
 
 def _said(claim) -> str:
@@ -338,7 +355,6 @@ def _said(claim) -> str:
 
 def _conflict_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | None, str]:
     from api.services import predicates
-    from api.services.claim_reconciler import is_human
     from api.services.claims import MalformedClaimsBlockError, is_event, parse_claims
 
     predicate = str(fm.get("predicate") or "description")
@@ -373,8 +389,8 @@ def _conflict_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision 
     newest, rest = picked[0], picked[1:]
     if any(said >= newest[2] for _, _, said in rest):
         return None, "needs_judge"
-    if not is_human(newest[1]) and any(is_human(c) for _, c, _ in rest):
-        return None, "needs_judge"    # the judge may still keep the person's own statement; never close it
+    if not may_close(newest[1], [c for _, c, _ in rest]):
+        return None, "needs_judge"    # the judge may still keep the person's own words; nothing closes them
     return Decision(item_id, "conflict", "newest_evidence",
                     {"action": "resolve", "option_key": str(newest[0].get("key"))},
                     answer=str(newest[0].get("label") or ""), guard=_guard(memory_path, page[0].stem)), ""
@@ -541,8 +557,7 @@ def _mention_lines(memory_path: Path, fm: dict, limit: int = MAX_EVIDENCE_LINES)
 
 async def judge_conflict(memory_path: Path, path: Path, fm: dict, llm_fn) -> tuple[Decision | None, str]:
     """Owner, 2026-10-17: a conflict settles when the record clearly supports one side or one is clearly newer — never
-    a machine's reading over the person's own statement, never what only the person knows."""
-    from api.services.claim_reconciler import is_human
+    a machine's reading over the person's own words, never what only the person knows."""
     from api.services.claims import parse_claims
 
     page = _page(memory_path, str(fm.get("entity_id") or ""))
@@ -561,7 +576,7 @@ async def judge_conflict(memory_path: Path, path: Path, fm: dict, llm_fn) -> tup
         return None, "judgement"
     lines = []
     for key, label, claim in rows:
-        who = "the person's own statement" if is_human(claim) else "read from a conversation"
+        who = "the person's own words" if persons_words(claim) else "read from elsewhere"
         lines.append(f"- option {key}: {label} (first said {claim.valid_from or 'unknown'}, last said "
                      f"{_said(claim) or 'unknown'}; {who})")
         lines += [f"    {ln}" for ln in _evidence_lines(memory_path, claim)]
@@ -579,8 +594,8 @@ async def judge_conflict(memory_path: Path, path: Path, fm: dict, llm_fn) -> tup
     chosen = next((r for r in rows if r[0] == word), None)
     if chosen is None or confidence < JUDGE_THRESHOLD:
         return None, "unsure"
-    if not is_human(chosen[2]) and any(is_human(c) for k, _, c in rows if k != chosen[0]):
-        return None, "person"     # a machine's reading never overrules the person's own words
+    if not may_close(chosen[2], [c for k, _, c in rows if k != chosen[0]]):
+        return None, "person"     # nothing but the person's own words overrules the person's own words
     return Decision(path.stem, "conflict", "judged_conflict", {"action": "resolve", "option_key": chosen[0]},
                     answer=chosen[1], model=model, guard=guard, reason=_reason(verdict)), ""
 
@@ -872,9 +887,11 @@ async def apply(memory_path: Path, settings, d: Decision, *, engine: str | None 
     try:
         if d.request is None:
             await asyncio.to_thread(_retire, memory_path, path, fm, d, actor)
+        elif d.kind == "normalization":
+            # Its resolver holds the page lock itself, from re-reading the item through its own commit.
+            await inbox_service._resolve_admitted(d.item_id, InboxResolveRequest(**d.request), settings, None)
         else:
-            request = InboxResolveRequest(**d.request)
-            await inbox_service._resolve_admitted(d.item_id, request, settings, None)
+            await asyncio.to_thread(_resolve_page_locked, memory_path, d, settings)
     except Exception as exc:  # noqa: BLE001 — one question that will not settle never stops the others
         logger.info(f"inbox tend: {d.item_id} left for the person ({type(exc).__name__})")
         if not actor.committed:
@@ -891,6 +908,18 @@ async def apply(memory_path: Path, settings, d: Decision, *, engine: str | None 
             bank_index.invalidate(memory_path)
         return False
     return True   # the resolver committed under Sleep's name (`git_service.commit_resolution_sync`)
+
+
+def _resolve_page_locked(memory_path: Path, d: Decision, settings) -> None:
+    """The resolver, from its first page read through its own commit, under the bank's page lock (as the dedup sweep
+    holds it across each merge): an agent's claim write admitted between the tidy's settles waits for it, and a merge
+    never overwrites what that write put on either page. Runs in a worker thread with its own loop — the lock is a
+    thread's, never held across the event loop's awaits; the actor and the person's words ride in the copied context."""
+    from api.models.schemas import InboxResolveRequest
+    from api.services import inbox_service, page_lock
+
+    with page_lock.page_lock(memory_path):
+        asyncio.run(inbox_service._resolve_admitted(d.item_id, InboxResolveRequest(**d.request), settings, None))
 
 
 def _retire(memory_path: Path, path: Path, fm: dict, d: Decision, actor: inbox_actor.Actor) -> None:
