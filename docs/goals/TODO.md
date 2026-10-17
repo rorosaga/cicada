@@ -28,8 +28,10 @@
   dated that day; the conflict judge reads those lines when it is not mechanical). The lexical index is read fresh
   inline (`ensure_fresh(wait=True, max_age_s=0)`) so a just-committed conversation counts. Synthetic backlog (27
   passing names, 15 that must stay, 10 label conflicts): before 0 settled / 52 asked; after 33 settled / 19 asked
-  (27 `in_passing`, 6 `newest_words`; stays: 8 about-self or relation, 4 named again, 3 Messages, 4 label conflicts
-  for the judge). Tests: `test_inbox_tend.py` (part 3 block). Pick up: the owner's `inbox_tidy_dry_run --judge`.
+  (27 `in_passing`, 6 `newest_words`; stays: 8 a person in the person's own words, 4 named again, 3 Messages, 4 label
+  conflicts for the judge). Review fixes (B1, B2): a person said in the person's own turn never closes; company/place
+  checks read the turn and its neighbours; the mechanical label path needs the subject in the stating sentence and no
+  negation/modal/avoidance on the raw text. Tests: `test_inbox_tend.py` (part 3 block). Pick up: the owner's `inbox_tidy_dry_run --judge`.
 - **2026-10-17 — Sleep tends the inbox, part 2 (ruling 29; branch `feat/inbox-sleep-2`, not merged).** What the
   first pass could not reach (owner's judged dry run: 55 conflicts never reached the judge, 69 clarifications never
   tried): label-only conflicts judged through the claims their labels are tied to (`label_matches`, folded words,
@@ -1011,9 +1013,12 @@ A whole row moves to DONE only after its remaining implementation and required a
     name with no page, said in one conversation and only in passing there (≤ 2 exchanges name it), with nothing tying
     it to the person's life, closes as mentioned in passing (`in_passing`: the person's own dismiss; nothing written
     about who it is; it may be asked again when another conversation names it); a code identifier however often it is
-    named. Never a relation question, a project/skill/deadline, a name beside a relation word, a person/company/place
-    in a sentence of the person's about themselves, a name on the owner's page or from a Messages chat. A label-only
-    conflict is settled by the person's newest words (`newest_words`): their newest plain statement of one side, newer
+    named. Never a relation question, a project/skill/deadline, a person said in any of the person's own turns
+    (review: a relation a sentence away, a dropped Spanish pronoun, or none at all — their words mean the person may
+    be in their life), a relation word or (for a company or place) first-person words in the naming turn or the turns
+    beside it, a name on the owner's page or from a Messages chat. A label-only
+    conflict is settled by the person's newest words (`newest_words`): their newest plain statement of one side (the
+    sentence names the subject; no negation, modal or avoidance, read on the raw text), newer
     than any line or belief for another side and with an older one on record, located exactly in their own turn,
     dated that day; when not mechanical the conflict judge reads those lines and may rest its pick on one, under the
     same guards. Measured (owner's bank after #338, counts only): 59 of 69 clarifications asked with nothing on the

@@ -558,14 +558,25 @@ def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
 PASSING_EXCHANGES = 2
 #: The person's own things whenever they come up: never assumed in passing.
 _OWN_TYPES = frozenset({"project", "skill", "deadline"})
-#: A name of these types (or of none) is assumed only when no line of the person's own that names it is about
-#: themselves ("I met …", "my …", "we moved to …"); a song, a tool or a term may be.
-_SELF_CHECKED_TYPES = frozenset({"person", "company", "location", ""})
+#: A person (or a name of no type) said in any of the person's own turns is never assumed in passing: their words
+#: about someone mean that someone may be in their life (review B1: "Alice Example came over yesterday. She is my
+#: sister.", "Hablé con Alice Example ayer", "Talked to Alice Example today" — a pronoun dropped, a relation one
+#: sentence away). Only a person named in an agent's text, or in a document's metadata, may be.
+_PERSON_LIKE = frozenset({"person", ""})
+#: A company or a place: the relation and first-person checks read the whole turn that names it and the turns beside
+#: it, never only the name's own sentence.
+_TURN_CHECKED = frozenset({"company", "location"})
+#: First-person words, and the Spanish verb forms that carry the person without a pronoun ("tengo cena en …").
 _FIRST_PERSON = frozenset("""i me my mine myself we us our ours ourselves yo mi mis conmigo nosotros nosotras nuestro
-nuestra nuestros nuestras""".split())
-#: Relation words beyond `role_people.ROLE_WORDS` (which names one relation each): a group of the person's.
+nuestra nuestros nuestras tengo voy fui estoy estuve hable trabajo trabaje vivo vivi quiero necesito hice tuve sali
+comi llegue visite conoci vamos fuimos estamos tenemos""".split())
+#: Relation words beyond `role_people.ROLE_WORDS` (which names one relation each): a group of the person's, and the
+#: relations the role list does not name (review B1: "your teammate …").
 _GROUP_RELATIONS = frozenset("""family familia parents padres relative relatives pariente parientes in-laws
-suegro suegra""".split())
+suegro suegra teammate bandmate labmate officemate cofounder buddy pal mate bro sis bestie partner coworker colleague
+boss roommate client intern stepbrother stepsister grandparent fiance girlfriend boyfriend colega socio socia
+companero companera jefe jefa novio novia amigo amiga primo prima tio tia cunado cunada sobrino sobrina nieto nieta
+vecino vecina compa pareja""".split())
 #: Episodes the lexical index is asked for, per spelling, to tell one conversation from several.
 PASSING_SEARCH = 8
 
@@ -691,8 +702,9 @@ def passing_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | 
     """``in_passing`` for a clarification about a name said once in passing, or ``(None, why it stays)``. Engine-free:
     the item, the raising conversation's own text, the page names and the lexical index. Never a name with a page,
     one of the person's own things (a project, a skill, a deadline), a relation question ("What's the name of your
-    <relation>?"), a name said beside a relation word ("my friend …", "your sister …"), a person, company or place in
-    a line of the person's about themselves ("I met …"), a name on the owner's page, or anything from a Messages chat.
+    <relation>?"), a person said in any of the person's own turns, a relation word in the turn that names a person,
+    company or place or the turns beside it ("your teammate …"), a company or place beside the person's words about
+    themselves, a name on the owner's page, or anything from a Messages chat.
     A code identifier (``<field_id>``) is assumed however many conversations name it: who or what it is is the code."""
     from api.services import evidence, inbox_ask_gate, promotion, role_people
 
@@ -719,16 +731,24 @@ def passing_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | 
     if not inbox_ask_gate.named_in(full, text):
         return None, "unmeasured"
     gaps = evidence.gap_ranges(ep_fm, text)
-    said: list[tuple[bool, str]] = []   # (the person's own line, the sentence) for every sentence that names it
+    turns: list[tuple[bool, str]] = []   # (the person's own turn, its words), in order
     for t in evidence.turns(text, override=ep_fm.get("evidence_kind"), gaps=gaps):
         mine = t.role in promotion.PERSON_KINDS and not _agent_note(ep_fm.get("source"), t)
-        said += [(mine, s) for s in _sentences(text[t.content_start:t.end]) if inbox_ask_gate.named_in(full, s)]
+        turns.append((mine, text[t.content_start:t.end]))
+    named = [i for i, (_mine, words) in enumerate(turns) if inbox_ask_gate.named_in(full, words)]
+    code = code_identifier(name) and typ not in _PERSON_LIKE
+    if typ in _PERSON_LIKE and any(turns[i][0] for i in named):
+        return None, "persons_words"   # someone the person named in their own words may be in their life
     own = {w for n in inbox_ask_gate.names(full) for w in n.split()}
-    if any(_relation_in(s, own) for _mine, s in said):
+    if typ in _PERSON_LIKE | _TURN_CHECKED:
+        window = sorted({j for i in named for j in (i - 1, i, i + 1) if 0 <= j < len(turns)})
+        if any(_relation_in(turns[j][1], own) for j in window):
+            return None, "relation"
+        if typ in _TURN_CHECKED and not code and any(turns[j][0] and _about_self(turns[j][1]) for j in window):
+            return None, "about_self"
+    elif any(_relation_in(s, own) for i in named for s in _sentences(turns[i][1])
+             if inbox_ask_gate.named_in(full, s)):
         return None, "relation"
-    code = code_identifier(name) and typ != "person"
-    if typ in _SELF_CHECKED_TYPES and not code and any(mine and _about_self(s) for mine, s in said):
-        return None, "about_self"
     if _owner_pages_name(memory_path, full):
         return None, "owners_page"
     if not code:
@@ -756,6 +776,17 @@ def passing_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | 
 #: "should we use … or …"): never read mechanically — the judge may read it.
 _HEDGES = _NEGATIONS | frozenset("""instead rather off from than vs versus or either whether maybe might perhaps
 considering thinking consider should could would if unless until planning plan""".split())
+#: Read on the RAW sentence (``text_fold.words`` splits "can't" into "can t"): a negation, a modal or an avoidance makes
+#: a sentence no plain statement of a side (review B2: "Alpha Project can't use cluster-b", "Avoid cluster-b for …").
+_RAW_UNCLEAR = re.compile(
+    r"(?i)(?<!\w)(?:\w+n't|can|cannot|could|would|should|must|may|might|will|not|never|no longer|no|none|stop\w*|"
+    r"avoid\w*|instead of|except|without|unless|nunca|ya no|sin|en vez de|en lugar de|evit\w*|dej\w* de|tampoco)(?!\w)")
+
+
+def _plain(sentence: str) -> bool:
+    return not _RAW_UNCLEAR.search(sentence.replace("\u2019", "'").replace("\u2018", "'"))
+
+
 #: How many conversations naming the subject are read for a label conflict, newest first.
 MAX_LABEL_EPISODES = 24
 
@@ -835,8 +866,11 @@ def label_lines(memory_path: Path, fm: dict, options: list[dict]) -> list[LabelL
                 keys = _states(phrases, folded)
                 if not keys:
                     continue
+                # Mechanical only when the sentence itself names the subject and says one side plainly (review B2:
+                # "Alpha Project is wrapped up. Beta Example moved to cluster-b." never settles Alpha).
                 clear = (len(keys) == 1 and not sentence.rstrip().endswith("?")
-                         and not set(folded.split()) & _HEDGES and len(sentence) <= MAX_LINE_CHARS)
+                         and not set(folded.split()) & _HEDGES and len(sentence) <= MAX_LINE_CHARS
+                         and inbox_ask_gate.named_in(full, sentence) and _plain(sentence))
                 out.append(LabelLine(_day(eid), eid, order, sentence, keys, clear))
     return out
 

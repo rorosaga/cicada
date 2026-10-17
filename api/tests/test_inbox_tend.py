@@ -1189,8 +1189,8 @@ def _passing(memory: Path, item_id: str, name: str, episode: str, body: str, *, 
 
 def test_a_name_said_once_in_passing_is_assumed_and_undo_brings_the_question_back(memory):
     _passing(memory, "inbox-001", "Example Striker", "ep_2026-06-01_001",
-             "user: Who takes better free kicks, Example Striker or the other one?\n\n"
-             "assistant: Both are strong; Example Striker has more goals from distance.")
+             "user: Who scores the most from distance this season?\n\n"
+             "assistant: Example Striker leads that table.")
     _commit(memory)
     d, why = _decide(memory, "inbox-001")
     assert why == "" and d.rule == "in_passing" and d.request == {"action": "dismiss"}
@@ -1208,16 +1208,17 @@ def test_a_name_said_once_in_passing_is_assumed_and_undo_brings_the_question_bac
 
 
 def test_a_passing_name_is_never_one_tied_to_the_persons_life(memory):
-    said = "user: Who takes better free kicks, Bob Example or the other one?"
+    said = "user: Who leads the scoring table?\n\nassistant: Bob Example does."
     cases = {
-        "relation": ("person", "user: My friend Bob Example came over to watch the match."),
-        "about_self": ("person", "user: I had lunch with Bob Example yesterday."),
+        "relation": ("person", "user: Gift ideas?\n\nassistant: A book, for your teammate Bob Example."),
+        "about_self": ("company", "user: Example Works called back.\n\nuser: Tengo entrevista el lunes."),
         "own_type": ("project", said),
         "messages": ("person", said),
     }
     for n, (why, (typ, body)) in enumerate(cases.items(), start=1):
         extra = {"episode_fm": {"source": "imessage", "origin": "imessage"}} if why == "messages" else {}
-        _passing(memory, f"inbox-00{n}", "Bob Example", f"ep_2026-06-0{n}_001", body, typ=typ, **extra)
+        name = "Example Works" if why == "about_self" else "Bob Example"
+        _passing(memory, f"inbox-00{n}", name, f"ep_2026-06-0{n}_001", body, typ=typ, **extra)
         _commit(memory)
         assert _decide(memory, f"inbox-00{n}") == (None, why), why
         (memory / "inbox" / f"inbox-00{n}.md").unlink()
@@ -1328,3 +1329,60 @@ def test_the_judge_reads_the_persons_lines_and_settles_only_on_a_located_newest_
     _commit(memory)
     out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=True, judge=True, llm_fn=fn))
     assert out["by_kind"]["conflict"] == {"ask:unsure": 1}
+
+
+def test_a_person_the_person_named_in_their_own_words_is_never_assumed_in_passing(memory):
+    """Review B1: a relation a sentence away, a pronoun Spanish drops, or none at all — their own words about someone
+    mean that someone may be in their life."""
+    bodies = [
+        "user: Alice Example came over yesterday. She is my sister.",
+        "user: Dinner with my cousin tonight\nAlice Example is bringing dessert",
+        "user: Hablé con Alice Example ayer sobre el viaje.",
+        "user: Mañana tengo cena con Alice Example.",
+        "user: Talked to Alice Example today about the move.",
+        "user: Alice Example came over for dinner.",
+    ]
+    for n, body in enumerate(bodies, start=1):
+        _passing(memory, f"inbox-00{n}", "Alice Example", f"ep_2026-06-0{n}_001", body)
+        _commit(memory)
+        assert _decide(memory, f"inbox-00{n}") == (None, "persons_words"), body
+        (memory / "inbox" / f"inbox-00{n}.md").unlink()
+    # Only an agent's words name them, with a relation the role list lacked: a relation still.
+    _passing(memory, "inbox-009", "Alice Example", "ep_2026-06-09_001",
+             "user: What should I get?\n\nassistant: A mug, for your teammate Alice Example.")
+    _commit(memory)
+    assert _decide(memory, "inbox-009") == (None, "relation")
+
+
+def test_a_company_or_place_reads_the_whole_turn_and_its_neighbours(memory):
+    _passing(memory, "inbox-001", "Example Works", "ep_2026-06-01_001",
+             "user: Example Works is hiring. My cousin applied there.", typ="company")
+    _passing(memory, "inbox-002", "Example Town", "ep_2026-06-02_001",
+             "user: Example Town looks nice in the photos.\n\nassistant: It does.\n\nuser: Fui el año pasado.",
+             typ="location")
+    _passing(memory, "inbox-003", "Example Cafe", "ep_2026-06-03_001",
+             "user: Example Cafe got a good review in the paper.", typ="company")
+    _commit(memory)
+    assert _decide(memory, "inbox-001") == (None, "relation")
+    assert _decide(memory, "inbox-002")[0].rule == "in_passing"          # "fui" two turns away: not beside it
+    assert _decide(memory, "inbox-003")[0].rule == "in_passing"
+
+
+def test_newest_words_never_settle_a_negated_avoided_or_other_subject_line(memory):
+    """Review B2: "can't" split into "can t" by the fold; a sentence about another subject in the same turn."""
+    _cluster_conflict(memory)
+    _episode(memory, "ep_2026-03-01_001", "user: Alpha Project runs on cluster-a.")
+    _commit(memory)
+    for newest in ("Alpha Project can't use cluster-b, the queue is full.",
+                   "Alpha Project can\u2019t use cluster-b, the queue is full.",
+                   "Alpha Project cannot run on cluster-b.",
+                   "Avoid cluster-b for Alpha Project, it keeps failing.",
+                   "Alpha Project ya no corre en cluster-b.",
+                   "Alpha Project is wrapped up for now. Beta Example moved to cluster-b."):
+        _episode(memory, "ep_2026-08-01_001", f"user: {newest}")
+        _commit(memory)
+        d, why = _decide(memory, "inbox-001")
+        assert d is None and why == "needs_judge", newest
+    _episode(memory, "ep_2026-08-01_001", "user: Alpha Project is on cluster-b now.")
+    _commit(memory)
+    assert _decide(memory, "inbox-001")[0].rule == "newest_words"
