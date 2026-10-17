@@ -8,6 +8,7 @@
 
 ## Current state and evidence
 
+- **2026-10-17 — are the answers good? Public benchmarks through Cicada on the plan, and the owner's own eval (G148; branch `feat/memory-bench`).** Survey and recommendation: `docs/research/2026-10-17-memory-benchmarks.md` (LoCoMo with Mem0's J judge first, LongMemEval by type second). `python -m benchmarks.public.run prepare|run|report` runs LoCoMo/LongMemEval end to end (stager → drain → `cicada_ask` → published judge, full-context control, resumable, throwaway marked banks, `claude -p` only). `python -m benchmarks.answer_eval --bank … --questions benchmarks/answer_eval.local.yaml` grades Ask on the owner's bank against facts he writes. First slices: LoCoMo Ask J 52.5 vs full-context 95.0 (40 Qs); LongMemEval oracle 70 vs 85 (20 Qs) — honest gaps, lost detail. Tests: `test_public_benchmark.py`. Pick up: review and merge; the owner writes `benchmarks/answer_eval.local.yaml` and runs it; then the evidence-span Ask experiment on the same checkpointed banks.
 - **2026-10-16 — server and readers: the owner's decisions after headless QA and the hunts (G181, ruling 4b; branch
   `feat/server-readers`, not merged).** Ruling 4b (above): scheduled runs may use the person's plan — Claude or
   ChatGPT — behind an off-by-default switch (Settings → Sleep, `cicada sleep schedule --use-plan`), and
