@@ -20,6 +20,21 @@
   `<name>.com` logo guess (removed in G61 S3-b; `GUESSABLE_TYPES` is now only "types whose own site draws a mark").
   (4) The LinkedIn photo amendment below. Tests: `test_entity_types.py`, `test_predicates_map_cache.py`,
   `test_linkedin_people.py`.
+- **2026-10-17 — Sleep tends the inbox, part 3: passing names and label conflicts (ruling 29; branch
+  `feat/inbox-sleep-3`, not merged).** `inbox_tend.passing_rule` (`in_passing`: a page-less name said once in passing,
+  or a code identifier, closes through the person's own dismiss; never tied to the person's life — relation words,
+  first-person lines about people/places/companies, the owner's page, Messages) and `newest_words` / `label_lines`
+  (a label-only conflict settled by the person's newest plain statement of one side, located in their own turn,
+  dated that day; the conflict judge reads those lines when it is not mechanical). The lexical index is read fresh
+  inline (`ensure_fresh(wait=True, max_age_s=0)`) so a just-committed conversation counts. Synthetic backlog (27
+  passing names, 15 that must stay, 10 label conflicts): before 0 settled / 52 asked; after 33 settled / 19 asked
+  (27 `in_passing`, 6 `newest_words`; stays: 8 a person in the person's own words, 4 named again, 3 Messages, 4 label
+  conflicts for the judge). Review fixes (B1, B2): a person said in the person's own turn never closes; company/place
+  checks read the turn and its neighbours; the mechanical label path needs the subject in the stating sentence and no
+  negation/modal/avoidance on the raw text. Re-review: a relation counts only when a possessive ties it to someone,
+  links and metadata lines are never words, a saved item's title/link/byline is never the person's own words, and the
+  mechanical label path needs a plain placement right before the label (allowlist; the blocklist stays a second
+  guard). Tests: `test_inbox_tend.py` (part 3 block). Pick up: the owner's `inbox_tidy_dry_run --judge`.
 - **2026-10-17 — Sleep tends the inbox, part 2 (ruling 29; branch `feat/inbox-sleep-2`, not merged).** What the
   first pass could not reach (owner's judged dry run: 55 conflicts never reached the judge, 69 clarifications never
   tried): label-only conflicts judged through the claims their labels are tied to (`label_matches`, folded words,
@@ -997,6 +1012,20 @@ A whole row moves to DONE only after its remaining implementation and required a
     recorded as the evidence span; a conflict only by words said after every side of it, a follow-up only after its
     thread was last heard and only done/still/stopped (or done/missed/dropped), dated the day it was said. Sleep: 4 per
     drain; the tidy: all, behind `judge=true`.
+    **Part 3 (owner, same day: "little things that are honestly not that big of a deal"):** a clarification about a
+    name with no page, said in one conversation and only in passing there (≤ 2 exchanges name it), with nothing tying
+    it to the person's life, closes as mentioned in passing (`in_passing`: the person's own dismiss; nothing written
+    about who it is; it may be asked again when another conversation names it); a code identifier however often it is
+    named. Never a relation question, a project/skill/deadline, a person said in any of the person's own turns
+    (review: a relation a sentence away, a dropped Spanish pronoun, or none at all — their words mean the person may
+    be in their life), a relation word or (for a company or place) first-person words in the naming turn or the turns
+    beside it, a name on the owner's page or from a Messages chat. A label-only
+    conflict is settled by the person's newest words (`newest_words`): their newest plain statement of one side (the
+    sentence names the subject; no negation, modal or avoidance, read on the raw text), newer
+    than any line or belief for another side and with an older one on record, located exactly in their own turn,
+    dated that day; when not mechanical the conflict judge reads those lines and may rest its pick on one, under the
+    same guards. Measured (owner's bank after #338, counts only): 59 of 69 clarifications asked with nothing on the
+    record, almost all names said once in passing; 40 of 58 conflicts `labels_not_on_record`.
     **Why.** On the owner's bank (2026-10-17, counts only): 913 pending question files and 0 answered — 661 duplicate
     questions, 70 conflicts, 69 clarifications, 63 decay, 46 predicate folds, 3 proposed edits, 1 follow-up — served as
     239 rows after grouping, over 4,693 pages (2,221 archived, 823 decaying, 1,649 active). The first engine-free dry

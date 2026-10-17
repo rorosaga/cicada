@@ -805,7 +805,8 @@ batch's conversations are about (the ask gate's rule over the person's own turns
 each, stage `inbox_tend`) and settles one only when the engine copies the person's words and they are found exactly in
 the person's own turn (`evidence.verify`, kind `user`) — the conversation that raised a question never answers it; and
 **(2)**, once per drain (the batch that runs decay), assumes the small stuff by engine-free rules plus the duplicate
-judges on at most 6 questions — duplicates, conflicts (label-only ones too), label folds, fading pages — and then, on at
+judges on at most 6 questions — duplicates, conflicts (label-only ones too, first by the person's newest words on them,
+`newest_words`), label folds, fading pages — and a name said once in passing (`in_passing`, part 3) — and then, on at
 most 4 questions still open (a clarification, follow-up or conflict), **(3)** looks across the whole record for the
 person's own words already answering it (the page's evidence pointers plus the lexical index; located exactly in
 their own turn, `said_on_record`; `features.md` has the table). Each settle goes through the person's own resolver and

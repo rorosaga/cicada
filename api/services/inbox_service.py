@@ -1822,10 +1822,13 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
                 # The manifest is a set of paths, not a per-claim tally.
                 if line not in extra_lines:
                     extra_lines.append(line)
-        # The chosen label IS the answer, claim-backed or not.
+        # The chosen label IS the answer, claim-backed or not. Sleep's reading of the person's words says the day
+        # they said it (ruling 29, read on time): the sentence is dated by the words, not by when they were read.
+        said = said_on(today)
         sentence = (
             f"{predicates.predicate_phrase(predicate, name, chosen['label'])} "
-            f"(confirmed by {inbox_actor.confirmed_by()} on {today})."
+            f"(confirmed by {inbox_actor.confirmed_by()} on {today}"
+            + (f", as said on {said}" if said != today else "") + ")."
         )
 
     else:
