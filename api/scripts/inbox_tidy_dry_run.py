@@ -9,8 +9,11 @@ an item id, a title, a name or any text. It writes nothing: no settle, no commit
 the questions only a judge can read (duplicates, conflicts, label folds, fading pages) are counted as
 ``ask:needs_judge``; with it, the person's chosen engine reads them, one call each (their Claude plan included — owner,
 2026-10-17; a plan limit stops it with ``stopped: plan_limit``), and each is counted by the judge's decision
-(``judged_*``) or why it stays (``ask:unsure``, ``ask:meaning_changes``, ``ask:person``). The engine's usage is not
-written to the ledger in a dry run.
+(``judged_*``) or why it stays (``ask:unsure``, ``ask:meaning_changes``, ``ask:person``). With ``--judge`` a
+clarification, follow-up or conflict still open is also looked for across the whole record (``said_on_record``, or
+``ask:<why>+record:<why>`` when the engine read lines that did not answer it; no call when nothing on the record names
+it). The engine's usage is not written to the ledger in a dry run; the lexical index (``search_index.db``, derived and
+never tracked) may be refreshed.
 
 The real tidy is the running backend's own route (it holds the bank's write admission and Sleep's window, ruling
 21a): ``POST /inbox/tidy?dryRun=false[&judge=true]`` with the token, then ``GET /inbox/tidy`` for its counts. The bank

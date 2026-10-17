@@ -20,7 +20,17 @@
   `<name>.com` logo guess (removed in G61 S3-b; `GUESSABLE_TYPES` is now only "types whose own site draws a mark").
   (4) The LinkedIn photo amendment below. Tests: `test_entity_types.py`, `test_predicates_map_cache.py`,
   `test_linkedin_people.py`.
-- **2026-10-17 — Sleep tends the inbox (ruling 29, G21, G113; branch `feat/inbox-sleep`, not merged).** `inbox_tend`
+- **2026-10-17 — Sleep tends the inbox, part 2 (ruling 29; branch `feat/inbox-sleep-2`, not merged).** What the
+  first pass could not reach (owner's judged dry run: 55 conflicts never reached the judge, 69 clarifications never
+  tried): label-only conflicts judged through the claims their labels are tied to (`label_matches`, folded words,
+  never fuzzy); a page-bound question whose name resolves to no file retires, an unreadable page stays
+  (`ask:unreadable_page`); **move 3 — answered already, anywhere in the record** for clarifications, follow-ups and
+  conflicts (`said_on_record`, 4 per drain in Sleep, every one in the tidy with `judge=true`); follow-ups settle
+  through `progress` as Sleep's, dated the day the person said it. Tests: `test_inbox_tend.py` (part 2 block).
+  Pick up: the owner's `inbox_tidy_dry_run --judge` on his bank; if `ask:unreadable_page` shows up in conflicts,
+  that is where the 5 "page gone" ones were (a synthetic bank could not reproduce a missing page that dev's
+  `_subject_gone` did not already retire).
+- **2026-10-17 — Sleep tends the inbox (ruling 29, G21, G113; branch `feat/inbox-sleep`, merged #332).** `inbox_tend`
   (the policy table, the answered-in-conversation read, the duplicate judge, the one writer and its undo), `inbox_actor`
   (who answered: the person's resolvers commit as Sleep's while it is set), `sleep_cycle._tend_inbox_safely` after each
   batch's commit, `POST/GET /inbox/tidy` (dry run by default; counts only) and `api/scripts/inbox_tidy_dry_run.py`, the
@@ -967,7 +977,7 @@ A whole row moves to DONE only after its remaining implementation and required a
     (still live → only marked active: no mention dated today, no claim reopened, no confidence lifted; clearly passing →
     archived); each judged settle shows the
     judge's one-line reason. **Never assumed:** who a person is or merging two people (only the
-    person's own words on the record), a proposed page edit, a follow-up, anything a rule cannot read — those stay.
+    person's own words on the record), a proposed page edit, a follow-up (only the person's own words, part 2), anything a rule cannot read — those stay.
     **One writer:** the person's own resolvers, committed as Sleep's (`Inbox settled by Sleep`, `inbox/<kind>/settled:`,
     never `resolved:`), each undoable under "Settled by Sleep" (the reverse of its commit, three-way, refused whole when
     something since overlaps); an undone question is never settled by Sleep again. The G113 ledger keeps Sleep's settles
@@ -977,6 +987,16 @@ A whole row moves to DONE only after its remaining implementation and required a
     back); each question is decided and settled at once and only while every page it read is unchanged, under the page
     lock. Re-review: a claim resting on the person's own words (their inbox answer or a span in their own turn) is closed
     only by one that does too or by a tracked source's dated re-check (ruling 26).
+    **Part 2 (owner, same day: "a lot of cleanup can happen in the inbox for actually necessary stuff for the user"):**
+    a label-only conflict (no option carries a claim) is judged through the page's open claims its labels are tied to by
+    folded words (never fuzzy; a side nothing on the record states is never picked; the owner's-words rail holds over
+    the tied claims). A page-bound question whose page is gone retires (`subject_gone`); one whose page cannot be parsed
+    never does. **Move 3 — answered already, anywhere in the record:** a clarification, follow-up or conflict still
+    open is looked for across the whole bank (the page's own pointers plus the lexical index by its spellings), settled
+    only on the person's own words located exactly in one of their turns (kind `user`, never an agent's, never fuzzy),
+    recorded as the evidence span; a conflict only by words said after every side of it, a follow-up only after its
+    thread was last heard and only done/still/stopped (or done/missed/dropped), dated the day it was said. Sleep: 4 per
+    drain; the tidy: all, behind `judge=true`.
     **Why.** On the owner's bank (2026-10-17, counts only): 913 pending question files and 0 answered — 661 duplicate
     questions, 70 conflicts, 69 clarifications, 63 decay, 46 predicate folds, 3 proposed edits, 1 follow-up — served as
     239 rows after grouping, over 4,693 pages (2,221 archived, 823 decaying, 1,649 active). The first engine-free dry

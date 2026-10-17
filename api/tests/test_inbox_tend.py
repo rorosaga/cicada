@@ -79,6 +79,7 @@ def _episode(memory: Path, eid: str, body: str, **fm) -> dict:
 @pytest.fixture
 def memory(tmp_path, monkeypatch):
     monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(inbox_tend, "_RECORD_READ", {})
     m = tmp_path / "memory"
     for sub in ("entities", "episodes", "inbox"):
         (m / sub).mkdir(parents=True)
@@ -863,3 +864,205 @@ def test_a_settle_holds_the_page_lock_from_its_first_read_through_its_commit(mem
     out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=False))
     assert out["settled"] == 1 and seen == [True]
     assert not (memory / "entities" / "tool-a-2.md").exists()
+
+
+# --------------------------------------------------------------------------- part 2 (2026-10-17): what the first pass
+# could not reach — label-only conflicts, gone pages, and answers anywhere in the record
+
+
+def _label_conflict(memory: Path, *, human_beta: bool = False, labels=("Runs on alpha-os", "Runs on beta-os")) -> None:
+    """An older conflict: every option a label, no claim behind it (the entity path compares page bodies)."""
+    alpha = Claim(id="clm_alpha", text="Tool A runs on alpha-os", subject="tool-a", predicate="runs-on",
+                  object="alpha-os", valid_from="2026-05-01", recorded_at="2026-05-01",
+                  evidence=[Evidence(episode="ep_2026-05-01_001", kind="user")])
+    beta = Claim(id="clm_beta", text="Tool A runs on beta-os", subject="tool-a", predicate="runs-on",
+                 object="beta-os", valid_from="2026-08-03", recorded_at="2026-08-03",
+                 evidence=[Evidence(episode="ep_2026-08-03_001", kind="user")])
+    if human_beta:
+        beta.source_trust, beta.origin = "user_stated", "clarification"
+    _entity(memory, "tool-a", type="tool", name="Tool A", status="active",
+            body=write_claims("## Summary\nA tool.\n", [alpha, beta]))
+    _item(memory, "inbox-001", kind="conflict", entity_id="tool-a", entity_name="Tool A", predicate="description",
+          question="What does Tool A run on?", created_date="2026-08-04",
+          options=[{"key": "a", "label": labels[0], "claim_id": None},
+                   {"key": "b", "label": labels[1], "claim_id": None},
+                   {"key": "both", "label": "Both are true (different contexts)"}])
+
+
+def test_a_label_is_tied_to_a_claim_by_folded_words_never_fuzzily():
+    def claim(obj, text):
+        return Claim(id=f"clm_{obj}", text=text, subject="x", predicate="runs-on", object=obj)
+
+    assert inbox_tend.label_matches("Runs on alpha-os", claim("alpha-os", "Tool A runs on alpha-os"))
+    assert inbox_tend.label_matches("ALPHA OS", claim("alpha-os", "x"))                     # case and separators
+    assert inbox_tend.label_matches("runs on alpha", claim("alpha-system", "Tool A runs on alpha today"))
+    assert not inbox_tend.label_matches("Runs on alpha-oss", claim("alpha-os", "Tool A runs on alpha-os"))
+    assert not inbox_tend.label_matches("an os", claim("os", "x"))                            # too short to tie
+    options = [{"key": "a", "label": "alpha-os"}, {"key": "b", "label": "beta-os"}]
+    beta = claim("beta-os", "Tool A runs on beta-os")
+    assert inbox_tend.label_claims(options, [beta], "runs-on") == {"a": [], "b": [beta]}
+    both = claim("beta-os", "Tool A runs on beta-os or alpha-os")
+    assert inbox_tend.label_claims(options, [both], "runs-on") == {"a": [], "b": []}   # tied to both: neither
+    other = Claim(id="clm_o", text="Tool A uses alpha-os", subject="x", predicate="uses", object="alpha-os")
+    assert inbox_tend.label_claims(options, [other], "runs-on") == {"a": [], "b": []}  # another predicate
+
+
+def test_a_label_only_conflict_is_judged_and_settled_by_its_option_key(memory):
+    _label_conflict(memory)
+    _commit(memory)
+    assert _decide(memory, "inbox-001") == (None, "needs_judge")
+    calls: list = []
+    fn = _fake({"verdict": "b", "confidence": 0.95, "reason": "moved to beta-os"}, calls, model="fake-judge")
+    out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=False, judge=True, llm_fn=fn))
+    assert out["by_kind"]["conflict"] == {"judged_conflict": 1}
+    assert "option a: Runs on alpha-os" in calls[0] and "belief: Tool A runs on beta-os" in calls[0]
+    assert not (memory / "inbox" / "inbox-001.md").exists()
+    text = (memory / "entities" / "tool-a.md").read_text()
+    assert "confirmed by Sleep" in text
+    row = web_settle.list_settled(memory)[0]
+    assert (row["rule"], row["answer"]) == ("judged_conflict", "Runs on beta-os")
+    assert "settled:pick:b" in _head_message(memory)
+
+
+def test_a_label_only_conflict_keeps_the_owners_words_and_never_picks_a_side_with_no_record(memory):
+    _label_conflict(memory, human_beta=True)
+    _commit(memory)
+    out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=True, judge=True,
+                              llm_fn=_fake({"verdict": "a", "confidence": 0.99})))
+    assert out["by_kind"]["conflict"] == {"ask:person": 1}          # a machine side never closes the person's own
+    _label_conflict(memory, labels=("Runs on alpha-os", "Runs on gamma-os"))
+    out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=True, judge=True,
+                              llm_fn=_fake({"verdict": "b", "confidence": 0.99})))
+    assert out["by_kind"]["conflict"] == {"ask:unsure": 1}          # gamma-os: nothing on the record says it
+    _label_conflict(memory, labels=("Something else", "Another thing"))
+    assert _decide(memory, "inbox-001") == (None, "labels_not_on_record")
+
+
+def test_a_question_whose_page_is_gone_retires_and_an_unreadable_one_stays(memory):
+    _item(memory, "inbox-001", kind="followup", entity_id="merged-away", predicate="happened", claim_id="clm_x")
+    (memory / "entities" / "broken-page.md").write_text("---\nname: [unclosed\n---\nbody\n")
+    _item(memory, "inbox-002", kind="conflict", entity_id="broken-page", entity_name="Broken Page",
+          options=[{"key": "a", "label": "x"}, {"key": "b", "label": "y"}])
+    assert _decide(memory, "inbox-001")[0].rule == "subject_gone"
+    assert _decide(memory, "inbox-002") == (None, "unreadable_page")   # a read error is never "gone"
+
+
+def _gadget_clarification(memory: Path) -> None:
+    _entity(memory, "example-gadget", type="tool", name="Example Gadget", status="active",
+            source_episodes=["ep_2026-09-01_001"])
+    _item(memory, "inbox-001", kind="clarification", entity_id="example-gadget", entity_name="Example Gadget",
+          title="Who or what is Example Gadget?", question="Who or what is Example Gadget?",
+          source_episode="ep_2026-09-01_001")
+    _episode(memory, "ep_2026-09-01_001", "user: I used Example Gadget again today.")
+
+
+def test_a_clarification_answered_by_an_old_conversation_settles_from_the_whole_record(memory):
+    _gadget_clarification(memory)
+    _episode(memory, "ep_2026-03-02_001", "user: Example Gadget is the soldering station on my desk.\n\n"
+                                          "assistant: Example Gadget sounds handy.")
+    _episode(memory, "ep_2026-04-02_001", "user: Nothing about it here, only a different topic.")
+    _commit(memory)
+    calls: list = []
+    fn = _fake({"answered": True, "answer": "a soldering station", "conversation": "C1",
+                "quote": "Example Gadget is the soldering station on my desk"}, calls)
+    out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=False, judge=True, llm_fn=fn))
+    assert out["by_kind"]["clarification"] == {"said_on_record": 1} and out["read"] == 1
+    assert "[C1, 2026-03-02] Example Gadget is the soldering station" in calls[0]
+    assert "sounds handy" not in calls[0] and "used Example Gadget again" not in calls[0]   # never the raising one
+    claim = [c for c in parse_claims((memory / "entities" / "example-gadget.md").read_text())
+             if c.object == "a soldering station"][0]
+    assert claim.origin == "inbox-tend" and claim.authored_by == "fake-model"
+    span = claim.evidence[0]
+    assert span.kind == "user" and span.is_span() and span.episode == "ep_2026-03-02_001"
+    row = web_settle.list_settled(memory)[0]
+    assert row["rule"] == "said_on_record" and row["episode"] == "ep_2026-03-02_001"
+    assert row["reason"] == inbox_tend.RULES["said_on_record"]
+
+
+def test_the_record_never_settles_on_an_agents_words_and_calls_no_engine_with_nothing_to_read(memory):
+    _gadget_clarification(memory)
+    _episode(memory, "ep_2026-03-02_001", "user: What is Example Gadget, remind me?\n\n"
+                                          "assistant: Example Gadget is the soldering station on your desk.")
+    _commit(memory)
+    fn = _fake({"answered": True, "answer": "a soldering station", "conversation": "C1",
+                "quote": "Example Gadget is the soldering station on your desk"})
+    out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=False, judge=True, llm_fn=fn))
+    assert out["settled"] == 0
+    assert out["by_kind"]["clarification"] == {"ask:needs_person+record:quote_not_found": 1}
+    assert (memory / "inbox" / "inbox-001.md").exists()
+
+    # Without --judge the tidy never reads the record; with nothing on it, no engine call at all.
+    calls: list = []
+    (memory / "episodes" / "ep_2026-03-02_001.md").unlink()
+    out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=True, judge=True, llm_fn=_fake({}, calls)))
+    assert calls == [] and out["by_kind"]["clarification"] == {"ask:needs_person": 1}
+
+
+def test_a_conflict_is_answered_on_the_record_only_by_words_newer_than_both_sides(memory):
+    _tool_conflict(memory)       # both sides said 2026-05-01, raised by that conversation
+    _episode(memory, "ep_2026-04-20_001", "user: Tool A is an AI agent, I read somewhere.")
+    _episode(memory, "ep_2026-09-20_001", "user: To be clear, Tool A is an agent harness, not an agent.")
+    _commit(memory)
+    calls: list = []
+    replies = iter([{"verdict": "unsure", "confidence": 0.3},
+                    {"answered": True, "option": "a", "conversation": "C1",
+                     "quote": "Tool A is an agent harness, not an agent"}])
+
+    def fn(messages, **_kw):
+        import json
+
+        calls.append(messages[0]["content"])
+        return {"choices": [{"message": {"content": json.dumps(next(replies))}}], "model": "fake-model"}
+
+    out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=False, judge=True, llm_fn=fn))
+    assert out["by_kind"]["conflict"] == {"said_on_record": 1}
+    assert "I read somewhere" not in calls[1] and "[C1, 2026-09-20]" in calls[1]   # older words never answer it
+    claims = {c.id: c for c in parse_claims((memory / "entities" / "tool-a.md").read_text())}
+    assert claims["clm_g"].valid_to == TODAY
+    assert any(e.episode == "ep_2026-09-20_001" and e.kind == "user" for e in claims["clm_h"].evidence)
+
+
+def test_a_followup_is_answered_from_the_record_dated_the_day_the_person_said_it(memory, monkeypatch):
+    from api.services import handshake
+
+    monkeypatch.setattr(handshake, "local_timezone", lambda: "UTC")
+    thread = Claim(id="clm_thread", text="Started calibrating the example camera", subject="alpha-project",
+                   predicate="happened", object="started calibrating the example camera", status="ongoing",
+                   valid_from="2026-07-01", recorded_at="2026-07-01", observer="owner-example",
+                   evidence=[Evidence(episode="ep_2026-07-01_001", kind="user")])
+    _entity(memory, "alpha-project", type="project", name="Alpha Project", status="active",
+            body=write_claims("## Summary\nA project.\n", [thread]))
+    _item(memory, "inbox-001", kind="followup", entity_id="alpha-project", entity_name="Alpha Project",
+          predicate="happened", claim_id="clm_thread", created_date="2026-08-01")
+    _episode(memory, "ep_2026-07-01_001", "user: On Alpha Project I started calibrating the example camera.")
+    _episode(memory, "ep_2026-09-05_001", "user: Alpha Project news: the example camera calibration is finished.")
+    _commit(memory)
+    fn = _fake({"answered": True, "option": "done", "conversation": "C1",
+                "quote": "the example camera calibration is finished"})
+    out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=False, judge=True, llm_fn=fn))
+    assert out["by_kind"]["followup"] == {"said_on_record": 1}
+    claims = parse_claims((memory / "entities" / "alpha-project.md").read_text())
+    done = [c for c in claims if c.predicate == "happened" and c.status == "done"]
+    assert done and done[0].valid_from == "2026-09-05" and done[0].date_basis == "episode"
+    assert done[0].authored_by == "fake-model" and done[0].origin == "inbox-tend"
+    assert any(e.episode == "ep_2026-09-05_001" and e.kind == "user" and e.is_span() for e in done[0].evidence)
+    assert "Inbox settled by Sleep (followup)" in _git(memory, "log", "--format=%s")
+
+
+def test_sleep_reads_the_record_for_a_few_questions_per_drain(memory):
+    _entity(memory, "example-gadget", type="tool", name="Example Gadget", status="active")
+    for n in range(1, 7):
+        _item(memory, f"inbox-00{n}", kind="clarification", entity_id="example-gadget",
+              entity_name="Example Gadget", question="Who or what is Example Gadget?")
+    _episode(memory, "ep_2026-03-02_001", "user: Example Gadget, I keep meaning to describe it.")
+    _commit(memory)
+    calls: list = []
+    report = run(inbox_tend.tend(memory, _Settings(memory), episodes=[], run_policy=True,
+                                 llm_fn=_fake({"answered": False}, calls)))
+    assert len(calls) == inbox_tend.RECORD_CAP and report.read == inbox_tend.RECORD_CAP
+    assert report.settled == 0
+    # The next drain moves on: lines already read without an answer are never sent again.
+    calls.clear()
+    run(inbox_tend.tend(memory, _Settings(memory), episodes=[], run_policy=True,
+                        llm_fn=_fake({"answered": False}, calls)))
+    assert len(calls) == 2
