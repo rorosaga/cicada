@@ -111,7 +111,14 @@ def _clip(text: str, at: int | None, limit: int) -> str:
     return " ".join(_clip_around(text, at, limit).split())
 
 
+#: Episodes an agent wrote through a tool door (``mcp_tools`` stamps ``source``): a block with no turn marker is the
+#: agent's note, not the person speaking — ``evidence`` reads an unmarked block as the person's (R4), Ask may not.
+AGENT_SOURCES = frozenset({"mcp", "mcp-remote", "cli"})
+
+
 def _who(turn, fm: dict, owner_name: str | None) -> str:
+    if turn.role == "user" and turn.marker is None and str(fm.get("source") or "") in AGENT_SOURCES:
+        return "an agent's saved note (not the person's own words)"
     if turn.role == "user":
         return f"{owner_name} (the person this memory belongs to)" if owner_name else "the person this memory belongs to"
     if turn.role == "assistant":

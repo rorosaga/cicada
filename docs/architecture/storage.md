@@ -245,12 +245,14 @@ a price, a size, a version or status in use — one current value of one thing, 
 like a relationship's quote and projected as a literal claim `value-of-<attribute slug>` (`claims.value_predicate`,
 `entity_extractor._value_claim`). The prefix with a literal object makes it single-valued by its own shape
 (`claims.is_value_claim`; `predicates.cardinality` answers `single`), never by a bank's vocabulary, so the trust table
-runs as for any single-valued key: a newer agent value supersedes, the person's own value is never closed by an agent,
-two values on the same day ask. Two Stage-1 reads name one attribute in other words, so a value adopts the predicate of
+runs as for any single-valued key — a newer value supersedes, two values on the same day ask — under the owner's-words
+rail (`inbox_tend.may_close`, review 2026-10-17): a value resting only on the assistant's or another speaker's words
+never closes one resting on the person's own (an evidence span in their turn, or their answer), in either order; it is
+asked about instead (`value_kept_for_persons_words` in the audit). Two Stage-1 reads name one attribute in other words, so a value adopts the predicate of
 the open value on its slot whose attribute words match (`claims.same_value_attribute`: the same words after filler
 such as "number of", or one set inside the other when the smaller has two or more — "age" never meets "dog age"). A
 value said before the one the page holds (a drain reads conversations in any order) is kept as closed history,
-`superseded_by` the newer, never asked about (`superseded_on_arrival` in the audit). The value stays in key facts too.
+`superseded_by` the first value said after it (so history never overlaps), never asked about (`superseded_on_arrival`). The value stays in key facts too.
 
 **A person holds more than one place at once (2026-10-14).** `works-at` is multi-valued: as a single-valued key, Stage 3
 closed the open place whenever another was mentioned, and one measured owner page held 26 `works-at` claims, 25 closed,

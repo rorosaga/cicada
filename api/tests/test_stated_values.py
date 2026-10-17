@@ -92,3 +92,47 @@ def test_value_predicates_are_single_valued_and_other_literals_are_not(tmp_path)
     assert not is_value_claim(plain)
     node = Claim(id="clm_n", text="t", subject="s", predicate="value-of-x", object="y", object_kind="node")
     assert not is_value_claim(node)
+
+
+def _said_by(claim, kind):
+    from api.services.claims import Evidence
+
+    claim.evidence = [Evidence(episode=f"ep_{claim.valid_from}_001", start=0, end=10, kind=kind, hash="h")]
+    return claim
+
+
+def test_the_assistants_value_never_closes_the_persons(tmp_path):
+    """Review 2026-10-17: Stage 1 marks every value agent-extracted, so the trust table alone let a newer value the
+    assistant said close the one the person said. The owner's-words rail (`inbox_tend.may_close`) asks instead."""
+    person = _said_by(_value("clm_person", "personal best 5k time", "25:50", "2023-05-20"), "user")
+    assistant = _said_by(_value("clm_assistant", "personal best 5k time", "26:10", "2023-05-27"), "assistant")
+    reconciled, nudges, audit = _reconcile(tmp_path, [assistant], [person])
+    by_id = {c.id: c for c in reconciled["alice-example"]}
+    assert by_id["clm_person"].valid_to is None and by_id["clm_person"].superseded_by is None
+    assert "clm_assistant" not in by_id
+    assert any(n.get("action") == "conflict_nudge" for n in nudges)
+    # ...in the other order too: the person's older value read after the assistant's newer one is not closed by it.
+    person2 = _said_by(_value("clm_person2", "personal best 5k time", "25:50", "2023-05-20"), "user")
+    assistant2 = _said_by(_value("clm_assistant2", "personal best 5k time", "26:10", "2023-05-27"), "assistant")
+    reconciled, nudges, _ = _reconcile(tmp_path, [person2], [assistant2])
+    assert "clm_person2" not in {c.id for c in reconciled["alice-example"]}
+    assert any(n.get("action") == "conflict_nudge" for n in nudges)
+
+
+def test_the_persons_newer_value_closes_the_assistants(tmp_path):
+    assistant = _said_by(_value("clm_a", "monthly rent", "$900", "2023-01-01"), "assistant")
+    person = _said_by(_value("clm_p", "monthly rent", "$1,000", "2023-03-01"), "user")
+    reconciled, nudges, _ = _reconcile(tmp_path, [person], [assistant])
+    by_id = {c.id: c for c in reconciled["alice-example"]}
+    assert by_id["clm_a"].superseded_by == "clm_p" and nudges == []
+
+
+def test_an_older_value_closes_before_the_next_value_said_after_it(tmp_path):
+    """History never overlaps: 2 (Jul) read after 3 (Aug, closed) and 4 (Sep, open) closes when 3 was said."""
+    three = _value("clm_3", "bikes owned", "3", "2023-08-01")
+    four = _value("clm_4", "bikes owned", "4", "2023-09-01")
+    three.valid_to, three.superseded_by = "2023-09-01", "clm_4"
+    two = _value("clm_2", "bikes owned", "2", "2023-07-01")
+    reconciled, _, _ = _reconcile(tmp_path, [two], [three, four])
+    by_id = {c.id: c for c in reconciled["alice-example"]}
+    assert by_id["clm_2"].valid_to == "2023-08-01" and by_id["clm_2"].superseded_by == "clm_3"

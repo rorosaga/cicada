@@ -686,12 +686,27 @@ def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinalit
         return existing
 
     action = trust_decision(new, existing)
+    if value and action in ("SUPERSEDE", "CONFLICT_NUDGE"):
+        # The owner's-words rail (`inbox_tend.may_close`, review 2026-10-17): a value resting only on the assistant's or
+        # another speaker's words never closes one resting on the person's own — in either order. Ask instead.
+        from api.services.inbox_tend import may_close
+
+        older = _date_key(new.valid_from) < _date_key(existing.valid_from)
+        winner, loser = (existing, new) if older else (new, existing)
+        if not may_close(winner, [loser]):
+            nudges.append(_conflict_nudge(existing, new, today))
+            audit.append({"action": "value_kept_for_persons_words", "kept": existing.id, "asked": new.id})
+            return None
     if value and action == "CONFLICT_NUDGE" and _date_key(new.valid_from) < _date_key(existing.valid_from):
         # A value said BEFORE the one the page holds (a drain reads conversations in any order): it is history,
-        # closed by the newer value — never a question, and never lost.
+        # closed by the first value said after it — never a question, never lost, and never overlapping another
+        # closed value of the same attribute.
         _stamp_new(new, settings, today=today)
-        new.valid_to = existing.valid_from
-        new.superseded_by = existing.id
+        after = min((c for c in slot if K(c) == K(new) and is_value_claim(c)
+                     and _date_key(c.valid_from) > _date_key(new.valid_from)),
+                    key=lambda c: _date_key(c.valid_from), default=existing)
+        new.valid_to = after.valid_from
+        new.superseded_by = after.id
         slot.append(new)
         audit.append({"action": "superseded_on_arrival", "kept": existing.id, "closed": new.id})
         return new

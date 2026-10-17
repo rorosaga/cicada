@@ -145,3 +145,15 @@ def test_the_remote_door_without_sources_asks_without_conversation_words(bank, m
                                 backend_url="http://127.0.0.1:9", connector_id="rc_x", raw_excerpts=False)
     mcp_tools.ask(ctx, "What does Alice's necklace symbolize?")
     assert seen.get("source_words") is False
+
+
+def test_an_agents_saved_note_is_never_shown_as_the_person_speaking(bank):
+    """An episode an agent saved through a tool door has no turn markers; its words are the agent's note."""
+    body = "Alice Example's necklace stands for love, faith and strength, the agent noted."
+    markdown_parser.write(bank / "episodes" / f"{EPISODE}.md",
+                          {"id": EPISODE, "timestamp": "2023-06-27T10:00:00+00:00", "source": "mcp", "origin": "mcp",
+                           "processed": True, "content_hash": evidence.body_hash(body)}, body)
+    prompt = _ask(bank, "What does Alice's necklace symbolize?")
+    said = prompt.split("WHAT WAS SAID", 1)[1]
+    assert "an agent's saved note (not the person's own words)" in said
+    assert "the person this memory belongs to" not in said

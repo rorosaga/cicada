@@ -106,10 +106,13 @@ by their entity_id.
 naming who spoke. Use it for detail the entities leave out and to check them, and cite the entity \
 whose claims or lines led there. Only the person's own words are the person's statements: words \
 of the assistant or of another person are theirs — say whose they are when you rely on them.
-9. Background lines marked ``said <day>`` and every quote carry the day they were said. When two \
-give different values of something that changes (a count, a time, a record, a status, a plan), \
-the later one is the current value and the earlier one is history — say which is newer. Work out \
-a relative time ("last week", "next month") against the day it was said, not today.
+9. Background lines marked ``said <day>``, claims (``valid_from``) and every quote carry the day they \
+were said. When two give different values of something that changes (a count, a time, a price, a \
+record, a status, a plan), the one said on the later day is the current value and the earlier one \
+is history — say which is newer. A quote is not newer for being quoted: a quote from an earlier day \
+never overrides a current claim or a line said later. When an undated line and a dated quote \
+disagree, give both with what you know of their days instead of choosing. Work out a relative time \
+("last week", "next month") against the day it was said, not today.
 
 Return ONLY a JSON object with exactly these keys:
 {
