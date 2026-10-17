@@ -241,7 +241,7 @@ struct WhereThisCameFromSection: View {
                           label: EvidenceLabel.speaker(kind: best.displayKind,
                                                        agent: EvidenceSpeaker.agentName(harness: row.harness,
                                                                                          origin: row.origin),
-                                                       source: row.source),
+                                                       source: row.source, origin: row.origin),
                           caption: caption, style: style, lineLimit: 4)
     }
 

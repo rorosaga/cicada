@@ -248,3 +248,78 @@ def test_a_metered_key_is_refused_without_the_flag_and_used_with_it(tmp_path, mo
     assert script.main(["--bank", str(bank), "--limit", "1", "--preview-dir", str(tmp_path / "out"),
                         "--allow-metered"]) == 0
     assert calls == ["byok"]
+
+
+# --------------------------------------------------------------------------- uncapped (owner 2026-10-17)
+
+
+def _one_conversation_page(bank, said="2026-04-01"):
+    md.write(bank / "entities/rich-tool.md",
+             {"name": "rich-tool", "type": "tool", "source_episodes": ["ep_2026-04-01_001"], "last_referenced": said},
+             "## Summary\nrich-tool is a sync tool the owner set up.\n\n## Key Facts\n- Syncs every hour.\n"
+             "- Runs on the laptop.\n- Keeps 30 days of history.\n\n## History\n- 2026-04-01: Set up.")
+    _git(bank, "add", "-A")
+    _git(bank, "commit", "-qm", "one conversation, rich")
+
+
+def test_a_one_conversation_page_with_material_is_selected_and_a_stub_is_not(tmp_path):
+    bank = _bank(tmp_path)
+    _one_conversation_page(bank)
+    result = rebuild.survey(bank, _settings())
+    assert result.selected == 3 and result.one_conversation_selected == 1
+    assert result.one_conversation == 1          # stub-tool: one line, nothing to connect
+    assert result.estimated_calls == 3 and result.batches == 1
+    floor = rebuild.survey(bank, Settings(_env_file=None, llm_mode="local", page_article_min_material=50))
+    assert floor.selected == 2 and floor.one_conversation == 2
+
+
+def test_pages_go_newest_mentioned_first(tmp_path):
+    bank = _bank(tmp_path)
+    _one_conversation_page(bank, said="2026-05-01")
+    order = [job.path.stem for job in rebuild.survey(bank, _settings())._jobs]
+    assert order == ["rich-tool", "alpha-project", "bob-example"]   # bob-example has no mention date: last
+    assert [j.path.stem for j in rebuild.survey(bank, _settings(), limit=1)._jobs] == ["rich-tool"]
+
+
+def test_apply_commits_a_batch_at_a_time(tmp_path, monkeypatch):
+    bank = _bank(tmp_path)
+    _one_conversation_page(bank)
+    calls = []
+    _fake(monkeypatch, calls)
+    result = rebuild.run(bank, _settings(), mode="apply", sleep_running=lambda: False, batch_size=1)
+    assert result.written == 3 and result.commits == 3 and len(calls) == 3
+    assert _git(bank, "log", "--format=%s", "-3").splitlines() == ["Pages rebuilt as articles: 1 page(s)"] * 3
+    assert _git(bank, "status", "--porcelain") == ""
+
+
+def test_sleep_starting_between_batches_stops_and_a_rerun_continues(tmp_path, monkeypatch):
+    bank = _bank(tmp_path)
+    _one_conversation_page(bank)
+    calls = []
+    _fake(monkeypatch, calls)
+    checks = iter([False, False, True])   # idle before the run and its first batch; Sleep starts before the second
+    result = rebuild.run(bank, _settings(), mode="apply", sleep_running=lambda: next(checks, True), batch_size=1)
+    assert result.written == 1 and result.commits == 1 and result.stopped and result.not_attempted == 2
+    again = rebuild.run(bank, _settings(), mode="apply", sleep_running=lambda: False, batch_size=2)
+    assert again.already_articles == 1 and again.written == 2 and again.commits == 1
+    assert rebuild.survey(bank, _settings()).selected == 0
+
+
+def test_rewrite_counts_a_page_written_today_as_done(tmp_path, monkeypatch):
+    bank = _bank(tmp_path)
+    calls = []
+    _fake(monkeypatch, calls)
+    rebuild.run(bank, _settings(), mode="apply", sleep_running=lambda: False)
+    assert rebuild.survey(bank, _settings(), rewrite=True).selected == 0
+    assert rebuild.survey(bank, _settings(), rewrite=True, today="2099-01-01").selected == 2
+
+
+def test_the_script_takes_a_batch_size(tmp_path, monkeypatch, capsys):
+    bank = _bank(tmp_path)
+    calls = []
+    _fake(monkeypatch, calls)
+    _resolves_to(monkeypatch, "local")
+    monkeypatch.setattr(script, "backend_running", lambda: False)
+    assert script.main(["--bank", str(bank), "--apply", "--batch-size", "1"]) == 0
+    out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert out["commits"] == 2 and out["written"] == 2 and out["batch_size"] == 1

@@ -68,9 +68,11 @@ extension Copy.Graph {
 
 // Task 4 — Content (R-DG18 … R-DG22)
 extension Copy.Graph {
-    static let rendered = "Rendered"
     static let source = "Source"
     static let copyMarkdown = "Copy markdown"
+    /// The page's Rendered/Source switch, one toggle at the end of the card's tab row (one row, not two).
+    static let showSource = "Show the markdown source"
+    static let showRendered = "Show the rendered page"
     /// The person hero's two-line Summary (F-12): a click shows all of it.
     static let showWholeSummary = "Show the whole summary"
     static let showLess = "Show less"

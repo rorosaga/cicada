@@ -1059,10 +1059,11 @@ column, the item the detail, the Reader the third column (`AppTab.hostsOwnReader
 Each queued episode row (`EpisodeRow`, also in the spine popover) is one button: a click copies what Sleep would read — `GET /sleep/episodes`'s `copyValue` from `episode_copy` (a page's link, a conversation's session id, a tab group's links, a folder file's full path, else the episode id) — with a brief toast (`Store.flash`); its meta line names that target and it ends with its day (`changedAt`: a conversation's last capture, else when it arrived; owner 2026-10-05). The worm speaks in that one fixed slot —
 `roomSentence` / `wormAnswers`, pure
 `SentenceLine` values over `SleepPageModel` (lead ≤ 40, tail ≤ 80, clock-free; a missing fact
-omits its rung, never shows a guess); the floating bubble is retired. The slot reserves one lead line and **one** tail
-line (R-Z5 as amended 2026-10-16, `SentenceSlot`): a tail takes one line at 17 pt, else one line at 15 pt (17/15 since
-2026-10-16, it was 22/20 in the display face), and only a tail too long for that wraps to a second — so a tail-less sentence sits one line above the control,
-not two, and a budget tail (80 characters) never moves it at 1×. **Two kinds of art (R-Z1, amended by ruling 18):**
+omits its rung, never shows a guess); the floating bubble is retired. The slot reserves nothing (R-Z5 as amended
+2026-10-16 and 2026-10-17, `SentenceSlot.drawsTail`): a line with no tail is the lead alone, with no empty line under the
+headline; a tail takes one line at 17 pt, else one line at 15 pt (17/15 since 2026-10-16, it was 22/20 in the display
+face), and only a tail too long for that wraps to a second. A poke's answer with a tail steps the control row down by
+that line as it appears, and back once its cross-fade ends — never a slide (DR-60: a key can poke the worm). **Two kinds of art (R-Z1, amended by ruling 18):**
 *state art* — the owner's worm on a 160 × 64 lattice (5/4/3 pt per cell by the column's width since 2026-10-16), the real pile, the lamp (= the schedule)
 and its pixel-size fly, the bean bag, mood-edge yawn/stretch and the Sleep moment overlays — and *response art* (gaze,
 perk, talk, cheer), transient and never contradicting state. **Environment art (2026-10-02)** is the time, base weather
@@ -1525,7 +1526,9 @@ nil tokens must never match. Server identity/ranges must not be recreated in Swi
 
 **Provenance viewer (G118 slice 2).** Every claim carries evidence chips (`Views/Provenance/`): the
 label says who spoke ("You said", "<agent> replied", "From the page", "Inferred", "Mentioned here"
-for a legacy claim's name match found at read) — an agent's chip names its model when capture recorded one ("Claude
+for a legacy claim's name match found at read; a feed item or a calendar entry is "From the feed" / "On your calendar"
+with its source's mark, never "You said", here, in the Reader's turns and Noted rows, Where this came from and ⌘K —
+`EvidenceSpeaker.sourceSpeaker`, 2026-10-17) — an agent's chip names its model when capture recorded one ("Claude
 Code · Opus 5.5 · high effort", `ModelNames`; round-4 C3/C4), as do the hover, the Reader's meta line and turn labels,
 "Where this came from" and a belief's help; an app with no capture says "model not shared by this app" — hovering shows the words in the quote face — washed
 when quoted, bold when derived, plain when stale — and a click opens the **Reader**, a column

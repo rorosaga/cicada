@@ -48,7 +48,12 @@ SECTION = "Article"
 FIELD = "article"            # frontmatter stamp
 STAMP_VERSION = 1
 PROMPT_VERSION = 1
-MIN_CONVERSATIONS = 2        # a page resting on one conversation is a stub: it keeps today's merge, no call
+MIN_CONVERSATIONS = 2        # a page resting on this many conversations always gets the writer
+# A page on one conversation gets it too when its record gives the writer this much to connect (owner 2026-10-17:
+# "uncap what the agents can write to"); below it the page is a stub — a lead and a fact or two, which an article
+# would only restate — and keeps the deterministic merge with no call. `Settings.page_article_min_material`.
+MIN_MATERIAL = 4
+_MATERIAL = frozenset({"fact", "history", "said", "claim", "question"})
 MAX_EVIDENCE_PER_ITEM = 16   # rows recorded per paragraph (spans first); the inputs keep all of theirs
 
 _RELATIVE = re.compile(r"\b(?:currently|now|nowadays|recently|lately|soon|these days|this (?:week|month|year)|"
@@ -147,10 +152,26 @@ def carry_stamp(frontmatter: dict, old_body: str, new_body: str) -> None:
 
 
 def eligible(frontmatter: dict, change_sources) -> bool:
-    """Gets an article: rests on at least :data:`MIN_CONVERSATIONS` conversations once this update lands."""
+    """Rests on at least :data:`MIN_CONVERSATIONS` conversations once this update lands: always gets an article."""
     sources = {str(e) for e in (frontmatter or {}).get("source_episodes") or [] if e}
     sources |= {str(e) for e in change_sources or [] if e}
     return len(sources) >= MIN_CONVERSATIONS
+
+
+def material(inputs: "Inputs") -> int:
+    """What the writer has to connect: the record's facts, dated lines, questions and claims, and what this update
+    said — never the page's own earlier prose or its links."""
+    return sum(1 for s in inputs.sources if s.kind in _MATERIAL)
+
+
+def worth_writing(frontmatter: dict, change_sources, inputs: "Inputs", *, min_material: int | None = None) -> bool:
+    """Gets an article: rests on 2+ conversations (:func:`eligible`), or its record already holds
+    ``min_material`` inputs (:data:`MIN_MATERIAL`) — a page promoted on one long conversation is not a stub. The
+    writer's rails are the same either way: nothing without a cited input, never padded (`parse`)."""
+    if eligible(frontmatter, change_sources):
+        return True
+    floor = MIN_MATERIAL if min_material is None else max(0, int(min_material))
+    return material(inputs) >= max(1, floor)
 
 
 # --------------------------------------------------------------------------- the record half

@@ -1,6 +1,6 @@
 """Offline page-quality eval: what Sleep writes from recorded extractions.
 
-Run: python -m benchmarks.system.page_quality --scratch <new-empty-directory> [--synthesis on|off|both]
+Run: python -m benchmarks.system.page_quality --scratch <new-empty-directory> [--synthesis on|off|both] [--articles]
 
 Synthetic conversations (``fixtures/page_quality.json``) and a recorded Stage-1
 answer for each run through the production Stage 1 post-processing (evidence,
@@ -8,7 +8,10 @@ section provenance, the date note), Stage 2 (`entity_resolver.resolve`),
 Stage 3 (`conflict_resolver.resolve_and_prune`) and Stage 5's page writer
 (`apply_changes`), batch by batch, in a scratch bank. No model is called: the
 recorded answers stand in for extraction, and `FakeEngine` answers the judge,
-merge and contradiction calls. A prompt change cannot be measured here — only
+merge and contradiction calls. ``--articles`` turns the article writer on
+(``page_articles_enabled``) and answers it with `page_articles.mechanical_article`
+— the fake's prose, so what it measures is which pages get a call and the
+record kept, not a model's writing. A prompt change cannot be measured here — only
 what the code does with the same answers. No claims, commits or indexes.
 
 Reported per run: pages written and how many rest on one conversation, words,
@@ -78,17 +81,18 @@ def page_stats(body: str) -> dict:
         'summary_words': len(_words(summary)),
         'fallback_summary': bool(re.fullmatch(r"[^.]{1,400} is an? [a-z ]+\.( Its present role for the owner is not established\.)?", summary.strip())),
         'undated_background': sum(b.startswith('Undated background') for b in _bullets(sections.get('History', ''))),
+        'article': bool((sections.get('Article') or '').strip()),
     }
 
 
-def run(root: Path, synthesis: bool) -> dict:
+def run(root: Path, synthesis: bool, articles: bool = False) -> dict:
     from api.config import Settings
     from api.services import (conflict_resolver as cr, entity_extractor as ex, entity_resolver as er,
                               markdown_parser as md, providers, vector_index)
     from benchmarks.system.engine import FakeEngine
 
     data = json.loads(FIXTURE.read_text())
-    bank = root / f'bank-synthesis-{"on" if synthesis else "off"}'
+    bank = root / f'bank-synthesis-{"on" if synthesis else "off"}{"-articles" if articles else ""}'
     (bank / 'entities').mkdir(parents=True)
     (bank / 'episodes').mkdir()
     os.environ['CICADA_MEMORY_PATH'] = str(bank)
@@ -97,7 +101,7 @@ def run(root: Path, synthesis: bool) -> dict:
               'source_episodes': ['ep_2026-01-10_001', 'ep_2026-01-11_001'], 'layout_version': 2, **page['frontmatter']}
         md.write(bank / 'entities' / f"{page['id']}.md", fm, page['body'])
     settings = Settings(_env_file=None, summary_synthesis_enabled=synthesis, llm_mode='local',
-                        sleep_resolve_concurrency=1)
+                        sleep_resolve_concurrency=1, page_articles_enabled=articles)
 
     engine = FakeEngine()
     recorded: dict[str, dict] = {}
@@ -122,6 +126,13 @@ def run(root: Path, synthesis: bool) -> dict:
                 return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
                     content=json.dumps(recorded[found])))])
             text = kwargs['messages'][-1]['content']
+            if stage == 'merge' and 'You are writing a page of a personal wiki' in text:
+                from types import SimpleNamespace
+
+                from benchmarks.system.page_articles import mechanical_article
+                calls[-1] = 'article'
+                return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
+                    content=json.dumps(mechanical_article(text))))])
             if stage == 'merge' and 'SECTION-AWARE ORIENTATION' in text:
                 # A recorded answer for this page and batch, when the fixture has one.
                 incoming = json.loads(text.partition('\nINPUT:\n')[2])
@@ -226,8 +237,11 @@ def run(root: Path, synthesis: bool) -> dict:
             lost.append(f'{name}: {fact}')
     written = {k: v for k, v in pages.items() if not v['seed']}
     one = [k for k, v in written.items() if v['conversations'] == 1]
+    words = sorted(v['words'] for v in written.values())
     summary = {
-        'synthesis': 'on' if synthesis else 'off',
+        'synthesis': 'on' if synthesis else 'off', 'articles': articles,
+        'pages_with_article': sum(1 for v in written.values() if v['article']),
+        'p90_words': words[int(0.9 * (len(words) - 1))] if words else 0,
         'pages_written': len(written), 'one_conversation_pages': len(one),
         'written': sorted(written), 'pending_names': sorted(line.get('name') for line in pending),
         'median_words': statistics.median([v['words'] for v in written.values()]) if written else 0,
@@ -244,7 +258,7 @@ def run(root: Path, synthesis: bool) -> dict:
         'batches': per_batch,
         'pages': {k: {kk: vv for kk, vv in v.items() if kk != 'body'} for k, v in pages.items()},
     }
-    (root / f'pages-{summary["synthesis"]}.md').write_text(
+    (root / f'pages-{summary["synthesis"]}{"-articles" if articles else ""}.md').write_text(
         '\n\n'.join(f'# {k}\n{v["body"]}' for k, v in pages.items()) + '\n')
     return summary
 
@@ -259,6 +273,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', type=Path, required=True)
     parser.add_argument('--synthesis', choices=('on', 'off', 'both'), default='both')
+    parser.add_argument('--articles', action='store_true', help='turn the article writer on (mechanical fake)')
     args = parser.parse_args()
     root = args.scratch.resolve()
     root.mkdir(parents=True, exist_ok=False)
@@ -267,7 +282,7 @@ def main():
                       CICADA_ALLOW_LOGO_FETCH='off', CICADA_ALLOW_CONNECTOR_FETCH='off')
     (root / 'home').mkdir()
     modes = {'on': [True], 'off': [False], 'both': [False, True]}[args.synthesis]
-    results = [run(root, mode) for mode in modes]
+    results = [run(root, mode, args.articles) for mode in modes]
     (root / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
     for r in results:
         print(json.dumps({k: v for k, v in r.items() if k != 'pages'}, indent=1))

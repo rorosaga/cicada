@@ -227,8 +227,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **A page's claims are its fence plus, past 64k characters, its ledger** `entities/<id>.claims.jsonl` (owner page,
   2026-10-14): `markdown_parser` folds it on read and splits on write; a write never drops a ledger line; git commits
   and restores a page with its ledger (`storage.md`).
-- **Entity types are a closed set of 10**; Stage 1 never produces `deadline` or `media`. Status: active → decaying →
-  archived → dropped.
+- **Entity types are a closed set of 10**; Stage 1 never produces `deadline` or `media`; a model's word is mapped into the
+  set at extraction and again where a page is born (`entity_types`, 2026-10-17). Status: active → decaying → archived → dropped.
 - **Decay classes (G66):** one resolver; Stage 1 may propose `durable|active|volatile`, **never `evergreen`**, enforced at
   extraction and again in the create branch.
 - **Evidence spans, not copies (G118):** offsets into the source's evidence text with a hash; locate is exact →
@@ -249,7 +249,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   person's public-profile photo → a brand's logo → a media thumbnail → a monogram). **A logo comes only from a trusted
   `website` source — never a domain guessed from a name; a person never gets a logo and no service is sent a person's name (G146/G159).** A person's photo is asked only
   with an identifier already on the page or record and given as their own account — the owner's hashed email, a GitHub,
-  X or LinkedIn profile link (owner, 2026-10-09; `network.md`). The photo a chat shares in Messages is its page's
+  X or LinkedIn profile link (owner, 2026-10-09; `network.md`); a LinkedIn link from the person's connections counts as given
+  on a confident match, never an alias-only one (owner 2026-10-17). The photo a chat shares in Messages is its page's
   picture everywhere — ticked chats only, read by the app from a copy, kept outside every bank, linked by the chat's
   correspondent record, gone on untick (owner 2026-10-16, `storage.md`).
   Logos, pictures, media previews (fetched once, then served from the store) and repo observations are caches outside

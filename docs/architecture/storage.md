@@ -50,6 +50,16 @@ claims_ledger: {claims: 5835, hash: 1a2b3c4d5e6f}  # only on a page whose older 
 `media` (ingested item with an agent-generated summary), `directory` (a filesystem path, split out
 from `location` in G18).
 
+**The set is held where a type comes from a model (2026-10-17).** A plain-JSON engine is held only by the
+extraction prompt's list, and a model's `organization`, `product` or `program` once reached a page unchanged.
+`entity_types.producible` is the one coercion (`organization` → `company`, `product` → `tool`, `program` → `project`,
+an unknown word → `concept`), applied at extraction (`entity_extractor.sanitize_entity_type`); where a page is born
+from a model's word (the Sleep create branch, an inbox answer that creates a page) `entity_types.in_set` keeps any of
+the 10 and maps only a word outside them — the decay-class rail's two places. A bank with pages from before is repaired by the person: `python -m api.scripts.repair_entity_types
+--bank <path>` (dry run, counts and type words only; `--list` adds page ids for their own terminal; `--apply` one
+`cicada` commit, `maintenance/entity-types`; `--as <id>=<type>` overrides the mapping for one page). Only `type`
+changes; a page dirty in git is skipped; it refuses while Sleep runs.
+
 **Two exclusions matter (G17).** `deadline` still renders for legacy pages but is **no longer
 produced by Stage-1 extraction** — `PRODUCIBLE_ENTITY_TYPES` excludes it; due-dates attach as a
 `due` claim on the relevant project instead of spawning a standalone entity. `media` is likewise
@@ -65,7 +75,9 @@ in the file, which after a paragraph is a setext heading) is compiled prose: the
 header) and `## Article` holds `### <title>` sections of paragraphs with inline `[[links]]`, both rewritten freely
 by the article writer (`entity_article`, `capture-and-sleep.md` *Pages as articles*). Below it is the record — Key
 Facts, History, Links, Open Questions, Related, claims — unioned deterministically and never shortened by a writer.
-A page without an Article is the v2 fact sheet; nothing reads the two differently except the writers below.
+A page without an Article is the v2 fact sheet — a stub (one conversation, under the writer's material floor) or
+a bank with articles off; a page on 2+ conversations or with enough material, new pages included, gets the Article
+(2026-10-17, `capture-and-sleep.md` *Uncapped*). Nothing reads the two differently except the writers below.
 
 `article: {v: 1, hash: <12 hex>, written: YYYY-MM-DD}` stamps the lead and Article as the writer left them
 (`entity_article.stamp`). While it matches, the page is machine prose: no summary or legacy rewrite touches the lead,
@@ -312,7 +324,9 @@ supersession links follow; a re-run after a crash finds its earlier copy); a cla
 once; two open claims that disagree stay two — a merge never closes a belief. A corrupt fence on either page aborts
 the merge (the inbox answers 409), and two ids for one file (a case-insensitive disk) are refused. **A ref resolves to
 the page's own id whatever case was typed (2026-10-14):** `id_utils.resolve_entity_file` returns the path spelled as
-the directory lists it (`id_utils.on_disk`; the listing is cached by the folder's mtime), because macOS finds
+the directory lists it (`id_utils.on_disk`; the listing is cached by the folder's mtime, trusted only once it was taken
+100 ms past that mtime — git's racy-clean rule, for a filesystem with a coarse clock; its last rung, a ref matched to a
+stem ignoring case, reads one index built from that listing, never a glob per call), because macOS finds
 `entities/Cicada.md` when the page is `cicada.md` and a caller that took that stem as the id knew no page by it —
 `cicada_note_progress(project="Cicada")` called a project "a page". The readers that join a ref onto `entities/`
 themselves (`recall_detail`, `sources`, progress participants, the backlog's project page) use the same rule. Before the loser's
@@ -692,7 +706,9 @@ Round 4 (C2–C4):
   best-ranked GitHub profile link (`https://github.com/<username>`, one path segment) among the page's `sources:` that
   somebody gave as the person's OWN account (`person_photo.is_own_account`): the person's or one they took, with no
   fact attached, a profile predicate or `website`; or an identified agent's with no fact attached or a profile predicate
-  (`PROFILE_PREDICATES`) — never Cicada's own writers, an unidentified proposal, an "Only I know" note, or a link Stage
+  (`PROFILE_PREDICATES`); or the LinkedIn link the person's connections export added on a confident match (`match:
+  name|link`, owner 2026-10-17; an alias-only match waits for the person to take it) — otherwise never Cicada's own
+  writers, an unidentified proposal, an "Only I know" note, or a link Stage
   5.56 attached from a claim's cited words (always under a `world`/`artifact` predicate, which no profile predicate
   is; a test pins it) — then, only while `CICADA_ALLOW_PERSON_PHOTO_PROXY` is on (off by
   default, owner 2026-10-09), an X profile link and a LinkedIn `/in/` link, asked through the avatar proxy within an

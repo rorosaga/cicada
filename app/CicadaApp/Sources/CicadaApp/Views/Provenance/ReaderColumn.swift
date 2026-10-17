@@ -305,7 +305,7 @@ struct ReaderColumn: View {
         return ReaderNotedList(
             rows: payload.citations, currentRange: currentRange, isPage: doc.isPage,
             agent: EvidenceSpeaker.agentName(harness: doc.harness, origin: doc.origin), source: doc.source,
-            alsoOn: alsoOn, partial: payload.partial,
+            origin: doc.origin, alsoOn: alsoOn, partial: payload.partial,
             onJump: { jumpTo($0) },
             onShowOnGraph: { row in
                 appRouter.pendingTab = .graph
@@ -493,6 +493,8 @@ struct ReaderNotedList: View {
     let agent: String?
     /// The document's episode `source`; `page-read` relabels a page quote as the agent's reading.
     var source: String? = nil
+    /// The document's origin: a feed's or a calendar's rows read "From the feed" / "On your calendar" (DR-57).
+    var origin: String? = nil
     /// Pages that name this document but cite none of its words.
     let alsoOn: [String]
     /// R-PB10: the server stopped at its page cap.
@@ -506,6 +508,7 @@ struct ReaderNotedList: View {
                 .padding(.bottom, CicadaTheme.spacingXS)
             ForEach(rows) { row in
                 ReaderNotedRow(row: row, isCurrent: row.range != nil && row.range == currentRange, agent: agent, source: source,
+                               origin: origin,
                                onJump: { onJump(row) }, onShowOnGraph: { onShowOnGraph(row) })
             }
             if rows.isEmpty { metaLine(Copy.Provenance.nothingNoted) }
@@ -527,6 +530,7 @@ private struct ReaderNotedRow: View {
     let isCurrent: Bool
     let agent: String?
     var source: String? = nil
+    var origin: String? = nil
     let onJump: () -> Void
     let onShowOnGraph: () -> Void
 
@@ -535,7 +539,7 @@ private struct ReaderNotedRow: View {
 
     var body: some View {
         let name = row.subjectName.isEmpty ? row.subjectId : row.subjectName
-        let label = EvidenceLabel.speaker(kind: row.displayKind, agent: agent, source: source)
+        let label = EvidenceLabel.speaker(kind: row.displayKind, agent: agent, source: source, origin: origin)
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
             Button(action: onJump) {
                 VStack(alignment: .leading, spacing: RowMetrics.twoLineGap) {

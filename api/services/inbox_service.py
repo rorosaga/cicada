@@ -22,6 +22,7 @@ from api.models.schemas import InboxCause, InboxCheck, InboxCheckFinding, InboxI
 from api.services import (
     bank_index,
     decay_policy,
+    entity_types,
     fact_sources,
     inbox_context,
     inbox_questions,
@@ -289,10 +290,12 @@ def _subject_gone(memory_path: Path, entity_id: str, kind: str) -> bool:
     filepath = resolve_entity_file(memory_path, entity_id)
     if filepath is None:
         return kind != "clarification"
-    try:
-        fm = markdown_parser.parse(filepath).frontmatter
-    except Exception:
+    # The page's header through `bank_index` (mtime-gated): a warm process re-parses no page that did not move
+    # (inbox lag, 2026-10-17). A malformed or vanished page is `None` — fail open, as a parse error always was.
+    page = bank_index.file(memory_path, "entities", filepath.name)
+    if page is None:
         return False
+    fm = page.frontmatter
     if kind == _NAME_QUESTION:
         # "What's the name of your partner?" is about who the person is, not whether the page stays live: a faded
         # page is still asked about (it may be the most important person in the owner's life). Only a dropped page
@@ -2416,9 +2419,9 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 body = entity.body.rstrip() + f"\n\n{answer_text}"
             markdown_parser.write(entity_path, entity.frontmatter, body)
         else:
-            entity_type = str(
+            entity_type = entity_types.in_set(str(
                 parsed.frontmatter.get("suggested_classification", "concept")
-            ).split(" ")[0].lower()
+            ).split(" ")[0])
             frontmatter = {
                 "name": entity_mention,
                 "type": entity_type,

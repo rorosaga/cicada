@@ -94,7 +94,8 @@ enum PersonFacts {
         if let created, created <= today {
             let first = provenance?.firstConversation ?? conversations.first
             cells.append(PersonFact(kind: .knownSince, label: Copy.People.knownSince,
-                                    value: "\(RelativeDay.absolute(created, today: today, locale: locale)) · \(Copy.People.span(days: today - created))",
+                                    value: Copy.People.knownSinceValue(RelativeDay.absolute(created, today: today, locale: locale),
+                                                                       days: today - created),
                                     line: first.flatMap(app).map(Copy.People.firstIn),
                                     marks: first.flatMap(origin).map { [$0] } ?? []))
         }
