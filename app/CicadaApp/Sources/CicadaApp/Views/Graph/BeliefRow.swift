@@ -26,15 +26,17 @@ struct BeliefRow: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                     .help(BeliefWords.help(claim))
+                let chips = EvidenceChipModel.chips(evidence: claim.evidence, sourceEpisodes: claim.sourceEpisodes,
+                                                    subjectId: claim.subject)
                 ClaimFooterFlow(spacing: 6) {
                     EvidenceChipRun(
-                        chips: EvidenceChipModel.chips(evidence: claim.evidence, sourceEpisodes: claim.sourceEpisodes,
-                                                       subjectId: claim.subject),
+                        chips: chips,
                         subjectId: claim.subject.isEmpty ? nil : claim.subject,
                         expanded: $showAllEvidence)
                     if signed, SignedLine.who(claim) != nil {
                         SignedLineView(claim: claim)
-                    } else if let age = BeliefWords.age(claim, now: .now) {
+                    } else if !BeliefWords.ageRepeatsChips(claim, chipEpisodes: shownEpisodes(chips)),
+                              let age = BeliefWords.age(claim, now: .now) {
                         Tag(text: age.text).help(age.help)
                     }
                     if let lookUp, let onLookUp {
@@ -52,5 +54,10 @@ struct BeliefRow: View {
         .padding(.vertical, CicadaTheme.spacingSM)
         .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering ? CicadaTheme.bgHover : Color.clear))
         .onHover { hovering = $0 }
+    }
+
+    /// The episodes of the chips the run draws: all of them once expanded, else the first `visibleLimit`.
+    private func shownEpisodes(_ chips: [EvidenceChipModel]) -> [String] {
+        (showAllEvidence ? chips : Array(chips.prefix(EvidenceLabel.visibleLimit))).map(\.episode)
     }
 }

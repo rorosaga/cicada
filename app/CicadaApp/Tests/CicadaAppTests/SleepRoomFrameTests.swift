@@ -90,20 +90,25 @@ final class SleepRoomGroupTests: XCTestCase {
         try size(RoomSentenceView(line: line).environment(IntakeRouter(api: FakeIntakeAPI())), width: width).height
     }
 
-    /// R-Z5 holds — no tail and a one-line tail reserve the same height, so nothing below moves — and the reserve is
-    /// ONE tail line: under the lead there is at most one empty line, not two.
-    func test_theSlotReservesOneTailLineAndHoldsIt() throws {
+    /// Owner QA 2026-10-17 (amends R-Z5's reserved tail line): the headline reserves no empty line under it. A line
+    /// with no tail is exactly the lead's height; a tail adds one line and no more.
+    func test_aLineWithNoTailIsTheLeadAlone() throws {
         let bare = SentenceLine(lead: "1 to read — overdue.", numeral: "1", qualifier: "overdue", tone: .warning)
         var tailed = bare
         tailed.tail = "The lamp is off — I read when you ask."
         tailed.action = .openLamp
         let none = try slotHeight(bare)
-        XCTAssertEqual(try slotHeight(tailed), none, accuracy: 0.5, "a tail never reflows what sits below (R-Z5)")
         let lead = try size(Text("1 to read").font(CicadaTheme.displayFont(size: RoomSentenceView.leadSize)), width: 760).height
         let tailLine = try size(Text(verbatim: " ").font(RoomSentenceView.tailFont(size: RoomSentenceView.tailSize)),
                                 width: 760).height
-        XCTAssertEqual(SentenceSlot.reservedTailLines, 1)
-        XCTAssertLessThanOrEqual(none, lead + CicadaTheme.spacingXS + tailLine + 1, "the slot holds a second, empty tail line")
+        XCTAssertEqual(none, lead, accuracy: 1, "no empty line is held under the headline")
+        XCTAssertEqual(try slotHeight(tailed), lead + CicadaTheme.spacingXS + tailLine, accuracy: 1,
+                       "a tail takes one line")
+        XCTAssertFalse(SentenceSlot.drawsTail(bare))
+        var blank = bare
+        blank.tail = "  "
+        XCTAssertFalse(SentenceSlot.drawsTail(blank), "a blank tail is no tail")
+        XCTAssertTrue(SentenceSlot.drawsTail(tailed))
     }
 
     /// A tail at R-Z13's 80-character budget fits one line at the default zoom (at the display floor if it must), so
@@ -113,8 +118,10 @@ final class SleepRoomGroupTests: XCTestCase {
         var full = bare
         full.tail = String("Stopped at your plan's limit, which resets on Tuesday at 2:00 PM. Continue then.".prefix(SentenceLine.maxTail))
         XCTAssertEqual(full.tail?.count, SentenceLine.maxTail)
-        XCTAssertEqual(try slotHeight(full), try slotHeight(bare), accuracy: 0.5)
-        XCTAssertGreaterThan(try slotHeight(full, width: 420), try slotHeight(bare, width: 420),
+        var short = bare
+        short.tail = "Continue then."
+        XCTAssertEqual(try slotHeight(full), try slotHeight(short), accuracy: 0.5)
+        XCTAssertGreaterThan(try slotHeight(full, width: 420), try slotHeight(short, width: 420),
                              "a narrow column wraps the tail rather than cutting it")
     }
 }

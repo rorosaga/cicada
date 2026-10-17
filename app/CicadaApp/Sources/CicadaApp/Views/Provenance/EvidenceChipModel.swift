@@ -154,10 +154,12 @@ enum EvidenceLabel {
     /// The speaker half of the label — the carrier of meaning; colour never
     /// carries it alone (§4.2, K13). `derived` is never "You said".
     static func speaker(kind: EvidenceKind, agent: String?, speakerName: String? = nil,
-                        source: String? = nil) -> String {
+                        source: String? = nil, origin: String? = nil) -> String {
         if kind == .page, source == EvidenceSpeaker.pageReadSource {
             return Copy.Provenance.fromThePageAsRead(by: agent)
         }
+        // DR-57 — a feed item or a calendar entry is what arrived, never "You said".
+        if kind == .user, let arrived = EvidenceSpeaker.sourceSpeaker(origin) { return arrived }
         return switch kind {
         case .user: Copy.Provenance.youSaid
         case .assistant: agent.map(Copy.Provenance.replied) ?? Copy.Provenance.theAgentReplied
@@ -181,11 +183,11 @@ enum EvidenceLabel {
     static func label(_ chip: EvidenceChipModel, meta: EvidenceDocMeta?) -> String {
         guard chip.kind == .assistant,
               ModelNames.line(model: chip.model, effort: chip.effort) != nil else {
-            return speaker(kind: chip.kind, agent: agent(meta), source: meta?.source)
+            return speaker(kind: chip.kind, agent: agent(meta), source: meta?.source, origin: meta?.origin)
         }
         return ModelNames.agentLine(agent: agent(meta) ?? Copy.Provenance.theAgent, harness: nil,
                                     model: chip.model, effort: chip.effort)
-            ?? speaker(kind: chip.kind, agent: agent(meta), source: meta?.source)
+            ?? speaker(kind: chip.kind, agent: agent(meta), source: meta?.source, origin: meta?.origin)
     }
 
     /// "You said · Sep 3" — the date from the episode id (`ep_YYYY-MM-DD_nnn`);
