@@ -109,7 +109,7 @@ of the assistant or of another person are theirs — say whose they are when you
 9. Background lines marked ``said <day>`` and every quote carry the day they were said. When two \
 give different values of something that changes (a count, a time, a record, a status, a plan), \
 the later one is the current value and the earlier one is history — say which is newer. Work out \
-a relative time ("last Sunday", "next month") against the day it was said, not today.
+a relative time ("last week", "next month") against the day it was said, not today.
 
 Return ONLY a JSON object with exactly these keys:
 {

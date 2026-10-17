@@ -150,7 +150,7 @@ a count ("korean restaurants tried": "4"), a time, score or personal best ("char
 a price or amount, a size, a version or plan in use, a current status. One entry per value the conversation
 states as true at the time; when it states two for the same thing, the later one.
 - attribute: the thing measured, in plain lowercase words, without the entity's name and without the value — the
-  words someone would use for it again next time ("personal best 5k time", not "new record set in May").
+  words someone would use for it again next time ("personal best 5k time", not "new record set last spring").
 - value: as stated, with its unit ("25:50", "4", "$1,200 a month"). Never a guess, never a list (several things
   held at once are relationships), never the date something happened (that is history).
 - evidence_quote: as for relationships below. The value stays in key_facts too.

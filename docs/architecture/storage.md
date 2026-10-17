@@ -235,6 +235,21 @@ before it is written; a rerun finishes an interrupted run, committing the pages 
 migration's bytes and nothing else; a Related link that is no edge and no `related:` slug keeps its line as it was;
 `hub_pages`).
 
+**A value that changes is a claim a later value closes (stated values, 2026-10-17).** LongMemEval knowledge-update
+(G148): a count said as three and later as four, and a personal-best time said twice, both stayed as two undated lines
+of prose with no claim to supersede — Stage 1 emitted only entity-to-entity relationships, and an unseen predicate
+coexists. Stage 1 now also returns `values[]` (`{entity, attribute, value, evidence_quote}`: a count, a time or record,
+a price, a size, a version or status in use — one current value of one thing, never a list or an event date), verified
+like a relationship's quote and projected as a literal claim `value-of-<attribute slug>` (`claims.value_predicate`,
+`entity_extractor._value_claim`). The prefix with a literal object makes it single-valued by its own shape
+(`claims.is_value_claim`; `predicates.cardinality` answers `single`), never by a bank's vocabulary, so the trust table
+runs as for any single-valued key: a newer agent value supersedes, the person's own value is never closed by an agent,
+two values on the same day ask. Two Stage-1 reads name one attribute in other words, so a value adopts the predicate of
+the open value on its slot whose attribute words match (`claims.same_value_attribute`: the same words after filler
+such as "number of", or one set inside the other when the smaller has two or more — "age" never meets "dog age"). A
+value said before the one the page holds (a drain reads conversations in any order) is kept as closed history,
+`superseded_by` the newer, never asked about (`superseded_on_arrival` in the audit). The value stays in key facts too.
+
 **A person holds more than one place at once (2026-10-14).** `works-at` is multi-valued: as a single-valued key, Stage 3
 closed the open place whenever another was mentioned, and one measured owner page held 26 `works-at` claims, 25 closed,
 flipping between six places 1–60 days apart while two were true at once. The reconciler's oracle
