@@ -1224,7 +1224,8 @@ where it stands, the facts worth remembering once each. What changed, besides pr
 - **Stage 1's prompt** asks for that article: the person's relation first; facts about the thing, never about the
   conversation ("the assistant suggested …", "was mentioned in a conversation", "the user asked about …"); no
   implementation trivia of one debugging session (an artifact name, an action version, an error message) unless the
-  person said it matters; one fact once, usually 0-5; a detail of the assistant's answer is not an entity unless the
+  person said it matters; one fact once, as many as the conversation establishes (the "usually 0-5" was lifted
+  2026-10-17, below); a detail of the assistant's answer is not an entity unless the
   person engaged with it. An assistant-said fact stays legitimate evidence (kind `assistant`); the bar is triviality,
   not source. A prompt change is not measurable offline; the deterministic parts below are.
 - **Narration is dropped at Stage 1** (`fact_policy.about_the_conversation`): a fact whose subject is the thing itself
@@ -1267,10 +1268,15 @@ constraining the prose; git is the safety net, the claims and the dated timeline
   from relationships and agent writes), so they are the record the article is compiled from, each with its G118 row.
   The `article` frontmatter stamp marks the prose as the writer's; an edit makes the page the person's.
 - **The writer** (`entity_article`, `CICADA_PAGE_ARTICLES_ENABLED`, off until the owner reviews the numbers below,
-  like the synthesis switch): in Stage 3, a machine page resting on 2+ conversations once the update lands, that
-  gains anything (the re-read gate still applies), gets ONE JSON call in place of the synthesis call; the
-  contradiction call is unchanged. A one-conversation page is a stub: the deterministic merge, no call (short because
-  it is a stub, not because of a cap). A page whose prompt is over `CICADA_PAGE_ARTICLE_MAX_INPUT_CHARS` (60,000) is fitted, never
+  like the synthesis switch): in Stage 3, a machine page that gains anything (the re-read gate still applies) and
+  that the writer takes (`entity_article.worth_writing`) gets ONE JSON call in place of the synthesis call; the
+  contradiction call is unchanged. The writer takes a page resting on 2+ conversations once the update lands, or —
+  since 2026-10-17 — one on a single conversation whose record already holds `CICADA_PAGE_ARTICLE_MIN_MATERIAL` (4)
+  inputs: facts, dated lines, current claims, open questions and what this update said, never the page's own earlier
+  prose or its links. **A new page is born an article** on the same test (`conflict_resolver._create_job`: one call,
+  no contradiction call — nothing to contradict; Stage 5 composes it with the same `entity_article.compose` from an
+  empty page). Below the floor a page is a stub: a lead and a fact or two, which an article would only restate — the
+  deterministic merge, no call. A page whose prompt is over `CICADA_PAGE_ARTICLE_MAX_INPUT_CHARS` (60,000) is fitted, never
   clipped mid-input (`entity_article.fit`, owner page 2026-10-14): claims sharing a predicate and an object fold into
   one input (the latest text, how many conversations said it, first and last day, every evidence row); then claim
   inputs are left out — a log's (`entity_body.is_log`: a predicate the stems positively call activity, in a family held
@@ -1279,6 +1285,26 @@ constraining the prose; git is the safety net, the claims and the dated timeline
   update's words, the earlier lead and article, facts, questions and links never; LINKABLE keeps the names a kept
   input mentions. The record keeps every claim and line. Only a page whose own record is still over the budget
   keeps the deterministic merge if it has an article, else today's path.
+- **Uncapped (owner 2026-10-17: "It's not that I want a huge page for each thing. It's just that I want to kind of
+  uncap what the agents can write to.")** Measured on the owner's bank (non-archived pages, prose words outside the
+  claims fence; real values redacted beyond these counts): pages with an article, median 454 words (p90 1,092);
+  pages without, median 45 (p90 154); 767 of 4,693 under 40 words. The article writer had no length cap — the thin
+  pages were the ones it never ran on: promoted on one conversation, and new pages (a create never got the writer,
+  only a later update did). What limited a page, and what was done:
+  - *The 2+ conversation gate* → lifted to the material floor above, for updates and creates alike.
+  - *Stage 1's "usually 0-5 facts"* and "a short wiki article" → "as many facts as the conversation establishes
+    … never pad": the article is compiled from what Stage 1 extracts, so this is the per-conversation lever. Not
+    measurable offline (recorded answers); the fixtures' Stage 1 answers give a median of 3 facts per entity (max 7).
+  - *Kept:* the Summary's 600-character orientation budget and the type's sentence counts (`summary_policy`, Stage 1's
+    SUMMARY): on an article page the writer owns the lead at any length, so the budget only shapes stubs and banks
+    with articles off, and what it displaces is kept as Key Facts; the legacy merge prompt's 1-3 sentences (only a page
+    over the input budget, or articles off); the input budget (`fit` folds and orders, never clips); the capture caps
+    (a capture rail, G110); every writer rail — a paragraph with no cited input is not written, no padding, dated not
+    now, provenance per paragraph.
+  - *Cost:* one more call per new page over the floor and per one-conversation page update over it; a stub still
+    costs none. Offline (`page_quality --articles`, mechanical fake writer): article calls 5 → 9 over 3 batches, pages
+    with an article 3 → 4 of 4, median words 219 → 238.5 (p90 258 → 293), no extracted fact lost; `page_articles`:
+    18 → 19 calls (the 15-conversation page's create now written), the stub stays a stub.
 - **A hub's Related rolls up** (`entity_body.RELATED_MAX`, 60 linked pages; owner page 2026-10-14): `## Related` is a
   view of `graph_edges.yaml` rebuilt on every write, so on a page linking more pages than that, the block is **never
   more than 60 lines, family lines included**; lines go, in order of right, to its **strong facts**, then its weaker
@@ -1337,17 +1363,23 @@ constraining the prose; git is the safety net, the claims and the dated timeline
   67.9 s → 149.2 s, the largest batch 5.0 s → 13.4 s — output-bound, so the cost is per rich page per batch, not per
   call. Every extracted fact and dated line is on its page in both runs; the stub stays a stub.
 - **Existing pages:** `python -m api.scripts.rebuild_page_articles --bank <bank>` (dry run: counts only — pages,
-  skipped as archived/media/human/one conversation/already articles/over budget, selected, prompt characters; never a
-  name). `--limit N` / `--entity <id>` narrow it; `--preview-dir <outside-the-bank>` makes the calls and writes
+  skipped as archived/media/human/stubs (`one_conversation`: one conversation, under the material floor)/already
+  articles/over budget, selected and how many of them rest on one conversation, prompt characters, estimated calls,
+  batches; never a name). Pages go **newest-mentioned first** (`last_referenced`), so a stopped run has done the pages
+  most likely to be opened. `--limit N` / `--entity <id>` narrow it; `--preview-dir <outside-the-bank>` makes the calls and writes
   `<id>.before.md`/`<id>.after.md` there, touching nothing in the bank; `--apply` is refused before any call unless the
-  backend says Sleep is idle, makes the calls outside the write admission, then writes in one commit
-  (`trigger: maintenance/page-articles`, the model as `Cicada-Author`), skipping a page written since it was read. One page's
+  backend says Sleep is idle, makes the calls outside the write admission, then writes **`--batch-size` (25) pages a
+  commit** (`trigger: maintenance/page-articles`, the model as `Cicada-Author`), checking Sleep again before each
+  batch, skipping a page written since it was read. The engine is the one a person-started Sleep resolves (a plan
+  allowed; a metered key only with `--allow-metered`); a plan limit is a pause, never waited out here (ruling 15).
+  `--rewrite` also rewrites article pages, counting one written today as done, so a rerun continues. One page's
   trouble is that page's (2026-10-13, after a malformed answer aborted a 1,056-page run): a malformed, empty or
   unparseable answer, a timeout, a lost connection, a failed or refused call, a page too long for the model — the
   page is skipped and counted under `page_failures`, as Sleep's article path falls back on the same answer. What
   every later page would meet — a plan limit, an unreachable engine, a missing model, a metered key's quota or
-  outage — or 5 engine failures in a row stop the run: no new page starts, the pages in flight finish, and what was
-  written is kept (the preview files, or the one commit), with `stopped` and `not_attempted` in the counts and exit
+  outage — or 5 engine failures in a row (counted across batches), or Sleep starting between batches, stop the run:
+  no new page starts, the pages in flight finish, and what was written is kept (the preview files, or every batch
+  committed so far with the stopped batch's finished pages), with `stopped` and `not_attempted` in the counts and exit
   5. Running it again continues: finished pages are already articles.
 
 ### Temporal decay

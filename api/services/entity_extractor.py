@@ -57,10 +57,12 @@ The entity body is rendered as ordered markdown sections: ## Summary, ## Key Fac
 ## History, ## Links, ## Open Questions. The fields above map directly onto those
 sections. ## Related is generated from `relationships` — do NOT emit a related field.
 
-WHAT A PAGE IS FOR: each entity becomes a short wiki article about the thing AS IT FIGURES IN THE
-USER'S LIFE — what it is, what it is to them (they built it, use it, work with them, are deciding
-about it, visited it), where it stands, and the facts worth remembering, once each. Every line must
-earn its place: if the user would never ask about it months later, leave it out.
+WHAT A PAGE IS FOR: each entity becomes a wiki article about the thing AS IT FIGURES IN THE USER'S
+LIFE — what it is, what it is to them (they built it, use it, work with them, are deciding about it,
+visited it), where it stands, and the facts worth remembering, once each. The article is written from
+what you extract here, so its length follows yours: a thing the user worked through at length deserves
+every fact the conversation established, a passing mention one or two. Every line must earn its place:
+if the user would never ask about it months later, leave it out.
 
 SUMMARY (## Summary) — one paragraph, at most 600 characters:
 - What it is, then what it is to the user and where it stands in this conversation.
@@ -82,7 +84,9 @@ KEY FACTS (## Key Facts) — facts about the thing worth remembering:
   said it matters beyond that session.
 - One fact per bullet, said once: never restate the summary, and never two bullets that say the
   same thing in different words.
-- Usually 0-5 facts; a minor thing may have one or none. Never pad.
+- No fixed number: as many facts as the conversation establishes about the thing — the decisions and
+  their reasons, what was tried and how it went, the parts, people and numbers involved. A minor thing
+  may have one or none. Never pad.
 
 HISTORY ENTRIES (## History):
 - Include dated events extracted from the conversation, one sentence each.

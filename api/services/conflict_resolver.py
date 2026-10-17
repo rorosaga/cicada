@@ -109,8 +109,12 @@ async def resolve_and_prune(
     # Synthesize updates and detect contradictions on update branches
     existing_by_id = {e["id"]: e for e in existing}
     update_changes = [c for c in resolved if c.get("action") == "update"]
+    context = _article_context(existing, settings, cycle_day) if getattr(settings, "page_articles_enabled", False) else None
+    # A new page with enough to say gets its article as it is created (`_create_job`), not a mention later.
+    create_jobs = [job for job in (_create_job(c, context) for c in resolved if c.get("action") == "create")
+                   if job is not None] if context is not None else []
     progress = tqdm(
-        total=len(update_changes),
+        total=len(update_changes) + len(create_jobs),
         desc="Stage 3: synth",
         unit="ent",
         file=sys.stderr,
@@ -120,13 +124,12 @@ async def resolve_and_prune(
     )
     conflicts_found = 0
     rereads = 0
-    total_pages = len(update_changes)
+    total_pages = len(update_changes) + len(create_jobs)
     if progress_callback is not None:
         progress_callback(0, total_pages)
     # The per-page decisions that need no model call run first, in order: whether the page is asked about at
     # all and with what. Only the calls overlap (`_overlap_pages`); every result is applied below in this order.
-    jobs: list[dict] = []
-    context = _article_context(existing, settings, cycle_day) if getattr(settings, "page_articles_enabled", False) else None
+    jobs: list[dict] = list(create_jobs)
     for change in update_changes:
         job = _page_job(change, existing_by_id, settings, context)
         if job == "reread":
@@ -184,7 +187,7 @@ async def resolve_and_prune(
         logger.info(f"Stage 3: {rereads} page(s) re-read from conversations they already credit, saying nothing new "
                     "about what they are — merged without a call")
     if progress_callback is not None and not (cancel_check is not None and cancel_check()):
-        progress_callback(len(update_changes), len(update_changes))
+        progress_callback(total_pages, total_pages)
 
     # Temporal decay for unreferenced entities (G147). The weekly rate is
     # `decay_policy.effective`: the class's (or explicit) rate x the spacing
@@ -377,7 +380,9 @@ def _article_context(existing: list[dict], settings: Settings, today: str, memor
     except Exception:  # noqa: BLE001 - a missing owner costs the name, never the article
         owner = None
     return {"known": known, "names": names, "people": people, "owner": owner, "today": today,
-            "max_chars": int(getattr(settings, "page_article_max_input_chars", 60000) or 60000)}
+            "max_chars": int(getattr(settings, "page_article_max_input_chars", 60000) or 60000),
+            "min_material": int(getattr(settings, "page_article_min_material", entity_article.MIN_MATERIAL)
+                                or entity_article.MIN_MATERIAL)}
 
 
 _LINK = __import__("re").compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
@@ -428,10 +433,12 @@ def _page_job(change: dict, existing_by_id: dict[str, dict], settings: Settings,
     pages as they were read before the stage — never of another page's answer — which is what lets the calls
     overlap (`_overlap_pages`).
 
-    ``article_context`` (``page_articles_enabled``): a machine page resting on 2+ conversations gets the article
-    writer's one call in place of the synthesis call (`entity_article`); a one-conversation page and one whose inputs
-    are over the budget get no write call (the deterministic merge). A page that already has its stamped Article is
-    never handed to the summary or legacy rewrite, setting on or off: those replace the lead the writer owns."""
+    ``article_context`` (``page_articles_enabled``): a machine page resting on 2+ conversations, or on one whose
+    record gives the writer enough to connect (`entity_article.worth_writing`), gets the article writer's one call in
+    place of the synthesis call (`entity_article`); a stub (one conversation, less material) gets no write call (the
+    deterministic merge), nor does a one-conversation page over the budget. A page that already has its stamped
+    Article is never handed to the summary or legacy rewrite, setting on or off: those replace the lead the writer
+    owns."""
     entity_id = change["id"]
     existing_entity = existing_by_id.get(entity_id)
     if not existing_entity:
@@ -457,10 +464,12 @@ def _page_job(change: dict, existing_by_id: dict[str, dict], settings: Settings,
                 and not entity_body.adds_anything(existing_entity.get("body", ""), _entity_summary(new_entity),
                                                   new_entity.get("key_facts") or [])):
             return "reread"
-        writer = None
-        if entity_article.eligible(fm0, sources):
-            writer = _article_job(change, existing_entity, new_entity, article_context)
-        if writer is None and not has_article and not entity_article.eligible(fm0, sources):
+        writer = _article_job(change, existing_entity, new_entity, article_context)
+        over_budget = writer is None
+        if writer is not None and not entity_article.worth_writing(
+                fm0, sources, writer["inputs"], min_material=article_context.get("min_material")):
+            writer = None
+        if writer is None and not has_article and not (over_budget and entity_article.eligible(fm0, sources)):
             has_article = True   # a stub: the deterministic merge, no write call
         if writer is None and not has_article:
             article_context = None   # over budget, never written: today's path below
@@ -513,6 +522,30 @@ def _page_job(change: dict, existing_by_id: dict[str, dict], settings: Settings,
         "source_reference_date": _latest_change_date(change) or (change_days[-1] if change_days else None),
         "no_rewrite": has_article,
     }
+
+
+def _create_job(change: dict, context: dict) -> dict | None:
+    """A new page's article (owner 2026-10-17, "uncap what the agents can write to"): the writer's one call when the
+    page's first record — what its conversations said, its facts, dated lines and questions — is enough to connect
+    (`entity_article.worth_writing`), else ``None`` (the page is created as today, no call). A create has nothing to
+    contradict, so no contradiction call."""
+    entity = change.get("entity") or {}
+    if str(entity.get("type") or "") == "media":   # a saved item has its own card, as in the rebuild
+        return None
+    if not (_entity_summary(entity) or any(entity.get(k) for k in ("key_facts", "history_entries", "open_questions"))):
+        return None
+    sources = _change_source_episodes(change)
+    fm = {"name": entity.get("name") or change["id"], "type": entity.get("type") or "concept",
+          "created": _earliest_change_date(change) or context["today"], "source_episodes": [],
+          "aliases": alias_policy.keep(entity.get("aliases") or [])}
+    writer = _article_job(change, {"frontmatter": fm, "body": ""}, entity, context)
+    if writer is None or not entity_article.worth_writing({}, sources, writer["inputs"],
+                                                          min_material=context.get("min_material")):
+        return None
+    return {"change": change, "new_entity": entity, "new_desc": "", "new_history": [], "section_aware": False,
+            "existing_body": "", "entity_type": fm["type"], "entity_name": fm["name"], "page_said": None,
+            "change_days": _change_dates(change), "source_reference_date": None, "article": writer,
+            "no_rewrite": False}
 
 
 def _strip_claims(body: str) -> str:
@@ -710,17 +743,34 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             # (the commit's `Cicada-Author` still names it).
             if entity.get("website") and str(entity_type).lower() in ("company", "tool", "project"):
                 fact_sources.propose_site(frontmatter, str(entity["website"]), added_by="agent")
-            body = entity_body.compose_body_v2(
-                summary=_entity_summary(entity),
-                key_facts=entity.get("key_facts", []) or [],
-                history_entries=entity.get("history_entries", []) or [],
-                related=[],
-                links=entity.get("links", []) or [],
-                open_questions=entity.get("open_questions", []) or [],
-                name=frontmatter['name'], entity_type=entity_type,
-            )
-            section_provenance.refresh(frontmatter, "", body,
-                _selected_page_inputs(entity, entity_body.parse_sections(body)))
+            article = change.get("article")
+            if article:
+                # A new page with enough to say is written as an article from the start (`_create_job`): the record
+                # as the extraction gave it, the lead and Article above it, the summary sentences it does not carry
+                # as Key Facts — the same compose an update uses, from an empty page.
+                sections = entity_article.compose("", str(entity_type), {
+                    "key_facts": entity.get("key_facts", []) or [],
+                    "history_entries": entity.get("history_entries", []) or [],
+                    "links": entity.get("links", []) or [],
+                    "open_questions": entity.get("open_questions", []) or []}, article)
+                body = entity_body.render_sections(sections)
+                selected = _selected_page_inputs(entity, entity_body.parse_sections(body))
+                selected[section_provenance.INPUTS] = list(selected.get(section_provenance.INPUTS) or []) + list(
+                    article.get("records") or [])
+                entity_article.stamp(frontmatter, entity_body.parse_sections(body), written=learned)
+                section_provenance.refresh(frontmatter, "", body, selected)
+            else:
+                body = entity_body.compose_body_v2(
+                    summary=_entity_summary(entity),
+                    key_facts=entity.get("key_facts", []) or [],
+                    history_entries=entity.get("history_entries", []) or [],
+                    related=[],
+                    links=entity.get("links", []) or [],
+                    open_questions=entity.get("open_questions", []) or [],
+                    name=frontmatter['name'], entity_type=entity_type,
+                )
+                section_provenance.refresh(frontmatter, "", body,
+                    _selected_page_inputs(entity, entity_body.parse_sections(body)))
             if change.get("settle"):
                 untimed_ids = _untimed_once(untimed_ids, memory_path)
                 _settle(frontmatter, change["settle"], untimed_ids)

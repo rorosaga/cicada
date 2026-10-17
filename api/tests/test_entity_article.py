@@ -189,3 +189,18 @@ def test_eligible_needs_two_conversations_after_the_update():
     assert not article.eligible({"source_episodes": ["ep_1"]}, ["ep_1"])
     assert article.eligible({"source_episodes": ["ep_1"]}, ["ep_2"])
     assert article.eligible({"source_episodes": ["ep_1", "ep_2"]}, [])
+
+
+def test_worth_writing_is_two_conversations_or_enough_material():
+    def inputs(*kinds):
+        return article.Inputs([article.Source(f"x{i}", k, f"text {i}") for i, k in enumerate(kinds)], {})
+
+    one = {"source_episodes": ["ep_1"]}
+    rich = inputs("fact", "fact", "history", "said")
+    thin = inputs("fact", "said", "earlier", "earlier", "link", "link")   # earlier prose and links are not material
+    assert article.material(rich) == 4 and article.material(thin) == 2
+    assert article.worth_writing(one, [], rich) and not article.worth_writing(one, [], thin)
+    assert article.worth_writing(one, ["ep_2"], thin)                      # two conversations: always
+    assert not article.worth_writing(one, [], rich, min_material=5)
+    assert article.worth_writing(one, [], thin, min_material=1)
+    assert not article.worth_writing(one, [], inputs("earlier"), min_material=0)   # nothing to write from

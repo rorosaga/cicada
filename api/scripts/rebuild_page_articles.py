@@ -5,12 +5,15 @@
     api/.venv/bin/python -m api.scripts.rebuild_page_articles --bank <path> --limit 5 --preview-dir <outside-dir>
     api/.venv/bin/python -m api.scripts.rebuild_page_articles --bank <path> --entity <id> --entity <id> --apply
 
-The dry run makes no model call and prints counts: pages, those skipped (archived, media, human prose, resting on
-one conversation, already articles, over the writer's input budget) and those selected, with their prompt
-characters. ``--limit N`` and ``--entity <id>`` (repeatable) narrow the sample. ``--preview-dir`` makes the calls and
-writes ``<id>.before.md`` / ``<id>.after.md`` there, never touching the bank (the directory must be outside it).
-``--apply`` makes the calls, then writes the pages in one commit; it is refused unless the backend says Sleep is
-idle. ``--rewrite`` also rewrites pages that already have an article.
+The dry run makes no model call and prints counts: pages, those skipped (archived, media, human prose, stubs — one
+conversation and less than ``CICADA_PAGE_ARTICLE_MIN_MATERIAL`` inputs —, already articles, over the writer's input
+budget) and those selected, newest-mentioned first, with how many rest on one conversation, their prompt characters,
+the estimated calls (one a page) and the batches an apply commits. ``--limit N`` and ``--entity <id>`` (repeatable)
+narrow the sample. ``--preview-dir`` makes the calls and writes ``<id>.before.md`` / ``<id>.after.md`` there, never
+touching the bank (the directory must be outside it). ``--apply`` makes the calls and writes the pages
+``--batch-size`` (25) at a time, one commit a batch; it is refused unless the backend says Sleep is idle, and stops
+between batches if Sleep starts. ``--rewrite`` also rewrites pages that already have an article (one written today
+counts as done, so a rerun continues).
 
 The engine is the one a Sleep run the person starts would use: the engine chosen in Settings → Engines (a plan when
 one is chosen and connected), resolved before any call and named in the output (``engine``, never a key). Nothing
@@ -20,9 +23,9 @@ rebuild on a metered key spends money, so it is agreed to by name.
 The bank is named explicitly; nothing is resolved from the environment's active bank. Prints one JSON object of
 counts (never a page name or a word of the bank). Exit 0 done, 2 not a bank or a bad preview directory, 3 refused
 because Sleep is running or holds the pages, 4 refused because no engine resolves or it is metered without
-``--allow-metered``, 5 stopped early by the engine (a plan limit, an unreachable engine, or pages failing in a row):
-the pages written before the stop are kept (``stopped`` says why, ``not_attempted`` how many were never asked; run it
-again to continue — finished pages are already articles). One page's malformed answer, timeout or refusal never
+``--allow-metered``, 5 stopped early (a plan limit, an unreachable engine, pages failing in a row, or Sleep starting between
+batches): every batch before the stop is committed, and the stopped batch's finished pages too (``stopped`` says why,
+``not_attempted`` how many were never asked; run it again to continue — finished pages are already articles). One page's malformed answer, timeout or refusal never
 stops the run: that page is skipped and counted under ``page_failures``.
 """
 from __future__ import annotations
@@ -41,6 +44,7 @@ def main(argv=None) -> int:
     parser.add_argument("--entity", action="append", default=[], help="rebuild only this page id (repeatable)")
     parser.add_argument("--limit", type=int, default=None, help="rebuild at most this many pages (by id)")
     parser.add_argument("--rewrite", action="store_true", help="also rewrite pages that already have an article")
+    parser.add_argument("--batch-size", type=int, default=25, help="pages per commit with --apply (default 25)")
     parser.add_argument("--allow-metered", action="store_true",
                         help="allow an API-key engine, billed per call (refused without this)")
     mode = parser.add_mutually_exclusive_group()
@@ -66,7 +70,7 @@ def main(argv=None) -> int:
     try:
         result = rebuild.run(bank, settings, mode=mode_name, sleep_running=backend_running,
                              entity_ids=args.entity, limit=args.limit, rewrite=args.rewrite, preview_dir=preview,
-                             allow_metered=args.allow_metered)
+                             allow_metered=args.allow_metered, batch_size=max(1, args.batch_size))
     except rebuild.SleepRunning as exc:
         print(json.dumps({"refused": str(exc)}))
         return 3
