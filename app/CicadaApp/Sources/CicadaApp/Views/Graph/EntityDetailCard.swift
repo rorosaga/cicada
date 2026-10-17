@@ -229,12 +229,14 @@ struct EntityDetailCard: View {
                 canGoBack: canGoBack, backTargetName: backTargetName, onBack: goBack,
                 showsClose: showsCloseButton, onClose: close,
                 tabs: EntityTabs.tabs(digest: claimsLoaded ? digest : nil,
-                                      historyCount: EntityTabs.historyCount(embedded: entity.history, fetched: fetchedHistory)),
+                                      historyCount: EntityTabs.historyCount(embedded: entity.history, fetched: fetchedHistory),
+                                      selected: selectedTab),
                 selection: $selectedTab,
                 inset: style.inset,
                 facts: personFacts, pictureInputs: entity.pictureInputs,
                 onShowOnGraph: style == .card ? showOnGraph : nil,
-                onOpenEntity: { navigate(to: $0) })
+                onOpenEntity: { navigate(to: $0) },
+                showsSource: $showRawMarkdown, onCopy: copyMarkdown)
             ScrollViewReader { proxy in
                 ScrollView {
                     switch selectedTab {
@@ -388,22 +390,10 @@ struct EntityDetailCard: View {
         }
     }
 
-    /// The Rendered/Source switch and Copy.
-    private var bodyToolbar: some View {
-        HStack(spacing: 0) {
-            TextTabs(tabs: EntityBodyView.tabs, selection: Binding(
-                get: { showRawMarkdown ? .source : .rendered },
-                set: { if let view = $0 { showRawMarkdown = view == .source } }))
-                .padding(.leading, -CicadaTheme.scaled(TextTabs<EntityBodyView>.horizontalPadding))
-            Spacer(minLength: 0)
-            IconButton(systemName: "doc.on.doc", help: Copy.Graph.copyMarkdown) { copyMarkdown() }
-        }
-    }
-
-    /// The page: Rendered/Source and Copy, a paper's or a media page's own card, then the article (or the file).
+    /// The page: a paper's or a media page's own card, then the article (or the file). Its Rendered/Source switch
+    /// and Copy sit at the end of the header's tab row (`EntityCardHeader.pageTools`).
     private var pageBlock: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-            bodyToolbar
             // G133: a paper leads with why it is in memory, then the dated abstract — and never loads
             // arxiv.org in a preview (R-LS19).
             if let paperDetail {
@@ -1409,16 +1399,6 @@ enum EntityCardStyle {
 
     /// Leading inset in units: the mock's 28 in the column, the card's 16.
     var inset: CGFloat { self == .column ? 28 : 16 }
-}
-
-/// R-DG21 — Rendered · Source as text tabs.
-enum EntityBodyView: Hashable {
-    case rendered, source
-
-    static let tabs: [TextTab<EntityBodyView>] = [
-        TextTab(id: .rendered, label: Copy.Graph.rendered),
-        TextTab(id: .source, label: Copy.Graph.source),
-    ]
 }
 
 private struct EntityCardChrome: ViewModifier {

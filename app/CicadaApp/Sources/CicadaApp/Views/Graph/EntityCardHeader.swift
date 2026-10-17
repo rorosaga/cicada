@@ -30,6 +30,10 @@ struct EntityCardHeader: View {
     var onShowOnGraph: (() -> Void)? = nil
     /// A fact that names a page opens it (the card's wikilink navigation).
     var onOpenEntity: ((String) -> Void)? = nil
+    /// The page's Rendered/Source switch and Copy, at the end of the tab row while Content is shown — one row of
+    /// tabs, never a second row under it (QA 2026-10-16; DR-45, DR-38). Nil: no page tools (a test render).
+    var showsSource: Binding<Bool>? = nil
+    var onCopy: (() -> Void)? = nil
     /// G194 A2 — the day an old page is measured against; `nil` is the viewer's today, read at render (DR-58).
     /// Only tests and review renders pin it.
     var today: ISODay? = nil
@@ -87,14 +91,37 @@ struct EntityCardHeader: View {
                                   inputs: pictureInputs, quietWhenEmpty: true)
                     .padding(.top, CicadaTheme.scaled(4))
             }
-            TextTabs(tabs: tabs, selection: Binding(get: { selection }, set: { if let tab = $0 { selection = tab } }))
-                .padding(.top, CicadaTheme.spacingLG)
-                .padding(.leading, -CicadaTheme.scaled(TextTabs<EntityCardTab>.horizontalPadding))
+            HStack(spacing: CicadaTheme.spacingXS) {
+                TextTabs(tabs: tabs, selection: Binding(get: { selection }, set: { if let tab = $0 { selection = tab } }))
+                    .padding(.leading, -CicadaTheme.scaled(TextTabs<EntityCardTab>.horizontalPadding))
+                Spacer(minLength: 0)
+                if selection == .content {
+                    pageTools
+                }
+            }
+            .padding(.top, CicadaTheme.spacingLG)
         }
         .padding(.top, CicadaTheme.scaled(14))
         .padding(.leading, CicadaTheme.scaled(inset))
         .padding(.trailing, CicadaTheme.scaled(20))
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The source toggle (a sticky `IconButton`, the Graph pan button's grammar — selected fill, never the accent) and
+    /// Copy markdown.
+    @ViewBuilder
+    private var pageTools: some View {
+        if let showsSource {
+            IconButton(systemName: "chevron.left.forwardslash.chevron.right",
+                       help: showsSource.wrappedValue ? Copy.Graph.showRendered : Copy.Graph.showSource,
+                       accessibilityLabel: Copy.Graph.source, isOn: showsSource.wrappedValue) {
+                showsSource.wrappedValue.toggle()
+            }
+            .accessibilityAddTraits(showsSource.wrappedValue ? .isSelected : [])
+        }
+        if let onCopy {
+            IconButton(systemName: "doc.on.doc", help: Copy.Graph.copyMarkdown, action: onCopy)
+        }
     }
 }
 

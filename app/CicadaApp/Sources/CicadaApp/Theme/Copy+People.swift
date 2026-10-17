@@ -61,6 +61,12 @@ extension Copy {
         static let showPage = "Show the page"
         static let hidePage = "Hide the page"
 
+        /// "Oct 3 · 2 weeks" — the day and how long ago; a page first heard of today is just its day, never
+        /// "Oct 16 · 0 days" (QA 2026-10-16: the day said twice; DR-38).
+        static func knownSinceValue(_ day: String, days: Int) -> String {
+            days < 1 ? day : "\(day) · \(span(days: days))"
+        }
+
         /// How long someone has been in memory — a span in plain units, never a day word (those are `RelativeDay`'s).
         static func span(days: Int) -> String {
             func unit(_ n: Int, _ one: String, _ many: String) -> String {

@@ -47,9 +47,11 @@ the page's `lastReferenced` is more than 90 days before the viewer's today, the 
 Store domain); the app's `EntityHeaderWords` / `FadeWords` twin paints them from the existing fields and is pinned to
 the backend by one table, `api/tests/fixtures/entity_bands.json` (`EntityBandsTests`). Words stay in each client. The
 name, the page's Summary, Back ⌘[ and ×; text tabs Content · Perspectives · History · Timeline with counts once
-known (the belief counts once the claims are read, when a section or tab asks). **Content opens on the page (owner
+known (the belief counts once the claims are read, when a section or tab asks), Timeline drawn only while a belief is
+contested or a belief's clock has it open (no "Timeline 0", 2026-10-17), and — while Content shows — the page's source
+toggle and Copy at the end of that same row, never a second tab row (`EntityCardHeader.pageTools`). **Content opens on the page (owner
 2026-10-09): every type, a person's too, shows its prose first as an article, and everything else waits behind a
-click.** Content: Rendered/Source and Copy; the article; its folder or repository in words; then the sections, each a
+click.** Content: the article; its folder or repository in words; then the sections, each a
 remembered disclosure (`CardDisclosure`, DR-39) that reads its data only when opened — What Cicada believes (the
 claims; shown open on an R-FX11 page, whose beliefs are its content), Where this comes from, a person's *How you know
 <name>* (*What you're connected to* on the owner's page) with *What's happening*, and Details. The
@@ -129,7 +131,7 @@ picture's source line and a
 facts strip whose every cell comes from something the card loaded (`PersonFacts`; Works at names every current place,
 newest first, each opening its own page, two then "+N" with the rest in its help — 2026-10-14; Known since, Last mentioned and
 Conversations are when the conversations were said, over all of them — `/provenance`'s `totals` — with the page's own
-dates only as a fallback); then the tabs, and in Content the page like every other type, one column; behind its
+dates only as a fallback; Known since gives its span only from a day on, never "· 0 days"); then the tabs, and in Content the page like every other type, one column; behind its
 disclosures, beliefs signed with who wrote them (`SignedLine`: harness, model and effort from the captured turn), Where
 this came from, and *How you know <name>* (*What you're connected to* on the owner's own page, by its `owner` flag;
 `PersonMapLayout`, the graph's own edges) with *What's happening* (`PersonHappenings`, from `ProjectsCache`). Every

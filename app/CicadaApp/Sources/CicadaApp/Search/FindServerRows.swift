@@ -158,14 +158,8 @@ enum FindServerRows {
         }
     }
 
-    /// Origins whose "user" side is a thing that arrived, not words the person said.
-    static func sourceSpeaker(_ origin: String?) -> String? {
-        switch origin ?? "" {
-        case "rss": return Copy.Provenance.fromTheFeed
-        case "calendar", "calendar-local": return Copy.Provenance.onYourCalendar
-        default: return nil
-        }
-    }
+    /// Origins whose "user" side is a thing that arrived, not words the person said (`EvidenceSpeaker.sourceSpeaker`).
+    static func sourceSpeaker(_ origin: String?) -> String? { EvidenceSpeaker.sourceSpeaker(origin) }
 
     private static func entityDetail(_ hit: MemorySearchHit) -> String? {
         switch hit.matchedField ?? "" {
