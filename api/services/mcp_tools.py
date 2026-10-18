@@ -2099,6 +2099,9 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
             page_text = path.read_text(encoding="utf-8")
             fm = parse_frontmatter(page_text)[0]
             text = _with_ledger(path, page_text)
+            watched = _watch_history_line(memory_path, fm, cid)
+            if watched:
+                text = text.rstrip("\n") + "\n\n" + watched + "\n"
             budget = REMOTE_DETAIL_BUDGET if ctx.is_remote else RECALL_DETAIL_BUDGET
             if not whole and start is None and len(text) > budget:
                 try:
@@ -2114,6 +2117,21 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
             return Reply(text, data={"entity_id": path.stem, "type": fm.get("type"), "status": fm.get("status")})
 
     return Reply(f"Entity '{entity_id}' not found.", code="not_found")
+
+
+def _watch_history_line(memory_path: Path, fm: dict, entity_id: str) -> str | None:
+    """A page named like a channel in the watch history gets one derived line (owner ruling 2026-10-18): counts and
+    dates from the watched days, read now, never written and never a mention. ``None`` on any failure."""
+    from api.services import watch_history
+
+    names = [fm.get("name") or entity_id]
+    aliases = fm.get("aliases")
+    if isinstance(aliases, list):
+        names += [a for a in aliases if isinstance(a, str)]
+    try:
+        return watch_history.channel_line(memory_path, names)
+    except Exception:  # noqa: BLE001 — a derived line never fails a page read
+        return None
 
 
 def sources(ctx: ToolContext, entity_id: str) -> str:

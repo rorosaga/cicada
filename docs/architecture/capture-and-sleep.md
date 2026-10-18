@@ -424,6 +424,13 @@ import needs no Mac app).
   not atomic: interrupted, it can leave pages written before its `url_index` rows, which a re-import writes again.
 - **Rails.** No model runs; the episode body is scrubbed as every media save is, and the X reader scrubs the post's
   words before they become a title; every `/sources/` POST answers 409 into a demo bank and `cicada import` exits 4.
+- **Indexed, not consolidated (owner ruling 2026-10-18).** A save from a platform's saved list stays in Saved with its
+  metadata (title, channel, playlist or collection, date, its media page) and its episode lands already read —
+  `processed: true`, `processed_by: index` — so no model reads it, item by item or at all (*Indexed, not
+  consolidated* below). The YouTube oEmbed lookup at import is unchanged: it is the person's own click (the drop,
+  the upload, `cicada import`), so the unattended-fetch gate does not apply, and it is bounded — one call per new
+  video (a duplicate is never looked up), 8 at a time, 5 s each, 2,000 per slice; Instagram, LinkedIn, Reddit and X
+  rows are never fetched (walled, or `defer_enrich`), and Sleep's link reads skip YouTube and every walled host.
   Pinterest's export is a browse-your-content HTML archive with no stable structure, so Pinterest stays with its
   connector.
 
@@ -434,8 +441,9 @@ API gives no one Watch later or watch history, so there are three doors, and the
   **one episode per platform per day** — `source_id` `watch-history:<platform>:<YYYY-MM-DD>`, `source: watch-history`,
   origin `youtube-history` (TikTok's browsing history, `tiktok-history`, rides the same writer), an id dated the day
   watched — listing that day's videos in order with their local times, titles and channels, through the one stager,
-  queued for Sleep. Saved never sees a history row, and an import of years of history is that many days, which the
-  preview says before Confirm ("N watched videos over D days").
+  **already read** (`processed_by: index`; *Indexed, not consolidated* below). Saved never sees a history row, and an
+  import of years of history is that many days, which the preview says before Confirm ("N watched videos over D
+  days"). Each month the history touches gets one more episode, its summary (`watch_history.rollup`, below).
 - **One identity.** A video is `media_ingestor.url_hash` of its canonical URL — the key Watch later, bookmarks and
   Takeout playlists share — so `youtu.be/<id>`, `/shorts/<id>` and `watch?v=<id>&t=…` are one video. Within a day a
   video is one row (`watched` in frontmatter: `url, title, channel, times, via, seen`); a watch less than 30 minutes
@@ -465,6 +473,56 @@ API gives no one Watch later or watch history, so there are three doors, and the
   already saved is a duplicate), history rows as days (the page's day).
 - No model runs, nothing is fetched (titles and times come from the doors), every title is scrubbed (writer
   `watch-history`).
+
+**Indexed, not consolidated (owner ruling 2026-10-18; G71, G94).** The owner's Takeout with history brought 45,879
+watches as 2,532 day episodes and 3,156 playlist saves, and every one was queued for a full Stage-1 read — hours of
+plan usage to fill the graph with channel and video pages and "who is X" questions. Owner: "maybe overanalyzing the
+watch history is too much … Maybe just have it there and then maybe the metadata has it as embeddings or something."
+So watch history and list saves are a record to look up, never a conversation to read:
+- **What is index-only — one predicate, `history_index.kind`.** A watched day (`source: watch-history`), a month's
+  summary (`source: watch-history-month`), and a save from a platform's saved list: origin `youtube-playlist` (a
+  Takeout playlist, Watch later included, or the agent's read of Watch later), `instagram-saved`, `tiktok-saved`,
+  `x-likes`, `linkedin-saved`, and `reddit-saved` / `x-bookmarks` only under the folder the export reader names
+  (`Saved posts`/`Saved comments`, `Bookmarks`) — the Reddit and X connectors share those origins under other
+  folders and are read as before. A browser bookmark, a single URL save and a save carrying the person's own note
+  keep today's behaviour (no list door carries a note; one that did is stamped `has_note` and queued).
+- **Read without a model.** Capture writes them read (`processed: true`, `processed_by: index`: the stager's
+  `queue_for_sleep=False`, or `media_ingestor.write_media_episode`). `history_index.waits_for_model` is the one
+  "waiting for Sleep" predicate — the drain's freeze and its waiting map, the one-batch cycle, `/status`'s
+  `unprocessed`, the state queue depth, sleep debt, a paused run's remaining ids — so an index-only episode never
+  enters a model batch, a frozen list or a run's progress. **A bank that imported before the ruling** is handled by
+  Sleep without re-import: at the start of every run that holds the bank (drain, one-batch cycle, the scheduler's
+  tail-only run), before anything is frozen, `sleep_cycle._index_without_model_safely` marks every queued
+  index-only episode read (`history_index.retire`, under the episode lock, re-checked before it flips) and writes
+  the month summaries, in `cicada` commits of at most 500 files (`Indexed without a model <date>`, manifest lines
+  `episodes/<id>.md: indexed (source: n/a, trigger: sleep/index)`, no engine trailer); a file dirty before it ran
+  keeps its own writer and is skipped (it stays out of every batch meanwhile); a failed commit restores what it
+  wrote. Measure first with `api/.venv/bin/python -m api.scripts.history_index_dry_run --bank <path>` (counts only,
+  writes nothing: waiting, for the model, index-only by kind and origin, months against summaries).
+- **The month summary is the signal, counted with no model** (`watch_history.rollup`, one episode per platform per
+  month, `source_id` `watch-history-month:<platform>:<YYYY-MM>`, through the stager, read by the index): how many
+  videos over how many days, the channels watched most (videos and days), the channels come back to across
+  different ISO weeks, the videos watched on more than one day, and each day's count. Deterministic — the same days
+  give the same words whichever order the doors brought them — and rewritten only when a day's words moved (the
+  stager's hash). The import doors write the months they touch; Sleep writes any a bank lacks.
+- **Found by lookup.** The files stay in `episodes/`: the lexical index covers every episode, and the episode
+  vectors — synced at the end of a model batch, which these never reach — are synced by the tail's
+  `_embed_indexed_episodes_safely` whenever an index-only episode is newer than the vector index (incremental by
+  content hash; with the model the table holds; a bank with no vector index waits for its first). Recall's excerpts
+  and search find a day or a month by its titles and channels; **Ask** reads the record for a question about
+  watching (`watch_history.lookup`: a named month answers with its summary, otherwise the watched videos whose title
+  or channel holds the question's words, whole words, dated, the newest 40; only for a caller with the person's
+  `sources`, and the answer may rest on it with no page retrieved); the **timeline** counts a watched day on its own
+  day ("Watched N video(s) on YouTube") and never lists a day or a month as a capture.
+- **A watched day is not a mention (decided 2026-10-18).** A channel page is never written by history: no claim, no
+  `source_episodes`, no `last_referenced`, no lift, no decay-clock move, no page minted, no inbox question. Why:
+  decay counts *conversations* (`decay_policy.conversations`) and a watch is not one — like a memory export entry,
+  it is a record the platform kept, not the person's words; a watch is often autoplay or background; and at 45k
+  watches, up to 400 a day, any page sharing a channel's name would be held at the repeat floor for good, which
+  would make "absence of mention is a signal" meaningless for it. What the page gains instead is read-time and
+  derived: `cicada_recall_detail` on a page whose name or alias IS a channel in the history (exact, case and spacing
+  folded, never fuzzy) appends one line — videos, days, first and last day — computed from the days' frontmatter
+  (`watch_history.channel_line`, cached in memory per change of the day files), never stored.
 
 **Conversation identity (G48).** An MCP episode carries `session_id` plus `harness` and
 `project_dir` when exposed — minted once per MCP process from `CLAUDE_CODE_SESSION_ID` →
@@ -756,7 +814,8 @@ follow-ups (G141 PJ-6, right after expiry, its own `cicada` commit), the exact-m
 its own `cicada` commit, dirty pages skipped), the site check (G61 S3-b, behind `CICADA_ALLOW_CONNECTOR_FETCH`, its own
 `cicada` commit), the tracked-source re-check (ruling 26), **the web check** (below), the connector poll, RSS/ICS
 polling (opt-in via `CICADA_ALLOW_FEED_FETCH=1`), and the link enrichment backfill — all in a clean-tree-guarded slot,
-after `_finalize`'s own commit so the poll's `git add -A` sweeps only its own files.
+after `_finalize`'s own commit so the poll's `git add -A` sweeps only its own files. After them, unguarded (no git),
+the episode vectors are synced when an index-only episode is newer than the vector index (owner ruling 2026-10-18).
 
 **The web check (owner ruling 2026-10-16, TODO ruling 27; `sleep_cycle._web_check_safely`, `web_lookup`).** After the
 run's last nudges, up to `web_check_per_run` (8; `CICADA_WEB_CHECK_PER_RUN`, 0 = off) pending questions about public
@@ -895,7 +954,9 @@ from a scheduled run. The dotfile pin keeps its one batch (ruling 16); on a mete
 say so in words. The default scheduled BYOK/local selection is unchanged; an explicit `CICADA_LLM_MODE` CLI
 override also reaches the transient retry/pause policy. Such a scheduled engine pause is eligible for replacement
 by a fresh unattended run only after six hours (`sleep_paused.ENGINE_RETRY_S`), rather than the next scheduler tick.
-**Once per drain, not per batch:** temporal decay (both engines,
+**Before the freeze:** every run that holds the bank first marks what is only ever looked up as read — watch
+history, month summaries and list saves (*Indexed, not consolidated*, above) — so they are never frozen, batched or
+counted as read by the model. **Once per drain, not per batch:** temporal decay (both engines,
 `decay=False` on `resolve_and_prune` / `reconcile_stage3` / `run_claim_pipeline`) and Stage 5.57's page reads run only in the
 batch that empties the queue (a decay-only finishing pass covers a last batch whose ids were read elsewhere), so decay is
 charged once (TODO ruling 1) and a stopped drain never decays; **once per run:** the whole engine-independent tail, whose

@@ -152,8 +152,10 @@ def sync_token(memory_path: Path) -> str:
 def remaining_ids(memory_path: Path, record: dict) -> list[str]:
     """The frozen ids that are still waiting now, in the frozen (queue) order —
     what is filed since is settled without ever being persisted."""
+    from api.services import history_index
+
     waiting = {str(f.frontmatter.get("id", f.stem))
-               for f in bank_index.files(memory_path, "episodes") if not f.frontmatter.get("processed", False)}
+               for f in bank_index.files(memory_path, "episodes") if history_index.waits_for_model(f.frontmatter)}
     return [i for i in record.get("frozen_ids") or [] if i in waiting]
 
 

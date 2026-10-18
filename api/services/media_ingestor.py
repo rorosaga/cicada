@@ -30,7 +30,7 @@ from urllib.parse import parse_qs, urljoin, urlparse
 from loguru import logger
 
 from api.services import (
-    bank_index, decay_policy, episode_ids, episode_scrub, markdown_parser, net_guard, saved_at,
+    bank_index, decay_policy, episode_ids, episode_scrub, history_index, markdown_parser, net_guard, saved_at,
     video_chapters, video_urls,
 )
 from api.services.id_utils import sanitize_id
@@ -1973,6 +1973,15 @@ def write_media_episode(
             frontmatter["harness"] = item.harness
         if item.project_dir:
             frontmatter["project_dir"] = item.project_dir
+    # Owner ruling 2026-10-18: a save from a platform's saved list (an export archive, the agent's Watch later read)
+    # stays in Saved with its metadata and is indexed, never read by a model. The person's own note or reason on a
+    # save is always read — no list door carries one, and one that did is marked and queued like any save.
+    if history_index.is_index_only(frontmatter):
+        if item.note or item.reason:
+            frontmatter[history_index.NOTE_KEY] = True
+        else:
+            frontmatter["processed"] = True
+            frontmatter["processed_by"] = history_index.INDEXED_BY
     episode_id = episode_ids.create_episode(episodes_dir, frontmatter, body)
     return episode_id
 
