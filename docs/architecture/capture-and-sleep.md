@@ -485,7 +485,13 @@ So watch history and list saves are a record to look up, never a conversation to
   `x-likes`, `linkedin-saved`, and `reddit-saved` / `x-bookmarks` only under the folder the export reader names
   (`Saved posts`/`Saved comments`, `Bookmarks`) — the Reddit and X connectors share those origins under other
   folders and are read as before. A browser bookmark, a single URL save and a save carrying the person's own note
-  keep today's behaviour (no list door carries a note; one that did is stamped `has_note` and queued).
+  keep today's behaviour (no list door carries a note; one that did is stamped `has_note` and queued). **The
+  person's words always win:** a list save whose frontmatter carries `saved_why`, `saved_why_earlier` or `has_note`
+  is never index-only, so when they later say why they saved it (`saved_why.attach`/`edit` — e.g. a bookmark of a
+  video already in their imported Watch later) or a repeat Telegram `/save` adds a reason
+  (`history_index.mark_person_words`: `has_note`, re-queued when the index had read it), it goes back to the model;
+  and `retire` never flips a queued list save whose body holds such a section (`## Why it was saved`, `## Saved
+  because`, `## User note`) — it stamps it theirs instead.
 - **Read without a model.** Capture writes them read (`processed: true`, `processed_by: index`: the stager's
   `queue_for_sleep=False`, or `media_ingestor.write_media_episode`). `history_index.waits_for_model` is the one
   "waiting for Sleep" predicate — the drain's freeze and its waiting map, the one-batch cycle, `/status`'s

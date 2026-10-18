@@ -1434,11 +1434,11 @@ async def _embed_indexed_episodes_safely(memory_path: Path) -> None:
     if not stamps:
         return
     since = max(stamps)
-    if not any(f.mtime_ns > since and history_index.is_index_only(f.frontmatter)
-               for f in bank_index.files(memory_path, "episodes")):
-        return
 
     def sync() -> None:
+        if not any(f.mtime_ns > since and history_index.is_index_only(f.frontmatter)
+                   for f in bank_index.files(memory_path, "episodes")):
+            return
         vector_index.SqliteVecIndexer(memory_path, defer_model_switch=True).index_episodes()
 
     try:

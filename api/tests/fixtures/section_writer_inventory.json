@@ -985,7 +985,7 @@
     {
       "function": "_append_saved_because_section_if_absent",
       "method": "write",
-      "frontmatter": "dict(parsed.frontmatter or {})",
+      "frontmatter": "fm",
       "disposition": "uninstrumented_guarded"
     }
   ],
@@ -1138,6 +1138,12 @@
     }
   ],
   "services/history_index.py": [
+    {
+      "function": "retire",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
     {
       "function": "retire",
       "method": "write",

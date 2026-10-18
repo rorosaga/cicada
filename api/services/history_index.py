@@ -46,6 +46,11 @@ LIST_FOLDERS: dict[str, frozenset[str]] = {
 }
 #: Frontmatter flag on a list save that carries the person's own note or reason: their words are read by Sleep.
 NOTE_KEY = "has_note"
+#: Frontmatter a list save carries once the person said why they saved it (``saved_why``'s answer, its earlier
+#: answers) or a note: any of them makes the save theirs to read, never index-only (review of #340).
+PERSON_KEYS = (NOTE_KEY, "saved_why", "saved_why_earlier")
+#: Body sections only the person's own words fill: ``saved_why``'s, a save's reason (Telegram, ``/save``), a note.
+PERSON_SECTIONS = ("## Why it was saved", "## Saved because", "## User note")
 #: Paths per retirement commit: a commit names each path three times on git's command line.
 COMMIT_STEP = 500
 
@@ -62,7 +67,7 @@ def kind(fm: dict | None) -> str | None:
     if source == MONTH_SOURCE or sid.startswith(MONTH_PREFIX):
         return "month"
     origin = str(fm.get("origin") or "")
-    if fm.get(NOTE_KEY):
+    if any(fm.get(key) for key in PERSON_KEYS):
         return None
     if origin in LIST_ORIGINS:
         return "list"
@@ -74,6 +79,24 @@ def kind(fm: dict | None) -> str | None:
 
 def is_index_only(fm: dict | None) -> bool:
     return kind(fm) is not None
+
+
+def has_person_words(body: str | None) -> bool:
+    """Does a save's body hold a section the person wrote (why they saved it, a reason, a note)?"""
+    lines = {ln.strip() for ln in (body or "").splitlines()}
+    return any(h in lines for h in PERSON_SECTIONS)
+
+
+def mark_person_words(fm: dict) -> bool:
+    """A list save just gained the person's own words: stamp it theirs (``has_note``) and, when the index had read it,
+    queue it for Sleep again. Mutates ``fm``; ``True`` when it changed. The caller writes under the episode lock."""
+    if kind(fm) != "list":
+        return False
+    fm[NOTE_KEY] = True
+    if fm.get("processed_by") == INDEXED_BY:
+        fm["processed"] = False
+        fm.pop("processed_by", None)   # G114 R6: written only beside processed: true
+    return True
 
 
 def waits_for_model(fm: dict | None) -> bool:
@@ -131,6 +154,8 @@ class Retired:
     paths: list[str] = field(default_factory=list)     # memory-relative
     by_kind: Counter = field(default_factory=Counter)
     skipped_dirty: int = 0
+    #: list saves whose body holds the person's own words: stamped theirs and left for the model
+    returned: int = 0
 
 
 def retire(memory_path: Path, *, skip: frozenset[str] = frozenset()) -> Retired:
@@ -161,6 +186,13 @@ def retire(memory_path: Path, *, skip: frozenset[str] = frozenset()) -> Retired:
             fm = dict(parsed.frontmatter)
             k = kind(fm)
             if fm.get("processed", False) or k is None:
+                continue
+            if k == "list" and has_person_words(parsed.body):
+                # The person's words reached it by a door that did not stamp it (an older writer): theirs to read.
+                mark_person_words(fm)
+                markdown_parser.write(f.path, fm, parsed.body)
+                out.paths.append(rel)
+                out.returned += 1
                 continue
             fm["processed"] = True
             fm["processed_by"] = INDEXED_BY
@@ -216,5 +248,6 @@ def restore(memory_path: Path, paths: list[str]) -> None:
 
 
 __all__ = ["AUTHOR", "COMMIT_STEP", "Count", "HISTORY_SOURCE", "INDEXED_BY", "LIST_FOLDERS", "LIST_ORIGINS",
-           "MONTH_SOURCE", "NOTE_KEY", "Retired", "TRIGGER", "commit_message", "count", "is_index_only", "kind", "restore",
+           "MONTH_SOURCE", "NOTE_KEY", "PERSON_KEYS", "PERSON_SECTIONS", "Retired", "has_person_words",
+           "mark_person_words", "TRIGGER", "commit_message", "count", "is_index_only", "kind", "restore",
            "retire", "waits_for_model"]

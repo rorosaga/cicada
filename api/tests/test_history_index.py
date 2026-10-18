@@ -352,3 +352,74 @@ def test_ask_answers_from_the_watch_history_when_no_page_does(tmp_path):
     other = ask_service.answer_query(memory, "Which bridge design did we pick?", retrieve_fn=lambda q, k: [],
                                      llm_fn=llm, no_engine=False)
     assert gap["confidence"] == other["confidence"] == 0.05 and len(prompts) == 1
+
+
+# --- the person's words reach a list save later (review of #340) -------------------------------------------------------
+
+
+@pytest.mark.parametrize("extra", [{"saved_why": {"reasons": ["design"], "at": "2026-10-18T09:00:00Z"}},
+                                   {"saved_why_earlier": [{"reasons": ["design"]}]}, {"has_note": True}])
+def test_a_list_save_with_the_persons_words_is_never_index_only(extra):
+    fm = {"source": "youtube", "origin": "youtube-playlist", "folder": "Watch later", **extra}
+    assert history_index.kind(fm) is None
+    assert history_index.waits_for_model({**fm, "processed": False}) is True
+
+
+def _listed_save(memory, vid=VID[0]):
+    idx = media_ingestor.load_url_index(memory)
+    url = f"https://www.youtube.com/watch?v={vid}"
+    item = RawItem(url=url, title="A video", folder="Watch later", origin="youtube-playlist")
+    meta = MediaMeta(title="A video", description="", site="youtube.com", media_type="youtube")
+    res = media_ingestor.write_prepared(PreparedItem(item, meta), memory, idx)
+    media_ingestor.save_url_index(memory, idx)
+    return url, memory / "episodes" / f"{res.episode_id}.md"
+
+
+def test_why_it_was_saved_sends_an_indexed_list_save_back_to_the_model(tmp_path):
+    """The person bookmarks a video already in their imported Watch later, then answers "what made you save this?"."""
+    from api.services import saved_why
+
+    memory = _bank(tmp_path)
+    url, path = _listed_save(memory)
+    assert markdown_parser.parse(path).frontmatter["processed_by"] == "index"
+    saved_why.attach(memory, url=url, answer=saved_why.Answer(reasons=("design",), project=None, project_name=None,
+                                                              text="the way the bridge is drawn"))
+    parsed = markdown_parser.parse(path)
+    fm = parsed.frontmatter
+    assert fm["processed"] is False and "processed_by" not in fm and "## Why it was saved" in parsed.body
+    assert history_index.waits_for_model(fm) is True
+    bank_index.invalidate()
+    assert history_index.retire(memory).paths == []                        # never flipped back to the index
+    assert path.stem in {e["id"] for e in sleep_cycle._get_unprocessed_episodes(memory)}
+
+
+def test_a_telegram_reason_on_a_repeat_save_sends_an_indexed_list_save_back_to_the_model(tmp_path):
+    from api.services import telegram_capture
+
+    memory = _bank(tmp_path)
+    _, path = _listed_save(memory)
+    telegram_capture._append_saved_because_section_if_absent(memory, path.stem, "for the knot at minute three")
+    parsed = markdown_parser.parse(path)
+    assert "## Saved because\nfor the knot at minute three" in parsed.body
+    assert parsed.frontmatter["processed"] is False and parsed.frontmatter["has_note"] is True
+    assert "processed_by" not in parsed.frontmatter
+    bank_index.invalidate()
+    assert history_index.retire(memory).paths == []
+    assert path.stem in {e["id"] for e in sleep_cycle._get_unprocessed_episodes(memory)}
+
+
+def test_retire_returns_a_queued_list_save_whose_body_holds_the_persons_words(tmp_path):
+    """An older writer put the person's section on a queued list save without stamping it: retire never flips it to
+    the index — it stamps it theirs, and it waits for the model."""
+    memory = _bank(tmp_path)
+    eid = "ep_2026-08-04_001"
+    markdown_parser.write(memory / "episodes" / f"{eid}.md",
+                          {"id": eid, "timestamp": "2026-08-04T09:00:00+00:00", "processed": False,
+                           "source": "youtube", "origin": "youtube-playlist", "folder": "Watch later"},
+                          "# A video\n\n## Saved because\nfor the ending")
+    out = history_index.retire(memory)
+    assert out.paths == [f"episodes/{eid}.md"] and out.returned == 1 and not out.by_kind
+    fm = markdown_parser.parse(memory / "episodes" / f"{eid}.md").frontmatter
+    assert fm["processed"] is False and fm["has_note"] is True and "processed_by" not in fm
+    bank_index.invalidate()
+    assert eid in {e["id"] for e in sleep_cycle._get_unprocessed_episodes(memory)}
