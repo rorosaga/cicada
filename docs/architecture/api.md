@@ -379,7 +379,14 @@ skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME
   any other. No notifier, a failed one (retried once a minute), a bank directory replaced, or
   `CICADA_SYNC_WATCH=off`: every tick walks. A watcher nobody asked about for 60 s stops; shutdown stops them all.
   Owner-scale synthetic bank, 8,791 files (`benchmarks.scale.idle_tick`): 33.2 → 6.3 ms of CPU a second, an idle
-  tick 31 → 3.3 ms; an outside in-place edit reaches the stream in ~640 ms either way.
+  tick 31 → 3.3 ms; an outside in-place edit reaches the stream in ~640 ms either way. FSEvents also reports writes
+  made just *before* a watcher started, late (0.4–1.9 s measured on a loaded machine), and under contention any report
+  can take seconds (up to ~2.9 s with five watchers, ~10 s with five suites at once; 2026-10-18): harmless here (an
+  extra walk, or the fallback walk), but `test_sync_watch.py` failed 1–2 of 12 on every run on a loaded machine. Its
+  tests no longer sleep or wait a fixed time for the OS: `_settle` writes a marker the watcher never counts and waits
+  for it to be reported (events arrive in order, so nothing older is in flight), and whether a change was *reported*
+  is read from the watcher's count; the fallback test drives the ticker's clock. The watcher now looks at every path
+  of a batch (no short-circuit) so a marker is always seen.
 - **Compressed only for another machine (2026-10-16, owner decision 3).** `response_compression.RemoteGZipMiddleware`
   gzips (level 1) a response for a client that asked for it and is on another machine: a non-loopback peer, a request
   a proxy forwarded (`X-Forwarded-For`, `Forwarded`, `X-Real-IP`, `Tailscale-User-Login` — `tailscale serve` in front

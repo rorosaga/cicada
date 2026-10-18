@@ -646,7 +646,6 @@ def channel_line(memory_path: Path, names: Iterable[str]) -> str | None:
 
 # --- looking it up: the lines a question about watching is answered from (owner ruling 2026-10-18) ---------------
 
-_ABOUT_WATCHING = re.compile(r"\b(watch(?:ed|es|ing)?|youtube|tiktok|videos?|channels?)\b", re.IGNORECASE)
 _WORD = re.compile(r"[^\W_]+(?:'[^\W_]+)?", re.UNICODE)
 _MONTH_NUM = re.compile(r"\b(20\d\d)-(0[1-9]|1[0-2])\b")
 _YEAR = re.compile(r"\b(20\d\d)\b")
@@ -659,29 +658,72 @@ time times again day days week weeks month months year years about show tell lis
 LOOKUP_LIMIT = 40
 
 
-def is_about_watching(query: str) -> bool:
-    return bool(_ABOUT_WATCHING.search(query or ""))
+#: What makes a question about watching on its own (review of #341): a watch verb or a platform. A bare "video" or
+#: "channel" is not — "how many channels does our chat workspace have?", "the video editor project", "which video
+#: call app" are about other things.
+_WATCHING = re.compile(r"\b(watch(?:ed|es|ing)?|youtube|tiktok)\b", re.IGNORECASE)
+_RELATIVE_YEAR = re.compile(r"\b(this|last)\s+year\b", re.IGNORECASE)
 
 
-def _asked_month(query: str) -> tuple[int | None, int] | None:
+def is_about_watching(query: str, memory_path: Path | None = None) -> bool:
+    """Is a question about watching? A watch verb or a platform name says so; otherwise only a channel the bank's
+    watch history actually holds, named whole in the question (``memory_path`` given). Never a bare "video" or
+    "channel"."""
+    q = query or ""
+    if _WATCHING.search(q):
+        return True
+    if memory_path is None:
+        return False
+    try:
+        return bool(_record_channel_named(q, memory_path))
+    except Exception:  # noqa: BLE001 — an unreadable record names nothing
+        return False
+
+
+def _record_channel_named(query: str, memory_path: Path) -> list[str]:
+    """The channels in the bank's watch history that ``query`` names whole (every word of the name in it, case
+    folded; never a name made only of question words)."""
+    q_words = {w.casefold() for w in _WORD.findall(query or "")}
+    out = []
+    for key, t in channel_totals(memory_path).items():
+        words = {w.casefold() for w in _WORD.findall(t["name"])}
+        if words and not words <= _LOOKUP_STOP and words <= q_words:
+            out.append(t["name"])
+    return out
+
+
+def _asked_month(query: str, today: date | None = None) -> tuple[int | None, int] | None:
     """``(year or None, month)`` a question names: ``2026-09``, or a month's English name — ``May`` only beside a
-    year, where it cannot be the verb."""
+    year, where it cannot be the verb. A month with no year beside "this year" / "last year" is that month of that
+    year (review of #341: "in March last year" is March 2025, not the whole year)."""
     m = _MONTH_NUM.search(query)
     if m:
         return int(m.group(1)), int(m.group(2))
     words = [w.casefold() for w in _WORD.findall(query)]
     year = _YEAR.search(query)
+    relative = _RELATIVE_YEAR.search(query)
     for i, name in enumerate(_MONTHS, start=1):
-        if name.casefold() in words and (name != "May" or year):
-            return (int(year.group(1)) if year else None), i
+        if name.casefold() in words and (name != "May" or year or relative):
+            if year:
+                return int(year.group(1)), i
+            if relative and today is not None:
+                return today.year - (relative.group(1).casefold() == "last"), i
+            return None, i
     return None
 
 
-def lookup(memory_path: Path, query: str, *, limit: int = LOOKUP_LIMIT) -> list[str]:
-    """What the watch history says about a question, as dated lines naming their episode — no model, no index
-    needed. A question naming a month gets that month's summary; otherwise the watched videos whose title or
-    channel holds the question's words (whole words, case folded; the rows matching the most words), oldest first,
-    the newest ``limit`` kept. ``[]`` when nothing matches. Frontmatter and summary bodies only."""
+def lookup(memory_path: Path, query: str, *, limit: int = LOOKUP_LIMIT, today: date | None = None) -> list[str]:
+    """What the watch history says about a question, as dated lines — no model, no index needed.
+
+    * A question over a range — this year, last year, a named year, since a day or a month, between two, the last
+      N days/weeks/months, "ever", "the most", "when did I first/last watch …" — gets a table counted from the
+      watched days in that range (:func:`summarize`), then the best-matching watched videos in it (at most
+      :data:`RANGE_MATCHES`).
+    * A question naming one month gets that month's summary.
+    * Otherwise the watched videos whose title or channel holds the question's words (whole words, case folded; the
+      rows matching the most words), oldest first, the newest ``limit`` kept, each naming its day's episode.
+
+    ``[]`` when nothing matches. Frontmatter and summary bodies only; the question is never logged."""
     from api.services import bank_index
 
     memory_path = Path(memory_path)
@@ -690,7 +732,25 @@ def lookup(memory_path: Path, query: str, *, limit: int = LOOKUP_LIMIT) -> list[
              and not f.frontmatter.get("source_deleted_at")]
     if not files:
         return []
-    asked = _asked_month(query or "")
+    query = query or ""
+    today = today or date.today()
+    span = asked_span(query, today)
+    asked = _asked_month(query, today) if span is None else None
+    counting = span is not None or _first_last(query) is not None or bool(_COUNTING.search(query))
+    # A table only for a question about watching — a watch verb, a platform, or a channel the record holds — never
+    # for one that merely says "channel" or "video" (review of #341).
+    if counting and not is_about_watching(query, memory_path):
+        counting = False
+        span = None
+    if asked is None and counting:
+        span = span or Span(None, None, "all time")
+        table = summarize(memory_path, query, span)
+        if not table:
+            return []
+        matches = _matching_rows(memory_path, query, span=span, limit=RANGE_MATCHES)
+        if matches:
+            table += ["Watched videos matching the question's words in this range (newest kept):", *matches]
+        return table
     if asked is not None:
         year, mon = asked
         months = sorted((f for f in files if history_index.kind(f.frontmatter) == "month"
@@ -702,28 +762,33 @@ def lookup(memory_path: Path, query: str, *, limit: int = LOOKUP_LIMIT) -> list[
             body = [ln for ln in f.body().splitlines() if ln.strip()]
             lines += [f"[{f.stem}] {ln}" for ln in body[:limit]]
         return lines
+    return _matching_rows(memory_path, query, limit=limit)
+
+
+def _query_tokens(query: str) -> set[str]:
     tokens = {w.casefold() for w in _WORD.findall(query or "")} - _LOOKUP_STOP
-    tokens = {t for t in tokens if len(t) >= 3 or t.isdigit()}
+    return {t for t in tokens if len(t) >= 3 or t.isdigit()}
+
+
+def _matching_rows(memory_path: Path, query: str, *, limit: int, span: "Span | None" = None) -> list[str]:
+    """The watched videos whose title or channel holds the question's words, within ``span`` when given."""
+    tokens = _query_tokens(query)
+    if span is not None:
+        tokens -= _SPAN_WORDS
+        tokens = {t for t in tokens if not _YEAR.fullmatch(t)}
     if not tokens:
         return []
     hits: list[tuple[int, str, str, str]] = []
-    for f in files:
-        if history_index.kind(f.frontmatter) != "history":
+    for platform, day, url, channel, title, _first, times, stem in _history_rows(memory_path):
+        if span is not None and not span.holds(day):
             continue
-        parsed = _day_of(str(f.frontmatter.get("source_id") or ""))
-        if parsed is None:
+        n = len(tokens & {w.casefold() for w in _WORD.findall(f"{title} {channel}")})
+        if not n:
             continue
-        platform, day = parsed
-        for r in _rows_of(f.frontmatter):
-            words = {w.casefold() for w in _WORD.findall(f"{r['title']} {r['channel']}")}
-            n = len(tokens & words)
-            if not n:
-                continue
-            at = ", ".join(c for c in (_clock(t) for t in r["times"]) if c)
-            by = f" — {r['channel']}" if r["channel"] else ""
-            line = (f"{day.isoformat()}{' ' + at if at else ''} · {r['title'] or r['url']}{by} "
-                    f"({PLATFORMS[platform]}) [{f.stem}]")
-            hits.append((n, day.isoformat(), at, line))
+        at = ", ".join(c for c in (_clock(t) for t in times) if c)
+        by = f" — {channel}" if channel else ""
+        line = f"{day.isoformat()}{' ' + at if at else ''} · {title or url}{by} ({PLATFORMS[platform]}) [{stem}]"
+        hits.append((n, day.isoformat(), at, line))
     if not hits:
         return []
     best = max(h[0] for h in hits)
@@ -735,6 +800,331 @@ def lookup(memory_path: Path, query: str, *, limit: int = LOOKUP_LIMIT) -> list[
         return [f"({dropped} earlier match{'es' if dropped != 1 else ''} not shown; the first on {first})"] + [
             h[3] for h in chosen]
     return [h[3] for h in chosen]
+
+
+# --- a range: counted across days, months and years at read, never by a model (2026-10-18) ------------------------
+#
+# A month's summary answers a question about that month. "Which channels have I watched the most this year?" spans
+# many: on the owner's bank (99 month summaries, 2,532 watched days) Ask answered "no per-channel counts exist". A range
+# is counted here from the watched days themselves — not by adding up the month summaries, whose lists stop at the
+# top 15 and would under-count any channel that was steady but never a month's top — into one table whose size does
+# not depend on the range: :data:`RANGE_CHANNELS` channels, :data:`RANGE_RETURNED` come back to across weeks,
+# :data:`RANGE_REWATCHED` videos, at most :data:`RANGE_PERIODS` month or year lines and :data:`RANGE_FOCUS` lines on a
+# channel the question names. Deterministic: the same days and the same question give the same lines.
+
+RANGE_CHANNELS = 20
+RANGE_RETURNED = 10
+RANGE_REWATCHED = 10
+RANGE_PERIODS = 24
+RANGE_FOCUS = 5
+#: Watched videos matching the question's words shown under a range's table.
+RANGE_MATCHES = 15
+
+
+@dataclass(frozen=True)
+class Span:
+    """Days from ``start`` to ``end``, both kept; ``None`` is open (since the record began / up to now)."""
+
+    start: date | None
+    end: date | None
+    label: str
+
+    def holds(self, day: date) -> bool:
+        return (self.start is None or day >= self.start) and (self.end is None or day <= self.end)
+
+
+_MONTH_NAMES = {name.casefold(): i for i, name in enumerate(_MONTHS, start=1)}
+_MONTH_ALT = "|".join(name.casefold() for name in _MONTHS)
+#: One point a range is measured from: a day, a month (ISO or by name, a year optional), or a year.
+_POINT = rf"(?:20\d\d-\d\d-\d\d|20\d\d-\d\d|(?:{_MONTH_ALT})(?:\s+20\d\d)?|20\d\d)"
+_SINCE = re.compile(rf"\b(?:since|after)\s+({_POINT}|last year|this year)\b", re.IGNORECASE)
+_BETWEEN = re.compile(rf"\b(?:between|from)\s+({_POINT})\s+(?:and|to|through|until|till)\s+({_POINT})\b",
+                      re.IGNORECASE)
+_RECENT = re.compile(r"\b(?:last|past|previous)\s+(\d{1,3})\s+(day|week|month|year)s?\b", re.IGNORECASE)
+_THIS_LAST = re.compile(r"\b(this|last|past)\s+(year|month|week)\b", re.IGNORECASE)
+_ALL_TIME = re.compile(r"\b(?:ever|all[- ]time|of all time|overall|in total|all my)\b", re.IGNORECASE)
+_COUNTING = re.compile(r"\b(?:most|top|favou?rites?|often|how many|how much|count(?:s|ed)?|rank(?:ing|ed)?|"
+                       r"biggest|ever)\b", re.IGNORECASE)
+_FIRST = re.compile(r"\b(?:first|earliest|start(?:ed)? watching|began watching)\b", re.IGNORECASE)
+_LAST = re.compile(r"\b(?:last|latest|most recent(?:ly)?)\b(?!\s+(?:year|month|week|day|\d|few))", re.IGNORECASE)
+#: Words a range question uses for its range, not for what was watched.
+_SPAN_WORDS = frozenset("since after between from until till through year month week day ever overall total "
+                        "earliest latest recent recently past previous started start began".split()) | set(
+    _MONTH_NAMES)
+
+
+def _month_end(year: int, month: int) -> date:
+    return (date(year + (month == 12), month % 12 + 1, 1) - timedelta(days=1))
+
+
+def _months_back(today: date, n: int) -> date:
+    y, m = divmod(today.year * 12 + today.month - 1 - n, 12)
+    m += 1
+    return date(y, m, min(today.day, _month_end(y, m).day))
+
+
+def last_day(memory_path: Path) -> date | None:
+    """The last day the bank's watch history holds — the record is current only through it (an export is a snapshot
+    that ends there)."""
+    rows = _history_rows(memory_path)
+    return rows[-1][1] if rows else None
+
+
+def _point(text: str, today: date) -> tuple[date, date] | None:
+    """The days one point names: a day, its month, or its year. A month named without a year is its latest one up to
+    ``today``."""
+    text = " ".join(text.split()).casefold()
+    try:
+        if re.fullmatch(r"20\d\d-\d\d-\d\d", text):
+            d = date.fromisoformat(text)
+            return d, d
+        if re.fullmatch(r"20\d\d-\d\d", text):
+            y, m = int(text[:4]), int(text[5:7])
+            return date(y, m, 1), _month_end(y, m)
+    except ValueError:
+        return None
+    if re.fullmatch(r"20\d\d", text):
+        y = int(text)
+        return date(y, 1, 1), date(y, 12, 31)
+    parts = text.split()
+    if parts and parts[0] in _MONTH_NAMES:
+        m = _MONTH_NAMES[parts[0]]
+        y = int(parts[1]) if len(parts) > 1 else (today.year if m <= today.month else today.year - 1)
+        return date(y, m, 1), _month_end(y, m)
+    return None
+
+
+def asked_span(query: str, today: date) -> Span | None:
+    """The range of days a question asks about, or ``None`` (no range, or one named month — that month's summary
+    answers it). English, deterministic: since/after X, between/from X and/to Y, the last N days/weeks/months/years,
+    this/last year/month/week, a named year (two or more: from the first to the last), ever/all time."""
+    q = query or ""
+    m = _BETWEEN.search(q)
+    if m:
+        a, b = _point(m.group(1), today), _point(m.group(2), today)
+        if a and b:
+            start, end = min(a[0], b[0]), max(a[1], b[1])
+            return Span(start, end, f"{start.isoformat()} to {end.isoformat()}")
+    m = _SINCE.search(q)
+    if m:
+        word = m.group(1).casefold()
+        if word in ("last year", "this year"):
+            start = date(today.year - (word == "last year"), 1, 1)
+        else:
+            point = _point(m.group(1), today)
+            start = point[0] if point else None
+        if start is not None:
+            return Span(start, today, f"since {start.isoformat()}")
+    m = _RECENT.search(q)
+    if m:
+        n, unit = int(m.group(1)), m.group(2).casefold()
+        if unit == "day":
+            start = today - timedelta(days=n - 1)
+        elif unit == "week":
+            start = today - timedelta(days=7 * n)
+        else:   # calendar months and years: the same day N months back (the month's last day when it is shorter)
+            start = _months_back(today, n * (12 if unit == "year" else 1))
+        return Span(start, today, f"the last {n} {unit}{'s' if n != 1 else ''}")
+    month = _asked_month(q, today)
+    this_last = _THIS_LAST.search(q)
+    if month is not None and (this_last is None or this_last.group(2).casefold() == "year"):
+        return None   # one month — "in March last year" included — is that month's summary
+    m = this_last
+    if m:
+        which, unit = m.group(1).casefold(), m.group(2).casefold()
+        if unit == "year":
+            if which == "this":
+                return Span(date(today.year, 1, 1), today, f"this year ({today.year})")
+            if which == "last":
+                y = today.year - 1
+                return Span(date(y, 1, 1), date(y, 12, 31), f"last year ({y})")
+            return Span(today - timedelta(days=365), today, "the past year")
+        if unit == "month":
+            if which == "this":
+                return Span(date(today.year, today.month, 1), today, f"this month ({_month_key(today)})")
+            if which == "last":
+                first = date(today.year, today.month, 1) - timedelta(days=1)
+                start = date(first.year, first.month, 1)
+                return Span(start, first, f"last month ({_month_key(start)})")
+            return Span(today - timedelta(days=30), today, "the past month")
+        monday = today - timedelta(days=today.weekday())
+        if which == "this":
+            return Span(monday, today, f"this week (from {monday.isoformat()})")
+        if which == "last":
+            start = monday - timedelta(days=7)
+            return Span(start, monday - timedelta(days=1), f"last week (from {start.isoformat()})")
+        return Span(today - timedelta(days=7), today, "the past week")
+    if month is None:
+        years = sorted({int(y) for y in _YEAR.findall(q)})
+        if years:
+            start, end = date(years[0], 1, 1), date(years[-1], 12, 31)
+            return Span(start, end, str(years[0]) if len(years) == 1 else f"{years[0]} to {years[-1]}")
+    if _ALL_TIME.search(q):
+        return Span(None, None, "all time")
+    return None
+
+
+def _first_last(query: str) -> str | None:
+    """``first`` / ``last`` when the question asks when something was first or last watched."""
+    q = query or ""
+    if _FIRST.search(q):
+        return "first"
+    if _LAST.search(q):
+        return "last"
+    return None
+
+
+def _platforms_asked(query: str) -> set[str]:
+    words = {w.casefold() for w in _WORD.findall(query or "")}
+    return {p for p, name in PLATFORMS.items() if name.casefold() in words} or set(PLATFORMS)
+
+
+#: Per bank: (signature of the history days, rows). Derived, in memory, never stored.
+_ROWS_CACHE: dict[str, tuple[tuple, list[tuple]]] = {}
+
+
+def _history_rows(memory_path: Path) -> list[tuple]:
+    """Every watched row the bank holds as ``(platform, day, url, channel, title, first watch instant, watch instants,
+    episode id)``, day order. Frontmatter only (the cached scan), recomputed only when a day file moved."""
+    from api.services import bank_index
+
+    memory_path = Path(memory_path)
+    entries = [f for f in bank_index.files(memory_path, "episodes")
+               if history_index.kind(f.frontmatter) == "history" and not f.frontmatter.get("source_deleted_at")]
+    signature = tuple(sorted((f.path.name, f.mtime_ns, f.size) for f in entries))
+    key = str(memory_path)
+    with _CHANNEL_LOCK:
+        cached = _ROWS_CACHE.get(key)
+        if cached is not None and cached[0] == signature:
+            return cached[1]
+    rows: list[tuple] = []
+    for f in entries:
+        parsed = _day_of(str(f.frontmatter.get("source_id") or ""))
+        raw = f.frontmatter.get("watched")
+        if parsed is None or not isinstance(raw, list):
+            continue
+        platform, day = parsed
+        for r in raw:
+            if not isinstance(r, dict) or not r.get("url"):
+                continue
+            times = tuple(str(t) for t in (r.get("times") or []) if t)
+            rows.append((platform, day, str(r["url"]), " ".join(str(r.get("channel") or "").split()),
+                         str(r.get("title") or ""), min(times) if times else "", times, f.stem))
+    rows.sort(key=lambda r: (r[1], r[5], r[2]))
+    with _CHANNEL_LOCK:
+        _ROWS_CACHE[key] = (signature, rows)
+    return rows
+
+
+def _named_channels(query: str, channels: dict) -> list[str]:
+    """The channels a question names: every word of the channel's name is in the question (case folded, whole
+    words), else the question's own words are all in the channel's name. Never fuzzy."""
+    q_words = {w.casefold() for w in _WORD.findall(query or "")}
+    tokens = _query_tokens(query) - _SPAN_WORDS
+    full, partial = [], []
+    for key, c in channels.items():
+        words = {w.casefold() for w in _WORD.findall(c["name"])}
+        if not words or words <= _LOOKUP_STOP:
+            continue
+        if words <= q_words:
+            full.append(key)
+        elif tokens and tokens <= words:
+            partial.append(key)
+    chosen = full or partial
+    return sorted(chosen, key=lambda k: (-channels[k]["videos"], channels[k]["name"].casefold()))[:RANGE_FOCUS]
+
+
+def _plural(n: int, word: str) -> str:
+    return f"{n:,} {word}{'s' if n != 1 else ''}"
+
+
+def summarize(memory_path: Path, query: str, span: Span) -> list[str]:
+    """The table a range question is answered from, counted now from the watched days in ``span`` (on the platforms
+    the question names, else all): totals, the channels watched most, the ones come back to across weeks, the
+    videos watched on the most days, a line per month (a range of up to two years) or per year, and — for a channel
+    the question names — its count with its first and last watch in the range. ``[]`` when the range holds no
+    watched day. Bounded whatever the range."""
+    platforms = _platforms_asked(query)
+    rows = [r for r in _history_rows(memory_path) if r[0] in platforms and span.holds(r[1])]
+    if not rows:
+        return []
+    channels: dict[tuple[str, str], dict] = {}
+    videos: dict[str, dict] = {}
+    days: set[date] = set()
+    periods: dict[str, dict] = {}
+    first_day, last_day = rows[0][1], rows[-1][1]
+    by_year = (last_day.year - first_day.year) * 12 + last_day.month - first_day.month >= 24
+    for platform, day, url, ch, title, *_ in rows:
+        days.add(day)
+        period = periods.setdefault(str(day.year) if by_year else _month_key(day),
+                                    {"videos": 0, "days": set(), "channels": {}})
+        period["videos"] += 1
+        period["days"].add(day)
+        v = videos.setdefault(url, {"title": title or url, "channel": ch, "days": set()})
+        v["days"].add(day)
+        if not ch:
+            continue
+        c = channels.setdefault((platform, _fold(ch)), {"name": ch, "platform": platform, "videos": 0, "days": set(),
+                                                         "weeks": set(), "first": None, "last": None})
+        c["videos"] += 1
+        c["days"].add(day)
+        c["weeks"].add(day.isocalendar()[:2])
+        if c["first"] is None:
+            c["first"] = (day, title or url)
+        c["last"] = (day, title or url)
+        period["channels"][c["name"]] = period["channels"].get(c["name"], 0) + 1
+    several = len({r[0] for r in rows}) > 1
+    where = " and ".join(PLATFORMS[p] for p in sorted(platforms if several else {rows[0][0]}))
+
+    def name(c: dict) -> str:
+        return f"{c['name']} ({PLATFORMS[c['platform']]})" if several else c["name"]
+
+    out = [f"Counted now from the watch history ({where}), {span.label}: {_plural(len(rows), 'video')} watched on "
+           f"{_plural(len(days), 'day')}, {first_day.isoformat()} to {last_day.isoformat()} "
+           f"({_plural(len(videos), 'different video')}, {_plural(len(channels), 'channel')}). Every count below is "
+           "computed from the record at answer time."]
+    ranked = sorted(channels.values(), key=lambda c: (-c["videos"], -len(c["days"]), c["name"].casefold()))
+    if ranked:
+        out.append(f"Channels watched most ({min(len(ranked), RANGE_CHANNELS)} of {len(ranked):,}):")
+        out += [f"- {name(c)} — {_plural(c['videos'], 'video')} on {_plural(len(c['days']), 'day')} in "
+                f"{_plural(len(c['weeks']), 'week')}, {c['first'][0].isoformat()} to {c['last'][0].isoformat()}"
+                for c in ranked[:RANGE_CHANNELS]]
+    returned = sorted((c for c in channels.values() if len(c["weeks"]) >= 2),
+                      key=lambda c: (-len(c["weeks"]), -c["videos"], c["name"].casefold()))
+    if returned:
+        out.append("Came back to in the most different weeks:")
+        out += [f"- {name(c)} — in {_plural(len(c['weeks']), 'week')}" for c in returned[:RANGE_RETURNED]]
+    again = sorted((v for v in videos.values() if len(v["days"]) >= 2),
+                   key=lambda v: (-len(v["days"]), v["title"].casefold()))
+    if again:
+        out.append("Watched on the most different days:")
+        for v in again[:RANGE_REWATCHED]:
+            by = f" — {v['channel']}" if v["channel"] else ""
+            out.append(f"- {v['title']}{by} · {len(v['days'])} days, first {min(v['days']).isoformat()}, last "
+                       f"{max(v['days']).isoformat()}")
+    keys = sorted(periods)
+    shown = keys[-RANGE_PERIODS:]
+    out.append(f"By {'year' if by_year else 'month'}"
+               + (f" (the newest {len(shown)}; {len(keys) - len(shown)} earlier not shown)" if len(shown) < len(keys)
+                  else "") + ":")
+    for k in shown:
+        p = periods[k]
+        top = sorted(p["channels"].items(), key=lambda kv: (-kv[1], kv[0].casefold()))[:3]
+        most = ("; most: " + ", ".join(f"{n} ({c})" for n, c in top)) if top else ""
+        out.append(f"- {k} · {_plural(p['videos'], 'video')} on {_plural(len(p['days']), 'day')}{most}")
+    focus = _named_channels(query, channels)
+    if focus:
+        out.append("The channel(s) the question names, in this range:")
+        for key in focus:
+            c = channels[key]
+            out.append(f"- {name(c)} — {_plural(c['videos'], 'video')} on {_plural(len(c['days']), 'day')}; first "
+                       f"watched {c['first'][0].isoformat()} ({_clip_title(c['first'][1])}); last watched "
+                       f"{c['last'][0].isoformat()} ({_clip_title(c['last'][1])})")
+    return out
+
+
+def _clip_title(title: str, limit: int = 100) -> str:
+    return title if len(title) <= limit else title[: limit - 1].rstrip() + "…"
 
 
 # --- the doors' one tail ---------------------------------------------------------------------------

@@ -72,6 +72,9 @@ _LINK_LINE_CHARS = 240
 _WIKILINK = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]")
 # The person asking about themselves, the way an agent relays it (G169's forms, plus the possessives a question uses).
 _SELF_PHRASES = ("the owner", "the user", "the person", "owner s", "user s", "my", "me", "myself", "mine", "i")
+#: A citation names at most this many of its page's conversations: the ones this answer was grounded in (2026-10-18:
+#: the owner page's citation listed several hundred ids, every conversation that ever touched the page).
+MAX_CITED_EPISODES = 5
 
 ASK_SYSTEM_PROMPT = """You answer questions using ONLY the retrieved memory context below. \
 This is a personal knowledge graph; the context is the ONLY source of truth you may use. \
@@ -113,6 +116,14 @@ is history — say which is newer. A quote is not newer for being quoted: a quot
 never overrides a current claim or a line said later. When an undated line and a dated quote \
 disagree, give both with what you know of their days instead of choosing. Work out a relative time \
 ("last week", "next month") against the day it was said, not today.
+10. A block COMPUTED FROM THE RECORD NOW (the WATCH HISTORY) was counted from the stored record when \
+this question was asked, and the record runs only through the last day it names: it is current \
+through that day and says nothing about later days. It outranks one kind of statement only: an \
+earlier statement about this memory system itself — that something was not yet imported, read, \
+processed or counted — which is about the system's state when it was said; where the block shows \
+the record, never repeat such a statement as current. The person's own words are never overridden \
+by it: what they say about days after the record's last day is newer than the record; use it for \
+those days and say where the record ends.
 
 Return ONLY a JSON object with exactly these keys:
 {
@@ -444,7 +455,8 @@ def _page_lines(ent: dict, terms: set[str], budget: int) -> tuple[str, list]:
     """What of a page's prose fits ``budget``, item by item (``section_provenance.scan``): the article's lead, then
     the items sharing the most of the question's words, in page order under their section, each with the days it
     was said. Returns ``(text, pointers)`` — the pointers (``ask_sources.Pointer``) are where the chosen items came
-    from, for :mod:`ask_sources`. A page with no canonical section falls back to its paragraphs."""
+    from, weighted by the question's words each shares (0 for none), for :mod:`ask_sources` and the citation. A page
+    with no canonical section falls back to its paragraphs."""
     if budget <= 0:
         return "", []
     body = ent.get("body", "") or ""
@@ -496,12 +508,34 @@ def _page_lines(ent: dict, terms: set[str], budget: int) -> tuple[str, list]:
         limit = _LEAD_CHARS if i == lead and row["score"] <= 0 else _PARAGRAPH_CHARS
         said = "" if section == "history" else _said_days(row["evidence"])
         lines.append(f"- {'[' + said + '] ' if said else ''}{_clip(row['text'], limit)}")
-        if row["score"] > 0:
-            found += ask_sources.pointers(row["evidence"], row["score"], text_fold.subject_terms(row["text"]))
+        # Every chosen item's conversations ground the page's citation; only the ones sharing the question's words
+        # (weight > 0) lead to WHAT WAS SAID (``ask_sources.gather`` skips weight 0).
+        found += ask_sources.pointers(row["evidence"], row["score"], text_fold.subject_terms(row["text"]))
     return "\n".join(lines), found
 
 
 _ENVELOPE = frozenset({"id", "current", "validity", "valid_from", "valid_to", "text"})
+
+
+def _ground(grounds: dict[str, int], pointed: list) -> None:
+    for p in pointed:
+        grounds[p.episode] = max(grounds.get(p.episode, 0), p.weight)
+
+
+def _cited_episodes(ent: dict) -> tuple[list[str], int]:
+    """``(episodes, more)`` for a page's citation: the conversations this answer was grounded in — the ones whose
+    words reached the model first, then by the question's words the claim or line pointing there shares, newest first
+    — at most :data:`MAX_CITED_EPISODES`; with nothing pointed (claims with no evidence, a linked person), the page's
+    newest conversations. ``more`` counts the page's other conversations, for "+N more"."""
+    every = [str(e) for e in dict.fromkeys(ent.get("source_episodes") or []) if str(e or "").strip()]
+    grounds: dict[str, int] = ent.get("grounding") or {}
+    spoken: set[str] = ent.get("spoken") or set()
+    if grounds:
+        order = sorted(sorted(grounds, reverse=True), key=lambda ep: (ep not in spoken, -grounds[ep]))
+    else:
+        order = sorted(every, reverse=True)
+    shown = order[:MAX_CITED_EPISODES]
+    return shown, len(set(every) | set(grounds)) - len(shown)
 
 
 def _compact(claim: dict) -> dict:
@@ -526,6 +560,9 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
         claim_lines = []
         remaining = int(_CLAIMS_CHARS * scale)
         rows = ent.get("claim_rows") or []
+        # The conversations behind what this page put in front of the model, by the question's words they share:
+        # what its citation names (`_cited_episodes`), never every conversation that ever touched the page.
+        grounds: dict[str, int] = {}
         for i, claim in enumerate(ent.get("claims", [])):
             line = "claim: " + json.dumps(_compact(claim), ensure_ascii=False)
             if len(line) > remaining:
@@ -536,10 +573,14 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
                 row = rows[i]
                 words = text_fold.subject_terms(f"{row.text} {row.predicate} {row.object}")
                 weight = len(terms & words)
+                pointed = ask_sources.pointers(row.evidence, weight, words)
+                _ground(grounds, pointed)
                 if weight:
-                    found += ask_sources.pointers(row.evidence, weight, words)
+                    found += pointed
         prose, pointed = _page_lines(ent, terms, int(_PROSE_CHARS * scale))
-        found += pointed
+        _ground(grounds, pointed)
+        found += [p for p in pointed if p.weight > 0]
+        ent["grounding"] = grounds
         blocks.append(
             "\n".join(_header_lines(ent, scale))
             + ("\n" + "\n".join(claim_lines) if claim_lines else "")
@@ -553,11 +594,14 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
             for p in people)
     if source_words and memory_path is not None and found:
         try:
-            said = ask_sources.render(ask_sources.gather(memory_path, query, found, owner_name=owner_name,
-                                                         terms=terms))
+            excerpts = ask_sources.gather(memory_path, query, found, owner_name=owner_name, terms=terms)
+            said = ask_sources.render(excerpts)
         except Exception as exc:  # noqa: BLE001 — the words are context; their absence never fails an answer
             logger.debug(f"ask source words skipped ({type(exc).__name__})")
-            said = ""
+            excerpts, said = [], ""
+        spoken = {e.episode for e in excerpts}
+        for ent in entities:
+            ent["spoken"] = spoken & set(ent.get("grounding") or ())
         if said:
             context += ("\n\nWHAT WAS SAID (word for word, from the conversations the claims and lines above cite; "
                         "oldest first):\n" + said)
@@ -763,7 +807,7 @@ def _watch_history_lines(memory_path: Path, query: str) -> list[str]:
     try:
         from api.services import watch_history
 
-        if not watch_history.is_about_watching(query):
+        if not watch_history.is_about_watching(query, memory_path):
             return []
         return watch_history.lookup(memory_path, query)
     except Exception as exc:  # noqa: BLE001
@@ -971,7 +1015,8 @@ def answer_query(
 
     Returns a dict with: ``answer``, ``confidence`` (0..1 float), ``citations``
     (entity-level, each ``{entity_id, entity_name, file_path, snippet,
-    source_episodes}``), ``gaps`` (explicit list of what could not be answered),
+    source_episodes, source_episodes_more}`` — the conversations this answer was grounded in, at most
+    :data:`MAX_CITED_EPISODES`, and how many more the page has), ``gaps`` (explicit list of what could not be answered),
     and ``used_entities`` (the retrieved ids).
     """
     memory_path = Path(memory_path)
@@ -1025,9 +1070,29 @@ def answer_query(
     prompt = _build_prompt(query, entities, memory_path=memory_path, source_words=source_words,
                            owner_name=_owner_name(memory_path, entities, people) if source_words else None)
     if watched:
-        prompt += ("\n\nWATCH HISTORY (what was watched, by day, as the platform recorded it — a record, not the "
-                   "person's words and not an entity; each line names its day's episode in brackets; answer "
-                   "questions about watching from it and say the days):\n" + "\n".join(watched))
+        from datetime import datetime
+
+        # 2026-10-18: an agent's note from earlier the same day ("the history has not been read yet") outranked the
+        # record it was about. The block says when it was computed, so rule 9's "later wins" and rule 10 apply.
+        # Review of #341: an export is a snapshot that ends on its last watched day — the person's own later words
+        # ("I've been watching <channel> daily this month") are newer than it and are never overridden.
+        from api.services import watch_history
+
+        now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M")
+        try:
+            last = watch_history.last_day(memory_path)
+        except Exception:  # noqa: BLE001 — the header names the end when it can
+            last = None
+        through = (f"the record runs through {last.isoformat()} and is current only through that day — the "
+                   f"person's own words about later days are newer than it" if last else
+                   "the record is current only through its last watched day")
+        prompt += (f"\n\nWATCH HISTORY — COMPUTED FROM THE RECORD NOW ({now}, when this question was asked; "
+                   f"{through}). What was watched, as the platform recorded it: a record, not the person's words "
+                   "and not an entity. A line naming an episode in brackets is one watched day or a month's "
+                   "summary; a range's table is counted from the watched days. Answer questions about watching "
+                   "from it and say the days or the range. It outranks only an earlier statement about the system "
+                   "itself: never repeat that the history was not yet imported, read or counted:\n"
+                   + "\n".join(watched))
 
     from api.services import engine_readiness
 
@@ -1154,12 +1219,14 @@ def _citations_for(entities: list[dict], cite_ids: list[str]) -> list[dict]:
         if ent is None or eid in seen:
             continue
         seen.add(eid)
+        episodes, more = _cited_episodes(ent)
         citation = {
             "entity_id": ent["entity_id"],
             "entity_name": ent["entity_name"],
             "file_path": ent["file_path"],
             "snippet": ent["snippet"],
-            "source_episodes": ent["source_episodes"],
+            "source_episodes": episodes,
+            "source_episodes_more": more,
         }
         # When the grounding came from a claim, the citation points at the claim
         # id + its valid-window + observer (M5e), not just the entity page.

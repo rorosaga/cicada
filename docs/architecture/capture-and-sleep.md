@@ -516,10 +516,12 @@ So watch history and list saves are a record to look up, never a conversation to
   `_embed_indexed_episodes_safely` whenever an index-only episode is newer than the vector index (incremental by
   content hash; with the model the table holds; a bank with no vector index waits for its first). Recall's excerpts
   and search find a day or a month by its titles and channels; **Ask** reads the record for a question about
-  watching (`watch_history.lookup`: a named month answers with its summary, otherwise the watched videos whose title
-  or channel holds the question's words, whole words, dated, the newest 40; only for a caller with the person's
-  `sources`, and the answer may rest on it with no page retrieved); the **timeline** counts a watched day on its own
-  day ("Watched N video(s) on YouTube") and never lists a day or a month as a capture.
+  watching (`watch_history.lookup`: a range — this/last year, a named year, since or between, the last N days, ever,
+  "the most", "when did I first/last watch" — answers with a table counted from the watched days at read, no model
+  (`watch_history.summarize`, bounded whatever the range; `mcp.md`); a named month with its summary; otherwise the
+  watched videos whose title or channel holds the question's words, whole words, dated, the newest 40; only for a
+  caller with the person's `sources`, and the answer may rest on it with no page retrieved); the **timeline** counts a
+  watched day on its own day ("Watched N video(s) on YouTube") and never lists a day or a month as a capture.
 - **A watched day is not a mention (decided 2026-10-18).** A channel page is never written by history: no claim, no
   `source_episodes`, no `last_referenced`, no lift, no decay-clock move, no page minted, no inbox question. Why:
   decay counts *conversations* (`decay_policy.conversations`) and a watch is not one — like a memory export entry,

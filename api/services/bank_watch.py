@@ -110,7 +110,9 @@ class BankWatch:
                 raw = notify.watch(DEBOUNCE_MS, STEP_MS, TIMEOUT_MS, self._stop)
                 if raw == "stop":
                     break
-                if isinstance(raw, set) and any(self._counts(path) for _, path in raw):
+                # Every path is looked at (no short-circuit): a batch is a handful of paths, and a test waiting for
+                # a marker it wrote sees it whatever else the batch holds (`test_sync_watch._settle`).
+                if isinstance(raw, set) and [path for _, path in raw if self._counts(path)]:
                     self.bump()
         except Exception as exc:  # noqa: BLE001
             logger.info(f"file-change events stopped for the bank ({type(exc).__name__}); polling each second")
