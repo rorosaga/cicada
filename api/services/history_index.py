@@ -164,8 +164,6 @@ def retire(memory_path: Path, *, skip: frozenset[str] = frozenset()) -> Retired:
                 continue
             fm["processed"] = True
             fm["processed_by"] = INDEXED_BY
-            if "turns" in fm:
-                fm["turns"] = fm.pop("turns")   # R-PB4: the sidecar stays the last key
             markdown_parser.write(f.path, fm, parsed.body)
         out.paths.append(rel)
         out.by_kind[k] += 1

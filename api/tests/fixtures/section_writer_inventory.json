@@ -1137,6 +1137,14 @@
       "disposition": "uninstrumented_guarded"
     }
   ],
+  "services/history_index.py": [
+    {
+      "function": "retire",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
   "services/watch_history.py": [
     {
       "function": "_refresh_seen",
