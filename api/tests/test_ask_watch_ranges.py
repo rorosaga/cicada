@@ -71,6 +71,12 @@ def _history(memory):
     ("between 2024 and 2025 which channels", Span(date(2024, 1, 1), date(2025, 12, 31), "2024-01-01 to 2025-12-31")),
     ("from 2025-02 to 2025-04", Span(date(2025, 2, 1), date(2025, 4, 30), "2025-02-01 to 2025-04-30")),
     ("in the last 30 days", Span(date(2026, 9, 19), TODAY, "the last 30 days")),
+    # Calendar months and years, not 30-day blocks (review of #341).
+    ("top channels in the last 12 months", Span(date(2025, 10, 18), TODAY, "the last 12 months")),
+    ("what did I watch in the past 2 years", Span(date(2024, 10, 18), TODAY, "the last 2 years")),
+    # A month with "this/last year" is that month, answered from its summary (review of #341).
+    ("What did I watch on YouTube in March last year?", None),
+    ("What did I watch on YouTube in February this year?", None),
     ("last month on youtube", Span(date(2026, 9, 1), date(2026, 9, 30), "last month (2026-09)")),
     ("what channel have I watched the most ever", Span(None, None, "all time")),
     ("What was I watching in September 2026?", None),        # one month: that month's summary answers
@@ -122,7 +128,7 @@ def test_since_and_between_and_an_empty_range(tmp_path):
     _history(memory)
     since = watch_history.lookup(memory, "which channels have I watched since September 2026", today=TODAY)
     assert since[0].startswith("Counted now from the watch history (YouTube), since 2026-09-01: 4 videos")
-    between = watch_history.lookup(memory, "top channels between 2024 and 2025", today=TODAY)
+    between = watch_history.lookup(memory, "top YouTube channels between 2024 and 2025", today=TODAY)
     assert "- bob-example — 10 videos on 10 days in 3 weeks, 2025-03-01 to 2025-03-10" in between
     assert "- carol-example — 4 videos on 4 days in 3 weeks, 2024-05-01 to 2025-07-04" in between
     assert watch_history.lookup(memory, "what did I watch most in 2019", today=TODAY) == []
@@ -178,7 +184,7 @@ def test_the_computed_record_is_marked_newer_than_an_agents_earlier_note(tmp_pat
     assert "WATCH HISTORY — COMPUTED FROM THE RECORD NOW (" in prompt
     assert prompt.index("WHAT WAS SAID") < prompt.index("WATCH HISTORY — COMPUTED")
     assert "- alice-example — 6 videos on 5 days" in prompt
-    assert "never repeat an earlier statement that the history was not yet imported, read or counted" in prompt
+    assert "never repeat that the history was not yet imported, read or counted" in prompt
     assert "10. A block COMPUTED FROM THE RECORD NOW" in ask_service.ASK_SYSTEM_PROMPT
     # The owner page's citation names the conversation this answer was grounded in, not all 301.
     [c] = out["citations"]
@@ -205,3 +211,67 @@ def test_a_citation_names_at_most_a_few_episodes_newest_first_with_a_count(tmp_p
 
     wire = AskCitation(**c).model_dump(by_alias=True)
     assert wire["sourceEpisodesMore"] == 15 and len(wire["sourceEpisodes"]) == 5
+
+
+# --- review of #341 ---------------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("query", [
+    "How many channels does our Slack workspace have?",
+    "Which Slack channels have I been most active in?",
+    "What's the last thing I said about the video editor project?",
+    "which video call app do I use most",
+])
+def test_a_question_that_only_says_channel_or_video_is_not_about_watching(tmp_path, query):
+    memory = _bank(tmp_path, git=False)
+    _history(memory)
+    calls: list[str] = []
+    out = ask_service.answer_query(memory, query, retrieve_fn=lambda q, k: [], no_engine=False,
+                                   llm_fn=lambda p: calls.append(p) or "{}")
+    assert watch_history.is_about_watching(query, memory) is False
+    assert watch_history.lookup(memory, query, today=TODAY) == []
+    assert out["confidence"] == 0.05 and calls == []           # the honest gap, no model call
+
+
+def test_a_watch_verb_a_platform_or_a_channel_in_the_record_is_about_watching(tmp_path):
+    memory = _bank(tmp_path, git=False)
+    _history(memory)
+    assert watch_history.is_about_watching("which channels did I watch most", memory)
+    assert watch_history.is_about_watching("my top YouTube channels", memory)
+    assert watch_history.is_about_watching("how often did alice-example come up this year?", memory)
+    assert not watch_history.is_about_watching("how often did alice come up this year?", memory)   # never fuzzy
+    lines = watch_history.lookup(memory, "When did I first see carol-example?", today=TODAY)
+    assert any(ln.startswith("- carol-example — 4 videos on 4 days; first watched 2024-05-01") for ln in lines)
+
+
+def test_a_month_with_this_or_last_year_reads_that_months_summary(tmp_path):
+    memory = _bank(tmp_path, git=False)
+    _history(memory)
+    assert watch_history._asked_month("in March last year", TODAY) == (2025, 3)
+    assert watch_history._asked_month("in May this year", TODAY) == (2026, 5)
+    last_year = watch_history.lookup(memory, "What did I watch on YouTube in March last year?", today=TODAY)
+    assert "# Watched on YouTube · March 2025" in last_year[0]
+    assert not any("Counted now" in ln for ln in last_year)
+    this_year = watch_history.lookup(memory, "What did I watch on YouTube in February this year?", today=TODAY)
+    assert "# Watched on YouTube · February 2026" in this_year[0]
+    assert watch_history.lookup(memory, "What did I watch on YouTube in March this year?", today=TODAY) == []
+
+
+def test_the_record_is_current_only_through_its_last_day_and_never_over_the_persons_later_words(tmp_path):
+    memory = _bank(tmp_path, git=False)
+    _history(memory)
+    prompts: list[str] = []
+
+    def llm(prompt):
+        prompts.append(prompt)
+        return json.dumps({"answer": "alice-example.", "confidence": 0.7, "used_entities": [], "gaps": []})
+
+    ask_service.answer_query(memory, "Which YouTube channels have I watched the most this year?",
+                             retrieve_fn=lambda q, k: [], llm_fn=llm, no_engine=False)
+    assert ("the record runs through 2026-10-03 and is current only through that day — the person's own words "
+            "about later days are newer than it") in prompts[0]
+    assert "newer than every claim" not in prompts[0]
+    rule = ask_service.ASK_SYSTEM_PROMPT[ask_service.ASK_SYSTEM_PROMPT.index("10. "):]
+    assert "It outranks one kind of statement only" in rule
+    assert "The person's own words are never overridden" in rule and "newer than every claim" not in rule
+    assert watch_history.last_day(memory) == date(2026, 10, 3)

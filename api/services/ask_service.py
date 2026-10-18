@@ -117,10 +117,13 @@ never overrides a current claim or a line said later. When an undated line and a
 disagree, give both with what you know of their days instead of choosing. Work out a relative time \
 ("last week", "next month") against the day it was said, not today.
 10. A block COMPUTED FROM THE RECORD NOW (the WATCH HISTORY) was counted from the stored record when \
-this question was asked: it is newer than every claim, page line and quote, including ones said \
-earlier the same day. A statement about this memory system itself — that something was not yet imported, read, \
-processed or counted — is about the system's state at the time it was said; where the computed \
-block shows the record, never repeat such a statement as current: answer from the block.
+this question was asked, and the record runs only through the last day it names: it is current \
+through that day and says nothing about later days. It outranks one kind of statement only: an \
+earlier statement about this memory system itself — that something was not yet imported, read, \
+processed or counted — which is about the system's state when it was said; where the block shows \
+the record, never repeat such a statement as current. The person's own words are never overridden \
+by it: what they say about days after the record's last day is newer than the record; use it for \
+those days and say where the record ends.
 
 Return ONLY a JSON object with exactly these keys:
 {
@@ -804,7 +807,7 @@ def _watch_history_lines(memory_path: Path, query: str) -> list[str]:
     try:
         from api.services import watch_history
 
-        if not watch_history.is_about_watching(query):
+        if not watch_history.is_about_watching(query, memory_path):
             return []
         return watch_history.lookup(memory_path, query)
     except Exception as exc:  # noqa: BLE001
@@ -1071,13 +1074,25 @@ def answer_query(
 
         # 2026-10-18: an agent's note from earlier the same day ("the history has not been read yet") outranked the
         # record it was about. The block says when it was computed, so rule 9's "later wins" and rule 10 apply.
+        # Review of #341: an export is a snapshot that ends on its last watched day — the person's own later words
+        # ("I've been watching <channel> daily this month") are newer than it and are never overridden.
+        from api.services import watch_history
+
         now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M")
-        prompt += (f"\n\nWATCH HISTORY — COMPUTED FROM THE RECORD NOW ({now}, when this question was asked; newer "
-                   "than every claim, line and quote above). What was watched, as the platform recorded it: a record, "
-                   "not the person's words and not an entity. A line naming an episode in brackets is one watched "
-                   "day or a month's summary; a range's table is counted from the watched days. Answer questions "
-                   "about watching from it, say the days or the range, and never repeat an earlier statement that "
-                   "the history was not yet imported, read or counted:\n" + "\n".join(watched))
+        try:
+            last = watch_history.last_day(memory_path)
+        except Exception:  # noqa: BLE001 — the header names the end when it can
+            last = None
+        through = (f"the record runs through {last.isoformat()} and is current only through that day — the "
+                   f"person's own words about later days are newer than it" if last else
+                   "the record is current only through its last watched day")
+        prompt += (f"\n\nWATCH HISTORY — COMPUTED FROM THE RECORD NOW ({now}, when this question was asked; "
+                   f"{through}). What was watched, as the platform recorded it: a record, not the person's words "
+                   "and not an entity. A line naming an episode in brackets is one watched day or a month's "
+                   "summary; a range's table is counted from the watched days. Answer questions about watching "
+                   "from it and say the days or the range. It outranks only an earlier statement about the system "
+                   "itself: never repeat that the history was not yet imported, read or counted:\n"
+                   + "\n".join(watched))
 
     from api.services import engine_readiness
 

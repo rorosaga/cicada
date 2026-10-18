@@ -646,7 +646,6 @@ def channel_line(memory_path: Path, names: Iterable[str]) -> str | None:
 
 # --- looking it up: the lines a question about watching is answered from (owner ruling 2026-10-18) ---------------
 
-_ABOUT_WATCHING = re.compile(r"\b(watch(?:ed|es|ing)?|youtube|tiktok|videos?|channels?)\b", re.IGNORECASE)
 _WORD = re.compile(r"[^\W_]+(?:'[^\W_]+)?", re.UNICODE)
 _MONTH_NUM = re.compile(r"\b(20\d\d)-(0[1-9]|1[0-2])\b")
 _YEAR = re.compile(r"\b(20\d\d)\b")
@@ -659,21 +658,57 @@ time times again day days week weeks month months year years about show tell lis
 LOOKUP_LIMIT = 40
 
 
-def is_about_watching(query: str) -> bool:
-    return bool(_ABOUT_WATCHING.search(query or ""))
+#: What makes a question about watching on its own (review of #341): a watch verb or a platform. A bare "video" or
+#: "channel" is not — "how many channels does our chat workspace have?", "the video editor project", "which video
+#: call app" are about other things.
+_WATCHING = re.compile(r"\b(watch(?:ed|es|ing)?|youtube|tiktok)\b", re.IGNORECASE)
+_RELATIVE_YEAR = re.compile(r"\b(this|last)\s+year\b", re.IGNORECASE)
 
 
-def _asked_month(query: str) -> tuple[int | None, int] | None:
+def is_about_watching(query: str, memory_path: Path | None = None) -> bool:
+    """Is a question about watching? A watch verb or a platform name says so; otherwise only a channel the bank's
+    watch history actually holds, named whole in the question (``memory_path`` given). Never a bare "video" or
+    "channel"."""
+    q = query or ""
+    if _WATCHING.search(q):
+        return True
+    if memory_path is None:
+        return False
+    try:
+        return bool(_record_channel_named(q, memory_path))
+    except Exception:  # noqa: BLE001 — an unreadable record names nothing
+        return False
+
+
+def _record_channel_named(query: str, memory_path: Path) -> list[str]:
+    """The channels in the bank's watch history that ``query`` names whole (every word of the name in it, case
+    folded; never a name made only of question words)."""
+    q_words = {w.casefold() for w in _WORD.findall(query or "")}
+    out = []
+    for key, t in channel_totals(memory_path).items():
+        words = {w.casefold() for w in _WORD.findall(t["name"])}
+        if words and not words <= _LOOKUP_STOP and words <= q_words:
+            out.append(t["name"])
+    return out
+
+
+def _asked_month(query: str, today: date | None = None) -> tuple[int | None, int] | None:
     """``(year or None, month)`` a question names: ``2026-09``, or a month's English name — ``May`` only beside a
-    year, where it cannot be the verb."""
+    year, where it cannot be the verb. A month with no year beside "this year" / "last year" is that month of that
+    year (review of #341: "in March last year" is March 2025, not the whole year)."""
     m = _MONTH_NUM.search(query)
     if m:
         return int(m.group(1)), int(m.group(2))
     words = [w.casefold() for w in _WORD.findall(query)]
     year = _YEAR.search(query)
+    relative = _RELATIVE_YEAR.search(query)
     for i, name in enumerate(_MONTHS, start=1):
-        if name.casefold() in words and (name != "May" or year):
-            return (int(year.group(1)) if year else None), i
+        if name.casefold() in words and (name != "May" or year or relative):
+            if year:
+                return int(year.group(1)), i
+            if relative and today is not None:
+                return today.year - (relative.group(1).casefold() == "last"), i
+            return None, i
     return None
 
 
@@ -700,8 +735,13 @@ def lookup(memory_path: Path, query: str, *, limit: int = LOOKUP_LIMIT, today: d
     query = query or ""
     today = today or date.today()
     span = asked_span(query, today)
-    asked = _asked_month(query) if span is None else None
+    asked = _asked_month(query, today) if span is None else None
     counting = span is not None or _first_last(query) is not None or bool(_COUNTING.search(query))
+    # A table only for a question about watching — a watch verb, a platform, or a channel the record holds — never
+    # for one that merely says "channel" or "video" (review of #341).
+    if counting and not is_about_watching(query, memory_path):
+        counting = False
+        span = None
     if asked is None and counting:
         span = span or Span(None, None, "all time")
         table = summarize(memory_path, query, span)
@@ -817,6 +857,19 @@ def _month_end(year: int, month: int) -> date:
     return (date(year + (month == 12), month % 12 + 1, 1) - timedelta(days=1))
 
 
+def _months_back(today: date, n: int) -> date:
+    y, m = divmod(today.year * 12 + today.month - 1 - n, 12)
+    m += 1
+    return date(y, m, min(today.day, _month_end(y, m).day))
+
+
+def last_day(memory_path: Path) -> date | None:
+    """The last day the bank's watch history holds — the record is current only through it (an export is a snapshot
+    that ends there)."""
+    rows = _history_rows(memory_path)
+    return rows[-1][1] if rows else None
+
+
 def _point(text: str, today: date) -> tuple[date, date] | None:
     """The days one point names: a day, its month, or its year. A month named without a year is its latest one up to
     ``today``."""
@@ -865,10 +918,18 @@ def asked_span(query: str, today: date) -> Span | None:
     m = _RECENT.search(q)
     if m:
         n, unit = int(m.group(1)), m.group(2).casefold()
-        days = {"day": 1, "week": 7, "month": 30, "year": 365}[unit] * n
-        start = today - timedelta(days=days - 1) if unit == "day" else today - timedelta(days=days)
+        if unit == "day":
+            start = today - timedelta(days=n - 1)
+        elif unit == "week":
+            start = today - timedelta(days=7 * n)
+        else:   # calendar months and years: the same day N months back (the month's last day when it is shorter)
+            start = _months_back(today, n * (12 if unit == "year" else 1))
         return Span(start, today, f"the last {n} {unit}{'s' if n != 1 else ''}")
-    m = _THIS_LAST.search(q)
+    month = _asked_month(q, today)
+    this_last = _THIS_LAST.search(q)
+    if month is not None and (this_last is None or this_last.group(2).casefold() == "year"):
+        return None   # one month — "in March last year" included — is that month's summary
+    m = this_last
     if m:
         which, unit = m.group(1).casefold(), m.group(2).casefold()
         if unit == "year":
@@ -893,7 +954,7 @@ def asked_span(query: str, today: date) -> Span | None:
             start = monday - timedelta(days=7)
             return Span(start, monday - timedelta(days=1), f"last week (from {start.isoformat()})")
         return Span(today - timedelta(days=7), today, "the past week")
-    if _asked_month(q) is None:
+    if month is None:
         years = sorted({int(y) for y in _YEAR.findall(q)})
         if years:
             start, end = date(years[0], 1, 1), date(years[-1], 12, 31)

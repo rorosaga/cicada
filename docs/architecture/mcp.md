@@ -773,7 +773,9 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
 - **The `sources` scope.** `answer_query(source_words=...)`, `POST /ask` `sourceWords` (default true): `cicada_ask`
   passes `ctx.raw_excerpts`, so a remote connector without `sources` gets no conversation words in the prompt (R-R22).
 - **Watch history (owner ruling 2026-10-18, `capture-and-sleep.md` "Indexed, not consolidated").** A question about
-  watching (watch/watched/YouTube/TikTok/video/channel) also reads the record, engine-free (`watch_history.lookup`):
+  watching — a watch verb (watch/watched/watching), a platform (YouTube/TikTok), or a channel the record holds named
+  whole (`watch_history.is_about_watching`; never a bare "video" or "channel": "how many channels does our chat
+  workspace have?" keeps the honest gap, review of #341) — also reads the record, engine-free (`watch_history.lookup`):
   a month it names answers with that month's summary, otherwise the watched videos whose title or channel holds its
   words (whole words, the best-matching rows, dated, the newest 40), each line naming its day's episode. The lines go
   in a WATCH HISTORY block after the entities, only with `source_words`, and the answer may rest on them alone (no
@@ -784,9 +786,10 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
 - **Ranges (2026-10-18).** A month worked and a range did not: on the owner's bank (99 month summaries, 2,532 watched
   days) "which channels have I watched the most this year?" answered "no per-channel counts exist". `asked_span` reads
   the range in English, deterministically — since/after X, between/from X and/to Y (a day, a month by ISO or name, a
-  year), the last N days/weeks/months/years, this/last year/month/week, a named year (several: first to last),
-  ever/all time — and a question asking "the most", how many/often, or when something was first/last watched with no
-  range counts all time. `summarize` counts the range from the watched days themselves (not by adding month summaries,
+  year), the last N days/weeks or calendar months/years (the same day N months back), this/last year/month/week, a
+  named year (several: first to last), ever/all time — and a question asking "the most", how many/often, or when
+  something was first/last watched with no range counts all time. A named month with "this/last year" ("in March last
+  year") is that month of that year, read from its summary. `summarize` counts the range from the watched days themselves (not by adding month summaries,
   whose lists stop at 15 and under-count a steady channel), with no model, into one table: totals, the 20 channels
   watched most (videos, days, weeks, first and last day), the 10 come back to in the most weeks, the 10 videos watched
   on the most days, a line per month (up to two years) or per year with its top channels (at most 24), and for up to 5
@@ -794,13 +797,16 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   watch in the range; then at most 15 watched videos matching the question's other words. The rows come from one
   cached frontmatter read per bank, refreshed when a day file moves. Size does not depend on the range: ~4–6k
   characters and ~0.1 s warm for 50k synthetic rows over 2,532 days (cold ~1.5 s, the bank's frontmatter scan).
-- **The computed record outranks an earlier note about the system (2026-10-18).** The same answer quoted an agent's
-  saved note from earlier that day ("the history had not yet been read by Sleep") as current: the block carried no
-  time, so rule 9's "later wins" could not order a same-day note against it. The block is now headed COMPUTED FROM THE
-  RECORD NOW with the minute it was counted, and synthesis rule 10 says a statement about the memory system's own state (not yet
-  imported, read, processed or counted) is about the time it was said and is never repeated as current where the
-  computed block shows the record. A prompt rule, not a filter: the note is a real conversation the answer may still
-  need, and only the model can tell a system-state sentence from the person's own words.
+- **The computed record outranks an earlier note about the system — and nothing else (2026-10-18).** The same answer
+  quoted an agent's saved note from earlier that day ("the history had not yet been read by Sleep") as current: the
+  block carried no time, so rule 9's "later wins" could not order a same-day note against it. The block is now headed
+  COMPUTED FROM THE RECORD NOW with the minute it was counted and the record's last watched day
+  (`watch_history.last_day`): an export is a snapshot, current only through that day. Synthesis rule 10: the block
+  outranks only an earlier statement about the memory system's own state (not yet imported, read, processed or
+  counted), never repeated as current where the block shows the record; the person's own words are never overridden
+  by it — what they say about days after the record ends is newer and is used for those days. A prompt rule, not a
+  filter: the note is a real conversation the answer may still need, and only the model can tell a system-state
+  sentence from the person's own words.
 - **Citations name what grounded the answer (2026-10-18).** A citation's `source_episodes` was the page's whole list:
   on the owner's page, several hundred ids, every conversation that ever touched it. It is now at most 5
   (`ask_service.MAX_CITED_EPISODES`): the conversations behind the claims and items this answer put in front of the

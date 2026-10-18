@@ -11,8 +11,9 @@
 - **2026-10-18 — Ask over watch-history ranges (ruling 30 follow-up, G71, G94, G118; branch `feat/history-ask`).**
   `watch_history.asked_span` + `summarize`: this/last year, a named year, since/between, the last N days, ever, "the
   most", first/last watch of a named channel — counted from the watched days with no model into one bounded table.
-  The WATCH HISTORY block is headed as computed now and synthesis rule 10 keeps an earlier note about Cicada's own
-  state from being repeated as current. Citations name at most 5 grounding episodes plus `source_episodes_more`.
+  Only a question with a watch verb, a platform or a channel the record holds reads it (never a bare "video"/"channel").
+  The WATCH HISTORY block is headed as computed now and current only through its last watched day; synthesis rule 10
+  keeps an earlier note about the system's own state from being repeated as current, never the person's later words. Citations name at most 5 grounding episodes plus `source_episodes_more`.
   `test_sync_watch.py`'s flake was the tests' timing, not the watcher: FSEvents reports the setup's own writes up to
   ~2 s late, and any report seconds late under contention; the tests now wait for an uncounted marker (events arrive in
   order) and drive the ticker's clock instead of sleeping. 5 runs in a row and 15 runs five-at-once green. Tests: `test_ask_watch_ranges.py`. Pick up: review and merge.
