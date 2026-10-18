@@ -1974,7 +1974,10 @@ class AskCitation(CamelModel):
     entity_name: str
     file_path: str
     snippet: str
+    # The conversations this answer was grounded in (at most `ask_service.MAX_CITED_EPISODES`), and how many more
+    # the page has (2026-10-18: a hub page's citation listed every conversation that ever touched it).
     source_episodes: list[str] = []
+    source_episodes_more: int = 0
     # G118 slice 2 (R-PB12) — set when the retrieval hit was a claim: the
     # claim and the spans behind it, read from the page (the source of truth),
     # raw as stored; freshness is `/episodes/{id}/span`'s job. Additive.

@@ -356,6 +356,7 @@ def ask(ctx: ToolContext, query: str, top_k: int = 6) -> str:
                     "entity_id": c.get("entityId", c.get("entity_id", "")),
                     "entity_name": c.get("entityName", c.get("entity_name", "")),
                     "source_episodes": c.get("sourceEpisodes", c.get("source_episodes", [])),
+                    "source_episodes_more": c.get("sourceEpisodesMore", c.get("source_episodes_more", 0)),
                 }
                 for c in data.get("citations", []) or []
             ],
@@ -398,7 +399,12 @@ def _render_ask(result: dict) -> str:
         for c in citations:
             name = c.get("entity_name", c.get("entity_id", "?"))
             eps = c.get("source_episodes", []) or []
-            ep_note = f" (episodes: {', '.join(eps)})" if eps else ""
+            try:
+                more = int(c.get("source_episodes_more") or 0)
+            except (TypeError, ValueError):
+                more = 0
+            ep_note = (f" (episodes: {', '.join(eps)}{f' +{more:,} more' if more > 0 else ''})" if eps
+                       else (f" ({more:,} episodes)" if more > 0 else ""))
             lines.append(f"- [[{name}]]{ep_note}")
 
     return "\n".join(lines).strip()
