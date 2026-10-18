@@ -1361,11 +1361,90 @@ async def _run_engine_independent_tail(
             "media/feed/calendar commit"
         )
     await _warm_logos_safely(memory_path)
+    await _embed_indexed_episodes_safely(memory_path)
     if not outcome.questions_refreshed:
         # Staleness is a function of TIME, not of episodes: a cycle that never
         # reached Stage 5.56 must still escalate questions everyone stopped
         # talking about (and clear ones answered organically).
         await _refresh_questions_safely(memory_path, settings)
+
+
+async def _index_without_model_safely(memory_path: Path) -> None:
+    """Watch history and list saves are indexed, not consolidated (owner ruling 2026-10-18; ``history_index``).
+
+    At the start of every run that holds the bank — a drain, a one-batch cycle, the scheduler's tail-only run — and
+    before a drain freezes its ids: every queued index-only episode (a watched day, a month's summary, a save from a
+    platform's saved list) is marked read, ``processed_by: index``, and each month of watch history gets its
+    summary (``watch_history.rollup``), in ``cicada`` commits of at most ``COMMIT_STEP`` files. No model, no fetch.
+    Files dirty before it ran are skipped (an uncommitted capture keeps its own author); they stay out of every
+    model batch meanwhile (``history_index.waits_for_model``). A failed commit restores what it wrote. Never raises."""
+    from api.services import history_index, watch_history
+
+    skip: frozenset[str] = frozenset()
+    has_git = (memory_path / ".git").exists()
+    if has_git:
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Indexing without a model skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    try:
+        retired = await asyncio.to_thread(history_index.retire, memory_path, skip=skip)
+        months = await asyncio.to_thread(watch_history.rollup, memory_path, bank=memory_path.name)
+    except Exception as exc:
+        logger.warning(f"Indexing without a model failed: {type(exc).__name__}: {exc}")
+        return
+    paths = sorted(set(retired.paths) | {p for p in months.paths if p not in skip})
+    if retired.paths or months.created or months.updated:
+        logger.info(f"Indexed without a model: {len(retired.paths)} queued episode(s) marked read "
+                    f"({dict(sorted(retired.by_kind.items()))}), {months.created} month summary(ies) written, "
+                    f"{months.updated} updated")
+    if not paths or not has_git:
+        return
+    step = max(1, history_index.COMMIT_STEP)
+    chunks = [paths[i:i + step] for i in range(0, len(paths), step)]
+    today = date.today().isoformat()
+    for n, chunk in enumerate(chunks, start=1):
+        try:
+            async with _lock:
+                await git_service.commit_paths(
+                    memory_path, history_index.commit_message(chunk, today, part=n, parts=len(chunks)), chunk)
+        except Exception as exc:
+            rest = [p for c in chunks[n - 1:] for p in c]
+            logger.warning(f"Indexing commit failed — restoring {len(rest)} file(s): {type(exc).__name__}: {exc}")
+            await asyncio.to_thread(history_index.restore, memory_path, rest)
+            return
+
+
+async def _embed_indexed_episodes_safely(memory_path: Path) -> None:
+    """The vector half of "indexed, not consolidated" (owner ruling 2026-10-18): an index-only episode (a watched day,
+    a month's summary, a list save) never reaches a model batch, whose end is where the episode vectors are synced —
+    so the tail syncs them when one was written after the vector index last was. Incremental by content hash (only
+    the new passages are embedded), with the model the table already holds (``defer_model_switch``). A bank with no
+    vector index yet waits for its first sync. No git, no model call. Never raises."""
+    from api.services import history_index, vector_index
+
+    db = memory_path / vector_index.INDEX_DB_FILE
+    stamps = []
+    for p in (db, db.with_name(db.name + "-wal")):
+        try:
+            stamps.append(p.stat().st_mtime_ns)
+        except OSError:
+            continue
+    if not stamps:
+        return
+    since = max(stamps)
+
+    def sync() -> None:
+        if not any(f.mtime_ns > since and history_index.is_index_only(f.frontmatter)
+                   for f in bank_index.files(memory_path, "episodes")):
+            return
+        vector_index.SqliteVecIndexer(memory_path, defer_model_switch=True).index_episodes()
+
+    try:
+        await asyncio.to_thread(sync)
+    except Exception as exc:  # noqa: BLE001 — a derived index is rebuilt, never a reason for a run to fail
+        logger.warning(f"Episode vectors for indexed history not synced: {type(exc).__name__}")
 
 
 async def _flush_pending_commits_safely(memory_path: Path) -> None:
@@ -1502,6 +1581,8 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
             logger.warning("Sleep did not start: a write admitted before it still held the bank")
         else:
             await _flush_pending_commits_safely(memory_path)
+            # Owner ruling 2026-10-18: before anything is frozen, what is only ever looked up is marked read.
+            await _index_without_model_safely(memory_path)
         if window_refused:
             pass
         elif tail_only:
@@ -3012,7 +3093,8 @@ async def _run_stages(
 def _get_unprocessed_episodes(
     memory_path: Path, *, only_ids: set[str] | None = None, with_body: bool = True,
 ) -> list[dict]:
-    """Load all episodes with processed: false, sorted by frontmatter timestamp.
+    """Load all episodes with processed: false, sorted by frontmatter timestamp — never an index-only one (a watched
+    day, a month's summary, a list save: ``history_index.waits_for_model``, owner ruling 2026-10-18).
 
     ``only_ids`` keeps just those ids and ``with_body=False`` skips reading each
     body — both filter BEFORE ``f.body()``, so a drain's freeze and its per-batch
@@ -3025,9 +3107,12 @@ def _get_unprocessed_episodes(
     episode timestamps to set ``created`` and ``last_referenced``.
     """
     results: list[dict] = []
+    from api.services import history_index
+
     for f in bank_index.files(memory_path, "episodes"):
         fm = f.frontmatter
-        if fm.get("processed", False):
+        # Owner ruling 2026-10-18: watch history and list saves are indexed, never read by a model.
+        if not history_index.waits_for_model(fm):
             continue
         source = fm.get("source", "unknown")
         if only_ids is not None and str(fm.get("id", f.stem)) not in only_ids:

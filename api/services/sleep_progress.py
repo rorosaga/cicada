@@ -42,11 +42,12 @@ def origin_of_ids(memory_path: Path, ids) -> dict[str, str]:
 
 def unprocessed_ids(memory_path: Path) -> dict[str, str]:
     """Every waiting episode id -> its origin (one cached frontmatter pass)."""
+    from api.services import history_index
     from api.services.sleep_cycle import _derive_origin
 
     out: dict[str, str] = {}
     for f in bank_index.files(memory_path, "episodes"):
-        if f.frontmatter.get("processed", False):
+        if not history_index.waits_for_model(f.frontmatter):
             continue
         out[str(f.frontmatter.get("id", f.stem))] = str(
             f.frontmatter.get("origin") or _derive_origin(f.frontmatter.get("source")))

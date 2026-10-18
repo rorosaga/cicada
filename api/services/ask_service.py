@@ -757,6 +757,20 @@ def _clamp_confidence(value, default: float) -> float:
     return max(0.0, min(1.0, conf))
 
 
+def _watch_history_lines(memory_path: Path, query: str) -> list[str]:
+    """The watch-history lines a question about watching is answered from; ``[]`` for any other question or on any
+    failure (the record is context, its absence never fails an answer)."""
+    try:
+        from api.services import watch_history
+
+        if not watch_history.is_about_watching(query):
+            return []
+        return watch_history.lookup(memory_path, query)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"ask watch history skipped ({type(exc).__name__})")
+        return []
+
+
 def _gap_response(query: str) -> dict:
     """The honest-ignorance answer when nothing relevant was retrieved."""
     return {
@@ -992,9 +1006,14 @@ def answer_query(
         fallback_hits = _substring_match(memory_path, query, top_k)
         entities = _retrieved_entities(memory_path, fallback_hits, include_history=include_history, query=query)
 
+    # Owner ruling 2026-10-18: watch history is a record to look up. A question about watching reads it here,
+    # engine-free (`watch_history.lookup`) — the lines are what the platform recorded, never the person's words,
+    # and go to the model only for a caller that may see the record's own text (`source_words`).
+    watched = _watch_history_lines(memory_path, query) if source_words else []
+
     # Honest-gap fast path: nothing to ground on => do NOT call the LLM, do NOT
     # hallucinate. This is the key auditable-synthesis behaviour.
-    if not entities:
+    if not entities and not watched:
         return _gap_response(query)
 
     try:
@@ -1005,6 +1024,10 @@ def answer_query(
     retrieved_ids = [e["entity_id"] for e in entities]
     prompt = _build_prompt(query, entities, memory_path=memory_path, source_words=source_words,
                            owner_name=_owner_name(memory_path, entities, people) if source_words else None)
+    if watched:
+        prompt += ("\n\nWATCH HISTORY (what was watched, by day, as the platform recorded it — a record, not the "
+                   "person's words and not an entity; each line names its day's episode in brackets; answer "
+                   "questions about watching from it and say the days):\n" + "\n".join(watched))
 
     from api.services import engine_readiness
 
@@ -1015,7 +1038,7 @@ def answer_query(
     if no_engine:
         # Owner decision 2 (2026-10-16): with no engine here, say so — never a keyless call that fails into "could
         # not synthesize". The pages it found are still named.
-        names = ", ".join(e["entity_name"] for e in entities)
+        names = ", ".join(e["entity_name"] for e in entities) or "the watch history"
         return {
             "answer": f"{engine_readiness.ASK_NO_ENGINE} Relevant pages: {names}.",
             "confidence": 0.0,
@@ -1037,7 +1060,7 @@ def answer_query(
     if parsed is None:
         # Degrade to an honest low-confidence answer over the retrieved entities
         # rather than inventing content from a broken model reply.
-        names = ", ".join(e["entity_name"] for e in entities)
+        names = ", ".join(e["entity_name"] for e in entities) or "the watch history"
         return {
             "answer": (
                 "I retrieved related memory but could not synthesize a reliable "
@@ -1054,6 +1077,9 @@ def answer_query(
     # which must not be iterated character-by-character into the flagship fields.
     gaps = _coerce_str_list(parsed.get("gaps"))
     cited_raw = _coerce_str_list(parsed.get("used_entities"))
+    if watched:
+        # A watch-history line names its day's episode; an id taken from one is not an invented entity.
+        cited_raw = [c for c in cited_raw if not c.startswith("ep_")]
     # Only entities that were actually retrieved may be cited — drop any id the
     # model invented (anti-hallucination guard on the citation set).
     used = [eid for eid in cited_raw if eid in retrieved_ids]

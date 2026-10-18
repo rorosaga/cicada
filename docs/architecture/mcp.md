@@ -772,6 +772,15 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   an undated line and a dated quote that disagree are both given; a relative time is resolved against its day.
 - **The `sources` scope.** `answer_query(source_words=...)`, `POST /ask` `sourceWords` (default true): `cicada_ask`
   passes `ctx.raw_excerpts`, so a remote connector without `sources` gets no conversation words in the prompt (R-R22).
+- **Watch history (owner ruling 2026-10-18, `capture-and-sleep.md` "Indexed, not consolidated").** A question about
+  watching (watch/watched/YouTube/TikTok/video/channel) also reads the record, engine-free (`watch_history.lookup`):
+  a month it names answers with that month's summary, otherwise the watched videos whose title or channel holds its
+  words (whole words, the best-matching rows, dated, the newest 40), each line naming its day's episode. The lines go
+  in a WATCH HISTORY block after the entities, only with `source_words`, and the answer may rest on them alone (no
+  page retrieved is then no longer a gap); an `ep_` id the model lists is dropped from `used_entities`, never read
+  as an invented entity. `cicada_recall_detail` on a page whose name or alias is a channel in the history appends one
+  derived line (videos, days, first and last day; `watch_history.channel_line`), never stored and never a mention;
+  `cicada_timeline` counts a watched day on its day ("Watched N video(s) on YouTube") instead of as a capture.
 - **Cost.** On the benchmark bank the context build is ~20 ms (p95 ~30 ms, warm); the prompt grew from ~6–8k to
   ~8–17k characters. `api/tests/test_ask_source_words.py`.
 

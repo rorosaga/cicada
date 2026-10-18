@@ -167,7 +167,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   those paths, never stats a path a request names, never runs git in a declared repo; the app reads (browsers, Notes via
   its own `osascript`, Calendar, Contacts, Chrome tab groups, watched folders, Wispr Flow) and posts bytes. A browser is
   read only after the person turned it on. An unreadable file shows the exact fix in the app. Chrome's history is read
-  from a copy, YouTube video pages only; watch history is one episode per day, never a save (G71, `capture-and-sleep.md`).
+  from a copy, YouTube video pages only; watch history is one episode per day, never a save (G71, `capture-and-sleep.md`);
+  it and saves from a platform's saved list are indexed, never read by a model (ruling 30).
 - **Capture never depends on a model calling a tool (G105).** Claude Code and Codex sessions are captured by the
   harness's own Stop hook; the backend reads a transcript only when it resolves under the harness root as
   `<session_id>.jsonl` within the size cap. Only the person's turns and the agent's final reply are kept, plus each agent
@@ -221,7 +222,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   conversations floors at 0.39 and only live silence archives it; ruling 1's one-week cap governs live silence; a
   mention never lowers; a decay question only when live silence crosses 0.4. **Read on time** (2026-10-16): a
   conversation read late counts as read the day it was said — when it is read never changes the result. Evergreen
-  never decays; a memory export entry is no mention. Below 0.2 archived. **Confidence does not rank recall.**
+  never decays; a memory export entry or a watched day is no mention. Below 0.2 archived. **Confidence does not rank recall.**
 
 ### Storage, claims and provenance
 

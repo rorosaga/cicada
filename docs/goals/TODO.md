@@ -8,6 +8,14 @@
 
 ## Current state and evidence
 
+- **2026-10-18 — watch history and export saves are indexed, not consolidated (ruling 30, G71, G94; branch
+  `feat/history-index`, not merged).** `history_index` (the one predicate, the dry-run count, the retirement),
+  `watch_history.rollup` (a month's summary, no model), `watch_history.lookup` (Ask's read of the record),
+  `watch_history.channel_line` (a channel page's derived line), `sleep_cycle._index_without_model_safely` (before the
+  freeze) and `_embed_indexed_episodes_safely` (the tail's vector sync). Tests: `test_history_index.py`. Pick up: the
+  coordinator runs `api/.venv/bin/python -m api.scripts.history_index_dry_run --bank <path>` on the owner's bank (counts
+  only), then the next Sleep run retires the queued days and saves; the first vector sync of ~5.7k episodes runs in
+  that run's tail.
 - **2026-10-17 — are the answers good? Public benchmarks through Cicada on the plan, and the owner's own eval (G148; branch `feat/memory-bench`).** Survey and recommendation: `docs/research/2026-10-17-memory-benchmarks.md` (LoCoMo with Mem0's J judge first, LongMemEval by type second). `python -m benchmarks.public.run prepare|run|report` runs LoCoMo/LongMemEval end to end (stager → drain → `cicada_ask` → published judge, full-context control, resumable, throwaway marked banks, `claude -p` only). `python -m benchmarks.answer_eval --bank … --questions benchmarks/answer_eval.local.yaml` grades Ask on the owner's bank against facts he writes. First slices: LoCoMo Ask J 52.5 vs full-context 95.0 (40 Qs); LongMemEval oracle 70 vs 85 (20 Qs) — honest gaps, lost detail. Tests: `test_public_benchmark.py`. Pick up: review and merge; the owner writes `benchmarks/answer_eval.local.yaml` and runs it; then the evidence-span Ask experiment on the same checkpointed banks.
 - **2026-10-17 — small backend fixes and the LinkedIn photo decision (branch `fix/api-small`).** (1) The closed type
   set: a plain-JSON engine is held only by the prompt's type list, and nothing between extraction and the create branch
@@ -1034,3 +1042,26 @@ A whole row moves to DONE only after its remaining implementation and required a
     <path> [--judge]` (counts only, writes nothing). Revisit a rule if `GET /consumption/feedback`'s `sleepSettles`
     shows the person undoing it often, or at once if a settle is found to have decided who a person is without their
     own words.
+30. **Watch history and export saves are indexed, not consolidated (owner, 2026-10-18; G71, G94).** Owner: "maybe
+    overanalyzing the watch history is too much … Maybe just have it there and then maybe the metadata has it as
+    embeddings or something." **1 — A record to look up.** A watched day, a month's summary of them and a save from a
+    platform's saved list (a Takeout playlist and Watch later through any door, Instagram saves and likes, TikTok likes
+    and favourites, an X archive's likes and bookmarks, Reddit's and LinkedIn's export CSVs) are never read by a model:
+    captured already read (`processed_by: index`), retired by Sleep before a drain freezes when an older bank queued
+    them, and excluded from every "waiting for Sleep" count (`history_index.waits_for_model`). They stay files — saves
+    in Saved with their metadata — found through the lexical and vector indexes, recall's excerpts, Ask's read of the
+    record and the timeline's count. A browser bookmark, a single URL save, a connector poll and any save carrying
+    the person's own note are read by Sleep as before. **2 — The signal is counted, not read:** one summary per
+    platform per month (the channels watched most, the ones come back to across weeks, the videos watched on more than
+    one day, each day's count), deterministic and order-free. **3 — A watched day is not a mention:** history never
+    writes a page (no claim, no source episode, no date, no lift, no page minted, no inbox question) and never touches
+    decay — a watch is a record the platform kept, not the person's words (the memory-export precedent), often autoplay,
+    and at 45k watches would hold every same-named page at the repeat floor for good; a page named like a channel gets
+    one derived line at read instead. **Proposed, not built:** a playlist the person named themselves (not Watch later,
+    not Liked videos) as a light interest signal — its name and size in the month summary or one line on the owner's
+    page, still with no per-video model read. **Why.** On the owner's bank (counts only): 45,879 watches → 2,532 day
+    episodes, 3,156 playlist saves (31 playlists; Watch later 1,415), 2,444 → 5,094 episode files, 5,692 queued for a
+    full Stage-1 read each. Measure with `api/.venv/bin/python -m api.scripts.history_index_dry_run --bank <path>`
+    (counts only, writes nothing). Revisit if the person asks for a playlist or a stretch of history to be read, or if
+    the month summaries prove too thin to answer "what was I into then" — then a bounded, opt-in read of a summary,
+    never of every day.
