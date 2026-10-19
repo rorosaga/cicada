@@ -535,14 +535,24 @@ wiring stay `install.sh`'s and the app's).
   the active bank itself, as install.sh's own registration does).
 - **Settings.** `cicada_repo`, `memory_path` (both optional directories) and `recall` are `userConfig`, saved by Claude
   Code under `pluginConfigs["cicada@cicada"]`; nothing sensitive is asked (the API token stays in `~/.cicada`).
-- **No double fire.** `registry.py plugin --settings ~/.claude/settings.json` reads `enabledPlugins["cicada@cicada"]`
-  (user settings only; read-only). With it on, `install.sh` registers no Claude Code hook or MCP entry and removes the
-  ones it registered before (`registry.py uninstall`, Cicada's entries only; `claude mcp remove cicada -s user`), skips
-  `--skill` and says so; `make doctor` reports which door is active, fails a leftover settings hook or user-scope
-  `cicada` entry (each would run twice), and says which Cicada the plugin runs; `GET /agents/wiring` reads Claude Code
-  as on with `capabilities.via = "plugin"` and no argv, names leftover settings hooks in `detail`, and
-  `GET /agents/setup?harness=claude-code` hands back a prompt that runs nothing. The app's *Remembers automatically*
-  row says it is switched in the plugin's settings.
+- **No double fire, and never no door.** `registry.py plugin --settings ~/.claude/settings.json` (read-only; the one
+  test, `registry.plugin_state`) answers `on` only when the plugin is enabled (`enabledPlugins["cicada@cicada"]`, user
+  settings), installed (`~/.claude/plugins/installed_plugins.json`) and able to run a Cicada by its scripts' own order
+  (a `cicada_repo` checkout with its venv — never falling back past one that isn't — else an executable
+  `$CICADA_HOME/bin/cicada-hook`); `broken` (exit 4, with why) when enabled but it would run nothing — a settings file
+  synced from another machine, no app and no checkout. With `on`, `install.sh` registers no Claude Code hook or MCP
+  entry and removes the ones it registered before (`registry.py uninstall`, Cicada's entries only; `claude mcp remove
+  cicada -s user`), skips `--skill` and says so; with `broken` it keeps its own entries and warns with the fix.
+  `make doctor` reports which door is active, fails a `broken` plugin, a leftover settings hook or user-scope `cicada`
+  entry (each would run twice), and names what the plugin runs; `GET /agents/wiring` reads Claude Code as on with
+  `capabilities.via = "plugin"` and no argv only for `on` (a `broken` plugin leaves the row probed as before, with why
+  in `detail`), names leftover settings hooks in `detail`, and `GET /agents/setup?harness=claude-code` hands back a
+  prompt that runs nothing. The app's *Remembers automatically* row reads the plugin's own `recall` setting, on or off,
+  and says it is switched there.
+- **Recall off stays off.** The plugin's recall hooks do nothing under its `recall` setting off or `CICADA_RECALL=off`.
+  When `install.sh` hands Claude Code over, a recall-off choice — `CICADA_RECALL=off`, or the app's switch (a capture
+  hook in the settings file and no recall hook) — is written into the plugin's own setting first
+  (`registry.py plugin-recall-off`: `pluginConfigs["cicada@cicada"].options.recall = false`, merged, atomic).
 - **Installing it.** In Claude Code: `/plugin marketplace add rorosaga/cicada`, then `/plugin install cicada@cicada`
   (or, on 2.1.275+, `/plugin install cicada --marketplace rorosaga/cicada`), then re-run `./install.sh` once on a
   source checkout so its older Claude Code entries go. A GitHub marketplace follows the default branch (`main`, so a

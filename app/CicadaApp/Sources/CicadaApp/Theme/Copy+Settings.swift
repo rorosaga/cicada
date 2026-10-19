@@ -157,6 +157,7 @@ extension Copy {
     static let autoRecallOn = "On. Your agent sees a short note when you mention something Cicada remembers."
     // Owner 2026-10-19: Claude Code's door is the Cicada plugin when it is on; the plugin's own settings switch this.
     static let autoRecallPluginOn = "On through the Cicada plugin. Turn it off in the plugin's settings (/plugin)."
+    static let autoRecallPluginOff = "Off in the Cicada plugin's settings. Turn it on there (/plugin)."
     static let autoRecallOff = "Off. Your agent only sees your memory when it asks for it."
     static let autoRecallStale = "Needs an update, because Cicada moved since this was set up."
     static let autoRecallUnreadable = "Its settings file can't be read, so Cicada won't touch it."

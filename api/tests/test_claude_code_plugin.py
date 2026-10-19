@@ -220,6 +220,14 @@ def test_remember_automatically_off_silences_recall_but_not_capture(tmp_path, va
     assert "argv:capture" in on.stdout
 
 
+def test_cicada_recall_off_silences_the_plugin_s_recall_too(tmp_path):
+    home = tmp_path / "home"
+    _echo_exe(home / ".cicada" / "bin" / "cicada-hook")
+    off = _run(HOOK_SHIM, ["recall", "--harness", "claude-code"], _env(home, CICADA_RECALL="off"))
+    assert (off.returncode, off.stdout) == (0, "")
+    assert "argv:capture" in _run(HOOK_SHIM, ["capture"], _env(home, CICADA_RECALL="off")).stdout
+
+
 def test_an_unknown_hook_name_runs_nothing(tmp_path):
     home = tmp_path / "home"
     _echo_exe(home / ".cicada" / "bin" / "cicada-hook")
@@ -263,9 +271,58 @@ def test_the_registry_reads_whether_the_plugin_is_enabled(tmp_path, settings, ex
     path = tmp_path / "settings.json"
     path.write_text(json.dumps(settings))
     assert hook_registry.plugin_enabled(path) is expected
-    rc = subprocess.run([sys.executable, str(ROOT / "api/hooks/registry.py"), "plugin", "--settings", str(path)],
-                        capture_output=True).returncode
-    assert rc == (0 if expected else 1)
+
+
+def _installed(claude_dir: Path, shape: str = "nested") -> None:
+    (claude_dir / "plugins").mkdir(parents=True, exist_ok=True)
+    table = {"cicada@cicada": [{"scope": "user"}]}
+    (claude_dir / "plugins" / "installed_plugins.json").write_text(
+        json.dumps({"version": 2, "plugins": table} if shape == "nested" else table))
+
+
+def _state_cli(settings: Path, cicada_home: Path) -> tuple[int, str]:
+    done = subprocess.run([sys.executable, str(ROOT / "api/hooks/registry.py"), "plugin", "--settings", str(settings),
+                           "--cicada-home", str(cicada_home)], capture_output=True, text=True)
+    return done.returncode, done.stdout.strip()
+
+
+def test_the_plugin_is_a_door_only_when_enabled_installed_and_runnable(tmp_path):
+    """The coordinator's blocker: an enabled plugin that would run nothing must never take Claude Code over."""
+    settings, cicada_home = tmp_path / "settings.json", tmp_path / "ch"
+    settings.write_text(json.dumps({"enabledPlugins": {"cicada@cicada": True}}))
+    # Enabled, not installed (a settings file synced from another machine).
+    _exe(cicada_home / "bin" / "cicada-hook", "exit 0\n")
+    state, why = hook_registry.plugin_state(settings, cicada_home)
+    assert state == "broken" and "not installed" in why
+    assert _state_cli(settings, cicada_home)[0] == 4
+    # Installed, but nothing to run.
+    _installed(tmp_path)
+    (cicada_home / "bin" / "cicada-hook").unlink()
+    state, why = hook_registry.plugin_state(settings, cicada_home)
+    assert state == "broken" and "no Cicada to run" in why
+    # Installed and the app's launcher is there: on.
+    _exe(cicada_home / "bin" / "cicada-hook", "exit 0\n")
+    assert hook_registry.plugin_state(settings, cicada_home) == ("on", str(cicada_home / "bin" / "cicada-hook"))
+    rc, out = _state_cli(settings, cicada_home)
+    assert rc == 0 and out.startswith("on: ")
+    # Not enabled: off, whatever is installed.
+    settings.write_text(json.dumps({"enabledPlugins": {"cicada@cicada": False}}))
+    assert hook_registry.plugin_state(settings, cicada_home) == ("off", "")
+    assert _state_cli(settings, cicada_home)[0] == 1
+
+
+def test_a_cicada_repo_setting_decides_and_never_falls_back_to_the_launcher(tmp_path):
+    settings, cicada_home, repo = tmp_path / "settings.json", tmp_path / "ch", tmp_path / "checkout"
+    _installed(tmp_path, shape="flat")
+    _exe(cicada_home / "bin" / "cicada-hook", "exit 0\n")
+    settings.write_text(json.dumps({"enabledPlugins": {"cicada@cicada": True},
+                                    "pluginConfigs": {"cicada@cicada": {"options": {"cicada_repo": str(repo)}}}}))
+    state, why = hook_registry.plugin_state(settings, cicada_home)
+    assert state == "broken" and "not a set-up Cicada checkout" in why, "the plugin's script exits there too"
+    _exe(repo / "api" / ".venv" / "bin" / "python", "exit 0\n")
+    (repo / "api" / "hooks").mkdir(parents=True)
+    (repo / "api" / "hooks" / "capture.py").write_text("")
+    assert hook_registry.plugin_state(settings, cicada_home) == ("on", str(repo))
 
 
 def test_an_unreadable_settings_file_is_not_a_plugin_and_is_left_alone(tmp_path):
@@ -284,19 +341,44 @@ def test_the_registry_reads_a_saved_plugin_option(tmp_path):
     assert hook_registry.plugin_option(path, "memory_path") == ""
     done = subprocess.run([sys.executable, str(ROOT / "api/hooks/registry.py"), "plugin", "--settings", str(path),
                            "--option", "cicada_repo"], capture_output=True, text=True)
-    assert (done.returncode, done.stdout.strip()) == (0, "/R/cicada")
+    assert done.stdout.strip() == "/R/cicada"
+
+
+def test_the_recall_setting_is_read_and_a_recall_off_choice_is_written_by_merge(tmp_path):
+    path = tmp_path / "settings.json"
+    other = {"hooks": [{"type": "command", "command": "other"}]}
+    path.write_text(json.dumps({"enabledPlugins": {"cicada@cicada": True}, "hooks": {"Stop": [other]}}))
+    assert hook_registry.plugin_recall_on(path) is True, "on unless the person set it off"
+    done = subprocess.run([sys.executable, str(ROOT / "api/hooks/registry.py"), "plugin-recall-off", "--settings",
+                           str(path)], capture_output=True, text=True)
+    assert done.returncode == 0 and done.stdout.startswith("updated")
+    assert hook_registry.plugin_recall_on(path) is False
+    assert _json(path) == {"enabledPlugins": {"cicada@cicada": True}, "hooks": {"Stop": [other]},
+                           "pluginConfigs": {"cicada@cicada": {"options": {"recall": False}}}}
+    assert hook_registry.plugin_recall_off(path) == "present"
+    bad = tmp_path / "bad.json"
+    bad.write_text("{nope")
+    with pytest.raises(hook_registry.RegistryError):
+        hook_registry.plugin_recall_off(bad)
+    assert bad.read_text() == "{nope"
 
 
 # --------------------------------------------------------------------------- install.sh: no double registration
 
 
-def _install(tmp_path: Path, *, plugin: bool, args=("--dry-run",), codex: bool = False) -> tuple[str, Path]:
+def _install(tmp_path: Path, *, plugin: bool, args=("--dry-run",), codex: bool = False, installed: bool = True,
+             launcher: bool = True, env_extra: dict | None = None, settings_data: dict | None = None) -> tuple[str, Path]:
     home, bin_dir = tmp_path / "home", tmp_path / "bin"
     (home / ".claude").mkdir(parents=True)
     bin_dir.mkdir()
     settings = home / ".claude" / "settings.json"
     data: dict = {"enabledPlugins": {"cicada@cicada": True}} if plugin else {}
+    data.update(settings_data or {})
     settings.write_text(json.dumps(data))
+    if plugin and installed:
+        _installed(home / ".claude")
+    if plugin and launcher:
+        _exe(home / ".cicada" / "bin" / "cicada-hook", "exit 0\n")
     _exe(bin_dir / "uname", 'if [ "$1" = "-m" ]; then echo arm64; else echo Darwin; fi\n')
     _exe(bin_dir / "uv", "exit 0\n")
     _exe(bin_dir / "curl", "exit 7\n")
@@ -305,7 +387,7 @@ def _install(tmp_path: Path, *, plugin: bool, args=("--dry-run",), codex: bool =
     if codex:
         _exe(bin_dir / "codex", "exit 0\n")
     env = {"HOME": str(home), "PATH": f"{bin_dir}:/usr/bin:/bin", "CICADA_MEMORY_PATH": str(tmp_path / "memory"),
-           "CICADA_PORT": "1", "CICADA_HOME": str(home / ".cicada")}
+           "CICADA_PORT": "1", "CICADA_HOME": str(home / ".cicada"), **(env_extra or {})}
     done = subprocess.run(["/bin/bash", str(ROOT / "install.sh"), *args], env=env, capture_output=True, text=True,
                           timeout=120)
     out = re.sub(r"\x1b\[[0-9;]*m", "", done.stdout)
@@ -331,8 +413,39 @@ def test_with_the_plugin_on_install_sh_registers_no_claude_code_hook_or_mcp_entr
     assert "the Cicada plugin (cicada@cicada) carries the MCP server, the skill and the hooks" in out
     assert "capture hook:" not in out
     written = sorted(str(p.relative_to(tmp_path / "home")) for p in (tmp_path / "home").rglob("*") if p.is_file())
-    assert written == [".claude/settings.json"], "a dry run, plugin check included, writes nothing"
+    assert written == [".cicada/bin/cicada-hook", ".claude/plugins/installed_plugins.json", ".claude/settings.json"], \
+        "a dry run, plugin check included, writes nothing"
     assert _json(settings) == {"enabledPlugins": {"cicada@cicada": True}}
+    assert "plugin-recall-off" not in out, "recall was not off: the plugin's own setting is left alone"
+
+
+@pytest.mark.parametrize("installed,launcher,why", [
+    (True, False, "no Cicada to run"),
+    (False, True, "not installed"),
+])
+def test_an_enabled_plugin_that_cannot_run_keeps_install_sh_s_entries(tmp_path, installed, launcher, why):
+    """The blocker: removing install.sh's working entries for a plugin that runs nothing leaves Claude Code with no
+    capture and no tools. They stay, and install.sh says how to finish the switch."""
+    out, settings = _install(tmp_path, plugin=True, installed=installed, launcher=launcher)
+    events = sorted(re.search(r"--event (\S+)", line).group(1) for line in _claude_registrations(out, settings))
+    assert events == sorted(CAPTURE_EVENTS | RECALL_EVENTS), "install.sh registers Claude Code as before"
+    assert f"registry.py uninstall --settings {settings}" not in out and "claude mcp remove" not in out
+    assert "enabled but" in out and why in out and "keeping this script's Claude Code entries" in out
+    assert "fix: /plugin install cicada@cicada" in out
+    assert "through its plugin" not in out
+
+
+def test_handing_over_keeps_a_recall_off_choice(tmp_path):
+    """CICADA_RECALL=off, or the app's switch (a capture hook in the settings file and no recall hook), becomes the
+    plugin's own recall setting before install.sh's entries go — handing over never turns recall back on."""
+    out, settings = _install(tmp_path / "env", plugin=True, env_extra={"CICADA_RECALL": "off"})
+    assert f"registry.py plugin-recall-off --settings {settings}" in out
+    assert "plugin recall is off" in out
+    venv_py = str(ROOT / "api" / ".venv" / "bin" / "python")
+    capture = f'"{venv_py}" "{ROOT}/api/hooks/capture.py" --harness claude-code'
+    hooks = {"Stop": [{"hooks": [{"type": "command", "command": capture, "timeout": 5}]}]}
+    out, settings = _install(tmp_path / "app", plugin=True, settings_data={"hooks": hooks})
+    assert f"registry.py plugin-recall-off --settings {settings}" in out, "the app's recall-off choice carries over"
 
 
 def test_with_the_plugin_off_install_sh_registers_claude_code_as_before(tmp_path):
@@ -382,17 +495,24 @@ def _runner(rc: int):
 
 def _probe(home: Path, rc: int = 1) -> dict:
     return asyncio.run(agent_wiring.probe(home=home, memory_root=Path("/M"), repo=REPO, python=PY,
-                                          runner=_runner(rc), resolve=lambda n: n if n in ("claude", "codex") else None))
+                                          runner=_runner(rc), resolve=lambda n: n if n in ("claude", "codex") else None,
+                                          cicada_home=home / ".cicada"))
 
 
 def _row(data: dict, agent_id: str) -> dict:
     return next(a for a in data["agents"] if a["id"] == agent_id)
 
 
-def _enable(home: Path) -> Path:
+def _enable(home: Path, *, runnable: bool = True, options: dict | None = None) -> Path:
     settings = home / ".claude" / "settings.json"
     settings.parent.mkdir(parents=True, exist_ok=True)
-    settings.write_text(json.dumps({"enabledPlugins": {"cicada@cicada": True}}))
+    data: dict = {"enabledPlugins": {"cicada@cicada": True}}
+    if options:
+        data["pluginConfigs"] = {"cicada@cicada": {"options": options}}
+    settings.write_text(json.dumps(data))
+    _installed(home / ".claude")
+    if runnable:
+        _exe(home / ".cicada" / "bin" / "cicada-hook", "exit 0\n")
     return settings
 
 
@@ -404,6 +524,23 @@ def test_the_wiring_reads_the_plugin_as_on_and_offers_no_argv(tmp_path):
     assert row["capabilities"] == {"via": "plugin"} and row["detail"] is None
     codex = _row(_probe(tmp_path, rc=1), "codex")
     assert codex["connect"] and "via" not in (codex.get("capabilities") or {}), "Codex stays install.sh's"
+
+
+def test_the_wiring_reports_the_plugin_s_recall_off_setting_truthfully(tmp_path):
+    _enable(tmp_path, options={"recall": False})
+    row = _row(_probe(tmp_path), "claude-code")
+    assert row["autorecall"] == "off" and row["autorecall_on"] == [] and row["capabilities"] == {"via": "plugin"}
+
+
+def test_an_enabled_plugin_that_cannot_run_is_not_reported_as_on(tmp_path):
+    _enable(tmp_path, runnable=False)
+    row = _row(_probe(tmp_path, rc=1), "claude-code")
+    assert "via" not in (row.get("capabilities") or {})
+    assert (row["recall"], row["autosave"]) == ("off", "off") and row["connect"], "install.sh's commands are offered"
+    assert "enabled but" in row["detail"] and "no Cicada to run" in row["detail"]
+    setup = agent_wiring.setup("claude-code", home=tmp_path, memory_root=Path("/M"), repo=REPO, python=PY,
+                               resolve=lambda n: n, cicada_home=tmp_path / ".cicada")
+    assert setup["argv"], "a plugin that runs nothing is no reason to hand over nothing"
 
 
 def test_the_wiring_names_older_settings_hooks_that_would_fire_twice(tmp_path):
@@ -419,10 +556,10 @@ def test_the_wiring_names_older_settings_hooks_that_would_fire_twice(tmp_path):
 def test_the_setup_prompt_runs_nothing_when_the_plugin_is_on(tmp_path):
     _enable(tmp_path)
     setup = agent_wiring.setup("claude-code", home=tmp_path, memory_root=Path("/M"), repo=REPO, python=PY,
-                               resolve=lambda n: n)
+                               resolve=lambda n: n, cicada_home=tmp_path / ".cicada")
     assert setup["argv"] == [] and setup["display"] == [] and "mcp add" not in setup["prompt"]
     plain = agent_wiring.setup("claude-code", home=tmp_path / "other", memory_root=Path("/M"), repo=REPO, python=PY,
-                               resolve=lambda n: n)
+                               resolve=lambda n: n, cicada_home=tmp_path / ".cicada")
     assert plain["argv"], "without the plugin the prompt is unchanged"
 
 
@@ -434,6 +571,7 @@ def _doctor(tmp_path: Path, settings: dict, *, launcher: bool = True) -> str:
     (home / ".claude").mkdir(parents=True)
     bin_dir.mkdir()
     (home / ".claude" / "settings.json").write_text(json.dumps(settings))
+    _installed(home / ".claude")
     if launcher:
         _exe(home / ".cicada" / "bin" / "cicada-hook", "exit 0\n")
     _exe(bin_dir / "curl", "exit 7\n")
@@ -454,7 +592,7 @@ def test_doctor_says_the_plugin_is_claude_code_s_door_and_flags_a_double_registr
     assert "claude: the Cicada plugin (cicada@cicada)" in out
     assert "MCP server 'cicada' is registered twice" in out
     assert "Cicada's hooks are in both the plugin and" in out and "Stop" in out
-    assert "The plugin runs the Cicada app's launchers" in out
+    assert "The plugin runs " + str(tmp_path / "home" / ".cicada" / "bin" / "cicada-hook") in out
     assert "Session-capture Stop hook not registered" not in out, "the settings-file checks are not asked"
 
 
@@ -466,7 +604,9 @@ def test_doctor_without_the_plugin_reads_install_sh_s_entries(tmp_path):
 
 def test_doctor_says_when_the_plugin_has_no_cicada_to_run(tmp_path):
     out = _doctor(tmp_path, {"enabledPlugins": {"cicada@cicada": True}}, launcher=False)
-    assert "The plugin has no Cicada to run" in out
+    assert "claude: install.sh's hooks and MCP entry (the Cicada plugin is enabled but can't run)" in out
+    assert "The Cicada plugin is enabled but it has no Cicada to run" in out
+    assert "Session-capture Stop hook" in out, "install.sh's entries are checked, as they are the door"
 
 
 # --------------------------------------------------------------------------- the version stamp

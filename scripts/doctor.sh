@@ -22,9 +22,12 @@ CLAUDE_SETTINGS="${CLAUDE_SETTINGS:-$HOME/.claude/settings.json}"
 # Claude Code's door (owner 2026-10-19): the Cicada plugin when the person enabled it, else install.sh's hooks and MCP
 # entry. Never both — each hook would fire twice and every tool would be listed twice. The registry is stdlib.
 REG_PY="$VENV_PY"; [ -x "$REG_PY" ] || REG_PY="$(command -v python3 || true)"
+# "on" only when enabled, installed and able to run a Cicada; "broken" when enabled but it would run nothing.
+PLUGIN_LINE=""
+[ -n "$REG_PY" ] && PLUGIN_LINE="$("$REG_PY" -B "$REPO/api/hooks/registry.py" plugin --settings "$CLAUDE_SETTINGS" \
+  --cicada-home "${CICADA_HOME:-$HOME/.cicada}" 2>/dev/null)"
 PLUGIN_ON=0
-[ -n "$REG_PY" ] && "$REG_PY" -B "$REPO/api/hooks/registry.py" plugin --settings "$CLAUDE_SETTINGS" >/dev/null 2>&1 \
-  && PLUGIN_ON=1
+case "$PLUGIN_LINE" in on:*) PLUGIN_ON=1 ;; esac
 
 FAILURES=0
 
@@ -37,6 +40,8 @@ echo "  repo:   $REPO"
 echo "  memory: $MEMORY_PATH"
 if [ "$PLUGIN_ON" -eq 1 ]; then
   echo "  claude: the Cicada plugin (cicada@cicada)"
+elif [ "${PLUGIN_LINE%%:*}" = "broken" ]; then
+  echo "  claude: install.sh's hooks and MCP entry (the Cicada plugin is enabled but can't run)"
 else
   echo "  claude: install.sh's hooks and MCP entry"
 fi
@@ -127,7 +132,12 @@ else
 fi
 
 # 6. MCP registered (tolerate CLI absence). With the plugin on, the plugin carries the server: a user-scope 'cicada'
-#    entry beside it lists every tool twice.
+#    entry beside it lists every tool twice. An enabled plugin that would run nothing is a failure of its own, and
+#    install.sh's entries are checked as before.
+if [ "${PLUGIN_LINE%%:*}" = "broken" ]; then
+  fail "The Cicada plugin is enabled but ${PLUGIN_LINE#broken: }"
+  note "/plugin install cicada@cicada, set its cicada_repo to $REPO (or open the Cicada app once), then ./install.sh"
+fi
 if [ "$PLUGIN_ON" -eq 1 ]; then
   if command -v "$CLAUDE_CLI" >/dev/null 2>&1 && "$CLAUDE_CLI" mcp list 2>/dev/null | grep -q '^cicada\b'; then
     fail "MCP server 'cicada' is registered twice: by the plugin and as a user-scope entry"
@@ -135,21 +145,7 @@ if [ "$PLUGIN_ON" -eq 1 ]; then
   else
     pass "MCP server comes from Claude Code's Cicada plugin"
   fi
-  PLUGIN_REPO="$("$REG_PY" -B "$REPO/api/hooks/registry.py" plugin --settings "$CLAUDE_SETTINGS" --option cicada_repo 2>/dev/null)"
-  case "$PLUGIN_REPO" in "~") PLUGIN_REPO="$HOME" ;; "~/"*) PLUGIN_REPO="$HOME/${PLUGIN_REPO#\~/}" ;; esac
-  if [ -n "$PLUGIN_REPO" ]; then
-    if [ -x "$PLUGIN_REPO/api/.venv/bin/python" ]; then
-      pass "The plugin runs the checkout at $PLUGIN_REPO"
-    else
-      fail "The plugin names a checkout with no venv: $PLUGIN_REPO"
-      note "run its ./install.sh, or change cicada_repo in Claude Code's /plugin settings"
-    fi
-  elif [ -x "${CICADA_HOME:-$HOME/.cicada}/bin/cicada-hook" ]; then
-    pass "The plugin runs the Cicada app's launchers in ${CICADA_HOME:-$HOME/.cicada}/bin"
-  else
-    fail "The plugin has no Cicada to run: no app launchers and no cicada_repo"
-    note "set cicada_repo to this checkout ($REPO) in Claude Code's /plugin settings, or open the Cicada app once"
-  fi
+  pass "The plugin runs ${PLUGIN_LINE#on: }"
 elif command -v "$CLAUDE_CLI" >/dev/null 2>&1; then
   if "$CLAUDE_CLI" mcp list 2>/dev/null | grep -q 'cicada'; then
     pass "MCP server 'cicada' registered"

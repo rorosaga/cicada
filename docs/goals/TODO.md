@@ -13,8 +13,10 @@
   the canonical machine install. The repo is its own marketplace (`.claude-plugin/marketplace.json`, plugin
   `./plugins/cicada`, id `cicada@cicada`): the MCP server, the `cicada` skill (a byte copy of `SKILL.md`), and the
   Stop/PreCompact/SessionEnd capture and SessionStart/UserPromptSubmit recall hooks, all through two POSIX scripts that
-  exec the app's `~/.cicada/bin` launchers or a checkout named in the plugin's `cicada_repo` setting. With the plugin
-  enabled, `install.sh` registers no Claude Code hook or MCP entry and removes its older ones; `make doctor` and
+  exec the app's `~/.cicada/bin` launchers or a checkout named in the plugin's `cicada_repo` setting. Only when the
+  plugin is enabled, installed and able to run a Cicada does `install.sh` stop registering Claude Code's hooks and MCP
+  entry and remove its older ones (an enabled plugin that would run nothing keeps them, with a warning; a recall-off
+  choice is carried into the plugin's setting); `make doctor` and
   `GET /agents/wiring` (`capabilities.via = "plugin"`) say which door is active. Detail: `mcp.md`, "The Claude Code
   plugin". Tests: `test_claude_code_plugin.py`. Pick up: review and merge; the owner installs it with `/plugin
   marketplace add ~/code/cicada` (dev) or `rorosaga/cicada` after the next release, sets `cicada_repo` if he runs a

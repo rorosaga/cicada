@@ -681,12 +681,13 @@ appends `flushOn` only to a Connect it is already running, `AgentWiring.turnOnSt
 plus the exact argv install.sh would run. The **app** runs them, only after the person's click (spec decision 14, D-1), with
 `CICADA_CAPTURE=off`, behind an allowlist pinned to its own checkout (which also accepts the recall hook's two
 events, the capture command under `Stop`, `PreCompact` and `SessionEnd` only, and `registry.py uninstall --hook recall`); the backend never writes a harness root. **Claude Code through the Cicada plugin**
-(owner 2026-10-19; `mcp.md`, "The Claude Code plugin"): with `enabledPlugins["cicada@cicada"]` on in
-`~/.claude/settings.json`, Claude Code's row reads `recall`, `autosave`, `autosaveFlush` and `autorecall` all `on`, with
-`capabilities.via = "plugin"` and no argv at all (the plugin carries the server and every hook; an `mcp add` or a
-settings hook beside it would run twice), and `detail` names any Cicada hook still in the settings file;
-`AgentWiring.viaPlugin` makes *Remembers automatically* say it is switched in the plugin's settings
-(`Copy.autoRecallPluginOn`) and offer no button. `GET /agents/setup?harness=` (round 4 C5, G76's in-app half) serves
+(owner 2026-10-19; `mcp.md`, "The Claude Code plugin"): when the plugin is enabled, installed and able to run a Cicada
+(`registry.plugin_state` is `on`), Claude Code's row reads `recall`, `autosave` and `autosaveFlush` `on` and
+`autorecall` as the plugin's own `recall` setting, with `capabilities.via = "plugin"` and no argv at all (the plugin
+carries the server and every hook; an `mcp add` or a settings hook beside it would run twice), and `detail` names any
+Cicada hook still in the settings file; an enabled plugin that would run nothing leaves the row probed as before, with
+why in `detail`. `AgentWiring.viaPlugin` makes *Remembers automatically* say it is switched in the plugin's settings
+(`Copy.autoRecallPluginOn` / `Copy.autoRecallPluginOff`) and offer no button. `GET /agents/setup?harness=` (round 4 C5, G76's in-app half) serves
 what to hand an agent instead of running anything (for Claude Code with the plugin on, a prompt that runs nothing):
 
 - for Claude Code, Codex and Gemini CLI, a plain prompt (≤ 1,200 characters) that names the exact

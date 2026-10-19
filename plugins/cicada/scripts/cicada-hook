@@ -15,10 +15,14 @@ case "$name" in
   *) echo "cicada plugin: usage: cicada-hook capture|recall [args]" >&2; exit 0 ;;
 esac
 
-# Remember automatically switched off in the plugin's settings: the recall hooks do nothing (capture is unaffected).
+# Recall off — the plugin's Remember automatically setting, or CICADA_RECALL=off (the person's switch everywhere else,
+# which recall.py also honours): the recall hooks do nothing. Capture is unaffected.
 if [ "$name" = recall ]; then
   case "$(printf '%s' "${CLAUDE_PLUGIN_OPTION_RECALL:-true}" | tr '[:upper:]' '[:lower:]')" in
     false|0|off|no) exit 0 ;;
+  esac
+  case "$(printf '%s' "${CICADA_RECALL:-}" | tr '[:upper:]' '[:lower:]')" in
+    off) exit 0 ;;
   esac
 fi
 

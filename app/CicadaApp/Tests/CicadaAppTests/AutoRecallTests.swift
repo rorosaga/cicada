@@ -72,6 +72,11 @@ final class AutoRecallTests: XCTestCase {
         XCTAssertNil(AutoRecall.action(for: row), "the plugin's own settings switch it, never a settings-file argv")
         XCTAssertTrue(row.turnOnSteps.isEmpty)
         XCTAssertFalse(agent("on").viaPlugin, "a row without the capability is install.sh's, as before")
+        let offJSON = json.replacingOccurrences(of: #""autorecall":"on""#, with: #""autorecall":"off""#)
+        let off = try XCTUnwrap(try JSONDecoder().decode(AgentWiringResponse.self, from: Data(offJSON.utf8)).agents.first)
+        XCTAssertEqual(AutoRecall.state(of: off), .off)
+        XCTAssertEqual(AutoRecall.detail(off), Copy.autoRecallPluginOff, "the plugin's own setting says off: so does the row")
+        XCTAssertNil(AutoRecall.action(for: off))
     }
 
     private struct Fixture: Decodable {

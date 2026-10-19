@@ -63,7 +63,7 @@ enum AutoRecall {
 
     static func detail(_ agent: AgentWiring) -> String {
         let state = state(of: agent)
-        if agent.viaPlugin && state == .on { return Copy.autoRecallPluginOn }
+        if agent.viaPlugin { return state == .on ? Copy.autoRecallPluginOn : Copy.autoRecallPluginOff }
         guard agent.capabilities["startup"] == "documented" else { return detail(state) }
         switch state {
         case .on: return Copy.autoRecallStartupOn
@@ -93,7 +93,7 @@ enum AutoRecall {
         Copy.autoRecallTurnOn, Copy.autoRecallTurnOff, Copy.autoRecallUpdate, Copy.autoRecallWorking,
         Copy.autoRecallWorkingHelp, Copy.autoRecallCodexTrust, Copy.autoRecallChanges(["~/.claude/settings.json"]),
         Copy.autoRecallMixedDetail, Copy.autoRecallStartupOn, Copy.autoRecallStartupOff, Copy.autoRecallStartupStale,
-        Copy.autoRecallPluginOn,
+        Copy.autoRecallPluginOn, Copy.autoRecallPluginOff,
     ]
 }
 

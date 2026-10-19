@@ -21,10 +21,11 @@
 #   after moving the repo. --uninstall removes it.
 #   It also registers the G149 recall hooks (hooks.SessionStart + hooks.UserPromptSubmit →
 #   api/hooks/recall.py) the same way; CICADA_RECALL=off skips them.
-#   Claude Code's door is the Cicada plugin when the person enabled it (owner 2026-10-19:
-#   enabledPlugins["cicada@cicada"] in ~/.claude/settings.json): the plugin carries the MCP
-#   server, the skill and every Claude Code hook, so this script registers none of them for
-#   Claude Code and removes the ones it registered before (no double fire). Codex, Cursor,
+#   Claude Code's door is the Cicada plugin when it is enabled, installed and able to run a
+#   Cicada (owner 2026-10-19; `registry.py plugin`): it carries the MCP server, the skill and
+#   every Claude Code hook, so this script registers none of them for Claude Code and removes
+#   the ones it registered before (no double fire). An enabled plugin that cannot run keeps
+#   this script's entries, with a warning naming the fix (never zero doors). Codex, Cursor,
 #   the venv, the backend and the memory folder stay this script's either way.
 #
 # Test/override env vars (default to real locations):
@@ -70,13 +71,16 @@ hook_command() { printf '"%s" "%s" --harness %s' "$VENV_PY" "$HOOK_SCRIPT" "$1";
 RECALL_SCRIPT="$REPO/api/hooks/recall.py"
 # G149: the recall hook's command — `agent_wiring.recall_hook_command`, character for character.
 recall_command() { printf '"%s" "%s" --harness %s' "$VENV_PY" "$RECALL_SCRIPT" "$1"; }
-# The Claude Code plugin (owner 2026-10-19): enabled in $CLAUDE_SETTINGS → it is Claude Code's door, and this script
-# registers no Claude Code hook or MCP entry. Read-only (-B: not even a bytecode cache); the registry is stdlib, so python3
-# serves before the venv exists.
-claude_plugin_on() {
-  local py="$VENV_PY"
-  [ -x "$py" ] || py="$(command -v python3 || true)"
-  [ -n "$py" ] && "$py" -B "$HOOKS_REGISTRY" plugin --settings "$CLAUDE_SETTINGS" >/dev/null 2>&1
+# The Claude Code plugin (owner 2026-10-19): `registry.py plugin` prints "<state>: <detail>" — on (enabled, installed
+# and able to run a Cicada: Claude Code's door, and this script registers no Claude Code hook or MCP entry), off, or
+# broken (enabled but it would run nothing: this script's entries stay). Read-only (-B: not even a bytecode cache); the
+# registry is stdlib, so python3 serves before the venv exists.
+reg_py() { if [ -x "$VENV_PY" ]; then printf '%s' "$VENV_PY"; else command -v python3 || true; fi; }
+claude_plugin_state() {
+  local py; py="$(reg_py)"
+  [ -n "$py" ] || { echo "off: "; return; }
+  "$py" -B "$HOOKS_REGISTRY" plugin --settings "$CLAUDE_SETTINGS" --cicada-home "${CICADA_HOME:-$HOME/.cicada}" \
+    2>/dev/null || true
 }
 PLIST_LABEL="com.cicada.backend"
 PLIST_PATH="$LAUNCH_AGENTS_DIR/$PLIST_LABEL.plist"
@@ -186,9 +190,10 @@ if [ "$DO_UNINSTALL" -eq 1 ]; then
   else
     warn "venv missing — remove the api/hooks/capture.py and api/hooks/recall.py entries from $CLAUDE_SETTINGS by hand"
   fi
-  if claude_plugin_on; then
-    warn "Claude Code's Cicada plugin is still enabled — remove it there: /plugin uninstall cicada@cicada"
-  fi
+  case "$(claude_plugin_state)" in
+    off:*) ;;
+    *) warn "Claude Code's Cicada plugin is still enabled — remove it there: /plugin uninstall cicada@cicada" ;;
+  esac
 
   if [ -n "$CLIENT_OF" ] && [ ! -d "$MEMORY_PATH" ]; then
     ok "No memory folder on this machine — the memory lives on the server ($CLIENT_OF)"
@@ -379,7 +384,15 @@ ok "api/.env ready"
 # --- 5. Register MCP server ---
 hdr "5. MCP server registration"
 PLUGIN_ON=0
-claude_plugin_on && PLUGIN_ON=1
+PLUGIN_LINE="$(claude_plugin_state)"
+case "$PLUGIN_LINE" in
+  on:*) PLUGIN_ON=1 ;;
+  broken:*)
+    # Enabled, but it would capture nothing and serve no tools: removing this script's entries would leave Claude Code
+    # with no Cicada at all. Keep them, and say how to finish the switch.
+    warn "Claude Code's Cicada plugin is enabled but ${PLUGIN_LINE#broken: } — keeping this script's Claude Code entries"
+    warn "fix: /plugin install cicada@cicada, then set its cicada_repo to $REPO (or open the Cicada app once); re-run ./install.sh" ;;
+esac
 if [ "$PLUGIN_ON" -eq 1 ]; then
   ok "Claude Code has Cicada through its plugin (cicada@cicada) — no MCP entry registered here"
   if command -v "$CLAUDE_CLI" >/dev/null 2>&1 && "$CLAUDE_CLI" mcp list 2>/dev/null | grep -q '^cicada\b'; then
@@ -426,6 +439,26 @@ fi
 # after validating the path against the harness root.
 hdr "5b. Session-capture hook"
 if [ "$PLUGIN_ON" -eq 1 ]; then
+  # Recall off is the person's choice (CICADA_RECALL=off, or the app's switch: a capture hook here with no recall
+  # hook). The plugin's recall is on unless its own setting says otherwise, so carry the choice into that setting
+  # before this script's entries go — handing over never turns recall back on.
+  RECALL_WAS_OFF=0
+  [ "$(printf '%s' "${CICADA_RECALL:-}" | tr '[:upper:]' '[:lower:]')" = "off" ] && RECALL_WAS_OFF=1
+  REG="$(reg_py)"
+  if [ -n "$REG" ]; then
+    stop_rc=0; "$REG" -B "$HOOKS_REGISTRY" status --settings "$CLAUDE_SETTINGS" --event Stop \
+      --command "$(hook_command claude-code)" >/dev/null 2>&1 || stop_rc=$?
+    recall_rc=0; "$REG" -B "$HOOKS_REGISTRY" status --settings "$CLAUDE_SETTINGS" --event SessionStart \
+      --command "$(recall_command claude-code)" >/dev/null 2>&1 || recall_rc=$?
+    { [ "$stop_rc" -eq 0 ] || [ "$stop_rc" -eq 2 ]; } && [ "$recall_rc" -eq 1 ] && RECALL_WAS_OFF=1
+  fi
+  if [ "$RECALL_WAS_OFF" -eq 1 ]; then
+    if run "$VENV_PY" "$HOOKS_REGISTRY" plugin-recall-off --settings "$CLAUDE_SETTINGS"; then
+      ok "Recall stays off: the plugin's Remember automatically setting is now off"
+    else
+      warn "Could not turn the plugin's recall off — turn Remember automatically off in Claude Code's /plugin"
+    fi
+  fi
   # The plugin's own hooks capture and recall; Cicada's entries in the settings file would fire a second time.
   if run "$VENV_PY" "$HOOKS_REGISTRY" uninstall --settings "$CLAUDE_SETTINGS"; then
     ok "Claude Code's capture and recall hooks come from its plugin — none left in $CLAUDE_SETTINGS"
@@ -470,7 +503,11 @@ done
 # choosing to call cicada_recall. Read-only; the prompt is never logged.
 hdr "5c. Implicit recall hooks"
 if [ "$(printf '%s' "${CICADA_RECALL:-}" | tr '[:upper:]' '[:lower:]')" = "off" ]; then
-  ok "CICADA_RECALL=off — recall hooks not registered (Settings → Agents turns them on)"
+  if [ "$PLUGIN_ON" -eq 1 ]; then
+    ok "CICADA_RECALL=off — Claude Code's plugin recall is off (its Remember automatically setting)"
+  else
+    ok "CICADA_RECALL=off — recall hooks not registered (Settings → Agents turns them on)"
+  fi
 else
   if [ "$PLUGIN_ON" -eq 1 ]; then
     ok "Claude Code's recall hooks come from its plugin (its Remember automatically setting turns them off)"
