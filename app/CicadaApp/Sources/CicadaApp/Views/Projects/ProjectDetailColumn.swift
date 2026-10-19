@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// §5.3 STATE 1 — one project beside the list, top to bottom (the approved mock): the heading (DR-16's H1 role), the
-/// band's header line and the band (Task 3), then the story in one scroll — Now, Lately, Plan, Backlog (G150),
-/// Around this project (R-PP13), each collapsible and remembered per viewer (DR-39). One selection (R-PP11) rings the band's mark and
+/// §5.3 STATE 1 — one project beside the list, top to bottom (Projects v2, owner 2026-10-19): the heading (DR-16's H1
+/// role) with what it is in one line, then where it stands, what happened last and what's next — once each
+/// (`ProjectSummary`) — the band, the Log field, and the story's depth as folded sections: In progress, What happened,
+/// Plan, Backlog (G150), Around this project (R-PP13), each opened on a click and remembered per viewer (DR-39). One selection (R-PP11) rings the band's mark and
 /// marks the section row; a pick from the band scrolls its row into view (DR-30). It reads `ProjectsCache` (R-PP3): a
 /// skeleton on a first open, words when the project is gone, the error card with Retry — never a blank (DR-43).
 struct ProjectDetailColumn: View {
@@ -26,8 +27,9 @@ struct ProjectDetailColumn: View {
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
     @Environment(BacklogCache.self) private var backlogCache
-    /// DR-39 — which sections this viewer folded, remembered (a convenience, so `UserDefaults`).
-    @AppStorage("cicada.projects.collapsed") private var collapsedRaw = ""
+    /// DR-39 — which sections this viewer opened, remembered (a convenience, so `UserDefaults`). Projects v2: every
+    /// section starts folded — the summary answers first, the sections are its depth.
+    @AppStorage("cicada.projects.opened") private var openedRaw = ""
     @State private var selection: ProjectKey?
     @State private var scrollToken = 0
     @State private var bandWidth: CGFloat = 0
@@ -62,13 +64,14 @@ struct ProjectDetailColumn: View {
     private var typing: Bool { logFocused || planEditing || backlogEditing }
 
     private var collapsed: Set<ProjectSection> {
-        Set(collapsedRaw.split(separator: ",").compactMap { ProjectSection(rawValue: String($0)) })
+        Set(ProjectSection.allCases).subtracting(
+            openedRaw.split(separator: ",").compactMap { ProjectSection(rawValue: String($0)) })
     }
 
     private func setOpen(_ section: ProjectSection, _ open: Bool) {
-        var c = collapsed
-        if open { c.remove(section) } else { c.insert(section) }
-        collapsedRaw = c.map(\.rawValue).sorted().joined(separator: ",")
+        var opened = Set(ProjectSection.allCases).subtracting(collapsed)
+        if open { opened.insert(section) } else { opened.remove(section) }
+        openedRaw = opened.map(\.rawValue).sorted().joined(separator: ",")
     }
 
     var body: some View {
@@ -144,9 +147,13 @@ struct ProjectDetailColumn: View {
                                    today: today)
         let names = store.entityNames
         let readerEpisode = provenance.isPresented ? provenance.current?.episode : nil
-        let sectionGap = CicadaTheme.scaled(26)
+        // Folded sections sit close, a list of headings; an open one gets room above what follows (DR-39).
+        let folded = collapsed
+        let gap: (ProjectSection?) -> CGFloat = { previous in
+            CicadaTheme.scaled(previous.map { folded.contains($0) } ?? false ? 6 : 26)
+        }
         header(name: t.project.name, oneLiner: t.project.oneLiner, parent: t.project.parent)
-        bandHeader(band, progress: state.progress)
+        summaryView(ProjectSummary.make(t, state: state, today: today), t)
         bandView(band, t)
         ScrollViewReader { proxy in
             ScrollView {
@@ -166,11 +173,11 @@ struct ProjectDetailColumn: View {
                                           settle: { id, status in Task { await write(.settle(claimId: id, status: status)) } },
                                           writesBlocked: blocked)
                     }
-                    .padding(.top, sectionGap)
+                    .padding(.top, gap(nil))
                     let latelyOpen = !collapsed.contains(.lately)
                     ProjectSectionHeader(title: Copy.Projects.lately, meta: Copy.Projects.happeningsCount(d.happenings),
                                          isOpen: latelyOpen) { setOpen(.lately, !latelyOpen) }
-                        .padding(.top, sectionGap)
+                        .padding(.top, gap(.now))
                     if latelyOpen {
                         ForEach(ProjectStory.latelyEntries(d.groups)) { entry in
                             latelyEntry(entry, t: t, state: state, names: names, readerEpisode: readerEpisode)
@@ -180,8 +187,10 @@ struct ProjectDetailColumn: View {
                             ProjectLatelyFoot(text: foot).padding(.top, CicadaTheme.spacingMD)
                         }
                     }
+                    // Where the plan stands is the summary's; folded, the section says only what it holds.
                     section(.plan, title: Copy.Projects.plan,
-                            meta: state.planned ? Copy.Projects.doneOf(state.progress) : Copy.Projects.noPlanYet) {
+                            meta: state.planned ? Copy.Projects.milestonesCount(state.milestones.count)
+                                : Copy.Projects.noPlanYet) {
                         ProjectPlanSection(timeline: t, today: today, selection: selection, names: names,
                                            pick: { pickRow($0, in: t) }, showSource: { show($0, in: t) },
                                            markDone: { slug in
@@ -194,7 +203,7 @@ struct ProjectDetailColumn: View {
                                            addPending: $addPending, writesBlocked: blocked,
                                            onEditingChange: { planEditing = $0 })
                     }
-                    .padding(.top, sectionGap)
+                    .padding(.top, gap(.lately))
                     .id(ProjectScroll.planSection)
                     // G150 (R-B19) — after Plan: the plan is what is dated, the backlog what is kept for later.
                     section(.backlog, title: Copy.Projects.Backlog.title,
@@ -204,7 +213,7 @@ struct ProjectDetailColumn: View {
                                               writesBlocked: blocked, open: openItem,
                                               onEditingChange: { backlogEditing = $0 })
                     }
-                    .padding(.top, sectionGap)
+                    .padding(.top, gap(.plan))
                     .id("section.backlog")
                     if !t.cluster.groups.isEmpty || !t.cluster.alsoUses.isEmpty {
                         section(.around, title: Copy.Projects.around, meta: "") {
@@ -212,7 +221,7 @@ struct ProjectDetailColumn: View {
                                                  openEntity: openEntity, openProject: openProject,
                                                  openSource: { provenance.open($0) })
                         }
-                        .padding(.top, sectionGap)
+                        .padding(.top, gap(.backlog))
                     }
                 }
                 .frame(maxWidth: CicadaTheme.scaled(ProjectLayout.textMaxWidth), alignment: .leading)
@@ -414,15 +423,13 @@ struct ProjectDetailColumn: View {
                 .accessibilityLabel(Copy.Projects.moreHelp)
                 IconButton(systemName: "xmark", help: Copy.Projects.closeHelp, action: onClose)
             }
-            HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.scaled(10)) {
-                Text(name)
-                    .font(CicadaTheme.displayFont(size: 22))
-                    .tracking(CicadaTheme.displayTracking(size: 22))
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                    .lineLimit(1)
-                    .accessibilityAddTraits(.isHeader)
-                Tag(text: Copy.Projects.tag, dot: CicadaTheme.entityColor(for: .project))
-            }
+            // The page says it is a project; a Project tag beside the name said it twice.
+            Text(name)
+                .font(CicadaTheme.displayFont(size: 22))
+                .tracking(CicadaTheme.displayTracking(size: 22))
+                .foregroundStyle(CicadaTheme.textPrimary)
+                .lineLimit(1)
+                .accessibilityAddTraits(.isHeader)
             if !oneLiner.isEmpty {
                 Text(oneLiner).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(2)
             }
@@ -430,29 +437,76 @@ struct ProjectDetailColumn: View {
         .padding(.top, CicadaTheme.spacingSM)
     }
 
-    private func bandHeader(_ band: BandLayout, progress: ProjectProgress) -> some View {
-        HStack(spacing: CicadaTheme.scaled(6)) {
-            Text(band.since).foregroundStyle(CicadaTheme.textTertiary)
-            Spacer(minLength: 0)
-            if let words = band.progressWords {
-                Text(words)
-                    .fontWeight(.medium)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .help(Copy.Projects.barHelp(planned: true, progress: progress))
-            } else {
-                // The mock's "No plan yet — Add a milestone" (R-PP22).
-                Text(Copy.Projects.noPlanAdd)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .help(Copy.Projects.barHelp(planned: false, progress: progress))
-                TextButton(title: Copy.Projects.addMilestone, keyHint: "M", help: Copy.Projects.addMilestoneHelp) {
-                    requestAdd()
+    /// Projects v2 — where it stands, what happened last, what's next: three label–value rows, each said once. Last
+    /// and Next are buttons onto their row: selected on the band, its section unfolded and brought into view.
+    private func summaryView(_ summary: ProjectSummary, _ t: ProjectTimeline) -> some View {
+        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: CicadaTheme.spacingMD,
+             verticalSpacing: CicadaTheme.scaled(6)) {
+            GridRow {
+                summaryLabel(Copy.Projects.standsLabel)
+                Text(summary.stands)
+                    .font(CicadaTheme.bodyFont)
+                    .monospacedDigit()
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .lineLimit(2)
+            }
+            GridRow {
+                summaryLabel(Copy.Projects.lastLabel)
+                summaryValue(summary.last, empty: Copy.Projects.nothingYet, t)
+            }
+            GridRow {
+                summaryLabel(Copy.Projects.nextLabel)
+                if summary.next == nil {
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        Text(Copy.Projects.nothingPlanned)
+                            .font(CicadaTheme.bodyFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                        TextButton(title: Copy.Projects.addMilestone, keyHint: "M", help: Copy.Projects.addMilestoneHelp,
+                                   inline: true) { requestAdd() }
+                            .disabled(blocked)
+                    }
+                } else {
+                    summaryValue(summary.next, empty: Copy.Projects.nothingPlanned, t)
                 }
-                .disabled(blocked)
             }
         }
-        .font(CicadaTheme.metaFont)
-        .monospacedDigit()
-        .frame(height: CicadaTheme.scaled(22))
-        .padding(.top, CicadaTheme.scaled(18))
+        .frame(maxWidth: CicadaTheme.scaled(ProjectLayout.textMaxWidth), alignment: .leading)
+        .padding(.top, CicadaTheme.spacingMD)
+    }
+
+    private func summaryLabel(_ text: String) -> some View {
+        Text(text)
+            .font(CicadaTheme.metaFont)
+            .foregroundStyle(CicadaTheme.textTertiary)
+            .gridColumnAlignment(.leading)
+    }
+
+    @ViewBuilder
+    private func summaryValue(_ line: ProjectSummary.Line?, empty: String, _ t: ProjectTimeline) -> some View {
+        if let line, let key = line.key {
+            Button { reveal(key, in: t) } label: {
+                Text(line.text)
+                    .font(CicadaTheme.bodyFont)
+                    .monospacedDigit()
+                    .foregroundStyle(selection == key ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.cicadaPlain)
+            .help(Copy.Projects.summaryHelp)
+        } else {
+            Text(line?.text ?? empty)
+                .font(CicadaTheme.bodyFont)
+                .foregroundStyle(line == nil ? CicadaTheme.textTertiary : CicadaTheme.textSecondary)
+                .lineLimit(2)
+        }
+    }
+
+    /// A summary line's click: its row selected (the band rings its mark), its section unfolded and scrolled to.
+    private func reveal(_ key: ProjectKey, in t: ProjectTimeline) {
+        Instant.run { selection = key }
+        if collapsed.contains(key.section) { setOpen(key.section, true) }
+        scrollToken &+= 1
     }
 }

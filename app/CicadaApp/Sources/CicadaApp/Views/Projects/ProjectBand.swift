@@ -82,8 +82,6 @@ struct BandLayout: Equatable {
     let threads: [Thread]
     let brackets: [Bracket]
     let next: Tick?
-    let since: String
-    let progressWords: String?
     let accessibility: String
 
     func x(_ day: ISODay) -> CGFloat { CGFloat(span.fraction(day)) * width }
@@ -269,8 +267,7 @@ struct BandLayout: Equatable {
 
         return BandLayout(
             span: span, width: width, months: months, words: words, nodes: placed, threads: threads, brackets: brackets,
-            next: next, since: Copy.Projects.since(absolute(span.start)),
-            progressWords: state.planned ? Copy.Projects.doneOf(state.progress) : nil,
+            next: next,
             accessibility: Copy.Projects.bandLabel(t.project.name, planned: state.planned, progress: state.progress,
                                                    today: RelativeDay.spoken(today, locale: locale)))
     }

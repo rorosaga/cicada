@@ -8,8 +8,15 @@ extension Copy {
     enum Projects {
         // MARK: The page
         static let page = "Projects"
-        static let active = "Active"
-        static let quiet = "Quiet"
+        static let current = "Current"
+        static let past = "Past"
+        static let fading = "Fading"
+        static let fadingHelp = "Projects in motion until a while ago — quiet longer than their usual rhythm, heard from in the last 90 days"
+        static func showMore(_ next: Int, left: Int) -> String {
+            "Show \(UsageFormat.count(next)) more · \(UsageFormat.count(left)) not shown"
+        }
+        static let showMoreHelp = "Draw the next past projects"
+        static let findPast = "Find a past project…"
         static let tabMenu = "Show"
         static let gathering = "Gathering your projects…"
         static let reading = "Reading this project…"
@@ -18,17 +25,16 @@ extension Copy {
         static let projectFailedTitle = "Couldn't open this project"
         static let emptyTitle = "No projects yet"
         static let emptyMessage = "Projects appear once Cicada has heard about one in two conversations."
-        static let noneActive = "Nothing is in motion right now."
-        static let noneQuiet = "Nothing has gone quiet."
+        static let noneCurrent = "Nothing is in motion right now. What you worked on before is under Past."
+        static let nonePast = "Nothing in the past yet."
         static let gone = "This project isn't in this bank any more."
         static let find = "Find a project…"
         static let stillIndexing = "still indexing"
         static let stillIndexingHelp = "Cicada is still building its search index, so a few links may be missing for a moment."
-        static let planned = "Planned"
         static let noPlanYet = "No plan yet"
+        static let noPlanYetLower = "no plan yet"
         static let closeHelp = "Close (Esc)"
         static let openHelp = "Open this project"
-        static let tag = "Project"
         static let moreHelp = "More for this project"
         static let openCard = "Open its card"
         static func projectsBack(_ n: Int) -> String { n == 1 ? "‹ 1 project" : "‹ \(UsageFormat.count(n)) projects" }
@@ -39,17 +45,18 @@ extension Copy {
             }
             return "Something went wrong reading your projects. Try again in a moment."
         }
-        static func countActive(_ n: Int) -> String { "\(UsageFormat.count(n)) active" }
-        static func countQuiet(_ n: Int) -> String { "\(UsageFormat.count(n)) quiet" }
+        static func countCurrent(_ n: Int) -> String { "\(UsageFormat.count(n)) current" }
+        static func countPast(_ n: Int) -> String { "\(UsageFormat.count(n)) past" }
         static func position(_ i: Int, of n: Int) -> String { "\(UsageFormat.count(i)) of \(UsageFormat.count(n))" }
         static func noMatch(_ query: String) -> String { "No project matches “\(query)”" }
 
-        // MARK: A row (R-PP7)
-        static func quietThread(days: Int, text: String) -> String { "Quiet \(UsageFormat.count(days)) days · \(text)" }
+        // MARK: A row (Projects v2: a name, one line, one signal)
         static func quietFor(days: Int) -> String { "Quiet \(UsageFormat.count(days)) days" }
         static func resting(lastHeard day: String) -> String { "Resting · last heard \(day)" }
         static let nothingHeard = "Nothing heard yet"
         static func lastHeard(_ day: String) -> String { "Last heard \(day)" }
+        /// "Heard yesterday", "Heard 9 days ago" — the distance is `RelativeDay`'s (DR-58).
+        static func heard(_ distance: String) -> String { "Heard \(distance)" }
         static func next(_ name: String, _ when: String?) -> String { when.map { "Next · \(name), \($0)" } ?? "Next · \(name)" }
         static func nextOverdue(_ name: String, since day: String) -> String { "Next · \(name), overdue since \(day)" }
         static func doneOf(_ p: ProjectProgress) -> String {
@@ -58,25 +65,26 @@ extension Copy {
         static func milestonesDone(_ p: ProjectProgress) -> String {
             "\(UsageFormat.count(p.done)) of \(UsageFormat.count(p.total)) milestones done"
         }
-        static func shortPlanned(_ p: ProjectProgress, next: String?) -> String {
-            next.map { "\(doneOf(p)) · \($0)" } ?? doneOf(p)
-        }
-        static func noPlanLast(_ day: String?) -> String { day.map { "No plan yet · last \($0)" } ?? noPlanYet }
-        static func nextShort(_ name: String, _ day: String?) -> String { day.map { "\(name) \($0)" } ?? name }
-        static func questions(_ n: Int) -> String { n == 1 ? "1 question" : "\(UsageFormat.count(n)) questions" }
-        static func lastActivity(_ day: String) -> String { "Last activity \(day)" }
-        static let noActivity = "No activity yet"
-        static func people(_ names: [String]) -> String { "With \(names.joined(separator: ", "))" }
-        static func barHelp(planned: Bool, progress: ProjectProgress) -> String {
-            planned ? "\(milestonesDone(progress)); the green runs to today"
-                : "No plan yet; the green runs from the first moment to today, and the end stays open"
-        }
-        static func rowLabel(_ name: String, planned: Bool, progress: ProjectProgress) -> String {
-            "\(name) — \(planned ? milestonesDone(progress) : "no plan yet")"
+        static func parts(_ n: Int) -> String { n == 1 ? "1 part" : "\(UsageFormat.count(n)) parts" }
+        static func showParts(_ n: Int) -> String { n == 1 ? "Show its part" : "Show its \(UsageFormat.count(n)) parts" }
+        static let hideParts = "Hide its parts"
+        static func rowLabel(_ name: String, standing: String, parts n: Int, expanded: Bool) -> String {
+            guard n > 0 else { return "\(name), \(standing)" }
+            return "\(name), \(standing), \(parts(n)), \(expanded ? Copy.Lists.expanded : Copy.Lists.collapsed)"
         }
 
+        // MARK: The summary (Projects v2: what it is, where it stands, what happened last, what's next — once each)
+        static let standsLabel = "Where it stands"
+        static let lastLabel = "Last"
+        static let nextLabel = "Next"
+        static let inMotionWord = "In motion"
+        static let nothingYet = "Nothing has happened yet"
+        static let nothingPlanned = "Nothing planned"
+        static func stillGoingLine(_ text: String) -> String { "Still going · \(text)" }
+        static func overdueSinceLower(_ day: String) -> String { "overdue since \(day)" }
+        static let summaryHelp = "Show it on the band and in its section"
+
         // MARK: The band (R-PP10, R-PP12)
-        static func since(_ day: String) -> String { "Since \(day)" }
         static let youToday = "You, today"
         static func bandLabel(_ name: String, planned: Bool, progress: ProjectProgress, today: String) -> String {
             "Progress of \(name), \(planned ? milestonesDone(progress) : "no plan yet"). You are here, today, \(today)."
@@ -102,13 +110,14 @@ extension Copy {
         static func ongoingUntil(_ day: String) -> String { "ongoing until \(day)" }
 
         // MARK: The sections (R-PP13…R-PP18)
-        static let now = "Now"
-        static let lately = "Lately"
+        static let now = "In progress"
+        static let lately = "What happened"
         static let plan = "Plan"
         static let around = "Around this project"
         static let collapse = "Collapse"
         static let expand = "Expand"
-        static func inMotionCount(_ n: Int) -> String { "\(UsageFormat.count(n)) in motion" }
+        static func inMotionCount(_ n: Int) -> String { "\(UsageFormat.count(n)) going" }
+        static func milestonesCount(_ n: Int) -> String { n == 1 ? "1 milestone" : "\(UsageFormat.count(n)) milestones" }
         static func happeningsCount(_ n: Int) -> String { n == 1 ? "1 happening" : "\(UsageFormat.count(n)) happenings" }
         static func nothingInMotion(lastHeard day: String?, distance: String?) -> String {
             guard let day, let distance else { return "Nothing in motion right now" }
@@ -233,7 +242,6 @@ extension Copy {
         static let saveFailed = "Couldn't save that — nothing changed"
         static let notOnProject = "That's no longer on this project — showing what's there now"
         static let backendDown = "Cicada's backend isn't answering — nothing changed"
-        static let noPlanAdd = "No plan yet —"
     }
 }
 
