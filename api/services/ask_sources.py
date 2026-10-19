@@ -28,6 +28,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from loguru import logger
+
 from api.services import evidence, text_fold
 
 MAX_EPISODES = 8
@@ -86,6 +88,10 @@ class Excerpt:
     #: ``(who, words)`` of the turn a short reply answers, and of the reply to a question.
     before: tuple[str, str] | None = None
     after: tuple[str, str] | None = None
+    #: Indexes of the context turns shown beside it (``before``/``after``).
+    shown: list[int] = field(default_factory=list)
+    #: The conversation's title, as its episode names it.
+    title: str = ""
 
 
 def _clip_around(text: str, at: int | None, limit: int) -> str:
@@ -136,8 +142,11 @@ def _who(turn, fm: dict, owner_name: str | None) -> str:
 
 
 def _first_match(text: str, terms: set[str]) -> int | None:
+    """Where the first word holding one of ``terms`` starts: the word itself, or a longer form of it (as the word
+    index matches a prefix)."""
     for m in re.finditer(r"\w+", text):
-        if text_fold.stem(text_fold.fold(m.group(0))) in terms:
+        word = text_fold.fold(m.group(0))
+        if text_fold.stem(word) in terms or any(len(t) >= 4 and word.startswith(t) for t in terms):
             return m.start()
     return None
 
@@ -187,8 +196,15 @@ def gather(memory_path: Path, question: str, found: list[Pointer], *, owner_name
             candidates.append((score, rank, i, ep, turn, span))
 
     candidates.sort(key=lambda c: (-c[0], c[1], c[2]))
+    return _take(candidates, docs, terms, owner_name, max_excerpts=max_excerpts, total_chars=total_chars)
+
+
+def _take(candidates: list[tuple], docs: dict[str, tuple], terms: set[str], owner_name: str | None, *,
+          max_excerpts: int, total_chars: int, taken: set[tuple[str, int]] | None = None) -> list[Excerpt]:
+    """The excerpts for ``candidates`` (``(score, rank, turn index, episode, turn, span)``, best first) within the
+    budget, oldest first. ``taken``: ``(episode, turn index)`` already shown elsewhere in the prompt — never twice."""
     chosen: list[Excerpt] = []
-    taken: set[tuple[str, int]] = set()
+    taken = set(taken or ())
     used = 0
     for score, rank, i, ep, turn, span in candidates:
         if len(chosen) >= max_excerpts or used >= total_chars:
@@ -203,7 +219,7 @@ def gather(memory_path: Path, question: str, found: list[Pointer], *, owner_name
             break
         day = (turn.ts or str(fm.get("timestamp") or "") or episode_day(ep))[:10]
         excerpt = Excerpt(episode=ep, day=day, who=_who(turn, fm, owner_name), text=clipped,
-                          order=(day, ep, i))
+                          order=(day, ep, i), title=str(fm.get("title") or "").strip())
         taken.add((ep, i))
         used += len(clipped)
 
@@ -218,20 +234,161 @@ def gather(memory_path: Path, question: str, found: list[Pointer], *, owner_name
 
         if len(body.strip()) < SHORT_REPLY_CHARS:
             excerpt.before = context(i - 1)
+            if excerpt.before is not None:
+                excerpt.shown.append(i - 1)
         if body.rstrip().endswith("?"):
             excerpt.after = context(i + 1)
+            if excerpt.after is not None:
+                excerpt.shown.append(i + 1)
         chosen.append(excerpt)
     chosen.sort(key=lambda e: e.order)
     return chosen
 
 
-def render(excerpts: list[Excerpt]) -> str:
-    """The prompt section: one line per excerpt, dated, with who said it; the turn it answers above a short reply."""
+def shown_turns(excerpts: list[Excerpt]) -> set[tuple[str, int]]:
+    """``(episode, turn index)`` of every turn ``excerpts`` put in front of the model, context turns included."""
+    return {(e.episode, i) for e in excerpts for i in (e.order[2], *e.shown)}
+
+
+# --------------------------------------------------------------------------------------------------------------- #
+# The search leg: what was said where no page points (2026-10-19)
+# --------------------------------------------------------------------------------------------------------------- #
+
+#: The conversations the search leg reads, and what it may show from them: its own budget, after the page leg's.
+SEARCH_EPISODES = 4
+SEARCH_EXCERPTS = 6
+SEARCH_CHARS = 3000
+#: Matching passages read from the word index, and episode chunks from the vector index, before fusing.
+SEARCH_PASSAGES = 150
+SEARCH_CHUNKS = 12
+#: A word said in more than this share of the bank's conversations ranks nothing (the person's own name, a name on
+#: every line of a two-person chat, "plan"); the rarer a word, the more a turn holding it counts. A question made only
+#: of such words cannot tell one conversation from another, and the leg shows nothing for it.
+COMMON_SHARE = 0.5
+#: Rows counted per word for its share: past this the word is common in any bank that has them.
+DF_CAP = 20000
+_RRF_K = 60
+
+
+@dataclass
+class Searched:
+    """The conversations the question's words find, best first, and how much each of its words counts."""
+
+    episodes: list[str]
+    weights: dict[str, float]
+
+
+def search_terms(question: str) -> set[str]:
+    """The question's subject words less its scaffolding — names kept: across conversations a name is what tells
+    one from another, and a name said everywhere is weighed down by :data:`COMMON_SHARE`, not dropped by hand."""
+    terms = text_fold.subject_terms(question)
+    return (terms - QUESTION_WORDS) or terms
+
+
+def search(memory_path: Path, question: str, *, terms: set[str] | None = None, embed_fn=None) -> Searched:
+    """The conversations most likely to hold what ``question`` asks, read from the derived indexes only — never a
+    model, never a write, never the question in a log. Two legs, fused by rank: the word index's passages that hold
+    any of the question's words (bm25 over the whole text, so the middle of a long export is as findable as its
+    head), and the vector index's episode chunks. Index-only episodes (a watched day, a list save) are dropped when
+    their words are read (:func:`gather_search`)."""
+    import math
+
+    from api.services import search_index
+
+    terms = set(terms) if terms is not None else search_terms(question)
+    weights: dict[str, float] = {}
+    lexical: list[str] = []
+    try:
+        # Never the reason an index is built: a bank with no word index yet (a fresh install) has this leg off.
+        state = search_index.ensure_fresh(memory_path) if search_index.db_path(memory_path).exists() else ""
+        if terms and state in ("ready", "stale"):
+            with search_index.Reader(memory_path) as reader:
+                n = int(reader.conn.execute("SELECT count(*) FROM docs WHERE kind = 'episode'").fetchone()[0])
+                for t in sorted(terms):
+                    df = int(reader.conn.execute(
+                        f"SELECT count(DISTINCT r >> {search_index.ROW_BITS}) FROM "
+                        f"(SELECT rowid AS r FROM pas WHERE pas MATCH ? LIMIT {DF_CAP})", (f'"{t}"*',)).fetchone()[0])
+                    if df and df <= COMMON_SHARE * n:
+                        weights[t] = math.log((n + 1) / (df + 0.5))
+                ranked = sorted(weights)
+                if ranked:
+                    match = " OR ".join(f'"{t}"*' for t in ranked)
+                    rows = reader.passages(match, SEARCH_PASSAGES, recent_first=False)
+                    docs = reader.docs(list(dict.fromkeys(d for _r, d, *_ in rows)))
+                    lexical = list(dict.fromkeys(docs[d].ref for _r, d, *_ in rows
+                                                 if d in docs and docs[d].kind == "episode"))
+    except Exception as exc:  # noqa: BLE001 — the leg is context; its absence never fails an answer (no query logged)
+        logger.debug(f"ask search leg: word index unavailable ({type(exc).__name__})")
+    semantic: list[str] = []
+    try:
+        from api.services.vector_index import SqliteVecIndexer
+
+        indexer = SqliteVecIndexer(memory_path, embed_fn=embed_fn) if embed_fn else SqliteVecIndexer(memory_path)
+        rows = indexer.search_kinds(question, {"episodes": SEARCH_CHUNKS}).get("episodes", [])
+        semantic = list(dict.fromkeys(Path(str((r.get("metadata") or {}).get("file_path") or "")).stem
+                                      for r in rows))
+        semantic = [ep for ep in semantic if evidence.is_episode_id(ep)]
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"ask search leg: vector index unavailable ({type(exc).__name__})")
+    scores: dict[str, float] = {}
+    for ranked_list in (lexical, semantic):
+        for rank, ep in enumerate(ranked_list):
+            scores[ep] = scores.get(ep, 0.0) + 1.0 / (_RRF_K + rank)
+    order = sorted(scores, key=lambda ep: (-scores[ep], ep))
+    # With no word to weigh (no word index yet, or only common words) no turn can be told apart: nothing is shown.
+    return Searched(episodes=order if weights else [], weights=weights)
+
+
+def gather_search(memory_path: Path, question: str, found: Searched, *, owner_name: str | None = None,
+                  taken: set[tuple[str, int]] | None = None, max_episodes: int = SEARCH_EPISODES,
+                  max_excerpts: int = SEARCH_EXCERPTS, total_chars: int = SEARCH_CHARS) -> list[Excerpt]:
+    """The turns of the best :func:`search` conversations that hold the question's words, the rarer words counting
+    more, oldest first. A turn holding only common words is never one. ``taken``: turns the page leg already showed.
+    Same who-spoke labels, clipping and bounds as :func:`gather`; index-only episodes are skipped (ruling 30)."""
+    from api.services import history_index
+
+    weights = found.weights
+    if not weights or not found.episodes:
+        return []
+    terms = set(weights)
+    # A turn holds a word as the word index found it: at a word's start, any ending ("decid" meets "decided" and
+    # "deciding", as `"decid"*` did) — one pattern over the turn's folded text, longest first.
+    pattern = re.compile(r"\b(" + "|".join(re.escape(t) for t in sorted(terms, key=len, reverse=True)) + ")")
+    candidates: list[tuple] = []
+    docs: dict[str, tuple] = {}
+    for ep in found.episodes:
+        if len(docs) >= max_episodes:
+            break
+        doc = evidence.source_document(memory_path, ep)
+        if doc is None:
+            continue
+        fm, text = doc
+        if history_index.is_index_only(fm):
+            continue
+        gaps = evidence.gap_ranges(fm, text)
+        turns = [t for t in evidence.turns(text, stamps=evidence.turn_stamps(fm), override=fm.get("evidence_kind"),
+                                           gaps=gaps) if t.role != evidence.GAP_KIND]
+        rank = len(docs)
+        docs[ep] = (fm, text, turns)
+        for i, turn in enumerate(turns):
+            held = set(pattern.findall(text_fold.fold(text[turn.content_start:turn.end])))
+            score = sum(weights[t] for t in held)
+            if score > 0:
+                candidates.append((score, rank, i, ep, turn, None))
+    candidates.sort(key=lambda c: (-c[0], c[1], c[2]))
+    return _take(candidates, docs, terms, owner_name, max_excerpts=max_excerpts, total_chars=total_chars,
+                 taken=taken)
+
+
+def render(excerpts: list[Excerpt], *, with_episode: bool = False) -> str:
+    """The prompt section: one line per excerpt, dated, with who said it; the turn it answers above a short reply.
+    ``with_episode`` names each line's conversation (``[ep_…]``) — the search leg's lines, which no page cites."""
     lines: list[str] = []
     for e in excerpts:
+        at = f"{e.day} [{e.episode}]" if with_episode else e.day
         if e.before:
-            lines.append(f"- {e.day}, {e.before[0]} (the turn before): \"{e.before[1]}\"")
-        lines.append(f"- {e.day}, {e.who}: \"{e.text}\"")
+            lines.append(f"- {at}, {e.before[0]} (the turn before): \"{e.before[1]}\"")
+        lines.append(f"- {at}, {e.who}: \"{e.text}\"")
         if e.after:
-            lines.append(f"- {e.day}, {e.after[0]} (the reply): \"{e.after[1]}\"")
+            lines.append(f"- {at}, {e.after[0]} (the reply): \"{e.after[1]}\"")
     return "\n".join(lines)

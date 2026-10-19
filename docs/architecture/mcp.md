@@ -770,8 +770,29 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   earlier history; a quote is not newer for being quoted and never overrides a current claim or a later line (the
   owner's eval, 2026-10-17: 19 → 31 of 56 right, but contradictions 1 → 4, older excerpts against a newer page fact);
   an undated line and a dated quote that disagree are both given; a relative time is resolved against its day.
+- **OTHER CONVERSATIONS — the search leg (2026-10-19).** Ask was page-first: a conversation's words arrived only
+  through a shown page's evidence or provenance, so when Sleep left a detail off the page (or the page holding it was
+  not retrieved) the words never came, although plain episode search found that conversation (the owner's eval:
+  25 misses about a known conversation; its words reached the prompt for 5, episode search ranked it top-5 for 16).
+  Now `ask_sources.search` also finds the conversations by the question's own words, from the derived indexes only
+  (no model, no write, the query never logged): the word index's passages holding **any** of the question's subject
+  words, bm25-ranked over the whole text (so the middle of a long export is as findable as its head — an episode's
+  vector chunks are 4,000 characters but the local models read 512 tokens of each), fused by rank with the vector
+  index's episode chunks. Each word is weighted by how rare it is across the bank's conversations; a word in more
+  than half of them (the person's own name, "plan") counts for nothing, and a question made only of such words shows
+  nothing. `gather_search` reads the best 4 conversations (index-only episodes skipped, ruling 30) and keeps the turns
+  holding the rarer words (a word as the index matched it: at a word's start, any ending), at most 6 excerpts and
+  3,000 characters, never a turn the page leg already showed — same speaker labels, days, clipping and context turns
+  as WHAT WAS SAID, each line naming its conversation (`[ep_…]`). Rule 11: a shared word does not make a line about
+  the question's subject; use one only when it plainly speaks of it, say its day, and list its id in
+  `used_conversations`. The answer's `conversations` (`{episode_id, title, day}`; `POST /ask` `conversations`,
+  `cicada_ask`'s "From conversations no page cites") names the ones used — only ids that were shown; the episode id is
+  what `cicada_write_claim` cites, so an agent can put the detail on a page. With no page retrieved, a conversation
+  that holds the words is no longer a gap (the model is called); nothing from either leg is still the honest gap
+  with no model call. Bounded: context build p50/p95 +ms and prompt growth are in the research note's table.
 - **The `sources` scope.** `answer_query(source_words=...)`, `POST /ask` `sourceWords` (default true): `cicada_ask`
-  passes `ctx.raw_excerpts`, so a remote connector without `sources` gets no conversation words in the prompt (R-R22).
+  passes `ctx.raw_excerpts`, so a remote connector without `sources` gets no conversation words in the prompt (R-R22)
+  — neither leg runs for it.
 - **Watch history (owner ruling 2026-10-18, `capture-and-sleep.md` "Indexed, not consolidated").** A question about
   watching — a watch verb (watch/watched/watching), a platform (YouTube/TikTok), or a channel the record holds named
   whole (`watch_history.is_about_watching`; never a bare "video" or "channel": "how many channels does our chat
