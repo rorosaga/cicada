@@ -379,7 +379,12 @@ def select(memory_path: Path, facts: web_settle.BankFacts, memo: dict[str, dict]
     ctx = inbox_context.InboxContext(Path(memory_path), today=today.isoformat())
     picked: list[tuple[web_settle.Candidate, list[str]]] = []
     for c in eligible:
-        picked.append((c, web_settle.local_context(memory_path, c, facts, ctx=ctx)))
+        context = web_settle.local_context(memory_path, c, facts, ctx=ctx)
+        if not c.category:
+            # The description named no category: one word from where it was mentioned ("the restaurant <name>").
+            c.category = web_settle.context_category(c, context)
+            c.category_from = "context" if c.category else ""
+        picked.append((c, context))
     picked.sort(key=_order)   # stable: priority, then age, within each rank
     return picked[:cap], len(eligible)
 
@@ -622,13 +627,15 @@ def _sweep_stop(a: Answer, failures: int) -> str | None:
 
 async def sweep(memory_path: Path, settings, *, dry_run: bool = True, limit: int | None = None,
                 include_recent: bool = False, llm_fn: Callable[..., Any] | None = None,
-                engine: tuple[Any, str | None, str] | None = None, today: date | None = None) -> dict:
+                engine: tuple[Any, str | None, str] | None = None, today: date | None = None,
+                on_lookup: Callable[[web_settle.Candidate, list[str], Answer], None] | None = None) -> dict:
     """Look up the backlog's public-thing questions and (unless ``dry_run``) settle what a search answers (a dry run
     looks up at most :data:`SWEEP_DRY_RUN_LIMIT` unless given a ``limit``). Returns
     COUNTS only: the inbox census (what a lookup may answer, and why the rest stays — ``web_settle.census``), how many
     were eligible, looked up, settled (or would settle), and the reasons by kind. ``limit`` caps the lookups (one
     engine call each); ``include_recent`` also looks up questions a run looked up in the last 30 days. A person starts
-    it, so the connector gate is reported, never applied (a click is never gated). Never raises."""
+    it, so the connector gate is reported, never applied (a click is never gated). ``on_lookup`` (the dry-run script's
+    ``--trace``) is told each looked-up question, its context and its answer. Never raises."""
     from api.services import agent_engine, sleep_cycle
     from api.services.connectors.base import network_allowed
 
@@ -667,6 +674,8 @@ async def sweep(memory_path: Path, settings, *, dry_run: bool = True, limit: int
                     break
                 (_c, a), = await look_up(fn, [(c, context)], report)
                 out["looked_up"] = report.looked_up
+                if on_lookup is not None:
+                    on_lookup(c, context, a)
                 kind = "type_conflict" if c.type_question else c.kind
                 done_key = "would_settle" if dry_run else "settled"
                 row = out["by_kind"].setdefault(kind, {"looked_up": 0, done_key: 0, "reasons": {}})

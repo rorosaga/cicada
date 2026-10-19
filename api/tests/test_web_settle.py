@@ -771,7 +771,7 @@ def test_the_pinned_query_check_still_rejects_a_search_carrying_the_context(bank
 
 def test_a_cut_never_leaves_half_a_name_or_a_code_without_its_cue():
     """Review fix: a line is cleaned whole and only then cut, and a person is redacted by any word of their name."""
-    facts = web_settle.BankFacts(person_names=frozenset({"alice example", "owner person"}))
+    facts = web_settle.BankFacts(person_names=frozenset({"alice example", "olive sample"}))
     c = web_settle.Candidate(item_id="inbox-1", kind="clarification", scope="public", entity_id="tool-b",
                              name="Tool B", entity_type="tool", has_page=True, predicate="description", options=[],
                              category=[])
@@ -782,7 +782,7 @@ def test_a_cut_never_leaves_half_a_name_or_a_code_without_its_cue():
         line = web_settle._mention_line(body, (at, at + 6), c, facts)
         assert "Tool B" in line and len(line) <= web_settle.MAX_LINE_CHARS
         assert not any(t in line for t in ("Alice", "Example", "482913")), (pad, line)
-    for text in ("Alice went", "EXAMPLE said", "owner's mate", "OWNER-PERSON's"):
+    for text in ("Alice went", "EXAMPLE said", "olive's mate", "OLIVE-SAMPLE's"):
         assert web_settle.clean_context_line(text, facts).startswith("someone"), text
     assert web_settle.clean_context_line("malice examples", facts) == "malice examples", "whole words only"
     # A word the subject's own name carries stays (the prompt already names it); the person's full name never does.
@@ -854,7 +854,7 @@ def test_the_category_word_comes_from_the_description_never_the_type_alone(bank)
     facts = web_settle.bank_facts(bank)
     q = {i: web_settle.query_for(web_settle.candidate(bank, bank / "inbox" / f"{i}.md", facts))
          for i in ("inbox-111", "inbox-112", "inbox-113", "inbox-114")}
-    assert q["inbox-111"] == "Corner Example"           # typed company, described as a restaurant: no "company"
+    assert q["inbox-111"] == "Corner Example restaurant"  # typed company, described as a restaurant: never "company"
     assert q["inbox-112"] == "Lib Example library"      # one word, the first the description names
     assert q["inbox-113"] == "Year Example software"
     assert q["inbox-114"] == "Year Example"             # the word an option carries is not sent
@@ -972,3 +972,141 @@ def test_an_undo_refused_on_an_unreadable_page_changes_nothing(bank):
     assert (bank / pending_store.PENDING_STORE_FILE).read_bytes() == store_before, "nothing was changed"
     assert _git(bank, "status", "--porcelain") == ""
     assert "inbox-103" in {r["id"] for r in web_settle.list_settled(bank)}
+
+
+# ---------- the context keeps its words (2026-10-19: role names and mistyped pages garbled every line) ----------
+
+#: The shapes the trace found among a real bank's person names (real values redacted): relations, a pronoun, Stage 1's
+#: own speaker, and person-typed phrases that are things.
+GARBLING_NAMES = frozenset({
+    "the girlfriend", "the friend in australia", "his dad", "his brother", "my dad", "olive sample's dad", "her",
+    "the user", "psychologist friend of the sister", "simultaneous localization and mapping",
+    "simple algorithm for recommendation", "robotics and ai lab teacher", "university talents and careers department",
+    "mi hermana", "el profe de la uni",
+    # Real people: every one still redacted, whole and by each part.
+    "alex", "mar example-surname", "john placeholder", "olive sample", "ana de la example",
+})
+
+
+def test_function_and_common_words_are_never_redacted_on_their_own_but_every_real_name_is():
+    facts = web_settle.BankFacts(person_names=GARBLING_NAMES)
+    line = ("Tool B partnered with Alex on the ledger, and his team said it is the closest (walking distance) to "
+            "the station and quick and cheap on a weekday for her dad and my sister; the user asked for a lab teacher "
+            "recommendation and an algorithm for mapping")
+    out = web_settle.clean_context_line(line, facts, limit=2000)
+    # Alex, and "the user" as a whole phrase (a person-typed relation name) — nothing else.
+    assert "Alex" not in out and out.count("someone") == 2 and "someone asked" in out, out
+    for word in ("the", "and", "his", "her", "for", "dad", "sister", "teacher", "algorithm", "mapping",
+                 "recommendation", "lab", "closest", "quick", "cheap"):
+        assert f" {word} " in f" {out} ".replace(",", " ").replace(";", " "), (word, out)
+    # Every real name still goes — whole, by each part, any case, and inside a relation phrase.
+    stats: dict = {}
+    out = web_settle.clean_context_line(
+        "Mar Example-Surname met MAR, then Example-Surname and john; Olive Sample's dad and Ana de la Example came",
+        facts, limit=2000, stats=stats)
+    for leak in ("Mar", "MAR", "Example", "Surname", "john", "Olive", "Sample", "Ana"):
+        assert leak not in out, (leak, out)
+    assert " de la " not in out and stats["people"] >= 7   # "<name>'s dad" is itself a name in the set: whole
+    # A relation phrase goes whole (it names somebody), never word by word.
+    assert web_settle.clean_context_line("his dad said the girlfriend and his friend agreed", facts) == \
+        "someone said someone and his friend agreed"
+    assert web_settle.clean_context_line("mi hermana dijo que el profe de la uni la recomendó", facts) == \
+        "someone dijo que someone la recomendó"
+
+
+def test_name_shapes_and_the_thing_detector():
+    shapes = {n: web_settle.name_shape(n) for n in GARBLING_NAMES}
+    assert shapes["her"] == "skip" and web_settle.name_shape("dad") == "skip"
+    for relation in ("the girlfriend", "his dad", "my dad", "the user", "the friend in australia", "mi hermana"):
+        assert shapes[relation] == "whole", relation
+    for thing in ("simultaneous localization and mapping", "simple algorithm for recommendation",
+                  "university talents and careers department", "robotics and ai lab teacher"):
+        assert shapes[thing] == "whole", thing
+    for person in ("mar example-surname", "john placeholder", "olive sample's dad", "ana de la example"):
+        assert shapes[person] == "split", person
+    assert shapes["alex"] == "whole"
+    things = {n for n in GARBLING_NAMES if web_settle.looks_like_a_thing(n)}
+    assert things == {"simultaneous localization and mapping", "simple algorithm for recommendation",
+                      "university talents and careers department"}
+    census = web_settle.person_name_census(web_settle.BankFacts(person_names=GARBLING_NAMES))
+    assert census["looks_like_a_thing"] == 3 and census["skip"] == 1 and sum(
+        census[k] for k in ("split", "whole", "skip")) == len(GARBLING_NAMES)
+    assert all(isinstance(v, int) for v in census.values()), "counts only, never a name"
+
+
+# ---------- the category word from where it was mentioned (2026-10-19) ----------
+
+
+def _bare(name="Corner Example", **kw):
+    return web_settle.Candidate(item_id="inbox-1", kind=kw.pop("kind", "clarification"), scope="public",
+                                entity_id="corner-example", name=name, entity_type="company", has_page=True,
+                                predicate="description", options=kw.pop("options", []), category=[], **kw)
+
+
+@pytest.mark.parametrize("line, word", [
+    ("we went to the restaurant Corner Example last night", "restaurant"),
+    ("Corner Example, a small café near the station", "cafe"),
+    ("Corner Example is a startup in someone's city", "startup"),
+    ("Corner Example (a band from the nineties)", "band"),
+    ("a dataset called Corner Example", "dataset"),
+    ("fuimos al restaurante Corner Example", "restaurant"),
+    ("Corner Example es una empresa de robótica", "company"),
+    ("the Corner Example app keeps crashing", "app"),
+    ("Corner Example restaurant opened again", "restaurant"),
+    ("did Corner Example show up", None),             # a verb after the name is no category
+    ("book Corner Example for friday", None),         # nor one before it without a determiner
+    ("I like Corner Example a lot", None),
+    ("the bar was full, then Corner Example", None),   # a category word away from the name says nothing about it
+])
+def test_the_category_word_is_read_beside_the_name_in_a_mention_line(line, word):
+    assert web_settle.context_category(_bare(), [f"Mentioned: {line}"]) == ([word] if word else [])
+
+
+def test_the_context_word_follows_the_same_limits_and_only_the_word_leaves(bank):
+    line = ["Mentioned: the restaurant Corner Example is closest to the station"]
+    assert web_settle.context_category(_bare(type_question=True), line) == [], "never on what the thing IS"
+    assert web_settle.context_category(_bare(kind="conflict", options=[("a", "a restaurant"), ("b", "a bar")]),
+                                       line) == [], "never a word an option carries"
+    assert web_settle.context_category(_bare(), ["Cicada's description: a restaurant"]) == [], "mention lines only"
+    # End to end: a company page with no category in its description takes the word from its mention line.
+    _episode(bank, "ep_2026-09-05_001", "user: dinner at the restaurant Corner Example with Alice, quick and cheap")
+    _entity(bank, "corner-example", type="company", name="Corner Example", description="A place in town")
+    _item(bank, "inbox-115", kind="clarification", entity_id="corner-example", entity_name="Corner Example",
+          title="Who or what is Corner Example?", source_episode="ep_2026-09-05_001")
+    _commit(bank, "seed")
+    facts = web_settle.bank_facts(bank)
+    todo, _ = web_lookup.select(bank, facts, {}, date(2026, 10, 19), cap=10)
+    c, context = next((c, ctx) for c, ctx in todo if c.item_id == "inbox-115")
+    assert web_settle.query_for(c) == "Corner Example restaurant" and c.category_from == "context"
+    assert any("quick and cheap" in line and "someone" in line and "Alice" not in line for line in context)
+    film = next(c for c, _ in todo if c.item_id == "inbox-101")
+    assert web_settle.query_for(film) == "Example Film film" and film.category_from == "description"
+
+
+def test_the_dry_run_trace_prints_the_query_the_redactions_and_the_outcome_only(bank, monkeypatch):
+    import contextlib
+    import io
+
+    from api.scripts import web_check_dry_run
+
+    _episode(bank, "ep_2026-09-03_009", "user: Example Film with Alice and her friend, worth it")
+    markdown_parser.write(bank / "inbox" / "inbox-101.md",
+                          {**markdown_parser.parse(bank / "inbox" / "inbox-101.md").frontmatter,
+                           "source_episode": "ep_2026-09-03_009"}, "Context.")
+    _commit(bank, "ep")
+
+    async def fake_engine_for(settings, *, user_triggered):
+        return "resolved", "claude-cli", "plan"
+
+    monkeypatch.setattr(web_lookup, "engine_for", fake_engine_for)
+    monkeypatch.setattr(web_lookup, "default_llm_fn", lambda resolved, sink=None: _fake(_answers))
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        assert web_check_dry_run.main(["--bank", str(bank), "--limit", "3", "--trace"]) == 0
+    out = json.loads(buf.getvalue())
+    film = next(r for r in out["trace"] if r["query"] == "Example Film film")
+    assert film == {"query": "Example Film film", "category_from": "description", "context_lines": 2,
+                    "people_redacted": 1, "outcome": "would_settle"}
+    assert set(out["person_names"]) == {"split", "whole", "skip", "relation", "looks_like_a_thing"}
+    for leak in ("Alice", "worth it", "https", "quote", "2019"):
+        assert leak not in buf.getvalue(), leak

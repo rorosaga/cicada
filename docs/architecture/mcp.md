@@ -155,8 +155,9 @@ multi-valued; one option settles only when the page rules the others out — def
 another (Sleep's answer must say `others_ruled_out: true`) — the item's own `both` option when the page describes it as
 more than one of them (2026-10-19) — one cited claim per
 option, nothing closed — and never an option the item does not have. **What leaves the machine:** the search query is the
-subject's name plus at most one generic category word from a fixed list, read from Cicada's own description, none on a
-type question and none when unsure (`web_settle.query_for`); nothing else. **What the model may read (ruling 27a,
+subject's name plus at most one generic category word from a fixed list, read from Cicada's own description (Sleep's
+lookup and the sweep also from a mention line where the word stands beside the name, `web_settle.context_category`),
+none on a type question and none when unsure (`web_settle.query_for`); nothing else. **What the model may read (ruling 27a,
 owner 2026-10-16: "Yes, use local context"):** Sleep's lookup prompt carries `web_settle.local_context` — the
 description and up to two mention lines, ≤ 600 characters, scrubbed, no one's name, no link or path — only to judge
 which search result is the thing the person meant; it never enters the query (capture-and-sleep.md). **The person's own agent:** `cicada_check_nudges` adds `Public: look it up on the web (search only

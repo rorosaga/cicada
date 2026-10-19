@@ -865,7 +865,11 @@ whose searches litellm reports with their query** (`web_lookup.SEARCH_REPORTED_P
 before any paid call, since its searches could never pass the pinned-query check; the ChatGPT plan and a local model
 get no search, so the step skips. Each call is an `llm_call` of stage `web_check` in the run's own scope (a
 drain's tagged with its `drain_id`), so Past reads counts it with its basis (ruling 12). **The pinned query:** the
-subject's name plus at most ONE category word from a fixed list, read from Cicada's own one-line description — never
+subject's name plus at most ONE category word from a fixed list (works, tools, companies and startups, places such as
+a restaurant, café, bar or clinic; a Spanish form is sent as its English word), read from Cicada's own one-line
+description, else — 2026-10-19, a restaurant searched by its bare name found other things — from a mention line where
+the word stands beside the name ("the restaurant <name>", "a startup called <name>", "<name>, a small café", "<name>
+is a band", "<name> app"; `web_settle.context_category`, no model; only the word leaves, never the line) — never
 from the page's type alone, none on a question about what the thing is, none that an option label carries, a bare name
 when unsure (`web_settle.query_for`) — and every search the engine reports (the stream's `tool_use` blocks; a metered
 response's search tool calls) must be that query word for word, at most two; a call that searched anything else, or
@@ -875,8 +879,12 @@ thing the person meant — `web_settle.local_context`: the description (left out
 the options) and up to two lines where the subject was mentioned (the item's conversation, then each option claim's
 evidence span or first mention, then the page's latest conversations), ≤ 600 characters, scrubbed
 (`episode_scrub`), links, addresses, handles and paths replaced, every person's name or alias in the bank (the owner's
-too, and a person held without a page) replaced by "someone" — whole words, any case, the full name and each word of it (a word of the subject's own name
-aside); each line is cleaned whole before it is cut, so a cut never leaves half a name or a code without its cue. It is never searched for; the same engine read those conversations during Sleep. **Order:**
+too, and a person held without a page) replaced by "someone" — whole words, any case, the full name and, for a personal
+name, each part of it (a word of the subject's own name aside); a name that describes somebody ("the friend in <city>",
+"his dad", Stage 1's "the user") or carries a function word goes only as its whole phrase, and a lone function or
+common word ("her", "dad") never — no function word, relation or common noun is replaced on its own
+(`web_settle.name_shape`; 2026-10-19, splitting such names turned every "the", "and" and "his" into "someone" and the
+owner's sweep came back 18 of 20 unsure); each line is cleaned whole before it is cut, so a cut never leaves half a name or a code without its cue. It is never searched for; the same engine read those conversations during Sleep. **Order:**
 clarifications first, then conflicts with a mention line, then the rest — each by priority, then age
 (`web_lookup.select`). **On every plan run (ruling 27b, owner 2026-10-19: "That's not what the inbox is for"):** with
 the scheduled-plan switch on by default (4c), a scheduled run looks up on the plan's search too. **The sweep:** the
@@ -893,7 +901,10 @@ or another sweep runs, and `/sleep/status`'s `inboxTidy` is true while it runs s
 `dry_run=True`) prints counts only: the census (`web_settle.census` — per kind, how many are `public`, `repo_state`, or
 stay and why: `person`, `person_context`, `private_type`, `own_settings`, `no_page` …), then, unless `--census`, the
 person's engine on up to N of them (eligible, looked up, would settle, reasons by kind); it writes nothing — no settle,
-no memo, no ledger row (a no-op usage sink), no commit. **Who the description says it is:** Stage 1's way of naming the
+no memo, no ledger row (a no-op usage sink), no commit. `--trace` (for the person's own eyes) adds, per lookup, only the
+pinned query, where its category word came from, the context's line count, how many names it replaced and the outcome,
+plus counts of how the bank's person names are redacted and how many person-typed names read as a thing
+(`web_settle.person_name_census` — a page typed person that is a technique or a department is the bank's to fix). **Who the description says it is:** Stage 1's way of naming the
 speaker ("the user mentioned it", "the person's") is taken out before the person cues read a page-less subject's
 description (`web_settle.person_context`), and a description that says the subject is the speaker's own (built by the
 user, the user's project or file, their own) keeps it home. An unsure or uncited answer settles nothing either; a type question's single option without
