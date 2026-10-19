@@ -269,6 +269,9 @@ final class BookmarkBubbleWatcher {
     private var observer: NSObjectProtocol?
     /// How many window-list reads this watcher made — for the efficiency test, never shown.
     private(set) var reads = 0
+    /// The bookmark bubble the last star click opened (window-list number and bounds only), so the panel can tell a
+    /// click inside Chrome's own bubble from one outside both (2026-10-19).
+    private(set) var lastBubble: ListedWindow?
 
     init(defaults: UserDefaults = .standard,
          windows: @escaping (pid_t) -> [ListedWindow] = BookmarkBubbleWatcher.liveWindows(of:),
@@ -361,9 +364,10 @@ final class BookmarkBubbleWatcher {
                 let since = self.clock() - at
                 if since > BookmarkBubblePolicy.inputWindow { break }
                 self.reads += 1
-                if detector.observe(self.windows(armed.pid), sinceClick: since) != nil {
+                if let bubble = detector.observe(self.windows(armed.pid), sinceClick: since) {
                     // A confirmed bubble explains the bookmark that follows: no held window may claim it.
                     self.unconfirmed.removeAll { $0.channel == armed.channel }
+                    self.lastBubble = bubble
                     if self.isWanted(armed.channel) { self.onBubble(armed.channel) }
                     break
                 }
@@ -403,6 +407,17 @@ final class BookmarkBubbleWatcher {
             SaveWhyTimings.logger.info(
                 "save-why: bubble shape \(seen.shape.width)×\(seen.shape.height) confirmed by a bookmark")
         }
+    }
+
+    /// 2026-10-19 — whether Chrome still shows the bubble the panel came with: one window-list read (numbers and bounds
+    /// only), made only right after the person's own click inside that bubble (`SaveWhyCenter.click`), so Done —
+    /// which closes it — closes the panel too. True when it cannot tell (no bubble recorded).
+    func lastBubbleStillOpen() -> Bool {
+        guard let lastBubble else { return true }
+        reads += 1
+        let open = windows(lastBubble.pid).contains { $0.number == lastBubble.number }
+        if !open { self.lastBubble = nil }
+        return open
     }
 
     /// `pid`'s on-screen windows from the window list: number, layer and bounds only.

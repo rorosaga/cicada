@@ -83,7 +83,7 @@ def test_a_connector_is_shown_once_and_never_again(client):
     assert created["mcpUrl"] == "https://mac.example-tailnet.ts.net/mcp"
     listed = c.get("/remote/connectors").json()
     assert set(listed[0]) == {"id", "label", "app", "scopes", "createdAt", "expiresAt", "revokedAt",
-                              "lastUsedAt", "lastClient", "state"}
+                              "lastUsedAt", "lastClient", "state", "auth"}
     assert token not in json.dumps(listed)
 
 

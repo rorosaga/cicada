@@ -601,6 +601,15 @@ protocol SavedWhyAPI: Sendable {
     /// `at` is when the person answered — sent so an answer held through a 409 keeps its own time (review B1).
     /// `addedAt` (G191 v3) is the moment of saving it answers: a re-save's answer is a new dated reason.
     func saveWhy(url: String, answer: SavedWhyAnswer, at: Date, addedAt: String?) async throws
+    /// 2026-10-19 — the star on a page already saved: change the answer said at `at` (`PUT /sources/saved-why`).
+    func editSavedWhy(url: String, at: String, answer: SavedWhyAnswer) async throws -> SavedWhyReply
+}
+
+extension SavedWhyAPI {
+    /// A client that cannot edit (tests that never edit): refused as the backend refuses an unknown answer.
+    func editSavedWhy(url: String, at: String, answer: SavedWhyAnswer) async throws -> SavedWhyReply {
+        throw APIError.httpError(422, "editing is not supported here")
+    }
 }
 
 /// `POST /sources/sync-notes` result — Apple Notes one-way sync tally. Mirrors
@@ -3247,6 +3256,31 @@ actor APIClient {
     func revokeRemoteConnector(id: String) async throws -> RemoteConnector {
         let data = try await delete("/remote/connectors/\(encodedID(id))")
         return try decoder.decode(RemoteConnector.self, from: data)
+    }
+
+    /// `GET /remote/oauth/requests` — that sign-ins wait (ruling 32): no code, no name. Not a Store domain: the From
+    /// anywhere page polls it while it is open.
+    func fetchRemoteSignIns() async throws -> [RemoteSignInWaiting] {
+        try await get("/remote/oauth/requests")
+    }
+
+    /// `POST /remote/oauth/match` — the waiting sign-in whose page shows this code (404 when none does).
+    func matchRemoteSignIn(code: String) async throws -> RemoteSignInMatch {
+        try await post("/remote/oauth/match", body: ["userCode": code])
+    }
+
+    /// `POST /remote/oauth/approve` — approves only by the typed code, never by a request id.
+    func approveRemoteSignIn(code: String, scopes: [String], expiresInDays: Int) async throws -> RemoteConnector {
+        let body: [String: Any] = ["userCode": code, "scopes": scopes, "expiresInDays": expiresInDays]
+        return try await post("/remote/oauth/approve", body: body)
+    }
+
+    func denyRemoteSignIn(ref: String) async throws {
+        _ = try await post("/remote/oauth/requests/\(encodedID(ref))/deny") as Data
+    }
+
+    func denyAllRemoteSignIns() async throws {
+        _ = try await post("/remote/oauth/requests/deny-all") as Data
     }
 
     // MARK: - Devices (G181 phase 3)

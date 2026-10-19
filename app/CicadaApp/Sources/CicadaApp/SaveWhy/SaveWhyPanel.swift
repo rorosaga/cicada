@@ -14,8 +14,15 @@ final class SaveWhyNSPanel: NSPanel {
 
     override var canBecomeKey: Bool { clickedInside }
 
+    /// 2026-10-19 — a click inside is about to take the keyboard (AppKit makes a clicked panel key): the controller
+    /// remembers which app had it first, to give it back.
+    var onTakingKey: (() -> Void)?
+
     override func sendEvent(_ event: NSEvent) {
-        if Self.isPersonsClick(event.type) { clickedInside = true }
+        if Self.isPersonsClick(event.type) {
+            clickedInside = true
+            if !isKeyWindow { onTakingKey?() }
+        }
         super.sendEvent(event)
     }
 
@@ -38,7 +45,7 @@ final class SaveWhyNotchModel {
 }
 
 /// G191 — the live presenter: one `NSPanel` hosting `SaveWhyPanelView`, shown with `orderFrontRegardless` (never
-/// `makeKey`), so the browser keeps focus and keyboard until the person clicks the panel. The window sits over the
+/// `makeKey`), so the browser keeps focus and keyboard until the person clicks the panel's field. The window sits over the
 /// menu bar with its top on the screen's top edge (`SaveWhyNotch.frame`); the view grows the notch's shape inside it.
 @MainActor
 final class SaveWhyPanelController: SaveWhyPresenting {
@@ -49,6 +56,23 @@ final class SaveWhyPanelController: SaveWhyPresenting {
     private var notch = SaveWhyNotchModel()
     /// Where the open panel was placed, so a resize keeps its top on the screen's edge under the same notch.
     private var placedOn: (screen: CGRect, notch: CGRect?)?
+    /// The open panel — for tests (losing the keyboard to another app's window never closes it).
+    var window: SaveWhyNSPanel? { panel }
+    /// The app that held the keyboard when the person clicked into the field (the browser), to hand it back on close.
+    private(set) var returnTo: pid_t?
+    /// The frontmost app other than Cicada (the browser: the panel never activates Cicada). Injected in tests.
+    var frontmostPID: () -> pid_t? = {
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return nil }
+        return app.processIdentifier
+    }
+    /// Gives the keyboard back to that app's own key window. Cicada is not the active app (the panel is
+    /// non-activating), so it yields first, as macOS 14's cooperative activation asks. Injected in tests.
+    var giveBack: (pid_t) -> Void = { pid in
+        guard let app = NSRunningApplication(processIdentifier: pid) else { return }
+        NSApp.yieldActivation(to: app)
+        app.activate(from: .current, options: [])
+    }
 
     private var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
 
@@ -71,6 +95,10 @@ final class SaveWhyPanelController: SaveWhyPresenting {
         // Notch-black in both appearances: AppKit's own controls (the text field) draw dark on it too.
         panel.appearance = NSAppearance(named: .darkAqua)
         panel.onEscape = { [weak center] in center?.send(.escape) }
+        panel.onTakingKey = { [weak self] in
+            guard let self else { return }
+            self.returnTo = self.frontmostPID() ?? self.returnTo
+        }
 
         // G191 live: the screen the bookmark was made on — the browser's front window, else the front app's — and
         // `NSScreen.main` only when neither is known (`SaveWhyScreen`). The notch is that screen's own.
@@ -87,7 +115,10 @@ final class SaveWhyPanelController: SaveWhyPresenting {
         placedOn = (screenFrame, notchRect)
 
         let host = NSHostingView(rootView: SaveWhyPanelView(center: center, focus: focus, notch: notch,
-                                                            onFieldClick: { [weak self] in self?.focusText() }))
+                                                            onFieldClick: { [weak self, weak center] in
+            center?.input(.engage)
+            self?.focusText()
+        }))
         panel.contentView = host
         panel.setFrame(SaveWhyNotch.frame(screen: screenFrame, notch: notchRect, size: host.fittingSize),
                        display: false)
@@ -95,9 +126,16 @@ final class SaveWhyPanelController: SaveWhyPresenting {
         self.panel = panel
         // Next turn of the run loop, so the view has drawn the shape at rest and the spring has a start to leave.
         DispatchQueue.main.async { [notch] in notch.grown = true }
-        // A click anywhere else — another app (global) or another of Cicada's windows (local) — closes it.
+        // A click anywhere else — another app (global) or another of Cicada's windows (local) — closes it; a click
+        // inside Chrome's own bookmark bubble does not (2026-10-19: the person is working there), unless it closed it.
+        // Nothing else does: losing the keyboard to another app's window (a dictation tool's overlay) never closes it.
         if let global = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: {
-            [weak center] _ in Task { @MainActor in center?.input(.clickOutside) }
+            [weak center] _ in
+            let location = NSEvent.mouseLocation
+            let primary = NSScreen.screens.first?.frame.height ?? 0
+            Task { @MainActor in
+                center?.click(at: BookmarkBubblePolicy.windowListPoint(location, primaryHeight: primary))
+            }
         }) { monitors.append(global) }
         if let local = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: {
             [weak center, weak panel] event in
@@ -106,8 +144,16 @@ final class SaveWhyPanelController: SaveWhyPresenting {
         }) { monitors.append(local) }
     }
 
-    func hide() {
+    func hide() { hide(returnFocus: false) }
+
+    /// Close. 2026-10-19: when the panel held the keyboard (the person clicked into the field) and they did not leave
+    /// by clicking somewhere else, the keyboard goes back to the browser's window at once — not to another of Cicada's
+    /// windows, and not left nowhere while the shape shrinks.
+    func hide(returnFocus: Bool) {
         guard let panel else { return }
+        let held = panel.isKeyWindow
+        if held, returnFocus, let returnTo { giveBack(returnTo) }
+        returnTo = nil
         removeMonitors()
         self.panel = nil
         // Back into the notch, then gone.
@@ -119,13 +165,21 @@ final class SaveWhyPanelController: SaveWhyPresenting {
 
     /// A click in the field (G191 v3: the field is always there, so the window never resizes for it): the panel takes
     /// the keyboard — it may, the click was inside it — and the field the focus.
+    ///
+    /// 2026-10-19 (owner: dictation "went away" / landed elsewhere): the panel becomes the **key window** while Cicada
+    /// stays inactive — a non-activating panel that may become key once clicked — so the browser stays the active app,
+    /// no other Cicada window comes forward, and typed or dictated text (a keystroke, a paste, or an inserter that asks
+    /// Accessibility for the focused element) lands in the field. The app it took the keyboard from is remembered and
+    /// gets it back on Save, Return or Esc (`hide(returnFocus:)`).
     func focusText() {
         guard let panel, panel.clickedInside else { return }
+        if !panel.isKeyWindow { returnTo = frontmostPID() ?? returnTo }
         panel.makeKey()
         focus.request()
     }
 
     private func hideNow() {
+        returnTo = nil
         removeMonitors()
         panel?.orderOut(nil)
         panel = nil
@@ -161,7 +215,11 @@ struct SaveWhyPanelView: View {
     @State private var draft = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    static let width: CGFloat = 440
+    /// Wide enough for the four reasons on one line at 1× (owner 2026-10-19: "The four options could all fit on a
+    /// single line"); a larger text size wraps them (`SaveWhyChipRows`).
+    static let width: CGFloat = 468
+    /// The card's inner width: what the chips have.
+    static var contentWidth: CGFloat { width - 2 * CicadaTheme.spacingMD }
     /// The bookworm's room-art size (64 × 48 at 1×, the sheet's own frame timings).
     static let mascotPoints: CGFloat = 48
 
@@ -188,6 +246,8 @@ struct SaveWhyPanelView: View {
                 .animation(notch.grown ? CicadaMotion.notchGrow(reduceMotion: reduceMotion)
                                        : CicadaMotion.notchShrink(reduceMotion: reduceMotion), value: notch.grown)
                 .onChange(of: focus.ticket) { _, _ in textFocused = true }
+                // In the field however it got there: the person is about to write or dictate — no timer closes it.
+                .onChange(of: textFocused) { _, focused in if focused { center.input(.engage) } }
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel(Copy.SaveWhy.question)
         }
@@ -199,7 +259,8 @@ struct SaveWhyPanelView: View {
             reasons(state)
             words(state)
             HStack {
-                Text(Copy.SaveWhy.hint(pending: state.isPending, chosen: !state.selection.isEmpty))
+                Text(Copy.SaveWhy.hint(pending: state.isPending, chosen: !state.selection.isEmpty,
+                                       editing: state.isEditing, noBookmark: center.noBookmark))
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.Notch.textTertiary)
                     .lineLimit(1)
@@ -220,21 +281,11 @@ struct SaveWhyPanelView: View {
         .frame(width: Self.width, alignment: .leading)
     }
 
-    /// G191 v4 (owner 2026-10-15: "keep options to a minimal") — the four reasons in two fixed rows of two
-    /// (`SaveWhyPanelLayout.rows`): at 12 pt the four chips need ≈ 448 pt and the card has 416, so one row would wrap
-    /// three and one; fixed rows keep every chip where it is from the first frame, whichever options are in hand. No
-    /// project chips: the field is the "something else".
+    /// The four reasons on one line (owner 2026-10-19), wrapping into balanced rows only when a larger text size
+    /// leaves no room (`SaveWhyChipRows`). No project chips: the field is the "something else".
     private func reasons(_ state: SaveWhyPanelState) -> some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
-            ForEach(Array(SaveWhyPanelLayout.rows(center.options.reasons).enumerated()), id: \.offset) { _, row in
-                HStack(spacing: CicadaTheme.scaled(6)) {
-                    ForEach(row) { reason in
-                        chip(reason.label, selected: state.isSelected(reason: reason.key)) {
-                            center.input(.tapReason(reason.key))
-                        }
-                    }
-                }
-            }
+        SaveWhyReasonChips(reasons: center.options.reasons, isSelected: { state.isSelected(reason: $0) }) {
+            center.input(.tapReason($0))
         }
     }
 
@@ -277,7 +328,8 @@ struct SaveWhyPanelView: View {
                 Text(Copy.SaveWhy.question)
                     .font(CicadaTheme.font(size: 13, weight: .semibold))
                     .foregroundStyle(CicadaTheme.Notch.textPrimary)
-                Text(state.item.map { Copy.SaveWhy.subject(title: $0.title, host: $0.host, resave: $0.resave == true) }
+                Text(state.item.map { Copy.SaveWhy.subject(title: $0.title, host: $0.host, resave: $0.resave == true,
+                                                           saved: state.isEditing) }
                      ?? Copy.SaveWhy.pendingSubject(browser: BrowserInventory.spec(forBookmarksChannel: state.channel)?
                                                     .name))
                     .font(CicadaTheme.captionFont)
@@ -287,21 +339,38 @@ struct SaveWhyPanelView: View {
             }
         }
     }
+}
 
-    /// A reason as a toggle: a check slot that is filled or empty (always there, so a tap never moves the row), one
-    /// weight for both states (a bolder label would widen the chip and reflow the row).
+/// The reasons as toggles: a check slot that is filled or empty (always there, so a tap never moves the row), one
+/// weight for both states (a bolder label would widen the chip and reflow the row). On one line at 1× (owner
+/// 2026-10-19); `SaveWhyChipRows` wraps them into balanced rows when a larger text size leaves no room (DR-70).
+struct SaveWhyReasonChips: View {
+    let reasons: [SavedWhyOptions.Reason]
+    let isSelected: (String) -> Bool
+    let onTap: (String) -> Void
+
+    var body: some View {
+        SaveWhyChipRows(spacing: CicadaTheme.scaled(6), lineSpacing: CicadaTheme.scaled(6)) {
+            ForEach(reasons) { reason in
+                chip(reason.label, selected: isSelected(reason.key)) { onTap(reason.key) }
+            }
+        }
+    }
+
     private func chip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: CicadaTheme.scaled(5)) {
+            HStack(spacing: CicadaTheme.scaled(4)) {
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                     .font(CicadaTheme.font(size: 11))
                     .foregroundStyle(selected ? CicadaTheme.Notch.textPrimary : CicadaTheme.Notch.textTertiary)
                 Text(title)
                     .font(CicadaTheme.font(size: 12))
                     .foregroundStyle(CicadaTheme.Notch.textPrimary)
+                    .lineLimit(1)
+                    .fixedSize()
             }
-            .padding(.leading, CicadaTheme.scaled(8))
-            .padding(.trailing, CicadaTheme.scaled(10))
+            .padding(.leading, CicadaTheme.scaled(6))
+            .padding(.trailing, CicadaTheme.scaled(8))
             .padding(.vertical, CicadaTheme.scaled(5))
             .background(Capsule().fill(selected ? CicadaTheme.Notch.chipSelected : Color.clear))
             .overlay(Capsule().strokeBorder(selected ? CicadaTheme.Notch.chipSelectedRing : CicadaTheme.Notch.chipRing,
@@ -312,12 +381,54 @@ struct SaveWhyPanelView: View {
     }
 }
 
-/// G191 v4 — the panel's chips in rows of `perRow`, in the options' order. Pure, so the rows are tested.
-enum SaveWhyPanelLayout {
-    static let perRow = 2
+/// The chips' rows: every chip on one line when they fit, else the fewest balanced rows that do (four chips: two
+/// and two, never three and one), else one per row. Each chip keeps its own size; nothing truncates.
+struct SaveWhyChipRows: Layout {
+    var spacing: CGFloat
+    var lineSpacing: CGFloat
 
-    static func rows<T>(_ items: [T]) -> [[T]] {
-        stride(from: 0, to: items.count, by: perRow).map { Array(items[$0..<min($0 + perRow, items.count)]) }
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        let rows = SaveWhyPanelLayout.rows(widths: sizes.map(\.width), available: proposal.width ?? .infinity,
+                                           spacing: spacing)
+        let width = rows.map { row in row.map { sizes[$0].width }.reduce(0, +) + spacing * CGFloat(row.count - 1) }
+            .max() ?? 0
+        let height = rows.map { row in row.map { sizes[$0].height }.max() ?? 0 }.reduce(0, +)
+            + lineSpacing * CGFloat(max(0, rows.count - 1))
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        var y = bounds.minY
+        for row in SaveWhyPanelLayout.rows(widths: sizes.map(\.width), available: bounds.width, spacing: spacing) {
+            var x = bounds.minX
+            let height = row.map { sizes[$0].height }.max() ?? 0
+            for i in row {
+                subviews[i].place(at: CGPoint(x: x, y: y + (height - sizes[i].height) / 2), anchor: .topLeading,
+                                  proposal: ProposedViewSize(sizes[i]))
+                x += sizes[i].width + spacing
+            }
+            y += height + lineSpacing
+        }
+    }
+}
+
+/// The chips' rows as indices, pure so the rule is tested: one row when every width fits in `available`, else the
+/// fewest rows of an equal count (the last may be shorter) whose every row fits, else one chip per row.
+enum SaveWhyPanelLayout {
+    static func rows(widths: [CGFloat], available: CGFloat, spacing: CGFloat) -> [[Int]] {
+        let n = widths.count
+        guard n > 0 else { return [] }
+        func fits(_ row: ArraySlice<Int>) -> Bool {
+            row.map { widths[$0] }.reduce(0, +) + spacing * CGFloat(row.count - 1) <= available + 0.5
+        }
+        for count in 1...n {
+            let perRow = Int((Double(n) / Double(count)).rounded(.up))
+            let rows = stride(from: 0, to: n, by: perRow).map { Array($0..<min($0 + perRow, n)) }
+            if rows.allSatisfy({ fits($0[...]) }) { return rows }
+        }
+        return (0..<n).map { [$0] }
     }
 }
 

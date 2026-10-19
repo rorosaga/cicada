@@ -14,7 +14,7 @@
       30
     ],
     "reservePct": 20,
-    "scheduledUsePlan": false
+    "scheduledUsePlan": true
   },
   "defaults": {
     "batchSize": 25,
@@ -31,6 +31,6 @@
       30
     ],
     "reservePct": null,
-    "scheduledUsePlan": false
+    "scheduledUsePlan": true
   }
 }

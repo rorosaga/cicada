@@ -8,6 +8,14 @@
 
 ## Current state and evidence
 
+- **2026-10-19 — plan-first engines; the inbox stops asking what a web search can answer (rulings 4c, 27b, 31; branch
+  `feat/plan-first-inbox`).** Scheduled runs use the plan unless the person turned it off; Auto (the new default) never
+  falls to a metered key; the web lookup runs on every plan run and the backlog gets a one-off sweep
+  (`POST /inbox/web-check`); Cicada's own settings are never asked (`own_settings`). Tests: `test_plan_first_inbox.py`,
+  `test_engine_select.py`, `test_server_readers.py`. Pick up: the coordinator runs the sweep's dry run on the owner's
+  bank (`api/.venv/bin/python -m api.scripts.web_check_dry_run --bank <path> --census`, then `--limit 20`), reports the
+  counts, then `POST /inbox/web-check?dryRun=false` on the running backend; checks the owner's own engine choice still
+  says what he meant (an explicit OpenRouter pick stays OpenRouter).
 - **2026-10-19 — Cicada as a Claude Code plugin (owner 2026-10-19; G49's plugin half, G105, G149; branch
   `feat/claude-code-plugin`).** Rule recorded in CLAUDE.md: the plugin is the canonical Claude Code door, `install.sh`
   the canonical machine install. The repo is its own marketplace (`.claude-plugin/marketplace.json`, plugin
@@ -21,6 +29,15 @@
   plugin". Tests: `test_claude_code_plugin.py`. Pick up: review and merge; the owner installs it with `/plugin
   marketplace add ~/code/cicada` (dev) or `rorosaga/cicada` after the next release, sets `cicada_repo` if he runs a
   source build, then re-runs `./install.sh` once.
+- **2026-10-19 — sign-in for the remote connector, and real-time capture through it (ruling 32, G135, G105; branch
+  `feat/remote-oauth`).** `api/remote/oauth.py`: an OAuth 2.1 authorization server on the G135 listener (DCR + CIMD,
+  S256 only, consent only in the app, single-use 120 s codes, hour-long access and rotating refresh tokens mapped to
+  connector rows, RFC 9207 `iss`, RFC 7009 revocation, rate limits, everything hashed at rest); the 401 now carries
+  `resource_metadata`. `cicada_capture_turns` (`record`, remote only) relays each turn through `turn_capture`'s writer
+  as a `relay` episode with `evidence_kind: assistant`; `episode_staging` upgrades it in place when the app's export
+  arrives. App: *Waiting for your yes* on From anywhere. What the person runs: `docs/connect-remote-apps.md`. Tests:
+  `test_remote_oauth.py`, `test_relay_capture.py`, `RemoteConnectorTests`. Pick up: the owner runs a funnel on 8765 and
+  adds the connector in claude.ai (web, then phone) and ChatGPT — unverified against the live apps until then.
 - **2026-10-18 — Ask over watch-history ranges (ruling 30 follow-up, G71, G94, G118; branch `feat/history-ask`).**
   `watch_history.asked_span` + `summarize`: this/last year, a named year, since/between, the last N days, ever, "the
   most", first/last watch of a named channel — counted from the watched days with no model into one bounded table.
@@ -391,6 +408,14 @@ A whole row moves to DONE only after its remaining implementation and required a
    engine it may use says so — when it is turned on (`/sleep/schedule`'s `warning`), in `engine list` ("no key"), and
    `ask` says it has no engine — each offering to connect a plan first. Revisit if a scheduled run is found to have
    spent a plan without the switch on, or if the switch's disclosure is found missing where it is turned on.
+   **4c — the switch is on by default (owner, 2026-10-19): "Make scheduled runs run on the plan by default."** A machine
+   that never set it (a new install, a bank that never chose) reads as ON; only the person's explicit off stops it, and
+   an off is now stored as `false` so it outlives the default (`sleep_run_prefs._switch`; a hand-edited non-boolean
+   reads as off). Every surface that said "off by default" says so no more (Settings → Sleep's detail line, the CLI,
+   the docs). `SUBSCRIPTION_MODES` stays the one guard and the switch its door. An off set before 2026-10-19 was stored
+   as an absent key and reads as on now — that state was indistinguishable from never set. Revisit if a person is
+   found surprised by a nightly run on their plan they never agreed to, or if the plan share of scheduled runs crowds
+   out the runs they start.
 5. **Raw storage does not replace Sleep** (G101). Text cannot decay — only a belief can go stale or
    be contradicted — so "time as a signal" needs a belief object.
 6. **Capture is agent-judgment and that is a measured problem** (G105): 0 MCP invocations in 12
@@ -969,6 +994,25 @@ A whole row moves to DONE only after its remaining implementation and required a
     search provider is unchanged. Measure with `api/scripts/web_check_dry_run.py` (counts only, writes nothing).
     Revisit if the dry run on the owner's bank still settles none, or if a prompt is found to have carried a person's
     name or a path.
+    **27b — the inbox is not for what a search answers (owner, 2026-10-19): "Questions like 'Is <a public tool> an AI
+    agent or an AI code editor?' can be solved by an internet search. That's not what the inbox is for."** The lookup is
+    the default path for a clarification or conflict about a public thing in every Sleep run on a plan — the person's
+    and, with 4c, the scheduled one — and the backlog already open gets a one-off sweep the person starts
+    (`POST /inbox/web-check`, dry run by default; `api/scripts/web_check_dry_run.py` for counts with no write): same
+    eligibility, pinned query, local context, citation and "Settled by a check" undo; each settle under the bank's write
+    admission with its own commit; a plan limit stops it. A search that cannot settle a question confidently leaves it
+    exactly as it was. Stage 1's way of naming the speaker ("the user mentioned it") no longer reads as a person cue,
+    and a description saying the subject is the speaker's own (built by the user, the user's project) now keeps it home.
+    **Cicada's own settings are never asked:** a conflict or clarification on Cicada's own page (exact id) about its
+    runtime settings — which engine its Sleep runs read with (a plan, an API key, a local model), whether scheduled runs
+    use the plan, the schedule's time — is retired by rule, nothing else touched (`inbox_tend`'s `own_settings`, undoable under
+    "Settled by Sleep") and never searched — the system knows its settings and Settings shows them, and a conversation
+    that mentioned them stated that day's configuration, not a fact for the person to referee (never "answered from the
+    system": writing today's config as a claim would date a past statement wrongly). Narrow on purpose (review of #360):
+    the owner's project IS Cicada, so its design questions (a hosting provider, a page's layout, the search or graph
+    engine, whether Sleep runs nightly) stay his; and the speaker's own thing in the active voice ("an app the person
+    is building", "the company where the person works") stays home too. Revisit if the sweep's dry run on
+    the owner's bank settles under a quarter of what it looks up, or if an own-settings dismissal is undone.
 28. **Headless clients (owner, 2026-10-16; G181 phase 2, amends the transcript rail and ruling 21a).** **1 — Per-device
     tokens.** A second device never gets the server's master token: each gets its own named, hashed, revocable token
     (`device_tokens`, the G135 store's shape kept apart). Issuing one is an act of the person — `cicada device add` on
@@ -1087,3 +1131,36 @@ A whole row moves to DONE only after its remaining implementation and required a
     (counts only, writes nothing). Revisit if the person asks for a playlist or a stretch of history to be read, or if
     the month summaries prove too thin to answer "what was I into then" — then a bounded, opt-in read of a summary,
     never of every day.
+31. **Plan-first engines: never a metered key by itself (owner, 2026-10-19): "OpenRouter, eliminate it as the default.
+    Just have it as an option but the defaults now are either the Claude plan or the Codex/ChatGPT plan."** The shipped
+    `llm_mode` is `auto`: the Claude plan, else the ChatGPT plan, else a running local model — and **no engine** rather
+    than an API key nobody chose (`engine_select.NO_ENGINE`; a resolved copy carries `no_engine_reason`, and every call
+    built from it refuses before anything is sent, `providers.resolve_llm_fn`; so does a call from an Auto nobody
+    resolved, whose engine label reads `auto`, never the metered engine). A run with no engine stops before Stage 1
+    and says so with the fix; Ask says it has no engine; a schedule says so (`no_engine`). An API key (OpenRouter or any
+    other) reads only when the person chose it — `CICADA_LLM_MODE=byok` or the picker — and stays one tap away. A plan
+    the person chose, on a schedule their switch closes, has no engine rather than falling to the key. No install script,
+    onboarding step or Auto rung picks a metered key. **Why.** The owner's scheduled runs had been reading on a metered
+    model he never meant as the default while his plan sat idle, and their web lookups were skipped for it.
+    Revisit if a person with only a key is found stuck because nothing told them to choose it.
+32. **Phone and web apps sign in, and conversations there are captured as they happen (owner, 2026-10-19; G135,
+    amends G105 for hookless apps and the headless "never funnel" line).** **1 — Sign-in.** claude.ai (web, desktop and
+    its iOS/Android apps) and ChatGPT add Cicada as a custom connector through OAuth: the G135 listener is its own
+    authorization server (DCR or a Client ID Metadata Document, PKCE S256, short-lived access and rotating refresh
+    tokens that map to the existing hashed, scoped, expiring, revocable connector rows). The person runs a public
+    tunnel with a stable hostname (Tailscale Funnel or ngrok) **to the G135 listener only** — its port serves MCP and
+    sign-in and nothing else; the backend's own port is never funnelled, and Cicada never starts a tunnel. **Consent
+    happens in the Cicada app on the Mac** (or the local API on a server), never by a password on the public page: the
+    public page shows a short code and waits, and the person approves by **typing that code** — never by clicking a
+    listed request, and a self-registered app is never named or branded by what it claims (security review of #359:
+    the flow's initiator collects the result, so a click-to-approve list let a stranger's look-alike through). The secret-link door keeps working; the docs steer to sign-in, because a
+    link is a credential in a URL. **2 — Real-time capture is the usual; exports are a starter seed.** Owner: "Exports
+    should only be a starter seed for users; the usual should always be real-time captures." For apps with no hook,
+    the connector's contract asks the app's model to call `cicada_capture_turns` every turn with the person's message
+    verbatim and its own previous reply — the one capture that depends on a model calling a tool, taken knowingly
+    because those apps offer no hook. **Default until the owner says otherwise (coordinator, 2026-10-19):** relayed
+    words are that conversation's episode with its channel disclosed (`relay`), but are **not** counted as the person's
+    own words — not for promotion's own-words rung, not for ruling 29's settling — because a model can paraphrase; a
+    later export import of the same conversation de-duplicates against it and upgrades it in place. **Revisit** when
+    the owner rules on whether relayed words may count as his (trigger: a measured paraphrase rate on real relays), or
+    when an app ships a hook or a conversation id Cicada can key on instead of the first message.

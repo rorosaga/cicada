@@ -91,7 +91,10 @@ def test_a_chosen_chatgpt_plan_previews_on_your_start_and_never_on_the_schedule(
     body = client.get("/sleep/engine").json()
     assert body["preview"]["manual"] == {"engine": "codex-cli", "model": "gpt-5.6-luna",
                                          "why": "Sleep engine set to 'codex' in Settings", "billing": "plan"}
-    assert body["preview"]["scheduled"]["engine"] == "litellm"
+    assert body["preview"]["scheduled"]["engine"] == "codex-cli", "ruling 4b, on by default since 2026-10-19"
+    client.put("/sleep/run-options", json={"scheduledUsePlan": False})
+    scheduled = client.get("/sleep/engine").json()["preview"]["scheduled"]
+    assert (scheduled["engine"], scheduled["model"]) == ("none", ""), "switch off: no engine, never the key"
 
 
 def test_a_signed_in_chatgpt_card_lists_the_plans_models_default_first(client, monkeypatch):
@@ -146,26 +149,27 @@ def test_switching_mode_clears_the_previous_modes_stale_model(client):
     assert body["model"] == "sonnet"
 
 
-def test_scheduled_preview_never_shows_the_plan_when_only_prefs_chose_it(client):
+def test_scheduled_preview_never_shows_the_plan_when_the_switch_is_off(client):
     # Claude probes connected in this fixture's fake_run (see module docstring).
     resp = client.put("/sleep/engine", json={"mode": "agent"})
     assert resp.status_code == 200, resp.text
+    client.put("/sleep/run-options", json={"scheduledUsePlan": False})
     body = client.get("/sleep/engine").json()
     assert body["preview"]["manual"]["engine"] == "claude-cli"
-    assert body["preview"]["scheduled"]["engine"] == "litellm"
+    assert body["preview"]["scheduled"]["engine"] == "none"
 
 
 @pytest.mark.parametrize("choice", [
     {"mode": "agent", "model": "opus", "disambiguationModel": "sonnet"},
     {"mode": "codex", "model": "gpt-5.6-luna"},
 ])
-def test_the_scheduled_preview_names_the_keys_own_model_not_the_plans(client, choice):
-    """Task 4 review round 1: the schedule runs on the key (ruling 4), so the
-    preview must name `litellm_model`, never the plan model the person picked."""
+def test_a_plans_model_never_shows_on_a_schedule_the_switch_closes(client, choice):
+    """Task 4 review round 1, amended 2026-10-19: with the switch off the schedule has no engine (never the key the
+    person did not choose), and the preview names no model — never the plan model the person picked."""
     assert client.put("/sleep/engine", json=choice).status_code == 200
+    client.put("/sleep/run-options", json={"scheduledUsePlan": False})
     scheduled = client.get("/sleep/engine").json()["preview"]["scheduled"]
-    assert scheduled["engine"] == "litellm"
-    assert scheduled["model"] == config.Settings().litellm_model
+    assert (scheduled["engine"], scheduled["model"]) == ("none", "")
 
 
 def test_prefs_file_is_0600(client, tmp_path):
@@ -257,8 +261,8 @@ def test_from_openrouter_the_api_key_card_writes_a_key_model(client):
     assert client.put("/sleep/engine", json={"mode": "byok", "model": key["models"][0]}).json()["selected"] == "byok"
 
 
-def test_auto_on_a_key_names_that_key_s_provider(client, monkeypatch):
-    """R-AG14's note needs the provider when Auto lands on a key, not only when `byok` is chosen."""
+def test_auto_never_lands_on_a_key(client, monkeypatch):
+    """2026-10-19: Auto with no plan and no local model has no engine — never the env's key by itself."""
     async def signed_out(argv):
         if argv[:3] == ["claude", "auth", "status"]:
             return CliResult(0, json.dumps({"loggedIn": False}), "")
@@ -269,8 +273,8 @@ def test_auto_on_a_key_names_that_key_s_provider(client, monkeypatch):
     monkeypatch.setattr(base, "run_cli", signed_out)
     reg_mod.reset_registry()
     body = client.put("/sleep/engine", json={"mode": "auto"}).json()
-    assert body["preview"]["manual"]["engine"] == "litellm"
-    assert (body["selected"], body["provider"]) == ("auto", "openai")      # gpt-5.4-mini, the env default
+    assert body["preview"]["manual"]["engine"] == "none"
+    assert (body["selected"], body["provider"]) == ("auto", None)
 
 
 def test_an_environment_pin_refuses_a_different_choice_in_words(client, monkeypatch):

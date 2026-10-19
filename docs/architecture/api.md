@@ -86,8 +86,13 @@ before it is decoded (`messages_photos.B64_MAX`, 422 as before).
 **Schedule and reading options (ruling 4b, owner decision 2).** `GET/PUT /sleep/schedule` answer the schedule plus,
 while it runs on its own, `warning` and `warningCode` when a scheduled run would have no engine it may use
 (`ScheduleResponse`, `engine_readiness`); the PUT body is unchanged and the app never sends them back.
-`GET/PUT /sleep/run-options` carry `scheduledUsePlan` (machine-wide, off by default; `null` is 422).
-`POST /ask` on an engine with no key answers that it has no engine, naming the pages it found, and calls nothing.
+`GET/PUT /sleep/run-options` carry `scheduledUsePlan` (machine-wide, on unless the person turned it off — ruling 4c,
+2026-10-19; an off is stored as `false`; `null` is 422).
+`POST /ask` with no engine — an API model with no key, or Auto with no plan and no local model (ruling 31: never a key
+nobody chose) — answers that it has no engine, naming the pages it found, and calls nothing.
+**The web-check sweep (ruling 27b, 2026-10-19).** `POST /inbox/web-check?dryRun=true|false[&limit=N][&includeRecent=true]`
+answers counts only (dry run) or `{"status": "started"}` and runs in the background; `GET /inbox/web-check` its counts.
+409 while Sleep, the tidy or another sweep runs. Not a Store domain, no ETag (`features.md`).
 
 **Device tokens (G181 phase 2, owner ruling 1, 2026-10-16).** A second machine of the person's never gets the master
 token: each device gets its own **named, hashed, revocable** token (`device_tokens`, the G135 store's shape kept apart:
@@ -157,7 +162,9 @@ project (an edit may keep an archived one).
 
 **G191 v3 bookmark writes** (both 409 in a demo bank and while Sleep holds the pages, both committed alone as
 `Cicada-Author: user`): `PUT /sources/saved-why` `{url, at, reasons[], project?, text?}` changes the one answer given at
-`at` (404 when there is none; its `at` and `addedAt` kept, `editedAt` stamped); `POST /sources/bookmarks/remove`
+`at` (404 when there is none; its `at` and `addedAt` kept, `editedAt` stamped; 2026-10-19: an edit that changes nothing —
+the same reasons in any order, project and words — writes nothing, stamps nothing and commits nothing, so the panel the
+star opens on a saved page can be left as it was); `POST /sources/bookmarks/remove`
 `{url}` archives the link's media page (never deleted) and stamps its episode `source_deleted_at` (trigger
 `user/bookmark_remove`; 404 for a link not held, idempotent). `POST /sources/saved-why` gained `addedAt` (the moment of
 saving it answers) and answers with `history`. The app reaches both through `Store.perform` (`SavedWhyWrite`,

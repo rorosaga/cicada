@@ -141,15 +141,19 @@ public things and closes the question. The answer is saved with its link and quo
 by a check' list. Never searched: people's names, your own files, your projects, your life." The S3 rule above — a check
 settles nothing — still holds for every other question. **Which:** a pending conflict or clarification whose subject is
 a `company`, `concept`, `tool` or `media` page (or such a suggested type with a pending line); never a `person`, an
-untyped name Cicada's own description says is someone (person words), a person page's name or alias, the owner's page,
+untyped name Cicada's own description says is someone (person words; "the user"/"the person" as the speaker aside, and
+one it says is the speaker's own kept home — 2026-10-19), a person page's name or alias, the owner's page, a question
+about Cicada's own runtime settings on its own page (`own_settings`: the Sleep engine choice, the scheduled-plan
+switch, the schedule's time — never searched, never asked, 27b),
 a file, path or handle, a page with `path:`/`repos:`, a project, a question that says "you/your", an option naming a
 person or saying "my"/"her" (labels ride in the prompt), a question the person already took a check back on
 (`web_check: undone`), a multi-valued predicate other than what the thing *is*, or a conflict whose predicate is not
 world-truth (`locus` world/artifact or a short public list: `description`, `is-a`… — `web_settle.classify`). **What it
 is** (owner, 2026-10-16, his own example "Is <tool-a> an agent harness or an AI agent itself?"): a type question
 (`web_settle.TYPE_PREDICATES`: `is-a`, `type`, `kind`, `category`, `genre`, `description`) is eligible though `is-a` is
-multi-valued; one option settles only when the page rules the others out (Sleep's answer must say
-`others_ruled_out: true`), the item's own `both` option when the page says it is all of them — one cited claim per
+multi-valued; one option settles only when the page rules the others out — defines it as that option and nowhere as
+another (Sleep's answer must say `others_ruled_out: true`) — the item's own `both` option when the page describes it as
+more than one of them (2026-10-19) — one cited claim per
 option, nothing closed — and never an option the item does not have. **What leaves the machine:** the search query is the
 subject's name plus at most one generic category word from a fixed list, read from Cicada's own description, none on a
 type question and none when unsure (`web_settle.query_for`); nothing else. **What the model may read (ruling 27a,
@@ -1180,3 +1184,18 @@ the CLI.
     against the MCP schemas (R12 for the MCP half).
   - `handshake.build_cli`'s prelude names the same fallback, and stays within 1,800 tokens.
 - **Not yet built:** the overhead and latency measurement (T9). Its later slices are in the G180 row.
+
+## The remote connector's sign-in and capture (ruling 32, owner 2026-10-19)
+
+- **Sign-in.** The G135 listener is also an OAuth 2.1 authorization server (`api/remote/oauth.py`; the whole flow,
+  its checks and its limits are in `network.md`). A signed-in app holds an hour-long `cic_at_` access token and a
+  rotating `cic_rt_` refresh token; the gate verifies an access token against the connector row it maps to, so tool
+  lists, scopes, the Sleep gate, the ledger and every write's provenance (`Cicada-Author: <app harness>`,
+  `Cicada-Session: rc_…`) are the link connector's, unchanged. The secret link (`/c/<token>/mcp`) still works; the docs
+  and the From anywhere page steer Claude and ChatGPT to sign-in, which puts no secret in a URL.
+- **`cicada_capture_turns(message, previous_reply?, conversation)`** (`record` scope, remote only —
+  `catalog.REMOTE_ONLY`, so `test_remote_tools.py` classifies every stdio tool plus it). Not read-only, idempotent, not
+  destructive and not open-world: an app that confirms writes (ChatGPT) asks the person, who can allow it always.
+  `REMOTE_CONTRACT_VERSION` 12 puts "Capture every turn" first in the remote contract, only where the connection holds
+  the tool (R12 per scope set). What it writes and why it is never the person's own words: `capture-and-sleep.md`,
+  "Hookless apps, through the remote connector".

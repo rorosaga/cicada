@@ -21,6 +21,8 @@ Cicada never fetches the video itself.
 `cicada_add_source` is not open-world: it only records a reference (G61 phase 2 S1).
 `cicada_change_source` (G61 S3-a) corrects or removes only an entry this connection added; a removal is a mark
 in the page and a commit, so it stays history and is not `destructive`.
+`cicada_capture_turns` (record, ruling 32) is capture for an app with no hook: idempotent (a re-sent turn changes
+nothing) and not destructive; it is a write, so an app that confirms writes asks — the person can allow it always.
 `cicada_reading_queue` (read) and `cicada_record_read` (record) are G166's: the person's own agent reads a
 page in their signed-in session, and Cicada records what it reported. Neither description names the other
 (different scopes), so a connection holding only one is never told about an absent tool.
@@ -98,6 +100,16 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
           {"content": {"type": "string", "description": "What to keep, in plain words."},
            "title": {"type": "string", "description": "A short title."}},
           ("content",), read_only=False, idempotent=True),
+    _tool("cicada_capture_turns",
+          "Keep this conversation in the person's memory as it happens. Call it on EVERY turn, before you answer: "
+          "`message` is the person's message exactly as they wrote it (never a summary), `previous_reply` is your "
+          "own previous reply exactly as you gave it (omit it on the first turn). Pass the `conversation` handle "
+          "from cicada_handshake so the whole conversation stays one record. Re-sending a turn changes nothing. "
+          "Cicada stores what you relay as relayed by this app, not as the person's own words.",
+          {"message": {"type": "string", "description": "The person's message this turn, word for word."},
+           "previous_reply": {"type": "string",
+                              "description": "Your previous reply, word for word. Omit on the first turn."}},
+          ("message",), read_only=False, idempotent=True),
     _tool("cicada_write_claim",
           "Record one fact as subject – predicate – object, marked as coming from this app. Use observer "
           "'agent' when you inferred it and 'external' when someone other than the person said it; a remote "

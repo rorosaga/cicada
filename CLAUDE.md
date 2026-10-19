@@ -181,6 +181,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   around one marker line (G110 gate B2; its G104 costs in `capture-and-sleep.md`). Recall is the same move (G149): the
   SessionStart/UserPromptSubmit hooks inject Cicada's note; a note the harness records as a separate non-person record
   is never captured, and one that arrives inside the person's own text is kept, counted and disclosed (G110 gate C).
+  **Apps with no hook** (claude.ai, ChatGPT, their phone apps) relay each turn through the remote connector's
+  `cicada_capture_turns` (ruling 32): one episode per conversation, stored as relayed (`evidence_kind: assistant`),
+  never the person's own words until that app's export upgrades it in place (`capture-and-sleep.md`).
 - **Transcripts under `~/.claude/` are never read anywhere else** — the MCP seam and resume only `isfile()` them.
   A client of a server elsewhere reads its session there with Cicada's own extractor and posts the capped turns (ruling 28).
 - **One id rule** (`episode_ids`): max-suffix+1 per date, aware UTC timestamps; `processed_by` says who flipped it.
@@ -200,8 +203,10 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Consolidate reads everything** (rulings 13, 16): every run — the person's and a scheduled one — is a drain over the
   ids frozen at its start, in committed batches (default 25), so a stop loses at most the batch in progress. Decay and the
   page reads run once per drain. A plan limit is a pause, not a failure. **Ruling 4: a scheduled run uses a Claude or ChatGPT plan only
-  through the person's off-by-default "Scheduled runs may use my plan" switch** (4b, 2026-10-16; `SUBSCRIPTION_MODES`
-  the one guard); on a metered engine it spends with no limit Cicada sets, said in words. Continue-after-reset is opt-in,
+  through the person's "Scheduled runs may use my plan" switch, on unless they turned it off** (4b 2026-10-16, 4c
+  2026-10-19; `SUBSCRIPTION_MODES` the one guard); on a metered engine it spends with no limit Cicada sets, said in words.
+  **Plan-first engines (ruling 31, 2026-10-19):** the default is Auto — Claude plan, ChatGPT plan, local model — and never
+  a metered key nobody chose: no engine is said in words, and a key (OpenRouter included) reads only when chosen. Continue-after-reset is opt-in,
   off (ruling 15). A scheduled time the Mac slept or was off through runs once, after a short settle, as a scheduled
   run — never over a pause or a running cycle (`sleep_catch_up`, owner 2026-10-19, `features.md`).
 - **The write window (G177):** `sleep_cycle.is_writing()` is the one predicate behind every "Sleep is running" refusal,
@@ -247,7 +252,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   destructive verdict needs positive evidence. Agents check sources before a question reaches the person only on sites the
   person allowed, and **an inbox check never settles, reorders or changes a belief** (S3 is shadow) — **except a question
   about a public thing (ruling 27):** a web lookup settles it with a cited claim (a citation, never a tracked source),
-  undoable under "Settled by a check"; never a person's name, their files, projects or life (`mcp.md`). **A tracked source's
+  undoable under "Settled by a check"; never a person's name, their files, projects or life (`mcp.md`); it is the default
+  path on every plan run plus a one-off backlog sweep, and Cicada's own settings are never asked (27b, 2026-10-19). **A tracked source's
   dated re-check does (ruling 26):** a new dated fact; the newest evidence wins, even over the person's own words; the same
   day or undated asks once; dead = two failed visits a week apart; walled pages only by the person's agent (`storage.md`).
 - **Pictures:** one precedence (the person's choice → Contacts photo → the photo a ticked Messages chat shares → a
@@ -301,6 +307,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **The remote connector (G135)** is off by default, serves only MCP on its own listener, through a tunnel **the person**
   runs; capability tokens are hashed, scoped (`sources` gates every verbatim word of the person's), expiring and
   revocable; a remote claim is never the person's own words.
+  Apps sign in through the listener's own OAuth 2.1 server (ruling 32): consent only in the app, by typing the code the
+  person's own page shows, never a click or the public page; PKCE S256, single-use codes, rotating refresh tokens, all
+  hashed and mapped to connector rows; a self-registered app is never named by its claim (`network.md`).
 - **Reading with the person's own agent (G166):** Cicada never spawns a browser and never signs in; it only asks. Only a
   link the person asked about, or a wall page of a site they allowed, can be recorded — and (owner 2026-10-16, G71) the
   person's YouTube Watch later or history page, a standing ask once they turn that list on, stdio only; one person's
@@ -332,6 +341,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   asking in words — Chrome through Apple Events (the Automation prompt only then), never Safari, never the backend; it
   sees Chrome's bookmark bubble from window bounds alone (no title, no permission), read only in the moment after the
   person's own click in a frontmost Chrome — never on a steady timer (G191 v4) — and posts no answer until a sync confirms the bookmark (`app.md`).
+  An answer given is never dropped for a dismissal or a late sync, and a touched panel closes only on the person's act;
+  the star on a saved page reads Chrome's front-tab URL only when Automation is already allowed, never prompting (2026-10-19).
 - **Copy is provider-neutral** (owner, 2026-09-30): never name a provider or model as the one doing a job — describe the
   step; a name appears only where it shows the person's own current choice.
 - **Prices and plan usage show only on the Sleep page's Past reads run detail and engine menu** (ruling 12, surface
@@ -359,7 +370,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   photo through unavatar.io from an X or LinkedIn link already on their page, behind its own gate, off by default.
 - **Credentials** live in `~/.cicada/secrets.env` (0600) — never in a bank, never logged.
 - **Headless (G181):** a server is its bank's one writer and binds 127.0.0.1 only; reach from another machine is an
-  overlay the person runs (never a public port, never funnel), and no installer creates or copies a credential (`headless.md`).
+  overlay the person runs (never a public port, never funnel — only the G135 listener may be, by the person, ruling 32), and no installer creates or copies a credential (`headless.md`).
   Another machine is a client (`CICADA_API_BASE`, or the app's `api_base` file, ruling 28) with its own revocable device
   token and no bank of its own; what it posts records `device` (`headless.md`).
 - **Video:** only a provider's own player URL is loaded; an oEmbed response is read for its fields, never its HTML.

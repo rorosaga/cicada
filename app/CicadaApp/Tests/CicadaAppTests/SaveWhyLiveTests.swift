@@ -392,7 +392,7 @@ final class SaveWhyLiveTests: XCTestCase {
     /// and a withdraw never add a reason or words, in any order.
     func testNothingButThePersonsOwnInputChooses() {
         let item = FreshBookmark(url: "https://alpha.example/a", channel: "chrome-bookmarks")
-        let others: [SaveWhyPanelState.Event] = [.submit, .idleElapsed, .timeout, .escape, .clickOutside,
+        let others: [SaveWhyPanelState.Event] = [.submit, .engage, .timeout, .escape, .clickOutside,
                                                  .dontAskForSite, .superseded, .withdraw]
         for a in others { for b in others {
             var state = SaveWhyPanelState(item: item, order: ["design"])

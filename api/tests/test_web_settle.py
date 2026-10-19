@@ -266,13 +266,21 @@ def test_the_connector_gate_stops_the_lookup_before_any_call(bank, monkeypatch):
     assert report.reason == "gate" and calls == []
 
 
-def test_ruling_4_a_scheduled_run_never_uses_a_plan_but_may_use_a_metered_search(bank, monkeypatch):
+def test_ruling_4_a_scheduled_run_uses_a_plan_only_through_the_switch_but_may_use_a_metered_search(bank, monkeypatch):
     import asyncio
     import litellm
 
     async def plan(settings, registry=None, *, user_triggered=True):
         return SimpleNamespace(llm_mode="agent"), "pinned"
+    class _Prefs:
+        def __init__(self, on):
+            self._p = {"sleep-run": {"scheduled_use_plan": on}}
+
+        def prefs(self):
+            return self._p
+
     monkeypatch.setattr(engine_select, "resolve_settings", plan)
+    monkeypatch.setattr(web_lookup, "_registry", lambda settings: _Prefs(False))   # the person's explicit off
     resolved, _label, why = asyncio.run(web_lookup.engine_for(object(), user_triggered=False))
     assert resolved is None and why == "scheduled_plan"
     resolved, _label, why = asyncio.run(web_lookup.engine_for(object(), user_triggered=True))
@@ -493,7 +501,7 @@ def test_an_is_a_conflict_is_eligible_and_its_prompt_offers_the_items_own_both_o
     assert c.type_question and c.both_key == "both"
     assert c.options == [("a", "agent harness for running models"), ("b", "AI agent itself")]
     user = web_lookup.build_messages(c)[-1]["content"]
-    assert "option_key 'both'" in user and "rule out every other option" in user
+    assert "option_key 'both'" in user and "describes it nowhere as any other" in user
     # What the thing IS is the question: no category word would answer it, so the query is the bare name (2026-10-16).
     assert web_settle.query_for(c) == "Tool B"
 
@@ -822,7 +830,7 @@ def test_a_type_question_carries_its_mentions_but_not_cicadas_own_guess(bank):
     context = web_settle.local_context(bank, c, facts)
     assert context == ["Mentioned: I set up Tool B yesterday to run my local models in a loop."]
     user = web_lookup.build_messages(c, context)[-1]["content"]
-    assert "the notes decide which one the person meant" in user and "An AI agent" not in user
+    assert "the notes do not say which one the person meant" in user and "An AI agent" not in user
 
 
 # ---------- category words: from Cicada's own description, one at most, none when unsure ----------
