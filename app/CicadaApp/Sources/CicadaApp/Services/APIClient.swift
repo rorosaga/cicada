@@ -601,6 +601,15 @@ protocol SavedWhyAPI: Sendable {
     /// `at` is when the person answered — sent so an answer held through a 409 keeps its own time (review B1).
     /// `addedAt` (G191 v3) is the moment of saving it answers: a re-save's answer is a new dated reason.
     func saveWhy(url: String, answer: SavedWhyAnswer, at: Date, addedAt: String?) async throws
+    /// 2026-10-19 — the star on a page already saved: change the answer said at `at` (`PUT /sources/saved-why`).
+    func editSavedWhy(url: String, at: String, answer: SavedWhyAnswer) async throws -> SavedWhyReply
+}
+
+extension SavedWhyAPI {
+    /// A client that cannot edit (tests that never edit): refused as the backend refuses an unknown answer.
+    func editSavedWhy(url: String, at: String, answer: SavedWhyAnswer) async throws -> SavedWhyReply {
+        throw APIError.httpError(422, "editing is not supported here")
+    }
 }
 
 /// `POST /sources/sync-notes` result — Apple Notes one-way sync tally. Mirrors

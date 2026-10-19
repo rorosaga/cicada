@@ -464,7 +464,7 @@ panel is key) or the timeout closes it — silently with nothing chosen; what wa
 Sleep's write window, so the answer can meet a 409: on a 409, a 5xx or an unreachable backend it is held in
 `SaveWhyOutbox` (`cicada.saveWhy.pending`, per Mac, outside every bank, one per moment of saving, at most 20) with the time it was
 given, and sent again — with that `at` — when the status's `writing` goes false, when the backend first answers and
-on launch; a 404/422 or an answer over 24 h old is dropped. Esc reaches the panel only once it is clicked, so its
+on launch; a 422 or an answer over 24 h old is dropped (v6: a 404 is held for the next sync, below). Esc reaches the panel only once it is clicked, so its
 hint names a click elsewhere as the way to skip.
 
 **Ask why, live (2026-10-14, branch `fix/notch-live`).** Measured on the owner's Mac: the panel came 18 s after a
@@ -576,16 +576,16 @@ newest the last sync saw — a move keeps both); the panel's subject says "Saved
 same save (the same `addedAt`, `cicada.saveWhy.lastAddedAt`). *Several reasons, plus words.* The chips are toggles with
 a check slot that is always there (one weight both ways, so a tap never reflows the row); the field and Save are there
 from the first frame, so the shape grows once and never jumps. After a tap the panel waits `answerIdle` (10 s;
-`writingIdle`, 45 s, once words are typed) and then keeps what was chosen; Save, Return, a click elsewhere, Esc or a
-newer bookmark keep it too; one tap and leaving is an answer. *Settings* adds, under the switch while Chrome is
+`writingIdle`, 45 s, once words are typed) and then keeps what was chosen (v6: gone — a touched panel waits for the
+person); Save, Return, a click elsewhere, Esc or a newer bookmark keep it too; one tap and leaving is an answer. *Settings* adds, under the switch while Chrome is
 watched: "To ask at once, Cicada notices when Chrome shows its bookmark bubble — it looks only at where Chrome's windows
 are, never at what they show, and needs no permission." The optional instant link through Apple Events (`URL of active
 tab`) is not built: the diff fills it 2.5 s after the click without a permission.
 
 **Ask why, v4 (2026-10-15).** *A few basic reasons* (owner: "keep options to a minimal"):
 the panel offers exactly four — The design · The product · To read later · Useful someday (`design`, `product`,
-`read_later`, `someday`) — in two fixed rows of two (`SaveWhyPanelLayout`; at 12 pt one row needs ≈ 448 pt and the card
-has 416), and the field's placeholder is "Something else…". No project chips (`tapProject` is gone; the options' `projects`
+`read_later`, `someday`) — in two fixed rows of two (v6: one line, below), and the field's placeholder is "Something
+else…". No project chips (`tapProject` is gone; the options' `projects`
 is always empty). The app carries the four as `SavedWhyOptions.basic`, so no panel waits on the options fetch and its size
 never depends on it. An answer given before keeps its retired reason (`technique`) and its project wherever answers are
 listed; the bookmark page's editor shows them as chips only for that answer, so an edit never drops them unseen.
@@ -640,6 +640,65 @@ the bookmark's page says "No longer in Chrome since Oct 15" with "Cicada keeps i
 again to link it back."; the ⌘B row is dimmed (60 %) with a quiet `bookmark.slash` mark carrying that line as its help;
 Sources' bookmark list keeps the row, its title tertiary, with the same mark. The import summary says "N no longer in the
 browser". Re-adding it clears the mark and asks again (a re-save). Nothing reaches the inbox.
+
+**Ask why, v6 (2026-10-19, branch `fix/save-why-panel`; owner, with a screenshot of the panel beside Chrome's "Edit
+bookmark" bubble).** *One line* ("The four options could all fit on a single line"): the card is 468 pt (`SaveWhyPanelView.width`)
+and the chips a little tighter, so the four sit on one row at 1× (measured on the real chips in a test: 94 + 101 + 102 +
+122 pt plus three 6 pt gaps in 444); `SaveWhyChipRows`, a SwiftUI `Layout`, wraps them into the fewest balanced rows that
+fit — two and two at 1.4×, never three and one — when a larger text size leaves no room (DR-70).
+*Never lost to a dismissal* ("I bookmarked a website, explained what interested me, and pressed anywhere else on the
+screen (not the Done button). In Cicada I see that it didn't save"). What happened before: a click elsewhere did keep the
+taps and words (`SaveWhyPanelState` posts the selection on leaving; the field's binding updates on every keystroke), but
+an answer given before the backend confirmed the bookmark lived only in memory (`unconfirmedAnswer`) and was dropped when
+no confirmation came within `confirmBound` (15 s, from the diff naming the link) — and none comes when the early look is
+unanswered and the sync itself is refused while Sleep writes (409: nothing posts a result, and a refused sync was not read
+again until the next bookmark); an open unconfirmed panel was even withdrawn under the person's hands by the same timer;
+and a held answer that met a 404 ("that link isn't saved yet": its sync had not run) was dropped for good. Now an answer
+about a link the app's diff named is held in `SaveWhyOutbox` at once, `awaiting` that browser's sync — never posted before
+a sync of that browser lands (the rail), posted when one does (`SaveWhyCenter.syncLanded`, after every sync the watch, a
+catch-up or Sync now finishes); a 404 holds it for the next sync instead of dropping it (`Verdict.waitForSync`); and when
+Sleep lets go the watch catches up (`BrowserWatcher.catchUp`) before the held answers are retried, so a sync refused
+during Sleep is read again at once. A withdraw closes only an untouched panel; a touched pending panel whose browser saved
+nothing stays and says "No new bookmark was saved, so there's nothing to keep this with." — an answer with no bookmark is
+the one thing never kept. Remove pressed in Chrome's bubble, or the backend naming another link, still withdraws and
+keeps nothing.
+*Only the person closes a touched panel* ("I use Wispr Flow a lot for dictation … I selected the text box and was
+dictating and [the panel] went away"): dictation types nothing until it is done, so the field read empty and the
+question's own 12 s timer (`askTimeout`) dismissed it — and an unconfirmed one also met `pendingBound`. A tap, a word or
+a click into the field (`engage`, also on the field taking focus) stops every timer (`answerIdle`/`writingIdle` are gone):
+the panel closes only on Save, Return, Esc, a newer bookmark, or a click outside both it and Chrome's bubble. Losing the
+keyboard to another app's floating window never closes it (nothing listens for it). A click inside Chrome's bookmark
+bubble (its frame from the watcher's own read, `BookmarkBubbleWatcher.lastBubble`) is the person working there: the panel
+stays, and one window-list read 0.25 s after that click (`SaveWhyPolicy.bubbleCloseCheck`, bounds only) tells whether it
+closed the bubble — Done or Remove — which closes the panel too. Bounds cannot tell Done from Remove, so that answer (or
+edit) is held, awaiting, until Chrome's file says: a removal on that browser drops it (`bookmarkRemoved`), no removal
+within `pendingBound` (Done writes nothing) lets it go (`removalWatch`). Review 2026-10-19: an answer given on the pending
+panel and closed before Chrome wrote is held the moment the diff names its link (`holdUnconfirmed`); the backend
+agreeing about another link withdraws only an untouched panel and never drops an answer already bound to its own link
+(it waits for that link's sync); every held answer carries the memory it was given in and is sent only while that memory
+is active (the split-brain rule); a 404 on an edit is final. *Typing and dictation land in the panel* (2026-10-19, after "the panel never takes focus from Chrome", so an
+inserter that writes into the frontmost app's focused element wrote into Chrome): a click into the field makes the panel
+the **key window** — still a non-activating panel (`canBecomeKey` once clicked, `canBecomeMain` never), so Chrome stays
+the active app and no other Cicada window comes forward — and the field its first responder, which is what the key
+window's Accessibility answers as focused (`AXTextField`, tested in-process). The app that had the keyboard is noted at
+that click (`SaveWhyNSPanel.onTakingKey`) and gets it back on Save, Return, Esc or a newer bookmark
+(`SaveWhyPresenting.hide(returnFocus:)`: `NSApp.yieldActivation(to:)` then `activate(from:)`); a click elsewhere leaves
+the keyboard where the person put it.
+*The star on a page already saved* ("Touching the star, even if it's already bookmarked, keeps prompting me … It should
+just put the same Cicada prompt, but with the text already filled in"). The "Edit bookmark" bubble is the same window as
+"Bookmark added" and Chrome writes nothing, so neither bounds nor the file can tell which page it is. `SavedBookmarkLookup`
+asks Chrome for the front tab's URL through Apple Events **only when Automation of Chrome is already allowed**
+(`AEDeterminePermissionToAutomateTarget` with `askUserIfNeeded` false — never the prompt, which still comes only from
+Remove bookmark…; **owner ruling 2026-10-19**: the prefill reads Chrome's front-tab URL only when Automation is already
+allowed, never prompting), right after the star click opened the bubble; the URL is matched exactly against what Chrome's file held
+before the click (the diff's baseline) and the Store's `chrome-bookmark` records, and is never stored, logged or posted.
+A match turns the pending panel into that bookmark's (`SaveWhyCenter.adopt`, confirmed — Cicada holds it): its newest
+answer's chips and words filled in ("Already saved · <title>", "Already saved. Change anything, or click anywhere else to
+keep it."). Leaving unchanged writes nothing; a change is one `PUT /sources/saved-why` of that answer (by its `at`, held
+through a 409 like any answer), never a new answer or a second save; an emptied answer is never written as a deletion; a
+retired reason or a project the panel cannot show is kept. A saved bookmark never answered asks as usual and posts a first
+answer for that save's own moment. Remove in Chrome's bubble withdraws it, writing nothing. Without the Automation grant
+the star on a saved page still opens the pending question, which leaves on its own unless touched.
 
 **Bookmarks in the menu bar (G191 v3).** The status menu's **Bookmarks…** (⌘B) opens `BookmarkHistoryController`, a
 Maccy-like panel under the status item (borderless, key without activating the app, closed by Esc, a click elsewhere or

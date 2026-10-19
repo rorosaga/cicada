@@ -241,6 +241,53 @@ def test_the_person_edits_one_answer_and_keeps_the_others(tmp_path, monkeypatch)
     assert "Cicada-Author: user" in log and saved_why.TRIGGER in log
 
 
+def _commits(memory) -> int:
+    out = subprocess.run(["git", "-C", str(memory), "rev-list", "--count", "HEAD"], capture_output=True, text=True)
+    return int(out.stdout.strip() or 0) if out.returncode == 0 else 0
+
+
+def test_the_panels_edit_that_changes_nothing_writes_nothing(tmp_path, monkeypatch):
+    """2026-10-19 (owner: the star on a page already saved opens the same panel, filled in): closing it unchanged must
+    leave the record as it was — no `editedAt`, no rewrite, no commit, not queued for Sleep again."""
+    memory = _bank(tmp_path, git=True)
+    item, client = _saved(memory, monkeypatch)
+    said = _at(10)
+    assert client.post("/sources/saved-why", json={"url": C["url"], "reasons": ["design", "someday"],
+                                                   "text": "their onboarding", "at": said}).status_code == 200
+    path = memory / "episodes" / f"{item['episode_id']}.md"
+    before, commits = path.read_text(), _commits(memory)
+    r = client.put("/sources/saved-why", json={"url": C["url"], "at": said, "reasons": ["someday", "design"],
+                                               "text": "  their   onboarding "})
+    assert r.status_code == 200, r.text
+    assert r.json()["savedWhy"]["editedAt"] is None
+    assert path.read_text() == before
+    assert _commits(memory) == commits
+
+
+def test_the_panels_edit_updates_that_answer_as_the_person_and_never_adds_a_save(tmp_path, monkeypatch):
+    """The update path the panel uses for a bookmark already saved: the same writer (`saved_why.edit`), the answer
+    changed in place, committed as the person; the link keeps one answer and one episode."""
+    memory = _bank(tmp_path, git=True)
+    item, client = _saved(memory, monkeypatch)
+    said = _at(10)
+    client.post("/sources/saved-why", json={"url": C["url"], "reasons": ["design"], "at": said,
+                                            "addedAt": item["added_at"]})
+    episodes = sorted(p.name for p in (memory / "episodes").glob("*.md"))
+    r = client.put("/sources/saved-why", json={"url": C["url"], "at": said, "reasons": ["design", "read_later"],
+                                               "text": "for the pricing table"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(body["history"]) == 1
+    assert body["savedWhy"]["reasons"] == ["design", "read_later"] and body["savedWhy"]["editedAt"]
+    assert body["savedWhy"]["at"] == said and body["savedWhy"]["addedAt"] == item["added_at"]
+    assert sorted(p.name for p in (memory / "episodes").glob("*.md")) == episodes   # never a second save
+    fm = markdown_parser.parse(memory / "episodes" / f"{item['episode_id']}.md").frontmatter
+    assert saved_why.EARLIER_KEY not in fm
+    log = subprocess.run(["git", "-C", str(memory), "log", "-1", "--format=%B"], capture_output=True, text=True,
+                         check=True).stdout
+    assert "Cicada-Author: user" in log and saved_why.TRIGGER in log
+
+
 @pytest.mark.parametrize("body,status", [
     ({"url": C["url"], "at": "2026-01-01T00:00:00Z", "reasons": ["design"]}, 404),   # no answer at that time
     ({"url": C["url"], "at": "whenever", "reasons": ["design"]}, 422),

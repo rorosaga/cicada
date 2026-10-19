@@ -40,14 +40,12 @@ final class BookmarksV4Tests: XCTestCase {
 
     // MARK: - A few basic reasons
 
-    func testThePanelOffersFourBasicReasonsInTwoFixedRowsAndNoProject() {
+    func testThePanelOffersFourBasicReasonsAndNoProject() {
         let basic = SavedWhyOptions.basic
         // The backend's `saved_why.REASONS`, keys and words alike (api/tests/test_bookmarks_v4.py pins its side).
         XCTAssertEqual(basic.reasons.map(\.key), ["design", "product", "read_later", "someday"])
         XCTAssertEqual(basic.reasons.map(\.label), ["The design", "The product", "To read later", "Useful someday"])
         XCTAssertTrue(basic.projects.isEmpty)
-        XCTAssertEqual(SaveWhyPanelLayout.rows(basic.reasons).map { $0.map(\.key) },
-                       [["design", "product"], ["read_later", "someday"]])
         XCTAssertEqual(Copy.SaveWhy.placeholder, "Something else…")
         XCTAssertEqual(SaveWhyPreview.sampleOptions, basic, "the preview shows what a real question shows")
 
@@ -387,18 +385,23 @@ final class BookmarksV4Tests: XCTestCase {
                       addedAt: ISO8601DateFormatter().string(from: Date()))
     }
 
-    /// Review 2026-10-15: the backend agreeing about another link on the same browser never takes over the answer
-    /// given about the link the diff named — the panel withdraws (or the held answer is dropped) and nothing is kept.
+    /// Review 2026-10-15: the backend agreeing about another link never takes over the answer given about the link the
+    /// diff named. Review 2026-10-19: and never drops it either — an answer bound to its own link waits for that
+    /// link's sync; an untouched panel withdraws.
     func testTheBackendsLinkMustBeTheOneTheDiffNamed() async {
+        let (untouched, _, _) = center()
+        untouched.candidate(saved("https://alpha.example/a"))
+        await untouched.noticed(look(saved("https://beta.example/b")), live: true, early: 1)
+        XCTAssertEqual(untouched.lastOutcome, .withdrawn)
+
         let (first, _, api) = center()
         first.candidate(saved("https://alpha.example/a"))
         first.send(.tapReason("design"))
         await first.noticed(look(saved("https://beta.example/b")), live: true, early: 1)
-        XCTAssertEqual(first.lastOutcome, .withdrawn)
-        XCTAssertFalse(first.isShowing)
+        XCTAssertTrue(first.isShowing, "a touched panel stays")
         XCTAssertFalse(first.confirmed)
 
-        // The panel left with an answer before the backend spoke: a different link drops it.
+        // The panel left with an answer before the backend spoke: another link never takes it, nor drops it.
         let (held, _, heldAPI) = center()
         held.candidate(saved("https://alpha.example/a"))
         held.send(.tapReason("product"))
@@ -407,8 +410,12 @@ final class BookmarksV4Tests: XCTestCase {
         await held.noticed(look(saved("https://beta.example/b")), live: true, early: 1)
         XCTAssertNil(held.unconfirmedAnswer)
         await held.settle()
-        let heldPosts = await heldAPI.posts
+        var heldPosts = await heldAPI.posts
         XCTAssertTrue(heldPosts.isEmpty, "never posted against another link")
+        XCTAssertEqual(held.heldCount, 1, "kept for its own link")
+        await held.syncLanded(look(saved("https://alpha.example/a")))
+        heldPosts = await heldAPI.posts
+        XCTAssertEqual(heldPosts, ["https://alpha.example/a"], "posted to its own link once its sync lands")
 
         // The same link binds and posts.
         let (same, _, sameAPI) = center()

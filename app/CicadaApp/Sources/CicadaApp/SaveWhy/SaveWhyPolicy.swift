@@ -37,11 +37,8 @@ enum SaveWhyPolicy {
     static let sameLinkGuard: TimeInterval = 60
     /// How long an unanswered question stays before it leaves on its own.
     static let askTimeout: TimeInterval = 12
-    /// G191 v3 — after a tap, how long the panel waits for the next input before it keeps what was chosen and leaves.
-    /// Long enough for a second and third tap and a reach for the field; Save or Return is quicker.
-    static let answerIdle: TimeInterval = 10
-    /// Once words are typed, how long the panel waits between keystrokes before it keeps them and leaves.
-    static let writingIdle: TimeInterval = 45
+    /// (G191 v3's `answerIdle`/`writingIdle` are gone, owner 2026-10-19: once the person touches the panel no timer
+    /// closes it — dictation types nothing for many seconds, then everything at once.)
     /// G191 v3 — how long a pending panel (opened on Chrome's bookmark bubble) waits for the bookmark: Chrome writes
     /// 2.5 s after the click, the watch settles 0.3 s, the read and the look take well under a second. Past this,
     /// no bookmark came (the bubble was another one), and the panel withdraws, keeping nothing.
@@ -51,6 +48,9 @@ enum SaveWhyPolicy {
     /// G191 live — how long after the panel appears a click on it still counts as aimed at what was beneath it
     /// (`SaveWhyCenter.input`). Inside the grow (`CicadaMotion`'s notch spring) and well under a deliberate reach.
     static let armDelay: TimeInterval = 0.5
+    /// 2026-10-19 — after the person's click inside Chrome's bookmark bubble, when to look (once) whether it closed:
+    /// Done closes it, and the panel leaves with it; a click in its name field keeps both.
+    static let bubbleCloseCheck: TimeInterval = 0.25
     /// G191 live — the budget from the browser writing its bookmark file to the panel on screen.
     static let showBudget: TimeInterval = 2
 

@@ -305,6 +305,11 @@ def edit(memory_path: Path, *, url: str, at: str, answer: Answer, bank: str | No
         for i, r in enumerate(records):
             if str(r.get("at") or "") == at:
                 new = _record(answer, at=at, added_at=r.get("added_at"))
+                if _same_words(r, new):
+                    # 2026-10-19 (owner: the star on a saved page opens the same panel, filled in): an edit that
+                    # changes nothing writes nothing — no `edited_at`, no rewrite, no commit, not queued for Sleep.
+                    found["record"] = r
+                    break
                 new["edited_at"] = episode_ids.utc_now_seconds()
                 records[i] = new
                 found["record"] = new
@@ -321,6 +326,13 @@ def edit(memory_path: Path, *, url: str, at: str, answer: Answer, bank: str | No
     return {"episode_id": episode_id, "media_entity_id": media_entity_id, "changed": changed,
             "saved_why": wire(found["record"], added_at=episode_added),
             "history": history_wire(found.get("records") or [], added_at=episode_added)}
+
+
+def _same_words(stored: dict, new: dict) -> bool:
+    """Whether an edit leaves an answer as it was: the same reasons (any order), project and words."""
+    return (set(stored.get("reasons") or []) == set(new.get("reasons") or [])
+            and (stored.get("project") or None) == (new.get("project") or None)
+            and (stored.get("text") or None) == (new.get("text") or None))
 
 
 def _added(fm: dict) -> str | None:

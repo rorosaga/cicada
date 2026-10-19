@@ -335,6 +335,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   asking in words — Chrome through Apple Events (the Automation prompt only then), never Safari, never the backend; it
   sees Chrome's bookmark bubble from window bounds alone (no title, no permission), read only in the moment after the
   person's own click in a frontmost Chrome — never on a steady timer (G191 v4) — and posts no answer until a sync confirms the bookmark (`app.md`).
+  An answer given is never dropped for a dismissal or a late sync, and a touched panel closes only on the person's act;
+  the star on a saved page reads Chrome's front-tab URL only when Automation is already allowed, never prompting (2026-10-19).
 - **Copy is provider-neutral** (owner, 2026-09-30): never name a provider or model as the one doing a job — describe the
   step; a name appears only where it shows the person's own current choice.
 - **Prices and plan usage show only on the Sleep page's Past reads run detail and engine menu** (ruling 12, surface

@@ -162,7 +162,9 @@ project (an edit may keep an archived one).
 
 **G191 v3 bookmark writes** (both 409 in a demo bank and while Sleep holds the pages, both committed alone as
 `Cicada-Author: user`): `PUT /sources/saved-why` `{url, at, reasons[], project?, text?}` changes the one answer given at
-`at` (404 when there is none; its `at` and `addedAt` kept, `editedAt` stamped); `POST /sources/bookmarks/remove`
+`at` (404 when there is none; its `at` and `addedAt` kept, `editedAt` stamped; 2026-10-19: an edit that changes nothing —
+the same reasons in any order, project and words — writes nothing, stamps nothing and commits nothing, so the panel the
+star opens on a saved page can be left as it was); `POST /sources/bookmarks/remove`
 `{url}` archives the link's media page (never deleted) and stamps its episode `source_deleted_at` (trigger
 `user/bookmark_remove`; 404 for a link not held, idempotent). `POST /sources/saved-why` gained `addedAt` (the moment of
 saving it answers) and answers with `history`. The app reaches both through `Store.perform` (`SavedWhyWrite`,
