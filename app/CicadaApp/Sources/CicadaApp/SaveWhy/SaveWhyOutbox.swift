@@ -33,6 +33,8 @@ struct SaveWhyOutbox {
         var awaiting: Bool? = nil
         /// An edit of the answer said at this time (the star on a page already saved), not a new answer.
         var editAt: String? = nil
+        /// The memory it was given in (2026-10-19, the split-brain rule): sent only while that memory is active.
+        var bank: String? = nil
 
         var isAwaiting: Bool { awaiting == true }
     }
@@ -46,10 +48,11 @@ struct SaveWhyOutbox {
         case drop
     }
 
-    /// What a failed post means for the held answer.
-    static func verdict(for error: Error) -> Verdict {
+    /// What a failed post means for the held answer. A 404 on an edit is final (the answer it names is gone, a sync
+    /// will not bring it back); on a new answer it means the link is not saved yet.
+    static func verdict(for error: Error, editing: Bool = false) -> Verdict {
         if case APIError.httpError(let code, _) = error {
-            if code == 404 { return .waitForSync }
+            if code == 404 { return editing ? .drop : .waitForSync }
             return code == 409 || code == 401 || code == 408 || code == 429 || code >= 500 ? .hold : .drop
         }
         if case APIError.serverUnreachable = error { return .hold }
@@ -79,11 +82,16 @@ struct SaveWhyOutbox {
 
     func remove(_ entry: Entry) { entries = entries.filter { $0 != entry } }
 
-    /// A sync of `channel` landed: every answer awaiting it may go now.
-    func release(channel: String) {
-        guard entries.contains(where: { $0.isAwaiting && $0.channel == channel }) else { return }
-        entries = entries.map { var e = $0; if e.isAwaiting && e.channel == channel { e.awaiting = nil }; return e }
+    /// A sync of `channel` landed: every answer awaiting it may go now — except one still waiting to learn whether
+    /// its bookmark was removed in the bubble (`except`).
+    func release(channel: String, except: String? = nil) {
+        let releasable: (Entry) -> Bool = { $0.isAwaiting && $0.channel == channel && $0.url != except }
+        guard entries.contains(where: releasable) else { return }
+        entries = entries.map { var e = $0; if releasable(e) { e.awaiting = nil }; return e }
     }
+
+    /// Whether an answer given at `at` about `url` is already held.
+    func holds(url: String, at: Date) -> Bool { entries.contains { $0.url == url && $0.at == at } }
 
     /// The backend agreed about `url`: its awaiting answers may go now.
     func release(url: String) {
@@ -91,7 +99,7 @@ struct SaveWhyOutbox {
         entries = entries.map { var e = $0; if e.isAwaiting && e.url == url { e.awaiting = nil }; return e }
     }
 
-    /// The backend named another link than the one this answer is about (review 2026-10-15): never posted.
+    /// The bookmark this answer is about was removed in the browser's bubble: never posted.
     func discardAwaiting(url: String) { entries = entries.filter { !($0.isAwaiting && $0.url == url) } }
 
     func expired(_ entry: Entry, now: Date) -> Bool { now.timeIntervalSince(entry.at) > Self.maxAge }

@@ -372,6 +372,8 @@ struct CicadaApp: App {
                     }
                     // 2026-10-19 — a click inside Chrome's own bubble is not leaving, unless it closed it (Done).
                     saveWhy.bubbleOpen = { [bookmarkBubbles] in bookmarkBubbles.lastBubbleStillOpen() }
+                    // The split-brain rule: a held answer is sent only while the memory it was given in is active.
+                    saveWhy.activeBank = { [store] in store.bank }
                     // The star on a page already saved opens that bookmark's answer, filled in — only when Automation
                     // of Chrome is already allowed (never asked here; `SavedBookmarkLookup`).
                     saveWhy.existing = { [store] channel in

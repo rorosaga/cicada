@@ -305,10 +305,12 @@ final class SaveWhyKeepsTests: XCTestCase {
     }
 
     /// A click inside Chrome's own bookmark bubble is the person working there, not leaving; one that closed the
-    /// bubble (Done) leaves too, keeping the answer.
+    /// bubble leaves too. Done and Remove look the same from bounds, so the answer waits to learn which: no removal in
+    /// the file (Done writes nothing) sends it; a removal (Remove) drops it.
     func testAClickInsideChromesBubbleIsNotLeavingUnlessItClosedIt() async throws {
         let api = KeepsFakeAPI()
         let center = center(api)
+        center.removalWait = 0.1
         var bubbleShows = true
         var looks = 0
         center.bubbleOpen = { looks += 1; return bubbleShows }
@@ -323,11 +325,109 @@ final class SaveWhyKeepsTests: XCTestCase {
         XCTAssertEqual(looks, 1, "one look, right after the click")
         bubbleShows = false
         center.click(at: CGPoint(x: 1400, y: 280))              // Done
-        try await Task.sleep(for: .seconds(SaveWhyPolicy.bubbleCloseCheck + 0.15))
+        try await Task.sleep(for: .seconds(SaveWhyPolicy.bubbleCloseCheck + 0.05))
+        XCTAssertFalse(center.isShowing, "the bubble closed, and the panel with it")
+        var posts = await api.posts
+        XCTAssertTrue(posts.isEmpty, "held until the file says Done or Remove")
+        try await Task.sleep(for: .seconds(0.3))                // no removal came: it was Done
         await center.settle()
-        XCTAssertFalse(center.isShowing, "Done closed the bubble, and the panel with it")
-        let posts = await api.posts
+        posts = await api.posts
         XCTAssertEqual(posts.map(\.answer), [SavedWhyAnswer(reasons: ["design"])])
+    }
+
+    /// Review 2026-10-19 — Remove pressed inside Chrome's bubble: the panel closes with the bubble, and once Chrome's
+    /// file shows the bookmark gone the answer is dropped, never posted — confirmed, unconfirmed or an edit alike.
+    func testRemoveInsideTheBubbleNeverPostsTheAnswer() async throws {
+        for kind in ["confirmed", "unconfirmed", "edit"] {
+            defaults = UserDefaults(suiteName: "SaveWhyKeepsTests.\(UUID().uuidString)")!
+            let api = KeepsFakeAPI()
+            let bubble = CGRect(x: 1000, y: 80, width: 448, height: 224)
+            let center: SaveWhyCenter
+            if kind == "edit" {
+                center = try await openOnSaved(api, answer: SavedWhyAnswer(reasons: ["design"]))
+                center.bubbleSeen(channel: channel, frame: bubble)   // a second star click: the same panel
+            } else {
+                center = self.center(api)
+                center.bubbleSeen(channel: channel, frame: bubble)
+                center.candidate(named())
+                if kind == "confirmed" { await center.noticed(look([named()]), live: true, early: 1) }
+            }
+            center.removalWait = 0.2
+            center.bubbleOpen = { false }
+            center.input(.tapReason("product"))
+            center.click(at: CGPoint(x: 1050, y: 280))          // Remove
+            try await Task.sleep(for: .seconds(SaveWhyPolicy.bubbleCloseCheck + 0.05))
+            XCTAssertFalse(center.isShowing, kind)
+            center.bookmarkRemoved(on: channel)                  // Chrome writes the file without it
+            await center.syncLanded(look([]))
+            try await Task.sleep(for: .seconds(0.3))
+            await center.settle()
+            let posts = await api.posts, edits = await api.edits
+            XCTAssertTrue(posts.isEmpty && edits.isEmpty, "\(kind): a removed bookmark's answer is never sent")
+            XCTAssertEqual(center.heldCount, 0, kind)
+        }
+    }
+
+    // MARK: - Review 2026-10-19
+
+    /// The blocker: an answer given on the pending panel (Chrome's bubble seen, its file not written yet) and the panel
+    /// closed before the diff named the link. Both orders the reviewer probed now post it once its sync lands.
+    func testAPendingAnswerClosedBeforeTheFileIsKeptInBothOrders() async {
+        for order in ["confirmed", "unconfirmed in time"] {
+            defaults = UserDefaults(suiteName: "SaveWhyKeepsTests.\(UUID().uuidString)")!
+            let api = KeepsFakeAPI()
+            let center = center(api)
+            center.bubbleSeen(channel: channel)
+            center.input(.tapReason("design"))
+            center.input(.clickOutside)                          // closed with no link named yet
+            center.candidate(named())                            // Chrome writes; the diff names it
+            if order == "confirmed" {
+                await center.noticed(look([named()]), live: true, early: 1)
+            } else {
+                center.withdraw(reason: "no confirmation in time")
+            }
+            await center.settle()
+            await center.syncLanded(look([]))
+            let posts = await api.posts
+            XCTAssertEqual(posts.map(\.url), [link], order)
+            XCTAssertEqual(posts.map(\.answer), [SavedWhyAnswer(reasons: ["design"])], order)
+            XCTAssertEqual(center.heldCount, 0, order)
+        }
+    }
+
+    /// The split-brain rule: a held answer carries the memory it was given in and goes only while that memory is
+    /// active.
+    func testAHeldAnswerGoesOnlyToTheMemoryItWasGivenIn() async {
+        let api = KeepsFakeAPI()
+        await api.fail(with: [APIError.httpError(409, "{\"code\":\"sleep_writing\"}")])
+        let center = center(api)
+        var bank = "alpha-memory"
+        center.activeBank = { bank }
+        await center.noticed(look([named()]), live: true)
+        center.input(.tapReason("someday"))
+        center.input(.clickOutside)
+        await center.settle()
+        XCTAssertEqual(SaveWhyOutbox(defaults: defaults).entries.first?.bank, "alpha-memory")
+        bank = "beta-memory"
+        await center.retryHeld()
+        var posts = await api.posts
+        XCTAssertTrue(posts.isEmpty, "never sent while another memory is active")
+        bank = "alpha-memory"
+        await center.retryHeld()
+        posts = await api.posts
+        XCTAssertEqual(posts.map(\.answer), [SavedWhyAnswer(reasons: ["someday"])])
+    }
+
+    /// A 404 on an edit is final: the answer it names is gone, and no sync brings it back.
+    func testANotFoundEditIsNotRetried() async throws {
+        let api = KeepsFakeAPI()
+        let center = try await openOnSaved(api, answer: SavedWhyAnswer(reasons: ["design"]))
+        await api.fail(with: [APIError.httpError(404, "There's no answer from that time to change")])
+        center.input(.tapReason("read_later"))
+        center.input(.clickOutside)
+        await center.settle()
+        XCTAssertEqual(center.heldCount, 0)
+        XCTAssertEqual(SaveWhyOutbox.verdict(for: APIError.httpError(404, ""), editing: true), .drop)
     }
 
     // MARK: - 3. The star on a page already saved

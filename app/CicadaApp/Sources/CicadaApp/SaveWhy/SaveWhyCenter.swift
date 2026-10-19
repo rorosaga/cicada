@@ -189,6 +189,15 @@ final class SaveWhyCenter {
     /// A touched pending panel whose browser saved no new bookmark: it stays (only the person closes it), and says
     /// there is nothing to keep its answer with.
     private(set) var noBookmark = false
+    /// The memory on screen (the split-brain rule): a held answer is stamped with it and sent only while it is active.
+    @ObservationIgnored var activeBank: (@MainActor () -> String?)?
+    /// Review 2026-10-19 — the panel closed because a click inside Chrome's bubble closed the bubble: Done or Remove,
+    /// which bounds alone cannot tell apart. Its answer is held until the file shows whether the bookmark survived:
+    /// a removal drops it (`bookmarkRemoved`), none within `SaveWhyPolicy.pendingBound` lets it go.
+    @ObservationIgnored private(set) var removalWatch: (url: String, channel: String, confirmed: Bool)?
+    @ObservationIgnored private var leavingByBubble = false
+    /// How long a held answer waits to learn whether the bubble's click was Remove (tests shorten it).
+    @ObservationIgnored var removalWait: TimeInterval = SaveWhyPolicy.pendingBound
     /// The open panel is a bookmark Cicada already holds (the star on a saved page), adopted by `adopt`.
     @ObservationIgnored private(set) var onSaved = false
 
@@ -289,6 +298,11 @@ final class SaveWhyCenter {
     func bubbleSeen(channel: String, frame: CGRect? = nil) {
         guard prefs.enabled else { return }
         if isShowing {
+            if onSaved, state?.channel == channel {
+                // The star again on the saved page it is open for: the same panel, with this bubble's frame.
+                if let frame { bubbleFrame = frame }
+                return
+            }
             if state?.isWriting == true { return }   // never interrupt words
             if !confirmed, state?.channel == channel {
                 // Already waiting on this browser (G191 v4, measured: "Edit bookmark", Remove, then "Bookmark added"
@@ -350,6 +364,8 @@ final class SaveWhyCenter {
         }
         if unconfirmedAnswer?.channel == item.channel {
             if unconfirmedAnswer?.url == nil { unconfirmedAnswer?.url = item.url }   // the pending answer's link
+            // Review 2026-10-19 (blocker): the answer is now about a link — held at once, awaiting its sync.
+            holdUnconfirmed(url: unconfirmedAnswer?.url ?? item.url, addedAt: item.addedAt, channel: item.channel)
             armBound(SaveWhyPolicy.confirmBound)   // the panel closed with an answer: wait for the backend with it
             return
         }
@@ -434,18 +450,34 @@ final class SaveWhyCenter {
             }
         }
         if let held = unconfirmedAnswer {
-            if force, let url = held.url { outbox.discardAwaiting(url: url) }
-            if held.url == nil || force {
+            if let url = held.url, !force {
+                holdUnconfirmed(url: url, addedAt: nil, channel: held.channel)   // bound to its own link: kept
+            } else {
+                if force, let url = held.url { outbox.discardAwaiting(url: url) }
                 SaveWhyTimings.logger.info("save-why: an answer with no bookmark to keep it with was not kept")
             }
         }
         unconfirmedAnswer = nil
     }
 
+    /// The closed unconfirmed panel's answer, held for `url` awaiting its sync — once (the run's own hold may have
+    /// done it already).
+    private func holdUnconfirmed(url: String, addedAt: String?, channel: String) {
+        guard let held = unconfirmedAnswer, !outbox.holds(url: url, at: held.at) else { return }
+        outbox.hold(SaveWhyOutbox.Entry(url: url, answer: held.answer, at: held.at, addedAt: addedAt, channel: channel,
+                                        awaiting: true, bank: activeBank?()))
+    }
+
     /// G191 v4 — Chrome wrote its file with a bookmark gone and none new: the pending panel's bubble was the "Edit
     /// bookmark" bubble and the person pressed Remove. The pending panel withdraws at once, keeping nothing; a re-add
     /// after it opens its own bubble and its own panel.
     func bookmarkRemoved(on channel: String) {
+        if let watch = removalWatch, watch.channel == channel {
+            // Remove, not Done, closed Chrome's bubble: the answer about that bookmark is never sent.
+            outbox.discardAwaiting(url: watch.url)
+            removalWatch = nil
+            SaveWhyTimings.logger.info("save-why: the bookmark was removed in the bubble; its answer was not kept")
+        }
         guard isShowing, state?.channel == channel else { return }
         if onSaved {
             // The star on a saved page, then Remove (2026-10-19): the removal path applies — nothing is written here.
@@ -466,7 +498,9 @@ final class SaveWhyCenter {
         let named = isShowing && !confirmed && state?.channel == item.channel ? state?.item?.url
                                                                              : unconfirmedAnswer?.url
         if let named, named != item.url {
-            withdraw(force: true, reason: "another link")
+            // Review 2026-10-19: the backend agreeing about another link never binds this answer to it — and never
+            // drops an answer already bound to its own link: that one waits for its own sync.
+            withdraw(reason: "another link")
             return
         }
         bound?.cancel()
@@ -479,20 +513,20 @@ final class SaveWhyCenter {
         }
         confirmed = true
         if let held = unconfirmedAnswer, held.channel == item.channel {
+            holdUnconfirmed(url: held.url ?? item.url, addedAt: item.addedAt, channel: item.channel)
             unconfirmedAnswer = nil
-            if held.url == nil {
-                outbox.hold(SaveWhyOutbox.Entry(url: item.url, answer: held.answer, at: held.at, addedAt: item.addedAt,
-                                                channel: item.channel))
-            }
         }
-        outbox.release(url: item.url)
+        if removalWatch?.url == item.url { removalWatch?.confirmed = true } else { outbox.release(url: item.url) }
         posting = Task { @MainActor [weak self] in await self?.retryHeld() }
     }
 
     /// A bookmark sync landed (the watch's, a catch-up or Sync now): every answer awaiting that browser's sync may go
     /// now, and every held one is tried again — the link it is about may only just have been saved.
     func syncLanded(_ result: BookmarkSyncResult) async {
-        for channel in Set(result.sources.compactMap(\.channel)) { outbox.release(channel: channel) }
+        for channel in Set(result.sources.compactMap(\.channel)) {
+            if removalWatch?.channel == channel { removalWatch?.confirmed = true }
+            outbox.release(channel: channel, except: removalWatch?.channel == channel ? removalWatch?.url : nil)
+        }
         await retryHeld()
     }
 
@@ -509,8 +543,11 @@ final class SaveWhyCenter {
             try? await Task.sleep(for: .seconds(SaveWhyPolicy.bubbleCloseCheck))
             guard let self, self.isShowing, self.bubbleFrame == bubbleFrame else { return }
             if !bubbleOpen() {
+                // Done or Remove — bounds cannot tell which: leave, holding the answer until the file says.
                 self.bubbleFrame = nil
+                self.leavingByBubble = true
                 self.input(.clickOutside)
+                self.leavingByBubble = false
             }
         }
     }
@@ -615,24 +652,34 @@ final class SaveWhyCenter {
                 timer = nil
             case .post(let answer):
                 guard !previewing, let state else { continue }
+                let at = now()
+                if leavingByBubble, let item = state.item {
+                    if !confirmed { unconfirmedAnswer = (answer, at, state.channel, item.url) }
+                    holdUntilTheBubblesOutcome(SaveWhyOutbox.Entry(url: item.url, answer: answer, at: at,
+                                                                   addedAt: item.addedAt, channel: item.channel))
+                    continue
+                }
                 guard confirmed, let item = state.item else {
                     // G191 v3: not yet confirmed — never posted before the backend agrees. 2026-10-19: an answer about
                     // a link the diff named is held in the outbox at once, awaiting its sync, so neither a missing
                     // confirmation nor a quit loses it.
-                    unconfirmedAnswer = (answer, now(), state.channel, state.item?.url)
+                    unconfirmedAnswer = (answer, at, state.channel, state.item?.url)
                     if let item = state.item {
-                        outbox.hold(SaveWhyOutbox.Entry(url: item.url, answer: answer, at: now(), addedAt: item.addedAt,
-                                                        channel: item.channel, awaiting: true))
+                        holdUnconfirmed(url: item.url, addedAt: item.addedAt, channel: item.channel)
                     }
                     continue
                 }
-                let entry = SaveWhyOutbox.Entry(url: item.url, answer: answer, at: now(), addedAt: item.addedAt,
-                                                channel: item.channel)
+                let entry = SaveWhyOutbox.Entry(url: item.url, answer: answer, at: at, addedAt: item.addedAt,
+                                                channel: item.channel, bank: activeBank?())
                 posting = Task { @MainActor [weak self] in await self?.deliver(entry) }
             case .edit(let answer, let at):
                 guard !previewing, let item = state?.item else { continue }
                 let entry = SaveWhyOutbox.Entry(url: item.url, answer: answer, at: now(), addedAt: item.addedAt,
-                                                channel: item.channel, editAt: at)
+                                                channel: item.channel, editAt: at, bank: activeBank?())
+                if leavingByBubble {
+                    holdUntilTheBubblesOutcome(entry)
+                    continue
+                }
                 posting = Task { @MainActor [weak self] in await self?.deliver(entry) }
             case .mute(let host):
                 if !previewing { prefs.mute(host) }
@@ -645,13 +692,36 @@ final class SaveWhyCenter {
         }
     }
 
+    /// Review 2026-10-19 — a click inside Chrome's bubble closed it: Done keeps the bookmark, Remove deletes it, and
+    /// bounds alone cannot tell which. The answer is held, awaiting, until the file says: a removal on that browser
+    /// drops it (`bookmarkRemoved`); none within `SaveWhyPolicy.pendingBound` (Done writes nothing) lets it go — at
+    /// once when the bookmark was already confirmed, else with its sync.
+    private func holdUntilTheBubblesOutcome(_ entry: SaveWhyOutbox.Entry) {
+        var held = entry
+        held.awaiting = true
+        held.bank = activeBank?()
+        outbox.hold(held)
+        let url = entry.url
+        removalWatch = (url, entry.channel ?? "", confirmed)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(self?.removalWait ?? SaveWhyPolicy.pendingBound))
+            guard let self, let watch = self.removalWatch, watch.url == url else { return }
+            self.removalWatch = nil
+            if watch.confirmed {
+                self.outbox.release(url: url)
+                await self.retryHeld()
+            }
+        }
+    }
+
     /// Send one answer; a failure that may pass (Sleep writing, the backend away) holds it for `retryHeld`.
     private func deliver(_ entry: SaveWhyOutbox.Entry) async {
         do {
             try await send(entry)
         } catch {
-            // 2026-10-19: a 404 is "not saved yet" (its sync has not run), held for the next sync — never dropped.
-            if SaveWhyOutbox.verdict(for: error) != .drop { outbox.hold(entry) }
+            // 2026-10-19: a 404 is "not saved yet" (its sync has not run), held for the next sync — never dropped;
+            // on an edit it is final.
+            if SaveWhyOutbox.verdict(for: error, editing: entry.editAt != nil) != .drop { outbox.hold(entry) }
             else { SaveWhyTimings.logger.info("save-why: an answer was refused for good") }
         }
     }
@@ -689,11 +759,13 @@ final class SaveWhyCenter {
                 continue
             }
             if entry.isAwaiting { continue }   // no sync of its browser has landed since: never posted before one
+            // The split-brain rule: an answer given in another memory waits until that memory is active again.
+            if let bank = entry.bank, let active = activeBank?(), bank != active { continue }
             do {
                 try await send(entry)
                 outbox.remove(entry)
             } catch {
-                switch SaveWhyOutbox.verdict(for: error) {
+                switch SaveWhyOutbox.verdict(for: error, editing: entry.editAt != nil) {
                 case .waitForSync: continue   // the link is not saved yet: kept for the next sync
                 case .drop: outbox.remove(entry)
                 case .hold: return .stopped   // still refused (Sleep again, or away): wait for the next signal

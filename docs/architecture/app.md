@@ -666,7 +666,13 @@ the panel closes only on Save, Return, Esc, a newer bookmark, or a click outside
 keyboard to another app's floating window never closes it (nothing listens for it). A click inside Chrome's bookmark
 bubble (its frame from the watcher's own read, `BookmarkBubbleWatcher.lastBubble`) is the person working there: the panel
 stays, and one window-list read 0.25 s after that click (`SaveWhyPolicy.bubbleCloseCheck`, bounds only) tells whether it
-closed the bubble — Done — which closes the panel too, keeping the answer. *Typing and dictation land in the panel* (2026-10-19, after "the panel never takes focus from Chrome", so an
+closed the bubble — Done or Remove — which closes the panel too. Bounds cannot tell Done from Remove, so that answer (or
+edit) is held, awaiting, until Chrome's file says: a removal on that browser drops it (`bookmarkRemoved`), no removal
+within `pendingBound` (Done writes nothing) lets it go (`removalWatch`). Review 2026-10-19: an answer given on the pending
+panel and closed before Chrome wrote is held the moment the diff names its link (`holdUnconfirmed`); the backend
+agreeing about another link withdraws only an untouched panel and never drops an answer already bound to its own link
+(it waits for that link's sync); every held answer carries the memory it was given in and is sent only while that memory
+is active (the split-brain rule); a 404 on an edit is final. *Typing and dictation land in the panel* (2026-10-19, after "the panel never takes focus from Chrome", so an
 inserter that writes into the frontmost app's focused element wrote into Chrome): a click into the field makes the panel
 the **key window** — still a non-activating panel (`canBecomeKey` once clicked, `canBecomeMain` never), so Chrome stays
 the active app and no other Cicada window comes forward — and the field its first responder, which is what the key
