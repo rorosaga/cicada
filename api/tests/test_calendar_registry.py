@@ -638,7 +638,7 @@ def test_poll_calendars_records_unreachable_calendar_error_and_continues(tmp_pat
     assert calendars["https://unreachable.example.com/cal.ics"]["last_polled"] is not None
 
 
-# --- endpoints ---------------------------------------------------------------
+# --- endpoints (the ones the feed registry mirrors are in test_subscription_endpoints.py) -------------
 
 
 def _make_client(tmp_path, monkeypatch):
@@ -653,108 +653,8 @@ def _make_client(tmp_path, monkeypatch):
     return TestClient(main.app), memory
 
 
-def test_endpoint_subscribe_and_list(tmp_path, monkeypatch):
-    client, memory = _make_client(tmp_path, monkeypatch)
-
-    resp = client.post(
-        "/sources/calendars", json={"url": "https://a.example.com/cal.ics", "tags": ["work"]}
-    )
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["url"] == "https://a.example.com/cal.ics"
-
-    resp2 = client.get("/sources/calendars")
-    assert resp2.status_code == 200
-    body = resp2.json()
-    assert body["total"] == 1
-    assert body["calendars"][0]["url"] == "https://a.example.com/cal.ics"
-
-
 def test_endpoint_subscribe_accepts_webcal_and_normalizes(tmp_path, monkeypatch):
     client, _ = _make_client(tmp_path, monkeypatch)
     resp = client.post("/sources/calendars", json={"url": "webcal://a.example.com/cal.ics"})
     assert resp.status_code == 200, resp.text
     assert resp.json()["url"] == "https://a.example.com/cal.ics"
-
-
-def test_endpoint_subscribe_rejects_bad_url(tmp_path, monkeypatch):
-    client, _ = _make_client(tmp_path, monkeypatch)
-    resp = client.post("/sources/calendars", json={"url": "not-a-url"})
-    assert resp.status_code == 422
-
-
-def test_endpoint_subscribe_is_idempotent(tmp_path, monkeypatch):
-    client, _ = _make_client(tmp_path, monkeypatch)
-    client.post("/sources/calendars", json={"url": "https://a.example.com/cal.ics"})
-    client.post("/sources/calendars", json={"url": "https://a.example.com/cal.ics"})
-
-    resp = client.get("/sources/calendars")
-    assert resp.json()["total"] == 1
-
-
-def test_endpoint_unsubscribe(tmp_path, monkeypatch):
-    client, _ = _make_client(tmp_path, monkeypatch)
-    client.post("/sources/calendars", json={"url": "https://a.example.com/cal.ics"})
-
-    resp = client.request("DELETE", "/sources/calendars", json={"url": "https://a.example.com/cal.ics"})
-    assert resp.status_code == 200, resp.text
-
-    resp2 = client.get("/sources/calendars")
-    assert resp2.json()["total"] == 0
-
-
-def test_endpoint_unsubscribe_missing_returns_404(tmp_path, monkeypatch):
-    client, _ = _make_client(tmp_path, monkeypatch)
-    resp = client.request("DELETE", "/sources/calendars", json={"url": "https://nope.example.com/cal.ics"})
-    assert resp.status_code == 404
-
-
-def test_endpoint_poll_calendars_no_network_by_default(tmp_path, monkeypatch):
-    client, _ = _make_client(tmp_path, monkeypatch)
-    client.post("/sources/calendars", json={"url": "https://a.example.com/cal.ics"})
-
-    resp = client.post("/sources/poll-calendars")
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["polled"] == 0
-    assert body["skipped_no_network"] == 1
-
-
-def test_endpoint_poll_calendars_no_subscriptions(tmp_path, monkeypatch):
-    client, _ = _make_client(tmp_path, monkeypatch)
-    resp = client.post("/sources/poll-calendars")
-    assert resp.status_code == 200
-    assert resp.json() == {"polled": 0, "new": 0, "per_calendar": []}
-
-
-# --- G114 R2: one timestamp shape ---------------------------------------------
-
-
-def test_calendar_episode_timestamp_is_aware_utc(tmp_path):
-    """Writes ONE event straight through ``_write_calendar_episode`` — no ICS
-    window filtering, so this is not date-baked the way the ingest tests
-    above are. The ``timestamp`` must be aware UTC with an explicit
-    ``+00:00``, never the old naive-local ``isoformat() + "Z"``."""
-    from datetime import timezone
-
-    from api.services import markdown_parser
-
-    memory = _memory(tmp_path)
-    event = calendar_registry.ICSEvent(
-        uid="evt-1",
-        summary="Placeholder event",
-        dtstart_iso="2026-07-14T10:00:00+00:00",
-        dtend_iso="2026-07-14T11:00:00+00:00",
-        all_day=False,
-        location=None,
-        description=None,
-        sequence=0,
-        recurring=False,
-    )
-    ep_id = calendar_registry._write_calendar_episode(
-        memory / "episodes", event, "https://a.example.com/cal.ics"
-    )
-    ts = markdown_parser.parse(memory / "episodes" / f"{ep_id}.md").frontmatter["timestamp"]
-    assert isinstance(ts, str) and ts.endswith("+00:00"), ts
-    parsed = datetime.fromisoformat(ts)
-    assert parsed.tzinfo is not None
-    assert abs((datetime.now(timezone.utc) - parsed).total_seconds()) < 60

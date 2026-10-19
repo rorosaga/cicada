@@ -595,8 +595,11 @@ def _fresh_query_vector_cache():
 
 
 def pytest_configure(config):
+    # Also declared in api/pyproject.toml beside the `-m 'not bench'` addopts; kept here for a run from another rootdir.
     config.addinivalue_line(
         "markers", "crucial: guards a CLAUDE.md rail; the daily tier (`make test-crucial`, listed in crucial.txt)")
+    config.addinivalue_line(
+        "markers", "bench: a wall-clock budget or a benchmark run; `make test-bench` and `make test`, never the default run")
 
 
 def pytest_collection_modifyitems(config, items):
@@ -610,4 +613,7 @@ def pytest_collection_modifyitems(config, items):
         if inner:
             inner[-1] = inner[-1].split("[", 1)[0]
         if _crucial.is_crucial(item.path.name, tuple(inner), entries):
+            if item.get_closest_marker("bench") is not None:
+                # The daily tier never waits on a wall-clock budget (suite cut 3): a rail's guard asserts behaviour.
+                raise pytest.UsageError(f"crucial.txt names a `bench` test: {item.nodeid}")
             item.add_marker(pytest.mark.crucial)

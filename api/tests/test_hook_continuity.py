@@ -132,6 +132,7 @@ def test_a_held_registry_lock_never_costs_the_answer(client, bank, monkeypatch):
     assert row.refs["rendering"] == "pointer"
 
 
+@pytest.mark.bench   # a wall-clock budget with 2.7 s of real sleeps: `make test-bench`
 def test_a_slow_registry_still_answers_within_the_budget(client, bank, monkeypatch):  # noqa: F811
     real = continuity_sessions._write
 

@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from _demo_scenario import T, demo
+from _demo_scenario import T, build, demo
 from fastapi.testclient import TestClient
 
 from api import config, main
@@ -159,7 +159,7 @@ def test_every_url_is_example_com_or_a_licensed_public_item(bank):
 
 
 def test_the_showcase_is_deterministic(tmp_path):
-    a, b = demo(tmp_path / "a", index=False, showcase=True), demo(tmp_path / "b", index=False, showcase=True)
+    a, b = build(tmp_path / "a", index=False, showcase=True), build(tmp_path / "b", index=False, showcase=True)
     for sub in ("entities", "episodes", "inbox", "assets/pictures"):
         for p in sorted((a / sub).glob("*")):
             if p.stem == "bob-example":

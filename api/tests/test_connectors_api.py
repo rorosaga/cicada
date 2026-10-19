@@ -125,12 +125,15 @@ def test_credentials_land_in_secrets_env_with_0600(client):
     assert oct(path.stat().st_mode)[-3:] == "600"
 
 
-def test_unknown_field_names_are_rejected(client):
+@pytest.mark.parametrize("connector, field", [
+    ("pinterest", "OPENAI_API_KEY"),      # another integration's secret
+    ("x", x.TOKEN_ENV),                   # X's own token, which only the OAuth round trip may write
+])
+def test_unknown_field_names_are_rejected(client, connector, field):
     c, _ = client
-    resp = c.put("/sources/connectors/pinterest/credentials",
-                 json={"fields": {"OPENAI_API_KEY": "nope"}})
+    resp = c.put(f"/sources/connectors/{connector}/credentials", json={"fields": {field: "nope"}})
     assert resp.status_code == 422
-    assert not secrets.has_secret("OPENAI_API_KEY")
+    assert not secrets.has_secret(field)
 
 
 def test_saving_credentials_is_all_or_nothing_when_one_value_is_invalid(client):
@@ -195,15 +198,16 @@ def test_authorize_rejects_a_credentials_style_connector(client):
     assert "credentials" in resp.json()["detail"]
 
 
-def test_callback_rejects_an_unknown_state_without_exchanging(client, monkeypatch):
+@pytest.mark.parametrize("adapter", [pinterest, x], ids=["pinterest", "x"])
+def test_callback_rejects_an_unknown_state_without_exchanging(client, monkeypatch, adapter):
     c, _ = client
     called = []
 
-    async def fake_exchange(code, **kwargs):
-        called.append(code)
+    async def fake_exchange(*args, **kwargs):
+        called.append(args)
 
-    monkeypatch.setattr(pinterest, "exchange_code", fake_exchange)
-    resp = c.get("/sources/connectors/pinterest/callback?code=abc&state=forged")
+    monkeypatch.setattr(adapter, "exchange_code", fake_exchange)
+    resp = c.get(f"/sources/connectors/{adapter.CHANNEL_ID}/callback?code=abc&state=forged")
     assert resp.status_code == 400
     assert called == []
 
@@ -254,12 +258,14 @@ def test_callback_page_escapes_the_adapter_label(client, monkeypatch):
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in resp.text
 
 
-def test_callback_is_reachable_without_a_bearer_token():
+@pytest.mark.parametrize("connector", ["pinterest", "x"])
+def test_callback_is_reachable_without_a_bearer_token(connector):
     """The browser cannot send the API token, so this one route is open —
-    which is exactly why it is nonce-gated."""
+    which is exactly why it is nonce-gated. X's redirect lands in the
+    user's own browser too."""
     from api.services import auth
 
-    assert "/sources/connectors/pinterest/callback" in auth._OPEN_PATHS
+    assert f"/sources/connectors/{connector}/callback" in auth._OPEN_PATHS
 
 
 # --- X (Twitter): PKCE OAuth, no client secret --------------------------------
@@ -278,14 +284,6 @@ def test_saving_the_x_client_id_marks_it_present_but_not_yet_connected(client):
     assert body["fields"] == [{"name": x.CLIENT_ID_ENV, "label": "Client ID",
                                 "secret": False, "present": True}]
     assert "client-id-placeholder" not in resp.text
-
-
-def test_x_unknown_field_names_are_rejected(client):
-    c, _ = client
-    resp = c.put("/sources/connectors/x/credentials",
-                 json={"fields": {x.TOKEN_ENV: "forged-token"}})
-    assert resp.status_code == 422
-    assert not secrets.has_secret(x.TOKEN_ENV)
 
 
 def test_x_authorize_returns_a_url_with_a_pkce_challenge_and_arms_a_single_use_state(client):
@@ -308,19 +306,6 @@ def test_x_authorize_requires_the_client_id_first(client):
     c, _ = client
     resp = c.post("/sources/connectors/x/authorize")
     assert resp.status_code == 422
-
-
-def test_x_callback_rejects_an_unknown_state_without_exchanging(client, monkeypatch):
-    c, _ = client
-    called = []
-
-    async def fake_exchange(code, verifier, **kwargs):
-        called.append((code, verifier))
-
-    monkeypatch.setattr(x, "exchange_code", fake_exchange)
-    resp = c.get("/sources/connectors/x/callback?code=abc&state=forged")
-    assert resp.status_code == 400
-    assert called == []
 
 
 def test_x_callback_exchanges_once_with_the_stored_verifier_and_burns_the_state(client, monkeypatch):
@@ -364,14 +349,6 @@ def test_a_state_minted_for_one_oauth_connector_cannot_be_replayed_against_the_o
     assert called == []
 
 
-def test_x_callback_is_reachable_without_a_bearer_token():
-    """Same reasoning as Pinterest's callback — X's redirect lands in the
-    user's own browser too."""
-    from api.services import auth
-
-    assert "/sources/connectors/x/callback" in auth._OPEN_PATHS
-
-
 def test_the_exemption_never_widens_past_registered_oauth_adapters():
     """Fix round 1, M1: the positive assertions above only prove Pinterest and
     X are exempt — they say nothing about the exemption staying narrow. Every
@@ -391,88 +368,35 @@ def test_the_exemption_never_widens_past_registered_oauth_adapters():
     assert "/sources/connectors/pinterest/callback/../../banks" not in auth._OPEN_PATHS
 
 
-def test_x_disconnect_removes_every_credential(client):
-    c, _ = client
-    c.put("/sources/connectors/x/credentials",
-          json={"fields": {x.CLIENT_ID_ENV: "client-id-placeholder"}})
-    body = c.delete("/sources/connectors/x/credentials").json()
-    assert body["connected"] is False
-    assert all(f["present"] is False for f in body["fields"])
-
-
-def test_x_sync_now_runs_the_adapter_and_reports_resources_read(client, monkeypatch):
+@pytest.mark.parametrize("adapter, result", [
+    (pinterest, {"new": 3, "seen": 5}),
+    (reddit, {"new": 2, "seen": 3}),
+    (x, {"new": 2, "seen": 4, "resources_read": 4}),
+], ids=["pinterest", "reddit", "x"])
+def test_sync_now_runs_the_adapter_and_reports_counts(client, monkeypatch, adapter, result):
     c, _ = client
 
     async def fake_sync(memory_path, **kwargs):
-        return {"status": "ok", "reason": None, "new": 2, "seen": 4,
-                "resources_read": 4, "error": None}
+        return {"status": "ok", "reason": None, "error": None, **result}
 
-    monkeypatch.setattr(x, "sync", fake_sync)
-    body = c.post("/sources/connectors/x/sync").json()
+    monkeypatch.setattr(adapter, "sync", fake_sync)
+    body = c.post(f"/sources/connectors/{adapter.CHANNEL_ID}/sync").json()
     assert body["status"] == "ok"
-    assert body["new"] == 2
-    assert body["seen"] == 4
-    assert body["resourcesRead"] == 4
+    assert body["new"] == result["new"]
+    assert body["seen"] == result["seen"]
+    if "resources_read" in result:
+        assert body["resourcesRead"] == result["resources_read"]
 
 
-def test_x_credential_exchange_bumps_the_sources_sync_component(client, monkeypatch):
-    c, memory = client
-    c.put("/sources/connectors/x/credentials",
-          json={"fields": {x.CLIENT_ID_ENV: "client-id-placeholder"}})
-    state = c.post("/sources/connectors/x/authorize").json()["state"]
-
-    async def fake_exchange(code, **kwargs):
-        secrets.set_secret(x.TOKEN_ENV, "tok-abc")
-
-    monkeypatch.setattr(x, "exchange_code", fake_exchange)
-    before = sync_service.components(memory)["sources"]
-    resp = c.get(f"/sources/connectors/x/callback?code=abc&state={state}")
-    assert resp.status_code == 200, resp.text
-    after = sync_service.components(memory)["sources"]
-    assert after != before
-
-
-def test_sync_now_runs_the_adapter_and_reports_counts(client, monkeypatch):
+@pytest.mark.parametrize("connector, fields", [
+    ("pinterest", {pinterest.APP_ID_ENV: "client-id-placeholder"}),
+    ("reddit", {reddit.CLIENT_ID_ENV: "client-id-placeholder", reddit.USERNAME_ENV: "example_user"}),
+    ("x", {x.CLIENT_ID_ENV: "client-id-placeholder"}),
+])
+def test_disconnect_removes_every_credential(client, connector, fields):
     c, _ = client
-
-    async def fake_sync(memory_path, **kwargs):
-        return {"status": "ok", "reason": None, "new": 3, "seen": 5, "error": None}
-
-    monkeypatch.setattr(pinterest, "sync", fake_sync)
-    body = c.post("/sources/connectors/pinterest/sync").json()
-    assert body["status"] == "ok"
-    assert body["new"] == 3
-    assert body["seen"] == 5
-
-
-def test_reddit_sync_now_runs_the_adapter_and_reports_counts(client, monkeypatch):
-    c, _ = client
-
-    async def fake_sync(memory_path, **kwargs):
-        return {"status": "ok", "reason": None, "new": 2, "seen": 3, "error": None}
-
-    monkeypatch.setattr(reddit, "sync", fake_sync)
-    body = c.post("/sources/connectors/reddit/sync").json()
-    assert body["status"] == "ok"
-    assert body["new"] == 2
-    assert body["seen"] == 3
-
-
-def test_reddit_disconnect_removes_every_credential(client):
-    c, _ = client
-    c.put("/sources/connectors/reddit/credentials",
-          json={"fields": {reddit.CLIENT_ID_ENV: "client-id-placeholder",
-                           reddit.USERNAME_ENV: "example_user"}})
-    body = c.delete("/sources/connectors/reddit/credentials").json()
-    assert body["connected"] is False
-    assert all(f["present"] is False for f in body["fields"])
-
-
-def test_disconnect_removes_every_credential(client):
-    c, _ = client
-    c.put("/sources/connectors/pinterest/credentials",
-          json={"fields": {pinterest.APP_ID_ENV: "client-id-placeholder"}})
-    body = c.delete("/sources/connectors/pinterest/credentials").json()
+    c.put(f"/sources/connectors/{connector}/credentials", json={"fields": fields})
+    body = c.delete(f"/sources/connectors/{connector}/credentials").json()
     assert body["connected"] is False
     assert all(f["present"] is False for f in body["fields"])
 
@@ -487,40 +411,45 @@ def test_disconnect_removes_every_credential(client):
 # `sync_state.json`, which the "sources" component already watches.
 
 
-def test_saving_credentials_bumps_the_sources_sync_component(client):
+def _save(c, connector, fields):
+    return c.put(f"/sources/connectors/{connector}/credentials", json={"fields": fields})
+
+
+def _forget(adapter):
+    return lambda c, monkeypatch: lambda: c.delete(f"/sources/connectors/{adapter.CHANNEL_ID}/credentials")
+
+
+def _save_pinterest_app_id(c, monkeypatch):
+    return lambda: _save(c, "pinterest", {pinterest.APP_ID_ENV: "client-id-placeholder"})
+
+
+def _exchange(adapter, token_env):
+    """Arms a state; the action is the callback that exchanges it (the exchange itself faked)."""
+    def prepare(c, monkeypatch):
+        state = c.post(f"/sources/connectors/{adapter.CHANNEL_ID}/authorize").json()["state"]
+
+        async def fake_exchange(code, **kwargs):
+            secrets.set_secret(token_env, "tok-abc")
+
+        monkeypatch.setattr(adapter, "exchange_code", fake_exchange)
+        return lambda: c.get(f"/sources/connectors/{adapter.CHANNEL_ID}/callback?code=abc&state={state}")
+    return prepare
+
+
+@pytest.mark.parametrize("connector, saved_first, prepare", [
+    ("pinterest", {}, _save_pinterest_app_id),
+    ("pinterest", {pinterest.APP_ID_ENV: "client-id-placeholder"}, _forget(pinterest)),
+    ("pinterest", {pinterest.APP_ID_ENV: "client-id-placeholder", pinterest.APP_SECRET_ENV: "client-secret-placeholder"},
+     _exchange(pinterest, pinterest.TOKEN_ENV)),
+    ("x", {x.CLIENT_ID_ENV: "client-id-placeholder"}, _exchange(x, x.TOKEN_ENV)),
+], ids=["saving", "forgetting", "pinterest-token-exchange", "x-token-exchange"])
+def test_a_credential_change_bumps_the_sources_sync_component(client, monkeypatch, connector, saved_first, prepare):
     c, memory = client
+    if saved_first:
+        _save(c, connector, saved_first)
+    act = prepare(c, monkeypatch)
     before = sync_service.components(memory)["sources"]
-    resp = c.put("/sources/connectors/pinterest/credentials",
-                 json={"fields": {pinterest.APP_ID_ENV: "client-id-placeholder"}})
-    assert resp.status_code == 200, resp.text
-    after = sync_service.components(memory)["sources"]
-    assert after != before
-
-
-def test_forgetting_credentials_bumps_the_sources_sync_component(client):
-    c, memory = client
-    c.put("/sources/connectors/pinterest/credentials",
-          json={"fields": {pinterest.APP_ID_ENV: "client-id-placeholder"}})
-    before = sync_service.components(memory)["sources"]
-    resp = c.delete("/sources/connectors/pinterest/credentials")
-    assert resp.status_code == 200, resp.text
-    after = sync_service.components(memory)["sources"]
-    assert after != before
-
-
-def test_pinterest_token_exchange_bumps_the_sources_sync_component(client, monkeypatch):
-    c, memory = client
-    c.put("/sources/connectors/pinterest/credentials",
-          json={"fields": {pinterest.APP_ID_ENV: "client-id-placeholder",
-                           pinterest.APP_SECRET_ENV: "client-secret-placeholder"}})
-    state = c.post("/sources/connectors/pinterest/authorize").json()["state"]
-
-    async def fake_exchange(code, **kwargs):
-        secrets.set_secret(pinterest.TOKEN_ENV, "tok-abc")
-
-    monkeypatch.setattr(pinterest, "exchange_code", fake_exchange)
-    before = sync_service.components(memory)["sources"]
-    resp = c.get(f"/sources/connectors/pinterest/callback?code=abc&state={state}")
+    resp = act()
     assert resp.status_code == 200, resp.text
     after = sync_service.components(memory)["sources"]
     assert after != before

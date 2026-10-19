@@ -10,7 +10,7 @@ Covers:
   given and the network gate is closed;
 - a malformed/unreachable feed is recorded as an error, not raised, and
   polling continues with the remaining feeds;
-- the four ``/sources/feeds*`` endpoints via ``TestClient``.
+- the ``/sources/feeds*`` endpoints: ``test_subscription_endpoints.py`` (they mirror the calendars').
 
 Every test builds its own ``tmp_path`` workspace; the real ``memory/`` is
 never touched, and no test ever performs a real network call — ``fetch_fn``
@@ -21,8 +21,6 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
-
-import pytest
 
 from api.services import feed_registry, media_ingestor
 from api.services.media_ingestor import MediaMeta
@@ -424,89 +422,3 @@ def test_poll_feeds_records_unreachable_feed_error_and_continues(tmp_path, monke
     # last_polled is stamped even for the errored feed (we did attempt it).
     feeds = {f["url"]: f for f in feed_registry.list_feeds(memory)}
     assert feeds["https://unreachable.example.com/rss"]["last_polled"] is not None
-
-
-# --- endpoints ---------------------------------------------------------------
-
-
-def _make_client(tmp_path, monkeypatch):
-    from fastapi.testclient import TestClient
-
-    from api import config, main
-
-    _offline_enrich(monkeypatch)
-    memory = _memory(tmp_path)
-    monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
-    monkeypatch.delenv("CICADA_ALLOW_FEED_FETCH", raising=False)
-    config.get_settings.cache_clear()
-    return TestClient(main.app), memory
-
-
-def test_endpoint_subscribe_and_list(tmp_path, monkeypatch):
-    client, memory = _make_client(tmp_path, monkeypatch)
-
-    resp = client.post(
-        "/sources/feeds", json={"url": "https://a.example.com/rss", "tags": ["news"]}
-    )
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["url"] == "https://a.example.com/rss"
-
-    resp2 = client.get("/sources/feeds")
-    assert resp2.status_code == 200
-    body = resp2.json()
-    assert body["total"] == 1
-    assert body["feeds"][0]["url"] == "https://a.example.com/rss"
-
-
-def test_endpoint_subscribe_rejects_bad_url(tmp_path, monkeypatch):
-    client, _ = _make_client(tmp_path, monkeypatch)
-    resp = client.post("/sources/feeds", json={"url": "not-a-url"})
-    assert resp.status_code == 422
-
-
-def test_endpoint_subscribe_is_idempotent(tmp_path, monkeypatch):
-    client, _ = _make_client(tmp_path, monkeypatch)
-    client.post("/sources/feeds", json={"url": "https://a.example.com/rss"})
-    client.post("/sources/feeds", json={"url": "https://a.example.com/rss"})
-
-    resp = client.get("/sources/feeds")
-    assert resp.json()["total"] == 1
-
-
-def test_endpoint_unsubscribe(tmp_path, monkeypatch):
-    client, _ = _make_client(tmp_path, monkeypatch)
-    client.post("/sources/feeds", json={"url": "https://a.example.com/rss"})
-
-    resp = client.request(
-        "DELETE", "/sources/feeds", json={"url": "https://a.example.com/rss"}
-    )
-    assert resp.status_code == 200, resp.text
-
-    resp2 = client.get("/sources/feeds")
-    assert resp2.json()["total"] == 0
-
-
-def test_endpoint_unsubscribe_missing_returns_404(tmp_path, monkeypatch):
-    client, _ = _make_client(tmp_path, monkeypatch)
-    resp = client.request(
-        "DELETE", "/sources/feeds", json={"url": "https://nope.example.com/rss"}
-    )
-    assert resp.status_code == 404
-
-
-def test_endpoint_poll_feeds_no_network_by_default(tmp_path, monkeypatch):
-    client, _ = _make_client(tmp_path, monkeypatch)
-    client.post("/sources/feeds", json={"url": "https://a.example.com/rss"})
-
-    resp = client.post("/sources/poll-feeds")
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["polled"] == 0
-    assert body["skipped_no_network"] == 1
-
-
-def test_endpoint_poll_feeds_no_subscriptions(tmp_path, monkeypatch):
-    client, _ = _make_client(tmp_path, monkeypatch)
-    resp = client.post("/sources/poll-feeds")
-    assert resp.status_code == 200
-    assert resp.json() == {"polled": 0, "new": 0, "per_feed": []}

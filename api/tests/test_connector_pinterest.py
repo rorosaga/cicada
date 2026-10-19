@@ -138,14 +138,6 @@ def _memory(tmp_path, monkeypatch):
     return memory
 
 
-def test_sync_is_skipped_without_a_token(tmp_path, monkeypatch):
-    memory = _memory(tmp_path, monkeypatch)
-    result = run(pinterest.sync(memory, http_fn=_fake_http()))
-    assert result["status"] == "skipped"
-    assert result["reason"] == "not connected"
-    assert list((memory / "episodes").glob("*.md")) == []
-
-
 def test_sync_ingests_every_board_and_records_the_sync(tmp_path, monkeypatch):
     memory = _memory(tmp_path, monkeypatch)
     secrets.set_secret(pinterest.TOKEN_ENV, "tok-abc")
@@ -181,14 +173,6 @@ def test_sync_records_a_failure_instead_of_raising(tmp_path, monkeypatch):
     assert "token expired" in result["error"]
     entry = sync_state.read_sync_state(memory)["pinterest"]
     assert "token expired" in entry["last_error"]
-
-
-def test_sync_refuses_the_default_transport_when_the_gate_is_closed(tmp_path, monkeypatch):
-    memory = _memory(tmp_path, monkeypatch)
-    secrets.set_secret(pinterest.TOKEN_ENV, "tok-abc")
-    result = run(pinterest.sync(memory))  # no http_fn, gate scrubbed by conftest
-    assert result["status"] == "skipped"
-    assert result["reason"] == "network disabled"
 
 
 def test_exchange_code_stores_only_the_token(tmp_path, monkeypatch):

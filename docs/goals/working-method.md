@@ -40,6 +40,7 @@ list is what a reviewer checks:
 | Suite | Command | Expected |
 |---|---|---|
 | Crucial tier | `make test-crucial` | **0 failures** — 247 backend tests in ~16 s, 47 Swift tests in ~4 s (+ build), 2026-10-19 |
+| Bench tier | `make test-bench` | 12 tests, ~50 s, 2026-10-19: **1 known failure**, `test_projects_bench.py` (the 2,500-page project list's p95 is ~230 ms against its 80 ms budget; it was an unrun `CICADA_BENCH=1` opt-in until the marker). Run on a quiet machine |
 | Backend | `api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider` | October 5 audit on `4264e297`: 6,016 passed, **1 known G185 failure**, 1 skipped; rerun for the change |
 | App | `cd app/CicadaApp && swift test` | **0 failures** |
 | Graph (JS) | `node --test app/CicadaApp/Tests/graph/*.test.js` | **0 failures.** Pass the glob, not the directory — a bare directory arg fails with a bare "test failed". |
@@ -65,7 +66,7 @@ list is what a reviewer checks:
 ### Test tiers (owner 2026-10-19: "only crucial stuff")
 
 The Mac is shared, and the full suites cost ~22 min (10,065 backend tests, measured file by file 2026-10-19) plus
-~3.5 min of Swift. So the work runs in three tiers:
+~3.5 min of Swift. So the work runs in three tiers, plus the benchmarks:
 
 - **Every change:** the test files of the modules it touched plus their direct callers (grep for the imports), and
   `make test-crucial`. Never the whole backend suite, never `swift test` unfiltered — `swift test --filter
@@ -75,7 +76,21 @@ The Mac is shared, and the full suites cost ~22 min (10,065 backend tests, measu
   selects the same set) and `app/CicadaApp/Tests/crucial-tests.txt` (joined into one `--filter` regex), each grouped
   by the rail a test guards. `test_crucial_tier.py` fails when a line names a test that no longer exists, and pins the
   rails that are numbers (the 1,800-token handshake, the ToS rail's 4 s / 512 KB).
-- **Before a release:** `make test` — every backend and Swift test, once, by the coordinator.
+- **Before a release:** `make test` — every backend and Swift test, benchmarks included (`-o addopts=""`), once, by
+  the coordinator.
+- **Benchmarks (`bench` marker):** a wall-clock budget (search, the SessionStart route, hook recall, the project list,
+  the inbox at the owner's scale, a slow registry) or a benchmark-harness run. They flake on a busy Mac, so
+  `api/pyproject.toml`'s addopts (`-m 'not bench'`) leaves them out of every default run, a bare `pytest` on their
+  file included; `make test-bench` (`-m bench`) runs them alone on a quiet machine. A later `-m` replaces the addopts,
+  so `-m crucial` selects exactly the crucial list, and `conftest.py` refuses a crucial line that names a `bench` test:
+  a rail's guard asserts behaviour, never a stopwatch. A new wall-clock assertion is `@pytest.mark.bench` (the old
+  `CICADA_BENCH=1` opt-in is gone).
+
+**Keeping the suite cheap (suite cuts, 2026-10-19).** A test that needs the demo scenario takes
+`_demo_scenario.demo(tmp_path, …)`: a copy of a template built once per process for those flags (only the determinism
+tests call `build`). An expensive fixture bank is built once per module and copied per test (`test_cli_app.py`'s
+`_template`). A fake HTTP server polls at 10 ms (`serve_forever(poll_interval=0.01)`): the default 0.5 s is paid on
+every `shutdown()`. Checks that mirror each other across connectors, registries or writers are one parametrized test.
 
 **Joining the tier.** A test joins when it is the strongest guard of a rail CLAUDE.md states and no listed test already
 guards it — one strong test per rail, not a file's worth. A new rail adds its line in the same PR. A test leaves only
