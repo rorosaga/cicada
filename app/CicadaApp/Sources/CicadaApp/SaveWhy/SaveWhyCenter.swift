@@ -96,7 +96,14 @@ enum BookmarkSyncSignal {
 protocol SaveWhyPresenting: AnyObject {
     func show(_ center: SaveWhyCenter)
     func hide()
+    /// 2026-10-19 — close, and when the panel held the keyboard and the person did not leave by clicking somewhere
+    /// else (Save, Return, Esc, a newer bookmark), hand the keyboard back to the browser they were in.
+    func hide(returnFocus: Bool)
     func focusText()
+}
+
+extension SaveWhyPresenting {
+    func hide(returnFocus: Bool) { hide() }
 }
 
 /// G191 — decides, asks, and posts. Holds the open panel's state; the panel view reads it and sends events back.
@@ -134,6 +141,9 @@ final class SaveWhyCenter {
     @ObservationIgnored let prefs: SaveWhyPrefs
     @ObservationIgnored let outbox: SaveWhyOutbox
     @ObservationIgnored private var retrying = false
+    /// The event being handled, so a close knows whether the person left by clicking elsewhere (the keyboard is then
+    /// theirs to place) or not (it goes back to the browser).
+    @ObservationIgnored private var closingEvent: SaveWhyPanelState.Event?
     @ObservationIgnored private var retryAgain = false
     @ObservationIgnored private let api: any SavedWhyAPI
     @ObservationIgnored private weak var presenter: (any SaveWhyPresenting)?
@@ -586,6 +596,7 @@ final class SaveWhyCenter {
         guard var current = state else { return }
         let effects = current.send(event)
         state = current
+        closingEvent = event
         run(effects)
     }
 
@@ -629,7 +640,7 @@ final class SaveWhyCenter {
                 timer?.cancel()
                 timer = nil
                 if case .closed(let outcome)? = state?.phase { lastOutcome = outcome }
-                presenter?.hide()
+                presenter?.hide(returnFocus: closingEvent != .clickOutside)
             }
         }
     }

@@ -245,6 +245,65 @@ final class SaveWhyKeepsTests: XCTestCase {
         XCTAssertEqual(posts.map(\.answer), [SavedWhyAnswer(text: "spoken words")])
     }
 
+    /// The panel the person clicked into is the key window — Cicada stays inactive, nothing of Cicada's comes forward
+    /// — so typing and dictation land in the field; Save, Return and Esc hand the keyboard back to the browser, a
+    /// click elsewhere leaves it where the person put it.
+    func testClickingIntoTheFieldMakesThePanelKeyAndClosingGivesTheKeyboardBack() async throws {
+        for (leave, givesBack) in [(SaveWhyPanelState.Event.escape, true), (.submit, true), (.clickOutside, false)] {
+            defaults = UserDefaults(suiteName: "SaveWhyKeepsTests.\(UUID().uuidString)")!
+            let api = KeepsFakeAPI()
+            let controller = SaveWhyPanelController()
+            var given: [pid_t] = []
+            controller.frontmostPID = { 4242 }
+            controller.giveBack = { given.append($0) }
+            let center = center(api, presenter: controller)
+            await center.noticed(look([named()]), live: true)
+            let panel = try XCTUnwrap(controller.window)
+            controller.focusText()
+            XCTAssertFalse(panel.isKeyWindow, "never key before the person's click inside")
+
+            let click = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: CGPoint(x: 20, y: 20),
+                                                         modifierFlags: [], timestamp: 0,
+                                                         windowNumber: panel.windowNumber, context: nil,
+                                                         eventNumber: 0, clickCount: 1, pressure: 1))
+            panel.sendEvent(click)
+            center.input(.engage)
+            let wasActive = NSApplication.shared.isActive
+            controller.focusText()
+            XCTAssertTrue(panel.isKeyWindow, "the field's panel takes the keyboard")
+            // Cicada's part never activates the app (the panel is non-activating; focusText only makes it key), so the
+            // browser stays the active app and no other Cicada window comes forward. (A synthetic click in a test
+            // process with no launched app flips `isActive` by itself; the real window server does not.)
+            XCTAssertEqual(NSApplication.shared.isActive, wasActive, "focusing the field activates nothing")
+            XCTAssertTrue(panel.styleMask.contains(.nonactivatingPanel))
+            XCTAssertFalse(panel.canBecomeMain, "and no Cicada window becomes main")
+            XCTAssertEqual(controller.returnTo, 4242, "the browser it took the keyboard from")
+
+            // The field holds the focus inside the key panel, which is what an inserter asking Accessibility for the
+            // focused element reaches (system-wide: the key window's app, then its focused element).
+            for _ in 0..<40 where !(panel.firstResponder is NSTextView) {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            XCTAssertTrue(panel.firstResponder is NSTextView, "the field is being edited")
+            // What an inserter reaches through Accessibility is the key window's focused element — the field, as the
+            // panel and the app both answer in-process. (The system-wide query is not run here: it would read which app
+            // the person has in front on a shared Mac.)
+            let focused = panel.accessibilityFocusedUIElement as? NSAccessibilityProtocol
+            XCTAssertEqual(focused?.accessibilityRole(), .textField)
+            XCTAssertEqual((NSApplication.shared.accessibilityFocusedUIElement as? NSAccessibilityProtocol)?
+                .accessibilityRole(), .textField)
+
+            center.send(.draftChanged("spoken words"))
+            if leave == .clickOutside { center.click(at: CGPoint(x: 5, y: 900)) } else { center.send(leave) }
+            await center.settle()
+            XCTAssertNil(controller.window)
+            XCTAssertEqual(given, givesBack ? [4242] : [], "\(leave)")
+            let posts = await api.posts
+            XCTAssertEqual(posts.map(\.answer), [SavedWhyAnswer(text: "spoken words")], "\(leave) keeps the words")
+            panel.orderOut(nil)
+        }
+    }
+
     /// A click inside Chrome's own bookmark bubble is the person working there, not leaving; one that closed the
     /// bubble (Done) leaves too, keeping the answer.
     func testAClickInsideChromesBubbleIsNotLeavingUnlessItClosedIt() async throws {

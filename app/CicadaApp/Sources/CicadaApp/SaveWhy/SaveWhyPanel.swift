@@ -14,8 +14,15 @@ final class SaveWhyNSPanel: NSPanel {
 
     override var canBecomeKey: Bool { clickedInside }
 
+    /// 2026-10-19 — a click inside is about to take the keyboard (AppKit makes a clicked panel key): the controller
+    /// remembers which app had it first, to give it back.
+    var onTakingKey: (() -> Void)?
+
     override func sendEvent(_ event: NSEvent) {
-        if Self.isPersonsClick(event.type) { clickedInside = true }
+        if Self.isPersonsClick(event.type) {
+            clickedInside = true
+            if !isKeyWindow { onTakingKey?() }
+        }
         super.sendEvent(event)
     }
 
@@ -38,7 +45,7 @@ final class SaveWhyNotchModel {
 }
 
 /// G191 — the live presenter: one `NSPanel` hosting `SaveWhyPanelView`, shown with `orderFrontRegardless` (never
-/// `makeKey`), so the browser keeps focus and keyboard until the person clicks the panel. The window sits over the
+/// `makeKey`), so the browser keeps focus and keyboard until the person clicks the panel's field. The window sits over the
 /// menu bar with its top on the screen's top edge (`SaveWhyNotch.frame`); the view grows the notch's shape inside it.
 @MainActor
 final class SaveWhyPanelController: SaveWhyPresenting {
@@ -51,6 +58,21 @@ final class SaveWhyPanelController: SaveWhyPresenting {
     private var placedOn: (screen: CGRect, notch: CGRect?)?
     /// The open panel — for tests (losing the keyboard to another app's window never closes it).
     var window: SaveWhyNSPanel? { panel }
+    /// The app that held the keyboard when the person clicked into the field (the browser), to hand it back on close.
+    private(set) var returnTo: pid_t?
+    /// The frontmost app other than Cicada (the browser: the panel never activates Cicada). Injected in tests.
+    var frontmostPID: () -> pid_t? = {
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return nil }
+        return app.processIdentifier
+    }
+    /// Gives the keyboard back to that app's own key window. Cicada is not the active app (the panel is
+    /// non-activating), so it yields first, as macOS 14's cooperative activation asks. Injected in tests.
+    var giveBack: (pid_t) -> Void = { pid in
+        guard let app = NSRunningApplication(processIdentifier: pid) else { return }
+        NSApp.yieldActivation(to: app)
+        app.activate(from: .current, options: [])
+    }
 
     private var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
 
@@ -73,6 +95,10 @@ final class SaveWhyPanelController: SaveWhyPresenting {
         // Notch-black in both appearances: AppKit's own controls (the text field) draw dark on it too.
         panel.appearance = NSAppearance(named: .darkAqua)
         panel.onEscape = { [weak center] in center?.send(.escape) }
+        panel.onTakingKey = { [weak self] in
+            guard let self else { return }
+            self.returnTo = self.frontmostPID() ?? self.returnTo
+        }
 
         // G191 live: the screen the bookmark was made on — the browser's front window, else the front app's — and
         // `NSScreen.main` only when neither is known (`SaveWhyScreen`). The notch is that screen's own.
@@ -118,8 +144,16 @@ final class SaveWhyPanelController: SaveWhyPresenting {
         }) { monitors.append(local) }
     }
 
-    func hide() {
+    func hide() { hide(returnFocus: false) }
+
+    /// Close. 2026-10-19: when the panel held the keyboard (the person clicked into the field) and they did not leave
+    /// by clicking somewhere else, the keyboard goes back to the browser's window at once — not to another of Cicada's
+    /// windows, and not left nowhere while the shape shrinks.
+    func hide(returnFocus: Bool) {
         guard let panel else { return }
+        let held = panel.isKeyWindow
+        if held, returnFocus, let returnTo { giveBack(returnTo) }
+        returnTo = nil
         removeMonitors()
         self.panel = nil
         // Back into the notch, then gone.
@@ -131,13 +165,21 @@ final class SaveWhyPanelController: SaveWhyPresenting {
 
     /// A click in the field (G191 v3: the field is always there, so the window never resizes for it): the panel takes
     /// the keyboard — it may, the click was inside it — and the field the focus.
+    ///
+    /// 2026-10-19 (owner: dictation "went away" / landed elsewhere): the panel becomes the **key window** while Cicada
+    /// stays inactive — a non-activating panel that may become key once clicked — so the browser stays the active app,
+    /// no other Cicada window comes forward, and typed or dictated text (a keystroke, a paste, or an inserter that asks
+    /// Accessibility for the focused element) lands in the field. The app it took the keyboard from is remembered and
+    /// gets it back on Save, Return or Esc (`hide(returnFocus:)`).
     func focusText() {
         guard let panel, panel.clickedInside else { return }
+        if !panel.isKeyWindow { returnTo = frontmostPID() ?? returnTo }
         panel.makeKey()
         focus.request()
     }
 
     private func hideNow() {
+        returnTo = nil
         removeMonitors()
         panel?.orderOut(nil)
         panel = nil

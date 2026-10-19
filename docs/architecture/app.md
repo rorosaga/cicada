@@ -666,13 +666,21 @@ the panel closes only on Save, Return, Esc, a newer bookmark, or a click outside
 keyboard to another app's floating window never closes it (nothing listens for it). A click inside Chrome's bookmark
 bubble (its frame from the watcher's own read, `BookmarkBubbleWatcher.lastBubble`) is the person working there: the panel
 stays, and one window-list read 0.25 s after that click (`SaveWhyPolicy.bubbleCloseCheck`, bounds only) tells whether it
-closed the bubble — Done — which closes the panel too, keeping the answer.
+closed the bubble — Done — which closes the panel too, keeping the answer. *Typing and dictation land in the panel* (2026-10-19, after "the panel never takes focus from Chrome", so an
+inserter that writes into the frontmost app's focused element wrote into Chrome): a click into the field makes the panel
+the **key window** — still a non-activating panel (`canBecomeKey` once clicked, `canBecomeMain` never), so Chrome stays
+the active app and no other Cicada window comes forward — and the field its first responder, which is what the key
+window's Accessibility answers as focused (`AXTextField`, tested in-process). The app that had the keyboard is noted at
+that click (`SaveWhyNSPanel.onTakingKey`) and gets it back on Save, Return, Esc or a newer bookmark
+(`SaveWhyPresenting.hide(returnFocus:)`: `NSApp.yieldActivation(to:)` then `activate(from:)`); a click elsewhere leaves
+the keyboard where the person put it.
 *The star on a page already saved* ("Touching the star, even if it's already bookmarked, keeps prompting me … It should
 just put the same Cicada prompt, but with the text already filled in"). The "Edit bookmark" bubble is the same window as
 "Bookmark added" and Chrome writes nothing, so neither bounds nor the file can tell which page it is. `SavedBookmarkLookup`
 asks Chrome for the front tab's URL through Apple Events **only when Automation of Chrome is already allowed**
 (`AEDeterminePermissionToAutomateTarget` with `askUserIfNeeded` false — never the prompt, which still comes only from
-Remove bookmark…), right after the star click opened the bubble; the URL is matched exactly against what Chrome's file held
+Remove bookmark…; **owner ruling 2026-10-19**: the prefill reads Chrome's front-tab URL only when Automation is already
+allowed, never prompting), right after the star click opened the bubble; the URL is matched exactly against what Chrome's file held
 before the click (the diff's baseline) and the Store's `chrome-bookmark` records, and is never stored, logged or posted.
 A match turns the pending panel into that bookmark's (`SaveWhyCenter.adopt`, confirmed — Cicada holds it): its newest
 answer's chips and words filled in ("Already saved · <title>", "Already saved. Change anything, or click anywhere else to
