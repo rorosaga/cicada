@@ -9,7 +9,7 @@ ABLATIONS ?= default promotion_1 promotion_3 decay_aggressive decay_loose
 
 INSTALL_FLAGS ?=
 
-.PHONY: help test test-crucial test-crucial-backend test-crucial-swift install cli doctor signing-identity embedding-model embedding-model-gemma2 embedding-model-vision app run-app install-app release-app release release-pr dev login-item no-login-item backfill-structural rebuild-episodes table1 table3 table3-sleep table3-sleep-smoke ablation ablation-smoke eval all-safe all-full
+.PHONY: help test test-bench test-crucial test-crucial-backend test-crucial-swift install cli doctor signing-identity embedding-model embedding-model-gemma2 embedding-model-vision app run-app install-app release-app release release-pr dev login-item no-login-item backfill-structural rebuild-episodes table1 table3 table3-sleep table3-sleep-smoke ablation ablation-smoke eval all-safe all-full
 
 help:
 	@printf '%s\n' \
@@ -17,7 +17,8 @@ help:
 	  '  make install               # plug-and-play install (install.sh)' \
 	  '  make doctor                # health checks (scripts/doctor.sh)' \
 	  '  make test-crucial          # the daily tier: the tests that guard the rails (~2 min backend + Swift)' \
-	  '  make test                  # every backend and Swift test (before a release; ~30 min)' \
+	  '  make test                  # every backend and Swift test, benchmarks included (before a release)' \
+	  '  make test-bench            # the wall-clock budgets alone (the `bench` marker; quiet machine)' \
 	  '  make embedding-model       # fetch the on-device search model the release app ships (~130 MB, once)' \
 	  '  make embedding-model-gemma2 # EmbeddingGemma 2 on the Neural Engine, macOS 15+ (~585 MB + ~90 s, once)' \
 	  '  make embedding-model-vision # its image encoder, to search saved looks by picture (~309 MB, once)' \
@@ -54,6 +55,8 @@ install:
 # The test tiers (owner 2026-10-19, docs/goals/working-method.md). `test-crucial` is the daily tier: the tests that guard
 # CLAUDE.md's rails, listed in api/tests/crucial.txt and app/CicadaApp/Tests/crucial-tests.txt, niced so a shared Mac
 # stays usable. `test` is every test, run once before a release. The suite gives itself its own HOME and CICADA_HOME.
+# The default pytest run leaves out the `bench` marker (api/pyproject.toml's addopts: wall-clock budgets flake on a busy
+# Mac); `test-bench` runs only those, and `test` clears the addopts so it runs them too.
 test-crucial: test-crucial-backend test-crucial-swift
 
 test-crucial-backend:
@@ -62,8 +65,11 @@ test-crucial-backend:
 test-crucial-swift:
 	cd app/CicadaApp && nice -n 10 swift test --filter "$$(python3 ../../api/tests/_crucial.py --swift-filter)"
 
+test-bench:
+	nice -n 10 $(PYTHON) -m pytest -m bench -q -p no:cacheprovider api/tests
+
 test:
-	nice -n 10 $(PYTHON) -m pytest -q -p no:cacheprovider api/tests
+	nice -n 10 $(PYTHON) -m pytest -o addopts="" -q -p no:cacheprovider api/tests
 	cd app/CicadaApp && nice -n 10 swift test
 
 # G180 — link ~/.local/bin/cicada to this checkout's `scripts/cicada` (no admin; never replaces a working link).

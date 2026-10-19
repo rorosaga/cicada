@@ -6,7 +6,7 @@ has none under any spelling, and ``resolve_entity_file``'s last rung — the cas
 inside an ``async`` route, so every other request waited behind it. The match now reads one cached index of the
 folder (rebuilt when the folder changes), the subject's header comes from ``bank_index``, and the route reads off
 the event loop. These tests pin the behaviour (same hidden/gone decisions) and the scan count; the timing budget at
-the owner's scale is opt-in (``CICADA_BENCH=1``), like every other wall-clock assertion in this suite.
+the owner's scale is the ``bench`` tier (``make test-bench``), like every other wall-clock assertion in this suite.
 """
 from __future__ import annotations
 
@@ -131,7 +131,7 @@ def test_the_inbox_route_reads_off_the_event_loop(tmp_path, monkeypatch):
     assert seen == [False, False, False]
 
 
-@pytest.mark.skipif(os.environ.get("CICADA_BENCH") != "1", reason="wall-clock budget: opt-in")
+@pytest.mark.bench
 def test_load_inbox_at_the_owners_scale_is_well_under_half_a_second(tmp_path):
     memory = build(tmp_path / "memory")              # 4,700 pages, 913 items
     _settle(memory / "entities")

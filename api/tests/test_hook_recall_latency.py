@@ -9,11 +9,15 @@ from __future__ import annotations
 import statistics
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 
 from api import config, main
 from api.services import hook_recall, markdown_parser
 from test_search_latency import big_bank  # noqa: F401 — module-scoped, built once here
+
+#: A wall-clock budget: the `bench` tier (`make test-bench`, and `make test` before a release), never the default run.
+pytestmark = pytest.mark.bench
 
 ENGLISH = [
     "Fix the failing test in the parser", "Summarize this error log for me", "Write a function that parses dates",

@@ -4,7 +4,12 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
 from benchmarks.system.runner import REPO, prepare_paths
+
+#: The benchmark harness end to end (~7 s): the `bench` tier (`make test-bench`, and `make test` before a release).
+pytestmark = pytest.mark.bench
 
 
 def test_small_preset_runs_production_pipeline_offline(tmp_path):

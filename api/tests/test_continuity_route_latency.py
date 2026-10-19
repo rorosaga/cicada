@@ -32,6 +32,9 @@ from _reading_fixtures import enable
 from api import config, main
 from api.services import continuity, continuity_sessions, hook_recall
 
+#: A wall-clock budget: the `bench` tier (`make test-bench`, and `make test` before a release), never the default run.
+pytestmark = pytest.mark.bench
+
 URL = "/capture/hook-context"
 RUNS = 10
 

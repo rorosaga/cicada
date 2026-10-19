@@ -24,6 +24,9 @@ import pytest
 
 from api.services import bank_index, markdown_parser, search_index, search_service
 
+#: A wall-clock budget: the `bench` tier (`make test-bench`, and `make test` before a release), never the default run.
+pytestmark = pytest.mark.bench
+
 N_ENTITIES = 2000
 N_EPISODES = 1500
 N_QUERIES = 120

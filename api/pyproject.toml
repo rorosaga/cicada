@@ -39,3 +39,13 @@ local = ["sentence-transformers>=2.2"]
 dev = [
     "pytest>=9.1.0",
 ]
+
+[tool.pytest.ini_options]
+# The test tiers (docs/goals/working-method.md): the default run leaves out the wall-clock budgets (`bench`), which
+# flake on a busy Mac. `make test-bench` runs them alone; `make test` (before a release) clears this and runs them too.
+# A later `-m` replaces this one, so `-m crucial` and `-m bench` select exactly their marker.
+addopts = "-m 'not bench'"
+markers = [
+    "crucial: guards a CLAUDE.md rail; the daily tier (`make test-crucial`, listed in crucial.txt)",
+    "bench: a wall-clock budget or a benchmark run; `make test-bench` and `make test`, never the default run",
+]
