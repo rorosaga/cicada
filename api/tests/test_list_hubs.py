@@ -14,7 +14,7 @@ import pytest
 
 from api.config import Settings
 from api.scripts import repair_list_hubs
-from api.services import list_hub_repair, markdown_parser, media_ingestor
+from api.services import git_service, list_hub_repair, markdown_parser, media_ingestor, sleep_cycle, write_admission
 from api.services.hub_builder import regenerate_hubs_and_index
 from api.services.id_utils import folder_tags, page_lists, provenance_tags
 from api.services.media_ingestor import MediaMeta, PreparedItem, RawItem
@@ -238,8 +238,9 @@ def test_a_large_repair_commits_in_parts_with_the_hub_tier_in_the_last(bank, mon
     result = list_hub_repair.apply(bank, sleep_running=_idle, settings=_settings())
     assert result.untagged == 7 and result.committed
     subjects = _git(bank, "log", "--format=%s", f"{head}..HEAD").splitlines()
-    assert subjects == [f"Saved lists and provenance are not hubs: 7 page(s) untagged, 3 hub(s) removed "
-                        f"(part {n} of 3)" for n in (3, 2, 1)]
+    assert subjects == ["Saved lists and provenance are not hubs: 7 page(s) untagged, 3 hub(s) removed (part 3 of 3)",
+                        "Saved lists and provenance are not hubs: 7 page(s) untagged (part 2 of 3)",
+                        "Saved lists and provenance are not hubs: 7 page(s) untagged (part 1 of 3)"]
     assert f"hubs/topic-{SLUG}.md" in _git(bank, "show", "--name-only", "--format=", "HEAD")
     assert not _git(bank, "status", "--porcelain")
 
@@ -314,9 +315,11 @@ def test_a_repeat_save_through_write_prepared_appends_its_list_once(tmp_path):
     idx: dict = {}
     first = media_ingestor.write_prepared(PreparedItem(RawItem(url=url, folder=PLAYLIST), meta), memory, idx)
     assert first.status == "created" and not first.collection_added
-    repeat = media_ingestor.write_prepared(PreparedItem(RawItem(url=url, folder="Watch later"), meta), memory, idx)
+    repeat = media_ingestor.write_prepared(PreparedItem(RawItem(url=url, folder="Watch later"), meta), memory, idx,
+                                           append_list=True)
     assert repeat.status == "duplicate" and repeat.collection_added
-    same = media_ingestor.write_prepared(PreparedItem(RawItem(url=url, folder="Watch later"), meta), memory, idx)
+    same = media_ingestor.write_prepared(PreparedItem(RawItem(url=url, folder="Watch later"), meta), memory, idx,
+                                         append_list=True)
     assert not same.collection_added
     fm = _fm(memory, first.media_entity_id)
     assert fm["folder"] == PLAYLIST and fm["collections"] == [PLAYLIST, "Watch later"]
@@ -331,6 +334,114 @@ def test_a_page_saved_with_no_list_takes_the_first_list_as_its_folder(tmp_path):
     meta = MediaMeta(title="V1", media_type="youtube")
     idx: dict = {}
     first = media_ingestor.write_prepared(PreparedItem(RawItem(url=url), meta), memory, idx)
-    media_ingestor.write_prepared(PreparedItem(RawItem(url=url, folder=PLAYLIST), meta), memory, idx)
+    media_ingestor.write_prepared(PreparedItem(RawItem(url=url, folder=PLAYLIST), meta), memory, idx, append_list=True)
     fm = _fm(memory, first.media_entity_id)
     assert fm["folder"] == PLAYLIST and fm["collections"] == [PLAYLIST]
+
+
+def test_a_repeat_outside_an_admitted_caller_never_rewrites_the_page(tmp_path):
+    memory = tmp_path / "bank"
+    (memory / "entities").mkdir(parents=True)
+    (memory / "episodes").mkdir()
+    url = "https://video.example/watch?v=1"
+    meta = MediaMeta(title="V1", media_type="youtube")
+    idx: dict = {}
+    first = media_ingestor.write_prepared(PreparedItem(RawItem(url=url, folder=PLAYLIST), meta), memory, idx)
+    repeat = media_ingestor.write_prepared(PreparedItem(RawItem(url=url, folder="Beta List"), meta), memory, idx)
+    assert not repeat.collection_added and _fm(memory, first.media_entity_id)["collections"] == [PLAYLIST]
+
+
+def test_while_sleep_holds_the_pages_a_repeat_appends_nothing_and_the_next_import_does(tmp_path, monkeypatch):
+    _offline(monkeypatch)
+    memory = _git_bank(tmp_path)
+    url = "https://video.example/watch?v=1"
+    asyncio.run(media_ingestor.ingest_batch([RawItem(url=url, folder=PLAYLIST)], memory))
+    head = _git(memory, "rev-parse", "HEAD")
+    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: True)
+    asyncio.run(media_ingestor.ingest_batch([RawItem(url=url, folder="Beta List")], memory))
+    assert _page_of(memory, url)["collections"] == [PLAYLIST]
+    assert _git(memory, "rev-parse", "HEAD") == head and not _git(memory, "status", "--porcelain")
+    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: False)
+    asyncio.run(media_ingestor.ingest_batch([RawItem(url=url, folder="Beta List")], memory))
+    assert _page_of(memory, url)["collections"] == [PLAYLIST, "Beta List"]
+
+
+def test_the_append_and_its_commit_run_inside_admission_and_the_page_lock(tmp_path, monkeypatch):
+    _offline(monkeypatch)
+    memory = _git_bank(tmp_path)
+    url = "https://video.example/watch?v=1"
+    asyncio.run(media_ingestor.ingest_batch([RawItem(url=url, folder=PLAYLIST)], memory))
+    seen = {}
+    real_add, real_commit = media_ingestor.add_collection, git_service.commit_paths_sync
+
+    def add(memory_path, entity_id, folder):
+        seen["write"] = write_admission.holders(memory_path)
+        return real_add(memory_path, entity_id, folder)
+
+    def commit(memory_path, message, paths):
+        seen["commit"] = write_admission.holders(memory_path)
+        return real_commit(memory_path, message, paths)
+
+    monkeypatch.setattr(media_ingestor, "add_collection", add)
+    monkeypatch.setattr(git_service, "commit_paths_sync", commit)
+    asyncio.run(media_ingestor.ingest_batch([RawItem(url=url, folder="Beta List")], memory))
+    assert seen == {"write": 1, "commit": 1}
+    assert write_admission.holders(memory) == 0
+
+
+def test_a_large_append_commits_in_parts(tmp_path, monkeypatch):
+    _offline(monkeypatch)
+    memory = _git_bank(tmp_path)
+    urls = [f"https://video.example/watch?v={i}" for i in range(5)]
+    asyncio.run(media_ingestor.ingest_batch([RawItem(url=u, folder=PLAYLIST) for u in urls], memory))
+    head = _git(memory, "rev-parse", "HEAD").strip()
+    monkeypatch.setattr(media_ingestor, "COMMIT_STEP", 2)
+    asyncio.run(media_ingestor.ingest_batch([RawItem(url=u, folder="Beta List") for u in urls], memory))
+    assert len(_git(memory, "log", "--format=%s", f"{head}..HEAD").splitlines()) == 3
+    assert not _git(memory, "status", "--porcelain")
+
+
+def test_an_interrupted_apply_is_finished_and_committed_by_the_next_run(bank, monkeypatch):
+    real = markdown_parser.write
+    calls = {"n": 0}
+
+    def flaky(path, fm, body):
+        if "entities" in str(path):
+            calls["n"] += 1
+            if calls["n"] == 4:
+                raise KeyboardInterrupt()
+        return real(path, fm, body)
+
+    monkeypatch.setattr(markdown_parser, "write", flaky)
+    with pytest.raises(KeyboardInterrupt):
+        list_hub_repair.apply(bank, sleep_running=_idle, settings=_settings())
+    monkeypatch.setattr(markdown_parser, "write", real)
+    assert _git(bank, "status", "--porcelain")                     # three pages untagged, uncommitted
+    survey = list_hub_repair.survey(bank, settings=_settings())
+    assert survey.adopted == 3 and survey.to_untag == 4 and survey.dirty == 0
+    result = list_hub_repair.apply(bank, sleep_running=_idle, settings=_settings())
+    assert result.untagged == 7 and result.hubs_removed == 3 and result.committed
+    assert not _git(bank, "status", "--porcelain")
+    assert "Cicada-Author: cicada" in _git(bank, "log", "-1", "--format=%b")
+    assert all(SLUG not in _fm(bank, f"media-video-{i}")["tags"] for i in range(6))
+
+
+def test_a_dirty_page_with_any_other_change_is_never_adopted(bank):
+    path = bank / "entities" / "media-video-0.md"
+    parsed = markdown_parser.parse(path)
+    markdown_parser.write(path, {**parsed.frontmatter, "tags": ["tag-03", "youtube"]}, parsed.body + "\nAn edit.\n")
+    survey = list_hub_repair.survey(bank, settings=_settings())
+    assert survey.adopted == 0
+    list_hub_repair.apply(bank, sleep_running=_idle, settings=_settings())
+    assert "entities/media-video-0.md" in _git(bank, "status", "--porcelain")
+
+
+def test_apply_refuses_when_git_cannot_list_dirty_pages(bank, monkeypatch):
+    def broken(*_a, **_k):
+        raise git_service.GitError("synthetic")
+
+    monkeypatch.setattr(git_service, "dirty_paths_sync", broken)
+    assert list_hub_repair.survey(bank, settings=_settings()).to_untag == 7   # a dry run still counts
+    with pytest.raises(list_hub_repair.Refused):
+        list_hub_repair.apply(bank, sleep_running=_idle, settings=_settings())
+    assert SLUG in _fm(bank, "media-video-0")["tags"]

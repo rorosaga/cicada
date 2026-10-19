@@ -73,7 +73,11 @@ them) with the first also its `folder:` (every older reader, the Sources page's 
 `folder:`; a page from before `collections:` holds its `folder:` alone, `id_utils.page_lists`). A later save of the
 same URL from another list — a second playlist in the same export, a re-import, the person's agent reading Watch
 later — appends that list through `media_ingestor.add_collection` (and makes it the `folder:` of a page that had
-none), committed with the batch that read it; a list the page already holds changes nothing.
+none). A batch's repeats are appended after its new pages commit, in one admitted transaction
+(`append_collections`: write admission, then the page lock, through their own `user` commit, 500 pages a commit, off
+the event loop); while Sleep holds the pages nothing is appended and the next import or sync derives it again. The
+agent's Watch later read appends inside its own admission and page lock. A list the page already holds changes
+nothing.
 
 **Provenance never makes a hub.** Stage 5.6 makes any tag shared by `hub_tag_min_members` (5) active pages a
 `topic-<tag>` hub with a `member of` edge to each, and the media writer used to put `sanitize_id(folder)` in `tags`
@@ -89,8 +93,9 @@ api.scripts.repair_list_hubs --bank <path>` (dry run: counts only — pages to u
 regenerated tier drops by kind, `list_hubs`, `provenance_hubs`, `other_hubs`, or adds, `hubs_to_add`; `--apply`:
 strips only list tags, never `folder:`, `collections:`, the body or claims, regenerates the hub tier through
 `hub_builder.regenerate_hubs_and_index`, and commits pages, hubs and `_index.md` under `cicada`,
-`maintenance/list-hubs` — one commit, or one per 500 pages with the hub tier in the last; a page dirty in git is
-skipped; refused while Sleep runs; a rerun changes nothing — `list_hub_repair`).
+`maintenance/list-hubs` — pages written and committed 500 at a time, the hub tier in the last part; a page dirty in
+git is skipped unless its only change from HEAD is this repair's (an interrupted run's, adopted and committed); refused
+while Sleep runs or when git cannot list the dirty pages; a rerun changes nothing — `list_hub_repair`).
 
 **Status lifecycle:** `active` → `decaying` → `archived` → `dropped` (user-dismissed, never
 resurfaced).

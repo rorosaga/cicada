@@ -2354,7 +2354,11 @@ def add_collection(memory_path: Path, entity_id: str, folder: str | None) -> boo
     """A link already saved, saved again from another list (a second playlist, board, collection or folder): append
     that list to its media page's ``collections:`` (and make it the ``folder:`` of a page that had none). Returns
     whether the page changed; a list the page already holds, a missing page or a page that is not ``media`` changes
-    nothing. Read from the cached frontmatter first, so a repeat that changes nothing parses nothing."""
+    nothing. Read from the cached frontmatter first, so a repeat that changes nothing parses nothing.
+
+    It rewrites a page that exists: the caller holds the bank's write admission (Sleep not holding the pages) and
+    the page lock through its commit — :func:`append_collections`, or a tool already inside both
+    (``write_prepared(..., append_list=True)``)."""
     from api.services import bank_index
 
     name = (folder or "").strip()
@@ -2378,7 +2382,7 @@ def add_collection(memory_path: Path, entity_id: str, folder: str | None) -> boo
 def add_collections(memory_path: Path, items: list[RawItem], idx: dict) -> list[str]:
     """:func:`add_collection` for every item of a batch whose link ``idx`` already holds — a link saved before, or
     one this batch saved from an earlier list (the same video in two playlists of one export). Returns the pages
-    changed, memory-relative, for the batch's own commit. Call after the batch's new rows are in ``idx``."""
+    changed, memory-relative. Call after the batch's new rows are in ``idx``, inside :func:`append_collections`."""
     changed: list[str] = []
     for item in items:
         if not item.url or not (item.folder or "").strip():
@@ -2392,7 +2396,44 @@ def add_collections(memory_path: Path, items: list[RawItem], idx: dict) -> list[
     return changed
 
 
-def write_prepared(prepared: PreparedItem, memory_path: Path, idx: dict) -> IngestResult:
+#: Pages per commit: a commit names each path on git's command line (``history_index.COMMIT_STEP``'s reason).
+COMMIT_STEP = 500
+
+
+async def append_collections(memory_path: Path, items: list[RawItem], idx: dict, *, commit: bool = True,
+                             author: str = "user", trigger: str = "user/media_save") -> list[str]:
+    """Append each repeat's list to its page (:func:`add_collections`) and commit those pages — one admitted
+    transaction (G183): the bank's write admission, then the page lock, through the commit, off the event loop.
+    When Sleep holds the pages nothing is appended: the next import or sync of the same list derives it again.
+    Returns the pages changed."""
+    if not any(it.url and (it.folder or "").strip() for it in items):
+        return []
+    from api.services import git_service, page_lock, write_admission
+
+    def work() -> list[str]:
+        with page_lock.page_lock(memory_path):
+            changed = add_collections(memory_path, items, idx)
+            if commit and changed:
+                chunks = [changed[i:i + COMMIT_STEP] for i in range(0, len(changed), COMMIT_STEP)]
+                for n, chunk in enumerate(chunks, 1):
+                    part = f" (part {n} of {len(chunks)})" if len(chunks) > 1 else ""
+                    git_service.commit_paths_sync(memory_path, git_service.build_commit_message(
+                        f"Sources lists {datetime.now().strftime('%Y-%m-%d')}{part}",
+                        [f"{rel}: list added (trigger: {trigger})" for rel in chunk],
+                        authors=[author]), chunk)
+            return changed
+
+    async def body() -> list[str]:
+        return await asyncio.to_thread(work)
+
+    try:
+        return await write_admission.run_admitted(memory_path, body, refuse=write_admission.SleepHolding)
+    except write_admission.SleepHolding:
+        logger.info("saved lists: Sleep holds the pages; the repeats' lists are added on the next import or sync")
+        return []
+
+
+def write_prepared(prepared: PreparedItem, memory_path: Path, idx: dict, *, append_list: bool = False) -> IngestResult:
     """The file half of :func:`ingest_one`: no network. ``idx`` is checked again — a link saved since it was
     prepared is a duplicate (and one dropped since gets the offline metadata)."""
     item, from_bookmark_file = prepared.item, prepared.from_bookmark_file
@@ -2406,9 +2447,10 @@ def write_prepared(prepared: PreparedItem, memory_path: Path, idx: dict) -> Inge
         # already calls `save_url_index` unconditionally right after this
         # returns, so a backfill here is never silently lost.
         _backfill_content_saved_at(existing, item)
-        # Saved again from another list: the page keeps every list it came from (the caller commits the page when
-        # `collection_added`).
-        added = add_collection(memory_path, str(existing.get("media_entity_id") or ""), item.folder)
+        # Saved again from another list: the page keeps every list it came from — only for a caller inside the
+        # bank's write admission and page lock, which commits the page when `collection_added`. A batch appends
+        # its repeats afterwards, admitted (`append_collections`).
+        added = append_list and add_collection(memory_path, str(existing.get("media_entity_id") or ""), item.folder)
         return IngestResult(
             status="duplicate",
             media_entity_id=existing.get("media_entity_id", ""),
@@ -2530,12 +2572,10 @@ async def ingest_batch(
         if backfilled:
             save_url_index(memory_path, idx)
         # A re-import is also how a video already saved learns its other playlists (owner 2026-10-19).
-        listed = add_collections(memory_path, items, idx)
-        if commit and listed:
-            try:
-                await _commit_media(memory_path, 0, listed, lists=len(listed))
-            except Exception as e:
-                logger.warning(f"Media commit failed: {type(e).__name__}: {e}")
+        try:
+            await append_collections(memory_path, items, idx, commit=commit)
+        except Exception as e:
+            logger.warning(f"Saved lists append failed: {type(e).__name__}: {e}")
         return 0, len(items)
 
     sem = asyncio.Semaphore(8)
@@ -2567,23 +2607,22 @@ async def ingest_batch(
                     created += 1
                     created_paths.append(f"entities/{result.media_entity_id}.md")
                     created_paths.append(f"episodes/{result.episode_id}.md")
-            elif result.collection_added:
-                async with lock:
-                    created_paths.append(f"entities/{result.media_entity_id}.md")
 
         await asyncio.gather(*(worker(it) for it in fresh))
 
     save_url_index(memory_path, idx)
-    # The batch's repeats — a link saved before, or the same link from a second list in this batch — append their
-    # list to the page (owner 2026-10-19), after every new row is in `idx`.
-    listed = [p for p in add_collections(memory_path, items, idx) if p not in created_paths]
 
-    if commit and (created or listed):
+    if commit and created:
         try:
-            await _commit_media(memory_path, created, ["sources/url_index.json", *created_paths, *listed],
-                                lists=len(listed))
+            await _commit_media(memory_path, created, ["sources/url_index.json", *created_paths])
         except Exception as e:
             logger.warning(f"Media commit failed: {type(e).__name__}: {e}")
+    # The batch's repeats — a link saved before, or the same link from a second list in this batch — append their
+    # list to the page (owner 2026-10-19), after every new row is in `idx` and the new pages are committed.
+    try:
+        await append_collections(memory_path, items, idx, commit=commit)
+    except Exception as e:
+        logger.warning(f"Saved lists append failed: {type(e).__name__}: {e}")
 
     return created, len(items) - len(fresh)
 
@@ -2611,7 +2650,7 @@ async def ingest_chunked(
 
 async def _commit_media(
     memory_path: Path, count: int, paths: list[str], *, author: str = "user",
-    sessions: list[str] | None = None, trigger: str = "user/media_save", lists: int = 0,
+    sessions: list[str] | None = None, trigger: str = "user/media_save",
 ) -> None:
     """Commit scoped to exactly ``paths`` — never ``git add -A`` (finding 3
     above). ``paths`` is memory-relative: ``sources/url_index.json`` plus one
@@ -2622,17 +2661,20 @@ async def _commit_media(
     from api.services import git_service
 
     date_str = datetime.now().strftime("%Y-%m-%d")
-    message = git_service.build_commit_message(
-        f"Sources ingest {date_str}",
-        [
-            f"sources/url_index.json: updated (trigger: {trigger})",
-            *([f"{count} media item(s) saved (trigger: {trigger})"] if count or not lists else []),
-            *([f"{lists} saved item(s) gained a list (trigger: {trigger})"] if lists else []),
-        ],
-        authors=[author],
-        sessions=sessions,
-    )
-    await git_service.commit_paths(memory_path, message, paths)
+    # A large batch commits in parts: a commit names each path on git's command line.
+    chunks = [paths[i:i + COMMIT_STEP] for i in range(0, len(paths), COMMIT_STEP)]
+    for n, chunk in enumerate(chunks, 1):
+        part = f" (part {n} of {len(chunks)})" if len(chunks) > 1 else ""
+        message = git_service.build_commit_message(
+            f"Sources ingest {date_str}{part}",
+            [
+                f"sources/url_index.json: updated (trigger: {trigger})",
+                f"{count} media item(s) saved (trigger: {trigger})",
+            ],
+            authors=[author],
+            sessions=sessions,
+        )
+        await git_service.commit_paths(memory_path, message, chunk)
 
 
 # --- Sleep-cycle media edge injection (CRITIC FIX) ---

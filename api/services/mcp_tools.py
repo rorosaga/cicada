@@ -1440,7 +1440,8 @@ def record_youtube_list(ctx: ToolContext, list_name: str, outcome: str, videos=N
             ref = video_urls.resolve(url)
             meta = MediaMeta(title=title or media_ingestor._fallback_title(url), site="youtube.com",
                              channel=channel, media_type="youtube", provider=ref.provider if ref else None)
-            res = media_ingestor.write_prepared(PreparedItem(item, meta), memory_path, idx)
+            # Inside this tool's admission and page lock (`_holding_pages`): a repeat appends Watch later to its page.
+            res = media_ingestor.write_prepared(PreparedItem(item, meta), memory_path, idx, append_list=True)
             if res.status == "created":
                 created += 1
                 paths += [f"entities/{res.media_entity_id}.md", f"episodes/{res.episode_id}.md"]

@@ -6,7 +6,7 @@
 A playlist, board, collection or bookmark folder is where a save came from (its page's ``folder:``), never a hub
 (owner 2026-10-19). The rule and the rails are in ``api.services.list_hub_repair``. The bank is named explicitly;
 nothing is resolved from the environment's active bank. Exit 0 done, 2 not a bank, 3 refused because Sleep is running
-or holds the pages.
+or holds the pages, the backend cannot be asked, or git cannot list the bank's uncommitted changes.
 """
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ def main(argv=None) -> int:
         return 0
     try:
         result = repair.apply(bank, sleep_running=_sleep_running)
-    except repair.SleepRunning as exc:
+    except repair.Refused as exc:
         print(json.dumps({"refused": str(exc)}))
         return 3
     print(json.dumps(result.counts()))
