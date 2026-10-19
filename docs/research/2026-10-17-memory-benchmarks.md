@@ -126,7 +126,11 @@ api/.venv/bin/python -m benchmarks.public.run report --run <run folder>
   the dataset's day — LoCoMo: an hour after the last session; LongMemEval: the question date — so decay, expiry and
   "CURRENT LOCAL DAY" are the dataset's, not 2026's. `--sleep-schedule per-session` drains after each session on
   that session's day (the nightly rhythm) instead of once.
-- **Judges** (`judges.py`): Mem0's J prompt and LongMemEval's per-type prompts, verbatim; LoCoMo's token F1 rules
+- **Judges** (`judges.py`): Mem0's J prompt and LongMemEval's per-type prompts, verbatim — with one dated amendment
+  (2026-10-19, `ABSTENTION_AMENDMENT`): the abstention prompt adds one sentence saying a reply that reports no record
+  of the asked thing ("none recorded", "zero as far as the record goes") identifies the question as unanswerable,
+  and that answering with a value from something else does not; the report names it (`judge_protocol`). Without it the
+  judge flipped on equivalent abstentions between runs; LoCoMo token F1 rules
   (category 1 multi-answer, category 3 first-of-`;`); LoCoMo category 5 off by default and, when on, scored apart
   with LongMemEval's abstention prompt. Category numbers map as LoCoMo's own scorer treats them
   (1 multi-hop, 2 temporal, 3 open-domain, 4 single-hop, 5 adversarial).

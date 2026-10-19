@@ -17,6 +17,8 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
+from benchmarks.public import judges
+
 
 def _rows(path: Path) -> list[dict]:
     if not path.is_file():
@@ -109,7 +111,8 @@ def summarize(run_dir: Path) -> dict:
     for c in calls:
         by_phase[c["phase"]]["calls"] += 1
         by_phase[c["phase"]]["seconds"] = round(by_phase[c["phase"]]["seconds"] + c["seconds"], 1)
-    return {"config": cfg, "units": units, "paths": paths, "calls_by_stage": dict(cost),
+    return {"config": cfg, "units": units, "paths": paths, "judge_protocol": judges.JUDGE_PROTOCOL,
+            "calls_by_stage": dict(cost),
             "calls_by_phase": dict(by_phase), "calls_total": len(calls),
             "sleep_wall_seconds": round(sum(u["sleep_seconds"] or 0 for u in units), 1)}
 
@@ -119,7 +122,8 @@ def render(s: dict) -> str:
     locomo = cfg["dataset"] == "locomo"
     lines = [f"\n{cfg['dataset']} · Cicada {cfg.get('revision', '?')} · Sleep {cfg['sleep_model']} "
              f"(+{cfg['disambiguation_model']}) · answer {cfg['answer_model']} · judge {cfg['judge_model']} · "
-             f"{len(s['units'])} unit(s), {sum(1 for u in s['units'] if u['done'])} done"]
+             f"{len(s['units'])} unit(s), {sum(1 for u in s['units'] if u['done'])} done",
+             f"  judging: {s.get('judge_protocol') or judges.JUDGE_PROTOCOL}"]
     metric = "J" if locomo else "accuracy"
     for path, b in s["paths"].items():
         extra = f" · F1 {b['f1']}" if locomo and b.get("f1") is not None else \

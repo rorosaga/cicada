@@ -91,7 +91,15 @@ def test_judges_are_the_published_prompts_and_parsers():
     assert judges.parse_mem0("CORRECT or WRONG?") is None
     lme = judges.lme_prompt("temporal-reasoning", "Q", "A", "R", abstention=False)
     assert "do not penalize off-by-one errors" in lme and lme.endswith("Answer yes or no only.")
-    assert "unanswerable" in judges.lme_prompt("multi-session", "Q", "A", "R", abstention=True)
+    abst = judges.lme_prompt("multi-session", "Q", "A", "R", abstention=True)
+    assert "unanswerable" in abst
+    # The one amendment: a "none recorded" / "zero as far as the record goes" reply is an abstention; the published
+    # sentences are kept whole and in order, the amendment sits just before the question.
+    published = judges.LME_TEMPLATES["abstention"].split("\n\nQuestion: {}")[0]
+    assert abst.startswith(published + " " + judges.ABSTENTION_AMENDMENT + "\n\nQuestion: Q")
+    assert "zero as far as the record goes" in abst and abst.endswith("Answer yes or no only.")
+    assert judges.ABSTENTION_AMENDMENT not in judges.lme_prompt("multi-session", "Q", "A", "R", abstention=False)
+    assert judges.ABSTENTION_AMENDMENT not in judges.mem0_prompt("Q", "A", "R")
     assert "Rubric: A" in judges.lme_prompt("single-session-preference", "Q", "A", "R", abstention=False)
     with pytest.raises(ValueError):
         judges.lme_prompt("made-up", "Q", "A", "R", abstention=False)
@@ -139,6 +147,7 @@ def test_report_scores_paths_and_categories_apart(tmp_path):
     assert ask["n"] == 2 and ask["accuracy"] == 50.0          # adversarial never in the headline
     assert ask["categories"]["adversarial"]["accuracy"] == 100.0
     assert s["calls_total"] == 1 and "J 50.0%" in report.render(s)
+    assert s["judge_protocol"] == judges.JUDGE_PROTOCOL and "judging: " in report.render(s)
 
 
 def test_offline_unit_runs_intake_sleep_ask_and_judge(tmp_path):

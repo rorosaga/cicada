@@ -11,7 +11,12 @@
   and one for abstention; ``'yes' in reply.lower()`` is the label, as in the original script.
 
 The prompts are copied character for character; only the judge model differs from the papers (it runs on the
-person's plan). The report always names the judge model.
+person's plan). The report always names the judge model. **One amendment** (:data:`ABSTENTION_AMENDMENT`, 2026-10-19):
+the abstention prompt gets one sentence after the published one saying that a response reporting no record of the
+asked thing ("none recorded", "zero as far as the record goes") identifies the question as unanswerable — the judge
+flipped on two such equivalent abstentions between runs (LongMemEval oracle, an unchanged prompt to the answering
+model), so the number moved on wording, not on what memory knew. A response that states a value from a mismatched
+premise is still not an abstention. The report names the amendment.
 """
 from __future__ import annotations
 
@@ -111,13 +116,26 @@ LME_TEMPLATES = {
                   "\n\nQuestion: {}\n\nExplanation: {}\n\nModel Response: {}\n\nDoes the model correctly identify the "
                   "question as unanswerable? Answer yes or no only.",
 }
+#: Cicada's one amendment to a published judge prompt (see the module doc): inserted into the abstention prompt
+#: just before its question, so the published wording is otherwise unchanged and the reply rule (``'yes' in reply``)
+#: is the original's.
+ABSTENTION_AMENDMENT = (
+    "A response that says the memory or record has no such event, item or amount — for example \"none recorded\", "
+    "\"no record of it\", \"zero as far as the record goes\" or \"the count is zero in what memory shows\" — "
+    "identifies the question as unanswerable, the same as saying the information is not available. A response that "
+    "answers as if the asked thing were recorded, with a value from something else (another item, role or date), "
+    "does not.")
+#: How the report names the judging protocol beside the judge model.
+JUDGE_PROTOCOL = "published prompts; abstention + 'none recorded' amendment (2026-10-19)"
 _LME_DEFAULT_TYPES = ("single-session-user", "single-session-assistant", "multi-session")
 
 
 def lme_prompt(task: str, question: str, answer: str, response: str, *, abstention: bool) -> str:
     if abstention:
-        key = "abstention"
-    elif task in _LME_DEFAULT_TYPES:
+        template = LME_TEMPLATES["abstention"].replace("\n\nQuestion: {}", " " + ABSTENTION_AMENDMENT + "\n\nQuestion: {}",
+                                                       1)
+        return template.format(question, answer, response)
+    if task in _LME_DEFAULT_TYPES:
         key = "default"
     elif task in LME_TEMPLATES:
         key = task
