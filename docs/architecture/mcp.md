@@ -856,7 +856,7 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   words it holds; a conversation ranks by its best passage, then by the weight of all the words it holds. Then the
   question's own words decide its **shape** (`ask_sources.question_shape`, no model): a count or a list ("how many",
   "how often", "list every", "which … have I") is `enumerate`; a day it names ("on 9 April 2025", "March 3", "in June
-  2024", "yesterday") or "the first time / originally / used to" is `anchored`; an outcome or a current value
+  2024", "in September" — that month in any year —, "el 5 de septiembre", "en mayo de 2025", "yesterday") or "the first time / originally / used to" is `anchored`; an outcome or a current value
   ("final", "ended up", "eventually", "currently", "still", "agreed") is `latest`; anything else `lookup`. A
   conversation is **on the subject** when it holds at least half the weight of the question's words the best
   conversation holds, two of them when that one holds two or more, and ranks in the fused top 20 ("the gravel bike"
@@ -901,6 +901,18 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   the window or the breadth lines; the lost part was the turn. Measured (LongMemEval_S, no model): multi-session
   evidence sessions whose answer turn is shown 19 → 30 of 49, the newer knowledge-update answer turn 14 → 15 of 16,
   temporal 12 → 17 of 18; `docs/research/2026-10-17-memory-benchmarks.md`, "Ask edges".
+- **What the clip keeps (2026-10-20, Ask clip).** One 600-character window around the answering sentence answered
+  one ask and cut the rest: on the owner's eval five questions flipped wrong — the device's make and its second
+  problem, a message's addressee in its greeting, the person's reason before a pasted draft, the request after a
+  reply. A long search-leg turn is now cut by `ask_sources._clip_answer`, in the same budget: the answering
+  sentence, each sentence that best answers another of the question's asks (`question_asks` splits "…, and what /
+  which / why …", "; …", "? And …", "y qué …"; each ask's own words pick its sentence), and the turn's opening
+  (≤ 160 characters: the greeting, the first line that says what a message is and why); what is left grows the
+  answering sentence's own window, a third before and the rest after. Pieces keep the turn's order, joined by "…".
+  Breadth lines (counts and lists, ≤ 300 characters) keep no opening. A "why" question's value is a stated reason
+  ("because", "since", "so that", "named it after", "porque", "ya que" …), not a number or a name, so the person's
+  reason outranks a draft that repeats the name with numbers (`answer_prefs(...).why`). The page leg's clip
+  (around its evidence span) is unchanged. Measured: `docs/research/2026-10-17-memory-benchmarks.md`, "Ask clip".
 - **The `sources` scope.** `answer_query(source_words=...)`, `POST /ask` `sourceWords` (default true): `cicada_ask`
   passes `ctx.raw_excerpts`, so a remote connector without `sources` gets no conversation words in the prompt (R-R22)
   — neither leg runs for it.
