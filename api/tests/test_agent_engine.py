@@ -216,7 +216,13 @@ def test_model_from_envelope_alias_heuristic_can_misattribute_a_verbose_side_cal
             "claude-haiku-4-5": {"canonicalModel": "claude-haiku-4-5", "outputTokens": 500},
         }
     }
-    assert agent_engine.model_from_envelope(envelope, "sonnet") == "claude-haiku-4-5"
+    # A family alias now names its own key (2026-10-19: a web lookup's verbose search side-call was recorded as the
+    # model that answered); the heaviest-output fallback is left for an alias that matches no key or several.
+    assert agent_engine.model_from_envelope(envelope, "sonnet") == "claude-sonnet-5"
+    assert agent_engine.model_from_envelope(envelope, "best") == "claude-haiku-4-5"
+    two = {"modelUsage": {**envelope["modelUsage"],
+                          "claude-sonnet-4-5": {"canonicalModel": "claude-sonnet-4-5", "outputTokens": 9}}}
+    assert agent_engine.model_from_envelope(two, "sonnet") == "claude-haiku-4-5"
 
 
 def test_schema_constrained_tool_use_success_is_not_treated_as_a_failure(agent_envelopes):

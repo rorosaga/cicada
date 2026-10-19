@@ -1244,3 +1244,43 @@ def test_a_guessed_empty_or_repeated_category_word_never_rides_with_the_name(des
     assert web_settle._category(description, type_question=False, labels=[], name=name) == expected
     assert web_settle.context_category(_bare(name=name), [f"Mentioned: the paper {name} was cited"]) == (
         [] if "paper" in name.lower() else ["paper"])
+
+
+def test_a_lookup_runs_on_the_plans_lookup_tier_never_on_a_metered_key(monkeypatch):
+    """2026-10-19, measured on synthetic shapes: the cheap Sleep tier settled 4/10 public things its own search named
+    (8/10 with the clearer sure bar), the plan's larger tier 10/10 — so a lookup asks the same plan for that tier, for
+    that one call; the person's metered model is never changed."""
+    import asyncio
+
+    from api.config import Settings
+
+    async def plan(settings, registry=None, *, user_triggered=True):
+        return Settings(llm_mode="agent", agent_model="haiku"), "pinned"
+
+    monkeypatch.setattr(engine_select, "resolve_settings", plan)
+    resolved, _label, why = asyncio.run(web_lookup.engine_for(Settings(), user_triggered=True))
+    assert why == "plan" and resolved.agent_model == "sonnet" and resolved.llm_mode == "agent"
+    resolved, _label, _why = asyncio.run(web_lookup.engine_for(Settings(web_check_agent_model=""),
+                                                               user_triggered=True))
+    assert resolved.agent_model == "haiku", "empty: the person's own Sleep model"
+    # the scheduled-plan switch still decides first
+    monkeypatch.setattr(web_lookup, "_registry",
+                        lambda settings: SimpleNamespace(prefs=lambda: {"sleep-run": {"scheduled_use_plan": False}}))
+    assert asyncio.run(web_lookup.engine_for(Settings(), user_triggered=False))[0] is None
+
+    import litellm
+
+    async def metered(settings, registry=None, *, user_triggered=True):
+        return Settings(llm_mode="byok", litellm_model="anthropic/claude-x"), "byok"
+
+    monkeypatch.setattr(engine_select, "resolve_settings", metered)
+    monkeypatch.setattr(litellm, "supports_web_search", lambda model: True)
+    resolved, _label, why = asyncio.run(web_lookup.engine_for(Settings(), user_triggered=True))
+    assert why == "metered" and resolved.litellm_model == "anthropic/claude-x"
+
+
+def test_the_sure_bar_names_what_is_sure_and_keeps_a_local_place_unsure():
+    prompt = web_lookup.SYSTEM_PROMPT
+    assert "as the search showed them to you" in prompt and "verbatim" not in prompt
+    assert "a small local place" in prompt and "name outright is a sure answer" in prompt
+    assert '{"sure": false}' in prompt and "could be a private person" in prompt

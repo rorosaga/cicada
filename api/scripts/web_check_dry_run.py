@@ -23,7 +23,8 @@ the bank's person names are redacted (``web_settle.person_name_census``: split, 
 person-typed names that read as a thing — the data to fix in the bank, never a name).
 
 ``--trace-raw`` (implies ``--trace``; for the eyes of the person running it, printed and never written anywhere):
-per lookup also the searches the engine ran, how many links each search returned, the model, and the model's
+per lookup also the searches the engine ran, how many links each search returned, the model (and every model the call
+used with its output tokens: the search's own side-call is one), and the model's
 raw final text cut to 400 characters — which may quote the subject's name and what the web says about it.
 
 The real sweep is the running backend's own route (it holds the bank's write admission and Sleep's window, ruling
@@ -68,7 +69,9 @@ def main(argv=None) -> int:
     def raw(c, resp) -> None:
         raws.append({"searches": web_lookup.searched_queries(resp),
                      "links": list((resp.get("tool_results") if isinstance(resp, dict) else None) or []),
-                     "model": web_lookup._model_of(resp), "text": web_lookup._content(resp)[:400]})
+                     "model": web_lookup._model_of(resp),
+                     "models_used": dict((resp.get("model_usage") if isinstance(resp, dict) else None) or {}),
+                     "text": web_lookup._content(resp)[:400]})
 
     def trace(c, context, a) -> None:
         stats: dict = {}
@@ -77,7 +80,8 @@ def main(argv=None) -> int:
                "context_lines": len(context), "people_redacted": stats.get("people", 0),
                "outcome": "would_settle" if a.ok else a.reason}
         if args.trace_raw:
-            row.update(raws.pop() if raws else {"searches": [], "links": [], "model": None, "text": ""})
+            row.update(raws.pop() if raws else
+                       {"searches": [], "links": [], "model": None, "models_used": {}, "text": ""})
         rows.append(row)
 
     counts = asyncio.run(web_lookup.sweep(bank, Settings(), dry_run=True, limit=0 if args.census else args.limit,

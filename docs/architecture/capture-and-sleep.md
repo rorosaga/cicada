@@ -863,7 +863,19 @@ whose searches litellm reports with their query** (`web_lookup.SEARCH_REPORTED_P
 `server_tool_use` comes back as a `web_search` tool call). Any other metered engine — OpenRouter (the router bills, so
 `openrouter/anthropic/…` counts as OpenRouter), OpenAI's search models, Gemini, xAI — skips with `search_unreported`
 before any paid call, since its searches could never pass the pinned-query check; the ChatGPT plan and a local model
-get no search, so the step skips. Each call is an `llm_call` of stage `web_check` in the run's own scope (a
+get no search, so the step skips. **The lookup tier (2026-10-19):** on the Claude plan a lookup runs on the plan's
+`web_check_agent_model` tier (`CICADA_WEB_CHECK_AGENT_MODEL`, default `sonnet`; empty = the person's Sleep model) for
+that one call — the same plan, scheduled-plan switch and limits (`web_lookup.lookup_tier`); a metered key's model is
+never changed. Measured on synthetic shapes with the person's notes: the cheap tier settled 4 of 10 public things its
+own search named outright (8 of 10 with the clearer sure bar below, still inconsistent on arXiv ids), the larger tier
+10 of 10; two small local places searched by name stayed unsure on both. The ledger names the model that answered: a
+family alias ("sonnet") matches its own `modelUsage` key before the most-output-tokens fallback, since the search's
+side-call can out-write the main turn (`agent_engine.model_from_envelope`). **The sure bar:** sure when the results
+clearly describe one public thing by the name and the notes point nowhere else (a paper, book, film, quote, method,
+event the results name outright); not sure when different things share the name and the notes do not say which
+(usual for a small local place), when the results do not answer, or when the subject could be a private person or
+someone's own file or project; the quote is the result's words as the search showed them (a search tool shows result
+text, not the page). Each call is an `llm_call` of stage `web_check` in the run's own scope (a
 drain's tagged with its `drain_id`), so Past reads counts it with its basis (ruling 12). **The pinned query:** the
 subject's name plus at most ONE category word from a fixed list (works, tools, companies and startups, places such as
 a restaurant, café, bar or clinic; a Spanish form is sent as its English word), read from Cicada's own one-line

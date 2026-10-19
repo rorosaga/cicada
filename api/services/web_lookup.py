@@ -62,18 +62,29 @@ MAX_SEARCHES = 2
 RETRY_DAYS = 30
 TIMEOUT_S = 120.0
 
+#: The sure bar (2026-10-19, measured): a small model answered "not sure" on 6 of 10 things its own search named
+#: outright, where a larger one settled 10 of 10. It was asked for "that page's own words, verbatim" — but a search
+#: tool shows result text, not the page, so a literal model could never meet that bar. The quote is now the result
+#: text it was shown, and the prompt says what IS sure (one public thing the results name) as plainly as what is not
+#: (different things sharing the name — a small local place, typically — with notes that do not say which).
 SYSTEM_PROMPT = (
     "You look up ONE public thing on the web to answer one question about it. Use the web search tool with exactly "
     "the query you are given, word for word, at most twice; never add, remove or change a word, and never search for "
     "anything else. You may also be given the person's own notes about the subject. They are only for telling which "
     "result is about the thing the person meant (one name can belong to a restaurant, a town and a product at once): "
-    "never search for their words, and never answer from them. Answer only from what a result about that thing says. "
-    "If the results are about other things with the same name, if you cannot tell which thing is meant, if they do "
-    "not clearly answer the question, or if the subject could be a private person, someone's own file or project, "
-    "answer {\"sure\": false}. Reply with one "
-    "JSON object and nothing else: {\"sure\": true, \"option_key\": <the key of the option that is true, for a "
-    "choice>, \"answer\": <one short phrase, at most 25 words, for a 'what is it' question>, \"url\": <the link of the "
-    "page that says it>, \"quote\": <that page's own words that say it, verbatim, at most 240 characters>}."
+    "never search for their words, and never answer from them; a description in them is a guess and may be wrong. "
+    "Answer from what the search results say.\n"
+    "Answer {\"sure\": true} when the results clearly describe one public thing by this name and nothing in the notes "
+    "points to a different thing: a paper, book, film, series, song, quote, method, standard, product, event or "
+    "organisation that the results name outright is a sure answer, even when the notes say little.\n"
+    "Answer {\"sure\": false} when the results are about different things that share the name and the notes do not "
+    "say which one the person meant (usual for a small local place — a restaurant, a shop, a clinic — searched by its "
+    "name alone), when the results do not answer the question, or when the subject could be a private person or "
+    "someone's own file or project.\n"
+    "Reply with one JSON object and nothing else: {\"sure\": true, \"option_key\": <the key of the option that is "
+    "true, for a choice>, \"answer\": <one short phrase, at most 25 words, for a 'what is it' question>, \"url\": "
+    "<the link of the result that says it>, \"quote\": <the words of that result that say it, as the search showed "
+    "them to you, at most 240 characters>}."
 )
 
 
@@ -277,7 +288,7 @@ async def engine_for(settings, *, user_triggered: bool) -> tuple[Any, str | None
             return None, label, "scheduled_plan"
         if mode != "agent":
             return None, label, "no_search_tool"
-        return resolved, label, "plan"
+        return lookup_tier(resolved, settings), label, "plan"
     if mode != "byok":
         return None, label, "no_search_tool"
     model = str(getattr(resolved, "litellm_model", "") or "")
@@ -292,6 +303,17 @@ async def engine_for(settings, *, user_triggered: bool) -> tuple[Any, str | None
     except Exception:  # noqa: BLE001 — an unknown model has no known search
         can = False
     return (resolved, label, "metered") if can else (None, label, "no_search_tool")
+
+
+def lookup_tier(resolved, settings):
+    """The plan model a lookup runs on: ``web_check_agent_model`` for this one call (2026-10-19, measured: a cheap
+    Sleep tier said "not sure" on things its own search named outright), else the person's own. Same plan, same
+    scheduled-plan switch and limits — only the tier changes; a metered key is never touched (its model is the
+    person's spend to choose). The ledger records the model that answered (``agent_engine.model_from_envelope``)."""
+    tier = str(getattr(settings, "web_check_agent_model", "") or "").strip()
+    if not tier or not hasattr(resolved, "model_copy"):
+        return resolved
+    return resolved.model_copy(update={"agent_model": tier})
 
 
 def default_llm_fn(resolved, *, sink: Callable[..., None] | None = None) -> Callable[..., Any]:
