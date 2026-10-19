@@ -7,7 +7,15 @@ import XCTest
 private final class DumpAPI: ChannelItemsAPI, @unchecked Sendable {
     let pages: [String: ChannelItemsPage]
     let day: WatchedDay?
-    init(pages: [String: ChannelItemsPage], day: WatchedDay?) { self.pages = pages; self.day = day }
+    let chat: ChatSittings?
+    init(pages: [String: ChannelItemsPage], day: WatchedDay?, chat: ChatSittings?) {
+        self.pages = pages; self.day = day; self.chat = chat
+    }
+
+    func fetchChatSittings(conversation: String, etag: String?) async throws -> Conditional<ChatSittings> {
+        guard let chat, chat.conversation == conversation else { throw APIError.httpError(404, "") }
+        return Conditional(value: chat, etag: nil, notModified: false)
+    }
 
     func fetchChannelItems(channel: String, offset: Int, limit: Int, etag: String?) async throws
         -> Conditional<ChannelItemsPage> {
@@ -41,10 +49,12 @@ final class SourcesV4RenderTests: XCTestCase {
         let channels = try load("channels.json", as: SourceChannelsResponse.self).channels
         let pages = try load("lists.json", as: [String: ChannelItemsPage].self)
         let day = try load("day.json", as: WatchedDay.self)
+        let chat = try load("sittings.json", as: ChatSittings.self)
 
-        let cache = ChannelItemsCache(api: DumpAPI(pages: pages, day: day))
+        let cache = ChannelItemsCache(api: DumpAPI(pages: pages, day: day, chat: chat))
         for key in pages.keys { await cache.refresh(key) }
         await cache.refreshDay(day.episode)
+        await cache.refreshSittings(chat.conversation)
         let sync = FakeSyncAPI()
         sync.replies[.channels] = .value(channels)
         sync.replies[.sourcesOverview] = .value(rows)
@@ -76,9 +86,16 @@ final class SourcesV4RenderTests: XCTestCase {
                       to: base.appendingPathComponent("sources-v4-root-\(suffix).png"))
 
             // Messages open: one header (what it is, its state, Consolidate · N waiting), then the chats.
+            let chats = try XCTUnwrap(pages["imessage"])
             let open = opened(groups: groups, selected: messages.id) {
                 SourceDetailHead(source: messages, onClose: {})
-                CapturedItemsList(channel: "imessage", style: .open).padding(.horizontal, CicadaTheme.spacingXL)
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionLabel(Copy.capturedTitle).frame(minHeight: 28, alignment: .leading)
+                    ForEach(Array(chats.items.enumerated()), id: \.element.id) { index, item in
+                        ChatSittingsRow(item: item, today: today, initiallyOpen: index == 0, open: { _ in })
+                    }
+                }
+                .padding(.horizontal, CicadaTheme.spacingXL)
             }
             try write(open, size: CGSize(width: 1100, height: 640), scheme: scheme, env: env,
                       to: base.appendingPathComponent("sources-v4-messages-\(suffix).png"))

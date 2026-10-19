@@ -123,7 +123,8 @@ final class SourcesV3Tests: XCTestCase {
                                                row("harness:claude-code", .harness, .captured)])
         columns.open(.source("chrome-bookmarks"))
         XCTAssertEqual(columns.openId, .source("chrome-bookmarks"))
-        XCTAssertEqual(SourcesModel.eyebrow(groups: groups, open: columns.openId), "Sources · 1 of 2 · Saved by you")
+        XCTAssertEqual(SourcesModel.eyebrow(groups: groups, open: columns.openId), "Sources · 2 connected",
+                       "Sources v4: the eyebrow stays the page's (the list shows where you are)")
     }
 
     func testASavedRowOpensWhereASavedItemOpensToday() {

@@ -1211,8 +1211,9 @@ async def list_channel_items(
     memory_path = settings.memory_path
     if not channel_items.known(memory_path, channel_id):
         raise HTTPException(status_code=404, detail="Unknown channel")
+    # Sources v4 (review of #358): `photos` too — a Messages row carries its chat photo's hash.
     etag = sync_service.etag_for(
-        memory_path, "sources", "episodes", "entities",
+        memory_path, "sources", "episodes", "entities", "photos",
         extra=f"{channel_items.SHAPE}|{channel_id}|{offset}|{limit}",
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
@@ -1283,12 +1284,15 @@ async def get_watched_day(episode_id: str, request: Request, response: Response,
 _STILL_SEMAPHORE = asyncio.Semaphore(4)
 
 
-@router.get("/sources/watch-history/videos/{video_id}/thumbnail")
-async def get_watched_video_thumbnail(video_id: str, request: Request, settings: Settings = Depends(get_settings)):
-    """Sources v4 (owner direction 2026-10-19, `storage.md`) — a watched YouTube video's still, for its row in a day
-    the person opened: asked of YouTube's own thumbnail host for this id only, and only for an id the bank records as
-    watched (`channel_items.watched_video_id`); behind `CICADA_ALLOW_LOGO_FETCH`, through the ToS rail, cached outside
-    every bank (`media_preview.ensure_video_still`). 404 = no picture. Sleep never calls it; no model reads history."""
+@router.get("/sources/watch-history/days/{episode_id}/videos/{video_id}/thumbnail")
+async def get_watched_video_thumbnail(episode_id: str, video_id: str, request: Request,
+                                      settings: Settings = Depends(get_settings)):
+    """Sources v4 (owner direction 2026-10-19, `storage.md`) — a watched YouTube video's still, for its row in the day
+    the person opened. Keyed by that day (review of #358): the id must be one THIS day records
+    (`channel_items.day_has_video`, one file read), and the backend asks YouTube's own thumbnail host for that id only;
+    behind `CICADA_ALLOW_LOGO_FETCH`, through the ToS rail, cached outside every bank
+    (`media_preview.ensure_video_still`), at most four at a time. 404 = no picture. Sleep never calls it; no model
+    reads history."""
     import hashlib
 
     from fastapi.responses import FileResponse
@@ -1296,10 +1300,10 @@ async def get_watched_video_thumbnail(video_id: str, request: Request, settings:
     from api.services import media_preview
 
     memory_path = settings.memory_path
-    known = await run_in_threadpool(channel_items.watched_video_id, memory_path, video_id)
-    if not known:
-        raise HTTPException(404, "no picture for this video")
     async with _STILL_SEMAPHORE:
+        known = await run_in_threadpool(channel_items.day_has_video, memory_path, episode_id, video_id)
+        if not known:
+            raise HTTPException(404, "no picture for this video")
         path = await media_preview.ensure_video_still(memory_path, video_id)
     if path is None or not path.exists():
         raise HTTPException(404, "no picture for this video")
@@ -1310,6 +1314,22 @@ async def get_watched_video_thumbnail(video_id: str, request: Request, settings:
         return Response(status_code=304, headers=headers)
     media_type = media_preview.MEDIA_TYPES.get(path.suffix.lstrip("."), "application/octet-stream")
     return FileResponse(path, media_type=media_type, headers=headers)
+
+
+@router.get("/sources/messages/chats/{conversation}/sittings")
+async def get_messages_chat_sittings(conversation: str, request: Request, response: Response,
+                                     settings: Settings = Depends(get_settings)):
+    """Sources v4 (review of #358) — one Messages chat's sittings, newest first: what its row opens to
+    (`channel_items.chat_sittings`; each sitting opens in the Reader). Titles only, never a body; not a Store domain —
+    the app keeps it in memory and revalidates with this ETag."""
+    memory_path = settings.memory_path
+    etag = sync_service.etag_for(memory_path, "episodes", extra=f"{channel_items.SHAPE}|sittings|{conversation}")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    page = await run_in_threadpool(channel_items.chat_sittings, memory_path, conversation)
+    if page is None:
+        raise HTTPException(status_code=404, detail="No such chat")
+    return page
 
 
 @router.get("/sources/messages/chats/{conversation}/photo")

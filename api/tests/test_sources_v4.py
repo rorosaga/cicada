@@ -174,6 +174,24 @@ def test_a_saved_source_carries_the_sites_its_things_came_from(bank):
     assert not any("url" in f or "/p/" in json.dumps(f) for f in row["faces"]), "never the URL"
 
 
+def test_a_saved_row_draws_faces_only_from_what_its_count_counts(bank):
+    """Review of #358: "Nothing saved yet" beside three faces. No count, no faces; a bookmark that left the browser
+    is no face."""
+    for i, host in enumerate(["example.com", "example.org"]):
+        _page(bank, f"media-{i}", type="media", origin="chrome-bookmark", name=f"Saved {i}",
+              url=f"https://{host}/p", created=f"2026-10-0{i + 1}")
+    none = _rows(bank, [{"id": "chrome-bookmarks", "count": 0, "connected": True}])["chrome-bookmarks"]
+    assert none["faces"] == [] and none["faces_more"] == 0
+    urls = {f"https://{h}/p": f"media-{i}" for i, h in enumerate(["example.com", "example.org"])}
+    (bank / "sources" / "url_index.json").write_text(json.dumps(
+        {media_ingestor.url_hash(u): {"media_entity_id": e, "url": u, "title": e} for u, e in urls.items()}))
+    (bank / "sources" / "bookmark_seen.json").write_text(json.dumps({"chrome-bookmarks": {
+        "hashes": [media_ingestor.url_hash("https://example.com/p")],
+        "left": {media_ingestor.url_hash("https://example.org/p"): "2026-10-10T00:00:00+00:00"}}}))
+    row = _rows(bank, [{"id": "chrome-bookmarks", "count": 1, "connected": True}])["chrome-bookmarks"]
+    assert [f["label"] for f in row["faces"]] == ["example.com"], "the one still in the browser"
+
+
 def test_the_overview_route_serves_the_new_fields(client, bank):
     _sitting(bank, "ep_2026-10-19_001", CHAT_A, "Alice Example", "2026-10-19T10:00:00+00:00", processed=False)
     bank_index.invalidate()
@@ -206,11 +224,39 @@ def test_the_chat_photo_route_serves_only_a_ticked_chats_stored_photo(client, ba
 # --- lists -----------------------------------------------------------------------------------------------------------
 
 
-def test_messages_rows_are_titled_by_the_chat_and_say_their_day_once(bank):
-    _sitting(bank, "ep_2026-10-19_001", CHAT_A, "Alice Example", "2026-10-19T10:00:00+00:00")
+def test_messages_lists_one_row_per_chat_that_opens_to_its_sittings(client, bank):
+    """Review of #358: one row per chat — its newest day and how many sittings — opening in place to its sittings."""
+    _sitting(bank, "ep_2026-10-17_001", CHAT_A, "Alice Example", "2026-10-17T10:00:00+00:00", message_count=4)
+    _sitting(bank, "ep_2026-10-19_001", CHAT_A, "Alice Example", "2026-10-19T10:00:00+00:00", message_count=9)
+    _sitting(bank, "ep_2026-10-18_001", CHAT_B, "Bob Example", "2026-10-18T10:00:00+00:00")
     rows = channel_items.items(bank, "imessage")["items"]
-    assert rows[0]["title"] == "Alice Example" and rows[0]["day"] == "2026-10-19"
+    assert [(r["kind"], r["id"], r["title"], r["day"], r["sittings"]) for r in rows] == [
+        ("chat", CHAT_A, "Alice Example", "2026-10-19", 2), ("chat", CHAT_B, "Bob Example", "2026-10-18", 1)]
     assert rows[0]["chat"] == {"id": CHAT_A, "label": "Alice Example", "photo": None}
+    page = channel_items.chat_sittings(bank, CHAT_A)
+    assert [(x["id"], x["day"], x["messages"]) for x in page["sittings"]] == [
+        ("ep_2026-10-19_001", "2026-10-19", 9), ("ep_2026-10-17_001", "2026-10-17", 4)]
+    r = client.get(f"/sources/messages/chats/{CHAT_A}/sittings")
+    assert r.status_code == 200 and len(r.json()["sittings"]) == 2
+    assert client.get(f"/sources/messages/chats/{CHAT_A}/sittings",
+                      headers={"If-None-Match": r.headers["etag"]}).status_code == 304
+    assert client.get("/sources/messages/chats/not-a-hash/sittings").status_code == 404
+    assert client.get(f"/sources/messages/chats/{CHAT_C}/sittings").status_code == 404, "no sitting, no chat"
+
+
+def test_a_photo_for_a_chat_with_no_page_moves_the_overview_and_its_list(client, bank):
+    """Review of #358: the `photos` component hashed page-linked photos only, so a page-less chat's photo 304'd."""
+    _sitting(bank, "ep_2026-10-19_001", CHAT_A, "Alice Example", "2026-10-19T10:00:00+00:00")
+    messages_source.update_settings(bank, conversation={"id": CHAT_A, "name": "Alice Example", "ticked": True})
+    bank_index.invalidate()
+    o1 = client.get("/sources/overview")
+    i1 = client.get("/sources/channels/imessage/items")
+    messages_photos.store(bank, [{"conversation": CHAT_A, "photo_b64": base64.b64encode(_png()).decode()}])
+    o2 = client.get("/sources/overview", headers={"If-None-Match": o1.headers["etag"]})
+    i2 = client.get("/sources/channels/imessage/items", headers={"If-None-Match": i1.headers["etag"]})
+    assert o2.status_code == 200 and i2.status_code == 200
+    photo = o2.json()["sources"][[r["id"] for r in o2.json()["sources"]].index("imessage")]["faces"][0]["photo"]
+    assert photo and i2.json()["items"][0]["chat"]["photo"] == photo
 
 
 def test_a_title_drops_the_day_its_row_already_shows():
@@ -266,16 +312,21 @@ def test_a_watched_day_opens_to_its_videos(client, bank):
 # --- a watched video's still ----------------------------------------------------------------------------------------
 
 
-def test_a_still_is_asked_only_for_a_video_the_bank_records(client, bank):
+def test_a_still_is_asked_only_for_a_video_the_opened_day_records(client, bank):
+    """Review of #358: keyed by the day (one file read, never a walk of the bank)."""
     _day(bank, "ep_2026-10-19_001", "2026-10-19", [
         _watch(f"https://www.youtube.com/watch?v={VID_1}", "One", "2026-10-19T08:00:00+00:00")])
+    _day(bank, "ep_2026-10-18_001", "2026-10-18", [
+        _watch(f"https://www.youtube.com/watch?v={VID_2}", "Two", "2026-10-18T08:00:00+00:00")])
     bank_index.invalidate()
-    assert channel_items.watched_video_id(bank, VID_1)
-    assert not channel_items.watched_video_id(bank, VID_2), "an id the request merely names"
-    assert not channel_items.watched_video_id(bank, "../../etc"), "never a path"
-    assert client.get(f"/sources/watch-history/videos/{VID_2}/thumbnail").status_code == 404
+    assert channel_items.day_has_video(bank, "ep_2026-10-19_001", VID_1)
+    assert not channel_items.day_has_video(bank, "ep_2026-10-19_001", VID_2), "another day's video"
+    assert not channel_items.day_has_video(bank, "ep_2026-10-19_001", "../../etc"), "never a path"
+    assert not channel_items.day_has_video(bank, "ep_nope", VID_1)
+    base = "/sources/watch-history/days/ep_2026-10-19_001/videos"
+    assert client.get(f"{base}/{VID_2}/thumbnail").status_code == 404
     # The suite runs with the picture-fetch gate off: a known id asks nothing and draws no picture.
-    assert client.get(f"/sources/watch-history/videos/{VID_1}/thumbnail").status_code == 404
+    assert client.get(f"{base}/{VID_1}/thumbnail").status_code == 404
     assert not (media_preview._watched_root("memory")).exists(), "a gated-off ask stores nothing, not even a miss"
 
 

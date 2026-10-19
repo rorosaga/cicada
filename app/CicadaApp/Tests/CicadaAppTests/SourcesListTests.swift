@@ -52,12 +52,10 @@ final class SourcesListTests: XCTestCase {
         let groups = SourceIntentGroups.group([row("harness:claude-code", .harness),
                                                row("chrome-bookmarks", .browser, .saved)])
         XCTAssertEqual(SourcesModel.eyebrow(groups: groups, open: nil), "Sources · 2 connected")
-        XCTAssertEqual(SourcesModel.eyebrow(groups: groups, open: .source("chrome-bookmarks")),
-                       "Sources · 1 of 2 · Saved by you")
-        XCTAssertEqual(SourcesModel.eyebrow(groups: groups, open: .source("harness:claude-code")),
-                       "Sources · 2 of 2 · Captured for you")
-        XCTAssertEqual(SourcesModel.eyebrow(groups: groups, open: .contributor("gpt-5.4-mini")),
-                       "Sources · Who wrote your memory")
+        // Sources v4 (review of #358): the position and group repeated the list beside it; the eyebrow stays the page's.
+        XCTAssertEqual(SourcesModel.eyebrow(groups: groups, open: .source("chrome-bookmarks")), "Sources · 2 connected")
+        XCTAssertEqual(SourcesModel.eyebrow(groups: groups, open: .source("harness:claude-code")), "Sources · 2 connected")
+        XCTAssertEqual(SourcesModel.eyebrow(groups: groups, open: .contributor("gpt-5.4-mini")), "Sources · 2 connected")
         XCTAssertEqual(SourcesModel.eyebrow(groups: [], open: nil), "Sources")
     }
 

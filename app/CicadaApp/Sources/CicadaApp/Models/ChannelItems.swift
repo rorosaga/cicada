@@ -4,7 +4,7 @@ import Foundation
 /// body; for Contacts the matched page's name and nothing from the card. `day` is an absolute `YYYY-MM-DD` (DR-58: the
 /// relative word is made when read).
 struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
-    enum Kind: String, Sendable { case episode, media, page, unknown }
+    enum Kind: String, Sendable { case episode, media, page, chat, unknown }
 
     let kind: Kind
     let id: String
@@ -23,8 +23,10 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
     var chat: ChannelItemChat? = nil
     /// Sources v4 — a watched day's video count (the row opens to that day's videos). Nil for every other row.
     var videos: Int? = nil
+    /// Sources v4 (review of #358) — a Messages chat's sitting count (the row opens to its sittings).
+    var sittings: Int? = nil
 
-    enum CodingKeys: String, CodingKey { case kind, id, title, day, left, host, site, why, chat, videos }
+    enum CodingKeys: String, CodingKey { case kind, id, title, day, left, host, site, why, chat, videos, sittings }
 
     init(kind: Kind, id: String, title: String, day: String? = nil, left: String? = nil, host: String? = nil,
          site: String? = nil, why: ChannelItemWhy? = nil, chat: ChannelItemChat? = nil, videos: Int? = nil) {
@@ -45,6 +47,7 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         why = try? c.decodeIfPresent(ChannelItemWhy.self, forKey: .why)
         chat = try? c.decodeIfPresent(ChannelItemChat.self, forKey: .chat)
         videos = try? c.decodeIfPresent(Int.self, forKey: .videos)
+        sittings = try? c.decodeIfPresent(Int.self, forKey: .sittings)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -59,6 +62,7 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         try c.encodeIfPresent(why, forKey: .why)
         try c.encodeIfPresent(chat, forKey: .chat)
         try c.encodeIfPresent(videos, forKey: .videos)
+        try c.encodeIfPresent(sittings, forKey: .sittings)
     }
 }
 
@@ -132,7 +136,7 @@ enum CapturedItemRoute: Equatable {
         case .episode: return .reader(episode: item.id, title: item.title)
         case .media: return .feed(mediaEntityId: item.id)
         case .page: return .entity(item.id)
-        case .unknown: return nil
+        case .chat, .unknown: return nil   // a chat opens in place to its sittings (`ChatSittingsRow`)
         }
     }
 }

@@ -319,7 +319,6 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
     # Sources v3 (review of #347): a saved source with no channel counts what its list lists — its live saved media
     # pages (`channel_items` lists them by these origins) — never its episodes, so a history day can never read "saved".
     saved_media: dict[str, int] = {}
-    sites: dict[str, dict[str, tuple[float, dict]]] = {}
     for f in bank_index.files(memory_path, "entities"):
         fm = f.frontmatter
         entity_id = str(fm.get("id") or f.stem)
@@ -327,9 +326,6 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
         owner = _ORIGIN_TO_ID.get(origin)
         if (fm.get("type") == "media" and owner in _SAVED_LIST_ROWS and not is_hidden(fm)):
             saved_media[owner] = saved_media.get(owner, 0) + 1
-        face_owner = owner if origin else "files"
-        if fm.get("type") == "media" and intent_of(face_owner or "") == "saved" and not is_hidden(fm):
-            _note_site(sites.setdefault(face_owner, {}), entity_id, fm)
         # Nil-origin OR `saved-link`: the writers stamp an origin now, but every
         # link saved before they did carries none, and both are the same card.
         # F6: skipping the hidden ones is what keeps this count equal to the
@@ -382,11 +378,15 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
             states[key]["faces"] = [{"kind": "chat", "id": cid, "label": label, "photo": photos.get(cid)}
                                     for cid, (_, label) in ordered[:MAX_FACES]]
             states[key]["faces_more"] = max(0, len(ordered) - MAX_FACES)
-    for key, by_site in sites.items():
-        if key in states:
-            ordered = sorted(by_site.items(), key=lambda kv: (kv[1][0], kv[0]), reverse=True)
-            states[key]["faces"] = [{"kind": "site", **face} for _, (_, face) in ordered[:MAX_FACES]]
-            states[key]["faces_more"] = max(0, len(ordered) - MAX_FACES)
+    # A saved row's faces come from the set its list lists, and only while its count says it holds something (review
+    # of #358: "Nothing saved yet" beside three faces read as a contradiction) — never a bookmark that left the browser.
+    from api.services import channel_items   # lazy: channel_items imports this module
+
+    for key, state in states.items():
+        if state["intent"] == "saved" and state["items"] > 0:
+            faces, more = channel_items.saved_faces(memory_path, state["channel_id"] or key, limit=MAX_FACES)
+            state["faces"] = [{"kind": "site", **face} for face in faces]
+            state["faces_more"] = more
 
     rows = []
     for state in states.values():
@@ -416,23 +416,6 @@ def _note_chat(by_chat: dict[str, tuple[float, str]], fm: dict) -> None:
     held = by_chat.get(cid)
     if held is None or when >= held[0]:
         by_chat[cid] = (when, label)
-
-
-def _note_site(by_site: dict[str, tuple[float, dict]], entity_id: str, fm: dict) -> None:
-    """Keep each site's newest saved page: the row's face is that page's own site mark (`GET /sources/saved/{id}/
-    site-icon`, owner ruling 2026-10-19), keyed by `reading_hosts.site_of` — never the URL itself."""
-    from api.services import reading_hosts
-
-    media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
-    url = str(fm.get("url") or media.get("url") or "")
-    host = reading_hosts.display_host(reading_hosts.host_of(url)) if url else ""
-    site = reading_hosts.site_of(url) if url else ""
-    if not host or not reading_hosts.valid_site_key(site):
-        return
-    when = _sortable(str(fm.get("created") or fm.get("last_referenced") or ""))
-    held = by_site.get(site)
-    if held is None or when >= held[0]:
-        by_site[site] = (when, {"id": entity_id, "label": host, "site": site})
 
 
 def _chat_photos(memory_path: Path) -> dict[str, str]:

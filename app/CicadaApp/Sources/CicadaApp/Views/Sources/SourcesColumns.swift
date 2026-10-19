@@ -54,20 +54,12 @@ enum SourcesModel {
             .union(contributors.map { SourcesSelection.contributor($0.author) })
     }
 
-    /// DR-25 — "Sources · 7 connected" / "Sources · 2 of 7 · Saved by you" / "Sources · Who wrote your memory".
+    /// DR-25 — "Sources · 7 connected", whatever is open. Sources v4 (review of #358): the position and the group
+    /// ("2 of 7 · Saved by you") repeated what the list beside it already shows — the selected row and its group label
+    /// (DR-38) — so the eyebrow stays the page's.
     static func eyebrow(groups: [SourceIntentGroups.Group], open: SourcesSelection?) -> String {
         let ordered = groups.flatMap(\.rows)
-        let overview = Eyebrow.text(Copy.sources, ordered.isEmpty ? "" : Copy.Lists.connected(ordered.count))
-        switch open {
-        case .contributor?:
-            return Eyebrow.text(Copy.sources, Copy.Lists.whoWrote)
-        case .source(let id)?:
-            guard let i = ordered.firstIndex(where: { $0.id == id }),
-                  let group = groups.first(where: { $0.rows.contains { $0.id == id } }) else { return overview }
-            return Eyebrow.text(Copy.sources, Copy.Inbox.position(i + 1, of: ordered.count), group.title)
-        case nil:
-            return overview
-        }
+        return Eyebrow.text(Copy.sources, ordered.isEmpty ? "" : Copy.Lists.connected(ordered.count))
     }
 
     /// A contributor's share of entities written, from the strip's own segments (one scale, R-S6).

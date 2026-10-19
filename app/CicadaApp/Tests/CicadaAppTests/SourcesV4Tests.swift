@@ -20,6 +20,28 @@ final class FakeWatchedDayAPI: ChannelItemsAPI, @unchecked Sendable {
     }
 }
 
+/// Holds every picture fetch until opened, counting how many are inside at once.
+actor PictureGate {
+    private(set) var inside = 0
+    private var held: [CheckedContinuation<Void, Never>] = []
+    private var open = false
+
+    func enter() async {
+        inside += 1
+        if !open { await withCheckedContinuation { held.append($0) } }
+    }
+
+    func waitFor(_ n: Int) async {
+        while inside < n { try? await Task.sleep(for: .milliseconds(5)) }
+    }
+
+    func openAll() {
+        open = true
+        held.forEach { $0.resume() }
+        held = []
+    }
+}
+
 /// Sources v4 (owner 2026-10-19): "remove the graph and just put what the source is. Avoid repetition" — one header,
 /// a "Consolidate now · N waiting" control only when something waits, faces on the root rows, Messages by chat, a
 /// watched day that opens to its videos, and conversations whose find lives in the list header. Pure where it can be,
@@ -86,29 +108,50 @@ final class SourcesV4Tests: XCTestCase {
 
     // MARK: The header
 
-    func testTheStateLineSaysEachFactOnce() {
+    func testTheStateLineSaysOnlyWhatTheRowCannot() {
         let now = Date(timeIntervalSince1970: 1_760_000_000)
         let watching = SourceLiveness(state: .watching, detail: nil)
         let synced = SourceDetailText.state(liveness: watching, status: .synced(now.addingTimeInterval(-5 * 3600)),
                                             fullError: nil, now: now, locale: us)
-        XCTAssertEqual(synced.text, "Watching · Last synced 5 hours ago")
-        XCTAssertFalse(synced.isAlarm)
+        XCTAssertEqual(synced?.text, "Last synced 5 hours ago", "the row already says \"Watching\" (review of #358)")
+        XCTAssertEqual(synced?.isAlarm, false)
         let syncing = SourceDetailText.state(liveness: SourceLiveness(state: .syncing, detail: nil),
                                              status: .syncing(detail: nil, fraction: nil, cancellable: true),
                                              fullError: nil, now: now, locale: us)
-        XCTAssertEqual(syncing.text, Copy.syncingNow, "never \"Syncing… · Syncing now\"")
-        let hook = SourceDetailText.state(liveness: SourceLiveness(state: .captured, detail: nil), status: .idle,
-                                          fullError: nil, now: now, locale: us)
-        XCTAssertEqual(hook.text, "Captured by hook")
+        XCTAssertEqual(syncing?.text, Copy.syncingNow, "never \"Syncing… · Syncing now\"")
+        XCTAssertNil(SourceDetailText.state(liveness: SourceLiveness(state: .captured, detail: nil), status: .idle,
+                                            fullError: nil, now: now, locale: us),
+                     "a hook source's \"Captured by hook\" is the row's; the header adds nothing")
         let long = "Can't read the file. Grant Full Disk Access in System Settings, then sync again."
         let failed = SourceDetailText.state(liveness: SourceLiveness(state: .failed, detail: "Can't read the file"),
                                             status: .idle, fullError: long, now: now, locale: us)
-        XCTAssertTrue(failed.isAlarm)
-        XCTAssertTrue(failed.text.contains(long), "the header has the room for the whole error")
+        XCTAssertEqual(failed?.isAlarm, true)
+        XCTAssertTrue(failed?.text.contains(long) == true, "the header has the room for the whole error")
         let problem = SourceDetailText.state(liveness: watching, status: .problem("Chrome isn't installed"),
                                              fullError: nil, now: now, locale: us)
-        XCTAssertEqual(problem.text, "Chrome isn't installed")
-        XCTAssertTrue(problem.isAlarm)
+        XCTAssertEqual(problem?.text, "Chrome isn't installed")
+    }
+
+    func testConsolidateSaysWhenOtherSourcesWaitToo() {
+        XCTAssertEqual(SourceDetailText.consolidate(waiting: 2, total: 2, running: false), "Consolidate now · 2 waiting")
+        XCTAssertEqual(SourceDetailText.consolidate(waiting: 2, total: 340, running: false),
+                       "Consolidate now · 2 here, 340 in all", "a read takes everything waiting, and says so")
+        XCTAssertNil(SourceDetailText.consolidate(waiting: 0, total: 340, running: false))
+        let head = try? source("Views/Sources/SourceDetailHead.swift")
+        XCTAssertTrue(head?.contains("await sleepVM.refreshStatus()") == true, "the run state is kept fresh")
+        XCTAssertTrue(head?.contains("store.status.value?.sleep.status == \"running\"") == true,
+                      "never enabled during a run the Store already knows about")
+    }
+
+    func testTheEyebrowStaysThePagesWhateverIsOpen() {
+        let groups = SourceIntentGroups.group([SourceOverview(id: "imessage", label: "Messages", kind: .messaging)])
+        XCTAssertEqual(SourcesModel.eyebrow(groups: groups, open: .source("imessage")), "Sources · 1 connected")
+    }
+
+    func testABundledMarkIsDrawnOnTheFirstFrame() {
+        XCTAssertNotNil(LogoImage.bundledImageNow(for: "youtube"), "no \"app\" placeholder before the mark")
+        XCTAssertNotNil(LogoImage.bundledImageNow(for: "rss"))
+        XCTAssertNil(LogoImage.bundledImageNow(for: "no-such-mark"))
     }
 
     func testOneHeaderReplacesTheCardTheStripAndTheSyncRow() throws {
@@ -157,10 +200,12 @@ final class SourcesV4Tests: XCTestCase {
                        "/sources/messages/chats/aaaaaaaaaaaaaaaa/photo?v=0123456789ab")
         XCTAssertNil(SourcePictures.chatPhotoPath(("aaaaaaaaaaaaaaaa", nil)), "no photo stored, no request")
         XCTAssertNil(SourcePictures.chatPhotoPath(("../etc", "0123")))
-        XCTAssertEqual(SourcePictures.stillPath(videoId: "abcDEF12345"),
-                       "/sources/watch-history/videos/abcDEF12345/thumbnail")
-        XCTAssertNil(SourcePictures.stillPath(videoId: "a/b?c=1"))
-        XCTAssertNil(SourcePictures.stillPath(videoId: nil))
+        XCTAssertEqual(SourcePictures.stillPath(episode: "ep_2026-10-19_001", videoId: "abcDEF12345"),
+                       "/sources/watch-history/days/ep_2026-10-19_001/videos/abcDEF12345/thumbnail",
+                       "asked by the day it was watched on (review of #358)")
+        XCTAssertNil(SourcePictures.stillPath(episode: "ep", videoId: "a/b?c=1"))
+        XCTAssertNil(SourcePictures.stillPath(episode: "../x", videoId: "abcDEF12345"))
+        XCTAssertNil(SourcePictures.stillPath(episode: "ep", videoId: nil))
     }
 
     func testTheRootRowDrawsFacesOnlyWhereTheSourceHasThem() throws {
@@ -198,6 +243,38 @@ final class SourcesV4Tests: XCTestCase {
         XCTAssertEqual(api.etags, [nil, "\"d1\""], "the second read revalidates")
         cache.reset()
         XCTAssertNil(cache.day("ep"), "a bank switch forgets every day")
+    }
+
+    func testPicturesAreAskedAFewAtATime() async {
+        let gate = PictureGate()
+        let store = SourcePictureStore(fetch: { _ in await gate.enter(); return nil })
+        let tasks = (0..<12).map { i in Task { await store.image(path: "/p/\(i)", bank: "b") } }
+        await gate.waitFor(SourcePictureStore.maxConcurrent)
+        try? await Task.sleep(for: .milliseconds(50))
+        let peak = await gate.inside
+        XCTAssertEqual(peak, SourcePictureStore.maxConcurrent, "a 400-video day never asks 400 at once")
+        await gate.openAll()
+        for t in tasks { _ = await t.value }
+        let afterwards = await store.inFlightCount
+        XCTAssertEqual(afterwards, 0)
+    }
+
+    // MARK: Messages by chat
+
+    func testAChatRowSaysItsNewestDayAndHowManySittingsAndASittingItsDay() throws {
+        let json = #"{"kind":"chat","id":"aaaaaaaaaaaaaaaa","title":"Alice Example","day":"2026-10-19","sittings":3,"chat":{"id":"aaaaaaaaaaaaaaaa","label":"Alice Example"}}"#
+        let item = try JSONDecoder().decode(ChannelItem.self, from: Data(json.utf8))
+        XCTAssertEqual(item.kind, .chat)
+        XCTAssertEqual(item.sittings, 3)
+        XCTAssertNil(CapturedItemRoute.of(item, interactive: true), "a chat opens in place, never a route")
+        XCTAssertEqual(ChatSittingsText.count(3, newest: "Today", locale: us), "Today · 3 sittings")
+        XCTAssertEqual(ChatSittingsText.count(1, newest: "Today", locale: us), "Today", "one sitting says only its day")
+        let today = try XCTUnwrap(ISODay("2026-10-19"))
+        let sitting = ChatSitting(id: "ep_1", day: "2026-10-19", messages: 12)
+        XCTAssertEqual(ChatSittingsText.sitting(sitting, today: today, locale: us).text, "Today · 12 messages")
+        let list = try source("Views/Sources/CapturedItemsList.swift")
+        XCTAssertTrue(list.contains("ChatSittingsRow(item: item, today: today, open: go)"))
+        XCTAssertTrue(list.contains("sourcesOverview.loadedAt"), "the list follows the overview, which rides `photos`")
     }
 
     // MARK: Conversations

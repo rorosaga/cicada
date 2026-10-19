@@ -13,12 +13,17 @@ enum SourcePictures {
         return "/sources/messages/chats/\(face.id)/photo?v=\(photo)"
     }
 
-    /// A YouTube video id (the backend's own pin: letters, digits, `-` and `_`).
-    static func stillPath(videoId: String?) -> String? {
-        guard let videoId, (6...20).contains(videoId.count),
-              videoId.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") })
+    /// A YouTube video id (the backend's own pin: letters, digits, `-` and `_`), asked by the day it was watched on
+    /// (review of #358: the backend checks the id against that one day's record).
+    static func stillPath(episode: String, videoId: String?) -> String? {
+        guard let videoId, (6...20).contains(videoId.count), isToken(videoId, extra: "-_"),
+              !episode.isEmpty, episode.count <= 80, isToken(episode, extra: "-_.")
         else { return nil }
-        return "/sources/watch-history/videos/\(videoId)/thumbnail"
+        return "/sources/watch-history/days/\(episode)/videos/\(videoId)/thumbnail"
+    }
+
+    private static func isToken(_ s: String, extra: String) -> Bool {
+        s.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || extra.contains($0)) }
     }
 
     private static func isHex(_ s: String) -> Bool {
@@ -36,8 +41,24 @@ actor SourcePictureStore {
     private var images: [String: NSImage] = [:]
     private var misses: Set<String> = []
     private var inFlight: [String: Task<NSImage?, Never>] = [:]
+    /// At most this many pictures are asked at once (review of #358); the rest wait their turn, in order.
+    static let maxConcurrent = 4
+    private var running = 0
+    private var waiting: [CheckedContinuation<Void, Never>] = []
 
     init(fetch: @escaping Fetcher = { try await APIClient.shared.fetchSourcePicture(path: $0) }) { self.fetch = fetch }
+
+    private func acquire() async {
+        if running < Self.maxConcurrent { running += 1; return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    private func release() {
+        if waiting.isEmpty { running -= 1 } else { waiting.removeFirst().resume() }
+    }
+
+    /// How many asks run now (tests).
+    var inFlightCount: Int { running }
 
     func image(path: String, bank: String) async -> NSImage? {
         let key = "\(bank)|\(path)"
@@ -46,6 +67,9 @@ actor SourcePictureStore {
         if let running = inFlight[key] { return await running.value }
         let fetch = self.fetch
         let task = Task<NSImage?, Never> {
+            await self.acquire()
+            defer { self.release() }
+            if Task.isCancelled { return nil }
             do {
                 guard let data = try await fetch(path) else { return nil }
                 return NSImage(data: data)

@@ -68,6 +68,33 @@ extension APIClient {
     func fetchWatchedDay(episode: String, etag: String?) async throws -> Conditional<WatchedDay> {
         try await getConditional(Self.watchedDayPath(episode), etag: etag)
     }
+
+    func fetchChatSittings(conversation: String, etag: String?) async throws -> Conditional<ChatSittings> {
+        try await getConditional("/sources/messages/chats/\(conversation.filter(\.isHexDigit))/sittings", etag: etag)
+    }
+}
+
+// MARK: - A Messages chat's sittings (review of #358: one row per chat that opens in place)
+
+struct ChatSittings: Codable, Hashable, Sendable {
+    let conversation: String
+    let sittings: [ChatSitting]
+
+    enum CodingKeys: String, CodingKey { case conversation, sittings }
+
+    init(conversation: String, sittings: [ChatSitting]) { self.conversation = conversation; self.sittings = sittings }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        conversation = try c.decodeIfPresent(String.self, forKey: .conversation) ?? ""
+        sittings = (try? c.decodeIfPresent([ChatSitting].self, forKey: .sittings)) ?? []
+    }
+}
+
+struct ChatSitting: Codable, Hashable, Sendable, Identifiable {
+    let id: String
+    var day: String? = nil
+    var messages: Int? = nil
 }
 
 // MARK: - The pure words
@@ -121,26 +148,21 @@ enum WatchedVideoRoute: Equatable {
 
 // MARK: - The rows
 
-/// Sources v4 — one watched day: the day, said once, and how many videos; a click opens the day in place to its videos
-/// (DR-39: collapsed until asked; the read happens only then, and so does each still).
-struct WatchedDayRow: View {
-    let item: ChannelItem
-    let today: ISODay
+/// Sources v4 — a row that opens in place (DR-39: collapsed until asked; what it holds is read only then): a chevron,
+/// the row's one name, an optional face, and its count on the right; hover is a fill (DR-48, DR-63); a click or ⏎
+/// toggles it instantly (DR-60). Watched days and Messages chats share it.
+struct InPlaceDisclosureRow<Leading: View, Content: View>: View {
+    let title: String
+    let help: String
+    let count: String?
+    @Binding var open: Bool
+    @ViewBuilder var leading: () -> Leading
+    @ViewBuilder var content: () -> Content
 
-    @Environment(ChannelItemsCache.self) private var cache: ChannelItemsCache?
-    @Environment(AppRouter.self) private var router: AppRouter?
-    @State private var open: Bool
-
-    init(item: ChannelItem, today: ISODay, initiallyOpen: Bool = false) {
-        self.item = item
-        self.today = today
-        _open = State(initialValue: initiallyOpen)
-    }
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let day = WatchedDayText.day(item, today: today)
         VStack(alignment: .leading, spacing: 0) {
             Button { Instant.run { open.toggle() } } label: {
                 HStack(spacing: CicadaTheme.spacingSM) {
@@ -148,14 +170,15 @@ struct WatchedDayRow: View {
                         .font(CicadaTheme.icon(.inline))
                         .foregroundStyle(CicadaTheme.textTertiary)
                         .frame(width: CicadaTheme.scaled(12))
-                    Text(day.text)
+                    leading()
+                    Text(title)
                         .font(CicadaTheme.bodyFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(1)
-                        .help(day.help)
+                        .help(help)
                     Spacer(minLength: CicadaTheme.spacingSM)
-                    if let n = item.videos {
-                        Text(Copy.watchedVideos(n))
+                    if let count {
+                        Text(count)
                             .font(CicadaTheme.metaFont)
                             .monospacedDigit()
                             .foregroundStyle(CicadaTheme.textTertiary)
@@ -171,10 +194,51 @@ struct WatchedDayRow: View {
             }
             .buttonStyle(.cicadaPlain)
             .onHover { hovering = $0 }
-            .accessibilityLabel([day.help, item.videos.map { Copy.watchedVideos($0) }].compactMap { $0 }
-                .joined(separator: ", "))
+            .accessibilityLabel([help, count].compactMap { $0 }.joined(separator: ", "))
             .accessibilityValue(open ? Copy.Lists.expanded : Copy.Lists.collapsed)
-            if open, let cache { videos(cache) }
+            if open { content() }
+        }
+    }
+}
+
+/// A note under an opened row: reading, failed, empty.
+private struct InPlaceNote: View {
+    let text: String
+    var loading = false
+
+    var body: some View {
+        HStack(spacing: CicadaTheme.spacingXS) {
+            if loading { ProgressView().controlSize(.small) }
+            Text(text)
+                .font(CicadaTheme.metaFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+        }
+        .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine), alignment: .leading)
+        .padding(.leading, CicadaTheme.scaled(32))
+    }
+}
+
+/// Sources v4 — one watched day: the day, said once, and how many videos; it opens in place to its videos (read then,
+/// and each still only as its row comes on screen — a `LazyVStack`, so a 400-video day never asks 400 at once).
+struct WatchedDayRow: View {
+    let item: ChannelItem
+    let today: ISODay
+
+    @Environment(ChannelItemsCache.self) private var cache: ChannelItemsCache?
+    @Environment(AppRouter.self) private var router: AppRouter?
+    @State private var open: Bool
+
+    init(item: ChannelItem, today: ISODay, initiallyOpen: Bool = false) {
+        self.item = item
+        self.today = today
+        _open = State(initialValue: initiallyOpen)
+    }
+
+    var body: some View {
+        let day = WatchedDayText.day(item, today: today)
+        InPlaceDisclosureRow(title: day.text, help: day.help, count: item.videos.map { Copy.watchedVideos($0) },
+                             open: $open) { EmptyView() } content: {
+            if let cache { videos(cache) }
         }
         .task(id: open) {
             guard open, let cache else { return }
@@ -186,11 +250,11 @@ struct WatchedDayRow: View {
     private func videos(_ cache: ChannelItemsCache) -> some View {
         if let day = cache.day(item.id) {
             if day.videos.isEmpty {
-                note(Copy.watchedDayEmpty)
+                InPlaceNote(text: Copy.watchedDayEmpty)
             } else {
-                VStack(spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {
+                LazyVStack(spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {
                     ForEach(day.videos) { video in
-                        WatchedVideoRow(video: video) { route in
+                        WatchedVideoRow(video: video, episode: day.episode) { route in
                             switch route {
                             case .saved(let id): router?.routeToSavedItem(id)
                             case .browser(let url): LinkOpen.browserOpen(url)
@@ -201,22 +265,113 @@ struct WatchedDayRow: View {
                 .padding(.leading, CicadaTheme.scaled(22))
             }
         } else if cache.dayFailed(item.id) {
-            note(Copy.watchedDayFailed)
+            InPlaceNote(text: Copy.watchedDayFailed)
         } else {
-            HStack(spacing: CicadaTheme.spacingXS) {
-                ProgressView().controlSize(.small)
-                note(Copy.watchedDayLoading)
+            InPlaceNote(text: Copy.watchedDayLoading, loading: true)
+        }
+    }
+}
+
+/// Sources v4 (review of #358) — one Messages chat: its face, who it is with, its newest day and how many sittings;
+/// it opens in place to its sittings, each by its day and message count, each opening in the Reader.
+struct ChatSittingsRow: View {
+    let item: ChannelItem
+    let today: ISODay
+    let open: (CapturedItemRoute) -> Void
+
+    @Environment(ChannelItemsCache.self) private var cache: ChannelItemsCache?
+    @State private var expanded: Bool
+
+    init(item: ChannelItem, today: ISODay, initiallyOpen: Bool = false, open: @escaping (CapturedItemRoute) -> Void) {
+        self.item = item
+        self.today = today
+        self.open = open
+        _expanded = State(initialValue: initiallyOpen)
+    }
+
+    var body: some View {
+        let day = SavedItemText.day(item, today: today)
+        let count = ChatSittingsText.count(item.sittings, newest: day?.text)
+        InPlaceDisclosureRow(title: item.title, help: [item.title, day?.help].compactMap { $0 }.joined(separator: ", "),
+                             count: count, open: $expanded) {
+            if let chat = item.chat {
+                ChatFace(id: chat.id, label: chat.label, photo: chat.photo, side: CicadaTheme.scaled(20))
             }
-            .padding(.leading, CicadaTheme.scaled(22))
+        } content: {
+            if let cache { sittings(cache) }
+        }
+        .task(id: expanded) {
+            guard expanded, let cache else { return }
+            await cache.refreshSittings(item.id)
         }
     }
 
-    private func note(_ text: String) -> some View {
-        Text(text)
-            .font(CicadaTheme.metaFont)
-            .foregroundStyle(CicadaTheme.textTertiary)
-            .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine), alignment: .leading)
-            .padding(.leading, CicadaTheme.scaled(32))
+    @ViewBuilder
+    private func sittings(_ cache: ChannelItemsCache) -> some View {
+        if let page = cache.sittings(item.id) {
+            LazyVStack(spacing: 0) {
+                ForEach(page.sittings) { sitting in
+                    let words = ChatSittingsText.sitting(sitting, today: today)
+                    CapturedSittingRow(text: words.text, help: words.help) {
+                        open(.reader(episode: sitting.id, title: item.title))
+                    }
+                }
+            }
+            .padding(.leading, CicadaTheme.scaled(22))
+        } else if cache.sittingsFailed(item.id) {
+            InPlaceNote(text: Copy.chatSittingsFailed)
+        } else {
+            InPlaceNote(text: Copy.chatSittingsLoading, loading: true)
+        }
+    }
+}
+
+/// A chat's and a sitting's words, pure.
+enum ChatSittingsText {
+    /// "Today · 3 sittings" — the newest day and how many; just the day for a single sitting (DR-21).
+    static func count(_ sittings: Int?, newest: String?, locale: Locale = .autoupdatingCurrent) -> String? {
+        let n = sittings.flatMap { $0 > 1 ? Copy.chatSittings($0, locale: locale) : nil }
+        let parts = [newest, n].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// A sitting under its chat: its day ("Today", "Oct 3") and how many messages — the chat is not named again.
+    static func sitting(_ sitting: ChatSitting, today: ISODay, locale: Locale = .autoupdatingCurrent)
+        -> (text: String, help: String) {
+        let day = ISODay(sitting.day)
+        let phrase = day.map { RelativeDay.phrase($0, today: today, locale: locale) } ?? Copy.chatSittingUndated
+        let text = [phrase, sitting.messages.map { Copy.chatMessages($0, locale: locale) }].compactMap { $0 }
+            .joined(separator: " · ")
+        return (text, day.map { RelativeDay.full($0, locale: locale) } ?? text)
+    }
+}
+
+/// One sitting under its chat: a one-line row that opens it in the Reader.
+private struct CapturedSittingRow: View {
+    let text: String
+    let help: String
+    let action: () -> Void
+
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                Text(text).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
+            .padding(.horizontal, CicadaTheme.scaled(10))
+            .background(hovering ? CicadaTheme.bgHover : Color.clear,
+                        in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+            .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.cicadaPlain)
+        .onHover { hovering = $0 }
+        .help(help)
+        .accessibilityHint(Copy.capturedOpenHelp(.episode))
     }
 }
 
@@ -224,6 +379,8 @@ struct WatchedDayRow: View {
 /// click opens it where every link opens (`WatchedVideoRoute`); hover is a fill (DR-48, DR-63).
 struct WatchedVideoRow: View {
     let video: WatchedVideo
+    /// The day it was watched on — its still is asked by that day (review of #358).
+    let episode: String
     let open: (WatchedVideoRoute) -> Void
 
     @State private var hovering = false
@@ -234,7 +391,7 @@ struct WatchedVideoRow: View {
         let route = WatchedVideoRoute.of(video)
         Button { open(route) } label: {
             HStack(spacing: CicadaTheme.scaled(10)) {
-                VideoStill(videoId: video.videoId)
+                VideoStill(episode: episode, videoId: video.videoId)
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(3)) {
                     Text(video.title)
                         .font(CicadaTheme.bodyFont)
@@ -267,6 +424,7 @@ struct WatchedVideoRow: View {
 /// A video's still at 16:9, asked of Cicada's own API (which asks YouTube's own thumbnail host for that id only, behind
 /// the picture gate) — until it arrives, or when there is none, a quiet play glyph on the selected fill.
 private struct VideoStill: View {
+    let episode: String
     let videoId: String?
 
     @Environment(Store.self) private var store: Store?
@@ -289,8 +447,8 @@ private struct VideoStill: View {
         }
         .frame(width: width, height: height)
         .accessibilityHidden(true)
-        .task(id: "\(store?.bank ?? "")|\(videoId ?? "")") {
-            guard let path = SourcePictures.stillPath(videoId: videoId) else { image = nil; return }
+        .task(id: "\(store?.bank ?? "")|\(episode)|\(videoId ?? "")") {
+            guard let path = SourcePictures.stillPath(episode: episode, videoId: videoId) else { image = nil; return }
             image = await SourcePictureStore.shared.image(path: path, bank: store?.bank ?? "")
         }
     }

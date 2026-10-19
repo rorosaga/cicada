@@ -4,22 +4,19 @@ import SwiftUI
 /// repetition." … "just have a 'Consolidate now' button at the top, with how many things are pending from that
 /// category, as a small notification") — the words of a source's one header, pure and tested without a view.
 enum SourceDetailText {
-    /// The header's state line: what the source is doing and when it last synced, said once. A failure says its WHOLE
-    /// error (the row beside it has room for a clause only, D2); a run in progress says so; otherwise the liveness verb
-    /// and the channel's own "Last synced …" / "Imported …", never the same fact twice ("Syncing… · Syncing now").
+    /// The header's state line — only what the row beside it cannot say (review of #358): when it last synced, the
+    /// whole error (the row has room for a clause), or that a run is in progress. Never the row's own "Watching" /
+    /// "Syncs when you ask" / "Imported once" again. Nil when there is nothing more to say.
     static func state(liveness: SourceLiveness, status: SourceRowStatus, fullError: String?, now: Date,
-                      locale: Locale = .autoupdatingCurrent) -> (text: String, isAlarm: Bool) {
+                      locale: Locale = .autoupdatingCurrent) -> (text: String, isAlarm: Bool)? {
         if case .problem(let why) = status { return (why, true) }
         if liveness.tone.isAlarm { return (sentence(liveness: liveness, fullError: fullError), true) }
         switch status {
         case .syncing: return (Copy.syncingNow, false)
         case .synced, .imported, .notYet:
-            let when = SourceRowText.trailing(status, now: now, locale: locale) ?? ""
-            // A one-shot import's "Imported once" and its "Imported 3 days ago" are one fact: the dated one wins.
-            if case .imported = status { return (when, false) }
-            return (Eyebrow.text(liveness.verb, when), false)
+            return SourceRowText.trailing(status, now: now, locale: locale).map { ($0, false) }
         case .idle, .problem:
-            return (liveness.verb, false)
+            return nil
         }
     }
 
@@ -32,10 +29,15 @@ enum SourceDetailText {
     }
 
     /// "Consolidate now · 2 waiting" — the small control at the top of a source with something waiting; nil (no
-    /// control) when nothing from this source waits and no read is running.
-    static func consolidate(waiting: Int, running: Bool) -> String? {
+    /// control) when nothing from this source waits and no read is running. A read takes everything waiting, so when
+    /// other sources wait too it says so ("Consolidate now · 2 here, 340 in all") rather than promise a read of two.
+    static func consolidate(waiting: Int, total: Int? = nil, running: Bool) -> String? {
         if running { return Copy.consolidating }
         guard waiting > 0 else { return nil }
+        if let total, total > waiting {
+            return Eyebrow.text(Copy.consolidateNow,
+                                "\(UsageFormat.count(waiting)) here, \(UsageFormat.count(total)) in all")
+        }
         return Eyebrow.text(Copy.consolidateNow, "\(UsageFormat.count(waiting)) waiting")
     }
 }
@@ -69,6 +71,13 @@ struct SourceDetailHead: View {
         return (store.channels.value ?? []).first { $0.id == id }
     }
 
+    /// Whether a read runs now — the Store's status (moved by SSE) or the view model's own last read, whichever
+    /// knows first, so the button never shows enabled during a run (review of #358).
+    private var running: Bool { sleepVM.isRunning || store.status.value?.sleep.status == "running" }
+
+    /// Everything waiting for Sleep's read, every source together (what a Consolidate reads).
+    private var totalWaiting: Int? { sleepVM.readableCount }
+
     /// The title's left edge: the mark (20) and the header's gap, so the state line sits under the name.
     private var indent: CGFloat { CicadaTheme.scaled(20) + CicadaTheme.spacingMD }
 
@@ -101,6 +110,8 @@ struct SourceDetailHead: View {
         }
         .padding(.horizontal, CicadaTheme.spacingXL)
         .padding(.bottom, CicadaTheme.spacingMD)
+        // Keep the run state fresh: re-read Sleep's status when the page opens and whenever the Store's moves.
+        .task(id: store.status.value?.sleep.status ?? "") { await sleepVM.refreshStatus() }
     }
 
     private func stateLine(watch: BrowserWatchState?, now: Date) -> some View {
@@ -109,18 +120,19 @@ struct SourceDetailHead: View {
         let status = channel == nil ? SourceRowStatus.idle
             : SourceRowText.status(channel: channel, watch: watch, run: run)
         let state = SourceDetailText.state(liveness: liveness, status: status, fullError: source.lastError, now: now)
+        let actions = Set(channel?.actions ?? [])
+        // Nothing the row can't say, no action, nothing waiting: no line at all (never an empty band).
+        let empty = state == nil && !status.isSyncing && actions.isDisjoint(with: ["sync", "poll"])
+            && SourceDetailText.consolidate(waiting: source.waiting, total: totalWaiting, running: running) == nil
         return HStack(alignment: .center, spacing: CicadaTheme.spacingSM) {
-            if case .syncing = status {
-                ProgressView().controlSize(.small)
-            } else if !state.isAlarm, liveness.tone.showsDot {
-                Circle().fill(liveness.tone.color)
-                    .frame(width: CicadaTheme.scaled(6), height: CicadaTheme.scaled(6))
+            if case .syncing = status { ProgressView().controlSize(.small) }
+            if let state {
+                Text(state.text)
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(state.isAlarm ? CicadaTheme.warning : CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .help(state.text)
             }
-            Text(state.text)
-                .font(CicadaTheme.metaFont)
-                .foregroundStyle(state.isAlarm ? CicadaTheme.warning : CicadaTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .help(state.text)
             if case .syncing(_, _, true) = status, let id = channel?.id {
                 IconButton(systemName: "xmark", help: Copy.stopSyncingHelp,
                            accessibilityLabel: "\(Copy.stopSyncing), \(source.label)") { activity?.cancel(id) }
@@ -138,8 +150,8 @@ struct SourceDetailHead: View {
                     actionButton("Poll now") { try await ChannelActions.poll(channel.id) }
                 }
             }
-            if let label = SourceDetailText.consolidate(waiting: source.waiting, running: sleepVM.isRunning) {
-                NeutralButton(title: label, systemImage: "moon", size: .compact, isDisabled: sleepVM.isRunning,
+            if let label = SourceDetailText.consolidate(waiting: source.waiting, total: totalWaiting, running: running) {
+                NeutralButton(title: label, systemImage: "moon", size: .compact, isDisabled: running,
                               help: Copy.consolidateSourceHelp, disabledHelp: Copy.consolidating) {
                     Task {
                         await sleepVM.triggerManually()
@@ -149,7 +161,9 @@ struct SourceDetailHead: View {
                 .accessibilityLabel(label)
             }
         }
-        .frame(minHeight: CicadaTheme.scaled(28))
+        .frame(minHeight: empty ? 0 : CicadaTheme.scaled(28))
+        .opacity(empty ? 0 : 1)
+        .frame(height: empty ? 0 : nil)
     }
 
     /// Every action refreshes the overview alongside the channel/items domains: the row's counts come from

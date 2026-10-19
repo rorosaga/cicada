@@ -24,6 +24,17 @@ extension Copy {
     static let watchedOpenSavedHelp = "Open in Saved — you saved this one too"
     static func watchedTimes(_ n: Int) -> String { n > 1 ? "watched \(n) times" : "" }
 
+    /// A Messages chat's row (review of #358): "3 sittings"; a sitting under it: "12 messages".
+    static func chatSittings(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "\(UsageFormat.count(n, locale: locale)) \(n == 1 ? "sitting" : "sittings")"
+    }
+    static func chatMessages(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "\(UsageFormat.count(n, locale: locale)) \(n == 1 ? "message" : "messages")"
+    }
+    static let chatSittingUndated = "Undated"
+    static let chatSittingsLoading = "Reading this chat…"
+    static let chatSittingsFailed = "Couldn't read this chat. Try opening it again."
+
     /// Conversations' find (DR-46): the list header's magnifier opens it.
     static let conversationsTitle = "Conversations"
     static let conversationsFind = "Find a conversation by title"

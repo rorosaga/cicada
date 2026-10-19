@@ -35,10 +35,11 @@ means wherever the bank records it, and says so channel by channel below:
   listed (they are counted from these days). A day opens to its videos through
   :func:`watched_day` (Sources v4, owner 2026-10-19: "what I watched in one
   day: a dropdown and you see all the videos I watched that day").
-* ``imessage`` — one row per sitting, titled by **who the chat is with** (the
-  sitting's ``correspondent`` record) and carrying ``chat``: the app's
-  conversation hash, that name, and the stored photo's hash when the chat
-  shares one (Sources v4: "the profile pictures of the chats").
+* ``imessage`` — one row per chat (``kind: chat``), titled by **who the chat is
+  with** (its sittings' ``correspondent`` record), dated by its newest sitting,
+  with ``sittings`` and ``chat``: the app's conversation hash, that name, and
+  the stored photo's hash when the chat shares one (Sources v4). A chat opens to
+  its sittings through :func:`chat_sittings`.
 * the saved sources with no channel (``instagram``, ``youtube``, ``linkedin``,
   ``tiktok``: one-shot imports, ``source_overview.CATALOG``) — listed by their
   Sources row id, as the media pages stamped with the row's origins.
@@ -91,9 +92,9 @@ from api.services.channel_registry import CHANNEL_IDS
 #: Folded into the route's ETag: bump it when the body changes for the same bank files.
 #: `g161-2`: a bookmark channel also lists the links that left the browser, with `left` (G191 v4).
 #: `g161-3`: a saved link's row carries `site` and `why`; channel-less saved sources list by their row id (Sources v3).
-#: `g161-4`: Sources v4 — a title says its day once; Messages rows are titled by the chat and carry `chat`; a watched
-#: day carries `videos` and the month summaries are not listed.
-SHAPE = "g161-4"
+#: `g161-4`: Sources v4 — a title says its day once; Messages lists one row per chat (`kind: chat`, `sittings`, `chat`);
+#: a watched day carries `videos` and the month summaries are not listed.
+SHAPE = "g161-5"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -380,7 +381,7 @@ def _collect(memory_path: Path, channel_id: str) -> list[dict]:
     if channel_id in _HISTORY_ROWS:
         return _watched_days(memory_path, set(_HISTORY_ROWS[channel_id]))
     if channel_id == messages_source.ORIGIN:
-        return _chat_sittings(memory_path)
+        return _chat_rows(memory_path)
     if channel_id in _ORIGIN_CHANNELS:
         origins = set(_ORIGIN_CHANNELS[channel_id])
         return _episodes(memory_path, lambda fm: str(fm.get("origin") or "") in origins, media=media)
@@ -405,24 +406,61 @@ def _watched_days(memory_path: Path, origins: set[str]) -> list[dict]:
     return rows
 
 
-def _chat_sittings(memory_path: Path) -> list[dict]:
-    """Messages — one row per sitting, titled by who the chat is with, carrying the chat (Sources v4)."""
+def _chat_rows(memory_path: Path) -> list[dict]:
+    """Messages — one row per chat (review of #358: "one row per chat, newest day, N sittings"), titled by who it is
+    with, its day the newest sitting's, carrying the chat and how many sittings it holds; a sitting with no chat hash
+    (never written today) stays its own episode row."""
     photos = source_overview._chat_photos(memory_path)
+    chats: dict[str, dict] = {}
     rows = []
     for f in bank_index.files(memory_path, "episodes"):
         fm = f.frontmatter or {}
         if fm.get("origin") != messages_source.ORIGIN or not _live(fm):
             continue
         row = _episode_row(fm, f.stem)
+        cid = str(fm.get("conversation") or "")
+        if not messages_source.CONVERSATION_ID_RE.match(cid):
+            rows.append(row)
+            continue
         record = fm.get("correspondent") if isinstance(fm.get("correspondent"), dict) else {}
         name = _title(record.get("name"), fallback="")
-        cid = str(fm.get("conversation") or "")
-        if name:
-            row["title"] = name
-        if messages_source.CONVERSATION_ID_RE.match(cid):
-            row["chat"] = {"id": cid, "label": name or row["title"], "photo": photos.get(cid)}
-        rows.append(row)
+        held = chats.get(cid)
+        if held is None:
+            chats[cid] = held = {**_row("chat", cid, name or row["title"], row["day"], None), "sittings": 0}
+            held["_sort"] = row["_sort"]
+        held["sittings"] += 1
+        if row["_sort"] >= held["_sort"]:
+            held["_sort"], held["day"] = row["_sort"], row["day"]
+            if name:
+                held["title"] = name
+    for cid, held in chats.items():
+        held["chat"] = {"id": cid, "label": held["title"], "photo": photos.get(cid)}
+        rows.append(held)
     return rows
+
+
+def chat_sittings(memory_path: Path, conversation: str) -> dict | None:
+    """One chat's sittings, newest first — what its row opens to: each sitting's episode (it opens in the Reader), its
+    day and how many messages it holds. Titles are not repeated: the row above already names the chat. None for an id
+    that is not a chat hash or has no live sitting."""
+    if not messages_source.CONVERSATION_ID_RE.match(str(conversation or "")):
+        return None
+    out = []
+    for f in bank_index.files(Path(memory_path), "episodes"):
+        fm = f.frontmatter or {}
+        if (fm.get("origin") != messages_source.ORIGIN or not _live(fm)
+                or str(fm.get("conversation") or "") != conversation):
+            continue
+        row = _episode_row(fm, f.stem)
+        try:
+            messages = max(0, int(fm.get("message_count") or 0))
+        except (TypeError, ValueError):
+            messages = 0
+        out.append({"id": row["id"], "day": row["day"], "messages": messages or None, "_sort": row["_sort"]})
+    if not out:
+        return None
+    out.sort(key=lambda r: (-r["_sort"], r["id"]))
+    return {"conversation": conversation, "sittings": [{k: v for k, v in r.items() if k != "_sort"} for r in out]}
 
 
 #: A watched day's videos on the wire: at most this many (a day keeps at most `watch_history.MAX_PER_DAY`).
@@ -432,7 +470,7 @@ DAY_VIDEOS_MAX = 400
 def watched_day(memory_path: Path, episode_id: str) -> dict | None:
     """Sources v4 — one watched day's videos, in the order they were watched: each one's title, channel, the times it
     was watched, its URL (the provider's own watch page) and, for YouTube, its video id (the key its thumbnail is asked
-    under, :func:`watched_video_id`) and the saved page when the person also saved it (`media_entity_id`, so a click
+    under, :func:`day_has_video`) and the saved page when the person also saved it (`media_entity_id`, so a click
     lands where a saved item opens). Read from the day's own record; nothing is fetched and no model reads it (ruling
     30). None for an id that is not a live watched day."""
     from api.services import video_urls
@@ -463,23 +501,40 @@ def watched_day(memory_path: Path, episode_id: str) -> dict | None:
             "platform": str(fm.get("platform") or ""), "videos": videos}
 
 
-def watched_video_id(memory_path: Path, video_id: str) -> bool:
-    """Whether ``video_id`` is a YouTube video the bank records as watched or saved — the only ids whose thumbnail the
-    backend asks YouTube's own thumbnail host for (owner 2026-10-19). Never an id the caller merely names."""
+def day_has_video(memory_path: Path, episode_id: str, video_id: str) -> bool:
+    """Whether ``video_id`` is a YouTube video the watched day ``episode_id`` records — the only ids whose still the
+    backend asks YouTube's own thumbnail host for (owner 2026-10-19), and only for a day the person opened (the route
+    is keyed by the day). One file read, never a walk of the bank; never an id a request merely names."""
     from api.services import video_urls
 
     if not media_preview.youtube_id_ok(video_id):
         return False
-    for f in bank_index.files(Path(memory_path), "episodes"):
-        fm = f.frontmatter or {}
-        if str(fm.get("origin") or "") != watch_history.ORIGINS["youtube"] or not _live(fm):
-            continue
-        for r in fm.get("watched") or []:
-            if isinstance(r, dict) and video_id in str(r.get("url") or ""):
-                ref = video_urls.resolve(str(r["url"]))
-                if ref is not None and ref.provider == "youtube" and ref.video_id == video_id:
-                    return True
+    f = bank_index.file(Path(memory_path), "episodes", f"{episode_id}.md")
+    fm = (f.frontmatter or {}) if f is not None else {}
+    if str(fm.get("origin") or "") != watch_history.ORIGINS["youtube"] or not _live(fm):
+        return False
+    for r in (fm.get("watched") or [])[:DAY_VIDEOS_MAX]:
+        if isinstance(r, dict) and video_id in str(r.get("url") or ""):
+            ref = video_urls.resolve(str(r["url"]))
+            if ref is not None and ref.provider == "youtube" and ref.video_id == video_id:
+                return True
     return False
+
+
+def saved_faces(memory_path: Path, list_id: str, *, limit: int = 3) -> tuple[list[dict], int]:
+    """A saved source's faces, from the same set its list lists (review of #358: a row never says "Nothing saved"
+    beside faces): the sites of its live saved pages — never a bookmark that left the browser — newest first, one face
+    per site (`{id, label, site}`: the newest page of that site, its bare host, its site key), and how many more sites
+    there are."""
+    rows = [r for r in _collect(Path(memory_path), list_id) if r.get("kind") == "media" and not r.get("left")]
+    rows.sort(key=lambda r: (-r["_sort"], r["title"].casefold(), r["id"]))
+    seen: dict[str, dict] = {}
+    for r in rows:
+        where = _site(r.get("_url"))
+        if where.get("site") and where["site"] not in seen:
+            seen[where["site"]] = {"id": r["id"], "label": where["host"], "site": where["site"]}
+    faces = list(seen.values())
+    return faces[:limit], max(0, len(faces) - limit)
 
 
 def _folder(memory_path: Path, folder_id: str) -> list[dict]:

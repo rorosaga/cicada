@@ -455,7 +455,7 @@ async def ensure_preview(memory_path, entity_id: str, *, fetcher: Fetcher | None
 # `CICADA_ALLOW_LOGO_FETCH`, through `_get` (net_guard on every hop, 4 s, ≤ 512 KB, no cookies, a wall never retried),
 # cached here outside every bank (`previews/<bank>/watched/<id>.<ext>`, misses remembered like a page's); any failure
 # draws no picture. It is a picture, not a read: no model ever sees watch history (ruling 30). The caller has already
-# checked the id is one the bank records (`channel_items.watched_video_id`) — never an id a request merely names.
+# checked the id is one the opened day records (`channel_items.day_has_video`) — never an id a request merely names.
 
 WATCHED_DIR = "watched"
 
