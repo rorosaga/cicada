@@ -295,7 +295,14 @@ struct CicadaApp: App {
                 // G191, review B1 — Sleep let go of the pages (the SSE `sleep` event's `writing`): send any answer the
                 // backend refused while it held them.
                 .onChange(of: ProjectWriteGate.blocked(store.status.value)) { was, now in
-                    if was && !now { Task { await saveWhy.retryHeld() } }
+                    if was && !now {
+                        // 2026-10-19: a bookmark sync refused while Sleep wrote (409) is read again now, so the
+                        // answer about it — held, awaiting that sync — lands without waiting for the next bookmark.
+                        Task {
+                            await browserWatcher.catchUp()
+                            await saveWhy.retryHeld()
+                        }
+                    }
                 }
                 // …and when the backend first answers after launch (a launch-time retry can beat its start).
                 .onChange(of: store.status.value == nil) { _, missing in
@@ -360,7 +367,16 @@ struct CicadaApp: App {
                     bookmarkBubbles.isWanted = { [saveWhy, browserWatcher] channel in
                         saveWhy.prefs.enabled && browserWatcher.isEnabled(channel)
                     }
-                    bookmarkBubbles.onBubble = { [saveWhy] channel in saveWhy.bubbleSeen(channel: channel) }
+                    bookmarkBubbles.onBubble = { [saveWhy, bookmarkBubbles] channel in
+                        saveWhy.bubbleSeen(channel: channel, frame: bookmarkBubbles.lastBubble?.bounds)
+                    }
+                    // 2026-10-19 — a click inside Chrome's own bubble is not leaving, unless it closed it (Done).
+                    saveWhy.bubbleOpen = { [bookmarkBubbles] in bookmarkBubbles.lastBubbleStillOpen() }
+                    // The star on a page already saved opens that bookmark's answer, filled in — only when Automation
+                    // of Chrome is already allowed (never asked here; `SavedBookmarkLookup`).
+                    saveWhy.existing = { [store] channel in
+                        await SavedBookmarkLookup.live(channel: channel, items: store.sources.value ?? [])
+                    }
                     saveWhy.onNamed = { [bookmarkBubbles] item in bookmarkBubbles.bookmarkNamed(item) }
                     bookmarkBubbles.start()
                     // G191 v3 — the app's own diff needs a "before" for each watched browser: read once now, so the

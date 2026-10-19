@@ -40,14 +40,12 @@ final class BookmarksV4Tests: XCTestCase {
 
     // MARK: - A few basic reasons
 
-    func testThePanelOffersFourBasicReasonsInTwoFixedRowsAndNoProject() {
+    func testThePanelOffersFourBasicReasonsAndNoProject() {
         let basic = SavedWhyOptions.basic
         // The backend's `saved_why.REASONS`, keys and words alike (api/tests/test_bookmarks_v4.py pins its side).
         XCTAssertEqual(basic.reasons.map(\.key), ["design", "product", "read_later", "someday"])
         XCTAssertEqual(basic.reasons.map(\.label), ["The design", "The product", "To read later", "Useful someday"])
         XCTAssertTrue(basic.projects.isEmpty)
-        XCTAssertEqual(SaveWhyPanelLayout.rows(basic.reasons).map { $0.map(\.key) },
-                       [["design", "product"], ["read_later", "someday"]])
         XCTAssertEqual(Copy.SaveWhy.placeholder, "Something else…")
         XCTAssertEqual(SaveWhyPreview.sampleOptions, basic, "the preview shows what a real question shows")
 

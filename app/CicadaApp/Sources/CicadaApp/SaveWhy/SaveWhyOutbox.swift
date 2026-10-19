@@ -3,9 +3,17 @@ import Foundation
 /// G191, review B1 — answers the backend could not take yet. The bookmark sync runs inside Sleep's write window, so the
 /// panel can show while Sleep holds the pages and `POST /sources/saved-why` answers 409; a backend restart drops the
 /// request outright. Either way the person's words must not vanish: the answer is held here (per Mac, outside every
-/// bank) with the time the person gave it, and sent again when Sleep's writing flag goes false and on launch. It is
-/// dropped when the backend refuses it for good (404: the link is not saved; 422: the answer is invalid) or after
+/// bank) with the time the person gave it, and sent again when Sleep's writing flag goes false, after every bookmark
+/// sync and on launch. It is dropped only when the backend refuses it for good (422: the answer is invalid) or after
 /// `maxAge`, the backend's own bound on a client's `at`.
+///
+/// **Never lost to a dismissal (owner 2026-10-19: "I bookmarked a website, explained what interested me, and pressed
+/// anywhere else on the screen … In Cicada I see that it didn't save").** Two ways an answer used to vanish: an answer
+/// given before the backend confirmed the bookmark lived only in memory and was dropped when the confirmation did not
+/// come within `SaveWhyPolicy.confirmBound` (a sync refused while Sleep wrote never confirms), and a 404 ("that link
+/// isn't saved yet" — its sync had not run) dropped a held answer for good. Now an answer about a link the app's own
+/// diff named is held here at once, `awaiting` its sync: it is never posted before a sync of its browser lands (the
+/// rail: no answer until a sync confirms the bookmark), and a 404 holds it for the next sync rather than dropping it.
 struct SaveWhyOutbox {
     static let key = "cicada.saveWhy.pending"
     /// Matches `saved_why.MAX_CLIENT_AGE`: an older `at` would be refused anyway.
@@ -19,18 +27,29 @@ struct SaveWhyOutbox {
         let at: Date
         /// G191 v3 — the moment of saving it answers (the browser's instant), when known.
         var addedAt: String? = nil
+        /// The browser it was saved in (2026-10-19), so a sync of that browser releases it.
+        var channel: String? = nil
+        /// True while no sync of `channel` has landed since the answer was given: never posted until one does.
+        var awaiting: Bool? = nil
+        /// An edit of the answer said at this time (the star on a page already saved), not a new answer.
+        var editAt: String? = nil
+
+        var isAwaiting: Bool { awaiting == true }
     }
 
     enum Verdict: Equatable {
         /// Try again later: Sleep was writing (409), the backend was unreachable, or it failed on its side.
         case hold
-        /// Never retry: the backend said this answer can never land (404, 422, …).
+        /// The link is not saved yet (404): kept for the next sync, never a reason to stop the pass.
+        case waitForSync
+        /// Never retry: the backend said this answer can never land (422, …).
         case drop
     }
 
     /// What a failed post means for the held answer.
     static func verdict(for error: Error) -> Verdict {
         if case APIError.httpError(let code, _) = error {
+            if code == 404 { return .waitForSync }
             return code == 409 || code == 401 || code == 408 || code == 429 || code >= 500 ? .hold : .drop
         }
         if case APIError.serverUnreachable = error { return .hold }
@@ -59,6 +78,21 @@ struct SaveWhyOutbox {
     }
 
     func remove(_ entry: Entry) { entries = entries.filter { $0 != entry } }
+
+    /// A sync of `channel` landed: every answer awaiting it may go now.
+    func release(channel: String) {
+        guard entries.contains(where: { $0.isAwaiting && $0.channel == channel }) else { return }
+        entries = entries.map { var e = $0; if e.isAwaiting && e.channel == channel { e.awaiting = nil }; return e }
+    }
+
+    /// The backend agreed about `url`: its awaiting answers may go now.
+    func release(url: String) {
+        guard entries.contains(where: { $0.isAwaiting && $0.url == url }) else { return }
+        entries = entries.map { var e = $0; if e.isAwaiting && e.url == url { e.awaiting = nil }; return e }
+    }
+
+    /// The backend named another link than the one this answer is about (review 2026-10-15): never posted.
+    func discardAwaiting(url: String) { entries = entries.filter { !($0.isAwaiting && $0.url == url) } }
 
     func expired(_ entry: Entry, now: Date) -> Bool { now.timeIntervalSince(entry.at) > Self.maxAge }
 }

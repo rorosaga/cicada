@@ -11,13 +11,17 @@ extension Copy {
         static let save = "Save"
         /// Esc reaches the panel only once it has been clicked (it never takes the keyboard from the browser), so
         /// the hint names the ways that always work. v3: any number of reasons; leaving keeps them.
-        static func hint(pending: Bool, chosen: Bool) -> String {
+        static func hint(pending: Bool, chosen: Bool, editing: Bool = false, noBookmark: Bool = false) -> String {
+            // 2026-10-19: a touched panel whose browser saved no new bookmark stays open, and says so.
+            if noBookmark { return "No new bookmark was saved, so there's nothing to keep this with." }
+            // The star on a page already saved: its answer, filled in.
+            if editing { return "Already saved. Change anything, or click anywhere else to keep it." }
             if chosen { return "Save, or click anywhere else — your choice is kept." }
             return pending ? "Pick any that fit while it saves." : "Pick any that fit. Click anywhere else to skip it."
         }
         static let dontAsk = "Don’t ask for this site"
         static func forProject(_ name: String) -> String { "For \(name)" }
-        static func subject(title: String, host: String?, resave: Bool = false) -> String {
+        static func subject(title: String, host: String?, resave: Bool = false, saved: Bool = false) -> String {
             let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
             let line: String
             switch (name.isEmpty, host) {
@@ -26,6 +30,7 @@ extension Copy {
             case (true, let host?): line = host
             case (true, nil): line = "A new bookmark"
             }
+            if saved { return "Already saved · \(line)" }
             return resave ? "Saved again · \(line)" : line
         }
         /// G191 v3 — the pending panel (the browser's bookmark bubble seen, its file not written yet).
