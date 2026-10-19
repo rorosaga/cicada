@@ -665,7 +665,7 @@ def test_watch_later_duplicates_save_their_alias_rows(tmp_path, monkeypatch):
     monkeypatch.setattr(youtube_lists, "allowed", lambda name: True)
     monkeypatch.setattr(youtube_lists, "note", lambda *a, **kw: None)
 
-    def duplicate(prepared, memory_path, idx):
+    def duplicate(prepared, memory_path, idx, **_kw):   # `append_list` since #355
         idx[media_ingestor.url_hash(prepared.item.url) + "-alias"] = {"media_entity_id": "knots", "url": "alias",
                                                                        "alias_of": "primary"}
         return IngestResult(status="duplicate", media_entity_id="knots", episode_id="", title="Knots",
