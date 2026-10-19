@@ -362,6 +362,11 @@ def ask(ctx: ToolContext, query: str, top_k: int = 6) -> str:
             ],
             "gaps": data.get("gaps", []) or [],
             "used_entities": data.get("usedEntities", data.get("used_entities", [])) or [],
+            "conversations": [
+                {"episode_id": c.get("episodeId", c.get("episode_id", "")), "title": c.get("title", ""),
+                 "day": c.get("day", "")}
+                for c in data.get("conversations", []) or []
+            ],
         }
     except Exception:
         result = None
@@ -406,6 +411,16 @@ def _render_ask(result: dict) -> str:
             ep_note = (f" (episodes: {', '.join(eps)}{f' +{more:,} more' if more > 0 else ''})" if eps
                        else (f" ({more:,} episodes)" if more > 0 else ""))
             lines.append(f"- [[{name}]]{ep_note}")
+
+    # The conversations no page cites that the answer rested on (2026-10-19): the episode id is what
+    # `cicada_write_claim`'s evidence cites, so an agent can put the detail on a page with its provenance.
+    conversations = result.get("conversations", []) or []
+    if conversations:
+        lines.append("\n**From conversations no page cites:**")
+        for c in conversations:
+            title = str(c.get("title") or "").strip()
+            day = str(c.get("day") or "").strip()
+            lines.append(f"- {c.get('episode_id', '?')}" + (f" · {day}" if day else "") + (f" · {title}" if title else ""))
 
     return "\n".join(lines).strip()
 

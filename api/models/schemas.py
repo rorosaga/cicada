@@ -1985,6 +1985,14 @@ class AskCitation(CamelModel):
     evidence: list[EvidenceModel] = []
 
 
+class AskConversation(CamelModel):
+    """A conversation no page cites whose words the answer used (Ask's search leg, 2026-10-19)."""
+
+    episode_id: str
+    title: str = ""
+    day: str = ""
+
+
 class AskResponse(CamelModel):
     answer: str
     confidence: float
@@ -1992,6 +2000,8 @@ class AskResponse(CamelModel):
     # The flagship gap-analysis field: explicit "what I could not answer".
     gaps: list[str] = []
     used_entities: list[str] = []
+    # Additive (2026-10-19): the OTHER CONVERSATIONS the answer used — found by the question's words, cited by no page.
+    conversations: list[AskConversation] = []
 
 
 # --- Entity context (progressive disclosure) ---

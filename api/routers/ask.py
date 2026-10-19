@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
-from api.models.schemas import AskCitation, AskRequest, AskResponse
+from api.models.schemas import AskCitation, AskConversation, AskRequest, AskResponse
 from api.services import agent_engine, ask_service, engine_readiness, engine_select
 
 router = APIRouter()
@@ -64,4 +64,5 @@ async def ask(
         citations=[AskCitation(**c) for c in result["citations"]],
         gaps=result["gaps"],
         used_entities=result["used_entities"],
+        conversations=[AskConversation(**c) for c in result.get("conversations", [])],
     )
