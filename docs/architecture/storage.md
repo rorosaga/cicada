@@ -1179,6 +1179,16 @@ lifespan and a bank switch warm it in the background. The caller always passes t
 tiers 0–2), fuses it with the stored vectors in `mode=hybrid`, and **never embeds in `mode=prefix`**.
 **The query is never logged**: not by loguru, and not by uvicorn's access log (`api/main.py` strips the
 query string of `/search` and `/conversations/recent`, G136 R22).
+**Every claim's object, per page (`claim_rows`, 2026-10-19).** G141's reverse layer (the Projects list and a
+project's cluster) resolves every indexed claim's object against the page names it holds — id, name or alias, the
+`resolve` rule — instead of a MATCH OR'ed over every project's id and name (~0.6 s at 700 projects). The rows
+(`object`, payload JSON) are kept in process memory per page under the stamp the index holds and re-read only for a
+page whose stamp moved (one range read per page, one scan past 64), in one read snapshot with the stamps they are filed
+under; disposable like the file, `None` while no usable index answers. Only a page-to-page claim names a project: the
+payload carries `object_kind` (added without a schema bump — a row indexed before reads by id or name only, never by
+alias), a `value-of-` predicate never names one, and an alias under 3 characters names nothing (the detail's
+`_tree_names` guard). The list's converted payloads are a slotted LRU (`_PAYLOAD_CLAIMS`, 40k, ~1.2 KB each with
+its key; ~13k / ~16 MB on the 8k-page synthetic bank).
 
 ### Continuity index and session registry (G110 slice 1a)
 `$CICADA_HOME/continuity/<bank-id>.index.json` is a **derived, disposable** map of every `ep_*.md` to `(mtime_ns, size, row)`, where a

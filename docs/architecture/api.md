@@ -167,7 +167,8 @@ saving it answers) and answers with `history`. The app reaches both through `Sto
 `projects|<shape>|<author shape>|<machine zone>` (`git_service.AUTHOR_SHAPE` since round 4, R4B-9) — never today, never a viewer zone — and are **not** Store domains
 (no `VersionVector` mapping, fetched on demand like provenance). A timeline item carries at most
 12 participants plus `participantsTotal`, and a cluster group at most 8 names no page holds yet
-(round 4 D6; `PROJECT_SHAPE` g141-3). The person's writes (G141 PJ-3b) —
+(round 4 D6). A list row's `activity` is the window's first day only — the row bar's start, all the list draws from it;
+the detail keeps the series (`PROJECT_SHAPE` g141-4, 2026-10-19: 40 % of the list's body at 700 projects). The person's writes (G141 PJ-3b) —
 `POST /projects/{id}/milestones`, `PATCH /projects/{id}/milestones/{slug}`, `POST /projects/{id}/happenings`
 (the Log: one time phrase becomes the day, a companion episode keeps the words), `POST
 /projects/{id}/threads/{claim_id}` and `POST /projects/{id}/withdraw` (happenings only) — answer **409**

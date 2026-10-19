@@ -13,6 +13,7 @@ import os
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from functools import cached_property
 from pathlib import Path
 
 from loguru import logger
@@ -36,8 +37,9 @@ class IndexedFile:
     frontmatter: dict = field(default_factory=dict)
     has_turns: bool = False
 
-    @property
+    @cached_property
     def stem(self) -> str:
+        # Cached: a read model keys every page and episode by it, per request (`Path.stem` is ~1 µs; 13k a request).
         return self.path.stem
 
     def body(self) -> str:
