@@ -351,6 +351,11 @@ extension Copy {
             if pauses > 0 { parts.append(self.pauses(pauses, locale)) }
             return parts.joined(separator: " · ")
         }
+        /// A scheduled run that stood in for a time the Mac slept or was off through (owner 2026-10-19):
+        /// "Missed 3:00 AM — caught up at 8:12 AM". `missed` carries its day when it is not the run's own day.
+        static func catchUpLine(missed: String, at: String, failed: Bool) -> String {
+            "Missed \(missed) — \(failed ? "tried" : "caught up") at \(at)"
+        }
         static func groupTimes(readFor: String?, pausedFor: String?, parked: Int,
                                _ locale: Locale = .autoupdatingCurrent) -> String? {
             var text: [String] = []

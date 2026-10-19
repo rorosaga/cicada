@@ -202,7 +202,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   page reads run once per drain. A plan limit is a pause, not a failure. **Ruling 4: a scheduled run uses a Claude or ChatGPT plan only
   through the person's off-by-default "Scheduled runs may use my plan" switch** (4b, 2026-10-16; `SUBSCRIPTION_MODES`
   the one guard); on a metered engine it spends with no limit Cicada sets, said in words. Continue-after-reset is opt-in,
-  off (ruling 15).
+  off (ruling 15). A scheduled time the Mac slept or was off through runs once, after a short settle, as a scheduled
+  run — never over a pause or a running cycle (`sleep_catch_up`, owner 2026-10-19, `features.md`).
 - **The write window (G177):** `sleep_cycle.is_writing()` is the one predicate behind every "Sleep is running" refusal,
   read only through `write_admission` (G183): a writer holds it shared through its own commit (async: `run_admitted`),
   Sleep sets its flag then waits holders out — past the bound it pauses, never reads; order admission → page → git;

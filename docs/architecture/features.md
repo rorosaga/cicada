@@ -408,6 +408,33 @@ scheduled cycle never spends Claude or ChatGPT plan quota (the standing ruling i
 waiting, in batches** (ruling 16: unattended, on the scheduled engine — on a key that is spend with no limit Cicada sets; a
 paused run is left for the person to continue or end; the tail still runs over it).
 
+**A missed scheduled time catches up, once (owner 2026-10-19).** `daily` and `interval` are timers in the backend's own
+process: one due while the Mac sleeps fired late on wake, past APScheduler's grace, and was dropped; one due while the Mac
+is off was never seen (the next start computes the *next* time) — a laptop closed at night never ran its schedule. The
+schedule's own job now keeps a minute's grace (`coalesce`, `misfire_grace_time=60`), and beside it `sleep_catch_up`
+installs a 5-minute probe (first look a minute after start; `manual` and `after_import` get none). The probe asks for the
+latest due time with nothing since — `daily`: the latest HH:MM at or before now; `interval`: the last anchor plus N
+hours — and, however many were missed, runs **once**, naming the latest. "Since" is the latest of: `handled_at` (every
+scheduled fire, on time or caught up, stamps it **before** reading — a fire that then finds a running cycle, a pause or a
+failure has had its turn), `last_run_at` (`sleep_cycle.run` stamps every run that reads, the person's included), the
+newest `runs.json` summary and the newest real `Sleep cycle` commit (the record that predates the stamps), and `since`
+(when this schedule — mode and time — was first seen, so a schedule set at 14:00 never catches up that morning; on the
+first start after an upgrade, the schedule file's own modification time). The stamps live machine-local in
+`$CICADA_HOME/sleep/<bank>/schedule.json` (`sleep_local`, timestamps only): the schedule is a fact about this Mac's
+process, the bank's history cannot say that a fire found nothing or failed, and in-memory scheduler state does not
+survive a restart. **The settle:** a missed time is first noticed, then run one probe later if still missed; a gap
+between probes over ten minutes is a wake or a start and the settle begins again, so it never lands on login or the
+moment the lid opens. **Rails:** `user_triggered=False` (ruling 4/4b — a plan only through the person's switch, never
+flipped here; with the switch off on a plan the catch-up fails as the 03:00 run does, once per missed time, never on
+every wake, because the stamp precedes the read); it reads everything waiting (ruling 16, `_scheduled_drain`); never on
+a running cycle (it looks again next probe); a paused run gets the engine-free upkeep only, as `_run_if_idle` does; the
+bank active when it fires (`bank_registry.unpin`, G183(d)); nothing readable (only parked or index-only history) runs
+nothing and the time counts as handled, so a capture later that day waits for the next time as on any day. The run's
+summary carries `catch_up_for` (`sleep_runs`, `SleepRunRef.catch_up_for`), which Past nights says in words (`app.md`).
+A plan-pinned scheduled run (`CICADA_LLM_MODE=agent|codex`, one batch, no run summary) catches up the same way but its
+row carries no catch-up words. **The menu bar counts what waits for Sleep:** `GET /status` `episodes.readable`
+(`sleep_debt.readable_count`) is the bookworm's badge (`app.md`).
+
 ### 5. Conversation upload
 **One chat-export pipeline (Track I).** Claude, ChatGPT and Gemini exports — a whole .zip, a
 folder, or one file — go through `api/routers/intake.py`: every member a parser knows (a Claude

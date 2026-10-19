@@ -2357,6 +2357,9 @@ class StatusInbox(CamelModel):
 class StatusEpisodes(CamelModel):
     unprocessed: int = 0
     last_ingested_at: Optional[str] = None
+    #: What Sleep itself would read now (`sleep_debt.readable_count`: waiting, not parked, not index-only history per
+    #: ruling 30) — the menu-bar badge's count (owner 2026-10-19). ``None`` from an older backend.
+    readable: Optional[int] = None
 
 
 class StatusGates(CamelModel):
@@ -2890,6 +2893,8 @@ class SleepRunRef(CamelModel):
     finished_at: Optional[str] = None
     state: Optional[str] = None            # running | paused | finished | failed | ended
     started_by: str = "user"
+    #: A scheduled run that stood in for a time the Mac slept or was off through: that time (aware ISO). Owner 2026-10-19.
+    catch_up_for: Optional[str] = None
 
 
 class SleepRunPause(CamelModel):

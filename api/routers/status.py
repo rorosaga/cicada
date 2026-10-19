@@ -173,6 +173,7 @@ async def get_status(settings: Settings = Depends(get_settings)):
         episodes=StatusEpisodes(
             unprocessed=unprocessed,
             last_ingested_at=last_ingested,
+            readable=debt.readable_count,
         ),
         last_sleep_at=last_sleep,
         next_sleep_at=next_sleep,
