@@ -161,6 +161,43 @@ def test_the_body_never_names_a_page(bank):
     assert "delta-zero" not in {d.ref for d in docs.values()}, "R-H3: title and aliases only"
 
 
+ENGLISH = [
+    "Fix the failing test in the parser", "Summarize this error log for me", "Write a function that parses dates",
+    "What does this stack trace mean", "Rename the variables to be clearer", "Make the button bigger on mobile",
+    "Explain how async iterators work", "Why is the build slow today", "Draft a polite reply to this email",
+    "Convert this list into a table", "Add type hints to this module", "Review the diff before I merge",
+]
+
+
+def named_prompts(memory, n=60, *, total=2000):
+    """``(page id, a prompt naming it)`` over the synthetic bank ``test_search_latency.write_bank`` builds."""
+    out = []
+    for i in range(0, total, total // n):
+        if i % 5 == 4:          # media pages are not in the entity table
+            continue
+        page = markdown_parser.parse(memory / "entities" / f"e-{i}.md")
+        out.append((f"e-{i}", f"Where does {page.frontmatter['name']} stand after last week?"))
+    return out
+
+
+def test_a_named_page_is_injected_every_note_fits_and_english_injects_nothing(tmp_path):
+    """The behaviour `test_hook_recall_latency.py` times at 2,000 pages, on 300 from the same generator (#353 note:
+    a `bench` file is never the default run, so what it asserts beside a clock must also be asserted here)."""
+    import random
+
+    from test_search_latency import write_bank
+
+    memory = tmp_path / "memory"
+    write_bank(memory, random.Random(7), entities=300, episodes=0)
+    _index(memory)
+    for page_id, prompt in named_prompts(memory, 30, total=300):
+        result = hook_recall.prompt_context(memory, prompt)
+        assert page_id in result.injected, prompt
+        assert result.tokens <= hook_recall.MAX_TOKENS
+    for prompt in ENGLISH:
+        assert hook_recall.prompt_context(memory, prompt).injected == (), prompt
+
+
 def test_the_note_never_exceeds_its_budget(tmp_path):
     memory = tmp_path / "memory"
     for sub in ("entities", "episodes", "inbox"):

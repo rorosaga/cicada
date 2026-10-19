@@ -206,6 +206,10 @@ The backend logs the same names once at startup. Settings → Advanced shows the
 episode (the original shape, kept for any client still asking); `processed=false` is only the waiting ones — what the
 app asks for (`APIClient.fetchEpisodeQueue(etag:)`: the Sleep page's Waiting rows and count fallback, a source's queue
 strip) — and `processed=true` with `offset`/`limit` (≤ 1000) pages the read ones; `X-Total-Count` is the filtered total.
+The paged call has no app client, and none is needed (checked 2026-10-19): no surface lists read conversations from
+this route — Sleep › Past reads runs (`/sleep/history`, `/sleep/runs/{id}`), the waiting list is `/sleep/queue` (≤ 200)
+and `processed=false`, and a source's conversations are `/conversations/recent` (≤ 200, filtered before its cap). A
+surface that one day lists read episodes pages here instead of downloading them all.
 Rows are chosen from `bank_index`'s cached headers (`sleep_cycle.episode_headers`) and only the sent rows' bodies are
 read: on a synthetic 8,237-episode bank (10 waiting) the bare call is 4.3 MB / 1.7 s warm before and 0.4 s after, the
 waiting list 5 KB / 45 ms, a 304 ~25 ms. ETag over `episodes` with `extra` = `sleep.EPISODES_SHAPE|<query>|<folders.json

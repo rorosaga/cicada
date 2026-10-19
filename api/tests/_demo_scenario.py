@@ -76,7 +76,10 @@ def demo(tmp_path: Path, *, index: bool = True, events: bool = True, person: boo
     as fresh. A test may write to its copy freely. ``showcase`` (round 4 T-Demo) is OFF by default: every expectation
     the scenario tests pin was written before it, and `test_projects_app_fixture.py` proves it leaves the Projects
     wire alone; the showcase's own tests turn it on. ``today=None`` is the real day (keyed by it, so a run that
-    crosses midnight builds again)."""
+    crosses midnight builds again).
+
+    A caller must not patch ``demo_bank`` before calling it: the template is built once per process for these flags
+    and cached, so a patched ``populate`` step would be baked into the copy every later test receives."""
     key = (index, events, person, followups, backlog, showcase, today or date.today())
     template = _TEMPLATES.get(key)
     if template is None or not template.is_dir():

@@ -2134,12 +2134,10 @@ async def tidy(memory_path: Path, settings, *, dry_run: bool = True, limit: int 
                               limit=limit, dry_run=dry_run, judge=judge, admitted=True, engine=engine,
                               record_cap=None if judge else 0, progress=progress)
         if report.settled and not dry_run:
-            try:
-                from api.services import state_dictionary
+            from api.services import state_dictionary
 
-                await state_dictionary.refresh_and_commit(memory_path, settings)
-            except Exception as exc:  # noqa: BLE001 — the projection never fails the tidy
-                logger.info(f"state refresh after the tidy skipped: {type(exc).__name__}")
+            # Admitted, and skipped while Sleep holds the pages: it could otherwise ride Sleep's batch commit.
+            await state_dictionary.refresh_admitted(memory_path, settings)
     finally:
         if not dry_run:
             _TIDY["running"] = False

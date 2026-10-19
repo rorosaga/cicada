@@ -41,6 +41,32 @@ def test_every_backend_line_names_a_test_that_exists():
     assert not missing, f"crucial.txt names tests that do not exist: {missing}"
 
 
+def test_every_backend_line_marks_a_collected_test():
+    """A name that exists is not yet a test that runs (#350 note): a helper, a class pytest does not collect or a
+    module that skips itself at import would pass the check above and run nothing. Collect the tier the way
+    `make test-crucial` does and hold every line to at least one collected, `crucial`-marked test."""
+    import subprocess
+    import sys
+
+    repo = _crucial.TESTS.parents[1]
+    out = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", "-m", "crucial", "-p", "no:cacheprovider",
+         *(f"api/tests/{f}" for f in _crucial.backend_files())],
+        cwd=repo, capture_output=True, text=True, timeout=300)
+    assert out.returncode == 0, out.stdout[-2000:] + out.stderr[-2000:]
+    collected = []
+    for line in out.stdout.splitlines():
+        if "::" not in line or " " in line.strip():
+            continue
+        file, *inner = line.strip().split("::")
+        inner[-1] = inner[-1].split("[", 1)[0]
+        collected.append((Path(file).name, tuple(inner)))
+    assert collected, "the tier collected nothing"
+    empty = [f"{file}::{'::'.join(path)}" if path else file for file, path in _crucial.backend_entries()
+             if not any(_crucial.is_crucial(name, inner, [(file, path)]) for name, inner in collected)]
+    assert not empty, f"crucial.txt lines that mark no collected test: {empty}"
+
+
 def test_every_swift_line_names_a_test_that_exists():
     sources = {p.stem: p.read_text(encoding="utf-8") for p in SWIFT_TESTS.glob("*.swift")}
     everything = "\n".join(sources.values())
