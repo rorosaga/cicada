@@ -417,9 +417,9 @@ _MES_ANO = re.compile(r"(?<!\w)" + _MES + r" (?:de(?:l)? )?(\d{4})(?!\w)")
 #: A month alone, after a word that makes it a time ("in September", "back in August", "en agosto"): that month in
 #: any year. Full names only — "may" alone is a verb, "in may" is not.
 _MONTH_ALONE = re.compile(
-    r"\b(?:in|during|back in|early|late|mid|since|until)[ -](january|february|march|april|may|june|july|august|"
+    r"\b(?:in|during|back in|early|late|mid)[ -](january|february|march|april|may|june|july|august|"
     r"september|october|november|december)\b(?!,? \d)"
-    r"|(?<!\w)(?:en|durante|desde|hasta|a principios de|a finales de|a mediados de) " + _MES + r"(?! de(?:l)? \d)(?!\w)")
+    r"|(?<!\w)(?:en|durante|a principios de|a finales de|a mediados de) " + _MES + r"(?! de(?:l)? \d)(?!\w)")
 _SMALL = {"a": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
 
 

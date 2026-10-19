@@ -593,3 +593,4 @@ def test_named_days_in_spanish_and_a_month_alone():
     assert named("What was I doing back in August?") == ["-08"]
     assert named("I may go in May 2025") == ["2025-05"]
     assert named("What may I have said?") == []
+    assert named("What have I built since September?") == [], "a range, not one occasion"
