@@ -264,6 +264,10 @@ class Settings(BaseSettings):
     # Owner ruling 2026-10-16 (G61): the web lookup on Sleep's tail settles at most this many public-thing
     # questions a run (one search call each); 0 turns the step off. `web_lookup`.
     web_check_per_run: int = 8                 # CICADA_WEB_CHECK_PER_RUN
+    # 2026-10-19: the plan tier a web lookup runs on, for that one call only — same plan, same switch and limits as the
+    # person's own Sleep engine. A cheap Sleep tier answered "not sure" on what its own search plainly said. Empty = the
+    # person's Sleep model. Never applied to a metered key (that spend is the person's own choice of model).
+    web_check_agent_model: str = "sonnet"      # CICADA_WEB_CHECK_AGENT_MODEL
     # Track C: reuse (zero-LLM) and fetch+summarize shared that one budget with
     # reuse spent first, so a night with 20 reuse candidates read no new page.
     # This many of the cap are reserved for fetches while any wait (the in-cycle

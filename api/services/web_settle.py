@@ -37,7 +37,8 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import bank_index, episode_ids, episode_scrub, inbox_questions, markdown_parser, predicates
+from api.services import (bank_index, episode_ids, episode_scrub, inbox_questions, markdown_parser, predicates,
+                          role_people, text_fold)
 
 SOURCE = "web-check"
 SETTLED_DIR = "settled"
@@ -65,7 +66,26 @@ CATEGORY_WORDS = frozenset({
     "extension", "plugin", "api", "sdk", "cli", "agent", "harness", "company", "startup", "brand", "product", "robot",
     "robotics", "device", "hardware", "chip", "camera", "car", "theory", "concept", "method", "technique", "law",
     "university", "museum", "band", "studio", "publisher", "website", "newsletter", "blog",
+    # Places and organisations (2026-10-19: a restaurant or a startup searched by its bare name found other things).
+    "restaurant", "cafe", "bar", "pub", "bakery", "hotel", "hospital", "clinic", "gym", "shop", "cinema",
+    "theatre", "theater", "gallery", "festival", "airline", "nonprofit", "foundation", "accelerator", "school",
+    "channel", "framework", "organization", "organisation", "agency",
 })
+#: The same categories in Spanish (folded, accents off), sent as the English word: one vocabulary, either language.
+_CATEGORY_SYNONYMS = {
+    "restaurante": "restaurant", "cafeteria": "cafe", "clinica": "clinic", "empresa": "company", "pelicula": "film",
+    "libro": "book", "banda": "band", "album": "album", "cancion": "song", "aplicacion": "app", "herramienta": "tool",
+    "revista": "magazine", "universidad": "university", "museo": "museum", "gimnasio": "gym", "tienda": "shop",
+    "serie": "series", "videojuego": "game", "juego": "game", "marca": "brand", "plataforma": "platform",
+    "articulo": "article", "documental": "documentary", "escuela": "school", "colegio": "school",
+    "fundacion": "foundation", "agencia": "agency", "pasteleria": "bakery", "panaderia": "bakery",
+    "cine": "cinema", "teatro": "theatre", "galeria": "gallery", "aerolinea": "airline", "modelo": "model",
+    "lenguaje": "language",
+}
+#: Words that read as verbs right after a name ("did <name> show up", "<name> play") or before it ("book <name> for
+#: Friday"): taken from a mention line only after a determiner ("the book <name>", "<name>, a show about …").
+_VERBISH_CATEGORIES = frozenset({"show", "play", "film", "book", "park", "fund", "harness", "benchmark", "video",
+                                 "shop", "model", "standard", "law", "game", "series", "agent", "editor"})
 #: What a thing IS — its type or description (owner, 2026-10-16: "Is <tool-a> an agent harness for running models or an
 #: AI agent itself?" is the question a lookup exists for). Eligible even where the vocabulary marks the predicate
 #: multi-valued (``is-a``): a page may say the subject is one of the options and rules the others out (that option
@@ -212,6 +232,8 @@ class Candidate:
     #: Where the subject was mentioned, for the local context: the item's own episode, then each option claim's.
     source_episode: str = ""
     claim_ids: list[str] = field(default_factory=list)
+    #: Where the category word came from: ``description``, ``context`` (:func:`context_category`) or ``""`` (none).
+    category_from: str = ""
 
 
 def _norm(text) -> str:
@@ -396,16 +418,98 @@ def description_for(fm: dict, page: dict | None, page_body: str = "", pending: t
     return _one_liner(own)
 
 
-def _category(description: str, *, type_question: bool, labels: list[str]) -> list[str]:
+def category_word(token: str) -> str | None:
+    """``token`` as a word of :data:`CATEGORY_WORDS` — itself, its plural, or its Spanish form — else ``None``."""
+    t = text_fold.fold(token)
+    for form in (t, t[:-1] if t.endswith("s") else "", t[:-2] if t.endswith("es") else ""):
+        if not form:
+            continue
+        if form in CATEGORY_WORDS:
+            return form
+        if form in _CATEGORY_SYNONYMS:
+            return _CATEGORY_SYNONYMS[form]
+    return None
+
+
+def _label_carries(word: str, labels: list[str]) -> bool:
+    return bool(re.search(rf"\b{re.escape(word)}\b", text_fold.fold(" ".join(labels))))
+
+
+#: A description that only guesses ("possibly a software library", "a tool or a film") gives no category word
+#: (2026-10-19: Stage 1's guess sent "Frieren software", and the pinned query could only find the wrong thing).
+_HEDGE = re.compile(r"\b(?:possibly|perhaps|maybe|might|may be|probably|likely|unclear|unknown|unsure|either|"
+                    r"or|seems?|appears?|presumably|posiblemente|quizas?|tal vez|probablemente|o)\b", re.IGNORECASE)
+#: Words that say nothing a search can use, however a description puts them: every page is "a concept" to Stage 1.
+_EMPTY_CATEGORIES = frozenset({"concept", "theory"})
+
+
+def _usable(word: str | None, name: str, labels: list[str]) -> bool:
+    """A category word may ride with the name: not empty of meaning, not already in the name ("arXiv paper <id>"
+    never becomes "… paper"), not a word an option label carries."""
+    return bool(word) and word not in _EMPTY_CATEGORIES and word not in _folded_words(name) \
+        and not _label_carries(word, labels)
+
+
+def _category(description: str, *, type_question: bool, labels: list[str], name: str = "") -> list[str]:
     """At most ONE generic word from :data:`CATEGORY_WORDS` found in Cicada's own description; none when unsure — a bare
     name is a valid query. Never from the page's type alone (Sleep's type is what a type conflict doubts), never on a
-    question about what the thing IS (the word would answer it), never a word an option label carries."""
-    if type_question:
+    question about what the thing IS (the word would answer it), never from a description that only guesses
+    (:data:`_HEDGE`), never a word the name already carries or an option label carries."""
+    if type_question or _HEDGE.search(description or ""):
         return []
-    asked = " ".join(labels).lower()
-    for token in re.findall(r"[a-z]+", (description or "").lower()):
-        if token in CATEGORY_WORDS:
-            return [] if re.search(rf"\b{token}\b", asked) else [token]
+    for token in re.findall(r"\w+", text_fold.fold(description or "")):
+        word = category_word(token)
+        if word:
+            return [word] if _usable(word, name, labels) else []
+    return []
+
+
+_DETERMINERS = r"(?<!\w)(?:a|an|the|this|that|un|una|el|la|al|del|este|esta|ese|esa)"
+_COPULA = r"(?:is|was|'s|’s|es|era|fue|are|were|son)"
+_NAMING = r"(?:called|named|llamad[oa]s?)"
+
+
+def context_category(c: "Candidate", context: list[str]) -> list[str]:
+    """When Cicada's own description gave no category word, ONE word from the lines where the subject was mentioned
+    (2026-10-19: "<a restaurant name>" searched alone found other things while the line said "a restaurant") — a fixed
+    vocabulary (:data:`CATEGORY_WORDS`), matched beside the subject's own name, no model: "the restaurant <name>", "a
+    startup called <name>", "<name>, a small café", "<name> is a band", "<name> restaurant". The same limits as
+    :func:`_category`: none on a question about what the thing IS, none an option label carries, none when unsure.
+    Only the vocabulary word can leave the machine; the line never does."""
+    if c.type_question:
+        return []
+    labels = [label for _, label in c.options]
+    parts = re.findall(r"\w+", text_fold.fold(c.name))
+    if not parts:
+        return []
+    name = r"(?<!\w)" + r"[\s\-_.'’]+".join(re.escape(p) for p in parts) + r"(?!\w)"
+    for line in context:
+        if not line.startswith("Mentioned: "):
+            continue
+        text = text_fold.fold(line[len("Mentioned: "):])
+        found: list[str] = []
+        # "<name>, a small café" / "<name> is a band" / "<name> (a startup)": the first vocabulary word within four
+        # words of the determiner, before any punctuation ends the phrase.
+        for m in re.finditer(name + rf"\s*[,(:—–-]?\s*(?:{_COPULA}\s+)?{_DETERMINERS}\s+([\w'’\- ]+)", text):
+            for token in m.group(1).split()[:4]:
+                word = category_word(token)
+                if word:
+                    found.append(word)
+                    break
+        # "the restaurant <name>", "a startup called <name>", "the new app <name>": a determiner within two words.
+        before = rf"{_DETERMINERS}\s+(?:(?!{_NAMING}\b)\w+\s+)?(?!{_NAMING}\b)(\w+)\s+(?:{_NAMING}\s+)?"
+        for m in re.finditer(before + name, text):
+            word = category_word(m.group(1))
+            if word:
+                found.append(word)
+        # "<name> restaurant", "<name> app": the next word, unless it reads as a verb there.
+        for m in re.finditer(name + r"\s+(\w+)", text):
+            word = category_word(m.group(1))
+            if word and word not in _VERBISH_CATEGORIES:
+                found.append(word)
+        for word in found:
+            if _usable(word, c.name, labels):
+                return [word]
     return []
 
 
@@ -440,14 +544,16 @@ def candidate(memory_path: Path, item_path: Path, facts: BankFacts) -> Candidate
         if cid and cid not in claim_ids:
             claim_ids.append(cid)
     labels = [label for _, label in options] if fm.get("kind") == "conflict" else []
+    name = " ".join(str(fm.get("entity_name") or "").split())
+    category = _category(description, type_question=type_question, labels=labels, name=name)
     return Candidate(
         item_id=item_path.stem, kind=str(fm.get("kind")), scope=scope, entity_id=entity_id,
         name=" ".join(str(fm.get("entity_name") or "").split()), entity_type=etype, has_page=page is not None,
         predicate=str(fm.get("predicate") or ("" if fm.get("kind") == "conflict" else "description")),
         options=options if fm.get("kind") == "conflict" else [],
-        category=_category(description, type_question=type_question, labels=labels), type_question=type_question,
+        category=category, type_question=type_question,
         both_key=both_key, description=description, source_episode=str(fm.get("source_episode") or "").strip(),
-        claim_ids=claim_ids,
+        claim_ids=claim_ids, category_from="description" if category else "",
     )
 
 
@@ -878,26 +984,184 @@ _PATH_RE = re.compile(
 _SPEAKER_RE = re.compile(r"^\s*(?:\*\*)?(?:user|assistant|human|agent|me|you)(?:\*\*)?\s*:\s*", re.IGNORECASE)
 
 
-def _redact_people(text: str, names: frozenset[str], keep: frozenset[str] = frozenset()) -> str:
-    """Every person's name or alias in the bank (the owner's too, and a person held without a page) becomes "someone" — the line keeps its sense, the
-    prompt carries no one's name (ruling 27: never another name from the bank). Whole words, any case; a multi-word
-    name whole first, then each of its words of 3+ letters on its own (a person is often named by one of them) —
-    except a word of the subject's own name (``keep``), which the prompt already carries."""
-    whole: set[tuple[str, ...]] = set()
+#: Words a RELATION-SHAPED name may keep in the local context (:func:`relation_shaped`: "his brother <name>", "<name>'s
+#: dad", "dad of <name>", "mi hermana <name>") — and only such a name: every other multi-word name is redacted whole
+#: and by each part of 3+ letters, as before (re-review of #366, 2026-10-19: an exemption that applied to every name
+#: let "Pa Her", "Fred Friend", "Ana Sobrino", "Jane Doctor" or "Tom User" keep a surname). Function words and plain
+#: relations only, audited against given names and surnames: NOT "her", "sin", "via", "que", "will", "can", "guy",
+#: "nina", "rosa", "mar", "tia", "una", "con", "del", "son", "das", "van", "della", "friend", "doctor", "tutor",
+#: "mentor", "partner", "family", "sobrino", "lab", "child", "kid", "baby", "boss", "coach", "nurse", "driver",
+#: "barber", "cousin", "person", "speaker", "owner", "papa", "mama", "padre", "primo", "amigo" or "pareja", all of
+#: which are someone's name. Folded.
+_NEVER_A_NAME = frozenset({
+    # English function words
+    "the", "and", "for", "his", "hers", "our", "ours", "their", "theirs", "your", "yours", "its", "this", "that",
+    "these", "those", "with", "from", "into", "about", "who", "whom", "whose", "what", "which", "she", "him", "them",
+    "they", "was", "were", "are", "has", "had", "not", "but",
+    # Spanish function words
+    "los", "las", "unos", "unas", "mis", "sus", "tus", "nuestro", "nuestra", "nuestros", "nuestras", "por", "para",
+    # Plain relations, English
+    "dad", "mom", "mum", "mother", "father", "sister", "brother", "sibling", "daughter", "girlfriend", "boyfriend",
+    "wife", "husband", "spouse", "fiance", "fiancee", "grandma", "grandpa", "grandmother", "grandfather", "uncle",
+    "aunt", "niece", "nephew", "stepfather", "stepmother", "roommate", "flatmate", "housemate", "classmate",
+    "colleague", "coworker", "teacher", "professor", "manager", "therapist", "psychologist", "psychiatrist",
+    "dentist", "landlord", "landlady", "neighbor", "neighbour", "user",
+    # Plain relations, Spanish (folded)
+    "madre", "hermana", "hermano", "hija", "hijo", "novia", "novio", "esposa", "esposo", "abuela", "abuelo", "amiga",
+    "jefa", "jefe", "profe", "profesor", "profesora", "companero", "companera", "vecina", "vecino", "suegra",
+    "suegro", "cunada", "cunado",
+})
+#: The plain relations among them: a name is relation-shaped only when it carries one.
+_RELATIONS = _NEVER_A_NAME - frozenset({
+    "the", "and", "for", "his", "hers", "our", "ours", "their", "theirs", "your", "yours", "its", "this", "that",
+    "these", "those", "with", "from", "into", "about", "who", "whom", "whose", "what", "which", "she", "him", "them",
+    "they", "was", "were", "are", "has", "had", "not", "but", "los", "las", "unos", "unas", "mis", "sus", "tus",
+    "nuestro", "nuestra", "nuestros", "nuestras", "por", "para"})
+#: A name opening with one of these, with a relation in it, describes somebody by the relation ("the girlfriend …",
+#: "his dad", "mi hermana …"); in such a name the opener is structure, never redacted on its own.
+_ROLE_OPENERS = frozenset(
+    "the a an his her hers my our their your its this that these those el la los las un una unos unas mi mis su sus "
+    "tu tus nuestro nuestra nuestros nuestras".split())
+#: "dad of <name>", "el hermano de <name>".
+_RELATION_LINKS = frozenset({"of", "de", "del"})
+#: A lone pronoun is no one's name: Stage 1 has typed "her" as a person, and redacting every "her" garbled each line.
+#: The one lone word kept (a two-word name with "Her" in it — a Hmong surname — is still redacted by each part).
+_LONE_PRONOUNS = frozenset({"her", "him", "his", "she", "hers", "they", "them"})
+_NAME_PARTICLES = frozenset("de del della di da das do dos du van von der den ten ter le la y bin ibn al el".split())
+_ROLE_WORDS_FOLDED = frozenset(text_fold.fold(w) for w in role_people.ROLE_WORDS)
+#: A part shorter than this is not redacted on its own (the whole name still is).
+_MIN_PART_CHARS = 3
+
+
+def _folded_words(name: str) -> list[str]:
+    return re.findall(r"\w+", text_fold.fold(name or ""))
+
+
+def relation_shaped(name: str) -> bool:
+    """A name that describes somebody by a relation: it carries a relation (:data:`_RELATIONS`, ``role_people``'s) and
+    either opens
+    with an article or possessive ("the girlfriend maria", "mi hermana lucía"), has a possessive ("ana's dad") or links
+    the relation to a name with "of"/"de" ("dad of ana"). "Lee Brother" or "Tom User" is not: a relation word inside an
+    ordinary name is a surname."""
+    words = _folded_words(name)
+    if len(words) < 2 or not any(w in _RELATIONS or w in _ROLE_WORDS_FOLDED for w in words):
+        return False   # detection reads every relation ("friend" too); only _NEVER_A_NAME words are ever kept
+    return (words[0] in _ROLE_OPENERS or bool(re.search(r"\w['’]s\b", name or ""))
+            or any(w in _RELATION_LINKS for w in words[1:-1]))
+
+
+def _exempt(word: str, name_words: list[str], relation: bool) -> bool:
+    """Is this part of a name kept when it stands alone? Only in a relation-shaped name, and only a never-a-name word
+    or its opening article/possessive."""
+    return relation and (word in _NEVER_A_NAME or (word == name_words[0] and word in _ROLE_OPENERS))
+
+
+def name_shape(name: str) -> str:
+    """How a person's name is redacted from the local context: ``split`` (whole, and each part of 3+ letters on its own
+    — every name but the two below), ``whole`` (a relation-shaped name with nothing but relation words in it — "his
+    dad", "the user": only the phrase) or ``skip`` (a lone pronoun — "her" — is no one's name)."""
+    words = _folded_words(name)
+    if not words or len(" ".join(words)) < 3:
+        return "skip"
+    if len(words) == 1:
+        return "skip" if words[0] in _LONE_PRONOUNS else "split"
+    relation = relation_shaped(name)
+    if relation and all(_exempt(w, words, True) or len(w) < _MIN_PART_CHARS for w in words):
+        return "whole"
+    return "split"
+
+
+#: Words that say a person-typed name is a thing (a technique, a department), not somebody — the data problem the
+#: 2026-10-19 trace found ("<a technique> and <a task>" typed person). Counted by :func:`person_name_census`, never
+#: fixed here: the page's type is the person's to correct.
+_THING_WORDS = frozenset({
+    "algorithm", "localization", "localisation", "mapping", "recommendation", "recommendations", "department", "lab",
+    "laboratory", "learning", "network", "networks", "analysis", "system", "systems", "method", "technique",
+    "careers", "talents", "office", "committee", "program", "programme", "project", "service", "services", "team",
+    "association", "society", "institute", "center", "centre", "faculty", "school", "university", "club",
+})
+
+
+def looks_like_a_thing(name: str) -> bool:
+    """A person-typed name that reads as a phrase about a thing: a function word inside it that is not a name
+    particle ("simple algorithm for recommendation"), or a word of :data:`_THING_WORDS` / :data:`CATEGORY_WORDS`.
+    A detector for the census only — it never changes how a name is redacted."""
+    words = _folded_words(name)
+    if not words or words[0] in _ROLE_OPENERS or any(w in _ROLE_WORDS_FOLDED for w in words):
+        return False   # somebody described by a relation ("the friend of …", "a lab teacher"), not a thing
+    if len(words) > 1 and any(w in text_fold.SUBJECT_STOPWORDS and w not in _NAME_PARTICLES for w in words):
+        return True
+    return any(w in _THING_WORDS or w in CATEGORY_WORDS for w in words)
+
+
+def person_name_census(facts: "BankFacts") -> dict:
+    """Counts only (the dry run's ``--trace``): how each person name or alias is redacted (:func:`name_shape`), how
+    many are descriptions of somebody by a relation, and how many read as a thing (:func:`looks_like_a_thing`) — a
+    page typed person that is not one. Never a name."""
+    out = {"split": 0, "whole": 0, "skip": 0, "relation": 0, "looks_like_a_thing": 0}
+    for name in facts.person_names | facts.pending_person_names:
+        out[name_shape(name)] += 1
+        words = _folded_words(name)
+        out["relation"] += int(bool(words) and (words[0] in _ROLE_OPENERS
+                                                or any(w in _ROLE_WORDS_FOLDED for w in words)))
+        out["looks_like_a_thing"] += int(looks_like_a_thing(name))
+    return out
+
+
+def _sub_folded(text: str, words: tuple[str, ...]) -> tuple[str, int]:
+    """``words`` (folded) replaced by "someone" in ``text``, matched accent- and case-blind ("maría" redacts "Maria"
+    and "MARÍA"), whole words only; the original text is cut at the matched source offsets."""
+    import unicodedata
+
+    folded, at = text_fold.fold_with_map(text)
+    pattern = r"(?<!\w)" + r"[\s\-_.'’]+".join(re.escape(w) for w in words) + r"(?!\w)"
+    spans = [(m.start(), m.end()) for m in re.finditer(pattern, folded)]
+    if not spans:
+        return text, 0
+    out, last = [], 0
+    for a, b in spans:
+        start, end = at[a], at[b - 1] + 1
+        while end < len(text) and unicodedata.combining(text[end]):
+            end += 1   # a decomposed accent belongs to the letter it sits on
+        out += [text[last:start], "someone"]
+        last = end
+    out.append(text[last:])
+    return "".join(out), len(spans)
+
+
+def _redact_people(text: str, names: frozenset[str], keep: frozenset[str] = frozenset(),
+                   stats: dict | None = None) -> str:
+    """Every person's name or alias in the bank (the owner's too, and a person held without a page) becomes "someone"
+    — the line keeps its sense, the prompt carries no one's name (ruling 27: never another name from the bank). Whole
+    words, any case, accents folded; the whole name first, then each of its parts of 3+ letters on its own (a person
+    is often named by one of them) — except a word of the subject's own name (``keep``: the prompt already carries it)
+    and, in a relation-shaped name only (:func:`relation_shaped`: "his brother luis", "ana's dad"), its articles,
+    possessives and plain relations (:data:`_NEVER_A_NAME`). A relation phrase with no name in it ("his dad") goes as
+    its whole phrase; a lone pronoun ("her") is no name. Over-redaction is the safe failure. ``stats`` (the
+    diagnostic) counts the replacements."""
+    keep = frozenset(text_fold.fold(w) for w in keep)
+    phrases: set[tuple[str, ...]] = set()
     for name in names:
-        words = tuple(re.findall(r"\w+", name))
-        if not words or len(" ".join(words)) < 3:
+        shape = name_shape(name)
+        if shape == "skip":
             continue
-        whole.add(words)
-        if len(words) > 1:
-            whole.update((w,) for w in words if len(w) >= 3 and w.lower() not in keep)
-    for words in sorted(whole, key=lambda w: len(" ".join(w)), reverse=True):
-        pattern = r"(?<!\w)" + r"[\s\-_.']+".join(re.escape(w) for w in words) + r"(?!\w)"
-        text = re.sub(pattern, "someone", text, flags=re.IGNORECASE)
+        words = tuple(_folded_words(name))
+        phrases.add(words)
+        if shape == "split" and len(words) > 1:
+            relation = relation_shaped(name)
+            phrases.update((w,) for w in words
+                           if len(w) >= _MIN_PART_CHARS and w not in keep and not _exempt(w, list(words), relation))
+            # A joined part ("Su-bin", "O'Brien") also goes as a unit, so a short piece of it never survives.
+            phrases.update(tuple(_folded_words(token)) for token in (name or "").split()
+                           if len(_folded_words(token)) > 1)
+    for words in sorted(phrases, key=lambda w: len(" ".join(w)), reverse=True):
+        text, n = _sub_folded(text, words)
+        if stats is not None and n:
+            stats["people"] = stats.get("people", 0) + n
     return text
 
 
-def _clean(text: str, facts: BankFacts, keep: frozenset[str] = frozenset()) -> str:
+def _clean(text: str, facts: BankFacts, keep: frozenset[str] = frozenset(), stats: dict | None = None) -> str:
     """Scrubbed as every writer scrubs (``episode_scrub``: secrets and one-time codes), then links, addresses, handles
     and paths out, people's names out, one line — never cut: a cut comes after, so it cannot leave half a name or a
     secret whose cue it cut off."""
@@ -906,14 +1170,14 @@ def _clean(text: str, facts: BankFacts, keep: frozenset[str] = frozenset()) -> s
     text = _EMAIL_RE.sub("[address]", text)
     text = _HANDLE_RE.sub("[handle]", text)
     text = _PATH_RE.sub("[path]", text)
-    text = _redact_people(text, facts.person_names | facts.pending_person_names, keep)
+    text = _redact_people(text, facts.person_names | facts.pending_person_names, keep, stats)
     return _SPEAKER_RE.sub("", " ".join(text.split()))
 
 
 def clean_context_line(text: str, facts: BankFacts, *, limit: int = MAX_LINE_CHARS,
-                       keep: frozenset[str] = frozenset()) -> str:
+                       keep: frozenset[str] = frozenset(), stats: dict | None = None) -> str:
     """One line of local context: cleaned whole (:func:`_clean`), then bounded."""
-    return _one_liner(_clean(text, facts, keep), limit)
+    return _one_liner(_clean(text, facts, keep, stats), limit)
 
 
 def subject_words(name: str) -> frozenset[str]:
@@ -921,7 +1185,7 @@ def subject_words(name: str) -> frozenset[str]:
 
 
 def _mention_line(body: str, span: tuple[int, int], c: Candidate, facts: BankFacts,
-                  limit: int = MAX_LINE_CHARS) -> str:
+                  limit: int = MAX_LINE_CHARS, stats: dict | None = None) -> str:
     """The line holding ``span``, cleaned WHOLE (:func:`_clean`) and only then cut to ±``limit``/2 around the subject's
     mention on word boundaries — so a cut can never leave half a person's name or a secret without its cue."""
     from api.services import inbox_context
@@ -929,7 +1193,7 @@ def _mention_line(body: str, span: tuple[int, int], c: Candidate, facts: BankFac
     start = body.rfind("\n", 0, span[0]) + 1
     end = body.find("\n", span[1])
     end = len(body) if end < 0 else end
-    line = _clean(body[start:end], facts, subject_words(c.name))
+    line = _clean(body[start:end], facts, subject_words(c.name), stats)
     if len(line) <= limit:
         return line
     at = inbox_context.locate_mention(line, c.name, c.entity_id)
@@ -937,7 +1201,8 @@ def _mention_line(body: str, span: tuple[int, int], c: Candidate, facts: BankFac
     return _one_liner(inbox_context.excerpt_around(line, at, radius=radius).excerpt, limit)
 
 
-def local_context(memory_path: Path, c: Candidate, facts: BankFacts, *, ctx=None) -> list[str]:
+def local_context(memory_path: Path, c: Candidate, facts: BankFacts, *, ctx=None,
+                  stats: dict | None = None) -> list[str]:
     """What Cicada already knows about the subject, for the model to judge WHICH search result is the thing the person
     meant (owner ruling 2026-10-16, amends ruling 27: "Yes, use local context"). At most ``MAX_CONTEXT_CHARS``
     characters: Cicada's own one-line description (left out of a question about what the thing IS — it is one of the
@@ -951,7 +1216,8 @@ def local_context(memory_path: Path, c: Candidate, facts: BankFacts, *, ctx=None
         ctx = ctx or inbox_context.InboxContext(Path(memory_path), today=date.today().isoformat())
         lines: list[str] = []
         if c.description and not c.type_question:
-            desc = clean_context_line(c.description, facts, limit=MAX_DESCRIPTION_CHARS, keep=subject_words(c.name))
+            desc = clean_context_line(c.description, facts, limit=MAX_DESCRIPTION_CHARS, keep=subject_words(c.name),
+                                      stats=stats)
             if desc:
                 lines.append(f"Cicada's description: {desc}")
         refs: list[tuple[str, object]] = []
@@ -980,7 +1246,7 @@ def local_context(memory_path: Path, c: Candidate, facts: BankFacts, *, ctx=None
             span = span or inbox_context.locate_mention(body, c.name, c.entity_id)
             if span is None:
                 continue   # no line names it: nothing to show, never the head of a conversation
-            line = _mention_line(body, span, c, facts)
+            line = _mention_line(body, span, c, facts, stats=stats)
             key = _norm(line)
             if line and key not in seen:
                 seen.add(key)

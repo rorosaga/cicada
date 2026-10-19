@@ -863,10 +863,28 @@ whose searches litellm reports with their query** (`web_lookup.SEARCH_REPORTED_P
 `server_tool_use` comes back as a `web_search` tool call). Any other metered engine — OpenRouter (the router bills, so
 `openrouter/anthropic/…` counts as OpenRouter), OpenAI's search models, Gemini, xAI — skips with `search_unreported`
 before any paid call, since its searches could never pass the pinned-query check; the ChatGPT plan and a local model
-get no search, so the step skips. Each call is an `llm_call` of stage `web_check` in the run's own scope (a
+get no search, so the step skips. **The lookup tier (2026-10-19):** on the Claude plan a lookup runs on the plan's
+`web_check_agent_model` tier (`CICADA_WEB_CHECK_AGENT_MODEL`, default `sonnet`; empty = the person's Sleep model) for
+that one call — the same plan, scheduled-plan switch and limits (`web_lookup.lookup_tier`); a metered key's model is
+never changed. Measured on synthetic shapes with the person's notes: the cheap tier settled 4 of 10 public things its
+own search named outright (8 of 10 with the clearer sure bar below, still inconsistent on arXiv ids), the larger tier
+10 of 10; two small local places searched by name stayed unsure on both. The ledger names the model that answered: a
+family alias ("sonnet") matches its own `modelUsage` key before the most-output-tokens fallback, since the search's
+side-call can out-write the main turn (`agent_engine.model_from_envelope`). **The sure bar:** sure when the results
+clearly describe one public thing by the name and the notes point nowhere else (a paper, book, film, quote, method,
+event the results name outright); not sure when different things share the name and the notes do not say which
+(usual for a small local place), when the results do not answer, or when the subject could be a private person or
+someone's own file or project; the quote is the result's words as the search showed them (a search tool shows result
+text, not the page). Each call is an `llm_call` of stage `web_check` in the run's own scope (a
 drain's tagged with its `drain_id`), so Past reads counts it with its basis (ruling 12). **The pinned query:** the
-subject's name plus at most ONE category word from a fixed list, read from Cicada's own one-line description — never
-from the page's type alone, none on a question about what the thing is, none that an option label carries, a bare name
+subject's name plus at most ONE category word from a fixed list (works, tools, companies and startups, places such as
+a restaurant, café, bar or clinic; a Spanish form is sent as its English word), read from Cicada's own one-line
+description, else — 2026-10-19, a restaurant searched by its bare name found other things — from a mention line where
+the word stands beside the name ("the restaurant <name>", "a startup called <name>", "<name>, a small café", "<name>
+is a band", "<name> app"; `web_settle.context_category`, no model; only the word leaves, never the line) — never
+from a description that only guesses ("possibly", "or"), never "concept", never a word the name already carries
+(measured 2026-10-19: "<anime> software", "<film> concept" and "arXiv paper <id> paper" stayed unsure where the bare
+names settled), never from the page's type alone, none on a question about what the thing is, none that an option label carries, a bare name
 when unsure (`web_settle.query_for`) — and every search the engine reports (the stream's `tool_use` blocks; a metered
 response's search tool calls) must be that query word for word, at most two; a call that searched anything else, or
 nothing, settles nothing (`query_strayed`). **The local context (ruling 27a, owner 2026-10-16: "Yes, use local
@@ -875,8 +893,16 @@ thing the person meant — `web_settle.local_context`: the description (left out
 the options) and up to two lines where the subject was mentioned (the item's conversation, then each option claim's
 evidence span or first mention, then the page's latest conversations), ≤ 600 characters, scrubbed
 (`episode_scrub`), links, addresses, handles and paths replaced, every person's name or alias in the bank (the owner's
-too, and a person held without a page) replaced by "someone" — whole words, any case, the full name and each word of it (a word of the subject's own name
-aside); each line is cleaned whole before it is cut, so a cut never leaves half a name or a code without its cue. It is never searched for; the same engine read those conversations during Sleep. **Order:**
+too, and a person held without a page) replaced by "someone" — whole words, any case, accents folded ("maría" takes
+"Maria"), the full name and each of its parts of 3+ letters (a joined part such as "Su-bin" as one unit), a word of the
+subject's own name aside. Only a relation-shaped name keeps words (`web_settle.relation_shaped`: a relation plus an
+opening article or possessive, a possessive, or "of"/"de" — "his brother <name>", "<name>'s dad", "dad of <name>"):
+its articles, possessives and plain relations from one audited list that holds nobody's given name or surname
+(`web_settle._NEVER_A_NAME`; re-review of #366: "Her", "Sin", "Via", "Friend", "Doctor", "Sobrino", "User" are
+surnames, so in "Pa Her" or "Tom User" every part goes). A relation phrase with no name in it ("his dad") goes as its
+whole phrase; a lone pronoun ("her") is no one's name. A person-typed page that is a thing is redacted by every part
+like any name and counted by the census for the person to fix (`web_settle.name_shape`; over-redaction is the safe
+failure); each line is cleaned whole before it is cut, so a cut never leaves half a name or a code without its cue. It is never searched for; the same engine read those conversations during Sleep. **Order:**
 clarifications first, then conflicts with a mention line, then the rest — each by priority, then age
 (`web_lookup.select`). **On every plan run (ruling 27b, owner 2026-10-19: "That's not what the inbox is for"):** with
 the scheduled-plan switch on by default (4c), a scheduled run looks up on the plan's search too. **The sweep:** the
@@ -893,7 +919,12 @@ or another sweep runs, and `/sleep/status`'s `inboxTidy` is true while it runs s
 `dry_run=True`) prints counts only: the census (`web_settle.census` — per kind, how many are `public`, `repo_state`, or
 stay and why: `person`, `person_context`, `private_type`, `own_settings`, `no_page` …), then, unless `--census`, the
 person's engine on up to N of them (eligible, looked up, would settle, reasons by kind); it writes nothing — no settle,
-no memo, no ledger row (a no-op usage sink), no commit. **Who the description says it is:** Stage 1's way of naming the
+no memo, no ledger row (a no-op usage sink), no commit. `--trace` (for the person's own eyes) adds, per lookup, only the
+pinned query, where its category word came from, the context's line count, how many names it replaced and the outcome
+(`no_search` apart from `unsure`: the engine answered without searching); `--trace-raw` adds the searches run, the
+links each returned, the model and its raw reply cut to 400 characters — printed only, never written,
+plus counts of how the bank's person names are redacted and how many person-typed names read as a thing
+(`web_settle.person_name_census` — a page typed person that is a technique or a department is the bank's to fix). **Who the description says it is:** Stage 1's way of naming the
 speaker ("the user mentioned it", "the person's") is taken out before the person cues read a page-less subject's
 description (`web_settle.person_context`), and a description that says the subject is the speaker's own (built by the
 user, the user's project or file, their own) keeps it home. An unsure or uncited answer settles nothing either; a type question's single option without

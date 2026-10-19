@@ -22,6 +22,7 @@ matters: the utilization fraction lives under ``unifiedWindows`` — see
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 
 
@@ -55,6 +56,8 @@ class StreamResult:
     #: has any (Sleep's are spawned with ``--tools ""``). The web lookup reads its searches' queries from here, so a
     #: search that strayed from the pinned query voids the answer (owner ruling 2026-10-16). Never logged.
     tool_uses: list[tuple[str, dict]] = field(default_factory=list)
+    #: How many links each ``tool_result`` block carried (the web lookup's ``--trace-raw`` diagnostic): counts only.
+    tool_results: list[int] = field(default_factory=list)
 
 
 def _number(raw) -> float | None:
@@ -161,6 +164,17 @@ def _tool_uses(message) -> list[tuple[str, dict]]:
     return out
 
 
+def _tool_results(message) -> list[int]:
+    content = message.get("content") if isinstance(message, dict) else None
+    out: list[int] = []
+    for block in content if isinstance(content, list) else []:
+        if isinstance(block, dict) and block.get("type") in ("tool_result", "web_search_tool_result"):
+            raw = block.get("content")
+            text = raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
+            out.append(len(re.findall(r'\\?"url\\?"\s*:', text)))
+    return out
+
+
 def parse_stream(stdout: str | None) -> StreamResult:
     """NDJSON (or one json-mode object) → the envelope plus every signal."""
     out = StreamResult()
@@ -184,6 +198,8 @@ def parse_stream(stdout: str | None) -> StreamResult:
             ))
         elif kind == "assistant":
             out.tool_uses.extend(_tool_uses(obj.get("message")))
+        elif kind == "user":
+            out.tool_results.extend(_tool_results(obj.get("message")))
         elif kind == "system" and obj.get("subtype") == "init":
             source = obj.get("apiKeySource")
             out.api_key_source = source if isinstance(source, str) else None

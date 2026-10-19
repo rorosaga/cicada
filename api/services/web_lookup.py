@@ -62,18 +62,29 @@ MAX_SEARCHES = 2
 RETRY_DAYS = 30
 TIMEOUT_S = 120.0
 
+#: The sure bar (2026-10-19, measured): a small model answered "not sure" on 6 of 10 things its own search named
+#: outright, where a larger one settled 10 of 10. It was asked for "that page's own words, verbatim" — but a search
+#: tool shows result text, not the page, so a literal model could never meet that bar. The quote is now the result
+#: text it was shown, and the prompt says what IS sure (one public thing the results name) as plainly as what is not
+#: (different things sharing the name — a small local place, typically — with notes that do not say which).
 SYSTEM_PROMPT = (
     "You look up ONE public thing on the web to answer one question about it. Use the web search tool with exactly "
     "the query you are given, word for word, at most twice; never add, remove or change a word, and never search for "
     "anything else. You may also be given the person's own notes about the subject. They are only for telling which "
     "result is about the thing the person meant (one name can belong to a restaurant, a town and a product at once): "
-    "never search for their words, and never answer from them. Answer only from what a result about that thing says. "
-    "If the results are about other things with the same name, if you cannot tell which thing is meant, if they do "
-    "not clearly answer the question, or if the subject could be a private person, someone's own file or project, "
-    "answer {\"sure\": false}. Reply with one "
-    "JSON object and nothing else: {\"sure\": true, \"option_key\": <the key of the option that is true, for a "
-    "choice>, \"answer\": <one short phrase, at most 25 words, for a 'what is it' question>, \"url\": <the link of the "
-    "page that says it>, \"quote\": <that page's own words that say it, verbatim, at most 240 characters>}."
+    "never search for their words, and never answer from them; a description in them is a guess and may be wrong. "
+    "Answer from what the search results say.\n"
+    "Answer {\"sure\": true} when the results clearly describe one public thing by this name and nothing in the notes "
+    "points to a different thing: a paper, book, film, series, song, quote, method, standard, product, event or "
+    "organisation that the results name outright is a sure answer, even when the notes say little.\n"
+    "Answer {\"sure\": false} when the results are about different things that share the name and the notes do not "
+    "say which one the person meant (usual for a small local place — a restaurant, a shop, a clinic — searched by its "
+    "name alone), when the results do not answer the question, or when the subject could be a private person or "
+    "someone's own file or project.\n"
+    "Reply with one JSON object and nothing else: {\"sure\": true, \"option_key\": <the key of the option that is "
+    "true, for a choice>, \"answer\": <one short phrase, at most 25 words, for a 'what is it' question>, \"url\": "
+    "<the link of the result that says it>, \"quote\": <the words of that result that say it, as the search showed "
+    "them to you, at most 240 characters>}."
 )
 
 
@@ -277,7 +288,7 @@ async def engine_for(settings, *, user_triggered: bool) -> tuple[Any, str | None
             return None, label, "scheduled_plan"
         if mode != "agent":
             return None, label, "no_search_tool"
-        return resolved, label, "plan"
+        return lookup_tier(resolved, settings), label, "plan"
     if mode != "byok":
         return None, label, "no_search_tool"
     model = str(getattr(resolved, "litellm_model", "") or "")
@@ -292,6 +303,17 @@ async def engine_for(settings, *, user_triggered: bool) -> tuple[Any, str | None
     except Exception:  # noqa: BLE001 — an unknown model has no known search
         can = False
     return (resolved, label, "metered") if can else (None, label, "no_search_tool")
+
+
+def lookup_tier(resolved, settings):
+    """The plan model a lookup runs on: ``web_check_agent_model`` for this one call (2026-10-19, measured: a cheap
+    Sleep tier said "not sure" on things its own search named outright), else the person's own. Same plan, same
+    scheduled-plan switch and limits — only the tier changes; a metered key is never touched (its model is the
+    person's spend to choose). The ledger records the model that answered (``agent_engine.model_from_envelope``)."""
+    tier = str(getattr(settings, "web_check_agent_model", "") or "").strip()
+    if not tier or not hasattr(resolved, "model_copy"):
+        return resolved
+    return resolved.model_copy(update={"agent_model": tier})
 
 
 def default_llm_fn(resolved, *, sink: Callable[..., None] | None = None) -> Callable[..., Any]:
@@ -379,14 +401,21 @@ def select(memory_path: Path, facts: web_settle.BankFacts, memo: dict[str, dict]
     ctx = inbox_context.InboxContext(Path(memory_path), today=today.isoformat())
     picked: list[tuple[web_settle.Candidate, list[str]]] = []
     for c in eligible:
-        picked.append((c, web_settle.local_context(memory_path, c, facts, ctx=ctx)))
+        context = web_settle.local_context(memory_path, c, facts, ctx=ctx)
+        if not c.category:
+            # The description named no category: one word from where it was mentioned ("the restaurant <name>").
+            c.category = web_settle.context_category(c, context)
+            c.category_from = "context" if c.category else ""
+        picked.append((c, context))
     picked.sort(key=_order)   # stable: priority, then age, within each rank
     return picked[:cap], len(eligible)
 
 
 async def look_up(fn: Callable[..., Any], todo: list[tuple[web_settle.Candidate, list[str]]], report: Report,
+                  raw_sink: Callable[[web_settle.Candidate, Any], None] | None = None,
                   ) -> list[tuple[web_settle.Candidate, Answer]]:
-    """One engine call per question; an answer counts only when every search was the pinned query. Writes nothing."""
+    """One engine call per question; an answer counts only when every search was the pinned query. Writes nothing.
+    ``raw_sink`` (the dry-run script's ``--trace-raw``, for the person's own eyes) is handed each raw response."""
     answers: list[tuple[web_settle.Candidate, Answer]] = []
     for c, context in todo:
         report.looked_up += 1
@@ -402,15 +431,18 @@ async def look_up(fn: Callable[..., Any], todo: list[tuple[web_settle.Candidate,
                                 engine_errors.EngineOverage)):
                 break   # a plan limit is a pause: the rest waits for the next run
             continue
+        if raw_sink is not None:
+            raw_sink(c, resp)
         model = _model_of(resp)
         if model and model not in report.models:
             report.models.append(model)
         queries = searched_queries(resp)
         if not queries_ok(queries, web_settle.query_for(c)):
             parsed = parse_answer(c, _content(resp)) if not queries else None
-            # No search and not sure (a name the notes cannot place): unsure, counted as such. Anything else — a search
-            # for something else, or a sure answer from no search — settles nothing.
-            answers.append((c, parsed if parsed is not None and parsed.reason == "unsure"
+            # No search and not sure: counted apart as ``no_search`` (2026-10-19: a real bank's 18 "unsure" could not
+            # say whether the engine searched at all). Anything else — a search for something else, or a sure answer
+            # from no search — settles nothing.
+            answers.append((c, Answer(c.item_id, False, "no_search") if parsed is not None and parsed.reason == "unsure"
                             else Answer(c.item_id, False, "query_strayed")))
             continue
         answers.append((c, parse_answer(c, _content(resp))))
@@ -622,13 +654,17 @@ def _sweep_stop(a: Answer, failures: int) -> str | None:
 
 async def sweep(memory_path: Path, settings, *, dry_run: bool = True, limit: int | None = None,
                 include_recent: bool = False, llm_fn: Callable[..., Any] | None = None,
-                engine: tuple[Any, str | None, str] | None = None, today: date | None = None) -> dict:
+                engine: tuple[Any, str | None, str] | None = None, today: date | None = None,
+                on_lookup: Callable[[web_settle.Candidate, list[str], Answer], None] | None = None,
+                raw_sink: Callable[[web_settle.Candidate, Any], None] | None = None) -> dict:
     """Look up the backlog's public-thing questions and (unless ``dry_run``) settle what a search answers (a dry run
     looks up at most :data:`SWEEP_DRY_RUN_LIMIT` unless given a ``limit``). Returns
     COUNTS only: the inbox census (what a lookup may answer, and why the rest stays — ``web_settle.census``), how many
     were eligible, looked up, settled (or would settle), and the reasons by kind. ``limit`` caps the lookups (one
     engine call each); ``include_recent`` also looks up questions a run looked up in the last 30 days. A person starts
-    it, so the connector gate is reported, never applied (a click is never gated). Never raises."""
+    it, so the connector gate is reported, never applied (a click is never gated). ``on_lookup`` (the dry-run script's
+    ``--trace``) is told each looked-up question, its context and its answer; ``raw_sink`` (``--trace-raw``) each raw
+    engine response. Never raises."""
     from api.services import agent_engine, sleep_cycle
     from api.services.connectors.base import network_allowed
 
@@ -665,8 +701,10 @@ async def sweep(memory_path: Path, settings, *, dry_run: bool = True, limit: int
                 if not dry_run and sleep_cycle.get_sleep_state().status == "running":
                     out["stopped"] = "sleep_running"
                     break
-                (_c, a), = await look_up(fn, [(c, context)], report)
+                (_c, a), = await look_up(fn, [(c, context)], report, raw_sink=raw_sink)
                 out["looked_up"] = report.looked_up
+                if on_lookup is not None:
+                    on_lookup(c, context, a)
                 kind = "type_conflict" if c.type_question else c.kind
                 done_key = "would_settle" if dry_run else "settled"
                 row = out["by_kind"].setdefault(kind, {"looked_up": 0, done_key: 0, "reasons": {}})
