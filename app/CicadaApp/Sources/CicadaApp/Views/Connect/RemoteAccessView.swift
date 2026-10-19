@@ -9,7 +9,7 @@ import SwiftUI
 /// the New connector sheet or after a Rotate; nothing on this page can show it
 /// again. Not a sync domain (R-R33): it fetches on appear, after every change,
 /// and every 30 s while the switch is on — sign-ins waiting for a yes every 3 s,
-/// since an app's sign-in page is waiting on them (ruling 31).
+/// since an app's sign-in page is waiting on them (ruling 32).
 struct RemoteAccessView: View {
     @State private var status: RemoteStatus?
     @State private var connectors: [RemoteConnector] = []
@@ -194,7 +194,7 @@ struct RemoteAccessView: View {
                     .disabled(status?.effectiveUrl == nil)
             }
             if let base = status?.effectiveUrl {
-                // Ruling 31: the sign-in way first — no secret in a link, and the app renews its own access.
+                // Ruling 32: the sign-in way first — no secret in a link, and the app renews its own access.
                 Text("Claude and ChatGPT, on the web and on the phone, can sign in instead: add \(base)/mcp as a custom connector there, then approve the sign-in here.")
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
@@ -235,7 +235,7 @@ struct RemoteAccessView: View {
         .glassCard()
     }
 
-    /// Ruling 31: the one place an app's sign-in is approved — by typing the code the person's own sign-in page
+    /// Ruling 32: the one place an app's sign-in is approved — by typing the code the person's own sign-in page
     /// shows. The waiting requests are listed only as waiting, to deny (security review of #359).
     private var signInCard: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {

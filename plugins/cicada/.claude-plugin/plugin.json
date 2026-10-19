@@ -1,0 +1,42 @@
+{
+  "name": "cicada",
+  "displayName": "Cicada",
+  "version": "0.5.0",
+  "description": "Connects Claude Code to the Cicada on this machine: the memory tools (MCP), the cicada skill, the hooks that save each session (Stop, with PreCompact and SessionEnd as a flush) and the hooks that add what Cicada remembers (SessionStart, UserPromptSubmit). Needs Cicada installed: the app, or a source checkout set up with install.sh.",
+  "author": {
+    "name": "Rodrigo Sagastegui",
+    "url": "https://github.com/rorosaga"
+  },
+  "homepage": "https://github.com/rorosaga/cicada",
+  "repository": "https://github.com/rorosaga/cicada",
+  "license": "MIT",
+  "keywords": [
+    "memory",
+    "knowledge-graph",
+    "mcp",
+    "capture"
+  ],
+  "userConfig": {
+    "cicada_repo": {
+      "type": "directory",
+      "title": "Cicada source checkout (developer build only)",
+      "description": "Leave empty when the Cicada app is installed: the plugin runs the app's launchers in ~/.cicada/bin. For a source checkout set up with install.sh, name its folder (the one holding install.sh); its api/.venv runs the hooks and the memory tools.",
+      "required": false,
+      "default": ""
+    },
+    "memory_path": {
+      "type": "directory",
+      "title": "Memory folder (only if not the default)",
+      "description": "Leave empty for the default (~/cicada/memory, or what the app chose). Set it only when install.sh was run with another CICADA_MEMORY_PATH.",
+      "required": false,
+      "default": ""
+    },
+    "recall": {
+      "type": "boolean",
+      "title": "Remember automatically",
+      "description": "Add a short note of what Cicada remembers at the start of a session and beside a message that mentions something it knows (read-only). Off: the agent sees your memory only when it asks for it.",
+      "required": false,
+      "default": true
+    }
+  }
+}

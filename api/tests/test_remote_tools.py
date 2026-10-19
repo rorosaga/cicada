@@ -39,7 +39,7 @@ def test_the_catalog_matches_the_shared_fixture():
 
 def test_every_stdio_tool_is_classified_exactly_once():
     stdio = {t["name"] for t in stdio_server().TOOLS}
-    # Ruling 31: the remote-only capture tool is the one tool stdio lacks — a stdio harness has a hook (G105).
+    # Ruling 32: the remote-only capture tool is the one tool stdio lacks — a stdio harness has a hook (G105).
     assert (set(catalog.TOOL_SCOPE) - catalog.REMOTE_ONLY) | catalog.NEVER_REMOTE == stdio
     assert not catalog.REMOTE_ONLY & stdio and catalog.REMOTE_ONLY <= set(catalog.TOOL_SCOPE)
     assert not set(catalog.TOOL_SCOPE) & catalog.NEVER_REMOTE

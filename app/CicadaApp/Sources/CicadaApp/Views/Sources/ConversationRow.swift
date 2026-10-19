@@ -13,6 +13,10 @@ struct ConversationRow: View {
     /// Non-nil where the host can navigate to an entity; `nil` in the popover,
     /// where the chips are plain capsules.
     var onSelectEntity: ((String) -> Void)?
+    /// Sources v4 (owner 2026-10-19: each row repeated "claude-code · 1 episode") — inside one harness's own list the
+    /// harness is the page's header and a session is one episode (G104), so the row says neither: its title, its age
+    /// and the pages it wrote. The popover, which mixes harnesses, keeps both.
+    var inSourceList = false
 
     /// How many entity chips one row shows before the rest fold into
     /// "+N more". The backend already caps `entityIds`
@@ -40,16 +44,18 @@ struct ConversationRow: View {
                     .lineLimit(1)
 
                 HStack(spacing: CicadaTheme.spacingXS) {
-                    badge(harnessLabel)
+                    if !inSourceList { badge(harnessLabel) }
                     // `model` is a RESERVED wire field — the backend sends null
                     // until engine calls carry session refs (G49), so this
                     // badge is deliberately dormant rather than removed.
                     if let model = conversation.model, !model.isEmpty { badge(model) }
-                    Text("\(UsageFormat.count(conversation.episodeCount)) episode"
-                         + (conversation.episodeCount == 1 ? "" : "s"))
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                    if conversation.entityCount > 0 {
+                    if !inSourceList || conversation.episodeCount > 1 {
+                        Text("\(UsageFormat.count(conversation.episodeCount)) episode"
+                             + (conversation.episodeCount == 1 ? "" : "s"))
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                    }
+                    if conversation.entityCount > 0 && !inSourceList {
                         badge("\(UsageFormat.count(conversation.entityCount)) entit"
                               + (conversation.entityCount == 1 ? "y" : "ies"))
                     }

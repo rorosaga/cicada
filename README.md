@@ -155,8 +155,8 @@ git clone -b dev https://github.com/rorosaga/cicada && brew tap rorosaga/cicada 
 ## Quick start (from source)
 
 Requirements: macOS 14+, Python 3.12, [uv](https://github.com/astral-sh/uv), Xcode command
-line tools. For consolidation you need one of: a Claude subscription with the `claude` CLI, a
-local [Ollama](https://ollama.com), or an API key for any provider litellm supports.
+line tools. For consolidation you need one of: a Claude subscription with the `claude` CLI, a ChatGPT plan, a
+local [Ollama](https://ollama.com), or an API key for any provider litellm supports (read only when you choose it).
 
 ```sh
 git clone https://github.com/rorosaga/cicada.git
@@ -169,6 +169,20 @@ make dev              # build the app, install to ~/Applications, launch
 the backend as a `launchd` agent that starts on login, and registers the `cicada` MCP server with
 Claude Code. Check health any time with `make doctor`.
 
+### Claude Code: the plugin
+
+Claude Code connects through the Cicada plugin: the memory tools, the `cicada` skill, and the hooks that save each
+session and add what Cicada remembers. In Claude Code:
+
+```
+/plugin install cicada --marketplace rorosaga/cicada
+```
+
+(or `/plugin marketplace add rorosaga/cicada`, then `/plugin install cicada@cicada`). With the app installed, leave the
+plugin's settings empty. From a source checkout, set its `cicada_repo` setting to the checkout's folder, then re-run
+`./install.sh` once: with the plugin on it leaves Claude Code to the plugin and removes the entries it had registered,
+so nothing runs twice. `make doctor` says which one Claude Code is using.
+
 First launch opens a four-step sheet — your name, a consolidation engine, one capture channel, and
 your first Sleep cycle — or "try a demo bank first" if you'd rather look around before wiring in
 your own life. Re-open it any time from Settings → General → "Run setup again".
@@ -177,14 +191,18 @@ your own life. Re-open it any time from Settings → General → "Run setup agai
 starts in, after a restart. A variable set in the backend's environment, such as its LaunchAgent plist, wins over the
 file. Settings → Advanced lists which settings came from the file and which the environment replaced with another value.
 
-Pick a consolidation engine in `api/.env`:
+The engine is Auto unless you choose another (Settings → Engines, or pin it in `api/.env`):
 
 ```sh
-CICADA_LLM_MODE=auto    # agent: your `claude` CLI on your subscription
+CICADA_LLM_MODE=auto    # the default: your Claude plan if connected, else your ChatGPT plan, else Ollama if
+                        #   running — never an API key by itself (with none of them, Sleep says it has no engine)
+                        # agent: your `claude` CLI on your subscription
+                        # codex: your ChatGPT plan
                         # local: Ollama, offline, no key
-                        # byok:  any litellm provider via *_API_KEY
-                        # auto:  agent if connected, else local if running, else byok
+                        # byok:  an API key you chose — any litellm provider via *_API_KEY (OpenRouter included)
 ```
+
+Scheduled runs use your plan too unless you turn that off (Settings → Sleep → *Scheduled runs may use my plan*).
 
 Day-to-day commands:
 

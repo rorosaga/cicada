@@ -308,6 +308,16 @@ class OriginsResponse(CamelModel):
 # --- Sources overview (G124 — one card per memory source) ---
 
 
+class SourceFace(CamelModel):
+    """Sources v4 — one face on a source's row: a chat that fed Messages, or a site a saved thing came from."""
+
+    kind: str                    # chat | site
+    id: str                      # chat: the app's conversation hash; site: the saved page its mark is asked by
+    label: str                   # chat: who it is with; site: the bare host
+    site: Optional[str] = None   # site: `reading_hosts.site_of`'s key
+    photo: Optional[str] = None  # chat: the stored photo's hash (`GET /sources/messages/chats/{id}/photo?v=`)
+
+
 class SourceOverview(CamelModel):
     """One memory source as the Sources page shows it.
 
@@ -347,6 +357,13 @@ class SourceOverview(CamelModel):
     # Sources v3 (2026-10-19) — ``saved`` (the person saved each item on purpose) or ``captured`` (Cicada captures it
     # on its own); ``source_overview.intent_of``. The page's two groups.
     intent: str = "captured"
+    # Sources v4 (2026-10-19) — this source's episodes still waiting for Sleep's read (the detail's "Consolidate now ·
+    # N waiting"); and up to three faces, newest first — a Messages chat (`kind: chat`, its photo's hash when one is
+    # stored) or the site a saved thing came from (`kind: site`, `id` = the saved page the site's mark is asked by) —
+    # with how many more there are.
+    waiting: int = 0
+    faces: list[SourceFace] = Field(default_factory=list)
+    faces_more: int = 0
 
 
 class SourceOverviewResponse(CamelModel):
@@ -3206,9 +3223,9 @@ class SleepRunOptions(CamelModel):
     continue_after_reset: bool = False
     reserve_pct: Optional[int] = None
     reserve_choices: list[int] = Field(default_factory=list)
-    # TODO ruling 4b (owner, 2026-10-16): this machine lets SCHEDULED runs use the person's plan (Claude or ChatGPT).
-    # Off by default; nightly runs then count against the plan's limits.
-    scheduled_use_plan: bool = False
+    # TODO ruling 4b (owner, 2026-10-16; amended 2026-10-19): this machine lets SCHEDULED runs use the person's plan
+    # (Claude or ChatGPT). On by default — only the person's explicit off stops it; nightly runs count against the plan.
+    scheduled_use_plan: bool = True
 
 
 class SleepRunOptionsUpdate(CamelModel):
@@ -3586,7 +3603,9 @@ class AgentWiringRow(CamelModel):
     autorecall: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
     autorecall_on: list[AgentWiringStep] = []
     autorecall_off: list[AgentWiringStep] = []
-    # Integration support/evidence, separate from MCP registration and hook config.
+    # Integration support/evidence, separate from MCP registration and hook config. ``via: plugin`` (owner
+    # 2026-10-19): Claude Code reaches Cicada through the Cicada plugin, which carries the server and every hook, so
+    # the row is on and offers no argv.
     capabilities: dict[str, str] = {}
 
 
@@ -4909,11 +4928,11 @@ class RemoteConnectorOut(CamelModel):
     last_used_at: Optional[str] = None
     last_client: Optional[str] = None
     state: str
-    auth: str = "link"  # "link" (a shown-once secret) | "oauth" (the app signed in, ruling 31)
+    auth: str = "link"  # "link" (a shown-once secret) | "oauth" (the app signed in, ruling 32)
 
 
 class RemoteSignInWaitingOut(CamelModel):
-    """That a sign-in waits (ruling 31, security review of #359): no code, no name, no return host — a request is
+    """That a sign-in waits (ruling 32, security review of #359): no code, no name, no return host — a request is
     approved only by typing the code the person's own browser page shows."""
     ref: str
     created_at: str

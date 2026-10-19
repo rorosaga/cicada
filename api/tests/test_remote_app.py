@@ -51,7 +51,7 @@ def test_no_token_is_a_401_that_says_how_to_authenticate(world):
         resp = c.post("/mcp", json=_rpc("tools/list"), headers=H)
     assert resp.status_code == 401 and resp.json()["error"] == "invalid_token"
     challenge = resp.headers["www-authenticate"]
-    # Ruling 31: the challenge points at the resource metadata (which names Cicada's own sign-in), with no error
+    # Ruling 32: the challenge points at the resource metadata (which names Cicada's own sign-in), with no error
     # code when no token was sent at all (RFC 6750 §3.1).
     assert challenge.startswith('Bearer realm="cicada", resource_metadata="https://testserver/.well-known/'
                                 'oauth-protected-resource/mcp"')
@@ -147,7 +147,7 @@ def test_protected_resource_metadata_is_public_and_names_cicada(world):
     body = resp.json()
     assert resp.status_code == 200 and body["resource_name"] == "Cicada"
     assert body["resource"] == "https://mac.example-tailnet.ts.net/mcp"
-    assert body["authorization_servers"] == ["https://mac.example-tailnet.ts.net"]  # ruling 31: its own sign-in
+    assert body["authorization_servers"] == ["https://mac.example-tailnet.ts.net"]  # ruling 32: its own sign-in
 
 
 def test_the_instructions_name_only_the_handshake(world):

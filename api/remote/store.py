@@ -104,7 +104,7 @@ class ConnectorStore:
         with self._db() as db:
             db.execute("PRAGMA journal_mode=WAL")
             db.execute(_SCHEMA)
-            # Ruling 31: a store made before OAuth gains the column; every old row is a link connector.
+            # Ruling 32: a store made before OAuth gains the column; every old row is a link connector.
             if "auth" not in {r["name"] for r in db.execute("PRAGMA table_info(connectors)")}:
                 db.execute("ALTER TABLE connectors ADD COLUMN auth TEXT NOT NULL DEFAULT 'link'")
 
@@ -152,7 +152,7 @@ class ConnectorStore:
 
     def create_oauth(self, *, app: str, label: str | None, scopes, expires_in_days: int,
                      now: datetime | None = None) -> catalog.Connector:
-        """A connector an app signed in to (ruling 31): the same row, scopes and expiry as a link connector, so
+        """A connector an app signed in to (ruling 32): the same row, scopes and expiry as a link connector, so
         revoking it in Settings ends every token its app holds."""
         connector, _ = self.create(app=app, label=label, scopes=scopes, expires_in_days=expires_in_days,
                                    now=now, auth="oauth")

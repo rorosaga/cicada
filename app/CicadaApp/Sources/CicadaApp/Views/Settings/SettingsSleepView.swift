@@ -136,7 +136,7 @@ struct SettingsSleepView: View {
         }
     }
 
-    private var usePlan: Bool { sleepVM.runOptions?.scheduledUsePlan ?? false }
+    private var usePlan: Bool { sleepVM.runOptions?.scheduledUsePlan ?? SleepRunOptions().scheduledUsePlan }
 
     /// Ruling 4b: the switch is the machine's (`sleep_run_prefs`); the schedule's warning and the scheduled preview
     /// both read it, so both are asked again once it is written.

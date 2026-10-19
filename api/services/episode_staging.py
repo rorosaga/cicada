@@ -36,7 +36,7 @@ What the move adds — each additive, each inert to an episode that does not use
   forks a legacy episode (R-LS4).
 * ``queue_for_sleep=False`` — an episode a deterministic parser consolidated and
   Sleep never will (``processed_by: parser``, R-LS10).
-* Relay upgrade (ruling 31) — a Claude or ChatGPT export's conversation whose
+* Relay upgrade (ruling 32) — a Claude or ChatGPT export's conversation whose
   ``source_id`` is new, and whose first person message matches exactly one episode
   that app's model relayed through the remote connector within two days of it
   (``turn_capture.relay_match_key``), rewrites THAT episode in place with the
@@ -278,7 +278,7 @@ def scan(episodes_dir: Path) -> tuple[dict[str, IndexEntry], set[str]]:
     return by_source, hashes
 
 
-#: Ruling 31: an export source → the remote connector app whose relayed episodes it may upgrade.
+#: Ruling 32: an export source → the remote connector app whose relayed episodes it may upgrade.
 RELAY_UPGRADES = {"claude": "claude", "chatgpt": "chatgpt"}
 #: How far apart a relayed conversation's start and the export's may be and still be one conversation.
 RELAY_WINDOW_S = 2 * 86400
@@ -308,7 +308,7 @@ def _when(value) -> datetime | None:
 
 
 def relay_for(draft: EpisodeDraft, candidates: dict[tuple[str, str], list[IndexEntry]]) -> IndexEntry | None:
-    """The ONE relayed episode this export conversation is (ruling 31), or ``None``."""
+    """The ONE relayed episode this export conversation is (ruling 32), or ``None``."""
     app = RELAY_UPGRADES.get(draft.source)
     first = next((t.text for t in draft.turns if t.speaker == "user" and (t.text or "").strip()), None)
     started = _when(normalise_timestamp(draft.timestamp))
@@ -409,7 +409,7 @@ def update_in_place(path: Path, draft: EpisodeDraft, body: str, digest: str, sta
 
 @_under_episode_lock
 def upgrade_relay(path: Path, draft: EpisodeDraft, body: str, digest: str, stamps: list[dict], at: str) -> None:
-    """Ruling 31: the export's words replace a relayed body — same file, same id and original timestamp, re-queued
+    """Ruling 32: the export's words replace a relayed body — same file, same id and original timestamp, re-queued
     for Sleep. The relay record stays, stamped ``upgraded_at``, so the app can say where the episode began."""
     fm = dict(markdown_parser.parse(path).frontmatter)
     for key in _RELAY_BODY_KEYS:

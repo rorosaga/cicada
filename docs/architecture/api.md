@@ -86,8 +86,13 @@ before it is decoded (`messages_photos.B64_MAX`, 422 as before).
 **Schedule and reading options (ruling 4b, owner decision 2).** `GET/PUT /sleep/schedule` answer the schedule plus,
 while it runs on its own, `warning` and `warningCode` when a scheduled run would have no engine it may use
 (`ScheduleResponse`, `engine_readiness`); the PUT body is unchanged and the app never sends them back.
-`GET/PUT /sleep/run-options` carry `scheduledUsePlan` (machine-wide, off by default; `null` is 422).
-`POST /ask` on an engine with no key answers that it has no engine, naming the pages it found, and calls nothing.
+`GET/PUT /sleep/run-options` carry `scheduledUsePlan` (machine-wide, on unless the person turned it off — ruling 4c,
+2026-10-19; an off is stored as `false`; `null` is 422).
+`POST /ask` with no engine — an API model with no key, or Auto with no plan and no local model (ruling 31: never a key
+nobody chose) — answers that it has no engine, naming the pages it found, and calls nothing.
+**The web-check sweep (ruling 27b, 2026-10-19).** `POST /inbox/web-check?dryRun=true|false[&limit=N][&includeRecent=true]`
+answers counts only (dry run) or `{"status": "started"}` and runs in the background; `GET /inbox/web-check` its counts.
+409 while Sleep, the tidy or another sweep runs. Not a Store domain, no ETag (`features.md`).
 
 **Device tokens (G181 phase 2, owner ruling 1, 2026-10-16).** A second machine of the person's never gets the master
 token: each device gets its own **named, hashed, revocable** token (`device_tokens`, the G135 store's shape kept apart:
@@ -150,7 +155,7 @@ new site capture gives a bookmark's row its thumbnail), so `VersionVector` maps 
 bookmark has left, read from the bookmark seen-set's `left` map. That file (`sources/bookmark_seen.json`) is not `*.md`, so
 the `sources` component's directory fingerprint never saw it — it now rides the component by its own mtime (client
 mapping unchanged: `sources` → `.sources`). `GET /sources/channels/{id}/items` for a bookmark channel also lists the links
-that left the browser, each with `left` (shape `g161-2`). Sources v3 (2026-10-19, shape `g161-3`): a saved link's row adds `host`, `site` and `why` (the newest *Ask why* answer, read only for the page served), and a channel-less saved import is listed by its Sources row id; `GET /sources/overview` rows carry `intent` (`saved` | `captured`, ETag shape `overview-v3`; `app.md`, "Sources page — v3"). `GET /sources/saved/{media_entity_id}/site-icon` serves a saved link's own site icon, asked of that site only (owner ruling 2026-10-19; `storage.md`); 404 = draw the monogram. `POST /sources/sync-bookmarks` gained `leftMarked`;
+that left the browser, each with `left` (shape `g161-2`). Sources v3 (2026-10-19, shape `g161-3`): a saved link's row adds `host`, `site` and `why` (the newest *Ask why* answer, read only for the page served), and a channel-less saved import is listed by its Sources row id; `GET /sources/overview` rows carry `intent` (`saved` | `captured`, ETag shape `overview-v3`; `app.md`, "Sources page — v3"). `GET /sources/saved/{media_entity_id}/site-icon` serves a saved link's own site icon, asked of that site only (owner ruling 2026-10-19; `storage.md`); 404 = draw the monogram. Sources v4 (2026-10-19, shapes `g161-4` / `overview-v4`): an overview row adds `waiting`, `faces` and `facesMore`, and its ETag folds in `photos` (a chat face carries its photo's hash) — `VersionVector` maps `photos` to `.sourcesOverview` in the same PR; a list row drops a trailing " · <its day>", a Messages row carries `chat`, a watched day `videos` (month summaries unlisted). Review of #358 (shape `g161-5`): Messages lists one row per chat (`kind: chat`, `sittings`), a saved row's faces come from the set its list lists and only while its count is above zero, and the items ETag folds in `photos` too (`messages_photos.stamp` hashes every stored photo). New: `GET /sources/watch-history/days/{episode}` (a day's videos, ETag, not a Store domain), `GET /sources/watch-history/days/{episode}/videos/{video_id}/thumbnail`, `GET /sources/messages/chats/{conversation}/sittings` (ETag, not a Store domain) and `GET /sources/messages/chats/{conversation}/photo` (404 = no picture; `storage.md`). `POST /sources/sync-bookmarks` gained `leftMarked`;
 `removalsProposed` stays on the wire and is always 0 for bookmarks. `GET /sources/saved-why/options` serves the four
 reasons and an always-empty `projects`; `POST`/`PUT /sources/saved-why` still accept a retired reason (`technique`) and a
 project (an edit may keep an archived one).

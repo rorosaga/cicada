@@ -38,7 +38,7 @@ read_late: 2026-03-20      # only between a late read and the decay pass that pl
 decay_rate: 0.05           # per-entity, not global
 decay_class: active        # evergreen | durable | active | volatile (G66)
 source_episodes: [ep_2026-01-10_001]
-tags: []                   # open set, freeform
+tags: []                   # open set, freeform; never a saved list's name (that is `folder:` / `collections:`)
 related: []                # duplicates wikilinks for programmatic access
 version: 3
 claims_ledger: {claims: 5835, hash: 1a2b3c4d5e6f}  # only on a page whose older claims live in its ledger
@@ -64,6 +64,38 @@ changes; a page dirty in git is skipped; it refuses while Sleep runs.
 produced by Stage-1 extraction** — `PRODUCIBLE_ENTITY_TYPES` excludes it; due-dates attach as a
 `due` claim on the relevant project instead of spawning a standalone entity. `media` is likewise
 excluded — it comes from the ingestion path, not conversation extraction.
+
+**A saved list is provenance, never a tag or a hub (owner 2026-10-19: "the video was taken from this playlist and that's
+it … a property of the markdown").** A media page records every list it was saved from — a YouTube playlist (Watch
+later included), an Instagram collection, a Pinterest board, a Reddit subreddit or saved list, an X or LinkedIn
+export's list, a browser bookmark folder, a device's Safari tabs — as `collections:` (in the order it was saved from
+them) with the first also its `folder:` (every older reader, the Sources page's grouping among them, knows only
+`folder:`; a page from before `collections:` holds its `folder:` alone, `id_utils.page_lists`). A later save of the
+same URL from another list — a second playlist in the same export, a re-import, the person's agent reading Watch
+later — appends that list through `media_ingestor.add_collection` (and makes it the `folder:` of a page that had
+none). A batch's repeats are appended after its new pages commit, in one admitted transaction
+(`append_collections`: write admission, then the page lock, through their own `user` commit, 500 pages a commit, off
+the event loop); while Sleep holds the pages nothing is appended and the next import or sync derives it again. The
+agent's Watch later read appends inside its own admission and page lock. A list the page already holds changes
+nothing.
+
+**Provenance never makes a hub.** Stage 5.6 makes any tag shared by `hub_tag_min_members` (5) active pages a
+`topic-<tag>` hub with a `member of` edge to each, and the media writer used to put `sanitize_id(folder)` in `tags`
+(the Netscape parser the raw folder name), beside the media type and the capture door's origin — so every list,
+media type and door with enough saves became a hub. `id_utils.provenance_tags` names those tags: a page's list tags
+(`list_tags`: the raw name and slug of each of its lists), and on a `media` page its `media.media_type`,
+`media.kind`, `origin:` and a door's stamp (`<browser>-bookmark`, `bookmark`, `safari-tab`) — each repeats a field
+the page holds. `write_media_entity` no longer writes list tags; media-type and origin tags stay on the page (readers
+filter by them), but the hub tier (`hub_builder._topic_tags`) gathers no page by any provenance tag, so a bank's list
+and provenance hubs go at its next Sleep. A tag the person or Sleep wrote for meaning — any tag on a non-media page,
+any other tag on a media one — still makes its hub. An existing bank is repaired by `python -m
+api.scripts.repair_list_hubs --bank <path>` (dry run: counts only — pages to untag, tag hubs on disk, and those the
+regenerated tier drops by kind, `list_hubs`, `provenance_hubs`, `other_hubs`, or adds, `hubs_to_add`; `--apply`:
+strips only list tags, never `folder:`, `collections:`, the body or claims, regenerates the hub tier through
+`hub_builder.regenerate_hubs_and_index`, and commits pages, hubs and `_index.md` under `cicada`,
+`maintenance/list-hubs` — pages written and committed 500 at a time, the hub tier in the last part; a page dirty in
+git is skipped unless its only change from HEAD is this repair's (an interrupted run's, adopted and committed); refused
+while Sleep runs or when git cannot list the dirty pages; a rerun changes nothing — `list_hub_repair`).
 
 **Status lifecycle:** `active` → `decaying` → `archived` → `dropped` (user-dismissed, never
 resurfaced).
@@ -692,6 +724,23 @@ Round 4 (C2–C4):
   `$CICADA_HOME/logos/<bank>/sites/own/` — hits 30 days, misses 7 — never in a bank; any failure is a 404 the row draws
   as its monogram. This is a row's mark only: it never becomes a page's picture, and `domain_for` still takes no saved
   link's site.
+  **A watched or saved YouTube video's still (owner direction 2026-10-19, Sources v4).** *"For YouTube … why don't you
+  render the thumbnail of the video?"* A video in a watched day the person opened (Sources › YouTube history › a day)
+  may show its still: `GET /sources/watch-history/days/{episode}/videos/{video_id}/thumbnail`, asked by the app only for a row of a
+  day the person opened (as the row comes on screen, at most four at a time), never from Sleep. The backend asks **YouTube's own thumbnail host for that video id only**
+  (`i.ytimg.com/vi/<id>/hqdefault.jpg`, `media_preview.YOUTUBE_STILL`, the pin a saved video's preview already uses),
+  and only for an id THAT day's record holds (`channel_items.day_has_video`, one file read — never an id a request
+  merely names, never a walk of the bank). Behind `CICADA_ALLOW_LOGO_FETCH`, through the ToS rail (`media_preview._get`: `net_guard` on every hop, 4 s,
+  ≤ 512 KB, no cookies, raster only, a wall never retried), cached outside every bank at
+  `$CICADA_HOME/previews/<bank>/watched/<id>.<ext>` with its misses (`media_preview.ensure_video_still`); any failure is
+  a 404 the row draws as a quiet play glyph. A picture is not a read: no model ever reads watch history (ruling 30).
+  A day's videos come from `GET /sources/watch-history/days/{episode}` (`channel_items.watched_day`: title, channel,
+  times, the provider's watch URL, the id, and the saved page when the person also saved it — read from the day's own
+  record, nothing fetched; ETag over `sources`+`episodes`+`entities`, not a Store domain).
+  **A Messages chat's face (Sources v4).** The photo a ticked chat shares (above, `messages_photos`) is also that chat's
+  face on its Sources row and in its list, served by conversation: `GET /sources/messages/chats/{conversation}/photo`
+  (404 for an id that is not a chat hash, a chat not ticked, or no photo; nothing fetched). `messages_photos.stamp`
+  (the `photos` component) hashes every stored photo, a chat with no page yet included, so its face arrives too.
 - `picture:` (G146) — the person's own choice of picture for a page: `{kind: upload, sha, ext, added}` for a
   picture they uploaded, whose bytes live **in the bank** at `assets/pictures/<id>.<png|jpg>` (their record, so it
   travels with the bank; the path is derived from the id, never read from the page), or `{kind: initials, added}`

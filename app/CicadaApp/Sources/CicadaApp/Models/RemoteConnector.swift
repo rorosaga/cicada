@@ -18,7 +18,7 @@ struct RemoteConnector: Codable, Identifiable, Equatable {
     var lastUsedAt: String? = nil
     var lastClient: String? = nil
     let state: String
-    /// `link` (a shown-once secret) or `oauth` (the app signed in and renews its own access — ruling 31).
+    /// `link` (a shown-once secret) or `oauth` (the app signed in and renews its own access — ruling 32).
     var auth: String? = nil
 
     var isActive: Bool { state == "active" }
@@ -37,7 +37,7 @@ struct RemoteConnectorCreated: Codable, Equatable, Identifiable {
     var id: String { connector.id + "·" + String(token.suffix(6)) }
 }
 
-/// That a sign-in waits (ruling 31). The list carries no code, no name and no return address: a sign-in is approved
+/// That a sign-in waits (ruling 32). The list carries no code, no name and no return address: a sign-in is approved
 /// only by typing the code the person's own browser page shows (security review of #359 — whoever starts a sign-in
 /// collects its result, so a list to click would let a stranger's look-alike through).
 struct RemoteSignInWaiting: Codable, Identifiable, Equatable {

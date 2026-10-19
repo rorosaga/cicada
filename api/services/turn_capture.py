@@ -62,7 +62,7 @@ SPEAKERS = ("user", "assistant")
 #: cleaned turn keeps (16k / 2k), so code stripped before the cap still leaves
 #: the words; a bound on the request, not a budget.
 TEXT_MAX_CHARS = 256 * 1024
-#: Ruling 31: a turn relayed by a hookless app's model through the remote connector. The episode records the
+#: Ruling 32: a turn relayed by a hookless app's model through the remote connector. The episode records the
 #: channel under this key, and declares ``evidence_kind: assistant`` — the person's words reached Cicada through a
 #: model that may paraphrase, so they are never counted as the person's own (promotion, ruling-29 settling) until an
 #: export of the same conversation upgrades the episode (``episode_staging``).
@@ -260,7 +260,7 @@ def capture_turns(
 ) -> tc.CaptureResult:
     """Merge the posted turns into the session's one episode and write it.
 
-    ``relay`` (ruling 31) marks turns a hookless app's model relayed through the remote connector: ``{app,
+    ``relay`` (ruling 32) marks turns a hookless app's model relayed through the remote connector: ``{app,
     connector, channel}``. Any catalog harness is then accepted, the episode carries the channel and
     ``evidence_kind: assistant``, and an episode an export already upgraded is left alone (``upgraded``).
 

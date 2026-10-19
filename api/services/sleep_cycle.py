@@ -2478,6 +2478,15 @@ async def _run_stages(
     # cold-cache fallback.
     if decay_only:
         pass   # no episode is read, so no engine is asked
+    elif engine_select.no_engine(settings):
+        # Ruling 2026-10-19: Auto found no plan and no local model, and an API key reads only when the person chose
+        # it — so nothing is read and nothing is spent. Stopped before Stage 1, said in words, the queue intact.
+        detail = str(settings.no_engine_reason)
+        logger.error(f"Sleep cycle {cycle_id} stopped before Stage 1 — no engine")
+        _state.engine_detail = engine_why
+        _state.error = detail
+        _state.progress = f"Failed: {detail}"
+        return _StageOutcome(stop=sleep_drain.DrainStop("engine", detail))
     elif _state.last_engine == "claude-cli":
         ok, detail = await _probe_engine_cheaply(settings)
         _state.engine_detail = detail

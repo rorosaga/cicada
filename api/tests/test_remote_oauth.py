@@ -1,4 +1,4 @@
-"""Ruling 31 — sign-in for the remote connector, over real HTTP in process (no network, no tunnel): discovery,
+"""Ruling 32 — sign-in for the remote connector, over real HTTP in process (no network, no tunnel): discovery,
 registration (DCR and CIMD), consent in the app only, PKCE, single-use codes, rotating refresh tokens, revocation,
 rate limits, the Origin rule, the audience check, nothing in the clear at rest and nothing in a log."""
 from __future__ import annotations

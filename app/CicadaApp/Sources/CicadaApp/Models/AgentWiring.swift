@@ -47,6 +47,10 @@ struct AgentWiring: Codable, Hashable, Identifiable {
     /// Support/evidence independently of MCP registration or hook configuration.
     let capabilities: [String: String]
 
+    /// Claude Code reaching Cicada through the Cicada plugin (owner 2026-10-19): the plugin carries the server and every
+    /// hook, so the backend offers no argv for this row and the plugin's own settings turn recall off.
+    var viaPlugin: Bool { capabilities["via"] == "plugin" }
+
     /// What a Turn on / Connect for me runs: `connect`, plus the capture flush riding with it. Nothing when there is
     /// nothing to connect — an agent already on is never offered the flush alone (install.sh adds it).
     var turnOnSteps: [AgentWiringStep] { connect.isEmpty ? [] : connect + flushOn }

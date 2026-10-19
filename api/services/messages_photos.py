@@ -245,10 +245,15 @@ def picture_path(memory_path: Path, entity_id: str, chats: dict | None = None) -
 
 
 def stamp(memory_path: Path) -> str:
-    """What moves when any page's chat photo does — a photo stored or gone, a link made or lost. Rides the ``photos``
-    sync component (`sync_service`), which the app maps onto the graph."""
+    """What moves when any chat photo does — a photo stored or gone, a link made or lost. Rides the ``photos`` sync
+    component (`sync_service`), which the app maps onto the graph and the Sources overview. Sources v4 (review of
+    #358): every stored photo counts, a chat with no page yet included — its photo is that chat's face on its Sources
+    row and in its list, so a photo that arrives before the page does must move the component too."""
     current = links(memory_path)
-    if not current:
+    stored = {cid: entry.get("sha") for cid, entry in read_meta(logo_service.bank_name(Path(memory_path))).items()
+              if isinstance(entry, dict)}
+    if not current and not stored:
         return ""
     joined = ",".join(f"{page}={link['sha']}" for page, link in sorted(current.items()))
+    joined += "|" + ",".join(f"{cid}={sha}" for cid, sha in sorted(stored.items()))
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()[:12]

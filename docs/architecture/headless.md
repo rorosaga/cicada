@@ -14,7 +14,7 @@ id rule (max-suffix+1 per local directory), the read-modify-write state files an
 **Nothing listens beyond loopback.** The service binds `127.0.0.1` only. Reaching it from another machine is an
 overlay the person runs and Cicada never configures: on a tailnet, `tailscale serve --bg --https=443
 http://127.0.0.1:8000` (tailnet only; never `funnel`), or an SSH tunnel. **The one public exception is not this
-port (ruling 31, owner 2026-10-19):** to let claude.ai or ChatGPT sign in, the person may funnel the G135 remote
+port (ruling 32, owner 2026-10-19):** to let claude.ai or ChatGPT sign in, the person may funnel the G135 remote
 listener (`127.0.0.1:8765`, MCP and OAuth only — `network.md`), never the API. The API token is still required on every
 route but `/healthz`, and `/healthz` without the token says only `status`, `version` and the bank ids — the memory's
 path, its counts and the index's state need the token (owner decision 3, 2026-10-16: through the overlay, any device
@@ -156,10 +156,12 @@ The same layout as on a Mac, created by the backend and the CLI. The ones that m
 The schedule runs inside the backend (APScheduler, `sleep_scheduler`), from the bank's `sleep_schedule.yaml`, so it
 needs no app and no timer unit. A run the person starts (`cicada sleep start`, or a client's click) may use a plan.
 **A scheduled run uses a plan only when the person said so** (TODO ruling 4b, owner 2026-10-16: "The server should be
-allowed to use plans too. Just have to set them up somehow"; "Yeah chat too"): the machine's switch, off by default,
-is `cicada sleep schedule --use-plan on|off` here and Settings → Sleep → *Scheduled runs may use my plan* in the app,
-and saying it once is where it is said that nightly runs then count against the plan's limits. Otherwise a server
-Sleeps on its schedule with a metered key in its `secrets.env` or a local model (`capture-and-sleep.md`).
+allowed to use plans too. Just have to set them up somehow"; "Yeah chat too"): the machine's switch — **on unless the
+person turned it off** (ruling 4c, 2026-10-19) — is `cicada sleep schedule --use-plan on|off` here and Settings → Sleep →
+*Scheduled runs may use my plan* in the app, beside the words that nightly runs count against the plan's limits. With
+it off, a server Sleeps on its schedule with a local model, or with a metered key only when the person chose it as
+Sleep's engine (`cicada sleep engine --mode byok`; ruling 31: Auto never falls to a key by itself;
+`capture-and-sleep.md`).
 
 ### Setting a plan up on a server
 
@@ -243,7 +245,7 @@ another that happens to share a bank name. Ruling 21a's check compares these ids
 **What did not change.** Only the server commits (one git writer per bank); the server binds 127.0.0.1; reach is the
 person's overlay; no installer creates, copies or logs a credential; the demo guard and the split-brain rule are the
 server's, per request. The G135 remote listener is still the door for apps off the person's devices, never trusted to
-edit a page. **Sign-in on a server with no app (ruling 31):** an app's sign-in waits for a yes the app would give; on a
+edit a page. **Sign-in on a server with no app (ruling 32):** an app's sign-in waits for a yes the app would give; on a
 headless server the person gives it on the server itself, through the loopback API with the token —
 with the code the app's sign-in page shows: `POST http://127.0.0.1:8000/remote/oauth/match` with `{"userCode": "<code>"}`
 (and `-H "Authorization: Bearer $(cat ~/.cicada/api_token)"`) says who it is and where it returns, and

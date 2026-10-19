@@ -18,8 +18,11 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   two a week apart mark the source dead) — **the web check** (TODO ruling 27: `web_lookup.run_tail` sends no request of
   its own; the engine's search does, so the gate is asked before any engine call, and what reaches the search is only a
   public subject's name plus at most one generic category word, every reported search held to it (the prompt's
-  local context, ruling 27a, is never searched) — `capture-and-sleep.md`) — and
+  local context, ruling 27a, is never searched) — `capture-and-sleep.md`; on every plan run, scheduled ones included
+  since the plan switch is on by default, ruling 27b) — and
   paper details (below). It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite sets).
+  The backlog's one-off web-check sweep (`POST /inbox/web-check`, ruling 27b) is the person's start, so the gate is
+  reported in its counts, never applied — the same pinned query and nothing else leaves.
   A user-initiated `sync_now`, `POST /maintenance/enrich-links`, `POST /maintenance/verify-sites`, the person's
   "check now" on one source (`POST /entities/{id}/sources/refresh`; a login-walled source is only marked asked for
   their agent, never fetched), every OAuth
@@ -38,6 +41,10 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   `/favicon.ico`, never its HTML and **never an icon service**, so no third party learns what was saved — only when the
   person opens that list, never from Sleep; same-site hops only, through the SSRF guard, 4 s, ≤ 512 KB streamed, no
   cookies, a block (401/403/407/451) never retried; hits and misses cached under `logos/<bank>/sites/own/` (`storage.md`).
+  It also gates a watched video's still (owner direction 2026-10-19, Sources v4): a day the person opened in Sources ›
+  YouTube history asks `GET /sources/watch-history/days/{episode}/videos/{id}/thumbnail`, which asks YouTube's own
+  thumbnail host for that id only, and only for an id that day records; the media-preview rail, cached under
+  `previews/<bank>/watched/` (`storage.md`).
   It also covers a person's public-profile photo, which has a second, narrower gate of its own:
 - **`CICADA_ALLOW_PERSON_PHOTO_FETCH=off`** (G159 amendment, owner 2026-10-09; on by default, off for the test suite)
   stops every public-profile photo lookup for people while logos keep working. `person_photo` asks only when the app
@@ -158,7 +165,7 @@ capability token `cic_rc_<id>_<secret>`: shown once, only its sha256 stored in
 episode excerpts and the inbox `Cause:` quote alike; `pending`, `mark_processed` and `repo_context`
 never), expiring
 (7/30/90 days) and revocable. It arrives as a secret link (`/c/<token>/mcp`) or a bearer header —
-one verifier — or, since ruling 31, through sign-in (below), the way the docs now steer every app that supports it. Tools outside a connector's scopes are absent from `tools/list`; any `Origin` header
+one verifier — or, since ruling 32, through sign-in (below), the way the docs now steer every app that supports it. Tools outside a connector's scopes are absent from `tools/list`; any `Origin` header
 is refused; the listener has no access log (a secret link's path IS the token). Every remote write
 commits alone as `Cicada-Author: <app harness>`, `Cicada-Session: rc_…`, trigger
 `remote/<harness>`, no engine; a remote claim is `origin: remote:<id>` and can never be the
@@ -167,7 +174,7 @@ person's own words. Each call leaves one ids-only `remote_call` ledger row, file
 else's URL goes through `net_guard` (`is_global`, never `is_private`, because tailnet addresses are
 neither; the name lookup runs off the event loop).
 
-**Sign-in for the remote connector (ruling 31, owner 2026-10-19).** So claude.ai (web, desktop and its phone apps)
+**Sign-in for the remote connector (ruling 32, owner 2026-10-19).** So claude.ai (web, desktop and its phone apps)
 and ChatGPT can add Cicada as a custom connector, the G135 listener is also an **OAuth 2.1 authorization server**
 (`api/remote/oauth.py`), and still serves nothing else: `/mcp`, the two protected-resource documents,
 `/.well-known/oauth-authorization-server`, `/authorize`, `/authorize/wait`, `/token`, `/register` and `/revoke`; every

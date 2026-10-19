@@ -3,7 +3,7 @@
 Cicada runs on your Mac (or your server). claude.ai and ChatGPT run in the cloud, so they reach your memory through
 one public address that **you** open, to one port only: Cicada's remote connector (`8765`), which serves nothing but
 the memory tools and the sign-in. The app signs in, you approve it in Cicada, and from then on every conversation in
-that app is kept as it happens (ruling 31). How it works and what it checks: `docs/architecture/network.md`
+that app is kept as it happens (ruling 32). How it works and what it checks: `docs/architecture/network.md`
 ("Sign-in for the remote connector").
 
 ## 1. Turn it on

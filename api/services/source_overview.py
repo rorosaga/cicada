@@ -127,8 +127,26 @@ SAVED_SOURCES = frozenset({
     "pinterest", "reddit", "x", "instagram", "youtube", "linkedin", "tiktok", "files",
 })
 INTENTS = ("saved", "captured")
-#: Folded into `/sources/overview`'s ETag: bump it when the body changes for the same bank files (v3: `intent`).
-SHAPE = "overview-v3"
+#: Folded into `/sources/overview`'s ETag: bump it when the body changes for the same bank files (v3: `intent`;
+#: v4: `waiting`, `faces`/`faces_more`, and check records left out).
+SHAPE = "overview-v4"
+
+#: Sources v4 (owner 2026-10-19: "I don't understand how Sleep is also a source on the page"). A check record is the
+#: episode Cicada writes as the citation for a question a check settled — `web_settle` (a web lookup Sleep or an agent
+#: ran, `source: web-check`; Sleep's has `origin: sleep` and read as a source called "sleep") and `check_record` (an
+#: agent's check of a tracked source, `source: source-check`). Nothing came in through it: its home is the Inbox's
+#: "Settled by a check" list and the claim it cites, so no source row counts it. Pinned to the writers' constants by
+#: `test_source_overview`.
+CHECK_RECORD_SOURCES = frozenset({"web-check", "source-check"})
+#: Sources v4 (owner 2026-10-19: "the first three and then a fourth circle in the back that says '+N more'") — how many
+#: faces a row carries: the chats that fed Messages, the sites a saved source's things came from.
+MAX_FACES = 3
+FACE_CHAT_SOURCES = frozenset({"imessage"})
+
+
+def is_check_record(fm: dict) -> bool:
+    """True for the citation episode a settled check writes — never something that came in (``CHECK_RECORD_SOURCES``)."""
+    return str((fm or {}).get("source") or "").strip() in CHECK_RECORD_SOURCES
 
 
 def intent_of(key: str) -> str:
@@ -227,6 +245,10 @@ def _new_state(key: str, labels: dict[str, str] | None = None) -> dict:
     return {
         "id": key, "label": label, "kind": kind, "mark": mark, "intent": intent_of(key),
         "conversations": set(), "episodes": 0, "entities": set(),
+        # Sources v4 — this source's episodes still waiting for Sleep's read (`history_index.waits_for_model`, the
+        # rule Sleep's own queue count uses), so the detail's "Consolidate now · N waiting" is the server's number.
+        "waiting": 0,
+        "faces": [], "faces_more": 0,
         # Sparse ISO-UTC-day -> captures that day (R-A16); a silent day has no
         # key, so a gap can never be read as a zero the backend asserted.
         "activity": {},
@@ -259,12 +281,21 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
     window_start = (today - timedelta(days=ACTIVITY_DAYS - 1)).isoformat()
     window_end = today.isoformat()
 
+    from api.services import history_index
+
+    chats: dict[str, dict[str, tuple[float, str]]] = {}
     for f in bank_index.files(memory_path, "episodes"):
         fm = f.frontmatter
+        if is_check_record(fm):
+            continue   # Sources v4: a settled check's citation, not an intake (`CHECK_RECORD_SOURCES`)
         key = source_key(fm)
         episode_key[str(fm.get("id") or f.stem)] = key
         state = states.setdefault(key, _new_state(key, labels))
         state["episodes"] += 1
+        if history_index.waits_for_model(fm):
+            state["waiting"] += 1
+        if key in FACE_CHAT_SOURCES and fm.get("conversation") and not fm.get("source_deleted_at"):
+            _note_chat(chats.setdefault(key, {}), fm)
         conversation = str(fm.get("session_id") or fm.get("source_id") or "").strip()
         if conversation:
             state["conversations"].add(conversation)
@@ -339,6 +370,24 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
         state = states.setdefault(key, _new_state(key, labels))
         state["items"] = count
 
+    # Sources v4 — the faces a row shows: the newest first, at most `MAX_FACES`, and how many more there are.
+    photos = _chat_photos(memory_path) if chats else {}
+    for key, by_chat in chats.items():
+        if key in states:
+            ordered = sorted(by_chat.items(), key=lambda kv: (kv[1][0], kv[0]), reverse=True)
+            states[key]["faces"] = [{"kind": "chat", "id": cid, "label": label, "photo": photos.get(cid)}
+                                    for cid, (_, label) in ordered[:MAX_FACES]]
+            states[key]["faces_more"] = max(0, len(ordered) - MAX_FACES)
+    # A saved row's faces come from the set its list lists, and only while its count says it holds something (review
+    # of #358: "Nothing saved yet" beside three faces read as a contradiction) — never a bookmark that left the browser.
+    from api.services import channel_items   # lazy: channel_items imports this module
+
+    for key, state in states.items():
+        if state["intent"] == "saved" and state["items"] > 0:
+            faces, more = channel_items.saved_faces(memory_path, state["channel_id"] or key, limit=MAX_FACES)
+            state["faces"] = [{"kind": "site", **face} for face in faces]
+            state["faces_more"] = more
+
     rows = []
     for state in states.values():
         conversations = len(state["conversations"])
@@ -356,6 +405,31 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
         })
     rows.sort(key=lambda r: (KIND_ORDER.index(r["kind"]), -_sortable(r["last_activity_at"]), r["id"]))
     return rows
+
+
+def _note_chat(by_chat: dict[str, tuple[float, str]], fm: dict) -> None:
+    """Keep each chat's newest sitting: its instant and the name its correspondent record carries (G179)."""
+    cid = str(fm.get("conversation") or "")
+    when = _sortable(str(fm.get("sitting_last_at") or fm.get("timestamp") or ""))
+    record = fm.get("correspondent") if isinstance(fm.get("correspondent"), dict) else {}
+    label = " ".join(str(record.get("name") or "").split())[:80] or "Messages"
+    held = by_chat.get(cid)
+    if held is None or when >= held[0]:
+        by_chat[cid] = (when, label)
+
+
+def _chat_photos(memory_path: Path) -> dict[str, str]:
+    """Each ticked chat's stored photo hash (`messages_photos`, outside every bank) — the face's `?v=`."""
+    from api.services import logo_service, messages_photos, messages_source
+
+    try:
+        meta = messages_photos.read_meta(logo_service.bank_name(memory_path))
+        ticked = {cid for cid, e in messages_source.load_settings(memory_path)["conversations"].items()
+                  if e.get("ticked")}
+    except Exception:  # noqa: BLE001 — a face without a photo draws its monogram
+        return {}
+    return {cid: str(e["sha"]) for cid, e in meta.items()
+            if cid in ticked and isinstance(e, dict) and isinstance(e.get("sha"), str)}
 
 
 def _sortable(ts: str | None) -> float:

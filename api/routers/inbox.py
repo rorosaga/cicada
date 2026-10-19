@@ -157,7 +157,9 @@ async def tidy_inbox(
 
     if write_admission.probe():
         raise HTTPException(409, inbox_service.SLEEP_BUSY)
-    if inbox_tend.tidy_status()["running"]:
+    from api.services import web_lookup
+
+    if inbox_tend.tidy_status()["running"] or web_lookup.sweep_running():
         raise HTTPException(409, "The inbox is already being tidied.")
     if dry_run:
         return await inbox_tend.tidy(settings.memory_path, settings, dry_run=True, limit=limit, judge=judge)
@@ -173,6 +175,43 @@ async def tidy_status(settings: Settings = Depends(get_settings)):
     from api.services import inbox_tend
 
     return inbox_tend.tidy_status(settings.memory_path)
+
+
+@router.post("/inbox/web-check")
+async def web_check_sweep(
+    dry_run: bool = Query(True, alias="dryRun"),
+    limit: Optional[int] = Query(None, ge=1),
+    include_recent: bool = Query(False, alias="includeRecent"),
+    settings: Settings = Depends(get_settings),
+):
+    """Owner ruling 2026-10-19 — the one-off sweep: the backlog's questions about public things (a tool, a company, a
+    concept, a film, a paper, a dataset — never a person, the person's files, projects or life) looked up on the web
+    with the engine a run you start would use, and settled when a search answers them, each with its link and quote and
+    undoable under "Settled by a check". ``dryRun`` (the default) writes nothing and answers COUNTS: the census of what
+    a lookup may answer and why the rest stays, then what the lookups would settle — never a title, a name or any text.
+    ``limit`` caps the lookups (one engine call each). A real run starts in the background, each settle under the bank's
+    write admission with its own commit, and ``GET /inbox/web-check`` reports it. 409 while Sleep runs or a sweep or a
+    tidy is running."""
+    from api.services import inbox_tend, web_lookup, write_admission
+
+    if write_admission.probe():
+        raise HTTPException(409, inbox_service.SLEEP_BUSY)
+    if web_lookup.sweep_running() or inbox_tend.tidy_status()["running"]:
+        raise HTTPException(409, "The inbox is already being tidied.")
+    if dry_run:
+        return await web_lookup.sweep(settings.memory_path, settings, dry_run=True, limit=limit,
+                                      include_recent=include_recent)
+    if not web_lookup.start_sweep(settings.memory_path, settings, limit=limit, include_recent=include_recent):
+        raise HTTPException(409, "The inbox is already being tidied.")
+    return {"status": "started"}
+
+
+@router.get("/inbox/web-check")
+async def web_check_status():
+    """The running (or last) sweep's counts — ids never, text never."""
+    from api.services import web_lookup
+
+    return web_lookup.sweep_status()
 
 
 @router.post("/inbox/{item_id}/resolve")

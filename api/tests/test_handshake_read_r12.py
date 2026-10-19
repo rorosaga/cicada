@@ -30,7 +30,7 @@ def _home(tmp_path, monkeypatch):
 
 
 def test_the_contract_versions_moved():
-    assert (handshake.CONTRACT_VERSION, handshake.REMOTE_CONTRACT_VERSION) == (17, 12)  # remote 12: ruling 31 capture; 17: G198 cicada_edit_page merged past 16 (questions come up naturally)
+    assert (handshake.CONTRACT_VERSION, handshake.REMOTE_CONTRACT_VERSION) == (17, 12)  # remote 12: ruling 32 capture; 17: G198 cicada_edit_page merged past 16 (questions come up naturally)
 
 
 def test_the_parser_reads_the_reading_calls():

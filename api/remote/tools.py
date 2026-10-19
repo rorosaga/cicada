@@ -21,7 +21,7 @@ Cicada never fetches the video itself.
 `cicada_add_source` is not open-world: it only records a reference (G61 phase 2 S1).
 `cicada_change_source` (G61 S3-a) corrects or removes only an entry this connection added; a removal is a mark
 in the page and a commit, so it stays history and is not `destructive`.
-`cicada_capture_turns` (record, ruling 31) is capture for an app with no hook: idempotent (a re-sent turn changes
+`cicada_capture_turns` (record, ruling 32) is capture for an app with no hook: idempotent (a re-sent turn changes
 nothing) and not destructive; it is a write, so an app that confirms writes asks — the person can allow it always.
 `cicada_reading_queue` (read) and `cicada_record_read` (record) are G166's: the person's own agent reads a
 page in their signed-in session, and Cicada records what it reported. Neither description names the other

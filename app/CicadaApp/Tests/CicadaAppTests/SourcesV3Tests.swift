@@ -111,9 +111,10 @@ final class SourcesV3Tests: XCTestCase {
         let channel = try source("Views/Sources/ChannelSourceView.swift")
         XCTAssertTrue(channel.contains("if source.intent == .saved {"))
         XCTAssertTrue(channel.contains("CapturedItemsList(channel: source.itemsListId, style: .saved)"))
+        // Sources v4: no source has a 30-day card or queue strip any more — one header, then the list.
         let detail = try source("Views/Sources/SourceDetailView.swift")
-        XCTAssertTrue(detail.contains("if source.intent == .captured {\n                headerCard"),
-                      "the 30-day line and the queue strip stay with captured sources only")
+        XCTAssertFalse(detail.contains("headerCard"))
+        XCTAssertTrue(detail.contains("SourceDetailHead(source: live"))
     }
 
     func testTheFirstClickOpensTheSourceAndTheEyebrowSaysWhere() {
@@ -122,7 +123,8 @@ final class SourcesV3Tests: XCTestCase {
                                                row("harness:claude-code", .harness, .captured)])
         columns.open(.source("chrome-bookmarks"))
         XCTAssertEqual(columns.openId, .source("chrome-bookmarks"))
-        XCTAssertEqual(SourcesModel.eyebrow(groups: groups, open: columns.openId), "Sources · 1 of 2 · Saved by you")
+        XCTAssertEqual(SourcesModel.eyebrow(groups: groups, open: columns.openId), "Sources · 2 connected",
+                       "Sources v4: the eyebrow stays the page's (the list shows where you are)")
     }
 
     func testASavedRowOpensWhereASavedItemOpensToday() {

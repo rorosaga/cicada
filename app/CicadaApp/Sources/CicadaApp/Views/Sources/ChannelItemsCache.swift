@@ -15,6 +15,14 @@ final class ChannelItemsCache {
     private(set) var phases: [String: Phase] = [:]
     /// Channels whose next page is being read ("Show more" waits on it).
     private(set) var loadingMore: Set<String> = []
+    /// Sources v4 — the watched days opened so far, by episode id, and the ones whose read failed with nothing held.
+    private(set) var days: [String: WatchedDay] = [:]
+    private(set) var failedDays: Set<String> = []
+    @ObservationIgnored private var dayTags: [String: String] = [:]
+    /// Sources v4 (review of #358) — the Messages chats opened so far, by conversation hash.
+    private(set) var chats: [String: ChatSittings] = [:]
+    private(set) var failedChats: Set<String> = []
+    @ObservationIgnored private var chatTags: [String: String] = [:]
 
     private struct Tag { let limit: Int; let etag: String }
 
@@ -29,6 +37,10 @@ final class ChannelItemsCache {
     func list(_ channel: String) -> ChannelItemsList? { lists[channel] }
     func phase(_ channel: String) -> Phase { phases[channel] ?? .idle }
     func isLoadingMore(_ channel: String) -> Bool { loadingMore.contains(channel) }
+    func day(_ episode: String) -> WatchedDay? { days[episode] }
+    func dayFailed(_ episode: String) -> Bool { failedDays.contains(episode) && days[episode] == nil }
+    func sittings(_ chat: String) -> ChatSittings? { chats[chat] }
+    func sittingsFailed(_ chat: String) -> Bool { failedChats.contains(chat) && chats[chat] == nil }
 
     /// Forget everything — a bank switch (`ContentView`, R-PU26's reason).
     func reset() {
@@ -37,6 +49,46 @@ final class ChannelItemsCache {
         phases = [:]
         loadingMore = []
         tags = [:]
+        days = [:]
+        failedDays = []
+        dayTags = [:]
+        chats = [:]
+        failedChats = []
+        chatTags = [:]
+    }
+
+    /// Read (or revalidate) one chat's sittings when its row opens; a 304 or a failure keeps what is held.
+    func refreshSittings(_ chat: String) async {
+        let started = epoch
+        do {
+            let answer = try await api.fetchChatSittings(conversation: chat, etag: chats[chat] == nil ? nil : chatTags[chat])
+            guard started == epoch else { return }
+            if let page = answer.value {
+                chats[chat] = page
+                chatTags[chat] = answer.etag
+            }
+            failedChats.remove(chat)
+        } catch {
+            guard started == epoch else { return }
+            failedChats.insert(chat)
+        }
+    }
+
+    /// Sources v4 — read (or revalidate) one watched day when it opens; a 304 or a failure keeps what is held.
+    func refreshDay(_ episode: String) async {
+        let started = epoch
+        do {
+            let answer = try await api.fetchWatchedDay(episode: episode, etag: days[episode] == nil ? nil : dayTags[episode])
+            guard started == epoch else { return }
+            if let day = answer.value {
+                days[episode] = day
+                dayTags[episode] = answer.etag
+            }
+            failedDays.remove(episode)
+        } catch {
+            guard started == epoch else { return }
+            failedDays.insert(episode)
+        }
     }
 
     /// Re-read the rows already shown (at least the first page), sending the tag only when it covers the same rows —

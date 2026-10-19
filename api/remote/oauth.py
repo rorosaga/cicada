@@ -1,4 +1,4 @@
-"""Sign-in for the remote connector (ruling 31, owner 2026-10-19): an OAuth 2.1 authorization server on the G135
+"""Sign-in for the remote connector (ruling 32, owner 2026-10-19): an OAuth 2.1 authorization server on the G135
 listener, so claude.ai (and its phone apps) and ChatGPT can add Cicada as a custom connector.
 
 What it is, end to end:

@@ -110,6 +110,68 @@ _COMMIT_REF = re.compile(
 )
 
 
+#: Stage 1's way of naming the speaker ("the user mentioned it", "a dataset the person is using"): who SAID it, not
+#: who the subject is — taken out before :data:`_PERSON_CUES` reads Cicada's description of a page-less subject
+#: (owner 2026-10-19: "Is <a public tool> an AI agent or an AI code editor? can be solved by an internet search").
+_SPEAKER = re.compile(r"\bthe (?:person|user|speaker|owner|author)(?:['’]s)?\b", re.IGNORECASE)
+#: …unless the description says the subject is the speaker's OWN (their project, file, repo, company): never searched.
+_OWN_THING = re.compile(
+    r"\b(?:built|created|made|wrote|written|designed|developed|authored|owned|started|founded|named|coined|led|run|"
+    r"maintained) by the (?:person|user|speaker|owner)\b|"
+    r"\bthe (?:person|user|speaker|owner)['’]s (?:own|project|file|repo|repository|"
+    r"company|startup|team|app|work|code|script|document|notes?|side project|thesis|dataset|employer|job|workplace)\b|"
+    r"\b(?:their|his|her) own\b|"
+    # The active forms (review of #360): "an app the person is building", "the company where the user works".
+    r"\b(?:person|user|speaker|owner)\s+(?:(?:is|was|has been|had been|are|were)\s+)?(?:currently\s+)?"
+    r"(?:building|built|builds|develop(?:s|ed|ing)?|writ(?:es|ing)|wrote|creat(?:es|ed|ing)|mak(?:es|ing)|made|"
+    r"maintain(?:s|ed|ing)?|lead(?:s|ing)?|led|run(?:s|ning)?|ran|work(?:s|ed|ing)? (?:on|at|for)|found(?:s|ed|ing)|"
+    r"start(?:s|ed|ing)|own(?:s|ed)?|design(?:s|ed|ing)?)\b|"
+    r"\bwhere the (?:person|user|speaker|owner)\s+(?:(?:is|was|has been)\s+)?(?:works?|worked|working|studies|"
+    r"studied|studying)\b",
+    re.IGNORECASE)
+#: Cicada's own runtime settings — the engine a Sleep run reads with, whether scheduled runs use the plan, the
+#: schedule's time (owner 2026-10-19: "Are scheduled Sleep runs still going through <provider>?" is the system's to
+#: know). Narrow on purpose (review of #360): the owner's project IS Cicada, so its design questions — a hosting
+#: provider, a settings page's layout, recall's search engine, the graph engine, whether Sleep runs nightly — stay his.
+#: Only Cicada's own page, by its exact id; never a page that merely has the word in its name.
+OWN_PAGE_ID = "cicada"
+#: A Sleep run, as the question says it.
+_OWN_RUNS = re.compile(r"\b(?:sleep|consolidation|scheduled|nightly) (?:runs?|cycles?|reads?)\b|\bscheduled runs?\b",
+                       re.IGNORECASE)
+#: What a Sleep run reads with: a plan, an API key, a local model — the engine choice itself.
+_ENGINE_CHOICE = re.compile(
+    r"\b(?:claude|chatgpt|codex) plan\b|\b(?:the|my|your|a) plan\b|\bsubscription\b|\bapi key\b|\blocal model\b|"
+    r"\bollama\b|\bopenrouter\b|\blitellm\b|\bmetered\b", re.IGNORECASE)
+#: A time of day, as a schedule's option.
+_TIME_OF_DAY = re.compile(r"^\s*(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm|h)?\s*$|^\s*\d{1,2}:\d{2}\b", re.IGNORECASE)
+
+
+def own_settings(fm: dict) -> bool:
+    """A question about Cicada's OWN runtime settings, on Cicada's own page (exact id): which engine its Sleep runs read
+    with (a run named in the question, an engine choice — a plan, an API key, a local model — among the question or its
+    options), or what time the schedule runs (every option a time of day). Never searched and never asked
+    (``inbox_tend``'s ``own_settings`` rule): Settings shows them, and a conversation that mentioned them stated that
+    day's configuration, not a fact for the person to referee. Anything else about Cicada stays the person's."""
+    if str(fm.get("entity_id") or "").strip().lower() != OWN_PAGE_ID:
+        return False
+    options = inbox_questions.normalize_options(fm.get("options"))
+    labels = [str(o.get("label") or "") for o in options if str(o.get("key")) not in (BOTH, "neither")]
+    question = " ".join([str(fm.get("question") or ""), str(fm.get("title") or "")])
+    if _OWN_RUNS.search(question) and _ENGINE_CHOICE.search(" ".join([question, *labels])):
+        return True
+    return bool(re.search(r"\bschedul\w*", question, re.IGNORECASE)) and len(labels) >= 2 and all(
+        _TIME_OF_DAY.search(label) for label in labels)
+
+
+def person_context(description: str) -> bool:
+    """Cicada's own description of a page-less subject says it is somebody, or the speaker's own thing. The speaker's
+    own reference ("the user mentioned it") is not a cue: it says who spoke, not what the subject is."""
+    text = description or ""
+    if _OWN_THING.search(text):
+        return True
+    return bool(_PERSON_CUES.search(_SPEAKER.sub(" ", text)))
+
+
 class NotSettleable(ValueError):
     """The question cannot be settled this way; the reason is said in words and nothing was written."""
 
@@ -252,6 +314,8 @@ def classify(memory_path: Path, fm: dict, body: str, facts: BankFacts) -> tuple[
         if stype == "person" or _norm(name) in facts.person_names:
             return None, "person"
         return "repo", "repo_state"
+    if own_settings(fm):
+        return None, "own_settings"   # the system answers it (Settings), never a search, never the person
     stype = _subject_type(fm, page)
     if stype == "person" or str(fm.get("uncertainty_type") or "").lower().startswith("unknown relationship"):
         return None, "person"
@@ -263,7 +327,7 @@ def classify(memory_path: Path, fm: dict, body: str, facts: BankFacts) -> tuple[
         return None, "private_file"
     if len(name) > MAX_NAME_CHARS or len(name) < 2 or _PRIVATE_NAME.search(name):
         return None, "private_file"
-    if page is None and _PERSON_CUES.search(_local_description(fm, None, body)):
+    if page is None and person_context(_local_description(fm, None, body)):
         return None, "person_context"
     question = " ".join([str(fm.get("question") or ""), str(fm.get("title") or "")])
     if re.search(r"\b(you|your|yours)\b", question, re.IGNORECASE):
@@ -410,6 +474,37 @@ def candidates(memory_path: Path, *, scope: str = "public", facts: BankFacts | N
             out.append((-float(fm.get("priority") or 0.0), str(fm.get("created_date") or ""), c))
     out.sort(key=lambda t: (KIND_ORDER.get(t[2].kind, 2), t[0], t[1]))
     return [c for _, _, c in out]
+
+
+def census(memory_path: Path, facts: BankFacts | None = None) -> dict:
+    """What a lookup may answer in the open inbox, counted: per kind, how many are ``public`` (a lookup may answer
+    them), ``repo_state`` (a trusted local agent may), or kept for the person and why (:func:`classify`'s enum).
+    Counts and enums only — never an id, a name or a word. Engine-free, network-free."""
+    from api.services import inbox_service
+
+    memory_path = Path(memory_path)
+    facts = facts or bank_facts(memory_path)
+    visible = {i.id for i in inbox_service.load_inbox(memory_path)}
+    by_kind: dict[str, dict[str, int]] = {}
+    other = 0
+    for path in sorted((memory_path / "inbox").glob("inbox-*.md")):
+        if path.stem not in visible:
+            continue
+        try:
+            parsed = markdown_parser.parse(path)
+        except Exception:  # noqa: BLE001 — an unreadable item is counted, never searched
+            by_kind.setdefault("unreadable", {})["unreadable"] = by_kind.get("unreadable", {}).get("unreadable", 0) + 1
+            continue
+        kind = str(parsed.frontmatter.get("kind") or "")
+        if kind not in KINDS:
+            other += 1
+            continue
+        _scope, reason = classify(memory_path, parsed.frontmatter, parsed.body, facts)
+        row = by_kind.setdefault(kind, {})
+        row[reason] = row.get(reason, 0) + 1
+    return {"by_kind": {k: dict(sorted(v.items())) for k, v in sorted(by_kind.items())},
+            "public": sum(v.get("public", 0) for v in by_kind.values()),
+            "other_kinds": other}
 
 
 def query_for(c: Candidate) -> str:

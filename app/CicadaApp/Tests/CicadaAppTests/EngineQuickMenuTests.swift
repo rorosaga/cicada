@@ -12,7 +12,7 @@ final class EngineQuickMenuTests: XCTestCase {
         super.tearDown()
     }
 
-    private static let autoDetail = "Your Claude plan if it's signed in, else your ChatGPT plan, else Ollama if it's running, else your API key."
+    private static let autoDetail = "Your Claude plan if it's signed in, else your ChatGPT plan, else Ollama if it's running. Never an API key unless you choose it."
     private static let keyDetail = "Uses the model configured on the Plans & keys page."
 
     private func response(mode: String, model: String = "sonnet", codexSignedIn: Bool = true,

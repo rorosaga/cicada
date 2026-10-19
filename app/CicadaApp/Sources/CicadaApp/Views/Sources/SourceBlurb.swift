@@ -73,5 +73,11 @@ enum SourceBlurb {
         "notes": "Notes you write in Apple Notes.",
         "files": "Links you pasted or files you dropped.",
         "wispr-flow": "Your Wispr Flow meetings — with who said what — and Scratchpad notes.",
+        // Sources v4 (owner 2026-10-19: "just put what the source is").
+        "imessage": "The Messages conversations you ticked, by chat.",
+        "calendar-local": "Events from the calendars on this Mac.",
+        // A conversation an agent saved without saying which app it is (no harness on its episodes): kept, and named
+        // for what it is, rather than folded into an app it may not be.
+        "harness:unknown": "Conversations from agents that didn't say which app they are.",
     ]
 }

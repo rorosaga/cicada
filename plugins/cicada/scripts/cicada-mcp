@@ -1,0 +1,39 @@
+#!/bin/sh
+# Cicada's Claude Code plugin: start Cicada's stdio MCP server.
+#
+# Which Cicada runs it, in order: the source checkout named in the plugin's settings (cicada_repo: a developer
+# build, its api/.venv and mcp/server.py), else the Cicada app's launcher in $CICADA_HOME/bin (a release, G182).
+# memory_path, when set, becomes CICADA_MEMORY_PATH: the memory ROOT, from which the server resolves the active bank
+# itself (the split-brain rule), exactly as install.sh's own registration passes it.
+repo="${CICADA_PLUGIN_REPO:-}"
+memory="${CICADA_PLUGIN_MEMORY_PATH:-}"
+unset CICADA_PLUGIN_REPO CICADA_PLUGIN_MEMORY_PATH
+expand() {
+  case "$1" in
+    '${'*) printf '' ;;                    # an unset option left as written
+    "~") printf '%s' "$HOME" ;;
+    "~/"*) printf '%s/%s' "$HOME" "${1#\~/}" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+repo="$(expand "$repo")"
+memory="$(expand "$memory")"
+if [ -n "$memory" ]; then
+  CICADA_MEMORY_PATH="$memory"; export CICADA_MEMORY_PATH
+fi
+
+if [ -n "$repo" ]; then
+  py="$repo/api/.venv/bin/python"
+  if [ -x "$py" ] && [ -f "$repo/mcp/server.py" ]; then
+    exec "$py" "$repo/mcp/server.py" "$@"
+  fi
+  echo "cicada plugin: no set-up Cicada checkout at $repo (run its ./install.sh, or clear cicada_repo to use the app)" >&2
+  exit 1
+fi
+
+launcher="${CICADA_HOME:-$HOME/.cicada}/bin/cicada-mcp"
+if [ -x "$launcher" ]; then
+  exec "$launcher" "$@"
+fi
+echo "cicada plugin: Cicada isn't installed here (no $launcher). Open the Cicada app once, or set cicada_repo to a checkout." >&2
+exit 1

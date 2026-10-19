@@ -35,6 +35,70 @@ def sanitize_id(name: str) -> str:
     return safe or "unnamed"
 
 
+def folder_tags(folder) -> set[str]:
+    """The tags a save's ``folder`` (a playlist, board, collection, bookmark folder…) used to leave on its page.
+
+    A list a save came from is provenance — the page's ``folder:`` / ``collections:`` — never a topic (owner
+    2026-10-19): the media writer once added ``sanitize_id(folder)`` to ``tags`` (and the Netscape parser the raw
+    name), so every list with enough saves became a tag hub. The writer, the hub tier and ``list_hub_repair`` all
+    name them by this one rule.
+    """
+    raw = str(folder or "").strip()
+    if not raw:
+        return set()
+    return {raw, sanitize_id(raw)} - {"unnamed"}
+
+
+def page_lists(fm: dict) -> list[str]:
+    """Every list a saved page came from, in the order it was saved from them: ``folder:`` (the first, kept for every
+    reader that knows only it) and then ``collections:`` (owner 2026-10-19: a video in several playlists keeps them
+    all). A page written before ``collections:`` existed holds its ``folder:`` alone."""
+    raw = fm.get("collections")
+    out: list[str] = []
+    for value in [fm.get("folder"), *(raw if isinstance(raw, list) else [])]:
+        name = str(value or "").strip()
+        if name and name not in out:
+            out.append(name)
+    return out
+
+
+def _media(fm: dict) -> dict:
+    media = fm.get("media")
+    return media if isinstance(media, dict) else {}
+
+
+def list_tags(fm: dict) -> set[str]:
+    """The tags a page's lists left on it (:func:`folder_tags` of each), less the page's own media type — what
+    ``list_hub_repair`` takes off a page."""
+    out: set[str] = set()
+    for name in page_lists(fm):
+        out |= folder_tags(name)
+    return out - {str(_media(fm).get("media_type") or "")}
+
+
+#: Tags a capture door stamps to say where a media page came from, on pages older than their ``origin:`` field
+#: (``bookmark_sync._tag_origin``'s ``<browser>-bookmark``, ``safari_tabs.ORIGIN``, the generic ``bookmark``).
+_DOOR_TAG = re.compile(r"[a-z0-9]+-bookmark|bookmark|safari-tab")
+
+
+def provenance_tags(fm: dict) -> set[str]:
+    """The tags on a page that say only where it came from or what kind of file it is — never what it is about.
+
+    The page's lists (:func:`list_tags`), and on a ``media`` page its own media type, kind and origin
+    (``youtube``, ``paper``, ``chrome-bookmark``, ``youtube-playlist``…) and a door's stamp: each repeats a field
+    the page already holds (``media.media_type``, ``media.kind``, ``origin:``, ``folder:``). The hub tier never
+    gathers a page into a tag hub by one of them (owner 2026-10-19: provenance is "a property of the markdown"); a
+    tag the person or Sleep wrote for meaning is none of these and still makes its hub.
+    """
+    out = list_tags(fm)
+    if str(fm.get("type") or "") == "media":
+        media = _media(fm)
+        out |= {str(media.get("media_type") or ""), str(media.get("kind") or ""), str(fm.get("origin") or "")}
+        tags = fm.get("tags") if isinstance(fm.get("tags"), list) else []
+        out |= {str(t) for t in tags if _DOOR_TAG.fullmatch(str(t))}
+    return out - {""}
+
+
 def bank_file(directory: Path, stem: str) -> Path | None:
     """``<directory>/<stem>.md`` — or ``None`` when ``stem`` is not ONE path segment.
 

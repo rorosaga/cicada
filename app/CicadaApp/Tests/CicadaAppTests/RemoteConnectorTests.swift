@@ -33,7 +33,7 @@ final class RemoteConnectorTests: XCTestCase {
         XCTAssertEqual(RemoteScope.allCases.map(\.isDefault), c.scopes.map(\.default))
     }
 
-    /// Ruling 31 and the review of #359: the waiting list carries no code or name; a matched sign-in names only a
+    /// Ruling 32 and the review of #359: the waiting list carries no code or name; a matched sign-in names only a
     /// verified publisher, else says "Unverified app"; the typed code is forgiven case, spaces and the dash.
     func testSignInsApproveOnlyByTheTypedCodeAndNeverTrustAClaimedName() throws {
         let waiting = try JSONDecoder().decode([RemoteSignInWaiting].self, from: Data("""

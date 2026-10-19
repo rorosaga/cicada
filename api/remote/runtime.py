@@ -248,7 +248,7 @@ def _writes_bank(tool: str, arguments=None) -> bool:
     episode and waits like any other write. The demo gate and the write lock still
     apply to all of them."""
     if tool in ("cicada_video_claim", "cicada_capture_turns"):
-        # Ruling 31: a relayed turn is capture, the hook's writer — no commit and no Sleep gate, like a Stop hook.
+        # Ruling 32: a relayed turn is capture, the hook's writer — no commit and no Sleep gate, like a Stop hook.
         return False
     if tool not in ("cicada_record_read", "cicada_record_check"):
         return True

@@ -1,4 +1,4 @@
-"""Ruling 31 — real-time capture for apps with no hook: a remote app's model relays each turn through
+"""Ruling 32 — real-time capture for apps with no hook: a remote app's model relays each turn through
 `cicada_capture_turns`; one episode per conversation, scrubbed and capped like `/capture/turn`, never the person's
 own words, never into a demo bank, not stopped by Sleep; an export of the same conversation upgrades it in place."""
 from __future__ import annotations

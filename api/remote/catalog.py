@@ -51,7 +51,7 @@ TOOL_SCOPE: dict[str, str | None] = {
     "cicada_note_progress": "record",   # G141 R-PJ23: a write, never the person's own words
     "cicada_add_backlog_item": "record",
     "cicada_add_backlog_note": "record",   # G150: the harness writes, never the person
-    # Ruling 31 (owner 2026-10-19): a hookless app (claude.ai, ChatGPT, their phone apps) relays each turn.
+    # Ruling 32 (owner 2026-10-19): a hookless app (claude.ai, ChatGPT, their phone apps) relays each turn.
     # Remote only: a stdio harness is captured by its own hook (G105), never by a model's call.
     "cicada_capture_turns": "record",
     "cicada_sources": "sources",
@@ -149,7 +149,7 @@ class Connector:
     last_used_at: str | None = None
     last_client: str | None = None
     use_count: int = 0
-    #: How the app holds it: ``link`` (a shown-once ``cic_rc_`` secret) or ``oauth`` (ruling 31: the app signed
+    #: How the app holds it: ``link`` (a shown-once ``cic_rc_`` secret) or ``oauth`` (ruling 32: the app signed
     #: in through Cicada's authorization server and holds short-lived access and rotating refresh tokens).
     auth: str = "link"
 

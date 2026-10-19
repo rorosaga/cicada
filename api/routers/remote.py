@@ -147,7 +147,7 @@ def revoke_connector(connector_id: str) -> RemoteConnectorOut:
     return _out(connector)
 
 
-# ── Sign-in requests (ruling 31) ─────────────────────────────────────────────
+# ── Sign-in requests (ruling 32) ─────────────────────────────────────────────
 # The person's yes or no to an app that started OAuth sign-in on the public listener. Only here — loopback, behind
 # the API token — can a request be approved, and only by the code the person's own browser page shows them, typed in:
 # whoever starts a sign-in collects its result, so a list to click would let a stranger's request be approved

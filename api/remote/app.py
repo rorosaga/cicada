@@ -6,7 +6,7 @@ caller: tools outside a connector's scopes are absent, not refused (R-R3).
 `RemoteGate` runs in front of it and does, in order: the secret-path rewrite
 (`/c/<token>/mcp` → `/mcp` + `Authorization: Bearer`, R-R4); the public
 protected-resource metadata; the Origin refusal (R-R18; a browser navigation to
-the sign-in pages is the one exception); the OAuth routes (ruling 31,
+the sign-in pages is the one exception); the OAuth routes (ruling 32,
 `api/remote/oauth.py`); the token check (R-R17: a signed-in app's `cic_at_`
 access token or a link connector's `cic_rc_` secret, a 401 pointing at the
 resource metadata); the per-connector rate limit (R-R28); the body cap and the client-name
@@ -147,7 +147,7 @@ def _bearer(value: str | None) -> str:
 
 
 def unauthorized(reason: str, base: str | None = None) -> Response:
-    """A 401 that says where to sign in (ruling 31): ``resource_metadata`` points at the protected-resource
+    """A 401 that says where to sign in (ruling 32): ``resource_metadata`` points at the protected-resource
     document, which names this listener's own authorization server — what Claude and ChatGPT start from. With no
     token at all there is no error code (RFC 6750 §3.1); a bad token says why."""
     text = _REASONS.get(reason, _REASONS["unknown"])
@@ -285,7 +285,7 @@ def build_app(store: remote_store.ConnectorStore | None = None, *, runtime: Remo
               limits: Limits | None = None, oauth: remote_oauth.OAuthServer | None = None):
     """A fresh app for every listener start (R-R20): the SDK's session manager
     `.run()` works once per instance. The authorization server shares the
-    connector store's file (ruling 31)."""
+    connector store's file (ruling 32)."""
     store = store or remote_store.ConnectorStore()
     oauth = oauth or remote_oauth.OAuthServer(store.path, connectors=store)
     runtime = runtime or RemoteRuntime()

@@ -1,4 +1,4 @@
-"""Real-time capture for apps with no hooks (ruling 31, owner 2026-10-19; amends G105 for hookless apps).
+"""Real-time capture for apps with no hooks (ruling 32, owner 2026-10-19; amends G105 for hookless apps).
 
 Owner: "Exports should only be a starter seed for users; the usual should always be real-time captures." claude.ai,
 ChatGPT and their phone apps run no hook Cicada can install, so the remote connector's instructions ask the app's
