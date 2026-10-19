@@ -412,7 +412,10 @@ paused run is left for the person to continue or end; the tail still runs over i
 process: one due while the Mac sleeps fired late on wake, past APScheduler's grace, and was dropped; one due while the Mac
 is off was never seen (the next start computes the *next* time) — a laptop closed at night never ran its schedule. The
 schedule's own job now keeps a minute's grace (`coalesce`, `misfire_grace_time=60`), and beside it `sleep_catch_up`
-installs a 5-minute probe (first look a minute after start; `manual` and `after_import` get none). The probe asks for the
+installs a 5-minute probe (first look a minute after start; `manual` and `after_import` get none). Each look reads
+the **active bank's own** schedule (`load_schedule`), never the one the probe was registered with — a bank switch does
+not re-register jobs, so a bank set to `manual` or `after_import` is never caught up on another bank's time — and a demo
+bank (`demo_guard.is_demo`) is never read. The probe asks for the
 latest due time with nothing since — `daily`: the latest HH:MM at or before now; `interval`: the last anchor plus N
 hours — and, however many were missed, runs **once**, naming the latest. "Since" is the latest of: `handled_at` (every
 scheduled fire, on time or caught up, stamps it **before** reading — a fire that then finds a running cycle, a pause or a
@@ -427,7 +430,7 @@ between probes over ten minutes is a wake or a start and the settle begins again
 moment the lid opens. **Rails:** `user_triggered=False` (ruling 4/4b — a plan only through the person's switch, never
 flipped here; with the switch off on a plan the catch-up fails as the 03:00 run does, once per missed time, never on
 every wake, because the stamp precedes the read); it reads everything waiting (ruling 16, `_scheduled_drain`); never on
-a running cycle (it looks again next probe); a paused run gets the engine-free upkeep only, as `_run_if_idle` does; the
+a running cycle (it looks again next probe, and checks again after counting the queue); a paused run gets the engine-free upkeep only, as `_run_if_idle` does; the
 bank active when it fires (`bank_registry.unpin`, G183(d)); nothing readable (only parked or index-only history) runs
 nothing and the time counts as handled, so a capture later that day waits for the next time as on any day. The run's
 summary carries `catch_up_for` (`sleep_runs`, `SleepRunRef.catch_up_for`), which Past nights says in words (`app.md`).

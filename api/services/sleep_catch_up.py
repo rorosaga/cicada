@@ -216,13 +216,22 @@ def _local_hhmm(dt: datetime) -> str:
     return dt.astimezone().strftime("%H:%M")
 
 
-async def probe(settings, cfg) -> None:
-    """The catch-up job (see the module docstring). Never stacks, never reads over a pause, never flips ruling 4."""
-    from api.services import bank_registry, sleep_cycle, sleep_debt, sleep_scheduler
+async def probe(settings) -> None:
+    """The catch-up job (see the module docstring). Never stacks, never reads over a pause, never flips ruling 4.
+
+    The schedule is the ACTIVE bank's own (`load_schedule`), read at every probe — never the one the job was
+    registered with: a bank switch does not re-register jobs, and a bank set to ``manual`` (or ``after_import``,
+    which has no due times) must never be caught up on another bank's 03:00. A demo bank is never read on a schedule
+    (`demo_guard`)."""
+    from api.services import bank_registry, demo_guard, sleep_cycle, sleep_debt, sleep_scheduler
 
     bank_registry.unpin()   # G183(d): the bank active now, whatever context registered this job
     memory_path = settings.memory_path
     key = str(memory_path)
+    cfg = sleep_scheduler.load_schedule(Path(memory_path))
+    if fingerprint(cfg) is None or demo_guard.is_demo(Path(memory_path)):
+        _noticed.pop(key, None)
+        return
     now = _now()
     last = _last_probe.get(key)
     _last_probe[key] = now
@@ -256,6 +265,8 @@ async def probe(settings, cfg) -> None:
     if not readable:
         logger.info(f"Scheduled sleep catch-up: nothing to read for the missed {_local_hhmm(due)} run")
         return
+    if sleep_cycle.get_sleep_state().status == "running":
+        return                           # a run began while the queue was counted: it reads what waits
     logger.info(f"Scheduled sleep: catching up on the missed {_local_hhmm(due)} run")
     await sleep_cycle.run(settings, cycle_id, user_triggered=False,
                           drain=sleep_scheduler._scheduled_drain(settings), catch_up_for=_iso(due))

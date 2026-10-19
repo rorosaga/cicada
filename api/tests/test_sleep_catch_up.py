@@ -59,6 +59,7 @@ def rig(tmp_path, monkeypatch):
 
 
 def _seed(rig, *, since, handled=None, last_run=None, cfg=DAILY):
+    sleep_scheduler.save_schedule(rig.memory, cfg)       # the active bank's own schedule — what the probe reads
     sleep_catch_up.note_schedule(rig.memory, cfg, now=since)
     if handled:
         sleep_catch_up.note_handled(rig.memory, now=handled)
@@ -66,15 +67,15 @@ def _seed(rig, *, since, handled=None, last_run=None, cfg=DAILY):
         sleep_catch_up.note_run_started(rig.memory, now=last_run)
 
 
-def _probe(rig, cfg=DAILY):
-    asyncio.run(sleep_catch_up.probe(rig.settings, cfg))
+def _probe(rig):
+    asyncio.run(sleep_catch_up.probe(rig.settings))
 
 
-def _settle_and_probe(rig, cfg=DAILY):
+def _settle_and_probe(rig):
     """The first probe notices; the next one, five minutes on, runs."""
-    _probe(rig, cfg)
+    _probe(rig)
     rig.clock.advance(minutes=sleep_catch_up.PROBE_MINUTES)
-    _probe(rig, cfg)
+    _probe(rig)
 
 
 def test_asleep_at_the_due_time_the_late_wake_runs_it_once_after_a_settle_and_unattended(rig):
@@ -263,12 +264,13 @@ def test_the_catch_up_run_says_so_in_its_summary(tmp_path, monkeypatch):
     clock = Clock(_local(2026, 10, 19, 8, 12))
     monkeypatch.setattr(sleep_catch_up, "_now", clock)
     cfg = settings(memory, sleep_max_episodes_per_cycle=2)
+    sleep_scheduler.save_schedule(memory, DAILY)
     sleep_catch_up.note_schedule(memory, DAILY, now=_local(2026, 10, 1, 12))
     sleep_catch_up.note_handled(memory, now=_local(2026, 10, 18, 3))
     try:
-        asyncio.run(sleep_catch_up.probe(cfg, DAILY))
+        asyncio.run(sleep_catch_up.probe(cfg))
         clock.advance(minutes=sleep_catch_up.PROBE_MINUTES)
-        asyncio.run(sleep_catch_up.probe(cfg, DAILY))
+        asyncio.run(sleep_catch_up.probe(cfg))
         ds = sleep_cycle.get_sleep_state().drain
         assert ds is not None and ds.started_by == "schedule" and ds.finished
         summary = sleep_runs.get(memory, ds.drain_id)
@@ -278,3 +280,56 @@ def test_the_catch_up_run_says_so_in_its_summary(tmp_path, monkeypatch):
         state.status, state.drain, state.drain_run, state.cancel_requested = "idle", None, False, False
         registry_module.reset_registry()
         sleep_catch_up.reset_for_tests()
+
+
+def test_the_probe_reads_the_active_banks_own_schedule_never_the_registered_one(rig, tmp_path):
+    """Review B1: jobs are registered with the start bank's schedule and a bank switch does not re-register them.
+    A bank set to `manual` (or `after_import`) is never caught up on another bank's 03:00, however much waits."""
+    import os
+
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+    sched = AsyncIOScheduler()
+    sleep_scheduler.register_job(sched, SimpleNamespace(memory_path=tmp_path / "bank-a"), DAILY)   # bank A: daily
+    job = sched.get_job(sleep_catch_up.JOB_ID)
+    assert list(job.args) == [job.args[0]], "the probe is handed no schedule of its own"
+    for mode in ("manual", "after_import"):
+        sleep_catch_up.reset_for_tests()
+        sleep_scheduler.save_schedule(rig.memory, ScheduleConfig(mode=mode, hour=3, minute=0))
+        two_days_ago = _local(2026, 10, 17, 12).timestamp()
+        os.utime(rig.memory / sleep_scheduler.SCHEDULE_FILE, (two_days_ago, two_days_ago))
+        _settle_and_probe(rig)
+        _settle_and_probe(rig)
+        assert rig.calls == [], f"bank B is {mode}: nothing scheduled to catch up"
+
+
+def test_a_switched_to_daily_bank_catches_up_its_own_time(rig):
+    # Registered with 03:00 elsewhere; this bank's own schedule is 05:30.
+    own = ScheduleConfig(mode="daily", hour=5, minute=30)
+    _seed(rig, since=_local(2026, 10, 1, 12), handled=_local(2026, 10, 18, 6), cfg=own)
+    _settle_and_probe(rig)
+    assert len(rig.calls) == 1
+    assert datetime.fromisoformat(rig.calls[0]["catch_up_for"]) == _local(2026, 10, 19, 5, 30)
+
+
+def test_a_demo_bank_is_never_caught_up(rig):
+    from api.services import demo_guard
+
+    demo_guard.write_manifest(rig.memory)
+    _seed(rig, since=_local(2026, 10, 1, 12), handled=_local(2026, 10, 18, 3))
+    _settle_and_probe(rig)
+    assert rig.calls == []
+
+
+def test_a_run_that_starts_while_the_queue_is_counted_is_not_stacked_on(rig, monkeypatch):
+    real_compute = __import__("api.services.sleep_debt", fromlist=["compute"]).compute
+
+    async def compute_then_a_run_starts(memory_path, settings=None):
+        out = await real_compute(memory_path, settings)
+        sleep_cycle.get_sleep_state().status = "running"     # the person pressed Consolidate meanwhile
+        return out
+
+    monkeypatch.setattr("api.services.sleep_debt.compute", compute_then_a_run_starts)
+    _seed(rig, since=_local(2026, 10, 1, 12), handled=_local(2026, 10, 18, 3))
+    _settle_and_probe(rig)
+    assert rig.calls == []

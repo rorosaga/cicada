@@ -146,7 +146,7 @@ def _register_job(scheduler: AsyncIOScheduler, settings: Settings, cfg: Schedule
             sleep_catch_up.probe,
             IntervalTrigger(minutes=sleep_catch_up.PROBE_MINUTES),
             id=sleep_catch_up.JOB_ID,
-            args=[settings, cfg],
+            args=[settings],   # the probe reads the active bank's own schedule each time, never this `cfg`
             replace_existing=True,
             coalesce=True,
             misfire_grace_time=sleep_catch_up.PROBE_MINUTES * 60,
