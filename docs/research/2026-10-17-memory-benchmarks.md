@@ -339,3 +339,92 @@ Plan calls: 400 (200 before, 200 after: answers and judges, no Sleep).
 **Still open.** Paraphrase: a turn sharing no word with the question is never chosen even when the vector leg ranks its
 conversation first (LoCoMo "how does she prioritize self-care?" → "carving out some me-time"); window-sized vector chunks;
 multi-session counting and list questions (unchanged); the judge validation on hand grades.
+
+## Ask depth: which conversation is current, counts and lists, passages the model reads (2026-10-19, branch `feat/ask-depth-2`)
+
+**The problems** (the owner's eval after #344, measured by the owner): two hedged-wrong answers where an earlier
+conversation beat the later one that settled it (an outcome after a plan; an agreed price after a listing price); one
+answer about one specific older conversation that broke after #344; counts and lists ("how many times …") that a
+top-4 cut cannot answer; episode vectors cut at 4,000 characters for models that read 512 tokens.
+
+**What changed** (`docs/architecture/mcp.md`, "Which conversation is current"; `storage.md`, the episode cut):
+
+1. *Recency, by subject and by the question's own words, never by date alone.* `question_shape` (no model) reads the
+   question: `lookup`, `latest` (final / ended up / currently / agreed …), `anchored` (a day it names, "the first
+   time", "originally") or `enumerate` (how many / list every / which … have I). A conversation is on the subject when
+   it holds half the weight of the question's words the best one holds (two of them), ranked in the fused top 20.
+   `lookup` keeps the newest on-subject conversation in the window (one slot), `latest` two; a kept conversation shows
+   its best turn before the budget fills by score; lines stay oldest first and rule 11 says the later line on one
+   subject carries what happened after, and that a question about one past occasion is answered from it. `anchored`
+   never adds a later conversation and keeps the named day's. *Why this and not a recency boost in the ranking:* a
+   boost moves every question toward new conversations, including the ones about an older occasion (the #344
+   regression's shape); a reserved slot only adds the newest conversation on the same subject beside the best ones,
+   and never on an anchored question. *Why not reorder the prompt newest-first:* rule 9 already reads days; the
+   failure was that the later conversation never reached the prompt.
+2. *Counts and lists: breadth on top of depth.* `enumerate` reads the plain 4 as any question does, then one ≤ 300-
+   character line from each further on-subject conversation, up to 10 conversations and 1,800 more characters, and
+   tells the model to count distinct events once. A first version that replaced the plain 4 with ten short lines lost
+   answer turns on value questions the gate takes for counts ("how many stars do I need", "how many weeks ago"):
+   on LongMemEval_S the answer turn reached the prompt for 48 of 64 against dev's 52. The breadth-on-top form keeps 52.
+3. *The leg counts what it can show.* The word index marks index-only episodes (`docs.meta.index_only`, schema 6);
+   a word's rarity, the conversation count and the ranking skip them. Before, every watched day counted (the owner's
+   bank: ~2,500 day episodes and ~3,100 list saves beside its conversations), so a word common in video titles read as
+   common and was dropped, and their passages could fill the bm25 top 150. Passages are now scored by the conversation-
+   level weights of the words they hold (top-1 unchanged on LongMemEval_S: 58 of 64 both).
+4. *Passages the model reads.* `EPISODE_CHUNK_CHARS` 4,000 → 1,600 (overlap 200), recorded as `chunks:episodes`; an
+   old table is re-cut by the background re-embed, never by Sleep (tests: Sleep embeds only the new conversation at the
+   old cut; the job re-cuts; `pending_switch` names the episode table).
+5. *Embed once:* measured — the question is embedded once per Ask already (the page leg's claim search and the search
+   leg share the vector through the indexer's per-model query cache). No change.
+
+**Search model:** EmbeddingGemma 2 (Core ML, the owner's model) for every number below; e5-small numbers taken
+earlier are discarded.
+
+**How much of a passage the model reads** (EmbeddingGemma 2 tokenizer, 512 tokens):
+
+| Text | 4,000-char passages over 512 tokens / characters unread | 1,600-char passages |
+|---|---|---|
+| LongMemEval_S chats (3,048 sessions) | 82 % / 36 % | 0.7 % / 0.1 % |
+| LoCoMo conv-26 | 74 % / 34 % | 0 / 0 |
+| synthetic 1,500-episode bank (long English words) | 62 % / 12 % | 0 / 0 |
+
+**Index size and sync** (synthetic 1,500 episodes, EmbeddingGemma 2 on the Neural Engine, full build): 3,094 → 7,415
+vectors (2.1 → 4.9 per episode), 25.0 → 40.6 MB, full sync 87 → 97 s, an idle sync 413 → 471 ms.
+
+**Retrieval, no model** (LongMemEval_S, un-consolidated, ~50 sessions a bank; 64 questions: 16 knowledge-update,
+16 multi-session, 8 of each other type; dev vs this branch):
+
+| | dev | this branch |
+|---|---|---|
+| vectors alone: evidence conversation top-1 / top-4 / top-10 | 56 / 61 / 63 | **60** / 62 / 64 |
+| fused: evidence top-1 / top-4 | 58 / 63 | 58 / 64 |
+| a turn holding the answer reaches the prompt | 52 | 52 |
+| multi-session: evidence sessions whose answer turn is shown | 17 of 49 | **19** of 49 (21 at the old cut) |
+| knowledge-update: the newer evidence session's answer turn shown | 15 of 16 | 14 of 16 |
+| temporal: evidence sessions shown | 11 of 18 | 12 of 18 |
+| preference: answer turn shown | 4 of 8 | 3 of 8 |
+| leg chars p50 / max · leg ms p50 / p95 | 3.5k / 4.0k · 15.6 / 35.9 | 3.6k / 6.1k · 15.9 / 26.4 |
+| 5 sessions merged into ~45k-char exports (24 Qs): answer turn shown · multi-session sessions | 20 · 6 of 24 | 21 · 9 of 24 |
+
+**Answers, same banks before/after** (the dev Sleep banks re-embedded with EmbeddingGemma 2; sonnet answer and judge
+on the plan; only questions whose prompt changed were answered again — an unchanged prompt is the same question to
+the model): LoCoMo conv-26, 31 of 40 prompts changed: **26 → 25** right (single-hop 8 → 8 of 9, multi-hop 6 → 6 of 9,
+temporal 5 → 5 of 6, open-domain 7 → 6 of 7); the flip is the judge on two near-identical "memory says nothing,
+probably yes" inferences. LongMemEval oracle, 3 of 20 changed: 3 → 2; the flip is the judge on two equivalent
+abstentions ("none recorded" vs "zero as far as the record goes"). Confidently wrong answers: 0 → 0 on both. conv-49:
+37 of 40 prompts changed, not re-answered (plan budget) — context only. Context build without the model (warm, a
+loaded machine): conv-26 p50 24.7 → 23.4 ms, p95 28.2 → 32.3; conv-49 30.3 → 28.8, 37.1 → 32.9; LongMemEval 14.9 →
+15.0, 19.5 → 23.0. Prompt p50 (max): conv-26 12.1k → 12.4k (21.9k → 22.1k), conv-49 15.3k → 15.5k (23.8k → 23.3k),
+LongMemEval 9.1k → 9.1k (17.1k → 17.4k).
+
+**Reading it.** On the public slices the changes are neutral within noise: their questions rarely have a later
+conversation that settles an earlier one (LongMemEval_S knowledge-update already shows both values for 15 of 16), and
+their counts need answer turns that share few of the question's words, which breadth lines (the best-matching turn
+of each conversation) only sometimes are (17 → 19 of 49). The window-sized cut is a real retrieval gain for the vector
+leg (top-1 56 → 60 of 64) at 2.4 times the vectors and +11 % sync time. The owner's eval is where the outcome-after-
+plan shape lives; it is re-run after merge. Plan calls: 526 (dev baselines with Sleep 370, of which 161 Sleep; the
+Gemma re-answers 156).
+
+**Still open.** The newest conversation's *answer* turn is not guaranteed — only its best-matching turn (one
+knowledge-update question lost its answer turn to that); counts whose evidence turns share no rare word with the
+question; the judge's strictness on abstentions phrased as "zero".

@@ -776,11 +776,10 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   25 misses about a known conversation; its words reached the prompt for 5, episode search ranked it top-5 for 16).
   Now `ask_sources.search` also finds the conversations by the question's own words, from the derived indexes only
   (no model, no write, the query never logged): the word index's passages holding **any** of the question's subject
-  words, bm25-ranked over the whole text (so the middle of a long export is as findable as its head — an episode's
-  vector chunks are 4,000 characters but the local models read 512 tokens of each), fused by rank with the vector
-  index's episode chunks. Each word is weighted by how rare it is across the bank's conversations; a word in more
-  than half of them (the person's own name, "plan") counts for nothing, and a question made only of such words shows
-  nothing. `gather_search` reads the best 4 conversations (index-only episodes skipped, ruling 30) and keeps the turns
+  words, ranked over the whole text (so the middle of a long export is as findable as its head), fused by rank with
+  the vector index's episode chunks. Each word is weighted by how rare it is across the bank's conversations; a word
+  in more than half of them (the person's own name, "plan") counts for nothing, and a question made only of such words
+  shows nothing. `gather_search` reads the best 4 conversations (index-only episodes skipped, ruling 30) and keeps the turns
   holding the rarer words (a word as the index matched it: at a word's start, any ending), at most 6 excerpts and
   3,000 characters, never a turn the page leg already showed — same speaker labels, days, clipping and context turns
   as WHAT WAS SAID, each line naming its conversation (`[ep_…]`). Rule 11: a shared word does not make a line about
@@ -792,6 +791,34 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   with no model call. Bounded: context build p50 +4–7 ms, prompt p50 +~1k characters on LoCoMo; on un-consolidated
   LongMemEval_S chats it put a turn holding the answer in the prompt for 39 of 48 questions
   (`docs/research/2026-10-17-memory-benchmarks.md`, "the search leg").
+- **Which conversation is current; counts and lists (2026-10-19, Ask depth).** The leg ranks and counts over the
+  conversations it can show: an index-only episode (a watched day, a list save — ruling 30) is marked in the word
+  index (`docs.meta.index_only`, schema 6) and is neither counted in a word's rarity nor ranked, so thousands of
+  watched days can't make a word look common or fill the ranking. A passage scores the weights of the question's
+  words it holds; a conversation ranks by its best passage, then by the weight of all the words it holds. Then the
+  question's own words decide its **shape** (`ask_sources.question_shape`, no model): a count or a list ("how many",
+  "how often", "list every", "which … have I") is `enumerate`; a day it names ("on 9 April 2025", "March 3", "in June
+  2024", "yesterday") or "the first time / originally / used to" is `anchored`; an outcome or a current value
+  ("final", "ended up", "eventually", "currently", "still", "agreed") is `latest`; anything else `lookup`. A
+  conversation is **on the subject** when it holds at least half the weight of the question's words the best
+  conversation holds, two of them when that one holds two or more, and ranks in the fused top 20 ("the gravel bike"
+  said again without "price" when the price was agreed is still the subject; a chat about any trip is not "my family
+  trip"). `lookup` keeps the newest on-subject conversation inside the 4 read (one slot), `latest` the newest two —
+  when several conversations on one subject match, the later one carries what happened (the outcome after the plan,
+  the agreed price after the listing) — and a kept conversation shows its best turn before the rest of the budget
+  fills by score. `anchored` keeps the conversations of the named day (at most 2) and never adds a later one; the
+  best-ranked conversation is never pushed out. `enumerate` reads the 4 exactly as any question does, then adds one
+  line (≤ 300 characters, no context turns) from each further on-subject conversation and each of the 4 the budget
+  left without a line, up to 10 conversations and 1,800 more characters; its header tells the model to count each
+  distinct event once and say the count covers what memory shows. A value question the gate takes for a count ("how
+  many stars do I need") so loses nothing. Lines stay oldest first. Rule 11 adds: lines on one subject on different
+  days — the later is what happened after (answer with it, the earlier as history, never "the outcome is not
+  recorded" when a later line states it); a question about one past occasion is answered from that occasion, and a
+  later line about something else never replaces it or what the entities and WHAT WAS SAID show. The page leg's WHAT
+  WAS SAID keeps its own budget and comes first; the search leg never repeats a turn it showed. The question is
+  embedded once per Ask: the page leg's claim search and this leg share the vector through the indexer's per-model
+  query cache (measured: one query embed per Ask). Measured: `docs/research/2026-10-17-memory-benchmarks.md`, "Ask
+  depth".
 - **The `sources` scope.** `answer_query(source_words=...)`, `POST /ask` `sourceWords` (default true): `cicada_ask`
   passes `ctx.raw_excerpts`, so a remote connector without `sources` gets no conversation words in the prompt (R-R22)
   — neither leg runs for it.

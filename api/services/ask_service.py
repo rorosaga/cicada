@@ -129,7 +129,13 @@ entity cites them. They are the person's record word for word, with rule 8's spe
 days, but a shared word does not make a line about the question's subject: use a line only when it \
 plainly speaks of what the question asks (the same person, thing and event), say the day it was \
 said, and list its conversation id in ``used_conversations``. Lines that only share words are not an \
-answer; when nothing else answers, say what memory lacks as usual.
+answer; when nothing else answers, say what memory lacks as usual. When lines on the same subject were \
+said on different days, the later one carries what happened after the earlier: an outcome after a \
+plan, an agreed or final value after an asked or listed one — answer with the later and give the \
+earlier as history, never "the outcome is not recorded" when a later line states it. That holds only \
+within one subject: a question about one past occasion (a day it names, the first time, one \
+conversation) is answered from that occasion, and a later line about something else, or the same \
+words in another context, never replaces it or what the entities and WHAT WAS SAID already show.
 
 Return ONLY a JSON object with exactly these keys:
 {
@@ -634,10 +640,17 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
         if more:
             if shown is not None:
                 shown["conversations"] = _conversation_refs(more)
+            how = ("each names its conversation's id; oldest first, so the last line on a subject is the latest "
+                   "said")
+            if getattr(searched, "shape", None) == ask_sources.SHAPE_ENUMERATE:
+                how = ("the question asks for a count or a list, so past the best conversations comes one short "
+                       f"line from each further conversation holding its words, up to {ask_sources.ENUM_EPISODES} "
+                       "in all; each names its conversation's id and day, oldest first. Count each distinct event "
+                       "once — the same event told in two conversations is one — add what the entities above show, "
+                       "and say the count covers what memory shows")
             context += ("\n\nOTHER CONVERSATIONS (word for word, found by searching every conversation for the "
                         "question's words; no page above cites these lines, so they may be about something else; "
-                        "each names its conversation's id; oldest first):\n"
-                        + ask_sources.render(more, with_episode=True))
+                        f"{how}):\n" + ask_sources.render(more, with_episode=True))
     return (
         f"QUESTION:\n{query}\n\n"
         f"CURRENT LOCAL DAY: {current_day().isoformat()}\n"

@@ -140,7 +140,9 @@ def test_index_only_episodes_are_never_shown(bank):
              source=history_index.HISTORY_SOURCE)
     search_index.ensure_fresh(bank, wait=True, max_age_s=0)
     found = ask_sources.search(bank, "Which Postgres talk about alpha-project?")
-    assert "ep_2025-05-01_001" in found.episodes, "the index finds it"
+    # 2026-10-19: neither ranked nor counted — a word's rarity is over the conversations the leg can show.
+    assert "ep_2025-05-01_001" not in found.episodes
+    found.episodes.append("ep_2025-05-01_001")   # and were one handed to the reader, it is still never shown
     shown = ask_sources.gather_search(bank, "Which Postgres talk about alpha-project?", found)
     assert "ep_2025-05-01_001" not in {e.episode for e in shown}, "ruling 30: a watched day is a record, not words"
 
@@ -198,3 +200,158 @@ def test_the_question_is_never_logged(bank, monkeypatch):
         logger.remove(sink)
     assert found.episodes == []
     assert lines and not any("alpha-project" in line or "database" in line for line in lines)
+
+
+# --------------------------------------------------------------------------------------------------------------- #
+# Which conversation is current, counts and lists, and what the leg counts (2026-10-19, Ask depth)
+# --------------------------------------------------------------------------------------------------------------- #
+
+def _bike_bank(memory) -> None:
+    """Five earlier conversations about a bike's listing price, then the later one where the price was agreed — which
+    shares fewer of a question's words than any of them."""
+    for i, day in enumerate(("2025-04-02", "2025-04-05", "2025-04-09", "2025-04-12", "2025-04-15")):
+        _episode(memory, f"ep_{day}_001", [
+            f"user: The listing price for the gravel bike is 900; the seller says the price is firm, note {i}.",
+            "assistant: A listing price is where a negotiation starts; ask about the price again later."])
+    _episode(memory, "ep_2025-05-20_001", ["user: Done: we settled at 720 for the gravel bike, picking it up Friday.",
+                                           "assistant: Congratulations on the new bike!"])
+    search_index.ensure_fresh(memory, wait=True, max_age_s=0)
+
+
+def test_the_later_conversation_that_settled_it_is_shown_beside_the_earlier_plan(bank):
+    _bike_bank(bank)
+    question = "What was the final price for the gravel bike?"
+    assert ask_sources.question_shape(question) == ask_sources.SHAPE_LATEST
+    found = ask_sources.search(bank, question)
+    assert found.kept.get("ep_2025-05-20_001") == "latest"
+    assert "ep_2025-05-20_001" in found.episodes[:ask_sources.SEARCH_EPISODES], "kept inside the window"
+    shown = ask_sources.gather_search(bank, question, found)
+    assert any("settled at 720" in e.text for e in shown), "the outcome reaches the model"
+    assert any("listing price" in e.text for e in shown), "beside the earlier value, as history"
+    _, model = _ask(bank, question)
+    other = model.prompts[0].split("OTHER CONVERSATIONS", 1)[1]
+    assert other.index("listing price") < other.index("settled at 720"), "oldest first: the last line is the latest"
+    assert "the later one carries what happened after the earlier" in ask_service.ASK_SYSTEM_PROMPT
+
+
+def test_a_plain_question_keeps_the_newest_conversation_on_its_subject_too(bank):
+    _bike_bank(bank)
+    found = ask_sources.search(bank, "How much is the gravel bike?")
+    assert found.shape == ask_sources.SHAPE_LOOKUP
+    assert "ep_2025-05-20_001" in found.episodes[:ask_sources.SEARCH_EPISODES]
+
+
+def test_a_kept_conversation_shows_its_best_turn_before_the_rest_fill_by_score(bank):
+    _bike_bank(bank)
+    for i in range(3):   # the earlier conversations' second lines outscore the later one's only line
+        _episode(bank, f"ep_2025-04-2{i}_001", [f"user: Gravel bike listing price check {i}: price still 900 for the "
+                                                "gravel bike, the price is firm."] * 3)
+    search_index.ensure_fresh(bank, wait=True, max_age_s=0)
+    found = ask_sources.search(bank, "What was the final price for the gravel bike?")
+    shown = ask_sources.gather_search(bank, "What was the final price for the gravel bike?", found)
+    assert any(e.episode == "ep_2025-05-20_001" for e in shown), "the newest on the subject is never crowded out"
+
+
+def test_a_day_the_question_names_is_never_pushed_out_by_a_later_one(bank):
+    _bike_bank(bank)
+    question = "What did the seller say about the gravel bike price on 9 April 2025?"
+    assert ask_sources.question_shape(question) == ask_sources.SHAPE_ANCHORED
+    found = ask_sources.search(bank, question)
+    assert found.kept == {"ep_2025-04-09_001": "named"}, "the named day, and no newest-on-the-subject slot"
+    assert "ep_2025-04-09_001" in found.episodes[:ask_sources.SEARCH_EPISODES]
+
+
+def test_a_question_about_the_first_time_gets_no_later_conversation_slot(bank):
+    _bike_bank(bank)
+    found = ask_sources.search(bank, "What was the price of the gravel bike when I first saw it?")
+    assert found.shape == ask_sources.SHAPE_ANCHORED and "latest" not in found.kept.values()
+
+
+def test_the_page_legs_evidence_stays_in_front_of_the_model(bank):
+    """A question a page's claim answers from an older conversation keeps that evidence word for word, before the
+    leg's lines; the leg never repeats it, and a question about the first time gets no later-conversation slot."""
+    from api.services.claims import Claim, Evidence, write_claims
+
+    _bike_bank(bank)
+    old = "ep_2025-04-02_001"
+    body = evidence.source_text(bank, old)
+    quote = "The listing price for the gravel bike is 900"
+    at = body.index(quote)
+    span = Evidence(episode=old, start=at, end=at + len(quote), kind="user", hash=evidence.body_hash(body))
+    page = write_claims("## Summary\nA bike the person looked at.\n", [Claim(
+        id="clm_2025-04-02_bike", text="The gravel bike was listed at 900", subject="gravel-bike",
+        predicate="listed-at", object="900", valid_from="2025-04-02", recorded_at="2025-04-02",
+        source_episodes=[old], evidence=[span])])
+    markdown_parser.write(bank / "entities" / "gravel-bike.md",
+                          {"name": "Gravel Bike", "type": "concept", "status": "active", "source_episodes": [old]},
+                          page)
+    bank_index.invalidate()
+    search_index.ensure_fresh(bank, wait=True, max_age_s=0)
+    _, model = _ask(bank, "What was the gravel bike listed at the first time?", pages=("gravel-bike",))
+    prompt = model.prompts[0]
+    assert "WHAT WAS SAID" in prompt
+    said = prompt.split("WHAT WAS SAID", 1)[1].split("OTHER CONVERSATIONS", 1)[0]
+    other = prompt.split("OTHER CONVERSATIONS", 1)[1] if "OTHER CONVERSATIONS" in prompt else ""
+    assert quote in said
+    assert f"[{old}], Alice Example (the person this memory belongs to): \"{quote}" not in other, "never twice"
+    assert prompt.index("WHAT WAS SAID") < (prompt.index("OTHER CONVERSATIONS") if other else len(prompt))
+
+
+def test_a_count_reads_every_conversation_on_its_subject_one_line_each(bank):
+    days = ["2025-02-03", "2025-02-17", "2025-03-02", "2025-03-16", "2025-04-06", "2025-04-20", "2025-05-04"]
+    for day in days:
+        _episode(bank, f"ep_{day}_002", [f"user: Went bouldering at the climbing gym today ({day}), sent a new problem.",
+                                         "assistant: Nice progress at the climbing gym! " + "Keep resting well. " * 20])
+    search_index.ensure_fresh(bank, wait=True, max_age_s=0)
+    question = "How many times did I go to the climbing gym?"
+    assert ask_sources.question_shape(question) == ask_sources.SHAPE_ENUMERATE
+    found = ask_sources.search(bank, question)
+    shown = ask_sources.gather_search(bank, question, found)
+    assert {e.episode for e in shown} == {f"ep_{d}_002" for d in days}, "all seven, past the plain four"
+    assert {e.episode for e in shown if "Went bouldering" in e.text} == {f"ep_{d}_002" for d in days}, \
+        "each conversation's own best line"
+    depth = [e for e in shown if e.episode in found.episodes[:ask_sources.SEARCH_EPISODES]]
+    breadth = [e for e in shown if e not in depth]
+    assert len(breadth) >= len(found.more) == 3 and all(len(e.text) <= ask_sources.ENUM_EXCERPT_CHARS for e in breadth)
+    assert sum(len(e.text) for e in breadth) <= ask_sources.ENUM_CHARS
+    assert sum(len(e.text) for e in depth) <= ask_sources.SEARCH_CHARS, "the plain leg's four, read as for any question"
+    _, model = _ask(bank, question)
+    assert "asks for a count or a list" in model.prompts[0] and "Count each distinct event once" in model.prompts[0]
+
+
+def test_question_shapes_and_named_days():
+    from datetime import date
+
+    shape = ask_sources.question_shape
+    assert shape("How many projects have I led?") == ask_sources.SHAPE_ENUMERATE
+    assert shape("Which books have I read this year?") == ask_sources.SHAPE_ENUMERATE
+    assert shape("What activities does bob-example partake in?") == ask_sources.SHAPE_ENUMERATE
+    assert shape("Where did I end up moving?") == ask_sources.SHAPE_LATEST
+    assert shape("What is my current personal best?") == ask_sources.SHAPE_LATEST
+    assert shape("What did I decide on March 3?") == ask_sources.SHAPE_ANCHORED
+    assert shape("What did bob-example say originally about the plan?") == ask_sources.SHAPE_ANCHORED
+    assert shape("Which database did I choose for alpha-project?") == ask_sources.SHAPE_LOOKUP
+    named = ask_sources.named_days
+    assert named("What happened on 2024-05-08?") == ["2024-05-08"]
+    assert named("What did I say on the 8th of May 2023?") == ["2023-05-08"]
+    assert named("What did we plan on March 3?") == ["-03-03"]
+    assert named("Where was I in June 2024?") == ["2024-06"]
+    assert named("What did I eat yesterday?", today=date(2025, 1, 10)) == ["2025-01-09"]
+    assert named("What did I do three days ago?", today=date(2025, 1, 10)) == ["2025-01-07"]
+    assert named("How was the bike?") == []
+
+
+def test_a_words_rarity_is_counted_over_conversations_not_watched_days(bank):
+    """Thousands of watched days can't make a word look common: counted over every episode, "guitar" (in most of
+    them) would rank nothing and the one conversation about it could not be found."""
+    from api.services import history_index
+
+    for i in range(30):
+        _episode(bank, f"ep_2025-08-{1 + i % 28:02d}_{100 + i:03d}", [f"user: Watched: guitar lesson video {i}"],
+                 source=history_index.HISTORY_SOURCE)
+    _episode(bank, "ep_2025-09-01_001", ["user: I bought a used guitar from the music store for 300."])
+    search_index.ensure_fresh(bank, wait=True, max_age_s=0)
+    found = ask_sources.search(bank, "Where did I buy the guitar?")
+    assert "guitar" in found.weights
+    assert found.episodes[0] == "ep_2025-09-01_001"
+    assert not any(ep.startswith("ep_2025-08-") for ep in found.episodes)
