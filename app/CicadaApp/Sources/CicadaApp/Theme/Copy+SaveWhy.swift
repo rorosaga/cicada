@@ -166,6 +166,10 @@ extension Copy {
     static func questionsWaiting(_ n: Int) -> String {
         "\(UsageFormat.count(n)) question\(n == 1 ? "" : "s") waiting"
     }
+    /// The menu-bar badge's words (owner 2026-10-19): "3 conversations waiting for Sleep".
+    static func waitingForSleep(_ n: Int) -> String {
+        "\(UsageFormat.count(n)) conversation\(n == 1 ? "" : "s") waiting for Sleep"
+    }
     static func menuBarInboxLine(_ n: Int) -> String {
         n == 0 ? "Inbox: no questions waiting" : "Inbox: \(questionsWaiting(n))"
     }

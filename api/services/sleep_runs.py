@@ -90,6 +90,8 @@ def record_leg(memory_path: Path, ds, *, state: str, stop=None, reason: str | No
         "questions_raised": questions,
         "owner": owner,
         "first_run": bool(ds.first_run),
+        # The scheduled time a catch-up run stood in for (aware ISO); a Continue's new leg keeps the first leg's.
+        "catch_up_for": getattr(ds, "catch_up_for", None) or prev.get("catch_up_for"),
     }
     data["runs"][ds.drain_id] = summary
     if ds.drain_id in data["order"]:
@@ -140,4 +142,5 @@ def to_run_ref(summary: dict) -> dict:
         "started_by": summary.get("started_by", "user"),
         "pauses": len(summary.get("pauses") or []),
         "read_ms": int(summary.get("read_ms") or 0), "paused_ms": int(summary.get("paused_ms") or 0),
+        "catch_up_for": summary.get("catch_up_for"),
     }

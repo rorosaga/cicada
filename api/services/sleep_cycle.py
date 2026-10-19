@@ -1464,8 +1464,11 @@ async def _flush_pending_commits_safely(memory_path: Path) -> None:
 
 async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True, drain: bool = False,
               continue_from: dict | None = None, only_ids: list[str] | None = None,
-              tail_only: bool = False) -> None:
+              tail_only: bool = False, catch_up_for: str | None = None) -> None:
     """Execute the 5-stage Sleep cycle pipeline.
+
+    ``catch_up_for`` (owner 2026-10-19): only ``sleep_catch_up`` passes it — the scheduled time the Mac slept or was
+    off through, as an aware ISO stamp. The run's summary keeps it so Past nights says the run caught up that time.
 
     ``tail_only`` (the scheduler, while a run is paused): read nothing — the paused run is
     the person's to continue or end — but still run the engine-free tail (the state refresh,
@@ -1552,6 +1555,11 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
     _state.read_by_origin = {}
 
     memory_path = settings.memory_path
+    if not tail_only:
+        # Any run that reads covers a scheduled time that came before it (`sleep_catch_up`'s "a run happened since").
+        from api.services import sleep_catch_up
+
+        sleep_catch_up.note_run_started(memory_path)
 
     # G74(a) — the models-used ledger is process-global still (L4, Task 4
     # review, handed to Task 5 — a disclosed, accepted same-alias limitation,
@@ -1589,7 +1597,8 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
             _state.progress = "Tidying up while your run is paused"
         elif drain:
             outcome = await _drain(settings, cycle_id, memory_path, user_triggered=user_triggered,
-                                   continue_from=continue_from, only_ids=only_ids)
+                                   continue_from=continue_from, only_ids=only_ids,
+                                   **({"catch_up_for": catch_up_for} if catch_up_for else {}))
         else:
             outcome = await _run_batch(settings, cycle_id, memory_path, user_triggered=user_triggered)
     except Exception as e:
@@ -1805,7 +1814,7 @@ def _write_run_record(ds: "sleep_drain.DrainState", memory_path: Path, *, phase:
 
 async def _drain(
     settings: Settings, cycle_id: str, memory_path: Path, *, user_triggered: bool,
-    continue_from: dict | None = None, only_ids: list[str] | None = None,
+    continue_from: dict | None = None, only_ids: list[str] | None = None, catch_up_for: str | None = None,
 ) -> _StageOutcome:
     """A run that reads everything that was waiting when it began (owner,
     2026-09-29 — "it's just progress that cicada has to go through"; scheduled runs too
@@ -1874,6 +1883,7 @@ async def _drain(
         continue_after_reset=bool(opts.continue_after_reset and user_triggered),
         reserve_pct=opts.reserve_pct,
     )
+    ds.catch_up_for = catch_up_for if not user_triggered else None
     ds.memory_path = memory_path
     ds.origin_of = sleep_progress.origin_of_ids(memory_path, ids)
     ds.parked = {i: str((parked_map.get(i) or {}).get("reason") or "other") for i in ids if i in parked_now}

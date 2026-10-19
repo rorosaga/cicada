@@ -60,6 +60,19 @@ enum RunPresentation {
                                 parked: ref.parked, locale)
     }
 
+    /// "Missed 3:00 AM — caught up at 8:12 AM" for a scheduled run that stood in for a time the Mac slept or was off
+    /// through (owner 2026-10-19); `nil` for every other run. The missed time carries its day when it is not the
+    /// run's own day (a 03:00 caught up after the next midnight).
+    static func catchUp(_ ref: SleepRunRef, timeZone: TimeZone = .current) -> String? {
+        guard ref.startedBy == "schedule", let missed = ref.catchUpFor, let start = ref.startedAt else { return nil }
+        let at = SleepHistoryPresentation.timeText(start, timeZone: timeZone)
+        var missedText = SleepHistoryPresentation.timeText(missed, timeZone: timeZone)
+        guard missedText != "—", at != "—" else { return nil }
+        let day = SleepHistoryPresentation.dateText(missed, timeZone: timeZone)
+        if day != SleepHistoryPresentation.dateText(start, timeZone: timeZone) { missedText = "\(day), \(missedText)" }
+        return Copy.SleepV5.catchUpLine(missed: missedText, at: at, failed: ref.state == "failed")
+    }
+
     /// The batches table's first column: "Batch 5 · 9 filed · 16 not filed".
     static func batchLine(_ batch: SleepRunDetail.Batch, locale: Locale = .autoupdatingCurrent) -> String {
         Copy.SleepV5.batchRow(batch.index, filed: batch.filed, notFiled: batch.notFiled, locale)
@@ -100,6 +113,14 @@ struct PastRunRow: View {
                         .font(CicadaTheme.bodyFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
+                    if let caughtUp = RunPresentation.catchUp(ref) {
+                        // Owner 2026-10-19 — a schedule's missed time, said in words on the run's own row (DR-48 rows).
+                        Text(caughtUp)
+                            .font(CicadaTheme.metaFont)
+                            .monospacedDigit()
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     if let times = RunPresentation.times(ref) {
                         Text(times)
                             .font(CicadaTheme.metaFont)
@@ -128,7 +149,8 @@ struct PastRunRow: View {
         .buttonStyle(.cicadaPlain)
         .onHover { hovering = $0 }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel([Copy.SleepV5.readingAll, RunPresentation.summary(ref), RunPresentation.times(ref)]
+        .accessibilityLabel([Copy.SleepV5.readingAll, RunPresentation.summary(ref), RunPresentation.catchUp(ref),
+                             RunPresentation.times(ref)]
             .compactMap { $0 }.joined(separator: ", "))
     }
 }

@@ -19,7 +19,7 @@ from loguru import logger
 
 from api.config import Settings
 from api.models.schemas import ScheduleConfig
-from api.services import bank_registry, sleep_cycle, sleep_paused
+from api.services import bank_registry, sleep_catch_up, sleep_cycle, sleep_paused
 
 JOB_ID = "sleep_daily"
 SCHEDULE_FILE = "sleep_schedule.yaml"
@@ -130,10 +130,28 @@ def register_job(
 
 
 def _register_job(scheduler: AsyncIOScheduler, settings: Settings, cfg: ScheduleConfig) -> None:
-    try:
-        scheduler.remove_job(JOB_ID)
-    except Exception:
-        pass
+    for job_id in (JOB_ID, sleep_catch_up.JOB_ID):
+        try:
+            scheduler.remove_job(job_id)
+        except Exception:
+            pass
+    if cfg.mode in ("daily", "interval"):
+        # Owner 2026-10-19: a time the Mac slept or was off through runs once when it is back (`sleep_catch_up`).
+        # The schedule's own timer keeps a minute's grace for a wake just after the time; later is the catch-up's.
+        try:
+            sleep_catch_up.note_schedule(settings.memory_path, cfg)
+        except Exception:  # noqa: BLE001 - a stand-in settings object, or an unreadable bank: the probe notes it later
+            pass
+        scheduler.add_job(
+            sleep_catch_up.probe,
+            IntervalTrigger(minutes=sleep_catch_up.PROBE_MINUTES),
+            id=sleep_catch_up.JOB_ID,
+            args=[settings],   # the probe reads the active bank's own schedule each time, never this `cfg`
+            replace_existing=True,
+            coalesce=True,
+            misfire_grace_time=sleep_catch_up.PROBE_MINUTES * 60,
+            next_run_time=datetime.now().astimezone() + timedelta(minutes=1),
+        )
     if cfg.mode == "manual":
         logger.info("Sleep schedule: manual — no job registered")
         return
@@ -144,6 +162,8 @@ def _register_job(scheduler: AsyncIOScheduler, settings: Settings, cfg: Schedule
             id=JOB_ID,
             args=[settings],
             replace_existing=True,
+            coalesce=True,
+            misfire_grace_time=sleep_catch_up.ON_TIME_GRACE_S,
         )
         logger.info(f"Sleep schedule registered: daily at {cfg.hour:02d}:{cfg.minute:02d}")
         return
@@ -154,6 +174,8 @@ def _register_job(scheduler: AsyncIOScheduler, settings: Settings, cfg: Schedule
             id=JOB_ID,
             args=[settings],
             replace_existing=True,
+            coalesce=True,
+            misfire_grace_time=sleep_catch_up.ON_TIME_GRACE_S,
         )
         logger.info(f"Sleep schedule registered: every {cfg.interval_hours}h")
         return
@@ -249,6 +271,8 @@ async def _run_if_idle(settings: Settings) -> None:
     run waits for the person it reads nothing (that would replace the pause) but still runs
     the engine-free tail (``run(tail_only=True)``)."""
     bank_registry.unpin()   # G183(d): the bank active now, whatever context scheduled this (`register_job`)
+    # This time took its turn, whatever follows (a running cycle, a pause, a failure): the catch-up never repeats it.
+    sleep_catch_up.note_handled(settings.memory_path)
     state = sleep_cycle.get_sleep_state()
     if state.status == "running":
         logger.info("Skipping scheduled sleep cycle: another cycle is running")

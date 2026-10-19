@@ -414,7 +414,11 @@ for the handles of every ticked conversation, at most once an hour per chat (aft
 `handledNicknamesKeyStore.db` copied with its
 `-wal`/`-shm` into a private temporary folder and queried there, so Messages' files are never written or locked; the
 record's keyed archive read as a property list, never unarchived; the `…-ad` avatar file used only as a regular file
-directly in that folder, ≤ 8 MB, made ≤ 128 px; the bytes stay in `MessagesWatcher.sharedPhotos` for the bubbles and,
+directly in that folder, ≤ 8 MB, made ≤ 128 px — named either as a bare file or, as the current macOS writes it
+(measured 2026-10-19: every real record had yielded nothing), as an absolute `imageFilePath` inside a nested
+`NickNameImage` dictionary, accepted only when its parent is exactly that folder and then used by its last component
+through the same checks (`folderFileName`); the record's `rid` (the same base64 with "/" where the file has "_") is not
+turned into a name, since the path is what Messages wrote and the "/" → "_" rule would be a guess; the bytes stay in `MessagesWatcher.sharedPhotos` for the bubbles and,
 when they changed since the last post, go to `PUT /sources/messages/photos` (2026-10-16), which keeps them outside every
 bank and draws them at the chat's page everywhere — the `messages` picture rung, `storage.md`; a chat that stopped
 sharing is posted as none, and a key store that could not be read posts nothing, so a revoked permission never removes
@@ -1056,7 +1060,7 @@ and cost (ruling 12). A tail link, a spine or a Home hand-off names an old Detai
 page selects the tab holding it (`SleepTab.holding`) and brings the tab row to the top in one frame. Opening a saved item
 (or the watch run) turns the page into progressive columns: the tab row rides the eyebrow, the list is the triage
 column, the item the detail, the Reader the third column (`AppTab.hostsOwnReader`); Esc closes the rightmost.
-Each queued episode row (`EpisodeRow`, also in the spine popover) is one button: a click copies what Sleep would read — `GET /sleep/episodes`'s `copyValue` from `episode_copy` (a page's link, a conversation's session id, a tab group's links, a folder file's full path, else the episode id) — with a brief toast (`Store.flash`); its meta line names that target and it ends with its day (`changedAt`: a conversation's last capture, else when it arrived; owner 2026-10-05). The worm speaks in that one fixed slot —
+Each queued episode row (`EpisodeRow`, Waiting and Past reads' lists and the spine popover) is one button: a click opens the stored episode in the Reader (`ReaderTarget(episode:)`, `GET /episodes/{id}/text`, from the top; `EpisodeRowAction.primary`, owner 2026-10-19 — "episode ID copied" gave the person nothing to do). Copying what Sleep would read — `GET /sleep/episodes`'s `copyValue` from `episode_copy` (a page's link, a conversation's session id, a tab group's links, a folder file's full path, else the episode id) — is the row's context menu and a named VoiceOver action ("Copy Link", "Copy Conversation ID"), with its brief toast (`Store.flash`). The meta line names only a target a person can read (a site and path, "3 tab links", a file's name) and "read"; a session id and the raw `ep_` id left it for `.help` ("… · Episode ep_…", DR-54). It ends with its day (`changedAt`: a conversation's last capture, else when it arrived; owner 2026-10-05). DR-48, DR-54, DR-69. The worm speaks in that one fixed slot —
 `roomSentence` / `wormAnswers`, pure
 `SentenceLine` values over `SleepPageModel` (lead ≤ 40, tail ≤ 80, clock-free; a missing fact
 omits its rung, never shows a guess); the floating bubble is retired. The slot reserves nothing (R-Z5 as amended
@@ -1266,7 +1270,9 @@ per-conversation rows from `GET /sleep/queue` (refetched when the run's counts m
 server refuses it then (`LastCycleRow.canRetryParked`) — a scheduled run's spend note billed from the run's own usage, never today's preview, and Past nights
 folded by run (`PastNightItem.group`, the run's numbers from the server's `run`, never summed from visible rows; opened: models, cost, pages,
 batches and pauses from `GET /sleep/runs/{id}`, cached in the view model and refetched when the run's counts, pause or end move; touched pages
-by name, the id in `.help`). The app-level `SleepViewModel` empties its queue, run details and history details on a bank switch
+by name, the id in `.help`). A scheduled run that caught up a time the Mac slept or was off through (`sleep_catch_up`,
+`features.md`) carries `catchUpFor` on its `run` and its row says so in words — "Missed 3:00 AM — caught up at 8:12 AM",
+"tried" for a failed one, the missed day added when it is not the run's (`RunPresentation.catchUp`, owner 2026-10-19). The app-level `SleepViewModel` empties its queue, run details and history details on a bank switch
 (`Store.onBankChanged`). `PriceLintTests` keeps `$` and token literals out of every other Sleep
 file.
 A refused bank switch shows the server's own 409 sentence (`BankSwitchFailure`), from every door: the switcher, the demo's enter and leave (`DemoMode.leaveToast`) and an active bank's rename.
@@ -1318,9 +1324,15 @@ cheer), gated by one state × response matrix (`BookwormState.allows`, `acceptsG
 shut and the X-eyed error worm never looks away. The selected mascot resolves through `MascotRegistry`; the current
 Bookworm entry is the owner's design as Aseprite sheets
 (`Resources/sprites/bookworm-<state>`, 64 × 48; the menu bar's `bookworm-small`, 18 × 18, with badge and stage dots
-drawn in code — the badge counts the inbox's questions up to 99, then "99+" (`BookwormOverlays.badgeText`, a 13-pixel
-pill), and says so in words: the header's "133 questions waiting", the inbox line and the status item's tooltip,
-2026-10-14); a beat settles within 800 ms, a perk within 400 ms, and the yawn and stretch within 1.6 s (ruling 18).
+drawn in code — the badge counts **the conversations waiting for Sleep** up to 99, then "99+" (`BookwormOverlays.badgeText`, a
+13-pixel pill; owner 2026-10-19: "can we make it so it counts things to consolidate?" — it counted the inbox's questions
+from 2026-10-14). The count is `GET /status` `episodes.readable`, the count Sleep itself would read (`sleep_debt.readable_count`:
+not parked, not index-only history, ruling 30), refreshed through the `.status` domain the `episodes` component already
+maps to; an older backend's `unprocessed` stands in (`StatusSnapshot.waitingForSleep`). At 0 there is no badge. The mood
+stays `.curious(count:)` — the sheet's "what's this?" beat at an unread pile — and never `.reading`, which in the menu
+bar would say Sleep is at work while nothing runs; `.happy` now reads "nothing waiting for Sleep". It is said in words
+(DR-69, DR-21): the header's "Curious — 12 conversations waiting for Sleep" and the status item's tooltip; the inbox
+keeps its own line in the menu ("Inbox: 190 questions waiting"); a beat settles within 800 ms, a perk within 400 ms, and the yawn and stretch within 1.6 s (ruling 18).
 Tags derive from `BookwormLook.keySegment` and are tested to match each sheet exactly; reading cycles three book
 covers on its own loop. A transition always uses the sleeping sheet from the current room lighting/lamp set; a cold page never transitions, and a real
 completion's cheer wins in either callback order. A lint bans `.offset`/`.scaleEffect`/`.rotationEffect`/`.spring(`

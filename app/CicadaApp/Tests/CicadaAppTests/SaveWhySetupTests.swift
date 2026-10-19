@@ -145,9 +145,10 @@ final class BookwormBadgeTests: XCTestCase {
     }
 
     func testTheNumberIsSaidInWords() {
-        XCTAssertEqual(BookwormState.curious(count: 133).detail, "133 questions waiting")
-        XCTAssertEqual(BookwormState.curious(count: 1).detail, "1 question waiting")
-        XCTAssertEqual(MenuBarManager.toolTip(for: .curious(count: 133)), "Cicada — 133 questions waiting in the inbox")
+        // Owner 2026-10-19: the badge counts what waits for Sleep; the inbox keeps its count in words in the menu.
+        XCTAssertEqual(BookwormState.curious(count: 133).detail, "133 conversations waiting for Sleep")
+        XCTAssertEqual(BookwormState.curious(count: 1).detail, "1 conversation waiting for Sleep")
+        XCTAssertEqual(MenuBarManager.toolTip(for: .curious(count: 133)), "Cicada — 133 conversations waiting for Sleep")
         XCTAssertEqual(Copy.menuBarInboxLine(133), "Inbox: 133 questions waiting")
         XCTAssertEqual(Copy.menuBarInboxLine(0), "Inbox: no questions waiting")
     }

@@ -123,6 +123,7 @@ class DrainState:
     arrived_since: int | None = None
     # --- Sleep page v5 ---------------------------------------------------
     started_by: str = "user"                              # user | schedule
+    catch_up_for: str | None = None                       # a schedule's missed time this run caught up (`sleep_catch_up`)
     first_run: bool = False                               # no earlier Sleep commit in this bank
     calls: int = 0                                        # engine calls made in this run; never decreases
     started_mono: float = field(default_factory=time.monotonic)

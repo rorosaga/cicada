@@ -379,5 +379,6 @@ def test_registration_hands_the_scheduler_an_unpinned_context(two_banks):
         return bank_registry._PINNED.get()
 
     still = asyncio.run(request())
-    assert captured == [None, None]
+    # daily registers its catch-up probe (owner 2026-10-19) and its cron; then the auto-continue — all unpinned.
+    assert captured == [None, None, None]
     assert still is not None and still.name == "default", "the request itself keeps its own pin"

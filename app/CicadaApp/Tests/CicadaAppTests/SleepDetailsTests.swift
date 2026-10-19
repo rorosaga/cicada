@@ -105,18 +105,21 @@ final class SleepDetailsTests: XCTestCase {
         XCTAssertEqual(EpisodeRowText.time(""), "—")
         XCTAssertEqual(EpisodeRowText.time("not a date at all, longer than sixteen"), "not a date at al",
                        "the raw start (16 characters), never a blank")
-        XCTAssertTrue(EpisodeRowText.meta(target: "example.com", processed: true).hasSuffix(" · read"))
-        XCTAssertFalse(EpisodeRowText.meta(target: "example.com", processed: false).contains("read"))
+        XCTAssertEqual(EpisodeRowText.meta(target: "example.com", processed: true), "example.com · read")
+        XCTAssertEqual(EpisodeRowText.meta(target: "example.com", processed: false), "example.com")
+        XCTAssertEqual(EpisodeRowText.meta(target: nil, processed: true), "read")
+        XCTAssertNil(EpisodeRowText.meta(target: nil, processed: false), "no line rather than a raw id")
     }
 
-    /// Owner 2026-10-05 — a queued row names what a click copies, ends with its day, and its toast says what it copied.
-    func test_episodeRowNamesWhatAClickCopiesAndEndsWithItsDay() {
-        XCTAssertEqual(EpisodeRowText.target(kind: "link", value: "https://example.com/a/b?q=1", id: "ep_1"), "example.com/a/b")
-        XCTAssertEqual(EpisodeRowText.target(kind: "link", value: "https://example.com/", id: "ep_1"), "example.com")
-        XCTAssertEqual(EpisodeRowText.target(kind: "conversation", value: "0f3c1a2b-9d", id: "ep_1"), "Conversation 0f3c1a2b")
-        XCTAssertEqual(EpisodeRowText.target(kind: "links", value: "https://a.example\nhttps://b.example", id: "ep_1"), "2 tab links")
-        XCTAssertEqual(EpisodeRowText.target(kind: "path", value: "/tmp/notes/plans/q4.md", id: "ep_1"), "q4.md")
-        XCTAssertEqual(EpisodeRowText.target(kind: nil, value: nil, id: "ep_1"), "ep_1", "an older backend copies the id")
+    /// A queued row names a copy target a person can read, never a machine id (owner 2026-10-19, DR-54), ends with its
+    /// day, and its copy toast says what it copied.
+    func test_episodeRowNamesWhatItCopiesAndEndsWithItsDay() {
+        XCTAssertEqual(EpisodeRowText.target(kind: "link", value: "https://example.com/a/b?q=1"), "example.com/a/b")
+        XCTAssertEqual(EpisodeRowText.target(kind: "link", value: "https://example.com/"), "example.com")
+        XCTAssertNil(EpisodeRowText.target(kind: "conversation", value: "0f3c1a2b-9d"), "a session id stays off the row")
+        XCTAssertEqual(EpisodeRowText.target(kind: "links", value: "https://a.example\nhttps://b.example"), "2 tab links")
+        XCTAssertEqual(EpisodeRowText.target(kind: "path", value: "/tmp/notes/plans/q4.md"), "q4.md")
+        XCTAssertNil(EpisodeRowText.target(kind: nil, value: nil), "no raw episode id on the row")
 
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
@@ -129,10 +132,39 @@ final class SleepDetailsTests: XCTestCase {
         XCTAssertEqual(Copy.SleepDetailsWords.copied("conversation"), "Conversation ID copied")
         XCTAssertEqual(Copy.SleepDetailsWords.copied("link"), "Link copied")
         XCTAssertEqual(Copy.SleepDetailsWords.copied(nil), "Episode ID copied")
-        let help = EpisodeRowText.help(kind: "conversation", timestamp: "2026-10-01T09:00:00Z", changedAt: "2026-10-03T12:00:00Z")
-        XCTAssertTrue(help.hasPrefix("Click to copy the conversation ID") && help.contains("Added") && help.contains("Updated"))
-        XCTAssertFalse(EpisodeRowText.help(kind: "link", timestamp: "2026-10-01T09:00:00Z", changedAt: "2026-10-01T09:00:00Z")
-            .contains("Updated"), "a row that never changed says when it arrived, once")
+        let help = EpisodeRowText.help(kind: "conversation", timestamp: "2026-10-01T09:00:00Z",
+                                       changedAt: "2026-10-03T12:00:00Z", id: "ep_2026-10-01_001")
+        XCTAssertTrue(help.hasPrefix("Click to read the conversation in the Reader") && help.contains("Added")
+                      && help.contains("Updated"))
+        XCTAssertTrue(help.hasSuffix("Episode ep_2026-10-01_001"), "DR-54: the id is reachable in .help")
+        XCTAssertFalse(EpisodeRowText.help(kind: "link", timestamp: "2026-10-01T09:00:00Z", changedAt: "2026-10-01T09:00:00Z",
+                                           id: "ep_1").contains("Updated"), "a row that never changed says when it arrived, once")
+        XCTAssertEqual(Copy.SleepDetailsWords.copyAction("conversation"), "Copy Conversation ID")
+        XCTAssertEqual(Copy.SleepDetailsWords.copyAction(nil), "Copy Episode ID")
+    }
+
+    /// Owner 2026-10-19 — a click opens the stored episode in the Reader; copying is the context menu's.
+    func test_episodeRowsPrimaryActionOpensTheReader() throws {
+        let item = try JSONDecoder().decode(EpisodeQueueItem.self, from: Data("""
+        {"id": "ep_2026-10-18_004", "timestamp": "2026-10-18T09:00:00Z", "source": "mcp", "origin": "claude-code",
+         "title": "Planning alpha-project", "preview": "", "processed": false,
+         "copyKind": "conversation", "copyValue": "sess-42"}
+        """.utf8))
+        let action = EpisodeRowAction.primary(item, readerAvailable: true)
+        XCTAssertEqual(action, .open(ReaderTarget(episode: "ep_2026-10-18_004", knownTitle: "Planning alpha-project")))
+        guard case .open(let target) = action else { return XCTFail("a click opens the Reader") }
+        XCTAssertEqual(target.focus, .none, "the whole conversation, from the top")
+        XCTAssertEqual(target.query, .none)
+        XCTAssertEqual(EpisodeRowAction.copyValue(item), "sess-42", "the menu still copies what Sleep would read")
+        XCTAssertEqual(EpisodeRowAction.primary(item, readerAvailable: false), .copy("sess-42"),
+                       "with no Reader (a preview), a click still does something")
+
+        let older = try JSONDecoder().decode(EpisodeQueueItem.self, from: Data("""
+        {"id": "ep_2", "timestamp": "2026-10-01T09:00:00Z", "source": "url", "preview": "", "processed": true}
+        """.utf8))
+        XCTAssertEqual(EpisodeRowAction.primary(older, readerAvailable: true), .open(ReaderTarget(episode: "ep_2")))
+        XCTAssertEqual(EpisodeRowAction.copyValue(older), "ep_2")
+        XCTAssertNil(EpisodeRowAction.copyKind(older))
     }
 
     /// The queue item decodes what a click copies, and an older backend that sends none still decodes.
