@@ -73,6 +73,26 @@ extension Copy {
         static func turnLabel(speaker: String, turn n: Int, text: String) -> String {
             "\(rotorLabel(speaker: speaker, turn: n)): \(text)"
         }
+        // MARK: The Reader as a chat (owner, 2026-10-19)
+
+        static let today = "Today"
+        static let yesterday = "Yesterday"
+        /// Ruling 32 — a relayed person's turn: on their side, never "You"; `app` is the person's own app.
+        static func relayedBy(_ app: String?) -> String { "Relayed by \(app ?? "an app")" }
+        /// The capture line over a relayed conversation (the app is named once, on the person's first run).
+        static let relayHonesty = "Relayed by the app's model as you talked, so your side may not be word for word."
+        static let showMore = "Show more"
+        static let showLess = "Show less"
+        static let showMoreHelp = "Show the whole message"
+        static let showLessHelp = "Fold this message back"
+        /// A chat message's words for VoiceOver and the rotors: who, when, what — no turn number (the layout has none).
+        static func chatRotorLabel(speaker: String, time: String?) -> String {
+            [speaker, time].compactMap { $0 }.joined(separator: ", ")
+        }
+        static func chatLabel(speaker: String, time: String?, text: String) -> String {
+            "\(chatRotorLabel(speaker: speaker, time: time)): \(text)"
+        }
+
         /// "Noted" row's who-line when the belief was since replaced.
         static func notCurrent(_ label: String) -> String { "\(label) · \(noLongerCurrent)" }
         /// The header mark's hover — an id only ever in `.help` (DR-54).

@@ -132,6 +132,8 @@ struct CitedPassage: View {
     var color: Color = CicadaTheme.textPrimary
     /// DR-61 — 0 hides the marks, 1 shows them.
     var reveal: Double = 1
+    /// False in a chat bubble, which hugs its words rather than taking the column (`ReaderChatRows`).
+    var fillsWidth = true
 
     var body: some View {
         Text(CitedSpan.fallback(segments, reveal: reveal))
@@ -139,7 +141,7 @@ struct CitedPassage: View {
             .lineSpacing(lineSpacing)
             .foregroundStyle(color)
             .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: fillsWidth ? .infinity : nil, alignment: .leading)
             .textSelection(.enabled)
     }
 }

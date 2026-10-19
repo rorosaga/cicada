@@ -180,3 +180,23 @@ def test_two_relayed_candidates_upgrade_neither(memory):
         _capture(runtime, connector, _handle(runtime, connector), FIRST)
     assert len(_relayed(memory)) == 2
     assert episode_staging.stage([_export()], memory / "episodes").created == 1
+
+
+def test_the_reader_is_told_a_relay_until_an_export_upgrades_it(memory):
+    """The Reader draws a relayed person's turn on their side but never as "You": `/episodes/{id}/text` says the
+    episode is a relay and names the person's app; once an export upgrades it, it is the person's own words again."""
+    from api.services import provenance
+
+    runtime, connector = _runtime(), _connector(app="chatgpt")
+    handle = _handle(runtime, connector)
+    _capture(runtime, connector, handle, FIRST)
+    _capture(runtime, connector, handle, SECOND, REPLY)
+    [path] = _relayed(memory)
+    doc = provenance.episode_document(memory, path.stem)
+    assert doc.relay is not None and (doc.relay.app, doc.relay.label) == ("chatgpt", "ChatGPT")
+    # Roles are forced to the relaying model; the markers stay as written, so the Reader can still tell the sides.
+    assert [(t.role, t.marker) for t in doc.turns] == [("assistant", "user"), ("assistant", "assistant"),
+                                                        ("assistant", "user")]
+    assert episode_staging.stage([_export(source="chatgpt")], memory / "episodes").updated == 1
+    assert markdown_parser.parse(path).frontmatter["relay"]["upgraded_at"]
+    assert provenance.episode_document(memory, path.stem).relay is None

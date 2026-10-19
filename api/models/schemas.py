@@ -1147,6 +1147,15 @@ class EpisodeWatch(CamelModel):
     author_effort: Optional[str] = None
 
 
+class EpisodeRelay(CamelModel):
+    """Ruling 32: a conversation a hookless app's model relayed through the remote connector, until an export of it
+    upgrades the episode. ``app`` is the connector catalog's id (``chatgpt``), ``label`` its name ("ChatGPT") — the
+    person's own app, so the Reader may name it ("Relayed by ChatGPT"); both null when the connector named no app."""
+
+    app: Optional[str] = None
+    label: Optional[str] = None
+
+
 class EpisodeText(CamelModel):
     """``GET /episodes/{id}/text`` — a whole stored document for the Reader
     (G118 slice 2, design §4.8.1). ``text`` is capped at 400,000 characters
@@ -1183,6 +1192,8 @@ class EpisodeText(CamelModel):
     focus: Optional[EpisodeFocus] = None
     agent: Optional[EpisodeAgent] = None
     watch: Optional[EpisodeWatch] = None
+    #: Ruling 32: set while the episode is a relay not yet upgraded by an export; null for everything else.
+    relay: Optional[EpisodeRelay] = None
 
 
 class ProvenanceSpan(CamelModel):
