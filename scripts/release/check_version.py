@@ -5,7 +5,8 @@
     git ls-remote --tags --refs origin 'refs/tags/v*' | check_version.py plan [--root DIR] [--dry-run]
 
 `agree` holds every file that stamps a version to `VERSION` (api/pyproject.toml, uv.lock's cicada-api entry, the
-Homebrew formula's tag when Formula/cicada.rb exists, and, when given, a built app's CFBundleShortVersionString and a
+Homebrew formula's tag when Formula/cicada.rb exists, the Claude Code plugin's manifest version when
+plugins/cicada/.claude-plugin/plugin.json exists, and, when given, a built app's CFBundleShortVersionString and a
 release's latest.json) and exits 1 naming the one that
 disagrees. `plan` reads tags (ls-remote lines or bare names) on stdin and prints GitHub outputs:
 
@@ -99,6 +100,8 @@ def _formula_version(text: str) -> Optional[str]:
 
 
 FORMULA = "Formula/cicada.rb"
+#: The Claude Code plugin's manifest (owner 2026-10-19): its `version` is what keeps an installed plugin on a release.
+PLUGIN_MANIFEST = "plugins/cicada/.claude-plugin/plugin.json"
 
 
 def agree(root: Path, info_plist: Optional[Path] = None, latest_json: Optional[Path] = None) -> str:
@@ -110,6 +113,8 @@ def agree(root: Path, info_plist: Optional[Path] = None, latest_json: Optional[P
     }
     if (root / FORMULA).is_file():
         found[f"{FORMULA} (url tag)"] = _formula_version(_read(root, FORMULA))
+    if (root / PLUGIN_MANIFEST).is_file():
+        found[f"{PLUGIN_MANIFEST} (version)"] = json.loads(_read(root, PLUGIN_MANIFEST)).get("version")
     if info_plist is not None:
         with open(info_plist, "rb") as fh:
             found[f"{info_plist} CFBundleShortVersionString"] = plistlib.load(fh).get("CFBundleShortVersionString")

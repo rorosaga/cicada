@@ -509,6 +509,55 @@ never opens a browser and never schedules an agent.
   walls, a 404 and an unresolvable host classify as designed; the script's output records end to end. **Unverified:** a
   headed Chrome behind the `chrome://inspect` approval, and background-tab rendering there.
 
+**The Claude Code plugin (owner 2026-10-19: "a Claude Code plugin … so the agent can use the Cicada MCP and
+conversations get stored and captured").** The rule: **the plugin is the canonical Claude Code door; `install.sh` is
+the canonical machine install** (the venv, the memory folder, the backend, the app, and the Codex, Cursor and Gemini CLI
+wiring stay `install.sh`'s and the app's).
+
+- **Layout.** This repo is its own marketplace: `.claude-plugin/marketplace.json` (name `cicada`) lists one plugin,
+  `./plugins/cicada`, so its id is `cicada@cicada`. The plugin holds `.claude-plugin/plugin.json` (its `version` is a
+  `VERSION` stamp: `release.sh bump` moves it and `check_version.py agree` holds it), `skills/cicada/SKILL.md` (a
+  byte-for-byte copy of the root `SKILL.md`, which stays the source; a test fails on drift), `.mcp.json` (the stdio
+  server `cicada`, which Claude Code lists as `plugin:cicada:cicada`), `hooks/hooks.json` and two POSIX scripts in
+  `scripts/` — never a top-level `bin/`, which makes claude.ai and Cowork refuse a plugin.
+- **Hooks.** The same five events and the same scripts install.sh registers: `Stop`, `PreCompact` and `SessionEnd`
+  run `scripts/cicada-hook capture --harness claude-code` (G105, G110 gate A); `SessionStart` and `UserPromptSubmit`
+  run `scripts/cicada-hook recall --harness claude-code` (G149), each with install.sh's 5 s timeout. The script execs,
+  with the hook's stdin and environment unchanged, the checkout named in the plugin's `cicada_repo` setting
+  (`<repo>/api/.venv/bin/python <repo>/api/hooks/<name>.py`, a developer build) or else the app's
+  `$CICADA_HOME/bin/cicada-hook` launcher (a release, G182). With neither it writes one line to stderr and exits 0 —
+  nothing on stdout, which would become the agent's context. Every capture rail stays in the scripts it runs:
+  `CICADA_CAPTURE=off` (Cicada's own spawns; Sleep's `claude -p` also runs `--safe-mode`, which disables plugins), one
+  episode per session, the transcript read by the backend only under the harness root. The plugin's `recall` setting
+  (*Remember automatically*, on by default) silences only the recall hooks.
+- **The MCP server.** `scripts/cicada-mcp` execs the same checkout's `mcp/server.py` or the app's `cicada-mcp`
+  launcher; the `memory_path` setting, when set, becomes `CICADA_MEMORY_PATH` (the memory root — the server resolves
+  the active bank itself, as install.sh's own registration does).
+- **Settings.** `cicada_repo`, `memory_path` (both optional directories) and `recall` are `userConfig`, saved by Claude
+  Code under `pluginConfigs["cicada@cicada"]`; nothing sensitive is asked (the API token stays in `~/.cicada`).
+- **No double fire, and never no door.** `registry.py plugin --settings ~/.claude/settings.json` (read-only; the one
+  test, `registry.plugin_state`) answers `on` only when the plugin is enabled (`enabledPlugins["cicada@cicada"]`, user
+  settings), installed (`~/.claude/plugins/installed_plugins.json`) and able to run a Cicada by its scripts' own order
+  (a `cicada_repo` checkout with its venv — never falling back past one that isn't — else an executable
+  `$CICADA_HOME/bin/cicada-hook`); `broken` (exit 4, with why) when enabled but it would run nothing — a settings file
+  synced from another machine, no app and no checkout. With `on`, `install.sh` registers no Claude Code hook or MCP
+  entry and removes the ones it registered before (`registry.py uninstall`, Cicada's entries only; `claude mcp remove
+  cicada -s user`), skips `--skill` and says so; with `broken` it keeps its own entries and warns with the fix.
+  `make doctor` reports which door is active, fails a `broken` plugin, a leftover settings hook or user-scope `cicada`
+  entry (each would run twice), and names what the plugin runs; `GET /agents/wiring` reads Claude Code as on with
+  `capabilities.via = "plugin"` and no argv only for `on` (a `broken` plugin leaves the row probed as before, with why
+  in `detail`), names leftover settings hooks in `detail`, and `GET /agents/setup?harness=claude-code` hands back a
+  prompt that runs nothing. The app's *Remembers automatically* row reads the plugin's own `recall` setting, on or off,
+  and says it is switched there.
+- **Recall off stays off.** The plugin's recall hooks do nothing under its `recall` setting off or `CICADA_RECALL=off`.
+  When `install.sh` hands Claude Code over, a recall-off choice — `CICADA_RECALL=off`, or the app's switch (a capture
+  hook in the settings file and no recall hook) — is written into the plugin's own setting first
+  (`registry.py plugin-recall-off`: `pluginConfigs["cicada@cicada"].options.recall = false`, merged, atomic).
+- **Installing it.** In Claude Code: `/plugin marketplace add rorosaga/cicada`, then `/plugin install cicada@cicada`
+  (or, on 2.1.275+, `/plugin install cicada --marketplace rorosaga/cicada`), then re-run `./install.sh` once on a
+  source checkout so its older Claude Code entries go. A GitHub marketplace follows the default branch (`main`, so a
+  release); a checkout can add itself with `/plugin marketplace add ~/code/cicada` to try `dev`.
+
 **Implicit recall (G149).** G105 stopped capture depending on a model's tool call, and recall now works the
 same way.
 

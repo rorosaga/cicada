@@ -15,21 +15,26 @@ enum ProjectsListState: Equatable {
     }
 }
 
-/// §5.3 / §10 — the Projects list in its three styles (R-PP7): one line at full width, two lines beside a project,
-/// titles beside a project and the Reader. Selection is `bgSelected`, never the accent (DR-22, `SelectionTintLintTests`).
+/// Projects v2 (2026-10-19) / §5.3 — the list in its three styles: two lines at rest (name over what it is, where it
+/// stands at the end), two lines beside a project (name over where it stands), titles beside a project and the Reader.
+/// Current ends in one quiet *Fading* disclosure; Past carries year labels, a find field and "Show more". Selection is
+/// `bgSelected`, never the accent (DR-22, `SelectionTintLintTests`).
 struct ProjectsListColumn: View {
-    let lines: [ProjectLine]
+    let entries: [ProjectsEntry]
     let style: ColumnPlan.ListStyle
     let today: ISODay
-    let people: [String: [PersonMark]]
     let state: ProjectsListState
-    let tab: ProjectsTab?
+    let tab: ProjectsTab
     let query: String
     @Binding var findOpen: Bool
     @Binding var findText: String
     let openId: String?
-    let open: (String) -> Void
+    let tap: (ProjectLine) -> Void
+    let toggleParts: (ProjectLine) -> Void
+    let toggleFading: () -> Void
+    let showMore: () -> Void
     let move: (Int) -> Void
+    var side: (Int) -> Void = { _ in }
     let focusDetail: () -> Void
     let escape: () -> Void
     let retry: () -> Void
@@ -38,14 +43,17 @@ struct ProjectsListColumn: View {
         ScrollViewReader { proxy in
             VStack(alignment: .leading, spacing: 0) {
                 // DR-46 — the find row sits above the scroll (Clusters' reason: a lazy row scrolled away is released).
-                if findOpen {
+                // Past is the archive, so its field is always there; Current opens one on ⌘F.
+                if tab == .past {
+                    CicadaSearchField(text: $findText, prompt: Copy.Projects.findPast)
+                        .padding(findInsets)
+                } else if findOpen {
                     PageFindRow(text: $findText, isOpen: $findOpen, prompt: Copy.Projects.find)
-                        .padding(EdgeInsets(top: 0, leading: ListInsets.of(style).leading, bottom: CicadaTheme.spacingSM,
-                                            trailing: ListInsets.of(style).trailing))
+                        .padding(findInsets)
                 }
                 ScrollView {
                     LazyVStack(alignment: .leading,
-                               spacing: style == .triage ? CicadaTheme.scaled(RowMetrics.twoLineGap) : 0) {
+                               spacing: style == .titles || style == .hidden ? 0 : CicadaTheme.scaled(RowMetrics.twoLineGap)) {
                         switch state {
                         case .loading:
                             ListSkeleton(message: Copy.Projects.gathering)
@@ -54,14 +62,12 @@ struct ProjectsListColumn: View {
                         case .empty:
                             EmptyStateView(title: Copy.Projects.emptyTitle, message: Copy.Projects.emptyMessage)
                         case .tabEmpty:
-                            note(tab == .quiet ? Copy.Projects.noneQuiet : Copy.Projects.noneActive)
+                            note(tab == .past ? Copy.Projects.nonePast : Copy.Projects.noneCurrent)
                         case .noMatch:
                             note(Copy.Projects.noMatch(query.trimmingCharacters(in: .whitespaces)))
                         case .list:
-                            ForEach(lines) { line in
-                                ProjectRowView(line: line, style: style, today: today, people: people[line.id] ?? [],
-                                               selected: line.id == openId) { open(line.id) }
-                                    .id(line.id)
+                            ForEach(entries) { entry in
+                                self.entry(entry).id(entry.id)
                             }
                         }
                     }
@@ -73,11 +79,38 @@ struct ProjectsListColumn: View {
                 }
             }
         }
-        .listKeys(move: move, enter: {
+        .listKeys(move: move, side: side, enter: {
             guard openId != nil else { return false }
             focusDetail()
             return true
         }, escape: escape)
+    }
+
+    private var findInsets: EdgeInsets {
+        EdgeInsets(top: 0, leading: ListInsets.of(style).leading, bottom: CicadaTheme.spacingSM,
+                   trailing: ListInsets.of(style).trailing)
+    }
+
+    @ViewBuilder
+    private func entry(_ entry: ProjectsEntry) -> some View {
+        switch entry {
+        case .line(let line):
+            ProjectRowView(line: line, style: style, today: today, selected: line.id == openId,
+                           action: { tap(line) }, toggle: { toggleParts(line) })
+        case .fading(let count, let open):
+            ProjectsDisclosure(title: Copy.Projects.fading, count: count, isOpen: open, help: Copy.Projects.fadingHelp,
+                               action: toggleFading)
+                .padding(.top, CicadaTheme.scaled(14))
+        case .year(let label):
+            SectionLabel(label)
+                .padding(.horizontal, CicadaTheme.scaled(10))
+                .padding(.top, CicadaTheme.scaled(14))
+                .padding(.bottom, CicadaTheme.scaled(2))
+        case .more(let left):
+            TextButton(title: Copy.Projects.showMore(min(left, ProjectsModel.pageSize), left: left),
+                       help: Copy.Projects.showMoreHelp, action: showMore)
+                .padding(.top, CicadaTheme.spacingSM)
+        }
     }
 
     private func note(_ text: String) -> some View {
@@ -88,163 +121,132 @@ struct ProjectsListColumn: View {
     }
 }
 
-/// One project (R-PP7). The whole row opens it; the chevron is its visible twin, outside the row's button (a button
-/// nested in a button is two targets for one click). Ages and counts are tabular (DR-21); ids only in `.help` (DR-54).
+/// One quiet, labelled disclosure (DR-39): a chevron, the label and its count. Fading uses it.
+struct ProjectsDisclosure: View {
+    let title: String
+    let count: Int
+    let isOpen: Bool
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: CicadaTheme.scaled(6)) {
+                Image(systemName: "chevron.right")
+                    .font(CicadaTheme.font(size: 9, weight: .medium))
+                    .rotationEffect(.degrees(isOpen ? 90 : 0))
+                SectionLabel(title)
+                Text(UsageFormat.count(count)).font(CicadaTheme.captionFont).monospacedDigit()
+            }
+            .foregroundStyle(CicadaTheme.textTertiary)
+            .padding(.horizontal, CicadaTheme.scaled(10))
+            .frame(height: CicadaTheme.scaled(28))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.cicadaPlain)
+        .help(help)
+        .accessibilityValue(isOpen ? Copy.Lists.expanded : Copy.Lists.collapsed)
+    }
+}
+
+/// One project: the name, what it is in one line, where it stands as one signal (owner 2026-10-19). A parent wears a
+/// disclosure chevron that folds its parts — its own target beside the row's button (a button nested in a button is
+/// two targets for one click), and the row's own click on the open parent folds them too (`ProjectsModel.tap`).
 struct ProjectRowView: View {
     let line: ProjectLine
     let style: ColumnPlan.ListStyle
     let today: ISODay
-    let people: [PersonMark]
     let selected: Bool
     let action: () -> Void
+    let toggle: () -> Void
+
+    private var indent: CGFloat { CicadaTheme.scaled(CGFloat(min(line.depth, 2)) * 18) }
+    private var tertiary: Color { selected ? CicadaTheme.textTertiaryOnFill : CicadaTheme.textTertiary }
 
     var body: some View {
-        HStack(spacing: CicadaTheme.scaled(10)) {
-            Button(action: action) { content }
-                .buttonStyle(.cicadaPlain)
-                .accessibilityLabel(ProjectsModel.accessibilityLabel(line))
-                .accessibilityAddTraits(selected ? [.isSelected] : [])
-            if style == .wide {
-                IconButton(systemName: "chevron.right", help: Copy.Projects.openHelp, action: action)
+        HStack(spacing: CicadaTheme.scaled(4)) {
+            chevron
+            Button(action: action) {
+                content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading).contentShape(Rectangle())
             }
+            .buttonStyle(.cicadaPlain)
+            .accessibilityLabel(ProjectsModel.accessibilityLabel(line, today: today))
+            .accessibilityAddTraits(selected ? [.isSelected] : [])
         }
-        .listRowSurface(height: ListRowSurface.height(style), selected: selected)
+        .padding(.leading, indent)
+        .listRowSurface(height: ListRowSurface.height(style, twoLineAtRest: true), selected: selected)
     }
 
-    private var indent: CGFloat { CicadaTheme.scaled(CGFloat(line.depth) * (style == .wide ? 16 : 12)) }
-    private var tertiary: Color { selected ? CicadaTheme.textTertiaryOnFill : CicadaTheme.textTertiary }
+    /// The disclosure, or the room it would take, so names line up.
+    @ViewBuilder
+    private var chevron: some View {
+        let side = CicadaTheme.scaled(16)
+        if line.children > 0 {
+            Button(action: toggle) {
+                Image(systemName: "chevron.right")
+                    .font(CicadaTheme.font(size: 9, weight: .semibold))
+                    .rotationEffect(.degrees(line.expanded ? 90 : 0))
+                    .foregroundStyle(tertiary)
+                    .frame(width: side, height: side)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.cicadaPlain)
+            .help(line.expanded ? Copy.Projects.hideParts : Copy.Projects.showParts(line.children))
+            .accessibilityLabel(line.expanded ? Copy.Projects.hideParts : Copy.Projects.showParts(line.children))
+        } else {
+            Color.clear.frame(width: side, height: side)
+        }
+    }
+
+    private var name: some View {
+        Text(line.row.name)
+            .font(CicadaTheme.font(size: 13, weight: selected || style == .wide ? .medium : .regular))
+            .foregroundStyle(selected || style == .wide ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+            .lineLimit(1)
+            .help(line.row.name)
+    }
 
     @ViewBuilder
     private var content: some View {
-        let row = line.row
-        let age = ProjectsModel.age(row, today: today)
-        let bar = ProjectsModel.bar(row, today: today)
-        let barHelp = Copy.Projects.barHelp(planned: row.planned, progress: row.progress)
+        let second = ProjectsModel.secondLine(line, style: style, selected: selected, today: today)
         switch style {
         case .wide:
-            HStack(spacing: CicadaTheme.scaled(10)) {
-                TypeDot(type: .project).padding(.leading, indent)
-                Text(row.name)
-                    .font(CicadaTheme.rowFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                    .lineLimit(1)
-                    .frame(width: max(CicadaTheme.scaled(220) - indent, 0), alignment: .leading)
-                Text(ProjectsModel.nowLine(line, today: today))
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .lineLimit(1)
-                    .frame(maxWidth: CicadaTheme.scaled(ProjectLayout.textMaxWidth), alignment: .leading)
-                Spacer(minLength: 0)
-                ProgressBarView(span: bar, width: 64, help: barHelp)
-                Text(ProjectsModel.nextLine(line, today: today))
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(tertiary)
-                    .lineLimit(1)
-                    .frame(width: CicadaTheme.scaled(200), alignment: .leading)
-                PeopleMarks(people: people, knockout: selected ? CicadaTheme.bgSelected : CicadaTheme.bgBase)
-                    .frame(width: CicadaTheme.scaled(64), alignment: .trailing)
-                Text(ProjectsModel.questions(row) ?? "")
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(tertiary)
-                    .frame(width: CicadaTheme.scaled(74), alignment: .trailing)
-                Text(age.text)
+            let parts = line.children > 0 && !line.expanded ? Copy.Projects.parts(line.children) : ""
+            HStack(spacing: CicadaTheme.spacingMD) {
+                VStack(alignment: .leading, spacing: CicadaTheme.scaled(3)) {
+                    name
+                    if let second {
+                        Text(second).font(CicadaTheme.metaFont).foregroundStyle(tertiary).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: CicadaTheme.spacingMD)
+                Text(Eyebrow.text(parts, ProjectsModel.standing(line, today: today)))
                     .font(CicadaTheme.metaFont)
                     .monospacedDigit()
-                    .foregroundStyle(tertiary)
-                    .frame(width: CicadaTheme.scaled(40), alignment: .trailing)
-                    .help(age.help)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: CicadaTheme.scaled(260), alignment: .trailing)
             }
         case .triage:
-            VStack(alignment: .leading, spacing: CicadaTheme.scaled(5)) {
-                HStack(spacing: CicadaTheme.scaled(10)) {
-                    TypeDot(type: .project).padding(.leading, indent)
-                    Text(row.name)
-                        .font(selected ? CicadaTheme.rowFont : CicadaTheme.bodyFont)
-                        .foregroundStyle(selected ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                    Text(age.text).font(CicadaTheme.metaFont).monospacedDigit().foregroundStyle(tertiary).help(age.help)
+            // The open row is only its name: the detail beside it says where it stands.
+            VStack(alignment: .leading, spacing: CicadaTheme.scaled(3)) {
+                name
+                if let second {
+                    Text(second).font(CicadaTheme.metaFont).monospacedDigit().foregroundStyle(tertiary).lineLimit(1)
                 }
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    ProgressBarView(span: bar, width: 40, help: barHelp)
-                    Text(ProjectsModel.shortLine(line, today: today))
-                        .font(CicadaTheme.metaFont)
-                        .foregroundStyle(tertiary)
-                        .lineLimit(1)
-                }
-                .padding(.leading, indent + CicadaTheme.scaled(18))
             }
         case .titles, .hidden:
-            HStack(spacing: CicadaTheme.scaled(10)) {
-                TypeDot(type: .project).padding(.leading, indent)
-                Text(row.name)
-                    .font(selected ? CicadaTheme.rowFont : CicadaTheme.bodyFont)
-                    .foregroundStyle(selected ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
-                    .lineLimit(1)
-                    .help(row.name)
-                Spacer(minLength: 0)
-            }
+            name
         }
     }
 }
 
-/// §3.8 / R-PP9 — the mini bar: `progressFill` from the first moment to today on the `bgBadge` track; with no plan,
-/// the fill and a dashed open end, never a grey remainder. Solid, never a gradient; its words are its `.help` and its
-/// accessibility label, since the track itself is not held to 3:1 (§3.8, disclosed).
-struct ProgressBarView: View {
-    let span: ProgressSpan
-    let width: CGFloat
-    let help: String
-
-    var body: some View {
-        let w = CicadaTheme.scaled(width)
-        let h = CicadaTheme.scaled(4)
-        let filled = max(h, w * CGFloat(span.fill))
-        ZStack(alignment: .leading) {
-            if span.planned {
-                Capsule().fill(CicadaTheme.bgBadge)
-            } else {
-                MidLine()
-                    .stroke(CicadaTheme.progressOpenEnd, style: StrokeStyle(lineWidth: 2, dash: [3, 2]))
-                    .padding(.leading, filled + 2)
-            }
-            Capsule().fill(CicadaTheme.progressFill).frame(width: filled)
-        }
-        .frame(width: w, height: h)
-        .help(help)
-        .accessibilityElement()
-        .accessibilityLabel(help)
-    }
-}
-
-/// A horizontal line through the middle of its frame — the open end, and a quiet thread's dashed tail.
+/// A horizontal line through the middle of its frame — a quiet thread's dashed tail on the band.
 struct MidLine: Shape {
     func path(in rect: CGRect) -> Path {
         Path { p in
             p.move(to: CGPoint(x: rect.minX, y: rect.midY))
             p.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
         }
-    }
-}
-
-/// R-PP7 — up to three people as initials in neutral circles, overlapped and knocked out of the row's own fill.
-struct PeopleMarks: View {
-    let people: [PersonMark]
-    let knockout: Color
-
-    var body: some View {
-        HStack(spacing: -CicadaTheme.scaled(4)) {
-            ForEach(people) { person in
-                Text(person.initials)
-                    .font(CicadaTheme.font(size: 9, weight: .medium))
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .frame(width: CicadaTheme.scaled(20), height: CicadaTheme.scaled(20))
-                    .background(Circle().fill(CicadaTheme.bgButton))
-                    .background(Circle().fill(knockout).padding(-2))
-                    .help(person.name)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(people.isEmpty ? "" : Copy.Projects.people(people.map(\.name)))
     }
 }

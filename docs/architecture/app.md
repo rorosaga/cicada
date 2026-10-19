@@ -680,8 +680,15 @@ do not fit it; `autosave` stays the Stop hook alone, so an install from before t
 appends `flushOn` only to a Connect it is already running, `AgentWiring.turnOnSteps`, and install.sh registers it),
 plus the exact argv install.sh would run. The **app** runs them, only after the person's click (spec decision 14, D-1), with
 `CICADA_CAPTURE=off`, behind an allowlist pinned to its own checkout (which also accepts the recall hook's two
-events, the capture command under `Stop`, `PreCompact` and `SessionEnd` only, and `registry.py uninstall --hook recall`); the backend never writes a harness root. `GET /agents/setup?harness=` (round 4 C5, G76's in-app half) serves what to hand an
-agent instead of running anything:
+events, the capture command under `Stop`, `PreCompact` and `SessionEnd` only, and `registry.py uninstall --hook recall`); the backend never writes a harness root. **Claude Code through the Cicada plugin**
+(owner 2026-10-19; `mcp.md`, "The Claude Code plugin"): when the plugin is enabled, installed and able to run a Cicada
+(`registry.plugin_state` is `on`), Claude Code's row reads `recall`, `autosave` and `autosaveFlush` `on` and
+`autorecall` as the plugin's own `recall` setting, with `capabilities.via = "plugin"` and no argv at all (the plugin
+carries the server and every hook; an `mcp add` or a settings hook beside it would run twice), and `detail` names any
+Cicada hook still in the settings file; an enabled plugin that would run nothing leaves the row probed as before, with
+why in `detail`. `AgentWiring.viaPlugin` makes *Remembers automatically* say it is switched in the plugin's settings
+(`Copy.autoRecallPluginOn` / `Copy.autoRecallPluginOff`) and offer no button. `GET /agents/setup?harness=` (round 4 C5, G76's in-app half) serves
+what to hand an agent instead of running anything (for Claude Code with the plugin on, a prompt that runs nothing):
 
 - for Claude Code, Codex and Gemini CLI, a plain prompt (≤ 1,200 characters) that names the exact
   commands, built by the same step builders `/agents/wiring` uses (both steps always,
@@ -997,8 +1004,8 @@ the page's find row.
   The Reader's header for a watch record and each `media` turn's fidelity are built from the episode's `watch` block.
   Every string is in `Copy+Videos.swift`, and `VideoCopyNeutralityTests` fails on a provider or model name.
 
-**Projects (G141 PJ-5, Direction D).** The eighth page (⌘8, after Sources), the first designed for D: a list page in
-progressive columns over `GET /projects` and `GET /projects/{id}/timeline`, which are **not** Store domains —
+**Projects (G141 PJ-5, Direction D; v2 owner 2026-10-19 — dated ruling in `docs/design/DESIGN_RULES.md` §9).** The
+eighth page (⌘8, after Sources): a list page in progressive columns over `GET /projects` and `GET /projects/{id}/timeline`, which are **not** Store domains —
 `ProjectsCache` (app-level, in memory) revalidates them with the server's ETag when the page appears, a project opens, a
 write lands, or a sync event moves `entities`/`episodes`/`inbox`/`bank`, and a bank switch empties it (no
 `VersionVector` mapping, nothing on disk). Overlapping refreshes of one resource keep only the newest request's answer,
@@ -1011,21 +1018,43 @@ by project, day and cache revision; the last value stays up while the next build
 project whose happenings cite hundreds of pages opens at once (round-4 D6). Every Swift test reads
 the demo scenario's real wire, `app/CicadaApp/Tests/fixtures/projects-demo.json`, pinned by
 `api/tests/test_projects_app_fixture.py`.
-- **The list:** text tabs Active · Quiet · All (resting projects only under All); sub-projects indented under a shown
-  parent; each row's where-it-stands line, a mini `progressFill` bar, the next milestone or "No plan yet", people from
-  the graph's `person` neighbours (never the owner), the compact age; "still indexing" while the server says `partial`.
-  A row's section comes from `lastMomentDay`, the newest anchor day of a claim about the project tree; a memory export
-  entry is never an anchor or an activity day (`episode_time`, owner 2026-10-08), so a project known only from one
-  reads Resting / "Nothing heard" while its facts stay on the page.
+- **The list (v2):** text tabs **Current · Past** with counts (`ProjectsModel.tabs`; tapping the selected one keeps
+  it). A project's group is `ProjectState`'s section (`ProjectsGroup`): in motion → Current; quiet → **Fading**, one
+  folded disclosure at Current's foot, remembered on `cicada.projects.fadingOpen`; resting (decaying or archived, or
+  nothing heard for 90 days) → Past. `ProjectsModel.entries` is the whole column as `ProjectsEntry` values — rows,
+  the Fading head, Past's year labels and "Show 50 more" — pure, so a test pins it. A row (`ProjectRowView`, 56 pt)
+  is the name over the one-liner and ONE signal (`ProjectsModel.standing`): the next milestone ("Next · First grasp,
+  Oct 1", overdue in words; a milestone named after its own project only its day, "Next · Oct 5" —
+  `ProjectsModel.milestoneName`), else the plan's count, else "Heard 9 days ago"; Fading "Quiet 30 days"; Past the
+  day alone ("Mar 3", `RelativeDay.dayInYear` — the year is the label), nothing under *Nothing heard yet*. Beside an
+  open project the narrow rows say where they stand and the open row only its name (`ProjectsModel.secondLine`). Sub-projects nest under a parent in the same group behind a chevron (`ProjectsModel.nest`, folded by
+  default, every parent unfolded while a find runs); `ProjectsModel.tap` — a parent's click opens it and unfolds its
+  parts, the open parent clicked again folds them; the chevron folds without opening. Past keeps its find field
+  always, sorts newest heard first under year labels and draws 50 rows at a time (`pageSize`); a ⌘K landing on a
+  hidden project opens its tab, Fading, its parents and enough of Past first (`ProjectsModel.reveal`). Find matches
+  the name and one-liner (`QuickMatch`). The eyebrow is "Projects" (+ "still indexing" while the server says
+  `partial`): the tabs carry the counts, `counts` computed once per render. **Keys** (`ProjectsModel.step` / `side`,
+  `listKeys(side:)`, all `Instant.run`): ↑/↓ open the neighbour — past Current's last row ↓ opens Fading onto its
+  first row, past Past's page ↓ draws the next; → unfolds the open parent, ← folds it or goes from a part to its
+  parent. **Projects clicked again
+  in the rail** (`AppRouter.reselect`, the Sources v3 mechanism) closes the Reader, card or item and project, clears
+  the find and shows the default tab; ⌘8 does it without animation.
+- **The summary (v2):** under the name and one-liner, `ProjectSummary` — *Where it stands* ("In motion · 1 of 4
+  milestones done"), *Last* (the newest happening with `RelativeDay.phrase`) and *Next* (the next milestone with its
+  day, else the newest live thread Last did not already say, else "Nothing planned" with Add a milestone), each said
+  once; Last and Next select their row on the band and unfold its section. The band's old header line and the
+  eyebrow's Planned / No plan yet retired with it. Folded sections say their bare count ("2", "9"); Plan says nothing
+  when *Where it stands* gives the plan (`ProjectSummary.planMeta`).
 - **The band** (`BandLayout`, pure, the approved mock's coordinates): `progressFill` from the first moment up to a
   "You, today" marker in `textPrimary`; done milestones filled inside the green, planned ones hollow on the track, a
   closed `due` slashed ("passed, no word on how it went"), a moved one's dashed ghost and bracket; happenings as neutral
   dots, ongoing threads as spans to today that dash once quiet; months and words near today. Every mark is a button: a
   `textPrimary` ring, its first words and date on hover, ←/→ along the band, ⏎ into the Reader. It is never called
   "Timeline" — that is the entity card's tab, which can share the screen.
-- **The story:** Log progress (⏎ done, ⌘⏎ still going; the server dates it from the words, else the date chip, else
-  today, and the page says which and how, with Undo = withdraw); Now (the threads; a quiet one whose follow-up waits in
-  the Inbox links to that card); Lately (Today · Yesterday · This week · Earlier — one sentence per happening, every
+- **The story:** every section starts folded and says what it holds; the viewer's opened set is remembered on
+  `cicada.projects.opened`. Log progress (⏎ done, ⌘⏎ still going; the server dates it from the words, else the date chip, else
+  today, and the page says which and how, with Undo = withdraw); In progress (the threads; a quiet one whose follow-up waits in
+  the Inbox links to that card); What happened (Today · Yesterday · This week · Earlier — one sentence per happening, every
   participant a chip that opens its card, at most eight per sentence with a '+N more' that opens that row (round-4
   D6; the server sends the first 12 and `participantsTotal`), the owner as the sentence's own word with a "you" tag; a status word; a
   source line with the origin's mark and "Show in conversation ›"; Resume where resumable; Not right); Plan (Add with
