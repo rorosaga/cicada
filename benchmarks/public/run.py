@@ -221,6 +221,9 @@ def run(args) -> int:
         if rc != 0:
             print(f"  unit failed — see {out / 'child.log'}", flush=True)
             status = 1
+    # The judging protocol, recorded once judged, from the judgments' own rows (the report reads it from here).
+    cfg["judge_protocols"] = report.judged_protocols(run_dir)
+    (run_dir / "config.json").write_text(json.dumps(cfg, indent=1), encoding="utf-8")
     summary = report.summarize(run_dir)
     (run_dir / "report.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     print(report.render(summary))

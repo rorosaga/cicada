@@ -126,7 +126,11 @@ api/.venv/bin/python -m benchmarks.public.run report --run <run folder>
   the dataset's day — LoCoMo: an hour after the last session; LongMemEval: the question date — so decay, expiry and
   "CURRENT LOCAL DAY" are the dataset's, not 2026's. `--sleep-schedule per-session` drains after each session on
   that session's day (the nightly rhythm) instead of once.
-- **Judges** (`judges.py`): Mem0's J prompt and LongMemEval's per-type prompts, verbatim; LoCoMo's token F1 rules
+- **Judges** (`judges.py`): Mem0's J prompt and LongMemEval's per-type prompts, verbatim — with one dated amendment
+  (2026-10-19, `ABSTENTION_AMENDMENT`): the abstention prompt adds one sentence saying a reply that reports no record
+  of the asked thing ("none recorded", "zero as far as the record goes") identifies the question as unanswerable,
+  and that answering with a value from something else does not; each judgment row records the protocol it was judged under, the run records the set in its `config.json` once judged (`judge_protocols`), and the report reads it from there — a LoCoMo run without category 5 says "published prompts". Without it the
+  judge flipped on equivalent abstentions between runs; LoCoMo token F1 rules
   (category 1 multi-answer, category 3 first-of-`;`); LoCoMo category 5 off by default and, when on, scored apart
   with LongMemEval's abstention prompt. Category numbers map as LoCoMo's own scorer treats them
   (1 multi-hop, 2 temporal, 3 open-domain, 4 single-hop, 5 adversarial).
@@ -428,3 +432,76 @@ Gemma re-answers 156).
 **Still open.** The newest conversation's *answer* turn is not guaranteed — only its best-matching turn (one
 knowledge-update question lost its answer turn to that); counts whose evidence turns share no rare word with the
 question; the judge's strictness on abstentions phrased as "zero".
+
+## Ask edges: the turn that answers, counts by each conversation's own statement, the abstention judge (2026-10-19, branch `feat/ask-edges`)
+
+**The problems** (left open by Ask depth; the owner's eval after it, measured by the owner: 76.7 % correct, 1
+contradicted, 2 declined-but-should-know, 0 answered-but-should-decline): the newest conversation on a subject showed
+its best-*matching* turn, not its answer turn (one knowledge-update question lost its answer that way); count questions
+whose evidence turns share no rare word with the question were missed (LongMemEval_S multi-session: 19 of 49 evidence
+sessions shown); the judge marked an abstention phrased "zero as far as the record goes" wrong; conv-49 was never
+re-answered after Ask depth.
+
+**Diagnosis, no model.** On the LongMemEval_S misses the evidence *conversations* were already in the leg's window or
+breadth lines (multi-session: all of them for 12 of 16 questions, all but one for 3 more); what the model got from each was the turn holding
+the most question words — the person's opening request ("help me plan a family trip …") or the agent's long reply
+that repeats every word — while the answer was the person's own statement with the value ("my recent family trip to
+<city>", "I'll have four bikes with me", "$1,200 for a handbag"), which shares fewer of the question's words.
+
+**What changed** (`docs/architecture/mcp.md`, "The turn that answers"): a turn scores its best sentence plus half the
+weight the rest of it holds; the sentence counts 1.5× when it states a value the question does not, 1.25× when it says
+the question's own "recent" / "first", half when it only asks; the turn 1.5× when its speaker is the one the question is
+about (a person, or the agent for "what did you suggest"); the excerpt is clipped around that sentence. A count or a
+list gives each conversation in the window its own line before any gets a second, and each line (window and breadth)
+is its speaker's own statement when they made one. *Why not graph expansion or page-leg seeding:* the conversations
+were found; the turn was lost. Expanding the words would find more conversations, not the right turn in them.
+
+**Retrieval, no model** (LongMemEval_S, un-consolidated, ~50 sessions a bank, 64 questions, EmbeddingGemma 2, dev →
+this branch):
+
+| | dev | this branch |
+|---|---|---|
+| a turn holding the answer reaches the prompt | 52 | **56** |
+| multi-session: evidence sessions whose answer turn is shown (of 49) | 19 | **30** |
+| knowledge-update: the newer session's answer turn shown (of 16) | 14 | 15 |
+| temporal: evidence sessions shown (of 18) | 12 | **17** |
+| fused evidence top-1 / top-4 | 58 / 64 | 58 / 64 |
+| leg chars p50 / max · leg ms p50 / p95 | 3.6k / 6.1k · 17.4 / 32.4 | 3.5k / 6.1k · 16.6 / 28.8 |
+| 5 sessions merged into ~45k-char exports (24 Qs): answer turn shown · multi-session sessions (of 24) · KU newer | 21 · 9 · 13/16 | 21 · **12** · 14/16 |
+
+Three questions lost a session: a value question the gate takes for a count, where the person's own question turn now
+leads its conversation and the later correction is not shown (the agent's reply restating the value was shown before);
+a "remind me of the restaurant" question whose answer is the agent's, which the person-first preference misses; one
+multi-session count 2 → 1 of 3 sessions.
+
+**Answers, plan, sonnet answer + judge** (only questions whose prompt changed were answered again; an unchanged prompt
+is the same question to the model):
+
+| Benchmark | Prompts changed | Right before → after | Confidently wrong |
+|---|---|---|---|
+| LongMemEval_S, 64 Qs, no Sleep (the search leg alone) | 64 of 64 | **62.5 → 76.6 %** (multi-session 2 → 8 of 16, knowledge-update 14 → 15, single-session-assistant 4 → 6, temporal 7 → 8, preference 5 → 5, single-session-user 8 → 7) | 0 → 0 |
+| LoCoMo conv-26, 40 Qs | 5 of 40 | 82.5 → 82.5 | 0 → 0 |
+| LoCoMo conv-49, 40 Qs (dev re-answered first: 37 prompts changed by Ask depth; 82.5 → 85.0 on dev) | 7 of 40 | 85.0 → 87.5 (temporal 7 → 8 of 10) | 0 → 0 |
+| LongMemEval oracle, 20 Qs | 2 of 20 | 85.0 → 85.0 | 0 → 0 |
+
+LongMemEval_S: 13 questions right only after, 4 only before (the Starbucks-shaped value question above, two
+preference answers that now decline more plainly, one single-session-user answer judged differently on near-identical
+wording). Answered-but-should-decline: 0 throughout (oracle abstention 7 of 8 both sides; the miss answers a
+mismatched premise and stays wrong under the amended judge).
+
+**The judge.** The same oracle answers judged by the published abstention prompt and by the amended one: 80.0 → 85.0 %,
+one flip — "the count is zero as far as the record goes" for a never-mentioned event, now an abstention. Nothing
+flipped the other way.
+
+**Prompt and build** (no model, warm, a shared machine): conv-26 p50 12.4k → 12.4k chars (max 22.1k both), build p50
+24.3 → 23.2 ms, p95 28.8 → 27.3; conv-49 15.5k → 15.5k (23.3k), 29.1 → 30.2 ms, 32.0 → 34.5; LongMemEval oracle
+9.1k → 9.1k (17.4k → 17.3k), 13.8 → 13.8 ms, 21.2 → 20.2; LongMemEval_S 4.1k → 4.1k (6.7k → 6.8k), 13.6 → 15.4 ms,
+18.9 → 21.9.
+
+**Plan calls: 366** (conv-49 dev re-answers 74, conv-49 branch 14, conv-26 10, oracle re-judge 8 + branch 4,
+LongMemEval_S dev 128 + branch 128).
+
+**Still open.** A value question the gate reads as a count leads with the person's question turn; a "remind me"
+question about what the agent said reads the person's turns first; paraphrase with no shared word ("doctors" said as
+"Dr. <name>") is still missed — there the graph (a person page per doctor) is the way in, and an un-consolidated bank
+has none.
