@@ -65,10 +65,15 @@ async def run_dedup_sweep(
     if write_admission.probe():
         raise SleepWriting("a Sleep cycle is running and writes the same pages — retry when it finishes")
     memory_path = settings.memory_path   # resolved once (the split-brain rule)
+    # The judge runs on the engine a run the person starts would use (a plan when chosen and connected) — never an
+    # unresolved Auto, which would refuse every call (2026-10-19, ruling 31: never a metered key nobody chose).
+    from api.services import engine_select
+
+    resolved, _why = await engine_select.resolve_settings(settings, user_triggered=True)
     report = await run_in_threadpool(
         dedup_sweep,
         memory_path,
-        settings,
+        resolved,
         dry_run=request.dry_run,
         limit=request.limit,
         may_write=lambda: not write_admission.holding(),

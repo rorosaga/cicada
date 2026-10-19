@@ -50,6 +50,8 @@ final class EngineSelectionTests: XCTestCase {
     func testEngineLabelsAreHumanReadable() {
         XCTAssertEqual(Copy.engineLabel("claude-cli"), "Claude Code (your plan)")
         XCTAssertEqual(Copy.engineLabel("ollama"), "Ollama (on this Mac)")
+        // Ruling 31 (2026-10-19): Auto with no plan and no local model has no engine — never "API key".
+        XCTAssertEqual(Copy.engineLabel("none"), "No engine yet")
         XCTAssertEqual(Copy.engineLabel("litellm"), "API key")
         XCTAssertEqual(Copy.engineLabel("something-new"), "something-new")
     }

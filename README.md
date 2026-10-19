@@ -155,8 +155,8 @@ git clone -b dev https://github.com/rorosaga/cicada && brew tap rorosaga/cicada 
 ## Quick start (from source)
 
 Requirements: macOS 14+, Python 3.12, [uv](https://github.com/astral-sh/uv), Xcode command
-line tools. For consolidation you need one of: a Claude subscription with the `claude` CLI, a
-local [Ollama](https://ollama.com), or an API key for any provider litellm supports.
+line tools. For consolidation you need one of: a Claude subscription with the `claude` CLI, a ChatGPT plan, a
+local [Ollama](https://ollama.com), or an API key for any provider litellm supports (read only when you choose it).
 
 ```sh
 git clone https://github.com/rorosaga/cicada.git
@@ -191,14 +191,18 @@ your own life. Re-open it any time from Settings → General → "Run setup agai
 starts in, after a restart. A variable set in the backend's environment, such as its LaunchAgent plist, wins over the
 file. Settings → Advanced lists which settings came from the file and which the environment replaced with another value.
 
-Pick a consolidation engine in `api/.env`:
+The engine is Auto unless you choose another (Settings → Engines, or pin it in `api/.env`):
 
 ```sh
-CICADA_LLM_MODE=auto    # agent: your `claude` CLI on your subscription
+CICADA_LLM_MODE=auto    # the default: your Claude plan if connected, else your ChatGPT plan, else Ollama if
+                        #   running — never an API key by itself (with none of them, Sleep says it has no engine)
+                        # agent: your `claude` CLI on your subscription
+                        # codex: your ChatGPT plan
                         # local: Ollama, offline, no key
-                        # byok:  any litellm provider via *_API_KEY
-                        # auto:  agent if connected, else local if running, else byok
+                        # byok:  an API key you chose — any litellm provider via *_API_KEY (OpenRouter included)
 ```
+
+Scheduled runs use your plan too unless you turn that off (Settings → Sleep → *Scheduled runs may use my plan*).
 
 Day-to-day commands:
 

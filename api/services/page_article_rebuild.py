@@ -75,6 +75,8 @@ async def resolve_engine(settings, *, allow_metered: bool = False):
 
     resolved, why = await engine_select.resolve_settings(settings, user_triggered=True)
     label = engine_select.engine_label(resolved)
+    if engine_select.no_engine(resolved):
+        raise EngineRefused(str(resolved.no_engine_reason), engine=label)
     if label in METERED_ENGINES:
         model = str(getattr(resolved, "effective_consolidation_model", "") or "").strip()
         if not model or not _key_present(model):

@@ -3223,9 +3223,9 @@ class SleepRunOptions(CamelModel):
     continue_after_reset: bool = False
     reserve_pct: Optional[int] = None
     reserve_choices: list[int] = Field(default_factory=list)
-    # TODO ruling 4b (owner, 2026-10-16): this machine lets SCHEDULED runs use the person's plan (Claude or ChatGPT).
-    # Off by default; nightly runs then count against the plan's limits.
-    scheduled_use_plan: bool = False
+    # TODO ruling 4b (owner, 2026-10-16; amended 2026-10-19): this machine lets SCHEDULED runs use the person's plan
+    # (Claude or ChatGPT). On by default — only the person's explicit off stops it; nightly runs count against the plan.
+    scheduled_use_plan: bool = True
 
 
 class SleepRunOptionsUpdate(CamelModel):

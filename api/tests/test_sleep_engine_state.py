@@ -307,7 +307,7 @@ def test_the_probe_is_not_run_on_an_idle_cycle(tmp_path, monkeypatch, tail_spy):
 
 
 def test_a_scheduled_cycle_never_selects_claude_cli_end_to_end(tmp_path, monkeypatch, tail_spy):
-    """Fix round 1, H1 — integration level: even with the toggle ON and the
+    """Fix round 1, H1 — integration level: with the scheduled-plan switch off, even with the toggle ON and the
     plan connected in the registry's own cache, a scheduled
     (``user_triggered=False``) full cycle must resolve to litellm, never
     claude-cli. Booby-traps `agent_engine.probe` too, so this also proves
@@ -326,6 +326,9 @@ def test_a_scheduled_cycle_never_selects_claude_cli_end_to_end(tmp_path, monkeyp
     settings = Settings()
     reg = connections_registry.get_registry(settings)
     reg.set_pref("claude-plan", "use_for_sleep", True)
+    from api.services import sleep_run_prefs
+
+    sleep_run_prefs.write(reg, scheduled_use_plan=False)   # ruling 4b: the person's explicit off (on by default)
     reg._cache["claude-plan"] = (time_module.monotonic(), ConnectionStatus(
         id="claude-plan", label="Claude plan", kind=ConnectionKind.subscription,
         available=True, connected=True, how="Claude Code signed in on this Mac.",

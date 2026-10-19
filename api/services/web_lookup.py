@@ -30,8 +30,10 @@ the ones the search answers. The rules, each enforced here:
 * **Order.** Clarifications ("what is X") first; then conflicts, those with a mention line before those without — a
   "which of two different things" conflict is answerable only through the context, otherwise the model is unsure.
 * **What a thing is** (owner, 2026-10-16). A type or description conflict (``is-a`` included, though multi-valued)
-  settles on one option only when the answer says the page rules the others out, and on the item's own "both" option
-  when the page says it is all of them; never on an option the item does not have.
+  settles on one option only when the answer says the page rules the others out — it defines the subject as that
+  option and nowhere as another — and on the item's own "both" option when the page describes it as more than one of
+  them (owner 2026-10-19: "Is <a public tool> an AI agent or an AI code editor?" is a search's to answer, not the
+  inbox's); never on an option the item does not have.
 * **Caps.** ``web_check_per_run`` questions a run (default 8), at most two searches a call; a question already looked
   up and left open is not looked up again for 30 days (a memo outside every bank, ids and enums only).
 """
@@ -78,12 +80,12 @@ SYSTEM_PROMPT = (
 #: A question about what the thing IS (``web_settle.TYPE_PREDICATES``; owner, 2026-10-16): one option settles only when
 #: the page rules the others out; the item's own "both" option when the page says it is all of them at once.
 TYPE_RULES = (
-    "Rules for this question: choose a single option only when the page says the subject is that AND its words rule "
-    "out every other option; then add \"others_ruled_out\": true. When the page says this one subject is all of the "
-    "options at once, choose option_key {both!r}. When the name belongs to different things, the notes decide which "
-    "one the person meant: judge the options only against a page about that one, and cite it; if the notes do not "
-    "say which one, or the page does not rule the other options out, answer {{\"sure\": false}}. Never answer with "
-    "an option that is not listed."
+    "Rules for this question: judge the options only against a page about the one subject the notes point to, and cite "
+    "it. When that page defines the subject as one option and describes it nowhere as any other, choose that option "
+    "and add \"others_ruled_out\": true. When the page describes the subject as more than one of the options (an editor "
+    "with a built-in agent, a company that also makes hardware), choose option_key {both!r}; with no such option, "
+    "answer {{\"sure\": false}}. When the name belongs to different things and the notes do not say which one the "
+    "person meant, answer {{\"sure\": false}}. Never answer with an option that is not listed."
 )
 
 
@@ -267,6 +269,8 @@ async def engine_for(settings, *, user_triggered: bool) -> tuple[Any, str | None
     resolved, _why = await engine_select.resolve_settings(settings, user_triggered=user_triggered)
     mode = str(getattr(resolved, "llm_mode", "byok") or "byok").strip().lower()
     label = engine_select.engine_label(resolved)
+    if engine_select.no_engine(resolved):
+        return None, label, "no_engine"
     if mode in engine_select.SUBSCRIPTION_MODES:
         # Ruling 4 — even under an explicit env pin; ruling 4b — unless the person let scheduled runs use the plan.
         if not user_triggered and not engine_select.scheduled_plan_allowed(_registry(settings)):
@@ -401,8 +405,13 @@ async def look_up(fn: Callable[..., Any], todo: list[tuple[web_settle.Candidate,
         model = _model_of(resp)
         if model and model not in report.models:
             report.models.append(model)
-        if not queries_ok(searched_queries(resp), web_settle.query_for(c)):
-            answers.append((c, Answer(c.item_id, False, "query_strayed")))
+        queries = searched_queries(resp)
+        if not queries_ok(queries, web_settle.query_for(c)):
+            parsed = parse_answer(c, _content(resp)) if not queries else None
+            # No search and not sure (a name the notes cannot place): unsure, counted as such. Anything else — a search
+            # for something else, or a sure answer from no search — settles nothing.
+            answers.append((c, parsed if parsed is not None and parsed.reason == "unsure"
+                            else Answer(c.item_id, False, "query_strayed")))
             continue
         answers.append((c, parse_answer(c, _content(resp))))
     return answers
@@ -533,3 +542,202 @@ async def dry_run(memory_path: Path, settings, *, limit: int, include_recent: bo
         else:
             row["reasons"][a.reason] = row["reasons"].get(a.reason, 0) + 1
     return out
+
+
+# --------------------------------------------------------------------------- the sweep (owner ruling 2026-10-19)
+#
+# "Questions like 'Is <a public tool> an AI agent or an AI code editor?' can be solved by an internet search. That's
+# not what the inbox is for." Sleep's tail looks up a few questions a run (``run_tail``); the sweep is the one-off pass
+# over the backlog already in the inbox, started by the person (``POST /inbox/web-check``, or the dry-run script).
+# The same eligibility, query, local context, citation and undo ("Settled by a check") as the tail; the engine is the
+# one a run the person starts would use. A dry run writes nothing (no settle, no memo, no ledger row); a real run looks
+# up one question at a time — the model call outside any lock — and settles each under the bank's write admission and
+# page lock, one commit each, refused while Sleep holds the pages. A plan limit stops it (what settled stays settled).
+
+_SWEEP: dict[str, Any] = {"running": False, "report": None, "started_at": None, "bank": None}
+#: Engine failures in a row that stop a sweep (a signed-out CLI, a dead network): the rest waits for the next pass.
+SWEEP_ENGINE_FAILURES = 3
+#: A dry run's lookups when no limit is given (one plan call each): a measure, never the whole backlog by accident.
+SWEEP_DRY_RUN_LIMIT = 20
+
+
+class _SleepStarted(Exception):
+    pass
+
+
+def sweep_running() -> bool:
+    """Is a real sweep settling questions in this process now? (``/sleep/status`` → ``inboxTidy``: an updater that
+    restarts the backend waits for it, as for the tidy.)"""
+    return bool(_SWEEP.get("running"))
+
+
+def sweep_status() -> dict:
+    """The running (or last) real sweep's counts — ids never, text never."""
+    return {"running": bool(_SWEEP.get("running")), "report": _SWEEP.get("report"),
+            "started_at": _SWEEP.get("started_at")}
+
+
+def start_sweep(memory_path: Path, settings, *, limit: int | None = None, include_recent: bool = False) -> bool:
+    """Start a real sweep in the background; False when one is already running. The flag is set synchronously so two
+    quick requests never start two; the task is kept so it is never collected mid-run."""
+    if _SWEEP.get("running"):
+        return False
+    _SWEEP["running"] = True
+    _SWEEP["task"] = asyncio.get_running_loop().create_task(
+        sweep(memory_path, settings, dry_run=False, limit=limit, include_recent=include_recent))
+    return True
+
+
+async def _settle_admitted(memory_path: Path, c: web_settle.Candidate, a: Answer, *, by: str,
+                           label: str | None) -> list[str]:
+    """One settle and its own commit, under the bank's write admission and page lock — the model call already made.
+    An edit already on a page it rewrites is committed apart first, never as this check's (``web_settle.commit_sync``).
+    Raises :class:`_SleepStarted` when Sleep holds the pages, ``web_settle.NotSettleable`` when it no longer may."""
+    from api.services import git_service, page_lock, write_admission
+
+    def work() -> list[str]:
+        with page_lock.page_lock(memory_path):
+            before = git_service.snapshot_dirty_sync(memory_path)
+            done = web_settle.settle(
+                memory_path, c.item_id, ref=a.url, quote=a.quote, option_key=a.option_key, answer=a.answer,
+                checker=by, checker_kind="sleep", origin="sleep", engine=label,
+                facts=web_settle.bank_facts(memory_path))
+            message = web_settle.commit_message("Web check", done.lines, authors=[by], engine=label)
+            web_settle.commit_sync(memory_path, message, done.paths, before=before)
+            return done.paths
+
+    return await write_admission.run_admitted(memory_path, lambda: asyncio.to_thread(work), refuse=_SleepStarted)
+
+
+def _sweep_stop(a: Answer, failures: int) -> str | None:
+    """Why the sweep stops after this answer: a plan limit (a pause), or the engine failing again and again."""
+    from api.services import agent_engine
+
+    if a.reason != "engine_error":
+        return None
+    if agent_engine.breaker_reason():
+        return "plan_limit"
+    return "engine" if failures >= SWEEP_ENGINE_FAILURES else None
+
+
+async def sweep(memory_path: Path, settings, *, dry_run: bool = True, limit: int | None = None,
+                include_recent: bool = False, llm_fn: Callable[..., Any] | None = None,
+                engine: tuple[Any, str | None, str] | None = None, today: date | None = None) -> dict:
+    """Look up the backlog's public-thing questions and (unless ``dry_run``) settle what a search answers (a dry run
+    looks up at most :data:`SWEEP_DRY_RUN_LIMIT` unless given a ``limit``). Returns
+    COUNTS only: the inbox census (what a lookup may answer, and why the rest stays — ``web_settle.census``), how many
+    were eligible, looked up, settled (or would settle), and the reasons by kind. ``limit`` caps the lookups (one
+    engine call each); ``include_recent`` also looks up questions a run looked up in the last 30 days. A person starts
+    it, so the connector gate is reported, never applied (a click is never gated). Never raises."""
+    from api.services import agent_engine, sleep_cycle
+    from api.services.connectors.base import network_allowed
+
+    memory_path = Path(memory_path)
+    today = today or date.today()
+    if dry_run and limit is None:
+        limit = SWEEP_DRY_RUN_LIMIT
+    facts = web_settle.bank_facts(memory_path)
+    out: dict[str, Any] = {"dry_run": dry_run, "gate": "on" if network_allowed() else "off", "eligible": 0,
+                           "looked_up": 0, "settled": 0, "would_settle": 0, "by_kind": {},
+                           "census": web_settle.census(memory_path, facts)}
+    if not dry_run:
+        _SWEEP.update(running=True, report=out, started_at=_now_iso(), bank=str(memory_path))
+    try:
+        if not dry_run and not (memory_path / ".git").exists():
+            out["stopped"] = "no_git"
+            return out
+        memo = load_memo(memory_path)
+        cap = max(0, int(limit)) if limit is not None else 10 ** 6
+        todo, out["eligible"] = select(memory_path, facts, memo, today, cap=cap, include_recent=include_recent)
+        if not todo:
+            out["reason"] = "census_only" if cap == 0 else "nothing"
+            return out
+        resolved, label, why = engine if engine is not None else await engine_for(settings, user_triggered=True)
+        out["engine"] = label
+        if resolved is None:
+            out["reason"] = why
+            return out
+        report = Report(engine=label)
+        fn = llm_fn or default_llm_fn(resolved, sink=(lambda _event: None) if dry_run else None)
+        failures = 0
+        with agent_engine.use_scope(f"web-sweep:{memory_path.name}"):
+            for c, context in todo:
+                if not dry_run and sleep_cycle.get_sleep_state().status == "running":
+                    out["stopped"] = "sleep_running"
+                    break
+                (_c, a), = await look_up(fn, [(c, context)], report)
+                out["looked_up"] = report.looked_up
+                kind = "type_conflict" if c.type_question else c.kind
+                done_key = "would_settle" if dry_run else "settled"
+                row = out["by_kind"].setdefault(kind, {"looked_up": 0, done_key: 0, "reasons": {}})
+                row["looked_up"] += 1
+                failures = failures + 1 if a.reason == "engine_error" else 0
+                if not dry_run and a.reason != "engine_error":
+                    memo[c.item_id] = {"at": today.isoformat(), "outcome": "settled" if a.ok else a.reason}
+                    save_memo(memory_path, memo)
+                if not a.ok:
+                    row["reasons"][a.reason] = row["reasons"].get(a.reason, 0) + 1
+                    if not dry_run:
+                        web_settle.record_event(memory_path, action="skip", item_id=c.item_id, entity_id=c.entity_id,
+                                                by_kind="sleep", reason=a.reason, engine=label)
+                    stop = _sweep_stop(a, failures)
+                    if stop:
+                        out["stopped"] = stop
+                        break
+                    continue
+                if dry_run:
+                    row[done_key] += 1
+                    out["would_settle"] += 1
+                    continue
+                by = report.models[0] if report.models else (label or "agent")
+                try:
+                    await _settle_admitted(memory_path, c, a, by=by, label=label)
+                except _SleepStarted:
+                    out["stopped"] = "sleep_running"
+                    break
+                except web_settle.NotSettleable:
+                    memo[c.item_id]["outcome"] = "refused"
+                    save_memo(memory_path, memo)
+                    row["reasons"]["refused"] = row["reasons"].get("refused", 0) + 1
+                    continue
+                row[done_key] += 1
+                out["settled"] += 1
+                web_settle.record_event(memory_path, action="settle", item_id=c.item_id, entity_id=c.entity_id,
+                                        by_kind="sleep", engine=label)
+        if out["settled"] and not dry_run:
+            await _refresh_state_admitted(memory_path, settings)
+        return out
+    except Exception as exc:  # noqa: BLE001 — never raises: what settled stays settled, the rest waits
+        logger.warning(f"web sweep stopped: {type(exc).__name__}")
+        out["stopped"] = "error"
+        return out
+    finally:
+        if not dry_run:
+            _SWEEP["running"] = False
+            _SWEEP["report"] = out
+        logger.info(f"Web sweep{' (dry run)' if dry_run else ''}: {out.get('looked_up', 0)} looked up, "
+                    f"{out.get('settled', 0) or out.get('would_settle', 0)} "
+                    f"{'would settle' if dry_run else 'settled'}"
+                    + (f" — stopped ({out['stopped']})" if out.get("stopped") else ""))
+
+
+async def _refresh_state_admitted(memory_path: Path, settings) -> None:
+    """``_state.md`` after the sweep's settles: one admitted transaction, skipped while Sleep holds the pages (the
+    run's own tail refreshes it; a write here could ride the batch commit under Sleep's author) — ``GET /state``'s
+    pattern (G183)."""
+    from api.services import state_dictionary, write_admission
+
+    async def refresh() -> None:
+        if not write_admission.holding():
+            await state_dictionary.refresh_and_commit(memory_path, settings)
+
+    try:
+        await write_admission.run_admitted(memory_path, refresh)
+    except Exception as exc:  # noqa: BLE001 — the projection never fails the sweep
+        logger.info(f"state refresh after the web sweep skipped: {type(exc).__name__}")
+
+
+def _now_iso() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")

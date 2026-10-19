@@ -14,16 +14,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 #: Why a scheduled run has no engine it may use (the wire's ``warningCode``); each client words its own fix.
-NO_ENGINE = "no_engine"            # an API model with no key, and no plan open to scheduled runs
+NO_ENGINE = "no_engine"            # no plan open to scheduled runs, no local model, and no API key chosen (or no key)
 PLAN_SIGNED_OUT = "plan_signed_out"  # scheduled runs may use the chosen plan, but it is not signed in here
 LOCAL_DOWN = "local_down"          # the local model Sleep is pinned to is not running
 PLAN_NOT_CHOSEN = "plan_not_chosen"  # scheduled runs may use the signed-in plan, but Sleep reads with a keyless model
 
 #: The command-line fix for each, offering a plan first (owner decision 2).
 CLI_FIX = {
-    NO_ENGINE: ("Connect your plan on this machine (`cicada engine connect claude-plan`, or `chatgpt-plan`), choose "
-                "it as Sleep's engine and let scheduled runs use it (`cicada sleep schedule --use-plan on`), or add a "
-                "key for an API model (Settings → Plans & keys, or ~/.cicada/secrets.env)."),
+    NO_ENGINE: ("Connect your plan on this machine (`cicada engine connect claude-plan`, or `chatgpt-plan`) and leave "
+                "scheduled runs on it (`cicada sleep schedule --use-plan on`, the default), or choose an API model as "
+                "Sleep's engine with its key (`cicada sleep engine --mode byok`, the key in Settings → Plans & keys or "
+                "~/.cicada/secrets.env)."),
     PLAN_SIGNED_OUT: ("Sign in to your plan on this machine: `cicada engine connect claude-plan` (or "
                       "`chatgpt-plan`)."),
     LOCAL_DOWN: "Start the local model, or choose another engine (`cicada sleep engine --mode …`).",
@@ -49,10 +50,17 @@ def key_env(model: str | None) -> str:
 
 
 def key_missing(settings) -> bool:
-    """A resolved ``Settings`` that would call an API model with no key for it. False for a plan or a local model."""
+    """A ``Settings`` with no engine to call: an API model with no key for it, a resolved Auto that found nothing, or
+    an unresolved Auto (whose call would fall to an API model nobody chose). False for a plan or a local model."""
     from api.services.connections import secrets
 
+    from api.services import engine_select
+
+    if engine_select.no_engine(settings):
+        return True   # a resolved Auto with nothing it may use (2026-10-19): no engine at all
     mode = str(getattr(settings, "llm_mode", "byok") or "byok").strip().lower()
+    if mode == "auto":
+        return True   # an UNRESOLVED Auto: a call from it would fall to the API model, never chosen (2026-10-19)
     if mode != "byok":
         return False
     return not secrets.has_secret(key_env(getattr(settings, "litellm_model", "") or ""))
@@ -68,6 +76,13 @@ async def scheduled_problem(settings, registry=None) -> Problem | None:
         from api.services.connections.registry import get_registry
 
         registry = get_registry(settings)
+    if engine_select.no_engine(resolved):
+        # Auto (the default, 2026-10-19) found nothing a scheduled run may use, and it never falls to a key by itself.
+        if engine_select.scheduled_plan_allowed(registry):
+            return Problem(NO_ENGINE, "Scheduled runs have no engine they may use here: no plan is signed in, no "
+                                      "local model is running, and no API key is chosen as Sleep's engine.")
+        return Problem(NO_ENGINE, "Scheduled runs have no engine they may use here: your plan is off for scheduled "
+                                  "runs, no local model is running, and no API key is chosen as Sleep's engine.")
     if mode in ("agent", "codex"):
         probe = engine_select.probe_claude_cheaply if mode == "agent" else engine_select.probe_codex_cheaply
         ok, _detail = await probe(registry)
@@ -93,6 +108,6 @@ async def scheduled_problem(settings, registry=None) -> Problem | None:
     return None
 
 
-ASK_NO_ENGINE = ("Cicada has no engine to answer with on this machine: no key is set for the API model it reads "
-                 "with, and no plan is chosen. Connect your plan (`cicada engine connect claude-plan`, or "
-                 "`chatgpt-plan`) or add a key for an API model (Settings → Plans & keys).")
+ASK_NO_ENGINE = ("Cicada has no engine to answer with on this machine: no plan is connected, no local model is "
+                 "running, and no API key is chosen (or it has no key). Connect your plan (`cicada engine connect "
+                 "claude-plan`, or `chatgpt-plan`) or choose an API model with its key (Settings → Engines).")

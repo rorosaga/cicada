@@ -200,8 +200,10 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Consolidate reads everything** (rulings 13, 16): every run — the person's and a scheduled one — is a drain over the
   ids frozen at its start, in committed batches (default 25), so a stop loses at most the batch in progress. Decay and the
   page reads run once per drain. A plan limit is a pause, not a failure. **Ruling 4: a scheduled run uses a Claude or ChatGPT plan only
-  through the person's off-by-default "Scheduled runs may use my plan" switch** (4b, 2026-10-16; `SUBSCRIPTION_MODES`
-  the one guard); on a metered engine it spends with no limit Cicada sets, said in words. Continue-after-reset is opt-in,
+  through the person's "Scheduled runs may use my plan" switch, on unless they turned it off** (4b 2026-10-16, 4c
+  2026-10-19; `SUBSCRIPTION_MODES` the one guard); on a metered engine it spends with no limit Cicada sets, said in words.
+  **Plan-first engines (ruling 31, 2026-10-19):** the default is Auto — Claude plan, ChatGPT plan, local model — and never
+  a metered key nobody chose: no engine is said in words, and a key (OpenRouter included) reads only when chosen. Continue-after-reset is opt-in,
   off (ruling 15). A scheduled time the Mac slept or was off through runs once, after a short settle, as a scheduled
   run — never over a pause or a running cycle (`sleep_catch_up`, owner 2026-10-19, `features.md`).
 - **The write window (G177):** `sleep_cycle.is_writing()` is the one predicate behind every "Sleep is running" refusal,
@@ -247,7 +249,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   destructive verdict needs positive evidence. Agents check sources before a question reaches the person only on sites the
   person allowed, and **an inbox check never settles, reorders or changes a belief** (S3 is shadow) — **except a question
   about a public thing (ruling 27):** a web lookup settles it with a cited claim (a citation, never a tracked source),
-  undoable under "Settled by a check"; never a person's name, their files, projects or life (`mcp.md`). **A tracked source's
+  undoable under "Settled by a check"; never a person's name, their files, projects or life (`mcp.md`); it is the default
+  path on every plan run plus a one-off backlog sweep, and Cicada's own settings are never asked (27b, 2026-10-19). **A tracked source's
   dated re-check does (ruling 26):** a new dated fact; the newest evidence wins, even over the person's own words; the same
   day or undated asks once; dead = two failed visits a week apart; walled pages only by the person's agent (`storage.md`).
 - **Pictures:** one precedence (the person's choice → Contacts photo → the photo a ticked Messages chat shares → a

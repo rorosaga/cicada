@@ -86,8 +86,13 @@ before it is decoded (`messages_photos.B64_MAX`, 422 as before).
 **Schedule and reading options (ruling 4b, owner decision 2).** `GET/PUT /sleep/schedule` answer the schedule plus,
 while it runs on its own, `warning` and `warningCode` when a scheduled run would have no engine it may use
 (`ScheduleResponse`, `engine_readiness`); the PUT body is unchanged and the app never sends them back.
-`GET/PUT /sleep/run-options` carry `scheduledUsePlan` (machine-wide, off by default; `null` is 422).
-`POST /ask` on an engine with no key answers that it has no engine, naming the pages it found, and calls nothing.
+`GET/PUT /sleep/run-options` carry `scheduledUsePlan` (machine-wide, on unless the person turned it off — ruling 4c,
+2026-10-19; an off is stored as `false`; `null` is 422).
+`POST /ask` with no engine — an API model with no key, or Auto with no plan and no local model (ruling 31: never a key
+nobody chose) — answers that it has no engine, naming the pages it found, and calls nothing.
+**The web-check sweep (ruling 27b, 2026-10-19).** `POST /inbox/web-check?dryRun=true|false[&limit=N][&includeRecent=true]`
+answers counts only (dry run) or `{"status": "started"}` and runs in the background; `GET /inbox/web-check` its counts.
+409 while Sleep, the tidy or another sweep runs. Not a Store domain, no ETag (`features.md`).
 
 **Device tokens (G181 phase 2, owner ruling 1, 2026-10-16).** A second machine of the person's never gets the master
 token: each device gets its own **named, hashed, revocable** token (`device_tokens`, the G135 store's shape kept apart:

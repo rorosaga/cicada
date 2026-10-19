@@ -20,7 +20,11 @@ from api import config, main
 from api.config import Settings
 from api.models.schemas import ConnectionKind, ConnectionStatus
 from api.services import engine_readiness, engine_select, sleep_paused, sleep_run_prefs
-from test_cli_app import TOKEN, _backend, env  # noqa: F401 — the CLI's fake backend and its fixture
+from test_cli_app import TOKEN, _backend, _template, env  # noqa: F401 — the CLI's fake backend and its fixture
+
+
+#: The shipped engine default (auto since 2026-10-19), not the suite's chosen key (conftest).
+pytestmark = pytest.mark.shipped_engine_default
 
 
 class _Registry:
@@ -50,7 +54,8 @@ def _scheduled(settings, registry):
 
 
 def _switch(on: bool) -> dict:
-    return {sleep_run_prefs.PREF_KEY: {"scheduled_use_plan": True}} if on else {}
+    """The person's explicit choice; unset is ON since 2026-10-19 (ruling 4b amended)."""
+    return {sleep_run_prefs.PREF_KEY: {"scheduled_use_plan": bool(on)}}
 
 
 @pytest.fixture(autouse=True)
@@ -65,10 +70,25 @@ def _plan_probe(monkeypatch):
 
 # --- ruling 4b: the switch is the guard's one door -----------------------------------------------------------------
 
-def test_without_the_switch_a_scheduled_run_never_uses_a_plan_chosen_in_settings():
-    reg = _Registry(prefs={"sleep-engine": {"mode": "agent"}}, connected={"claude-plan"})
+def test_with_the_switch_off_a_scheduled_run_never_uses_a_plan_chosen_in_settings():
+    reg = _Registry(prefs={"sleep-engine": {"mode": "agent"}, **_switch(False)}, connected={"claude-plan"})
     mode, why = _scheduled(Settings(), reg)
-    assert mode == "byok" and "user-triggered only" in why
+    # 2026-10-19: and never the metered key by itself — no engine.
+    assert mode == "auto" and "user-triggered only" in why
+
+
+def test_the_switch_is_on_by_default_and_an_explicit_off_stays_off():
+    """Owner 2026-10-19: "Make scheduled runs run on the plan by default." An explicit off stays off."""
+    never_set = _Registry(prefs={"sleep-engine": {"mode": "agent"}}, connected={"claude-plan"})
+    assert engine_select.scheduled_plan_allowed(never_set)
+    assert _scheduled(Settings(), never_set)[0] == "agent"
+    assert _scheduled(Settings(), _Registry(connected={"claude-plan"}))[0] == "agent", "the default install too"
+    turned_off = _Registry(prefs={"sleep-engine": {"mode": "agent"}, **_switch(False)}, connected={"claude-plan"})
+    assert not engine_select.scheduled_plan_allowed(turned_off)
+    reg = _Registry()
+    sleep_run_prefs.write(reg, scheduled_use_plan=False)
+    assert reg.prefs()["sleep-run"]["scheduled_use_plan"] is False, "an off is stored, so it outlives the default"
+    assert not sleep_run_prefs.load(reg).scheduled_use_plan
 
 
 def test_with_the_switch_a_scheduled_run_uses_the_claude_plan_chosen_in_settings():
@@ -84,34 +104,34 @@ def test_the_switch_opens_the_chatgpt_plan_too_and_only_through_itself(monkeypat
         return bool(status.connected), ""
 
     monkeypatch.setattr(engine_select, "probe_codex_cheaply", codex_probe)
-    off = _Registry(prefs={"sleep-engine": {"mode": "codex"}}, connected={"chatgpt-plan"})
-    assert _scheduled(Settings(), off)[0] == "byok"
+    off = _Registry(prefs={"sleep-engine": {"mode": "codex"}, **_switch(False)}, connected={"chatgpt-plan"})
+    assert _scheduled(Settings(), off)[0] == "auto"
     on = _Registry(prefs={"sleep-engine": {"mode": "codex"}, **_switch(True)}, connected={"chatgpt-plan"})
     assert _scheduled(Settings(), on)[0] == "codex"
     auto = _Registry(prefs={"sleep-engine": {"mode": "auto"}, **_switch(True)}, connected={"chatgpt-plan"})
     assert _scheduled(Settings(), auto)[0] == "codex", "auto on a schedule reaches the ChatGPT rung through the switch"
-    auto_off = _Registry(prefs={"sleep-engine": {"mode": "auto"}}, connected={"chatgpt-plan"})
-    assert _scheduled(Settings(), auto_off)[0] == "byok"
+    auto_off = _Registry(prefs={"sleep-engine": {"mode": "auto"}, **_switch(False)}, connected={"chatgpt-plan"})
+    assert _scheduled(Settings(), auto_off)[0] == "auto"
 
 
 def test_with_the_switch_the_use_for_sleep_toggle_and_auto_reach_the_plan_on_a_schedule():
     toggle = _Registry(prefs={"claude-plan": {"use_for_sleep": True}, **_switch(True)}, connected={"claude-plan"})
-    assert _scheduled(Settings(), toggle)[0] == "agent"
+    assert _scheduled(Settings(llm_mode="byok"), toggle)[0] == "agent"
     auto = _Registry(prefs={"sleep-engine": {"mode": "auto"}, **_switch(True)}, connected={"claude-plan"})
     assert _scheduled(Settings(), auto)[0] == "agent"
     signed_out = _Registry(prefs={"sleep-engine": {"mode": "auto"}, **_switch(True)})
-    assert _scheduled(Settings(), signed_out)[0] == "byok"
+    assert _scheduled(Settings(), signed_out)[0] == "auto", "no plan signed in: no engine, never the key by itself"
 
 
 def test_the_switch_is_stored_beside_the_reading_options_and_reads_off_when_corrupt():
     reg = _Registry()
-    assert not engine_select.scheduled_plan_allowed(reg)
+    assert engine_select.scheduled_plan_allowed(reg), "on by default (2026-10-19)"
     sleep_run_prefs.write(reg, scheduled_use_plan=True)
     assert engine_select.scheduled_plan_allowed(reg) and sleep_run_prefs.load(reg).scheduled_use_plan
     sleep_run_prefs.write(reg, scheduled_use_plan=False)
     assert not engine_select.scheduled_plan_allowed(reg)
     assert not engine_select.scheduled_plan_allowed(_Registry(prefs={"sleep-run": {"scheduled_use_plan": "yes"}}))
-    assert not engine_select.scheduled_plan_allowed(None)
+    assert engine_select.scheduled_plan_allowed(None), "no prefs to read: the default"
 
 
 def test_a_scheduled_plan_run_drains_and_the_dotfile_pin_still_reads_one_batch():
@@ -147,8 +167,10 @@ def test_the_web_lookup_follows_the_switch_on_a_schedule(monkeypatch):
         return resolved, "pinned"
 
     monkeypatch.setattr(engine_select, "resolve_settings", resolve)
-    monkeypatch.setattr(web_lookup, "_registry", lambda settings: _Registry())
+    monkeypatch.setattr(web_lookup, "_registry", lambda settings: _Registry(prefs=_switch(False)))
     assert asyncio.run(web_lookup.engine_for(Settings(), user_triggered=False))[2] == "scheduled_plan"
+    monkeypatch.setattr(web_lookup, "_registry", lambda settings: _Registry())
+    assert asyncio.run(web_lookup.engine_for(Settings(), user_triggered=False))[2] == "plan", "on by default"
     monkeypatch.setattr(web_lookup, "_registry", lambda settings: _Registry(prefs=_switch(True)))
     assert asyncio.run(web_lookup.engine_for(Settings(), user_triggered=False))[2] == "plan"
 
@@ -201,15 +223,21 @@ def test_turning_the_schedule_on_with_no_engine_warns_and_offers_the_plan_first(
     on = client.put("/sleep/schedule", json={"mode": "daily", "hour": 4, "minute": 0}).json()
     assert on["warningCode"] == engine_readiness.NO_ENGINE and "no engine" in on["warning"]
     fix = engine_readiness.Problem(on["warningCode"], on["warning"]).with_cli_fix()
-    assert fix.index("claude-plan") < fix.index("add a key"), "connecting the Claude plan is offered first"
+    assert fix.index("claude-plan") < fix.index("--mode byok"), "connecting the Claude plan is offered first"
     assert client.get("/sleep/schedule").json()["warningCode"] == engine_readiness.NO_ENGINE
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-real")
+    assert client.get("/sleep/schedule").json()["warningCode"] == engine_readiness.NO_ENGINE, \
+        "a key alone is no engine: it reads only when the person chooses it (2026-10-19)"
+    reg.set_pref("sleep-engine", "mode", "byok")
     assert client.get("/sleep/schedule").json().get("warning") is None
 
 
 def test_the_switch_round_trips_through_the_reading_options_route(server):
     client, reg, _ = server
-    assert client.get("/sleep/run-options").json()["scheduledUsePlan"] is False
+    assert client.get("/sleep/run-options").json()["scheduledUsePlan"] is True, "on by default (2026-10-19)"
+    assert client.put("/sleep/run-options", json={"scheduledUsePlan": False}).json()["scheduledUsePlan"] is False
+    assert reg.prefs()["sleep-run"]["scheduled_use_plan"] is False
+    assert client.get("/sleep/run-options").json()["scheduledUsePlan"] is False, "an explicit off stays off"
     assert client.put("/sleep/run-options", json={"scheduledUsePlan": True}).json()["scheduledUsePlan"] is True
     assert reg.prefs()["sleep-run"]["scheduled_use_plan"] is True
     assert client.put("/sleep/run-options", json={"scheduledUsePlan": None}).status_code == 422
@@ -223,8 +251,10 @@ def test_a_signed_out_plan_or_an_unchosen_one_is_named(server):
     assert body["warningCode"] == engine_readiness.PLAN_SIGNED_OUT
     reg._connected.add("claude-plan")
     assert client.get("/sleep/schedule").json().get("warning") is None
-    reg.set_pref("sleep-engine", "mode", None)
+    reg.set_pref("sleep-engine", "mode", "byok")
     assert client.get("/sleep/schedule").json()["warningCode"] == engine_readiness.PLAN_NOT_CHOSEN
+    reg.set_pref("sleep-engine", "mode", None)
+    assert client.get("/sleep/schedule").json().get("warning") is None, "the default (Auto) reads with the plan"
 
 
 def test_ask_with_no_engine_says_so_and_spends_nothing(tmp_path, monkeypatch):
@@ -635,7 +665,7 @@ def test_watch_later_duplicates_save_their_alias_rows(tmp_path, monkeypatch):
     monkeypatch.setattr(youtube_lists, "allowed", lambda name: True)
     monkeypatch.setattr(youtube_lists, "note", lambda *a, **kw: None)
 
-    def duplicate(prepared, memory_path, idx):
+    def duplicate(prepared, memory_path, idx, **_kw):   # `append_list` since #355
         idx[media_ingestor.url_hash(prepared.item.url) + "-alias"] = {"media_entity_id": "knots", "url": "alias",
                                                                        "alias_of": "primary"}
         return IngestResult(status="duplicate", media_entity_id="knots", episode_id="", title="Knots",

@@ -48,4 +48,5 @@ addopts = "-m 'not bench'"
 markers = [
     "crucial: guards a CLAUDE.md rail; the daily tier (`make test-crucial`, listed in crucial.txt)",
     "bench: a wall-clock budget or a benchmark run; `make test-bench` and `make test`, never the default run",
+    "shipped_engine_default: a bare Settings() keeps the shipped llm_mode (auto) instead of the suite's key",
 ]

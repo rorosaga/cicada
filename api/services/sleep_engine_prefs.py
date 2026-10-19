@@ -184,7 +184,7 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
         SleepEngineCandidate(
             id="auto", label="Auto", available=True,
             detail=("Your Claude plan if it's signed in, else your ChatGPT plan, else Ollama if "
-                    "it's running, else your API key."),
+                    "it's running. Never an API key unless you choose it."),
         ),
         SleepEngineCandidate(
             id="agent", label="Claude plan",

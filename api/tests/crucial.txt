@@ -50,13 +50,24 @@ test_write_window_guards.py::test_a_page_writing_route_refuses_inside_the_write_
 test_write_window_guards.py::test_reading_routes_are_never_gated
 test_status_writing.py::test_status_says_writing_only_inside_the_window
 
-## Ruling 4 / 4b: a scheduled run uses a plan only through the person's off-by-default switch
+## Ruling 4 / 4b / 4c: a scheduled run uses a plan only through the person's switch, on unless they turned it off
 test_engine_select.py::test_ruling_4_names_both_plans_in_one_tuple
-test_engine_select.py::test_a_settings_chosen_plan_never_runs_on_a_schedule
-test_server_readers.py::test_without_the_switch_a_scheduled_run_never_uses_a_plan_chosen_in_settings
+test_engine_select.py::test_a_settings_chosen_plan_never_runs_on_a_schedule_with_the_switch_off
+test_server_readers.py::test_with_the_switch_off_a_scheduled_run_never_uses_a_plan_chosen_in_settings
+test_server_readers.py::test_the_switch_is_on_by_default_and_an_explicit_off_stays_off
 test_server_readers.py::test_with_the_switch_a_scheduled_run_uses_the_claude_plan_chosen_in_settings
 test_server_readers.py::test_the_switch_is_stored_beside_the_reading_options_and_reads_off_when_corrupt
 test_sleep_scheduled_drain.py::test_a_scheduled_drain_reads_every_batch_but_never_selects_a_plan
+
+## Ruling 31: the default is Auto — a plan, else a local model — never a metered key nobody chose
+test_engine_select.py::test_the_default_install_never_falls_to_a_metered_key
+test_engine_select.py::test_a_resolved_no_engine_copy_refuses_every_call_before_it_is_made
+test_plan_first_inbox.py::test_a_run_with_no_engine_stops_before_stage_one_and_spends_nothing
+
+## Ruling 27 / 27b: a public-thing question is looked up, cited and undoable; Cicada's own settings are never asked
+test_plan_first_inbox.py::test_each_measured_shape_is_classified_as_pinned
+test_plan_first_inbox.py::test_the_sweeps_dry_run_counts_and_writes_nothing
+test_plan_first_inbox.py::test_the_sweep_settles_each_with_a_citation_one_commit_each_and_each_is_undoable
 
 ## Temporal decay: evergreen never decays or is proposed; a mention never lowers; age counts from when it was said
 test_decay_policy.py::test_agent_producible_set_excludes_evergreen
