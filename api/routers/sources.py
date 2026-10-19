@@ -302,7 +302,11 @@ async def upload_sources(
     if backfilled:
         media_ingestor.save_url_index(memory_path, idx)
 
+    # The upload's repeats (a video already saved, or one in two playlists of this export) go to `ingest_batch`
+    # too: it appends each one's list to its page's `collections:` (owner 2026-10-19).
     if not fresh:
+        if any((it.folder or "").strip() for it in items):
+            await media_ingestor.ingest_batch(items, memory_path, from_bookmark_file=from_bookmark_file)
         return SourceUploadResponse(
             status="ok",
             episodes_created=0,
@@ -314,13 +318,13 @@ async def upload_sources(
 
     if len(fresh) <= media_ingestor._INLINE_ENRICH_LIMIT:
         created, _ = await media_ingestor.ingest_batch(
-            fresh, memory_path, from_bookmark_file=from_bookmark_file
+            items, memory_path, from_bookmark_file=from_bookmark_file
         )
         message = f"Saved {created} item(s) from {source_label}"
     else:
         background_tasks.add_task(
             media_ingestor.ingest_chunked,
-            fresh,
+            items,
             memory_path,
             from_bookmark_file=from_bookmark_file,
         )

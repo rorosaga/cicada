@@ -1421,7 +1421,7 @@ def record_youtube_list(ctx: ToolContext, list_name: str, outcome: str, videos=N
         said = watch_history.summary(result)
     else:
         idx = media_ingestor.load_url_index(memory_path)
-        created = duplicates = 0
+        created = duplicates = listed = 0
         seen: set[str] = set()
         for row in rows:
             row = row if isinstance(row, dict) else {}
@@ -1446,6 +1446,9 @@ def record_youtube_list(ctx: ToolContext, list_name: str, outcome: str, videos=N
                 paths += [f"entities/{res.media_entity_id}.md", f"episodes/{res.episode_id}.md"]
             else:
                 duplicates += 1
+                if res.collection_added:   # saved before from another list: its page now lists Watch later too
+                    listed += 1
+                    paths.append(f"entities/{res.media_entity_id}.md")
         # `write_prepared`'s contract: every caller saves the index. A duplicate adds its alias rows too
         # (`index_aliases`), so it is saved whenever a row was written, and committed when its bytes moved
         # (backend hunt, 2026-10-16: it was saved only when a video was new, dropping a duplicate's aliases).
@@ -1458,7 +1461,8 @@ def record_youtube_list(ctx: ToolContext, list_name: str, outcome: str, videos=N
         if index_changed:
             paths.append("sources/url_index.json")
         lines = ([f"sources/url_index.json: updated (trigger: {ctx.trigger})"] if index_changed else []) + (
-            [f"{created} Watch later video(s) saved (trigger: {ctx.trigger})"] if created else [])
+            [f"{created} Watch later video(s) saved (trigger: {ctx.trigger})"] if created else []) + (
+            [f"{listed} saved video(s) now list Watch later (trigger: {ctx.trigger})"] if listed else [])
         youtube_lists.note(memory_path, name, "read", videos=len(seen))
         said = (f"{created} new Watch later video(s) saved; {duplicates} already in memory "
                 "(saved before by a Takeout, a bookmark or a link).")

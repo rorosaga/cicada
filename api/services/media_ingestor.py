@@ -33,7 +33,7 @@ from api.services import (
     bank_index, decay_policy, episode_ids, episode_scrub, history_index, markdown_parser, net_guard, saved_at,
     video_chapters, video_urls,
 )
-from api.services.id_utils import folder_tags, sanitize_id
+from api.services.id_utils import folder_tags, page_lists, sanitize_id
 
 USER_AGENT = "Mozilla/5.0 (CicadaBot)"
 _TIMEOUT = 5.0
@@ -172,6 +172,8 @@ class IngestResult:
     media_type: str
     thumbnail: str | None = None
     url: str = ""
+    # A duplicate saved from a list its page did not hold yet: the list was added to its `collections:`.
+    collection_added: bool = False
 
 
 # --- URL normalization & hashing ---
@@ -2096,6 +2098,10 @@ def write_media_entity(
         "version": 1,
         "folder": item.folder or None,
     }
+    if (item.folder or "").strip():
+        # Every list the page was saved from, `folder:` first (owner 2026-10-19); a later save of the same URL from
+        # another list appends (`add_collection`). Written only when set, like `folder:`'s readers expect.
+        frontmatter["collections"] = [item.folder.strip()]
     # G99d seam guard (Devin round 1, PR #26): see write_media_episode's same
     # comment — validate before persisting, don't just trust the producer.
     validated_added = saved_at.validate(item.added)
@@ -2344,6 +2350,48 @@ async def prepare_one(item: RawItem, memory_path: Path, client, idx: dict,
     return PreparedItem(item, meta, from_bookmark_file)
 
 
+def add_collection(memory_path: Path, entity_id: str, folder: str | None) -> bool:
+    """A link already saved, saved again from another list (a second playlist, board, collection or folder): append
+    that list to its media page's ``collections:`` (and make it the ``folder:`` of a page that had none). Returns
+    whether the page changed; a list the page already holds, a missing page or a page that is not ``media`` changes
+    nothing. Read from the cached frontmatter first, so a repeat that changes nothing parses nothing."""
+    from api.services import bank_index
+
+    name = (folder or "").strip()
+    if not name or not entity_id or "/" in entity_id:
+        return False
+    entry = bank_index.file(memory_path, "entities", f"{entity_id}.md")
+    if entry is None or entry.frontmatter.get("type") != "media" or name in page_lists(entry.frontmatter):
+        return False
+    path = memory_path / "entities" / f"{entity_id}.md"
+    parsed = markdown_parser.parse(path)
+    lists = page_lists(parsed.frontmatter)
+    if name in lists:
+        return False
+    fm = {**parsed.frontmatter, "collections": [*lists, name]}
+    if not str(fm.get("folder") or "").strip():
+        fm["folder"] = name
+    markdown_parser.write(path, fm, parsed.body)
+    return True
+
+
+def add_collections(memory_path: Path, items: list[RawItem], idx: dict) -> list[str]:
+    """:func:`add_collection` for every item of a batch whose link ``idx`` already holds — a link saved before, or
+    one this batch saved from an earlier list (the same video in two playlists of one export). Returns the pages
+    changed, memory-relative, for the batch's own commit. Call after the batch's new rows are in ``idx``."""
+    changed: list[str] = []
+    for item in items:
+        if not item.url or not (item.folder or "").strip():
+            continue
+        found = existing_hash(item, idx)
+        entity_id = str((idx.get(found) or {}).get("media_entity_id") or "") if found else ""
+        if entity_id and add_collection(memory_path, entity_id, item.folder):
+            rel = f"entities/{entity_id}.md"
+            if rel not in changed:
+                changed.append(rel)
+    return changed
+
+
 def write_prepared(prepared: PreparedItem, memory_path: Path, idx: dict) -> IngestResult:
     """The file half of :func:`ingest_one`: no network. ``idx`` is checked again — a link saved since it was
     prepared is a duplicate (and one dropped since gets the offline metadata)."""
@@ -2358,6 +2406,9 @@ def write_prepared(prepared: PreparedItem, memory_path: Path, idx: dict) -> Inge
         # already calls `save_url_index` unconditionally right after this
         # returns, so a backfill here is never silently lost.
         _backfill_content_saved_at(existing, item)
+        # Saved again from another list: the page keeps every list it came from (the caller commits the page when
+        # `collection_added`).
+        added = add_collection(memory_path, str(existing.get("media_entity_id") or ""), item.folder)
         return IngestResult(
             status="duplicate",
             media_entity_id=existing.get("media_entity_id", ""),
@@ -2366,6 +2417,7 @@ def write_prepared(prepared: PreparedItem, memory_path: Path, idx: dict) -> Inge
             media_type=existing.get("media_type", _classify(item.url, from_bookmark_file)),
             thumbnail=existing.get("thumbnail"),
             url=item.url,
+            collection_added=added,
         )
     meta = prepared.meta or MediaMeta(
         title=item.title or _fallback_title(item.url), description="", site=_site_of(item.url),
@@ -2477,6 +2529,13 @@ async def ingest_batch(
         # created. Persist it before returning.
         if backfilled:
             save_url_index(memory_path, idx)
+        # A re-import is also how a video already saved learns its other playlists (owner 2026-10-19).
+        listed = add_collections(memory_path, items, idx)
+        if commit and listed:
+            try:
+                await _commit_media(memory_path, 0, listed, lists=len(listed))
+            except Exception as e:
+                logger.warning(f"Media commit failed: {type(e).__name__}: {e}")
         return 0, len(items)
 
     sem = asyncio.Semaphore(8)
@@ -2508,14 +2567,21 @@ async def ingest_batch(
                     created += 1
                     created_paths.append(f"entities/{result.media_entity_id}.md")
                     created_paths.append(f"episodes/{result.episode_id}.md")
+            elif result.collection_added:
+                async with lock:
+                    created_paths.append(f"entities/{result.media_entity_id}.md")
 
         await asyncio.gather(*(worker(it) for it in fresh))
 
     save_url_index(memory_path, idx)
+    # The batch's repeats — a link saved before, or the same link from a second list in this batch — append their
+    # list to the page (owner 2026-10-19), after every new row is in `idx`.
+    listed = [p for p in add_collections(memory_path, items, idx) if p not in created_paths]
 
-    if commit and created:
+    if commit and (created or listed):
         try:
-            await _commit_media(memory_path, created, ["sources/url_index.json", *created_paths])
+            await _commit_media(memory_path, created, ["sources/url_index.json", *created_paths, *listed],
+                                lists=len(listed))
         except Exception as e:
             logger.warning(f"Media commit failed: {type(e).__name__}: {e}")
 
@@ -2545,7 +2611,7 @@ async def ingest_chunked(
 
 async def _commit_media(
     memory_path: Path, count: int, paths: list[str], *, author: str = "user",
-    sessions: list[str] | None = None, trigger: str = "user/media_save",
+    sessions: list[str] | None = None, trigger: str = "user/media_save", lists: int = 0,
 ) -> None:
     """Commit scoped to exactly ``paths`` — never ``git add -A`` (finding 3
     above). ``paths`` is memory-relative: ``sources/url_index.json`` plus one
@@ -2560,7 +2626,8 @@ async def _commit_media(
         f"Sources ingest {date_str}",
         [
             f"sources/url_index.json: updated (trigger: {trigger})",
-            f"{count} media item(s) saved (trigger: {trigger})",
+            *([f"{count} media item(s) saved (trigger: {trigger})"] if count or not lists else []),
+            *([f"{lists} saved item(s) gained a list (trigger: {trigger})"] if lists else []),
         ],
         authors=[author],
         sessions=sessions,

@@ -38,7 +38,7 @@ read_late: 2026-03-20      # only between a late read and the decay pass that pl
 decay_rate: 0.05           # per-entity, not global
 decay_class: active        # evergreen | durable | active | volatile (G66)
 source_episodes: [ep_2026-01-10_001]
-tags: []                   # open set, freeform; never a saved list's name (that is `folder:`)
+tags: []                   # open set, freeform; never a saved list's name (that is `folder:` / `collections:`)
 related: []                # duplicates wikilinks for programmatic access
 version: 3
 claims_ledger: {claims: 5835, hash: 1a2b3c4d5e6f}  # only on a page whose older claims live in its ledger
@@ -66,20 +66,31 @@ produced by Stage-1 extraction** — `PRODUCIBLE_ENTITY_TYPES` excludes it; due-
 excluded — it comes from the ingestion path, not conversation extraction.
 
 **A saved list is provenance, never a tag or a hub (owner 2026-10-19: "the video was taken from this playlist and that's
-it").** A media page records the list a save came from — a YouTube playlist (Watch later included), an Instagram
-collection, a Pinterest board, a Reddit subreddit or saved list, an X or LinkedIn export's list, a browser bookmark
-folder, a device's Safari tabs — as its `folder:` (the raw name or path, beside `origin:`), and the Sources page groups
-by it. It is never a tag: the media writer once added `sanitize_id(folder)` to `tags` (and the Netscape parser the raw
-folder name), and Stage 5.6 makes any tag shared by `hub_tag_min_members` (5) active pages a `topic-<tag>` hub, so every
-list with enough saves became a hub node with a `member of` edge to each save. `id_utils.folder_tags` names those tags
-(the raw folder and its slug); `write_media_entity` drops them, and the hub tier (`hub_builder._topic_tags`) ignores them
-on pages written before, so a bank's list hubs go at its next Sleep. The page's own media type stays a tag even when a
-folder shares its name. A video saved in two playlists keeps the first one it was saved from (a later save of the same
-URL is a duplicate and writes nothing). An existing bank's pages are untagged by `python -m api.scripts.repair_list_hubs
---bank <path>` (dry run: counts only; `--apply`: strips only those tags, never `folder:`, the body or claims, regenerates
-the hub tier through `hub_builder.regenerate_hubs_and_index`, and commits pages, hubs and `_index.md` under `cicada`,
-`maintenance/list-hubs` — one commit, or one per 500 pages with the hub tier in the last; a page dirty in git is skipped; refused while Sleep runs; a rerun changes nothing —
-`list_hub_repair`).
+it … a property of the markdown").** A media page records every list it was saved from — a YouTube playlist (Watch
+later included), an Instagram collection, a Pinterest board, a Reddit subreddit or saved list, an X or LinkedIn
+export's list, a browser bookmark folder, a device's Safari tabs — as `collections:` (in the order it was saved from
+them) with the first also its `folder:` (every older reader, the Sources page's grouping among them, knows only
+`folder:`; a page from before `collections:` holds its `folder:` alone, `id_utils.page_lists`). A later save of the
+same URL from another list — a second playlist in the same export, a re-import, the person's agent reading Watch
+later — appends that list through `media_ingestor.add_collection` (and makes it the `folder:` of a page that had
+none), committed with the batch that read it; a list the page already holds changes nothing.
+
+**Provenance never makes a hub.** Stage 5.6 makes any tag shared by `hub_tag_min_members` (5) active pages a
+`topic-<tag>` hub with a `member of` edge to each, and the media writer used to put `sanitize_id(folder)` in `tags`
+(the Netscape parser the raw folder name), beside the media type and the capture door's origin — so every list,
+media type and door with enough saves became a hub. `id_utils.provenance_tags` names those tags: a page's list tags
+(`list_tags`: the raw name and slug of each of its lists), and on a `media` page its `media.media_type`,
+`media.kind`, `origin:` and a door's stamp (`<browser>-bookmark`, `bookmark`, `safari-tab`) — each repeats a field
+the page holds. `write_media_entity` no longer writes list tags; media-type and origin tags stay on the page (readers
+filter by them), but the hub tier (`hub_builder._topic_tags`) gathers no page by any provenance tag, so a bank's list
+and provenance hubs go at its next Sleep. A tag the person or Sleep wrote for meaning — any tag on a non-media page,
+any other tag on a media one — still makes its hub. An existing bank is repaired by `python -m
+api.scripts.repair_list_hubs --bank <path>` (dry run: counts only — pages to untag, tag hubs on disk, and those the
+regenerated tier drops by kind, `list_hubs`, `provenance_hubs`, `other_hubs`, or adds, `hubs_to_add`; `--apply`:
+strips only list tags, never `folder:`, `collections:`, the body or claims, regenerates the hub tier through
+`hub_builder.regenerate_hubs_and_index`, and commits pages, hubs and `_index.md` under `cicada`,
+`maintenance/list-hubs` — one commit, or one per 500 pages with the hub tier in the last; a page dirty in git is
+skipped; refused while Sleep runs; a rerun changes nothing — `list_hub_repair`).
 
 **Status lifecycle:** `active` → `decaying` → `archived` → `dropped` (user-dismissed, never
 resurfaced).

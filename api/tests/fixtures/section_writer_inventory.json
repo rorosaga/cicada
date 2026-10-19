@@ -731,6 +731,12 @@
       "method": "write",
       "frontmatter": "frontmatter",
       "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "add_collection",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
     }
   ],
   "services/owner_identity.py": [
