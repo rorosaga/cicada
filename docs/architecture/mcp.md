@@ -789,7 +789,9 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   `cicada_ask`'s "From conversations no page cites") names the ones used — only ids that were shown; the episode id is
   what `cicada_write_claim` cites, so an agent can put the detail on a page. With no page retrieved, a conversation
   that holds the words is no longer a gap (the model is called); nothing from either leg is still the honest gap
-  with no model call. Bounded: context build p50/p95 +ms and prompt growth are in the research note's table.
+  with no model call. Bounded: context build p50 +4–7 ms, prompt p50 +~1k characters on LoCoMo; on un-consolidated
+  LongMemEval_S chats it put a turn holding the answer in the prompt for 39 of 48 questions
+  (`docs/research/2026-10-17-memory-benchmarks.md`, "the search leg").
 - **The `sources` scope.** `answer_query(source_words=...)`, `POST /ask` `sourceWords` (default true): `cicada_ask`
   passes `ctx.raw_excerpts`, so a remote connector without `sources` gets no conversation words in the prompt (R-R22)
   — neither leg runs for it.

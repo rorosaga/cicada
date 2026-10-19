@@ -276,3 +276,66 @@ dated lines. Plan calls: ~750 for all the runs above (answers, judges and four S
 **Still open.** Multi-session counting (0/2 everywhere, the control too); list questions that need every mention
 across sessions (multi-hop "what activities …"); a value split across two pages; the judge validation on ~50 hand
 grades; larger slices.
+
+## Older conversations no page points at: the search leg (2026-10-19, branch `feat/older-recall`)
+
+**The problem.** The owner's own eval (60 questions about one conversation each; numbers measured by the owner, real
+values redacted): correct 56.7%, 0 contradicted, 0 answered-but-should-decline, 12 "declined but should know"; 2025
+conversations 33% (n=24). For the 51 questions with a known source conversation, Ask's prompt held that conversation's
+own words for 18 of 26 right answers but only **5 of 25 wrong ones**, while plain episode search ranked it top-5 for 16
+of the 25. Ask was page-first: a conversation's words arrived only through a shown page's evidence spans or line
+provenance (#337), so a detail Sleep left off the page — or a page that was not retrieved — never reached the model.
+
+**What changed.** A second, bounded leg beside the page leg (`ask_sources.search` + `gather_search`, `docs/architecture/mcp.md`
+"OTHER CONVERSATIONS"): the word index's passages holding *any* of the question's subject words (bm25 over every
+600-character passage, so the middle of a long export counts as much as its head), each word weighted by its rarity
+across conversations (a word in more than half of them counts for nothing), fused by rank with the vector index's
+episode chunks; the best 4 conversations' turns holding the rarer words, at most 6 excerpts / 3,000 characters, labelled
+by speaker and day and by conversation id, never a turn the page leg showed, never an index-only episode. A rule tells
+the model a shared word is not an answer; the response names the conversations it used. No model in retrieval, nothing
+written, the query never logged, off without the `sources` scope.
+
+**Why this design, not the others.** (1) *Better pages* (re-running Sleep to put more on pages) cannot reach the
+conversations Sleep already read and summarised away, and costs a model pass per conversation; the words are already
+in the bank. (2) *Episode search alone* already ranked the source conversation top-5 for 16 of the 25 misses — the
+failure was that Ask never asked it. (3) *Vectors alone* miss text in long exports: an episode's vector chunk is 4,000
+characters, but both local search models read 512 tokens (~2,000 characters) of it, so roughly half of every long
+export is invisible to the vector leg. The word leg reads every passage. (4) *Whole conversations in the prompt*
+would blow the budget on a 47k-character export; turns holding the rare words, clipped, keep it to ~3k characters.
+
+**Retrieval on long, un-consolidated chats (LongMemEval_S, no Sleep, no model).** 48 questions (8 per type, abstention
+excluded), each bank its ~50 haystack sessions (~485k characters), word + vector (e5-small) indexes only. With no
+pages, Ask on dev answers every one of these with the honest gap (nothing to point from); the leg alone:
+
+| | evidence conversation top-1 | top-4 | top-20 | a turn holding the answer reaches the prompt |
+|---|---|---|---|---|
+| ~50 sessions, one episode each (n=48) | 41 (words 38, vectors 39) | 47 | 48 | **39 / 48** |
+| the same, 5 sessions merged into one ~45k-char export (n=24, ~10 exports) | 21 (words 18, vectors 18) | 24 | 24 | **22 / 24** |
+
+Fusion beats either leg; preference questions ("can you recommend …") reach the answer turn least (5/12), since the
+person's stated preference rarely shares the question's words. Leg latency p50 16–33 ms, p95 38–49 ms (loaded machine);
+~3.5k prompt characters. **Vector chunks sized to the model's window** (1,600 characters, the same 48 banks re-embedded):
+evidence top-1 39 → 42, top-20 46 → 48 — a real but smaller gain, and a full re-embed of every bank; left as a follow-up.
+
+**Public slices, Ask only, same banks before/after** (the #337 full-run banks; dev `3430149a` vs this branch; sonnet
+answer + judge on the plan):
+
+| Slice | Before | After | Notes |
+|---|---|---|---|
+| LoCoMo conv-26, 40 Qs, J | 82.5 | 80.0 | the one flip is the judge on an unchanged answer ("Saturday 20 May" vs gold "the Sunday before 25 May"); 0 → 1 "confidently wrong" is that flip |
+| LoCoMo conv-49, 40 Qs, J | 90.0 | 92.5 | the one flip is the judge on an unchanged answer |
+| LongMemEval oracle, 20 Qs | 75.0 | 75.0 | two abstention answers swapped; the leg showed nothing for either (model variance) |
+| Prompt chars p50 (max) | 9.6k / 14.2k / 9.6k (19.1k / 20.6k / 14.4k) | 10.6k / 15.4k / 9.6k (22.1k / 22.9k / 15.3k) | conv-26 / conv-49 / LME |
+| Context build ms p50 / p95 | 21/40 · 27/45 · 21/42 | 28/41 · 33/43 · 25/45 | warm, stub model, loaded machine |
+| Gold evidence turn in the prompt (no model) | conv-26 23/38 Qs, conv-49 27/37 | 26/38, 28/37 | the leg ran on 32/40 and 39/40 LoCoMo questions, 3/20 LME |
+
+**Reading it.** On these slices the pages already cite nearly every conversation (19–25 sessions, all consolidated), so
+the leg adds little the page leg had not shown, and the answer changes are inside judge noise; it adds no confidently
+wrong answer and no abstention failure it caused. The slices that look like the owner's misses — long chats whose
+detail is on no page — are the LongMemEval_S rows above, where the leg puts the answer turn in front of the model for
+39 of 48 (22 of 24 inside 45k-character exports). The owner's eval is the deciding measurement and is re-run after merge.
+Plan calls: 400 (200 before, 200 after: answers and judges, no Sleep).
+
+**Still open.** Paraphrase: a turn sharing no word with the question is never chosen even when the vector leg ranks its
+conversation first (LoCoMo "how does she prioritize self-care?" → "carving out some me-time"); window-sized vector chunks;
+multi-session counting and list questions (unchanged); the judge validation on hand grades.
