@@ -982,11 +982,15 @@ A whole row moves to DONE only after its remaining implementation and required a
     admission with its own commit; a plan limit stops it. A search that cannot settle a question confidently leaves it
     exactly as it was. Stage 1's way of naming the speaker ("the user mentioned it") no longer reads as a person cue,
     and a description saying the subject is the speaker's own (built by the user, the user's project) now keeps it home.
-    **Cicada's own settings are never asked:** a conflict or clarification on Cicada's own page about its engine, its
-    schedule or whether scheduled runs use the plan is retired by rule, nothing else touched (`inbox_tend`'s `own_settings`, undoable under
+    **Cicada's own settings are never asked:** a conflict or clarification on Cicada's own page (exact id) about its
+    runtime settings — which engine its Sleep runs read with (a plan, an API key, a local model), whether scheduled runs
+    use the plan, the schedule's time — is retired by rule, nothing else touched (`inbox_tend`'s `own_settings`, undoable under
     "Settled by Sleep") and never searched — the system knows its settings and Settings shows them, and a conversation
     that mentioned them stated that day's configuration, not a fact for the person to referee (never "answered from the
-    system": writing today's config as a claim would date a past statement wrongly). Revisit if the sweep's dry run on
+    system": writing today's config as a claim would date a past statement wrongly). Narrow on purpose (review of #360):
+    the owner's project IS Cicada, so its design questions (a hosting provider, a page's layout, the search or graph
+    engine, whether Sleep runs nightly) stay his; and the speaker's own thing in the active voice ("an app the person
+    is building", "the company where the person works") stays home too. Revisit if the sweep's dry run on
     the owner's bank settles under a quarter of what it looks up, or if an own-settings dismissal is undone.
 28. **Headless clients (owner, 2026-10-16; G181 phase 2, amends the transcript rail and ruling 21a).** **1 — Per-device
     tokens.** A second device never gets the server's master token: each gets its own named, hashed, revocable token
@@ -1110,7 +1114,8 @@ A whole row moves to DONE only after its remaining implementation and required a
     Just have it as an option but the defaults now are either the Claude plan or the Codex/ChatGPT plan."** The shipped
     `llm_mode` is `auto`: the Claude plan, else the ChatGPT plan, else a running local model — and **no engine** rather
     than an API key nobody chose (`engine_select.NO_ENGINE`; a resolved copy carries `no_engine_reason`, and every call
-    built from it refuses before anything is sent, `providers.resolve_llm_fn`). A run with no engine stops before Stage 1
+    built from it refuses before anything is sent, `providers.resolve_llm_fn`; so does a call from an Auto nobody
+    resolved, whose engine label reads `auto`, never the metered engine). A run with no engine stops before Stage 1
     and says so with the fix; Ask says it has no engine; a schedule says so (`no_engine`). An API key (OpenRouter or any
     other) reads only when the person chose it — `CICADA_LLM_MODE=byok` or the picker — and stays one tap away. A plan
     the person chose, on a schedule their switch closes, has no engine rather than falling to the key. No install script,

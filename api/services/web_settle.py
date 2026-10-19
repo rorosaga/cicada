@@ -116,31 +116,51 @@ _COMMIT_REF = re.compile(
 _SPEAKER = re.compile(r"\bthe (?:person|user|speaker|owner|author)(?:['’]s)?\b", re.IGNORECASE)
 #: …unless the description says the subject is the speaker's OWN (their project, file, repo, company): never searched.
 _OWN_THING = re.compile(
-    r"\b(?:built|created|made|wrote|written|designed|developed|authored|owned|started|founded|named|coined) by the "
-    r"(?:person|user|speaker|owner)\b|\bthe (?:person|user|speaker|owner)['’]s (?:own|project|file|repo|repository|"
-    r"company|startup|team|app|work|code|script|document|notes?|side project|thesis|dataset)\b|\b(?:their|his|her) own\b",
+    r"\b(?:built|created|made|wrote|written|designed|developed|authored|owned|started|founded|named|coined|led|run|"
+    r"maintained) by the (?:person|user|speaker|owner)\b|"
+    r"\bthe (?:person|user|speaker|owner)['’]s (?:own|project|file|repo|repository|"
+    r"company|startup|team|app|work|code|script|document|notes?|side project|thesis|dataset|employer|job|workplace)\b|"
+    r"\b(?:their|his|her) own\b|"
+    # The active forms (review of #360): "an app the person is building", "the company where the user works".
+    r"\b(?:person|user|speaker|owner)\s+(?:(?:is|was|has been|had been|are|were)\s+)?(?:currently\s+)?"
+    r"(?:building|built|builds|develop(?:s|ed|ing)?|writ(?:es|ing)|wrote|creat(?:es|ed|ing)|mak(?:es|ing)|made|"
+    r"maintain(?:s|ed|ing)?|lead(?:s|ing)?|led|run(?:s|ning)?|ran|work(?:s|ed|ing)? (?:on|at|for)|found(?:s|ed|ing)|"
+    r"start(?:s|ed|ing)|own(?:s|ed)?|design(?:s|ed|ing)?)\b|"
+    r"\bwhere the (?:person|user|speaker|owner)\s+(?:(?:is|was|has been)\s+)?(?:works?|worked|working|studies|"
+    r"studied|studying)\b",
     re.IGNORECASE)
-#: Cicada's own operational state — its engine, its schedule, its plan switch (owner 2026-10-19: "Are scheduled Sleep
-#: runs still going through <provider>?" is a question the system itself answers). Read with :func:`own_settings`.
-OWN_NAME = "cicada"
-_OWN_SETTINGS = re.compile(
-    r"\b(?:engine|provider|schedul\w*|nightly|api key|subscription|settings?|config(?:ured|uration)?)\b|"
-    r"\bsleep (?:runs?|cycles?)\b|\bruns? (?:on|through|with|via) (?:the |my |your |a )?(?:plan|key)\b",
-    re.IGNORECASE)
+#: Cicada's own runtime settings — the engine a Sleep run reads with, whether scheduled runs use the plan, the
+#: schedule's time (owner 2026-10-19: "Are scheduled Sleep runs still going through <provider>?" is the system's to
+#: know). Narrow on purpose (review of #360): the owner's project IS Cicada, so its design questions — a hosting
+#: provider, a settings page's layout, recall's search engine, the graph engine, whether Sleep runs nightly — stay his.
+#: Only Cicada's own page, by its exact id; never a page that merely has the word in its name.
+OWN_PAGE_ID = "cicada"
+#: A Sleep run, as the question says it.
+_OWN_RUNS = re.compile(r"\b(?:sleep|consolidation|scheduled|nightly) (?:runs?|cycles?|reads?)\b|\bscheduled runs?\b",
+                       re.IGNORECASE)
+#: What a Sleep run reads with: a plan, an API key, a local model — the engine choice itself.
+_ENGINE_CHOICE = re.compile(
+    r"\b(?:claude|chatgpt|codex) plan\b|\b(?:the|my|your|a) plan\b|\bsubscription\b|\bapi key\b|\blocal model\b|"
+    r"\bollama\b|\bopenrouter\b|\blitellm\b|\bmetered\b", re.IGNORECASE)
+#: A time of day, as a schedule's option.
+_TIME_OF_DAY = re.compile(r"^\s*(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm|h)?\s*$|^\s*\d{1,2}:\d{2}\b", re.IGNORECASE)
 
 
 def own_settings(fm: dict) -> bool:
-    """A question about Cicada's OWN settings — the engine Sleep reads with, its schedule, whether scheduled runs use
-    the plan — asked about Cicada's own page. Never searched and never asked (``inbox_tend``'s ``own_settings``
-    rule): Cicada already knows its settings, Settings shows them, and a conversation that mentioned them was a
-    statement about that day's configuration, not a fact for the person to referee."""
-    name = " ".join(re.findall(r"\w+", str(fm.get("entity_name") or fm.get("entity_id") or "").lower()))
-    if OWN_NAME not in name.split():
+    """A question about Cicada's OWN runtime settings, on Cicada's own page (exact id): which engine its Sleep runs read
+    with (a run named in the question, an engine choice — a plan, an API key, a local model — among the question or its
+    options), or what time the schedule runs (every option a time of day). Never searched and never asked
+    (``inbox_tend``'s ``own_settings`` rule): Settings shows them, and a conversation that mentioned them stated that
+    day's configuration, not a fact for the person to referee. Anything else about Cicada stays the person's."""
+    if str(fm.get("entity_id") or "").strip().lower() != OWN_PAGE_ID:
         return False
     options = inbox_questions.normalize_options(fm.get("options"))
-    asked = " ".join([str(fm.get("question") or ""), str(fm.get("title") or ""), str(fm.get("predicate") or ""),
-                      *[str(o.get("label") or "") for o in options]])
-    return bool(_OWN_SETTINGS.search(asked))
+    labels = [str(o.get("label") or "") for o in options if str(o.get("key")) not in (BOTH, "neither")]
+    question = " ".join([str(fm.get("question") or ""), str(fm.get("title") or "")])
+    if _OWN_RUNS.search(question) and _ENGINE_CHOICE.search(" ".join([question, *labels])):
+        return True
+    return bool(re.search(r"\bschedul\w*", question, re.IGNORECASE)) and len(labels) >= 2 and all(
+        _TIME_OF_DAY.search(label) for label in labels)
 
 
 def person_context(description: str) -> bool:

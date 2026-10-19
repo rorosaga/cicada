@@ -326,6 +326,12 @@ def resolve_llm_fn(
         interception point for the consumption dashboard.
     """
     no_engine_reason = str(getattr(settings, "no_engine_reason", "") or "").strip()
+    if not no_engine_reason and str(getattr(settings, "llm_mode", "") or "").strip().lower() == "auto":
+        # An UNRESOLVED Auto (a caller that never asked ``engine_select.resolve_settings``) used to read as byok here
+        # and bill the configured API model nobody chose (review of #360): it refuses instead, saying how to fix it.
+        from api.services import engine_select
+
+        no_engine_reason = engine_select.UNRESOLVED_AUTO
     if no_engine_reason:
         # Ruling 2026-10-19: a resolved Auto that found no plan and no local model never falls to a metered key by
         # itself — every call refuses, before anything is sent anywhere, with the sentence saying why.

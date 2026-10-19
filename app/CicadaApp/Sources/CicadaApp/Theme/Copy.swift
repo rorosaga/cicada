@@ -197,6 +197,7 @@ enum Copy {
         case "litellm": "API key"
         // 2026-10-19: Auto found no plan and no local model, and an API key reads only when chosen.
         case "none": "No engine yet"
+        case "auto": "Auto"
         default: id
         }
     }

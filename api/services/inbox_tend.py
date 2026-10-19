@@ -25,8 +25,8 @@ words are already the question's cause or one option's evidence).
   words of the person's on it): archived;
 * ``conflict`` — the newest dated statement settles it (single-valued, one option said strictly later than every
   other, never a machine claim over the person's own);
-* ``conflict`` / ``clarification`` about Cicada's OWN settings — its engine, its schedule, whether scheduled runs use
-  the plan (``web_settle.own_settings``; owner 2026-10-19) — retired as ``own_settings`` (no claim touched): the system
+* ``conflict`` / ``clarification`` about Cicada's OWN runtime settings, on its own page — which engine Sleep runs read
+  with, whether scheduled runs use the plan, the schedule's time (``web_settle.own_settings``; owner 2026-10-19) — retired as ``own_settings`` (no claim touched): the system
   knows them and Settings shows them, so they are never asked;
 * everything else — a clarification, a follow-up, a proposed edit — stays for the person (move 1 aside).
 

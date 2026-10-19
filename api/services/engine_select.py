@@ -71,6 +71,12 @@ NO_ENGINE_LABEL = "none"
 #: Why a resolved Auto has no engine (a person-started run, or a scheduled one whose plan is open).
 NO_ENGINE = ("no Sleep engine chosen — no plan is signed in, the local model isn't running, and an API key is used "
              "only when you choose it")
+#: The engine label of an UNRESOLVED Auto (a ``Settings`` no one resolved): never "litellm" — it reads with no key
+#: until resolved, and a call built from it refuses (``UNRESOLVED_AUTO``).
+AUTO_LABEL = "auto"
+UNRESOLVED_AUTO = ("Cicada had not chosen an engine for this call (Auto, unresolved) — it never falls to an API key by "
+                   "itself. Connect your plan, or choose an engine in Settings → Engines (`cicada sleep engine --mode "
+                   "…` on a server).")
 
 #: Engine label → (connection id, billing) for the two plan engines — the one
 #: map every site that used to test the literal "claude-cli" reads now
@@ -85,8 +91,8 @@ PLAN_NAMES: dict[str, str] = {"claude-cli": "Claude plan", "codex-cli": "ChatGPT
 
 
 def engine_label(settings: Settings) -> str:
-    """The engine id for a resolved mode. An unresolved "auto" reads as byok,
-    matching how ``providers.resolve_llm_fn`` degrades it.
+    """The engine id for a resolved mode. An unresolved "auto" reads as ``auto`` — never the metered engine — and a
+    resolved Auto that found nothing reads as ``none``; ``providers.resolve_llm_fn`` refuses a call from either.
 
     ``getattr`` rather than a direct attribute read: several hermetic Sleep
     tests pass a ``SimpleNamespace`` stand-in for ``Settings`` that predates
@@ -97,6 +103,8 @@ def engine_label(settings: Settings) -> str:
     if no_engine(settings):
         return NO_ENGINE_LABEL
     mode = (getattr(settings, "llm_mode", None) or "byok").strip().lower()
+    if mode == "auto":
+        return AUTO_LABEL   # unresolved: never reported as the metered engine (review of #360)
     return ENGINE_LABELS.get(mode, "litellm")
 
 
@@ -111,11 +119,13 @@ def no_engine_sentence(why: str | None) -> str:
     reason (ruling 4b). Provider-neutral."""
     if why == SCHEDULE_DEGRADED:
         return ("Scheduled runs have no engine they may use: your plan is off for scheduled runs (“Scheduled runs may "
-                "use my plan” in Settings → Sleep), no local model is running, and an API key is used only when you "
-                "choose it as Sleep's engine. What was waiting is still waiting.")
+                "use my plan” in Settings → Sleep; on a server, `cicada sleep schedule --use-plan on`), no local model "
+                "is running, and an API key is used only when you choose it as Sleep's engine. What was waiting is "
+                "still waiting.")
     return ("No engine to read with: no plan is signed in, the local model isn't running, and an API key is used only "
-            "when you choose it. Connect your plan, or choose an engine in Settings → Engines. What was waiting is "
-            "still waiting.")
+            "when you choose it. Connect your plan, or choose an engine in Settings → Engines (on a server: `cicada "
+            "engine connect claude-plan`, or `cicada sleep engine --mode byok` for a key you chose). What was waiting "
+            "is still waiting.")
 
 
 def shown_model(settings) -> str:

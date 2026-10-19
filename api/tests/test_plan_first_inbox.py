@@ -85,6 +85,20 @@ def test_each_measured_shape_is_classified_as_pinned(bank):
     assert got == shapes.EXPECTED
 
 
+@pytest.mark.parametrize("description", [
+    "An app the person is building",
+    "A project the person leads",
+    "A repo the person maintains",
+    "The company where the person works",
+    "A library the user wrote last year",
+    "A startup the owner founded",
+    "A service the user runs at home",
+])
+def test_the_speakers_own_thing_in_the_active_voice_stays_home(description):
+    """Review of #360: taking "the person" out as the speaker must not let the person's own things out."""
+    assert web_settle.person_context(description)
+
+
 def test_the_speaker_is_not_a_cue_but_the_speakers_own_thing_is():
     assert not web_settle.person_context("A paper the person referenced by its id")
     assert not web_settle.person_context("A dataset the user mentioned")
@@ -119,6 +133,37 @@ def test_a_question_about_cicadas_own_settings_is_never_searched_and_never_asked
     assert not web_settle.own_settings({**fm, "entity_name": "Engine Example", "entity_id": "engine-example"})
 
 
+def _own(question, options=("a", "b"), entity_id="cicada", name="Cicada"):
+    return {"kind": "conflict", "entity_id": entity_id, "entity_name": name, "predicate": "description",
+            "question": question, "title": question,
+            "options": [{"key": k, "label": label} for k, label in zip("abcd", options)]}
+
+
+@pytest.mark.parametrize("fm", [
+    _own("Which hosting provider does the Cicada website use?", ("provider-a", "provider-b")),
+    _own("Should the Settings page use a sidebar or tabs?", ("a sidebar", "tabs")),
+    _own("Which search engine powers recall: FTS5 or vectors?", ("FTS5", "vectors")),
+    _own("Is Cicada's graph engine d3-force or sigma?", ("d3-force", "sigma")),
+    _own("Does the Sleep cycle run nightly or on demand?", ("nightly", "on demand")),
+    _own("Which engine does it use?", ("the plan", "an API key"), entity_id="cicada-3301", name="Cicada 3301"),
+    _own("Is the subscription page live?", ("yes", "no")),
+    _own("Should scheduled runs be configurable?", ("yes", "no")),
+])
+def test_the_owners_own_design_questions_about_cicada_stay_his(fm):
+    """Review of #360: the owner's project IS Cicada — only its runtime settings are the system's to know."""
+    assert not web_settle.own_settings(fm)
+
+
+@pytest.mark.parametrize("fm", [
+    _own("Are scheduled Sleep runs still going through provider-a?", ("provider-a", "the plan")),
+    _own("Do scheduled runs use the plan or the API key?", ("the plan", "the API key")),
+    _own("Which engine do Sleep runs read with?", ("Claude plan", "a local model")),
+    _own("What time is the Sleep schedule?", ("03:00", "04:30")),
+])
+def test_cicadas_runtime_settings_are_its_own(fm):
+    assert web_settle.own_settings(fm)
+
+
 def test_the_tidy_dismisses_it_and_the_person_can_take_it_back(bank):
     out = asyncio.run(inbox_tend.tidy(bank, _settings(bank), dry_run=False))
     assert out["by_kind"]["conflict"].get("own_settings") == 1
@@ -148,7 +193,8 @@ def test_the_sweeps_dry_run_counts_and_writes_nothing(bank, tmp_path):
     home = tmp_path / "home"
     before, head = _tree(bank, home), _git(bank, "rev-parse", "HEAD")
     calls: list = []
-    out = asyncio.run(web_lookup.sweep(bank, _settings(bank), dry_run=True, llm_fn=_fake(calls), engine=ENGINE))
+    out = asyncio.run(web_lookup.sweep(bank, _settings(bank), dry_run=True, limit=50, llm_fn=_fake(calls),
+                                       engine=ENGINE))
     assert out["eligible"] == out["looked_up"] == len(calls) == out["census"]["public"] == 11
     assert out["would_settle"] == 3 and out["settled"] == 0
     assert out["by_kind"]["type_conflict"]["would_settle"] == 1
@@ -177,13 +223,40 @@ def test_the_sweep_settles_each_with_a_citation_one_commit_each_and_each_is_undo
     # Unsure ones stay exactly as they were, and are remembered for 30 days (no second lookup).
     assert (bank / "inbox" / "inbox-505.md").exists()
     calls.clear()
-    again = asyncio.run(web_lookup.sweep(bank, _settings(bank), dry_run=True, llm_fn=_fake(calls), engine=ENGINE))
+    again = asyncio.run(web_lookup.sweep(bank, _settings(bank), dry_run=True, limit=50, llm_fn=_fake(calls),
+                                         engine=ENGINE))
     assert again["eligible"] == 0 and calls == []
     # Undo: the question returns, marked so no check settles it again.
     target, paths, lines = web_settle.undo(bank, "inbox-504")
     assert target == "inbox-504" and (bank / "inbox" / "inbox-504.md").exists()
     fm = markdown_parser.parse(bank / "inbox" / "inbox-504.md").frontmatter
     assert web_settle.classify(bank, fm, "", web_settle.bank_facts(bank))[1] == "undone"
+
+
+def test_the_sweeps_state_refresh_is_admitted_and_skipped_while_sleep_holds_the_pages(bank, monkeypatch):
+    """Review of #360: the closing `_state.md` refresh must never ride Sleep's batch commit."""
+    from api.services import state_dictionary, write_admission
+
+    seen = []
+
+    async def refresh(memory_path, settings, **_kw):
+        seen.append(write_admission.holders(memory_path))
+        return {}
+
+    monkeypatch.setattr(state_dictionary, "refresh_and_commit", refresh)
+    asyncio.run(web_lookup._refresh_state_admitted(bank, _settings(bank)))
+    assert seen == [1], "inside the bank's admission"
+    monkeypatch.setattr(write_admission, "holding", lambda: True)
+    asyncio.run(web_lookup._refresh_state_admitted(bank, _settings(bank)))
+    assert seen == [1], "skipped while Sleep holds the pages"
+
+
+def test_a_dry_run_looks_up_twenty_unless_told_otherwise(bank, monkeypatch):
+    assert web_lookup.SWEEP_DRY_RUN_LIMIT == 20
+    monkeypatch.setattr(web_lookup, "SWEEP_DRY_RUN_LIMIT", 4)
+    calls: list = []
+    out = asyncio.run(web_lookup.sweep(bank, _settings(bank), dry_run=True, llm_fn=_fake(calls), engine=ENGINE))
+    assert out["looked_up"] == len(calls) == 4 and out["eligible"] == 11
 
 
 def test_the_sweep_stops_when_sleep_starts_and_on_a_plan_limit(bank, monkeypatch):

@@ -863,9 +863,10 @@ context and citation, on the engine a run the person starts would use (the conne
 person's start is never gated); every eligible question, not eight; one lookup at a time with the model call outside any
 lock, each settle under the bank's write admission and page lock with its own `Web check` commit
 (`web_lookup._settle_admitted`; an edit already on the page committed apart first), undoable under "Settled by a
-check"; it stops when Sleep starts, on a plan limit, or after three engine failures in a row; 409 while Sleep, a tidy
+check"; its closing `_state.md` refresh is admitted too and skipped while Sleep holds the pages; a dry run looks up at
+most 20 unless given `limit`; it stops when Sleep starts, on a plan limit, or after three engine failures in a row; 409 while Sleep, a tidy
 or another sweep runs, and `/sleep/status`'s `inboxTidy` is true while it runs so an updater waits. **The dry run:**
-`api/scripts/web_check_dry_run.py --bank <path> [--census | --limit N] [--include-recent]` (`web_lookup.sweep` with
+`api/scripts/web_check_dry_run.py --bank <path> [--census | --limit N (default 20)] [--include-recent]` (`web_lookup.sweep` with
 `dry_run=True`) prints counts only: the census (`web_settle.census` — per kind, how many are `public`, `repo_state`, or
 stay and why: `person`, `person_context`, `private_type`, `own_settings`, `no_page` …), then, unless `--census`, the
 person's engine on up to N of them (eligible, looked up, would settle, reasons by kind); it writes nothing — no settle,
@@ -916,7 +917,8 @@ plan"):** the shipped `llm_mode` is `auto` — the Claude plan, the ChatGPT plan
 of them may read (and no API key was chosen) the resolved copy carries `no_engine_reason`; the batch stops before
 Stage 1 with that sentence and its fix (reason `engine`, nothing read, nothing spent, the queue intact), and every call
 built from such a copy anywhere (Ask, the link backfill, a rebuild) refuses before it is sent
-(`providers.resolve_llm_fn`). A plan limit (`EngineThrottled`/`Exhausted`/`Overage`, the breaker tripped by a swallowed per-episode throttle, or the
+(`providers.resolve_llm_fn`) — as does a call from an Auto no caller resolved (its label reads `auto`, never
+`litellm`; the dedup sweep now resolves first). The sentence names the server's command too. A plan limit (`EngineThrottled`/`Exhausted`/`Overage`, the breaker tripped by a swallowed per-episode throttle, or the
 ChatGPT pre-flight's used-up sentence, whose snapshot `resets_at` rides along via `codex_engine.last_limit_resets_at`) is a **pause, not a failure**: the vendor's own sentence and reset time
 (`agent_engine.breaker_resets_at`) ride `drain.stop`, `error` stays null, and the run does **not** continue itself after the
 reset unless the person switched on *Continue after a plan reset* (off by default, ruling 15, below) — otherwise the person presses Continue. A cancel is the

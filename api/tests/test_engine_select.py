@@ -108,6 +108,28 @@ def test_a_resolved_no_engine_copy_refuses_every_call_before_it_is_made():
     assert sent == []
 
 
+def test_an_unresolved_auto_refuses_every_call_instead_of_billing_the_key(monkeypatch):
+    """Review of #360: a caller that never resolved (the dedup sweep did not) must not fall to the API model."""
+    from api.services import providers
+    from api.services.engine_errors import EngineUnavailable
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-example")
+    sent = []
+    fn = providers.resolve_llm_fn(Settings(), completion=lambda **kw: sent.append(kw), sink=lambda _e: None)
+    with pytest.raises(EngineUnavailable, match="never falls to an API key"):
+        fn(messages=[{"role": "user", "content": "hi"}])
+    assert sent == []
+    chosen = providers.resolve_llm_fn(Settings(llm_mode="byok"), completion=lambda **kw: sent.append(kw) or {},
+                                      sink=lambda _e: None)
+    chosen(messages=[{"role": "user", "content": "hi"}])
+    assert len(sent) == 1, "a key the person chose still reads"
+
+
+def test_the_no_engine_sentence_names_the_server_fix_too():
+    assert "`cicada engine connect claude-plan`" in engine_select.no_engine_sentence(engine_select.NO_ENGINE)
+    assert "--use-plan on" in engine_select.no_engine_sentence(engine_select.SCHEDULE_DEGRADED)
+
+
 def test_the_use_for_sleep_toggle_selects_the_agent_rung_on_a_chosen_key():
     reg = _FakeRegistry(prefs={"claude-plan": {"use_for_sleep": True}},
                         connected={"claude-plan"})
@@ -270,9 +292,9 @@ def test_engine_label_maps_every_concrete_mode():
     assert engine_select.engine_label(Settings(llm_mode="agent")) == "claude-cli"
     assert engine_select.engine_label(Settings(llm_mode="local")) == "ollama"
     assert engine_select.engine_label(Settings(llm_mode="byok")) == "litellm"
-    # An unresolved "auto" reaching a label call is byok's behaviour (providers
-    # degrades it the same way) — never a crash. A RESOLVED auto with no engine reads "none".
-    assert engine_select.engine_label(Settings(llm_mode="auto")) == "litellm"
+    # An unresolved "auto" is never reported as the metered engine (review of #360); a RESOLVED auto with no engine
+    # reads "none".
+    assert engine_select.engine_label(Settings(llm_mode="auto")) == "auto"
     assert engine_select.engine_label(Settings(llm_mode="auto", no_engine_reason="x")) == "none"
 
 

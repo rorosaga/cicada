@@ -30,7 +30,7 @@ from pathlib import Path
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="web_check_dry_run", description=__doc__.splitlines()[0])
     parser.add_argument("--bank", required=True, help="the bank directory (holds entities/ and inbox/)")
-    parser.add_argument("--limit", type=int, default=8, help="look up at most this many questions (default 8)")
+    parser.add_argument("--limit", type=int, default=20, help="look up at most this many questions (default 20)")
     parser.add_argument("--include-recent", action="store_true",
                         help="also re-measure questions looked up in the last 30 days")
     parser.add_argument("--census", action="store_true", help="count what a lookup may answer; no engine call")

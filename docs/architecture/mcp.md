@@ -143,7 +143,8 @@ settles nothing — still holds for every other question. **Which:** a pending c
 a `company`, `concept`, `tool` or `media` page (or such a suggested type with a pending line); never a `person`, an
 untyped name Cicada's own description says is someone (person words; "the user"/"the person" as the speaker aside, and
 one it says is the speaker's own kept home — 2026-10-19), a person page's name or alias, the owner's page, a question
-about Cicada's own settings (`own_settings`: never searched, never asked — 27b),
+about Cicada's own runtime settings on its own page (`own_settings`: the Sleep engine choice, the scheduled-plan
+switch, the schedule's time — never searched, never asked, 27b),
 a file, path or handle, a page with `path:`/`repos:`, a project, a question that says "you/your", an option naming a
 person or saying "my"/"her" (labels ride in the prompt), a question the person already took a check back on
 (`web_check: undone`), a multi-valued predicate other than what the thing *is*, or a conflict whose predicate is not

@@ -545,6 +545,8 @@ TOOLS: dict[str, tuple[str, str | None]] = {
 
 #: `write_admission.holding()` is the in-hold question: each site and what holds the bank around it.
 HOLDING_SITES = {
+    "api/services/web_lookup.py": "the web-check sweep's closing `_state.md` refresh: inside its own run_admitted() "
+                                  "transaction, skipped while Sleep holds the pages (GET /state's pattern)",
     "api/routers/maintenance.py": "the sweep's may_write: asked inside each merge's own hold (and, stale, before a "
                                   "judge call, where nothing is written)",
     "api/routers/local_sources.py": "folder update/sync and Wispr Flow: inside their route()'s hold",
