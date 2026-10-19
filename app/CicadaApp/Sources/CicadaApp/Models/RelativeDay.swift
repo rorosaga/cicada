@@ -89,6 +89,11 @@ enum RelativeDay {
         format(day, template: day.civil.year == today.civil.year ? "MMMd" : "yMMMd", locale: locale)
     }
 
+    /// "Sep 9" with no year — a row under a label that already says the year (Projects v2's Past).
+    static func dayInYear(_ day: ISODay, locale: Locale = .autoupdatingCurrent) -> String {
+        format(day, template: "MMMd", locale: locale)
+    }
+
     /// "September 23" — what VoiceOver says ("You are here, today, September 23").
     static func spoken(_ day: ISODay, locale: Locale = .autoupdatingCurrent) -> String {
         format(day, template: "MMMMd", locale: locale)
