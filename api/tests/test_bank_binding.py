@@ -280,7 +280,8 @@ def test_a_schedule_saved_in_a_request_fires_in_the_bank_active_when_it_fires(tw
     """The reviewer's reproduction, with the real `PUT /sleep/schedule`, the bank dependency, a real AsyncIOScheduler
     and `_run_if_idle` — only the cron is a date trigger 0.3 s away and Sleep's run is an observation stub. The schedule
     is saved while `default` is active, `beta` is activated before it fires, and the scheduled run resolves beta (the
-    ACTIVE bank) with no pin: the request's pin never reached the scheduler's callbacks."""
+    ACTIVE bank) with no pin: the request's pin never reached the scheduler's callbacks. Beta keeps the same schedule
+    (follow-ups 2026-10-19: a fire whose trigger is not the active bank's own schedule runs nothing)."""
     import asyncio
     from datetime import datetime, timedelta, timezone
 
@@ -313,6 +314,8 @@ def test_a_schedule_saved_in_a_request_fires_in_the_bank_active_when_it_fires(tw
                 saved = await asyncio.create_task(c.put("/sleep/schedule", json={"mode": "daily", "hour": 4, "minute": 5},
                                                         headers={bank_binding.HEADER: "default"}))
                 assert saved.status_code == 200, saved.text
+                sleep_scheduler.save_schedule(bank_registry.bank_dir(root, "beta"),
+                                              sleep_scheduler.ScheduleConfig(mode="daily", hour=4, minute=5))
                 bank_registry.activate_bank(root, "beta")      # before the job fires
                 await asyncio.wait_for(done.wait(), 5)
         finally:

@@ -420,13 +420,26 @@ scheduled cycle never spends Claude or ChatGPT plan quota (the standing ruling i
 waiting, in batches** (ruling 16: unattended, on the scheduled engine — on a key that is spend with no limit Cicada sets; a
 paused run is left for the person to continue or end; the tail still runs over it).
 
+**The schedule is the active bank's own (follow-ups 2026-10-19).** The jobs' triggers are built from the schedule the
+bank had when they were registered (startup, a schedule save), so a bank switch has to move them: every switch route
+(`POST /banks/{name}/activate`, the demo's two doors through `_activated`, a new demo) calls
+`sleep_scheduler.follow_active_bank`, which re-registers from the new bank's `sleep_schedule.yaml` — a bank on `manual`
+gets no job at all, one on 05:00 fires at 05:00, and switching back restores the old trigger. Because an active bank can
+also change by a path that is not a route (a registry edited underneath the backend, a restore), each job carries the
+schedule it was registered for (`registered`), and `_run_if_idle` / `_run_after_intake_if_settled` compare it with the
+active bank's own (`trigger_key`: mode plus time or step) **before** anything else: different → re-register from the
+active bank and run nothing on the old time. Two banks on the same schedule share one trigger and the fire runs the
+active one. Before this, `_run_if_idle` never re-read the mode, so a bank switched to `manual` was consolidated on the
+last bank's 03:00.
+
 **A missed scheduled time catches up, once (owner 2026-10-19).** `daily` and `interval` are timers in the backend's own
 process: one due while the Mac sleeps fired late on wake, past APScheduler's grace, and was dropped; one due while the Mac
 is off was never seen (the next start computes the *next* time) — a laptop closed at night never ran its schedule. The
 schedule's own job now keeps a minute's grace (`coalesce`, `misfire_grace_time=60`), and beside it `sleep_catch_up`
 installs a 5-minute probe (first look a minute after start; `manual` and `after_import` get none). Each look reads
-the **active bank's own** schedule (`load_schedule`), never the one the probe was registered with — a bank switch does
-not re-register jobs, so a bank set to `manual` or `after_import` is never caught up on another bank's time — and a demo
+the **active bank's own** schedule (`load_schedule`), never the one the probe was registered with — a switch
+re-registers the jobs (above), and a probe in flight across one still never catches a bank set to `manual` or
+`after_import` up on another bank's time — and a demo
 bank (`demo_guard.is_demo`) is never read. The probe asks for the
 latest due time with nothing since — `daily`: the latest HH:MM at or before now; `interval`: the last anchor plus N
 hours — and, however many were missed, runs **once**, naming the latest. "Since" is the latest of: `handled_at` (every

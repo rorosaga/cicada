@@ -129,6 +129,56 @@ def register_job(
     bank_registry.run_unpinned(_register_job, scheduler, settings, cfg)
 
 
+def trigger_key(cfg: ScheduleConfig) -> str:
+    """What a registered job's trigger depends on: the mode, plus the time (``daily``) or the step (``interval``).
+    Two banks with the same key share one trigger; any other difference is a different job."""
+    if cfg.mode == "daily":
+        return f"daily@{int(cfg.hour):02d}:{int(cfg.minute):02d}"
+    if cfg.mode == "interval":
+        return f"interval@{int(cfg.interval_hours)}h"
+    return str(cfg.mode)
+
+
+def follow_active_bank(scheduler, settings: Settings) -> ScheduleConfig | None:
+    """Re-register the jobs from the ACTIVE bank's own schedule — called when the active bank changes (the switch
+    routes). The trigger is the schedule's: a bank switched to on ``manual`` must not keep the last bank's 03:00, and
+    one on 05:00 must fire at 05:00. Resolved unpinned (the switching request may carry a pin to the bank it left).
+    Never raises: a switch never fails on the scheduler. ``None`` when there is no scheduler (tests, a bare app)."""
+    if scheduler is None:
+        return None
+    try:
+        def follow() -> ScheduleConfig:
+            cfg = load_schedule(settings.memory_path)
+            _register_job(scheduler, settings, cfg)
+            return cfg
+
+        return bank_registry.run_unpinned(follow)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Sleep schedule not re-registered after a bank switch: {type(e).__name__}")
+        return None
+
+
+def _stale_trigger(scheduler, settings: Settings, registered: ScheduleConfig | None) -> bool:
+    """The fire-time half of following the active bank: a job registered for one schedule fires, but the active bank's
+    own schedule is now another (the active bank changed by a path that did not re-register — a registry edited by
+    another process, a restore). Then nothing runs on the old trigger: the jobs are re-registered from the active
+    bank's schedule (``manual`` registers none) and this firing is dropped. ``registered`` is ``None`` for a direct
+    call (tests, older jobs): no check."""
+    if registered is None:
+        return False
+    active = load_schedule(settings.memory_path)
+    if trigger_key(active) == trigger_key(registered):
+        return False
+    logger.info(f"Scheduled sleep: the active bank's schedule is {trigger_key(active)}, not "
+                f"{trigger_key(registered)} — re-registered, nothing run on the old time")
+    if scheduler is not None:
+        try:
+            _register_job(scheduler, settings, active)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Sleep schedule not re-registered: {type(e).__name__}")
+    return True
+
+
 def _register_job(scheduler: AsyncIOScheduler, settings: Settings, cfg: ScheduleConfig) -> None:
     for job_id in (JOB_ID, sleep_catch_up.JOB_ID):
         try:
@@ -161,6 +211,7 @@ def _register_job(scheduler: AsyncIOScheduler, settings: Settings, cfg: Schedule
             CronTrigger(hour=cfg.hour, minute=cfg.minute),
             id=JOB_ID,
             args=[settings],
+            kwargs=_fire_kwargs(scheduler, cfg),
             replace_existing=True,
             coalesce=True,
             misfire_grace_time=sleep_catch_up.ON_TIME_GRACE_S,
@@ -173,6 +224,7 @@ def _register_job(scheduler: AsyncIOScheduler, settings: Settings, cfg: Schedule
             IntervalTrigger(hours=cfg.interval_hours),
             id=JOB_ID,
             args=[settings],
+            kwargs=_fire_kwargs(scheduler, cfg),
             replace_existing=True,
             coalesce=True,
             misfire_grace_time=sleep_catch_up.ON_TIME_GRACE_S,
@@ -186,9 +238,16 @@ def _register_job(scheduler: AsyncIOScheduler, settings: Settings, cfg: Schedule
         IntervalTrigger(minutes=AFTER_IMPORT_PROBE_MINUTES),
         id=JOB_ID,
         args=[settings],
+        kwargs=_fire_kwargs(scheduler, cfg),
         replace_existing=True,
     )
     logger.info(f"Sleep schedule registered: after imports (probing every {AFTER_IMPORT_PROBE_MINUTES}m)")
+
+
+def _fire_kwargs(scheduler, cfg: ScheduleConfig) -> dict:
+    """What a fire needs to tell a stale trigger (``_stale_trigger``): the schedule it was registered for, and the
+    scheduler to re-register on (in-memory job store: nothing is pickled)."""
+    return {"registered": cfg.model_copy(), "scheduler": scheduler}
 
 
 #: While a run is paused, the after-import probe runs the engine-free upkeep this often.
@@ -220,7 +279,8 @@ def _scheduled_drain(settings) -> bool:
     return not engine_select.scheduled_plan_pin(settings)
 
 
-async def _run_after_intake_if_settled(settings) -> None:
+async def _run_after_intake_if_settled(settings, *, registered: ScheduleConfig | None = None,
+                                       scheduler=None) -> None:
     """The ``after_import`` probe (G125 (4) R7): every few minutes, start a
     cycle only when the queue has SETTLED — idle, something READABLE waiting, and the
     newest unprocessed episode at least ``AFTER_IMPORT_SETTLE_MINUTES`` old —
@@ -233,6 +293,8 @@ async def _run_after_intake_if_settled(settings) -> None:
     day meanwhile (``run(tail_only=True)``). A parked conversation is waiting but not
     readable, so a queue of only parked ones never fires an empty run every five minutes."""
     bank_registry.unpin()   # G183(d): the bank active now, whatever context scheduled this (`register_job`)
+    if _stale_trigger(scheduler, settings, registered):
+        return
     from api.services import sleep_debt
 
     if sleep_cycle.get_sleep_state().status == "running":
@@ -266,11 +328,15 @@ async def _run_after_intake_if_settled(settings) -> None:
     await sleep_cycle.run(settings, cycle_id, user_triggered=False, drain=_scheduled_drain(settings))
 
 
-async def _run_if_idle(settings: Settings) -> None:
+async def _run_if_idle(settings: Settings, *, registered: ScheduleConfig | None = None, scheduler=None) -> None:
     """Cron callback. Skips if a cycle is already running so we never stack. While a paused
     run waits for the person it reads nothing (that would replace the pause) but still runs
     the engine-free tail (``run(tail_only=True)``)."""
     bank_registry.unpin()   # G183(d): the bank active now, whatever context scheduled this (`register_job`)
+    # The trigger that fired must be the ACTIVE bank's own: after a switch that did not re-register, a bank on
+    # `manual` (or on another time) never runs on the last bank's time.
+    if _stale_trigger(scheduler, settings, registered):
+        return
     # This time took its turn, whatever follows (a running cycle, a pause, a failure): the catch-up never repeats it.
     sleep_catch_up.note_handled(settings.memory_path)
     state = sleep_cycle.get_sleep_state()

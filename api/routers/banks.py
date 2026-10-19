@@ -106,9 +106,18 @@ async def create_bank(
     )
 
 
+def _follow_schedule(request: Request, settings: Settings) -> None:
+    """The scheduled Sleep job follows the bank now active: its trigger is that bank's own schedule, never the one
+    left behind (`sleep_scheduler.follow_active_bank`)."""
+    from api.services import sleep_scheduler
+
+    sleep_scheduler.follow_active_bank(getattr(request.app.state, "scheduler", None), settings)
+
+
 @router.post("/banks/{name}/activate", response_model=BankListResponse)
 async def activate_bank(
     name: str,
+    request: Request,
     settings: Settings = Depends(get_settings),
 ) -> BankListResponse:
     _refuse_switch_during_drain()
@@ -117,6 +126,7 @@ async def activate_bank(
     except ValueError as e:
         raise HTTPException(404, str(e))
     logger.info(f"Activated bank '{name}'")
+    _follow_schedule(request, settings)
     # A bank switched to at runtime gets the SAME one-shot migrations the
     # boot-time bank gets in `main.lifespan` — otherwise its pages stay
     # unclassed (and the Feed / decay engines disagree about them) until the
@@ -259,7 +269,7 @@ async def export_bank(name: str, settings: Settings = Depends(get_settings)):
 
 
 @router.post("/banks/demo", response_model=BankListResponse)
-async def create_demo_bank(settings: Settings = Depends(get_settings)) -> BankListResponse:
+async def create_demo_bank(request: Request, settings: Settings = Depends(get_settings)) -> BankListResponse:
     """G117 — one click, a populated bank (`api/services/demo_bank.py`), for
     the first-run sheet's "try it on a demo bank first" button. `409` if a
     `demo` bank already exists (mirrors `create_bank`'s own collision
@@ -285,7 +295,7 @@ async def create_demo_bank(settings: Settings = Depends(get_settings)) -> BankLi
         path = bank_registry.bank_dir(root, "demo")
         if not demo_guard.is_demo(path):
             raise HTTPException(409, "Bank 'demo' already exists")
-        return await _activated(root, "demo")
+        return await _activated(root, "demo", request, settings)
     try:
         slug = bank_registry.create_bank(
             root, "demo", "Synthetic demo bank — try Cicada risk-free.", seed_owner=False)
@@ -299,6 +309,7 @@ async def create_demo_bank(settings: Settings = Depends(get_settings)) -> BankLi
 
     await run_in_threadpool(demo_bank.populate, bank_registry.bank_dir(root, slug))
     bank_registry.activate_bank(root, slug)
+    _follow_schedule(request, settings)
     await run_in_threadpool(run_bank_migrations, bank_registry.bank_dir(root, slug))
     data = bank_registry.list_banks(root)
     return BankListResponse(
@@ -308,7 +319,7 @@ async def create_demo_bank(settings: Settings = Depends(get_settings)) -> BankLi
 
 
 @router.post("/banks/leave-demo", response_model=BankListResponse)
-async def leave_demo_bank(settings: Settings = Depends(get_settings)) -> BankListResponse:
+async def leave_demo_bank(request: Request, settings: Settings = Depends(get_settings)) -> BankListResponse:
     """G117 round 4 (T-Demo, F-08) — the demo banner's *Finish setting up*: back to the person's own memory — the real
     bank left most recently, else the default one, else a new one (``bank_registry.leave_demo_target``). The app then
     opens onboarding for the bank this answers with (seam 1). Outside the demo nothing moves and the roster is echoed,
@@ -319,13 +330,15 @@ async def leave_demo_bank(settings: Settings = Depends(get_settings)) -> BankLis
     if target is None:
         data = bank_registry.list_banks(root)
         return BankListResponse(banks=[BankInfo(**b) for b in data["banks"]], active=data["active"])
-    return await _activated(root, target)
+    return await _activated(root, target, request, settings)
 
 
-async def _activated(root, name: str) -> BankListResponse:
-    """`activate_bank`'s route body, shared by the demo's two doors: switch (stamping the bank left, R-CS11), run the
-    same one-shot migrations a boot-time bank gets, warm its search index, and echo the roster."""
+async def _activated(root, name: str, request: Request, settings: Settings) -> BankListResponse:
+    """`activate_bank`'s route body, shared by the demo's two doors: switch (stamping the bank left, R-CS11), move the
+    scheduled Sleep job to this bank's own schedule, run the same one-shot migrations a boot-time bank gets, warm its
+    search index, and echo the roster."""
     bank_registry.activate_bank(root, name)
+    _follow_schedule(request, settings)
     path = bank_registry.bank_dir(root, name)
     await run_in_threadpool(run_bank_migrations, path)
     search_index.warm_in_background(path)
