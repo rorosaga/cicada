@@ -592,3 +592,22 @@ def _fresh_query_vector_cache():
     vector_index.clear_query_cache()
     yield
     vector_index.clear_query_cache()
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "crucial: guards a CLAUDE.md rail; the daily tier (`make test-crucial`, listed in crucial.txt)")
+
+
+def pytest_collection_modifyitems(config, items):
+    """The crucial tier (owner 2026-10-19): every test `crucial.txt` names carries the `crucial` marker, so
+    `pytest -m crucial` runs exactly the list. The list is the one place a test joins or leaves the tier."""
+    from api.tests import _crucial
+
+    entries = _crucial.backend_entries()
+    for item in items:
+        inner = item.nodeid.split("::")[1:]
+        if inner:
+            inner[-1] = inner[-1].split("[", 1)[0]
+        if _crucial.is_crucial(item.path.name, tuple(inner), entries):
+            item.add_marker(pytest.mark.crucial)

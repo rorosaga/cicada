@@ -1,0 +1,52 @@
+# The Swift crucial tier (owner 2026-10-19: "only crucial stuff"). `make test-crucial` joins these lines into one
+# `swift test --filter` regex; `make test` runs every test. One line per test: `Class/testMethod`, or `Class` for the
+# whole class. Grouped under `## <rail>`. `api/tests/test_crucial_tier.py` fails when a line names nothing.
+
+## Tests never reach the person's home, token or backend (#346, #348 follow-ups)
+APIClientIsolationTests
+RuntimeHomeIsolationTests
+ClipboardLintTests/testUnderTestsTheDoorIsAPrivatePasteboard
+ClipboardLintTests/testOnlyAppPasteboardTouchesTheSystemClipboard
+
+## Update: a download installs only after its sha256 and Ed25519 signature verify (G182)
+UpdateVerifierTests
+UpdateInstallerTests/testABadSignatureNeverReachesTheUnzip
+UpdateInstallerTests/testNoPublicKeyRefusesBeforeDownloading
+UpdateInstallerTests/testOnlyThisAppAsAReleaseAtThePromisedVersionIsStaged
+
+## Update: release builds only, behind the person's switch; never while Sleep writes
+UpdateServiceTests/testADeveloperBuildIsInert
+UpdateServiceTests/testWithAutomaticOffTheScheduleNeverChecksButTheMenuDoes
+UpdateServiceTests/testNothingInstallsWhileSleepWrites
+UpdateServiceTests/testAQuitInstallsNothingWhenTheBackendSaysSleepIsWriting
+UpdateInstallerTests/testTheHelperDefersWhileSleepIsWritingAndKeepsTheStagedCopy
+UpdateInstallerTests/testTheProbeReadsTheBackendsAnswer
+
+## The app reads ~/Library only after the person turned it on; Messages only for ticked chats (G179)
+BrowserWatcherTests/testFirstLaunchReadsNoBrowserBeforeConsent
+BrowserWatchPolicyTests/testNothingSyncsBeforeTheChannelIsTurnedOn
+MessagesReaderTests/testOnlyTheTickedChatIsReadAndNothingPrivateCrosses
+MessagesWatcherTests/testTheSharedPhotoIsReadOnlyForTickedChats
+
+## Bookmarks: removed from the browser only on the person's click, after the backend agrees (G191)
+BookmarksV3Tests/testChromeIsTouchedOnlyAfterTheBackendAgrees
+BookmarksV4Tests/testTheWatcherReadsTheWindowListOnlyInTheBurstAfterAToolbarClick
+
+## Demo: the demo is the server's flag, never a bank's name
+DemoModeTests/testTheDemoIsTheServersFlagNeverTheName
+
+## Sync: one Store, never blank; ETags revalidate and keep the value on a 304
+StoreTests/testFailureKeepsValueAndToastsOnlyWhenEmpty
+StoreTests/testNotModifiedKeepsExistingValue
+StoreTests/testStaleBankResponseIsDiscarded
+
+## Design direction D: SF only, durations in CicadaMotion, glass only in the chrome, depth is a ring
+FontLiteralLintTests/testNoCustomFontOutsideTheTheme
+MotionLiteralLintTests
+LiquidGlassLintTests/testGlassAPIsLiveInOneFile
+ElevationLintTests/testShadowsLiveInTheTheme
+OnboardingPagesTests/testTheKeyboardNeverAnimatesAndThePointerRidesTheDrawer
+
+## Copy is provider-neutral
+UpdateServiceTests/testUpdaterCopyIsProviderNeutral
+CommandLineToolTests/testTheCopyIsProviderNeutral

@@ -211,6 +211,11 @@ process, an unresolvable base and a home that does not exist; and `APIClient.loa
 under the temporary directory and ignores `CICADA_API_TOKEN` (`testMayReadToken`). A view model's defaults call `shared`,
 so a test that forgets to inject a closure gets an offline answer, never the running backend or the person's token
 (`APIClientIsolationTests`). The shipped app is unchanged: both checks key on `AppPasteboard.isRunningTests`.
+The same goes for every other default that reads `CicadaRuntime.current` (#348 follow-up): under XCTest it is
+`CicadaRuntime.underTests()`, the same code root with a home under the temporary directory
+(`cicada-xctest-<pid>/home`, the shell's `CICADA_HOME` ignored), so `ServerConnection`'s files, the device token, the
+updater's token file, log and Trash never resolve to the person's; and `SleepProbe.live` answers over
+`NoBackendURLProtocol` (`RuntimeHomeIsolationTests`).
 
 `GET /status` has no ETag (the app refetches it whenever the vector's `sleep` component moves). Its `sleep.writing`
 (G177) is `sleep_cycle.is_writing()` — the predicate behind every "Sleep is running" 409 — and the SSE `sleep` event and
