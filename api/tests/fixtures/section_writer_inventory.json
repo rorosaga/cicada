@@ -731,6 +731,12 @@
       "method": "write",
       "frontmatter": "frontmatter",
       "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "add_collection",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
     }
   ],
   "services/owner_identity.py": [
@@ -1173,6 +1179,14 @@
       "method": "write",
       "frontmatter": "{**fm, UNDONE_KEY: 'undone'}",
       "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/list_hub_repair.py": [
+    {
+      "function": "apply",
+      "method": "write",
+      "frontmatter": "{**parsed.frontmatter, 'tags': kept}",
+      "disposition": "preserve_frontmatter_guarded"
     }
   ]
 }

@@ -23,6 +23,7 @@ from pathlib import Path
 from api.config import Settings
 from api.services import inbox_service, markdown_parser
 from api.services.claims import strip_claims_block
+from api.services.id_utils import provenance_tags
 
 # type -> (hub file stem, friendly display name). Order drives _index.md listing.
 TYPE_HUBS: list[tuple[str, str, str]] = [
@@ -68,6 +69,18 @@ def _one_line_summary(body: str, limit: int = 140) -> str:
     return (first[:limit] + "…") if len(first) > limit else first
 
 
+def _topic_tags(fm: dict) -> list[str]:
+    """A page's tags that may gather it into a tag hub: every tag but its provenance (``id_utils.provenance_tags``).
+
+    A playlist, board, collection or bookmark folder is where a save came from — the page's ``folder:`` /
+    ``collections:`` — and so are its media type, kind and origin: none is a topic (owner 2026-10-19). Pages written
+    before still carry those tags, so the hub tier leaves them out and a bank's list and provenance hubs go at its
+    next Sleep; ``list_hub_repair`` also takes the list tags off the pages.
+    """
+    drop = provenance_tags(fm)
+    return [str(t) for t in (fm.get("tags", []) or []) if t and str(t) not in drop]
+
+
 def _load_active_entities(entities_dir: Path) -> tuple[list[dict], int]:
     """Return (member-eligible entities, total entity count incl. archived).
 
@@ -93,7 +106,7 @@ def _load_active_entities(entities_dir: Path) -> tuple[list[dict], int]:
             "name": str(fm.get("name", filepath.stem.replace("-", " ").title())),
             "type": str(fm.get("type", "concept") or "concept"),
             "confidence": float(fm.get("confidence", 0.5) or 0.0),
-            "tags": [str(t) for t in (fm.get("tags", []) or []) if t],
+            "tags": _topic_tags(fm),
             "summary": _one_line_summary(parsed.body),
         })
     return members, total
@@ -276,6 +289,21 @@ def _count_pending_inbox(memory_path: Path) -> int:
     return total
 
 
+def group_by_tag(members: list[dict]) -> dict[str, list[dict]]:
+    groups: dict[str, list[dict]] = {}
+    for m in members:
+        for tag in m["tags"]:
+            groups.setdefault(str(tag), []).append(m)
+    return groups
+
+
+def tag_hub_plan(tag_groups: dict[str, list[dict]], tag_min: int, tag_max: int) -> list[tuple[str, list[dict]]]:
+    """The tags that get a ``topic-<tag>`` hub: shared by ``tag_min``+ pages, the ``tag_max`` largest."""
+    eligible = [(tag, grp) for tag, grp in tag_groups.items() if len(grp) >= tag_min]
+    eligible.sort(key=lambda x: -len(x[1]))
+    return eligible[:tag_max]
+
+
 def regenerate_hubs_and_index(memory_path: Path, settings: Settings) -> dict:
     """Rewrite ``memory/hubs/*.md`` and ``memory/_index.md`` from entity files.
 
@@ -321,14 +349,9 @@ def regenerate_hubs_and_index(memory_path: Path, settings: Settings) -> dict:
         type_index.append({"stem": stem, "name": friendly, "member_count": len(group_sorted)})
 
     # --- Tag hubs ---
-    tag_groups: dict[str, list[dict]] = {}
-    for m in members:
-        for tag in m["tags"]:
-            tag_groups.setdefault(str(tag), []).append(m)
+    tag_groups = group_by_tag(members)
 
-    eligible = [(tag, grp) for tag, grp in tag_groups.items() if len(grp) >= tag_min]
-    eligible.sort(key=lambda x: -len(x[1]))
-    for tag, grp in eligible[:tag_max]:
+    for tag, grp in tag_hub_plan(tag_groups, tag_min, tag_max):
         stem = f"topic-{sanitize_id(tag)}"
         friendly = tag.title()
         group_sorted = sorted(grp, key=lambda m: -m["confidence"])
