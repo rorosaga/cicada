@@ -1691,7 +1691,21 @@ sized before the page so it is never pushed off-window. It is driven by
 `ProvenanceRouter` (a stack of `ReaderTarget`s), beside whatever is open so a belief and its sentence
 are on screen together (Direction D, DS-2). It shows C's header — mark, title, meta, and a neutral
 Resume when an `isfile()` check says the session is resumable — the pinned "1 of N cited here"
-navigator, the turns in the quote face with `CitedSpan`, and the "Noted from this conversation" rows. A turn is
+navigator, the turns in the quote face with `CitedSpan`, and the "Noted from this conversation" rows. **A conversation
+reads as a chat** (owner 2026-10-19, DESIGN_RULES §9): `ReaderChat.isChat` — an episode, not a page, a page-read, a watch
+record, a feed item or a calendar entry, with at least one `assistant`/`speaker` turn or a written `user:` marker — draws
+`ReaderChat.rows` (`ReaderChatModel.swift`, pure, `ReaderChatTests`) through `ReaderChatRows` (`ReaderChatView.swift`)
+in the same `LazyVStack`, over the very `ReaderLayout.blocks` the document view uses, so washes, landing, the navigator
+and both rotors address the same `ReaderBlock.Key`s. The person's turns sit right in a `chatBubbleFill` bubble, the
+other party's left as plain text; a run (one side and speaker, turns under 15 minutes apart) shows the face — the
+Messages chat's own picture by `MessageBubbles.face`, the chat parsed from the sitting's `imessage:<chat>:…` source id
+(`ReaderChat.messagesChat`), a monogram for a meeting speaker — or the agent's mark, the name only when it changed, and
+its first stored time, once; day separators ("Today", "Yesterday", a weekday, "Thu, Sep 3") replace a date per turn,
+computed when read; a gate-B2 gap is a centred line with its stamps as clock times. No "turn N", on screen or in
+VoiceOver. A turn over 1,000 characters or 12 lines folds to 480 / 6 lines behind "Show more" (`unfolded`, per load),
+except the turn a quote lands in or that holds a cited span. A chat with no quote to land on opens at its newest row
+(scrolled twice, so the lazy stack's estimate settles) and pins its banners above the scroll; ↑/↓, ⇞/⇟, ⌘↑/⌘↓ and
+Home/End move a row cursor (`ReaderChatKeys`) and scroll in one frame. Everything else keeps the document view. A turn is
 selectable **and** washed through `CitedPassage` (2026-10-16): a selectable `Text` never reaches a `TextRenderer`, and
 a renderer-drawn copy behind the words breaks lines differently from them (the wash on the wrong words at some widths),
 so the passage is one selectable `Text` whose wash and underline are attributes of its own string (`CitedSpan.fallback`:

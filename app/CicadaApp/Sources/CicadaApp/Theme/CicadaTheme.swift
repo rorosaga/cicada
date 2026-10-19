@@ -551,6 +551,18 @@ enum CicadaTheme {
     /// the pair is derived rather than spelled twice.
     static func concentric(inner: CGFloat, padding: CGFloat) -> CGFloat { inner + padding }
 
+    /// The person's side of a chat in the Reader (owner, 2026-10-19; DESIGN_RULES §9): a neutral graphite fill — never
+    /// the accent (DR-5), never a shadow (DR-10). Tertiary text never sits on it (DR-2); the times are outside it.
+    static var chatBubbleFill: Color { bgSelected }
+    /// A chat bubble's shape: `cornerRadius`, continuous (DR-12); a long message drawn as several blocks squares the
+    /// corners where one block meets the next, so it reads as one bubble.
+    static func chatBubble(roundTop: Bool, roundBottom: Bool) -> UnevenRoundedRectangle {
+        let top = roundTop ? cornerRadius : 0
+        let bottom = roundBottom ? cornerRadius : 0
+        return UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: bottom, bottomTrailingRadius: bottom,
+                                      topTrailingRadius: top, style: .continuous)
+    }
+
     // MARK: - Inbox Kind Colors
     // Leading-icon hue per inbox card kind. Decay amber, conflict red,
     // clarification indigo, merge yellow. Used by `KindGlyph`, the one

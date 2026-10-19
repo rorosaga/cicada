@@ -48,6 +48,7 @@ final class CountLiteralLintTests: XCTestCase {
         "/Views/Common/EyebrowRow.swift",
         "/Views/Inbox/",
         "/Views/Provenance/ReaderColumn.swift",
+        "/Views/Provenance/ReaderChatView.swift",
         "/Views/Graph/",
         "/Views/Clusters/",
         "/Views/Feed/",
