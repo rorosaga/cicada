@@ -984,39 +984,49 @@ _PATH_RE = re.compile(
 _SPEAKER_RE = re.compile(r"^\s*(?:\*\*)?(?:user|assistant|human|agent|me|you)(?:\*\*)?\s*:\s*", re.IGNORECASE)
 
 
-#: The ONLY words a person's name may keep in the local context (reviewed #366, 2026-10-19: over-redaction is the safe
-#: failure). Every other word of 3+ letters of every person name or alias in the bank is redacted on its own as well as
-#: the whole name. Audited against given names and surnames — each entry is a function word or a plain relation or
-#: role that is nobody's name: NOT "will", "can", "guy", "nina", "rosa", "mar", "tia", "una", "con", "del", "son",
-#: "das", "van", "della", "child", "kid", "baby", "boss", "coach", "nurse", "driver", "barber", "cousin", "person",
-#: "speaker", "owner", "papa", "mama", "padre", "primo", "amigo" or "pareja", all of which are someone's name. Folded.
+#: Words a RELATION-SHAPED name may keep in the local context (:func:`relation_shaped`: "his brother <name>", "<name>'s
+#: dad", "dad of <name>", "mi hermana <name>") — and only such a name: every other multi-word name is redacted whole
+#: and by each part of 3+ letters, as before (re-review of #366, 2026-10-19: an exemption that applied to every name
+#: let "Pa Her", "Fred Friend", "Ana Sobrino", "Jane Doctor" or "Tom User" keep a surname). Function words and plain
+#: relations only, audited against given names and surnames: NOT "her", "sin", "via", "que", "will", "can", "guy",
+#: "nina", "rosa", "mar", "tia", "una", "con", "del", "son", "das", "van", "della", "friend", "doctor", "tutor",
+#: "mentor", "partner", "family", "sobrino", "lab", "child", "kid", "baby", "boss", "coach", "nurse", "driver",
+#: "barber", "cousin", "person", "speaker", "owner", "papa", "mama", "padre", "primo", "amigo" or "pareja", all of
+#: which are someone's name. Folded.
 _NEVER_A_NAME = frozenset({
     # English function words
-    "the", "and", "for", "his", "her", "hers", "our", "ours", "their", "theirs", "your", "yours", "its", "this",
-    "that", "these", "those", "with", "from", "into", "about", "who", "whom", "whose", "what", "which", "she", "him",
-    "them", "they", "was", "were", "are", "has", "had", "not", "but", "via",
+    "the", "and", "for", "his", "hers", "our", "ours", "their", "theirs", "your", "yours", "its", "this", "that",
+    "these", "those", "with", "from", "into", "about", "who", "whom", "whose", "what", "which", "she", "him", "them",
+    "they", "was", "were", "are", "has", "had", "not", "but",
     # Spanish function words
-    "los", "las", "unos", "unas", "mis", "sus", "tus", "nuestro", "nuestra", "nuestros", "nuestras", "que", "por",
-    "para", "sin",
-    # Plain relations and roles, English
+    "los", "las", "unos", "unas", "mis", "sus", "tus", "nuestro", "nuestra", "nuestros", "nuestras", "por", "para",
+    # Plain relations, English
     "dad", "mom", "mum", "mother", "father", "sister", "brother", "sibling", "daughter", "girlfriend", "boyfriend",
-    "wife", "husband", "spouse", "partner", "fiance", "fiancee", "grandma", "grandpa", "grandmother", "grandfather",
-    "uncle", "aunt", "niece", "nephew", "stepfather", "stepmother", "friend", "friends", "roommate", "flatmate",
-    "housemate", "classmate", "colleague", "coworker", "teacher", "professor", "tutor", "mentor", "manager",
-    "therapist", "psychologist", "psychiatrist", "dentist", "doctor", "landlord", "landlady", "neighbor",
-    "neighbour", "user", "family",
-    # Plain relations and roles, Spanish (folded)
+    "wife", "husband", "spouse", "fiance", "fiancee", "grandma", "grandpa", "grandmother", "grandfather", "uncle",
+    "aunt", "niece", "nephew", "stepfather", "stepmother", "roommate", "flatmate", "housemate", "classmate",
+    "colleague", "coworker", "teacher", "professor", "manager", "therapist", "psychologist", "psychiatrist",
+    "dentist", "landlord", "landlady", "neighbor", "neighbour", "user",
+    # Plain relations, Spanish (folded)
     "madre", "hermana", "hermano", "hija", "hijo", "novia", "novio", "esposa", "esposo", "abuela", "abuelo", "amiga",
     "jefa", "jefe", "profe", "profesor", "profesora", "companero", "companera", "vecina", "vecino", "suegra",
-    "suegro", "cunada", "cunado", "sobrina", "sobrino",
-    # Words of the person-typed things the trace found (a technique, a department)
-    "algorithm", "localization", "localisation", "mapping", "recommendation", "recommendations", "simultaneous",
-    "robotics", "department", "university", "talents", "careers", "lab", "laboratory",
+    "suegro", "cunada", "cunado",
 })
-#: Detector only (:func:`looks_like_a_thing`, :func:`person_name_census`) — never decides a redaction.
+#: The plain relations among them: a name is relation-shaped only when it carries one.
+_RELATIONS = _NEVER_A_NAME - frozenset({
+    "the", "and", "for", "his", "hers", "our", "ours", "their", "theirs", "your", "yours", "its", "this", "that",
+    "these", "those", "with", "from", "into", "about", "who", "whom", "whose", "what", "which", "she", "him", "them",
+    "they", "was", "were", "are", "has", "had", "not", "but", "los", "las", "unos", "unas", "mis", "sus", "tus",
+    "nuestro", "nuestra", "nuestros", "nuestras", "por", "para"})
+#: A name opening with one of these, with a relation in it, describes somebody by the relation ("the girlfriend …",
+#: "his dad", "mi hermana …"); in such a name the opener is structure, never redacted on its own.
 _ROLE_OPENERS = frozenset(
     "the a an his her hers my our their your its this that these those el la los las un una unos unas mi mis su sus "
     "tu tus nuestro nuestra nuestros nuestras".split())
+#: "dad of <name>", "el hermano de <name>".
+_RELATION_LINKS = frozenset({"of", "de", "del"})
+#: A lone pronoun is no one's name: Stage 1 has typed "her" as a person, and redacting every "her" garbled each line.
+#: The one lone word kept (a two-word name with "Her" in it — a Hmong surname — is still redacted by each part).
+_LONE_PRONOUNS = frozenset({"her", "him", "his", "she", "hers", "they", "them"})
 _NAME_PARTICLES = frozenset("de del della di da das do dos du van von der den ten ter le la y bin ibn al el".split())
 _ROLE_WORDS_FOLDED = frozenset(text_fold.fold(w) for w in role_people.ROLE_WORDS)
 #: A part shorter than this is not redacted on its own (the whole name still is).
@@ -1027,15 +1037,37 @@ def _folded_words(name: str) -> list[str]:
     return re.findall(r"\w+", text_fold.fold(name or ""))
 
 
+def relation_shaped(name: str) -> bool:
+    """A name that describes somebody by a relation: it carries a relation (:data:`_RELATIONS`, ``role_people``'s) and
+    either opens
+    with an article or possessive ("the girlfriend maria", "mi hermana lucía"), has a possessive ("ana's dad") or links
+    the relation to a name with "of"/"de" ("dad of ana"). "Lee Brother" or "Tom User" is not: a relation word inside an
+    ordinary name is a surname."""
+    words = _folded_words(name)
+    if len(words) < 2 or not any(w in _RELATIONS or w in _ROLE_WORDS_FOLDED for w in words):
+        return False   # detection reads every relation ("friend" too); only _NEVER_A_NAME words are ever kept
+    return (words[0] in _ROLE_OPENERS or bool(re.search(r"\w['’]s\b", name or ""))
+            or any(w in _RELATION_LINKS for w in words[1:-1]))
+
+
+def _exempt(word: str, name_words: list[str], relation: bool) -> bool:
+    """Is this part of a name kept when it stands alone? Only in a relation-shaped name, and only a never-a-name word
+    or its opening article/possessive."""
+    return relation and (word in _NEVER_A_NAME or (word == name_words[0] and word in _ROLE_OPENERS))
+
+
 def name_shape(name: str) -> str:
-    """How a person's name is redacted from the local context: ``split`` (whole, and each part of 3+ letters not in
-    :data:`_NEVER_A_NAME` on its own), ``whole`` (every word is a never-a-name word — "his dad", "the user": only the
-    phrase) or ``skip`` (one never-a-name word alone — "her", "dad" — is no one's name)."""
+    """How a person's name is redacted from the local context: ``split`` (whole, and each part of 3+ letters on its own
+    — every name but the two below), ``whole`` (a relation-shaped name with nothing but relation words in it — "his
+    dad", "the user": only the phrase) or ``skip`` (a lone pronoun — "her" — is no one's name)."""
     words = _folded_words(name)
     if not words or len(" ".join(words)) < 3:
         return "skip"
-    if all(w in _NEVER_A_NAME or len(w) < _MIN_PART_CHARS for w in words):
-        return "skip" if len(words) == 1 else "whole"
+    if len(words) == 1:
+        return "skip" if words[0] in _LONE_PRONOUNS else "split"
+    relation = relation_shaped(name)
+    if relation and all(_exempt(w, words, True) or len(w) < _MIN_PART_CHARS for w in words):
+        return "whole"
     return "split"
 
 
@@ -1102,10 +1134,11 @@ def _redact_people(text: str, names: frozenset[str], keep: frozenset[str] = froz
     """Every person's name or alias in the bank (the owner's too, and a person held without a page) becomes "someone"
     — the line keeps its sense, the prompt carries no one's name (ruling 27: never another name from the bank). Whole
     words, any case, accents folded; the whole name first, then each of its parts of 3+ letters on its own (a person
-    is often named by one of them) — except a word of :data:`_NEVER_A_NAME` (articles, possessives, plain relations:
-    "the", "his", "dad", never anyone's name) and a word of the subject's own name (``keep``: the prompt already carries
-    it). A name made only of such words ("his dad") goes as its whole phrase; one such word alone ("her") is no name.
-    Over-redaction is the safe failure. ``stats`` (the diagnostic) counts the replacements."""
+    is often named by one of them) — except a word of the subject's own name (``keep``: the prompt already carries it)
+    and, in a relation-shaped name only (:func:`relation_shaped`: "his brother luis", "ana's dad"), its articles,
+    possessives and plain relations (:data:`_NEVER_A_NAME`). A relation phrase with no name in it ("his dad") goes as
+    its whole phrase; a lone pronoun ("her") is no name. Over-redaction is the safe failure. ``stats`` (the
+    diagnostic) counts the replacements."""
     keep = frozenset(text_fold.fold(w) for w in keep)
     phrases: set[tuple[str, ...]] = set()
     for name in names:
@@ -1115,8 +1148,9 @@ def _redact_people(text: str, names: frozenset[str], keep: frozenset[str] = froz
         words = tuple(_folded_words(name))
         phrases.add(words)
         if shape == "split" and len(words) > 1:
+            relation = relation_shaped(name)
             phrases.update((w,) for w in words
-                           if len(w) >= _MIN_PART_CHARS and w not in _NEVER_A_NAME and w not in keep)
+                           if len(w) >= _MIN_PART_CHARS and w not in keep and not _exempt(w, list(words), relation))
             # A joined part ("Su-bin", "O'Brien") also goes as a unit, so a short piece of it never survives.
             phrases.update(tuple(_folded_words(token)) for token in (name or "").split()
                            if len(_folded_words(token)) > 1)

@@ -989,16 +989,21 @@ GARBLING_NAMES = frozenset({
 })
 
 
-def test_function_and_common_words_are_never_redacted_on_their_own_but_every_real_name_is():
-    facts = web_settle.BankFacts(person_names=GARBLING_NAMES)
+#: The relation-shaped names among GARBLING_NAMES (and real names): their articles and relations stay in the line.
+RELATION_NAMES = frozenset({"the girlfriend", "the friend in australia", "his dad", "his brother", "my dad",
+                            "olive sample's dad", "her", "the user", "psychologist friend of the sister", "mi hermana",
+                            "el profe de la uni", "alex", "mar example-surname", "john placeholder", "olive sample",
+                            "ana de la example"})
+
+
+def test_a_relation_name_keeps_its_articles_and_relations_but_every_real_name_goes():
+    facts = web_settle.BankFacts(person_names=RELATION_NAMES)
     line = ("Tool B partnered with Alex on the ledger, and his team said it is the closest (walking distance) to "
-            "the station and quick and cheap on a weekday for her dad and my sister; the user asked for a lab teacher "
-            "recommendation and an algorithm for mapping")
+            "the station and quick and cheap on a weekday for her dad and my sister; the user asked for it")
     out = web_settle.clean_context_line(line, facts, limit=2000)
-    # Alex, and "the user" as a whole phrase (a person-typed relation name) — nothing else.
+    # Alex, and "the user" as a whole phrase (a relation name with no name in it) — nothing else.
     assert "Alex" not in out and out.count("someone") == 2 and "someone asked" in out, out
-    for word in ("the", "and", "his", "her", "for", "dad", "sister", "teacher", "algorithm", "mapping",
-                 "recommendation", "lab", "closest", "quick", "cheap"):
+    for word in ("the", "and", "his", "her", "for", "dad", "sister", "closest", "quick", "cheap"):
         assert f" {word} " in f" {out} ".replace(",", " ").replace(";", " "), (word, out)
     # Every real name still goes — whole, by each part, any case, and inside a relation phrase.
     stats: dict = {}
@@ -1008,23 +1013,36 @@ def test_function_and_common_words_are_never_redacted_on_their_own_but_every_rea
     for leak in ("Mar", "MAR", "Example", "Surname", "john", "Olive", "Sample", "Ana"):
         assert leak not in out, (leak, out)
     assert " de la " not in out and stats["people"] == 6
-    # A relation phrase goes whole (it names somebody), never word by word.
     assert web_settle.clean_context_line("his dad said the girlfriend and his friend agreed", facts) == \
-        "someone said someone and his friend agreed"
+        "someone said someone and his someone agreed"   # "friend" is a surname too: a part of a relation name goes
     assert web_settle.clean_context_line("mi hermana dijo que el profe de la uni la recomendó", facts) == \
         "someone dijo que someone la recomendó"
 
 
+def test_a_person_typed_thing_is_redacted_by_every_part_and_counted_for_the_person_to_fix():
+    """Re-review of #366: only a relation-shaped name keeps words; a page typed person that is a technique is
+    redacted by each of its parts like any name (over-redaction is the safe failure) and counted by the census."""
+    facts = web_settle.BankFacts(person_names=frozenset({"simple algorithm for recommendation"}))
+    out = web_settle.clean_context_line("a simple algorithm for ranking", facts)
+    assert out == "a someone someone someone ranking"
+    assert web_settle.person_name_census(facts)["looks_like_a_thing"] == 1
+
+
 def test_name_shapes_and_the_thing_detector():
     shapes = {n: web_settle.name_shape(n) for n in GARBLING_NAMES}
-    assert shapes["her"] == "skip" and web_settle.name_shape("dad") == "skip"
-    for relation in ("the girlfriend", "his dad", "my dad", "the user", "mi hermana",
-                     "simultaneous localization and mapping", "university talents and careers department",
-                     "robotics and ai lab teacher", "psychologist friend of the sister"):
-        assert shapes[relation] == "whole", relation   # every word is never anyone's name: the phrase only
-    for person in ("mar example-surname", "john placeholder", "olive sample's dad", "ana de la example", "alex",
-                   "the friend in australia", "simple algorithm for recommendation"):
-        assert shapes[person] == "split", person       # anything else: whole AND each part (over-redaction is safe)
+    assert shapes["her"] == "skip", "a lone pronoun is no one's name"
+    assert web_settle.name_shape("dad") == "split" and web_settle.name_shape("sin") == "split"
+    for relation in ("the girlfriend", "his dad", "my dad", "the user", "mi hermana"):
+        assert shapes[relation] == "whole", relation   # a relation phrase with no name: the phrase only
+    for name in ("mar example-surname", "john placeholder", "olive sample's dad", "ana de la example", "alex",
+                 "the friend in australia", "simple algorithm for recommendation", "robotics and ai lab teacher",
+                 "simultaneous localization and mapping", "psychologist friend of the sister"):
+        assert shapes[name] == "split", name
+    for name in ("his brother luis", "ana's dad", "dad of ana", "the girlfriend maria", "mi hermana lucía",
+                 "the friend in australia"):
+        assert web_settle.relation_shaped(name), name
+    for name in ("lee brother", "tom user", "fred friend", "jane doctor", "pa her", "maria de los angeles perez"):
+        assert not web_settle.relation_shaped(name), name
     things = {n for n in GARBLING_NAMES if web_settle.looks_like_a_thing(n)}
     assert things == {"simultaneous localization and mapping", "simple algorithm for recommendation",
                       "university talents and careers department"}
@@ -1082,8 +1100,34 @@ def test_every_part_of_a_real_name_is_redacted_whatever_word_it_also_is(name, te
 def test_the_never_a_name_list_holds_no_name_the_review_found():
     for word in ("will", "can", "guy", "nina", "rosa", "mar", "tia", "una", "con", "del", "son", "das", "van",
                  "della", "child", "kid", "baby", "boss", "coach", "nurse", "driver", "barber", "cousin", "person",
-                 "papa", "mama", "padre", "primo", "amigo", "pareja"):
+                 "papa", "mama", "padre", "primo", "amigo", "pareja", "her", "sin", "via", "que", "friend",
+                 "sobrino", "doctor", "tutor", "mentor", "partner", "family", "lab"):
         assert word not in web_settle._NEVER_A_NAME, word
+
+
+@pytest.mark.parametrize("name, text, gone", [
+    ("pa her", "Her said Tool B was good; Pa Her agreed", "Her"),
+    ("mai her", "Mai and Her loved Tool B", "Her"),
+    ("min-jun sin", "Sin recommended Tool B", "Sin"),
+    ("sin", "Sin recommended Tool B", "Sin"),
+    ("via example", "Via recommended Tool B", "Via"),
+    ("fred friend", "Friend recommended Tool B", "Friend"),
+    ("ana sobrino", "Sobrino recommended Tool B", "Sobrino"),
+    ("jane doctor", "Doctor recommended Tool B", "Doctor"),
+    ("mark tutor", "Tutor recommended Tool B", "Tutor"),
+    ("alex mentor", "Mentor recommended Tool B", "Mentor"),
+    ("tom user", "User loved Tool B", "User"),
+    ("joe family", "Family loved Tool B", "Family"),
+    ("sam partner", "Partner loved Tool B", "Partner"),
+    ("lee brother", "Brother loved Tool B", "Brother"),
+    ("kim lab", "Lab loved Tool B", "Lab"),
+    ("que example", "Que loved Tool B", "Que"),
+    ("dad", "Dad loved Tool B", "Dad"),
+])
+def test_a_relation_word_inside_an_ordinary_name_is_a_surname_and_goes(name, text, gone):
+    """Re-review of #366: the never-a-name list applies to relation-shaped names only."""
+    out = web_settle._redact_people(text, frozenset({name}))
+    assert not re.search(rf"(?<!\w){gone}(?!\w)", out), (name, out)
 
 
 # ---------- the category word from where it was mentioned (2026-10-19) ----------

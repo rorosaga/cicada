@@ -895,12 +895,14 @@ evidence span or first mention, then the page's latest conversations), ≤ 600 c
 (`episode_scrub`), links, addresses, handles and paths replaced, every person's name or alias in the bank (the owner's
 too, and a person held without a page) replaced by "someone" — whole words, any case, accents folded ("maría" takes
 "Maria"), the full name and each of its parts of 3+ letters (a joined part such as "Su-bin" as one unit), a word of the
-subject's own name aside — except a word of one short audited list that is nobody's given name or surname (articles,
-possessives, prepositions, plain relations: "the", "his", "dad", "girlfriend", "user"; `web_settle._NEVER_A_NAME`,
-reviewed against names that are also words — "Will", "Can", "Guy", "Nina", "Del", "Son", "Das", "Van" are redacted).
-A name made only of such words ("his dad") goes as its whole phrase; one such word alone ("her") is no name
-(`web_settle.name_shape`; 2026-10-19: splitting such names turned every "the" and "his" into "someone"; over-redaction
-is the safe failure); each line is cleaned whole before it is cut, so a cut never leaves half a name or a code without its cue. It is never searched for; the same engine read those conversations during Sleep. **Order:**
+subject's own name aside. Only a relation-shaped name keeps words (`web_settle.relation_shaped`: a relation plus an
+opening article or possessive, a possessive, or "of"/"de" — "his brother <name>", "<name>'s dad", "dad of <name>"):
+its articles, possessives and plain relations from one audited list that holds nobody's given name or surname
+(`web_settle._NEVER_A_NAME`; re-review of #366: "Her", "Sin", "Via", "Friend", "Doctor", "Sobrino", "User" are
+surnames, so in "Pa Her" or "Tom User" every part goes). A relation phrase with no name in it ("his dad") goes as its
+whole phrase; a lone pronoun ("her") is no one's name. A person-typed page that is a thing is redacted by every part
+like any name and counted by the census for the person to fix (`web_settle.name_shape`; over-redaction is the safe
+failure); each line is cleaned whole before it is cut, so a cut never leaves half a name or a code without its cue. It is never searched for; the same engine read those conversations during Sleep. **Order:**
 clarifications first, then conflicts with a mention line, then the rest — each by priority, then age
 (`web_lookup.select`). **On every plan run (ruling 27b, owner 2026-10-19: "That's not what the inbox is for"):** with
 the scheduled-plan switch on by default (4c), a scheduled run looks up on the plan's search too. **The sweep:** the
