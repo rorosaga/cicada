@@ -61,10 +61,11 @@ enum SleepTab: String, CaseIterable, Hashable {
 /// "Sleep · 42 waiting · last read 2 h ago" — the page's eyebrow (DR-25, DR-26), which replaced the "Sleep Cycle"
 /// title. Pure: `now` is passed in. A count goes through `UsageFormat` (DR-21); no last read is said until one happened.
 enum SleepEyebrow {
+    /// Say it once (owner 2026-10-19) — "Sleep · last read 2 h ago". What waits is the room's headline ("23 to
+    /// read.") and the Waiting tab's list, so the eyebrow no longer counts it a third time.
     static func text(waiting: Int, lastSleepAt: String?, now: Date) -> String {
-        let count = waiting > 0 ? Copy.SleepTabs.waitingCount(waiting) : Copy.SleepTabs.nothingWaiting
         let last = lastSleepAt.flatMap { InboxAge.date($0) }.map { Copy.SleepTabs.lastRead(ago($0, now: now)) } ?? ""
-        return Eyebrow.text(Copy.SleepTabs.page, count, last)
+        return Eyebrow.text(Copy.SleepTabs.page, last)
     }
 
     /// "just now", "12 min ago", "2 h ago", then the Inbox's day words ("yesterday", "3 days ago").

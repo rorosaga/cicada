@@ -135,7 +135,7 @@ picture's source line and a
 facts strip whose every cell comes from something the card loaded (`PersonFacts`; Works at names every current place,
 newest first, each opening its own page, two then "+N" with the rest in its help — 2026-10-14; Known since, Last mentioned and
 Conversations are when the conversations were said, over all of them — `/provenance`'s `totals` — with the page's own
-dates only as a fallback; Known since gives its span only from a day on, never "· 0 days"); then the tabs, and in Content the page like every other type, one column; behind its
+dates only as a fallback; Known since gives its span only from two weeks on — a recent day alone, never "Oct 18 · 1 day", say it once 2026-10-19); then the tabs, and in Content the page like every other type, one column; behind its
 disclosures, beliefs signed with who wrote them (`SignedLine`: harness, model and effort from the captured turn), Where
 this came from, and *How you know <name>* (*What you're connected to* on the owner's own page, by its `owner` flag;
 `PersonMapLayout`, the graph's own edges) with *What's happening* (`PersonHappenings`, from `ProjectsCache`). Every

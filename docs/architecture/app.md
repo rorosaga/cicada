@@ -828,7 +828,14 @@ the website's logo … Clicking again on Sources takes me back to the main Sourc
   (review of #347).
 - **Clicking Sources again returns to the root.** `NavRail` reports a cell tapped while its page shows
   (`RailReselect`) to `AppRouter.reselect(_:byKey:)`; `SourcesPageView` closes the Reader and the detail together on the
-  columns' curve, instantly when the ⌘ shortcut did it (DR-60).
+  columns' curve, instantly when the ⌘ shortcut did it (DR-60). Since *say it once* (2026-10-19) every rail page does
+  this through the same two calls: `.onRailReselect(tab, router:)` hears the second click, `AppRouter.popToRoot(reduceMotion:_:)`
+  applies the page's own root (instant for ⌘N, on the columns' curve for a click). Home clears the field (back to Find)
+  and scrolls to its headline; Graph closes find, the legend, the Reader and the card; Clusters returns to All's cards
+  with nothing open and find closed; Skills to Installed with nothing selected; Sleep leaves the watch run, closes the
+  item, the Reader and find, lets its state choose the tab again and scrolls to the room; Inbox ends a review and
+  returns to All with nothing open; Projects as below; Looks closes the open look and clears its search
+  (`SayItOnceTests`).
 - Kept from v2: the eyebrow ("Sources · n connected", "Sources · 2 of 9 · Saved by you"), "Add a source" and *Explore
   saved sites* in the eyebrow row, the contributor and conversation columns, the Reader as the third column, and every
   number through `UsageFormat.count`. Tests: `SourcesV3Tests`, `SourcesListTests`; screenshots render offscreen from a
@@ -934,7 +941,10 @@ text tabs (`AdaptiveTextTabs`: with counts, then without, then a menu, so a tab 
 detail column, and the Reader as the third column (each list page hosts its own: `AppTab.hostsOwnReader`).
 `ListColumns<ID>` holds the open row: a row that leaves the data, or that the chosen tab does not show, closes the
 detail; one that find (or Clusters' View menu) hides stays open. Keys follow DR-68: ↑/↓ swap in place, ⏎ steps in, Esc closes the rightmost column, and ⌘F opens
-the page's find row.
+the page's find row. **Say it once (owner 2026-10-19):** the eyebrow is the page's name ("Clusters", "Inbox", "Sleep")
+plus find's match count, never a count or a position the tabs, the selected row or the card already say; Clusters'
+type cards and list headers drop the count their type's tab carries (a find's per-type count stays); an Inbox row,
+⌘K row or card header leaves out the page's name when the question already names it (`InboxRowWords`).
 - **Clusters has one filter:** a View menu with the Graph's own types (`graphVM.filter.types`), labels, and a
   remembered *Expand all*. Its tabs are navigation: All plus each present type, by plural name. With nothing open it
   is mock A's icon-led cards (F-11, G146): People · Projects · Companies · Tools · Concepts · Media two to a row, the
@@ -950,7 +960,8 @@ the page's find row.
   (`FeedKind`: paper, video, bookmark, link), now in one View menu on the tab row (`SavedViewMenu`), never a second tab
   row (DR-38). Its rows are 56 pt, each with the origin's real mark (`FeedRowsContent`). With nothing open they scroll
   with the room under the sticky tab row; beside an open item they are `FeedListColumn`'s triage column and the tab
-  row rides the eyebrow ("Sleep · Saved · 3 of 160"). The Feed's Connected strip retired (Sources' cards sync each
+  row rides the eyebrow ("Sleep" — the tab row beside it names the list and its count, the View menu the kind; "Sleep ·
+3 matches" while find narrows it). The Feed's Connected strip retired (Sources' cards sync each
   connected source); its export waits (`ExportWaitStrip`, R-IB22) head the Saved list, as they headed the Feed's, since
   Home's Getting started shows them only until it graduates and the menu bar's line cannot be stopped or dropped on.
 - **A saved item's detail column** shows `MediaPreview` (a video plays at the column's width), "Why it's saved"
@@ -1125,8 +1136,9 @@ Glass, so the composer's action row (`LooksComposerActions`, Save the one primar
 **Sleep page — the study room (G125 v4, Track Z; the Sleep redesign, 2026-10-16).** The room and the worm are Aseprite
 sprite sheets; to watch every animation, open `app/CicadaApp/Art/sprites/bookworm-2026-10-01/preview.html` in a browser
 (*The sprite art and its preview*, below). **A room-over-list page (DESIGN_RULES §5.2, owner approval 2026-10-16):** one
-scroll — no title (the "Sleep Cycle" `PageTitle` retired; the page opens on an eyebrow, "Sleep · 42 waiting · last read
-2 h ago", `SleepEyebrow`, with the staleness chip at its right, R-A12); then the room **out of its card**, on the page
+scroll — no title (the "Sleep Cycle" `PageTitle` retired; the page opens on an eyebrow, "Sleep · last read
+2 h ago", `SleepEyebrow` — what waits is the room's headline ("23 to read."), so neither the eyebrow nor the Waiting
+tab counts it again while that headline is on screen (`SleepTabRow.leadSays`, say it once 2026-10-19) — with the staleness chip at its right, R-A12); then the room **out of its card**, on the page
 ground, drawn at a whole 5, 4 or 3 pt per lattice cell by the width the art may take (`SleepLayout.artScale`: 5 from
 880, 4 from 720, else 3 — 2 only under ⌘+ zoom with the Reader open; `StudyRoom(cell:)`), its floor fading into the
 page over its bottom five cells (`RoomFloorFade`, a mask on the art layer only, never the pile). **The painted room is
@@ -1161,7 +1173,10 @@ Past reads otherwise (`SleepTab.resolve`), and a tab switch is instant and close
 **Videos** are the Feed's lists (above, *Clusters and Sleep's saved lists*); **Past reads** (`SleepPastReads`) is Last
 cycle · Readout · Past nights in D's list grammar — section labels over rows, no cards; Last cycle's rows in words,
 "Rested" as a sentence, the readout as key–value rows, a past read opening in place under its row with its Models, tokens
-and cost (ruling 12). A tail link, a spine or a Home hand-off names an old Details section (`DetailsSection`), and the
+and cost (ruling 12). Said once (2026-10-19): a Past nights row prints its day only when it is the first of that day;
+when no row recorded usage or a time the section's label says so once ("Past nights · usage and time not recorded",
+`PastNightsLayout`) instead of every row; the readout's *Last engine* row steps aside while the newest Past nights row
+names the same engine and the backend gave no reason to add. A tail link, a spine or a Home hand-off names an old Details section (`DetailsSection`), and the
 page selects the tab holding it (`SleepTab.holding`) and brings the tab row to the top in one frame. Opening a saved item
 (or the watch run) turns the page into progressive columns: the tab row rides the eyebrow, the list is the triage
 column, the item the detail, the Reader the third column (`AppTab.hostsOwnReader`); Esc closes the rightmost.
@@ -1576,7 +1591,7 @@ the body only when there is neither a cause nor a quote).
 questions at full width (`InboxQuestionList`'s `header`), `InboxReviewEntriesRow` lists one text button per kind with
 something to review — "Fading pages · 49", then Folds, Conflicts and Questions with theirs (`ReviewEntries`, counts
 through `UsageFormat`) — and a click replaces the columns with `InboxReviewView`: the eyebrow says the place ("Inbox ·
-Fading pages · 3 of 49"), one card at a time (`ReviewCardView`, capped at the focus card's width), the same answers in
+Fading pages"; the line under the card counts answered, skipped and left), one card at a time (`ReviewCardView`, capped at the focus card's width), the same answers in
 the same place on every card (`ReviewCard.answers`): **Keep / Let fade** for decay (`keep`/`archive`, in that order
 whatever order the server sent), **Same / Different** for a fold (`0`/`1`, each described in the fold's two names), **A /
 B (/ C…) / Both** for a conflict (every side with the day it was said; Neither and Other… stay the full card's), a typed

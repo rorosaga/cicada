@@ -110,15 +110,14 @@ final class SleepTabTests: XCTestCase {
         XCTAssertEqual(SavedViewMenu.label(kind: .paper), "View · Papers")
     }
 
-    /// DR-25/DR-26 — the eyebrow replaced the "Sleep Cycle" title.
-    func test_theEyebrowSaysWhatWaitsAndWhenItLastRead() {
+    /// DR-25/DR-26 — the eyebrow replaced the "Sleep Cycle" title. Say it once (2026-10-19): what waits is the room's
+    /// headline and the Waiting tab's, so the eyebrow says only when it last read.
+    func test_theEyebrowSaysWhenItLastReadAndNeverTheQueue() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let twoHours = ISO8601DateFormatter().string(from: now.addingTimeInterval(-2 * 3_600))
-        XCTAssertEqual(SleepEyebrow.text(waiting: 42, lastSleepAt: twoHours, now: now),
-                       "Sleep · 42 waiting · last read 2 h ago")
-        XCTAssertEqual(SleepEyebrow.text(waiting: 0, lastSleepAt: nil, now: now), "Sleep · nothing waiting")
-        XCTAssertEqual(SleepEyebrow.text(waiting: 1_200, lastSleepAt: nil, now: now),
-                       "Sleep · \(UsageFormat.count(1_200)) waiting", "counts go through UsageFormat (DR-21)")
+        XCTAssertEqual(SleepEyebrow.text(waiting: 42, lastSleepAt: twoHours, now: now), "Sleep · last read 2 h ago")
+        XCTAssertEqual(SleepEyebrow.text(waiting: 0, lastSleepAt: nil, now: now), "Sleep")
+        XCTAssertEqual(SleepEyebrow.text(waiting: 1_200, lastSleepAt: nil, now: now), "Sleep")
         XCTAssertEqual(SleepEyebrow.ago(now.addingTimeInterval(-30), now: now), "just now")
         XCTAssertEqual(SleepEyebrow.ago(now.addingTimeInterval(-12 * 60), now: now), "12 min ago")
         XCTAssertEqual(SleepEyebrow.ago(now.addingTimeInterval(-3 * 86_400), now: now), "3 days ago")

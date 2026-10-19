@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftUI
 
 /// G126 R9 — the import hand-off (the Feed's, until it folded into Sleep). CLAUDE.md's Companion App section confirms
 /// "The app has no NotificationCenter-based cross-window messaging today";
@@ -41,6 +42,18 @@ final class AppRouter {
     }
 
     func reselections(of tab: AppTab) -> Int { reselectCounts[tab] ?? 0 }
+
+    /// Say it once (owner 2026-10-19: "For every page in the app, if I press the button in the side panel again, it
+    /// should take me to the main page of that page") — the one way a page applies its return to the root: instant
+    /// for the ⌘ shortcut (DR-60), on the columns' curve for a click (DR-61). Every page calls it from
+    /// `onRailReselect`, so no page decides the motion on its own.
+    func popToRoot(reduceMotion: Bool, _ change: () -> Void) {
+        if lastReselectByKey {
+            Instant.run(change)
+        } else {
+            withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion), change)
+        }
+    }
 
     /// Sets both fields together — a `pendingAddSource` with no matching
     /// tab-switch would stage a sheet nobody ever sees, since the Sleep page

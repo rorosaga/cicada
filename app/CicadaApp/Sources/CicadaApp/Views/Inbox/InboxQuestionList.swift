@@ -195,7 +195,9 @@ struct InboxRow: View {
             question.frame(maxWidth: CicadaTheme.scaled(ColumnLayout.textMaxWidth), alignment: .leading)
             Spacer(minLength: 0)
             if slots.entity {
-                Text(item.displayName)
+                // Say it once — a question that already names its page ("Still tracking Beta Project?") leaves the
+                // column blank; the slot keeps its width so the columns still line up.
+                Text(InboxRowWords.namesItsPage(item) ? "" : item.displayName)
                     .font(CicadaTheme.metaFont)
                     .foregroundStyle(metaColor)
                     .lineLimit(1)
@@ -218,7 +220,7 @@ struct InboxRow: View {
                 age
             }
             HStack(spacing: CicadaTheme.scaled(6)) {
-                if !item.displayName.isEmpty {
+                if !item.displayName.isEmpty && !InboxRowWords.namesItsPage(item) {
                     Text(item.displayName)
                         .font(CicadaTheme.metaFont)
                         .foregroundStyle(metaColor)
@@ -299,5 +301,20 @@ struct InboxUndoRow: View {
         .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
         .accessibilityElement(children: .contain)
         .onAppear { AccessibilityNotification.Announcement(held.label).post() }
+    }
+}
+
+/// Say it once (owner 2026-10-19) — whether a question's own words already name the page it is about, so a row (or a
+/// ⌘K row) does not print that name a second time beside it. Case- and diacritic-insensitive; a name the question
+/// does not contain is still shown.
+enum InboxRowWords {
+    static func namesItsPage(_ item: InboxItem) -> Bool {
+        repeats(name: item.displayName, in: item.questionText)
+    }
+
+    static func repeats(name: String, in text: String) -> Bool {
+        let name = name.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return false }
+        return text.range(of: name, options: [.caseInsensitive, .diacriticInsensitive]) != nil
     }
 }

@@ -35,6 +35,11 @@ struct HomeView: View {
     @AppStorage(AppearanceTipPolicy.seenKey) private var tipSeen = false
     /// Review #1 — the vendor whose drawn export walkthrough is open over Home.
     @State private var seeHow: ChatVendor?
+    @Environment(AppRouter.self) private var router: AppRouter?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Say it once — bumps when Home is clicked again in the rail, so the page scrolls back to its headline.
+    @State private var toTop = 0
+    private static let topAnchor = "home.top"
 
     var body: some View {
         let showsResults = FindPanelBody.showsBody(placement: .page, query: search.model.query,
@@ -64,11 +69,13 @@ struct HomeView: View {
                 // never drops its focus: with results the page pins to the viewport and the results fill what is left.
                 // The swap is instant — typing and Esc drive it, and a keyboard action never animates (DR-60).
                 GeometryReader { viewport in
+                    ScrollViewReader { proxy in
                     ScrollView {
                         VStack(spacing: 0) {
                             // R-HS2 — the headline is the row under the band, on the window (DR-50), in the room pages'
                             // title (DR-17): one line, the mock's words.
                             PageTitle(Copy.homeHeadline)
+                                .id(Self.topAnchor)
                                 .multilineTextAlignment(.center)
                                 .accessibilityAddTraits(.isHeader)
                                 .padding(.top, CicadaTheme.scaled(HomeLayout.headlineTop))
@@ -95,6 +102,8 @@ struct HomeView: View {
                         .frame(height: showsResults ? viewport.size.height : nil, alignment: .top)
                     }
                     .modifier(HomePageScroll(pinned: showsResults))
+                    .onChange(of: toTop) { _, _ in Instant.run { proxy.scrollTo(Self.topAnchor, anchor: .top) } }
+                    }
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height)
@@ -107,6 +116,9 @@ struct HomeView: View {
             }
         }
         .onAppear { tour.adoptOffer() }
+        // Say it once — Home clicked again in the rail: the field empties (Find, not Ask), the walkthrough closes and
+        // the page is back at its headline.
+        .onRailReselect(.home, router: router) { popToRoot() }
         // Sleep history is not a Store domain and is not disk-cached (design
         // §6.3): fetch it on every arrival, and again whenever the status's last
         // read moves (a read that finished while Home is up, a status that only
@@ -116,6 +128,16 @@ struct HomeView: View {
         // schedule fetch failed is retried here too, or Getting started's
         // schedule question would never be asked (R-IB20).
         .task(id: store.status.value?.lastSleepAt) { await sleepVM.refreshForHome() }
+    }
+
+    private func popToRoot() {
+        guard let router else { return }
+        router.popToRoot(reduceMotion: reduceMotion) {
+            search.model.setQuery("")
+            search.model.setMode(.find)
+            seeHow = nil
+        }
+        toTop &+= 1
     }
 
     // MARK: The blocks

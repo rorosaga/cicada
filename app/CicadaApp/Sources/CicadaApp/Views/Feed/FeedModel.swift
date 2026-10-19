@@ -54,13 +54,9 @@ enum FeedKind: String, CaseIterable, Hashable {
 enum FeedEyebrow {
     static func text(total: Int, kind: FeedKind?, visible: [MediaFeedItem], openId: String?, searching: Bool,
                      tab: String = Copy.SleepTabs.saved) -> String {
-        let lead = Copy.SleepTabs.page
-        if searching { return Eyebrow.text(lead, tab, Copy.Lists.matches(visible.count)) }
-        if let openId, let i = visible.firstIndex(where: { $0.id == openId }) {
-            return Eyebrow.text(lead, tab, kind?.label ?? "", Copy.Inbox.position(i + 1, of: visible.count))
-        }
-        if let kind { return Eyebrow.text(lead, tab, kind.label, Copy.Lists.saved(visible.count)) }
-        return Eyebrow.text(lead, tab, total == 0 ? "" : Copy.Lists.saved(total))
+        // Say it once (owner 2026-10-19) — the tab row rides beside this eyebrow with the list's name and count, and
+        // the View menu's label names the kind: the eyebrow says the page, and find's matches (said nowhere else).
+        Eyebrow.text(Copy.SleepTabs.page, searching ? Copy.Lists.matches(visible.count) : "")
     }
 }
 

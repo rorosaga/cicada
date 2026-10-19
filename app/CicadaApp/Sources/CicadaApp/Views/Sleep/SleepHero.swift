@@ -213,13 +213,16 @@ struct ReadoutRow: Equatable, Identifiable {
 
 func readoutRows(entityCount: Int?, sourceCount: Int?, lastDurationMs: Int?, lastEngine: String?,
                  engineDetail: String?, lastIsOneBatch: Bool = false, hasFinishedCycle: Bool = true,
-                 locale: Locale = .autoupdatingCurrent) -> [ReadoutRow] {
+                 engineShownBelow: Bool = false, locale: Locale = .autoupdatingCurrent) -> [ReadoutRow] {
     let entities = entityCount.map { "\(UsageFormat.count($0, locale: locale)) \($0 == 1 ? "entity" : "entities")" }
     let sources = sourceCount.map { "\(UsageFormat.count($0, locale: locale)) \($0 == 1 ? "source" : "sources")" }
     let engine = lastEngine.map { id in
         ([Copy.engineLabel(id)] + [engineDetail].compactMap { $0 }.filter { !$0.isEmpty }).joined(separator: " · ")
     }
-    return [
+    // Say it once (owner 2026-10-19) — Past nights' newest row names the same engine with its mark, so the readout
+    // keeps its engine row only for what that row cannot say: the reason the backend gave for the engine.
+    let engineSaidBelow = engineShownBelow && lastEngine != nil && (engineDetail ?? "").isEmpty
+    let rows = [
         ReadoutRow(id: "entities", key: Copy.SleepDetailsWords.inMemory, value: entities ?? "—",
                    reason: entityCount == nil ? Copy.bankListNotLoaded : nil, engine: nil),
         ReadoutRow(id: "sources", key: Copy.SleepDetailsWords.feedingIt, value: sources ?? "—",
@@ -234,6 +237,7 @@ func readoutRows(entityCount: Int?, sourceCount: Int?, lastDurationMs: Int?, las
                        : hasFinishedCycle ? Copy.SleepDetailsWords.noEngineYet : Copy.SleepDetailsWords.noFinishedCycle,
                    engine: lastEngine),
     ]
+    return engineSaidBelow ? rows.filter { $0.id != "engine" } : rows
 }
 
 // MARK: - The readout (Details › Readout)
@@ -274,6 +278,8 @@ struct SleepReadoutView: View {
     let engineDetail: String?
     /// Whether history holds a finished cycle at all: a dash then says there is none yet, not "not recorded".
     var hasFinishedCycle: Bool = true
+    /// Past nights' newest row names this engine (say it once).
+    var engineShownBelow: Bool = false
 
     /// R-HS15 — the meter is a sentence and the tiles and the engine line are key–value rows, under
     /// the section's label, no card (DR-37). R-A5 still holds: `heroMeter` returning `nil` is what
@@ -304,7 +310,8 @@ struct SleepReadoutView: View {
             ForEach(readoutRows(entityCount: activeBankEntityCount, sourceCount: feedingSourceCount,
                                 lastDurationMs: lastDurationMs, lastEngine: lastEngine,
                                 engineDetail: engineDetail, lastIsOneBatch: lastIsOneBatch,
-                                hasFinishedCycle: hasFinishedCycle)) { readoutRow($0) }
+                                hasFinishedCycle: hasFinishedCycle,
+                                engineShownBelow: engineShownBelow)) { readoutRow($0) }
         }
     }
 

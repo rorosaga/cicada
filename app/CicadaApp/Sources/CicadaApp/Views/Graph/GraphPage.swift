@@ -17,6 +17,7 @@ struct GraphPage: View {
     @Environment(IntakeRouter.self) private var intake
     @Environment(ProvenanceRouter.self) private var provenance
     @Environment(FindPaletteModel.self) private var palette: FindPaletteModel?
+    @Environment(AppRouter.self) private var router: AppRouter?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var legendOpen = false
     @State private var findOpen = false
@@ -54,6 +55,8 @@ struct GraphPage: View {
         // R-DG5 / R-SU10 — the page takes ⌘F while find is closed; the overlay's field takes it while open.
         .publishesPageFind(enabled: isVisible && !findOpen && !(palette?.isPresented ?? false)) { openFind() }
         .onChange(of: graphVM.canvasEventCount) { _, _ in handle(graphVM.canvasEvent) }
+        // Say it once — Graph clicked again in the rail: the whole graph, nothing open over it.
+        .onRailReselect(.graph, router: router) { popToRoot() }
         .onChange(of: selectedTab) { _, tab in
             if tab != .graph { Instant.run { findOpen = false; legendOpen = false } }
         }
@@ -109,6 +112,17 @@ struct GraphPage: View {
     // MARK: - Paths (a pointer path may animate; a keyboard path never does — DR-60)
 
     /// ⌘F — a keyboard path.
+    /// The root is the canvas alone: find, the legend, the Reader and the entity card close together.
+    private func popToRoot() {
+        guard let router else { return }
+        router.popToRoot(reduceMotion: reduceMotion) {
+            findOpen = false
+            legendOpen = false
+            provenance.close()
+            graphVM.clearSelection()
+        }
+    }
+
     private func openFind() { Instant.run { legendOpen = false; findOpen = true } }
 
     /// The column's × — a pointer path: the whole detail closes on the drawer curve (R-DG7).

@@ -19,6 +19,8 @@ struct SkillsPage: View {
     @State private var selected: String?
     @State private var addText = ""
     @FocusState private var addFocused: Bool
+    @Environment(AppRouter.self) private var router: AppRouter?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         SkillsPageView(model: model, tab: $tab, selected: $selected, addText: $addText, addFocused: $addFocused,
@@ -33,6 +35,13 @@ struct SkillsPage: View {
                        onPublish: { publishing = $0 }, onRead: { reading = $0 })
             .background(CicadaTheme.bgBase)
             .task { await model.appeared() }
+            // Say it once — Skills clicked again in the rail: Installed, nothing selected.
+            .onRailReselect(.skills, router: router) {
+                router?.popToRoot(reduceMotion: reduceMotion) {
+                    tab = nil
+                    selected = nil
+                }
+            }
             .background {
                 // ⌘N — the add field (a page-local key; no menu item claims it on this page).
                 Button("") { addFocused = true }.keyboardShortcut("n", modifiers: .command).hidden()

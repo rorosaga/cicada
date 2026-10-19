@@ -76,7 +76,7 @@ struct SourcesPageView: View {
         .onAppear { openPendingSource() }
         .onChange(of: router.pendingSourceDetail) { _, _ in openPendingSource() }
         // Sources v3 — Sources clicked again in the sidebar: back to the root, like a tab bar.
-        .onChange(of: router.reselections(of: .sources)) { _, _ in popToRoot() }
+        .onRailReselect(.sources, router: router) { popToRoot() }
         .onChange(of: rows.map(\.id)) { _, _ in reconcile() }
         .onChange(of: contributorsVM.contributors.map(\.author)) { _, _ in reconcile() }
     }
@@ -168,11 +168,7 @@ struct SourcesPageView: View {
             provenance.close()
             columns.close()
         }
-        if router.lastReselectByKey {
-            Instant.run { change() }
-        } else {
-            withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion)) { change() }
-        }
+        router.popToRoot(reduceMotion: reduceMotion, change)
     }
 
     private func reconcile() {

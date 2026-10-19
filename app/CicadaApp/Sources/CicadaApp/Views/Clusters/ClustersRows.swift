@@ -91,10 +91,13 @@ struct ClustersListColumn: View {
                 Text(type.groupLabel)
                     .font(CicadaTheme.font(size: 13, weight: .medium))
                     .foregroundStyle(CicadaTheme.textPrimary)
-                Text(UsageFormat.count(count))
-                    .font(CicadaTheme.metaFont)
-                    .monospacedDigit()
-                    .foregroundStyle(CicadaTheme.textTertiary)
+                // Say it once — outside find the type's tab already counts it; under find the count is the matches'.
+                if findOpen && !query.isEmpty {
+                    Text(UsageFormat.count(count))
+                        .font(CicadaTheme.metaFont)
+                        .monospacedDigit()
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
                 if recency {
                     Text(Copy.People.recencySuffix).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                 }

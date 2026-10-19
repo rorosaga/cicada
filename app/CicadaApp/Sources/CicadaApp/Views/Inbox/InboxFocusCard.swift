@@ -149,10 +149,13 @@ struct InboxFocusCard: View {
                     .padding(.leading, -CicadaTheme.scaled(10))
             }
             KindGlyph(kind: item.kind)
-            Text(item.displayName)
-                .font(CicadaTheme.metaFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .lineLimit(1)
+            // Say it once — the question under it already names the page.
+            if !InboxRowWords.namesItsPage(item) {
+                Text(item.displayName)
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .lineLimit(1)
+            }
             Spacer(minLength: CicadaTheme.spacingSM)
             if let onClose {
                 IconButton(systemName: "xmark", help: Copy.Inbox.close, action: onClose)

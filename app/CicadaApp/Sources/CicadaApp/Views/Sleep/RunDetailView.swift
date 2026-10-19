@@ -91,6 +91,8 @@ struct PastRunRow: View {
     let ref: SleepRunRef
     let newest: SleepHistoryEntry
     let isExpanded: Bool
+    /// Say it once — the day only on the first row of that day (`PastNightsLayout`).
+    var showsDate = true
     let onToggle: () -> Void
     @State private var hovering = false
 
@@ -98,7 +100,7 @@ struct PastRunRow: View {
         let start = ref.startedAt ?? newest.date
         Button(action: onToggle) {
             HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-                Text(SleepHistoryPresentation.dateText(start))
+                Text(showsDate ? SleepHistoryPresentation.dateText(start) : "")
                     .font(CicadaTheme.metaFont)
                     .monospacedDigit()
                     .foregroundStyle(CicadaTheme.textSecondary)
