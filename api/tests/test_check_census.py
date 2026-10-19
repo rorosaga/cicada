@@ -6,14 +6,14 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from unittest import mock
 
 import pytest
 from fastapi.testclient import TestClient
 
+from _demo_scenario import demo as scenario
 from _synthetic_bank import _bank
 from api import config, main
-from api.services import bank_index, bank_registry, demo_bank, fact_sources, markdown_parser, source_check
+from api.services import fact_sources, markdown_parser, source_check
 
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "scripts" / "check-census.sh"
@@ -23,12 +23,7 @@ SCRIPT = REPO / "scripts" / "check-census.sh"
 def demo(tmp_path):
     """The scenario's census, pinned before round 4's showcase added a removal, a divergence, a normalization and a
     served merge (T-Demo): those are `test_demo_showcase.py`'s to hold, so this coverage gate keeps its numbers."""
-    bank_dir = tmp_path / "demo"
-    bank_registry.scaffold_bank(bank_dir)
-    with mock.patch.object(demo_bank, "_write_showcase", lambda *a, **k: None):
-        demo_bank.populate(bank_dir)
-    bank_index.invalidate()
-    return bank_dir
+    return scenario(tmp_path, index=False, today=None)   # every step but the showcase, on the real day
 
 
 def test_a_fresh_demo_banks_census(demo):

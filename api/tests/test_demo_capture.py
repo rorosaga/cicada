@@ -14,12 +14,13 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from _demo_scenario import demo
 from _stdio_server import stdio_server
 from api import config, main
 from api.hooks import capture as hook
 from api.remote import catalog
 from api.remote.runtime import RemoteRuntime
-from api.services import (bank_registry, demo_bank, demo_guard, mcp_tools, telegram_capture, telemetry,
+from api.services import (bank_registry, demo_guard, mcp_tools, telegram_capture, telemetry,
                           transcript_capture as tc)
 
 SID = "44444444-2222-4333-8444-555555555555"
@@ -84,9 +85,7 @@ def _client(root: Path, monkeypatch) -> TestClient:
 
 
 def test_the_generator_marks_its_bank_first_and_versions_the_mark(tmp_path):
-    bank = tmp_path / "demo"
-    bank_registry.scaffold_bank(bank)
-    demo_bank.populate(bank)
+    bank = demo(tmp_path, index=False, showcase=True, today=None)   # `populate` with every step, on the real day
     assert demo_guard.is_demo(bank)
     assert len(_episodes(bank)) >= 40  # the guard never stops the generator (R-CS17)
     assert _git(bank, "ls-files", demo_guard.MANIFEST).strip() == demo_guard.MANIFEST
