@@ -15,6 +15,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from fastapi.testclient import TestClient
+from pathlib import Path
 
 from api import config, main
 from api.models.schemas import ScheduleConfig
@@ -159,10 +160,93 @@ def test_the_after_import_probe_follows_the_active_bank_too(banks, client):
     assert scheduler.get_job(sleep_scheduler.JOB_ID) is None
 
 
-def test_the_demo_doors_and_a_bare_app_never_fail_the_switch(banks, monkeypatch):
+def test_the_demo_doors_move_the_schedule_both_ways(banks, client, monkeypatch):
+    """`POST /banks/demo` (a new demo, then an existing one re-opened) and `POST /banks/leave-demo` go through
+    `_activated` / the create branch: the demo has no schedule (manual), the bank left behind gets its own back."""
+    from api.services import demo_bank, demo_guard
+
+    root, runs = banks
+    c, scheduler, settings = client
+    monkeypatch.setattr(demo_bank, "populate", lambda path: demo_guard.write_manifest(path))   # no full populate
+    created = c.post("/banks/demo")
+    assert created.status_code == 200 and created.json()["active"] == "demo", created.text
+    assert scheduler.get_job(sleep_scheduler.JOB_ID) is None, "a new demo: no job"
+
+    left = c.post("/banks/leave-demo")
+    assert left.status_code == 200 and left.json()["active"] == "default", left.text
+    assert _cron_fields(scheduler.get_job(sleep_scheduler.JOB_ID)) == {"hour": "3", "minute": "0"}
+
+    reopened = c.post("/banks/demo")
+    assert reopened.status_code == 200 and reopened.json()["active"] == "demo", reopened.text
+    assert scheduler.get_job(sleep_scheduler.JOB_ID) is None, "an existing demo re-opened: no job"
+    assert scheduler.get_job(sleep_catch_up.JOB_ID) is None
+    assert c.post("/banks/leave-demo").status_code == 200
+    _fire(scheduler)
+    assert runs == [root], "the schedule runs the person's own bank, never the demo"
+
+
+def test_a_bare_app_without_a_scheduler_never_fails_the_switch(banks, monkeypatch):
     """No scheduler on the app (a bare test app): the switch still answers; `follow_active_bank` is a no-op."""
     root, runs = banks
     monkeypatch.setattr(main.app.state, "scheduler", None, raising=False)
     resp = TestClient(main.app).post("/banks/beta/activate")
     assert resp.status_code == 200
     assert sleep_scheduler.follow_active_bank(None, config.get_settings()) is None
+
+
+def test_an_unreadable_schedule_keeps_the_registered_one_and_says_so_once(banks, client):
+    """A fire that finds the file corrupt (or cut short by a hand edit) runs as registered — never as `manual`,
+    which would unregister every job until the next save, switch or restart."""
+    from loguru import logger
+
+    root, runs = banks
+    c, scheduler, settings = client
+    (root / sleep_scheduler.SCHEDULE_FILE).write_text("mode: [daily\nhour: 3", encoding="utf-8")
+    assert sleep_scheduler.read_schedule(root) is None
+    assert sleep_scheduler.load_schedule(root).mode == "manual", "the API's own read still falls back"
+    warnings: list[str] = []
+    sink = logger.add(lambda m: warnings.append(str(m)), level="WARNING")
+    try:
+        _fire(scheduler)
+        _fire(scheduler)
+    finally:
+        logger.remove(sink)
+    assert runs == [root, root]
+    assert _cron_fields(scheduler.get_job(sleep_scheduler.JOB_ID)) == {"hour": "3", "minute": "0"}
+    assert scheduler.get_job(sleep_catch_up.JOB_ID) is not None
+    assert sum("cannot be read" in w for w in warnings) == 1, "logged once, not on every fire"
+
+    sleep_scheduler.save_schedule(root, ScheduleConfig(mode="manual"))   # readable again, and manual: honoured
+    _fire(scheduler)
+    assert runs == [root, root]
+    assert scheduler.get_job(sleep_scheduler.JOB_ID) is None
+
+
+def test_save_schedule_replaces_the_file_whole(banks, monkeypatch):
+    """Temp file + `os.replace`: a reader sees the old schedule or the new one, and a failed write leaves the old
+    file and no temp file behind."""
+    import os
+
+    root, _ = banks
+    path = root / sleep_scheduler.SCHEDULE_FILE
+    before = path.read_text(encoding="utf-8")
+    seen: list[tuple[str, str]] = []
+    real_replace = os.replace
+
+    def watching(src, dst):
+        seen.append((Path(dst).read_text(encoding="utf-8"), Path(src).read_text(encoding="utf-8")))
+        real_replace(src, dst)
+
+    monkeypatch.setattr(sleep_scheduler.os, "replace", watching)
+    sleep_scheduler.save_schedule(root, ScheduleConfig(mode="daily", hour=5, minute=30))
+    assert seen and seen[0][0] == before, "the old file is whole until the replace"
+    assert sleep_scheduler.read_schedule(root).hour == 5 and "hour: 5" in seen[0][1]
+
+    def failing(src, dst):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(sleep_scheduler.os, "replace", failing)
+    with pytest.raises(OSError):
+        sleep_scheduler.save_schedule(root, ScheduleConfig(mode="interval", interval_hours=8))
+    assert sleep_scheduler.read_schedule(root).hour == 5, "a failed save leaves the old schedule"
+    assert [p.name for p in root.iterdir() if p.name.endswith(".tmp")] == [], "no temp file left behind"

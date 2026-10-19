@@ -429,7 +429,9 @@ also change by a path that is not a route (a registry edited underneath the back
 schedule it was registered for (`registered`), and `_run_if_idle` / `_run_after_intake_if_settled` compare it with the
 active bank's own (`trigger_key`: mode plus time or step) **before** anything else: different → re-register from the
 active bank and run nothing on the old time. Two banks on the same schedule share one trigger and the fire runs the
-active one. Before this, `_run_if_idle` never re-read the mode, so a bank switched to `manual` was consolidated on the
+active one. A schedule file that is there but cannot be parsed is not `manual` to this check (`read_schedule` →
+`None`): the fire runs as registered and logs it once per bank, so a corrupt file never unregisters every job;
+`save_schedule` writes atomically (temp file, fsync, `os.replace`), so a fire never reads one half-written. Before this, `_run_if_idle` never re-read the mode, so a bank switched to `manual` was consolidated on the
 last bank's 03:00.
 
 **A missed scheduled time catches up, once (owner 2026-10-19).** `daily` and `interval` are timers in the backend's own

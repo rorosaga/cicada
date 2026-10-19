@@ -8,6 +8,7 @@ whenever the user updates the schedule from the Sleep dashboard.
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -42,14 +43,25 @@ def _schedule_path(memory_path: Path) -> Path:
 
 
 def load_schedule(memory_path: Path) -> ScheduleConfig:
+    cfg = read_schedule(memory_path)
+    return cfg if cfg is not None else _DEFAULT.model_copy()
+
+
+def read_schedule(memory_path: Path) -> ScheduleConfig | None:
+    """The bank's schedule, the default (``manual``) when it has none — or ``None`` when the file is there but cannot
+    be read or parsed. :func:`load_schedule` maps ``None`` onto the default (the API keeps starting); the fire-time
+    check (``_stale_trigger``) keeps the schedule it was registered with instead, so an unreadable file never
+    unregisters every job."""
     path = _schedule_path(memory_path)
     if not path.exists():
         return _DEFAULT.model_copy()
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        if not isinstance(data, dict):
+            raise ValueError("not a mapping")
     except Exception as e:
         logger.warning(f"Failed to parse {path}: {e} — using defaults")
-        return _DEFAULT.model_copy()
+        return None
     try:
         return ScheduleConfig(
             mode=data.get("mode"),
@@ -65,7 +77,7 @@ def load_schedule(memory_path: Path) -> ScheduleConfig:
         logger.warning(
             f"Invalid schedule in {path}: {e} — falling back to default"
         )
-        return _DEFAULT.model_copy()
+        return None
 
 
 def save_schedule(memory_path: Path, cfg: ScheduleConfig) -> None:
@@ -75,7 +87,17 @@ def save_schedule(memory_path: Path, cfg: ScheduleConfig) -> None:
         "mode": cfg.mode, "enabled": cfg.enabled, "hour": cfg.hour, "minute": cfg.minute,
         "interval_hours": cfg.interval_hours,
     }
-    path.write_text(yaml.safe_dump(payload, sort_keys=True), encoding="utf-8")
+    # Atomic (the page rule): a temp file beside it, fsynced, then replaced over it — a fire that reads the schedule
+    # mid-save (`_stale_trigger`) sees the old file or the new one, never a torn one.
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(yaml.safe_dump(payload, sort_keys=True))
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def next_run_at(
@@ -158,6 +180,18 @@ def follow_active_bank(scheduler, settings: Settings) -> ScheduleConfig | None:
         return None
 
 
+_unreadable_warned: set[str] = set()
+
+
+def _warn_unreadable(memory_path) -> None:
+    """Once per bank until it reads again: a fire every few minutes must not repeat it."""
+    key = str(memory_path)
+    if key in _unreadable_warned:
+        return
+    _unreadable_warned.add(key)
+    logger.warning("Scheduled sleep: the bank's schedule file cannot be read — keeping the registered schedule")
+
+
 def _stale_trigger(scheduler, settings: Settings, registered: ScheduleConfig | None) -> bool:
     """The fire-time half of following the active bank: a job registered for one schedule fires, but the active bank's
     own schedule is now another (the active bank changed by a path that did not re-register — a registry edited by
@@ -166,7 +200,13 @@ def _stale_trigger(scheduler, settings: Settings, registered: ScheduleConfig | N
     call (tests, older jobs): no check."""
     if registered is None:
         return False
-    active = load_schedule(settings.memory_path)
+    active = read_schedule(settings.memory_path)
+    if active is None:
+        # Unreadable (corrupt, or a write by hand cut short): keep the schedule this job was registered with and run
+        # as it says — never treat it as `manual` and unregister every job until the next save, switch or restart.
+        _warn_unreadable(settings.memory_path)
+        return False
+    _unreadable_warned.discard(str(settings.memory_path))
     if trigger_key(active) == trigger_key(registered):
         return False
     logger.info(f"Scheduled sleep: the active bank's schedule is {trigger_key(active)}, not "
