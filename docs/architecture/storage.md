@@ -1078,7 +1078,7 @@ waits for the job. **The episode passages' cut is recorded the same way** (2026-
 4,000-character passages left 36 % of real chat text unread, measured with EmbeddingGemma 2's tokenizer) is stamped beside the table as `chunks:episodes`, and a table
 with another cut (an index written before the stamp reads as `4000/200`) is stale for `embedding_models.pending_switch`:
 the same background job re-cuts and re-embeds it, embedding first and swapping in one transaction, while Sleep's own sync
-keeps the recorded cut (so a night embeds only its new conversations, never the whole table). Only a switch to an on-device model folder is the job's; one to a hosted or sentence-transformers
+keeps the recorded cut (so a night embeds only its new conversations, never the whole table). The cut is read under the index's write lock with the diff it decides, so a Sleep sync that starts while the job commits the new cut waits for that commit and then syncs at the new cut — it can never re-embed the bank at the old one or stamp it back. At the owner's scale (8,237 episodes, ~36.9k passages at the new cut) the re-cut holds ~113 MB of vectors in memory and embeds for minutes; a Sleep that starts meanwhile stops it (nothing written) and it starts over after the run. Only a switch to an on-device model folder is the job's; one to a hosted or sentence-transformers
 model still happens in Sleep's index step, and `CICADA_BACKGROUND_REINDEX=off` (the suite's setting) restores that for
 every model. `GET /embeddings` carries `recommended` (the better model this Mac runs but hasn't downloaded) and `reindex`
 (state, model, tables done of total). One writer per index file at a time (`vector_index._write_lock`, in-process: every

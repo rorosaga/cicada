@@ -815,10 +815,7 @@ class SqliteVecIndexer:
         """
         if not self.episodes_dir.exists():
             return 0
-        layout = self._episode_layout()
-        chars, overlap = _parse_chunking(layout)
-        staged: list[tuple[str, str, dict]] = []
-        episodes_added = 0
+        bodies: list[tuple[str, str, dict]] = []
         for filepath in sorted(self.episodes_dir.glob("*.md")):
             try:
                 parsed = markdown_parser.parse(filepath)
@@ -829,21 +826,29 @@ class SqliteVecIndexer:
             body = evidence.mask_gaps(parsed.body, evidence.gap_ranges(fm, parsed.body)).strip()
             if not body:
                 continue
-            base_meta = {
+            bodies.append((filepath.stem, body, {
                 "episode_id": str(fm.get("id", filepath.stem)),
                 "source": str(fm.get("source", "unknown")),
                 "timestamp": str(fm.get("timestamp", "")),
                 "title": str(fm.get("title", "")),
                 "file_path": str(filepath),
-            }
-            chunks = _chunk_episode_body(body, chars=chars, overlap=overlap)
-            for chunk_idx, chunk in enumerate(chunks):
-                meta = dict(base_meta)
-                meta["chunk_index"] = chunk_idx
-                meta["chunk_count"] = len(chunks)
-                staged.append((f"{filepath.stem}#{chunk_idx}", chunk, meta))
-            episodes_added += 1
-        stats = self._sync_kind("episodes", staged, extra_meta={CHUNKING_KEY: layout})
+            }))
+        episodes_added = len(bodies)
+        # The cut is read under the write lock, with the diff it decides (review of #349): read before it, Sleep's
+        # sync could stage the old cut while the background job was committing the new one, then find every passage
+        # changed and re-embed the whole bank at the old cut inside Sleep — and stamp the old cut back.
+        with _write_lock(self.db_path):
+            layout = self._episode_layout()
+            chars, overlap = _parse_chunking(layout)
+            staged: list[tuple[str, str, dict]] = []
+            for stem, body, base_meta in bodies:
+                chunks = _chunk_episode_body(body, chars=chars, overlap=overlap)
+                for chunk_idx, chunk in enumerate(chunks):
+                    meta = dict(base_meta)
+                    meta["chunk_index"] = chunk_idx
+                    meta["chunk_count"] = len(chunks)
+                    staged.append((f"{stem}#{chunk_idx}", chunk, meta))
+            stats = self._sync_kind_locked("episodes", staged, {CHUNKING_KEY: layout})
         self.last_sync["episodes"] = stats
         logger.info(
             f"Vector episode index synced: {episodes_added} episodes / {len(staged)} passages "

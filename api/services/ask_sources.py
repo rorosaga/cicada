@@ -358,7 +358,11 @@ def named_days(question: str, today=None) -> list[str]:
         if re.search(r"\byesterday\b", q):
             out.append((today - timedelta(days=1)).isoformat())
         for n in _DAYS_AGO.findall(q):
-            out.append((today - timedelta(days=int(_SMALL.get(n, n)))).isoformat())
+            days = min(int(_SMALL.get(n, n)), 36500)   # "99999999 days ago" names no day a bank holds; never a raise
+            try:
+                out.append((today - timedelta(days=days)).isoformat())
+            except OverflowError:
+                continue
     return list(dict.fromkeys(out))
 
 

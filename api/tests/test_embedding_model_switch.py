@@ -226,3 +226,58 @@ def test_with_the_job_off_sleep_re_cuts_as_it_switches_models(dev_home, tmp_path
     _legacy_table(bank, monkeypatch)
     sleep_cycle._sync_vector_indexes(bank)
     assert SqliteVecIndexer(bank).episode_chunking() == vector_index.EPISODE_CHUNKING
+
+
+def test_sleep_racing_the_re_cut_never_re_embeds_the_bank_at_the_old_cut(dev_home, tmp_path, monkeypatch):
+    """Review of #349: Sleep's sync starts while the background job is committing the new cut. It reads the cut
+    under the write lock, after the job's commit — so it embeds only the new conversation, at the new cut, and never
+    stamps the old cut back."""
+    import threading
+
+    from api.services import vector_index
+
+    monkeypatch.setenv("CICADA_BACKGROUND_REINDEX", "on")
+    bank = _bank(tmp_path)
+    for n in (1, 2, 3):
+        _long_episode(bank, n)
+    _legacy_table(bank, monkeypatch)
+    inside, release = threading.Event(), threading.Event()
+    calls = {"job": 0, "sleep": 0}
+    real = onnx_embedder.OnnxEmbedder.__call__
+
+    def embed(self, texts, *, is_query=False):
+        who = threading.current_thread().name
+        calls[who] = calls.get(who, 0) + len(texts)
+        if who == "job":
+            inside.set()
+            release.wait(5)
+        return real(self, texts, is_query=is_query)
+
+    monkeypatch.setattr(onnx_embedder.OnnxEmbedder, "__call__", embed)
+    job = threading.Thread(name="job", target=lambda: SqliteVecIndexer(bank, should_stop=lambda: False)
+                           .index_episodes())
+    job.start()
+    assert inside.wait(5), "the job is embedding the new cut, holding the write lock"
+    _long_episode(bank, 4)                       # a conversation captured meanwhile
+    sleep_idx = SqliteVecIndexer(bank, defer_model_switch=True)
+    sleep = threading.Thread(name="sleep", target=sleep_idx.index_episodes)
+    sleep.start()
+    sleep.join(0.3)
+    assert sleep.is_alive(), "Sleep's sync waits for the job's commit"
+    release.set()
+    job.join(10), sleep.join(10)
+    assert SqliteVecIndexer(bank).episode_chunking() == vector_index.EPISODE_CHUNKING, "the new cut stays"
+    new_conv = len(vector_index._chunk_episode_body(
+        markdown_parser.parse(bank / "episodes" / "ep_2026-07-04_001.md").body.strip()))
+    assert calls["sleep"] == new_conv, "only the new conversation, at the new cut — never the whole bank"
+    assert sleep_idx.last_sync["episodes"]["embedded"] == new_conv
+
+
+def test_a_huge_days_ago_is_clamped_and_never_raises():
+    from datetime import date
+
+    from api.services import ask_sources
+
+    assert ask_sources.named_days("what did I say 99999999999 days ago?", today=date(2025, 1, 10)) == ["1925-02-04"], \
+        "clamped to a century back"
+    assert ask_sources.question_shape("what did I say 99999999999 days ago?") == ask_sources.SHAPE_ANCHORED
