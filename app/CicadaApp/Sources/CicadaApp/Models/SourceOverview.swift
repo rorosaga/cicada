@@ -10,6 +10,35 @@ enum SourceIntent: String, Codable, CaseIterable {
     case saved, captured
 }
 
+/// Sources v4 (owner 2026-10-19: "the profile pictures of the chats that have contributed — the first three and then a
+/// fourth circle in the back that says '+N more' — and the same for Chrome") — one face on a source's row. A `chat` is a
+/// Messages conversation (its photo's hash when the chat shares one); a `site` is where a saved thing came from, its
+/// mark asked by the saved page `id` (`GET /sources/saved/{id}/site-icon`).
+struct SourceFace: Codable, Hashable, Sendable {
+    enum Kind: String, Codable, Sendable { case chat, site, unknown }
+
+    let kind: Kind
+    let id: String
+    let label: String
+    var site: String? = nil
+    var photo: String? = nil
+
+    enum CodingKeys: String, CodingKey { case kind, id, label, site, photo }
+
+    init(kind: Kind, id: String, label: String, site: String? = nil, photo: String? = nil) {
+        self.kind = kind; self.id = id; self.label = label; self.site = site; self.photo = photo
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = Kind(rawValue: (try c.decodeIfPresent(String.self, forKey: .kind)) ?? "") ?? .unknown
+        id = try c.decode(String.self, forKey: .id)
+        label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
+        site = try? c.decodeIfPresent(String.self, forKey: .site)
+        photo = try? c.decodeIfPresent(String.self, forKey: .photo)
+    }
+}
+
 enum SourceKind: String, Codable, CaseIterable {
     case harness, browser, social, feed, messaging, voice, `import`, unknown
 
@@ -46,17 +75,25 @@ struct SourceOverview: Codable, Identifiable, Hashable {
     let activity: [String: Int]
     /// Sources v3 — saved on purpose, or captured on Cicada's own (`SourceIntent`).
     let intent: SourceIntent
+    /// Sources v4 — this source's episodes still waiting for Sleep's read (the backend's count, `history_index.
+    /// waits_for_model`): the detail's "Consolidate now · N waiting" shows only when it is above zero.
+    let waiting: Int
+    /// Sources v4 — up to three faces, newest first (a Messages chat, a site a saved thing came from), and how many more.
+    let faces: [SourceFace]
+    let facesMore: Int
 
     init(id: String, label: String, kind: SourceKind, mark: String = "", conversations: Int = 0,
          episodes: Int = 0, entities: Int = 0, items: Int = 0, lastActivityAt: String? = nil,
          connected: Bool = false, lastError: String? = nil, actions: [String] = [],
          channelId: String? = nil, origins: [String] = [], harness: String? = nil,
-         activity: [String: Int] = [:], intent: SourceIntent = .captured) {
+         activity: [String: Int] = [:], intent: SourceIntent = .captured, waiting: Int = 0,
+         faces: [SourceFace] = [], facesMore: Int = 0) {
         self.id = id; self.label = label; self.kind = kind; self.mark = mark
         self.conversations = conversations; self.episodes = episodes; self.entities = entities
         self.items = items; self.lastActivityAt = lastActivityAt; self.connected = connected
         self.lastError = lastError; self.actions = actions; self.channelId = channelId
         self.origins = origins; self.harness = harness; self.activity = activity; self.intent = intent
+        self.waiting = waiting; self.faces = faces; self.facesMore = facesMore
     }
 
     /// Sources v3 — the id a saved source's list is read under (`GET /sources/channels/{id}/items`): its channel, else
@@ -131,7 +168,7 @@ struct SourceOverview: Codable, Identifiable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case id, label, kind, mark, conversations, episodes, entities, items, lastActivityAt
-        case connected, lastError, actions, channelId, origins, harness, activity, intent
+        case connected, lastError, actions, channelId, origins, harness, activity, intent, waiting, faces, facesMore
     }
 
     init(from decoder: Decoder) throws {
@@ -155,6 +192,10 @@ struct SourceOverview: Codable, Identifiable, Hashable {
         // cached snapshot, or an older backend) must still yield a usable card.
         activity = try c.decodeIfPresent([String: Int].self, forKey: .activity) ?? [:]
         intent = SourceIntent(rawValue: (try? c.decodeIfPresent(String.self, forKey: .intent)) ?? "") ?? .captured
+        // Sources v4 — lenient: an older backend sends none, and a malformed face drops the faces, never the row.
+        waiting = (try? c.decodeIfPresent(Int.self, forKey: .waiting)) ?? 0
+        faces = (try? c.decodeIfPresent([SourceFace].self, forKey: .faces)) ?? []
+        facesMore = (try? c.decodeIfPresent(Int.self, forKey: .facesMore)) ?? 0
     }
 
     /// `lastActivityAt` parsed for sorting — the same three shapes
@@ -300,6 +341,12 @@ enum SourceItemsGrouping {
         }
         return counts.map { (folder: $0.key, count: $0.value) }
             .sorted { $0.count != $1.count ? $0.count > $1.count : $0.folder < $1.folder }
+    }
+
+    /// Sources v4 — draw "By folder" only when there is a folder to name: more than one group, or one real folder.
+    /// No items at all is no heading (the owner's Messages page showed an empty "By folder").
+    static func showsFolders(_ groups: [(folder: String, count: Int)]) -> Bool {
+        groups.count > 1 || (groups.count == 1 && groups[0].folder != noFolder)
     }
 }
 

@@ -1130,8 +1130,9 @@ async def sources_overview(
     memory_path = settings.memory_path
     connectors_connected = {cid: adapter.is_connected() for cid, adapter in ADAPTERS.items()}
     connector_tag = ",".join(f"{k}:{v}" for k, v in sorted(connectors_connected.items()))
+    # Sources v4: `photos` too — a Messages face carries its chat photo's hash (`messages_photos`, outside the bank).
     etag = sync_service.etag_for(
-        memory_path, "sources", "episodes", "entities",
+        memory_path, "sources", "episodes", "entities", "photos",
         extra=f"{source_overview.SHAPE}|telegram:{settings.telegram_enabled}|connectors:{connector_tag}",
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
@@ -1257,6 +1258,89 @@ async def get_saved_link_site_icon(media_entity_id: str, request: Request, setti
         return Response(status_code=304, headers=headers)
     types = {"png": "image/png", "jpg": "image/jpeg", "gif": "image/gif", "webp": "image/webp", "ico": "image/x-icon"}
     return FileResponse(path, media_type=types.get(path.suffix.lstrip("."), "application/octet-stream"), headers=headers)
+
+
+@router.get("/sources/watch-history/days/{episode_id}")
+async def get_watched_day(episode_id: str, request: Request, response: Response,
+                          settings: Settings = Depends(get_settings)):
+    """Sources v4 — one watched day's videos, in the order watched (`channel_items.watched_day`): what the person sees
+    when they open that day. Read from the day's own record; nothing fetched, no model (ruling 30). Not a Store domain:
+    the app keeps it in memory and revalidates with this ETag (`episodes` for the day, `sources`+`entities` for which
+    videos are also saved)."""
+    memory_path = settings.memory_path
+    etag = sync_service.etag_for(memory_path, "sources", "episodes", "entities",
+                                 extra=f"{channel_items.SHAPE}|day|{episode_id}")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    day = await run_in_threadpool(channel_items.watched_day, memory_path, episode_id)
+    if day is None:
+        raise HTTPException(status_code=404, detail="Not a watched day")
+    # The app's wire is camelCase (`CamelModel`'s rule), spelled here for the two keys that have an underscore.
+    return {**day, "videos": [{("videoId" if k == "video_id" else "mediaEntityId" if k == "media_entity_id" else k): v
+                               for k, v in video.items()} for video in day["videos"]]}
+
+
+_STILL_SEMAPHORE = asyncio.Semaphore(4)
+
+
+@router.get("/sources/watch-history/videos/{video_id}/thumbnail")
+async def get_watched_video_thumbnail(video_id: str, request: Request, settings: Settings = Depends(get_settings)):
+    """Sources v4 (owner direction 2026-10-19, `storage.md`) — a watched YouTube video's still, for its row in a day
+    the person opened: asked of YouTube's own thumbnail host for this id only, and only for an id the bank records as
+    watched (`channel_items.watched_video_id`); behind `CICADA_ALLOW_LOGO_FETCH`, through the ToS rail, cached outside
+    every bank (`media_preview.ensure_video_still`). 404 = no picture. Sleep never calls it; no model reads history."""
+    import hashlib
+
+    from fastapi.responses import FileResponse
+
+    from api.services import media_preview
+
+    memory_path = settings.memory_path
+    known = await run_in_threadpool(channel_items.watched_video_id, memory_path, video_id)
+    if not known:
+        raise HTTPException(404, "no picture for this video")
+    async with _STILL_SEMAPHORE:
+        path = await media_preview.ensure_video_still(memory_path, video_id)
+    if path is None or not path.exists():
+        raise HTTPException(404, "no picture for this video")
+    stat = path.stat()
+    etag = '"' + hashlib.sha1(f"{path.name}:{stat.st_mtime_ns}:{stat.st_size}".encode()).hexdigest()[:16] + '"'
+    headers = {"ETag": etag, "Cache-Control": "max-age=86400"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    media_type = media_preview.MEDIA_TYPES.get(path.suffix.lstrip("."), "application/octet-stream")
+    return FileResponse(path, media_type=media_type, headers=headers)
+
+
+@router.get("/sources/messages/chats/{conversation}/photo")
+async def get_messages_chat_photo(conversation: str, request: Request, settings: Settings = Depends(get_settings)):
+    """Sources v4 — the photo a ticked Messages chat shares, as that chat's face on the Sources row and in its list
+    (owner 2026-10-19: "the profile pictures of the chats that have contributed"). The bytes the app already posted
+    (`messages_photos`, outside every bank, never sent anywhere); nothing is fetched. 404 = draw the monogram: an id
+    that is not a chat hash, a chat not ticked, or no photo stored."""
+    import hashlib
+
+    from fastapi.responses import FileResponse
+
+    from api.services import logo_service, messages_photos, messages_source
+
+    memory_path = settings.memory_path
+    if not messages_source.CONVERSATION_ID_RE.match(conversation or ""):
+        raise HTTPException(404, "no photo for this chat")
+    ticked = await run_in_threadpool(lambda: {
+        cid for cid, e in messages_source.load_settings(memory_path)["conversations"].items() if e.get("ticked")})
+    entry = messages_photos.read_meta(logo_service.bank_name(memory_path)).get(conversation)
+    if conversation not in ticked or not isinstance(entry, dict):
+        raise HTTPException(404, "no photo for this chat")
+    path = messages_photos.photo_path(logo_service.bank_name(memory_path), conversation, str(entry.get("ext") or "png"))
+    if path is None or not path.is_file():
+        raise HTTPException(404, "no photo for this chat")
+    etag = '"' + hashlib.sha1(f"{conversation}:{entry.get('sha')}".encode()).hexdigest()[:16] + '"'
+    headers = {"ETag": etag, "Cache-Control": "max-age=86400"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    media_type = "image/jpeg" if path.suffix == ".jpg" else "image/png"
+    return FileResponse(path, media_type=media_type, headers=headers)
 
 
 # --- Feed subscriptions (registry + poll) -----------------------------------

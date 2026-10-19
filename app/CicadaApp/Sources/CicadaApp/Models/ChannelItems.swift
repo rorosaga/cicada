@@ -19,13 +19,17 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
     var site: String? = nil
     /// Sources v3 — the newest answer to "What made you save this?" (G191), when the person gave one.
     var why: ChannelItemWhy? = nil
+    /// Sources v4 — a Messages sitting's chat: who it is with and its photo's hash (the row's face). Nil elsewhere.
+    var chat: ChannelItemChat? = nil
+    /// Sources v4 — a watched day's video count (the row opens to that day's videos). Nil for every other row.
+    var videos: Int? = nil
 
-    enum CodingKeys: String, CodingKey { case kind, id, title, day, left, host, site, why }
+    enum CodingKeys: String, CodingKey { case kind, id, title, day, left, host, site, why, chat, videos }
 
     init(kind: Kind, id: String, title: String, day: String? = nil, left: String? = nil, host: String? = nil,
-         site: String? = nil, why: ChannelItemWhy? = nil) {
+         site: String? = nil, why: ChannelItemWhy? = nil, chat: ChannelItemChat? = nil, videos: Int? = nil) {
         self.kind = kind; self.id = id; self.title = title; self.day = day; self.left = left
-        self.host = host; self.site = site; self.why = why
+        self.host = host; self.site = site; self.why = why; self.chat = chat; self.videos = videos
     }
 
     init(from decoder: Decoder) throws {
@@ -39,6 +43,8 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         host = try? c.decodeIfPresent(String.self, forKey: .host)
         site = try? c.decodeIfPresent(String.self, forKey: .site)
         why = try? c.decodeIfPresent(ChannelItemWhy.self, forKey: .why)
+        chat = try? c.decodeIfPresent(ChannelItemChat.self, forKey: .chat)
+        videos = try? c.decodeIfPresent(Int.self, forKey: .videos)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -51,7 +57,17 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         try c.encodeIfPresent(host, forKey: .host)
         try c.encodeIfPresent(site, forKey: .site)
         try c.encodeIfPresent(why, forKey: .why)
+        try c.encodeIfPresent(chat, forKey: .chat)
+        try c.encodeIfPresent(videos, forKey: .videos)
     }
+}
+
+/// Sources v4 — the chat a Messages row came from: the app's conversation hash, who it is with, and the stored
+/// photo's hash when the chat shares one (`GET /sources/messages/chats/{id}/photo?v=`).
+struct ChannelItemChat: Codable, Hashable, Sendable {
+    let id: String
+    let label: String
+    var photo: String? = nil
 }
 
 /// Sources v3 — why the person saved a link, as a row shows it: the reasons they tapped ("The design") and their own

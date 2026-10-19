@@ -308,6 +308,16 @@ class OriginsResponse(CamelModel):
 # --- Sources overview (G124 — one card per memory source) ---
 
 
+class SourceFace(CamelModel):
+    """Sources v4 — one face on a source's row: a chat that fed Messages, or a site a saved thing came from."""
+
+    kind: str                    # chat | site
+    id: str                      # chat: the app's conversation hash; site: the saved page its mark is asked by
+    label: str                   # chat: who it is with; site: the bare host
+    site: Optional[str] = None   # site: `reading_hosts.site_of`'s key
+    photo: Optional[str] = None  # chat: the stored photo's hash (`GET /sources/messages/chats/{id}/photo?v=`)
+
+
 class SourceOverview(CamelModel):
     """One memory source as the Sources page shows it.
 
@@ -347,6 +357,13 @@ class SourceOverview(CamelModel):
     # Sources v3 (2026-10-19) — ``saved`` (the person saved each item on purpose) or ``captured`` (Cicada captures it
     # on its own); ``source_overview.intent_of``. The page's two groups.
     intent: str = "captured"
+    # Sources v4 (2026-10-19) — this source's episodes still waiting for Sleep's read (the detail's "Consolidate now ·
+    # N waiting"); and up to three faces, newest first — a Messages chat (`kind: chat`, its photo's hash when one is
+    # stored) or the site a saved thing came from (`kind: site`, `id` = the saved page the site's mark is asked by) —
+    # with how many more there are.
+    waiting: int = 0
+    faces: list[SourceFace] = Field(default_factory=list)
+    faces_more: int = 0
 
 
 class SourceOverviewResponse(CamelModel):

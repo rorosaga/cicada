@@ -289,6 +289,14 @@ struct SourceListRow: View {
                         .foregroundStyle(liveness.tone.isAlarm && !selected ? CicadaTheme.warning : metaColor)
                         .lineLimit(1)
                 }
+                // Sources v4 (owner 2026-10-19) — on the root, who and where it came from: the chats that fed Messages,
+                // the sites a saved source's things came from; three faces, then "+N".
+                if style == .wide && !source.faces.isEmpty {
+                    Spacer(minLength: CicadaTheme.spacingSM)
+                    // Centred on the two lines beside it (the row is top-aligned, so the stack is set down, never stretched).
+                    SourceFaces(faces: source.faces, more: source.facesMore)
+                        .padding(.top, CicadaTheme.scaled(6))
+                }
             }
         case .titles, .hidden:
             HStack(spacing: CicadaTheme.spacingSM) {

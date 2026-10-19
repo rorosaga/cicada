@@ -114,9 +114,14 @@ struct CapturedItemsList: View {
                 let today = ISODay.today()
                 VStack(spacing: 0) {
                     ForEach(list.items, id: \.self) { item in
-                        CapturedItemRow(item: item, today: today,
-                                        route: CapturedItemRoute.of(item, interactive: interactive), open: go,
-                                        leftLine: CapturedItems.leftLine(item, channel: channel))
+                        if item.videos != nil && interactive {
+                            // Sources v4 — a watched day opens in place to that day's videos.
+                            WatchedDayRow(item: item, today: today)
+                        } else {
+                            CapturedItemRow(item: item, today: today,
+                                            route: CapturedItemRoute.of(item, interactive: interactive), open: go,
+                                            leftLine: CapturedItems.leftLine(item, channel: channel))
+                        }
                     }
                 }
                 if list.hasMore { showMore(list, loading: cache.isLoadingMore(channel), cache: cache) }
@@ -205,6 +210,10 @@ private struct CapturedItemRow: View {
 
     private func label(_ age: (text: String, help: String)?) -> some View {
         HStack(spacing: CicadaTheme.spacingSM) {
+            // Sources v4 — a Messages row leads with the chat's face (its photo, else a ring with a letter).
+            if let chat = item.chat {
+                ChatFace(id: chat.id, label: chat.label, photo: chat.photo, side: CicadaTheme.scaled(20))
+            }
             Text(item.title)
                 .font(CicadaTheme.bodyFont)
                 .foregroundStyle(leftLine == nil ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)

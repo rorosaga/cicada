@@ -6,6 +6,15 @@ import Foundation
 protocol ChannelItemsAPI: Sendable {
     func fetchChannelItems(channel: String, offset: Int, limit: Int, etag: String?) async throws
         -> Conditional<ChannelItemsPage>
+    /// Sources v4 — one watched day's videos (`GET /sources/watch-history/days/{episode}`), read when the day opens.
+    func fetchWatchedDay(episode: String, etag: String?) async throws -> Conditional<WatchedDay>
+}
+
+extension ChannelItemsAPI {
+    /// A fake that lists items only never opens a day.
+    func fetchWatchedDay(episode: String, etag: String?) async throws -> Conditional<WatchedDay> {
+        throw APIError.serverUnreachable
+    }
 }
 
 extension APIClient: ChannelItemsAPI {

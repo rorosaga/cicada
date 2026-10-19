@@ -240,20 +240,12 @@ final class SourcesPageTests: XCTestCase {
                         "R-D8: exact origins only — files does NOT also adopt \"unknown\", unlike ownedItems' nil-origin rule")
     }
 
-    func testSourceQueueLabelsWaitingAndConsolidatedSoFar() {
-        XCTAssertEqual(SourceQueueLabels.waiting(0), "Nothing waiting for Sleep")
-        XCTAssertEqual(SourceQueueLabels.waiting(12), "12 waiting for Sleep")
-
-        let harness = SourceOverview(id: "harness:claude-code", label: "Claude Code", kind: .harness, conversations: 3, entities: 5)
-        XCTAssertEqual(SourceQueueLabels.consolidatedSoFar(for: harness), "Consolidated so far: 3 conversations → 5 entities")
-
-        let one = SourceOverview(id: "harness:cursor", label: "Cursor", kind: .harness, conversations: 1, entities: 1)
-        XCTAssertEqual(SourceQueueLabels.consolidatedSoFar(for: one), "Consolidated so far: 1 conversation → 1 entity")
-
-        let channel = SourceOverview(id: "safari-bookmarks", label: "Safari", kind: .browser, episodes: 40, entities: 12)
-        XCTAssertEqual(SourceQueueLabels.consolidatedSoFar(for: channel), "Consolidated so far: 40 captures → 12 entities")
-
-        let empty = SourceOverview(id: "rss", label: "RSS", kind: .feed)
-        XCTAssertNil(SourceQueueLabels.consolidatedSoFar(for: empty), "hidden when both counts are 0")
+    /// Sources v4 — the queue strip and its "Consolidated so far" line retired; the one control left is "Consolidate
+    /// now · N waiting" at the top, shown only while this source has something waiting (the backend's count).
+    func testTheConsolidateControlShowsOnlyWhileSomethingWaits() {
+        XCTAssertNil(SourceDetailText.consolidate(waiting: 0, running: false), "nothing waiting, no control")
+        XCTAssertEqual(SourceDetailText.consolidate(waiting: 2, running: false), "Consolidate now · 2 waiting")
+        XCTAssertEqual(SourceDetailText.consolidate(waiting: 0, running: true), Copy.consolidating,
+                       "a running read says so even after this source's queue emptied")
     }
 }
