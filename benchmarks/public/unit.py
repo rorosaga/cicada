@@ -425,8 +425,7 @@ async def run_unit(job: dict) -> int:
             label = judges.parse_lme(reply) if reply else None
         f1 = judges.locomo_f1(hyp, q["answer"], q["category_id"]) if unit["dataset"] == "locomo" else None
         judged.add({"key": row["key"], "qid": row["qid"], "path": row["path"], "category": q["category"],
-                    "abstention": q["abstention"], "correct": label, "f1": f1, "reply": reply[:400], "error": err,
-                    "protocol": judges.protocol(q["abstention"])})
+                    "abstention": q["abstention"], "correct": label, "f1": f1, "reply": reply[:400], "error": err})
 
     pending = [r for r in answers.rows.values() if r["key"] not in judged.rows or judged.rows[r["key"]]["correct"] is None]
     pending = [r for r in pending if not r.get("error")]

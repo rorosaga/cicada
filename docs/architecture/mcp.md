@@ -859,7 +859,7 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   words it holds; a conversation ranks by its best passage, then by the weight of all the words it holds. Then the
   question's own words decide its **shape** (`ask_sources.question_shape`, no model): a count or a list ("how many",
   "how often", "list every", "which … have I") is `enumerate`; a day it names ("on 9 April 2025", "March 3", "in June
-  2024", "in September" — that month in any year —, "el 5 de septiembre", "en mayo de 2025", "yesterday") or "the first time / originally / used to" is `anchored`; an outcome or a current value
+  2024", "yesterday") or "the first time / originally / used to" is `anchored`; an outcome or a current value
   ("final", "ended up", "eventually", "currently", "still", "agreed") is `latest`; anything else `lookup`. A
   conversation is **on the subject** when it holds at least half the weight of the question's words the best
   conversation holds, two of them when that one holds two or more, and ranks in the fused top 20 ("the gravel bike"
@@ -880,44 +880,6 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   embedded once per Ask: the page leg's claim search and this leg share the vector through the indexer's per-model
   query cache (measured: one query embed per Ask). Measured: `docs/research/2026-10-17-memory-benchmarks.md`, "Ask
   depth".
-- **The turn that answers, not the turn that matches best (2026-10-19, Ask edges).** The leg found the right
-  conversations (LongMemEval_S multi-session: every evidence conversation in the window or the breadth lines for
-  most questions) but showed each one's best-*matching* turn: the person's opening request ("plan a family trip …")
-  or the agent's long reply that repeats every word of the question, while the answer was the person's own
-  statement with the value ("my recent family trip to <city>", "I'll have four bikes"), which shares fewer of the
-  question's words. A turn now scores (`ask_sources.answer_score`, no model) its best sentence plus half the weight
-  of the question's words in the rest of the turn; the sentence counts 1.5× when it states a value the question does
-  not (a number, an amount, a number word, a capitalized name not in the question), 1.25× when it holds the
-  question's own "recent" / "first", and half when it only asks (ends with "?" and opens like a question — a
-  statement with a tag "…, have you heard of it?" still states); the turn counts 1.5× when its speaker is the one
-  the question is about — a person (the owner or another speaker), or the agent when the question asks what "you
-  said / recommended / suggested" (`answer_prefs`). The excerpt is clipped around that sentence, not the first
-  matching word. A kept conversation (the newest on the subject, a named day) leads with that turn, so the newest
-  conversation shows its answer. **Counts and lists** lead with one line from each conversation in the window before
-  any conversation gets a second, and each conversation's line (window and breadth) is its speaker's own statement
-  when they made one — a count of what the person did rests on what they said. An agent's saved note (an unmarked block in an episode a tool
-  door saved, `AGENT_SOURCES`) is never a person's statement here, as it is never labelled one. The question's own
-  words are read in English and Spanish: counts and lists ("cuántos / cuántas", "cuáles", "lista de", "enumera"),
-  questions about the agent ("me dijiste", "recomendaste", "sugeriste", "tu recomendación") and a sentence that only
-  asks (opens with "¿" or a question word). Why not expand the question with the
-  graph's aliases or seed the search with the page leg's entities: on the misses the conversations were already in
-  the window or the breadth lines; the lost part was the turn. Measured (LongMemEval_S, no model): multi-session
-  evidence sessions whose answer turn is shown 19 → 30 of 49, the newer knowledge-update answer turn 14 → 15 of 16,
-  temporal 12 → 17 of 18; `docs/research/2026-10-17-memory-benchmarks.md`, "Ask edges".
-- **What the clip keeps (2026-10-20, Ask clip).** One 600-character window around the answering sentence answered
-  one ask and cut the rest: on the owner's eval five questions flipped wrong — the device's make and its second
-  problem, a message's addressee in its greeting, the person's reason before a pasted draft, the request after a
-  reply. A long search-leg turn is now cut by `ask_sources._clip_answer`, in the same budget: the answering
-  sentence, each sentence that best answers another of the question's asks (`question_asks` splits "…, and what /
-  which / why …", "; …", "? And …", "y qué …"; each ask's own words pick its sentence), and, for a person's turn, its
-  opening (≤ 160 characters: the greeting, the first line that says what a message is and why — an agent's opening
-  is courtesy, "What a great idea!", and is not kept); what is left grows the
-  answering sentence's own window, a third before and the rest after. Pieces keep the turn's order, joined by "…".
-  Breadth lines (counts and lists, ≤ 300 characters) keep no opening. A "why" question's value is a stated reason
-  ("because", "so that", "named it after", "porque", "ya que" …; never "since" or "after …", which are
-  usually time), not a number or a name, so the person's
-  reason outranks a draft that repeats the name with numbers (`answer_prefs(...).why`). The page leg's clip
-  (around its evidence span) is unchanged. Measured: `docs/research/2026-10-17-memory-benchmarks.md`, "Ask clip".
 - **The `sources` scope.** `answer_query(source_words=...)`, `POST /ask` `sourceWords` (default true): `cicada_ask`
   passes `ctx.raw_excerpts`, so a remote connector without `sources` gets no conversation words in the prompt (R-R22)
   — neither leg runs for it.
