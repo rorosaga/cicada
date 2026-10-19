@@ -23,6 +23,7 @@ from pathlib import Path
 from api.config import Settings
 from api.services import inbox_service, markdown_parser
 from api.services.claims import strip_claims_block
+from api.services.id_utils import folder_tags
 
 # type -> (hub file stem, friendly display name). Order drives _index.md listing.
 TYPE_HUBS: list[tuple[str, str, str]] = [
@@ -68,6 +69,20 @@ def _one_line_summary(body: str, limit: int = 140) -> str:
     return (first[:limit] + "…") if len(first) > limit else first
 
 
+def _topic_tags(fm: dict) -> list[str]:
+    """A page's tags that may gather it into a tag hub: every tag but the ones its ``folder`` left there.
+
+    A playlist, board, collection or bookmark folder is where a save came from — the page's ``folder:`` — and never
+    a topic (owner 2026-10-19). Pages written before the media writer stopped tagging them still carry the slug, so
+    the hub tier leaves it out too and a bank heals on its next Sleep, before ``list_hub_repair`` strips the tags.
+    The page's own media type is a tag the writer set, kept even if a folder shares its name.
+    """
+    media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
+    own = str(media.get("media_type") or "")
+    drop = folder_tags(fm.get("folder")) - {own}
+    return [str(t) for t in (fm.get("tags", []) or []) if t and str(t) not in drop]
+
+
 def _load_active_entities(entities_dir: Path) -> tuple[list[dict], int]:
     """Return (member-eligible entities, total entity count incl. archived).
 
@@ -93,7 +108,7 @@ def _load_active_entities(entities_dir: Path) -> tuple[list[dict], int]:
             "name": str(fm.get("name", filepath.stem.replace("-", " ").title())),
             "type": str(fm.get("type", "concept") or "concept"),
             "confidence": float(fm.get("confidence", 0.5) or 0.0),
-            "tags": [str(t) for t in (fm.get("tags", []) or []) if t],
+            "tags": _topic_tags(fm),
             "summary": _one_line_summary(parsed.body),
         })
     return members, total

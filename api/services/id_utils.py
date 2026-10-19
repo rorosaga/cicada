@@ -35,6 +35,19 @@ def sanitize_id(name: str) -> str:
     return safe or "unnamed"
 
 
+def folder_tags(folder) -> set[str]:
+    """The tags a save's ``folder`` (a playlist, board, collection, bookmark folder…) used to leave on its page.
+
+    A list a save came from is provenance — the page's ``folder:`` — never a topic (owner 2026-10-19): the media
+    writer once added ``sanitize_id(folder)`` to ``tags`` (and the Netscape parser the raw name), so every list with
+    enough saves became a tag hub. The writer, the hub tier and ``list_hub_repair`` all name them by this one rule.
+    """
+    raw = str(folder or "").strip()
+    if not raw:
+        return set()
+    return {raw, sanitize_id(raw)} - {"unnamed"}
+
+
 def bank_file(directory: Path, stem: str) -> Path | None:
     """``<directory>/<stem>.md`` — or ``None`` when ``stem`` is not ONE path segment.
 

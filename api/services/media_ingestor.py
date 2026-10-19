@@ -33,7 +33,7 @@ from api.services import (
     bank_index, decay_policy, episode_ids, episode_scrub, history_index, markdown_parser, net_guard, saved_at,
     video_chapters, video_urls,
 )
-from api.services.id_utils import sanitize_id
+from api.services.id_utils import folder_tags, sanitize_id
 
 USER_AGENT = "Mozilla/5.0 (CicadaBot)"
 _TIMEOUT = 5.0
@@ -538,16 +538,15 @@ def parse_netscape_bookmarks(html: str) -> list[RawItem]:
         if not href or href.startswith("javascript:") or href.startswith("place:"):
             continue
         tags = [t.strip() for t in (a.get("tags", "") or "").split(",") if t.strip()]
-        # Nearest enclosing folder <H3> name -> a tag for nested links.
+        # Nearest enclosing folder <H3> name -> ``folder``, provenance only.
         # Netscape's loose/unclosed-tag HTML doesn't expose a clean DL/DT
         # nesting to reconstruct a full folder *path* (that would mean
         # rewriting this parser around real DOM ancestry); we carry the single
-        # nearest-enclosing folder name only, same depth this parser already
-        # sees for the tag above.
+        # nearest-enclosing folder name only. It is never a tag: a folder, a
+        # playlist or a board is where a save came from, not a topic, and a
+        # tag shared by enough pages becomes a hub (owner 2026-10-19).
         folder_tag = a.find_previous("h3")
         folder_name = folder_tag.get_text(strip=True) if folder_tag else None
-        if folder_name:
-            tags.append(folder_name)
         items.append(RawItem(
             url=href,
             title=(a.get_text(strip=True) or None),
@@ -2073,14 +2072,13 @@ def write_media_entity(
 ) -> None:
     entities_dir.mkdir(parents=True, exist_ok=True)
     today = datetime.now()
-    tag_set = set([meta.media_type] + (item.tags or []))
-    # Sanitized folder-slug tag mirrors notes_sync stamping its Apple Notes
-    # folder onto the episode: raw human path lives in frontmatter (below),
-    # a filesystem-/graph-safe slug also lands in tags so folder/category is
-    # filterable the same way any other tag is.
-    if item.folder:
-        tag_set.add(sanitize_id(item.folder))
-    tags = sorted(tag_set)
+    # The list a save came from — a playlist, a board, a collection, a bookmark
+    # folder, a subreddit, a device's tabs — is provenance: the page's
+    # ``folder:`` below, never a tag. A slug of it used to land in ``tags``
+    # too, and every list with enough saves became a tag hub in the graph
+    # (owner 2026-10-19: "this should be just a provenance thing"); a tag the
+    # parser derived from the folder is dropped here for the same reason.
+    tags = sorted({meta.media_type} | (set(item.tags or []) - folder_tags(item.folder)))
 
     frontmatter = {
         "name": meta.title,

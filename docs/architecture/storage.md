@@ -38,7 +38,7 @@ read_late: 2026-03-20      # only between a late read and the decay pass that pl
 decay_rate: 0.05           # per-entity, not global
 decay_class: active        # evergreen | durable | active | volatile (G66)
 source_episodes: [ep_2026-01-10_001]
-tags: []                   # open set, freeform
+tags: []                   # open set, freeform; never a saved list's name (that is `folder:`)
 related: []                # duplicates wikilinks for programmatic access
 version: 3
 claims_ledger: {claims: 5835, hash: 1a2b3c4d5e6f}  # only on a page whose older claims live in its ledger
@@ -64,6 +64,22 @@ changes; a page dirty in git is skipped; it refuses while Sleep runs.
 produced by Stage-1 extraction** — `PRODUCIBLE_ENTITY_TYPES` excludes it; due-dates attach as a
 `due` claim on the relevant project instead of spawning a standalone entity. `media` is likewise
 excluded — it comes from the ingestion path, not conversation extraction.
+
+**A saved list is provenance, never a tag or a hub (owner 2026-10-19: "the video was taken from this playlist and that's
+it").** A media page records the list a save came from — a YouTube playlist (Watch later included), an Instagram
+collection, a Pinterest board, a Reddit subreddit or saved list, an X or LinkedIn export's list, a browser bookmark
+folder, a device's Safari tabs — as its `folder:` (the raw name or path, beside `origin:`), and the Sources page groups
+by it. It is never a tag: the media writer once added `sanitize_id(folder)` to `tags` (and the Netscape parser the raw
+folder name), and Stage 5.6 makes any tag shared by `hub_tag_min_members` (5) active pages a `topic-<tag>` hub, so every
+list with enough saves became a hub node with a `member of` edge to each save. `id_utils.folder_tags` names those tags
+(the raw folder and its slug); `write_media_entity` drops them, and the hub tier (`hub_builder._topic_tags`) ignores them
+on pages written before, so a bank's list hubs go at its next Sleep. The page's own media type stays a tag even when a
+folder shares its name. A video saved in two playlists keeps the first one it was saved from (a later save of the same
+URL is a duplicate and writes nothing). An existing bank's pages are untagged by `python -m api.scripts.repair_list_hubs
+--bank <path>` (dry run: counts only; `--apply`: strips only those tags, never `folder:`, the body or claims, regenerates
+the hub tier through `hub_builder.regenerate_hubs_and_index`, and commits pages, hubs and `_index.md` under `cicada`,
+`maintenance/list-hubs` — one commit, or one per 500 pages with the hub tier in the last; a page dirty in git is skipped; refused while Sleep runs; a rerun changes nothing —
+`list_hub_repair`).
 
 **Status lifecycle:** `active` → `decaying` → `archived` → `dropped` (user-dismissed, never
 resurfaced).

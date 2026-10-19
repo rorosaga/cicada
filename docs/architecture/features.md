@@ -7,8 +7,10 @@ a change makes this file wrong, update it in the same PR (repository paths below
 ### 1. Graph Explorer
 Force-directed d3 graph: node color by type, size by how connected a page is (distinct neighbours, confidence a small
 second term — G109 2026-10-15, the Obsidian look: small dots, hairline links, a loose halo of unlinked pages, names
-fading in with zoom; `app.md`), edge labels, cluster detection, decay/clarification indicators. Open ideas live in the
-backlog.
+fading in with zoom; `app.md`), edge labels, cluster detection, decay/clarification indicators. Hub nodes are the hub tier's files (`hubs/*.md`, Stage 5.6): one per entity type and
+one per tag shared by 5+ active pages — never a saved list: a playlist, board, collection or bookmark folder is the
+saved page's `folder:` (provenance, `storage.md`), so it draws no node and no `member of` edges (owner 2026-10-19).
+Open ideas live in the backlog.
 
 **The page (Direction D, DS-3a).** The canvas fills the content area under the command bar. Its chrome is one
 floating group at the bottom-left — the whose-beliefs text tabs (only with more than one observer; they move

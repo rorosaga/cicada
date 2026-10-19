@@ -1174,5 +1174,13 @@
       "frontmatter": "{**fm, UNDONE_KEY: 'undone'}",
       "disposition": "uninstrumented_guarded"
     }
+  ],
+  "services/list_hub_repair.py": [
+    {
+      "function": "apply",
+      "method": "write",
+      "frontmatter": "{**parsed.frontmatter, 'tags': kept}",
+      "disposition": "preserve_frontmatter_guarded"
+    }
   ]
 }
