@@ -3234,6 +3234,21 @@ actor APIClient {
         return try decoder.decode(RemoteConnector.self, from: data)
     }
 
+    /// `GET /remote/oauth/requests` — sign-ins waiting for the person's yes (ruling 31). Not a Store domain: the
+    /// From anywhere page polls it while it is open.
+    func fetchRemoteSignIns() async throws -> [RemoteSignInRequest] {
+        try await get("/remote/oauth/requests")
+    }
+
+    func approveRemoteSignIn(ref: String, scopes: [String], expiresInDays: Int) async throws -> RemoteConnector {
+        let body: [String: Any] = ["scopes": scopes, "expiresInDays": expiresInDays]
+        return try await post("/remote/oauth/requests/\(encodedID(ref))/approve", body: body)
+    }
+
+    func denyRemoteSignIn(ref: String) async throws {
+        let _: [String: String] = try await post("/remote/oauth/requests/\(encodedID(ref))/deny")
+    }
+
     // MARK: - Devices (G181 phase 3)
 
     /// `GET /devices` — outside every bank, so never a Store domain (`DeviceDirectory` keeps it in memory).

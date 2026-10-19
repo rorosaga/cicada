@@ -18,8 +18,11 @@ struct RemoteConnector: Codable, Identifiable, Equatable {
     var lastUsedAt: String? = nil
     var lastClient: String? = nil
     let state: String
+    /// `link` (a shown-once secret) or `oauth` (the app signed in and renews its own access — ruling 31).
+    var auth: String? = nil
 
     var isActive: Bool { state == "active" }
+    var signedIn: Bool { auth == "oauth" }
     var remoteApp: RemoteApp { RemoteApp(rawValue: app) ?? .other }
     var grantedScopes: [RemoteScope] { RemoteScope.allCases.filter { scopes.contains($0.rawValue) } }
 }
@@ -32,6 +35,41 @@ struct RemoteConnectorCreated: Codable, Equatable, Identifiable {
     var link: String? = nil
     var mcpUrl: String? = nil
     var id: String { connector.id + "·" + String(token.suffix(6)) }
+}
+
+/// One sign-in an app started on the public listener, waiting for the person's yes here (ruling 31). The public
+/// page only shows `userCode` and waits; this is the one place it can be approved. Never carries the browser's
+/// handle, the app's state or a code.
+struct RemoteSignInRequest: Codable, Identifiable, Equatable {
+    let ref: String
+    let userCode: String
+    var clientName: String? = nil
+    let clientKind: String
+    var clientHost: String? = nil
+    let redirectHost: String
+    let loopback: Bool
+    let app: String
+    let scopesAsked: [String]
+    let createdAt: String
+    let expiresAt: String
+
+    var id: String { ref }
+    var remoteApp: RemoteApp { RemoteApp(rawValue: app) ?? .other }
+    /// What the app asked for, else the defaults — the person changes either before approving.
+    var initialScopes: Set<RemoteScope> {
+        let asked = Set(RemoteScope.allCases.filter { scopesAsked.contains($0.rawValue) })
+        return asked.isEmpty ? RemoteScope.defaults : asked
+    }
+    /// Who is asking, in words: the app's own name only beside where it sends the person back.
+    var title: String {
+        let name = clientName?.isEmpty == false ? clientName! : remoteApp.name
+        return "\(name) wants to connect"
+    }
+    var detail: String {
+        loopback
+            ? "Code \(userCode) · returns to a program on the device that started it"
+            : "Code \(userCode) · returns to \(redirectHost)"
+    }
 }
 
 struct RemoteStatus: Codable, Equatable {

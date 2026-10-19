@@ -33,6 +33,30 @@ final class RemoteConnectorTests: XCTestCase {
         XCTAssertEqual(RemoteScope.allCases.map(\.isDefault), c.scopes.map(\.default))
     }
 
+    /// Ruling 31: a waiting sign-in decodes from `GET /remote/oauth/requests`, starts from what the app asked
+    /// (or the defaults), and says where it sends the person back.
+    func testASignInRequestDecodesAndSaysWhereItReturns() throws {
+        let json = """
+        [{"ref":"rq_1","userCode":"ABCD-EFGH","clientName":"ChatGPT","clientKind":"dcr","clientHost":null,
+          "redirectHost":"chatgpt.com","loopback":false,"app":"chatgpt","scopesAsked":["search","sources"],
+          "createdAt":"2026-10-19T10:00:00+00:00","expiresAt":"2026-10-19T10:10:00+00:00"},
+         {"ref":"rq_2","userCode":"JKLM-NPQR","clientKind":"cimd","clientHost":"claude.ai",
+          "redirectHost":"localhost","loopback":true,"app":"claude-code","scopesAsked":[],
+          "createdAt":"2026-10-19T10:00:00+00:00","expiresAt":"2026-10-19T10:10:00+00:00"}]
+        """
+        let list = try JSONDecoder().decode([RemoteSignInRequest].self, from: Data(json.utf8))
+        XCTAssertEqual(list[0].initialScopes, [.search, .sources])
+        XCTAssertEqual(list[0].title, "ChatGPT wants to connect")
+        XCTAssertEqual(list[0].detail, "Code ABCD-EFGH · returns to chatgpt.com")
+        XCTAssertEqual(list[1].initialScopes, RemoteScope.defaults)
+        XCTAssertEqual(list[1].title, "Claude Code wants to connect")
+        XCTAssertTrue(list[1].detail.hasSuffix("returns to a program on the device that started it"))
+        let signedIn = try JSONDecoder().decode(RemoteConnector.self, from: Data("""
+        {"id":"ab12cd34","label":"ChatGPT","app":"chatgpt","scopes":["search"],"createdAt":"x","state":"active","auth":"oauth"}
+        """.utf8))
+        XCTAssertTrue(signedIn.signedIn)
+    }
+
     func testTheBriefsSentencesAreWordForWord() {
         XCTAssertEqual(RemoteScope.summary(RemoteScope.defaults), "Can search, read and record. Can't delete or rewrite.")
         XCTAssertEqual(Copy.remoteSwitchTitle, "Let AI apps outside this Mac use your memory.")

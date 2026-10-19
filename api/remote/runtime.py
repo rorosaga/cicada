@@ -247,7 +247,8 @@ def _writes_bank(tool: str, arguments=None) -> bool:
     person's app at once even while a cycle runs; a ``read`` writes a page and an
     episode and waits like any other write. The demo gate and the write lock still
     apply to all of them."""
-    if tool == "cicada_video_claim":
+    if tool in ("cicada_video_claim", "cicada_capture_turns"):
+        # Ruling 31: a relayed turn is capture, the hook's writer — no commit and no Sleep gate, like a Stop hook.
         return False
     if tool not in ("cicada_record_read", "cicada_record_check"):
         return True
@@ -343,7 +344,13 @@ class RemoteRuntime:
             return text + self._reading_note(memory_path, connector)
         handle = resolve_handle(connector.id, args.get("conversation"), today)
         ctx = self.tool_context(connector, handle, memory_path, bank_name)
-        if tool in catalog.WRITE_TOOLS:
+        if tool == "cicada_capture_turns":
+            from api.services import relay_capture
+
+            with self._write_lock:
+                text = relay_capture.capture_turns(ctx, args.get("message"), args.get("previous_reply"),
+                                                   app=connector.app)
+        elif tool in catalog.WRITE_TOOLS:
             with self._write_lock:
                 text = _DISPATCH[tool](ctx, args)
         else:

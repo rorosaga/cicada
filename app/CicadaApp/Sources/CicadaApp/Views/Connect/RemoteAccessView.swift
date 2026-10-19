@@ -8,10 +8,12 @@ import SwiftUI
 /// tunnel itself, G132 (c)), and the connectors. A token is shown once, in
 /// the New connector sheet or after a Rotate; nothing on this page can show it
 /// again. Not a sync domain (R-R33): it fetches on appear, after every change,
-/// and every 30 s while the switch is on.
+/// and every 30 s while the switch is on — sign-ins waiting for a yes every 3 s,
+/// since an app's sign-in page is waiting on them (ruling 31).
 struct RemoteAccessView: View {
     @State private var status: RemoteStatus?
     @State private var connectors: [RemoteConnector] = []
+    @State private var signIns: [RemoteSignInRequest] = []
     @State private var problem: String?
     @State private var switching = false
     @State private var customURL = ""
@@ -25,6 +27,7 @@ struct RemoteAccessView: View {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
                 switchCard
                 if status?.enabled == true {
+                    if !signIns.isEmpty { signInCard }
                     reachCard
                     connectorsCard
                 }
@@ -190,7 +193,14 @@ struct RemoteAccessView: View {
                     .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
                     .disabled(status?.effectiveUrl == nil)
             }
-            if status?.effectiveUrl == nil {
+            if let base = status?.effectiveUrl {
+                // Ruling 31: the sign-in way first — no secret in a link, and the app renews its own access.
+                Text("Claude and ChatGPT, on the web and on the phone, can sign in instead: add \(base)/mcp as a custom connector there, then approve the sign-in here.")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            } else {
                 Text("First give apps a way to reach this Mac, above.")
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
@@ -205,7 +215,8 @@ struct RemoteAccessView: View {
             ForEach(active) { connector in
                 RemoteConnectorRow(connector: connector,
                                    canRotate: status?.effectiveUrl != nil,
-                                   onRotate: { Task { await rotate(connector) } },
+                                   // A signed-in app renews its own access: there is no link to rotate.
+                                   onRotate: connector.signedIn ? nil : { Task { await rotate(connector) } },
                                    onRevoke: { pendingRevoke = connector })
             }
             if !past.isEmpty {
@@ -224,7 +235,56 @@ struct RemoteAccessView: View {
         .glassCard()
     }
 
+    /// Ruling 31: the one place an app's sign-in is approved. The app's own page shows the same code and waits.
+    private var signInCard: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            Text("Waiting for your yes")
+                .font(CicadaTheme.headingFont)
+                .foregroundStyle(CicadaTheme.textPrimary)
+            Text("Approve only a sign-in you just started, and only if the code matches the one on its page.")
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            ForEach(signIns) { request in
+                RemoteSignInRow(request: request) { scopes, expiry in
+                    Task { await approve(request, scopes: scopes, expiry: expiry) }
+                } onDeny: {
+                    Task { await deny(request) }
+                }
+            }
+        }
+        .padding(CicadaTheme.spacingLG)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
     // MARK: Actions
+
+    private func refreshSignIns() async {
+        if let list = try? await APIClient.shared.fetchRemoteSignIns() { signIns = list }
+    }
+
+    private func approve(_ request: RemoteSignInRequest, scopes: Set<RemoteScope>, expiry: RemoteExpiry) async {
+        do {
+            _ = try await APIClient.shared.approveRemoteSignIn(
+                ref: request.ref, scopes: RemoteScope.allCases.filter(scopes.contains).map(\.rawValue),
+                expiresInDays: expiry.days)
+            await refreshSignIns()
+            await refreshConnectors()
+        } catch {
+            problem = "Couldn't approve that sign-in: \(error.localizedDescription)"
+            await refreshSignIns()
+        }
+    }
+
+    private func deny(_ request: RemoteSignInRequest) async {
+        do {
+            try await APIClient.shared.denyRemoteSignIn(ref: request.ref)
+        } catch {
+            problem = "Couldn't deny that sign-in: \(error.localizedDescription)"
+        }
+        await refreshSignIns()
+    }
 
     private func refresh(probe: Bool) async {
         do {
@@ -245,14 +305,17 @@ struct RemoteAccessView: View {
 
     private func refreshConnectors() async {
         if let list = try? await APIClient.shared.fetchRemoteConnectors() { connectors = list }
+        await refreshSignIns()
     }
 
     private func pollWhileOn() async {
         guard status?.enabled == true else { return }
+        var ticks = 0
         while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(30))
+            try? await Task.sleep(for: .seconds(3))
             if Task.isCancelled { return }
-            await refresh(probe: false)
+            ticks += 1
+            if ticks % 10 == 0 { await refresh(probe: false) } else { await refreshSignIns() }
         }
     }
 
@@ -351,6 +414,74 @@ struct RemoteConnectorRow: View {
         }
         .padding(.vertical, CicadaTheme.spacingXS)
         .opacity(connector.isActive ? 1 : 0.6)
+    }
+}
+
+/// One waiting sign-in: who, its code, where it sends the person back, what it may do and for how long.
+struct RemoteSignInRow: View {
+    let request: RemoteSignInRequest
+    let onApprove: (Set<RemoteScope>, RemoteExpiry) -> Void
+    let onDeny: () -> Void
+    @State private var scopes: Set<RemoteScope>
+    @State private var expiry: RemoteExpiry = .thirtyDays
+
+    init(request: RemoteSignInRequest, onApprove: @escaping (Set<RemoteScope>, RemoteExpiry) -> Void,
+         onDeny: @escaping () -> Void) {
+        self.request = request
+        self.onApprove = onApprove
+        self.onDeny = onDeny
+        _scopes = State(initialValue: request.initialScopes)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
+                RemoteAppMark(app: request.remoteApp, size: CicadaTheme.scaled(32))
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                    Text(request.title)
+                        .font(CicadaTheme.bodyFont.weight(.semibold))
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                    Text(request.detail)
+                        .font(CicadaTheme.monoFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .textSelection(.enabled)
+                    if request.loopback {
+                        Text("Any program on that device could have started this. Approve only if it was you.")
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.warning)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            HStack(spacing: CicadaTheme.spacingSM) {
+                ForEach(RemoteScope.allCases) { scope in
+                    Toggle(scope.title, isOn: Binding(get: { scopes.contains(scope) },
+                                                      set: { on in if on { scopes.insert(scope) } else { scopes.remove(scope) } }))
+                        .toggleStyle(.checkbox)
+                        .font(CicadaTheme.captionFont)
+                        .help(scope.detail)
+                }
+            }
+            HStack(spacing: CicadaTheme.spacingSM) {
+                Picker("Expires", selection: $expiry) {
+                    ForEach(RemoteExpiry.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: CicadaTheme.scaled(240))
+                Spacer(minLength: 0)
+                Button("Deny", role: .destructive, action: onDeny)
+                    .buttonStyle(.cicadaPlain)
+                    .foregroundStyle(CicadaTheme.danger)
+                Button("Approve") { onApprove(scopes, expiry) }
+                    .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
+                    .disabled(scopes.isEmpty)
+            }
+            Text(RemoteScope.summary(scopes))
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+        }
+        .padding(.vertical, CicadaTheme.spacingXS)
     }
 }
 

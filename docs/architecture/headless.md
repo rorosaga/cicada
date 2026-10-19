@@ -13,7 +13,9 @@ id rule (max-suffix+1 per local directory), the read-modify-write state files an
 
 **Nothing listens beyond loopback.** The service binds `127.0.0.1` only. Reaching it from another machine is an
 overlay the person runs and Cicada never configures: on a tailnet, `tailscale serve --bg --https=443
-http://127.0.0.1:8000` (tailnet only; never `funnel`), or an SSH tunnel. The API token is still required on every
+http://127.0.0.1:8000` (tailnet only; never `funnel`), or an SSH tunnel. **The one public exception is not this
+port (ruling 31, owner 2026-10-19):** to let claude.ai or ChatGPT sign in, the person may funnel the G135 remote
+listener (`127.0.0.1:8765`, MCP and OAuth only — `network.md`), never the API. The API token is still required on every
 route but `/healthz`, and `/healthz` without the token says only `status`, `version` and the bank ids — the memory's
 path, its counts and the index's state need the token (owner decision 3, 2026-10-16: through the overlay, any device
 on the tailnet could otherwise read the server's account name from the path; `auth.bearer_admits`; the CLI's 21a probe,
@@ -241,7 +243,11 @@ another that happens to share a bank name. Ruling 21a's check compares these ids
 **What did not change.** Only the server commits (one git writer per bank); the server binds 127.0.0.1; reach is the
 person's overlay; no installer creates, copies or logs a credential; the demo guard and the split-brain rule are the
 server's, per request. The G135 remote listener is still the door for apps off the person's devices, never trusted to
-edit a page.
+edit a page. **Sign-in on a server with no app (ruling 31):** an app's sign-in waits for a yes the app would give; on a
+headless server the person gives it on the server itself, through the loopback API with the token —
+`curl -H "Authorization: Bearer $(cat ~/.cicada/api_token)" http://127.0.0.1:8000/remote/oauth/requests` lists what waits
+(the code on the app's page is `userCode`), and `POST …/remote/oauth/requests/<ref>/approve` with
+`{"scopes": ["search","read","record"], "expiresInDays": 30}` (or `…/deny`) answers it.
 
 ## The Mac app as a client (phase 3)
 

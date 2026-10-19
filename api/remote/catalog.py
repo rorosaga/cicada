@@ -51,6 +51,9 @@ TOOL_SCOPE: dict[str, str | None] = {
     "cicada_note_progress": "record",   # G141 R-PJ23: a write, never the person's own words
     "cicada_add_backlog_item": "record",
     "cicada_add_backlog_note": "record",   # G150: the harness writes, never the person
+    # Ruling 31 (owner 2026-10-19): a hookless app (claude.ai, ChatGPT, their phone apps) relays each turn.
+    # Remote only: a stdio harness is captured by its own hook (G105), never by a model's call.
+    "cicada_capture_turns": "record",
     "cicada_sources": "sources",
     "cicada_resolve_inbox": "answer",
     "cicada_ask": "ask",
@@ -79,7 +82,9 @@ NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_rep
                           # The Skills page (2026-10-15): skills live in this Mac's agent folders, and a remote app is
                           # no coding agent here; whether one may ever ask for a skill is the owner's open question.
                           "cicada_skills", "cicada_propose_skill", "cicada_create_skill"})
-WRITE_TOOLS = frozenset({"cicada_save_episode", "cicada_write_claim", "cicada_retract_claim",
+#: Tools only the remote connector serves — a stdio harness has a hook for what they do.
+REMOTE_ONLY = frozenset({"cicada_capture_turns"})
+WRITE_TOOLS = frozenset({"cicada_save_episode", "cicada_capture_turns", "cicada_write_claim", "cicada_retract_claim",
                          "cicada_save_url", "cicada_record_watch", "cicada_record_read", "cicada_record_check", "cicada_add_source",
                          "cicada_change_source",
                          "cicada_note_progress", "cicada_add_backlog_item", "cicada_add_backlog_note",
@@ -144,6 +149,9 @@ class Connector:
     last_used_at: str | None = None
     last_client: str | None = None
     use_count: int = 0
+    #: How the app holds it: ``link`` (a shown-once ``cic_rc_`` secret) or ``oauth`` (ruling 31: the app signed
+    #: in through Cicada's authorization server and holds short-lived access and rotating refresh tokens).
+    auth: str = "link"
 
     @property
     def harness(self) -> str:

@@ -158,7 +158,7 @@ capability token `cic_rc_<id>_<secret>`: shown once, only its sha256 stored in
 episode excerpts and the inbox `Cause:` quote alike; `pending`, `mark_processed` and `repo_context`
 never), expiring
 (7/30/90 days) and revocable. It arrives as a secret link (`/c/<token>/mcp`) or a bearer header —
-one verifier. Tools outside a connector's scopes are absent from `tools/list`; any `Origin` header
+one verifier — or, since ruling 31, through sign-in (below), the way the docs now steer every app that supports it. Tools outside a connector's scopes are absent from `tools/list`; any `Origin` header
 is refused; the listener has no access log (a secret link's path IS the token). Every remote write
 commits alone as `Cicada-Author: <app harness>`, `Cicada-Session: rc_…`, trigger
 `remote/<harness>`, no engine; a remote claim is `origin: remote:<id>` and can never be the
@@ -166,6 +166,47 @@ person's own words. Each call leaves one ids-only `remote_call` ledger row, file
 `reads-*.jsonl` so it never ticks the app's consumption domain. Every server-side fetch of someone
 else's URL goes through `net_guard` (`is_global`, never `is_private`, because tailnet addresses are
 neither; the name lookup runs off the event loop).
+
+**Sign-in for the remote connector (ruling 31, owner 2026-10-19).** So claude.ai (web, desktop and its phone apps)
+and ChatGPT can add Cicada as a custom connector, the G135 listener is also an **OAuth 2.1 authorization server**
+(`api/remote/oauth.py`), and still serves nothing else: `/mcp`, the two protected-resource documents,
+`/.well-known/oauth-authorization-server`, `/authorize`, `/authorize/wait`, `/token`, `/register` and `/revoke`; every
+other path is a 404 and no FastAPI router is reachable. **Discovery:** a request to `/mcp` without a valid token is a 401
+whose `WWW-Authenticate` carries `resource_metadata="<base>/.well-known/oauth-protected-resource/mcp"` and the default
+scopes; that document names `<base>` as the one authorization server; the AS metadata advertises the code flow only,
+`S256` only, `none`/`client_secret_post`/`client_secret_basic`, `client_id_metadata_document_supported` and
+`authorization_response_iss_parameter_supported` (so ChatGPT uses its stable redirect URI). `<base>` is the person's
+saved address, else the `Host` the tunnel forwarded. **Registration:** DCR (`/register`: https or loopback-http redirect
+URIs only, ≤ 5, no fragment or credentials; unused clients pruned after a day, ≤ 200) or a Client ID Metadata Document
+(an https `client_id`, fetched through `net_guard` under the ToS rail — 4 s, ≤ 64 KB, no cookies, no redirects — its
+`client_id` must equal the URL, public clients only, cached a day). **Consent is never on the public page:** `/authorize`
+checks the client and the redirect URI first (exact match; an `http` loopback URI matches on any port, RFC 8252 — Claude
+Code's), and a mismatch is an error page, never a redirect (no open redirect); then it shows an eight-character code
+and waits (meta refresh, no script, no form, a strict CSP, framing denied). The person approves or denies in the app —
+Settings → Agents → From anywhere, "Waiting for your yes" — choosing the scopes (what the app asked, else the defaults)
+and the expiry (7/30/90 days) there; the loopback API is `GET /remote/oauth/requests`,
+`POST /remote/oauth/requests/{ref}/approve|deny`, behind the API token. The waiting page is bound to its browser by an
+HttpOnly, Secure cookie, so a leaked request id collects nothing; the client's `state` is echoed untouched and `iss`
+rides every response, errors included. At most five requests wait at once; one unanswered for ten minutes expires.
+**Tokens:** the code is single-use, 120 s, bound to the client, the redirect URI, the PKCE challenge and the resource;
+a replayed code revokes what it issued. Access tokens (`cic_at_<connector>_<secret>`) live an hour; refresh tokens
+(`cic_rt_…`) rotate on every use, and a rotated one presented again more than 30 s later (a client's own concurrent
+refresh is forgiven) ends the whole grant. An access token is good only for the resource it was issued for (its
+audience). Every token, code, client secret and browser binding is stored as its sha256 only (`~/.cicada/remote/connectors.db`,
+the same 0600 file), compared in constant time, and none is ever logged; the client's `state` is dropped once the
+code is used. Approval creates an ordinary connector row (`auth: oauth`) — hashed, scoped, expiring, revocable — whose
+app is read from where the code goes (claude.ai → Claude, chatgpt.com → ChatGPT, a loopback redirect from Claude's own
+metadata document → Claude Code, else Other), so its writes carry that app's harness; revoking it in Settings ends its
+access and refresh tokens at once, and a grant never outlives it. A signed-in connector has no link and cannot be
+rotated. **Rate limits** (in memory): registration 10 then 2 a minute, authorization 20 then 10 a minute, token and
+revocation 60 a minute, document fetches 10 then 2 a minute. **Origin:** refused everywhere except a GET of the two
+sign-in pages (a browser navigation). Not supported: `private_key_jwt`, `client_credentials`, OpenID scopes.
+
+**The tunnel for sign-in is the person's, to this listener only.** claude.ai and ChatGPT reach the Mac from their own
+servers, so the person exposes the G135 listener's port publicly with a stable hostname — `tailscale funnel --bg 8765`
+or `ngrok http 8765 --url <their-domain>`. That is the one public port Cicada is ever reached on: the backend's own port
+(8000) is never funnelled (the headless rail, `headless.md`), and Cicada never starts a tunnel. What the person runs is in
+[`docs/connect-remote-apps.md`](../connect-remote-apps.md).
 
 **A failed poll is recorded, not raised** (`sync_state.record_error`) and surfaces per-channel as
 `lastError`; a gate-skipped poll is recorded distinctly (`record_skip`) so a skip never reads as a

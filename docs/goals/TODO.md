@@ -8,6 +8,15 @@
 
 ## Current state and evidence
 
+- **2026-10-19 — sign-in for the remote connector, and real-time capture through it (ruling 31, G135, G105; branch
+  `feat/remote-oauth`).** `api/remote/oauth.py`: an OAuth 2.1 authorization server on the G135 listener (DCR + CIMD,
+  S256 only, consent only in the app, single-use 120 s codes, hour-long access and rotating refresh tokens mapped to
+  connector rows, RFC 9207 `iss`, RFC 7009 revocation, rate limits, everything hashed at rest); the 401 now carries
+  `resource_metadata`. `cicada_capture_turns` (`record`, remote only) relays each turn through `turn_capture`'s writer
+  as a `relay` episode with `evidence_kind: assistant`; `episode_staging` upgrades it in place when the app's export
+  arrives. App: *Waiting for your yes* on From anywhere. What the person runs: `docs/connect-remote-apps.md`. Tests:
+  `test_remote_oauth.py`, `test_relay_capture.py`, `RemoteConnectorTests`. Pick up: the owner runs a funnel on 8765 and
+  adds the connector in claude.ai (web, then phone) and ChatGPT — unverified against the live apps until then.
 - **2026-10-18 — Ask over watch-history ranges (ruling 30 follow-up, G71, G94, G118; branch `feat/history-ask`).**
   `watch_history.asked_span` + `summarize`: this/last year, a named year, since/between, the last N days, ever, "the
   most", first/last watch of a named channel — counted from the watched days with no model into one bounded table.
@@ -1074,3 +1083,22 @@ A whole row moves to DONE only after its remaining implementation and required a
     (counts only, writes nothing). Revisit if the person asks for a playlist or a stretch of history to be read, or if
     the month summaries prove too thin to answer "what was I into then" — then a bounded, opt-in read of a summary,
     never of every day.
+31. **Phone and web apps sign in, and conversations there are captured as they happen (owner, 2026-10-19; G135,
+    amends G105 for hookless apps and the headless "never funnel" line).** **1 — Sign-in.** claude.ai (web, desktop and
+    its iOS/Android apps) and ChatGPT add Cicada as a custom connector through OAuth: the G135 listener is its own
+    authorization server (DCR or a Client ID Metadata Document, PKCE S256, short-lived access and rotating refresh
+    tokens that map to the existing hashed, scoped, expiring, revocable connector rows). The person runs a public
+    tunnel with a stable hostname (Tailscale Funnel or ngrok) **to the G135 listener only** — its port serves MCP and
+    sign-in and nothing else; the backend's own port is never funnelled, and Cicada never starts a tunnel. **Consent
+    happens in the Cicada app on the Mac** (or the local API on a server), never by a password on the public page: the
+    public page shows a short code and waits. The secret-link door keeps working; the docs steer to sign-in, because a
+    link is a credential in a URL. **2 — Real-time capture is the usual; exports are a starter seed.** Owner: "Exports
+    should only be a starter seed for users; the usual should always be real-time captures." For apps with no hook,
+    the connector's contract asks the app's model to call `cicada_capture_turns` every turn with the person's message
+    verbatim and its own previous reply — the one capture that depends on a model calling a tool, taken knowingly
+    because those apps offer no hook. **Default until the owner says otherwise (coordinator, 2026-10-19):** relayed
+    words are that conversation's episode with its channel disclosed (`relay`), but are **not** counted as the person's
+    own words — not for promotion's own-words rung, not for ruling 29's settling — because a model can paraphrase; a
+    later export import of the same conversation de-duplicates against it and upgrades it in place. **Revisit** when
+    the owner rules on whether relayed words may count as his (trigger: a measured paraphrase rate on real relays), or
+    when an app ships a hook or a conversation id Cicada can key on instead of the first message.

@@ -4909,6 +4909,28 @@ class RemoteConnectorOut(CamelModel):
     last_used_at: Optional[str] = None
     last_client: Optional[str] = None
     state: str
+    auth: str = "link"  # "link" (a shown-once secret) | "oauth" (the app signed in, ruling 31)
+
+
+class RemoteSignInOut(CamelModel):
+    """One sign-in waiting for the person's yes (ruling 31). Never the browser handle, the state or a code."""
+    ref: str
+    user_code: str
+    client_name: Optional[str] = None
+    client_kind: str
+    client_host: Optional[str] = None
+    redirect_host: str
+    loopback: bool
+    app: str
+    scopes_asked: list[str]
+    created_at: str
+    expires_at: str
+
+
+class RemoteSignInApproveIn(CamelModel):
+    scopes: list[str]
+    expires_in_days: int = 30  # 7/30/90 only — every connector expires
+    label: str = ""
 
 
 class RemoteConnectorCreatedOut(CamelModel):

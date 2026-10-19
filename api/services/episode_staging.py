@@ -36,6 +36,14 @@ What the move adds — each additive, each inert to an episode that does not use
   forks a legacy episode (R-LS4).
 * ``queue_for_sleep=False`` — an episode a deterministic parser consolidated and
   Sleep never will (``processed_by: parser``, R-LS10).
+* Relay upgrade (ruling 31) — a Claude or ChatGPT export's conversation whose
+  ``source_id`` is new, and whose first person message matches exactly one episode
+  that app's model relayed through the remote connector within two days of it
+  (``turn_capture.relay_match_key``), rewrites THAT episode in place with the
+  export's words instead of adding a second copy: same file and id, re-queued, the
+  relay marked ``upgraded_at`` and its ``evidence_kind: assistant`` dropped — the
+  export holds the person's own words. Two candidates, or a first message too short
+  to tell conversations apart, upgrade nothing.
 
 The pre-scan reads ``bank_index``'s cached frontmatter instead of re-parsing
 every episode per call (R-LS3): a watched folder stages on every save.
@@ -270,6 +278,54 @@ def scan(episodes_dir: Path) -> tuple[dict[str, IndexEntry], set[str]]:
     return by_source, hashes
 
 
+#: Ruling 31: an export source → the remote connector app whose relayed episodes it may upgrade.
+RELAY_UPGRADES = {"claude": "claude", "chatgpt": "chatgpt"}
+#: How far apart a relayed conversation's start and the export's may be and still be one conversation.
+RELAY_WINDOW_S = 2 * 86400
+#: Writer-owned keys of a relayed episode that describe the relayed body, dropped when an export replaces it.
+_RELAY_BODY_KEYS = ("evidence_kind", "hook_turns", "capture_gap", "capture_flags")
+
+
+def relay_candidates(episodes_dir: Path) -> dict[tuple[str, str], list[IndexEntry]]:
+    """Relayed episodes not yet upgraded, by ``(app, match key)`` — one cached read, as :func:`scan`."""
+    out: dict[tuple[str, str], list[IndexEntry]] = {}
+    for f in bank_index.files(episodes_dir.parent, episodes_dir.name):
+        fm = f.frontmatter or {}
+        relay = fm.get("relay")
+        if not isinstance(relay, dict) or relay.get("upgraded_at") or not relay.get("first") or not relay.get("app"):
+            continue
+        out.setdefault((str(relay["app"]), str(relay["first"])), []).append(
+            IndexEntry(path=f.path, id=str(fm.get("id") or f.stem), fm=dict(fm)))
+    return out
+
+
+def _when(value) -> datetime | None:
+    try:
+        dt = datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+    return dt if dt.tzinfo else None
+
+
+def relay_for(draft: EpisodeDraft, candidates: dict[tuple[str, str], list[IndexEntry]]) -> IndexEntry | None:
+    """The ONE relayed episode this export conversation is (ruling 31), or ``None``."""
+    app = RELAY_UPGRADES.get(draft.source)
+    first = next((t.text for t in draft.turns if t.speaker == "user" and (t.text or "").strip()), None)
+    started = _when(normalise_timestamp(draft.timestamp))
+    if app is None or first is None or started is None:
+        return None
+    from api.services.transcript_extract import clean_turn
+    from api.services.turn_capture import relay_match_key
+
+    cleaned, _ = clean_turn("user", first, first=True)
+    key = relay_match_key(cleaned.text if cleaned is not None else None)
+    if key is None:
+        return None
+    near = [e for e in candidates.get((app, key), [])
+            if (t := _when(e.fm.get("timestamp"))) is not None and abs((t - started).total_seconds()) <= RELAY_WINDOW_S]
+    return near[0] if len(near) == 1 else None
+
+
 def _apply_common(fm: dict, draft: EpisodeDraft, stamps: list[dict]) -> None:
     fm.update(draft.extra)
     if draft.content_sha:
@@ -347,6 +403,25 @@ def update_in_place(path: Path, draft: EpisodeDraft, body: str, digest: str, sta
     if draft.origin:
         fm["origin"] = draft.origin
     fm.pop("source_deleted_at", None)
+    _apply_common(fm, draft, stamps)
+    markdown_parser.write(path, fm, body)
+
+
+@_under_episode_lock
+def upgrade_relay(path: Path, draft: EpisodeDraft, body: str, digest: str, stamps: list[dict], at: str) -> None:
+    """Ruling 31: the export's words replace a relayed body — same file, same id and original timestamp, re-queued
+    for Sleep. The relay record stays, stamped ``upgraded_at``, so the app can say where the episode began."""
+    fm = dict(markdown_parser.parse(path).frontmatter)
+    for key in _RELAY_BODY_KEYS:
+        fm.pop(key, None)
+    fm["relay"] = {**(fm.get("relay") or {}), "upgraded_at": at, "upgraded_by": draft.source}
+    fm["source"] = draft.source
+    fm["title"] = draft.title or fm.get("title", "Untitled")
+    fm["content_hash"] = digest
+    fm["source_id"] = draft.source_id
+    fm["source_updated_at"] = draft.source_updated_at
+    if draft.origin:
+        fm["origin"] = draft.origin
     _apply_common(fm, draft, stamps)
     markdown_parser.write(path, fm, body)
 
@@ -610,6 +685,7 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
             renames.setdefault((str(sha), _fragment(sid)), sid)
 
     writer = "import"
+    relays: dict[tuple[str, str], list[IndexEntry]] | None = None
     for draft in drafts:
         writer = draft.writer
         body, stamps, n = render(draft)
@@ -632,6 +708,22 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
                     result.renamed_sources.append((old, sid))
                     _mark(result, "renamed", sid, entry, episodes_dir)
                     _report(progress, "renamed")
+                    continue
+            if entry is None and draft.source in RELAY_UPGRADES:
+                if relays is None:
+                    relays = relay_candidates(episodes_dir)
+                relayed = relay_for(draft, relays)
+                if relayed is not None:
+                    if write:
+                        upgrade_relay(relayed.path, draft, body, digest, stamps, now)
+                    for bucket in relays.values():
+                        if relayed in bucket:
+                            bucket.remove(relayed)
+                    known_hashes.add(digest)
+                    entry = IndexEntry(path=relayed.path, id=relayed.id, fm={"content_hash": digest})
+                    index[sid] = entry
+                    _mark(result, "updated", sid, entry, episodes_dir)
+                    _report(progress, "updated")
                     continue
             if entry is None:
                 path = (write_new(draft, episodes_dir, body, digest, stamps, date_counts) if write

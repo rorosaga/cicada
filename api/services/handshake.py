@@ -93,7 +93,8 @@ REMOTE_VARIANT = "remote"
 # 9: G61 S3-a — the source sentence, each tool only where the connection holds it.
 # 10: G61 S3 — the same sentence, only where the connection holds the queue and cicada_record_check.
 # 11: owner 2026-10-14 — the inbox item says mode="ask"/"list" (questions come up naturally).
-REMOTE_CONTRACT_VERSION = 11
+# 12: ruling 31 (owner 2026-10-19) — a connection that can capture is asked to relay every turn.
+REMOTE_CONTRACT_VERSION = 12
 # The runtime replaces this with a freshly minted handle AFTER the cache read,
 # so one cached primer serves every conversation of a tool set.
 CONVERSATION_SLOT = "{{conversation}}"
@@ -135,6 +136,11 @@ def _remote_video_queue(tools: frozenset[str]) -> str:
 
 def _remote_contract(tools: frozenset[str], reading: bool = False) -> str:
     items: list[str] = []
+    if "cicada_capture_turns" in tools:
+        # Ruling 31: an app with no hook is captured through its own model, every turn, verbatim.
+        items.append("Capture every turn: before you answer, call `cicada_capture_turns(message, previous_reply)` "
+                     "with the person's message word for word and your previous reply word for word — this is how "
+                     "the conversation is kept. Never summarise either.")
     reads = [text for tool, text in (
         ("cicada_recall", "`cicada_recall(query)` at the start of a topic"),
         ("cicada_recall_detail", "`cicada_recall_detail(entity_id)` for a page"),

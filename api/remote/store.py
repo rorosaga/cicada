@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS connectors (
     revoked_at TEXT,
     last_used_at TEXT,
     last_client TEXT,
-    use_count INTEGER NOT NULL DEFAULT 0
+    use_count INTEGER NOT NULL DEFAULT 0,
+    auth TEXT NOT NULL DEFAULT 'link'
 )"""
 
 
@@ -85,6 +86,7 @@ def _row(row: sqlite3.Row) -> catalog.Connector:
         scopes=catalog.clean_scopes((row["scopes"] or "").split(",")),
         created_at=row["created_at"], expires_at=row["expires_at"], revoked_at=row["revoked_at"],
         last_used_at=row["last_used_at"], last_client=row["last_client"], use_count=int(row["use_count"] or 0),
+        auth="oauth" if "auth" in row.keys() and row["auth"] == "oauth" else "link",
     )
 
 
@@ -102,6 +104,9 @@ class ConnectorStore:
         with self._db() as db:
             db.execute("PRAGMA journal_mode=WAL")
             db.execute(_SCHEMA)
+            # Ruling 31: a store made before OAuth gains the column; every old row is a link connector.
+            if "auth" not in {r["name"] for r in db.execute("PRAGMA table_info(connectors)")}:
+                db.execute("ALTER TABLE connectors ADD COLUMN auth TEXT NOT NULL DEFAULT 'link'")
 
     @contextmanager
     def _db(self):
@@ -114,7 +119,7 @@ class ConnectorStore:
             conn.close()
 
     def create(self, *, app: str, label: str | None, scopes, expires_in_days: int,
-               now: datetime | None = None) -> tuple[catalog.Connector, str]:
+               now: datetime | None = None, auth: str = "link") -> tuple[catalog.Connector, str]:
         """Every connector expires (R-R3, spec Decision 4: 7/30/90 days). A
         "no expiry" choice shipped in Task 7 and was taken out at the final
         review: a leaked secret link would have worked until someone thought
@@ -129,18 +134,29 @@ class ConnectorStore:
             raise ValueError("expiresInDays must be 7, 30 or 90")
         now = now or _now()
         secret = secrets.token_urlsafe(32)
+        # An OAuth connector has no link secret at all: its stored hash is a value no sha256 can equal, so no
+        # `cic_rc_` token ever reaches it; its app holds access and refresh tokens instead (`api/remote/oauth.py`).
+        token_hash = _hash(secret) if auth == "link" else "oauth:" + secrets.token_hex(16)
         with self._db() as db:
             while True:
                 connector_id = "".join(secrets.choice(_ID_ALPHABET) for _ in range(8))
                 if db.execute("SELECT 1 FROM connectors WHERE id=?", (connector_id,)).fetchone() is None:
                     break
             db.execute(
-                "INSERT INTO connectors (id, label, app, scopes, token_hash, created_at, expires_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (connector_id, _clean_label(label, app), app, ",".join(sorted(clean)), _hash(secret), _iso(now),
-                 _iso(now + timedelta(days=expires_in_days))),
+                "INSERT INTO connectors (id, label, app, scopes, token_hash, created_at, expires_at, auth) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (connector_id, _clean_label(label, app), app, ",".join(sorted(clean)), token_hash, _iso(now),
+                 _iso(now + timedelta(days=expires_in_days)), "oauth" if auth == "oauth" else "link"),
             )
-        return self.get(connector_id), f"cic_rc_{connector_id}_{secret}"
+        return self.get(connector_id), (f"cic_rc_{connector_id}_{secret}" if auth == "link" else "")
+
+    def create_oauth(self, *, app: str, label: str | None, scopes, expires_in_days: int,
+                     now: datetime | None = None) -> catalog.Connector:
+        """A connector an app signed in to (ruling 31): the same row, scopes and expiry as a link connector, so
+        revoking it in Settings ends every token its app holds."""
+        connector, _ = self.create(app=app, label=label, scopes=scopes, expires_in_days=expires_in_days,
+                                   now=now, auth="oauth")
+        return connector
 
     def get(self, connector_id: str) -> catalog.Connector | None:
         with self._db() as db:
@@ -184,6 +200,8 @@ class ConnectorStore:
         state = connector.state(now or _now())
         if state != "active":
             raise ValueError(state)
+        if connector.auth == "oauth":
+            raise ValueError("signed in")  # its app refreshes its own tokens; there is no link to rotate
         secret = secrets.token_urlsafe(32)
         with self._db() as db:
             db.execute("UPDATE connectors SET token_hash=? WHERE id=?", (_hash(secret), connector_id))
