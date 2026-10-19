@@ -89,13 +89,16 @@ enum SleepProbe {
             let seconds = Double(timeout.components.seconds) + Double(timeout.components.attoseconds) / 1e18
             var request = URLRequest(url: statusURL(port: port), cachePolicy: .reloadIgnoringLocalCacheData,
                                      timeoutInterval: seconds)
-            if let raw = try? String(contentsOf: tokenFile, encoding: .utf8) {
+            let mayRead = !AppPasteboard.isRunningTests || APIClient.testMayReadToken(at: tokenFile)
+            if mayRead, let raw = try? String(contentsOf: tokenFile, encoding: .utf8) {
                 let token = raw.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
             }
             let config = URLSessionConfiguration.ephemeral
             config.timeoutIntervalForRequest = seconds
             config.connectionProxyDictionary = [:]
+            // Under XCTest the probe never reaches the backend running on this Mac (as `APIClient.shared`).
+            if AppPasteboard.isRunningTests { config.protocolClasses = [NoBackendURLProtocol.self] }
             let session = URLSession(configuration: config)
             defer { session.finishTasksAndInvalidate() }
             do {
@@ -131,6 +134,11 @@ struct UpdateInstaller: Sendable {
     static let toolEnvironment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
     /// Always this name — never the URL's last path component, which the manifest controls.
     static let downloadName = "Cicada.zip"
+    /// `~/.Trash`; under XCTest the test home's (`CicadaRuntime.testHome`), so no test moves anything into the real one.
+    static var defaultTrashDir: URL {
+        (AppPasteboard.isRunningTests ? CicadaRuntime.testHome : FileManager.default.homeDirectoryForCurrentUser)
+            .appendingPathComponent(".Trash")
+    }
 
     enum Failure: Error, Equatable {
         case folderNotWritable(String)
@@ -181,7 +189,7 @@ struct UpdateInstaller: Sendable {
          port: Int = CicadaRuntime.defaultPort,
          uid: uid_t = getuid(), pid: Int32 = ProcessInfo.processInfo.processIdentifier,
          launchAgentPlist: URL = BackendAgentPolicy.plistURL(),
-         trashDir: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash"),
+         trashDir: URL = UpdateInstaller.defaultTrashDir,
          workRoot: URL = FileManager.default.temporaryDirectory.appendingPathComponent("CicadaUpdate"),
          download: @escaping Download = UpdateDownloader.download,
          runner: AgentProcessRunning = LiveAgentProcessRunner(),

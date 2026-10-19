@@ -104,8 +104,24 @@ struct CicadaRuntime: Equatable, Sendable {
 
     // MARK: Resolution
 
-    /// Built once from the real environment.
-    static let current: CicadaRuntime = resolve()
+    /// Built once from the real environment. Under XCTest it is `underTests()`: the same code root, but a home under
+    /// the temporary directory, so no default argument that reads `current` (the updater's sleep probe and token
+    /// file, `ServerConnection.current`, the device list, a `save`/`forget`) touches the person's `~/.cicada`.
+    static let current: CicadaRuntime = AppPasteboard.isRunningTests ? underTests() : resolve()
+
+    /// The home every XCTest process gets instead of the person's: one folder per process under the temporary
+    /// directory, never created here (a test that writes into it creates what it needs).
+    static let testHome: URL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("cicada-xctest-\(ProcessInfo.processInfo.processIdentifier)/home", isDirectory: true)
+
+    /// `resolve()` with the home pointed at `testHome` and the shell's `CICADA_HOME` and stored port ignored — a
+    /// developer's shell may export the real one.
+    static func underTests(environment: [String: String] = ProcessInfo.processInfo.environment,
+                           home: URL = testHome) -> CicadaRuntime {
+        var environment = environment
+        environment.removeValue(forKey: "CICADA_HOME")
+        return resolve(environment: environment, storedPort: 0, homeDirectory: home)
+    }
 
     /// Release iff the Info.plist says so AND the bundled backend is really there; anything less is a developer
     /// build, resolved exactly as before G182.
