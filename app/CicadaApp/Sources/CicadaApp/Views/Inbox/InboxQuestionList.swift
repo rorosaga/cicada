@@ -24,6 +24,8 @@ struct InboxQuestionList: View {
     let escape: () -> Void
     /// Drawn after the questions at full width only — "Settled by a check" (owner ruling 2026-10-16).
     var footer: AnyView? = nil
+    /// Drawn before the questions at full width only — the quick review's entry points (owner 2026-10-19).
+    var header: AnyView? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -47,6 +49,7 @@ struct InboxQuestionList: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: style == .triage ? CicadaTheme.scaled(RowMetrics.twoLineGap) : 0) {
+                    if style == .wide, let header { header }
                     ForEach(entries) { entry in
                         Group {
                             switch entry {

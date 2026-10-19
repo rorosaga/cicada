@@ -2204,6 +2204,25 @@ class InboxCheck(CamelModel):
     settle_eligible: bool = False
 
 
+class InboxSubject(CamelModel):
+    """The quick review's context for a decay or fold card (owner 2026-10-19): what the page is and how often it was
+    said, so the person decides without opening it. Derived at read from the subject page, engine-free, never stored."""
+
+    summary: Optional[str] = None      # the page's lead sentence, clipped
+    conversations: int = 0             # distinct dated conversations in its ``source_episodes`` (decay_policy's count)
+    last_said: Optional[str] = None    # the latest day among them (``decay_policy.latest_said``)
+
+
+class InboxFold(CamelModel):
+    """A predicate fold in words: the label as said, the predicate it was folded onto, and what the fold covers."""
+
+    raw: str
+    canonical: str
+    claims: int = 0                    # claims the question covers (the opener + ``covered_claims``)
+    pages: int = 0                     # distinct pages among them
+    example: Optional[str] = None      # the anchor claim's sentence, clipped
+
+
 class InboxItem(CamelModel):
     # G61 S3 (shadow): what agents reported from a source for this item, newest first. Additive; nothing reads it to act.
     checks: list[InboxCheckFinding] = []
@@ -2255,6 +2274,10 @@ class InboxItem(CamelModel):
     # the app's InboxItem decodes through explicit CodingKeys that do not list
     # it, so no VersionVector or decoder change is needed until a screen reads it.
     check: Optional[InboxCheck] = None
+    # The quick review (owner 2026-10-19): decay and normalization only, derived at read; additive (an older app
+    # build ignores both).
+    subject: Optional[InboxSubject] = None
+    fold: Optional[InboxFold] = None
 
 
 class InboxResolveRequest(CamelModel):

@@ -191,6 +191,53 @@ struct InboxCheckFinding: Codable, Equatable {
     var quote: String?
 }
 
+/// The quick review's page context (`InboxSubject` in `api/models/schemas.py`): the page's lead sentence, how many
+/// dated conversations said it, and the latest of their days.
+struct InboxSubject: Codable, Equatable {
+    var summary: String?
+    var conversations: Int
+    var lastSaid: String?
+
+    init(summary: String? = nil, conversations: Int = 0, lastSaid: String? = nil) {
+        self.summary = summary
+        self.conversations = conversations
+        self.lastSaid = lastSaid
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        summary = try c.decodeIfPresent(String.self, forKey: .summary)
+        conversations = try c.decodeIfPresent(Int.self, forKey: .conversations) ?? 0
+        lastSaid = try c.decodeIfPresent(String.self, forKey: .lastSaid)
+    }
+}
+
+/// A predicate fold in words (`InboxFold`): the label as said, the predicate it was filed under, what it covers.
+struct InboxFold: Codable, Equatable {
+    var raw: String
+    var canonical: String
+    var claims: Int
+    var pages: Int
+    var example: String?
+
+    init(raw: String, canonical: String, claims: Int = 0, pages: Int = 0, example: String? = nil) {
+        self.raw = raw
+        self.canonical = canonical
+        self.claims = claims
+        self.pages = pages
+        self.example = example
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        raw = try c.decode(String.self, forKey: .raw)
+        canonical = try c.decode(String.self, forKey: .canonical)
+        claims = try c.decodeIfPresent(Int.self, forKey: .claims) ?? 0
+        pages = try c.decodeIfPresent(Int.self, forKey: .pages) ?? 0
+        example = try c.decodeIfPresent(String.self, forKey: .example)
+    }
+}
+
 /// Decodes to nil instead of throwing, so one unreadable element never loses its siblings.
 private struct Lenient<T: Codable>: Codable {
     let value: T?
@@ -243,6 +290,10 @@ struct InboxItem: Identifiable, Codable {
     /// G61 S3 — what an agent reported after looking at a source for this question, newest first. A report only: it
     /// settles nothing, highlights nothing and reorders nothing.
     var checks: [InboxCheckFinding]
+    /// The quick review (owner 2026-10-19), decay and fold cards only: what the page is and how often it was said,
+    /// and a fold's two names. Derived by the server at read; optional, so an older server or cache still decodes.
+    var subject: InboxSubject? = nil
+    var fold: InboxFold? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, kind, requiredInput, status, priority
@@ -251,6 +302,7 @@ struct InboxItem: Identifiable, Codable {
         case uncertaintyType, suggestedClassification, suggestedConfidence, mergeTargetHint, asks
         case entityType, sourceEpisode, sourceEpisodeTimestamp, claimId, cause
         case extractorConfidence, extractorModel, recommendedKey, informational, checks
+        case subject, fold
     }
 
     init(from decoder: Decoder) throws {
@@ -302,6 +354,9 @@ struct InboxItem: Identifiable, Codable {
         // Lenient: one finding this build cannot read is dropped alone, never the card.
         checks = ((try? c.decodeIfPresent([Lenient<InboxCheckFinding>].self, forKey: .checks)) ?? nil)?
             .compactMap(\.value) ?? []
+        // Lenient like `checks`: a review field this build cannot read costs the field, never the card.
+        subject = (try? c.decodeIfPresent(InboxSubject.self, forKey: .subject)) ?? nil
+        fold = (try? c.decodeIfPresent(InboxFold.self, forKey: .fold)) ?? nil
     }
 
     /// Display name for the card header, falling back to the title when no

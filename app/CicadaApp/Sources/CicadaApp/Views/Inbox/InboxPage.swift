@@ -30,7 +30,9 @@ struct InboxPage: View {
 
     var body: some View {
         Group {
-            if let err = viewModel.errorMessage, viewModel.items.isEmpty, viewModel.held == nil {
+            if viewModel.review != nil {
+                InboxReviewView(onEnd: { endReview() }, onOpenInInbox: { openInInbox($0) })
+            } else if let err = viewModel.errorMessage, viewModel.items.isEmpty, viewModel.held == nil {
                 errorState(err)
             } else if viewModel.isLoading {
                 loadingState
@@ -46,6 +48,7 @@ struct InboxPage: View {
         .onChange(of: router.pendingInboxItem) { _, _ in consumeLanding() }
         .onChange(of: viewModel.items.map(\.id)) { _, _ in
             viewModel.reconcile()
+            viewModel.reconcileReview()
             Task { await settled.load() }   // a run may have settled some; an undo brought one back
         }
         // Per memory: a switch reloads it even when the two memories' question ids happen to match (`inbox-001`…).
@@ -76,7 +79,8 @@ struct InboxPage: View {
                               undoShortcut: !editingText, landingToken: landingToken,
                               open: { open($0) }, undo: { undo() }, move: { move($0) },
                               focusQuestion: { focus = .question }, escape: { escape() },
-                              footer: AnyView(settledSection))
+                              footer: AnyView(settledSection),
+                              header: AnyView(InboxReviewEntriesRow(entries: viewModel.reviewEntries) { startReview($0) }))
                 .focused($focus, equals: .list)
                 .tourAnchor(.inbox)
         } detail: { plan in
@@ -125,6 +129,30 @@ struct InboxPage: View {
         DispatchQueue.main.async {
             focus = InboxFocusPolicy.afterArrivalOrAnswer(listHidden: listHidden, questionOpen: viewModel.openItem != nil)
         }
+    }
+
+    // MARK: - The quick review (owner 2026-10-19) — a pointer starts it, Esc ends it; neither animates (DR-60/61)
+
+    private func startReview(_ kind: ReviewKind) {
+        Instant.run {
+            provenance.close()
+            viewModel.startReview(kind)
+        }
+    }
+
+    private func endReview() {
+        viewModel.endReview()
+        arrive()
+    }
+
+    /// The full card for one question: the review ends and the Inbox opens that question (DR-30's landing).
+    private func openInInbox(_ item: InboxItem) {
+        Instant.run {
+            viewModel.endReview()
+            viewModel.columns.land(item.id)
+            landingToken &+= 1
+        }
+        DispatchQueue.main.async { focus = .question }
     }
 
     // MARK: - Paths (R-DI10: a pointer path may animate, a keyboard path never does — DR-60)

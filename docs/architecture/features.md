@@ -228,6 +228,18 @@ keys when the page appears and after every answer (the question only when DR-27 
 repeated digit never sweeps the queue past its one Undo (DS-3c). An option, an informational value or a merge target
 that is exactly a page's id reads as the page's name (`Store.entityNames`, display only). The Sources page's Deletions render the same card and Undo row.
 
+**The quick review (owner 2026-10-19).** The app reviews one kind at a time (`app.md`, *The quick review*); every
+answer is `POST /inbox/{id}/resolve` through the same resolvers, provenance the person's, after the same Undo window —
+there is no bulk accept. To decide without opening the page, `GET /inbox` serves two more fields derived at read
+(`api/services/inbox_review.py`, engine-free, never stored, a failure costing the field and never the card): a `decay`
+or `normalization` item carries `subject: {summary, conversations, lastSaid}` — the page's lead sentence (frontmatter
+`summary`, else its `## Summary`, first sentence, ≤ 200 characters), how many distinct dated conversations its
+`source_episodes` hold and the latest of their days (`decay_policy.conversations` / `latest_said`, a memory export entry
+or a relay counting as none, as decay counts them); a `normalization` item also carries `fold: {raw, canonical, claims,
+pages, example}` — the label as said and the predicate it was filed under (in words), how many claims and pages the
+question covers (`fold_claims`) and the anchor claim's sentence. A legacy fold with no recorded pair has no `fold`.
+The ETag already moves with `entities` and `episodes`, so no client mapping changes (`test_inbox_review_context.py`).
+
 **Cause (G115 Phase 1, delivers G97).** Every item carries its `cause` — episode, timestamp,
 conversation, harness, excerpt, offsets — resolved **at read** by `api/services/inbox_context.py` in
 three tiers (item → claim → entity), engine-free. The excerpt is ±240 chars around the mention, cut
