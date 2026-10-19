@@ -786,7 +786,8 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   as WHAT WAS SAID, each line naming its conversation (`[ep_…]`). Rule 11: a shared word does not make a line about
   the question's subject; use one only when it plainly speaks of it, say its day, and list its id in
   `used_conversations`. The answer's `conversations` (`{episode_id, title, day}`; `POST /ask` `conversations`,
-  `cicada_ask`'s "From conversations no page cites") names the ones used — only ids that were shown; the episode id is
+  `cicada_ask`'s "From conversations no page cites", the app's Ask "From conversations" rows that open the
+  Reader — `app.md`) names the ones used — only ids that were shown; the episode id is
   what `cicada_write_claim` cites, so an agent can put the detail on a page. With no page retrieved, a conversation
   that holds the words is no longer a gap (the model is called); nothing from either leg is still the honest gap
   with no model call. Bounded: context build p50 +4–7 ms, prompt p50 +~1k characters on LoCoMo; on un-consolidated

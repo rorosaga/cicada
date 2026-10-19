@@ -148,6 +148,21 @@ struct AskPanel: View {
                 }
             }
 
+            // 2026-10-19 — beside the page sources, the conversations the answer used that no page cites (Ask's
+            // search leg): each opens in the Reader (DR-31), named by its title and day (DR-54).
+            if !answer.conversationRows.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionLabel(Copy.AskWords.fromConversations)
+                        .help(Copy.AskWords.fromConversationsHelp)
+                        .padding(.bottom, CicadaTheme.spacingXS)
+                    ForEach(answer.conversationRows) { conversation in
+                        AskConversationRowView(conversation: conversation)
+                    }
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(Copy.AskWords.fromConversationsHelp)
+            }
+
             if !answer.gaps.isEmpty {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                     Text("I don't know:")
@@ -325,6 +340,61 @@ private struct AskEvidenceRow: View {
             AskChipFlowLayout(spacing: 6) {
                 EvidenceChipRun(chips: citation.evidenceChips, subjectId: citation.entityId, expanded: $expanded)
             }
+        }
+    }
+}
+
+/// One conversation an answer used that no page cites (2026-10-19). DR-48: one kind glyph, hover is a fill, never a
+/// lift; DR-34: the one-line row height from tokens; DR-54: title and day on the row, the episode id only in `.help`.
+/// A click opens the conversation in the Reader (DR-31) — the palette steps aside for it, as for an evidence chip.
+private struct AskConversationRowView: View {
+    let conversation: AskConversation
+    @Environment(Store.self) private var store: Store?
+    @Environment(ProvenanceRouter.self) private var reader: ProvenanceRouter?
+    @State private var hovering = false
+
+    var body: some View {
+        let title = AskConversationRow.title(conversation)
+        Button(action: activate) {
+            HStack(spacing: CicadaTheme.scaled(10)) {
+                Image(systemName: "bubble.left.and.bubble.right")
+                    .font(CicadaTheme.icon(.list))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .accessibilityHidden(true)
+                Text(title)
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: CicadaTheme.spacingSM)
+                Text(AskConversationRow.day(conversation.day))
+                    .font(CicadaTheme.metaFont)
+                    .monospacedDigit()
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            .padding(.horizontal, CicadaTheme.scaled(10))
+            .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.cicadaPlain)
+        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+            .fill(hovering ? CicadaTheme.bgHover : Color.clear))
+        .onHover { hovering = $0 }
+        .help(AskConversationRow.help(conversation))
+        .accessibilityLabel(Copy.AskWords.openConversationLabel(title))
+        .accessibilityHint(Copy.AskWords.openConversationHint)
+    }
+
+    private func activate() {
+        switch AskConversationRow.primary(conversation, readerAvailable: reader != nil) {
+        case .open(let target): reader?.open(target)
+        case .copy(let value):
+            AppPasteboard.copy(value)
+            let message = Copy.SleepDetailsWords.copied(nil)
+            store?.flash(message)
+            AccessibilityNotification.Announcement(message).post()
         }
     }
 }
