@@ -21,6 +21,11 @@
 #   after moving the repo. --uninstall removes it.
 #   It also registers the G149 recall hooks (hooks.SessionStart + hooks.UserPromptSubmit →
 #   api/hooks/recall.py) the same way; CICADA_RECALL=off skips them.
+#   Claude Code's door is the Cicada plugin when the person enabled it (owner 2026-10-19:
+#   enabledPlugins["cicada@cicada"] in ~/.claude/settings.json): the plugin carries the MCP
+#   server, the skill and every Claude Code hook, so this script registers none of them for
+#   Claude Code and removes the ones it registered before (no double fire). Codex, Cursor,
+#   the venv, the backend and the memory folder stay this script's either way.
 #
 # Test/override env vars (default to real locations):
 #   CICADA_MEMORY_PATH   memory dir            (default: ~/cicada/memory)
@@ -65,6 +70,14 @@ hook_command() { printf '"%s" "%s" --harness %s' "$VENV_PY" "$HOOK_SCRIPT" "$1";
 RECALL_SCRIPT="$REPO/api/hooks/recall.py"
 # G149: the recall hook's command — `agent_wiring.recall_hook_command`, character for character.
 recall_command() { printf '"%s" "%s" --harness %s' "$VENV_PY" "$RECALL_SCRIPT" "$1"; }
+# The Claude Code plugin (owner 2026-10-19): enabled in $CLAUDE_SETTINGS → it is Claude Code's door, and this script
+# registers no Claude Code hook or MCP entry. Read-only (-B: not even a bytecode cache); the registry is stdlib, so python3
+# serves before the venv exists.
+claude_plugin_on() {
+  local py="$VENV_PY"
+  [ -x "$py" ] || py="$(command -v python3 || true)"
+  [ -n "$py" ] && "$py" -B "$HOOKS_REGISTRY" plugin --settings "$CLAUDE_SETTINGS" >/dev/null 2>&1
+}
 PLIST_LABEL="com.cicada.backend"
 PLIST_PATH="$LAUNCH_AGENTS_DIR/$PLIST_LABEL.plist"
 PORT=8000
@@ -84,7 +97,7 @@ for arg in "$@"; do
     --cli)       DO_CLI=1 ;;
     --uninstall) DO_UNINSTALL=1 ;;
     -h|--help)
-      sed -n '3,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '3,39p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *) echo "Unknown flag: $arg (try --help)" >&2; exit 2 ;;
   esac
@@ -172,6 +185,9 @@ if [ "$DO_UNINSTALL" -eq 1 ]; then
     ok "Capture and recall hooks removed (if they existed)"
   else
     warn "venv missing — remove the api/hooks/capture.py and api/hooks/recall.py entries from $CLAUDE_SETTINGS by hand"
+  fi
+  if claude_plugin_on; then
+    warn "Claude Code's Cicada plugin is still enabled — remove it there: /plugin uninstall cicada@cicada"
   fi
 
   if [ -n "$CLIENT_OF" ] && [ ! -d "$MEMORY_PATH" ]; then
@@ -362,7 +378,15 @@ ok "api/.env ready"
 
 # --- 5. Register MCP server ---
 hdr "5. MCP server registration"
-if command -v "$CLAUDE_CLI" >/dev/null 2>&1; then
+PLUGIN_ON=0
+claude_plugin_on && PLUGIN_ON=1
+if [ "$PLUGIN_ON" -eq 1 ]; then
+  ok "Claude Code has Cicada through its plugin (cicada@cicada) — no MCP entry registered here"
+  if command -v "$CLAUDE_CLI" >/dev/null 2>&1 && "$CLAUDE_CLI" mcp list 2>/dev/null | grep -q '^cicada\b'; then
+    step "Removing the older user-scope 'cicada' MCP entry (the plugin carries the server now)"
+    run "$CLAUDE_CLI" mcp remove cicada -s user || warn "could not remove it — run: $CLAUDE_CLI mcp remove cicada -s user"
+  fi
+elif command -v "$CLAUDE_CLI" >/dev/null 2>&1; then
   if "$CLAUDE_CLI" mcp list 2>/dev/null | grep -q '^cicada\b'; then
     ok "MCP server 'cicada' already registered"
   else
@@ -401,7 +425,14 @@ fi
 # however it ended. The hook never reads the transcript — the backend does,
 # after validating the path against the harness root.
 hdr "5b. Session-capture hook"
-if run "$VENV_PY" "$HOOKS_REGISTRY" install --settings "$CLAUDE_SETTINGS" --event Stop --command "$(hook_command claude-code)"; then
+if [ "$PLUGIN_ON" -eq 1 ]; then
+  # The plugin's own hooks capture and recall; Cicada's entries in the settings file would fire a second time.
+  if run "$VENV_PY" "$HOOKS_REGISTRY" uninstall --settings "$CLAUDE_SETTINGS"; then
+    ok "Claude Code's capture and recall hooks come from its plugin — none left in $CLAUDE_SETTINGS"
+  else
+    warn "Could not remove Cicada's older hooks from $CLAUDE_SETTINGS — they fire beside the plugin's until removed"
+  fi
+elif run "$VENV_PY" "$HOOKS_REGISTRY" install --settings "$CLAUDE_SETTINGS" --event Stop --command "$(hook_command claude-code)"; then
   ok "Claude Code Stop hook registered in $CLAUDE_SETTINGS (idempotent)"
 else
   warn "Could not register the Stop hook in $CLAUDE_SETTINGS — fix the file and re-run ./install.sh"
@@ -417,7 +448,9 @@ fi
 # flush — Stop stays the trigger; a flush is idempotent and catches a turn the
 # person interrupted (no Stop) before compacting, clearing or quitting.
 for ev in PreCompact SessionEnd; do
-  if run "$VENV_PY" "$HOOKS_REGISTRY" install --settings "$CLAUDE_SETTINGS" --event "$ev" --command "$(hook_command claude-code)"; then
+  if [ "$PLUGIN_ON" -eq 1 ]; then
+    :
+  elif run "$VENV_PY" "$HOOKS_REGISTRY" install --settings "$CLAUDE_SETTINGS" --event "$ev" --command "$(hook_command claude-code)"; then
     ok "Claude Code $ev capture flush registered in $CLAUDE_SETTINGS (idempotent)"
   else
     warn "Could not register the $ev capture flush in $CLAUDE_SETTINGS — fix the file and re-run ./install.sh"
@@ -439,13 +472,17 @@ hdr "5c. Implicit recall hooks"
 if [ "$(printf '%s' "${CICADA_RECALL:-}" | tr '[:upper:]' '[:lower:]')" = "off" ]; then
   ok "CICADA_RECALL=off — recall hooks not registered (Settings → Agents turns them on)"
 else
-  for ev in SessionStart UserPromptSubmit; do
-    if run "$VENV_PY" "$HOOKS_REGISTRY" install --settings "$CLAUDE_SETTINGS" --event "$ev" --command "$(recall_command claude-code)"; then
-      ok "Claude Code $ev recall hook registered in $CLAUDE_SETTINGS (idempotent)"
-    else
-      warn "Could not register the $ev recall hook in $CLAUDE_SETTINGS — fix the file and re-run ./install.sh"
-    fi
-  done
+  if [ "$PLUGIN_ON" -eq 1 ]; then
+    ok "Claude Code's recall hooks come from its plugin (its Remember automatically setting turns them off)"
+  else
+    for ev in SessionStart UserPromptSubmit; do
+      if run "$VENV_PY" "$HOOKS_REGISTRY" install --settings "$CLAUDE_SETTINGS" --event "$ev" --command "$(recall_command claude-code)"; then
+        ok "Claude Code $ev recall hook registered in $CLAUDE_SETTINGS (idempotent)"
+      else
+        warn "Could not register the $ev recall hook in $CLAUDE_SETTINGS — fix the file and re-run ./install.sh"
+      fi
+    done
+  fi
   if command -v codex >/dev/null 2>&1; then
     for ev in SessionStart UserPromptSubmit; do
       if run "$VENV_PY" "$HOOKS_REGISTRY" install --settings "$CODEX_HOOKS" --event "$ev" --command "$(recall_command codex)"; then
@@ -517,10 +554,15 @@ fi
 if [ "$DO_SKILL" -eq 1 ]; then
   hdr "7. Claude skill"
   dest="$CLAUDE_SKILLS_DIR/cicada/SKILL.md"
-  step "Copying SKILL.md -> $dest"
-  run mkdir -p "$CLAUDE_SKILLS_DIR/cicada"
-  run cp "$REPO/SKILL.md" "$dest"
-  ok "Skill installed"
+  if [ "$PLUGIN_ON" -eq 1 ]; then
+    ok "Claude Code's plugin carries the cicada skill — not copying it"
+    [ -f "$dest" ] && warn "an older copy at $dest loads beside the plugin's — remove that folder to keep one"
+  else
+    step "Copying SKILL.md -> $dest"
+    run mkdir -p "$CLAUDE_SKILLS_DIR/cicada"
+    run cp "$REPO/SKILL.md" "$dest"
+    ok "Skill installed"
+  fi
 fi
 
 # --- 8. Command line (opt-in, G180) ---
@@ -539,13 +581,17 @@ else
 fi
 echo "  venv:          $VENV"
 echo "  api/.env:      $ENV_FILE (missing keys filled, existing preserved)"
-if command -v "$CLAUDE_CLI" >/dev/null 2>&1; then
+if [ "$PLUGIN_ON" -eq 1 ]; then
+  echo "  Claude Code:   the Cicada plugin (cicada@cicada) carries the MCP server, the skill and the hooks"
+elif command -v "$CLAUDE_CLI" >/dev/null 2>&1; then
   echo "  MCP:           registered as 'cicada'"
 else
   echo "  MCP:           manual JSON snippet printed above"
 fi
-echo "  capture hook:  $CLAUDE_SETTINGS (hooks.Stop, + PreCompact/SessionEnd flush → api/hooks/capture.py)"
-echo "  recall hooks:  $CLAUDE_SETTINGS (hooks.SessionStart + hooks.UserPromptSubmit → api/hooks/recall.py)"
+if [ "$PLUGIN_ON" -ne 1 ]; then
+  echo "  capture hook:  $CLAUDE_SETTINGS (hooks.Stop, + PreCompact/SessionEnd flush → api/hooks/capture.py)"
+  echo "  recall hooks:  $CLAUDE_SETTINGS (hooks.SessionStart + hooks.UserPromptSubmit → api/hooks/recall.py)"
+fi
 if [ -n "$CLIENT_OF" ]; then
   echo "  service:       none — this machine's memory lives on a server ($CLIENT_OF)"
 elif [ "$OS_NAME" = "Linux" ]; then
@@ -553,7 +599,7 @@ elif [ "$OS_NAME" = "Linux" ]; then
 else
   echo "  launchd:       $PLIST_PATH"
 fi
-[ "$DO_SKILL" -eq 1 ] && echo "  skill:         $CLAUDE_SKILLS_DIR/cicada/SKILL.md"
+[ "$DO_SKILL" -eq 1 ] && [ "$PLUGIN_ON" -ne 1 ] && echo "  skill:         $CLAUDE_SKILLS_DIR/cicada/SKILL.md"
 [ "$DO_CLI" -eq 1 ] && echo "  command line:  ~/.local/bin/cicada -> $REPO/scripts/cicada"
 if [ -n "$CLIENT_OF" ]; then
   echo "  token:         this device's own, in ${CICADA_HOME:-$HOME/.cicada}/device_token or CICADA_API_TOKEN ('cicada device add <name>' on the server)"

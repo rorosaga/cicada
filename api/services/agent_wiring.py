@@ -44,6 +44,14 @@ The config reads behind ``recall`` for the agents with no verified CLI probe
 (those files can hold other servers' secrets). None of them is under
 ``~/Library`` (the app's alone) or Claude Code's ``~/.claude.json`` (its state
 file, not a config Cicada owns); the ``~/.claude`` sentence above stays true.
+
+The Claude Code plugin (owner 2026-10-19: the canonical Claude Code door) is read
+from that same ``settings.json`` (``enabledPlugins["cicada@cicada"]``, through
+``registry.plugin_enabled``). When it is on, the plugin carries the MCP server and
+every hook, so Claude Code's row reads on with ``capabilities.via = "plugin"`` and
+offers no argv at all — an ``mcp add`` or a settings hook beside the plugin would
+list every tool twice and fire every hook twice. Leftover entries from an earlier
+install.sh run are named in ``detail`` (install.sh removes them).
 """
 from __future__ import annotations
 
@@ -433,6 +441,13 @@ def setup(harness: str, *, home: Path, memory_root: Path, repo: Path = REPO_ROOT
     if harness in known:
         h = known[harness]
         binary = resolve(h.binary) or h.binary
+        if plugin_on(h, home):
+            # The plugin already carries the server and the hooks: a prompt that ran `mcp add` would double them.
+            return {"harness": harness, "kind": "prompt", "title": f"{_PRODUCT[harness]} is connected",
+                    "prompt": "Cicada is already connected to Claude Code through the Cicada plugin, so there is "
+                              "nothing to run. Tell me in one sentence that it is already set up.",
+                    "argv": [], "display": [],
+                    "note": "Claude Code reaches Cicada through the Cicada plugin. Nothing to add."}
         return _prompt_setup(harness, [mcp_step(h, binary, memory_root=memory_root, repo=repo, python=python),
                                        hook_step(h, home=home, repo=repo, python=python)])
     if harness == "gemini-cli":
@@ -540,12 +555,39 @@ def autorecall_fields(h: Harness, *, home: Path, repo: Path, python: str) -> dic
             "autorecall_off": argv["off"] if state in ("on", "stale") else []}
 
 
+#: Settings-file events Cicada's own entries live under, for the plugin row's leftover check.
+_SETTINGS_EVENTS = ("Stop", *FLUSH_EVENTS)
+
+
+def _plugin_row(h: Harness, binary: str, *, home: Path, repo: Path, python: str) -> dict:
+    """Claude Code with the Cicada plugin on: everything comes from the plugin, so nothing is offered. A Cicada entry
+    still in the settings file (an install.sh run from before the plugin) would fire twice: ``detail`` says so."""
+    settings = home / h.settings
+    capture, recall = hook_command(python, repo, h.id), recall_hook_command(python, repo, h.id)
+    left = [event for event in _SETTINGS_EVENTS
+            if hook_registry.status(settings, event=event, command=capture) != "absent"]
+    left += [event for event in RECALL_EVENTS
+             if hook_registry.status(settings, event=event, command=recall) != "absent"]
+    detail = (f"Cicada's hooks are also in ~/{h.settings} ({', '.join(left)}), so they run twice. "
+              "Run ./install.sh to remove them." if left else None)
+    return {"id": h.id, "installed": True, "binary": binary, "recall": "on", "autosave": "on",
+            "autosave_flush": "on", "flush_on": [], "connect": [], "detail": detail,
+            "autorecall": "on", "autorecall_on": [], "autorecall_off": [], "capabilities": {"via": "plugin"}}
+
+
+def plugin_on(h: Harness, home: Path) -> bool:
+    """Whether ``h`` reaches Cicada through the plugin (Claude Code only)."""
+    return h.id == "claude-code" and hook_registry.plugin_enabled(home / h.settings)
+
+
 async def _harness(h: Harness, *, home: Path, memory_root: Path, repo: Path, python: str,
                    runner: Runner, resolve) -> dict:
     binary = resolve(h.binary)
     if binary is None:
         return {"id": h.id, "installed": False, "binary": None, "recall": "off",
                 "autosave": "n/a", "connect": [], "detail": None}
+    if plugin_on(h, home):
+        return _plugin_row(h, binary, home=home, repo=repo, python=python)
     result = await runner([binary, *h.probe], timeout=PROBE_TIMEOUT_S)
     recall = "on" if result.rc == 0 else ("unknown" if result.rc in (124, 127) else "off")
     settings_path = home / h.settings
@@ -609,7 +651,7 @@ async def probe(*, home: Path, memory_root: Path, repo: Path = REPO_ROOT, python
     # and argv; a harness that is not installed keeps the schema's "n/a".
     by_id = {h.id: h for h in HARNESSES}
     rows = [{**row, **autorecall_fields(by_id[row["id"]], home=home, repo=repo, python=python)}
-            if row["installed"] else row for row in rows]
+            if row["installed"] and row.get("capabilities", {}).get("via") != "plugin" else row for row in rows]
     return {"agents": [*rows, *(_config_agent(a, home, resolve, python=python, repo=repo) for a in CONFIG_AGENT_BINARIES),
                        *(adapter.wiring(home=home, repo=repo, python=python) for adapter in harness_integrations.LOCAL.values())], "python": python,
             "repo": str(repo), "memory": str(memory_root)}

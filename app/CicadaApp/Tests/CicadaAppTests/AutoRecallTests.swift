@@ -58,6 +58,22 @@ final class AutoRecallTests: XCTestCase {
         XCTAssertEqual(AutoRecallAction(title: "t", steps: on + on).touches, ["~/.claude/settings.json"])
     }
 
+    /// Owner 2026-10-19: Claude Code through the Cicada plugin reads on, says where it is switched, and offers no
+    /// button — the plugin carries the hooks, so a settings-file argv would make them fire twice.
+    func testAPluginRowReadsOnAndOffersNothing() throws {
+        let json = #"""
+        {"agents":[{"id":"claude-code","installed":true,"recall":"on","autosave":"on","connect":[],
+          "autorecall":"on","autorecallOn":[],"autorecallOff":[],"capabilities":{"via":"plugin"}}]}
+        """#
+        let row = try XCTUnwrap(try JSONDecoder().decode(AgentWiringResponse.self, from: Data(json.utf8)).agents.first)
+        XCTAssertTrue(row.viaPlugin)
+        XCTAssertEqual(AutoRecall.state(of: row), .on)
+        XCTAssertEqual(AutoRecall.detail(row), Copy.autoRecallPluginOn)
+        XCTAssertNil(AutoRecall.action(for: row), "the plugin's own settings switch it, never a settings-file argv")
+        XCTAssertTrue(row.turnOnSteps.isEmpty)
+        XCTAssertFalse(agent("on").viaPlugin, "a row without the capability is install.sh's, as before")
+    }
+
     private struct Fixture: Decodable {
         struct Case: Decodable { let agent: String; let list: String; let index: Int; let argv: [String] }
         let root: String

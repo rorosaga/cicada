@@ -1,0 +1,16 @@
+{
+  "name": "cicada",
+  "owner": {
+    "name": "Rodrigo Sagastegui",
+    "url": "https://github.com/rorosaga"
+  },
+  "description": "Cicada: personal memory for your agents. The Claude Code plugin connects Claude Code to the Cicada on this machine.",
+  "plugins": [
+    {
+      "name": "cicada",
+      "source": "./plugins/cicada",
+      "description": "Cicada's memory tools, its skill, and the hooks that save each Claude Code session and add what Cicada remembers to new ones.",
+      "category": "memory"
+    }
+  ]
+}

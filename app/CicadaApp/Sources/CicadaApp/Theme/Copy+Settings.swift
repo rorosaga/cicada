@@ -155,6 +155,8 @@ extension Copy {
     // Names no agent: a service named in the UI wears its mark, and this line has none.
     static let autoRecallNone = "None of the agents on this Mac can do this yet."
     static let autoRecallOn = "On. Your agent sees a short note when you mention something Cicada remembers."
+    // Owner 2026-10-19: Claude Code's door is the Cicada plugin when it is on; the plugin's own settings switch this.
+    static let autoRecallPluginOn = "On through the Cicada plugin. Turn it off in the plugin's settings (/plugin)."
     static let autoRecallOff = "Off. Your agent only sees your memory when it asks for it."
     static let autoRecallStale = "Needs an update, because Cicada moved since this was set up."
     static let autoRecallUnreadable = "Its settings file can't be read, so Cicada won't touch it."

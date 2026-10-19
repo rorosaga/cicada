@@ -8,6 +8,17 @@
 
 ## Current state and evidence
 
+- **2026-10-19 — Cicada as a Claude Code plugin (owner 2026-10-19; G49's plugin half, G105, G149; branch
+  `feat/claude-code-plugin`).** Rule recorded in CLAUDE.md: the plugin is the canonical Claude Code door, `install.sh`
+  the canonical machine install. The repo is its own marketplace (`.claude-plugin/marketplace.json`, plugin
+  `./plugins/cicada`, id `cicada@cicada`): the MCP server, the `cicada` skill (a byte copy of `SKILL.md`), and the
+  Stop/PreCompact/SessionEnd capture and SessionStart/UserPromptSubmit recall hooks, all through two POSIX scripts that
+  exec the app's `~/.cicada/bin` launchers or a checkout named in the plugin's `cicada_repo` setting. With the plugin
+  enabled, `install.sh` registers no Claude Code hook or MCP entry and removes its older ones; `make doctor` and
+  `GET /agents/wiring` (`capabilities.via = "plugin"`) say which door is active. Detail: `mcp.md`, "The Claude Code
+  plugin". Tests: `test_claude_code_plugin.py`. Pick up: review and merge; the owner installs it with `/plugin
+  marketplace add ~/code/cicada` (dev) or `rorosaga/cicada` after the next release, sets `cicada_repo` if he runs a
+  source build, then re-runs `./install.sh` once.
 - **2026-10-18 — Ask over watch-history ranges (ruling 30 follow-up, G71, G94, G118; branch `feat/history-ask`).**
   `watch_history.asked_span` + `summarize`: this/last year, a named year, since/between, the last N days, ever, "the
   most", first/last watch of a named channel — counted from the watched days with no model into one bounded table.

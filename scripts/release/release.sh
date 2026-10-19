@@ -4,7 +4,7 @@
 # it never pushes main, never tags and never force-pushes.
 #
 #   release.sh bump X.Y.Z [--dry-run] [--yes]   (make release VERSION=X.Y.Z)
-#       Bumps VERSION, api/pyproject.toml, uv.lock's project line and Formula/cicada.rb's tag on a `release/vX.Y.Z` branch off the remote's
+#       Bumps VERSION, api/pyproject.toml, uv.lock's project line, Formula/cicada.rb's tag and the Claude Code plugin's version on a `release/vX.Y.Z` branch off the remote's
 #       dev, pushes that branch and opens a PR to dev titled `chore(release): X.Y.Z`. Refuses a version that is
 #       already tagged or not greater than the latest tag. When dev already says X.Y.Z there is nothing to bump.
 #   release.sh pr [--dry-run] [--yes]           (make release-pr)
@@ -102,9 +102,10 @@ root, version = Path(sys.argv[1]), sys.argv[2]
 (root / "VERSION").write_text(version + "\n", encoding="utf-8")
 for rel, pattern in (("api/pyproject.toml", r'(\[project\][^\[]*?^version = ")[^"]+(")'),
                      ("api/uv.lock", r'(^name = "cicada-api"\nversion = ")[^"]+(")'),
-                     ("Formula/cicada.rb", r'(^\s*url\s+"[^"]*",\s*tag:\s*"v)[^"]+(")')):
+                     ("Formula/cicada.rb", r'(^\s*url\s+"[^"]*",\s*tag:\s*"v)[^"]+(")'),
+                     ("plugins/cicada/.claude-plugin/plugin.json", r'(^  "version": ")[^"]+(")')):
     path = root / rel
-    if rel.startswith("Formula/") and not path.is_file():
+    if rel.startswith(("Formula/", "plugins/")) and not path.is_file():
         continue
     text, n = re.subn(pattern, rf"\g<1>{version}\g<2>", path.read_text(encoding="utf-8"), count=1, flags=re.M | re.S)
     assert n == 1, f"{rel}: the version line was not found"
@@ -113,6 +114,7 @@ PY
   python3 "$CHECK" agree --root "$WORK"
   git -C "$WORK" add VERSION api/pyproject.toml api/uv.lock
   [ -f "$WORK/Formula/cicada.rb" ] && git -C "$WORK" add Formula/cicada.rb
+  [ -f "$WORK/plugins/cicada/.claude-plugin/plugin.json" ] && git -C "$WORK" add plugins/cicada/.claude-plugin/plugin.json
   git -C "$WORK" commit -q -m "chore(release): $VERSION"
   echo "Release $TAG — step 1 of 2"
   echo "  branch $BRANCH → $(git -C "$WORK" rev-parse --short HEAD)  ($DEV_VERSION → $VERSION, off $REMOTE/dev)"

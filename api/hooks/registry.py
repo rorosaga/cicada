@@ -32,12 +32,22 @@ instead of a script path; each script's markers include that form, so a
 release install UPDATES a checkout's entry (and back) rather than adding a
 second hook.
 
+The Claude Code plugin (owner 2026-10-19: the canonical Claude Code door) carries
+the same hooks and the MCP server itself, from the plugin's own folder, never this
+settings file. ``plugin`` answers whether the person enabled it
+(``enabledPlugins["cicada@cicada"]`` in the same user settings file), so
+install.sh, ``make doctor`` and ``GET /agents/wiring`` stop registering
+Claude Code's hooks and MCP entry when it is on: one door, no double fire.
+
 Stdlib only; run by path (no ``api.*`` import).
 
     registry.py install   --settings <file> --event Stop --command "<cmd>"
     registry.py uninstall --settings <file> [--hook capture|recall]
     registry.py status    --settings <file> --event Stop --command "<cmd>"
         exit 0 present · 1 absent · 2 stale (present with another command)
+    registry.py plugin    --settings <file> [--option cicada_repo]
+        exit 0 the Cicada plugin is enabled · 1 it is not (absent, off, or an unreadable file);
+        --option prints that plugin setting's saved value (pluginConfigs, "" when unset) instead
 """
 
 from __future__ import annotations
@@ -64,6 +74,10 @@ DEFAULT_TIMEOUT_S = 5
 #: ``~/.gemini/settings.json`` but counts ``timeout`` in MILLISECONDS; its
 #: events are named apart from Claude Code's and Codex's, so the event says which.
 MS_EVENTS = frozenset({"AfterAgent", "BeforeAgent"})
+
+
+#: The plugin's id, ``<plugin>@<marketplace>``, both named ``cicada`` (``.claude-plugin/marketplace.json``).
+PLUGIN_ID = "cicada@cicada"
 
 
 def default_timeout(event: str) -> int:
@@ -207,15 +221,41 @@ def status(path: Path, *, event: str, command: str) -> str:
     return "present" if any(h.get("command") == command for h in ours) else "stale"
 
 
+def plugin_enabled(path: Path) -> bool:
+    """Whether Claude Code's user settings enable the Cicada plugin. Read-only; a file that does not parse is
+    "not enabled" (the caller's own status read reports it as invalid), never a guess."""
+    try:
+        data = load(path)
+    except RegistryError:
+        return False
+    enabled = data.get("enabledPlugins")
+    return isinstance(enabled, dict) and enabled.get(PLUGIN_ID) is True
+
+
+def plugin_option(path: Path, name: str) -> str:
+    """One of the plugin's non-sensitive settings as Claude Code saved it (``pluginConfigs["cicada@cicada"].options``),
+    "" when unset. Only ``doctor`` asks, to say which Cicada the plugin runs."""
+    try:
+        data = load(path)
+    except RegistryError:
+        return ""
+    configs = data.get("pluginConfigs")
+    entry = configs.get(PLUGIN_ID) if isinstance(configs, dict) else None
+    options = entry.get("options") if isinstance(entry, dict) else None
+    value = options.get(name) if isinstance(options, dict) else None
+    return "" if value is None else str(value)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("action", choices=("install", "uninstall", "status"))
+    ap.add_argument("action", choices=("install", "uninstall", "status", "plugin"))
     ap.add_argument("--settings", required=True)
     ap.add_argument("--event", default="Stop")
     ap.add_argument("--command", default="")
     ap.add_argument("--timeout", type=int, default=None,
                     help=f"seconds ({DEFAULT_TIMEOUT_S}); Gemini CLI's events count milliseconds")
     ap.add_argument("--hook", choices=tuple(MARKERS), default=None)
+    ap.add_argument("--option", default=None, help="plugin: print this plugin setting's saved value")
     args = ap.parse_args(argv)
     path = Path(args.settings).expanduser()
     try:
@@ -224,6 +264,13 @@ def main(argv=None) -> int:
                 ap.error("--command is required for install")
             print(f"{install(path, event=args.event, command=args.command, timeout=args.timeout)}: {path}")
             return 0
+        if args.action == "plugin":
+            on = plugin_enabled(path)
+            if args.option:
+                print(plugin_option(path, args.option))
+            else:
+                print(f"{'enabled' if on else 'absent'}: {PLUGIN_ID} in {path}")
+            return 0 if on else 1
         if args.action == "uninstall":
             print(f"removed {uninstall(path, hook=args.hook)} hook(s): {path}")
             return 0
