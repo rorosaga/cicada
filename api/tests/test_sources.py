@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytest
 
@@ -577,27 +577,6 @@ def test_ingest_one_media_entity_carries_folder_frontmatter_and_tag(tmp_path, mo
     assert len(episodes) == 1
     ep_fm = markdown_parser.parse(episodes[0]).frontmatter
     assert ep_fm["folder"] == "Bookmarks bar/AI/Papers"
-
-
-# --- G114 R2: one timestamp shape -----------------------------------------
-
-
-def test_write_media_episode_timestamp_is_aware_utc(tmp_path):
-    """The ingest ``timestamp`` is aware UTC with an explicit ``+00:00`` —
-    never the old naive-local ``datetime.now().isoformat() + "Z"``, which
-    labelled the machine's wall clock as UTC and was off by its offset."""
-    from datetime import timezone
-
-    item = RawItem(url="https://example.com/a")
-    meta = MediaMeta(title="A", media_type="url")
-    episodes = tmp_path / "episodes"
-    ep_id = media_ingestor.write_media_episode(episodes, item, meta, "media-a")
-
-    ts = markdown_parser.parse(episodes / f"{ep_id}.md").frontmatter["timestamp"]
-    assert isinstance(ts, str) and ts.endswith("+00:00"), ts
-    parsed = datetime.fromisoformat(ts)
-    assert parsed.tzinfo is not None
-    assert abs((datetime.now(timezone.utc) - parsed).total_seconds()) < 60
 
 
 # --- G99d: RawItem.added -> episode/entity frontmatter -> url_index -------

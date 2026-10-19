@@ -107,6 +107,71 @@ def test_utc_now_iso_is_aware_utc():
     assert parsed.utcoffset() == timedelta(0)
 
 
+def _memory(tmp_path):
+    memory = tmp_path / "memory"
+    for sub in ("episodes", "entities", "sources"):
+        (memory / sub).mkdir(parents=True, exist_ok=True)
+    return memory
+
+
+def _calendar_episode(tmp_path):
+    from api.services import calendar_registry
+
+    episodes = _memory(tmp_path) / "episodes"
+    event = calendar_registry.ICSEvent(
+        uid="evt-1", summary="Placeholder event", dtstart_iso="2026-07-14T10:00:00+00:00",
+        dtend_iso="2026-07-14T11:00:00+00:00", all_day=False, location=None, description=None, sequence=0,
+        recurring=False)
+    # Straight through the writer: no ICS window filtering, so nothing here is date-baked.
+    return episodes / f"{calendar_registry._write_calendar_episode(episodes, event, 'https://a.example.com/cal.ics')}.md"
+
+
+def _imported_conversation(tmp_path):
+    from api.routers import conversations as conv
+
+    episodes = _memory(tmp_path) / "episodes"
+    episode = {"title": "T", "source": "claude_memory", "messages": [], "timestamp": None}
+    return conv._write_new_episode(episode, episodes, "system: x", "abc123", {})
+
+
+def _apple_note(tmp_path):
+    import asyncio
+
+    from api.services import notes_sync
+
+    memory = _memory(tmp_path)
+    note = notes_sync.FIELD_SEP.join(["note-1", "Grocery list", "Milk, eggs, bread", "2026-07-01", "2026-07-01",
+                                      "Personal"])
+    asyncio.run(notes_sync.sync_notes(memory, dump=note))
+    (path,) = (memory / "episodes").glob("ep_*.md")
+    return path
+
+
+def _saved_link(tmp_path):
+    from api.services import media_ingestor
+    from api.services.media_ingestor import MediaMeta, RawItem
+
+    episodes = tmp_path / "episodes"
+    ep_id = media_ingestor.write_media_episode(episodes, RawItem(url="https://example.com/a"),
+                                               MediaMeta(title="A", media_type="url"), "media-a")
+    return episodes / f"{ep_id}.md"
+
+
+@pytest.mark.parametrize("write", [_calendar_episode, _imported_conversation, _apple_note, _saved_link],
+                         ids=["calendar", "conversation-import", "apple-notes", "media"])
+def test_every_writer_stamps_its_episode_aware_utc_now(tmp_path, write):
+    """R2 at the writers that once had their own clock: the episode ``timestamp`` is aware UTC with an explicit
+    ``+00:00`` and is now — never the old naive-local ``datetime.now().isoformat() + "Z"``, which labelled the
+    machine's wall clock as UTC and was off by its offset."""
+    from api.services import markdown_parser
+
+    ts = markdown_parser.parse(write(tmp_path)).frontmatter["timestamp"]
+    assert isinstance(ts, str) and ts.endswith("+00:00"), ts
+    parsed = datetime.fromisoformat(ts)
+    assert parsed.tzinfo is not None
+    assert abs((datetime.now(timezone.utc) - parsed).total_seconds()) < 60
+
+
 def test_to_utc_iso_epoch_zero():
     assert episode_ids.to_utc_iso(0) == "1970-01-01T00:00:00+00:00"
     assert episode_ids.to_utc_iso(0.0) == "1970-01-01T00:00:00+00:00"
