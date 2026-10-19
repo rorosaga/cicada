@@ -146,7 +146,9 @@ one it says is the speaker's own kept home — 2026-10-19), a person page's name
 about Cicada's own runtime settings on its own page (`own_settings`: the Sleep engine choice, the scheduled-plan
 switch, the schedule's time — never searched, never asked, 27b),
 a file, path or handle, a page with `path:`/`repos:`, a project, a question that says "you/your", an option naming a
-person or saying "my"/"her" (labels ride in the prompt), a question the person already took a check back on
+person or saying "my"/"her" (labels ride in the prompt), a conflict tied to the person in any way — first person, the
+owner's name, a project's name, "currently uses", "planned for", "<owner>'s thesis" — or two different things sharing a
+name with no option that is the page's own name (2026-10-20, `features.md`), a question the person already took a check back on
 (`web_check: undone`), a multi-valued predicate other than what the thing *is*, or a conflict whose predicate is not
 world-truth (`locus` world/artifact or a short public list: `description`, `is-a`… — `web_settle.classify`). **What it
 is** (owner, 2026-10-16, his own example "Is <tool-a> an agent harness or an AI agent itself?"): a type question

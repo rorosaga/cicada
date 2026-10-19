@@ -272,7 +272,20 @@ path, a project, a multi-valued predicate other than what the thing *is*, an opt
 `description`…, the owner's own example: "Is <tool-a> an agent harness or an AI agent itself?") settles on one option
 only when the page rules the others out (defines it as that option and nowhere as another), on the item's own "both"
 option when the page describes it as more than one of them (one
-cited claim per option, nothing closed), never on an option the item lacks.
+cited claim per option, nothing closed), never on an option the item lacks. **A conflict asks what a public thing IS,
+or it stays (2026-10-20, rulings 27/27b: of nine conflicts the first real sweep settled, eight were the owner's own):**
+nothing in its question, option labels or subject page may tie it to the person — first or second person (English or
+Spanish), somebody's doings with no one named ("he uses", "the one bought last year", "installed on the laptop",
+"dropped for …"), the owner's name, any part of it or a short alias as a whole token, a person's or project's page name
+or a project's head word, "the owner/user", "<someone>'s thesis/code/lab/setup/server", a situation ("currently uses",
+"planned for", "superseded by", "I'm modding"), an option label stating one ("Currently uses …", "Abandoned"), a page
+whose own description calls it the person's own or names them or their project — and, whatever the wording, competing
+claims that all came from the person's own words (`source_trust: user_stated` or evidence only in their turns)
+(`web_settle.personal_conflict`, census `personal`). Two different things sharing a name ("Is <term> the <method> or the <product>?", "Is this entity
+<A>, or <B>?", "… or the class called <X>") settle only on an option that IS the page's own name or alias (case and
+accents folded), never on "both", never writing another thing's description onto the page; with no such option the
+question stays (`web_settle.different_things`, census `different_things`). The writer refuses a situation label as a
+description whatever the gate said.
 The settled question moves to `inbox/settled/<id>.md` with a `settled:` block naming exactly what it wrote, and is
 served by `GET /inbox/settled` (not a Store domain). **The Inbox shows it under "Settled by a check"** (closed until
 asked for, below the questions and on the empty page): the answer, the quote and the site with when and who

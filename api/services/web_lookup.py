@@ -214,6 +214,9 @@ def parse_answer(c: web_settle.Candidate, text: str) -> Answer:
         return Answer(c.item_id, False, "no_citation")
     if c.kind == "conflict":
         key = str(data.get("option_key") or "").strip()
+        if c.different_things and not web_settle.names_the_subject(dict(c.options).get(key, ""), c.subject_names):
+            # Two things sharing a name: only the page's own name settles, never "both" (2026-10-20).
+            return Answer(c.item_id, False, "different_thing")
         if c.both_key and key == c.both_key:
             return Answer(c.item_id, True, option_key=key, url=url, quote=quote)
         if key not in {k for k, _ in c.options}:
