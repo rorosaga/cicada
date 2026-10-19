@@ -80,6 +80,9 @@ struct EvidenceChip: View {
             OriginMark(origin: agent, size: size)
         } else if model.kind == .page {
             LogoImage(entityId: model.episode, name: meta?.title ?? model.episode, type: .media, size: size)
+        } else if model.kind == .user, let origin = meta?.origin, EvidenceSpeaker.sourceSpeaker(origin) != nil {
+            // "From the feed" / "On your calendar" wear the source's mark, never the person glyph (DR-57).
+            OriginMark(origin: origin, size: size)
         } else {
             Image(systemName: EvidenceLabel.symbol(model.kind))
                 .font(CicadaTheme.font(size: 9, weight: .medium))
@@ -211,7 +214,7 @@ struct EvidencePreview: View {
            line != agent {
             return line
         }
-        return EvidenceLabel.speaker(kind: model.kind, agent: agent, source: meta?.source)
+        return EvidenceLabel.speaker(kind: model.kind, agent: agent, source: meta?.source, origin: meta?.origin)
     }
 
     private func caption(_ style: QuoteBlock.Style) -> String? {

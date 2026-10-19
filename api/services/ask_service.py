@@ -32,7 +32,7 @@ from typing import Callable
 from loguru import logger
 
 from api.config import Settings
-from api.services import json_parse, markdown_parser, text_fold
+from api.services import ask_sources, json_parse, markdown_parser, section_provenance, text_fold
 from api.services.claims import current_day, is_current, is_event, is_record, parse_claims, stated_end, strip_claims_block
 
 RetrieveFn = Callable[[str, int], list[dict]]
@@ -47,10 +47,19 @@ _SNIPPET_CHARS = 280
 # of it and the prose got `body[:remaining]` — one character, the summary "truncated at 'R'" — and the page's other
 # names were never sent at all, so "what is the owner's full name?" was answered "only a first name is recorded"
 # while eleven aliases held it. Each part now has its own budget, and the header always carries the page's names.
-_CLAIMS_CHARS = 2400
-_PROSE_CHARS = 2400
+# 2026-10-17 (G148, LoCoMo conv-26): the prose budget was 2,400 characters taken a blank-line paragraph at a time, so a
+# page's whole ``## Key Facts`` list was ONE paragraph clipped to 600 characters and the fact a question named — the
+# reason for a choice, a count said later — sat past the cut on a page that held it. A page is now read item by item
+# (an article paragraph, a key fact, a history line, as ``section_provenance.scan`` cuts it), the items that share
+# the question's words chosen first, each dated by the conversations it came from.
+_CLAIMS_CHARS = 3000
+_PROSE_CHARS = 4800
 _LEAD_CHARS = 700
 _PARAGRAPH_CHARS = 600
+#: The page sections Ask reads as background, in page order. The summary is in the header; open questions are what
+#: memory does NOT know, and a stale one beside a newer claim was read as the answer (conv-26: "not stated").
+_PROSE_SECTIONS = ("article", "key_facts", "history", "links")
+_SECTION_LABELS = {"article": "Article", "key_facts": "Key Facts", "history": "History", "links": "Links"}
 _ALIASES_CHARS = 800
 _SUMMARY_CHARS = 600
 #: Pages after the first three get half of each budget: they are context, not the answer.
@@ -63,6 +72,9 @@ _LINK_LINE_CHARS = 240
 _WIKILINK = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]")
 # The person asking about themselves, the way an agent relays it (G169's forms, plus the possessives a question uses).
 _SELF_PHRASES = ("the owner", "the user", "the person", "owner s", "user s", "my", "me", "myself", "mine", "i")
+#: A citation names at most this many of its page's conversations: the ones this answer was grounded in (2026-10-18:
+#: the owner page's citation listed several hundred ids, every conversation that ever touched the page).
+MAX_CITED_EPISODES = 5
 
 ASK_SYSTEM_PROMPT = """You answer questions using ONLY the retrieved memory context below. \
 This is a personal knowledge graph; the context is the ONLY source of truth you may use. \
@@ -93,12 +105,44 @@ is background; structured claim validity takes precedence over it.
 is often among them. LINKED PEOPLE are people whose pages link to a retrieved entity or that \
 it links to; their ``linked`` lines say how. Use them to answer who is involved, and cite them \
 by their entity_id.
+8. WHAT WAS SAID quotes the conversations the entities cite, word for word, each line dated and \
+naming who spoke. Use it for detail the entities leave out and to check them, and cite the entity \
+whose claims or lines led there. Only the person's own words are the person's statements: words \
+of the assistant or of another person are theirs — say whose they are when you rely on them.
+9. Background lines marked ``said <day>``, claims (``valid_from``) and every quote carry the day they \
+were said. When two give different values of something that changes (a count, a time, a price, a \
+record, a status, a plan), the one said on the later day is the current value and the earlier one \
+is history — say which is newer. A quote is not newer for being quoted: a quote from an earlier day \
+never overrides a current claim or a line said later. When an undated line and a dated quote \
+disagree, give both with what you know of their days instead of choosing. Work out a relative time \
+("last week", "next month") against the day it was said, not today.
+10. A block COMPUTED FROM THE RECORD NOW (the WATCH HISTORY) was counted from the stored record when \
+this question was asked, and the record runs only through the last day it names: it is current \
+through that day and says nothing about later days. It outranks one kind of statement only: an \
+earlier statement about this memory system itself — that something was not yet imported, read, \
+processed or counted — which is about the system's state when it was said; where the block shows \
+the record, never repeat such a statement as current. The person's own words are never overridden \
+by it: what they say about days after the record's last day is newer than the record; use it for \
+those days and say where the record ends.
+11. OTHER CONVERSATIONS are lines found by searching every conversation for the question's words; no \
+entity cites them. They are the person's record word for word, with rule 8's speakers and rule 9's \
+days, but a shared word does not make a line about the question's subject: use a line only when it \
+plainly speaks of what the question asks (the same person, thing and event), say the day it was \
+said, and list its conversation id in ``used_conversations``. Lines that only share words are not an \
+answer; when nothing else answers, say what memory lacks as usual. When lines on the same subject were \
+said on different days, the later one carries what happened after the earlier: an outcome after a \
+plan, an agreed or final value after an asked or listed one — answer with the later and give the \
+earlier as history, never "the outcome is not recorded" when a later line states it. That holds only \
+within one subject: a question about one past occasion (a day it names, the first time, one \
+conversation) is answered from that occasion, and a later line about something else, or the same \
+words in another context, never replaces it or what the entities and WHAT WAS SAID already show.
 
 Return ONLY a JSON object with exactly these keys:
 {
   "answer": "natural-language answer grounded in the context",
   "confidence": 0.0,
   "used_entities": ["entity-id", "..."],
+  "used_conversations": ["ep_... id of an OTHER CONVERSATIONS line you used", "..."],
   "gaps": ["explicit gap statement", "..."]
 }"""
 
@@ -187,6 +231,7 @@ def _load_entity(memory_path: Path, entity_id: str) -> dict | None:
         "body": parsed.body or "",
         "aliases": [str(a).strip() for a in (fm.get("aliases") or []) if str(a or "").strip()],
         "summary": _page_summary(fm, parsed.body or ""),
+        "frontmatter": fm,
         "related": [str(r).strip() for r in (fm.get("related") or []) if str(r or "").strip()],
         "owner": fm.get("owner") is True,
     }
@@ -285,19 +330,26 @@ def _substring_match(memory_path: Path, query: str, top_k: int) -> list[dict]:
     return [hit for _, hit in scored[:top_k]]
 
 
+def _obsolete(rows: list) -> list:
+    return [c for c in rows if not is_record(c) and not is_event(c) and not is_current(c)]
+
+
+def _repeats(sentence: str, obsolete: list) -> bool:
+    """Does ``sentence`` repeat a closed claim's text or its literal value?"""
+    return any((c.text and c.text.casefold() in sentence.casefold()) or
+               (c.object_kind == "literal" and c.object and
+                re.search(r"(?<!\w)" + re.escape(c.object) + r"(?!\w)", sentence, re.IGNORECASE))
+               for c in obsolete)
+
+
 def _background(body: str, rows: list, *, include_history: bool) -> str:
     """Keep useful prose, excluding sentences that repeat an obsolete literal."""
     prose = strip_claims_block(body)
     if include_history:
         return prose
-    obsolete = [c for c in rows if not is_record(c) and not is_event(c) and not is_current(c)]
+    obsolete = _obsolete(rows)
     sentences = re.split(r"(?<=[.!?])\s+|\n", prose)
-    def repeats(sentence: str) -> bool:
-        return any((c.text and c.text.casefold() in sentence.casefold()) or
-                   (c.object_kind == "literal" and c.object and
-                    re.search(r"(?<!\w)" + re.escape(c.object) + r"(?!\w)", sentence, re.IGNORECASE))
-                   for c in obsolete)
-    return "\n".join(s for s in sentences if not repeats(s))
+    return "\n".join(s for s in sentences if not _repeats(s, obsolete))
 
 
 def _retrieved_entities(memory_path: Path, hits: list[dict], *, include_history: bool = False,
@@ -317,7 +369,7 @@ def _retrieved_entities(memory_path: Path, hits: list[dict], *, include_history:
             continue
         page_claims = parse_claims(loaded["body"])
         eligible = [c for c in page_claims if not is_record(c) and (include_history or is_current(c) or (is_event(c) and not c.superseded_by))]
-        terms = text_fold.subject_terms(query)
+        terms = _focus(text_fold.subject_terms(query), [loaded])
         eligible.sort(key=lambda c: -len(terms & text_fold.subject_terms(f"{c.text} {c.predicate} {c.object}")))
         if include_history:
             current = [c for c in eligible if is_current(c)]
@@ -327,6 +379,9 @@ def _retrieved_entities(memory_path: Path, hits: list[dict], *, include_history:
             eligible = [c for pair in zip(history, current) for c in pair] + history[len(current):] + current[len(history):]
         by_id = {c.id: c for c in page_claims}
         loaded["claims"] = [_claim_context(c, by_id) for c in eligible]
+        loaded["claim_rows"] = eligible
+        loaded["obsolete"] = [] if include_history else _obsolete(page_claims)
+        loaded["claim_hit"] = meta.get("claim_id")
         loaded["context_body"] = _background(loaded["body"], page_claims, include_history=include_history)
         if not eligible and not loaded["context_body"].strip():
             continue
@@ -392,10 +447,135 @@ def _header_lines(ent: dict, scale: float) -> list[str]:
     return lines
 
 
-def _build_prompt(query: str, entities: list[dict]) -> str:
-    terms = text_fold.subject_terms(query)
+def _focus(terms: set[str], entities: list[dict]) -> set[str]:
+    """The question's words less the retrieved pages' own names: "Caroline" is on every line of Caroline's page and
+    in every turn addressed to her, so it ranks nothing. A question made only of names keeps them."""
+    names: set[str] = set()
+    for ent in entities:
+        for name in (ent.get("entity_name"), ent.get("entity_id", "").replace("-", " "), *(ent.get("aliases") or [])):
+            names |= text_fold.subject_terms(str(name or ""))
+    return (terms - names) or terms
+
+
+def _said_days(rows) -> str:
+    """``said 2023-08-11, 2023-09-30`` — the days of the conversations a page line came from (its provenance rows),
+    the latest two; empty when the line cites none."""
+    days = sorted({d for d in (ask_sources.episode_day(getattr(ev, "episode", "")) for ev in rows or []) if d})
+    return ("said " + ", ".join(days[-2:])) if days else ""
+
+
+def _page_lines(ent: dict, terms: set[str], budget: int) -> tuple[str, list]:
+    """What of a page's prose fits ``budget``, item by item (``section_provenance.scan``): the article's lead, then
+    the items sharing the most of the question's words, in page order under their section, each with the days it
+    was said. Returns ``(text, pointers)`` — the pointers (``ask_sources.Pointer``) are where the chosen items came
+    from, weighted by the question's words each shares (0 for none), for :mod:`ask_sources` and the citation. A page
+    with no canonical section falls back to its paragraphs."""
+    if budget <= 0:
+        return "", []
+    body = ent.get("body", "") or ""
+    try:
+        items = section_provenance.scan(body)
+        provenance = section_provenance.matched(ent.get("frontmatter") or {}, body)
+    except Exception:  # noqa: BLE001 — a page that does not scan is read as paragraphs
+        items, provenance = {}, {}
+    rows = []
+    obsolete = ent.get("obsolete") or []
+    for section in _PROSE_SECTIONS:
+        for item in items.get(section, []):
+            text = item.text.strip()
+            if not text or (obsolete and _repeats(text, obsolete)):
+                continue
+            evs = (provenance.get(section, {}).get(item.key) or (None, []))[1]
+            rows.append({"section": section, "text": text, "evidence": evs,
+                         "score": len(terms & text_fold.subject_terms(text))})
+    if not rows:
+        return _prose_context(ent.get("context_body", ""), ent.get("summary", ""), terms, budget), []
+    chosen: set[int] = set()
+    used = 0
+    lead = next((i for i, r in enumerate(rows) if r["section"] == "article"), None)
+    if lead is not None:
+        chosen.add(lead)
+        used += min(len(rows[lead]["text"]), _LEAD_CHARS)
+    else:
+        # No article: the page's first items stand in for its lead, as the first paragraph always did.
+        for i, row in enumerate(rows):
+            if row["section"] != rows[0]["section"] or used + len(row["text"]) > _LEAD_CHARS:
+                break
+            chosen.add(i)
+            used += len(row["text"]) + 24
+    for i in sorted((i for i, r in enumerate(rows) if r["score"] > 0), key=lambda i: (-rows[i]["score"], i)):
+        if used >= budget:
+            break
+        if i in chosen:
+            continue
+        chosen.add(i)
+        used += min(len(rows[i]["text"]), _PARAGRAPH_CHARS) + 24
+    lines: list[str] = []
+    found: list = []
+    section = None
+    for i in sorted(chosen):
+        row = rows[i]
+        if row["section"] != section:
+            section = row["section"]
+            lines.append(f"{_SECTION_LABELS[section]}:")
+        limit = _LEAD_CHARS if i == lead and row["score"] <= 0 else _PARAGRAPH_CHARS
+        said = "" if section == "history" else _said_days(row["evidence"])
+        lines.append(f"- {'[' + said + '] ' if said else ''}{_clip(row['text'], limit)}")
+        # Every chosen item's conversations ground the page's citation; only the ones sharing the question's words
+        # (weight > 0) lead to WHAT WAS SAID (``ask_sources.gather`` skips weight 0).
+        found += ask_sources.pointers(row["evidence"], row["score"], text_fold.subject_terms(row["text"]))
+    return "\n".join(lines), found
+
+
+_ENVELOPE = frozenset({"id", "current", "validity", "valid_from", "valid_to", "text"})
+
+
+def _ground(grounds: dict[str, int], pointed: list) -> None:
+    for p in pointed:
+        grounds[p.episode] = max(grounds.get(p.episode, 0), p.weight)
+
+
+def _cited_episodes(ent: dict) -> tuple[list[str], int]:
+    """``(episodes, more)`` for a page's citation: the conversations this answer was grounded in — the ones whose
+    words reached the model first, then by the question's words the claim or line pointing there shares, newest first
+    — at most :data:`MAX_CITED_EPISODES`; with nothing pointed (claims with no evidence, a linked person), the page's
+    newest conversations. ``more`` counts the page's other conversations, for "+N more"."""
+    every = [str(e) for e in dict.fromkeys(ent.get("source_episodes") or []) if str(e or "").strip()]
+    grounds: dict[str, int] = ent.get("grounding") or {}
+    spoken: set[str] = ent.get("spoken") or set()
+    if grounds:
+        order = sorted(sorted(grounds, reverse=True), key=lambda ep: (ep not in spoken, -grounds[ep]))
+    else:
+        order = sorted(every, reverse=True)
+    shown = order[:MAX_CITED_EPISODES]
+    return shown, len(set(every) | set(grounds)) - len(shown)
+
+
+def _compact(claim: dict) -> dict:
+    """A claim's context without its empty optional fields; the validity envelope always stays whole."""
+    return {k: v for k, v in claim.items() if k in _ENVELOPE or (v is not None and v != "" and v != [])}
+
+
+def _conversation_refs(excerpts: list) -> dict[str, dict]:
+    """``{episode_id: {"title", "day"}}`` of the conversations the search leg showed, in the order first shown."""
+    out: dict[str, dict] = {}
+    for e in excerpts:
+        out.setdefault(e.episode, {"title": e.title, "day": e.day})
+    return out
+
+
+def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None = None,
+                  source_words: bool = False, owner_name: str | None = None,
+                  searched: "ask_sources.Searched | None" = None, shown: dict | None = None) -> str:
+    """The model's context. ``source_words`` adds WHAT WAS SAID (:mod:`ask_sources`): the conversations' own words
+    behind the claims and lines shown, read from ``memory_path`` now — off for a caller without the person's
+    verbatim words (a remote connector without ``sources``). ``searched`` (with ``source_words`` only) adds OTHER
+    CONVERSATIONS: the turns of the conversations the question's own words find, past what the pages point at;
+    ``shown`` receives ``{"conversations": {episode_id: {title, day}}}`` for them."""
+    terms = _focus(text_fold.subject_terms(query), [e for e in entities if not e.get("linked_from")])
     blocks: list[str] = []
     people: list[dict] = []
+    found: list = []
     for rank, ent in enumerate(entities):
         if ent.get("linked_from"):
             people.append(ent)
@@ -403,13 +583,28 @@ def _build_prompt(query: str, entities: list[dict]) -> str:
         scale = 1.0 if rank < _FULL_BUDGET_PAGES else 0.5
         claim_lines = []
         remaining = int(_CLAIMS_CHARS * scale)
-        for claim in ent.get("claims", []):
-            line = "claim: " + json.dumps(claim, ensure_ascii=False)
+        rows = ent.get("claim_rows") or []
+        # The conversations behind what this page put in front of the model, by the question's words they share:
+        # what its citation names (`_cited_episodes`), never every conversation that ever touched the page.
+        grounds: dict[str, int] = {}
+        for i, claim in enumerate(ent.get("claims", [])):
+            line = "claim: " + json.dumps(_compact(claim), ensure_ascii=False)
             if len(line) > remaining:
                 break
             claim_lines.append(line)
             remaining -= len(line) + 1
-        prose = _prose_context(ent.get("context_body", ""), ent.get("summary", ""), terms, int(_PROSE_CHARS * scale))
+            if i < len(rows):
+                row = rows[i]
+                words = text_fold.subject_terms(f"{row.text} {row.predicate} {row.object}")
+                weight = len(terms & words)
+                pointed = ask_sources.pointers(row.evidence, weight, words)
+                _ground(grounds, pointed)
+                if weight:
+                    found += pointed
+        prose, pointed = _page_lines(ent, terms, int(_PROSE_CHARS * scale))
+        _ground(grounds, pointed)
+        found += [p for p in pointed if p.weight > 0]
+        ent["grounding"] = grounds
         blocks.append(
             "\n".join(_header_lines(ent, scale))
             + ("\n" + "\n".join(claim_lines) if claim_lines else "")
@@ -421,6 +616,41 @@ def _build_prompt(query: str, entities: list[dict]) -> str:
         context += "\n\nLINKED PEOPLE (pages linked to the entities above):\n\n" + "\n\n".join(
             "\n".join(_header_lines(p, 0.5) + [f"linked: {line}" for line in p.get("linked_lines", [])])
             for p in people)
+    excerpts: list = []
+    if source_words and memory_path is not None and found:
+        try:
+            excerpts = ask_sources.gather(memory_path, query, found, owner_name=owner_name, terms=terms)
+            said = ask_sources.render(excerpts)
+        except Exception as exc:  # noqa: BLE001 — the words are context; their absence never fails an answer
+            logger.debug(f"ask source words skipped ({type(exc).__name__})")
+            excerpts, said = [], ""
+        spoken = {e.episode for e in excerpts}
+        for ent in entities:
+            ent["spoken"] = spoken & set(ent.get("grounding") or ())
+        if said:
+            context += ("\n\nWHAT WAS SAID (word for word, from the conversations the claims and lines above cite; "
+                        "oldest first):\n" + said)
+    if source_words and memory_path is not None and searched is not None and searched.episodes:
+        try:
+            more = ask_sources.gather_search(memory_path, query, searched, owner_name=owner_name,
+                                             taken=ask_sources.shown_turns(excerpts))
+        except Exception as exc:  # noqa: BLE001 — the words are context; their absence never fails an answer
+            logger.debug(f"ask search leg skipped ({type(exc).__name__})")
+            more = []
+        if more:
+            if shown is not None:
+                shown["conversations"] = _conversation_refs(more)
+            how = ("each names its conversation's id; oldest first, so the last line on a subject is the latest "
+                   "said")
+            if getattr(searched, "shape", None) == ask_sources.SHAPE_ENUMERATE:
+                how = ("the question asks for a count or a list, so past the best conversations comes one short "
+                       f"line from each further conversation holding its words, up to {ask_sources.ENUM_EPISODES} "
+                       "in all; each names its conversation's id and day, oldest first. Count each distinct event "
+                       "once — the same event told in two conversations is one — add what the entities above show, "
+                       "and say the count covers what memory shows")
+            context += ("\n\nOTHER CONVERSATIONS (word for word, found by searching every conversation for the "
+                        "question's words; no page above cites these lines, so they may be about something else; "
+                        f"{how}):\n" + ask_sources.render(more, with_episode=True))
     return (
         f"QUESTION:\n{query}\n\n"
         f"CURRENT LOCAL DAY: {current_day().isoformat()}\n"
@@ -598,12 +828,37 @@ def _linked_people(memory_path: Path, entities: list[dict], query: str, people: 
     return out
 
 
+def _owner_name(memory_path: Path, entities: list[dict], people: "_People | None") -> str | None:
+    """The name of the person this memory belongs to, for labelling their own words; ``None`` when the bank has no
+    owner page."""
+    for ent in entities:
+        if ent.get("owner"):
+            return ent["entity_name"]
+    owner = people.owner if people is not None else None
+    loaded = _load_entity(memory_path, owner) if owner else None
+    return loaded["entity_name"] if loaded else None
+
+
 def _clamp_confidence(value, default: float) -> float:
     try:
         conf = float(value)
     except (TypeError, ValueError):
         return default
     return max(0.0, min(1.0, conf))
+
+
+def _watch_history_lines(memory_path: Path, query: str) -> list[str]:
+    """The watch-history lines a question about watching is answered from; ``[]`` for any other question or on any
+    failure (the record is context, its absence never fails an answer)."""
+    try:
+        from api.services import watch_history
+
+        if not watch_history.is_about_watching(query, memory_path):
+            return []
+        return watch_history.lookup(memory_path, query)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"ask watch history skipped ({type(exc).__name__})")
+        return []
 
 
 def _gap_response(query: str) -> dict:
@@ -619,6 +874,7 @@ def _gap_response(query: str) -> dict:
             f"No entities in memory relate to: {query}",
         ],
         "used_entities": [],
+        "conversations": [],
     }
 
 
@@ -793,16 +1049,28 @@ def answer_query(
     retrieve_fn: RetrieveFn | None = None,
     llm_fn: LlmFn | None = None,
     no_engine: bool | None = None,
+    source_words: bool = True,
+    search_fn: Callable[[Path, str], "ask_sources.Searched"] | None = None,
 ) -> dict:
     """Synthesize an auditable, gap-aware answer grounded only in retrieved memory.
 
     ``no_engine``: the engine the caller resolved would call an API model with no key
     (``engine_readiness.key_missing``); ``None`` asks the environment's settings when no ``llm_fn`` is given.
 
+    ``source_words``: put the conversations' own words behind the shown claims and lines in front of the model
+    (:mod:`ask_sources`, read now, never stored). ``False`` for a caller that may not see the person's verbatim
+    words — a remote connector without the ``sources`` scope (G135 R-R22).
+
+    ``search_fn(memory_path, query)``: the conversations the question's words find (default
+    :func:`ask_sources.search`, the derived indexes only); their matching turns reach the model as OTHER
+    CONVERSATIONS, past what the pages point at — with ``source_words`` only. Injected by hermetic tests.
+
     Returns a dict with: ``answer``, ``confidence`` (0..1 float), ``citations``
     (entity-level, each ``{entity_id, entity_name, file_path, snippet,
-    source_episodes}``), ``gaps`` (explicit list of what could not be answered),
-    and ``used_entities`` (the retrieved ids).
+    source_episodes, source_episodes_more}`` — the conversations this answer was grounded in, at most
+    :data:`MAX_CITED_EPISODES`, and how many more the page has), ``gaps`` (explicit list of what could not be answered),
+    ``used_entities`` (the retrieved ids), and ``conversations`` (``{episode_id, title, day}`` of the OTHER
+    CONVERSATIONS the answer used).
     """
     memory_path = Path(memory_path)
     query = (query or "").strip()
@@ -836,18 +1104,67 @@ def answer_query(
         fallback_hits = _substring_match(memory_path, query, top_k)
         entities = _retrieved_entities(memory_path, fallback_hits, include_history=include_history, query=query)
 
+    # Owner ruling 2026-10-18: watch history is a record to look up. A question about watching reads it here,
+    # engine-free (`watch_history.lookup`) — the lines are what the platform recorded, never the person's words,
+    # and go to the model only for a caller that may see the record's own text (`source_words`).
+    watched = _watch_history_lines(memory_path, query) if source_words else []
+
+    # 2026-10-19: the conversations the question's own words find. Ask is page-first, and a conversation's words
+    # reached the model only through a shown page's evidence or provenance — when Sleep left the detail off the page,
+    # or the page holding it was not retrieved, it never arrived although episode search ranked that conversation in
+    # its top five (the owner's eval: 16 of 25 misses; their words reached the prompt for 5). Verbatim words, so
+    # only for a caller that may see them (`source_words`, R-R22).
+    searched = None
+    if source_words:
+        try:
+            searched = (search_fn or ask_sources.search)(memory_path, query)
+        except Exception as exc:  # noqa: BLE001 — the leg is context; its absence never fails an answer
+            logger.debug(f"ask search leg skipped ({type(exc).__name__})")
+
     # Honest-gap fast path: nothing to ground on => do NOT call the LLM, do NOT
     # hallucinate. This is the key auditable-synthesis behaviour.
-    if not entities:
+    if not entities and not watched and not (searched and searched.episodes):
         return _gap_response(query)
 
-    try:
-        entities = entities + _linked_people(memory_path, entities, query, people)
-    except Exception as exc:  # noqa: BLE001 — links are context; their absence never fails an answer
-        logger.debug(f"ask linked people skipped ({type(exc).__name__})")
+    if entities:
+        try:
+            entities = entities + _linked_people(memory_path, entities, query, people)
+        except Exception as exc:  # noqa: BLE001 — links are context; their absence never fails an answer
+            logger.debug(f"ask linked people skipped ({type(exc).__name__})")
 
     retrieved_ids = [e["entity_id"] for e in entities]
-    prompt = _build_prompt(query, entities)
+    shown: dict = {}
+    prompt = _build_prompt(query, entities, memory_path=memory_path, source_words=source_words,
+                           owner_name=_owner_name(memory_path, entities, people) if source_words else None,
+                           searched=searched, shown=shown)
+    conversations: dict[str, dict] = shown.get("conversations") or {}
+    if not entities and not watched and not conversations:
+        # The words found nothing a turn holds: still nothing to ground on.
+        return _gap_response(query)
+    if watched:
+        from datetime import datetime
+
+        # 2026-10-18: an agent's note from earlier the same day ("the history has not been read yet") outranked the
+        # record it was about. The block says when it was computed, so rule 9's "later wins" and rule 10 apply.
+        # Review of #341: an export is a snapshot that ends on its last watched day — the person's own later words
+        # ("I've been watching <channel> daily this month") are newer than it and are never overridden.
+        from api.services import watch_history
+
+        now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M")
+        try:
+            last = watch_history.last_day(memory_path)
+        except Exception:  # noqa: BLE001 — the header names the end when it can
+            last = None
+        through = (f"the record runs through {last.isoformat()} and is current only through that day — the "
+                   f"person's own words about later days are newer than it" if last else
+                   "the record is current only through its last watched day")
+        prompt += (f"\n\nWATCH HISTORY — COMPUTED FROM THE RECORD NOW ({now}, when this question was asked; "
+                   f"{through}). What was watched, as the platform recorded it: a record, not the person's words "
+                   "and not an entity. A line naming an episode in brackets is one watched day or a month's "
+                   "summary; a range's table is counted from the watched days. Answer questions about watching "
+                   "from it and say the days or the range. It outranks only an earlier statement about the system "
+                   "itself: never repeat that the history was not yet imported, read or counted:\n"
+                   + "\n".join(watched))
 
     from api.services import engine_readiness
 
@@ -858,13 +1175,14 @@ def answer_query(
     if no_engine:
         # Owner decision 2 (2026-10-16): with no engine here, say so — never a keyless call that fails into "could
         # not synthesize". The pages it found are still named.
-        names = ", ".join(e["entity_name"] for e in entities)
+        names = _found_names(entities, watched, conversations)
         return {
             "answer": f"{engine_readiness.ASK_NO_ENGINE} Relevant pages: {names}.",
             "confidence": 0.0,
             "citations": _citations_for(entities, retrieved_ids),
             "gaps": ["No engine to answer with on this machine."],
             "used_entities": retrieved_ids,
+            "conversations": _conversation_list(conversations, list(conversations)),
         }
     llm = llm_fn or _default_llm_fn()
     parsed: dict | None = None
@@ -880,7 +1198,7 @@ def answer_query(
     if parsed is None:
         # Degrade to an honest low-confidence answer over the retrieved entities
         # rather than inventing content from a broken model reply.
-        names = ", ".join(e["entity_name"] for e in entities)
+        names = _found_names(entities, watched, conversations)
         return {
             "answer": (
                 "I retrieved related memory but could not synthesize a reliable "
@@ -890,6 +1208,7 @@ def answer_query(
             "citations": _citations_for(entities, retrieved_ids),
             "gaps": ["Could not synthesize a grounded answer from the retrieved context."],
             "used_entities": retrieved_ids,
+            "conversations": _conversation_list(conversations, list(conversations)),
         }
 
     answer = str(parsed.get("answer", "")).strip()
@@ -897,6 +1216,15 @@ def answer_query(
     # which must not be iterated character-by-character into the flagship fields.
     gaps = _coerce_str_list(parsed.get("gaps"))
     cited_raw = _coerce_str_list(parsed.get("used_entities"))
+    # The OTHER CONVERSATIONS the model says it used — only ids that were shown. Omitted: every one shown (the same
+    # fallback as entities); an id put in used_entities instead is moved here, never read as an invented entity.
+    named = _coerce_str_list(parsed.get("used_conversations")) if "used_conversations" in parsed else None
+    used_conversations = [c for c in (named if named is not None else list(conversations)) if c in conversations]
+    used_conversations += [c for c in cited_raw if c in conversations and c not in used_conversations]
+    if watched or conversations:
+        # A watch-history line names its day's episode, an OTHER CONVERSATIONS line its conversation: an id taken
+        # from one is not an invented entity.
+        cited_raw = [c for c in cited_raw if not c.startswith("ep_")]
     # Only entities that were actually retrieved may be cited — drop any id the
     # model invented (anti-hallucination guard on the citation set).
     used = [eid for eid in cited_raw if eid in retrieved_ids]
@@ -926,6 +1254,7 @@ def answer_query(
             "citations": [],
             "gaps": gaps,
             "used_entities": [],
+            "conversations": [],
         }
 
     if not answer:
@@ -946,7 +1275,19 @@ def answer_query(
         "citations": _citations_for(entities, cite_ids),
         "gaps": gaps,
         "used_entities": cite_ids,
+        "conversations": _conversation_list(conversations, used_conversations),
     }
+
+
+def _found_names(entities: list[dict], watched: list[str], conversations: dict[str, dict]) -> str:
+    names = [e["entity_name"] for e in entities]
+    if conversations:
+        names.append(f"{len(conversations)} conversation(s)")
+    return ", ".join(names) or ("the watch history" if watched else "nothing")
+
+
+def _conversation_list(conversations: dict[str, dict], ids: list[str]) -> list[dict]:
+    return [{"episode_id": ep, **conversations[ep]} for ep in ids if ep in conversations]
 
 
 def _claim_evidence(body: str, claim_id: str) -> list[dict]:
@@ -971,12 +1312,14 @@ def _citations_for(entities: list[dict], cite_ids: list[str]) -> list[dict]:
         if ent is None or eid in seen:
             continue
         seen.add(eid)
+        episodes, more = _cited_episodes(ent)
         citation = {
             "entity_id": ent["entity_id"],
             "entity_name": ent["entity_name"],
             "file_path": ent["file_path"],
             "snippet": ent["snippet"],
-            "source_episodes": ent["source_episodes"],
+            "source_episodes": episodes,
+            "source_episodes_more": more,
         }
         # When the grounding came from a claim, the citation points at the claim
         # id + its valid-window + observer (M5e), not just the entity page.

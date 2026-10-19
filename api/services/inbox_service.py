@@ -22,9 +22,12 @@ from api.models.schemas import InboxCause, InboxCheck, InboxCheckFinding, InboxI
 from api.services import (
     bank_index,
     decay_policy,
+    entity_types,
     fact_sources,
+    inbox_actor,
     inbox_context,
     inbox_questions,
+    inbox_review,
     markdown_parser,
     predicates,
     source_check,
@@ -132,10 +135,13 @@ def _item_from_file(
         # G115 R6: Sleep's own proposal is served FIRST so the card's initial
         # highlight (and `1`) lands on it. The file on disk keeps its order —
         # this is a read-time projection, like `age_days` and `cause`.
+        # A decay question keeps its fixed order (Keep, then Archive — owner 2026-10-19): one key never means
+        # opposite things in the Inbox's card and the quick review; the marker still names Sleep's proposal.
         rec = recommended_key(kind, fm, raw_options)
-        raw_options = [o for o in raw_options if str(o.get("key")) == rec] + [
-            o for o in raw_options if str(o.get("key")) != rec
-        ]
+        if kind != "decay":
+            raw_options = [o for o in raw_options if str(o.get("key")) == rec] + [
+                o for o in raw_options if str(o.get("key")) != rec
+            ]
         extra["recommended_key"] = rec
         extra["entity_type"] = context.entity_type(entity_id)
         extra["cause"] = InboxCause(**context.cause_for(fm, raw_options).to_wire())
@@ -144,6 +150,15 @@ def _item_from_file(
             and predicates.cardinality(context.memory_path, str(fm.get("predicate", "") or "")) == "multi"
         )
         extra.update(_extractor_refs(fm, kind, context))
+        # The quick review (owner 2026-10-19): what the page is and how often it was said, and a fold in words —
+        # derived at read, never stored; a failure costs the field, never the card.
+        if kind in inbox_review.SUBJECT_KINDS:
+            try:
+                extra["subject"] = inbox_review.subject_for(entity_id, context)
+                if kind == "normalization":
+                    extra["fold"] = inbox_review.fold_for({**fm, "entity_id": entity_id}, context)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"review context skipped for {filepath.name}: {type(exc).__name__}")
         # G61 phase 2 S2: which rung could answer this, derived at read and
         # never stored (source_check). Read-only — nothing acts on it yet. A
         # failure degrades to no `check`, never to a hidden card: load_inbox
@@ -289,10 +304,12 @@ def _subject_gone(memory_path: Path, entity_id: str, kind: str) -> bool:
     filepath = resolve_entity_file(memory_path, entity_id)
     if filepath is None:
         return kind != "clarification"
-    try:
-        fm = markdown_parser.parse(filepath).frontmatter
-    except Exception:
+    # The page's header through `bank_index` (mtime-gated): a warm process re-parses no page that did not move
+    # (inbox lag, 2026-10-17). A malformed or vanished page is `None` — fail open, as a parse error always was.
+    page = bank_index.file(memory_path, "entities", filepath.name)
+    if page is None:
         return False
+    fm = page.frontmatter
     if kind == _NAME_QUESTION:
         # "What's the name of your partner?" is about who the person is, not whether the page stays live: a faded
         # page is still asked about (it may be the most important person in the owner's life). Only a dropped page
@@ -935,6 +952,8 @@ def _emit_resolution(
                     and (str(request.option_key or "").strip().lower() == rec or label == rec),
                     # G141 PJ-6 (R-PJB24): ids and enums only — never the sentence.
                     **(extra_refs or {}),
+                    # Ruling 29: Sleep's settle is recorded as Sleep's (`by: sleep` + its rule), never the person's.
+                    **inbox_actor.ledger_refs(),
                 },
             )
         )
@@ -1117,7 +1136,9 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
     session_id = _relay_id(request.session_id)
     quote_episode = (_write_relay_episode(settings.memory_path, parsed.frontmatter, item_id, words,
                                           relayed_by=relayed_by, session_id=session_id) if words else None)
-    token = _ANSWER_QUOTE.set([{"episode": quote_episode, "quote": words}] if quote_episode else None)
+    # Sleep's settle (ruling 29) sets the person's own located words before calling in; a request never does.
+    token = _ANSWER_QUOTE.set([{"episode": quote_episode, "quote": words}] if quote_episode
+                              else (_ANSWER_QUOTE.get() if inbox_actor.is_sleep() else None))
     try:
         entity_id, skipped, extra_lines, emit_extra, committed = await _route_resolution(
             kind, path, parsed, request, settings, item_id, label, synthesis, before)
@@ -1232,7 +1253,8 @@ async def _commit_answer(settings, item_id: str, kind: str, label: str, entity_i
     try:
         from api.services import state_dictionary
 
-        await state_dictionary.refresh_and_commit(settings.memory_path, settings)
+        if not inbox_actor.is_sleep():   # Sleep refreshes once, after its whole tending pass
+            await state_dictionary.refresh_and_commit(settings.memory_path, settings)
     except Exception as exc:
         logger.warning(f"state refresh after resolution skipped: {type(exc).__name__}: {exc}")
     out = {"status": "resolved", "id": item_id}
@@ -1289,7 +1311,16 @@ async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
     entity_id = parsed.frontmatter.get("entity_id", "")
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
 
-    if request.action == "keep_active" and entity_path.exists():
+    if request.action == "keep_active" and entity_path.exists() and inbox_actor.is_sleep():
+        # Ruling 29 (review 2026-10-17): Sleep's "still live" only stops the page reading as fading. It invents no
+        # mention (age counts from when it was said, never from when it was read), reopens no claim and lifts no
+        # confidence — that is the person's "still true" (G113 3c), theirs alone.
+        entity = markdown_parser.parse(entity_path)
+        entity.frontmatter["status"] = "active"
+        markdown_parser.write(entity_path, entity.frontmatter, entity.body)
+        path.unlink()
+
+    elif request.action == "keep_active" and entity_path.exists():
         entity = markdown_parser.parse(entity_path)
         entity.frontmatter["status"] = "active"
         entity.frontmatter["confidence"] = max(
@@ -1411,6 +1442,25 @@ async def _resolve_removal(path, parsed, request: InboxResolveRequest, settings)
 # `_defer` by `resolve` before any of these is read.
 _FOLLOWUP_KEYS = {"happened": ("done", "still", "stopped", "didnt"),
                   "milestone": ("done", "missed", "dropped"), "due": ("done", "missed", "dropped")}
+#: The answers Sleep may give a follow-up from the person's words (ruling 29 part 2; mirrors ``inbox_tend``).
+_SLEEP_FOLLOWUP_KEYS = {"happened": ("done", "still", "stopped"), "milestone": ("done", "missed", "dropped"),
+                        "due": ("done", "missed", "dropped")}
+
+
+def _said_day(items: list[dict] | None) -> date | None:
+    """The day the person's quoted words were said: their conversation's own date."""
+    from api.services import episode_ids
+
+    for item in items or []:
+        parsed = episode_ids.parse_episode_id(str((item or {}).get("episode") or ""))
+        if parsed is not None:
+            try:
+                return date.fromisoformat(parsed[0])
+            except ValueError:
+                continue
+    return None
+
+
 # The closed grammar a free-text answer is read with — a word, then an
 # optional day. Anything else on a thread is what happened, in the person's
 # words; anything else on a milestone is refused (it has only four answers).
@@ -1493,12 +1543,20 @@ async def _resolve_followup(path, parsed, request, settings, item_id: str,
         claim = _followup_claim(claims, str(fm.get("claim_id", "") or ""))
     settled = claim is None or bool(claim.superseded_by) or (
         predicate != "due" and (claim.valid_to is not None or (predicate == "happened" and claim.status != "ongoing")))
+    sleep_words = _ANSWER_QUOTE.get() if inbox_actor.is_sleep() else None
+    if settled and inbox_actor.is_sleep():
+        # Sleep never removes a question without its own commit: a thread settled since stays for the next look.
+        raise HTTPException(409, "The thread was settled since; nothing was written.")
     if settled:
         path.unlink(missing_ok=True)
         return entity_id, False, [], {}
 
     key = (request.option_key or "").strip().lower()
     answer = (request.answer or "").strip()
+    if inbox_actor.is_sleep() and (not key or key not in _SLEEP_FOLLOWUP_KEYS.get(predicate, ()) or not sleep_words):
+        # Ruling 29, part 2: Sleep answers a follow-up only with an option key, on the person's located words —
+        # never a withdrawal ("that didn't happen"), a moved date or a note of its own.
+        raise HTTPException(400, "Sleep settles a follow-up only by an option, on the person's own words.")
     tz_name = handshake.local_timezone() or "UTC"
     tz = when.zone(tz_name)
     today = date.today()        # the module's one clock (the tests pin it)
@@ -1510,13 +1568,21 @@ async def _resolve_followup(path, parsed, request, settings, item_id: str,
             raise HTTPException(400, f"Unknown optionKey {key!r} for {path.stem} — expected one of "
                                      f"{sorted((*allowed, 'remind_later'))}.")
         verb, day, basis = key, today, "person"
+        if sleep_words:
+            # Sleep's reading of the person's words: dated the day they said it, never the day Sleep read it.
+            said = _said_day(sleep_words)
+            if said is None:
+                raise HTTPException(400, "Sleep settles a follow-up only on the person's dated words.")
+            day, basis = said, "episode"
     elif answer:
         verb, day, basis, target = _read_followup_answer(answer, predicate, anchor)
     else:
         raise HTTPException(400, "Pick an answer, or say what happened")
 
     owner = _owner_observer(settings, memory)
-    who = dict(observer=owner, origin="clarification", authored_by="user", today=today, tz_name=tz_name)
+    who = dict(observer=owner, origin=inbox_actor.claim_origin(), authored_by=inbox_actor.claim_author(), today=today,
+               tz_name=tz_name)
+    said_with = {"evidence": sleep_words} if sleep_words else {}
     extra_paths: list[str] = []
     if predicate == "happened":
         if verb in ("done", "stopped", "still"):
@@ -1524,7 +1590,7 @@ async def _resolve_followup(path, parsed, request, settings, item_id: str,
                 memory, subject=entity_id, text=claim.text, status={"done": "done", "stopped": "dropped",
                                                                     "still": "ongoing"}[verb],
                 participants=claim.participants, settles=None if verb == "still" else claim.id,
-                day=day, date_basis=basis, **who)
+                day=day, date_basis=basis, **who, **said_with)
         elif verb == "didnt":
             result = progress.withdraw(memory, subject=entity_id, claim_id=claim.id, author="user",
                                        reason=FOLLOWUP_NOT_HAPPENED, origin="clarification", today=today)
@@ -1572,7 +1638,7 @@ async def _resolve_followup(path, parsed, request, settings, item_id: str,
             if predicate == "due" and verb == "done" and key and end:
                 day = date.fromisoformat(end)    # "Done (on its date)"
             result = progress.advance(memory, subject=entity_id, slug=slug, status=verb, on=day,
-                                      date_basis=basis, **who)
+                                      date_basis=basis, **who, **said_with)
     if result.get("action") == "error":
         raise HTTPException(400, result.get("error") or "That couldn't be saved")
     if result.get("action") == "not_found":
@@ -1594,6 +1660,22 @@ def _user_claim_id(entity_id: str, predicate: str, obj: str, today: str) -> str:
         f"{entity_id}\x00{predicate}\x00{obj}\x00user\x00{today}".encode("utf-8")
     ).hexdigest()[:8]
     return f"clm_{today}_user_{digest}"
+
+
+def said_on(today: str) -> str:
+    """The day an answer is TRUE from: today for the person's own answer; for Sleep's reading of the person's words,
+    the day they said them (ruling 29, "read on time": when a conversation is read never changes the result —
+    a March statement read in October is still March's). ``recorded_at`` stays today either way."""
+    if not inbox_actor.is_sleep():
+        return today
+    day = _said_day(_ANSWER_QUOTE.get())
+    return day.isoformat() if day is not None else today
+
+
+def _close_on(old, *, by, day: str) -> None:
+    """``_close_today`` at ``day`` — never before the claim's own ``valid_from`` (a statement older than the belief
+    it answers closes it no earlier than the belief began)."""
+    _close_today(old, by=by, today=max(day, str(old.valid_from or "")[:10] or day))
 
 
 def _close_today(old, *, by, today: str) -> None:
@@ -1739,13 +1821,13 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
                 continue
             if loser.valid_to is None:
                 if winner is not None:
-                    _close_today(loser, by=winner, today=today)
+                    _close_on(loser, by=winner, day=said_on(today))
                 else:
                     # The pick is claim-less, so there is no claim to point
                     # the supersession at — but the losing values are still
                     # no longer current, and leaving them open would just
                     # regenerate this question next cycle.
-                    loser.valid_to = today
+                    loser.valid_to = max(said_on(today), str(loser.valid_from or "")[:10] or today)
                 line = (
                     f"entities/{entity_id}.md: updated "
                     f"(source: {path.stem}, trigger: inbox/conflict/resolved)"
@@ -1753,10 +1835,13 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
                 # The manifest is a set of paths, not a per-claim tally.
                 if line not in extra_lines:
                     extra_lines.append(line)
-        # The chosen label IS the answer, claim-backed or not.
+        # The chosen label IS the answer, claim-backed or not. Sleep's reading of the person's words says the day
+        # they said it (ruling 29, read on time): the sentence is dated by the words, not by when they were read.
+        said = said_on(today)
         sentence = (
             f"{predicates.predicate_phrase(predicate, name, chosen['label'])} "
-            f"(confirmed by user on {today})."
+            f"(confirmed by {inbox_actor.confirmed_by()} on {today}"
+            + (f", as said on {said}" if said != today else "") + ")."
         )
 
     else:
@@ -1767,7 +1852,7 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
                     claim.context = f"as of {claim.valid_from or today}"
                 labels.append(claim.object)
             sentence = (
-                f"Both are true: {' and '.join(labels)} (confirmed by user on {today})."
+                f"Both are true: {' and '.join(labels)} (confirmed by {inbox_actor.confirmed_by()} on {today})."
                 if labels else sentence
             )
 
@@ -1785,20 +1870,20 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
                     observer=option_claims[0].observer if option_claims else _owner_observer(settings, settings.memory_path),
                     context=option_claims[0].context if option_claims else "general",
                     source_trust="user_stated",
-                    origin="clarification",
-                    authored_by="user",
+                    origin=inbox_actor.claim_origin(),
+                    authored_by=inbox_actor.claim_author(),
                     confidence=0.95,
-                    valid_from=today,
+                    valid_from=said_on(today),
                     recorded_at=today,
                     evidence=_quote_spans(settings.memory_path),
                 )
                 for loser in option_claims:
                     if loser.valid_to is None:
-                        _close_today(loser, by=new_claim, today=today)
+                        _close_on(loser, by=new_claim, day=said_on(today))
                 claim_list.append(new_claim)
                 sentence = (
                     f"{predicates.predicate_phrase(predicate, name, answer)} "
-                    f"(stated by user on {today})."
+                    f"(stated by {inbox_actor.confirmed_by()} on {today})."
                 )
             else:
                 for loser in option_claims:
@@ -2403,8 +2488,9 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                         predicate, entity.frontmatter.get("name", entity_id), answer_text
                     ),
                     subject=entity_id, predicate=predicate, object=answer_text, object_kind="literal",
-                    observer=_owner_observer(settings, settings.memory_path), source_trust="user_stated", origin="clarification",
-                    authored_by="user", confidence=0.95, valid_from=today, recorded_at=today,
+                    observer=_owner_observer(settings, settings.memory_path), source_trust="user_stated",
+                    origin=inbox_actor.claim_origin(), authored_by=inbox_actor.claim_author(), confidence=0.95,
+                    valid_from=said_on(today), recorded_at=today,
                     evidence=_quote_spans(settings.memory_path),
                 ))
                 body = write_claims(body, claims)
@@ -2416,9 +2502,9 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 body = entity.body.rstrip() + f"\n\n{answer_text}"
             markdown_parser.write(entity_path, entity.frontmatter, body)
         else:
-            entity_type = str(
+            entity_type = entity_types.in_set(str(
                 parsed.frontmatter.get("suggested_classification", "concept")
-            ).split(" ")[0].lower()
+            ).split(" ")[0])
             frontmatter = {
                 "name": entity_mention,
                 "type": entity_type,
@@ -2512,7 +2598,8 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             # sources and references follow. Any other item was asked about a mention: a page promoted under that
             # slug since is not what the person answered about, so it is left alone (the note above, as before).
             mention_path = (resolve_entity_file(settings.memory_path, entity_id)
-                            if entity_id and parsed.frontmatter.get("fold_page") is True else None)
+                            if entity_id and (parsed.frontmatter.get("fold_page") is True
+                                              or inbox_actor.folds_pages()) else None)
             if mention_path is not None and not mention_path.samefile(target_path):
                 try:
                     merged = merge_entities(settings.memory_path, loser_id=mention_path.stem,

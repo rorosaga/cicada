@@ -10,7 +10,12 @@ import UniformTypeIdentifiers
 ///
 /// **Where macOS keeps it.** `~/Library/Messages/NickNameCache/handledNicknamesKeyStore.db` holds
 /// `kvtable(key TEXT = the sender's handle, value BLOB = a keyed archive of a dictionary)`; among the archive's objects
-/// is the file name of the shared avatar (`<base64>-ad`), a PNG in the same folder.
+/// is the shared avatar (`<base64>-ad`), a PNG in the same folder. Measured 2026-10-19 on the current macOS: the record
+/// names it as an ABSOLUTE path (`imageFilePath`, `…/Library/Messages/NickNameCache/<base64 with "/" as "_">-ad`) inside
+/// a nested `NickNameImage` dictionary; an older record named the bare file. Both are accepted — the path only when its
+/// parent is exactly this folder, and then only its last component is used, through the same file checks. The
+/// record's `rid` (the same base64, with "/") is not turned into a file name: the path is what Messages itself wrote,
+/// and the "/" → "_" rule would be a guess at its encoding.
 ///
 /// **How it is read.** By the APP (which already holds Full Disk Access for `~/Library/Messages`), only for the handles
 /// of conversations the person ticked, and never in place: the key store and its `-wal`/`-shm` are copied into a
@@ -95,18 +100,33 @@ enum MessagesSharedPhotos {
             guard sqlite3_step(stmt) == SQLITE_ROW, sqlite3_column_type(stmt, 0) == SQLITE_BLOB else { continue }
             let count = Int(sqlite3_column_bytes(stmt, 0))
             guard count > 0, count <= maxArchiveBytes, let bytes = sqlite3_column_blob(stmt, 0) else { continue }
-            if let name = avatarName(inArchive: Data(bytes: bytes, count: count)) { out[handle] = name }
+            if let name = avatarName(inArchive: Data(bytes: bytes, count: count), folder: folder) { out[handle] = name }
         }
         return out
     }
 
     /// The avatar file name a record's keyed archive names: the first `$objects` string that is a plain file name
-    /// ending in `-ad`. Read as a property list only — nothing is unarchived.
-    static func avatarName(inArchive data: Data) -> String? {
+    /// ending in `-ad`, or an absolute path to one directly inside `folder` (`folderFileName`). Read as a property
+    /// list only — nothing is unarchived.
+    static func avatarName(inArchive data: Data, folder: URL = standardFolder) -> String? {
         guard let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil)
                 as? [String: Any],
               let objects = plist["$objects"] as? [Any] else { return nil }
-        return objects.lazy.compactMap { $0 as? String }.first(where: isAvatarName)
+        return objects.lazy.compactMap { $0 as? String }
+            .compactMap { isAvatarName($0) ? $0 : folderFileName($0, in: folder) }.first
+    }
+
+    /// An absolute path's file name, only when the path's parent is exactly `folder` (the macOS record's
+    /// `imageFilePath`). A path anywhere else — another folder, a `..` that climbs out, a relative path — is nil.
+    static func folderFileName(_ path: String, in folder: URL) -> String? {
+        guard path.hasPrefix("/"), path.hasSuffix(avatarSuffix), path.count <= 1024, !path.contains("\0") else { return nil }
+        let url = URL(fileURLWithPath: path, isDirectory: false)
+        let name = url.lastPathComponent
+        guard isAvatarName(name), url.standardizedFileURL.lastPathComponent == name,
+              url.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL.path
+                == folder.resolvingSymlinksInPath().standardizedFileURL.path
+        else { return nil }
+        return name
     }
 
     static func isAvatarName(_ name: String) -> Bool {

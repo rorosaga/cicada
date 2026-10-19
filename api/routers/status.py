@@ -173,6 +173,7 @@ async def get_status(settings: Settings = Depends(get_settings)):
         episodes=StatusEpisodes(
             unprocessed=unprocessed,
             last_ingested_at=last_ingested,
+            readable=debt.readable_count,
         ),
         last_sleep_at=last_sleep,
         next_sleep_at=next_sleep,
@@ -215,8 +216,10 @@ def _scan_bank(memory_path: Path) -> tuple[int, dict[str, int], int, str | None]
     total, by_kind = inbox_service.served_counts(memory_path)
     unprocessed = 0
     last_ingested = _last_ingested_at(memory_path)
+    from api.services import history_index
+
     for f in bank_index.files(memory_path, "episodes"):
-        if not f.frontmatter.get("processed", False):
+        if history_index.waits_for_model(f.frontmatter):   # index-only episodes never wait (2026-10-18)
             unprocessed += 1
     return total, by_kind, unprocessed, last_ingested
 

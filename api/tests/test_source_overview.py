@@ -77,7 +77,8 @@ def test_source_key_routes_mcp_and_session_episodes_to_a_harness_row():
     assert source_overview.source_key({"origin": "safari-bookmark"}) == "safari-bookmarks"
     assert source_overview.source_key({"origin": "claude-export", "source_id": "t"}) == "chat-export:claude"
     assert source_overview.source_key({"origin": "gemini-export", "source_id": "t"}) == "chat-export:gemini", "conversations.py:599 writes it"
-    assert source_overview.source_key({"origin": "tiktok-history"}) == "tiktok"
+    assert source_overview.source_key({"origin": "tiktok-history"}) == "tiktok-history", "history is never a save (#347)"
+    assert source_overview.source_key({"origin": "youtube-history"}) == "youtube-history"
     assert source_overview.source_key({"origin": "mystery-app"}) == "origin:mystery-app"
     assert source_overview.source_key({}) == "origin:unknown"
 
@@ -321,7 +322,7 @@ def test_overview_etag_recipe_is_unchanged_by_the_activity_field(client, bank):
     tag = ",".join(f"{k}:{a.is_connected()}" for k, a in sorted(ADAPTERS.items()))
     expected = sync_service.etag_for(
         bank, "sources", "episodes", "entities",
-        extra=f"overview|telegram:False|connectors:{tag}",
+        extra=f"{source_overview.SHAPE}|telegram:False|connectors:{tag}",
     )
     assert r.headers["etag"] == expected
     assert client.get("/sources/overview", headers={"If-None-Match": expected}).status_code == 304
@@ -345,3 +346,61 @@ def test_the_files_card_does_not_count_what_its_page_hides(bank):
     (bank / "entities" / "media-live.md").unlink()
     bank_index.invalidate()
     assert "files" not in _rows(bank)
+
+
+# --- Sources v3: saved on purpose vs captured (owner 2026-10-19) -------------------------------------------------
+
+
+def test_every_row_says_whether_the_person_saved_it_or_cicada_captured_it():
+    saved = {spec.id for spec in source_overview.CATALOG if source_overview.intent_of(spec.id) == "saved"}
+    assert {"chrome-bookmarks", "safari-bookmarks", "pinterest", "x", "youtube", "files"} <= saved
+    for captured in ("chat-export:claude", "safari-tabs", "chrome-tab-groups", "rss", "calendar-local", "imessage",
+                     "telegram", "wispr-flow", "notes"):
+        assert source_overview.intent_of(captured) == "captured", captured
+    assert source_overview.intent_of("harness:claude-code") == "captured"
+    assert source_overview.intent_of("folder:abc") == "captured"
+    assert source_overview.intent_of("origin:something-new") == "captured", "nothing says the person picked it"
+    assert source_overview.SAVED_SOURCES <= {spec.id for spec in source_overview.CATALOG}, "no stray id"
+
+
+def test_the_overview_carries_the_intent_on_the_wire(client):
+    r = client.get("/sources/overview")
+    assert r.status_code == 200
+    rows = r.json()["sources"]
+    assert rows and all(row["intent"] in source_overview.INTENTS for row in rows)
+
+
+def test_watch_history_is_captured_and_never_counted_as_saved(tmp_path):
+    """Review of #347: 30 days of YouTube history and no save read "YouTube · 30 saved" over an empty list. History is
+    its own captured row; a saved row counts what its list lists."""
+    m = tmp_path / "memory"
+    m.mkdir()
+    for d in range(1, 31):
+        _episode(m, f"ep_2026-09-{d:02d}_001", timestamp=f"2026-09-{d:02d}T09:00:00+00:00", origin="youtube-history")
+    bank_index.invalidate()
+    rows = _rows(m)
+    assert "youtube" not in rows, "no save, no YouTube row"
+    history = rows["youtube-history"]
+    assert history["intent"] == "captured" and history["episodes"] == 30 and history["items"] == 0
+    from api.services import channel_items
+    assert channel_items.known(m, "youtube") and channel_items.items(m, "youtube")["total"] == 0
+    days = channel_items.items(m, "youtube-history")
+    assert days["total"] == 30 and all(r["kind"] == "episode" for r in days["items"]), "its days open in the Reader"
+    assert days["items"][0]["day"] == "2026-09-30", "newest first"
+    assert not any("why" in r or "site" in r for r in days["items"]), "a watched day is never a save"
+
+
+def test_a_saved_row_without_a_channel_counts_its_saved_pages_like_its_list(tmp_path):
+    m = tmp_path / "memory"
+    m.mkdir()
+    for n, origin in enumerate(["youtube-playlist", "youtube-playlist", "youtube-history"]):
+        _episode(m, f"ep_2026-09-0{n + 1}_001", timestamp=f"2026-09-0{n + 1}T09:00:00+00:00", origin=origin)
+    (m / "entities").mkdir(exist_ok=True)
+    for name, status in (("media-a", "active"), ("media-b", "active"), ("media-c", "archived")):
+        (m / "entities" / f"{name}.md").write_text(
+            f"---\nid: {name}\ntype: media\nname: {name}\norigin: youtube-playlist\nstatus: {status}\n---\n", encoding="utf-8")
+    bank_index.invalidate()
+    youtube = _rows(m)["youtube"]
+    from api.services import channel_items
+    assert youtube["intent"] == "saved"
+    assert youtube["items"] == 2 == channel_items.items(m, "youtube")["total"], "the row's number is its list's"

@@ -228,7 +228,9 @@ def test_one_episode_per_day_a_reread_writes_nothing_and_a_rewatch_adds_its_time
     assert (first.days_created, first.added) == (2, 2)
     days = _days(memory)
     day = days["watch-history:youtube:2026-10-14"]
-    assert day.frontmatter["origin"] == "youtube-history" and day.frontmatter["processed"] is False
+    # Owner ruling 2026-10-18: a watched day is indexed, never queued for a model read.
+    assert day.frontmatter["origin"] == "youtube-history" and day.frontmatter["processed"] is True
+    assert day.frontmatter["processed_by"] == "index"
     assert day.frontmatter["id"].startswith("ep_2026-10-14_")
     assert day.frontmatter["videos"] == 1 and day.frontmatter["watched"][0]["times"] == ["2026-10-14T09:14:03+00:00"]
     assert "- 09:14 · Bridge design, part one — alice-example · https://www.youtube.com/watch?v=" in day.body

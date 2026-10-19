@@ -18,8 +18,11 @@ def test_the_eval_keeps_every_record_item_and_writes_articles_only_where_the_mat
     assert stats["bob-example"]["article_sections"] >= 1
     assert stats["gamma-tool"]["article_words"] == 0          # one conversation: a stub, no call
     calls = [c for b in articles["batches"] for c in [b["calls"]]]
-    assert sum(c.get("article", 0) for c in calls) == sum(c.get("orientation", 0) for b in today["batches"]
-                                                        for c in [b["calls"]])
+    # One call per page update, as today's orientation call — plus alpha-project's create, whose first conversation
+    # already gives the writer enough to connect (owner 2026-10-17: a new page is born an article); gamma-tool's does not.
+    assert calls[0] == {"article": 1}
+    assert sum(c.get("article", 0) for c in calls) == 1 + sum(c.get("orientation", 0) for b in today["batches"]
+                                                            for c in [b["calls"]])
     data["recorded_articles_ids"] = ["alpha-project", "bob-example", "gamma-tool"]
     result = ev.rebuild(tmp_path, today["bank"], data)
     assert result["preview"]["written"] == 2 and result["preview"]["invalid"] == 0

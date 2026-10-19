@@ -354,7 +354,7 @@ final class UpdateInstallerTests: XCTestCase {
         XCTAssertTrue(script.contains("tokenfile='/Users/x/.cicada/api_token'"))
         XCTAssertTrue(script.contains(#"printf 'header = "Authorization: Bearer %s"\n' "$(/bin/cat "$tokenfile")" | /usr/bin/curl -fsS --noproxy '*' --max-time 2 -K - "$statusurl""#))
         XCTAssertTrue(script.contains("7|28|52|56) return 1 ;;"), "no answer at all: no cycle is running there")
-        XCTAssertTrue(script.contains(#"*'"writing":true'*|*'"status":"running"'*) return 0 ;;"#))
+        XCTAssertTrue(script.contains(#"*'"writing":true'*|*'"status":"running"'*|*'"inboxTidy":true'*) return 0 ;;"#))
         XCTAssertTrue(script.contains("deferred='/Users/x/.cicada/update-deferred.json'"))
     }
 
@@ -456,7 +456,7 @@ final class UpdateInstallerTests: XCTestCase {
 
     func testTheHelperDefersWhileSleepIsWritingAndKeepsTheStagedCopy() throws {
         for body in [#"{"status":"running","writing":false}"#, #"{"status": "idle", "writing": true}"#,
-                     #"not json at all"#] {
+                     #"{"status": "idle", "writing": false, "inboxTidy": true}"#, #"not json at all"#] {
             try? fm.removeItem(at: dir.appendingPathComponent("Apps"))
             let plan = realPlan(folder: dir.appendingPathComponent("Apps"), pid: try deadPID(), status: try statusFile(body))
             try makeApp(at: plan.installedApp, marker: "old")
@@ -603,6 +603,12 @@ final class UpdateInstallerTests: XCTestCase {
         XCTAssertEqual(SleepProbe.classify(statusCode: 200, body: body(#"{"status":"running","writing":false}"#), error: nil),
                        .busy, "a drain between batches still stops if the backend is booted out")
         XCTAssertEqual(SleepProbe.classify(statusCode: 200, body: body(#"{"status":"idle","writing":true}"#), error: nil), .busy)
+        XCTAssertEqual(SleepProbe.classify(statusCode: 200, body: body(#"{"status":"idle","writing":false,"inboxTidy":true}"#),
+                                           error: nil), .busy, "a running inbox tidy is never cut short by an update")
+        // 2026-10-17: a paused run holds nothing in flight — its sidecar outlives the restart — so it never defers.
+        XCTAssertEqual(SleepProbe.classify(statusCode: 200, body: body(
+            #"{"status":"idle","writing":false,"drain":{"active":false,"finished":false},"paused":{"reason":"engine"}}"#),
+            error: nil), .idle)
         XCTAssertEqual(SleepProbe.classify(statusCode: 200, body: body(#"{"other":1}"#), error: nil), .ambiguous)
         XCTAssertEqual(SleepProbe.classify(statusCode: 401, body: body("{}"), error: nil), .ambiguous)
         XCTAssertEqual(SleepProbe.classify(statusCode: nil, body: nil, error: URLError(.cannotConnectToHost)), .noAnswer)

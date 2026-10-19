@@ -310,13 +310,15 @@ struct SleepRunRef: Codable, Equatable {
     /// `running | paused | finished | failed | ended`.
     var state: String?
     var startedBy: String
+    /// A scheduled run that stood in for a time the Mac slept or was off through: that time (owner 2026-10-19).
+    var catchUpFor: String?
 
     init(id: String, batches: Int = 0, filed: Int = 0, parked: Int = 0, frozen: Int = 0, pauses: Int = 0,
          readMs: Int = 0, pausedMs: Int = 0, startedAt: String? = nil, finishedAt: String? = nil,
-         state: String? = nil, startedBy: String = "user") {
+         state: String? = nil, startedBy: String = "user", catchUpFor: String? = nil) {
         self.id = id; self.batches = batches; self.filed = filed; self.parked = parked; self.frozen = frozen
         self.pauses = pauses; self.readMs = readMs; self.pausedMs = pausedMs; self.startedAt = startedAt
-        self.finishedAt = finishedAt; self.state = state; self.startedBy = startedBy
+        self.finishedAt = finishedAt; self.state = state; self.startedBy = startedBy; self.catchUpFor = catchUpFor
     }
 
     init(from decoder: Decoder) throws {
@@ -329,9 +331,11 @@ struct SleepRunRef: Codable, Equatable {
         finishedAt = (try? c.decodeIfPresent(String.self, forKey: .finishedAt)) ?? nil
         state = (try? c.decodeIfPresent(String.self, forKey: .state)) ?? nil
         startedBy = ((try? c.decodeIfPresent(String.self, forKey: .startedBy)) ?? nil) ?? "user"
+        catchUpFor = (try? c.decodeIfPresent(String.self, forKey: .catchUpFor)) ?? nil
     }
     enum CodingKeys: String, CodingKey {
         case id, batches, filed, parked, frozen, pauses, readMs, pausedMs, startedAt, finishedAt, state, startedBy
+        case catchUpFor
     }
 }
 

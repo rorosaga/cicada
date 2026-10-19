@@ -55,6 +55,8 @@ class SleepState:
     # questions answered by later conversation and closed without the user acting.
     questions_refreshed: int = 0
     organic_resolutions: int = 0
+    # Ruling 29: inbox questions Sleep settled this batch (answered in conversation, or assumed).
+    inbox_settled: int = 0
     # G141 PJ-0 (R-CS3): claims Stage 5.56 could neither write nor hold (PJ-0b)
     # because their subject has no page, and how many page-less subjects there
     # were. Counts only — G141's M3 measure, carried into the `sleep_run`
@@ -805,7 +807,8 @@ def _requeue_note(requeued: int, breaker: str | None) -> str:
     return f" — {requeued} episode(s) requeued ({breaker or 're-run to continue'})"
 
 
-def _stage1_failure_message(engine: str, engine_detail: str | None = None) -> str:
+def _stage1_failure_message(engine: str, engine_detail: str | None = None, *,
+                            cause: str | None = None, scheduled: bool = False) -> str:
     """The user-visible reason Stage 1 produced nothing — per engine.
 
     L3 (Task 4 review, handed to Task 5): Stage 1 swallows ``EngineThrottled``
@@ -856,7 +859,24 @@ def _stage1_failure_message(engine: str, engine_detail: str | None = None) -> st
     # a second "was anything configured" probe (R8). This branch must sit
     # AFTER the claude-cli/ollama checks above (unaffected by it) and BEFORE
     # the generic byok return below (the one it replaces for this one case).
-    if engine_detail and "no sleep engine chosen" in engine_detail.lower():
+    from api.services import engine_cause
+
+    def said(c: str) -> str:
+        # What the provider said, in plain words, with the fix (2026-10-17: a key that reached its own spending
+        # cap read as "check the model id" and the real cause never reached the person).
+        words = engine_cause.sentence(c, plan_hint=_plan_hint(scheduled))
+        return (f"Sleep stopped: {words[0].lower()}{words[1:]} "
+                "What was waiting is still waiting; Continue once it is fixed.")
+
+    nothing_chosen = bool(engine_detail and "no sleep engine chosen" in engine_detail.lower())
+    if cause in engine_cause.CAUSES:
+        # The provider's own answer outranks G117's guess below; a key it refused on an install that never chose
+        # an engine names both doors.
+        msg = said(cause)
+        if cause == "auth" and nothing_chosen:
+            msg += " Or pick another engine in Settings → Engines."
+        return msg
+    if nothing_chosen:
         return "Stage 1 extracted nothing — no engine chosen — pick one in Settings → Engines."
     return (
         "Stage 1 extracted nothing — every episode failed on the API engine "
@@ -1202,6 +1222,25 @@ async def _web_check_safely(memory_path: Path, settings: Settings, *, user_trigg
         await asyncio.to_thread(web_lookup.restore, memory_path, report)
 
 
+async def _tend_inbox_safely(memory_path: Path, settings: Settings, episodes: list[dict], *, run_policy: bool,
+                             engine: str | None) -> None:
+    """Ruling 29 — Sleep tends the inbox (`inbox_tend`): what this batch's conversations answered in the person's own
+    words, and (``run_policy``) the small stuff assumed. Counts only in the log. Never raises."""
+    try:
+        from api.services import inbox_tend
+
+        report = await inbox_tend.tend(memory_path, settings, episodes=episodes, run_policy=run_policy,
+                                       engine=engine)
+    except Exception as exc:  # noqa: BLE001 — tending never fails a batch that already committed
+        logger.warning(f"Inbox tending skipped: {type(exc).__name__}: {exc}")
+        return
+    _state.inbox_settled = report.settled
+    if report.settled or report.read or report.judged:
+        logger.info(f"Inbox tending: {report.settled} settled, {report.read} read in conversations, "
+                    f"{report.judged} duplicate pair(s) judged" + (f" — stopped ({report.stopped})"
+                                                                   if report.stopped else ""))
+
+
 async def _run_engine_independent_tail(
     memory_path: Path, settings: Settings, outcome: _StageOutcome, *, user_triggered: bool = True,
     skip_links: bool = False,
@@ -1322,11 +1361,90 @@ async def _run_engine_independent_tail(
             "media/feed/calendar commit"
         )
     await _warm_logos_safely(memory_path)
+    await _embed_indexed_episodes_safely(memory_path)
     if not outcome.questions_refreshed:
         # Staleness is a function of TIME, not of episodes: a cycle that never
         # reached Stage 5.56 must still escalate questions everyone stopped
         # talking about (and clear ones answered organically).
         await _refresh_questions_safely(memory_path, settings)
+
+
+async def _index_without_model_safely(memory_path: Path) -> None:
+    """Watch history and list saves are indexed, not consolidated (owner ruling 2026-10-18; ``history_index``).
+
+    At the start of every run that holds the bank — a drain, a one-batch cycle, the scheduler's tail-only run — and
+    before a drain freezes its ids: every queued index-only episode (a watched day, a month's summary, a save from a
+    platform's saved list) is marked read, ``processed_by: index``, and each month of watch history gets its
+    summary (``watch_history.rollup``), in ``cicada`` commits of at most ``COMMIT_STEP`` files. No model, no fetch.
+    Files dirty before it ran are skipped (an uncommitted capture keeps its own author); they stay out of every
+    model batch meanwhile (``history_index.waits_for_model``). A failed commit restores what it wrote. Never raises."""
+    from api.services import history_index, watch_history
+
+    skip: frozenset[str] = frozenset()
+    has_git = (memory_path / ".git").exists()
+    if has_git:
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Indexing without a model skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    try:
+        retired = await asyncio.to_thread(history_index.retire, memory_path, skip=skip)
+        months = await asyncio.to_thread(watch_history.rollup, memory_path, bank=memory_path.name)
+    except Exception as exc:
+        logger.warning(f"Indexing without a model failed: {type(exc).__name__}: {exc}")
+        return
+    paths = sorted(set(retired.paths) | {p for p in months.paths if p not in skip})
+    if retired.paths or months.created or months.updated:
+        logger.info(f"Indexed without a model: {len(retired.paths)} queued episode(s) marked read "
+                    f"({dict(sorted(retired.by_kind.items()))}), {months.created} month summary(ies) written, "
+                    f"{months.updated} updated")
+    if not paths or not has_git:
+        return
+    step = max(1, history_index.COMMIT_STEP)
+    chunks = [paths[i:i + step] for i in range(0, len(paths), step)]
+    today = date.today().isoformat()
+    for n, chunk in enumerate(chunks, start=1):
+        try:
+            async with _lock:
+                await git_service.commit_paths(
+                    memory_path, history_index.commit_message(chunk, today, part=n, parts=len(chunks)), chunk)
+        except Exception as exc:
+            rest = [p for c in chunks[n - 1:] for p in c]
+            logger.warning(f"Indexing commit failed — restoring {len(rest)} file(s): {type(exc).__name__}: {exc}")
+            await asyncio.to_thread(history_index.restore, memory_path, rest)
+            return
+
+
+async def _embed_indexed_episodes_safely(memory_path: Path) -> None:
+    """The vector half of "indexed, not consolidated" (owner ruling 2026-10-18): an index-only episode (a watched day,
+    a month's summary, a list save) never reaches a model batch, whose end is where the episode vectors are synced —
+    so the tail syncs them when one was written after the vector index last was. Incremental by content hash (only
+    the new passages are embedded), with the model the table already holds (``defer_model_switch``). A bank with no
+    vector index yet waits for its first sync. No git, no model call. Never raises."""
+    from api.services import history_index, vector_index
+
+    db = memory_path / vector_index.INDEX_DB_FILE
+    stamps = []
+    for p in (db, db.with_name(db.name + "-wal")):
+        try:
+            stamps.append(p.stat().st_mtime_ns)
+        except OSError:
+            continue
+    if not stamps:
+        return
+    since = max(stamps)
+
+    def sync() -> None:
+        if not any(f.mtime_ns > since and history_index.is_index_only(f.frontmatter)
+                   for f in bank_index.files(memory_path, "episodes")):
+            return
+        vector_index.SqliteVecIndexer(memory_path, defer_model_switch=True).index_episodes()
+
+    try:
+        await asyncio.to_thread(sync)
+    except Exception as exc:  # noqa: BLE001 — a derived index is rebuilt, never a reason for a run to fail
+        logger.warning(f"Episode vectors for indexed history not synced: {type(exc).__name__}")
 
 
 async def _flush_pending_commits_safely(memory_path: Path) -> None:
@@ -1346,8 +1464,11 @@ async def _flush_pending_commits_safely(memory_path: Path) -> None:
 
 async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True, drain: bool = False,
               continue_from: dict | None = None, only_ids: list[str] | None = None,
-              tail_only: bool = False) -> None:
+              tail_only: bool = False, catch_up_for: str | None = None) -> None:
     """Execute the 5-stage Sleep cycle pipeline.
+
+    ``catch_up_for`` (owner 2026-10-19): only ``sleep_catch_up`` passes it — the scheduled time the Mac slept or was
+    off through, as an aware ISO stamp. The run's summary keeps it so Past nights says the run caught up that time.
 
     ``tail_only`` (the scheduler, while a run is paused): read nothing — the paused run is
     the person's to continue or end — but still run the engine-free tail (the state refresh,
@@ -1434,6 +1555,11 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
     _state.read_by_origin = {}
 
     memory_path = settings.memory_path
+    if not tail_only:
+        # Any run that reads covers a scheduled time that came before it (`sleep_catch_up`'s "a run happened since").
+        from api.services import sleep_catch_up
+
+        sleep_catch_up.note_run_started(memory_path)
 
     # G74(a) — the models-used ledger is process-global still (L4, Task 4
     # review, handed to Task 5 — a disclosed, accepted same-alias limitation,
@@ -1463,13 +1589,16 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
             logger.warning("Sleep did not start: a write admitted before it still held the bank")
         else:
             await _flush_pending_commits_safely(memory_path)
+            # Owner ruling 2026-10-18: before anything is frozen, what is only ever looked up is marked read.
+            await _index_without_model_safely(memory_path)
         if window_refused:
             pass
         elif tail_only:
             _state.progress = "Tidying up while your run is paused"
         elif drain:
             outcome = await _drain(settings, cycle_id, memory_path, user_triggered=user_triggered,
-                                   continue_from=continue_from, only_ids=only_ids)
+                                   continue_from=continue_from, only_ids=only_ids,
+                                   **({"catch_up_for": catch_up_for} if catch_up_for else {}))
         else:
             outcome = await _run_batch(settings, cycle_id, memory_path, user_triggered=user_triggered)
     except Exception as e:
@@ -1557,6 +1686,7 @@ def _reset_batch_counters() -> None:
     _state.claims_waiting = 0
     _state.decay_nudges_deferred = 0
     _state.decay_nudges_refreshed = 0
+    _state.inbox_settled = 0
     _state.write_started = False
 
 
@@ -1684,7 +1814,7 @@ def _write_run_record(ds: "sleep_drain.DrainState", memory_path: Path, *, phase:
 
 async def _drain(
     settings: Settings, cycle_id: str, memory_path: Path, *, user_triggered: bool,
-    continue_from: dict | None = None, only_ids: list[str] | None = None,
+    continue_from: dict | None = None, only_ids: list[str] | None = None, catch_up_for: str | None = None,
 ) -> _StageOutcome:
     """A run that reads everything that was waiting when it began (owner,
     2026-09-29 — "it's just progress that cicada has to go through"; scheduled runs too
@@ -1753,6 +1883,7 @@ async def _drain(
         continue_after_reset=bool(opts.continue_after_reset and user_triggered),
         reserve_pct=opts.reserve_pct,
     )
+    ds.catch_up_for = catch_up_for if not user_triggered else None
     ds.memory_path = memory_path
     ds.origin_of = sleep_progress.origin_of_ids(memory_path, ids)
     ds.parked = {i: str((parked_map.get(i) or {}).get("reason") or "other") for i in ids if i in parked_now}
@@ -2153,6 +2284,14 @@ def _ae_breaker() -> str | None:
     return agent_engine.breaker_reason()
 
 
+def _plan_hint(scheduled: bool) -> bool:
+    """Whether "Scheduled runs may use my plan" is a fix worth naming: a scheduled run that ruling 4 kept on the
+    metered engine because that switch is off. Named, never flipped (ruling 4b)."""
+    from api.services import engine_select
+
+    return bool(scheduled) and _state.engine_detail == engine_select.SCHEDULE_DEGRADED
+
+
 def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainState") -> dict:
     """Stage 1's per-conversation hooks for a drain's batch: what started, what was
     read, what failed and whether that was the conversation's or the engine's, what
@@ -2164,7 +2303,7 @@ def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainSta
         live.read.add(ep["id"])
 
     def failed(ep: dict, exc: BaseException) -> None:
-        from api.services import engine_errors
+        from api.services import engine_cause, engine_errors
 
         if isinstance(exc, engine_errors.EngineTimeout):
             live.timeouts.add(ep["id"])
@@ -2180,6 +2319,13 @@ def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainSta
         if kind == "pause":
             live.engine_failed.add(ep["id"])
             live.pause_class = True
+            # A provider's refusal (a metered key: spending cap, bad key, unknown model, rate limit) is said in
+            # plain words with its fix; Cicada's own engine errors already are, and keep theirs.
+            cause = None if isinstance(exc, engine_errors.EngineError) else engine_cause.classify(exc)
+            if cause and live.engine_cause is None:
+                live.engine_cause = cause
+                live.pause_sentence = engine_cause.sentence(
+                    cause, plan_hint=_plan_hint(getattr(ds, "started_by", None) == "schedule"))
             live.pause_sentence = live.pause_sentence or str(exc).strip()[:300]
             if isinstance(exc, engine_errors.TRANSIENT):
                 live.transient_stop = live.transient_stop or sleep_drain.classify(exc)
@@ -2483,7 +2629,9 @@ async def _run_stages(
         _state.progress = f"{label}Could not read {len(unread_content)} conversation(s)"
         return _StageOutcome(unread=unread_content)
     if episodes and not extracted:
-        msg = _stage1_failure_message(_state.last_engine or "litellm", _state.engine_detail)
+        msg = _stage1_failure_message(_state.last_engine or "litellm", _state.engine_detail,
+                                      cause=live.engine_cause if live is not None else None,
+                                      scheduled=not user_triggered)
         # Fix round 1, L2: `engine_detail` is now set on EVERY resolved
         # cycle (Task 7), not just an agent-rung pre-flight abort — a plain
         # byok install's `engine_detail` is just "why we're on byok"
@@ -2885,6 +3033,14 @@ async def _run_stages(
         }),
     )
 
+    # Ruling 29 (owner, 2026-10-17): Sleep tends the inbox — after the batch's own commit, still inside its write
+    # window, so no person's answer can land between its read and its settle. Questions this batch's conversations
+    # touched are answered only by the person's own located words; the small stuff is assumed once per drain (the
+    # batch that runs decay). Each settle commits alone, as Sleep's, undoable under "Settled by Sleep".
+    if not _state.cancel_requested:
+        await _tend_inbox_safely(memory_path, settings, processed_episodes,
+                                 run_policy=batch is None or bool(batch.decay), engine=engine)
+
     # Logo warm-up and the connector poll (final-review H1: the poll must
     # run AFTER `_finalize`'s commit so its own `git add -A` finds a clean
     # tree instead of sweeping the cycle's own uncommitted entity writes
@@ -2947,7 +3103,8 @@ async def _run_stages(
 def _get_unprocessed_episodes(
     memory_path: Path, *, only_ids: set[str] | None = None, with_body: bool = True,
 ) -> list[dict]:
-    """Load all episodes with processed: false, sorted by frontmatter timestamp.
+    """Load all episodes with processed: false, sorted by frontmatter timestamp — never an index-only one (a watched
+    day, a month's summary, a list save: ``history_index.waits_for_model``, owner ruling 2026-10-18).
 
     ``only_ids`` keeps just those ids and ``with_body=False`` skips reading each
     body — both filter BEFORE ``f.body()``, so a drain's freeze and its per-batch
@@ -2960,9 +3117,12 @@ def _get_unprocessed_episodes(
     episode timestamps to set ``created`` and ``last_referenced``.
     """
     results: list[dict] = []
+    from api.services import history_index
+
     for f in bank_index.files(memory_path, "episodes"):
         fm = f.frontmatter
-        if fm.get("processed", False):
+        # Owner ruling 2026-10-18: watch history and list saves are indexed, never read by a model.
+        if not history_index.waits_for_model(fm):
             continue
         source = fm.get("source", "unknown")
         if only_ids is not None and str(fm.get("id", f.stem)) not in only_ids:
@@ -3039,44 +3199,61 @@ def _derive_origin(source: str | None) -> str:
     return s
 
 
-def list_all_episodes(memory_path: Path) -> list[dict]:
-    """Return every episode (processed + unprocessed), sorted by timestamp.
-
-    Used by ``GET /sleep/episodes`` so the Sleep dashboard can show both the
-    queue and recently processed episodes in the same chronology that the
-    sleep cycle consumes them in.
-    """
-    episodes_dir = memory_path / "episodes"
-    results: list[dict] = []
-    for filepath in episodes_dir.glob("*.md"):
-        try:
-            parsed = markdown_parser.parse(filepath)
-        except Exception as exc:  # noqa: BLE001 - one malformed episode must not abort the cycle
-            logger.warning(f"list_all_episodes: skipping malformed episode {filepath}: {exc}")
+def episode_headers(memory_path: Path, processed: bool | None = None) -> list[bank_index.IndexedFile]:
+    """Every episode's cached header (``bank_index``: one scandir, a YAML parse only for a file that changed), in the
+    cycle's chronology, optionally only the waiting (``processed=False``) or the read ones. No body is read: the Sleep
+    page asks for its handful of waiting rows out of thousands, and a body read per episode is what made
+    ``GET /sleep/episodes`` cost seconds on a large bank (2026-10-19)."""
+    out: list[bank_index.IndexedFile] = []
+    for f in bank_index.files(memory_path, "episodes"):
+        if processed is not None and bool(f.frontmatter.get("processed", False)) != processed:
             continue
-        fm = parsed.frontmatter
-        source = fm.get("source", "unknown")
-        results.append({
-            "id": fm.get("id", filepath.stem),
-            "timestamp": str(fm.get("timestamp", "") or ""),
-            "source": source,
-            # G9 origin, same derivation as `_get_unprocessed_episodes` — an
-            # explicit `origin:` field if present, else derived from the
-            # legacy `source`. Lets the Sleep debt breakdown (and any other
-            # consumer of this endpoint) group by the harness-normalized id.
-            "origin": fm.get("origin") or _derive_origin(source),
-            "title": fm.get("title"),
-            "body": parsed.body or "",
-            "processed": bool(fm.get("processed", False)),
-            # G114 R6: who marked it — "sleep" or an agent/harness name. None
-            # for every queued episode and every pre-G114 processed one.
-            "processed_by": (str(fm.get("processed_by")) if fm.get("processed_by") else None),
-            "filepath": filepath,
-            # What a click on the row copies and the day it shows (`episode_copy`, owner 2026-10-05).
-            "frontmatter": fm,
-        })
-    results.sort(key=_episode_sort_key)  # by instant, same key as the cycle's queue (G114 R2)
-    return results
+        out.append(f)
+    out.sort(key=lambda f: _episode_sort_key({"timestamp": str(f.frontmatter.get("timestamp", "") or ""),
+                                              "id": str(f.frontmatter.get("id", f.stem))}))
+    return out
+
+
+def episode_row(f: bank_index.IndexedFile) -> dict:
+    """One episode as ``list_all_episodes`` lists it; reads its body (the cached header's YAML is not parsed again)."""
+    fm = f.frontmatter
+    source = fm.get("source", "unknown")
+    return {
+        "id": fm.get("id", f.stem),
+        "timestamp": str(fm.get("timestamp", "") or ""),
+        "source": source,
+        # G9 origin, same derivation as `_get_unprocessed_episodes` — an explicit `origin:` field if present, else
+        # derived from the legacy `source`, so the Sleep debt breakdown groups by the harness-normalized id.
+        "origin": fm.get("origin") or _derive_origin(source),
+        "title": fm.get("title"),
+        "body": f.body() or "",
+        "processed": bool(fm.get("processed", False)),
+        # G114 R6: who marked it — "sleep" or an agent/harness name. None for every queued episode and every pre-G114
+        # processed one.
+        "processed_by": (str(fm.get("processed_by")) if fm.get("processed_by") else None),
+        "filepath": f.path,
+        # What a click on the row copies and the day it shows (`episode_copy`, owner 2026-10-05). The cached header:
+        # never an episode's `turns` sidecar, which neither reads.
+        "frontmatter": fm,
+    }
+
+
+def episode_rows(files) -> list[dict]:
+    """:func:`episode_row` for each file, skipping one that cannot be read — deleted or rewritten unreadable between
+    the listing and its body read (capture keeps running). One missing episode never fails the whole list."""
+    rows: list[dict] = []
+    for f in files:
+        try:
+            rows.append(episode_row(f))
+        except Exception as exc:  # noqa: BLE001 - one unreadable episode must not fail the listing
+            logger.debug(f"episode_rows: skipping {f.path.name}: {exc}")
+    return rows
+
+
+def list_all_episodes(memory_path: Path, processed: bool | None = None) -> list[dict]:
+    """Every episode (or only the waiting / read ones), sorted by timestamp — the chronology the cycle consumes them
+    in (G114 R2). ``GET /sleep/episodes`` pages :func:`episode_headers` itself so it reads only the bodies it sends."""
+    return episode_rows(episode_headers(memory_path, processed))
 
 
 def _load_existing_entities(memory_path: Path) -> list[dict]:

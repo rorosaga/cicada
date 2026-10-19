@@ -121,21 +121,6 @@ final class SourcesV2Tests: XCTestCase {
         }
     }
 
-    // MARK: SourceGridColumns (R-S1 — C2/C3)
-
-    func testColumnCountIsClampedAndShrinksWhenTheChromeIsZoomed() {
-        XCTAssertEqual(SourceGridColumns.count(width: 640, scale: 1.0), 2)
-        XCTAssertEqual(SourceGridColumns.count(width: 1200, scale: 1.0), 4)
-        // QA 2026-10-16 — a 1200 pt window leaves a ~1,070 pt grid: three columns, never four truncating cards.
-        XCTAssertEqual(SourceGridColumns.count(width: 1070, scale: 1.0), 3)
-        XCTAssertEqual(SourceGridColumns.count(width: 1310, scale: 1.0), 4, "a 1440 pt window keeps four")
-        XCTAssertEqual(SourceGridColumns.count(width: 1200, scale: 1.4), 2,
-                       "at 1.4× a card wants 406 pt: three would be the truncating 281 pt card of 1.0×")
-        XCTAssertEqual(SourceGridColumns.count(width: 300, scale: 1.0), 2, "floor is 2, never 1")
-        XCTAssertEqual(SourceGridColumns.count(width: 4000, scale: 1.0), 4, "ceiling is 4")
-        XCTAssertEqual(SourceGridColumns.count(width: 0, scale: 1.0), 2, "a zero width never crashes")
-    }
-
     // MARK: SourceDeltaText (R-S3 — two nouns, D3)
 
     func testDeltaNamesCapturesAndSaysWhenNothingIsNew() {
@@ -245,7 +230,7 @@ final class SourcesV2Tests: XCTestCase {
     /// a reviewer removing `EmptyStateView`'s action "because the header has one
     /// now" is a regression, not a tidy-up.
     func testTheEmptyStateKeepsItsOwnWayIn() throws {
-        let grid = try sourceFile("Views/Sources/SourceCardGrid.swift")
+        let grid = try sourceFile("Views/Sources/SourcesColumns.swift")   // Sources v3: the root is rows
         XCTAssertTrue(grid.contains("actionLabel: \"Add a source\""))
         XCTAssertTrue(grid.contains("settingsSection: .integrations"))
     }

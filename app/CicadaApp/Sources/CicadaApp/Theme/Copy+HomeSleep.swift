@@ -155,16 +155,22 @@ extension Copy {
             default: "Episode ID copied"
             }
         }
-        /// The row's tooltip and VoiceOver hint: what a click copies.
-        static func copyHint(_ kind: String?) -> String {
+        /// The row's context-menu item (owner 2026-10-19: copying is secondary; a click opens the Reader).
+        static func copyAction(_ kind: String?) -> String {
             switch kind {
-            case "conversation": "Click to copy the conversation ID"
-            case "link": "Click to copy the link"
-            case "links": "Click to copy the tab links"
-            case "path": "Click to copy the file path"
-            default: "Click to copy the episode ID"
+            case "conversation": "Copy Conversation ID"
+            case "link": "Copy Link"
+            case "links": "Copy Tab Links"
+            case "path": "Copy File Path"
+            default: "Copy Episode ID"
             }
         }
+        /// The row's tooltip lead and VoiceOver hint: a click opens what Cicada stored (owner 2026-10-19).
+        static func openHint(_ kind: String?) -> String {
+            kind == "conversation" ? "Click to read the conversation in the Reader" : "Click to read what was saved in the Reader"
+        }
+        /// DR-54: the machine id is reachable in `.help`, never on the row.
+        static func episodeIdHelp(_ id: String) -> String { "Episode \(id)" }
         static let failedTitle = "Sleep cycle error"
         static let cancelledTitle = "Cancelled"
         static let cancelledText = "Stopped cleanly before any writes — nothing was lost."

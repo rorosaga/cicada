@@ -52,71 +52,70 @@ struct ChannelSourceView: View {
                 if let channel { stateCard(channel) }
                 // The held answer's own Undo row keeps the section up after its last removal (R-DI16).
                 if !removals.isEmpty || inboxVM.heldRemoval(channel: source.channelId) != nil { deletionsSection }
-                let groups = SourceItemsGrouping.folders(items)
-                if groups.count > 1 || (groups.first?.folder != SourceItemsGrouping.noFolder) {
-                    folderCounts(groups)
-                }
-                if source.id == TabGroupWatcher.channel {
-                    // G160 — the groups open right now, read on this Mac; never read back from the bank.
-                    VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                        SectionLabel(Copy.tabGroupsTitle)
-                        if let tabGroups, tabGroups.enabled {
-                            ForEach(Array(tabGroups.groups.enumerated()), id: \.offset) { _, group in
-                                HStack(spacing: CicadaTheme.spacingSM) {
-                                    Tag(text: group.title.isEmpty ? Copy.tabGroupUnnamed : group.title,
-                                        dot: TabGroupColor.hue(group.color))
-                                    Text(Copy.tabsCount(group.tabs.count))
-                                        .font(CicadaTheme.metaFont).monospacedDigit()
-                                        .foregroundStyle(CicadaTheme.textSecondary)
-                                }
-                            }
-                            if tabGroups.groups.isEmpty {
-                                Text(Copy.tabGroupsNoneOpen)
-                                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
-                            }
-                        } else {
-                            Text(Copy.tabGroupsOffLine)
-                                .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
-                        }
-                    }
-                    // G161 — the groups Cicada brought in (each a snapshot the Reader opens), under what is open now.
-                    if let id = source.channelId { CapturedItemsList(channel: id) }
-                } else if items.isEmpty, let id = source.channelId {
-                    // G161 — a source whose items are not saved links (Notes, Calendar, a folder, Wispr Flow): what
-                    // came in, by name, is this page's content.
-                    CapturedItemsList(channel: id, style: .open)
-                } else if items.isEmpty {
-                    Text("No saved items from this source yet.")
-                        .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
-                } else if source.id == "safari-bookmarks" {
-                    // R-SR13 — Safari's own shape: Recently saved · Favorites · Other bookmarks, each item once (DR-38).
-                    let now = Date.now
-                    ForEach(SafariSections.groups(items), id: \.title) { group in
-                        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                            SectionLabel(group.title)
-                            VStack(spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {
-                                ForEach(group.items) { item in
-                                    FeedListRow(item: item, style: .triage, selected: false, now: now) {
-                                        router.routeToSavedItem(item.mediaEntityId)
-                                    }
-                                }
-                            }
-                        }
-                    }
+                if source.intent == .saved {
+                    // Sources v3 (owner 2026-10-19) — the second click's answer: everything saved from here, newest
+                    // first, each with the site's own mark, the day and why it was saved; paged by the server.
+                    CapturedItemsList(channel: source.itemsListId, style: .saved)
                 } else {
-                    // R-DL16 — a source's saved item opens in Sleep › Saved's detail column ("Open in Saved").
-                    let now = Date.now
-                    VStack(spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {
-                        ForEach(items) { item in
-                            FeedListRow(item: item, style: .triage, selected: false, now: now) {
-                                router.routeToSavedItem(item.mediaEntityId)
-                            }
-                        }
-                    }
+                    capturedContent
                 }
             }
             .padding(.horizontal, CicadaTheme.spacingXL)
             .padding(.bottom, CicadaTheme.spacingXL)
+        }
+    }
+
+    @ViewBuilder
+    private var capturedContent: some View {
+        let groups = SourceItemsGrouping.folders(items)
+        if groups.count > 1 || (groups.first?.folder != SourceItemsGrouping.noFolder) {
+            folderCounts(groups)
+        }
+        if source.id == TabGroupWatcher.channel {
+            // G160 — the groups open right now, read on this Mac; never read back from the bank.
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                SectionLabel(Copy.tabGroupsTitle)
+                if let tabGroups, tabGroups.enabled {
+                    ForEach(Array(tabGroups.groups.enumerated()), id: \.offset) { _, group in
+                        HStack(spacing: CicadaTheme.spacingSM) {
+                            Tag(text: group.title.isEmpty ? Copy.tabGroupUnnamed : group.title,
+                                dot: TabGroupColor.hue(group.color))
+                            Text(Copy.tabsCount(group.tabs.count))
+                                .font(CicadaTheme.metaFont).monospacedDigit()
+                                .foregroundStyle(CicadaTheme.textSecondary)
+                        }
+                    }
+                    if tabGroups.groups.isEmpty {
+                        Text(Copy.tabGroupsNoneOpen)
+                            .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
+                    }
+                } else {
+                    Text(Copy.tabGroupsOffLine)
+                        .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
+                }
+            }
+            // G161 — the groups Cicada brought in (each a snapshot the Reader opens), under what is open now.
+            if let id = source.channelId { CapturedItemsList(channel: id) }
+        } else if source.isWatchHistory {
+            // Review of #347 — the days watched, each opening in the Reader (one episode per day; never a save).
+            CapturedItemsList(channel: source.itemsListId, style: .open)
+        } else if items.isEmpty, let id = source.channelId {
+            // G161 — a source whose items are not saved links (Notes, Calendar, a folder, Wispr Flow): what
+            // came in, by name, is this page's content.
+            CapturedItemsList(channel: id, style: .open)
+        } else if items.isEmpty {
+            Text("No saved items from this source yet.")
+                .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
+        } else {
+            // R-DL16 — a source's saved item opens in Sleep › Saved's detail column ("Open in Saved").
+            let now = Date.now
+            VStack(spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {
+                ForEach(items) { item in
+                    FeedListRow(item: item, style: .triage, selected: false, now: now) {
+                        router.routeToSavedItem(item.mediaEntityId)
+                    }
+                }
+            }
         }
     }
 

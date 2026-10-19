@@ -743,6 +743,131 @@ owner's page is never a source of links (it links to everyone) nor a linked pers
 synthesis rule 7 says what `also called` and `LINKED PEOPLE` are. `_claim_context` takes an id map (a scan per claim
 was ~1.7 s on a 6,008-claim page). `api/tests/test_ask_hub_context.py` reproduces both at hub scale.
 
+**Ask reads pages item by item, and the conversations' own words behind them (G148/G118, 2026-10-17).** LoCoMo conv-26
+through Cicada scored J 52.5 against 95.0 for the same reader given the raw conversation; 17 of 19 wrong answers said
+memory lacked a detail that was either on the page past a cut or in the conversation a shown claim points at. Two
+causes: prose was taken a blank-line paragraph at a time, so a page's whole `## Key Facts` list was one paragraph
+clipped to 600 characters; and Ask never read an episode although every claim carries evidence spans into one. Now:
+- **Items, dated.** A page is read as `section_provenance.scan` cuts it — an article paragraph, a key fact, a history
+  line, a link — in page order under its section label: the article's lead (or, with no article, the first items up to
+  700 characters), then the items sharing the most of the question's words, within 4,800 characters for the first three
+  pages (half after). The question's words exclude the retrieved pages' own names ("Caroline" is on every line of
+  Caroline's page). Each item carries `[said <day>]`, the days of the conversations its provenance cites (the latest
+  two); open questions are never read as memory. Claims go in without their empty optional fields (the validity
+  envelope — id, current, validity, valid_from, valid_to, text — always whole), within 3,000 characters.
+- **WHAT WAS SAID** (`ask_sources`). The shown claims and items that share the question's words point at episodes:
+  a claim's evidence span (asserted; a `stale` span points at its episode only, never at other words) or an item's
+  provenance (the episode). At most 8 episodes, ranked by how many question words the pointing claim or item shares;
+  inside them, a turn is kept when it holds a pointed span or shares the question's words (minus scaffolding such as
+  "how long"), at most 10 excerpts and 6,000 characters, each turn clipped around the span or first match, a short
+  reply with the turn it answers and a question with its reply, then sorted oldest first. Every line names its day and
+  who spoke from the episode's own turn markers — the person (by the owner page's name), the assistant, or another
+  person in a message conversation; an unmarked episode an agent saved through a tool door (`source` mcp/cli) is "an
+  agent's saved note", never the person — and Cicada's gap line is never one. Read at answer time from bank files only
+  (`evidence.source_document`): nothing is written, stored on a claim, indexed or logged, the question included.
+- **Rules 8–9.** Only the person's own words are the person's statements (another speaker's are theirs); when two
+  dated lines, claims or quotes give different values of something that changes, the later is current and the
+  earlier history; a quote is not newer for being quoted and never overrides a current claim or a later line (the
+  owner's eval, 2026-10-17: 19 → 31 of 56 right, but contradictions 1 → 4, older excerpts against a newer page fact);
+  an undated line and a dated quote that disagree are both given; a relative time is resolved against its day.
+- **OTHER CONVERSATIONS — the search leg (2026-10-19).** Ask was page-first: a conversation's words arrived only
+  through a shown page's evidence or provenance, so when Sleep left a detail off the page (or the page holding it was
+  not retrieved) the words never came, although plain episode search found that conversation (the owner's eval:
+  25 misses about a known conversation; its words reached the prompt for 5, episode search ranked it top-5 for 16).
+  Now `ask_sources.search` also finds the conversations by the question's own words, from the derived indexes only
+  (no model, no write, the query never logged): the word index's passages holding **any** of the question's subject
+  words, ranked over the whole text (so the middle of a long export is as findable as its head), fused by rank with
+  the vector index's episode chunks. Each word is weighted by how rare it is across the bank's conversations; a word
+  in more than half of them (the person's own name, "plan") counts for nothing, and a question made only of such words
+  shows nothing. `gather_search` reads the best 4 conversations (index-only episodes skipped, ruling 30) and keeps the turns
+  holding the rarer words (a word as the index matched it: at a word's start, any ending), at most 6 excerpts and
+  3,000 characters, never a turn the page leg already showed — same speaker labels, days, clipping and context turns
+  as WHAT WAS SAID, each line naming its conversation (`[ep_…]`). Rule 11: a shared word does not make a line about
+  the question's subject; use one only when it plainly speaks of it, say its day, and list its id in
+  `used_conversations`. The answer's `conversations` (`{episode_id, title, day}`; `POST /ask` `conversations`,
+  `cicada_ask`'s "From conversations no page cites", the app's Ask "From conversations" rows that open the
+  Reader — `app.md`) names the ones used — only ids that were shown; the episode id is
+  what `cicada_write_claim` cites, so an agent can put the detail on a page. With no page retrieved, a conversation
+  that holds the words is no longer a gap (the model is called); nothing from either leg is still the honest gap
+  with no model call. Bounded: context build p50 +4–7 ms, prompt p50 +~1k characters on LoCoMo; on un-consolidated
+  LongMemEval_S chats it put a turn holding the answer in the prompt for 39 of 48 questions
+  (`docs/research/2026-10-17-memory-benchmarks.md`, "the search leg").
+- **Which conversation is current; counts and lists (2026-10-19, Ask depth).** The leg ranks and counts over the
+  conversations it can show: an index-only episode (a watched day, a list save — ruling 30) is marked in the word
+  index (`docs.meta.index_only`, schema 6) and is neither counted in a word's rarity nor ranked, so thousands of
+  watched days can't make a word look common or fill the ranking. A passage scores the weights of the question's
+  words it holds; a conversation ranks by its best passage, then by the weight of all the words it holds. Then the
+  question's own words decide its **shape** (`ask_sources.question_shape`, no model): a count or a list ("how many",
+  "how often", "list every", "which … have I") is `enumerate`; a day it names ("on 9 April 2025", "March 3", "in June
+  2024", "yesterday") or "the first time / originally / used to" is `anchored`; an outcome or a current value
+  ("final", "ended up", "eventually", "currently", "still", "agreed") is `latest`; anything else `lookup`. A
+  conversation is **on the subject** when it holds at least half the weight of the question's words the best
+  conversation holds, two of them when that one holds two or more, and ranks in the fused top 20 ("the gravel bike"
+  said again without "price" when the price was agreed is still the subject; a chat about any trip is not "my family
+  trip"). `lookup` keeps the newest on-subject conversation inside the 4 read (one slot), `latest` the newest two —
+  when several conversations on one subject match, the later one carries what happened (the outcome after the plan,
+  the agreed price after the listing) — and a kept conversation shows its best turn before the rest of the budget
+  fills by score. `anchored` keeps the conversations of the named day (at most 2) and never adds a later one; the
+  best-ranked conversation is never pushed out. `enumerate` reads the 4 exactly as any question does, then adds one
+  line (≤ 300 characters, no context turns) from each further on-subject conversation and each of the 4 the budget
+  left without a line, up to 10 conversations and 1,800 more characters; its header tells the model to count each
+  distinct event once and say the count covers what memory shows. A value question the gate takes for a count ("how
+  many stars do I need") so loses nothing. Lines stay oldest first. Rule 11 adds: lines on one subject on different
+  days — the later is what happened after (answer with it, the earlier as history, never "the outcome is not
+  recorded" when a later line states it); a question about one past occasion is answered from that occasion, and a
+  later line about something else never replaces it or what the entities and WHAT WAS SAID show. The page leg's WHAT
+  WAS SAID keeps its own budget and comes first; the search leg never repeats a turn it showed. The question is
+  embedded once per Ask: the page leg's claim search and this leg share the vector through the indexer's per-model
+  query cache (measured: one query embed per Ask). Measured: `docs/research/2026-10-17-memory-benchmarks.md`, "Ask
+  depth".
+- **The `sources` scope.** `answer_query(source_words=...)`, `POST /ask` `sourceWords` (default true): `cicada_ask`
+  passes `ctx.raw_excerpts`, so a remote connector without `sources` gets no conversation words in the prompt (R-R22)
+  — neither leg runs for it.
+- **Watch history (owner ruling 2026-10-18, `capture-and-sleep.md` "Indexed, not consolidated").** A question about
+  watching — a watch verb (watch/watched/watching), a platform (YouTube/TikTok), or a channel the record holds named
+  whole (`watch_history.is_about_watching`; never a bare "video" or "channel": "how many channels does our chat
+  workspace have?" keeps the honest gap, review of #341) — also reads the record, engine-free (`watch_history.lookup`):
+  a month it names answers with that month's summary, otherwise the watched videos whose title or channel holds its
+  words (whole words, the best-matching rows, dated, the newest 40), each line naming its day's episode. The lines go
+  in a WATCH HISTORY block after the entities, only with `source_words`, and the answer may rest on them alone (no
+  page retrieved is then no longer a gap); an `ep_` id the model lists is dropped from `used_entities`, never read
+  as an invented entity. `cicada_recall_detail` on a page whose name or alias is a channel in the history appends one
+  derived line (videos, days, first and last day; `watch_history.channel_line`), never stored and never a mention;
+  `cicada_timeline` counts a watched day on its day ("Watched N video(s) on YouTube") instead of as a capture.
+- **Ranges (2026-10-18).** A month worked and a range did not: on the owner's bank (99 month summaries, 2,532 watched
+  days) "which channels have I watched the most this year?" answered "no per-channel counts exist". `asked_span` reads
+  the range in English, deterministically — since/after X, between/from X and/to Y (a day, a month by ISO or name, a
+  year), the last N days/weeks or calendar months/years (the same day N months back), this/last year/month/week, a
+  named year (several: first to last), ever/all time — and a question asking "the most", how many/often, or when
+  something was first/last watched with no range counts all time. A named month with "this/last year" ("in March last
+  year") is that month of that year, read from its summary. `summarize` counts the range from the watched days themselves (not by adding month summaries,
+  whose lists stop at 15 and under-count a steady channel), with no model, into one table: totals, the 20 channels
+  watched most (videos, days, weeks, first and last day), the 10 come back to in the most weeks, the 10 videos watched
+  on the most days, a line per month (up to two years) or per year with its top channels (at most 24), and for up to 5
+  channels the question names (every word of the channel's name in the question, never fuzzy) their first and last
+  watch in the range; then at most 15 watched videos matching the question's other words. The rows come from one
+  cached frontmatter read per bank, refreshed when a day file moves. Size does not depend on the range: ~4–6k
+  characters and ~0.1 s warm for 50k synthetic rows over 2,532 days (cold ~1.5 s, the bank's frontmatter scan).
+- **The computed record outranks an earlier note about the system — and nothing else (2026-10-18).** The same answer
+  quoted an agent's saved note from earlier that day ("the history had not yet been read by Sleep") as current: the
+  block carried no time, so rule 9's "later wins" could not order a same-day note against it. The block is now headed
+  COMPUTED FROM THE RECORD NOW with the minute it was counted and the record's last watched day
+  (`watch_history.last_day`): an export is a snapshot, current only through that day. Synthesis rule 10: the block
+  outranks only an earlier statement about the memory system's own state (not yet imported, read, processed or
+  counted), never repeated as current where the block shows the record; the person's own words are never overridden
+  by it — what they say about days after the record ends is newer and is used for those days. A prompt rule, not a
+  filter: the note is a real conversation the answer may still need, and only the model can tell a system-state
+  sentence from the person's own words.
+- **Citations name what grounded the answer (2026-10-18).** A citation's `source_episodes` was the page's whole list:
+  on the owner's page, several hundred ids, every conversation that ever touched it. It is now at most 5
+  (`ask_service.MAX_CITED_EPISODES`): the conversations behind the claims and items this answer put in front of the
+  model — those whose words reached WHAT WAS SAID first, then by the question's words the pointing claim or item
+  shares, newest first — or, with nothing pointed (claims without evidence, a linked person), the page's newest; and
+  `source_episodes_more` (`sourceEpisodesMore` on `POST /ask`) counts the rest. `cicada_ask` renders
+  `(episodes: a, b +N more)`.
+- **Cost.** On the benchmark bank the context build is ~20 ms (p95 ~30 ms, warm); the prompt grew from ~6–8k to
+  ~8–17k characters. `api/tests/test_ask_source_words.py`.
+
 **Ask grounding (G93/G118, 2026-10-07).** `/ask` and `cicada_ask` use the same
 validity-aware context. Each structured claim sent to synthesis has its id,
 observer/trust, current flag, start, close, stated end and successor; historical

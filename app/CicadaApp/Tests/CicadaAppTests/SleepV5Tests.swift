@@ -841,3 +841,34 @@ final class PriceLintTests: XCTestCase {
         XCTAssertEqual(Set(renderers), ["EngineQuickMenu.swift", "SleepRunDetails.swift"])
     }
 }
+
+/// Owner 2026-10-19 — a scheduled run that stood in for a time the Mac slept or was off through says so on its Past
+/// nights row, in plain words.
+final class SleepCatchUpRowTests: XCTestCase {
+    private let utc = TimeZone(identifier: "UTC")!
+
+    func test_aCatchUpRunSaysWhichTimeItCaughtUp() throws {
+        let json = #"{"id":"sleep_x","startedBy":"schedule","startedAt":"2026-10-19T08:12:00+00:00","#
+            + #""state":"finished","catchUpFor":"2026-10-19T03:00:00+00:00"}"#
+        let ref = try JSONDecoder().decode(SleepRunRef.self, from: Data(json.utf8))
+        XCTAssertEqual(ref.catchUpFor, "2026-10-19T03:00:00+00:00")
+        XCTAssertEqual(RunPresentation.catchUp(ref, timeZone: utc), "Missed 3:00 AM — caught up at 8:12 AM")
+        var failed = ref
+        failed.state = "failed"
+        XCTAssertEqual(RunPresentation.catchUp(failed, timeZone: utc), "Missed 3:00 AM — tried at 8:12 AM")
+        var nextDay = ref
+        nextDay.catchUpFor = "2026-10-18T03:00:00+00:00"
+        nextDay.startedAt = "2026-10-19T01:05:00+00:00"
+        XCTAssertEqual(RunPresentation.catchUp(nextDay, timeZone: utc), "Missed Oct 18, 3:00 AM — caught up at 1:05 AM")
+    }
+
+    func test_anyOtherRunSaysNothing() throws {
+        XCTAssertNil(RunPresentation.catchUp(SleepRunRef(id: "a", startedAt: "2026-10-19T03:00:00+00:00",
+                                                         startedBy: "schedule"), timeZone: utc), "an on-time run")
+        XCTAssertNil(RunPresentation.catchUp(SleepRunRef(id: "b", startedAt: "2026-10-19T08:12:00+00:00",
+                                                         catchUpFor: "2026-10-19T03:00:00+00:00"), timeZone: utc),
+                     "only a scheduled run catches up")
+        let older = try JSONDecoder().decode(SleepRunRef.self, from: Data(#"{"id":"c","startedBy":"schedule"}"#.utf8))
+        XCTAssertNil(older.catchUpFor, "an older backend sends none")
+    }
+}

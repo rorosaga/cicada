@@ -10,14 +10,18 @@ import Observation
 /// running without waiting on its own network round-trip, and as an extra
 /// signal (alongside its own poll) for noticing the running → idle edge.
 /// `episodes`/`schedule` have no Store domain (§brief) — those stay plain
-/// `APIClient` fetches.
+/// `APIClient` fetches (`episodes` revalidated with its ETag, held in memory).
 @Observable
 @MainActor
 final class SleepViewModel {
     private let store: Store
 
     var status: SleepStatusResponse?
+    /// The episodes still waiting for Sleep (`GET /sleep/episodes?processed=false`), oldest first. Read ones are never
+    /// fetched here: the page shows only what waits (2026-10-19 — every episode was 4.5 MB per load on a large bank).
     var episodes: [EpisodeQueueItem] = []
+    /// The ETag `episodes` arrived under; `load()` sends it back and a 304 keeps the rows. Cleared on a bank switch.
+    private var episodesETag: String?
     var schedule: ScheduleConfig = ScheduleConfig(mode: "manual", hour: 3, minute: 0)
     /// R-IB20 — `schedule` starts as a placeholder `manual`; this turns true
     /// only once the real one arrived (`load()`) or was written
@@ -137,6 +141,13 @@ final class SleepViewModel {
     /// Defaults to the real `PUT /sleep/schedule` call.
     private let putSchedule: (ScheduleConfig) async throws -> ScheduleConfig
 
+    /// Injectable, same reasoning as `fetchSleepStatus`: `load()` (which the poll loop's close-out awaits before
+    /// `onCycleCompleted`) was the last path in this view model that always reached the live backend, so a unit
+    /// test's timing depended on how long the running bank took to list its episodes. Defaults to the real
+    /// `GET /sleep/episodes?processed=false` (with the held ETag) and `GET /sleep/schedule` calls.
+    private let fetchEpisodes: (String?) async throws -> Conditional<[EpisodeQueueItem]>
+    private let fetchSchedule: () async throws -> ScheduleConfig
+
     /// True from the moment `cancel()` is called until the poll loop
     /// observes the cycle has actually stopped (whether because of the
     /// cancel or otherwise) — cooperative cancellation means the backend
@@ -208,8 +219,16 @@ final class SleepViewModel {
         },
         fetchRun: @escaping (String) async throws -> SleepRunDetail = {
             try await APIClient.shared.fetchSleepRun($0)
+        },
+        fetchEpisodes: @escaping (String?) async throws -> Conditional<[EpisodeQueueItem]> = {
+            try await APIClient.shared.fetchEpisodeQueue(etag: $0)
+        },
+        fetchSchedule: @escaping () async throws -> ScheduleConfig = {
+            try await APIClient.shared.fetchSchedule()
         }
     ) {
+        self.fetchEpisodes = fetchEpisodes
+        self.fetchSchedule = fetchSchedule
         self.requestEnd = requestEnd
         self.requestRetry = requestRetry
         self.fetchRunOptions = fetchRunOptions
@@ -248,16 +267,13 @@ final class SleepViewModel {
 
     var lastError: String? { status?.error }
 
+    /// The waiting rows. Still filtered: an older backend ignores `processed=false` and sends every episode.
     var queuedEpisodes: [EpisodeQueueItem] {
         episodes.filter { !$0.processed }
     }
 
-    var processedEpisodes: [EpisodeQueueItem] {
-        episodes.filter { $0.processed }
-    }
-
-    /// Load everything the Sleep dashboard needs: current status, the full
-    /// episode list (queued + processed), and the persisted schedule.
+    /// Load everything the Sleep dashboard needs: current status, the
+    /// episodes still waiting, and the persisted schedule.
     ///
     /// If the Store's own `/status` snapshot already shows a cycle running
     /// (pushed over SSE, or hydrated from disk), start polling immediately
@@ -278,8 +294,8 @@ final class SleepViewModel {
         }
 
         async let statusTask = fetchSleepStatus()
-        async let episodesTask = APIClient.shared.fetchEpisodeQueue()
-        async let scheduleTask = APIClient.shared.fetchSchedule()
+        async let episodesTask = fetchEpisodes(episodesETag)
+        async let scheduleTask = fetchSchedule()
         // `loadHistory()` does its own guarding against `loadToken` (reading,
         // never bumping, it — only `load()` mints a new generation) rather
         // than being raced through a fourth do/catch here, so it can also be
@@ -310,7 +326,10 @@ final class SleepViewModel {
         }
         do {
             let e = try await episodesTask
-            if token == loadToken { episodes = e }
+            if token == loadToken, let rows = e.value {
+                episodes = rows
+                episodesETag = e.etag
+            }
         } catch {
             if token == loadToken { errorMessage = "Episodes: \(error.localizedDescription)" }
         }
@@ -563,6 +582,9 @@ final class SleepViewModel {
     /// options are read. Bumping `loadToken` drops any fetch still in flight for the old bank.
     func bankChanged() async {
         loadToken &+= 1
+        // The waiting rows (and their tag) belong to the bank they were read in.
+        episodes = []
+        episodesETag = nil
         runDetails = [:]
         runDetailKeys = [:]
         queue = nil

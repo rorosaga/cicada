@@ -36,7 +36,7 @@ UNREAD_REASONS = ("empty_answer", "timed_out", "unparseable", "refused", "other"
 #: ledger row carries); the wire adds them up.
 CUMULATIVE_COUNTERS = (
     "entities_created", "entities_updated", "relationships_created", "skills_detected",
-    "episodes_processed", "episodes_requeued", "questions_refreshed", "organic_resolutions",
+    "episodes_processed", "episodes_requeued", "questions_refreshed", "organic_resolutions", "inbox_settled",
 )
 
 #: A conversation that fails for its own reasons gets this many tries before it is parked.
@@ -75,6 +75,7 @@ class BatchLive:
     skipped: set[str] = field(default_factory=set)           # never started: the reserve line said stop
     pause_class: bool = False                                # some failure was the engine's, not the conversation's
     pause_sentence: str | None = None
+    engine_cause: str | None = None                          # what the provider said it was (``engine_cause.CAUSES``)
     transient_stop: DrainStop | None = None           # discard this batch before its first write
     timeouts: set[str] = field(default_factory=set)    # compare episode-specific failures across Continues
     unnamed_failed: set[str] = field(default_factory=set)  # CLI rejected this input without a classified cause
@@ -122,6 +123,7 @@ class DrainState:
     arrived_since: int | None = None
     # --- Sleep page v5 ---------------------------------------------------
     started_by: str = "user"                              # user | schedule
+    catch_up_for: str | None = None                       # a schedule's missed time this run caught up (`sleep_catch_up`)
     first_run: bool = False                               # no earlier Sleep commit in this bank
     calls: int = 0                                        # engine calls made in this run; never decreases
     started_mono: float = field(default_factory=time.monotonic)

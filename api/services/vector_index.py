@@ -48,7 +48,10 @@ _warned_wal_failure = False
 
 # Episode bodies are split into overlapping passages before embedding so a
 # single multi-thousand-token conversation isn't embedded as one vector.
-EPISODE_CHUNK_CHARS = 4000
+# Sized to what the search models read (2026-10-19): both on-device models (multilingual-e5-small, EmbeddingGemma 2)
+# embed a text's first 512 tokens, about 2,000 characters of English, so a 4,000-character passage left roughly half
+# of itself unread (measured: docs/research/2026-10-17-memory-benchmarks.md, "Ask depth").
+EPISODE_CHUNK_CHARS = 1600
 
 # Audit 2026-10-05 P2-8: one query embedding per model, reused by every search
 # that asks within a minute — MCP recall's entity and episode legs, a multi-kind
@@ -121,6 +124,14 @@ def _current_status(path: Path) -> str | None:
         return None
     return str(fm.get("status", "active") or "active")
 EPISODE_CHUNK_OVERLAP = 200
+#: How a table's episode vectors were cut, recorded beside them (``chunks:episodes``). A table cut another way is
+#: re-cut by the background re-embed, exactly like a model change (``embedding_models.pending_switch``) — never by
+#: Sleep's own sync, which keeps the recorded layout meanwhile, so recall answers from the old table until the new one
+#: commits.
+EPISODE_CHUNKING = f"{EPISODE_CHUNK_CHARS}/{EPISODE_CHUNK_OVERLAP}"
+#: The layout of every episode table written before layouts were recorded.
+LEGACY_EPISODE_CHUNKING = "4000/200"
+CHUNKING_KEY = "chunks:episodes"
 
 
 def _try_enable_wal(conn: sqlite3.Connection) -> None:
@@ -291,6 +302,7 @@ class SqliteVecIndexer:
         rows: list[tuple[np.ndarray, str, dict]],
         keys: list[str] | None = None,
         model: str | None = None,
+        extra_meta: dict[str, str] | None = None,
     ) -> None:
         """(Re)create the vec + metadata tables for ``kind`` and load ``rows``.
 
@@ -329,7 +341,8 @@ class SqliteVecIndexer:
                 (i, text, json.dumps(metadata),
                  keys[i - 1] if keys is not None else str(i), _text_hash(text)),
             )
-        self._write_index_meta(conn, model=model or self.model_name or "unknown", dim=dim, kind=kind)
+        self._write_index_meta(conn, model=model or self.model_name or "unknown", dim=dim, kind=kind,
+                               extra=extra_meta)
         conn.commit()
 
     # ---------- incremental sync ----------
@@ -413,7 +426,8 @@ class SqliteVecIndexer:
             return None
         return row[0] if row else None
 
-    def _sync_kind(self, kind: str, staged: list[tuple[str, str, dict]]) -> dict[str, int]:
+    def _sync_kind(self, kind: str, staged: list[tuple[str, str, dict]],
+                   extra_meta: dict[str, str] | None = None) -> dict[str, int]:
         """Bring ``kind``'s table in line with ``staged`` ``(key, text, metadata)``
         rows, embedding only the texts whose content hash is new or changed.
 
@@ -424,12 +438,14 @@ class SqliteVecIndexer:
         so a failed embed leaves the previous index exactly as it was. The
         index stays derived and disposable: dropping the file just costs one
         full build. Returns ``{"embedded", "reused", "removed", "rebuilt"}``.
-        One writer per index file at a time (``_write_lock``).
+        One writer per index file at a time (``_write_lock``). ``extra_meta``: stamps written beside the table's model
+        in the same transaction (the episode layout, ``chunks:episodes``).
         """
         with _write_lock(self.db_path):
-            return self._sync_kind_locked(kind, staged)
+            return self._sync_kind_locked(kind, staged, extra_meta)
 
-    def _sync_kind_locked(self, kind: str, staged: list[tuple[str, str, dict]]) -> dict[str, int]:
+    def _sync_kind_locked(self, kind: str, staged: list[tuple[str, str, dict]],
+                          extra_meta: dict[str, str] | None = None) -> dict[str, int]:
         unique_keys: list[str] = []
         seen: dict[str, int] = {}
         for key, _text, _meta in staged:
@@ -464,7 +480,7 @@ class SqliteVecIndexer:
             def full() -> dict[str, int]:
                 embeddings = self._embed_documents(embed_fn, [t for _k, t, _m in staged], model)
                 rows = [(embeddings[i], staged[i][1], staged[i][2]) for i in range(len(staged))]
-                self._rebuild_table(conn, kind, rows, keys=unique_keys, model=model)
+                self._rebuild_table(conn, kind, rows, keys=unique_keys, model=model, extra_meta=extra_meta)
                 stats.update(embedded=len(rows), rebuilt=1)
                 return stats
 
@@ -481,6 +497,11 @@ class SqliteVecIndexer:
                           and rows_by_key[k][2] != meta_json[i]]
             stats["reused"] = len(staged) - len(todo)
             if not todo and not gone and not meta_moved:
+                stamps = dict(conn.execute("SELECT key, value FROM index_meta").fetchall())
+                if any(stamps.get(k) != v for k, v in (extra_meta or {}).items()):
+                    conn.executemany("INSERT OR REPLACE INTO index_meta(key, value) VALUES (?, ?)",
+                                     list(extra_meta.items()))
+                    conn.commit()
                 return stats
             embeddings = self._embed_documents(embed_fn, [staged[i][1] for i in todo], model) if todo else None
             if embeddings is not None and dim and int(embeddings.shape[1]) != dim:
@@ -515,6 +536,7 @@ class SqliteVecIndexer:
                 self._write_index_meta(
                     conn, model=model,
                     dim=int(embeddings.shape[1]) if embeddings is not None else dim, kind=kind,
+                    extra=extra_meta,
                 )
                 conn.commit()
             except BaseException:
@@ -526,7 +548,8 @@ class SqliteVecIndexer:
             conn.close()
 
     def _write_index_meta(
-        self, conn: sqlite3.Connection, *, model: str, dim: int, kind: str | None = None
+        self, conn: sqlite3.Connection, *, model: str, dim: int, kind: str | None = None,
+        extra: dict[str, str] | None = None,
     ) -> None:
         clear_query_cache()   # a table changed: no cached query vector outlives it
         conn.execute(
@@ -547,6 +570,8 @@ class SqliteVecIndexer:
         conn.execute(
             "INSERT OR REPLACE INTO index_meta(key, value) VALUES ('dim', ?)", (str(dim),)
         )
+        for key, value in (extra or {}).items():
+            conn.execute("INSERT OR REPLACE INTO index_meta(key, value) VALUES (?, ?)", (key, value))
 
     def kind_model(self, kind: str) -> str | None:
         """The model ``kind``'s vectors were built with: its own ``model:<kind>``
@@ -790,8 +815,7 @@ class SqliteVecIndexer:
         """
         if not self.episodes_dir.exists():
             return 0
-        staged: list[tuple[str, str, dict]] = []
-        episodes_added = 0
+        bodies: list[tuple[str, str, dict]] = []
         for filepath in sorted(self.episodes_dir.glob("*.md")):
             try:
                 parsed = markdown_parser.parse(filepath)
@@ -802,21 +826,29 @@ class SqliteVecIndexer:
             body = evidence.mask_gaps(parsed.body, evidence.gap_ranges(fm, parsed.body)).strip()
             if not body:
                 continue
-            base_meta = {
+            bodies.append((filepath.stem, body, {
                 "episode_id": str(fm.get("id", filepath.stem)),
                 "source": str(fm.get("source", "unknown")),
                 "timestamp": str(fm.get("timestamp", "")),
                 "title": str(fm.get("title", "")),
                 "file_path": str(filepath),
-            }
-            chunks = _chunk_episode_body(body)
-            for chunk_idx, chunk in enumerate(chunks):
-                meta = dict(base_meta)
-                meta["chunk_index"] = chunk_idx
-                meta["chunk_count"] = len(chunks)
-                staged.append((f"{filepath.stem}#{chunk_idx}", chunk, meta))
-            episodes_added += 1
-        stats = self._sync_kind("episodes", staged)
+            }))
+        episodes_added = len(bodies)
+        # The cut is read under the write lock, with the diff it decides (review of #349): read before it, Sleep's
+        # sync could stage the old cut while the background job was committing the new one, then find every passage
+        # changed and re-embed the whole bank at the old cut inside Sleep — and stamp the old cut back.
+        with _write_lock(self.db_path):
+            layout = self._episode_layout()
+            chars, overlap = _parse_chunking(layout)
+            staged: list[tuple[str, str, dict]] = []
+            for stem, body, base_meta in bodies:
+                chunks = _chunk_episode_body(body, chars=chars, overlap=overlap)
+                for chunk_idx, chunk in enumerate(chunks):
+                    meta = dict(base_meta)
+                    meta["chunk_index"] = chunk_idx
+                    meta["chunk_count"] = len(chunks)
+                    staged.append((f"{stem}#{chunk_idx}", chunk, meta))
+            stats = self._sync_kind_locked("episodes", staged, {CHUNKING_KEY: layout})
         self.last_sync["episodes"] = stats
         logger.info(
             f"Vector episode index synced: {episodes_added} episodes / {len(staged)} passages "
@@ -826,6 +858,36 @@ class SqliteVecIndexer:
 
     def search_episodes(self, query: str, top_k: int = 3) -> list[dict]:
         return self._search_kind("episodes", query, top_k)
+
+    def episode_chunking(self) -> str | None:
+        """How the episode table's passages were cut (``EPISODE_CHUNKING``'s form), ``None`` when there is no table.
+        A table written before layouts were recorded was cut as :data:`LEGACY_EPISODE_CHUNKING`."""
+        if not self.db_path.exists():
+            return None
+        conn = self._connect()
+        try:
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'meta_episodes'").fetchone() is None:
+                return None
+            row = conn.execute("SELECT value FROM index_meta WHERE key = ?", (CHUNKING_KEY,)).fetchone()
+        except sqlite3.OperationalError:
+            return None
+        finally:
+            conn.close()
+        return row[0] if row else LEGACY_EPISODE_CHUNKING
+
+    def _episode_layout(self) -> str:
+        """The layout this sync cuts episodes with: :data:`EPISODE_CHUNKING`, except in Sleep's own sync
+        (``defer_model_switch``) when the table was cut another way and the background re-embed will re-cut it —
+        then the recorded layout, so Sleep embeds only the new conversations and never re-embeds a whole bank."""
+        if not self.defer_model_switch or getattr(self, "_injected", False):
+            return EPISODE_CHUNKING
+        recorded = self.episode_chunking()
+        if recorded is None or recorded == EPISODE_CHUNKING or _parse_chunking(recorded) is None:
+            return EPISODE_CHUNKING
+        from api.services import embedding_models
+
+        self._ensure_or_global()
+        return recorded if embedding_models.reindexes_in_background(self.model_name) else EPISODE_CHUNKING
 
     # ---------- pending (sub-threshold) index ----------
     #
@@ -1067,7 +1129,17 @@ def _text_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
-def _chunk_episode_body(body: str) -> list[str]:
+def _parse_chunking(layout: str | None) -> tuple[int, int] | None:
+    """``"1600/200"`` -> ``(1600, 200)``; ``None`` for anything else."""
+    try:
+        chars, overlap = (int(x) for x in str(layout or "").split("/"))
+    except ValueError:
+        return None
+    return (chars, overlap) if chars > 0 and 0 <= overlap < chars else None
+
+
+def _chunk_episode_body(body: str, *, chars: int = EPISODE_CHUNK_CHARS,
+                        overlap: int = EPISODE_CHUNK_OVERLAP) -> list[str]:
     """Split an episode body into overlapping passages for embedding. The
     caller blanks a gate-B2 gap marker first (``evidence.mask_gaps``), exactly
     as the lexical index does, so a chunk still finds its passage and never
@@ -1075,12 +1147,12 @@ def _chunk_episode_body(body: str) -> list[str]:
     body = body.strip()
     if not body:
         return []
-    if len(body) <= EPISODE_CHUNK_CHARS:
+    if len(body) <= chars:
         return [body]
     chunks: list[str] = []
     start = 0
     while start < len(body):
-        end = start + EPISODE_CHUNK_CHARS
+        end = start + chars
         if end < len(body):
             newline_pos = body.rfind("\n", max(start + 1, end - 300), end)
             if newline_pos > start:
@@ -1090,7 +1162,7 @@ def _chunk_episode_body(body: str) -> list[str]:
             chunks.append(chunk)
         if end >= len(body):
             break
-        start = max(end - EPISODE_CHUNK_OVERLAP, start + 1)
+        start = max(end - overlap, start + 1)
     return chunks
 
 

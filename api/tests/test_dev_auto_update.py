@@ -139,9 +139,17 @@ def test_busy_running_defers_everything(rig):
     _assert_deferred(rig)
 
 
+def test_a_running_inbox_tidy_defers_everything(rig):
+    # 2026-10-17: a restart 285 settles into a real tidy cut it short and lost its counts.
+    rig.push_change("api/app.py")
+    rig.sleep_status(inboxTidy=True)
+    _assert_deferred(rig)
+
+
 # The real route shape of a paused run (api/routers/sleep.py, test_sleep_paused.py): idle, not writing,
 # an inactive unfinished drain (or none after a restart) and a top-level `paused` block.
-PAUSED = {"runId": "sleep_pz", "reason": "plan_window", "filed": 3, "frozen": 9, "canContinue": True}
+PAUSED = {"runId": "sleep_pz", "reason": "engine", "engineKind": "needs_fix", "filed": 0, "frozen": 9,
+          "canContinue": True}
 
 
 def test_active_unfinished_drain_defers(rig):
@@ -150,15 +158,23 @@ def test_active_unfinished_drain_defers(rig):
     _assert_deferred(rig)
 
 
-def test_in_process_pause_defers(rig):
-    rig.push_change("api/app.py")
-    rig.sleep_status(drain={"active": False, "finished": False}, paused=PAUSED)
-    _assert_deferred(rig)
+# 2026-10-17: a scheduled run paused on its engine at 03:00 and every tick until 15:09 logged "deferred". A paused
+# run holds nothing in flight: its record is a sidecar a restart leaves alone (test_sleep_paused's
+# test_a_paused_record_outlives_a_restart), so the update goes ahead under it.
+@pytest.mark.parametrize("drain", [{"active": False, "finished": False}, None])
+def test_a_paused_run_with_nothing_in_flight_does_not_hold_the_update(rig, drain):
+    new = rig.push_change("api/app.py")
+    rig.sleep_status(drain=drain, paused=PAUSED)
+    assert rig.run().returncode == 0
+    assert "deferred" not in (rig.log() if (rig.repo / "logs/auto-update.log").exists() else "")
+    assert rig.head() == new
+    assert "kickstart -k" in rig.called()
 
 
-def test_recovered_pause_without_a_drain_defers(rig):
+def test_a_paused_runs_upkeep_tail_still_defers(rig):
+    """A paused run's upkeep tail (a scheduled tick's `tail_only`) reports status running: that is in flight."""
     rig.push_change("api/app.py")
-    rig.sleep_status(drain=None, paused=PAUSED)
+    rig.sleep_status(status="running", drain={"active": False, "finished": False}, paused=PAUSED)
     _assert_deferred(rig)
 
 

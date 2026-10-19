@@ -32,7 +32,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
-from api.services import bank_index, episode_ids, git_service
+from api.services import bank_index, episode_ids, git_service, history_index
 
 DEFAULT_DAYS = 7
 MAX_DAYS = 90
@@ -40,6 +40,7 @@ MAX_COMMITS = 1000
 GIT_TIMEOUT_S = 3.0
 IDS_PER_ROW = 5
 _SEP, _REC = "\x1f", "\x1e"
+_PLATFORM_NAMES = {"youtube": "YouTube", "tiktok": "TikTok"}
 
 
 @dataclass
@@ -59,10 +60,11 @@ class Day:
     agent_writes: Counter = field(default_factory=Counter)   # author -> commits
     retracted: int = 0
     answered: int = 0
+    watched: Counter = field(default_factory=Counter)        # platform -> videos watched that day (2026-10-18)
 
     def empty(self) -> bool:
         return not (self.captured or self.consolidations or self.archived or self.faded or self.expired
-                    or self.agent_writes or self.answered)
+                    or self.agent_writes or self.answered or self.watched)
 
 
 def parse_since(raw, today: date) -> date:
@@ -186,9 +188,25 @@ def collect(memory_path: Path, since: date, until: date, *,
                 r.agent_writes[author] += 1
             r.retracted += sum(1 for e in m.entities if e["action"] == "retracted")
     for f in bank_index.files(memory_path, "episodes"):
-        d = _local_day(f.frontmatter.get("timestamp"))
+        fm = f.frontmatter
+        k = history_index.kind(fm)
+        if k == "month":
+            continue   # a month's summary is derived from the days below, never a capture of its own
+        if k == "history":
+            # A watched day is what was watched that day (owner ruling 2026-10-18): counted on the day itself.
+            try:
+                d = date.fromisoformat(str(fm.get("watched_on") or "")[:10])
+            except ValueError:
+                d = _local_day(fm.get("timestamp"))
+            if d is not None and since <= d <= until and not fm.get("source_deleted_at"):
+                try:
+                    row(d).watched[str(fm.get("platform") or "video")] += int(fm.get("videos") or 0)
+                except (TypeError, ValueError):
+                    pass
+            continue
+        d = _local_day(fm.get("timestamp"))
         if d is not None and since <= d <= until:
-            row(d).captured[str(f.frontmatter.get("origin") or f.frontmatter.get("harness") or "unknown")] += 1
+            row(d).captured[str(fm.get("origin") or fm.get("harness") or "unknown")] += 1
     return [days[d] for d in sorted(days, reverse=True) if not days[d].empty()]
 
 
@@ -215,6 +233,9 @@ def render(days: list[Day], since: date, until: date) -> str:
         lines += ["", f"## {d.day.isoformat()}"]
         if d.captured:
             lines.append(f"- Captured {sum(d.captured.values())} episode(s): {_counted(d.captured)}")
+        for platform, n in sorted(d.watched.items()):
+            if n:
+                lines.append(f"- Watched {n} video(s) on {_PLATFORM_NAMES.get(platform, platform)}")
         if d.consolidations:
             who = f" by {', '.join(d.authors)}" if d.authors else ""
             convs = f" from {len(d.conversations)} conversation(s)" if d.conversations else ""

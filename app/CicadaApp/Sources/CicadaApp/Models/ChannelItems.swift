@@ -13,11 +13,19 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
     /// G191 v4 — a bookmark channel's link that left the browser: when a sync first saw it gone (aware ISO). Nil for
     /// every other row and from an older backend.
     var left: String? = nil
+    /// Sources v3 — a saved link's bare host ("example.com"), for the row's line; never the URL. Nil for other rows.
+    var host: String? = nil
+    /// Sources v3 — the key the site's mark is asked under (`SiteIcon`; a walled family's name, else the domain).
+    var site: String? = nil
+    /// Sources v3 — the newest answer to "What made you save this?" (G191), when the person gave one.
+    var why: ChannelItemWhy? = nil
 
-    enum CodingKeys: String, CodingKey { case kind, id, title, day, left }
+    enum CodingKeys: String, CodingKey { case kind, id, title, day, left, host, site, why }
 
-    init(kind: Kind, id: String, title: String, day: String? = nil, left: String? = nil) {
+    init(kind: Kind, id: String, title: String, day: String? = nil, left: String? = nil, host: String? = nil,
+         site: String? = nil, why: ChannelItemWhy? = nil) {
         self.kind = kind; self.id = id; self.title = title; self.day = day; self.left = left
+        self.host = host; self.site = site; self.why = why
     }
 
     init(from decoder: Decoder) throws {
@@ -27,6 +35,10 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
         day = try c.decodeIfPresent(String.self, forKey: .day)
         left = try? c.decodeIfPresent(String.self, forKey: .left)
+        // Lenient: an older backend sends none of these, and a malformed one drops the field, never the row.
+        host = try? c.decodeIfPresent(String.self, forKey: .host)
+        site = try? c.decodeIfPresent(String.self, forKey: .site)
+        why = try? c.decodeIfPresent(ChannelItemWhy.self, forKey: .why)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -36,7 +48,27 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         try c.encode(title, forKey: .title)
         try c.encodeIfPresent(day, forKey: .day)
         try c.encodeIfPresent(left, forKey: .left)
+        try c.encodeIfPresent(host, forKey: .host)
+        try c.encodeIfPresent(site, forKey: .site)
+        try c.encodeIfPresent(why, forKey: .why)
     }
+}
+
+/// Sources v3 — why the person saved a link, as a row shows it: the reasons they tapped ("The design") and their own
+/// words, one line (`channel_items._why`; the whole answer lives on the item's page).
+struct ChannelItemWhy: Codable, Hashable, Sendable {
+    var labels: [String] = []
+    var text: String? = nil
+
+    init(labels: [String] = [], text: String? = nil) { self.labels = labels; self.text = text }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        labels = (try? c.decodeIfPresent([String].self, forKey: .labels)) ?? []
+        text = try? c.decodeIfPresent(String.self, forKey: .text)
+    }
+
+    enum CodingKeys: String, CodingKey { case labels, text }
 }
 
 /// One page of a channel's items, newest first. `total` is the list's own count — the server never promises it
@@ -135,5 +167,52 @@ enum CapturedItems {
             guard let countNoun, !countNoun.isEmpty else { return ("item", "items") }
             return (countNoun, countNoun + "s")   // every registry noun is regular (`SourceChannel.countNoun`)
         }
+    }
+}
+
+/// Sources v3 (owner 2026-10-19: "in two clicks … I can see all the things that I've saved in Chrome. Instead of
+/// putting the Chrome logo maybe put the website's logo") — a saved row's words and mark, pure.
+enum SavedItemText {
+    /// The second line: the person's own words first (the reason the row exists, and the part a narrow column must not
+    /// cut), then the reasons they tapped, then the site. Nil when the row has none of them.
+    static func line(_ item: ChannelItem) -> String? {
+        var parts: [String] = []
+        if let words = words(item) { parts.append("“\(words)”") }
+        parts += item.why?.labels ?? []
+        if let host = item.host, !host.isEmpty { parts.append(host) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// The why as it is spoken (VoiceOver): the words, then the reasons.
+    static func whySpoken(_ item: ChannelItem) -> String? {
+        let parts = (words(item).map { [$0] } ?? []) + (item.why?.labels ?? [])
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
+    static func words(_ item: ChannelItem) -> String? {
+        let text = (item.why?.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
+    /// Which mark the row draws: the site's own key when the row has one — `SiteIcon` then shows the site's own icon
+    /// (asked of that site only, owner ruling 2026-10-19), a bundled family mark, or a monogram of the site — else a
+    /// monogram of the host or the title. Never the browser's mark: the row is the site, not where it was saved from.
+    enum Mark: Equatable {
+        case site(key: String, label: String)
+        case monogram(String)
+    }
+
+    static func mark(_ item: ChannelItem) -> Mark {
+        let label = (item.host?.isEmpty == false ? item.host : nil) ?? item.title
+        if let key = item.site, !key.isEmpty { return .site(key: key, label: label) }
+        return .monogram(SiteMonogram.letter(label))
+    }
+
+    /// The row's day — "Today", "Yesterday", a weekday this week, else "Oct 3" — with the full date as its `.help`
+    /// (DR-58: computed when read). Nil with no day.
+    static func day(_ item: ChannelItem, today: ISODay, locale: Locale = .autoupdatingCurrent)
+        -> (text: String, help: String)? {
+        guard let day = ISODay(item.day) else { return nil }
+        return (RelativeDay.phrase(day, today: today, locale: locale), RelativeDay.full(day, locale: locale))
     }
 }

@@ -6,7 +6,8 @@ import AppKit
 /// (every 30s + immediately after quick actions) and by the live 1s sleep hook
 /// (``applySleep(_:)``). All UI work happens on the main actor.
 /// The status item is a single colour sprite (G107) — no text title; the
-/// inbox count is drawn into the frame.
+/// count of conversations waiting for Sleep is drawn into the frame (owner 2026-10-19; the inbox's count is a line in
+/// the menu, in words).
 @MainActor
 @Observable
 final class MenuBarManager: NSObject {
@@ -45,7 +46,7 @@ final class MenuBarManager: NSObject {
 
     /// The status item's hover text: what the badge counts when there is one, else the mood.
     nonisolated static func toolTip(for state: BookwormState) -> String {
-        if case .curious(let n) = state { return "Cicada — \(Copy.questionsWaiting(n)) in the inbox" }
+        if case .curious(let n) = state { return "Cicada — \(Copy.waitingForSleep(n))" }
         return "Cicada — \(state.title), \(state.detail)"
     }
 
@@ -246,7 +247,7 @@ final class MenuBarManager: NSObject {
         image.accessibilityDescription = label
         button.image = image
         button.setAccessibilityLabel(label)
-        // 2026-10-14: the badge's number, in words, on hover ("133 questions waiting").
+        // The badge's number, in words, on hover ("12 conversations waiting for Sleep", owner 2026-10-19).
         button.toolTip = Self.toolTip(for: state)
         button.imagePosition = .imageOnly
         button.title = ""

@@ -91,12 +91,11 @@ def install_predicate_map(memory_path: Path) -> Path:
     runtime = memory_path / RUNTIME_FILE
 
     if runtime.exists():
-        try:
-            existing = yaml.safe_load(runtime.read_text(encoding="utf-8"))
-        except yaml.YAMLError:
-            existing = None
-        # Only the empty/placeholder map is replaced; a populated one is kept.
-        if existing and (existing.get("canonical") or existing.get("synonyms")):
+        # The one reader of the runtime map (stat-keyed parse cache, libyaml when present): a malformed or
+        # non-mapping file reads as ``{}``, the placeholder this replaces. Only the empty/placeholder map is
+        # replaced; a populated one is kept.
+        existing = _read_runtime_map(memory_path)
+        if existing.get("canonical") or existing.get("synonyms"):
             return runtime
 
     seed = _load_seed_map()
@@ -385,6 +384,10 @@ def cardinality(memory_path: Path | None, predicate: str) -> str:
     # they existed must still never ask for a winner between two happenings.
     if event_cardinality(predicate):
         return "multi"
+    from api.services.claims import is_value_predicate
+
+    if is_value_predicate(predicate):
+        return "single"     # a stated value: one at a time, by its own shape (claims.VALUE_PREFIX)
     p = (predicate or "").strip().lower()
     if not p:
         return "unknown"

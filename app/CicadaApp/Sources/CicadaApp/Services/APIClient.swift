@@ -1503,14 +1503,41 @@ enum BookmarkSyncError: Error, LocalizedError, Equatable {
     var errorDescription: String? { "No bookmark file was read, so there was nothing to sync" }
 }
 
+/// `APIClient.pointingAtNothing()`'s transport: every request fails at once with `cannotConnectToHost`, as a backend
+/// that is not running would — no DNS lookup, no socket.
+final class NoBackendURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() { client?.urlProtocol(self, didFailWithError: URLError(.cannotConnectToHost)) }
+    override func stopLoading() {}
+}
+
 actor APIClient {
-    static let shared = APIClient()
+    /// The app's one client. Under XCTest it is `pointingAtNothing()`: a unit test never reaches the backend running on
+    /// this Mac, nor sends the person's token (#346 found `SleepViewModelTests` doing both through a default argument;
+    /// every view model's defaults call `shared`). A test that needs answers injects a closure or builds its own
+    /// `APIClient(session:)` over a fake transport.
+    static let shared: APIClient = AppPasteboard.isRunningTests ? pointingAtNothing() : APIClient()
+
+    /// A client that reaches nothing: its session answers every request with "cannot connect" before a byte leaves the
+    /// process (`NoBackendURLProtocol`), its base is `ServerConnection.unreachableBase` (a name that never resolves),
+    /// and its home does not exist, so no token file is found. This Mac's connection shape (`.thisMac`) is kept so
+    /// nothing that reads `connection` behaves as a server's client.
+    static func pointingAtNothing() -> APIClient {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [NoBackendURLProtocol.self]
+        config.urlCache = nil
+        return APIClient(session: URLSession(configuration: config),
+                         connection: ServerConnection(mode: .thisMac, source: .none),
+                         runtime: .developer(codeRoot: URL(fileURLWithPath: "/nonexistent")),
+                         baseOverride: ServerConnection.unreachableBase)
+    }
 
     /// G182 — `http://127.0.0.1:<port>`, the port the backend was started on (`CICADA_PORT`, `cicada.port`, 8000) — or,
     /// G181 phase 3, the server the person chose (`ServerConnection`): the Store, its ETags and the event stream all
     /// ride this one base, so a server is this constant and nothing else. An invalid address is an unresolvable base,
     /// never this Mac's.
-    private let baseURL: String
+    nonisolated let baseURL: String
     /// Which backend this client talks to, decided at launch (`ServerConnection.current`).
     nonisolated let connection: ServerConnection
     private let cicadaHome: URL
@@ -1536,11 +1563,12 @@ actor APIClient {
     /// configuration below) purely so tests can hand in a
     /// `URLProtocol`-backed session instead of hitting a real backend on
     /// 127.0.0.1 — `APIClient.shared` always uses the default.
+    /// `baseOverride` is `pointingAtNothing()`'s alone.
     init(session: URLSession? = nil, connection: ServerConnection = .current,
-         runtime: CicadaRuntime = .current) {
+         runtime: CicadaRuntime = .current, baseOverride: String? = nil) {
         self.connection = connection
         self.cicadaHome = runtime.cicadaHome
-        self.baseURL = connection.baseURL(local: runtime.backendURL)
+        self.baseURL = baseOverride ?? connection.baseURL(local: runtime.backendURL)
         self.outbox = ReaderOutbox(folder: ReaderOutbox.folder(cicadaHome: runtime.cicadaHome))
         if let session {
             self.session = session
@@ -1584,11 +1612,25 @@ actor APIClient {
 
     static func invalidateToken() { cachedToken = nil }
 
-    private static func loadToken(connection: ServerConnection, cicadaHome: URL) -> String? {
+    /// Whether a unit test may read a token file at `file`: only inside the temporary directory, where tests build
+    /// their own homes. The person's real home (`~/.cicada`, wherever `HOME` points) never is.
+    static func testMayReadToken(at file: URL,
+                                 temporaryDirectory: URL = FileManager.default.temporaryDirectory) -> Bool {
+        let path = file.resolvingSymlinksInPath().standardizedFileURL.path
+        let temp = temporaryDirectory.resolvingSymlinksInPath().standardizedFileURL.path
+        return path.hasPrefix(temp.hasSuffix("/") ? temp : temp + "/")
+    }
+
+    static func loadToken(connection: ServerConnection, cicadaHome: URL) -> String? {
         let file = cicadaHome.appendingPathComponent(connection.isServer ? ServerConnection.deviceTokenFile : "api_token")
+        // Under XCTest a token is read only from a test's own temporary folder — never the person's `~/.cicada` (a
+        // client built with the default runtime points there), and never `CICADA_API_TOKEN` from the shell.
+        if AppPasteboard.isRunningTests && !Self.testMayReadToken(at: file) { return nil }
         if let cachedToken, cachedToken.key == file.path { return cachedToken.token }
         let env = ProcessInfo.processInfo.environment
-        if let t = env["CICADA_API_TOKEN"], !t.isEmpty { cachedToken = (file.path, t); return t }
+        if !AppPasteboard.isRunningTests, let t = env["CICADA_API_TOKEN"], !t.isEmpty {
+            cachedToken = (file.path, t); return t
+        }
         guard let raw = try? String(contentsOf: file, encoding: .utf8) else { return nil }
         let token = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else { return nil }
@@ -2819,9 +2861,16 @@ actor APIClient {
         return try await post("/ask", body: ["query": query, "topK": topK])
     }
 
-    func fetchEpisodeQueue() async throws -> [EpisodeQueueItem] {
-        return try await get("/sleep/episodes")
+    /// `GET /sleep/episodes?processed=false` — only the episodes still waiting for Sleep (the Sleep page's Waiting rows,
+    /// a source's queue strip), revalidated with its ETag: a 304 keeps the rows held. Not a Store
+    /// domain — `SleepViewModel` holds the rows and the tag in memory. Every episode, read ones too, was 8k rows and
+    /// 4.5 MB on a large bank, fetched on every Sleep page load (2026-10-19). An older backend ignores the query and
+    /// answers every episode without a tag; `SleepViewModel.queuedEpisodes` still keeps only the waiting ones.
+    func fetchEpisodeQueue(etag: String?) async throws -> Conditional<[EpisodeQueueItem]> {
+        try await getConditional(Self.waitingEpisodesPath, etag: etag)
     }
+
+    static let waitingEpisodesPath = "/sleep/episodes?processed=false"
 
     func fetchSchedule() async throws -> ScheduleConfig {
         return try await get("/sleep/schedule")
@@ -3047,6 +3096,21 @@ actor APIClient {
 
     /// `GET /reading/sites/{site}/icon` — a site's favicon from the icon service (the site is never contacted). nil on
     /// a 404: "no icon" is an ordinary answer and the row draws its own mark.
+    /// Owner ruling 2026-10-19 — a saved link's own site icon, asked of that site by the backend (never an icon
+    /// service) for a row of a list the person opened. 404 is "draw the monogram".
+    func fetchSavedLinkSiteIcon(mediaEntityId: String) async throws -> Data? {
+        var request = makeRequest("/sources/saved/\(encodedID(mediaEntityId))/site-icon", method: "GET", json: false)
+        request.timeoutInterval = Self.refreshTimeout
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        if http.statusCode == 404 { return nil }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+        return data
+    }
+
     func fetchSiteIcon(site: String) async throws -> Data? {
         guard site.range(of: "^[a-z0-9][a-z0-9.-]*$", options: .regularExpression) != nil, !site.contains("..") else {
             return nil

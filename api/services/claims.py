@@ -405,6 +405,61 @@ PARTICIPANT_KEYS = ("role", "surface", "entity", "url")
 DATE_BASES = ("stated", "turn", "episode", "person", "written")
 
 
+#: A stated value (``entity_extractor`` ``values[]``, 2026-10-17): ``value-of-<attribute>`` with a literal object. One
+#: value per attribute at a time — the predicate is single-valued by its own shape, never by a bank's vocabulary,
+#: so a later value of the same thing closes the earlier one (``claim_reconciler``).
+VALUE_PREFIX = "value-of-"
+#: Words that name no attribute of their own ("NUMBER of restaurants tried" is "restaurants tried").
+_VALUE_FILLER = frozenset("a an the of my our his her their its number count total amount current currently "
+                          "latest new value".split())
+
+
+def value_predicate(attribute: str) -> str:
+    """``value-of-<slug>`` for a stated value's attribute, or ``""`` when it names nothing."""
+    slug = re.sub(r"[^a-z0-9]+", "-", (attribute or "").strip().lower()).strip("-")
+    if slug.startswith(VALUE_PREFIX):
+        slug = slug[len(VALUE_PREFIX):]
+    return f"{VALUE_PREFIX}{slug[:80].strip('-')}" if slug else ""
+
+
+def is_value_predicate(predicate: str | None) -> bool:
+    return (predicate or "").startswith(VALUE_PREFIX) and len(predicate) > len(VALUE_PREFIX)
+
+
+def is_value_claim(claim) -> bool:
+    """A stated value: a ``value-of-`` predicate on a literal object."""
+    return getattr(claim, "object_kind", "") == "literal" and is_value_predicate(getattr(claim, "predicate", ""))
+
+
+def value_key(predicate: str) -> frozenset[str]:
+    """The words that identify a value's attribute, order and filler aside: ``value-of-number-of-korean-restaurants-
+    tried`` and ``value-of-korean-restaurants-tried`` are one attribute. A light plural fold, like ``text_fold.stem``."""
+    words = (predicate or "")[len(VALUE_PREFIX):].split("-") if is_value_predicate(predicate) else []
+    out = set()
+    for w in words:
+        if not w or w in _VALUE_FILLER:
+            continue
+        for suffix in ("es", "s"):
+            if len(w) > len(suffix) + 3 and w.endswith(suffix):
+                w = w[: -len(suffix)]
+                break
+        out.add(w)
+    return frozenset(out)
+
+
+def same_value_attribute(a: str, b: str) -> bool:
+    """Two value predicates name one attribute: the same words, or one's words all inside the other's when the
+    smaller names at least two ("5k personal best" and "personal best 5k time"). A one-word attribute matches
+    only itself, so "age" never meets "dog age"."""
+    ka, kb = value_key(a), value_key(b)
+    if not ka or not kb:
+        return False
+    if ka == kb:
+        return True
+    small, large = (ka, kb) if len(ka) <= len(kb) else (kb, ka)
+    return len(small) >= 2 and small <= large
+
+
 def is_event(claim) -> bool:
     """The one test the history readers call (R-PJ3), like `is_record`. An
     event is NOT a record: it stays in FTS and in citations, where it reads as

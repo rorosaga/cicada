@@ -135,8 +135,8 @@ tool door (`mcp.md`, "A client of a server on another machine"). Both run their 
 answers `{text, code, data, error, state, bank}` with 200 for anything a body said (a body's exception is `error`, the
 stdio server's `Error: …`), 404 for an unknown tool and 403 for a tool the command-line surface does not hold.
 
-**ETags.** `/graph`, `/inbox`, `/contributors`, `/sources`, `/sources/channels`, `/origins` and
-`/banks` all return an `ETag` and honor `If-None-Match` with a `304`. This matters: `/graph` on the
+**ETags.** `/graph`, `/inbox`, `/contributors`, `/sources`, `/sources/channels`, `/origins`,
+`/banks` and `/sleep/episodes` (not a Store domain, below) all return an `ETag` and honor `If-None-Match` with a `304`. This matters: `/graph` on the
 live bank is ~1.8 MB. **Ship the ETag and its client mapping together** — `GET /inbox` ETags over
 `inbox`+`entities`+`episodes`, and `VersionVector.swift` maps `entities` and `episodes` onto
 `.inbox`; change one half, change both. `/graph`'s `extra` carries a node-shape tag
@@ -150,7 +150,7 @@ new site capture gives a bookmark's row its thumbnail), so `VersionVector` maps 
 bookmark has left, read from the bookmark seen-set's `left` map. That file (`sources/bookmark_seen.json`) is not `*.md`, so
 the `sources` component's directory fingerprint never saw it — it now rides the component by its own mtime (client
 mapping unchanged: `sources` → `.sources`). `GET /sources/channels/{id}/items` for a bookmark channel also lists the links
-that left the browser, each with `left` (shape `g161-2`). `POST /sources/sync-bookmarks` gained `leftMarked`;
+that left the browser, each with `left` (shape `g161-2`). Sources v3 (2026-10-19, shape `g161-3`): a saved link's row adds `host`, `site` and `why` (the newest *Ask why* answer, read only for the page served), and a channel-less saved import is listed by its Sources row id; `GET /sources/overview` rows carry `intent` (`saved` | `captured`, ETag shape `overview-v3`; `app.md`, "Sources page — v3"). `GET /sources/saved/{media_entity_id}/site-icon` serves a saved link's own site icon, asked of that site only (owner ruling 2026-10-19; `storage.md`); 404 = draw the monogram. `POST /sources/sync-bookmarks` gained `leftMarked`;
 `removalsProposed` stays on the wire and is always 0 for bookmarks. `GET /sources/saved-why/options` serves the four
 reasons and an always-empty `projects`; `POST`/`PUT /sources/saved-why` still accept a retired reason (`technique`) and a
 project (an edit may keep an archived one).
@@ -193,6 +193,24 @@ memory path or the app-spawned developer backend's copy of the file, counts as f
 never a value — and `effective`, the four values Sleep's pace and page
 writing turn on (`agentMaxConcurrency`, `sleepResolveConcurrency`, `summarySynthesisEnabled`, `pageArticlesEnabled`).
 The backend logs the same names once at startup. Settings → Advanced shows them (`app.md`).
+
+**`GET /sleep/episodes` (2026-10-19)** answers a bare list of episode rows, as before. With no query it is every
+episode (the original shape, kept for any client still asking); `processed=false` is only the waiting ones — what the
+app asks for (`APIClient.fetchEpisodeQueue(etag:)`: the Sleep page's Waiting rows and count fallback, a source's queue
+strip) — and `processed=true` with `offset`/`limit` (≤ 1000) pages the read ones; `X-Total-Count` is the filtered total.
+Rows are chosen from `bank_index`'s cached headers (`sleep_cycle.episode_headers`) and only the sent rows' bodies are
+read: on a synthetic 8,237-episode bank (10 waiting) the bare call is 4.3 MB / 1.7 s warm before and 0.4 s after, the
+waiting list 5 KB / 45 ms, a 304 ~25 ms. ETag over `episodes` with `extra` = `sleep.EPISODES_SHAPE|<query>|<folders.json
+mtime>` (a folder file's row copies its path from that registry). Not a Store domain: no `VersionVector` mapping —
+`SleepViewModel` holds the rows and the tag in memory, sends `If-None-Match` on every `load()` and drops both on a bank
+switch.
+
+**Unit tests reach no backend (2026-10-19).** Under XCTest `APIClient.shared` is `APIClient.pointingAtNothing()`: a
+session whose transport (`NoBackendURLProtocol`) fails every request with `cannotConnectToHost` before a byte leaves the
+process, an unresolvable base and a home that does not exist; and `APIClient.loadToken` reads a token only from a folder
+under the temporary directory and ignores `CICADA_API_TOKEN` (`testMayReadToken`). A view model's defaults call `shared`,
+so a test that forgets to inject a closure gets an offline answer, never the running backend or the person's token
+(`APIClientIsolationTests`). The shipped app is unchanged: both checks key on `AppPasteboard.isRunningTests`.
 
 `GET /status` has no ETag (the app refetches it whenever the vector's `sleep` component moves). Its `sleep.writing`
 (G177) is `sleep_cycle.is_writing()` — the predicate behind every "Sleep is running" 409 — and the SSE `sleep` event and
@@ -379,7 +397,14 @@ skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME
   any other. No notifier, a failed one (retried once a minute), a bank directory replaced, or
   `CICADA_SYNC_WATCH=off`: every tick walks. A watcher nobody asked about for 60 s stops; shutdown stops them all.
   Owner-scale synthetic bank, 8,791 files (`benchmarks.scale.idle_tick`): 33.2 → 6.3 ms of CPU a second, an idle
-  tick 31 → 3.3 ms; an outside in-place edit reaches the stream in ~640 ms either way.
+  tick 31 → 3.3 ms; an outside in-place edit reaches the stream in ~640 ms either way. FSEvents also reports writes
+  made just *before* a watcher started, late (0.4–1.9 s measured on a loaded machine), and under contention any report
+  can take seconds (up to ~2.9 s with five watchers, ~10 s with five suites at once; 2026-10-18): harmless here (an
+  extra walk, or the fallback walk), but `test_sync_watch.py` failed 1–2 of 12 on every run on a loaded machine. Its
+  tests no longer sleep or wait a fixed time for the OS: `_settle` writes a marker the watcher never counts and waits
+  for it to be reported (events arrive in order, so nothing older is in flight), and whether a change was *reported*
+  is read from the watcher's count; the fallback test drives the ticker's clock. The watcher now looks at every path
+  of a batch (no short-circuit) so a marker is always seen.
 - **Compressed only for another machine (2026-10-16, owner decision 3).** `response_compression.RemoteGZipMiddleware`
   gzips (level 1) a response for a client that asked for it and is on another machine: a non-loopback peer, a request
   a proxy forwarded (`X-Forwarded-For`, `Forwarded`, `X-Real-IP`, `Tailscale-User-Login` — `tailscale serve` in front

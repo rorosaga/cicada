@@ -33,6 +33,11 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   and injects fetchers instead. It also gates the icons of the sites Settings, Reading the web, lists (G166): those
   come from the icon service only and the login-walled site is never contacted for its favicon (nor, since
   `fetch_logo` skips its first two rungs for a walled host, is a company or tool page's logo domain when it is one).
+  It also gates a saved link's own site icon (owner ruling 2026-10-19): Sources' saved rows ask the backend
+  (`GET /sources/saved/{id}/site-icon`), which asks the link's own registrable domain — `/apple-touch-icon.png`, then
+  `/favicon.ico`, never its HTML and **never an icon service**, so no third party learns what was saved — only when the
+  person opens that list, never from Sleep; same-site hops only, through the SSRF guard, 4 s, ≤ 512 KB streamed, no
+  cookies, a block (401/403/407/451) never retried; hits and misses cached under `logos/<bank>/sites/own/` (`storage.md`).
   It also covers a person's public-profile photo, which has a second, narrower gate of its own:
 - **`CICADA_ALLOW_PERSON_PHOTO_FETCH=off`** (G159 amendment, owner 2026-10-09; on by default, off for the test suite)
   stops every public-profile photo lookup for people while logos keep working. `person_photo` asks only when the app
@@ -63,6 +68,11 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   counted in `$CICADA_HOME/pictures/proxy_budget.json`, outside every bank, and spent only once a request has passed
   the host and `net_guard` checks; a lookup over budget is a transient miss,
   asked again the next day, never a cached one. With the gate off, an X or LinkedIn link is not an identifier at all.
+  **LinkedIn connections (owner 2026-10-17):** the profile link the person's own connections export put on a page it
+  matched confidently — the connection's full name is the page's own name, or the person or an identified agent already listed
+  that link (`match: name|link`) — counts as given and is asked at once, without waiting for the person to take the
+  source: "If it's because I'm connected, unless the agent says 'Oh I'm not sure,' then we don't." An alias-only match
+  (`match: alias`) is not sure, and its link is no identifier until the person takes it. Everything above still applies.
 
 **The study room's weather has its own app gate (G176, owner 2026-10-02).** It is opt-out through the per-viewer scenery
 setting, not any backend environment variable: Settings → Sleep → The scenery → Local weather (default). Choosing

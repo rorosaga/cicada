@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
 import yaml
 
 from api.services import predicates
@@ -68,3 +69,24 @@ def test_a_confirmation_written_through_update_is_read_back(tmp_path):
     on_disk = yaml.safe_load((tmp_path / predicates.RUNTIME_FILE).read_text(encoding="utf-8"))
     assert on_disk["confirmed_folds"] == {"built-with": "uses", "made-with": "uses"}
     assert predicates.confirmed_folds(tmp_path) == {"built-with": "uses", "made-with": "uses"}
+
+
+def test_install_reads_the_runtime_map_through_the_one_reader(tmp_path, monkeypatch):
+    """``install_predicate_map``'s existence check takes the map through ``_read_runtime_map`` like every other reader:
+    a populated map is kept, a placeholder, a malformed file or a non-mapping is replaced by the seed."""
+    seed = predicates._load_seed_map()
+    monkeypatch.setattr(predicates.yaml, "safe_load", lambda *a, **k: pytest.fail("parsed outside the one reader"))
+    reads = []
+    real = predicates._read_runtime_map
+    monkeypatch.setattr(predicates, "_read_runtime_map", lambda m: reads.append(m) or real(m))
+
+    populated = _write_map(tmp_path, {"canonical": ["pred-alpha"]})
+    before = populated.read_bytes()
+    predicates.install_predicate_map(tmp_path)
+    assert populated.read_bytes() == before and reads == [tmp_path]
+
+    for text in ("{}\n", "canonical: [unclosed\n", "- a list\n- not a map\n"):
+        populated.write_text(text, encoding="utf-8")
+        predicates.install_predicate_map(tmp_path)
+        assert yaml.safe_load.__name__ == "<lambda>"   # still the tripwire
+        assert predicates._read_runtime_map(tmp_path).get("canonical") == seed.get("canonical")

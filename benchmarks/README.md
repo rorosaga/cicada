@@ -1,3 +1,20 @@
+# Cicada benchmark harnesses
+
+**Start here for answer quality** (G148, 2026-10-17 — the method and the survey behind it are in
+[`docs/research/2026-10-17-memory-benchmarks.md`](../docs/research/2026-10-17-memory-benchmarks.md)):
+
+- `benchmarks/public/` — **LoCoMo and LongMemEval end to end through Cicada** on throwaway banks and the person's
+  Claude plan: sessions → episodes → Sleep → `cicada_ask` → the benchmark's own judge (Mem0's J for LoCoMo,
+  LongMemEval's per-type prompts), with a full-context control, resumable, sliceable, cost measured in plan calls.
+  `python -m benchmarks.public.run prepare|run|report --help`.
+- `benchmarks/answer_eval.py` — **your own questions on your own bank**, graded against facts you write down
+  (expected / forbidden / should abstain); the question file is gitignored (`benchmarks/*.local.*`), start from
+  `benchmarks/answer_eval.example.yaml`.
+- `benchmarks/system/` — the whole-system integrity benchmark (synthetic, offline fake engine).
+- `benchmarks/recall_ab.py` — page-ranking A/B (finds the right page; does not grade the answer).
+
+The rest of this file documents the older thesis scripts.
+
 # Cicada thesis benchmark harness
 
 Three runnable scripts plus a shared fresh-workspace scaffold. They

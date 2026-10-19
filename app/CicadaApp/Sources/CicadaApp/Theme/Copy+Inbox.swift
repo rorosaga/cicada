@@ -30,6 +30,15 @@ extension Copy {
         static let settledTrackHelp = "Add this page to the places Cicada re-checks for this page's facts"
         static let settledTracked = "Tracked"
         static let settledUndoFailed = "That check couldn't be undone. It's still settled."
+        // Ruling 29 — "Settled by Sleep": what Sleep answered from the person's own words, or assumed.
+        static let settledSleepTitle = "Settled by Sleep"
+        static func settledSleepHeader(_ n: Int) -> String { "Settled by Sleep · \(UsageFormat.count(n))" }
+        static let settledSleepShowHelp = "Show the questions Sleep answered from your conversations or assumed for you"
+        static func settledSleepMeta(_ reason: String, _ when: String) -> String {
+            reason.isEmpty ? when : "\(reason) · \(when)"
+        }
+        static let settledSleepUndoHelp = "Put the question back and take back what Sleep changed for it"
+        static let settledSleepUndoFailed = "That couldn't be undone — the page changed since. Answer the question there instead."
         static let settledTrackFailed = "That page couldn't be added as a source."
 
         // The Undo row (R-DI5)
@@ -129,5 +138,101 @@ extension Copy {
         static func waiting(_ n: Int) -> String {
             "\(UsageFormat.count(n)) episode\(n == 1 ? "" : "s") waiting for the next cycle."
         }
+    }
+}
+
+extension Copy.Inbox {
+    /// The quick review (owner 2026-10-19): one kind at a time, the same answers in the same place.
+    enum Review {
+        static func kindTitle(_ kind: ReviewKind) -> String {
+            switch kind {
+            case .decay: "Fading pages"
+            case .fold: "Folds"
+            case .conflict: "Conflicts"
+            case .question: "Questions"
+            }
+        }
+        static let entriesLabel = "Review one kind at a time"
+        static func entry(_ kind: ReviewKind, _ n: Int) -> String { "\(kindTitle(kind)) · \(UsageFormat.count(n))" }
+        static func entryHelp(_ kind: ReviewKind) -> String {
+            switch kind {
+            case .decay: "Go through the pages that are fading, one at a time: keep or let fade"
+            case .fold: "Go through the predicate folds, one at a time: same or different"
+            case .conflict: "Go through the conflicts, one at a time: one side, the other, or both"
+            case .question: "Go through the open questions, one at a time: type an answer or skip"
+            }
+        }
+        static let review = "Review"
+        static func position(_ i: Int, of n: Int) -> String { Copy.Inbox.position(i, of: n) }
+        static func progress(answered: Int, skipped: Int, left: Int) -> String {
+            "\(UsageFormat.count(answered)) answered · \(UsageFormat.count(skipped)) skipped · "
+                + "\(UsageFormat.count(left)) left"
+        }
+        static let end = "End review"
+        static let endHelp = "Back to the Inbox (Esc). Skipped questions stay there."
+        static let openInInbox = "Open in Inbox"
+        static let openInInboxHelp = "Answer this one in the Inbox's full card — another answer, not now, the conversation"
+        static let skip = "Skip"
+        static let skipHelp = "Leave it in the Inbox and go to the next one (S)"
+        static let undo = "Undo"
+        static let undoHelp = "Take back the last answer or skip (⌘Z)"
+
+        // Decay
+        static let keep = "Keep"
+        static let keepDetail = "Still relevant — it stays active"
+        static let letFade = "Let fade"
+        static let letFadeDetail = "Archived; it comes back the next time it's mentioned"
+        static func lastSaid(day: String?, age: String?) -> String {
+            switch (day, age) {
+            case let (day?, age?): "Last said \(day) · \(age)"
+            case let (day?, nil): "Last said \(day)"
+            case let (nil, age?): "Last said \(age)"
+            default: "Last said: not recorded"
+            }
+        }
+        static func conversations(_ n: Int) -> String {
+            switch n {
+            case 0: "In no dated conversation"
+            case 1: "In 1 conversation"
+            default: "In \(UsageFormat.count(n)) conversations"
+            }
+        }
+
+        // Folds
+        static func foldQuestion(_ raw: String, _ canonical: String) -> String {
+            "Is \u{201C}\(raw)\u{201D} the same as \u{201C}\(canonical)\u{201D}?"
+        }
+        static func foldCovers(claims: Int, pages: Int) -> String {
+            let c = claims == 1 ? "1 fact" : "\(UsageFormat.count(claims)) facts"
+            let p = pages == 1 ? "1 page" : "\(UsageFormat.count(pages)) pages"
+            return "Covers \(c) on \(p)"
+        }
+        static let forExample = "For example"
+        static let same = "Same"
+        static func sameDetail(_ raw: String, _ canonical: String) -> String {
+            "File \u{201C}\(raw)\u{201D} under \u{201C}\(canonical)\u{201D}"
+        }
+        static let different = "Different"
+        static func differentDetail(_ raw: String) -> String { "Keep \u{201C}\(raw)\u{201D} as its own" }
+
+        // Conflicts
+        static let both = "Both"
+        static func said(day: String?, age: String?) -> String? {
+            switch (day, age) {
+            case let (day?, age?): "Said \(day) · \(age)"
+            case let (day?, nil): "Said \(day)"
+            case let (nil, age?): "Said \(age)"
+            default: nil
+            }
+        }
+
+        // The end
+        static let finished = "That's the last one"
+        static func finishedDetail(answered: Int, skipped: Int) -> String {
+            let a = "\(UsageFormat.count(answered)) answered"
+            guard skipped > 0 else { return "\(a)." }
+            return "\(a), \(UsageFormat.count(skipped)) skipped — skipped questions stay in the Inbox."
+        }
+        static let backToInbox = "Back to the Inbox"
     }
 }

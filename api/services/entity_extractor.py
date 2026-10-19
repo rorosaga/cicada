@@ -13,8 +13,8 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import (correspondents, decay_policy, engine_errors, episode_time, evidence, fact_policy, promotion,
-                          section_provenance, source_dates)
+from api.services import (correspondents, decay_policy, engine_errors, entity_types, episode_time, evidence, fact_policy,
+                          promotion, section_provenance, source_dates)
 from api.services.json_parse import parse_json_object
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
@@ -50,6 +50,14 @@ Output valid JSON with this exact structure:
       "label": "specific relationship verb phrase",
       "evidence_quote": "the exact words from the transcript this relationship rests on (verbatim, at most 240 characters)"
     }
+  ],
+  "values": [
+    {
+      "entity": "Entity Name",
+      "attribute": "what is measured, in a few plain words",
+      "value": "the value as stated",
+      "evidence_quote": "the exact words from the transcript that state the value (verbatim, at most 240 characters)"
+    }
   ]
 }
 
@@ -57,10 +65,12 @@ The entity body is rendered as ordered markdown sections: ## Summary, ## Key Fac
 ## History, ## Links, ## Open Questions. The fields above map directly onto those
 sections. ## Related is generated from `relationships` — do NOT emit a related field.
 
-WHAT A PAGE IS FOR: each entity becomes a short wiki article about the thing AS IT FIGURES IN THE
-USER'S LIFE — what it is, what it is to them (they built it, use it, work with them, are deciding
-about it, visited it), where it stands, and the facts worth remembering, once each. Every line must
-earn its place: if the user would never ask about it months later, leave it out.
+WHAT A PAGE IS FOR: each entity becomes a wiki article about the thing AS IT FIGURES IN THE USER'S
+LIFE — what it is, what it is to them (they built it, use it, work with them, are deciding about it,
+visited it), where it stands, and the facts worth remembering, once each. The article is written from
+what you extract here, so its length follows yours: a thing the user worked through at length deserves
+every fact the conversation established, a passing mention one or two. Every line must earn its place:
+if the user would never ask about it months later, leave it out.
 
 SUMMARY (## Summary) — one paragraph, at most 600 characters:
 - What it is, then what it is to the user and where it stands in this conversation.
@@ -82,7 +92,9 @@ KEY FACTS (## Key Facts) — facts about the thing worth remembering:
   said it matters beyond that session.
 - One fact per bullet, said once: never restate the summary, and never two bullets that say the
   same thing in different words.
-- Usually 0-5 facts; a minor thing may have one or none. Never pad.
+- No fixed number: as many facts as the conversation establishes about the thing — the decisions and
+  their reasons, what was tried and how it went, the parts, people and numbers involved. A minor thing
+  may have one or none. Never pad.
 
 HISTORY ENTRIES (## History):
 - Include dated events extracted from the conversation, one sentence each.
@@ -132,6 +144,16 @@ TIME (every conversation is written up as of its own date):
 - Keep every explicit date the conversation states exactly as stated: the date something happened is not the date
   of the conversation, and one never replaces the other.
 - history_entries: the date the event happened when it is stated, otherwise the conversation's date.
+
+VALUES (values[]) — a value of something about an entity that a later conversation can replace with a new one:
+a count ("korean restaurants tried": "4"), a time, score or personal best ("charity 5k personal best": "25:50"),
+a price or amount, a size, a version or plan in use, a current status. One entry per value the conversation
+states as true at the time; when it states two for the same thing, the later one.
+- attribute: the thing measured, in plain lowercase words, without the entity's name and without the value — the
+  words someone would use for it again next time ("personal best 5k time", not "new record set last spring").
+- value: as stated, with its unit ("25:50", "4", "$1,200 a month"). Never a guess, never a list (several things
+  held at once are relationships), never the date something happened (that is history).
+- evidence_quote: as for relationships below. The value stays in key_facts too.
 
 EXTRACTION GUIDELINES:
 - The agent's own runtime (its working directory, platform, shell, git status, the date of the session)
@@ -266,6 +288,13 @@ def sanitize_decay_class(entity: dict) -> None:
     cls = decay_policy.agent_class(entity.pop("decay_class"))
     if cls is not None:
         entity["decay_class"] = cls.value
+
+
+def sanitize_entity_type(entity: dict) -> None:
+    """The closed-type rail, applied to ONE extracted entity dict (2026-10-17): the type becomes one Stage 1 may
+    produce (``entity_types.producible``: ``organization`` → ``company``, ``product`` → ``tool``, anything unknown →
+    ``concept``). A plain-JSON engine is held only by the prompt's list. Mutates in place; never raises."""
+    entity["type"] = entity_types.producible(entity.get("type"))
 
 
 def sanitize_website(entity: dict) -> None:
@@ -592,6 +621,7 @@ async def extract(
                 # Extract from all chunks and merge results
                 all_entities = []
                 all_relationships = []
+                all_values = []
                 for ci, chunk in enumerate(chunks):
                     note = _gap_note(gaps, *spans[ci])
                     parsed = await _extract_chunk(
@@ -612,6 +642,11 @@ async def extract(
                         evidence.attach_relationship_evidence(rel, ep_id, content, window=spans[ci], kind_override=episode.get("evidence_kind"),
                                                               gaps=gaps)
                     all_relationships.extend(chunk_rels)
+                    chunk_values = [v for v in (parsed.get("values", []) or []) if isinstance(v, dict)]
+                    for value in chunk_values:
+                        evidence.attach_relationship_evidence(value, ep_id, content, window=spans[ci],
+                                                              kind_override=episode.get("evidence_kind"), gaps=gaps)
+                    all_values.extend(chunk_values)
 
                 ep_origin = episode.get("origin", "unknown")
                 # The promotion rule's "more than 3 exchanges" and "the person's own words", counted on the
@@ -637,6 +672,7 @@ async def extract(
                     if untimed:
                         entity["untimed"] = True
                     entity["origin"] = ep_origin
+                    sanitize_entity_type(entity)
                     sanitize_decay_class(entity)
                     sanitize_website(entity)
                 if narration:
@@ -651,6 +687,13 @@ async def extract(
                     rel.pop("observer", None)
                     if their_observer and _only_their_words(rel):
                         rel["observer"] = their_observer
+                for value in all_values:
+                    value["source_episode"] = ep_id
+                    value["source_episode_timestamp"] = episode.get("timestamp")
+                    value["origin"] = ep_origin
+                    value.pop("observer", None)
+                    if their_observer and _only_their_words(value):
+                        value["observer"] = their_observer
 
                 results[i] = {
                     "episode_id": ep_id,
@@ -658,6 +701,7 @@ async def extract(
                     "origin": ep_origin,
                     "entities": all_entities,
                     "relationships": all_relationships,
+                    "values": all_values,
                 }
                 # G179: the other side of a message conversation is its own page, of its own type — the entity
                 # that names them is marked (and typed) here, from the episode's own record (`correspondents`).
@@ -860,7 +904,49 @@ def entities_to_claims(
             setattr(claim, "predicate_raw", raw_label)
             by_id[cid] = claim
             claims.append(claim)
+        for value in extraction.get("values", []) or []:
+            claim = _value_claim(value, episode_id, origin, to_id)
+            if claim is None:
+                continue
+            if claim.id in by_id:
+                first = by_id[claim.id]
+                for ev in claim.evidence:
+                    if ev not in first.evidence:
+                        first.evidence.append(ev)
+                continue
+            by_id[claim.id] = claim
+            claims.append(claim)
     return claims
+
+
+def _value_claim(value: dict, episode_id: str, origin: str, to_id: Callable[[str], str]):
+    """One stated value (``values[]``, 2026-10-17) as a literal claim on its entity: predicate
+    ``claims.value_predicate(attribute)``, object the value as stated. A value predicate is single-valued
+    (``claims.is_value_claim``), so a later value of the same thing supersedes the earlier one in Stage 3 instead of
+    sitting beside it in prose — the LongMemEval knowledge-update misses of 2026-10-17 had no claim to supersede."""
+    from api.services.claims import Claim, Evidence, value_predicate
+
+    entity = str(value.get("entity", "") or "").strip()
+    attribute = str(value.get("attribute", "") or "").strip()
+    stated = " ".join(str(value.get("value", "") or "").split())
+    predicate = value_predicate(attribute)
+    if not entity or not predicate or not stated or len(stated) > 120:
+        return None
+    subject = str(value.get("source_page") or "") or to_id(entity)
+    if not subject:
+        return None
+    ep = str(value.get("source_episode", "") or episode_id)
+    valid_from = _claim_date(value.get("source_episode_timestamp"), ep)
+    raw_observer = str(value.get("observer") or "")
+    return Claim(
+        id=_emit_claim_id(subject, predicate, stated, valid_from),
+        text=f"{entity} {attribute}: {stated}",
+        subject=subject, predicate=predicate, object=stated, object_kind="literal",
+        observer=raw_observer if raw_observer.startswith("external:") else "agent",
+        context="general", epistemic="explicit", source_trust="agent_extracted", confidence=0.6,
+        valid_from=valid_from or None, source_episodes=[ep] if ep else [], origin=origin,
+        evidence=[Evidence.from_dict(e) for e in (value.get("evidence") or []) if isinstance(e, dict)],
+    )
 
 
 def _slug_label(label: str) -> str:

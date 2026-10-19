@@ -8,6 +8,68 @@
 
 ## Current state and evidence
 
+- **2026-10-18 — Ask over watch-history ranges (ruling 30 follow-up, G71, G94, G118; branch `feat/history-ask`).**
+  `watch_history.asked_span` + `summarize`: this/last year, a named year, since/between, the last N days, ever, "the
+  most", first/last watch of a named channel — counted from the watched days with no model into one bounded table.
+  Only a question with a watch verb, a platform or a channel the record holds reads it (never a bare "video"/"channel").
+  The WATCH HISTORY block is headed as computed now and current only through its last watched day; synthesis rule 10
+  keeps an earlier note about the system's own state from being repeated as current, never the person's later words. Citations name at most 5 grounding episodes plus `source_episodes_more`.
+  `test_sync_watch.py`'s flake was the tests' timing, not the watcher: FSEvents reports the setup's own writes up to
+  ~2 s late, and any report seconds late under contention; the tests now wait for an uncounted marker (events arrive in
+  order) and drive the ticker's clock instead of sleeping. 5 runs in a row and 15 runs five-at-once green. Tests: `test_ask_watch_ranges.py`. Pick up: review and merge.
+- **2026-10-18 — watch history and export saves are indexed, not consolidated (ruling 30, G71, G94; branch
+  `feat/history-index`, not merged).** `history_index` (the one predicate, the dry-run count, the retirement),
+  `watch_history.rollup` (a month's summary, no model), `watch_history.lookup` (Ask's read of the record),
+  `watch_history.channel_line` (a channel page's derived line), `sleep_cycle._index_without_model_safely` (before the
+  freeze) and `_embed_indexed_episodes_safely` (the tail's vector sync). Tests: `test_history_index.py`. Pick up: the
+  coordinator runs `api/.venv/bin/python -m api.scripts.history_index_dry_run --bank <path>` on the owner's bank (counts
+  only), then the next Sleep run retires the queued days and saves; the first vector sync of ~5.7k episodes runs in
+  that run's tail.
+- **2026-10-17 — are the answers good? Public benchmarks through Cicada on the plan, and the owner's own eval (G148; branch `feat/memory-bench`).** Survey and recommendation: `docs/research/2026-10-17-memory-benchmarks.md` (LoCoMo with Mem0's J judge first, LongMemEval by type second). `python -m benchmarks.public.run prepare|run|report` runs LoCoMo/LongMemEval end to end (stager → drain → `cicada_ask` → published judge, full-context control, resumable, throwaway marked banks, `claude -p` only). `python -m benchmarks.answer_eval --bank … --questions benchmarks/answer_eval.local.yaml` grades Ask on the owner's bank against facts he writes. First slices: LoCoMo Ask J 52.5 vs full-context 95.0 (40 Qs); LongMemEval oracle 70 vs 85 (20 Qs) — honest gaps, lost detail. Tests: `test_public_benchmark.py`. Pick up: review and merge; the owner writes `benchmarks/answer_eval.local.yaml` and runs it; then the evidence-span Ask experiment on the same checkpointed banks.
+- **2026-10-17 — small backend fixes and the LinkedIn photo decision (branch `fix/api-small`).** (1) The closed type
+  set: a plain-JSON engine is held only by the prompt's type list, and nothing between extraction and the create branch
+  checked the type, so a model's `organization`/`product`/`program` reached pages (3 on the owner's bank).
+  `entity_types.producible` now maps it at extraction and again where a page is born (Sleep create branch, inbox
+  answer); the person repairs an older bank with `python -m api.scripts.repair_entity_types --bank <path>` (dry run;
+  `--list`, `--as <id>=<type>`, `--apply`). (2) `install_predicate_map` reads the runtime map through
+  `_read_runtime_map`, the one reader. (3) Parked defects re-checked, all already fixed on dev with tests: media save
+  dates (G99d `saved_at`/`content_saved_at`), same-title media pages (`_media_entity_id` URL-hash suffix), and the
+  `<name>.com` logo guess (removed in G61 S3-b; `GUESSABLE_TYPES` is now only "types whose own site draws a mark").
+  (4) The LinkedIn photo amendment below. Tests: `test_entity_types.py`, `test_predicates_map_cache.py`,
+  `test_linkedin_people.py`.
+- **2026-10-17 — Sleep tends the inbox, part 3: passing names and label conflicts (ruling 29; branch
+  `feat/inbox-sleep-3`, not merged).** `inbox_tend.passing_rule` (`in_passing`: a page-less name said once in passing,
+  or a code identifier, closes through the person's own dismiss; never tied to the person's life — relation words,
+  first-person lines about people/places/companies, the owner's page, Messages) and `newest_words` / `label_lines`
+  (a label-only conflict settled by the person's newest plain statement of one side, located in their own turn,
+  dated that day; the conflict judge reads those lines when it is not mechanical). The lexical index is read fresh
+  inline (`ensure_fresh(wait=True, max_age_s=0)`) so a just-committed conversation counts. Synthetic backlog (27
+  passing names, 15 that must stay, 10 label conflicts): before 0 settled / 52 asked; after 33 settled / 19 asked
+  (27 `in_passing`, 6 `newest_words`; stays: 8 a person in the person's own words, 4 named again, 3 Messages, 4 label
+  conflicts for the judge). Review fixes (B1, B2): a person said in the person's own turn never closes; company/place
+  checks read the turn and its neighbours; the mechanical label path needs the subject in the stating sentence and no
+  negation/modal/avoidance on the raw text. Re-review: a relation counts only when a possessive ties it to someone,
+  links and metadata lines are never words, a saved item's title/link/byline is never the person's own words, and the
+  mechanical label path needs a plain placement right before the label (allowlist; the blocklist stays a second
+  guard). Tests: `test_inbox_tend.py` (part 3 block). Pick up: the owner's `inbox_tidy_dry_run --judge`.
+- **2026-10-17 — Sleep tends the inbox, part 2 (ruling 29; branch `feat/inbox-sleep-2`, not merged).** What the
+  first pass could not reach (owner's judged dry run: 55 conflicts never reached the judge, 69 clarifications never
+  tried): label-only conflicts judged through the claims their labels are tied to (`label_matches`, folded words,
+  never fuzzy); a page-bound question whose name resolves to no file retires, an unreadable page stays
+  (`ask:unreadable_page`); **move 3 — answered already, anywhere in the record** for clarifications, follow-ups and
+  conflicts (`said_on_record`, 4 per drain in Sleep, every one in the tidy with `judge=true`); follow-ups settle
+  through `progress` as Sleep's, dated the day the person said it. Tests: `test_inbox_tend.py` (part 2 block).
+  Pick up: the owner's `inbox_tidy_dry_run --judge` on his bank; if `ask:unreadable_page` shows up in conflicts,
+  that is where the 5 "page gone" ones were (a synthetic bank could not reproduce a missing page that dev's
+  `_subject_gone` did not already retire).
+- **2026-10-17 — Sleep tends the inbox (ruling 29, G21, G113; branch `feat/inbox-sleep`, merged #332).** `inbox_tend`
+  (the policy table, the answered-in-conversation read, the duplicate judge, the one writer and its undo), `inbox_actor`
+  (who answered: the person's resolvers commit as Sleep's while it is set), `sleep_cycle._tend_inbox_safely` after each
+  batch's commit, `POST/GET /inbox/tidy` (dry run by default; counts only) and `api/scripts/inbox_tidy_dry_run.py`, the
+  "Settled by Sleep" group beside "Settled by a check" (same list and undo routes, `group: sleep`), `inbox_settled` on
+  the Sleep status, `sleepSettles` in the feedback ledger. Tests: `test_inbox_tend.py`, `SettledChecksTests`. Pick up:
+  review; run the dry run on the owner's bank (without, then with `--judge`), read the counts per kind and decision,
+  then `POST /inbox/tidy?dryRun=false&judge=true` once and read "Settled by Sleep".
 - **2026-10-16 — server and readers: the owner's decisions after headless QA and the hunts (G181, ruling 4b; branch
   `feat/server-readers`, not merged).** Ruling 4b (above): scheduled runs may use the person's plan — Claude or
   ChatGPT — behind an off-by-default switch (Settings → Sleep, `cicada sleep schedule --use-plan`), and
@@ -34,6 +96,12 @@
   ≤ 10/day, episode with `page` spans). App: the LinkedIn tile's **Connections** (`LinkedInConnectionsPanel`).
   Tests: `test_linkedin_people.py`, `LinkedInConnectionsTests`. Pick up: review and merge; the owner drops his
   Connections.csv in the tile, reads the preview counts, and asks an agent "what does <a known person> do now?".
+  **Amendment (owner, 2026-10-17) — the photo:** a person page matched from the connections may use that profile link
+  for its photo right away, without the person taking the source — "If it's because I'm connected, unless the agent
+  says 'Oh I'm not sure,' then we don't." The link records how it matched (`match`): the page's own name or a link the
+  person or an identified agent already listed as their account is confident and drives the photo rung at once (the proxy gate's rules unchanged,
+  off by default); an alias-only match is not sure and waits for the person to take it; an ambiguous one writes
+  nothing, as before (`linkedin_people.CONFIDENT_MATCHES`, `person_photo.is_own_account`).
 - **2026-10-16 — Messages follow-ups: a chat's shared photo is its page's picture, and a mark always reaches Sleep
   (G179; branch `fix/messages-followups`, not merged).** The app reads each ticked chat's shared Messages photo (at most
   hourly, from a copy) and posts changes to `PUT /sources/messages/photos` (409 unticked or demo, 422 bad bytes);
@@ -797,7 +865,7 @@ A whole row moves to DONE only after its remaining implementation and required a
 23. **Memory-quality rulings (owner, 2026-10-09).** **Engine:** Sleep runs on the owner's Claude plan with Haiku 5.5 for extraction and disambiguation, at concurrency 10 (Sonnet measured ~15 min per 25-conversation batch, Haiku ~9). **Skills (G112):** a Stage 4 skill needs two or more conversations, a one-conversation skill is held in `skill_hold`; skill pages whose sources cannot be traced are archived (44 on the owner bank); no contradiction check on skill updates; possessive aliases ("my mom") are kept, a reference phrase is never an alias. **Pages (G194):** summary synthesis is on for the owner's install — one bounded summary per page and paraphrase folding, its calls overlapped (#258); the rule-based fact fold drops a fact only when it **equals** one already kept after trivial normalization — never containment, never stopword or preposition stripping. **Search:** EmbeddingGemma 2 is downloaded only when the person asks, never automatically.
     **Why.** Two review rounds showed every containment rule dropped a fact that said something different ("works at X" inside "works at X's competitor", a from/to swap, "1,200" vs "200"); a duplicate is cheaper than a lost fact. Synthesis-on costs ~1,000–1,500 calls per full run (clean run: 742 page updates) and is the only place paraphrases fold. An automatic 585 MB download would be a new automatic network behaviour.
     Revisit the fold only with a measured loss-free paraphrase rule; synthesis if its call count per run is measured as a plan-limit problem.
-24. **Pages, age, pictures and the CLI (owner, 2026-10-09 to 2026-10-13).** **Pages are articles (G194):** a lead and prose sections with no length cap, written for pages on 2+ conversations, over a record (Key Facts, History, Links, Open Questions, claims) that is unioned and never shortened; provenance per paragraph; an edited article is the person's. **Age counts from when it was said (G170 amended):** what the conversations prove silent is charged once, when read; a one-off may archive by age; a page or claim on 2+ dated conversations floors at 0.39 and only live silence archives it; a mention never lowers; a decay question only when live silence crosses 0.4. **Pictures (G159/G162):** Gravatar (the owner's hashed email) and GitHub for people, X and LinkedIn through unavatar.io behind their own default-off gate as the ToS rail's one exception — only from a link given as the person's own account; link-card icons only from the page's own tags; a YouTube still from its id when oEmbed gives none. **CLI (ruling 21a):** commands on state the backend owns go through its routes after `/healthz` confirms the root; person-only commands refuse from an agent's shell. **Web:** keep the door open — new features live behind the backend API, no browser front end yet.
+24. **Pages, age, pictures and the CLI (owner, 2026-10-09 to 2026-10-13).** **Pages are articles (G194):** a lead and prose sections with no length cap, written for pages on 2+ conversations (amended 2026-10-17, owner: "uncap what the agents can write to" — also for a page on one conversation, a new page included, whose record holds `CICADA_PAGE_ARTICLE_MIN_MATERIAL` inputs; a stub below that stays the merge), over a record (Key Facts, History, Links, Open Questions, claims) that is unioned and never shortened; provenance per paragraph; an edited article is the person's. **Age counts from when it was said (G170 amended):** what the conversations prove silent is charged once, when read; a one-off may archive by age; a page or claim on 2+ dated conversations floors at 0.39 and only live silence archives it; a mention never lowers; a decay question only when live silence crosses 0.4. **Pictures (G159/G162):** Gravatar (the owner's hashed email) and GitHub for people, X and LinkedIn through unavatar.io behind their own default-off gate as the ToS rail's one exception — only from a link given as the person's own account; link-card icons only from the page's own tags; a YouTube still from its id when oEmbed gives none. **CLI (ruling 21a):** commands on state the backend owns go through its routes after `/healthz` confirms the root; person-only commands refuse from an agent's shell. **Web:** keep the door open — new features live behind the backend API, no browser front end yet.
     **Why.** Pages: rich pages had a median 26 facts and a 36-word summary because the merge prompt capped summaries at 1–3 sentences; the owner pointed at gbrain and Cognition's agent-memory repo — free prose, git as the safety net. Age: the owner's own reading ("if we track the time where i did that work, then it would be irrelevant now"); a straight age rule archived 79% of the bank (601/664 projects) in a dry run, so repeats floor. Pictures: the owner's own chain from another app, minus guessing. CLI: one implementation for the app, the CLI and a future browser front end; no second Sleep.
     Revisit articles if G148 measures a recall loss or the plan limit bites; the age floor if the owner reports losing things he needed (count revivals first); the unavatar exception if the provider changes terms or starts scraping behind a login for X.
     **Amended 2026-10-16 (owner: "Yes I agree with read on time then") — read on time.** A conversation read late (a newly connected source's history, an export imported later) counts as if Cicada had read it the day it was said: when a conversation is read never changes where a page or claim ends, only when it was said does. Before, one dated before a page's watermark added its source and week and moved nothing, so a page decay had lowered stayed faded although a newly connected chat had mentioned it three days ago. Now the decay pass places it (`read_late` → `conflict_resolver._revive_on_time`, `claim_reconciler._place_on_time`, one `decay_policy.on_time`): revived on its day (a page to 0.6, a claim to its restatement's confidence), less proven silence (repeat floor) up to the day the page's previous mention was read and live silence after it, through the watermark plus at most one pass (ruling 1); only raises; a lift left below 0.4 and heard late is `faded_by_age`. To keep it order-independent a live mention now raises any settled page to `max(current, 0.6)`, active pages included (G66 §1.6 had raised only decaying/archived ones), and a settled claim restated after its watermark but read days later is placed on the day it was said instead of restarting the day it was read. Existing banks: `api/scripts/recompute_read_on_time.py` (dry run by type, `--apply` one `cicada` commit). Revisit if the owner reports pages coming back he considers stale (count lifts by age of the mention first).
@@ -918,3 +986,91 @@ A whole row moves to DONE only after its remaining implementation and required a
     Review (2026-10-16): the click writes `api_base.next`, moved into place at the next launch, so the agents never
     switch before the app; a background service is stopped on a server (plist kept); a reader's newer post never
     overtakes a waiting one on its route; provenance and Reader ETags carry `device1`.
+29. **Sleep tends the inbox: questions get answered as conversations come in, the small stuff is assumed (owner,
+    2026-10-17; amends G21, G113 and the "Clarification queue over silent drops" decision).** Owner: "a single
+    consolidation also should take care of cleaning up the inbox. … I think it was part of my thesis also that sleep
+    would also take into account the inbox so that, as conversations come through, questions get answered. There are
+    also many things that maybe can be assumed, like they don't have to be explicit, and I think a lot of cleanup can
+    happen in the inbox for actually necessary stuff for the user. There are little things that are honestly not that
+    big of a deal." And: "We can do everything with my Claude plan." **1 — Answered in conversation.** Every batch, for
+    the open conflicts, clarifications and duplicate questions its conversations are about (the ask gate's rule, over
+    the person's own turns), the engine reads the person's lines and copies the words that answer one; a question is
+    settled only when those words are found exactly in one of the person's own turns (spans, never a guess, never an
+    agent's words); the conversation that raised a question never answers it. **2 — The small stuff is assumed**, once
+    per drain and by the one-time tidy: a question whose subject is gone; a duplicate with the same name once spelling
+    is folded, or one the judge reads as the same (≥ 0.9, both pages, same type) or as different; a predicate fold
+    that only respells a label; a decay question on a one-off nobody would miss (a concept, tool, media or company page
+    on one conversation, never kept, no words of the person's on it); a conflict the newest dated statement settles
+    (never a machine claim over the person's own); a conflict on a multi-valued predicate (every value already kept).
+    **The judges (owner, same day, after the first dry run on his bank: "the inbox keeps only what genuinely needs the
+    person"):** behind `judge=true` / once per drain, the person's chosen engine (plan included) also reads conflicts
+    (each option's dates and evidence lines; one clearly better supported or newer, never a machine claim over the
+    person's own), label folds (same meaning folds; a changed meaning stays) and fading concept/tool/media/company pages
+    (still live → only marked active: no mention dated today, no claim reopened, no confidence lifted; clearly passing →
+    archived); each judged settle shows the
+    judge's one-line reason. **Never assumed:** who a person is or merging two people (only the
+    person's own words on the record), a proposed page edit, a follow-up (only the person's own words, part 2), anything a rule cannot read — those stay.
+    **One writer:** the person's own resolvers, committed as Sleep's (`Inbox settled by Sleep`, `inbox/<kind>/settled:`,
+    never `resolved:`), each undoable under "Settled by Sleep" (the reverse of its commit, three-way, refused whole when
+    something since overlaps); an undone question is never settled by Sleep again. The G113 ledger keeps Sleep's settles
+    and the person's undos apart from the person's verdicts (`sleepSettles`). **Engine:** the batch's own (ruling 4
+    unchanged); the tidy uses the person's chosen engine, their Claude plan included; a plan limit pauses, never fails.
+    **Review (same day):** a "same" on two existing pages folds the duplicate's page into the target (undo brings it
+    back); each question is decided and settled at once and only while every page it read is unchanged, under the page
+    lock. Re-review: a claim resting on the person's own words (their inbox answer or a span in their own turn) is closed
+    only by one that does too or by a tracked source's dated re-check (ruling 26).
+    **Part 2 (owner, same day: "a lot of cleanup can happen in the inbox for actually necessary stuff for the user"):**
+    a label-only conflict (no option carries a claim) is judged through the page's open claims its labels are tied to by
+    folded words (never fuzzy; a side nothing on the record states is never picked; the owner's-words rail holds over
+    the tied claims). A page-bound question whose page is gone retires (`subject_gone`); one whose page cannot be parsed
+    never does. **Move 3 — answered already, anywhere in the record:** a clarification, follow-up or conflict still
+    open is looked for across the whole bank (the page's own pointers plus the lexical index by its spellings), settled
+    only on the person's own words located exactly in one of their turns (kind `user`, never an agent's, never fuzzy),
+    recorded as the evidence span; a conflict only by words said after every side of it, a follow-up only after its
+    thread was last heard and only done/still/stopped (or done/missed/dropped), dated the day it was said. Sleep: 4 per
+    drain; the tidy: all, behind `judge=true`.
+    **Part 3 (owner, same day: "little things that are honestly not that big of a deal"):** a clarification about a
+    name with no page, said in one conversation and only in passing there (≤ 2 exchanges name it), with nothing tying
+    it to the person's life, closes as mentioned in passing (`in_passing`: the person's own dismiss; nothing written
+    about who it is; it may be asked again when another conversation names it); a code identifier however often it is
+    named. Never a relation question, a project/skill/deadline, a person said in any of the person's own turns
+    (review: a relation a sentence away, a dropped Spanish pronoun, or none at all — their words mean the person may
+    be in their life), a relation word or (for a company or place) first-person words in the naming turn or the turns
+    beside it, a name on the owner's page or from a Messages chat. A label-only
+    conflict is settled by the person's newest words (`newest_words`): their newest plain statement of one side (the
+    sentence names the subject; no negation, modal or avoidance, read on the raw text), newer
+    than any line or belief for another side and with an older one on record, located exactly in their own turn,
+    dated that day; when not mechanical the conflict judge reads those lines and may rest its pick on one, under the
+    same guards. Measured (owner's bank after #338, counts only): 59 of 69 clarifications asked with nothing on the
+    record, almost all names said once in passing; 40 of 58 conflicts `labels_not_on_record`.
+    **Why.** On the owner's bank (2026-10-17, counts only): 913 pending question files and 0 answered — 661 duplicate
+    questions, 70 conflicts, 69 clarifications, 63 decay, 46 predicate folds, 3 proposed edits, 1 follow-up — served as
+    239 rows after grouping, over 4,693 pages (2,221 archived, 823 decaying, 1,649 active). The first engine-free dry
+    run (no judge): 692 of 913 settled (660 dead duplicate questions), 221 still asked — the judges are for those. UX principle 1, "never
+    require memory maintenance", was broken by the inbox itself. Measure with `api/scripts/inbox_tidy_dry_run.py --bank
+    <path> [--judge]` (counts only, writes nothing). Revisit a rule if `GET /consumption/feedback`'s `sleepSettles`
+    shows the person undoing it often, or at once if a settle is found to have decided who a person is without their
+    own words.
+30. **Watch history and export saves are indexed, not consolidated (owner, 2026-10-18; G71, G94).** Owner: "maybe
+    overanalyzing the watch history is too much … Maybe just have it there and then maybe the metadata has it as
+    embeddings or something." **1 — A record to look up.** A watched day, a month's summary of them and a save from a
+    platform's saved list (a Takeout playlist and Watch later through any door, Instagram saves and likes, TikTok likes
+    and favourites, an X archive's likes and bookmarks, Reddit's and LinkedIn's export CSVs) are never read by a model:
+    captured already read (`processed_by: index`), retired by Sleep before a drain freezes when an older bank queued
+    them, and excluded from every "waiting for Sleep" count (`history_index.waits_for_model`). They stay files — saves
+    in Saved with their metadata — found through the lexical and vector indexes, recall's excerpts, Ask's read of the
+    record and the timeline's count. A browser bookmark, a single URL save, a connector poll and any save carrying
+    the person's own note are read by Sleep as before. **2 — The signal is counted, not read:** one summary per
+    platform per month (the channels watched most, the ones come back to across weeks, the videos watched on more than
+    one day, each day's count), deterministic and order-free. **3 — A watched day is not a mention:** history never
+    writes a page (no claim, no source episode, no date, no lift, no page minted, no inbox question) and never touches
+    decay — a watch is a record the platform kept, not the person's words (the memory-export precedent), often autoplay,
+    and at 45k watches would hold every same-named page at the repeat floor for good; a page named like a channel gets
+    one derived line at read instead. **Proposed, not built:** a playlist the person named themselves (not Watch later,
+    not Liked videos) as a light interest signal — its name and size in the month summary or one line on the owner's
+    page, still with no per-video model read. **Why.** On the owner's bank (counts only): 45,879 watches → 2,532 day
+    episodes, 3,156 playlist saves (31 playlists; Watch later 1,415), 2,444 → 5,094 episode files, 5,692 queued for a
+    full Stage-1 read each. Measure with `api/.venv/bin/python -m api.scripts.history_index_dry_run --bank <path>`
+    (counts only, writes nothing). Revisit if the person asks for a playlist or a stretch of history to be read, or if
+    the month summaries prove too thin to answer "what was I into then" — then a bounded, opt-in read of a summary,
+    never of every day.

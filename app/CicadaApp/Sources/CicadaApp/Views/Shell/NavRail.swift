@@ -32,6 +32,7 @@ struct NavRail: View {
     @AppStorage(ThemeStore.defaultsKey) private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
     @AppStorage(FeedMovedHint.shownKey) private var feedMovedHintShown = false
     @Environment(Store.self) private var store: Store?
+    @Environment(AppRouter.self) private var router: AppRouter?
     @State private var tooltip = RailTooltipState()
 
     var body: some View {
@@ -61,6 +62,10 @@ struct NavRail: View {
         let busy = tab == .sleep && isSleeping
         let selected = selectedTab == tab
         Button {
+            // Sources v3 — the page already showing: tell it, so it can return to its root (a tab bar's re-tap).
+            if RailReselect.isReselect(current: selectedTab, tapped: tab) {
+                router?.reselect(tab, byKey: NSEvent.modifierFlags.contains(.command))
+            }
             selectedTab = tab
             // ⌘ map A — the key and the click share this action; only the key holds ⌘ while it runs.
             if FeedMovedHint.shouldShow(tab: tab, commandHeld: NSEvent.modifierFlags.contains(.command),
@@ -279,4 +284,9 @@ final class RailTooltipState {
             self?.shown = tab
         }
     }
+}
+
+/// Sources v3 — a rail cell tapped while its page already shows is a reselect (a tab bar's re-tap), pure.
+enum RailReselect {
+    static func isReselect(current: AppTab, tapped: AppTab) -> Bool { current == tapped }
 }

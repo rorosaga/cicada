@@ -47,9 +47,12 @@ the page's `lastReferenced` is more than 90 days before the viewer's today, the 
 Store domain); the app's `EntityHeaderWords` / `FadeWords` twin paints them from the existing fields and is pinned to
 the backend by one table, `api/tests/fixtures/entity_bands.json` (`EntityBandsTests`). Words stay in each client. The
 name, the page's Summary, Back ⌘[ and ×; text tabs Content · Perspectives · History · Timeline with counts once
-known (the belief counts once the claims are read, when a section or tab asks). **Content opens on the page (owner
+known (the belief counts once the claims are read, when a section or tab asks), Timeline drawn only while a belief is
+contested or a belief's clock has it open (no "Timeline 0", 2026-10-17), and — while Content shows — the page's source
+toggle and Copy at the end of that same row, never a second tab row (`EntityCardHeader.pageTools`); where the row cannot
+hold both, the tools step down to their own line rather than cut a tab label (DR-45). **Content opens on the page (owner
 2026-10-09): every type, a person's too, shows its prose first as an article, and everything else waits behind a
-click.** Content: Rendered/Source and Copy; the article; its folder or repository in words; then the sections, each a
+click.** Content: the article; its folder or repository in words; then the sections, each a
 remembered disclosure (`CardDisclosure`, DR-39) that reads its data only when opened — What Cicada believes (the
 claims; shown open on an R-FX11 page, whose beliefs are its content), Where this comes from, a person's *How you know
 <name>* (*What you're connected to* on the owner's page) with *What's happening*, and Details. The
@@ -129,7 +132,7 @@ picture's source line and a
 facts strip whose every cell comes from something the card loaded (`PersonFacts`; Works at names every current place,
 newest first, each opening its own page, two then "+N" with the rest in its help — 2026-10-14; Known since, Last mentioned and
 Conversations are when the conversations were said, over all of them — `/provenance`'s `totals` — with the page's own
-dates only as a fallback); then the tabs, and in Content the page like every other type, one column; behind its
+dates only as a fallback; Known since gives its span only from a day on, never "· 0 days"); then the tabs, and in Content the page like every other type, one column; behind its
 disclosures, beliefs signed with who wrote them (`SignedLine`: harness, model and effort from the captured turn), Where
 this came from, and *How you know <name>* (*What you're connected to* on the owner's own page, by its `owner` flag;
 `PersonMapLayout`, the graph's own edges) with *What's happening* (`PersonHappenings`, from `ProjectsCache`). Every
@@ -156,6 +159,14 @@ one whose subject is archived, dropped or (for every kind but `clarification`) g
 on disk. `inbox_service.served_counts` applies the same `_hidden` predicate over `bank_index`
 frontmatter, and it is the only source of `/status`'s `inbox.total`/`byKind` (the menu bar) and the
 hub's pending count — on 2026-10-06 the raw file count said 49 while the inbox served 35.
+**The read is one listing, not one per item (inbox lag, 2026-10-17).** Most hidden items name a subject with no page
+under any spelling (merged away, renamed), and `resolve_entity_file`'s case-insensitive rung used to glob `entities/`
+for each: ~6 s per `GET /inbox` at 4,700 pages and 900 items. It now reads one cached stem index of the folder
+(`id_utils._stem_index`, rebuilt when the folder changes), the subject's status comes from `bank_index`, and
+`GET /inbox` (and the deprecated `/nudges`, `/clarifications`) run `load_inbox` in a worker thread, never on the event
+loop (`test_inbox_load_perf.py`; the 0.5 s budget at that scale is opt-in, `CICADA_BENCH=1`). In the app, an Inbox row's
+age and source day parse through formatters built once with each stamp's answer kept (`ISOStamp`), since the question
+list is a non-lazy stack that draws every row on each render.
 
 **Question object (G60).** Every item carries `question`, `options: [{key, label, description, …}]`,
 `allow_other`, `allow_defer`, `predicate` and an optional `hint`. Descriptions lead with the age
@@ -217,6 +228,18 @@ keys when the page appears and after every answer (the question only when DR-27 
 repeated digit never sweeps the queue past its one Undo (DS-3c). An option, an informational value or a merge target
 that is exactly a page's id reads as the page's name (`Store.entityNames`, display only). The Sources page's Deletions render the same card and Undo row.
 
+**The quick review (owner 2026-10-19).** The app reviews one kind at a time (`app.md`, *The quick review*); every
+answer is `POST /inbox/{id}/resolve` through the same resolvers, provenance the person's, after the same Undo window —
+there is no bulk accept. To decide without opening the page, `GET /inbox` serves two more fields derived at read
+(`api/services/inbox_review.py`, engine-free, never stored, a failure costing the field and never the card): a `decay`
+or `normalization` item carries `subject: {summary, conversations, lastSaid}` — the page's lead sentence (frontmatter
+`summary`, else its `## Summary`, first sentence, ≤ 200 characters), how many distinct dated conversations its
+`source_episodes` hold and the latest of their days (`decay_policy.conversations` / `latest_said`, a memory export entry
+or a relay counting as none, as decay counts them); a `normalization` item also carries `fold: {raw, canonical, claims,
+pages, example}` — the label as said and the predicate it was filed under (in words), how many claims and pages the
+question covers (`fold_claims`) and the anchor claim's sentence. A legacy fold with no recorded pair has no `fold`.
+The ETag already moves with `entities` and `episodes`, so no client mapping changes (`test_inbox_review_context.py`).
+
 **Cause (G115 Phase 1, delivers G97).** Every item carries its `cause` — episode, timestamp,
 conversation, harness, excerpt, offsets — resolved **at read** by `api/services/inbox_context.py` in
 three tiers (item → claim → entity), engine-free. The excerpt is ±240 chars around the mention, cut
@@ -250,6 +273,52 @@ reopens — only a claim still as the check left it — and the question returns
 already on the page committed apart first) and, for a public citation on a subject with a page, **Track this source**, which
 calls the person's own add-source route — a citation is never a tracked source by itself (`storage.md`). Questions
 about whether a PR or a G row merged are answered from the commit by a trusted local agent, never searched.
+
+**Settled by Sleep (owner ruling 2026-10-17, TODO ruling 29).** "A single consolidation also should take care of
+cleaning up the inbox … as conversations come through, questions get answered … many things … can be assumed." Sleep
+tends the inbox (`inbox_tend`, `capture-and-sleep.md`) in three moves, through the **person's own resolvers** (the
+`_resolve_*` writers `POST /inbox/{id}/resolve` uses), with `inbox_actor` saying Sleep answered:
+
+| kind | Sleep settles it when | otherwise |
+|---|---|---|
+| any but `page_edit` | what it asks about is gone (merged away, archived, dropped; for a conflict, decay or follow-up also a name that resolves to no file) — retired, nothing else touched (`subject_gone`). A page that is there but cannot be parsed is never "gone" (`ask:unreadable_page`) | — |
+| `conflict`, `clarification`, `merge_suggestion` | **the person's own words in a conversation answer it**: a batch's conversation is about it (`inbox_ask_gate.relevant`, over the person's turns only), the engine copies the words, and they are found exactly in one of the person's own turns (`evidence.verify`, kind `user`, never fuzzy); the conversation that raised the question (or an option's evidence) never answers it | ask |
+| `merge_suggestion` | same name once spelling is folded, same type, not a person (`same_spelling`); or the judge reads both pages: `same` ≥ 0.9 merges (`judged_same`), `different` ≥ 0.9 keeps them apart (`_merge_rejected.yaml`, `judged_different`). A merge of two existing pages **folds the duplicate's page into the target** (`entity_merge.merge_entities`: its claims, ledger, sources and references follow; undo brings it back) | ask (unsure; a person — only their own words merge two people) |
+| `normalization` | the two labels differ only in spelling (case, separators, a plural): "Correct fold" (`spelling_fold`); else the judge: same meaning ≥ 0.9 folds (`judged_fold`) | ask (the meaning changes, or unsure) |
+| `decay` | a one-off nobody would miss: a `concept`/`tool`/`media`/`company` page on one conversation, not evergreen or durable, never kept, no claim of the person's own → archive (`one_off`); any other such page: the judge reads the page and its last mentions — clearly passing → archive (`judged_archive`), clearly live → marked active only (`judged_keep`: no mention dated today, no claim reopened, no confidence lifted — the person's "still true" stays theirs) | ask (the person's projects, skills, people, places; unsure) |
+| `conflict` | a multi-valued predicate: every value was already kept, the question closes with nothing touched (`multi_valued`); the newest dated statement settles it: single-valued, every option an open claim, one said strictly later than every other (`newest_evidence`); else the judge reads each option's dates and evidence lines: one clearly better supported or newer ≥ 0.9 (`judged_conflict`) — never what only the person knows. **A label-only conflict** (an older format: no option carries a `claim_id`) is judged too: each label is tied to the page's open, non-event claims by folded text (`label_matches` — `text_fold.words`, whole words, never fuzzy: the label equals the claim's object or sentence, the object (≥ 4 characters) is a run inside the label, or the label (≥ 2 words) is a run inside the sentence — a negated label ("No longer on X") ties only by equality; on the conflict's predicate unless it is the entity path's literal `description`; a claim tied to two labels supports neither). Labels tied to nothing stay (`ask:labels_not_on_record`); the judge reads each label with its tied claims and their evidence lines, never picks a side nothing on the record states, and settles by option key through the same resolver (which, as for the person's pick of a label-only option, writes the confirmed sentence and closes no claim). **The owner's words:** a claim resting on the person's own words (their inbox answer, or a span in their own turn) is closed only by one that does too, or by a tracked source's dated re-check (ruling 26) — by no rule and no judge otherwise | ask (the owner's page; what a person is or is called; unsure) |
+| `clarification` | **a name said in passing** (part 3, `in_passing`, owner 2026-10-17: "little things that are honestly not that big of a deal"): "Who or what is <name>?" about a name with **no page** (by id, name or any page's alias), said in **one conversation** (the raising one; every other conversation the lexical index finds by its spellings is checked on its own text, whole words — the index read fresh, so a conversation the batch just committed counts) and **only in passing there** (at most 2 of its exchanges name it — `promotion.exchanges`, the promotion rule's own unit) → closed through the person's own `dismiss`: nothing is written about who or what it is, the name stays where it was (the index, the pending store), and a later conversation that names it may raise the question anew. A **code identifier** (one token with `_`, `::`, `()`, `->`, a sigil or flag dash, or backticks — never case alone, so "GitHub" is no code) is assumed however many conversations name it. **Never:** a relation question ("What's the name of your <relation>?"), the person's own things (`project`, `skill`, `deadline`), **a person (or a name of no type) said in any of the person's own turns** (`ask:persons_words`, review 2026-10-17: their words about someone mean that someone may be in their life — a relation a sentence away, a pronoun Spanish drops, or none at all; only a person named in an agent's text or a document's metadata may close — and a **saved item** (no turn marker, from a saving door: a bookmark, a saved post, a feed, a watch or web history, a read page, or an episode carrying the page's `url`) is the page's text, never the person's own words, so a name in its title, link or byline may close), a relation word (`role_people.ROLE_WORDS` plus family, teammate, colleague, compañero/a, jefe/a, novio/a… — the name's own words never count) **tied to someone by a possessive** right before it or one word before (my/your/our/his/her/their, mi/tu/su/nuestro… — "my older sister", "your teammate", "con mi primo", "X is my …"; "a decades-old family spot" is no relation) in the turn that names a person, company or place or in the turns beside it (a song, tool or term: in its own sentence), a company or place when the person speaks of themselves in that turn or the ones beside it (I/me/my/we/our, yo/mi/nosotros…, and Spanish first-person verbs like tengo/fui/hablé) — both checks read words someone wrote, never a link or a metadata line (`url:`, `folder:`, `origin:`, `author:` …; "…&client=safari" is no client), a name the owner's page says, anything from a Messages chat, or a conversation that cannot be read (`ask:unmeasured`). Stays: `ask:persons_words`, `ask:relation`, `ask:about_self`, `ask:owners_page`, `ask:messages`, `ask:named_again`, `ask:said_more`, `ask:own_type` | ask |
+| `conflict` (label-only) | **the person's newest words** (part 3, `newest_words`): when labels do not tie to claims (or before the judge reads the ones that do), the record decides — every sentence of the person's own (kind `user` turns, never an agent's, never an agent's saved note) in a turn that names the subject, across the page's pointers, the raising conversation and the lexical index's hits (newest first, at most 24 conversations), that states a label (the whole label, or its distinctive run: from its first word no other label has, not a stop word or the subject's name, through the words after it, ≥ 3 characters; whole words, folded, never fuzzy). Settled with no engine when the newest day any line states a side has only **plain statements of one side** — the sentence itself names the subject (a sentence about another subject in the same turn never settles it), the label **directly follows a plain placement** (an allowlist: is on, runs on, is running on, uses, is using, moved to, switched to, migrated to, now on, lives on, is at; corre en, está en, usa, se movió a, pasó a, ahora en — "dropped", "ditched", "shut down" never read mechanically), and it carries no question, negation, modal, avoidance or hedge, read on the raw text so a contraction is never split away ("can't", "won't", "cannot", "no longer", "stop", "avoid", "instead of", "except", "without", "from … to", "or", "should"; Spanish no, nunca, ya no, sin, en vez de, evitar) as a second guard — an **older** line of theirs (or a belief tied to another label) states another side, nothing for another side is as new (or undated), and the line is located exactly in their own turn (`persons_span`) — the evidence span, the prose dated the day it was said ("confirmed by Sleep on <today>, as said on <day>"). Otherwise, when such lines exist, the conflict judge reads them too (tagged `[C<n>, <day>]`, at most 8) and may pick a side no belief states only by naming the line its pick rests on: the words located exactly in their turn, stating the picked label, with no line stating only another side that day or later and no other side's belief as new. The owner's-words rail holds: the winner is the person's own words | ask (`needs_judge`, `labels_not_on_record`) |
+| `clarification`, `followup`, `conflict` | **answered already, anywhere in the record** (move 3, `said_on_record`; part 2, 2026-10-17): still open after the rows above, the question is looked for across the whole bank — the conversations its page points at (its claims' evidence and `source_episodes`, the pointers Ask's source words follow) plus every conversation the lexical index finds by one of the page's spellings (`search_service`, words only: no embedding model inside Sleep). Only the person's own turns that name the subject, in a conversation the ask gate finds about the question, reach the engine — each tagged `[C<n>, <day>]`, at most 6 conversations and 8 lines; the reply names the tag and copies the words, which must be found exactly in that conversation's own turn (kind `user`, never fuzzy, never an agent's words — and never the unmarked text of an episode an agent saved through a tool door, `ask_sources.AGENT_SOURCES`, which the evidence reader would otherwise call the person's) and become the evidence span. **Read on time:** a claim Sleep writes from the person's words is true from the day they said it (`valid_from`, and a closed side's `valid_to`, at the conversation's day; `recorded_at` today), so a March statement read in October still ranks as March's. A conflict is answered only by words said strictly after every side of it (a side with no date: never from the record), a follow-up only by words after its thread was last heard; never by the conversation the question rests on. A follow-up takes only `done`/`still`/`stopped` (a thread) or `done`/`missed`/`dropped` (a milestone), written through `progress` as Sleep's (`origin: inbox-tend`, the model as author), **dated the day the person said it** (`date_basis: episode`) — never a withdrawal or a moved date. Nothing on the record → no engine call, and lines already read without an answer are never sent again (an in-process memo of ids and a hash), so the next drain moves on. In Sleep: 4 questions per drain; in the tidy: every one, only with `judge=true` | ask |
+| `divergence`, `removal` | only from the person's own words in a batch's conversation (above), or never | ask |
+| `page_edit` | never — the person's alone (G198) | ask |
+
+A question the person deferred, or one whose settle (or check) they took back, is never touched. **Never stale:** each
+question is decided and settled at once, one at a time; a decision carries the content hash of every page it read, and
+the settle (inside Sleep's window, or the tidy's admission, with the page lock held from the resolver's first read through its commit) goes ahead only when those pages are unchanged and an
+engine-free rule still decides the same — a conversation, an edit or a Sleep batch landing in between leaves the
+question for the next look (`left:changed`). A judged settle carries the judge's one-line reason, shown in its row.
+**What a settle writes:** exactly what the person's answer would, in one commit that is Sleep's — `Inbox settled by Sleep (<kind>)
+<date>`, trigger `inbox/<kind>/settled:<label>` (never `resolved:`, so G147's reader and every "the person said" reader
+skip it), `Cicada-Author` the judging model or `cicada` — with the question's record `inbox/settled/<id>.md`
+(`settled.group: sleep`, its `rule`, `reason`, and for moves 1 and 3 the span of the person's words, never a copy). A claim it
+writes is authored by Sleep; prose says "confirmed by Sleep". The G113 row is `by: sleep` with its rule, kept apart from
+the person's verdicts (`GET /consumption/feedback` → `sleepSettles`). **The Inbox shows these under "Settled by Sleep"**
+(`SettledChecksSection`, a second closed group beside "Settled by a check"): the answer, the person's words when it
+rests on them, the rule's reason and when, and **Undo** — the same `POST /inbox/settled/{id}/undo`, which for a Sleep
+record (`inbox_tend.undo`) takes back exactly that commit: the reverse of its diff applied three-way onto each file as
+it is now (`git merge-file`), refused whole — nothing written, 409 — when something since overlaps it; the question
+returns marked `sleep_settle: undone` so Sleep never settles it again, committed as the person's (`Sleep's settle undone
+<date>`), and the ledger records the undo against the rule. **The one-time tidy:** `POST /inbox/tidy` applies the same
+policy to every open question — `dryRun=true` (the default) answers counts per kind and per decision only;
+`dryRun=false` runs in the background (one at a time: a second start is 409), each question settling alone under the
+bank's write admission and the tidy stopping before any judge call or settle once Sleep holds the pages; `GET
+/inbox/tidy` its counts. **A running tidy is busy for every updater** (`/sleep/status` → `inboxTidy: true`, read by
+`scripts/dev/auto-update.sh`, the app's `SleepProbe` and its install helper), and its counts are saved as it goes in
+`$CICADA_HOME/inbox_tidy/<bank-id>.json` (counts and enums only, outside every bank), so `GET /inbox/tidy` still
+answers after a restart — `interrupted: true` when the run was cut short (each settle had already committed alone); `judge=true` lets the judges (duplicates, conflicts, label folds, fading pages) read with the
+person's chosen engine, their plan included (a plan limit pauses it). `api/scripts/inbox_tidy_dry_run.py --bank <path>
+[--judge]` measures it offline, writing nothing.
 
 **Decay is no longer the special case.** Served as `Still tracking {name}?` with `archive` / `keep`,
 synthesised at read from the page's `last_referenced`, never written. (The item *file* Sleep writes for
@@ -350,6 +419,51 @@ scheduled path — daily, interval, or the settle probe — passes `user_trigger
 scheduled cycle never spends Claude or ChatGPT plan quota (the standing ruling in `TODO.md`), **and reads everything
 waiting, in batches** (ruling 16: unattended, on the scheduled engine — on a key that is spend with no limit Cicada sets; a
 paused run is left for the person to continue or end; the tail still runs over it).
+
+**The schedule is the active bank's own (follow-ups 2026-10-19).** The jobs' triggers are built from the schedule the
+bank had when they were registered (startup, a schedule save), so a bank switch has to move them: every switch route
+(`POST /banks/{name}/activate`, the demo's two doors through `_activated`, a new demo) calls
+`sleep_scheduler.follow_active_bank`, which re-registers from the new bank's `sleep_schedule.yaml` — a bank on `manual`
+gets no job at all, one on 05:00 fires at 05:00, and switching back restores the old trigger. Because an active bank can
+also change by a path that is not a route (a registry edited underneath the backend, a restore), each job carries the
+schedule it was registered for (`registered`), and `_run_if_idle` / `_run_after_intake_if_settled` compare it with the
+active bank's own (`trigger_key`: mode plus time or step) **before** anything else: different → re-register from the
+active bank and run nothing on the old time. Two banks on the same schedule share one trigger and the fire runs the
+active one. A schedule file that is there but cannot be parsed is not `manual` to this check (`read_schedule` →
+`None`): the fire runs as registered and logs it once per bank, so a corrupt file never unregisters every job;
+`save_schedule` writes atomically (temp file, fsync, `os.replace`), so a fire never reads one half-written. Before this, `_run_if_idle` never re-read the mode, so a bank switched to `manual` was consolidated on the
+last bank's 03:00.
+
+**A missed scheduled time catches up, once (owner 2026-10-19).** `daily` and `interval` are timers in the backend's own
+process: one due while the Mac sleeps fired late on wake, past APScheduler's grace, and was dropped; one due while the Mac
+is off was never seen (the next start computes the *next* time) — a laptop closed at night never ran its schedule. The
+schedule's own job now keeps a minute's grace (`coalesce`, `misfire_grace_time=60`), and beside it `sleep_catch_up`
+installs a 5-minute probe (first look a minute after start; `manual` and `after_import` get none). Each look reads
+the **active bank's own** schedule (`load_schedule`), never the one the probe was registered with — a switch
+re-registers the jobs (above), and a probe in flight across one still never catches a bank set to `manual` or
+`after_import` up on another bank's time — and a demo
+bank (`demo_guard.is_demo`) is never read. The probe asks for the
+latest due time with nothing since — `daily`: the latest HH:MM at or before now; `interval`: the last anchor plus N
+hours — and, however many were missed, runs **once**, naming the latest. "Since" is the latest of: `handled_at` (every
+scheduled fire, on time or caught up, stamps it **before** reading — a fire that then finds a running cycle, a pause or a
+failure has had its turn), `last_run_at` (`sleep_cycle.run` stamps every run that reads, the person's included), the
+newest `runs.json` summary and the newest real `Sleep cycle` commit (the record that predates the stamps), and `since`
+(when this schedule — mode and time — was first seen, so a schedule set at 14:00 never catches up that morning; on the
+first start after an upgrade, the schedule file's own modification time). The stamps live machine-local in
+`$CICADA_HOME/sleep/<bank>/schedule.json` (`sleep_local`, timestamps only): the schedule is a fact about this Mac's
+process, the bank's history cannot say that a fire found nothing or failed, and in-memory scheduler state does not
+survive a restart. **The settle:** a missed time is first noticed, then run one probe later if still missed; a gap
+between probes over ten minutes is a wake or a start and the settle begins again, so it never lands on login or the
+moment the lid opens. **Rails:** `user_triggered=False` (ruling 4/4b — a plan only through the person's switch, never
+flipped here; with the switch off on a plan the catch-up fails as the 03:00 run does, once per missed time, never on
+every wake, because the stamp precedes the read); it reads everything waiting (ruling 16, `_scheduled_drain`); never on
+a running cycle (it looks again next probe, and checks again after counting the queue); a paused run gets the engine-free upkeep only, as `_run_if_idle` does; the
+bank active when it fires (`bank_registry.unpin`, G183(d)); nothing readable (only parked or index-only history) runs
+nothing and the time counts as handled, so a capture later that day waits for the next time as on any day. The run's
+summary carries `catch_up_for` (`sleep_runs`, `SleepRunRef.catch_up_for`), which Past nights says in words (`app.md`).
+A plan-pinned scheduled run (`CICADA_LLM_MODE=agent|codex`, one batch, no run summary) catches up the same way but its
+row carries no catch-up words. **The menu bar counts what waits for Sleep:** `GET /status` `episodes.readable`
+(`sleep_debt.readable_count`) is the bookworm's badge (`app.md`).
 
 ### 5. Conversation upload
 **One chat-export pipeline (Track I).** Claude, ChatGPT and Gemini exports — a whole .zip, a

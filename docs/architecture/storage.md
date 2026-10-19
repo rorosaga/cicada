@@ -50,6 +50,16 @@ claims_ledger: {claims: 5835, hash: 1a2b3c4d5e6f}  # only on a page whose older 
 `media` (ingested item with an agent-generated summary), `directory` (a filesystem path, split out
 from `location` in G18).
 
+**The set is held where a type comes from a model (2026-10-17).** A plain-JSON engine is held only by the
+extraction prompt's list, and a model's `organization`, `product` or `program` once reached a page unchanged.
+`entity_types.producible` is the one coercion (`organization` → `company`, `product` → `tool`, `program` → `project`,
+an unknown word → `concept`), applied at extraction (`entity_extractor.sanitize_entity_type`); where a page is born
+from a model's word (the Sleep create branch, an inbox answer that creates a page) `entity_types.in_set` keeps any of
+the 10 and maps only a word outside them — the decay-class rail's two places. A bank with pages from before is repaired by the person: `python -m api.scripts.repair_entity_types
+--bank <path>` (dry run, counts and type words only; `--list` adds page ids for their own terminal; `--apply` one
+`cicada` commit, `maintenance/entity-types`; `--as <id>=<type>` overrides the mapping for one page). Only `type`
+changes; a page dirty in git is skipped; it refuses while Sleep runs.
+
 **Two exclusions matter (G17).** `deadline` still renders for legacy pages but is **no longer
 produced by Stage-1 extraction** — `PRODUCIBLE_ENTITY_TYPES` excludes it; due-dates attach as a
 `due` claim on the relevant project instead of spawning a standalone entity. `media` is likewise
@@ -65,7 +75,9 @@ in the file, which after a paragraph is a setext heading) is compiled prose: the
 header) and `## Article` holds `### <title>` sections of paragraphs with inline `[[links]]`, both rewritten freely
 by the article writer (`entity_article`, `capture-and-sleep.md` *Pages as articles*). Below it is the record — Key
 Facts, History, Links, Open Questions, Related, claims — unioned deterministically and never shortened by a writer.
-A page without an Article is the v2 fact sheet; nothing reads the two differently except the writers below.
+A page without an Article is the v2 fact sheet — a stub (one conversation, under the writer's material floor) or
+a bank with articles off; a page on 2+ conversations or with enough material, new pages included, gets the Article
+(2026-10-17, `capture-and-sleep.md` *Uncapped*). Nothing reads the two differently except the writers below.
 
 `article: {v: 1, hash: <12 hex>, written: YYYY-MM-DD}` stamps the lead and Article as the writer left them
 (`entity_article.stamp`). While it matches, the page is machine prose: no summary or legacy rewrite touches the lead,
@@ -184,7 +196,9 @@ legacy page converts on its first write; `append_claim_entries`, which must not 
 form. `python -m api.scripts.migrate_claims_jsonl --bank <path>` reports counts (a dry run); `--apply` converts every
 remaining legacy fence in one `cicada` commit — never automatically, never while Sleep runs. Its own process cannot see
 Sleep's flag, so it asks the backend and fails closed like claim recovery: only a 200 saying `writing: false` and not
-`running` lets it write (no backend refuses too); a page with uncommitted changes, or written again during the run, is
+`running` lets it write (no backend refuses too; a slow or absent answer is asked again, three tries of 8 s, and a
+refusal says whether Sleep was running or the backend was slow, unreachable or unreadable, `backend_problem`; every
+maintenance command that imports `backend_running` gets the retries); a page with uncommitted changes, or written again during the run, is
 left out of the commit for its own writer. Why: PyYAML builds every
 node in Python even on the C loader (~150 µs a claim: 0.5 s for a 3,500-claim page, ~3 s for a 2,000-page bank's
 claims, paid by every full-bank reader); a JSON line is ~3 µs (`benchmarks/scale`). Spans are unaffected: a `page`
@@ -222,6 +236,23 @@ commit, refused unless Sleep is idle, each page checked to read back every claim
 before it is written; a rerun finishes an interrupted run, committing the pages it left dirty with exactly this
 migration's bytes and nothing else; a Related link that is no edge and no `related:` slug keeps its line as it was;
 `hub_pages`).
+
+**A value that changes is a claim a later value closes (stated values, 2026-10-17).** LongMemEval knowledge-update
+(G148): a count said as three and later as four, and a personal-best time said twice, both stayed as two undated lines
+of prose with no claim to supersede — Stage 1 emitted only entity-to-entity relationships, and an unseen predicate
+coexists. Stage 1 now also returns `values[]` (`{entity, attribute, value, evidence_quote}`: a count, a time or record,
+a price, a size, a version or status in use — one current value of one thing, never a list or an event date), verified
+like a relationship's quote and projected as a literal claim `value-of-<attribute slug>` (`claims.value_predicate`,
+`entity_extractor._value_claim`). The prefix with a literal object makes it single-valued by its own shape
+(`claims.is_value_claim`; `predicates.cardinality` answers `single`), never by a bank's vocabulary, so the trust table
+runs as for any single-valued key — a newer value supersedes, two values on the same day ask — under the owner's-words
+rail (`inbox_tend.may_close`, review 2026-10-17): a value resting only on the assistant's or another speaker's words
+never closes one resting on the person's own (an evidence span in their turn, or their answer), in either order; it is
+asked about instead (`value_kept_for_persons_words` in the audit). Two Stage-1 reads name one attribute in other words, so a value adopts the predicate of
+the open value on its slot whose attribute words match (`claims.same_value_attribute`: the same words after filler
+such as "number of", or one set inside the other when the smaller has two or more — "age" never meets "dog age"). A
+value said before the one the page holds (a drain reads conversations in any order) is kept as closed history,
+`superseded_by` the first value said after it (so history never overlaps), never asked about (`superseded_on_arrival`). The value stays in key facts too.
 
 **A person holds more than one place at once (2026-10-14).** `works-at` is multi-valued: as a single-valued key, Stage 3
 closed the open place whenever another was mentioned, and one measured owner page held 26 `works-at` claims, 25 closed,
@@ -312,7 +343,9 @@ supersession links follow; a re-run after a crash finds its earlier copy); a cla
 once; two open claims that disagree stay two — a merge never closes a belief. A corrupt fence on either page aborts
 the merge (the inbox answers 409), and two ids for one file (a case-insensitive disk) are refused. **A ref resolves to
 the page's own id whatever case was typed (2026-10-14):** `id_utils.resolve_entity_file` returns the path spelled as
-the directory lists it (`id_utils.on_disk`; the listing is cached by the folder's mtime), because macOS finds
+the directory lists it (`id_utils.on_disk`; the listing is cached by the folder's mtime, trusted only once it was taken
+100 ms past that mtime — git's racy-clean rule, for a filesystem with a coarse clock; its last rung, a ref matched to a
+stem ignoring case, reads one index built from that listing, never a glob per call), because macOS finds
 `entities/Cicada.md` when the page is `cicada.md` and a caller that took that stem as the id knew no page by it —
 `cicada_note_progress(project="Cicada")` called a project "a page". The readers that join a ref onto `entities/`
 themselves (`recall_detail`, `sources`, progress participants, the backlog's project page) use the same rule. Before the loser's
@@ -607,6 +640,10 @@ Round 4 (C2–C4):
   counts those numbers, so the undo can put the question back under its own (`web_settle.undo`, which takes back only
   the claims in `claim_ids` — from the pending line or the page — and the closures whose claim still reads as `after`;
   the episode stays; the question returns with `web_check: undone`, so no check settles it again).
+  **Sleep's own settles (ruling 29)** share `inbox/settled/`: `settled: {group: sleep, at, by, by_kind: sleep, rule,
+  reason, answer, entity_id, entity_name, predicate, evidence?: {episode, start, end}}` — a span into the person's words,
+  never a copy — committed in the resolver's own commit, which is what `inbox_tend.undo` reverses (three-way); the
+  question returns with `sleep_settle: undone`.
 - `website` (G61 S3-b) — the official-site ROLE: a `sources:` entry with `predicate: website`, many allowed. Stage 1 may
   propose ONE for a `company`, `tool` or `project` (an optional `website` field on the extracted entity;
   `site_sources.sanitize_website` keeps only an https origin of a public host that is not a platform (`PLATFORM_HOSTS`:
@@ -641,6 +678,20 @@ Round 4 (C2–C4):
   under the older rule is purged ONCE (`ensure_rule`, marker `logos/<bank>/.rule`; `sites/` is spared), and a page that
   no longer resolves a domain drops its cached mark and records a miss (an explicit `website` entry outranks a bare link the person typed). `GET /entities/{id}/sources/icon/{site}` serves
   the mark of a trusted site THIS page lists (icon service only, keyed on the site, never a ref; never for a `person` or `media` page).
+  **A saved link's own site icon (owner ruling 2026-10-19).** A saved link's row (Sources › a saved source) shows its
+  site's own icon, asked of **that site only** — never an icon service, so no one learns what the person saved:
+  `GET /sources/saved/{media_entity_id}/site-icon`, asked by the app for a row of a list the person opened (never from
+  Sleep, never a whole bank; listing items fetches nothing). The site is the registrable domain of THIS link's own URL
+  from the url index (`channel_items.saved_link_site` → `logo_service.own_site_domain`), for a live media page a `saved`
+  source owns; a walled family, a private or reserved name is never asked (the row keeps its bundled mark or monogram).
+  Two fixed paths, `https://<site>/apple-touch-icon.png` then `/favicon.ico`, never the homepage's HTML (a page of the
+  site's HTML is the most bytes and the likeliest consent wall or login redirect, for a path the two conventions
+  cover); each hop through the SSRF guard (`net_guard`'s rule), on the same registrable domain and never a login host,
+  4 s, the body streamed with `Accept-Encoding: identity` and cut at 512 KB of raw bytes (no compressed body inflates first), DNS checked off the event loop, no cookies, raster only; 401/403/407/451 stops at once and nothing is retried
+  with other headers. Behind `CICADA_ALLOW_LOGO_FETCH` (off: nothing asked, nothing recorded, the monogram). Cached in
+  `$CICADA_HOME/logos/<bank>/sites/own/` — hits 30 days, misses 7 — never in a bank; any failure is a 404 the row draws
+  as its monogram. This is a row's mark only: it never becomes a page's picture, and `domain_for` still takes no saved
+  link's site.
 - `picture:` (G146) — the person's own choice of picture for a page: `{kind: upload, sha, ext, added}` for a
   picture they uploaded, whose bytes live **in the bank** at `assets/pictures/<id>.<png|jpg>` (their record, so it
   travels with the bank; the path is derived from the id, never read from the page), or `{kind: initials, added}`
@@ -692,7 +743,9 @@ Round 4 (C2–C4):
   best-ranked GitHub profile link (`https://github.com/<username>`, one path segment) among the page's `sources:` that
   somebody gave as the person's OWN account (`person_photo.is_own_account`): the person's or one they took, with no
   fact attached, a profile predicate or `website`; or an identified agent's with no fact attached or a profile predicate
-  (`PROFILE_PREDICATES`) — never Cicada's own writers, an unidentified proposal, an "Only I know" note, or a link Stage
+  (`PROFILE_PREDICATES`); or the LinkedIn link the person's connections export added on a confident match (`match:
+  name|link`, owner 2026-10-17; an alias-only match waits for the person to take it) — otherwise never Cicada's own
+  writers, an unidentified proposal, an "Only I know" note, or a link Stage
   5.56 attached from a claim's cited words (always under a `world`/`artifact` predicate, which no profile predicate
   is; a test pins it) — then, only while `CICADA_ALLOW_PERSON_PHOTO_PROXY` is on (off by
   default, owner 2026-10-09), an X profile link and a LinkedIn `/in/` link, asked through the avatar proxy within an
@@ -1034,7 +1087,12 @@ and then swapping the table in one transaction, so recall keeps answering from t
 records (measured: 835 recalls during a 340 s re-embed, none with an empty leg, p50 123 ms). It embeds in chunks of 64
 and gives way when Sleep starts (`IndexSyncStopped`, nothing written). **A long embed runs in a child process** (`embed_worker`, 2026-10-09): `coremltools` holds the GIL for every predict (and for a load: the ≈ 90 s first compile), so in the backend's own process a re-embed starved the event loop — on an owner-sized bank `/healthz`, `/embeddings` and the Stop hook's capture POST went past 10 s. Every document batch of 16+ texts for an on-device model (the re-embed's chunks and Sleep's own syncs alike) is embedded by one child per model, with the same model resolved the same way; the parent keeps the diff, the write lock, the stop check and the one-transaction swap, and waits on a pipe. The child exits after 90 s idle or when the backend goes away; a dead one is replaced once per call. The download's warm-up loads its functions in a child too (the compile cache is per path, for every process). Queries and short batches stay in-process; `CICADA_EMBED_WORKER=off` (the suite's setting) keeps everything in-process. Reproduced with a GIL-holding stand-in at Core ML's measured per-predict times on a synthetic 3,632-page / 14,043-claim / 7,013-passage bank (a 383–391 s re-embed): before, 7–27 % of probes timed out at 10 s and half took over 2 s; after, p99 ≤ 168 ms, max 260 ms, none failed. `/healthz` reads off the event loop. Sleep's own syncs pass
 `defer_model_switch=True`: a table whose recorded model still runs here keeps it, synced incrementally, while the switch
-waits for the job. Only a switch to an on-device model folder is the job's; one to a hosted or sentence-transformers
+waits for the job. **The episode passages' cut is recorded the same way** (2026-10-19): `vector_index.EPISODE_CHUNKING`
+(`1600/200` — 1,600-character passages, 200 overlapping, sized to the 512 tokens both on-device models read; the old
+4,000-character passages left 36 % of real chat text unread, measured with EmbeddingGemma 2's tokenizer) is stamped beside the table as `chunks:episodes`, and a table
+with another cut (an index written before the stamp reads as `4000/200`) is stale for `embedding_models.pending_switch`:
+the same background job re-cuts and re-embeds it, embedding first and swapping in one transaction, while Sleep's own sync
+keeps the recorded cut (so a night embeds only its new conversations, never the whole table). The cut is read under the index's write lock with the diff it decides, so a Sleep sync that starts while the job commits the new cut waits for that commit and then syncs at the new cut — it can never re-embed the bank at the old one or stamp it back. At the owner's scale (8,237 episodes, ~36.9k passages at the new cut) the re-cut holds ~113 MB of vectors in memory and embeds for minutes; a Sleep that starts meanwhile stops it (nothing written) and it starts over after the run. Only a switch to an on-device model folder is the job's; one to a hosted or sentence-transformers
 model still happens in Sleep's index step, and `CICADA_BACKGROUND_REINDEX=off` (the suite's setting) restores that for
 every model. `GET /embeddings` carries `recommended` (the better model this Mac runs but hasn't downloaded) and `reindex`
 (state, model, tables done of total). One writer per index file at a time (`vector_index._write_lock`, in-process: every

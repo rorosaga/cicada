@@ -2,14 +2,22 @@
 ``api.scripts.rebuild_page_articles``).
 
 Sleep writes a page's article when the page next gains material (`conflict_resolver`, ``page_articles_enabled``).
-Pages that already rest on two or more conversations and are not mentioned again would stay fact sheets; this
-rewrites them with the same writer, from the same inputs, under the same rails: the record (Key Facts, History,
-Links, Open Questions, Related, the claims fence) is kept item for item, the lead and Article are written from it,
-a page's old Summary sentences the article does not carry become Key Facts, and every written paragraph records the
-sources of the inputs it cites (`entity_article`).
+Pages that would get one and are not mentioned again would stay fact sheets; this rewrites them with the same
+writer, from the same inputs, under the same rails: the record (Key Facts, History, Links, Open Questions, Related,
+the claims fence) is kept item for item, the lead and Article are written from it, a page's old Summary sentences
+the article does not carry become Key Facts, and every written paragraph records the sources of the inputs it cites
+(`entity_article`).
 
-Which pages: active or decaying machine pages (never one with human prose, `entity_body.has_human_prose`) resting on
-two or more conversations, not media (which has its own card), without an article yet unless ``rewrite`` says so.
+Which pages: active or decaying machine pages (never one with human prose, `entity_body.has_human_prose`) that the
+writer would take (`entity_article.worth_writing`: two or more conversations, or one whose record holds
+``page_article_min_material`` inputs — owner 2026-10-17, "uncap what the agents can write to"), not media (which has
+its own card), without an article yet unless ``rewrite`` says so. Newest-mentioned first (``last_referenced``), so a
+run stopped part-way has done the pages the person is most likely to open.
+
+The run is resumable: :func:`run` in ``apply`` mode writes and commits in batches (``batch_size`` pages a commit), so
+a stop — a plan limit, Sleep starting, the person's Ctrl-C between batches — keeps every batch before it, and running
+it again picks up where it stopped: a finished page is already an article (with ``rewrite``, a page whose article
+was written today counts as finished).
 
 * :func:`survey` counts, read-only, never a name or a word of the bank;
 * :func:`write` makes the model calls — never inside the bank's write admission (G183), at most
@@ -110,11 +118,16 @@ class Survey:
     inactive: int = 0
     media: int = 0
     human: int = 0
-    one_conversation: int = 0
+    one_conversation: int = 0        # stubs: one conversation, less material than the writer's floor
     already_articles: int = 0
     over_budget: int = 0
     selected: int = 0
+    one_conversation_selected: int = 0   # of ``selected``, resting on one conversation (the lifted gate's work)
     prompt_chars: int = 0
+    estimated_calls: int = 0         # one writer call per selected page (no retry)
+    batch_size: int = 0
+    batches: int = 0                 # commits an apply makes at most
+    commits: int = 0
     calls: int = 0
     invalid: int = 0
     # Pages whose call failed, by reason (`_page_failure`): each page is skipped, never the run.
@@ -131,15 +144,23 @@ class Survey:
     engine_reason: str | None = None
     _jobs: list[Job] = field(default_factory=list, repr=False)
     _models: set = field(default_factory=set, repr=False)
+    _in_a_row: dict = field(default_factory=lambda: {"n": 0}, repr=False)
 
     def counts(self) -> dict:
         return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
 
 
+def _newest_first(page) -> tuple:
+    """Sort key: the latest mention first (``last_referenced``; a page with none last), then the id."""
+    said = str((page[2] or {}).get("last_referenced") or "")[:10]
+    return (-int(said.replace("-", "")) if said[:4].isdigit() and len(said) == 10 and said[4] == "-" else 1,
+            page[0].stem)
+
+
 def survey(memory_path, settings, *, entity_ids=None, limit: int | None = None, rewrite: bool = False,
-           today: str | None = None) -> Survey:
-    """Which pages would be rebuilt, with their writer inputs. ``entity_ids`` (named pages) and ``limit`` (the first N
-    selected, by id) narrow the sample. Read-only."""
+           today: str | None = None, batch_size: int = 25) -> Survey:
+    """Which pages would be rebuilt, with their writer inputs, newest-mentioned first. ``entity_ids`` (named pages)
+    and ``limit`` (the first N selected) narrow the sample. Read-only."""
     memory_path = Path(memory_path)
     today = today or date.today().isoformat()
     result = Survey()
@@ -154,6 +175,7 @@ def survey(memory_path, settings, *, entity_ids=None, limit: int | None = None, 
     existing = [{"id": p.stem, "frontmatter": fm, "body": b} for p, _t, fm, b in pages]
     context = conflict_resolver._article_context(existing, settings, today, memory_path=memory_path)
     wanted = {str(e) for e in entity_ids or []}
+    pages.sort(key=_newest_first)
     for path, text, fm, page_body in pages:
         if wanted and path.stem not in wanted:
             continue
@@ -168,23 +190,35 @@ def survey(memory_path, settings, *, entity_ids=None, limit: int | None = None, 
         if entity_body.has_human_prose(fm, sections):
             result.human += 1
             continue
-        if not entity_article.eligible(fm, []):
-            result.one_conversation += 1
-            continue
-        if entity_article.stamped(fm, sections) and not rewrite:
-            result.already_articles += 1
+        if entity_article.stamped(fm, sections) and (not rewrite or _written_on(fm) >= today):
+            result.already_articles += 1   # with ``rewrite``: rewritten today, by this run or one it continues
             continue
         if limit is not None and result.selected >= limit:
             continue
         change = {"id": path.stem, "source_episodes": []}
         writer = conflict_resolver._article_job(change, {"frontmatter": fm, "body": page_body}, {}, context)
         if writer is None:
-            result.over_budget += 1
+            if entity_article.eligible(fm, []):
+                result.over_budget += 1
+            else:
+                result.one_conversation += 1   # Sleep keeps a one-conversation page over the budget a stub too
+            continue
+        if not entity_article.worth_writing(fm, [], writer["inputs"], min_material=context.get("min_material")):
+            result.one_conversation += 1
             continue
         result.selected += 1
+        result.one_conversation_selected += 0 if entity_article.eligible(fm, []) else 1
         result.prompt_chars += len(writer["prompt"])
         result._jobs.append(Job(path, text, fm, page_body, writer))
+    result.estimated_calls = result.selected
+    result.batch_size = max(1, int(batch_size or 1))
+    result.batches = -(-result.selected // result.batch_size)
     return result
+
+
+def _written_on(fm: dict) -> str:
+    raw = (fm or {}).get(entity_article.FIELD)
+    return str(raw.get("written") or "") if isinstance(raw, dict) else ""
 
 
 #: Engine failures in a row (timeouts, lost connections, failed calls) after which the run stops: one page's trouble
@@ -245,9 +279,9 @@ def _page_failure(exc: BaseException) -> str | None:
     return "error"
 
 
-async def write(result: Survey, settings) -> Survey:
-    """One writer call per selected page, at most ``agent_max_concurrency`` at once, on ``settings`` as
-    :func:`resolve_engine` resolved them.
+async def write(result: Survey, settings, jobs: list[Job] | None = None) -> Survey:
+    """One writer call per selected page (``jobs``, else every one), at most ``agent_max_concurrency`` at once, on
+    ``settings`` as :func:`resolve_engine` resolved them.
 
     A page's own failure skips that page and is counted (:func:`_page_failure`); the run goes on. An engine failure
     every later page would meet — a plan limit, an unreachable engine, a metered key's quota — or
@@ -261,7 +295,7 @@ async def write(result: Survey, settings) -> Survey:
     llm_fn = resolve_llm_fn(settings, model=settings.effective_consolidation_model, completion=completion,
                             stage="merge")
 
-    in_a_row = {"n": 0}
+    in_a_row = result._in_a_row   # carried across batches: pages failing in a row is the run's, not a batch's
 
     async def one(job: Job) -> None:
         job.attempted = True
@@ -303,7 +337,8 @@ async def write(result: Survey, settings) -> Survey:
 
     with agent_engine.use_scope(f"articles:{uuid.uuid4().hex}"):   # a plan throttle here never blocks Sleep's scope
         try:
-            await conflict_resolver._overlap_pages(result._jobs, one, concurrency=concurrency)
+            await conflict_resolver._overlap_pages(result._jobs if jobs is None else jobs, one,
+                                                   concurrency=concurrency)
         except _Stop as stop:
             result.stopped = stop.sentence
             logger.warning(f"page articles: stopped early — {stop.sentence}")
@@ -344,9 +379,9 @@ def preview(result: Survey, out_dir, *, today: str | None = None) -> int:
 
 
 def apply(memory_path, result: Survey, *, sleep_running: Callable[[], bool], settings=None,
-          today: str | None = None) -> Survey:
-    """Write the rebuilt pages and commit them in ONE commit. Raises :class:`SleepRunning` before writing anything
-    when Sleep holds the pages or a run is in progress."""
+          today: str | None = None, jobs: list[Job] | None = None) -> Survey:
+    """Write the rebuilt pages (``jobs``, else every one) and commit them in ONE commit. Raises :class:`SleepRunning`
+    before writing anything when Sleep holds the pages or a run is in progress."""
     memory_path = Path(memory_path)
     today = today or date.today().isoformat()
     rels: list[str] = []
@@ -354,7 +389,7 @@ def apply(memory_path, result: Survey, *, sleep_running: Callable[[], bool], set
         if sleep_running():
             raise SleepRunning("a Sleep run is in progress; rebuild after it ends")
         with page_lock.page_lock(memory_path):
-            for job in result._jobs:
+            for job in result._jobs if jobs is None else jobs:
                 if job.article is None:
                     continue
                 if job.path.read_text(encoding="utf-8") != job.text:
@@ -363,7 +398,7 @@ def apply(memory_path, result: Survey, *, sleep_running: Callable[[], bool], set
                 fm, body = compose(job, today=today)
                 markdown_parser.write(job.path, fm, body)
                 rels.append(f"entities/{job.path.name}")
-            result.written = len(rels)
+            result.written += len(rels)
             if rels and (memory_path / ".git").exists():
                 engine = result.engine
                 message = git_service.build_commit_message(
@@ -373,6 +408,7 @@ def apply(memory_path, result: Survey, *, sleep_running: Callable[[], bool], set
                 )
                 git_service.commit_paths_sync(memory_path, message, rels)
                 result.committed = True
+                result.commits += 1
     if rels:
         logger.info(f"page articles: {len(rels)} page(s) rebuilt")
     return result
@@ -380,13 +416,33 @@ def apply(memory_path, result: Survey, *, sleep_running: Callable[[], bool], set
 
 def run(memory_path, settings, *, mode: str, sleep_running: Callable[[], bool] = lambda: True,
         entity_ids=None, limit: int | None = None, rewrite: bool = False, preview_dir=None,
-        allow_metered: bool = False) -> Survey:
+        allow_metered: bool = False, batch_size: int = 25,
+        backend_problem: Callable[[], str | None] = lambda: None) -> Survey:
     """``mode``: ``"dry"`` (counts), ``"preview"`` (calls, files in ``preview_dir``) or ``"apply"``.
 
     The engine is resolved first, as a person-started Sleep resolves it (:func:`resolve_engine`), and named in the
     counts. The dry run only reports it (``engine_refused`` says why a call would be refused); preview and apply
-    raise :class:`EngineRefused` before any call."""
-    result = survey(memory_path, settings, entity_ids=entity_ids, limit=limit, rewrite=rewrite)
+    raise :class:`EngineRefused` before any call.
+
+    ``apply`` goes ``batch_size`` pages at a time — the calls, then that batch's one commit — so a stop keeps every
+    batch before it: an engine stop (a plan limit is a pause, never retried here; ruling 15) commits what its batch
+    wrote, and Sleep starting between batches ends the run there. Either way ``stopped`` says why, and running the
+    command again continues with the pages not yet articles.
+
+    ``backend_problem`` says why the last ``sleep_running()`` could not establish that Sleep is idle when the cause
+    was the backend (slow, unreachable, unreadable) rather than a run, so a stop never claims "Sleep started" for a
+    backend that was only slow (2026-10-17)."""
+
+    def why(sleeping: str) -> str:
+        try:
+            problem = backend_problem()
+        except Exception:  # noqa: BLE001 — a reason that cannot be read is the old sentence
+            problem = None
+        return f"{problem}; the batches before it are committed — run again to continue" if problem else sleeping
+
+    stopped_by_sleep = "Sleep started; the batches before it are committed — run again after it ends"
+    result = survey(memory_path, settings, entity_ids=entity_ids, limit=limit, rewrite=rewrite,
+                    batch_size=batch_size)
     try:
         settings, result.engine, result.engine_reason = asyncio.run(
             resolve_engine(settings, allow_metered=allow_metered))
@@ -397,12 +453,31 @@ def run(memory_path, settings, *, mode: str, sleep_running: Callable[[], bool] =
     if mode == "dry" or not result._jobs:
         return result
     if mode == "apply" and sleep_running():
-        raise SleepRunning("a Sleep run is in progress; rebuild after it ends")   # before spending a call
-    asyncio.run(write(result, settings))
+        problem = backend_problem()
+        raise SleepRunning(f"{problem}; nothing was written — run again once it answers" if problem
+                           else "a Sleep run is in progress; rebuild after it ends")   # before spending a call
     if mode == "preview":
+        asyncio.run(write(result, settings))
         result.written = preview(result, preview_dir)
         return result
-    return apply(memory_path, result, sleep_running=sleep_running, settings=settings)
+    jobs = result._jobs
+    for start in range(0, len(jobs), result.batch_size):
+        batch = jobs[start:start + result.batch_size]
+        if start and sleep_running():
+            result.stopped = why(stopped_by_sleep)
+            break
+        asyncio.run(write(result, settings, batch))
+        try:
+            apply(memory_path, result, sleep_running=sleep_running, settings=settings, jobs=batch)
+        except SleepRunning:
+            if not start:
+                raise
+            result.stopped = why(stopped_by_sleep)
+            break
+        if result.stopped:
+            break
+    result.not_attempted = sum(1 for job in jobs if not job.attempted)
+    return result
 
 
 def dumps(result: Survey) -> str:

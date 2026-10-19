@@ -59,8 +59,11 @@ enum SourceDisplayName {
         "x": "X",
         "instagram": "Instagram",
         "youtube": "YouTube",
+        // Sources v3 (review of #347): watch history is its own, captured row — never counted as saved.
+        "youtube-history": "YouTube history",
         "linkedin": "LinkedIn",
         "tiktok": "TikTok",
+        "tiktok-history": "TikTok history",
         "rss": "RSS",
         "calendar": "Calendars",
         "telegram": "Telegram",

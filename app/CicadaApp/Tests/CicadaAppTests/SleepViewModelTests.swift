@@ -44,6 +44,38 @@ final class SleepViewModelTests: XCTestCase {
         return try JSONDecoder().decode(SleepCycleDetail.self, from: Data(json.utf8))
     }
 
+    /// Every `SleepViewModel` here is built through this: the same parameters as its init, but every network call a
+    /// test does not inject fails at once instead of reaching `APIClient.shared` — the live backend on 127.0.0.1, with
+    /// whatever token `~/.cicada` holds. The poll loop's close-out awaits `load()` before `onCycleCompleted`, and
+    /// `load()`'s episode listing on a live bank took 2.5–3.8 s (measured 2026-10-19), which is what failed
+    /// `test_pollLoop_doesNotFireEarly_whenStoreStatusStaysIdleThroughout` on a quiet machine. No unit test talks
+    /// to a real backend.
+    private func offlineVM(
+        store: Store,
+        fetchSleepStatus: @escaping () async throws -> SleepStatusResponse = { throw URLError(.notConnectedToInternet) },
+        requestCancel: @escaping () async throws -> SleepCancelResponse = { throw URLError(.notConnectedToInternet) },
+        fetchHistory: @escaping () async throws -> [SleepHistoryEntry] = { throw URLError(.notConnectedToInternet) },
+        fetchDetail: @escaping (String) async throws -> SleepCycleDetail = { _ in throw URLError(.notConnectedToInternet) },
+        fetchEngine: @escaping () async throws -> SleepEngineResponse = { throw URLError(.notConnectedToInternet) },
+        putSchedule: @escaping (ScheduleConfig) async throws -> ScheduleConfig = { _ in
+            throw URLError(.notConnectedToInternet)
+        },
+        fetchRunOptions: @escaping () async throws -> SleepRunOptions = { throw URLError(.notConnectedToInternet) },
+        fetchRun: @escaping (String) async throws -> SleepRunDetail = { _ in throw URLError(.notConnectedToInternet) },
+        fetchEpisodes: @escaping (String?) async throws -> Conditional<[EpisodeQueueItem]> = { _ in
+            throw URLError(.notConnectedToInternet)
+        }
+    ) -> SleepViewModel {
+        let offline = URLError(.notConnectedToInternet)
+        return SleepViewModel(
+            store: store, fetchSleepStatus: fetchSleepStatus, requestCancel: requestCancel,
+            fetchHistory: fetchHistory, fetchDetail: fetchDetail, fetchEngine: fetchEngine, putSchedule: putSchedule,
+            requestEnd: { throw offline }, requestRetry: { _ in throw offline },
+            fetchRunOptions: fetchRunOptions, putRunOptions: { _ in throw offline },
+            fetchQueue: { throw offline }, fetchRun: fetchRun,
+            fetchEpisodes: fetchEpisodes, fetchSchedule: { throw offline })
+    }
+
     /// A `Store` whose `.status` snapshot stays "idle" throughout — simulating
     /// the exact staleness window the Critical finding describes: right after
     /// `triggerManually()`, the Store hasn't yet heard about the new cycle.
@@ -76,7 +108,7 @@ final class SleepViewModelTests: XCTestCase {
             return sequence.removeFirst()
         }
 
-        let vm = SleepViewModel(store: store, fetchSleepStatus: fetch)
+        let vm = offlineVM(store: store, fetchSleepStatus: fetch)
 
         var completedCount = 0
         vm.onCycleCompleted = { completedCount += 1 }
@@ -84,8 +116,7 @@ final class SleepViewModelTests: XCTestCase {
         await vm.triggerManually()
 
         // Poll cadence is 1s: three ticks (running, running, idle). A fixed 4 s
-        // wait flaked under load (load() also awaits the live backend through
-        // APIClient.shared, so a tick can finish at 4.0x s). Wait for the first
+        // wait flaked under load (a tick can finish at 4.0x s). Wait for the first
         // completion with a generous deadline, then hold two more ticks so a
         // second firing would still be caught — the property is "exactly once".
         let deadline = ContinuousClock.now.advanced(by: .seconds(15))
@@ -113,7 +144,7 @@ final class SleepViewModelTests: XCTestCase {
             return sequence.removeFirst()
         }
 
-        let vm = SleepViewModel(store: store, fetchSleepStatus: fetch)
+        let vm = offlineVM(store: store, fetchSleepStatus: fetch)
 
         var completedTimestamps: [Bool] = []
         vm.onCycleCompleted = { completedTimestamps.append(vm.status?.status == "idle") }
@@ -139,7 +170,7 @@ final class SleepViewModelTests: XCTestCase {
         let fetch: () async throws -> SleepStatusResponse = {
             try self.sleepStatus(status: "idle", stage: 5)
         }
-        let vm = SleepViewModel(store: store, fetchSleepStatus: fetch)
+        let vm = offlineVM(store: store, fetchSleepStatus: fetch)
 
         var completedCount = 0
         vm.onCycleCompleted = { completedCount += 1 }
@@ -187,7 +218,7 @@ final class SleepViewModelTests: XCTestCase {
             }
             return try self.sleepStatus(status: "idle", stage: 5)
         }
-        vm = SleepViewModel(store: store, fetchSleepStatus: fetch)
+        vm = offlineVM(store: store, fetchSleepStatus: fetch)
 
         var completedCount = 0
         vm.onCycleCompleted = { completedCount += 1 }
@@ -224,7 +255,7 @@ final class SleepViewModelTests: XCTestCase {
             }
             return try self.sleepStatus(status: "idle", stage: 4)
         }
-        let vm = SleepViewModel(store: store, fetchSleepStatus: fetch)
+        let vm = offlineVM(store: store, fetchSleepStatus: fetch)
 
         let firstLoad = Task { await vm.load() }
         try await Task.sleep(for: .milliseconds(150))     // let the first call park on the gate
@@ -249,7 +280,7 @@ final class SleepViewModelTests: XCTestCase {
             cancelCalls += 1
             return SleepCancelResponse(status: "not_running", message: "nothing running", cycleId: nil)
         }
-        let vm = SleepViewModel(store: store, fetchSleepStatus: fetch, requestCancel: cancel)
+        let vm = offlineVM(store: store, fetchSleepStatus: fetch, requestCancel: cancel)
 
         await vm.cancel()
 
@@ -268,7 +299,7 @@ final class SleepViewModelTests: XCTestCase {
             cancelCalls += 1
             return SleepCancelResponse(status: "cancelling", message: "stopping at the next safe point", cycleId: "c1")
         }
-        let vm = SleepViewModel(store: store, fetchSleepStatus: fetch, requestCancel: cancel)
+        let vm = offlineVM(store: store, fetchSleepStatus: fetch, requestCancel: cancel)
         vm.status = try sleepStatus(status: "running", stage: 2)
 
         await vm.cancel()
@@ -287,7 +318,7 @@ final class SleepViewModelTests: XCTestCase {
         let store = idleStore()
         let fetch: () async throws -> SleepStatusResponse = { try self.sleepStatus(status: "running", stage: 2) }
         let cancel: () async throws -> SleepCancelResponse = { throw Boom() }
-        let vm = SleepViewModel(store: store, fetchSleepStatus: fetch, requestCancel: cancel)
+        let vm = offlineVM(store: store, fetchSleepStatus: fetch, requestCancel: cancel)
         vm.status = try sleepStatus(status: "running", stage: 2)
 
         await vm.cancel()
@@ -313,7 +344,7 @@ final class SleepViewModelTests: XCTestCase {
         let cancel: () async throws -> SleepCancelResponse = {
             SleepCancelResponse(status: "cancelling", message: "stopping", cycleId: "c1")
         }
-        let vm = SleepViewModel(store: store, fetchSleepStatus: fetch, requestCancel: cancel)
+        let vm = offlineVM(store: store, fetchSleepStatus: fetch, requestCancel: cancel)
 
         await vm.triggerManually()
         // `triggerManually()` returns before the poll loop's first 1s tick —
@@ -337,7 +368,7 @@ final class SleepViewModelTests: XCTestCase {
     /// the two so the button is never stuck disagreeing with the server.
     func test_isCancelling_isTrueFromServerState_evenWithoutALocalTap() async throws {
         let store = idleStore()
-        let vm = SleepViewModel(store: store, fetchSleepStatus: { try self.sleepStatus(status: "running", stage: 2) })
+        let vm = offlineVM(store: store, fetchSleepStatus: { try self.sleepStatus(status: "running", stage: 2) })
         vm.status = try sleepStatus(status: "running", stage: 2, cancelRequested: true)
 
         XCTAssertTrue(vm.isCancelling)
@@ -349,7 +380,7 @@ final class SleepViewModelTests: XCTestCase {
         let cancel: () async throws -> SleepCancelResponse = {
             SleepCancelResponse(status: "cancelling", message: "stopping", cycleId: "c1")
         }
-        let vm = SleepViewModel(
+        let vm = offlineVM(
             store: store,
             fetchSleepStatus: { try self.sleepStatus(status: "running", stage: 2) },
             requestCancel: cancel
@@ -363,7 +394,7 @@ final class SleepViewModelTests: XCTestCase {
 
     func test_isCancelling_isFalse_whenNeitherLocalNorServerReportsIt() async throws {
         let store = idleStore()
-        let vm = SleepViewModel(store: store, fetchSleepStatus: { try self.sleepStatus(status: "running", stage: 2) })
+        let vm = offlineVM(store: store, fetchSleepStatus: { try self.sleepStatus(status: "running", stage: 2) })
         vm.status = try sleepStatus(status: "running", stage: 2, cancelRequested: false)
 
         XCTAssertFalse(vm.isCancelling)
@@ -379,7 +410,7 @@ final class SleepViewModelTests: XCTestCase {
             cancelCalls += 1
             return SleepCancelResponse(status: "cancelling", message: "stopping", cycleId: "c1")
         }
-        let vm = SleepViewModel(
+        let vm = offlineVM(
             store: store,
             fetchSleepStatus: { try self.sleepStatus(status: "running", stage: 2) },
             requestCancel: cancel
@@ -396,7 +427,7 @@ final class SleepViewModelTests: XCTestCase {
     func test_load_populatesHistoryFromInjectedFetchHistory() async throws {
         let store = idleStore()
         let entries = [try historyEntry(commitHash: "abc1"), try historyEntry(commitHash: "def2")]
-        let vm = SleepViewModel(
+        let vm = offlineVM(
             store: store,
             fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
             fetchHistory: { entries }
@@ -422,7 +453,7 @@ final class SleepViewModelTests: XCTestCase {
             }
             return [try self.historyEntry(commitHash: "fresh")]
         }
-        let vm = SleepViewModel(
+        let vm = offlineVM(
             store: store,
             fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
             fetchHistory: fetchHistory
@@ -444,7 +475,7 @@ final class SleepViewModelTests: XCTestCase {
     func test_loadDetail_cachesAndDoesNotRefetchOnASecondCall() async throws {
         let store = idleStore()
         var fetchCalls = 0
-        let vm = SleepViewModel(
+        let vm = offlineVM(
             store: store,
             fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
             fetchDetail: { commit in
@@ -472,7 +503,7 @@ final class SleepViewModelTests: XCTestCase {
             manual: SleepEnginePreview(engine: "claude-cli", model: "sonnet", why: "your plan"),
             scheduled: SleepEnginePreview(engine: "ollama", model: "llama3.1",
                                           why: "a scheduled cycle never spends plan quota"))
-        let vm = SleepViewModel(
+        let vm = offlineVM(
             store: store,
             fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
             fetchEngine: {
@@ -495,7 +526,7 @@ final class SleepViewModelTests: XCTestCase {
     func test_load_aFailingEngineFetchIsSilent() async throws {
         struct Boom: Error {}
         let store = idleStore()
-        let vm = SleepViewModel(
+        let vm = offlineVM(
             store: store,
             fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
             fetchEngine: { throw Boom() }
@@ -504,8 +535,8 @@ final class SleepViewModelTests: XCTestCase {
         await vm.load()
 
         XCTAssertNil(vm.enginePreview)
-        // `load()`'s episodes/schedule fetches hit the real APIClient and can
-        // legitimately fail in a unit test, so assert on the ENGINE half only.
+        // `load()`'s episodes/schedule fetches fail offline in this suite
+        // (`offlineVM`), so assert on the ENGINE half only.
         XCTAssertFalse((vm.errorMessage ?? "").localizedCaseInsensitiveContains("engine"),
                        "a missing engine preview must not raise a page error")
     }
@@ -515,13 +546,13 @@ final class SleepViewModelTests: XCTestCase {
     func test_updateSchedule_reportsItsOutcome() async throws {
         struct Boom: Error {}
         let store = idleStore()
-        let failing = SleepViewModel(store: store, putSchedule: { _ in throw Boom() })
+        let failing = offlineVM(store: store, putSchedule: { _ in throw Boom() })
         let before = failing.schedule
         let failed = await failing.updateSchedule(ScheduleConfig(mode: "daily", hour: 3, minute: 0))
         XCTAssertFalse(failed)
         XCTAssertEqual(failing.schedule, before)
         XCTAssertNotNil(failing.errorMessage)
-        let working = SleepViewModel(store: store, putSchedule: { $0 })
+        let working = offlineVM(store: store, putSchedule: { $0 })
         let landed = await working.updateSchedule(ScheduleConfig(mode: "daily", hour: 3, minute: 0))
         XCTAssertTrue(landed)
         XCTAssertEqual(working.schedule.mode, "daily")
@@ -538,7 +569,7 @@ final class SleepViewModelTests: XCTestCase {
     func test_aRunDetailIsRefetchedWhenTheRunMoves() async throws {
         var fetches = 0
         var next = try runDetail("paused")
-        let vm = SleepViewModel(store: idleStore(), fetchRun: { _ in fetches += 1; return next })
+        let vm = offlineVM(store: idleStore(), fetchRun: { _ in fetches += 1; return next })
         await vm.loadRunDetail("r1", freshness: "a")
         await vm.loadRunDetail("r1", freshness: "a")
         XCTAssertEqual(fetches, 1)
@@ -553,7 +584,7 @@ final class SleepViewModelTests: XCTestCase {
     /// The VM is app-level: a bank switch empties what belongs to the old bank (the queue's titles, runs' details).
     func test_aBankSwitchEmptiesThePerBankCaches() async throws {
         let detail = try runDetail("finished")
-        let vm = SleepViewModel(store: idleStore(), fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+        let vm = offlineVM(store: idleStore(), fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
                                 fetchHistory: { [] },
                                 fetchRunOptions: { throw URLError(.notConnectedToInternet) },
                                 fetchRun: { _ in detail })
@@ -573,7 +604,7 @@ final class SleepViewModelTests: XCTestCase {
     func test_homeArrivalLoadsTheHistoryWithoutTheSleepPage() async throws {
         let entries = [try historyEntry(commitHash: "abc1")]
         var historyFetches = 0
-        let vm = SleepViewModel(store: idleStore(), fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+        let vm = offlineVM(store: idleStore(), fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
                                 fetchHistory: { historyFetches += 1; return entries },
                                 putSchedule: { $0 })
         await vm.refreshStatus()
@@ -592,7 +623,7 @@ final class SleepViewModelTests: XCTestCase {
     func test_aBankSwitchDuringHomesFirstFetchStillLandsTheHistory() async throws {
         var gate: CheckedContinuation<Void, Never>?
         var calls = 0
-        let vm = SleepViewModel(store: idleStore(), fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+        let vm = offlineVM(store: idleStore(), fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
                                 fetchHistory: {
                                     calls += 1
                                     if calls == 1 {
@@ -615,7 +646,7 @@ final class SleepViewModelTests: XCTestCase {
     /// A switch empties the old bank's history at once: Home never shows one bank's read under another's name.
     func test_aBankSwitchEmptiesTheHistoryBeforeTheNewOneLands() async throws {
         var failNext = false
-        let vm = SleepViewModel(store: idleStore(), fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+        let vm = offlineVM(store: idleStore(), fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
                                 fetchHistory: {
                                     if failNext { throw URLError(.cannotConnectToHost) }
                                     return [try self.historyEntry(commitHash: "a1")]
@@ -633,7 +664,7 @@ final class SleepViewModelTests: XCTestCase {
     /// A failed fetch says so (`historyFailed`), and the next one that lands clears it.
     func test_aFailedHistoryFetchIsRecordedAndClearedByTheNextOne() async throws {
         var fail = true
-        let vm = SleepViewModel(store: idleStore(), fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+        let vm = offlineVM(store: idleStore(), fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
                                 fetchHistory: {
                                     if fail { throw URLError(.cannotConnectToHost) }
                                     return [try self.historyEntry(commitHash: "s1")]
@@ -649,7 +680,7 @@ final class SleepViewModelTests: XCTestCase {
 
     /// A fetch cancelled with its task (Home's `.task(id:)` restarting) is not a failure.
     func test_aCancelledHistoryFetchIsNotAFailure() async throws {
-        let vm = SleepViewModel(store: idleStore(), fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+        let vm = offlineVM(store: idleStore(), fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
                                 fetchHistory: { throw URLError(.cancelled) })
         await vm.loadHistory()
         XCTAssertFalse(vm.historyFailed)
@@ -663,7 +694,7 @@ final class SleepViewModelTests: XCTestCase {
         event.paused = SleepPausedSSE(runId: "r1", reason: "restart")
         event.pausedKnown = true
         store.applySleepEvent(event)
-        let vm = SleepViewModel(store: store)
+        let vm = offlineVM(store: store)
         XCTAssertTrue(vm.door.isPaused)
         XCTAssertEqual(vm.door.menuHeader, "Paused")
         XCTAssertNil(vm.door.batchSize, "no options or status loaded — no batch size is guessed")
@@ -705,5 +736,53 @@ final class SleepViewModelTests: XCTestCase {
         XCTAssertNil(older.writing)
         store.applySleepEvent(older)
         XCTAssertTrue(ProjectWriteGate.blocked(store.status.value))
+    }
+
+    // MARK: The waiting rows, revalidated with their ETag (2026-10-19)
+
+    private func waitingRow(_ id: String) throws -> EpisodeQueueItem {
+        try JSONDecoder().decode(EpisodeQueueItem.self, from: Data("""
+        {"id":"\(id)","timestamp":"2026-10-19T08:00:00Z","source":"mcp","origin":"claude-code",
+         "preview":"","chars":10,"processed":false}
+        """.utf8))
+    }
+
+    /// `load()` sends back the tag its rows came with; a 304 keeps them; a bank switch drops both, so the next bank's
+    /// list is fetched whole and never shown under the old bank's rows.
+    func test_load_revalidatesTheWaitingRowsWithTheirETag() async throws {
+        let rows = [try waitingRow("ep_a"), try waitingRow("ep_b")]
+        var sent: [String?] = []
+        var replies: [Conditional<[EpisodeQueueItem]>] = [
+            Conditional(value: rows, etag: "\"e1\"", notModified: false),
+            Conditional(value: nil, etag: "\"e1\"", notModified: true),
+            Conditional(value: [rows[1]], etag: "\"e2\"", notModified: false),
+        ]
+        let vm = offlineVM(store: idleStore(), fetchEpisodes: { etag in
+            sent.append(etag)
+            return replies.removeFirst()
+        })
+
+        await vm.load()
+        XCTAssertEqual(vm.queuedEpisodes.map(\.id), ["ep_a", "ep_b"])
+        await vm.load()
+        XCTAssertEqual(vm.queuedEpisodes.map(\.id), ["ep_a", "ep_b"], "a 304 keeps the rows held")
+        await vm.bankChanged()
+        XCTAssertTrue(vm.episodes.isEmpty, "another bank's rows are never shown")
+        await vm.load()
+        XCTAssertEqual(vm.queuedEpisodes.map(\.id), ["ep_b"])
+        XCTAssertEqual(sent, [nil, "\"e1\"", nil])
+    }
+
+    /// An older backend ignores `processed=false` and answers every episode: the page still lists only the waiting.
+    func test_queuedEpisodes_keepsOnlyTheWaiting_fromAnOlderBackend() async throws {
+        let read = try JSONDecoder().decode(EpisodeQueueItem.self, from: Data("""
+        {"id":"ep_read","timestamp":"2026-10-18T08:00:00Z","source":"mcp","preview":"","processed":true}
+        """.utf8))
+        let waiting = try waitingRow("ep_w")
+        let vm = offlineVM(store: idleStore(), fetchEpisodes: { _ in
+            Conditional(value: [read, waiting], etag: nil, notModified: false)
+        })
+        await vm.load()
+        XCTAssertEqual(vm.queuedEpisodes.map(\.id), ["ep_w"])
     }
 }

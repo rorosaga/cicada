@@ -380,11 +380,18 @@ def _append_saved_because_section_if_absent(
         return
     filepath = memory_path / "episodes" / f"{episode_id}.md"
     try:
-        parsed = markdown_parser.parse(filepath)
-        if "## Saved because" in parsed.body:
-            return
-        body = parsed.body.rstrip("\n") + f"\n\n## Saved because\n{reason}\n"
-        markdown_parser.write(filepath, dict(parsed.frontmatter or {}), body)
+        from api.services import history_index
+
+        with episode_ids.episode_lock(filepath.parent):
+            parsed = markdown_parser.parse(filepath)
+            if "## Saved because" in parsed.body:
+                return
+            body = parsed.body.rstrip("\n") + f"\n\n## Saved because\n{reason}\n"
+            fm = dict(parsed.frontmatter or {})
+            # Owner ruling 2026-10-18 (review of #340): a list save the index read is the person's to read once it
+            # holds their reason — stamped theirs and queued for Sleep again.
+            history_index.mark_person_words(fm)
+            markdown_parser.write(filepath, fm, body)
     except Exception as e:
         logger.debug(
             f"Could not append Saved-because section to {episode_id}: "

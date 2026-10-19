@@ -11,8 +11,10 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -62,20 +64,47 @@ def _edit_in_place(page: Path, old: str, new: str) -> None:
         fh.truncate()
 
 
-async def _until_version_moves(bank: Path, before: str, *, within: float) -> float | None:
-    started = time.monotonic()
-    while time.monotonic() - started < within:
-        tick = await sync_ticker.current(bank, None, max_age=0.0)
-        if tick.info.version != before:
-            return time.monotonic() - started
-        await asyncio.sleep(0.05)
-    return None
+#: How long a test waits for the OS to deliver a marker — a bound on the OS, not the property under test: FSEvents
+#: took up to ~2.9 s to report a write with five watchers running and up to ~10 s with five suites beside each other
+#: (measured 2026-10-18). Whether a change was *reported* is read from the watcher's count, never from the fallback walk.
+EVENT_WAIT_S = 30.0
+
+
+def _settle(watch: bank_watch.BankWatch, *, within: float = EVENT_WAIT_S) -> bool:
+    """Return once the OS has reported every change made before this call, and the watcher has counted it.
+
+    FSEvents also reports writes made just BEFORE a stream started (a test's own setup), late and in no fixed time —
+    0.4-1.9 s after the watcher started on a loaded machine, more under contention. A fixed sleep before reading
+    ``seq`` is a timing guess that loses under load (the 2026-10-18 flake: the setup's own episode writes bumped
+    ``seq`` after a 0.6 s sleep), and so is a fixed wait for a change to be reported. Events arrive in the order they
+    happened, so once a marker written now is reported, nothing older is still on its way. The marker is an
+    index-database name at the bank's root, which the watcher never counts; every other path meets the real filter.
+    Returns whether the marker was reported."""
+    marker = os.path.join(str(watch.bank), f"vector_index.db.settle-{time.monotonic_ns()}")
+    real = watch._counts
+    seen = threading.Event()
+
+    def look(path: str) -> bool:
+        if path == marker:
+            seen.set()
+        return real(path)
+
+    watch._counts = look
+    try:
+        Path(marker).write_bytes(b"")
+        reported = seen.wait(within)
+        time.sleep(0.1)   # the batch the marker came in is counted just after its last path is looked at
+    finally:
+        del watch._counts
+    return reported
 
 
 def test_between_events_a_tick_reads_no_bank_directory_and_answers_the_same(tmp_path, walks):
     bank = _bank(tmp_path)
 
     async def go():
+        await sync_ticker.current(bank, None, max_age=0.0)
+        assert await asyncio.to_thread(_settle, bank_watch.for_bank(bank))   # the setup's own writes reported
         first = await sync_ticker.current(bank, None, max_age=0.0)
         walks.clear()
         later = [await sync_ticker.current(bank, None, max_age=0.0) for _ in range(5)]
@@ -95,11 +124,18 @@ def test_an_outside_editors_in_place_write_is_seen_once_the_os_reports_it(tmp_pa
 
     async def go():
         before = (await sync_ticker.current(bank, None, max_age=0.0)).info.version
+        watch = bank_watch.for_bank(bank)
+        assert await asyncio.to_thread(_settle, watch)
         await sync_ticker.current(bank, None, max_age=0.0)
+        seq = watch.seq
         _edit_in_place(page, "Body.", "Edited elsewhere.")
-        return await _until_version_moves(bank, before, within=5.0)
+        assert await asyncio.to_thread(_settle, watch), "the OS reported the edit"
+        after = (await sync_ticker.current(bank, None, max_age=0.0)).info.version
+        return seq, watch.seq, before, after
 
-    assert asyncio.run(go()) is not None
+    seq_before, seq_after, before, after = asyncio.run(go())
+    assert seq_after > seq_before, "the edit was reported as an event, not found by the fallback walk"
+    assert after != before
 
 
 def test_a_new_episode_moves_the_debt_once_reported(tmp_path):
@@ -107,13 +143,18 @@ def test_a_new_episode_moves_the_debt_once_reported(tmp_path):
 
     async def go():
         first = await sync_ticker.current(bank, None, max_age=0.0)
+        watch = bank_watch.for_bank(bank)
+        assert await asyncio.to_thread(_settle, watch)
+        await sync_ticker.current(bank, None, max_age=0.0)
+        seq = watch.seq
         markdown_parser.write(bank / "episodes" / "ep_2026-10-06_001.md",
                               {"id": "ep_2026-10-06_001", "processed": False,
                                "timestamp": "2026-10-06T10:00:00+00:00"}, "Synthetic.")
-        await _until_version_moves(bank, first.info.version, within=5.0)
-        return first, await sync_ticker.current(bank, None, max_age=0.0)
+        assert await asyncio.to_thread(_settle, watch), "the OS reported the new episode"
+        return first, await sync_ticker.current(bank, None, max_age=0.0), seq, watch.seq
 
-    first, second = asyncio.run(go())
+    first, second, seq_before, seq_after = asyncio.run(go())
+    assert seq_after > seq_before
     assert (first.debt.unprocessed_count, second.debt.unprocessed_count) == (2, 3)
 
 
@@ -121,19 +162,23 @@ def test_a_change_the_os_never_reported_is_seen_by_the_fallback_walk(tmp_path, m
     bank = _bank(tmp_path)
     page = bank / "entities" / "alpha-project.md"
     monkeypatch.setattr(bank_watch.BankWatch, "bump", lambda self: None)   # every event lost
-    monkeypatch.setattr(bank_watch, "FALLBACK_S", 0.6)
+    # The ticker's own clock, so "the last walk is young" and "the walk is FALLBACK_S old" are facts of the test, not
+    # of how busy the machine is (a real 0.3 s sleep against a 0.6 s fallback lost under five suites at once).
+    clock = [1_000.0]
+    monkeypatch.setattr(sync_ticker, "time", SimpleNamespace(monotonic=lambda: clock[0]))
 
     async def go():
         before = (await sync_ticker.current(bank, None, max_age=0.0)).info.version
         _edit_in_place(page, "Body.", "Lost event.")
-        await asyncio.sleep(0.3)
+        clock[0] += bank_watch.FALLBACK_S / 2
         mid = (await sync_ticker.current(bank, None, max_age=0.0)).info.version
-        took = await _until_version_moves(bank, before, within=3.0)
-        return before, mid, took
+        clock[0] += bank_watch.FALLBACK_S
+        after = (await sync_ticker.current(bank, None, max_age=0.0)).info.version
+        return before, mid, after
 
-    before, mid, took = asyncio.run(go())
+    before, mid, after = asyncio.run(go())
     assert mid == before, "no event and the last walk is young: answered from it"
-    assert took is not None and took < 1.5
+    assert after != before, "the walk is FALLBACK_S old: the bank is walked again"
 
 
 def test_what_lives_outside_the_bank_directories_is_read_every_tick(tmp_path):
@@ -144,34 +189,34 @@ def test_what_lives_outside_the_bank_directories_is_read_every_tick(tmp_path):
 
     async def go():
         first = await sync_ticker.current(bank, None, max_age=0.0)
-        seq = bank_watch.for_bank(bank).seq
-        await asyncio.sleep(0.6)   # past the notifier's report of the setup above
-        seq = bank_watch.for_bank(bank).seq
+        watch = bank_watch.for_bank(bank)
+        assert await asyncio.to_thread(_settle, watch)   # past the notifier's report of the setup above
         await sync_ticker.current(bank, None, max_age=0.0)
+        seq = watch.seq
         (bank / ".git" / "refs" / "heads" / "main").write_text("b" * 40 + "\n")   # a commit: git's own files
         second = await sync_ticker.current(bank, None, max_age=0.0)
-        await asyncio.sleep(0.6)
-        return first, second, seq, bank_watch.for_bank(bank).seq
+        reported = await asyncio.to_thread(_settle, watch)
+        return first, second, seq, watch.seq, reported
 
-    first, second, seq_before, seq_after = asyncio.run(go())
+    first, second, seq_before, seq_after, reported = asyncio.run(go())
     assert first.info.components["git_head"] == "a" * 40
     assert second.info.components["git_head"] == "b" * 40
     assert seq_after == seq_before, "git's bookkeeping is not a change to walk for"
+    assert reported, "the OS reported the commit before the count was read"
 
 
 def test_the_index_databases_at_the_root_do_not_count(tmp_path):
     bank = _bank(tmp_path)
     watch = bank_watch.for_bank(bank)
-    time.sleep(0.6)
+    assert _settle(watch)   # past the notifier's report of the setup above
     seq = watch.seq
     (bank / "vector_index.db").write_bytes(b"x")
     (bank / "search_index.db-wal").write_bytes(b"x")
-    time.sleep(0.8)
+    reported = _settle(watch)
     assert watch.seq == seq
+    assert reported, "the OS reported the index writes before the count was read"
     (bank / "inbox" / "inbox-0001.md").write_text("---\nstatus: pending\n---\n")
-    deadline = time.monotonic() + 5
-    while watch.seq == seq and time.monotonic() < deadline:
-        time.sleep(0.05)
+    assert _settle(watch), "the OS reported the inbox write"
     assert watch.seq > seq
 
 

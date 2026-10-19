@@ -164,9 +164,11 @@ def _count_and_oldest(memory_path: Path, *, now: datetime,
     count = 0
     oldest_hours: float | None = None
     newest_ts: datetime | None = None
+    from api.services import history_index
+
     for f in bank_index.files(memory_path, "episodes"):
         fm = f.frontmatter
-        if fm.get("processed", False):
+        if not history_index.waits_for_model(fm):   # index-only episodes never wait (2026-10-18)
             continue
         count += 1
         ts = _parse_episode_timestamp(str(fm.get("timestamp", "") or ""))
@@ -285,8 +287,10 @@ def _scan_queue(memory_path: Path, now: datetime) -> tuple[int, float | None, da
     count, oldest_hours, newest_ts = _count_and_oldest(memory_path, now=now, parked=parked_ids)
     parked_count = 0
     if parked_ids:
+        from api.services import history_index
+
         waiting_ids = {str(f.frontmatter.get("id", f.stem)) for f in bank_index.files(memory_path, "episodes")
-                       if not f.frontmatter.get("processed", False)}
+                       if history_index.waits_for_model(f.frontmatter)}
         parked_count = len(parked_ids & waiting_ids)
     return count, oldest_hours, newest_ts, parked_count
 

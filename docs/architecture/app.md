@@ -414,7 +414,11 @@ for the handles of every ticked conversation, at most once an hour per chat (aft
 `handledNicknamesKeyStore.db` copied with its
 `-wal`/`-shm` into a private temporary folder and queried there, so Messages' files are never written or locked; the
 record's keyed archive read as a property list, never unarchived; the `…-ad` avatar file used only as a regular file
-directly in that folder, ≤ 8 MB, made ≤ 128 px; the bytes stay in `MessagesWatcher.sharedPhotos` for the bubbles and,
+directly in that folder, ≤ 8 MB, made ≤ 128 px — named either as a bare file or, as the current macOS writes it
+(measured 2026-10-19: every real record had yielded nothing), as an absolute `imageFilePath` inside a nested
+`NickNameImage` dictionary, accepted only when its parent is exactly that folder and then used by its last component
+through the same checks (`folderFileName`); the record's `rid` (the same base64 with "/" where the file has "_") is not
+turned into a name, since the path is what Messages wrote and the "/" → "_" rule would be a guess; the bytes stay in `MessagesWatcher.sharedPhotos` for the bubbles and,
 when they changed since the last post, go to `PUT /sources/messages/photos` (2026-10-16), which keeps them outside every
 bank and draws them at the chat's page everywhere — the `messages` picture rung, `storage.md`; a chat that stopped
 sharing is posted as none, and a key store that could not be read posts nothing, so a revoked permission never removes
@@ -776,26 +780,52 @@ verified by `scripts/verify-skills.sh`, whose `--print-urls` is pinned offline) 
 with a `terms` line; `macos-harness` states plainly that it can control the whole Mac. Choosing one is Settings, How your
 agent reads (`agent_methods`), not an install.
 
-**Sources page — v2 in Direction D (G124, DS-3c).**
-- **What stays from v2.** Every tile keeps Sources v2's five facts: mark · brand name · one status verb
-  (`SourceLiveness`, no backend field) · a 14-day capture sparkline + lifetime total · four week-dots + delta.
-  **Two nouns, never one**: the big number is the row's own unit, and the line and the delta are always
-  *captured*. Every number goes through `UsageFormat.count` on the viewer's locale (`CountLiteralLintTests`).
-- **D's material.** A tile is 96 pt including its padding, on `bgFocus` with a ring, the strong ring and a 1 pt
-  lift on hover, and no shadow. It is clipped to its shape. Its mark stands bare. A failure speaks in `warning`
-  with its dot hidden, and a live source keeps a green dot.
-- **Packing.** One column count (`SourceGridColumns`, 2–4; a card wants 290 scaled points before a column is added, so a 1200 pt
-  window draws three untruncated columns, QA 2026-10-16) is shared by every section. Sections share a row by
-  span (`SourceGridPacking`), and the contributors block takes what the last row leaves when that is two columns
-  or more.
-- **Detail columns.** Opening a source, or an author in *Who wrote your memory* (a chip strip over a neutral,
-  labelled share bar), narrows the page to a list of rows and opens it as the detail column (`SourcesSelection`,
-  `SourceDetailView`, `ContributorDetailColumn`). A conversation's Reader is the third column.
-- **What changed from v2.** The contributor drill-down is a column, not a sheet, so its "from conversation" is
-  never under a modal. A compact G129 light never draws the Full Disk Access fix
-  (`BrowserStatusLight.showsFixHint`); the fix lives in the source's detail column. *Advanced statistics* is a
-  remembered disclosure on the old toggle's `cicada.usageMode` key. "Add a source" is a neutral button in the
-  eyebrow row, which reads "Sources · n connected".
+**Sources page — v3 (owner 2026-10-19; supersedes v2's tile grid, G124, DS-3c).** The owner: *"The Sources page needs
+an urgent redesign. It has these graphs and stuff, and it's not intuitive … in two clicks I click on something, then I
+click on Chrome, and then I can see all the things that I've saved in Chrome. Instead of putting the Chrome logo maybe put
+the website's logo … Clicking again on Sources takes me back to the main Sources page also."* Dated ruling:
+`docs/design/DESIGN_RULES.md` §9, 2026-10-19.
+- **The root answers "where did my stuff come from".** Two groups of rows (`SourceIntentGroups`, pure): **Saved by
+  you** — the sources whose items the person saved on purpose (every browser's bookmarks, Pinterest, Reddit, X,
+  Instagram, YouTube, LinkedIn, TikTok, Files & links) — then **Captured for you** (agent conversations, chat exports,
+  messages, calendars, feeds, Notes, folders, open tabs and tab groups). The split is the backend's: every
+  `GET /sources/overview` row carries `intent` (`source_overview.intent_of`, `SAVED_SOURCES`; an unknown origin, a
+  harness and a folder are captured; the ETag's shape moved to `overview-v3`), and an older payload reads as captured.
+  Within a group the newest activity leads. A row (`SourceListRow`, 56 pt, `listRowSurface`) is the bare mark, the
+  brand and one line — what came from it in its own unit and what it is doing ("342 saved · Watching", "204
+  conversations · Captured by hook"; `SourceListText`); a failing source says its failure in `warning` instead, the
+  whole error in `.help`. No sparkline, week-dots, delta or tile (v2's `SourceCardGrid`, `SourceGridColumns` and
+  `SourceGridPacking` are gone).
+- **Statistics, one quiet disclosure.** *Statistics* (collapsed, remembered on the old `cicada.usageMode` key, DR-39)
+  holds *Who wrote your memory* (`ContributorsStrip`, whose chips still open the contributor column) and
+  `AdvancedStatsView`. Both are statistics, so neither sits on the first screen; the contributors are no longer rows
+  of the list and ↑/↓ walks sources only.
+- **Two clicks.** Opening a source narrows the page to the same two groups (`SourceGroupsList`, triage) and opens its
+  detail column. A **saved** source's column is its list: the sync row (Sync now / Last synced, as before) and
+  `CapturedItemsList(style: .saved)` — everything saved from it, newest first, twenty a page with *Show more*
+  (`ChannelItemsCache`, a `LazyVStack`), read from `GET /sources/channels/{id}/items` under the channel, or under the
+  row id for a channel-less import (`SourceOverview.itemsListId`). Its 30-day header card and queue strip stay with
+  captured sources only. Each `SavedItemRow` (56 pt) is the **site's mark**, the title and the day ("Today",
+  "Yesterday", a weekday, "Oct 3"; the full date in `.help`, DR-58), and under them the person's own words from *Ask
+  why*, then the reasons they tapped, then the host (`SavedItemText`). A row opens where a saved item opens (Sleep ›
+  Saved, `CapturedItemRoute`). A bookmark that left the browser keeps its dimmed row and `bookmark.slash` mark.
+- **The site's own mark (owner ruling 2026-10-19).** `SiteIcon(site:savedItem:)`: the row asks
+  `GET /sources/saved/{id}/site-icon` (`SiteIconStore`, one answer per site and bank, misses too), and the backend asks
+  the link's own site — never an icon service (`storage.md`, "A saved link's own site icon"). Until it arrives, or for a
+  site with none: the bundled mark of a known family (LinkedIn, X, Instagram, TikTok, Reddit), else a ring monogram of
+  the site. Never the browser's mark. With `CICADA_ALLOW_LOGO_FETCH=off` every row is its monogram.
+- **Watch history is never a save.** YouTube and TikTok history days are their own captured rows (*YouTube history*,
+  *TikTok history*), headlined by their days ("30 watched days", `SourceOverview.isWatchHistory`), and their detail
+  lists those days by title under the row's own id (`GET /sources/channels/youtube-history/items`, each opening in the
+  Reader); a channel-less saved row counts its saved media pages — the set its list lists — never its episodes
+  (review of #347).
+- **Clicking Sources again returns to the root.** `NavRail` reports a cell tapped while its page shows
+  (`RailReselect`) to `AppRouter.reselect(_:byKey:)`; `SourcesPageView` closes the Reader and the detail together on the
+  columns' curve, instantly when the ⌘ shortcut did it (DR-60).
+- Kept from v2: the eyebrow ("Sources · n connected", "Sources · 2 of 9 · Saved by you"), "Add a source" and *Explore
+  saved sites* in the eyebrow row, the contributor and conversation columns, the Reader as the third column, and every
+  number through `UsageFormat.count`. Tests: `SourcesV3Tests`, `SourcesListTests`; screenshots render offscreen from a
+  demo-bank dump in `SourcesV3RenderTests` (skipped without `SOURCES_V3_RENDER_DIR`).
 
 **Explore saved sites (G166 slice 1, owner 2026-10-14).** A neutral **Explore saved sites** button beside "Add a source"
 in the Sources eyebrow (hidden when the backend answers 404) opens `ExploreSheet`: sites not explored yet or every saved
@@ -833,10 +863,11 @@ Home's Getting started rows use it. `BrowserWatcher`, `TabGroupWatcher` and `Con
 per channel, `cicada.sources.capturedOpen.<channel>`) lists the items that source brought in by their own title and
 day, newest first, twenty at a time with "Show more" (`CapturedItemsList`): under onboarding's Import rows (a preview —
 the rows open nothing there), under every Integrations row, and as the Sources detail column's content for a source
-whose items are not saved links. `GET /sources/channels/{id}/items?offset&limit` (≤ 200; `api/services/channel_items.py`)
+whose items are not saved links (a saved source's column is the same list in its `.saved` style, above).
+`GET /sources/channels/{id}/items?offset&limit` (≤ 200; `api/services/channel_items.py`)
 derives it at read from the same set the row's count means — the notes index, the calendar and tab-group episodes (never
 a tombstoned one), the bookmark seen-set joined to the url index, a channel's media pages, a folder's files — engine-free
-and read-only; titles only (scrubbed, one line), never a body, and for Contacts the matched page's name only. Its
+and read-only; titles only (scrubbed, one line), never a body, and for Contacts the matched page's name only; a saved link's row adds `host` (its bare host, never the URL), `site` (the key its mark is asked under, `reading_hosts.site_of`) and `why` (the newest *Ask why* answer: reason labels and the person's words, one line ≤ 160 characters), read only for the page served. A channel-less saved import (Instagram, YouTube, LinkedIn, TikTok) is listed by its Sources row id. Its
 `total` is its own count, not a promise to equal the row's (a notes index keeps a deleted note). It ETags over
 `sources`+`episodes`+`entities` with the channel and page in `extra`, and is **not** a Store domain: `ChannelItemsCache`
 keeps it in memory, revalidates when the list opens or the channels move, and empties on a bank switch. A row opens its
@@ -1048,7 +1079,10 @@ ruling-4 previews; the "Runs on …" caption retired into it, and Cancel's capti
 **Waiting · Saved · Videos · Past reads**, a `LazyVStack` pinned header so it sticks under the titlebar once the room
 scrolls away; a count of zero hides its tab (`SleepTab.visible`), the page opens on Waiting while anything waits and on
 Past reads otherwise (`SleepTab.resolve`), and a tab switch is instant and closes whatever was open. **Waiting**
-(`SleepWaitingList`, Details' What's waiting until 2026-10-16) is the run's own block and the queued rows; **Saved** and
+(`SleepWaitingList`, Details' What's waiting until 2026-10-16) is the run's own block and the queued rows — fetched as
+`GET /sleep/episodes?processed=false` (the waiting episodes only, never the read ones: every episode was 8,237 rows and
+4.5 MB per load on a large bank, 2026-10-19) and revalidated with its ETag, the rows and tag held in `SleepViewModel`
+(not a Store domain; a 304 keeps them, a bank switch drops both); **Saved** and
 **Videos** are the Feed's lists (above, *Clusters and Sleep's saved lists*); **Past reads** (`SleepPastReads`) is Last
 cycle · Readout · Past nights in D's list grammar — section labels over rows, no cards; Last cycle's rows in words,
 "Rested" as a sentence, the readout as key–value rows, a past read opening in place under its row with its Models, tokens
@@ -1056,13 +1090,14 @@ and cost (ruling 12). A tail link, a spine or a Home hand-off names an old Detai
 page selects the tab holding it (`SleepTab.holding`) and brings the tab row to the top in one frame. Opening a saved item
 (or the watch run) turns the page into progressive columns: the tab row rides the eyebrow, the list is the triage
 column, the item the detail, the Reader the third column (`AppTab.hostsOwnReader`); Esc closes the rightmost.
-Each queued episode row (`EpisodeRow`, also in the spine popover) is one button: a click copies what Sleep would read — `GET /sleep/episodes`'s `copyValue` from `episode_copy` (a page's link, a conversation's session id, a tab group's links, a folder file's full path, else the episode id) — with a brief toast (`Store.flash`); its meta line names that target and it ends with its day (`changedAt`: a conversation's last capture, else when it arrived; owner 2026-10-05). The worm speaks in that one fixed slot —
+Each queued episode row (`EpisodeRow`, Waiting and Past reads' lists and the spine popover) is one button: a click opens the stored episode in the Reader (`ReaderTarget(episode:)`, `GET /episodes/{id}/text`, from the top; `EpisodeRowAction.primary`, owner 2026-10-19 — "episode ID copied" gave the person nothing to do). Copying what Sleep would read — `GET /sleep/episodes`'s `copyValue` from `episode_copy` (a page's link, a conversation's session id, a tab group's links, a folder file's full path, else the episode id) — is the row's context menu and a named VoiceOver action ("Copy Link", "Copy Conversation ID"), with its brief toast (`Store.flash`). The meta line names only a target a person can read (a site and path, "3 tab links", a file's name) and "read"; a session id and the raw `ep_` id left it for `.help` ("… · Episode ep_…", DR-54). It ends with its day (`changedAt`: a conversation's last capture, else when it arrived; owner 2026-10-05). DR-48, DR-54, DR-69. The worm speaks in that one fixed slot —
 `roomSentence` / `wormAnswers`, pure
 `SentenceLine` values over `SleepPageModel` (lead ≤ 40, tail ≤ 80, clock-free; a missing fact
-omits its rung, never shows a guess); the floating bubble is retired. The slot reserves one lead line and **one** tail
-line (R-Z5 as amended 2026-10-16, `SentenceSlot`): a tail takes one line at 17 pt, else one line at 15 pt (17/15 since
-2026-10-16, it was 22/20 in the display face), and only a tail too long for that wraps to a second — so a tail-less sentence sits one line above the control,
-not two, and a budget tail (80 characters) never moves it at 1×. **Two kinds of art (R-Z1, amended by ruling 18):**
+omits its rung, never shows a guess); the floating bubble is retired. The slot reserves nothing (R-Z5 as amended
+2026-10-16 and 2026-10-17, `SentenceSlot.drawsTail`): a line with no tail is the lead alone, with no empty line under the
+headline; a tail takes one line at 17 pt, else one line at 15 pt (17/15 since 2026-10-16, it was 22/20 in the display
+face), and only a tail too long for that wraps to a second. A poke's answer with a tail steps the control row down by
+that line as it appears, and back once its cross-fade ends — never a slide (DR-60: a key can poke the worm). **Two kinds of art (R-Z1, amended by ruling 18):**
 *state art* — the owner's worm on a 160 × 64 lattice (5/4/3 pt per cell by the column's width since 2026-10-16), the real pile, the lamp (= the schedule)
 and its pixel-size fly, the bean bag, mood-edge yawn/stretch and the Sleep moment overlays — and *response art* (gaze,
 perk, talk, cheer), transient and never contradicting state. **Environment art (2026-10-02)** is the time, base weather
@@ -1265,7 +1300,9 @@ per-conversation rows from `GET /sleep/queue` (refetched when the run's counts m
 server refuses it then (`LastCycleRow.canRetryParked`) — a scheduled run's spend note billed from the run's own usage, never today's preview, and Past nights
 folded by run (`PastNightItem.group`, the run's numbers from the server's `run`, never summed from visible rows; opened: models, cost, pages,
 batches and pauses from `GET /sleep/runs/{id}`, cached in the view model and refetched when the run's counts, pause or end move; touched pages
-by name, the id in `.help`). The app-level `SleepViewModel` empties its queue, run details and history details on a bank switch
+by name, the id in `.help`). A scheduled run that caught up a time the Mac slept or was off through (`sleep_catch_up`,
+`features.md`) carries `catchUpFor` on its `run` and its row says so in words — "Missed 3:00 AM — caught up at 8:12 AM",
+"tried" for a failed one, the missed day added when it is not the run's (`RunPresentation.catchUp`, owner 2026-10-19). The app-level `SleepViewModel` empties its queue, waiting rows (and their ETag), run details and history details on a bank switch
 (`Store.onBankChanged`). `PriceLintTests` keeps `$` and token literals out of every other Sleep
 file.
 A refused bank switch shows the server's own 409 sentence (`BankSwitchFailure`), from every door: the switcher, the demo's enter and leave (`DemoMode.leaveToast`) and an active bank's rename.
@@ -1317,9 +1354,15 @@ cheer), gated by one state × response matrix (`BookwormState.allows`, `acceptsG
 shut and the X-eyed error worm never looks away. The selected mascot resolves through `MascotRegistry`; the current
 Bookworm entry is the owner's design as Aseprite sheets
 (`Resources/sprites/bookworm-<state>`, 64 × 48; the menu bar's `bookworm-small`, 18 × 18, with badge and stage dots
-drawn in code — the badge counts the inbox's questions up to 99, then "99+" (`BookwormOverlays.badgeText`, a 13-pixel
-pill), and says so in words: the header's "133 questions waiting", the inbox line and the status item's tooltip,
-2026-10-14); a beat settles within 800 ms, a perk within 400 ms, and the yawn and stretch within 1.6 s (ruling 18).
+drawn in code — the badge counts **the conversations waiting for Sleep** up to 99, then "99+" (`BookwormOverlays.badgeText`, a
+13-pixel pill; owner 2026-10-19: "can we make it so it counts things to consolidate?" — it counted the inbox's questions
+from 2026-10-14). The count is `GET /status` `episodes.readable`, the count Sleep itself would read (`sleep_debt.readable_count`:
+not parked, not index-only history, ruling 30), refreshed through the `.status` domain the `episodes` component already
+maps to; an older backend's `unprocessed` stands in (`StatusSnapshot.waitingForSleep`). At 0 there is no badge. The mood
+stays `.curious(count:)` — the sheet's "what's this?" beat at an unread pile — and never `.reading`, which in the menu
+bar would say Sleep is at work while nothing runs; `.happy` now reads "nothing waiting for Sleep". It is said in words
+(DR-69, DR-21): the header's "Curious — 12 conversations waiting for Sleep" and the status item's tooltip; the inbox
+keeps its own line in the menu ("Inbox: 190 questions waiting"); a beat settles within 800 ms, a perk within 400 ms, and the yawn and stretch within 1.6 s (ruling 18).
 Tags derive from `BookwormLook.keySegment` and are tested to match each sheet exactly; reading cycles three book
 covers on its own loop. A transition always uses the sleeping sheet from the current room lighting/lamp set; a cold page never transitions, and a real
 completion's cheer wins in either callback order. A lint bans `.offset`/`.scaleEffect`/`.rotationEffect`/`.spring(`
@@ -1374,7 +1417,13 @@ pt, an opaque `bgMenu` floating surface over the panel scrim — that appears an
 answers every keystroke with no network; ~150 ms later `GET /search` (prefix, then hybrid) appends
 conversations, beliefs (superseded ones as history), backlog items (G150; the server tier only) and whatever
 the local tier missed — a shown row
-never moves. Ask is a mode (⌘⏎) hosting the unchanged `AskPanel` body. One ranker, `QuickMatch`,
+never moves. Ask is a mode (⌘⏎) hosting the `AskPanel` body — the one place the app draws an Ask answer (the palette
+and Home's field both host it). Under the page sources (chips, then each page's evidence chips) it lists **From
+conversations**: `POST /ask` `conversations` (2026-10-19), the conversations the answer used that no page cites. A row
+is a conversation glyph, the title ("A conversation" without one) and the day; the episode id only in `.help` (DR-54,
+DR-48, DR-34); a click opens it in the Reader from the top (`AskConversationRow.primary`, the target a Sleep page row
+opens; DR-31) and the palette steps aside as for an evidence chip. An older backend sends no field and nothing is
+drawn; an answer kept in Ask history keeps its rows. One ranker, `QuickMatch`,
 folds text exactly like the server's `text_fold`; every in-page field is `CicadaSearchField`.
 Recents are `(kind, id)` pairs in the cache-only `.quickRecents` domain; the query is never stored,
 logged or sent anywhere but `/search` and `/conversations/recent?q=`. `FindPanelBody` is the hostable
@@ -1438,12 +1487,42 @@ and, for a public citation on a subject with a page, Track this source (`Settled
 `addEntitySource`, then "Tracked", disabled). `SettledChecks` is in memory, not a Store domain: loaded when the Inbox
 appears, on a bank switch and whenever its questions change (`SettledChecksAPI`, faked in `SettledChecksTests`). Its
 rows are per memory (their ids are inbox ids, which repeat across banks): another bank's read starts empty, and Undo
-and Track name the bank the row was read in (G183(d)), so a row left on screen across a switch is refused. A
+and Track name the bank the row was read in (G183(d)), so a row left on screen across a switch is refused.
+**Settled by Sleep (ruling 29, 2026-10-17)** is the same section's second closed group ("Settled by Sleep · N"), from the
+same list (`SettledCheck.group == "sleep"`, `bySleep`): the subject and Sleep's answer, the person's own words when it
+rests on them, then the rule's reason and when (`settledSleepMeta`); Undo only (no Track — Sleep's settle cites no
+page), its failure saying the page changed since (`settledSleepUndoFailed`). Neutral buttons, no accent (DR-40). A
 `page_edit` item (G198, an agent's proposed change to a page's words or aliases) is `InboxKind.pageEdit` ("Page edit",
 `pencil`, clarification's hue in both palettes — no new hue, DR-8) and renders as an options card (`apply` / `dismiss`
 from the server, Not now); `InboxBodyPreview` draws its `body` — "Why: …" and the changes as "- Replace “old” with
 “new”" lines — even beside a cause quote, because the body is the change itself (every other kind keeps the old rule:
-the body only when there is neither a cause nor a quote). Every other
+the body only when there is neither a cause nor a quote).
+**The quick review (owner 2026-10-19)** goes one kind at a time inside the Inbox page, never a new window. Above the
+questions at full width (`InboxQuestionList`'s `header`), `InboxReviewEntriesRow` lists one text button per kind with
+something to review — "Fading pages · 49", then Folds, Conflicts and Questions with theirs (`ReviewEntries`, counts
+through `UsageFormat`) — and a click replaces the columns with `InboxReviewView`: the eyebrow says the place ("Inbox ·
+Fading pages · 3 of 49"), one card at a time (`ReviewCardView`, capped at the focus card's width), the same answers in
+the same place on every card (`ReviewCard.answers`): **Keep / Let fade** for decay (`keep`/`archive`, in that order
+whatever order the server sent), **Same / Different** for a fold (`0`/`1`, each described in the fold's two names), **A /
+B (/ C…) / Both** for a conflict (every side with the day it was said; Neither and Other… stay the full card's), a typed
+answer for a question (`NameAnswer` for a name, else `FreeTextSubmit`; "I'd rather not say" keeps its option). Sleep's
+proposal is marked Recommended and never pre-picked — ⏎ accepts nothing, and there is no "accept all": one decision per
+card. Context to decide without opening the page comes from `GET /inbox`'s `subject` / `fold` (`features.md`): a decay
+card says when the page was last said and in how many conversations, and its lead sentence; a fold card asks "Is
+“built with” the same as “uses”?", what it covers and an example; a conflict or question shows the quote and source line
+that raised it. Keys (`ReviewKeys`, DR-68's grammar, DR-60 — every path runs in `Instant.run`): 1–9 answer, S skips, O or
+⏎ moves into the answer field, ⌘Z (the Undo button's shortcut, never while the field has focus — R-DI4) takes back the
+last skip or the last answer while the Inbox still holds it, Esc leaves the field and then ends the review. An answer is
+the Inbox's own (`InboxViewModel.answer` → `Store.hold`, the 5 s send delay — nothing new writes); a skip writes nothing
+and the question stays. The queue (`InboxReview`) is the kind's reviewable questions frozen at the start in the Inbox's
+order; the card on screen is the first undecided one, so Undo puts a card back exactly where it was; a question settled
+elsewhere leaves the queue, and an answer the server refused comes back at the END of it — after the card being read,
+never in front of it (`reconcile`). Every answer and skip names the card it was drawn for (`reviewAnswer(itemId:)`): one
+for a card no longer on screen is a no-op, so a key or click never lands on a card that swapped in under it. The Inbox's
+own decay card has the same order (1 = Keep active, 2 = Archive, served fixed by `decay_question`; Recommended marks
+Archive, it no longer moves it first), so one key never means opposite things in the two views. A legacy decay with no options,
+a multi-valued conflict (G98) and the other kinds stay in the Inbox's full card ("Open in Inbox" on every card lands
+there too). A bank switch ends the review. Tests: `InboxReviewTests`. Every other
 page paragraph below describes what ships until that page's DS track lands.
 
 **Graphite and Meadow (Direction D, G137).** Working surfaces are graphite — `bgRail` · `bgBase` · `bgPane` · `bgHover`
@@ -1525,7 +1604,9 @@ nil tokens must never match. Server identity/ranges must not be recreated in Swi
 
 **Provenance viewer (G118 slice 2).** Every claim carries evidence chips (`Views/Provenance/`): the
 label says who spoke ("You said", "<agent> replied", "From the page", "Inferred", "Mentioned here"
-for a legacy claim's name match found at read) — an agent's chip names its model when capture recorded one ("Claude
+for a legacy claim's name match found at read; a feed item or a calendar entry is "From the feed" / "On your calendar"
+with its source's mark, never "You said", here, in the Reader's turns and Noted rows, Where this came from and ⌘K —
+`EvidenceSpeaker.sourceSpeaker`, 2026-10-17) — an agent's chip names its model when capture recorded one ("Claude
 Code · Opus 5.5 · high effort", `ModelNames`; round-4 C3/C4), as do the hover, the Reader's meta line and turn labels,
 "Where this came from" and a belief's help; an app with no capture says "model not shared by this app" — hovering shows the words in the quote face — washed
 when quoted, bold when derived, plain when stale — and a click opens the **Reader**, a column
@@ -1648,7 +1729,9 @@ installs when the person quits — or at once with *Restart to update* — never
 helper (`posix_spawn` in its own session) waits for the app to exit, boots out `com.cicada.backend` if its plist
 exists, swaps the two copies by rename in the same folder, moves the old one to the Trash, bootstraps the service
 again (three tries) and relaunches. The backend is asked fresh whether Sleep is writing — by the app at hand-off and by
-the helper just before it stops the service — and a busy answer defers the swap to the next quit
+the helper just before it stops the service — busy means a cycle `running`, `writing: true`, or a real inbox tidy
+settling questions (`inboxTidy: true`, ruling 29); a paused run waiting
+on Continue is neither (its sidecar outlives the restart, 2026-10-17) — and a busy answer defers the swap to the next quit
 (`~/.cicada/update-deferred.json`; the staged copy and its `.Cicada.app.update.json` sidecar are kept, so nothing is
 downloaded twice). Any failure puts the old copy back and leaves `~/.cicada/update-failed.json`, which the next launch
 shows once in the Version row ("couldn't be installed … You're still on 0.3.0"); a service that didn't start again is

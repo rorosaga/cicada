@@ -147,7 +147,7 @@ def test_writes_wait_while_sleep_runs(memory, posts):
 
 def test_ask_is_opt_in_and_capped_per_day(runtime, monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: (_ for _ in ()).throw(OSError("offline")))
-    monkeypatch.setattr(ask_service, "answer_query", lambda mp, q, top_k=6: {
+    monkeypatch.setattr(ask_service, "answer_query", lambda mp, q, top_k=6, **_kw: {
         "answer": "Alpha uses sqlite-vec.", "confidence": 0.8, "citations": [], "gaps": [], "used_entities": []})
     assert runtime.call(_connector(), "cicada_ask", {"query": "q"})[1] == "denied"
     asker = _connector(scopes={"ask"}, cid="as12cd34")
@@ -407,7 +407,7 @@ def test_stdio_inbox_ids_take_the_same_shape(memory):
 def test_ask_top_k_is_clamped_before_either_path(runtime, monkeypatch, raw, expected):
     seen = []
     monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: (_ for _ in ()).throw(OSError("offline")))
-    monkeypatch.setattr(ask_service, "answer_query", lambda mp, q, top_k=6: seen.append(top_k) or {
+    monkeypatch.setattr(ask_service, "answer_query", lambda mp, q, top_k=6, **_kw: seen.append(top_k) or {
         "answer": "a", "confidence": 0.5, "citations": [], "gaps": [], "used_entities": []})
     args = {"query": "q"} if raw is None else {"query": "q", "top_k": raw}
     assert runtime.call(_connector(scopes={"ask"}, cid="as12cd34"), "cicada_ask", args)[1] == "ok"

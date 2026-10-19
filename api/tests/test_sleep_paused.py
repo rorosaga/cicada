@@ -244,6 +244,39 @@ def test_a_restart_turns_a_running_sidecar_into_a_restart_pause(tmp_path, monkey
     assert sleep_paused.recover_after_restart(memory) is None, "an already paused record is left alone"
 
 
+def test_a_paused_record_outlives_a_restart(tmp_path, monkeypatch):
+    """An update may restart the backend under a paused run (scripts/dev/auto-update.sh, 2026-10-17): the pause, its
+    sentence and the queue survive, and Continue reads what was waiting."""
+    ids = episode_ids(9)
+    memory = seed_bank(tmp_path, ids)
+    rig = install(monkeypatch)
+    rig.fail_exc = {}
+
+    async def engine_gone(batch_no, episodes):
+        if batch_no == 2:
+            for e in episodes:
+                rig.fail_exc[e["id"]] = engine_errors.EngineUnavailable("the engine is away")
+
+    rig.on_extract = engine_gone
+    _run(memory, cid="sleep_before")
+    before = dict(sleep_paused.get_paused(memory))
+    assert before["reason"] == "engine" and waiting(memory) == ids[3:]
+
+    # A new process: nothing in memory, only the sidecar on disk.
+    sleep_paused._cache.clear()
+    s = sleep_cycle.get_sleep_state()
+    s.drain, s.status = None, "idle"
+    assert sleep_paused.recover_after_restart(memory) is None, "a paused record is left exactly as it was"
+    after = sleep_paused.get_paused(memory)
+    assert after == before and waiting(memory) == ids[3:]
+
+    rig.on_extract, rig.fail_exc = None, {}
+    rig.extract_batches.clear()
+    ds = _run(memory, cid="sleep_after", continue_from=after)[1].drain
+    assert ds.drain_id == "sleep_before" and ds.finished and ds.filed == 9
+    assert rig.extract_batches == [ids[3:6], ids[6:9]] and waiting(memory) == []
+
+
 def test_a_restart_with_everything_filed_deletes_the_sidecar(tmp_path):
     ids = episode_ids(3)
     memory = seed_bank(tmp_path, ids)

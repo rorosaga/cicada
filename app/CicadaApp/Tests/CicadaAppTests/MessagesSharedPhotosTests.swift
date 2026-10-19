@@ -95,6 +95,44 @@ final class MessagesSharedPhotosTests: XCTestCase {
         XCTAssertFalse(MessagesSharedPhotos.isAvatarName(".hidden-ad"))
     }
 
+    /// 2026-10-19 — the record as the current macOS writes it (measured, values redacted): the avatar is an ABSOLUTE
+    /// `imageFilePath` inside a nested `NickNameImage` dictionary, the file named with "_" where the record's `rid`
+    /// carries "/". Every real record yielded nil while only a bare file name was accepted.
+    func testTheCurrentRecordShapeAnAbsolutePathInANestedDictionaryResolves() throws {
+        let file = "QUJD_REVGR0g==-ad"
+        try png(side: 256).write(to: folder.appendingPathComponent(file))
+        let image: [String: Any] = ["imageFilePath": folder.appendingPathComponent(file).path,
+                                    "contentIsSensitive": false, "imageName": "QUJD/REVGR0g=="]
+        try store(["+15550000001": archive(["rid": "QUJD/REVGR0g==", "firstName": "Agent",
+                                            "NickNameImage": NSMutableDictionary(dictionary: image)])])
+        XCTAssertEqual(MessagesSharedPhotos.avatarNames(for: ["+15550000001"], folder: folder), ["+15550000001": file])
+        let photos = MessagesSharedPhotos.photos(for: ["+15550000001"], folder: folder)
+        XCTAssertEqual(Array(photos.keys), ["+15550000001"])
+        let small = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(photos["+15550000001"])))
+        XCTAssertLessThanOrEqual(max(small.pixelsWide, small.pixelsHigh), MessagesSharedPhotos.maxPixels)
+    }
+
+    /// An absolute path is used only when its parent is exactly the folder: never one elsewhere, never one that climbs
+    /// out with `..`, and never through a link — `avatarFile`'s checks still apply to the name it yields.
+    func testAnAbsolutePathOutsideTheFolderIsRefused() throws {
+        let elsewhere = folder.deletingLastPathComponent().appendingPathComponent("elsewhere-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: elsewhere) }
+        try png(side: 64).write(to: elsewhere.appendingPathComponent("WFla==-ad"))
+        try FileManager.default.createSymbolicLink(at: folder.appendingPathComponent("bGluaw==-ad"),
+                                                   withDestinationURL: elsewhere.appendingPathComponent("WFla==-ad"))
+        let climb = folder.path + "/../" + elsewhere.lastPathComponent + "/WFla==-ad"
+        try store(["a": archive(["NickNameImage": NSMutableDictionary(dictionary:
+                                    ["imageFilePath": elsewhere.appendingPathComponent("WFla==-ad").path])]),
+                   "b": archive(["NickNameImage": NSMutableDictionary(dictionary: ["imageFilePath": climb])]),
+                   "c": archive(["NickNameImage": NSMutableDictionary(dictionary:
+                                    ["imageFilePath": folder.appendingPathComponent("bGluaw==-ad").path])]),
+                   "d": archive(["NickNameImage": NSMutableDictionary(dictionary: ["imageFilePath": "NickNameCache/WFla==-ad"])])])
+        XCTAssertTrue(MessagesSharedPhotos.photos(for: ["a", "b", "c", "d"], folder: folder).isEmpty)
+        XCTAssertNil(MessagesSharedPhotos.folderFileName(climb, in: folder))
+        XCTAssertNil(MessagesSharedPhotos.folderFileName("relative/WFla==-ad", in: folder))
+    }
+
     func testAMissingFolderIsNoPhoto() {
         XCTAssertTrue(MessagesSharedPhotos.photos(for: ["+15550000001"],
                                                   folder: folder.appendingPathComponent("absent")).isEmpty)

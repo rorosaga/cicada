@@ -400,7 +400,9 @@ def _sleep_block(memory_path: Path, git_runner) -> dict:
     and could name a time already past."""
     out = git_runner(memory_path, ["log", "-1", "--grep=^Sleep cycle", "--format=%aI"])
     last_at = (out or "").strip() or None
-    queue = sum(1 for f in bank_index.files(memory_path, "episodes") if not f.frontmatter.get("processed", False))
+    from api.services import history_index
+
+    queue = sum(1 for f in bank_index.files(memory_path, "episodes") if history_index.waits_for_model(f.frontmatter))
     return {"last_at": last_at, "queue_depth": queue}
 
 

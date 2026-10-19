@@ -304,7 +304,9 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   names a *different* LinkedIn profile (the owner's page is known by its `owner: true` flag and by `resolve_observer`'s
   id), and two connections on one page (duplicate names) or one on two pages match
   neither. **It never creates a page.** A match gains its profile link as a source `{ref:
-  https://www.linkedin.com/in/<slug>, kind: url, predicate: linkedin, added_by: cicada}` and three claims observed
+  https://www.linkedin.com/in/<slug>, kind: url, predicate: linkedin, added_by: cicada, match: name|alias|link}` (how it
+  matched: the page's own name, only an alias, or a link the person or an identified agent already listed as their account; a link from before the
+  field gets it at the next import or rematch) and three claims observed
   `external:linkedin` (`source_trust: external`, `authored_by: cicada`, `origin: linkedin/connections`, `reasoning`
   evidence — no episode holds an export): `works-at` (a `company` page's id when exactly one has that name, else the
   words), `role`, both `valid_from` the export's day, and `connected-on` (the day they connected). **Newest wins:**
@@ -422,6 +424,13 @@ import needs no Mac app).
   not atomic: interrupted, it can leave pages written before its `url_index` rows, which a re-import writes again.
 - **Rails.** No model runs; the episode body is scrubbed as every media save is, and the X reader scrubs the post's
   words before they become a title; every `/sources/` POST answers 409 into a demo bank and `cicada import` exits 4.
+- **Indexed, not consolidated (owner ruling 2026-10-18).** A save from a platform's saved list stays in Saved with its
+  metadata (title, channel, playlist or collection, date, its media page) and its episode lands already read —
+  `processed: true`, `processed_by: index` — so no model reads it, item by item or at all (*Indexed, not
+  consolidated* below). The YouTube oEmbed lookup at import is unchanged: it is the person's own click (the drop,
+  the upload, `cicada import`), so the unattended-fetch gate does not apply, and it is bounded — one call per new
+  video (a duplicate is never looked up), 8 at a time, 5 s each, 2,000 per slice; Instagram, LinkedIn, Reddit and X
+  rows are never fetched (walled, or `defer_enrich`), and Sleep's link reads skip YouTube and every walled host.
   Pinterest's export is a browse-your-content HTML archive with no stable structure, so Pinterest stays with its
   connector.
 
@@ -432,8 +441,9 @@ API gives no one Watch later or watch history, so there are three doors, and the
   **one episode per platform per day** — `source_id` `watch-history:<platform>:<YYYY-MM-DD>`, `source: watch-history`,
   origin `youtube-history` (TikTok's browsing history, `tiktok-history`, rides the same writer), an id dated the day
   watched — listing that day's videos in order with their local times, titles and channels, through the one stager,
-  queued for Sleep. Saved never sees a history row, and an import of years of history is that many days, which the
-  preview says before Confirm ("N watched videos over D days").
+  **already read** (`processed_by: index`; *Indexed, not consolidated* below). Saved never sees a history row, and an
+  import of years of history is that many days, which the preview says before Confirm ("N watched videos over D
+  days"). Each month the history touches gets one more episode, its summary (`watch_history.rollup`, below).
 - **One identity.** A video is `media_ingestor.url_hash` of its canonical URL — the key Watch later, bookmarks and
   Takeout playlists share — so `youtu.be/<id>`, `/shorts/<id>` and `watch?v=<id>&t=…` are one video. Within a day a
   video is one row (`watched` in frontmatter: `url, title, channel, times, via, seen`); a watch less than 30 minutes
@@ -463,6 +473,64 @@ API gives no one Watch later or watch history, so there are three doors, and the
   already saved is a duplicate), history rows as days (the page's day).
 - No model runs, nothing is fetched (titles and times come from the doors), every title is scrubbed (writer
   `watch-history`).
+
+**Indexed, not consolidated (owner ruling 2026-10-18; G71, G94).** The owner's Takeout with history brought 45,879
+watches as 2,532 day episodes and 3,156 playlist saves, and every one was queued for a full Stage-1 read — hours of
+plan usage to fill the graph with channel and video pages and "who is X" questions. Owner: "maybe overanalyzing the
+watch history is too much … Maybe just have it there and then maybe the metadata has it as embeddings or something."
+So watch history and list saves are a record to look up, never a conversation to read:
+- **What is index-only — one predicate, `history_index.kind`.** A watched day (`source: watch-history`), a month's
+  summary (`source: watch-history-month`), and a save from a platform's saved list: origin `youtube-playlist` (a
+  Takeout playlist, Watch later included, or the agent's read of Watch later), `instagram-saved`, `tiktok-saved`,
+  `x-likes`, `linkedin-saved`, and `reddit-saved` / `x-bookmarks` only under the folder the export reader names
+  (`Saved posts`/`Saved comments`, `Bookmarks`) — the Reddit and X connectors share those origins under other
+  folders and are read as before. A browser bookmark, a single URL save and a save carrying the person's own note
+  keep today's behaviour (no list door carries a note; one that did is stamped `has_note` and queued). **The
+  person's words always win:** a list save whose frontmatter carries `saved_why`, `saved_why_earlier` or `has_note`
+  is never index-only, so when they later say why they saved it (`saved_why.attach`/`edit` — e.g. a bookmark of a
+  video already in their imported Watch later) or a repeat Telegram `/save` adds a reason
+  (`history_index.mark_person_words`: `has_note`, re-queued when the index had read it), it goes back to the model;
+  and `retire` never flips a queued list save whose body holds such a section (`## Why it was saved`, `## Saved
+  because`, `## User note`) — it stamps it theirs instead.
+- **Read without a model.** Capture writes them read (`processed: true`, `processed_by: index`: the stager's
+  `queue_for_sleep=False`, or `media_ingestor.write_media_episode`). `history_index.waits_for_model` is the one
+  "waiting for Sleep" predicate — the drain's freeze and its waiting map, the one-batch cycle, `/status`'s
+  `unprocessed`, the state queue depth, sleep debt, a paused run's remaining ids — so an index-only episode never
+  enters a model batch, a frozen list or a run's progress. **A bank that imported before the ruling** is handled by
+  Sleep without re-import: at the start of every run that holds the bank (drain, one-batch cycle, the scheduler's
+  tail-only run), before anything is frozen, `sleep_cycle._index_without_model_safely` marks every queued
+  index-only episode read (`history_index.retire`, under the episode lock, re-checked before it flips) and writes
+  the month summaries, in `cicada` commits of at most 500 files (`Indexed without a model <date>`, manifest lines
+  `episodes/<id>.md: indexed (source: n/a, trigger: sleep/index)`, no engine trailer); a file dirty before it ran
+  keeps its own writer and is skipped (it stays out of every batch meanwhile); a failed commit restores what it
+  wrote. Measure first with `api/.venv/bin/python -m api.scripts.history_index_dry_run --bank <path>` (counts only,
+  writes nothing: waiting, for the model, index-only by kind and origin, months against summaries).
+- **The month summary is the signal, counted with no model** (`watch_history.rollup`, one episode per platform per
+  month, `source_id` `watch-history-month:<platform>:<YYYY-MM>`, through the stager, read by the index): how many
+  videos over how many days, the channels watched most (videos and days), the channels come back to across
+  different ISO weeks, the videos watched on more than one day, and each day's count. Deterministic — the same days
+  give the same words whichever order the doors brought them — and rewritten only when a day's words moved (the
+  stager's hash). The import doors write the months they touch; Sleep writes any a bank lacks.
+- **Found by lookup.** The files stay in `episodes/`: the lexical index covers every episode, and the episode
+  vectors — synced at the end of a model batch, which these never reach — are synced by the tail's
+  `_embed_indexed_episodes_safely` whenever an index-only episode is newer than the vector index (incremental by
+  content hash; with the model the table holds; a bank with no vector index waits for its first). Recall's excerpts
+  and search find a day or a month by its titles and channels; **Ask** reads the record for a question about
+  watching (`watch_history.lookup`: a range — this/last year, a named year, since or between, the last N days, ever,
+  "the most", "when did I first/last watch" — answers with a table counted from the watched days at read, no model
+  (`watch_history.summarize`, bounded whatever the range; `mcp.md`); a named month with its summary; otherwise the
+  watched videos whose title or channel holds the question's words, whole words, dated, the newest 40; only for a
+  caller with the person's `sources`, and the answer may rest on it with no page retrieved); the **timeline** counts a
+  watched day on its own day ("Watched N video(s) on YouTube") and never lists a day or a month as a capture.
+- **A watched day is not a mention (decided 2026-10-18).** A channel page is never written by history: no claim, no
+  `source_episodes`, no `last_referenced`, no lift, no decay-clock move, no page minted, no inbox question. Why:
+  decay counts *conversations* (`decay_policy.conversations`) and a watch is not one — like a memory export entry,
+  it is a record the platform kept, not the person's words; a watch is often autoplay or background; and at 45k
+  watches, up to 400 a day, any page sharing a channel's name would be held at the repeat floor for good, which
+  would make "absence of mention is a signal" meaningless for it. What the page gains instead is read-time and
+  derived: `cicada_recall_detail` on a page whose name or alias IS a channel in the history (exact, case and spacing
+  folded, never fuzzy) appends one line — videos, days, first and last day — computed from the days' frontmatter
+  (`watch_history.channel_line`, cached in memory per change of the day files), never stored.
 
 **Conversation identity (G48).** An MCP episode carries `session_id` plus `harness` and
 `project_dir` when exposed — minted once per MCP process from `CLAUDE_CODE_SESSION_ID` →
@@ -754,7 +822,8 @@ follow-ups (G141 PJ-6, right after expiry, its own `cicada` commit), the exact-m
 its own `cicada` commit, dirty pages skipped), the site check (G61 S3-b, behind `CICADA_ALLOW_CONNECTOR_FETCH`, its own
 `cicada` commit), the tracked-source re-check (ruling 26), **the web check** (below), the connector poll, RSS/ICS
 polling (opt-in via `CICADA_ALLOW_FEED_FETCH=1`), and the link enrichment backfill — all in a clean-tree-guarded slot,
-after `_finalize`'s own commit so the poll's `git add -A` sweeps only its own files.
+after `_finalize`'s own commit so the poll's `git add -A` sweeps only its own files. After them, unguarded (no git),
+the episode vectors are synced when an index-only episode is newer than the vector index (owner ruling 2026-10-18).
 
 **The web check (owner ruling 2026-10-16, TODO ruling 27; `sleep_cycle._web_check_safely`, `web_lookup`).** After the
 run's last nudges, up to `web_check_per_run` (8; `CICADA_WEB_CHECK_PER_RUN`, 0 = off) pending questions about public
@@ -795,6 +864,24 @@ plan limit stops the step (the rest waits for the next run); a drain stopped at 
 `Web check <date>`, under the model that looked (`Cicada-Engine` its engine), trigger `sleep/web-check`. Every file a
 settle touches is snapshotted first; a failed step or commit puts them all back, unstages them and clears their memo
 rows (`web_lookup.restore`), so nothing dangles for a later `git add -A` to commit under the wrong author.
+
+**Sleep tends the inbox (owner ruling 2026-10-17, TODO ruling 29; `sleep_cycle._tend_inbox_safely`, `inbox_tend`).**
+Every batch, right after `_finalize`'s commit and still inside its write window (so no person's answer lands between
+its read and its settle), Sleep: **(1)** reads the open `conflict` / `clarification` / `merge_suggestion` questions this
+batch's conversations are about (the ask gate's rule over the person's own turns; at most 8 a batch, one engine call
+each, stage `inbox_tend`) and settles one only when the engine copies the person's words and they are found exactly in
+the person's own turn (`evidence.verify`, kind `user`) — the conversation that raised a question never answers it; and
+**(2)**, once per drain (the batch that runs decay), assumes the small stuff by engine-free rules plus the duplicate
+judges on at most 6 questions — duplicates, conflicts (label-only ones too, first by the person's newest words on them,
+`newest_words`), label folds, fading pages — and a name said once in passing (`in_passing`, part 3) — and then, on at
+most 4 questions still open (a clarification, follow-up or conflict), **(3)** looks across the whole record for the
+person's own words already answering it (the page's evidence pointers plus the lexical index; located exactly in
+their own turn, `said_on_record`; `features.md` has the table). Each settle goes through the person's own resolver and
+commits alone as Sleep's (`Inbox settled by Sleep`, trigger `inbox/<kind>/settled:<label>`), undoable under "Settled by
+Sleep"; the state projection is refreshed once after. The engine is the batch's own, so ruling 4 holds as for every
+stage; a plan limit stops the tending and trips the batch's breaker, so the drain pauses as for a Stage-1 limit. A
+cancel requested before the tending skips it. `inbox_settled` counts the run's settles on the wire. The one-time tidy
+of an existing backlog (`POST /inbox/tidy`) is the same policy outside Sleep, each settle under write admission.
 
 **Consolidate reads everything (owner, 2026-09-29; TODO ruling 13; scheduled runs too since 2026-09-30, ruling 16).** "I don't want to cap the max episodes per sleep —
 it's just progress Cicada has to go through." A **person-started** run (`POST /sleep/trigger`, so every Consolidate door:
@@ -841,6 +928,15 @@ reset time or auto-continue. The frozen ids and prior committed batches stay int
 and reads the interrupted batch again. An empty/unparseable extraction answer still gets the conversation
 retry-then-park rule. Positively identified authentication, model and plan errors are never retried by this policy;
 an unclassified extraction rejection retains its legacy call retry. Calls outside drains retain their existing policy.
+**A provider's refusal is said in words (2026-10-17).** When a metered engine's provider refuses a call, its own text
+is sorted (`engine_cause`, text first, then litellm's class names) into a spending or credit limit reached, a refused
+key, an unknown model, or a rate limit, and the stop's sentence — the drain's, the paused record's and `error` — says
+that cause and its fix in provider-neutral words: raise the key's limit or add credit with the provider; check the key
+in Settings → Plans & keys; check the model id in Settings → Engines; continue later. A scheduled run that ruling 4
+kept off the plan (`engine_select.SCHEDULE_DEGRADED`) also names *Scheduled runs may use my plan* in Settings → Sleep
+as a fix — named, never flipped (ruling 4b). The provider's raw text never reaches the wire. A cause outranks G117's
+"no engine chosen" guess (a refused key on such an install names both doors); no recognised cause keeps the generic
+sentence, and Cicada's own engine errors (the plan CLIs) keep their own words.
 **Connectivity (owner, 2026-10-07):** failed CLI transport diagnostics (routing discovery, exhausted reconnect
 warnings, DNS, refused/reset connections and offline/network errors) become `EngineConnectionLost`, a retryable
 `EngineFailed` subtype. The existing one-retry/2-second policy then pauses with Continue; repeated connectivity
@@ -866,7 +962,9 @@ from a scheduled run. The dotfile pin keeps its one batch (ruling 16); on a mete
 say so in words. The default scheduled BYOK/local selection is unchanged; an explicit `CICADA_LLM_MODE` CLI
 override also reaches the transient retry/pause policy. Such a scheduled engine pause is eligible for replacement
 by a fresh unattended run only after six hours (`sleep_paused.ENGINE_RETRY_S`), rather than the next scheduler tick.
-**Once per drain, not per batch:** temporal decay (both engines,
+**Before the freeze:** every run that holds the bank first marks what is only ever looked up as read — watch
+history, month summaries and list saves (*Indexed, not consolidated*, above) — so they are never frozen, batched or
+counted as read by the model. **Once per drain, not per batch:** temporal decay (both engines,
 `decay=False` on `resolve_and_prune` / `reconcile_stage3` / `run_claim_pipeline`) and Stage 5.57's page reads run only in the
 batch that empties the queue (a decay-only finishing pass covers a last batch whose ids were read elsewhere), so decay is
 charged once (TODO ruling 1) and a stopped drain never decays; **once per run:** the whole engine-independent tail, whose
@@ -899,7 +997,7 @@ note is logged, the link backfill still runs).
 **Sleep page v5, backend (2026-09-30; TODO rulings 15 and 16; the boards are applied on top of the drain).**
 - **Reading options** — `GET/PUT /sleep/run-options` (`sleep_run_prefs`, machine-wide in `~/.cicada/connections.json` under `sleep-run`, snapshotted when a run starts, never 409s): batch size 10/25/50, *Continue after a plan reset* (off), *Leave room in my plan* (off, set in the engine menu). "Read faster" is **not** built (owner, 2026-09-30): no parallel reading and no small-model map.
 - **Machine-local state, never in a bank** (`sleep_local`: `$CICADA_HOME/sleep/<bank>-<hash>/`, 0700 dir, 0600 files, ids and counts and enums only, never a title): `run.json` (the run's sidecar), `parked.json`, `runs.json` (one summary per run, the newest 100).
-- **Paused is a fact about a run, not a state of Sleep.** A run that stops with conversations still waiting (Pause = the cancel path, a plan limit, the engine going away, the reserve line, or a restart) leaves a `paused` record in its sidecar (`sleep_paused`); `status` stays `idle`, `is_writing()` is false, nothing is held. `POST /sleep/trigger {"continue": true}` rebuilds the drain from it (same run id, the frozen list minus what is filed, the counters carried, batch numbering from what was committed); **a no-body trigger stays a fresh run and clears it** (the documented curl); `POST /sleep/run/end` forgets it (409 while reading); `POST /sleep/parked/retry` unparks and reads exactly those ids (409 while running or paused). **The scheduler reads nothing while a paused run waits** — except a *scheduled* run's pause no person chose: a `restart`, an `engine` pause at least 6 hours old, or (ruling 4b) a plan-limit pause whose limit has reset, is ended (Past nights says `ended`) and replaced by a fresh unattended drain (`sleep_paused.schedule_may_replace`) — it still runs the engine-free tail (`run(tail_only=True)`: expiry, follow-ups, the state refresh, the polls, the link backfill; the after-import probe at most once a day), and the paused record stays on the wire meanwhile — and counts *readable* conversations (`sleep_debt`'s `readableCount` = waiting minus `parkedCount`). `sync_service`'s `sleep` component and the SSE event carry the pause, so the app hears it. Only the Sleep page continues a paused run (the app's doors route to it; the server stays permissive).
+- **Paused is a fact about a run, not a state of Sleep.** A run that stops with conversations still waiting (Pause = the cancel path, a plan limit, the engine going away, the reserve line, or a restart) leaves a `paused` record in its sidecar (`sleep_paused`); `status` stays `idle`, `is_writing()` is false, nothing is held. `POST /sleep/trigger {"continue": true}` rebuilds the drain from it (same run id, the frozen list minus what is filed, the counters carried, batch numbering from what was committed); **a no-body trigger stays a fresh run and clears it** (the documented curl); `POST /sleep/run/end` forgets it (409 while reading); `POST /sleep/parked/retry` unparks and reads exactly those ids (409 while running or paused). **The scheduler reads nothing while a paused run waits** — except a *scheduled* run's pause no person chose: a `restart`, an `engine` pause at least 6 hours old, or (ruling 4b) a plan-limit pause whose limit has reset, is ended (Past nights says `ended`) and replaced by a fresh unattended drain (`sleep_paused.schedule_may_replace`) — it still runs the engine-free tail (`run(tail_only=True)`: expiry, follow-ups, the state refresh, the polls, the link backfill; the after-import probe at most once a day), and the paused record stays on the wire meanwhile — and counts *readable* conversations (`sleep_debt`'s `readableCount` = waiting minus `parkedCount`). `sync_service`'s `sleep` component and the SSE event carry the pause, so the app hears it. Only the Sleep page continues a paused run (the app's doors route to it; the server stays permissive). **A paused run is not in flight**: the record, its sentence, an armed continue-after-reset and the queue all outlive a backend restart (`recover_after_restart` touches only a `running` sidecar; `test_a_paused_record_outlives_a_restart`), so the dev `scripts/dev/auto-update.sh` and the release updater install under it, deferring only for a cycle `running` (a paused run's upkeep tail included), `writing: true` or a drain still reading (2026-10-17: deferring on any `paused` block held every update from a failed 03:00 run until 15:09).
 - **Honest live progress** on `drain` and the SSE event (every key optional): `startedBy`, `firstRun`, `calls` (each spawned engine call; only grows, a discarded batch's included), `elapsedMs`/`pausedMs` (measured, never a remaining time), `batchState`, `stages` (Read/Sort/Decide fill only from finished work; Notice and File carry no number), `byOrigin` (frozen = filed + read + waiting + couldNotBeRead + parked + skipped), a live `arrivedSince`, `ownerPage` beliefs, `reserve`. `GET /sleep/queue` serves the per-conversation rows from frontmatter only (≤ 200). Neither it nor `GET /sleep/run-options` / `GET /sleep/runs/{id}` is a Store domain (no `VersionVector` mapping; in-memory caches in the app, emptied on a bank switch).
 - **The reserve is a soft stop** (`sleep_reserve`): Stage 1 stops *starting* reads once a plan window is past the line, what was read is filed, the rest is not an attempt; the run pauses with "Paused to leave room in your plan." A line, not a guarantee: overshoot is unmeasured, a window the engine never reports is served `enforced: false`, and the ChatGPT plan is read from the pre-flight snapshot each batch already takes. Off leaves the Claude rung's own R-E12 90% stop; a reserve lifts it for that run.
 - **Continue after a plan reset** (`sleep_autocontinue`, ruling 15): a one-shot job per bank (`job_id`; a trigger or End in one bank never drops another's, and a bank's activation re-arms its own), for a run the person started, only after a 5-hour window (or the reserve on one, or extra usage) that gave a reset time, at most twice, within 36 hours, same engine, never weekly, never scheduled; `run(continue_from=…)` is called from the Continue route and this module only.
@@ -1224,7 +1322,8 @@ where it stands, the facts worth remembering once each. What changed, besides pr
 - **Stage 1's prompt** asks for that article: the person's relation first; facts about the thing, never about the
   conversation ("the assistant suggested …", "was mentioned in a conversation", "the user asked about …"); no
   implementation trivia of one debugging session (an artifact name, an action version, an error message) unless the
-  person said it matters; one fact once, usually 0-5; a detail of the assistant's answer is not an entity unless the
+  person said it matters; one fact once, as many as the conversation establishes (the "usually 0-5" was lifted
+  2026-10-17, below); a detail of the assistant's answer is not an entity unless the
   person engaged with it. An assistant-said fact stays legitimate evidence (kind `assistant`); the bar is triviality,
   not source. A prompt change is not measurable offline; the deterministic parts below are.
 - **Narration is dropped at Stage 1** (`fact_policy.about_the_conversation`): a fact whose subject is the thing itself
@@ -1267,10 +1366,15 @@ constraining the prose; git is the safety net, the claims and the dated timeline
   from relationships and agent writes), so they are the record the article is compiled from, each with its G118 row.
   The `article` frontmatter stamp marks the prose as the writer's; an edit makes the page the person's.
 - **The writer** (`entity_article`, `CICADA_PAGE_ARTICLES_ENABLED`, off until the owner reviews the numbers below,
-  like the synthesis switch): in Stage 3, a machine page resting on 2+ conversations once the update lands, that
-  gains anything (the re-read gate still applies), gets ONE JSON call in place of the synthesis call; the
-  contradiction call is unchanged. A one-conversation page is a stub: the deterministic merge, no call (short because
-  it is a stub, not because of a cap). A page whose prompt is over `CICADA_PAGE_ARTICLE_MAX_INPUT_CHARS` (60,000) is fitted, never
+  like the synthesis switch): in Stage 3, a machine page that gains anything (the re-read gate still applies) and
+  that the writer takes (`entity_article.worth_writing`) gets ONE JSON call in place of the synthesis call; the
+  contradiction call is unchanged. The writer takes a page resting on 2+ conversations once the update lands, or —
+  since 2026-10-17 — one on a single conversation whose record already holds `CICADA_PAGE_ARTICLE_MIN_MATERIAL` (4)
+  inputs: facts, dated lines, current claims, open questions and what this update said, never the page's own earlier
+  prose or its links. **A new page is born an article** on the same test (`conflict_resolver._create_job`: one call,
+  no contradiction call — nothing to contradict; Stage 5 composes it with the same `entity_article.compose` from an
+  empty page). Below the floor a page is a stub: a lead and a fact or two, which an article would only restate — the
+  deterministic merge, no call. A page whose prompt is over `CICADA_PAGE_ARTICLE_MAX_INPUT_CHARS` (60,000) is fitted, never
   clipped mid-input (`entity_article.fit`, owner page 2026-10-14): claims sharing a predicate and an object fold into
   one input (the latest text, how many conversations said it, first and last day, every evidence row); then claim
   inputs are left out — a log's (`entity_body.is_log`: a predicate the stems positively call activity, in a family held
@@ -1279,6 +1383,26 @@ constraining the prose; git is the safety net, the claims and the dated timeline
   update's words, the earlier lead and article, facts, questions and links never; LINKABLE keeps the names a kept
   input mentions. The record keeps every claim and line. Only a page whose own record is still over the budget
   keeps the deterministic merge if it has an article, else today's path.
+- **Uncapped (owner 2026-10-17: "It's not that I want a huge page for each thing. It's just that I want to kind of
+  uncap what the agents can write to.")** Measured on the owner's bank (non-archived pages, prose words outside the
+  claims fence; real values redacted beyond these counts): pages with an article, median 454 words (p90 1,092);
+  pages without, median 45 (p90 154); 767 of 4,693 under 40 words. The article writer had no length cap — the thin
+  pages were the ones it never ran on: promoted on one conversation, and new pages (a create never got the writer,
+  only a later update did). What limited a page, and what was done:
+  - *The 2+ conversation gate* → lifted to the material floor above, for updates and creates alike.
+  - *Stage 1's "usually 0-5 facts"* and "a short wiki article" → "as many facts as the conversation establishes
+    … never pad": the article is compiled from what Stage 1 extracts, so this is the per-conversation lever. Not
+    measurable offline (recorded answers); the fixtures' Stage 1 answers give a median of 3 facts per entity (max 7).
+  - *Kept:* the Summary's 600-character orientation budget and the type's sentence counts (`summary_policy`, Stage 1's
+    SUMMARY): on an article page the writer owns the lead at any length, so the budget only shapes stubs and banks
+    with articles off, and what it displaces is kept as Key Facts; the legacy merge prompt's 1-3 sentences (only a page
+    over the input budget, or articles off); the input budget (`fit` folds and orders, never clips); the capture caps
+    (a capture rail, G110); every writer rail — a paragraph with no cited input is not written, no padding, dated not
+    now, provenance per paragraph.
+  - *Cost:* one more call per new page over the floor and per one-conversation page update over it; a stub still
+    costs none. Offline (`page_quality --articles`, mechanical fake writer): article calls 5 → 9 over 3 batches, pages
+    with an article 3 → 4 of 4, median words 219 → 238.5 (p90 258 → 293), no extracted fact lost; `page_articles`:
+    18 → 19 calls (the 15-conversation page's create now written), the stub stays a stub.
 - **A hub's Related rolls up** (`entity_body.RELATED_MAX`, 60 linked pages; owner page 2026-10-14): `## Related` is a
   view of `graph_edges.yaml` rebuilt on every write, so on a page linking more pages than that, the block is **never
   more than 60 lines, family lines included**; lines go, in order of right, to its **strong facts**, then its weaker
@@ -1337,17 +1461,25 @@ constraining the prose; git is the safety net, the claims and the dated timeline
   67.9 s → 149.2 s, the largest batch 5.0 s → 13.4 s — output-bound, so the cost is per rich page per batch, not per
   call. Every extracted fact and dated line is on its page in both runs; the stub stays a stub.
 - **Existing pages:** `python -m api.scripts.rebuild_page_articles --bank <bank>` (dry run: counts only — pages,
-  skipped as archived/media/human/one conversation/already articles/over budget, selected, prompt characters; never a
-  name). `--limit N` / `--entity <id>` narrow it; `--preview-dir <outside-the-bank>` makes the calls and writes
+  skipped as archived/media/human/stubs (`one_conversation`: one conversation, under the material floor)/already
+  articles/over budget, selected and how many of them rest on one conversation, prompt characters, estimated calls,
+  batches; never a name). Pages go **newest-mentioned first** (`last_referenced`), so a stopped run has done the pages
+  most likely to be opened. `--limit N` / `--entity <id>` narrow it; `--preview-dir <outside-the-bank>` makes the calls and writes
   `<id>.before.md`/`<id>.after.md` there, touching nothing in the bank; `--apply` is refused before any call unless the
-  backend says Sleep is idle, makes the calls outside the write admission, then writes in one commit
-  (`trigger: maintenance/page-articles`, the model as `Cicada-Author`), skipping a page written since it was read. One page's
+  backend says Sleep is idle, makes the calls outside the write admission, then writes **`--batch-size` (25) pages a
+  commit** (`trigger: maintenance/page-articles`, the model as `Cicada-Author`), checking Sleep again before each
+  batch, skipping a page written since it was read. The engine is the one a person-started Sleep resolves (a plan
+  allowed; a metered key only with `--allow-metered`); a plan limit is a pause, never waited out here (ruling 15).
+  `--rewrite` also rewrites article pages, counting one written today as done, so a rerun continues. One page's
   trouble is that page's (2026-10-13, after a malformed answer aborted a 1,056-page run): a malformed, empty or
   unparseable answer, a timeout, a lost connection, a failed or refused call, a page too long for the model — the
   page is skipped and counted under `page_failures`, as Sleep's article path falls back on the same answer. What
   every later page would meet — a plan limit, an unreachable engine, a missing model, a metered key's quota or
-  outage — or 5 engine failures in a row stop the run: no new page starts, the pages in flight finish, and what was
-  written is kept (the preview files, or the one commit), with `stopped` and `not_attempted` in the counts and exit
+  outage — or 5 engine failures in a row (counted across batches), or Sleep starting between batches, stop the run
+  (the backend is asked three times, 8 s each, before a slow or absent answer stops anything, and the stop says which
+  it was — "Sleep started", or the backend slow, unreachable or unreadable; `migrate_claims_jsonl.backend_problem`):
+  no new page starts, the pages in flight finish, and what was written is kept (the preview files, or every batch
+  committed so far with the stopped batch's finished pages), with `stopped` and `not_attempted` in the counts and exit
   5. Running it again continues: finished pages are already articles.
 
 ### Temporal decay

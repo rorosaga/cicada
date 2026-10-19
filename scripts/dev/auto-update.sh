@@ -7,10 +7,14 @@
 #
 # It never touches work in progress: it does nothing unless this checkout is ON
 # `dev`, has no tracked changes, and can fast-forward. Untracked files are fine.
-# It also waits out Sleep: while the backend reports a running cycle, a write window
-# or an unfinished drain, or a paused run waiting on Continue (the status carries a
-# top-level `paused` block; its drain is idle and unfinished, or null after a restart)
-# it changes nothing and the next tick retries. CICADA_AUTOUPDATE_FORCE=1
+# It also waits out Sleep, but only what is in flight: while the backend reports a
+# running cycle (a paused run's upkeep tail included), a write window or a drain still
+# reading, it changes nothing and the next tick retries. A paused run waiting on
+# Continue (a top-level `paused` block, its drain idle or null) is NOT in flight: its
+# record is a sidecar outside the process (`sleep_paused`, `$CICADA_HOME/sleep/<bank>/
+# run.json`) that a restart leaves as it is, an armed continue-after-reset re-arms
+# from it, and Continue rebuilds the run from it. Deferring on it held every update
+# for a whole day after one failed scheduled run (2026-10-17). CICADA_AUTOUPDATE_FORCE=1
 # skips that wait.
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -49,7 +53,8 @@ import json, sys
 try:
     b = json.load(sys.stdin)
     d = b.get("drain") if isinstance(b.get("drain"), dict) else {}
-    busy = b.get("status") == "running" or b.get("writing") is True or (d.get("active") is True and d.get("finished") is not True) or isinstance(b.get("paused"), dict)
+    busy = (b.get("status") == "running" or b.get("writing") is True or b.get("inboxTidy") is True
+            or (d.get("active") is True and d.get("finished") is not True))
 except Exception:
     busy = True
 sys.exit(0 if busy else 1)' 2>/dev/null

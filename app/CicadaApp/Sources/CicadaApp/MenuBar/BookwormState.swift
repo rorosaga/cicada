@@ -12,9 +12,12 @@ enum BookwormState: Equatable {
     case sleeping(stage: Int)
     /// Brief chewing loop right after a cycle finishes (running -> idle, no error).
     case digesting
-    /// Inbox empty, fed, idle.
+    /// Nothing waits for Sleep, fed, idle.
     case happy
-    /// Inbox has `count` questions waiting; the badge renders the count up to 99, then "99+".
+    /// In the menu bar: `count` conversations wait for Sleep — the count Sleep itself would read (`/status`
+    /// `episodes.readable`, owner 2026-10-19; it was the inbox's questions until then). The badge renders the count up
+    /// to 99, then "99+". The sheet's "what's this?" beat at an unread pile; never `.reading`, which in the menu bar
+    /// would say Sleep is at work while nothing runs. Elsewhere (Save why) it is only the worm's curious beat.
     case curious(count: Int)
     /// No episode ingested in 48h (or never).
     case hungry
@@ -22,8 +25,8 @@ enum BookwormState: Equatable {
     /// being consumed (an upload/import is in flight, `Store.intakeInFlight`)
     /// or the queue is non-empty and Sleep is idle. `deriveSleepPageMood`
     /// returns this where it used to return `.curious(count:)`;
-    /// `deriveBookwormState` (menu bar) is byte-for-byte unchanged and
-    /// `.curious` keeps meaning "inbox items" there (G125 R2).
+    /// `deriveBookwormState` (menu bar) never returns it: there `.curious`
+    /// carries the waiting count (G125 R2; owner 2026-10-19).
     case reading
     /// The last Sleep cycle failed (`/status.sleep.error` is set). Black X eyes
     /// and the sweat drop (owner 2026-10-01; never red pupils).
@@ -52,11 +55,11 @@ enum BookwormState: Equatable {
         case .awake: "idle — listening for episodes"
         case .sleeping(let stage): "stage \(stage)/5"
         case .digesting: "chewing on new memories…"
-        case .curious(let n): Copy.questionsWaiting(n)
+        case .curious(let n): Copy.waitingForSleep(n)
         case .hungry: "no episodes in 48h"
         case .reading: "reading what's waiting"
         case .error: "last sleep cycle failed"
-        case .happy: "inbox clear"
+        case .happy: "nothing waiting for Sleep"
         }
     }
 
@@ -77,7 +80,7 @@ enum BookwormState: Equatable {
         }
     }
 
-    /// The inbox count the badge draws (1…99, and 100 for every count over 99, which draws "99+") — `0` for every
+    /// The waiting count the badge draws (1…99, and 100 for every count over 99, which draws "99+") — `0` for every
     /// other state. Capped so 133 and 140 share one cached frame set.
     var badgeCount: Int {
         if case .curious(let n) = self { return max(1, min(100, n)) }
@@ -127,11 +130,18 @@ struct StatusSnapshot: Codable, Equatable {
     struct Episodes: Codable, Equatable {
         var unprocessed: Int
         var lastIngestedAt: String?  // ISO8601, null if none
+        /// What Sleep itself would read now: waiting, not parked, not index-only history (ruling 30). Owner
+        /// 2026-10-19 — the menu-bar badge's count. `nil` from an older backend and an older on-disk cache.
+        var readable: Int? = nil
     }
 
     var sleep: Sleep
     var inbox: Inbox
     var episodes: Episodes
+
+    /// The menu-bar badge's count: what waits for Sleep. An older backend sends no `readable`; its `unprocessed`
+    /// (waiting, index-only history already left out) is the nearest count it has.
+    var waitingForSleep: Int { max(0, episodes.readable ?? episodes.unprocessed) }
     var lastSleepAt: String?         // ISO8601, null if never
     var nextSleepAt: String?         // ISO8601, null if schedule disabled
 
@@ -221,6 +231,8 @@ func activeStage(completed: Int) -> Int {
 /// Maps a status snapshot to a ``BookwormState``. Pure so the precedence logic
 /// is unit-testable. Precedence (highest wins):
 /// sleeping > error > digesting > hungry > curious > happy > awake.
+/// `.curious` is "conversations wait for Sleep" (owner 2026-10-19), never the inbox: the inbox keeps its count in words
+/// in the menu (`Copy.menuBarInboxLine`).
 func deriveBookwormState(
     _ s: StatusSnapshot,
     justFinishedAt: Date?,
@@ -238,6 +250,7 @@ func deriveBookwormState(
     let stale = StatusSnapshot.parseDate(s.episodes.lastIngestedAt)
         .map { now.timeIntervalSince($0) > 48 * 3600 } ?? true
     if stale { return .hungry }
-    if s.inbox.total > 0 { return .curious(count: s.inbox.total) }
+    let waiting = s.waitingForSleep
+    if waiting > 0 { return .curious(count: waiting) }
     return .happy
 }

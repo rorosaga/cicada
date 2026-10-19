@@ -337,7 +337,8 @@ def ask(ctx: ToolContext, query: str, top_k: int = 6) -> str:
     try:
         import urllib.request
 
-        payload = json.dumps({"query": query, "topK": top_k}).encode("utf-8")
+        # R-R22: the conversations' own words go to the answering model only for a caller that may see them.
+        payload = json.dumps({"query": query, "topK": top_k, "sourceWords": bool(ctx.raw_excerpts)}).encode("utf-8")
         req = urllib.request.Request(
             f"{ctx.backend_url}/ask",
             data=payload,
@@ -355,11 +356,17 @@ def ask(ctx: ToolContext, query: str, top_k: int = 6) -> str:
                     "entity_id": c.get("entityId", c.get("entity_id", "")),
                     "entity_name": c.get("entityName", c.get("entity_name", "")),
                     "source_episodes": c.get("sourceEpisodes", c.get("source_episodes", [])),
+                    "source_episodes_more": c.get("sourceEpisodesMore", c.get("source_episodes_more", 0)),
                 }
                 for c in data.get("citations", []) or []
             ],
             "gaps": data.get("gaps", []) or [],
             "used_entities": data.get("usedEntities", data.get("used_entities", [])) or [],
+            "conversations": [
+                {"episode_id": c.get("episodeId", c.get("episode_id", "")), "title": c.get("title", ""),
+                 "day": c.get("day", "")}
+                for c in data.get("conversations", []) or []
+            ],
         }
     except Exception:
         result = None
@@ -370,7 +377,8 @@ def ask(ctx: ToolContext, query: str, top_k: int = 6) -> str:
         try:
             from api.services import ask_service
 
-            result = ask_service.answer_query(ctx.memory_path(), query, top_k=top_k)
+            result = ask_service.answer_query(ctx.memory_path(), query, top_k=top_k,
+                                              source_words=bool(ctx.raw_excerpts))
         except Exception as e:
             return f"Error: could not answer ({type(e).__name__}: {e})"
 
@@ -396,8 +404,23 @@ def _render_ask(result: dict) -> str:
         for c in citations:
             name = c.get("entity_name", c.get("entity_id", "?"))
             eps = c.get("source_episodes", []) or []
-            ep_note = f" (episodes: {', '.join(eps)})" if eps else ""
+            try:
+                more = int(c.get("source_episodes_more") or 0)
+            except (TypeError, ValueError):
+                more = 0
+            ep_note = (f" (episodes: {', '.join(eps)}{f' +{more:,} more' if more > 0 else ''})" if eps
+                       else (f" ({more:,} episodes)" if more > 0 else ""))
             lines.append(f"- [[{name}]]{ep_note}")
+
+    # The conversations no page cites that the answer rested on (2026-10-19): the episode id is what
+    # `cicada_write_claim`'s evidence cites, so an agent can put the detail on a page with its provenance.
+    conversations = result.get("conversations", []) or []
+    if conversations:
+        lines.append("\n**From conversations no page cites:**")
+        for c in conversations:
+            title = str(c.get("title") or "").strip()
+            day = str(c.get("day") or "").strip()
+            lines.append(f"- {c.get('episode_id', '?')}" + (f" · {day}" if day else "") + (f" · {title}" if title else ""))
 
     return "\n".join(lines).strip()
 
@@ -2097,6 +2120,9 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
             page_text = path.read_text(encoding="utf-8")
             fm = parse_frontmatter(page_text)[0]
             text = _with_ledger(path, page_text)
+            watched = _watch_history_line(memory_path, fm, cid)
+            if watched:
+                text = text.rstrip("\n") + "\n\n" + watched + "\n"
             budget = REMOTE_DETAIL_BUDGET if ctx.is_remote else RECALL_DETAIL_BUDGET
             if not whole and start is None and len(text) > budget:
                 try:
@@ -2112,6 +2138,21 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
             return Reply(text, data={"entity_id": path.stem, "type": fm.get("type"), "status": fm.get("status")})
 
     return Reply(f"Entity '{entity_id}' not found.", code="not_found")
+
+
+def _watch_history_line(memory_path: Path, fm: dict, entity_id: str) -> str | None:
+    """A page named like a channel in the watch history gets one derived line (owner ruling 2026-10-18): counts and
+    dates from the watched days, read now, never written and never a mention. ``None`` on any failure."""
+    from api.services import watch_history
+
+    names = [fm.get("name") or entity_id]
+    aliases = fm.get("aliases")
+    if isinstance(aliases, list):
+        names += [a for a in aliases if isinstance(a, str)]
+    try:
+        return watch_history.channel_line(memory_path, names)
+    except Exception:  # noqa: BLE001 — a derived line never fails a page read
+        return None
 
 
 def sources(ctx: ToolContext, entity_id: str) -> str:

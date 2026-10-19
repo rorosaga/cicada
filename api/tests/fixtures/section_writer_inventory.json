@@ -625,6 +625,12 @@
       "disposition": "preserve_frontmatter_guarded"
     },
     {
+      "function": "_resolve_decay",
+      "method": "write",
+      "frontmatter": "entity.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
       "function": "_resolve_removal",
       "method": "write",
       "frontmatter": "entity.frontmatter",
@@ -923,6 +929,14 @@
       "disposition": "uninstrumented_guarded"
     }
   ],
+  "services/entity_type_repair.py": [
+    {
+      "function": "apply",
+      "method": "write",
+      "frontmatter": "{**parsed.frontmatter, 'type': new}",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
   "services/skill_pages.py": [
     {
       "function": "_ensure_admitted",
@@ -971,7 +985,7 @@
     {
       "function": "_append_saved_because_section_if_absent",
       "method": "write",
-      "frontmatter": "dict(parsed.frontmatter or {})",
+      "frontmatter": "fm",
       "disposition": "uninstrumented_guarded"
     }
   ],
@@ -1123,12 +1137,42 @@
       "disposition": "uninstrumented_guarded"
     }
   ],
+  "services/history_index.py": [
+    {
+      "function": "retire",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "retire",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
   "services/watch_history.py": [
     {
       "function": "_refresh_seen",
       "method": "write",
       "frontmatter": "fm",
       "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/inbox_actor.py": [
+    {
+      "function": "write_record",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/inbox_tend.py": [
+    {
+      "function": "undo",
+      "method": "write",
+      "frontmatter": "{**fm, UNDONE_KEY: 'undone'}",
+      "disposition": "uninstrumented_guarded"
     }
   ]
 }

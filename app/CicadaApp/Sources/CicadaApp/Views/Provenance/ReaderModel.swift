@@ -50,6 +50,18 @@ enum EvidenceSpeaker {
         }
     }
 
+    /// DR-57 — origins whose person-side text is a thing that arrived, not words the person said: a feed item and a
+    /// calendar entry are stored on the person's side of the episode, but nobody said them. Their label names the
+    /// source ("From the feed", "On your calendar"), wherever a speaker is drawn: the Reader's turns, the evidence
+    /// chips, the Noted rows, Where this came from and ⌘K (QA 2026-10-16). Nil for every other origin.
+    static func sourceSpeaker(_ origin: String?) -> String? {
+        switch origin ?? "" {
+        case "rss": return Copy.Provenance.fromTheFeed
+        case "calendar", "calendar-local": return Copy.Provenance.onYourCalendar
+        default: return nil
+        }
+    }
+
     /// A real name from a meeting sidecar, or nil. Role words are not names.
     static func named(_ speaker: String?) -> String? {
         guard let s = speaker?.trimmingCharacters(in: .whitespaces), !s.isEmpty,
@@ -106,7 +118,7 @@ enum EvidenceSpeaker {
             switch turn.marker {
             case "system": return Copy.Provenance.setupMessage
             case "unknown": return Copy.Provenance.unlabelledMessage
-            default: return Copy.you
+            default: return sourceSpeaker(origin) ?? Copy.you
             }
         }
     }
@@ -133,20 +145,16 @@ enum ReaderTime {
     }
 
     /// An ISO stamp in any of the shapes a bank holds, or nil.
+    /// Its formatters are built once and its answer kept per stamp (`ISOStamp`): every Inbox row calls this, three
+    /// times, each time the list draws.
     static func instant(_ raw: String, timeZone: TimeZone = .autoupdatingCurrent) -> Date? {
-        let aware = ISO8601DateFormatter()
-        aware.formatOptions = [.withInternetDateTime]
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let d = aware.date(from: raw) ?? fractional.date(from: raw) { return d }
-        let naive = DateFormatter()
-        naive.locale = Locale(identifier: "en_US_POSIX")
-        naive.timeZone = timeZone
-        for format in ["yyyy-MM-dd'T'HH:mm:ss.SSSSSS", "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd"] {
-            naive.dateFormat = format
-            if let d = naive.date(from: raw) { return d }
+        ISOStamp.remembered(raw, timeZone: timeZone) {
+            if let d = ISOStamp.internetDate(raw) { return d }
+            for format in ["yyyy-MM-dd'T'HH:mm:ss.SSSSSS", "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd"] {
+                if let d = ISOStamp.date(raw, format: format, timeZone: timeZone) { return d }
+            }
+            return nil
         }
-        return nil
     }
 
     /// "3 Sep 2026" for the header's meta line, from the episode's timestamp
@@ -166,11 +174,7 @@ enum ReaderTime {
     static func episodeDate(_ episode: String, timeZone: TimeZone = .autoupdatingCurrent) -> Date? {
         guard episode.hasPrefix("ep_"), episode.count >= 13 else { return nil }
         let day = String(episode.dropFirst(3).prefix(10))
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = timeZone
-        f.dateFormat = "yyyy-MM-dd"
-        return f.date(from: day)
+        return ISOStamp.date(day, format: "yyyy-MM-dd", timeZone: timeZone)
     }
 }
 
@@ -286,8 +290,10 @@ enum ReaderLayout {
             guard content.upperBound > content.lowerBound || turn.role == "page" else { return [] }
             let speaker = EvidenceSpeaker.turnSpeaker(turn, harness: doc.harness, origin: doc.origin, source: doc.source,
                                                       correspondent: doc.correspondent)
+            // A feed's or a calendar's turn wears its source's mark beside "From the feed" (DR-52, DR-57).
             let mark = turn.role == "assistant"
-                ? EvidenceSpeaker.agentOrigin(harness: doc.harness, origin: doc.origin) : nil
+                ? EvidenceSpeaker.agentOrigin(harness: doc.harness, origin: doc.origin)
+                : (speaker == EvidenceSpeaker.sourceSpeaker(doc.origin) ? doc.origin : nil)
             let time = ReaderTime.label(turn.ts, locale: locale, timeZone: timeZone)
             return chunks(content, in: scalars).enumerated().map { n, piece in
                 var washes: [ReaderWash] = []

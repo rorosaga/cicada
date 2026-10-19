@@ -339,9 +339,11 @@ def decay_question(name: str, last_referenced: str | None, today: str) -> dict:
 
     G115 §1: decay used to be the one kind outside the component G60 built —
     three bespoke buttons and an ``else`` branch that deleted the file. Now it
-    is a question like every other kind: ``Still tracking {name}?``, ``archive``
-    first (it is Sleep's proposal — the option the ledger grades ``agreed``, so
-    it is the one ``(Recommended)``), ``keep`` second, both descriptions led by
+    is a question like every other kind: ``Still tracking {name}?``, ``keep``
+    first and ``archive`` second — a fixed order, so ``1`` is Keep and ``2`` is
+    Archive in the Inbox's card and the quick review alike (owner 2026-10-19);
+    ``archive`` is Sleep's proposal (the option the ledger grades ``agreed``, so
+    it carries the Recommended marker, never the first place) — both descriptions led by
     the age so staleness is visible before choosing (G60 copy rule). Synthesised
     at read from the subject page's ``last_referenced`` so the phrase never goes
     stale-by-arithmetic in a file (R5).
@@ -352,17 +354,17 @@ def decay_question(name: str, last_referenced: str | None, today: str) -> dict:
         "question": f"Still tracking {name}?",
         "options": [
             {
-                "key": "archive",
-                "label": "Archive",
-                "description": f"{lead} · move it to the archive; it comes back on the next mention",
+                "key": "keep",
+                "label": "Keep active",
+                "description": f"{lead} · still relevant; confidence restored to at least 0.6",
                 "claim_id": None,
                 "observed_at": last_referenced,
                 "last_referenced": last_referenced,
             },
             {
-                "key": "keep",
-                "label": "Keep active",
-                "description": f"{lead} · still relevant; confidence restored to at least 0.6",
+                "key": "archive",
+                "label": "Archive",
+                "description": f"{lead} · move it to the archive; it comes back on the next mention",
                 "claim_id": None,
                 "observed_at": last_referenced,
                 "last_referenced": last_referenced,

@@ -632,7 +632,9 @@ def settle(
 
 
 def list_settled(memory_path: Path) -> list[dict]:
-    """The "Settled by a check" list, newest first: what each check answered, from where, and what it wrote."""
+    """The settled lists, newest first: "Settled by a check" (``group: check``) — what each check answered, from
+    where, and what it wrote — and "Settled by Sleep" (``group: sleep``, ruling 29) — what Sleep answered or assumed
+    and by which rule."""
     out: list[dict] = []
     for path in (Path(memory_path) / "inbox" / SETTLED_DIR).glob("inbox-*.md"):
         try:
@@ -645,17 +647,25 @@ def list_settled(memory_path: Path) -> list[dict]:
         if rec is None:
             continue
         entity_id = str(rec.get("entity_id") or "")
+        group = str(rec.get("group") or "check")
+        quote, episode = str(rec.get("quote") or ""), str(rec.get("episode") or "")
+        if group == "sleep":
+            # Ruling 29: Sleep's settle keeps a span into the person's words, never a copy; read through it here.
+            from api.services import inbox_tend
+
+            quote, episode = inbox_tend.quote_for(memory_path, rec)
         out.append({
             "id": path.stem, "kind": str(fm.get("kind") or ""), "question": str(fm.get("question") or fm.get("title")
                                                                                   or ""),
             "entity_id": entity_id, "entity_name": str(rec.get("entity_name") or fm.get("entity_name") or ""),
             "answer": str(rec.get("answer") or ""), "predicate": str(rec.get("predicate") or ""),
             "ref": str(rec.get("ref") or ""), "host": str(rec.get("host") or ""),
-            "quote": str(rec.get("quote") or ""), "settled_at": str(rec.get("at") or ""),
+            "quote": quote, "settled_at": str(rec.get("at") or ""),
             "settled_by": str(rec.get("by") or ""), "settled_by_kind": str(rec.get("by_kind") or ""),
             "scope": str(rec.get("scope") or "public"), "claim_id": str(rec.get("claim_id") or ""),
-            "episode": str(rec.get("episode") or ""), "held": bool(rec.get("held")),
+            "episode": episode, "held": bool(rec.get("held")),
             "has_page": (Path(memory_path) / "entities" / f"{entity_id}.md").exists(),
+            "group": group, "rule": str(rec.get("rule") or ""), "reason": str(rec.get("reason") or ""),
         })
     out.sort(key=lambda r: r["settled_at"], reverse=True)
     return out
@@ -677,7 +687,7 @@ def undo(memory_path: Path, item_id: str) -> tuple[str, list[str], list[str]]:
     parsed = markdown_parser.parse(rec_path)
     fm = dict(parsed.frontmatter)
     rec = fm.pop("settled", None)
-    if not isinstance(rec, dict):
+    if not isinstance(rec, dict) or rec.get("group") == "sleep":   # Sleep's own settle: `inbox_tend.undo`
         raise NotSettleable("No such settled question.")
     entity_id = str(rec.get("entity_id") or "")
     claim_ids = {str(x) for x in (rec.get("claim_ids") or [rec.get("claim_id")]) if x}

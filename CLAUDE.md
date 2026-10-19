@@ -167,7 +167,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   those paths, never stats a path a request names, never runs git in a declared repo; the app reads (browsers, Notes via
   its own `osascript`, Calendar, Contacts, Chrome tab groups, watched folders, Wispr Flow) and posts bytes. A browser is
   read only after the person turned it on. An unreadable file shows the exact fix in the app. Chrome's history is read
-  from a copy, YouTube video pages only; watch history is one episode per day, never a save (G71, `capture-and-sleep.md`).
+  from a copy, YouTube video pages only; watch history is one episode per day, never a save (G71, `capture-and-sleep.md`);
+  it and saves from a platform's saved list are indexed, never read by a model (ruling 30).
 - **Capture never depends on a model calling a tool (G105).** Claude Code and Codex sessions are captured by the
   harness's own Stop hook; the backend reads a transcript only when it resolves under the harness root as
   `<session_id>.jsonl` within the size cap. Only the person's turns and the agent's final reply are kept, plus each agent
@@ -201,11 +202,15 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   page reads run once per drain. A plan limit is a pause, not a failure. **Ruling 4: a scheduled run uses a Claude or ChatGPT plan only
   through the person's off-by-default "Scheduled runs may use my plan" switch** (4b, 2026-10-16; `SUBSCRIPTION_MODES`
   the one guard); on a metered engine it spends with no limit Cicada sets, said in words. Continue-after-reset is opt-in,
-  off (ruling 15).
+  off (ruling 15). A scheduled time the Mac slept or was off through runs once, after a short settle, as a scheduled
+  run — never over a pause or a running cycle (`sleep_catch_up`, owner 2026-10-19, `features.md`).
 - **The write window (G177):** `sleep_cycle.is_writing()` is the one predicate behind every "Sleep is running" refusal,
   read only through `write_admission` (G183): a writer holds it shared through its own commit (async: `run_admitted`),
   Sleep sets its flag then waits holders out — past the bound it pauses, never reads; order admission → page → git;
   never held across a model call or a fetch.
+- **Sleep tends the inbox (ruling 29):** after each batch's commit it settles questions the person's own words answer
+  (spans in their own turns, never a guess) and, per drain, the small stuff by rule, through the person's own resolvers
+  as Sleep's commit (`inbox/<kind>/settled:`), each undoable; never a person's identity without their words (`features.md`).
 - **Entity promotion:** a first mention stays in the index; a page needs 2+ conversations, >3 exchanges with the person's
   own words, or a link the person made to a high-confidence page other than the owner's — counted on the conversation,
   never guessed (`promotion`). What is said about a name with no page yet is held (`pending_store`), never lost.
@@ -218,7 +223,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   conversations floors at 0.39 and only live silence archives it; ruling 1's one-week cap governs live silence; a
   mention never lowers; a decay question only when live silence crosses 0.4. **Read on time** (2026-10-16): a
   conversation read late counts as read the day it was said — when it is read never changes the result. Evergreen
-  never decays; a memory export entry is no mention. Below 0.2 archived. **Confidence does not rank recall.**
+  never decays; a memory export entry or a watched day is no mention. Below 0.2 archived. **Confidence does not rank recall.**
 
 ### Storage, claims and provenance
 
@@ -227,8 +232,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **A page's claims are its fence plus, past 64k characters, its ledger** `entities/<id>.claims.jsonl` (owner page,
   2026-10-14): `markdown_parser` folds it on read and splits on write; a write never drops a ledger line; git commits
   and restores a page with its ledger (`storage.md`).
-- **Entity types are a closed set of 10**; Stage 1 never produces `deadline` or `media`. Status: active → decaying →
-  archived → dropped.
+- **Entity types are a closed set of 10**; Stage 1 never produces `deadline` or `media`; a model's word is mapped into the
+  set at extraction and again where a page is born (`entity_types`, 2026-10-17). Status: active → decaying → archived → dropped.
 - **Decay classes (G66):** one resolver; Stage 1 may propose `durable|active|volatile`, **never `evergreen`**, enforced at
   extraction and again in the create branch.
 - **Evidence spans, not copies (G118):** offsets into the source's evidence text with a hash; locate is exact →
@@ -247,9 +252,10 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   day or undated asks once; dead = two failed visits a week apart; walled pages only by the person's agent (`storage.md`).
 - **Pictures:** one precedence (the person's choice → Contacts photo → the photo a ticked Messages chat shares → a
   person's public-profile photo → a brand's logo → a media thumbnail → a monogram). **A logo comes only from a trusted
-  `website` source — never a domain guessed from a name; a person never gets a logo and no service is sent a person's name (G146/G159).** A person's photo is asked only
+  `website` source — never a domain guessed from a name; a person never gets a logo and no service is sent a person's name (G146/G159).** A saved link's own site may show its own icon, asked of that site only, on the person's view (owner 2026-10-19; `storage.md`). A person's photo is asked only
   with an identifier already on the page or record and given as their own account — the owner's hashed email, a GitHub,
-  X or LinkedIn profile link (owner, 2026-10-09; `network.md`). The photo a chat shares in Messages is its page's
+  X or LinkedIn profile link (owner, 2026-10-09; `network.md`); a LinkedIn link from the person's connections counts as given
+  on a confident match, never an alias-only one (owner 2026-10-17). The photo a chat shares in Messages is its page's
   picture everywhere — ticked chats only, read by the app from a copy, kept outside every bank, linked by the chat's
   correspondent record, gone on untick (owner 2026-10-16, `storage.md`).
   Logos, pictures, media previews (fetched once, then served from the store) and repo observations are caches outside
@@ -385,7 +391,7 @@ is revisited only on the trigger its row names.
 | Batch over real-time consolidation | Conversations don't have clean endings. Batch sees patterns across a full day. Clean evaluation. |
 | Entity promotion over upfront extraction | Avoids polluting the graph with noise from single mentions. |
 | Temporal decay as an active signal | Absence of mention is informative. No other system does this. |
-| Clarification queue over silent drops | Ask rather than guess or discard. Prevents cascading hallucination. |
+| Clarification queue over silent drops | Ask rather than guess or discard. Prevents cascading hallucination. **Dated exception (ruling 29, 2026-10-17):** Sleep settles what the person already said in their own located words and assumes the small stuff, each undoable under "Settled by Sleep"; never who a person is without their words. |
 | MCP-native + export fallback | MCP for real-time, export for ChatGPT/Claude. Source-agnostic pipeline. |
 | SwiftUI + FastAPI | Native macOS feel. Python backend for the LLM/ML ecosystem. |
 | d3-force in WKWebView | Best graph-visualization ecosystem. Sufficient at personal scale (G109). |

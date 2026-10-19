@@ -344,6 +344,9 @@ class SourceOverview(CamelModel):
     # renders a day short instead of a day shifted. Rides the existing
     # `episodes` ETag component; no `VersionVector` change is owed.
     activity: dict[str, int] = Field(default_factory=dict)
+    # Sources v3 (2026-10-19) — ``saved`` (the person saved each item on purpose) or ``captured`` (Cicada captures it
+    # on its own); ``source_overview.intent_of``. The page's two groups.
+    intent: str = "captured"
 
 
 class SourceOverviewResponse(CamelModel):
@@ -1964,6 +1967,9 @@ class SearchResponse(CamelModel):
 class AskRequest(CamelModel):
     query: str
     top_k: int = Field(default=6, ge=1, le=50)
+    # The conversations' own words behind the claims shown (`ask_sources`); False for a caller that may not see the
+    # person's verbatim words — a remote connector without `sources` (G135 R-R22).
+    source_words: bool = True
 
 
 class AskCitation(CamelModel):
@@ -1971,12 +1977,23 @@ class AskCitation(CamelModel):
     entity_name: str
     file_path: str
     snippet: str
+    # The conversations this answer was grounded in (at most `ask_service.MAX_CITED_EPISODES`), and how many more
+    # the page has (2026-10-18: a hub page's citation listed every conversation that ever touched it).
     source_episodes: list[str] = []
+    source_episodes_more: int = 0
     # G118 slice 2 (R-PB12) — set when the retrieval hit was a claim: the
     # claim and the spans behind it, read from the page (the source of truth),
     # raw as stored; freshness is `/episodes/{id}/span`'s job. Additive.
     claim_id: Optional[str] = None
     evidence: list[EvidenceModel] = []
+
+
+class AskConversation(CamelModel):
+    """A conversation no page cites whose words the answer used (Ask's search leg, 2026-10-19)."""
+
+    episode_id: str
+    title: str = ""
+    day: str = ""
 
 
 class AskResponse(CamelModel):
@@ -1986,6 +2003,8 @@ class AskResponse(CamelModel):
     # The flagship gap-analysis field: explicit "what I could not answer".
     gaps: list[str] = []
     used_entities: list[str] = []
+    # Additive (2026-10-19): the OTHER CONVERSATIONS the answer used — found by the question's words, cited by no page.
+    conversations: list[AskConversation] = []
 
 
 # --- Entity context (progressive disclosure) ---
@@ -2198,6 +2217,25 @@ class InboxCheck(CamelModel):
     settle_eligible: bool = False
 
 
+class InboxSubject(CamelModel):
+    """The quick review's context for a decay or fold card (owner 2026-10-19): what the page is and how often it was
+    said, so the person decides without opening it. Derived at read from the subject page, engine-free, never stored."""
+
+    summary: Optional[str] = None      # the page's lead sentence, clipped
+    conversations: int = 0             # distinct dated conversations in its ``source_episodes`` (decay_policy's count)
+    last_said: Optional[str] = None    # the latest day among them (``decay_policy.latest_said``)
+
+
+class InboxFold(CamelModel):
+    """A predicate fold in words: the label as said, the predicate it was folded onto, and what the fold covers."""
+
+    raw: str
+    canonical: str
+    claims: int = 0                    # claims the question covers (the opener + ``covered_claims``)
+    pages: int = 0                     # distinct pages among them
+    example: Optional[str] = None      # the anchor claim's sentence, clipped
+
+
 class InboxItem(CamelModel):
     # G61 S3 (shadow): what agents reported from a source for this item, newest first. Additive; nothing reads it to act.
     checks: list[InboxCheckFinding] = []
@@ -2249,6 +2287,10 @@ class InboxItem(CamelModel):
     # the app's InboxItem decodes through explicit CodingKeys that do not list
     # it, so no VersionVector or decoder change is needed until a screen reads it.
     check: Optional[InboxCheck] = None
+    # The quick review (owner 2026-10-19): decay and normalization only, derived at read; additive (an older app
+    # build ignores both).
+    subject: Optional[InboxSubject] = None
+    fold: Optional[InboxFold] = None
 
 
 class InboxResolveRequest(CamelModel):
@@ -2305,6 +2347,11 @@ class SettledCheck(CamelModel):
     episode: str = ""
     held: bool = False
     has_page: bool = False
+    #: Ruling 29: ``check`` (a web lookup or the person's agent) or ``sleep`` (Sleep answered it from the person's
+    #: own words, or assumed it). ``rule`` is the enum that settled it, ``reason`` its words for the Inbox.
+    group: str = "check"
+    rule: str = ""
+    reason: str = ""
 
 
 class CheckCensus(CamelModel):
@@ -2346,6 +2393,9 @@ class StatusInbox(CamelModel):
 class StatusEpisodes(CamelModel):
     unprocessed: int = 0
     last_ingested_at: Optional[str] = None
+    #: What Sleep itself would read now (`sleep_debt.readable_count`: waiting, not parked, not index-only history per
+    #: ruling 30) — the menu-bar badge's count (owner 2026-10-19). ``None`` from an older backend.
+    readable: Optional[int] = None
 
 
 class StatusGates(CamelModel):
@@ -2641,6 +2691,8 @@ class SleepStatusResponse(CamelModel):
     # G60 — open-question re-scoring outcomes for the Sleep dashboard.
     questions_refreshed: int = 0
     organic_resolutions: int = 0
+    # Ruling 29: inbox questions Sleep settled (answered in conversation, or assumed), "Settled by Sleep".
+    inbox_settled: int = 0
     # G74(a) — which engine this cycle ran on, and one sentence about its
     # state ("Claude Code is signed out — run `claude auth login`").
     last_engine: Optional[str] = None
@@ -2681,6 +2733,10 @@ class SleepStatusResponse(CamelModel):
     # app's writes and an agent's claim are refused / left uncommitted only while
     # this is true; `status == "running"` alone no longer means it.
     writing: bool = False
+    # Ruling 29 — a real inbox tidy is settling questions in this process (`inbox_tend.tidy_running`). Not a write
+    # window (the person's writes interleave with it), but an updater that restarts the backend waits for it as it
+    # waits for Sleep (`scripts/dev/auto-update.sh`, the release app's `SleepProbe` and its install helper).
+    inbox_tidy: bool = False
     # Sleep debt (G106) — always present, computed fresh from the current
     # queue + git log on every response. See `api/services/sleep_debt.py`
     # for the formula and full field contract.
@@ -2873,6 +2929,8 @@ class SleepRunRef(CamelModel):
     finished_at: Optional[str] = None
     state: Optional[str] = None            # running | paused | finished | failed | ended
     started_by: str = "user"
+    #: A scheduled run that stood in for a time the Mac slept or was off through: that time (aware ISO). Owner 2026-10-19.
+    catch_up_for: Optional[str] = None
 
 
 class SleepRunPause(CamelModel):
@@ -4809,6 +4867,8 @@ class ConsumptionFeedback(CamelModel):
     by_action: list[dict] = []
     audits: dict = {}
     dedup: dict = {}
+    #: Ruling 29: Sleep's settles, kept apart from the person's verdicts, and how many the person took back, by rule.
+    sleep_settles: dict = {}
 
 
 class ConnectionConsumption(CamelModel):

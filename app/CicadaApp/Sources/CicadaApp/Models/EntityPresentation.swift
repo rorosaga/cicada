@@ -112,18 +112,27 @@ enum EntityHeaderWords {
 
 enum EntityTabs {
     /// R-DG16 — a count only once it is known: current beliefs, commits in hand, contested beliefs.
-    static func tabs(claims: [Claim]?, historyCount: Int?) -> [TextTab<EntityCardTab>] {
-        tabs(digest: claims.map { ClaimDigest($0) }, historyCount: historyCount)
+    static func tabs(claims: [Claim]?, historyCount: Int?, selected: EntityCardTab? = nil) -> [TextTab<EntityCardTab>] {
+        tabs(digest: claims.map { ClaimDigest($0) }, historyCount: historyCount, selected: selected)
     }
 
     /// The card's form: the counts from the digest it computed once per load, never re-derived per render.
-    static func tabs(digest: ClaimDigest?, historyCount: Int?) -> [TextTab<EntityCardTab>] {
-        [
+    ///
+    /// QA 2026-10-16 — "Timeline 0" offered a tab with nothing in it: once the claims are read and no belief is
+    /// contested, the Timeline tab is not drawn (DR-38). It stays while it is the selected tab — a belief's clock opens
+    /// an uncontested belief's own timeline there (R-DG23) — and while the count is unknown, so the row never jumps
+    /// on a load that has not answered.
+    static func tabs(digest: ClaimDigest?, historyCount: Int?, selected: EntityCardTab? = nil) -> [TextTab<EntityCardTab>] {
+        var tabs: [TextTab<EntityCardTab>] = [
             TextTab(id: .content, label: EntityCardTab.content.label),
             TextTab(id: .perspectives, label: EntityCardTab.perspectives.label, count: digest?.current.count),
             TextTab(id: .history, label: EntityCardTab.history.label, count: historyCount),
-            TextTab(id: .timeline, label: EntityCardTab.timeline.label, count: digest?.contested.count),
         ]
+        let contested = digest?.contested.count
+        if contested != 0 || selected == .timeline {
+            tabs.append(TextTab(id: .timeline, label: EntityCardTab.timeline.label, count: contested))
+        }
+        return tabs
     }
 
     /// The full page carries its history; an empty embedded list is "not fetched yet" until a fetch says 0
@@ -334,6 +343,14 @@ enum BeliefWords {
             .compactMap { $0 }.joined(separator: " · ")
         parts.append(Copy.Graph.writtenBy(author, confidence: claim.confidence))
         return parts.joined(separator: " · ")
+    }
+
+    /// QA 2026-10-16 — "You said · Oct 16" beside a "today" `Tag` gave the day twice (DR-38): the age is drawn only
+    /// when it says something the row's evidence chips do not, i.e. when the belief became true on a day none of the
+    /// chips shown names. `chipEpisodes` are the episodes of the chips the row draws.
+    static func ageRepeatsChips(_ claim: Claim, chipEpisodes: [String]) -> Bool {
+        guard let since = ISODay(claim.validFrom) else { return false }
+        return chipEpisodes.contains { $0.hasPrefix("ep_") && ISODay(String($0.dropFirst(3).prefix(10))) == since }
     }
 
     static func age(_ claim: Claim, now: Date, locale: Locale = .autoupdatingCurrent) -> (text: String, help: String)? {
