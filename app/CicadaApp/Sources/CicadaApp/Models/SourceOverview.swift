@@ -63,6 +63,10 @@ struct SourceOverview: Codable, Identifiable, Hashable {
     /// its own row id (the one-shot imports with no channel, which the backend lists by their row id).
     var itemsListId: String { channelId ?? id }
 
+    /// Sources v3 (review of #347) — a watch-history row (`youtube-history`, `tiktok-history`): captured, one episode
+    /// per day watched, never a save; its days are listed under its own row id (`channel_items`).
+    var isWatchHistory: Bool { channelId == nil && !origins.isEmpty && origins.allSatisfy { $0.hasSuffix("-history") } }
+
     /// The Feed items belonging to this row, newest first (R6 — a client-side
     /// filter over the existing `sources` Store domain, no new endpoint).
     ///
@@ -230,6 +234,9 @@ struct SourceOverview: Codable, Identifiable, Hashable {
     /// `nil` when there is nothing to count — the card prints "Nothing yet"
     /// rather than a zero, because a row of zeroes reads as a broken card.
     var headline: (count: Int, noun: String)? {
+        // Re-review of #347: a watch-history row counts the days it captured — never items (it has no channel and saves
+        // nothing), so thirty watched days never read "Nothing yet".
+        if isWatchHistory { return episodes > 0 ? (episodes, "watched day") : nil }
         switch kind {
         case .harness:
             if conversations > 0 { return (conversations, "conversation") }

@@ -384,7 +384,7 @@ def ext_for(content_type: str) -> str | None:
 # --- fetching ---------------------------------------------------------------
 
 
-async def _http_get(url: str) -> FetchResult:
+async def _http_get(url: str, *, transport=None) -> FetchResult:
     """Default fetcher: bounded, keyless, a single hop.
 
     Redirects are deliberately NOT followed here (``follow_redirects=False``)
@@ -395,12 +395,15 @@ async def _http_get(url: str) -> FetchResult:
     import httpx
 
     # Streamed and cut at MAX_BYTES + 1 (Sources v3, 2026-10-19): the ToS rail is "≤ 512 KB read", so an oversize body
-    # is never pulled in whole only to be refused; one byte over is enough for `_accept` to say no. A fresh client per
-    # hop carries no cookie from anywhere.
-    async with httpx.AsyncClient(follow_redirects=False, timeout=TIMEOUT_SECONDS) as client:
-        async with client.stream("GET", url, headers={"User-Agent": USER_AGENT}) as resp:
+    # is never pulled in whole only to be refused; one byte over is enough for `_accept` to say no. The cap is on the
+    # RAW bytes off the wire (`aiter_raw`) with `Accept-Encoding: identity` asked, so a compressed bomb can never
+    # inflate before the cut — a server that compresses anyway sends bytes no image check accepts. A fresh client per
+    # hop carries no cookie from anywhere. `transport` is for tests (`httpx.MockTransport`).
+    headers = {"User-Agent": USER_AGENT, "Accept-Encoding": "identity"}
+    async with httpx.AsyncClient(follow_redirects=False, timeout=TIMEOUT_SECONDS, transport=transport) as client:
+        async with client.stream("GET", url, headers=headers) as resp:
             chunks, size = [], 0
-            async for chunk in resp.aiter_bytes():
+            async for chunk in resp.aiter_raw():
                 chunks.append(chunk)
                 size += len(chunk)
                 if size > MAX_BYTES:
@@ -1027,7 +1030,7 @@ def _sniffed(result: FetchResult) -> tuple[bytes, str, str | None] | None:
     return result.body, ext, result.etag
 
 
-async def _get_on_site(url: str, site: str, *, fetcher: Fetcher, resolver: Resolver) -> FetchResult | None:
+async def _get_on_site(url: str, site: str, *, fetcher: Fetcher, resolver: Resolver | None) -> FetchResult | None:
     """One GET that never leaves `site`: every hop (≤ `MAX_REDIRECTS`) must pass the SSRF check, stay on the same
     registrable domain and not be a login-walled host — a redirect anywhere else is a miss, never followed."""
     from api.services import reading_hosts
@@ -1036,7 +1039,11 @@ async def _get_on_site(url: str, site: str, *, fetcher: Fetcher, resolver: Resol
     for _ in range(MAX_REDIRECTS + 1):
         if reading_hosts.site_of(current) != site or reading_hosts.is_walled(current):
             return None
-        if not _is_safe_url(current, resolver=resolver):
+        # The route runs per visible row, so DNS never blocks the event loop: net_guard's async check (off-loop), or
+        # an injected resolver (tests).
+        safe = (net_guard.is_fetchable_url(current, resolver=resolver) if resolver is not None
+                else await net_guard.is_fetchable_url_async(current))
+        if not safe:
             return None
         try:
             result = await fetcher(current)
@@ -1059,7 +1066,6 @@ async def fetch_own_site_icon(
         if not fetch_allowed():
             return None
         fetcher = _http_get
-    resolver = resolver or _resolve_host
     for path in OWN_SITE_PATHS:
         result = await _get_on_site(f"https://{site}{path}", site, fetcher=fetcher, resolver=resolver)
         if result is None:

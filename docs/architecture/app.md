@@ -815,8 +815,10 @@ the website's logo … Clicking again on Sources takes me back to the main Sourc
   site with none: the bundled mark of a known family (LinkedIn, X, Instagram, TikTok, Reddit), else a ring monogram of
   the site. Never the browser's mark. With `CICADA_ALLOW_LOGO_FETCH=off` every row is its monogram.
 - **Watch history is never a save.** YouTube and TikTok history days are their own captured rows (*YouTube history*,
-  *TikTok history*); a channel-less saved row counts its saved media pages — the set its list lists — never its
-  episodes (review of #347).
+  *TikTok history*), headlined by their days ("30 watched days", `SourceOverview.isWatchHistory`), and their detail
+  lists those days by title under the row's own id (`GET /sources/channels/youtube-history/items`, each opening in the
+  Reader); a channel-less saved row counts its saved media pages — the set its list lists — never its episodes
+  (review of #347).
 - **Clicking Sources again returns to the root.** `NavRail` reports a cell tapped while its page shows
   (`RailReselect`) to `AppRouter.reselect(_:byKey:)`; `SourcesPageView` closes the Reader and the detail together on the
   columns' curve, instantly when the ⌘ shortcut did it (DR-60).

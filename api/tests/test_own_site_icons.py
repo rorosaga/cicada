@@ -254,3 +254,53 @@ def test_sleep_never_reaches_the_own_site_path():
 
 def test_a_reserved_or_private_name_is_never_asked():
     assert logo_service.own_site_domain("https://paperfold.example/") is None, "a reserved name is not a public site"
+
+
+# --- the real streamed fetcher (re-review of #347) ------------------------------------------------------------------
+
+
+def test_the_real_fetcher_cuts_raw_bytes_asks_identity_and_passes_a_redirect_through():
+    import httpx
+
+    seen: list[httpx.Request] = []
+
+    class Chunks(httpx.AsyncByteStream):
+        """A body that arrives in 64 KB pieces, as off a socket (a plain `content=` is read whole up front)."""
+
+        def __init__(self, data: bytes):
+            self.data = data
+
+        async def __aiter__(self):
+            for i in range(0, len(self.data), 64 * 1024):
+                yield self.data[i:i + 64 * 1024]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == "/moved":
+            return httpx.Response(302, headers={"location": "https://www.a.example/t.png"}, stream=Chunks(b""))
+        # A "gzip" body the client must never inflate: the cut is on the raw bytes off the wire.
+        return httpx.Response(200, stream=Chunks(b"\x1f\x8b" + b"\x00" * (2 * logo_service.MAX_BYTES)),
+                              headers={"content-type": "image/png", "content-encoding": "gzip"})
+
+    transport = httpx.MockTransport(handler)
+    big = run(logo_service._http_get("https://a.example/big.png", transport=transport))
+    assert big.status == 200 and len(big.body) == logo_service.MAX_BYTES + 1
+    assert seen[0].headers["accept-encoding"] == "identity"
+    assert "cookie" not in {k.lower() for k in seen[0].headers}
+    moved = run(logo_service._http_get("https://a.example/moved", transport=transport))
+    assert moved.status == 302 and moved.location == "https://www.a.example/t.png", "redirects are ours to check, hop by hop"
+    assert len(seen) == 2, "the client never follows the redirect itself"
+
+
+def test_the_site_check_never_resolves_on_the_event_loop(monkeypatch):
+    from api.services import net_guard
+
+    calls = []
+
+    async def off_loop(url):
+        calls.append(url)
+        return True
+    monkeypatch.setattr(net_guard, "is_fetchable_url_async", off_loop)
+    fetcher = Recorder({"https://a.example/apple-touch-icon.png": (200, png(), "image/png")})
+    assert run(logo_service.fetch_own_site_icon("a.example", fetcher=fetcher)) is not None
+    assert calls == ["https://a.example/apple-touch-icon.png"]

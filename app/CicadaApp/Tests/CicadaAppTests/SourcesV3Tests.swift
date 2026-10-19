@@ -72,6 +72,21 @@ final class SourcesV3Tests: XCTestCase {
                        "a failing source says its failure, not its count")
     }
 
+    /// Re-review of #347 — a captured history row headlines its days; it never reads "Nothing yet" over thirty of them,
+    /// and its detail lists those days under its own id.
+    func testAWatchHistoryRowCountsItsDaysAndListsThem() throws {
+        let history = SourceOverview(id: "youtube-history", label: "YouTube history", kind: .social, episodes: 30,
+                                     origins: ["youtube-history"], intent: .captured)
+        XCTAssertTrue(history.isWatchHistory)
+        XCTAssertNotEqual(SourceListText.count(history), "Nothing yet")
+        XCTAssertEqual(SourceListText.count(history), "30 watched days")
+        XCTAssertEqual(history.countLines.first, "30 watched days", "the detail's sentence agrees")
+        XCTAssertEqual(history.itemsListId, "youtube-history")
+        XCTAssertFalse(row("youtube", .social, .saved).isWatchHistory)
+        let channel = try source("Views/Sources/ChannelSourceView.swift")
+        XCTAssertTrue(channel.contains("} else if source.isWatchHistory {\n            // Review of #347"))
+    }
+
     func testTheRootHasNoSparklineAndOneQuietStatisticsDisclosure() throws {
         let columns = try source("Views/Sources/SourcesColumns.swift")
         for gone in ["sparklinePath", "weekDots", "SourceDeltaText", "SourceCardGrid", "LazyVGrid"] {

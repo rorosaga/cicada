@@ -687,7 +687,7 @@ Round 4 (C2–C4):
   Two fixed paths, `https://<site>/apple-touch-icon.png` then `/favicon.ico`, never the homepage's HTML (a page of the
   site's HTML is the most bytes and the likeliest consent wall or login redirect, for a path the two conventions
   cover); each hop through the SSRF guard (`net_guard`'s rule), on the same registrable domain and never a login host,
-  4 s, the body streamed and cut at 512 KB, no cookies, raster only; 401/403/407/451 stops at once and nothing is retried
+  4 s, the body streamed with `Accept-Encoding: identity` and cut at 512 KB of raw bytes (no compressed body inflates first), DNS checked off the event loop, no cookies, raster only; 401/403/407/451 stops at once and nothing is retried
   with other headers. Behind `CICADA_ALLOW_LOGO_FETCH` (off: nothing asked, nothing recorded, the monogram). Cached in
   `$CICADA_HOME/logos/<bank>/sites/own/` — hits 30 days, misses 7 — never in a bank; any failure is a 404 the row draws
   as its monogram. This is a row's mark only: it never becomes a page's picture, and `domain_for` still takes no saved

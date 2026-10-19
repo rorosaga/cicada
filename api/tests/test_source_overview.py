@@ -384,7 +384,10 @@ def test_watch_history_is_captured_and_never_counted_as_saved(tmp_path):
     assert history["intent"] == "captured" and history["episodes"] == 30 and history["items"] == 0
     from api.services import channel_items
     assert channel_items.known(m, "youtube") and channel_items.items(m, "youtube")["total"] == 0
-    assert not channel_items.known(m, "youtube-history"), "a captured row is not a saved list"
+    days = channel_items.items(m, "youtube-history")
+    assert days["total"] == 30 and all(r["kind"] == "episode" for r in days["items"]), "its days open in the Reader"
+    assert days["items"][0]["day"] == "2026-09-30", "newest first"
+    assert not any("why" in r or "site" in r for r in days["items"]), "a watched day is never a save"
 
 
 def test_a_saved_row_without_a_channel_counts_its_saved_pages_like_its_list(tmp_path):

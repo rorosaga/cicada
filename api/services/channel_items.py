@@ -29,6 +29,8 @@ means wherever the bank records it, and says so channel by channel below:
 * ``folder:<id>`` — one row per file of the folder (its episodes by
   ``folder_id``; a long file's sections are one row), by the file's own name.
 
+* ``youtube-history`` / ``tiktok-history`` — the watched days, one episode
+  each, by title (captured, never a save; indexed only, ruling 30).
 * the saved sources with no channel (``instagram``, ``youtube``, ``linkedin``,
   ``tiktok``: one-shot imports, ``source_overview.CATALOG``) — listed by their
   Sources row id, as the media pages stamped with the row's origins.
@@ -96,6 +98,10 @@ _MEDIA_CHANNELS = ("safari-tabs", "pinterest", "reddit", "x", "rss", "files")
 #: Sources v3 — a saved source with no channel (a one-shot import): listed by its Sources row id, by its origins.
 _SAVED_SOURCE_ROWS = {spec.id: spec.origins for spec in source_overview.CATALOG
                       if spec.channel is None and spec.id in source_overview.SAVED_SOURCES}
+#: Sources v3 (re-review of #347) — a watch-history row (captured, never a save) lists its days: one episode per day
+#: watched, by its own title, opening in the Reader. Indexed, never read by a model (ruling 30); titles only, as ever.
+_HISTORY_ROWS = {spec.id: spec.origins for spec in source_overview.CATALOG
+                 if spec.channel is None and spec.id.endswith("-history")}
 #: The why's own words on a row: one line, at most this many characters (the full answer is on the item's page).
 WHY_CAP = 160
 
@@ -110,7 +116,8 @@ def _catalog_origins(channel_id: str) -> tuple[str, ...]:
 def known(memory_path: Path, channel_id: str) -> bool:
     """A channel id this bank can list: every fixed row, the always-listed local
     sources, each browser's bookmarks and tab groups, and every registered folder."""
-    if channel_id in CHANNEL_IDS or channel_id in _ORIGIN_CHANNELS or channel_id in _SAVED_SOURCE_ROWS:
+    if (channel_id in CHANNEL_IDS or channel_id in _ORIGIN_CHANNELS or channel_id in _SAVED_SOURCE_ROWS
+            or channel_id in _HISTORY_ROWS):
         return True
     if channel_id in (calendar_local.CHANNEL_ID, contacts_local.CHANNEL_ID):
         return True
@@ -346,6 +353,9 @@ def _collect(memory_path: Path, channel_id: str) -> list[dict]:
         return media.by_origins(_catalog_origins(channel_id), unstamped=channel_id == "files")
     if channel_id in _SAVED_SOURCE_ROWS:
         return media.by_origins(tuple(_SAVED_SOURCE_ROWS[channel_id]))
+    if channel_id in _HISTORY_ROWS:
+        origins = set(_HISTORY_ROWS[channel_id])
+        return _episodes(memory_path, lambda fm: str(fm.get("origin") or "") in origins)
     if channel_id in _ORIGIN_CHANNELS:
         origins = set(_ORIGIN_CHANNELS[channel_id])
         return _episodes(memory_path, lambda fm: str(fm.get("origin") or "") in origins, media=media)
