@@ -3586,7 +3586,9 @@ class AgentWiringRow(CamelModel):
     autorecall: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
     autorecall_on: list[AgentWiringStep] = []
     autorecall_off: list[AgentWiringStep] = []
-    # Integration support/evidence, separate from MCP registration and hook config.
+    # Integration support/evidence, separate from MCP registration and hook config. ``via: plugin`` (owner
+    # 2026-10-19): Claude Code reaches Cicada through the Cicada plugin, which carries the server and every hook, so
+    # the row is on and offers no argv.
     capabilities: dict[str, str] = {}
 
 
