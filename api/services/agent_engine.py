@@ -824,6 +824,7 @@ def complete(
     if policy.web_search:
         # What the call searched for, so the caller can hold it to the pinned query (never logged).
         envelope["_tool_uses"] = [[name, dict(inp)] for name, inp in stream.tool_uses]
+        envelope["_tool_results"] = list(stream.tool_results)
     return envelope
 
 

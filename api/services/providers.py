@@ -541,6 +541,7 @@ def resolve_llm_fn(
                 if web_search:
                     # The searches the call made (the web lookup holds them to its pinned query).
                     resp["tool_uses"] = envelope.get("_tool_uses") or []
+                    resp["tool_results"] = envelope.get("_tool_results") or []
                 used = resp["model"]
                 equiv = agent_engine.equiv_cost_from_envelope(envelope)
                 refs = _claude_refs(envelope, seen.get("stream"))

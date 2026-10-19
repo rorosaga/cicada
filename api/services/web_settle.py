@@ -435,16 +435,32 @@ def _label_carries(word: str, labels: list[str]) -> bool:
     return bool(re.search(rf"\b{re.escape(word)}\b", text_fold.fold(" ".join(labels))))
 
 
-def _category(description: str, *, type_question: bool, labels: list[str]) -> list[str]:
+#: A description that only guesses ("possibly a software library", "a tool or a film") gives no category word
+#: (2026-10-19: Stage 1's guess sent "Frieren software", and the pinned query could only find the wrong thing).
+_HEDGE = re.compile(r"\b(?:possibly|perhaps|maybe|might|may be|probably|likely|unclear|unknown|unsure|either|"
+                    r"or|seems?|appears?|presumably|posiblemente|quizas?|tal vez|probablemente|o)\b", re.IGNORECASE)
+#: Words that say nothing a search can use, however a description puts them: every page is "a concept" to Stage 1.
+_EMPTY_CATEGORIES = frozenset({"concept", "theory"})
+
+
+def _usable(word: str | None, name: str, labels: list[str]) -> bool:
+    """A category word may ride with the name: not empty of meaning, not already in the name ("arXiv paper <id>"
+    never becomes "… paper"), not a word an option label carries."""
+    return bool(word) and word not in _EMPTY_CATEGORIES and word not in _folded_words(name) \
+        and not _label_carries(word, labels)
+
+
+def _category(description: str, *, type_question: bool, labels: list[str], name: str = "") -> list[str]:
     """At most ONE generic word from :data:`CATEGORY_WORDS` found in Cicada's own description; none when unsure — a bare
     name is a valid query. Never from the page's type alone (Sleep's type is what a type conflict doubts), never on a
-    question about what the thing IS (the word would answer it), never a word an option label carries."""
-    if type_question:
+    question about what the thing IS (the word would answer it), never from a description that only guesses
+    (:data:`_HEDGE`), never a word the name already carries or an option label carries."""
+    if type_question or _HEDGE.search(description or ""):
         return []
     for token in re.findall(r"\w+", text_fold.fold(description or "")):
         word = category_word(token)
         if word:
-            return [] if _label_carries(word, labels) else [word]
+            return [word] if _usable(word, name, labels) else []
     return []
 
 
@@ -492,7 +508,7 @@ def context_category(c: "Candidate", context: list[str]) -> list[str]:
             if word and word not in _VERBISH_CATEGORIES:
                 found.append(word)
         for word in found:
-            if not _label_carries(word, labels):
+            if _usable(word, c.name, labels):
                 return [word]
     return []
 
@@ -528,7 +544,8 @@ def candidate(memory_path: Path, item_path: Path, facts: BankFacts) -> Candidate
         if cid and cid not in claim_ids:
             claim_ids.append(cid)
     labels = [label for _, label in options] if fm.get("kind") == "conflict" else []
-    category = _category(description, type_question=type_question, labels=labels)
+    name = " ".join(str(fm.get("entity_name") or "").split())
+    category = _category(description, type_question=type_question, labels=labels, name=name)
     return Candidate(
         item_id=item_path.stem, kind=str(fm.get("kind")), scope=scope, entity_id=entity_id,
         name=" ".join(str(fm.get("entity_name") or "").split()), entity_type=etype, has_page=page is not None,
@@ -967,47 +984,58 @@ _PATH_RE = re.compile(
 _SPEAKER_RE = re.compile(r"^\s*(?:\*\*)?(?:user|assistant|human|agent|me|you)(?:\*\*)?\s*:\s*", re.IGNORECASE)
 
 
-#: A person-typed name that opens with one of these describes somebody by a relation ("the girlfriend", "his dad",
-#: "mi hermana", Stage 1's "the user"): it is redacted as a whole phrase, never word by word (owner bank, 2026-10-19:
-#: splitting such names turned every "the", "his" and "dad" of a context line into "someone").
+#: The ONLY words a person's name may keep in the local context (reviewed #366, 2026-10-19: over-redaction is the safe
+#: failure). Every other word of 3+ letters of every person name or alias in the bank is redacted on its own as well as
+#: the whole name. Audited against given names and surnames — each entry is a function word or a plain relation or
+#: role that is nobody's name: NOT "will", "can", "guy", "nina", "rosa", "mar", "tia", "una", "con", "del", "son",
+#: "das", "van", "della", "child", "kid", "baby", "boss", "coach", "nurse", "driver", "barber", "cousin", "person",
+#: "speaker", "owner", "papa", "mama", "padre", "primo", "amigo" or "pareja", all of which are someone's name. Folded.
+_NEVER_A_NAME = frozenset({
+    # English function words
+    "the", "and", "for", "his", "her", "hers", "our", "ours", "their", "theirs", "your", "yours", "its", "this",
+    "that", "these", "those", "with", "from", "into", "about", "who", "whom", "whose", "what", "which", "she", "him",
+    "them", "they", "was", "were", "are", "has", "had", "not", "but", "via",
+    # Spanish function words
+    "los", "las", "unos", "unas", "mis", "sus", "tus", "nuestro", "nuestra", "nuestros", "nuestras", "que", "por",
+    "para", "sin",
+    # Plain relations and roles, English
+    "dad", "mom", "mum", "mother", "father", "sister", "brother", "sibling", "daughter", "girlfriend", "boyfriend",
+    "wife", "husband", "spouse", "partner", "fiance", "fiancee", "grandma", "grandpa", "grandmother", "grandfather",
+    "uncle", "aunt", "niece", "nephew", "stepfather", "stepmother", "friend", "friends", "roommate", "flatmate",
+    "housemate", "classmate", "colleague", "coworker", "teacher", "professor", "tutor", "mentor", "manager",
+    "therapist", "psychologist", "psychiatrist", "dentist", "doctor", "landlord", "landlady", "neighbor",
+    "neighbour", "user", "family",
+    # Plain relations and roles, Spanish (folded)
+    "madre", "hermana", "hermano", "hija", "hijo", "novia", "novio", "esposa", "esposo", "abuela", "abuelo", "amiga",
+    "jefa", "jefe", "profe", "profesor", "profesora", "companero", "companera", "vecina", "vecino", "suegra",
+    "suegro", "cunada", "cunado", "sobrina", "sobrino",
+    # Words of the person-typed things the trace found (a technique, a department)
+    "algorithm", "localization", "localisation", "mapping", "recommendation", "recommendations", "simultaneous",
+    "robotics", "department", "university", "talents", "careers", "lab", "laboratory",
+})
+#: Detector only (:func:`looks_like_a_thing`, :func:`person_name_census`) — never decides a redaction.
 _ROLE_OPENERS = frozenset(
     "the a an his her hers my our their your its this that these those el la los las un una unos unas mi mis su sus "
     "tu tus nuestro nuestra nuestros nuestras".split())
-#: Particles inside a personal name ("Ana de la Example", "Jan van Example"): they never make it a description, and
-#: are never redacted on their own.
 _NAME_PARTICLES = frozenset("de del della di da das do dos du van von der den ten ter le la y bin ibn al el".split())
-#: Words never redacted on their own, whatever name they sit in: function words (English and Spanish), relations
-#: (``role_people.ROLE_WORDS``) and the generic words a description of somebody is made of. Folded (accents off).
-_COMMON_NAME_WORDS = frozenset(text_fold.fold(w) for w in (
-    text_fold.SUBJECT_STOPWORDS | role_people.ROLE_WORDS | role_people.PAST_QUALIFIERS | _ROLE_OPENERS | frozenset({
-        "person", "people", "user", "owner", "speaker", "author", "someone", "somebody", "anyone", "family",
-        "friends", "guy", "girl", "boy", "man", "woman", "lady", "baby", "kids", "children", "parents", "team",
-        "teammate", "lab", "department", "university", "school", "college", "office", "group", "club", "company",
-        "work", "job", "boss", "staff", "client", "customer", "student", "students", "psychologist", "psychiatrist",
-        "nurse", "lawyer", "coach", "trainer", "barber", "driver", "assistant", "agent", "careers", "talents",
-        "persona", "gente", "usuario", "usuaria", "familia", "chico", "chica", "senor", "senora", "nino", "nina",
-        "novios", "padres", "hermanos", "amigos", "amigas", "psicologo", "psicologa", "medico", "medica", "doctora",
-        "abogado", "abogada", "entrenador", "entrenadora", "companeros", "vecino", "vecina", "trabajo", "equipo",
-    })))
 _ROLE_WORDS_FOLDED = frozenset(text_fold.fold(w) for w in role_people.ROLE_WORDS)
-#: A split word must look like part of a name: 3+ letters and not a common word.
+#: A part shorter than this is not redacted on its own (the whole name still is).
 _MIN_PART_CHARS = 3
 
 
+def _folded_words(name: str) -> list[str]:
+    return re.findall(r"\w+", text_fold.fold(name or ""))
+
+
 def name_shape(name: str) -> str:
-    """How a person's name is redacted from the local context: ``split`` (a personal name — whole, and each part
-    on its own), ``whole`` (a description of somebody, or a phrase with a function word in it: only the exact phrase)
-    or ``skip`` (a lone common or function word — "her", "dad" — is no one's name; redacting it garbles each line)."""
-    words = re.findall(r"\w+", name or "")
+    """How a person's name is redacted from the local context: ``split`` (whole, and each part of 3+ letters not in
+    :data:`_NEVER_A_NAME` on its own), ``whole`` (every word is a never-a-name word — "his dad", "the user": only the
+    phrase) or ``skip`` (one never-a-name word alone — "her", "dad" — is no one's name)."""
+    words = _folded_words(name)
     if not words or len(" ".join(words)) < 3:
         return "skip"
-    folded = [text_fold.fold(w) for w in words]
-    if len(words) == 1:
-        return "skip" if folded[0] in _COMMON_NAME_WORDS else "whole"
-    if folded[0] in _ROLE_OPENERS:
-        return "whole"
-    if any(f in text_fold.SUBJECT_STOPWORDS and f not in _NAME_PARTICLES for f in folded):
-        return "whole"   # "simple algorithm for recommendation", "a lab teacher and mentor": not a personal name
+    if all(w in _NEVER_A_NAME or len(w) < _MIN_PART_CHARS for w in words):
+        return "skip" if len(words) == 1 else "whole"
     return "split"
 
 
@@ -1024,8 +1052,9 @@ _THING_WORDS = frozenset({
 
 def looks_like_a_thing(name: str) -> bool:
     """A person-typed name that reads as a phrase about a thing: a function word inside it that is not a name
-    particle ("simple algorithm for recommendation"), or a word of :data:`_THING_WORDS` / :data:`CATEGORY_WORDS`."""
-    words = [text_fold.fold(w) for w in re.findall(r"\w+", name or "")]
+    particle ("simple algorithm for recommendation"), or a word of :data:`_THING_WORDS` / :data:`CATEGORY_WORDS`.
+    A detector for the census only — it never changes how a name is redacted."""
+    words = _folded_words(name)
     if not words or words[0] in _ROLE_OPENERS or any(w in _ROLE_WORDS_FOLDED for w in words):
         return False   # somebody described by a relation ("the friend of …", "a lab teacher"), not a thing
     if len(words) > 1 and any(w in text_fold.SUBJECT_STOPWORDS and w not in _NAME_PARTICLES for w in words):
@@ -1040,40 +1069,59 @@ def person_name_census(facts: "BankFacts") -> dict:
     out = {"split": 0, "whole": 0, "skip": 0, "relation": 0, "looks_like_a_thing": 0}
     for name in facts.person_names | facts.pending_person_names:
         out[name_shape(name)] += 1
-        words = [text_fold.fold(w) for w in re.findall(r"\w+", name)]
+        words = _folded_words(name)
         out["relation"] += int(bool(words) and (words[0] in _ROLE_OPENERS
                                                 or any(w in _ROLE_WORDS_FOLDED for w in words)))
         out["looks_like_a_thing"] += int(looks_like_a_thing(name))
     return out
 
 
-def _name_parts(name: str, keep: frozenset[str]) -> list[str]:
-    """The words of a ``split`` name redacted on their own (a person is often named by one of them): 3+ letters, not
-    a particle or a common word, not a word of the subject's own name (``keep``: the prompt already carries it)."""
-    return [w for w in re.findall(r"\w+", name)
-            if len(w) >= _MIN_PART_CHARS and w.lower() not in keep
-            and text_fold.fold(w) not in _COMMON_NAME_WORDS and text_fold.fold(w) not in _NAME_PARTICLES]
+def _sub_folded(text: str, words: tuple[str, ...]) -> tuple[str, int]:
+    """``words`` (folded) replaced by "someone" in ``text``, matched accent- and case-blind ("maría" redacts "Maria"
+    and "MARÍA"), whole words only; the original text is cut at the matched source offsets."""
+    import unicodedata
+
+    folded, at = text_fold.fold_with_map(text)
+    pattern = r"(?<!\w)" + r"[\s\-_.'’]+".join(re.escape(w) for w in words) + r"(?!\w)"
+    spans = [(m.start(), m.end()) for m in re.finditer(pattern, folded)]
+    if not spans:
+        return text, 0
+    out, last = [], 0
+    for a, b in spans:
+        start, end = at[a], at[b - 1] + 1
+        while end < len(text) and unicodedata.combining(text[end]):
+            end += 1   # a decomposed accent belongs to the letter it sits on
+        out += [text[last:start], "someone"]
+        last = end
+    out.append(text[last:])
+    return "".join(out), len(spans)
 
 
 def _redact_people(text: str, names: frozenset[str], keep: frozenset[str] = frozenset(),
                    stats: dict | None = None) -> str:
     """Every person's name or alias in the bank (the owner's too, and a person held without a page) becomes "someone"
     — the line keeps its sense, the prompt carries no one's name (ruling 27: never another name from the bank). Whole
-    words, any case; a multi-word name whole first, then — for a personal name (:func:`name_shape`) — each of its
-    parts on its own. A description of somebody ("the friend in <city>", "his dad") goes only as its whole phrase, and
-    a lone common word ("her", "dad") never: no function or common word is redacted on its own. ``stats`` (the
-    diagnostic) counts the replacements."""
-    whole: set[tuple[str, ...]] = set()
+    words, any case, accents folded; the whole name first, then each of its parts of 3+ letters on its own (a person
+    is often named by one of them) — except a word of :data:`_NEVER_A_NAME` (articles, possessives, plain relations:
+    "the", "his", "dad", never anyone's name) and a word of the subject's own name (``keep``: the prompt already carries
+    it). A name made only of such words ("his dad") goes as its whole phrase; one such word alone ("her") is no name.
+    Over-redaction is the safe failure. ``stats`` (the diagnostic) counts the replacements."""
+    keep = frozenset(text_fold.fold(w) for w in keep)
+    phrases: set[tuple[str, ...]] = set()
     for name in names:
         shape = name_shape(name)
         if shape == "skip":
             continue
-        whole.add(tuple(re.findall(r"\w+", name)))
-        if shape == "split":
-            whole.update((w,) for w in _name_parts(name, keep))
-    for words in sorted(whole, key=lambda w: len(" ".join(w)), reverse=True):
-        pattern = r"(?<!\w)" + r"[\s\-_.']+".join(re.escape(w) for w in words) + r"(?!\w)"
-        text, n = re.subn(pattern, "someone", text, flags=re.IGNORECASE)
+        words = tuple(_folded_words(name))
+        phrases.add(words)
+        if shape == "split" and len(words) > 1:
+            phrases.update((w,) for w in words
+                           if len(w) >= _MIN_PART_CHARS and w not in _NEVER_A_NAME and w not in keep)
+            # A joined part ("Su-bin", "O'Brien") also goes as a unit, so a short piece of it never survives.
+            phrases.update(tuple(_folded_words(token)) for token in (name or "").split()
+                           if len(_folded_words(token)) > 1)
+    for words in sorted(phrases, key=lambda w: len(" ".join(w)), reverse=True):
+        text, n = _sub_folded(text, words)
         if stats is not None and n:
             stats["people"] = stats.get("people", 0) + n
     return text

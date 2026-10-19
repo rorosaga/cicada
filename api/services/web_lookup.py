@@ -390,8 +390,10 @@ def select(memory_path: Path, facts: web_settle.BankFacts, memo: dict[str, dict]
 
 
 async def look_up(fn: Callable[..., Any], todo: list[tuple[web_settle.Candidate, list[str]]], report: Report,
+                  raw_sink: Callable[[web_settle.Candidate, Any], None] | None = None,
                   ) -> list[tuple[web_settle.Candidate, Answer]]:
-    """One engine call per question; an answer counts only when every search was the pinned query. Writes nothing."""
+    """One engine call per question; an answer counts only when every search was the pinned query. Writes nothing.
+    ``raw_sink`` (the dry-run script's ``--trace-raw``, for the person's own eyes) is handed each raw response."""
     answers: list[tuple[web_settle.Candidate, Answer]] = []
     for c, context in todo:
         report.looked_up += 1
@@ -407,15 +409,18 @@ async def look_up(fn: Callable[..., Any], todo: list[tuple[web_settle.Candidate,
                                 engine_errors.EngineOverage)):
                 break   # a plan limit is a pause: the rest waits for the next run
             continue
+        if raw_sink is not None:
+            raw_sink(c, resp)
         model = _model_of(resp)
         if model and model not in report.models:
             report.models.append(model)
         queries = searched_queries(resp)
         if not queries_ok(queries, web_settle.query_for(c)):
             parsed = parse_answer(c, _content(resp)) if not queries else None
-            # No search and not sure (a name the notes cannot place): unsure, counted as such. Anything else — a search
-            # for something else, or a sure answer from no search — settles nothing.
-            answers.append((c, parsed if parsed is not None and parsed.reason == "unsure"
+            # No search and not sure: counted apart as ``no_search`` (2026-10-19: a real bank's 18 "unsure" could not
+            # say whether the engine searched at all). Anything else — a search for something else, or a sure answer
+            # from no search — settles nothing.
+            answers.append((c, Answer(c.item_id, False, "no_search") if parsed is not None and parsed.reason == "unsure"
                             else Answer(c.item_id, False, "query_strayed")))
             continue
         answers.append((c, parse_answer(c, _content(resp))))
@@ -628,14 +633,16 @@ def _sweep_stop(a: Answer, failures: int) -> str | None:
 async def sweep(memory_path: Path, settings, *, dry_run: bool = True, limit: int | None = None,
                 include_recent: bool = False, llm_fn: Callable[..., Any] | None = None,
                 engine: tuple[Any, str | None, str] | None = None, today: date | None = None,
-                on_lookup: Callable[[web_settle.Candidate, list[str], Answer], None] | None = None) -> dict:
+                on_lookup: Callable[[web_settle.Candidate, list[str], Answer], None] | None = None,
+                raw_sink: Callable[[web_settle.Candidate, Any], None] | None = None) -> dict:
     """Look up the backlog's public-thing questions and (unless ``dry_run``) settle what a search answers (a dry run
     looks up at most :data:`SWEEP_DRY_RUN_LIMIT` unless given a ``limit``). Returns
     COUNTS only: the inbox census (what a lookup may answer, and why the rest stays — ``web_settle.census``), how many
     were eligible, looked up, settled (or would settle), and the reasons by kind. ``limit`` caps the lookups (one
     engine call each); ``include_recent`` also looks up questions a run looked up in the last 30 days. A person starts
     it, so the connector gate is reported, never applied (a click is never gated). ``on_lookup`` (the dry-run script's
-    ``--trace``) is told each looked-up question, its context and its answer. Never raises."""
+    ``--trace``) is told each looked-up question, its context and its answer; ``raw_sink`` (``--trace-raw``) each raw
+    engine response. Never raises."""
     from api.services import agent_engine, sleep_cycle
     from api.services.connectors.base import network_allowed
 
@@ -672,7 +679,7 @@ async def sweep(memory_path: Path, settings, *, dry_run: bool = True, limit: int
                 if not dry_run and sleep_cycle.get_sleep_state().status == "running":
                     out["stopped"] = "sleep_running"
                     break
-                (_c, a), = await look_up(fn, [(c, context)], report)
+                (_c, a), = await look_up(fn, [(c, context)], report, raw_sink=raw_sink)
                 out["looked_up"] = report.looked_up
                 if on_lookup is not None:
                     on_lookup(c, context, a)

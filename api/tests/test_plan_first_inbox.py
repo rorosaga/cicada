@@ -342,7 +342,7 @@ def test_a_run_with_no_engine_stops_before_stage_one_and_spends_nothing(tmp_path
     assert len(sleep_cycle._get_unprocessed_episodes(memory)) == 2
 
 
-def test_an_answer_with_no_search_is_counted_unsure_or_strayed_and_never_settles(bank):
+def test_an_answer_with_no_search_is_counted_no_search_or_strayed_and_never_settles(bank):
     facts = web_settle.bank_facts(bank)
     todo, _n = web_lookup.select(bank, facts, {}, __import__("datetime").date.today(), cap=1)
 
@@ -353,6 +353,6 @@ def test_an_answer_with_no_search_is_counted_unsure_or_strayed_and_never_settles
         return fn
 
     (_c, a), = asyncio.run(web_lookup.look_up(no_search(False), todo, web_lookup.Report()))
-    assert (a.ok, a.reason) == (False, "unsure")
+    assert (a.ok, a.reason) == (False, "no_search")
     (_c, a), = asyncio.run(web_lookup.look_up(no_search(True), todo, web_lookup.Report()))
     assert (a.ok, a.reason) == (False, "query_strayed"), "a sure answer from no search settles nothing"

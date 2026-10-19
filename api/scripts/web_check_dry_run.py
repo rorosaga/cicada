@@ -22,6 +22,10 @@ outcome (``would_settle`` or the reason). Never the context's words, a link, a q
 the bank's person names are redacted (``web_settle.person_name_census``: split, whole phrase, skipped, relations, and
 person-typed names that read as a thing — the data to fix in the bank, never a name).
 
+``--trace-raw`` (implies ``--trace``; for the eyes of the person running it, printed and never written anywhere):
+per lookup also the searches the engine ran, how many links each search returned, the model, and the model's
+raw final text cut to 400 characters — which may quote the subject's name and what the web says about it.
+
 The real sweep is the running backend's own route (it holds the bank's write admission and Sleep's window, ruling
 21a): ``POST /inbox/web-check?dryRun=false[&limit=N]`` with the token, then ``GET /inbox/web-check`` for its counts;
 each settle is undoable under "Settled by a check".
@@ -44,6 +48,8 @@ def main(argv=None) -> int:
     parser.add_argument("--census", action="store_true", help="count what a lookup may answer; no engine call")
     parser.add_argument("--trace", action="store_true",
                         help="also print each lookup's pinned query, redaction count and outcome (for your eyes)")
+    parser.add_argument("--trace-raw", action="store_true",
+                        help="--trace plus the searches run, links returned and the model's raw reply (your eyes only)")
     args = parser.parse_args(argv)
     bank = Path(args.bank).expanduser().resolve()
     if not (bank / "entities").is_dir() or not (bank / "inbox").is_dir():
@@ -53,18 +59,30 @@ def main(argv=None) -> int:
     from api.config import Settings
     from api.services import web_lookup, web_settle
 
+    if args.trace_raw:
+        args.trace = True
     rows: list[dict] = []
+    raws: list[dict] = []
     facts = web_settle.bank_facts(bank) if args.trace else None
+
+    def raw(c, resp) -> None:
+        raws.append({"searches": web_lookup.searched_queries(resp),
+                     "links": list((resp.get("tool_results") if isinstance(resp, dict) else None) or []),
+                     "model": web_lookup._model_of(resp), "text": web_lookup._content(resp)[:400]})
 
     def trace(c, context, a) -> None:
         stats: dict = {}
         web_settle.local_context(bank, c, facts, stats=stats)   # the same lines again, only to count the redactions
-        rows.append({"query": web_settle.query_for(c), "category_from": c.category_from or "none",
-                     "context_lines": len(context), "people_redacted": stats.get("people", 0),
-                     "outcome": "would_settle" if a.ok else a.reason})
+        row = {"query": web_settle.query_for(c), "category_from": c.category_from or "none",
+               "context_lines": len(context), "people_redacted": stats.get("people", 0),
+               "outcome": "would_settle" if a.ok else a.reason}
+        if args.trace_raw:
+            row.update(raws.pop() if raws else {"searches": [], "links": [], "model": None, "text": ""})
+        rows.append(row)
 
     counts = asyncio.run(web_lookup.sweep(bank, Settings(), dry_run=True, limit=0 if args.census else args.limit,
-                                          include_recent=args.include_recent, on_lookup=trace if args.trace else None))
+                                          include_recent=args.include_recent, on_lookup=trace if args.trace else None,
+                                          raw_sink=raw if args.trace_raw else None))
     if args.trace:
         counts["trace"] = rows
         counts["person_names"] = web_settle.person_name_census(facts)
