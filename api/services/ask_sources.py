@@ -56,10 +56,6 @@ class Pointer:
     end: int | None = None
     hash: str = ""
     terms: set[str] = field(default_factory=set)
-    #: The search leg's anchor (:func:`answer_score`): ``start`` is the sentence that answers, ``keep`` the sentences
-    #: answering the question's other asks — clipped by :func:`_clip_answer`, not around one point.
-    answer: bool = False
-    keep: tuple = ()
 
 
 def pointers(evidence_rows, weight: int, terms: set[str] | None = None) -> list[Pointer]:
@@ -119,80 +115,6 @@ def _clip_around(text: str, at: int | None, limit: int) -> str:
 def _clip(text: str, at: int | None, limit: int) -> str:
     """:func:`_clip_around`, its whitespace runs folded to one space (a quote in a prompt line, not a layout)."""
     return " ".join(_clip_around(text, at, limit).split())
-
-
-#: What :func:`_clip_answer` keeps of a long turn's opening: where a message says who it is to, what it is about
-#: and why ("Hi Marta,", "I named it X because …") before the detail.
-OPENING_CHARS = 160
-#: The most one kept sentence of another ask may take of the excerpt.
-ASK_SHARE = 4
-
-
-def _snap(text: str, lo: int, hi: int) -> tuple[int, int]:
-    """``[lo, hi)`` cut on spaces: never half a word at either end."""
-    if lo > 0 and not text[lo - 1].isspace():
-        space = text.find(" ", lo, hi)
-        lo = space + 1 if 0 <= space < lo + 40 else lo
-    if hi < len(text) and not text[hi].isspace():
-        space = text.rfind(" ", lo, hi)
-        hi = space if space > lo + (hi - lo) // 2 else hi
-    return lo, hi
-
-
-def _clip_answer(text: str, anchors: list[int], limit: int, *, opening: bool = True) -> str:
-    """A long turn cut to ``limit`` characters around what answers, not around one point (2026-10-20): the sentence
-    at ``anchors[0]`` (the answer, :func:`answer_score`) with what follows and precedes it, each sentence at
-    ``anchors[1:]`` (the question's other asks: "…, and what was wrong with it?"), and, with ``opening`` (a person's
-    turn), its opening (:data:`OPENING_CHARS`) — the greeting that names who a message is to, the first line that
-    says what it is and why. Pieces in the turn's order, joined by "…". Why: one window around the best sentence
-    answered one ask and cut the rest — the device's make and the second problem, a message's addressee, the
-    person's reason before a pasted draft, the request after a reply (the owner's eval after #365: five lost)."""
-    whole = " ".join(text.split())
-    if len(whole) <= limit:
-        return whole
-    limit -= 2   # the "…" at either end
-    sentences = [(m.start(), m.end()) for m in _SENTENCE.finditer(text) if text[m.start():m.end()].strip()]
-
-    def sentence(at: int) -> tuple[int, int]:
-        at = max(0, min(at, len(text) - 1))
-        return next(((a, b) for a, b in sentences if a <= at < b), (at, min(len(text), at + 1)))
-
-    def capped(lo: int, hi: int, cap: int) -> tuple[int, int]:
-        lo += len(text[lo:hi]) - len(text[lo:hi].lstrip())
-        hi -= len(text[lo:hi]) - len(text[lo:hi].rstrip())
-        return _snap(text, lo, min(hi, lo + cap)) if hi - lo > cap else (lo, hi)
-
-    best = capped(*sentence(anchors[0]), limit * 3 // 5)
-    pieces = [best]
-    used = best[1] - best[0]
-    others = [sentence(a) for a in anchors[1:]]
-    if opening:
-        head_end = max((b for a, b in sentences if b <= OPENING_CHARS), default=0)
-        others.append((0, head_end) if head_end else _snap(text, 0, OPENING_CHARS))
-    for lo, hi in others:
-        lo, hi = capped(lo, hi, limit // ASK_SHARE)
-        if hi <= lo or any(a <= lo and hi <= b for a, b in pieces):
-            continue
-        if used + (hi - lo) + 3 > limit:
-            continue
-        pieces.append((lo, hi))
-        used += hi - lo + 3
-    # What is left grows the answer's own window: a third before it, the rest after.
-    room = max(0, limit - used)
-    lo = max(0, best[0] - room // 3)
-    hi = min(len(text), best[1] + room - (best[0] - lo))
-    lo = max(0, lo - (room - (hi - lo) + (best[1] - best[0])))
-    pieces[0] = _snap(text, lo, hi) if (lo, hi) != best else best
-    merged: list[list[int]] = []
-    for lo, hi in sorted(pieces):
-        if merged and lo <= merged[-1][1] + 1:
-            merged[-1][1] = max(merged[-1][1], hi)
-        else:
-            merged.append([lo, hi])
-    start = len(text) - len(text.lstrip())
-    end = len(text.rstrip())
-    out = " … ".join(" ".join(text[a:b].split()) for a, b in merged)
-    return ("…" if merged[0][0] > start else "") + out + ("…" if merged[-1][1] < end else "")
 
 
 #: Episodes an agent wrote through a tool door (``mcp_tools`` stamps ``source``): a block with no turn marker is the
@@ -294,14 +216,7 @@ def _take(candidates: list[tuple], docs: dict[str, tuple], terms: set[str], owne
         fm, text, turns = docs[ep]
         body = text[turn.content_start:turn.end]
         at = (span.start - turn.content_start) if span is not None else _first_match(body, terms)
-        limit = min(excerpt_chars, total_chars - used)
-        if span is not None and span.answer:
-            # The opening is a person's (a greeting, the addressee, why they write); an agent's is courtesy ("What a
-            # great idea!") that only takes room from its substance (LongMemEval_S: three answers lost to it).
-            opening = with_context and _speaker(turn, fm) in ("user", "speaker")   # `context` is rebound below
-            clipped = _clip_answer(body, [at, *(k - turn.content_start for k in span.keep)], limit, opening=opening)
-        else:
-            clipped = _clip(body, at, limit)
+        clipped = _clip(body, at, min(excerpt_chars, total_chars - used))
         if len(clipped) < 20 and len(body.strip()) >= 20:
             break
         day = (turn.ts or str(fm.get("timestamp") or "") or episode_day(ep))[:10]
@@ -411,24 +326,6 @@ _DAY_MONTH = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)?(?: of)? " + _MON + r"\b(?:
 _MONTH_DAY = re.compile(r"\b" + _MON + r" (\d{1,2})(?:st|nd|rd|th)?\b(?:,? (\d{4}))?")
 _MONTH_YEAR = re.compile(r"\b" + _MON + r",? (\d{4})\b")
 _DAYS_AGO = re.compile(r"\b(\d+|a|one|two|three|four|five|six|seven) days? ago\b")
-#: Spanish (the owner writes both): "el 5 de septiembre (de 2025)", "en mayo de 2025".
-_MESES = {m: i for i, m in enumerate(
-    "enero febrero marzo abril mayo junio julio agosto septiembre octubre noviembre diciembre".split(), start=1)}
-_MES = r"(enero|febrero|marzo|abril|mayo|junio|julio|agosto|se?ptiembre|octubre|noviembre|diciembre)"
-_DIA_MES = re.compile(r"(?<!\w)(\d{1,2}) de " + _MES + r"(?: de(?:l)? (\d{4}))?(?!\w)")
-_MES_ANO = re.compile(r"(?<!\w)" + _MES + r" (?:de(?:l)? )?(\d{4})(?!\w)")
-#: A month alone, after a word that makes it a time ("in September", "back in August"): that month in any year. Full
-#: names only. "May" alone is a verb: "in may" is the month, "how early / late may I …" is not, so early / late / mid
-#: never take it.
-_MONTH_ALONE = re.compile(
-    r"\b(?:(?:in|during|back in)[ -](january|february|march|april|may|june|july|august|september|october|november|"
-    r"december)|(?:early|late|mid)[ -](january|february|march|april|june|july|august|september|october|november|"
-    r"december))\b(?!,? \d)")
-#: Spanish ("en agosto", "a finales de mayo"), matched on the question as written: a Spanish month is lowercase, and
-#: one followed by a capitalised word is a name ("en Mayo Clinic", "en mayo Clinic").
-_MES_ALONE = re.compile(
-    r"(?<!\w)(?i:en|durante|a principios de|a finales de|a mediados de) " + _MES
-    + r"(?! de(?:l)? \d)(?!\w)(?!\s+[A-ZÁÉÍÓÚÑ])")
 _SMALL = {"a": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
 
 
@@ -452,19 +349,9 @@ def named_days(question: str, today=None) -> list[str]:
     for mon, d, y in _MONTH_DAY.findall(q):
         if 1 <= int(d) <= 31:
             out.append(f"{int(y):04d}-{_month(mon):02d}-{int(d):02d}" if y else f"-{_month(mon):02d}-{int(d):02d}")
-    for d, mes, y in _DIA_MES.findall(q):
-        if 1 <= int(d) <= 31:
-            m = _MESES.get(mes, 9)   # "setiembre" is September too
-            out.append(f"{int(y):04d}-{m:02d}-{int(d):02d}" if y else f"-{m:02d}-{int(d):02d}")
-    for mon, y in _MONTH_YEAR.findall(q) + [(_MESES.get(mes, 9), y) for mes, y in _MES_ANO.findall(q)]:
-        month = f"{int(y):04d}-{(mon if isinstance(mon, int) else _month(mon)):02d}"
+    for mon, y in _MONTH_YEAR.findall(q):
+        month = f"{int(y):04d}-{_month(mon):02d}"
         if not any(day.startswith(month) for day in out):   # "9 April 2025" names the day, not all of April
-            out.append(month)
-    alone = [_month(a or b) for a, b in _MONTH_ALONE.findall(q)]
-    alone += [_MESES.get(mes, 9) for mes in _MES_ALONE.findall(question or "")]
-    for m in alone:
-        month = f"-{m:02d}"
-        if not any(day[4:].startswith(month) if not day.startswith("-") else day.startswith(month) for day in out):
             out.append(month)
     if re.search(r"\b(yesterday|days? ago)\b", q):
         if today is None:
@@ -747,46 +634,12 @@ class Prefs:
     #: The question's tense words ("recent", "first") as their folded stems: said beside the subject, they mark the
     #: sentence the question is about ("my recent family trip").
     tense: frozenset = frozenset()
-    #: The question asks why: a stated reason ("because …") is its value, as a number is a count's.
-    why: bool = False
-    #: Each of the question's asks (two or more: "what … , and what was wrong with it?") as its own subject words.
-    asks: tuple = ()
-
-
-#: Where a question's second ask starts: ", and what …", " and which …", "; why …", "? And …", " y qué …".
-_ASK_SPLIT = re.compile(
-    r"(?:,|;|\?)?\s+(?:and|y|e)\s+(?=(?:what|which|why|who|whom|whose|how|when|where|did|do|does|was|were|is|are|"
-    r"qu[eé]|cu[aá]l(?:es)?|por qu[eé]|qui[eé]n(?:es)?|c[oó]mo|cu[aá]ndo|d[oó]nde)\b)|[;?]\s+(?=\S)", re.I)
-_WHY = re.compile(
-    r"\b(?:why|how come|what (?:made|led) (?:you|me|him|her|them|us))\b|(?<!\w)(?:por ?qu[eé]|para qu[eé])(?!\w)",
-    re.I)
-#: A sentence that gives a reason: the value a "why" question asks for.
-_REASON = re.compile(
-    r"\b(?:because|so that|in order to|the reason|that'?s why|which is why|named (?:it|him|her|them) after|"
-    r"due to|thanks to|inspired by)\b|(?<!\w)(?:porque|ya que|para que|debido a|"
-    r"por eso|la raz[oó]n)(?!\w)", re.I)
-
-
-def question_asks(question: str) -> list[str]:
-    """The question's asks, in order: one, or each part of "what X …, and what Y …" (a part with no subject word of
-    its own stays with the one before)."""
-    parts = [p.strip(" ,;?¿") for p in _ASK_SPLIT.split(question or "") if p and p.strip(" ,;?¿")]
-    asks: list[str] = []
-    for part in parts:
-        if asks and not search_terms(part):
-            asks[-1] += " " + part
-        else:
-            asks.append(part)
-    return asks or [question or ""]
 
 
 def answer_prefs(question: str) -> Prefs:
     q = question or ""
-    asks = question_asks(q)
     return Prefs(agent=bool(_ASKS_AGENT.search(q.lower())), said=frozenset(text_fold.words(q)),
-                 tense=frozenset(text_fold.stem(w) for w in text_fold.words(q)) & TENSE_WORDS,
-                 why=bool(_WHY.search(q)),
-                 asks=tuple(frozenset(search_terms(a)) for a in asks) if len(asks) > 1 else ())
+                 tense=frozenset(text_fold.stem(w) for w in text_fold.words(q)) & TENSE_WORDS)
 
 
 _ASKING_START = frozenset(
@@ -823,8 +676,7 @@ def _has_value(sentence: str, said: frozenset) -> bool:
 
 def answer_score(body: str, pattern, weights: dict[str, float], role: str, prefs: Prefs) -> tuple[float, int]:
     """``(score, where)`` for one turn: its best sentence's weight of the question's words — more when it states a
-    value (for a "why" question, a reason: "because …") or says the question's "recent" / "first", less when it only
-    asks — plus half the weight the whole turn
+    value or says the question's "recent" / "first", less when it only asks — plus half the weight the whole turn
     holds, the sum more when the speaker is the one the question is about (a person, or the agent for "what did you
     suggest"). ``where``: the best sentence's offset in ``body``, where its excerpt is clipped. No model: the words,
     the speaker and the punctuation.
@@ -843,7 +695,7 @@ def answer_score(body: str, pattern, weights: dict[str, float], role: str, prefs
         if not words:
             continue
         score = sum(weights[t] for t in words)
-        if (_REASON.search(sentence) if prefs.why else _has_value(sentence, prefs.said)):
+        if _has_value(sentence, prefs.said):
             score *= VALUE_BONUS
         if prefs.tense and prefs.tense & {text_fold.stem(w) for w in text_fold.words(sentence)}:
             score *= TENSE_BONUS
@@ -857,27 +709,6 @@ def answer_score(body: str, pattern, weights: dict[str, float], role: str, prefs
     if _speaks(role, prefs):
         score *= PERSON_BONUS
     return score, where
-
-
-def _ask_anchors(body: str, pattern, weights: dict[str, float], prefs: Prefs, where: int) -> list[int]:
-    """For a question of two or more asks (:attr:`Prefs.asks`), where in ``body`` the sentence that best answers each
-    ask starts — by that ask's own words — when it is not the answer sentence at ``where`` already."""
-    if not prefs.asks:
-        return []
-    found: list[int] = []
-    sentences = [(m.start(), m.group(0)) for m in _SENTENCE.finditer(body)]
-    for terms in prefs.asks:
-        own = {t for t in weights if any(t == a or a.startswith(t) or t.startswith(a) for a in terms)}
-        if not own:
-            continue
-        best, at = 0.0, None
-        for start, sentence in sentences:
-            score = sum(weights[t] for t in set(pattern.findall(text_fold.fold(sentence))) if t in own)
-            if score > best:
-                best, at = score, start + len(sentence) - len(sentence.lstrip())
-        if at is not None and at != where and at not in found:
-            found.append(at)
-    return found
 
 
 #: An unmarked block of an episode an agent saved through a tool door (:data:`AGENT_SOURCES`): the agent's note,
@@ -935,12 +766,9 @@ def _scored_turns(memory_path: Path, episodes: list[str], pattern, weights: dict
             body = text[turn.content_start:turn.end]
             score, where = answer_score(body, pattern, weights, _speaker(turn, fm), prefs)
             if score > 0:
-                # The excerpt is clipped around the stated answer, not the first word that matched — and keeps the
-                # sentence that answers each of the question's other asks.
+                # The excerpt is clipped around the stated answer, not the first word that matched.
                 at = turn.content_start + where
-                keep = tuple(turn.content_start + k for k in _ask_anchors(body, pattern, weights, prefs, where))
-                candidates.append((score, rank, i, ep, turn,
-                                   Pointer(episode=ep, weight=0, start=at, end=at, answer=True, keep=keep)))
+                candidates.append((score, rank, i, ep, turn, Pointer(episode=ep, weight=0, start=at, end=at)))
     return candidates
 
 
