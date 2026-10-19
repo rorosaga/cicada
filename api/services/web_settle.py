@@ -199,23 +199,34 @@ def person_context(description: str) -> bool:
 _FIRST_PERSON_CASED = re.compile(r"(?<![\w'’])(?:I|I['’](?:m|ve|d|ll)|us)(?![\w'’])")
 _FIRST_PERSON = re.compile(
     r"\b(?:am i|i['’]m|my|me|mine|myself|we|we['’](?:re|ve|d|ll)|our|ours|ourselves|you|your|yours|yourself|"
-    r"yo|mi|mis|mio|mia|mios|mias|conmigo|estoy|estamos|uso|usamos|tengo|tenemos|nuestr[oa]s?)\b",
+    r"yo|mi|mis|mio|mia|mios|mias|conmigo|estoy|estamos|uso|usamos|tengo|tenemos|nuestr[oa]s?|"
+    # Spanish second person (review of #368; "estas" — "these" — over-catches, accepted).
+    r"tu|tus|tuyo|tuya|tuyos|tuyas|contigo|usted|ustedes|vos|usas|usaste|tienes|estas)\b",
     re.IGNORECASE)
+#: Somebody's possessions and doings: who did it need not be named ("he uses", "the one bought last year", "installed
+#: on the laptop", "dropped for <tool>").
+_DOINGS = (r"bought|purchased|installed|modded|modding|dropped|abandoned|migrated|moved")
 #: A state of somebody's life said about the thing: "currently uses", "planned for", "superseded by", "the owner was
-#: interested in", "<someone>'s thesis".
+#: interested in", "<someone>'s thesis", "he has", "i bought".
 _SITUATION = re.compile(
     r"\b(?:currently|still|no longer)\s+(?:use[sd]?|using|run(?:s|ning)?|own(?:s|ed)?|ha(?:ve|s)|work(?:s|ing)?|"
     r"build(?:s|ing)?|develop(?:s|ing)?)\b|"
     r"\bplanned\s+(?:for|in)\b|\bsuperseded\s+by\b|\breplaced\s+by\b|\bswitched\s+to\b|"
+    rf"\b(?:{_DOINGS})\b|"
     r"\b(?:i['’]m|i am|am i|we['’]re|are we)\s+(?:\w+\s+)?\w+ing\b|"
+    r"\bi\s+(?:use[sd]?|ha(?:ve|d)|own(?:ed)?|got|run|ran|need|want(?:ed)?|tried|mod\w*)\b|"
+    r"\b(?:he|she|they)\s+(?:\w+\s+)?(?:use[sd]?|using|ha(?:s|ve|d)|own(?:s|ed)?|bought|got|run|modd\w*)\b|"
+    r"\b(?:does|did|do)\s+(?:he|she|they)\s+(?:\w+\s+)?(?:use|have|own|run|mod\w*)\b|"
+    r"\b(?:usa|tiene)\s+en\s+su\b|"
     r"\bthe\s+(?:owner|user|person|speaker)\b(?![\s-]+(?:interface|experience|guide|manual|base|story|agent)\b)|"
+    r"\bhome\s+(?:lab|server|setup|network)\b|"
     r"\w['’]s\s+(?:own\s+)?(?:code|codebase|thesis|dissertation|project|side project|lab|setup|homework|assignment|"
-    r"repo|repository|notes)\b",
+    r"repo|repository|notes|server|laptop|machine|computer|phone|desk)\b",
     re.IGNORECASE)
 #: An option label that states a person's situation rather than what a thing is — never a page's description.
 _SITUATION_LABEL = re.compile(
     r"^\s*(?:currently|still|no longer|formerly|previously|superseded|replaced|switched|planned|both|neither|"
-    r"todav[ií]a|actualmente|ambos|ninguno)\b", re.IGNORECASE)
+    r"dropped|abandoned|uses?|used|migrated|moved|todav[ií]a|actualmente|ambos|ninguno)\b", re.IGNORECASE)
 #: Two different things that share a name ("Is <term> the <method> or the <product>?", "Is this entity <A>, or <B>?",
 #: "… or a separate <category>", "… or the class called `X`"): a lookup can say which thing the web means by the name,
 #: never which one the person meant.
@@ -225,6 +236,9 @@ _DIFFERENT_THINGS = re.compile(
     r"\bthe\b[^?]*\bor\s+(?:is it\s+)?the\b|\bor\s+(?:rather\s+)?(?:is it\s+)?another\b",
     re.IGNORECASE)
 _LEADING_ARTICLE = re.compile(r"^(?:the|a|an|el|la|los|las|un|una)\s+")
+#: A project name's first word is its distinctive head ("Alpha" for "Alpha Project") unless it is one of these.
+_GENERIC_HEADS = frozenset("""the a an my our new old project projects app apps tool tools side personal open
+    data web site home work team test demo""".split())
 
 
 def _speaks_as_the_person(text: str) -> bool:
@@ -237,18 +251,29 @@ def _names_in(text: str, names: frozenset[str]) -> bool:
     return any(len(n) >= 3 and f" {' '.join(_folded_words(n))} " in hay for n in names)
 
 
+def _short_alias_in(text: str, aliases: frozenset[str]) -> bool:
+    """An owner's alias under 3 characters ("DQ") as a whole token, in its own case — "dq" in prose is not one."""
+    return any(re.search(rf"(?<![\w'’]){re.escape(a)}(?![\w'’])", text or "") for a in aliases)
+
+
+def _str_list(value) -> list[str]:
+    return [x for x in value if isinstance(x, str)] if isinstance(value, (list, tuple, set, frozenset)) else []
+
+
 def subject_names(fm: dict, page: dict | None) -> frozenset[str]:
     """The subject's own names, folded: the item's name, the page's name and aliases, its id read as words."""
     names = {fm.get("entity_name"), str(fm.get("entity_id") or "").replace("-", " ")}
-    if page is not None:
+    if isinstance(page, dict):
         names.add(page.get("name"))
-        names.update(a for a in (page.get("aliases") or []) if isinstance(a, str))
-    return frozenset(n for n in (" ".join(_folded_words(str(x or ""))) for x in names) if n)
+        names.update(_str_list(page.get("aliases")))
+    return frozenset(n for n in (" ".join(_folded_words(x)) for x in names if isinstance(x, str)) if n)
 
 
-def names_the_subject(label: str, names: frozenset[str]) -> bool:
+def names_the_subject(label, names: frozenset[str]) -> bool:
     """An option label that IS the subject's own name or alias (case and accents folded, an article aside)."""
-    folded = " ".join(_folded_words(_LEADING_ARTICLE.sub("", text_fold.fold(label or "").strip())))
+    if not isinstance(label, str):
+        return False
+    folded = " ".join(_folded_words(_LEADING_ARTICLE.sub("", text_fold.fold(label).strip())))
     return bool(folded) and folded in names
 
 
@@ -258,16 +283,41 @@ def different_things(fm: dict) -> bool:
     return bool(_DIFFERENT_THINGS.search(question))
 
 
-def personal_conflict(fm: dict, page: dict | None, facts: "BankFacts") -> str | None:
+def _persons_own_claims(memory_path: Path | None, entity_id: str, claim_ids: list[str]) -> bool:
+    """Every competing claim (2+) came from the person's own words — ``source_trust: user_stated`` or evidence only in
+    their own turns: the conflict is about their own thing, whatever the question says (review of #368)."""
+    if memory_path is None or len(claim_ids) < 2:
+        return False
+    from api.services.claims import parse_claims
+
+    try:
+        hit = bank_index.file(Path(memory_path), "entities", f"{entity_id}.md")
+        claims = {c.id: c for c in parse_claims(hit.body() if hit is not None else "")}
+    except Exception:  # noqa: BLE001 — unreadable claims say nothing either way
+        return False
+    found = [claims[cid] for cid in claim_ids if cid in claims]
+    if len(found) < 2:
+        return False
+
+    def own(c) -> bool:
+        kinds = {str(getattr(e, "kind", "") or "") for e in (c.evidence or [])}
+        return c.source_trust == "user_stated" or (bool(kinds) and kinds <= {"user"})
+
+    return all(own(c) for c in found)
+
+
+def personal_conflict(fm: dict, page: dict | None, facts: "BankFacts", memory_path: Path | None = None) -> str | None:
     """Why a conflict is about the person rather than what a public thing IS — ``personal`` — or ``None``. A conflict is
     lookup-eligible only when nothing in its question, its option labels or the subject page ties it to the person:
-    first or second person (English or Spanish), the owner's name or any part of it, a person's or a project's page
-    name from the bank, "the owner/user", "<someone>'s thesis/code/lab/setup", a situation ("currently uses",
-    "planned for", "superseded by", "I'm modding"), an option label stating a situation, or a page Cicada's own
-    description says is the person's own. Engine-free."""
+    first or second person (English or Spanish), somebody's doings ("he uses", "bought", "dropped for …"), the owner's
+    name, alias or any part of it, a person's or a project's page name (or a project's head word), "the owner/user",
+    "<someone>'s thesis/code/lab/setup/server", a situation ("currently uses", "planned for", "superseded by"), an
+    option label stating a situation, a page whose own description is the person's own or names them or their
+    project, or competing claims that all came from the person's own words. Engine-free."""
     options = inbox_questions.normalize_options(fm.get("options"))
-    labels = [str(o.get("label") or "") for o in options if str(o.get("key")) not in (BOTH, "neither")]
-    question = " ".join([str(fm.get("question") or ""), str(fm.get("title") or "")])
+    labels = [o.get("label") if isinstance(o.get("label"), str) else "" for o in options
+              if str(o.get("key")) not in (BOTH, "neither")]
+    question = " ".join(x for x in (fm.get("question"), fm.get("title")) if isinstance(x, str))
     asked = " ".join([question, *labels])
     if _speaks_as_the_person(asked) or _SITUATION.search(asked):
         return "personal"
@@ -278,10 +328,15 @@ def personal_conflict(fm: dict, page: dict | None, facts: "BankFacts") -> str | 
     # A name made only of the subject's own words is the subject talking, not the person ("<surname> Labs").
     tied = {n for n in (facts.owner_names | facts.person_names | facts.project_names) - own
             if not set(_folded_words(n)) <= own_words}
-    if _names_in(asked, tied):
+    if _names_in(asked, tied) or _short_alias_in(asked, facts.owner_short_aliases):
         return "personal"
-    if page is not None and _OWN_THING.search(" ".join(
-            str(page.get(k) or "") for k in ("description", "summary"))):
+    if isinstance(page, dict):
+        described = " ".join(str(page.get(k) or "") for k in ("description", "summary"))
+        if _OWN_THING.search(described) or _names_in(described, tied) \
+                or _short_alias_in(described, facts.owner_short_aliases):
+            return "personal"
+    claim_ids = [str(o.get("claim_id")) for o in options if o.get("claim_id")]
+    if _persons_own_claims(memory_path, str(fm.get("entity_id") or ""), claim_ids):
         return "personal"
     return None
 
@@ -304,8 +359,11 @@ class BankFacts:
     pending_person_names: frozenset[str] = frozenset()
     #: The owner's name, aliases and each part of them (3+ letters), folded: "<owner>'s thesis" keeps a conflict home.
     owner_names: frozenset[str] = frozenset()
-    #: Every project page's name and aliases, folded: a conflict that names one is about the person's own work.
+    #: Every project page's name and aliases, and its distinctive head word ("Alpha" for "Alpha Project"), folded: a
+    #: conflict that names one is about the person's own work.
     project_names: frozenset[str] = frozenset()
+    #: The owner's aliases under 3 characters ("DQ"), in their own case: matched only as a whole token.
+    owner_short_aliases: frozenset[str] = frozenset()
 
 
 @dataclass
@@ -375,6 +433,7 @@ def bank_facts(memory_path: Path) -> BankFacts:
     names: set[str] = set()
     owner: set[str] = set()
     projects: set[str] = set()
+    short: set[str] = set()
     for f in files:
         fm = f.frontmatter or {}
         facts.pages[f.stem] = fm
@@ -388,12 +447,18 @@ def bank_facts(memory_path: Path) -> BankFacts:
         if is_owner:
             owner.update(own_names)
             owner.update(w for n in own_names for w in _folded_words(n) if len(w) >= 3)
+            short.update(a.strip() for a in [fm.get("name"), *_str_list(fm.get("aliases"))]
+                         if isinstance(a, str) and 2 <= len(a.strip()) < 3)
         if str(fm.get("type") or "").lower() == "project":
             projects.update(own_names)
+            projects.update(words[0] for words in (_folded_words(n) for n in own_names)
+                            if len(words) > 1 and len(words[0]) >= 3 and words[0] not in _GENERIC_HEADS
+                            and words[0] not in text_fold.SUBJECT_STOPWORDS)
     names.discard("")
     facts.person_names = frozenset(names)
     facts.owner_names = frozenset(text_fold.fold(n) for n in owner if n)
     facts.project_names = frozenset(text_fold.fold(n) for n in projects if n)
+    facts.owner_short_aliases = frozenset(short)
     try:
         lines = pending_store.load(Path(memory_path))
         facts.pending = frozenset(sanitize_id(line.name) for line in lines)
@@ -473,7 +538,7 @@ def classify(memory_path: Path, fm: dict, body: str, facts: BankFacts) -> tuple[
         return None, "personal"   # an option label is sent with the question: "my", "her friend"... stays home
     if kind == "conflict":
         # A lookup answers what a public thing IS, never the person's situation (2026-10-20, rulings 27/27b).
-        tie = personal_conflict(fm, page, facts)
+        tie = personal_conflict(fm, page, facts, memory_path)
         if tie:
             return None, tie
         # Two things sharing a name: only an option that IS the subject's own name may settle; with none, it stays.

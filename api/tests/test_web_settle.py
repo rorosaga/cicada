@@ -1489,3 +1489,119 @@ def test_a_lookup_that_picks_the_other_thing_sharing_the_name_is_counted_and_nev
     a = web_lookup.parse_answer(c, json.dumps({"sure": True, "option_key": "a", "others_ruled_out": True,
                                                "url": TOOL_URL, "quote": "q"}))
     assert a.ok
+
+
+# ---------- review of #368: the bank's own names, somebody's doings, the person's own claims ----------
+
+#: Caught ONLY by the bank-name path (``_names_in`` / the short alias): stubbing it makes each read public.
+BANK_NAME_ONLY = [
+    ("Does Owner use Tool C as an editor or a CLI?", ["an editor", "a CLI"]),        # the owner's name, a part
+    ("Is Tool C part of Alpha Project or a library?", ["a module", "a library"]),    # a project page's name
+    ("Is Tool C part of Alpha or a library?", ["a module", "a library"]),            # its distinctive head word
+    ("Is Tool C Ali's editor or a plugin?", ["an editor", "a plugin"]),              # a person's alias
+    ("Is Tool C the OE editor or a plugin?", ["an editor", "a plugin"]),             # the owner's 2-letter alias
+]
+
+
+@pytest.mark.parametrize("question,labels", BANK_NAME_ONLY)
+def test_a_name_from_the_bank_keeps_a_conflict_home_and_only_that_path_catches_it(bank, monkeypatch, question,
+                                                                                 labels):
+    _entity(bank, "owner-example", type="person", owner=True, name="Owner Example", aliases=["OE"])
+    _entity(bank, "tool-c", type="tool", name="Tool C")
+    bank_index.invalidate()
+    facts = web_settle.bank_facts(bank)
+    fm = _conflict("tool-c", "Tool C", question, labels)
+    assert web_settle.classify(bank, fm, "", facts) == (None, "personal"), question
+    monkeypatch.setattr(web_settle, "_names_in", lambda *a, **k: False)
+    monkeypatch.setattr(web_settle, "_short_alias_in", lambda *a, **k: False)
+    assert web_settle.classify(bank, fm, "", facts) == ("public", "public"), "nothing else caught it"
+
+
+def test_a_short_alias_is_a_whole_token_in_its_own_case(bank):
+    _entity(bank, "owner-example", type="person", owner=True, name="Owner Example", aliases=["OE"])
+    _entity(bank, "tool-c", type="tool", name="Tool C")
+    bank_index.invalidate()
+    facts = web_settle.bank_facts(bank)
+    for q in ("Is Tool C a shoe or a toe?", "Is Tool C an oe-format reader or a plugin?"):
+        assert web_settle.classify(bank, _conflict("tool-c", "Tool C", q, ["an editor", "a plugin"]), "",
+                                   facts)[0] == "public", q
+
+
+@pytest.mark.parametrize("question,labels", [
+    # Spanish second person
+    ("¿Qué versión de Tool C usas?", ["v1", "v2"]),
+    ("¿Qué versión de Tool C tienes?", ["v1", "v2"]),
+    ("¿Es Tool C tu editor o un CLI?", ["editor", "CLI"]),
+    ("¿Tool C es el editor que usa en su trabajo?", ["v1", "v2"]),
+    # third person, no one named
+    ("Is the Tool C he uses an editor or a CLI?", ["an editor", "a CLI"]),
+    ("Which Tool C does she have?", ["v1", "v2"]),
+    ("Is the Tool C they use a v1 or a v2?", ["v1", "v2"]),
+    # doings and places, lowercase "i"
+    ("Is the tool c i bought a v1 or a v2?", ["v1", "v2"]),
+    ("Which Tool C model was purchased?", ["v1", "v2"]),
+    ("Was Tool C installed on the laptop as a CLI or as an app?", ["a CLI", "an app"]),
+    ("Is Tool C the deploy tool on the team's server or a library?", ["deploy tool", "a library"]),
+    ("Is Tool C a CLI or a library in the home lab?", ["a CLI", "a library"]),
+    # situation labels
+    ("Is Tool C a CLI or an app?", ["used daily", "an app"]),
+    ("Is Tool C a CLI or an app?", ["Abandoned", "an app"]),
+    ("Is Tool C a CLI, or was it dropped for Tool D?", ["a CLI", "dropped for Tool D"]),
+])
+def test_somebodys_doings_keep_a_conflict_home_named_or_not(bank, question, labels):
+    _entity(bank, "tool-c", type="tool", name="Tool C")
+    bank_index.invalidate()
+    assert web_settle.classify(bank, _conflict("tool-c", "Tool C", question, labels), "",
+                               web_settle.bank_facts(bank)) == (None, "personal"), question
+
+
+def test_a_page_whose_description_names_the_owner_or_a_project_keeps_its_conflict_home(bank):
+    _entity(bank, "tool-d", type="tool", name="Tool D", description="A CLI used in Alpha Project for deploys.")
+    _entity(bank, "tool-e", type="tool", name="Tool E", description="Owner's preferred editor.")
+    bank_index.invalidate()
+    facts = web_settle.bank_facts(bank)
+    for eid, name in (("tool-d", "Tool D"), ("tool-e", "Tool E")):
+        fm = _conflict(eid, name, f"Is {name} an editor or an IDE?", ["an editor", "an IDE"])
+        assert web_settle.classify(bank, fm, "", facts) == (None, "personal"), eid
+
+
+def _reader(memory, *, trust="agent_extracted", kind="user"):
+    from api.services.claims import Evidence
+
+    ev = [Evidence(episode="ep_2026-09-01_001", start=0, end=10, kind=kind, hash="x")] if kind else []
+    body = write_claims("## Summary\nA reader.\n", [
+        Claim(id="clm_r10", text="Reader X is a 10th gen", subject="reader-x", predicate="description",
+              object="10th gen", source_trust=trust, evidence=list(ev), valid_from="2026-05-01",
+              recorded_at="2026-05-01"),
+        Claim(id="clm_r11", text="Reader X is an 11th gen", subject="reader-x", predicate="description",
+              object="11th gen", source_trust=trust, evidence=list(ev), valid_from="2026-08-01",
+              recorded_at="2026-08-01"),
+    ])
+    _entity(memory, "reader-x", type="tool", name="Reader X", body=body)
+    bank_index.invalidate()
+    q = "Is Reader X a 10th or 11th gen?"
+    return dict(kind="conflict", status="pending", entity_id="reader-x", entity_name="Reader X",
+                predicate="description", question=q, title=q,
+                options=[{"key": "a", "label": "10th gen", "claim_id": "clm_r10"},
+                         {"key": "b", "label": "11th gen", "claim_id": "clm_r11"}, _BOTH])
+
+
+@pytest.mark.parametrize("trust,kind", [("agent_extracted", "user"), ("user_stated", None), ("user_stated", "page")])
+def test_competing_claims_all_from_the_persons_own_words_keep_a_neutral_question_home(bank, trust, kind):
+    fm = _reader(bank, trust=trust, kind=kind)
+    assert web_settle.classify(bank, fm, "", web_settle.bank_facts(bank)) == (None, "personal")
+
+
+@pytest.mark.parametrize("trust,kind", [("agent_extracted", "page"), ("external", None)])
+def test_competing_claims_from_elsewhere_leave_a_neutral_question_public(bank, trust, kind):
+    fm = _reader(bank, trust=trust, kind=kind)
+    assert web_settle.classify(bank, fm, "", web_settle.bank_facts(bank)) == ("public", "public")
+
+
+def test_odd_frontmatter_never_crashes_the_gate(bank):
+    facts = web_settle.bank_facts(bank)
+    assert web_settle.names_the_subject(5, frozenset({"x"})) is False
+    assert web_settle.subject_names({"entity_name": None}, {"name": 5, "aliases": "str"}) == frozenset()
+    fm = dict(kind="conflict", status="pending", entity_id="tool-a", entity_name="Tool A", predicate="description",
+              question="Q?", options=[{"key": "a", "label": {"x": 1}}, {"key": "b", "label": ["y"]}])
+    web_settle.classify(bank, fm, "", facts)
