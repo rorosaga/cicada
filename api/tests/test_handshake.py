@@ -134,6 +134,22 @@ def test_an_enabled_plugin_that_runs_nothing_is_not_the_skill(tmp_path, monkeypa
     assert handshake.claude_skill() == "none"
 
 
+def test_an_unreadable_skills_folder_is_no_skill_never_a_failed_handshake(tmp_path, monkeypatch):
+    _claude_home(tmp_path, skill_file=True)
+    real = Path.is_file
+
+    def denied(self):
+        if self.name == "SKILL.md":
+            raise PermissionError(13, "Permission denied")
+        return real(self)
+
+    monkeypatch.setattr(Path, "is_file", denied)
+    assert handshake.claude_skill() == "none"
+    memory = _with_state(tmp_path)
+    text, _meta = handshake.load_or_build(memory, "claude-code", cache_dir=tmp_path / "cache")
+    assert handshake.CLAUDE_SKILL_LINES["none"] in text
+
+
 def test_installing_the_plugin_never_serves_yesterdays_primer(tmp_path):
     memory = _with_state(tmp_path)
     cache = tmp_path / "cache"

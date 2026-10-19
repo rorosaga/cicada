@@ -278,7 +278,11 @@ def claude_skill(home: Path | None = None) -> str:
             return "plugin"
     except Exception as exc:  # noqa: BLE001 — an unreadable settings file is no plugin, never a failed handshake
         logger.debug(f"handshake: plugin state unread ({type(exc).__name__})")
-    return "file" if (home / ".claude" / "skills" / "cicada" / "SKILL.md").is_file() else "none"
+    try:
+        return "file" if (home / ".claude" / "skills" / "cicada" / "SKILL.md").is_file() else "none"
+    except OSError as exc:  # a skills folder it may not read is no skill, never a failed handshake or SessionStart note
+        logger.debug(f"handshake: skill folder unread ({type(exc).__name__})")
+        return "none"
 
 
 def _prelude(variant: str, skill: str) -> str:
