@@ -5,6 +5,7 @@ sidecar, and the reverse layer ran one FTS MATCH over every project's id and nam
 pinned here against the rule it stands in for. Placeholder names only."""
 from __future__ import annotations
 
+import json
 import pytest
 
 from _demo_scenario import TZ, demo
@@ -87,7 +88,10 @@ def test_the_list_anchor_day_is_the_anchors(tmp_path, memory, tz):
     assert checked > 60
 
 
-def test_claim_rows_follow_one_page_and_match_a_fresh_read(memory):
+@pytest.mark.parametrize("scan_past", [64, 0])
+def test_claim_rows_follow_one_page_and_match_a_fresh_read(memory, monkeypatch, scan_past):
+    """Both refresh paths — a range read per moved page, and (`_CLAIM_ROWS_SCAN = 0`) one scan of every row."""
+    monkeypatch.setattr(search_index, "_CLAIM_ROWS_SCAN", scan_past)
     for eid in ("alpha-project", "beta-thing", "gamma-thing"):
         _entity(memory, eid, type="project" if eid.endswith("project") else "tool",
                 body=write_claims("## Summary\nA page.\n", [
@@ -158,3 +162,61 @@ def test_a_list_row_carries_the_first_activity_day_only(tmp_path, monkeypatch):
     by_order = sorted(series, key=len)
     assert all(len(r.activity) <= 1 for r in rows) and any(r.activity for r in rows)
     assert sorted(r.activity[0].day for r in rows if r.activity) == sorted(s[0].day for s in by_order if s)
+
+
+def _project_with_a_neighbour(memory, *claims, aliases=("the-arm-rig", "ar")):
+    ep = "ep_2026-09-03_001"
+    markdown_parser.write(memory / "episodes" / f"{ep}.md",
+                          {"id": ep, "timestamp": "2026-09-03T09:00:00+00:00", "processed": True},
+                          "user: the rig runs on the arm")
+    _entity(memory, "rover-arm-project", type="project", aliases=list(aliases))
+    _entity(memory, "servo-example", type="tool", body=write_claims("## Summary\nA servo.\n", [
+        Claim(id=f"clm_servo_{i}", text="x", subject="servo-example", valid_from="2026-09-03", source_episodes=[ep],
+              evidence=[Evidence(episode=ep, start=6, end=17, kind="user")], **kw) for i, kw in enumerate(claims)]))
+    bank_index.invalidate()
+    assert search_index.ensure_fresh(memory, wait=True, max_age_s=0) == "ready"
+
+
+def _row(memory):
+    return next(r for r in project_timeline.list_projects(memory, tz_name="UTC").projects if r.id == "rover-arm-project")
+
+
+@pytest.mark.parametrize("claim", [
+    {"predicate": "value-of-favourite-rig", "object": "The-Arm-Rig", "object_kind": "literal"},
+    {"predicate": "prefers", "object": "Rover Arm Project", "object_kind": "literal"},     # an inbox answer's shape
+    {"predicate": "committed-to", "object": "the-arm-rig", "object_kind": "literal"},
+    {"predicate": "value-of-rig", "object": "rover-arm-project", "object_kind": "node"},   # a value predicate, always
+    {"predicate": "part-of", "object": "AR"},                                              # a two-letter alias
+])
+def test_a_value_or_a_short_alias_never_names_a_project(memory, claim):
+    _project_with_a_neighbour(memory, claim)
+    row = _row(memory)
+    assert row.last_moment_day is None and row.activity == []
+    tl = project_timeline.build(memory, "rover-arm-project", tz_name="UTC")
+    assert "servo-example" not in {m.id for g in tl.cluster.groups for m in g.members}
+
+
+def test_a_row_indexed_before_payloads_carried_the_kind_names_by_id_or_name_only(memory, monkeypatch):
+    real = search_index.claim_payload
+
+    def old_shape(claim):
+        payload = real(claim)
+        payload.pop("object_kind")
+        return payload
+
+    monkeypatch.setattr(search_index, "claim_payload", old_shape)
+    _project_with_a_neighbour(memory, {"predicate": "part-of", "object": "The-Arm-Rig"})
+    assert _row(memory).last_moment_day is None                     # by alias: not without the kind
+    _project_with_a_neighbour(memory, {"predicate": "part-of", "object": "Rover Arm Project"})
+    assert _row(memory).last_moment_day == "2026-09-03"             # by name: as before this change
+
+
+def test_the_payload_cache_is_bounded_least_recently_used_first(monkeypatch):
+    monkeypatch.setattr(project_timeline, "_PAYLOAD_CLAIMS", type(project_timeline._PAYLOAD_CLAIMS)())
+    monkeypatch.setattr(project_timeline, "_PAYLOAD_CLAIMS_MAX", 3)
+    js = [json.dumps({"id": f"clm_{i}", "predicate": "uses", "object": "x"}) for i in range(5)]
+    for j in js[:3]:
+        project_timeline._cached_payload_claim(j)
+    project_timeline._cached_payload_claim(js[0])                   # used again: kept
+    project_timeline._cached_payload_claim(js[3])
+    assert list(project_timeline._PAYLOAD_CLAIMS) == [js[2], js[0], js[3]]

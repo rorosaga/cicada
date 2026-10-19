@@ -524,6 +524,9 @@ def claim_payload(claim) -> dict:
         "expected_end": claim.expected_end, "observer": claim.observer,
         "evidence": first.to_dict() if first else None,
         "status": claim.status if is_event(claim) else None,
+        # The Projects list's reverse layer keeps page-to-page claims only (2026-10-19). Added without a schema
+        # bump: a page indexed before carries no kind until its next edit, and the reader says what that means.
+        "object_kind": claim.object_kind,
     }
 
 

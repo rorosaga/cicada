@@ -26,7 +26,7 @@ import json
 import os
 import re
 import threading
-from collections import Counter
+from collections import Counter, OrderedDict
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from pathlib import Path
@@ -43,7 +43,8 @@ from api.services import (
 )
 from api.services.claim_reconciler import is_human
 from api.services.claims import (
-    HAPPENED, MILESTONE, Claim, Evidence, is_event, is_persons_words, is_record, parse_claims, strip_claims_block,
+    HAPPENED, MILESTONE, Claim, Evidence, is_event, is_persons_words, is_record, is_value_predicate, parse_claims,
+    strip_claims_block,
 )
 from api.services.hub_builder import _one_line_summary
 from api.services.id_utils import sanitize_id
@@ -166,11 +167,14 @@ def _turn_ts(times: _TurnTimes | None, start: int) -> str | None:
 # `_Bank.resolve`'s lookup keys per reference string, across requests: `sanitize_id` was most of a resolve, and the
 # list resolves every indexed claim's object (~43k on an 8k-page bank) on every read.
 _REF_KEYS: dict[str, tuple[str, str, str]] = {}
-_REF_KEYS_MAX = 200_000
+_REF_KEYS_MAX = 60_000
 # An FTS claim payload (its JSON, `search_index.claim_rows`) as the thin Claim `_payload_claim` makes, across
 # requests: identical JSON is an identical claim, so the key is the text itself. Shared like `_CLAIMS_CACHE`'s.
-_PAYLOAD_CLAIMS: dict[str, Claim | None] = {}
-_PAYLOAD_CLAIMS_MAX = 200_000
+# Least recently used first out: a claim edited away leaves its old JSON behind until it ages out. ~0.6 KB a claim
+# beside its JSON key (shared with `claim_rows`), so the cap bounds it near 25 MB with keys; an 8k-page bank with 700
+# projects holds ~13k (review of #354).
+_PAYLOAD_CLAIMS: OrderedDict[str, "_PayloadClaim | None"] = OrderedDict()
+_PAYLOAD_CLAIMS_MAX = 40_000
 
 
 def _ref_keys(raw: str) -> tuple[str, str, str]:
@@ -228,6 +232,8 @@ class _Bank:
         self._ts_days: dict[str, str | None] = {}
         self._resolved: dict[str, str | None] = {}
         self._stems: list[str] | None = None
+        self._direct: dict[str, str] = {}
+        self._reverse: dict[str, tuple[str | None, bool]] = {}
         self._ep_convs: dict[str, tuple[tuple[str, str]] | None] = {}
         self.scanned = 0
         self.partial = False
@@ -297,17 +303,38 @@ class _Bank:
     def names(self) -> dict[str, str]:
         if self._names is None:
             idx: dict[str, str] = {}
+            direct: dict[str, str] = {}
             for stem in self.stems:
                 fm = self.entities[stem].frontmatter or {}
                 keys = [stem, stem.replace("-", " ")]
                 name = str(fm.get("name") or "").strip()
                 if name:
                     keys += [name, sanitize_id(name)]
+                for k in keys:
+                    direct.setdefault(k.strip().lower(), stem)
                 keys += [str(a) for a in (fm.get("aliases") or []) if str(a).strip()]
                 for k in keys:
                     idx.setdefault(k.strip().lower(), stem)
-            self._names = idx
+            self._names, self._direct = idx, direct
         return self._names
+
+    def reverse_target(self, ref) -> tuple[str | None, bool]:
+        """`(page, by alias)` a claim's object names, for the reverse layer (§6.4): `resolve`, except that an alias
+        shorter than 3 characters names nothing — the detail's `_tree_names` guard (a two-letter alias would match
+        every claim that happens to say it)."""
+        text = str(ref or "")
+        hit = self._reverse.get(text)
+        if hit is None:
+            target = self.resolve(text)
+            alias = False
+            if target is not None:
+                raw, lower, sanitized = _ref_keys(text)
+                self.names()
+                alias = raw != target and self._direct.get(lower) != target and self._direct.get(sanitized) != target
+                if alias and len(raw) < 3:
+                    target = None
+            hit = self._reverse[text] = (target, alias)
+        return hit
 
     def resolve(self, ref) -> str | None:
         text = str(ref or "")
@@ -386,7 +413,7 @@ class _Bank:
         if rows is not None:
             # Every indexed claim's object, resolved here exactly as below: the pages naming the tree by id, name or
             # alias — one rule with the list's (R-PJB19), and no MATCH over the names.
-            subjects = [ref for ref, items in rows if any(self.resolve(obj) in targets for obj, _ in items)]
+            subjects = [ref for ref, items in rows if any(self.reverse_target(obj)[0] in targets for obj, _ in items)]
         else:
             # The raw scan is what §6.6 caps: EVERY page read is charged (not only the ones that
             # match), so a 2,500-page bank with no index reads at most MAX_SCAN_PAGES and says
@@ -409,7 +436,8 @@ class _Bank:
         for s in subjects:
             if s in targets or not self.live(s):
                 continue
-            found = [c for c in self.claims(s) if c.object_kind in _NODE and self.resolve(c.object) in targets]
+            found = [c for c in self.claims(s) if c.object_kind in _NODE and not is_value_predicate(c.predicate)
+                     and self.reverse_target(c.object)[0] in targets]
             if found:
                 out[s] = found
         return out
@@ -1410,17 +1438,43 @@ def _payload_claim(payload: dict) -> Claim | None:
                  evidence=[Evidence.from_dict(ev)] if isinstance(ev, dict) else [])
 
 
-def _cached_payload_claim(payload: str) -> Claim | None:
-    hit = _PAYLOAD_CLAIMS.get(payload, _PAYLOAD_CLAIMS)
-    if hit is _PAYLOAD_CLAIMS:
-        try:
-            data = json.loads(payload)
-        except ValueError:
-            data = None
-        hit = _payload_claim(data) if isinstance(data, dict) else None
-        if len(_PAYLOAD_CLAIMS) >= _PAYLOAD_CLAIMS_MAX:
-            _PAYLOAD_CLAIMS.clear()
+class _PayloadClaim:
+    """An FTS claim payload as the list reads it: the fields `_open`, `is_event`, `_anchor_day` and `_convs` use, and
+    nothing else. Slotted, ~0.6 KB against a full `Claim`'s ~3 KB — thousands live in `_PAYLOAD_CLAIMS` (review of
+    #354). A payload carries one evidence span and no sessions, as `_payload_claim` always read it."""
+
+    __slots__ = ("id", "predicate", "object", "object_kind", "valid_from", "valid_to", "superseded_by", "evidence")
+    source_episodes: tuple = ()
+    session_ids: tuple = ()
+    session_id = None
+
+    def __init__(self, c: Claim, object_kind: str | None):
+        self.id, self.predicate, self.object, self.object_kind = c.id, c.predicate, c.object, object_kind
+        self.valid_from, self.valid_to, self.superseded_by = c.valid_from, c.valid_to, c.superseded_by
+        self.evidence = tuple(c.evidence)
+
+    def all_session_ids(self) -> list[str]:
+        return []
+
+
+def _cached_payload_claim(payload: str) -> _PayloadClaim | None:
+    """One payload's claim, or `None` for one that names none. Its `object_kind` is `None` for a row indexed before
+    the payload carried it (no schema bump: such a row reads as it did, see `list_projects`)."""
+    with _CLAIMS_LOCK:
+        hit = _PAYLOAD_CLAIMS.get(payload, _MISS)
+        if hit is not _MISS:
+            _PAYLOAD_CLAIMS.move_to_end(payload)
+            return hit
+    try:
+        data = json.loads(payload)
+    except ValueError:
+        data = None
+    claim = _payload_claim(data) if isinstance(data, dict) else None
+    hit = _PayloadClaim(claim, data.get("object_kind")) if claim is not None else None
+    with _CLAIMS_LOCK:
         _PAYLOAD_CLAIMS[payload] = hit
+        while len(_PAYLOAD_CLAIMS) > _PAYLOAD_CLAIMS_MAX:
+            _PAYLOAD_CLAIMS.popitem(last=False)
     return hit
 
 
@@ -1481,7 +1535,16 @@ def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: 
             if target not in live_projects:
                 continue
             c = _cached_payload_claim(payload)
-            if c is None or not _open(c):
+            if c is None:
+                continue
+            kind = c.object_kind
+            if not _open(c) or is_value_predicate(c.predicate):
+                continue
+            target, alias = bank.reverse_target(obj)
+            # Only a page-to-page claim names a project: a value, an inbox answer or a to-do whose words happen to be
+            # a project's name is not about it. A row indexed before payloads carried the kind is read as before —
+            # by id or name only, never by alias.
+            if target is None or (kind not in _NODE if kind is not None else alias):
                 continue
             by_target.setdefault(target, []).append(len(converted))
             refs.append(ref)
