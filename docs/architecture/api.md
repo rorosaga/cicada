@@ -205,6 +205,13 @@ mtime>` (a folder file's row copies its path from that registry). Not a Store do
 `SleepViewModel` holds the rows and the tag in memory, sends `If-None-Match` on every `load()` and drops both on a bank
 switch.
 
+**Unit tests reach no backend (2026-10-19).** Under XCTest `APIClient.shared` is `APIClient.pointingAtNothing()`: a
+session whose transport (`NoBackendURLProtocol`) fails every request with `cannotConnectToHost` before a byte leaves the
+process, an unresolvable base and a home that does not exist; and `APIClient.loadToken` reads a token only from a folder
+under the temporary directory and ignores `CICADA_API_TOKEN` (`testMayReadToken`). A view model's defaults call `shared`,
+so a test that forgets to inject a closure gets an offline answer, never the running backend or the person's token
+(`APIClientIsolationTests`). The shipped app is unchanged: both checks key on `AppPasteboard.isRunningTests`.
+
 `GET /status` has no ETag (the app refetches it whenever the vector's `sleep` component moves). Its `sleep.writing`
 (G177) is `sleep_cycle.is_writing()` — the predicate behind every "Sleep is running" 409 — and the SSE `sleep` event and
 the `sleep` component carry it too, so the app's write controls follow a drain's write window, not `running`.
