@@ -38,7 +38,7 @@ final class EntityCardPolishTests: XCTestCase {
     /// "Known since Oct 16 · 0 days" — a page first heard of today is its day alone.
     func test_knownSinceNeverSaysZeroDays() {
         XCTAssertEqual(Copy.People.knownSinceValue("Oct 16", days: 0), "Oct 16")
-        XCTAssertEqual(Copy.People.knownSinceValue("Oct 15", days: 1), "Oct 15 · 1 day")
+        XCTAssertEqual(Copy.People.knownSinceValue("Oct 15", days: 1), "Oct 15", "say it once: a recent day alone")
         XCTAssertEqual(Copy.People.knownSinceValue("Oct 1", days: 20), "Oct 1 · 2 weeks")
     }
 

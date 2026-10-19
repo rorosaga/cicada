@@ -33,15 +33,16 @@ final class FeedListTests: XCTestCase {
 
     func testTheEyebrowSaysWhereYouAre() {
         let items = [item("a"), item("b"), item("c", type: "bookmark")]
-        XCTAssertEqual(FeedEyebrow.text(total: 3, kind: nil, visible: items, openId: nil, searching: false), "Sleep · Saved · 3 saved")
+        // Say it once (2026-10-19): the tab row beside it names the list and its count, the View menu the kind.
+        XCTAssertEqual(FeedEyebrow.text(total: 3, kind: nil, visible: items, openId: nil, searching: false), "Sleep")
         XCTAssertEqual(FeedEyebrow.text(total: 3, kind: .bookmark, visible: [items[2]], openId: nil, searching: false),
-                       "Sleep · Saved · Bookmarks · 1 saved")
+                       "Sleep")
         XCTAssertEqual(FeedEyebrow.text(total: 3, kind: nil, visible: items, openId: items[1].id, searching: false),
-                       "Sleep · Saved · 2 of 3")
+                       "Sleep")
         XCTAssertEqual(FeedEyebrow.text(total: 3, kind: nil, visible: [items[0]], openId: nil, searching: true),
-                       "Sleep · Saved · 1 match")
-        XCTAssertEqual(FeedEyebrow.text(total: 0, kind: nil, visible: [], openId: nil, searching: false), "Sleep · Saved",
-                       "R-DL18 — nothing indexed: the eyebrow names the list, never '0 items'")
+                       "Sleep · 1 match")
+        XCTAssertEqual(FeedEyebrow.text(total: 0, kind: nil, visible: [], openId: nil, searching: false), "Sleep",
+                       "R-DL18 — nothing indexed: never '0 items'")
     }
 
     /// DR-54 / DR-55 — the app's name, the folder, the day; the id only in `.help`.

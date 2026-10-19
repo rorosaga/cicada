@@ -46,6 +46,8 @@ struct InboxPage: View {
         .background(CicadaTheme.bgBase)
         .onAppear { consumeLanding(); viewModel.reconcile(); viewModel.reconcileReview() }
         .onChange(of: router.pendingInboxItem) { _, _ in consumeLanding() }
+        // Say it once — Inbox clicked again in the rail: All, nothing open, no review.
+        .onRailReselect(.inbox, router: router) { popToRoot() }
         .onChange(of: viewModel.items.map(\.id)) { _, _ in
             viewModel.reconcile()
             viewModel.reconcileReview()
@@ -153,6 +155,19 @@ struct InboxPage: View {
             landingToken &+= 1
         }
         DispatchQueue.main.async { focus = .question }
+    }
+
+    /// The root is the whole list under All: a review ends, the Reader and the open question close. A half-typed
+    /// answer keeps its question (or its review) where it is — only the Reader closes — so a click never drops it.
+    private func popToRoot() {
+        router.popToRoot(reduceMotion: reduceMotion) {
+            provenance.close()
+            guard !viewModel.hasDraft else { return }
+            if viewModel.review != nil { viewModel.endReview() }
+            viewModel.columns.close()
+            viewModel.setFilter(nil)
+        }
+        if !viewModel.hasDraft { arrive() }
     }
 
     // MARK: - Paths (R-DI10: a pointer path may animate, a keyboard path never does — DR-60)

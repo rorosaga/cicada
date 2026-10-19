@@ -129,11 +129,11 @@ final class InboxColumnsTests: XCTestCase {
         XCTAssertEqual(InboxRowSlots.of(listUnits: 441), .init(entity: false, source: false), "1.4× beside a Reader")
     }
 
-    /// DR-25 — "Inbox · 6 pending", "Inbox · 1 of 6 · Conflict".
+    /// DR-25 — "Inbox", whatever is open: the tabs carry the counts and the card its kind (say it once, 2026-10-19).
     func testTheEyebrowAndTheTabs() throws {
         let a = try item("a"), b = try item("b"), d = try item("d", kind: "decay", priority: 0.1)
-        XCTAssertEqual(InboxEyebrow.text(visible: [a, b, d], openId: nil), "Inbox · 3 pending")
-        XCTAssertEqual(InboxEyebrow.text(visible: [a, b, d], openId: "b"), "Inbox · 2 of 3 · Conflict")
+        XCTAssertEqual(InboxEyebrow.text(visible: [a, b, d], openId: nil), "Inbox")
+        XCTAssertEqual(InboxEyebrow.text(visible: [a, b, d], openId: "b"), "Inbox")
         XCTAssertEqual(InboxEyebrow.text(visible: [], openId: nil), "Inbox")
         let tabs = InboxTabs.tabs([a, b, d])
         XCTAssertEqual(tabs.map(\.label), ["All", "Decay", "Conflict"], "present kinds, in the stable order")

@@ -133,8 +133,9 @@ struct ClustersGridView: View {
     }
 }
 
-/// A type's card header (F-11): its outline glyph in its hue, its plural name, its count, "Show all ›" when some are
-/// hidden. The hue appears once, on the glyph (DR-8).
+/// A type's card header (F-11): its outline glyph in its hue, its plural name, "Show all ›" when some are hidden. The
+/// hue appears once, on the glyph (DR-8). Say it once (owner 2026-10-19): the count is the type's tab's ("People 17"),
+/// so the card no longer prints it beside the name.
 struct ClusterCardHeader: View {
     let type: EntityType
     let count: Int
@@ -149,10 +150,6 @@ struct ClusterCardHeader: View {
             Text(type.groupLabel)
                 .font(CicadaTheme.font(size: 14, weight: .medium))
                 .foregroundStyle(CicadaTheme.textPrimary)
-            Text(UsageFormat.count(count))
-                .font(CicadaTheme.metaFont)
-                .monospacedDigit()
-                .foregroundStyle(CicadaTheme.textTertiary)
             Spacer(minLength: 0)
             if let showAll {
                 TextButton(title: Copy.People.showAll, help: Copy.People.showAllHelp(type.groupLabel), action: showAll)

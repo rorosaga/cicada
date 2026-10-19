@@ -152,12 +152,9 @@ struct InboxRowSlots: Equatable {
 
 /// DR-25 — "Inbox · 6 pending", or "Inbox · 1 of 6 · Conflict" while a question is open.
 enum InboxEyebrow {
-    static func text(visible: [InboxItem], openId: String?) -> String {
-        if let id = openId, let i = visible.firstIndex(where: { $0.id == id }) {
-            return Eyebrow.text(Copy.Inbox.title, Copy.Inbox.position(i + 1, of: visible.count), visible[i].kind.label)
-        }
-        return Eyebrow.text(Copy.Inbox.title, visible.isEmpty ? "" : Copy.Inbox.pending(visible.count))
-    }
+    /// Say it once (owner 2026-10-19) — "Inbox", whatever is open: the tabs beside it carry the counts ("All 9"), the
+    /// selected row says which question is open and the card names its kind, so the eyebrow repeats none of them.
+    static func text(visible: [InboxItem], openId: String?) -> String { Copy.Inbox.title }
 }
 
 /// DR-45 — "All 6 · Decay 1 · Conflict 2 …": the kinds present, in a stable order, never a dot.

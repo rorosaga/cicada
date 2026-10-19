@@ -121,7 +121,7 @@ struct ProjectsPage: View {
         .background { Color.clear.publishesPageFind(enabled: !findOpen && tab == .current) { findOpen = true } }
         .onChange(of: findOpen) { _, isOpen in if !isOpen && tab == .current { query = "" } }
         // Projects v2 — Projects clicked again in the sidebar: back to the root, like a tab bar (owner 2026-10-19).
-        .onChange(of: router.reselections(of: .projects)) { _, _ in popToRoot() }
+        .onRailReselect(.projects, router: router) { popToRoot() }
         .task { await cache.refreshList() }
         .onAppear { openPendingProject(); arrive() }
         .onChange(of: router.pendingProject) { _, _ in openPendingProject() }
@@ -199,11 +199,7 @@ struct ProjectsPage: View {
             tab = ProjectsModel.defaultTab(ProjectsModel.counts(rows, today: today))
             tabChosen = false
         }
-        if router.lastReselectByKey {
-            Instant.run { change() }
-        } else {
-            withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion)) { change() }
-        }
+        router.popToRoot(reduceMotion: reduceMotion, change)
         focus = .list
     }
 

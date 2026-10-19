@@ -90,6 +90,75 @@ def test_variants_share_the_contract_and_differ_only_in_the_prelude(tmp_path):
         assert len(t) // 4 <= handshake.MAX_TOKENS
 
 
+def _claude_home(tmp_path, *, plugin: bool = False, skill_file: bool = False) -> Path:
+    from api.services import skill_catalog
+
+    home = skill_catalog.agent_home()
+    (home / ".claude" / "plugins").mkdir(parents=True, exist_ok=True)
+    if plugin:
+        (home / ".claude" / "settings.json").write_text(json.dumps({"enabledPlugins": {"cicada@cicada": True}}))
+        (home / ".claude" / "plugins" / "installed_plugins.json").write_text(
+            json.dumps({"plugins": {"cicada@cicada": [{"scope": "user"}]}}))
+        launcher = tmp_path / "home" / "bin" / "cicada-hook"       # the app's launcher: the plugin can run a Cicada
+        launcher.parent.mkdir(parents=True, exist_ok=True)
+        launcher.write_text("#!/bin/sh\n")
+        launcher.chmod(0o755)
+    if skill_file:
+        (home / ".claude" / "skills" / "cicada").mkdir(parents=True, exist_ok=True)
+        (home / ".claude" / "skills" / "cicada" / "SKILL.md").write_text("---\nname: cicada\n---\n")
+    return home
+
+
+@pytest.mark.parametrize("plugin, skill_file, expected", [
+    (True, False, "plugin"),
+    (True, True, "plugin"),        # install.sh leaves the skill to an on plugin; an older copy is its warning
+    (False, True, "file"),
+    (False, False, "none"),
+])
+def test_the_claude_code_prelude_names_the_skill_that_is_installed(tmp_path, plugin, skill_file, expected):
+    """#357: with the plugin the skill is `cicada:cicada`; a handshake naming ~/.claude/skills/cicada sent the agent
+    looking for a file that is not there."""
+    _claude_home(tmp_path, plugin=plugin, skill_file=skill_file)
+    assert handshake.claude_skill() == expected
+    memory = _with_state(tmp_path)
+    text, _meta = handshake.load_or_build(memory, "claude-code", cache_dir=tmp_path / "cache")
+    assert handshake.CLAUDE_SKILL_LINES[expected] in text
+    assert ("cicada:cicada" in text) == (expected == "plugin")
+    assert ("~/.claude/skills/cicada" in text) == (expected == "file")
+    assert len(text) // 4 <= handshake.MAX_TOKENS
+
+
+def test_an_enabled_plugin_that_runs_nothing_is_not_the_skill(tmp_path, monkeypatch):
+    _claude_home(tmp_path, plugin=True)
+    (tmp_path / "home" / "bin" / "cicada-hook").unlink()
+    assert handshake.claude_skill() == "none"
+
+
+def test_an_unreadable_skills_folder_is_no_skill_never_a_failed_handshake(tmp_path, monkeypatch):
+    _claude_home(tmp_path, skill_file=True)
+    real = Path.is_file
+
+    def denied(self):
+        if self.name == "SKILL.md":
+            raise PermissionError(13, "Permission denied")
+        return real(self)
+
+    monkeypatch.setattr(Path, "is_file", denied)
+    assert handshake.claude_skill() == "none"
+    memory = _with_state(tmp_path)
+    text, _meta = handshake.load_or_build(memory, "claude-code", cache_dir=tmp_path / "cache")
+    assert handshake.CLAUDE_SKILL_LINES["none"] in text
+
+
+def test_installing_the_plugin_never_serves_yesterdays_primer(tmp_path):
+    memory = _with_state(tmp_path)
+    cache = tmp_path / "cache"
+    before, _ = handshake.load_or_build(memory, "claude-code", cache_dir=cache)
+    _claude_home(tmp_path, plugin=True)
+    after, meta = handshake.load_or_build(memory, "claude-code", cache_dir=cache)
+    assert "cicada:cicada" not in before and "cicada:cicada" in after and meta["cached"] is False
+
+
 def test_no_state_degrades_to_the_static_contract(tmp_path):
     text = handshake.build(None, variant="generic", bank="memory")
     assert "## Contract" in text and "no `_state.md` yet" in text

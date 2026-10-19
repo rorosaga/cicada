@@ -722,19 +722,10 @@ async def sweep(memory_path: Path, settings, *, dry_run: bool = True, limit: int
 
 
 async def _refresh_state_admitted(memory_path: Path, settings) -> None:
-    """``_state.md`` after the sweep's settles: one admitted transaction, skipped while Sleep holds the pages (the
-    run's own tail refreshes it; a write here could ride the batch commit under Sleep's author) — ``GET /state``'s
-    pattern (G183)."""
-    from api.services import state_dictionary, write_admission
+    """``_state.md`` after the sweep's settles: ``state_dictionary.refresh_admitted`` (G183)."""
+    from api.services import state_dictionary
 
-    async def refresh() -> None:
-        if not write_admission.holding():
-            await state_dictionary.refresh_and_commit(memory_path, settings)
-
-    try:
-        await write_admission.run_admitted(memory_path, refresh)
-    except Exception as exc:  # noqa: BLE001 — the projection never fails the sweep
-        logger.info(f"state refresh after the web sweep skipped: {type(exc).__name__}")
+    await state_dictionary.refresh_admitted(memory_path, settings)
 
 
 def _now_iso() -> str:

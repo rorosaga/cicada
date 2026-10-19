@@ -165,8 +165,9 @@ final class SourcesV3Tests: XCTestCase {
 
     func testThePageAndTheRailAreWiredToTheReselect() throws {
         let page = try source("Views/Sources/SourcesPageView.swift")
-        XCTAssertTrue(page.contains(".onChange(of: router.reselections(of: .sources))"))
-        XCTAssertTrue(page.contains("Instant.run { change() }"), "the ⌘ path never animates (DR-60)")
+        XCTAssertTrue(page.contains(".onRailReselect(.sources, router: router)"))
+        XCTAssertTrue(page.contains("router.popToRoot(reduceMotion: reduceMotion, change)"),
+                      "the shared path: the ⌘ key never animates (DR-60)")
         let rail = try source("Views/Shell/NavRail.swift")
         XCTAssertTrue(rail.contains("router?.reselect(tab, byKey:"))
     }

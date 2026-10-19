@@ -124,6 +124,8 @@ struct ClustersPage: View {
         .onChange(of: findOpen) { _, isOpen in if !isOpen { query = "" } }
         .onAppear { openPendingEntity(); arrive() }
         .onChange(of: router.pendingClustersEntity) { _, _ in openPendingEntity() }
+        // Say it once — Clusters clicked again in the rail: All's cards, nothing open, find closed.
+        .onRailReselect(.clusters, router: router) { popToRoot() }
         .onChange(of: graphVM.entities.map(\.id)) { _, ids in columns.reconcile(present: Set(ids)) }
     }
 
@@ -150,6 +152,19 @@ struct ClustersPage: View {
             columns.open(next)
             if provenance.isPresented { provenance.close() }
         }
+    }
+
+    /// The root is All's cards with nothing open: the Reader, the card and find close, and the tab returns to All.
+    private func popToRoot() {
+        router.popToRoot(reduceMotion: reduceMotion) {
+            provenance.close()
+            columns.close()
+            findOpen = false
+            query = ""
+            tab = nil
+            viewMenuOpen = false
+        }
+        focus = .list
     }
 
     /// DR-28 — Esc closes the rightmost open thing.

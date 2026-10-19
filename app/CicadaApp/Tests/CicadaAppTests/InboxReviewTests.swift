@@ -164,7 +164,7 @@ final class InboxReviewTests: XCTestCase {
     func testADecayCardSaysWhenItWasLastSaidAndInHowManyConversations() throws {
         let now = try XCTUnwrap(InboxAge.date("2026-10-19"))
         XCTAssertEqual(ReviewContext.lines(try item("inbox-001"), now: now, locale: en, timeZone: utc),
-                       ["Last said 2 Mar 2026 · 8 months ago", "In 3 conversations"])
+                       ["Last said 2 Mar 2026", "In 3 conversations"])
         // No subject (an older server): the option's own day, and no count it cannot know.
         XCTAssertEqual(ReviewContext.lines(try item("inbox-002"), now: now, locale: en, timeZone: utc),
                        ["Last said: not recorded"])
