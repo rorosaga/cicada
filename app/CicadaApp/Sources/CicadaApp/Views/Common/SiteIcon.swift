@@ -14,6 +14,8 @@ struct SiteIcon: View {
     var size: SiteIconLayout.Size = .row
     /// G61 S3-b — the page whose source names this site: its icon is asked of that page's own route.
     var entity: String? = nil
+    /// Owner ruling 2026-10-19 — a saved link's media id: its icon is its own site's, asked of that site by the backend.
+    var savedItem: String? = nil
     @Environment(Store.self) private var store
     @State private var image: NSImage?
 
@@ -36,8 +38,8 @@ struct SiteIcon: View {
         }
         .frame(width: side, height: side)
         .accessibilityHidden(true)
-        .task(id: "\(store.bank)|\(site)|\(entity ?? "")") {
-            image = await SiteIconStore.shared.image(site: site, bank: store.bank, entity: entity)
+        .task(id: "\(store.bank)|\(site)|\(entity ?? "")|\(savedItem ?? "")") {
+            image = await SiteIconStore.shared.image(site: site, bank: store.bank, entity: entity, savedItem: savedItem)
         }
     }
 }

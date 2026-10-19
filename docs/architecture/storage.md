@@ -678,6 +678,20 @@ Round 4 (C2–C4):
   under the older rule is purged ONCE (`ensure_rule`, marker `logos/<bank>/.rule`; `sites/` is spared), and a page that
   no longer resolves a domain drops its cached mark and records a miss (an explicit `website` entry outranks a bare link the person typed). `GET /entities/{id}/sources/icon/{site}` serves
   the mark of a trusted site THIS page lists (icon service only, keyed on the site, never a ref; never for a `person` or `media` page).
+  **A saved link's own site icon (owner ruling 2026-10-19).** A saved link's row (Sources › a saved source) shows its
+  site's own icon, asked of **that site only** — never an icon service, so no one learns what the person saved:
+  `GET /sources/saved/{media_entity_id}/site-icon`, asked by the app for a row of a list the person opened (never from
+  Sleep, never a whole bank; listing items fetches nothing). The site is the registrable domain of THIS link's own URL
+  from the url index (`channel_items.saved_link_site` → `logo_service.own_site_domain`), for a live media page a `saved`
+  source owns; a walled family, a private or reserved name is never asked (the row keeps its bundled mark or monogram).
+  Two fixed paths, `https://<site>/apple-touch-icon.png` then `/favicon.ico`, never the homepage's HTML (a page of the
+  site's HTML is the most bytes and the likeliest consent wall or login redirect, for a path the two conventions
+  cover); each hop through the SSRF guard (`net_guard`'s rule), on the same registrable domain and never a login host,
+  4 s, the body streamed with `Accept-Encoding: identity` and cut at 512 KB of raw bytes (no compressed body inflates first), DNS checked off the event loop, no cookies, raster only; 401/403/407/451 stops at once and nothing is retried
+  with other headers. Behind `CICADA_ALLOW_LOGO_FETCH` (off: nothing asked, nothing recorded, the monogram). Cached in
+  `$CICADA_HOME/logos/<bank>/sites/own/` — hits 30 days, misses 7 — never in a bank; any failure is a 404 the row draws
+  as its monogram. This is a row's mark only: it never becomes a page's picture, and `domain_for` still takes no saved
+  link's site.
 - `picture:` (G146) — the person's own choice of picture for a page: `{kind: upload, sha, ext, added}` for a
   picture they uploaded, whose bytes live **in the bank** at `assets/pictures/<id>.<png|jpg>` (their record, so it
   travels with the bank; the path is derived from the id, never read from the page), or `{kind: initials, added}`

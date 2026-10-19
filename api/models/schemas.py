@@ -344,6 +344,9 @@ class SourceOverview(CamelModel):
     # renders a day short instead of a day shifted. Rides the existing
     # `episodes` ETag component; no `VersionVector` change is owed.
     activity: dict[str, int] = Field(default_factory=dict)
+    # Sources v3 (2026-10-19) — ``saved`` (the person saved each item on purpose) or ``captured`` (Cicada captures it
+    # on its own); ``source_overview.intent_of``. The page's two groups.
+    intent: str = "captured"
 
 
 class SourceOverviewResponse(CamelModel):

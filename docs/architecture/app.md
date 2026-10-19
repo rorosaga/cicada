@@ -780,26 +780,52 @@ verified by `scripts/verify-skills.sh`, whose `--print-urls` is pinned offline) 
 with a `terms` line; `macos-harness` states plainly that it can control the whole Mac. Choosing one is Settings, How your
 agent reads (`agent_methods`), not an install.
 
-**Sources page — v2 in Direction D (G124, DS-3c).**
-- **What stays from v2.** Every tile keeps Sources v2's five facts: mark · brand name · one status verb
-  (`SourceLiveness`, no backend field) · a 14-day capture sparkline + lifetime total · four week-dots + delta.
-  **Two nouns, never one**: the big number is the row's own unit, and the line and the delta are always
-  *captured*. Every number goes through `UsageFormat.count` on the viewer's locale (`CountLiteralLintTests`).
-- **D's material.** A tile is 96 pt including its padding, on `bgFocus` with a ring, the strong ring and a 1 pt
-  lift on hover, and no shadow. It is clipped to its shape. Its mark stands bare. A failure speaks in `warning`
-  with its dot hidden, and a live source keeps a green dot.
-- **Packing.** One column count (`SourceGridColumns`, 2–4; a card wants 290 scaled points before a column is added, so a 1200 pt
-  window draws three untruncated columns, QA 2026-10-16) is shared by every section. Sections share a row by
-  span (`SourceGridPacking`), and the contributors block takes what the last row leaves when that is two columns
-  or more.
-- **Detail columns.** Opening a source, or an author in *Who wrote your memory* (a chip strip over a neutral,
-  labelled share bar), narrows the page to a list of rows and opens it as the detail column (`SourcesSelection`,
-  `SourceDetailView`, `ContributorDetailColumn`). A conversation's Reader is the third column.
-- **What changed from v2.** The contributor drill-down is a column, not a sheet, so its "from conversation" is
-  never under a modal. A compact G129 light never draws the Full Disk Access fix
-  (`BrowserStatusLight.showsFixHint`); the fix lives in the source's detail column. *Advanced statistics* is a
-  remembered disclosure on the old toggle's `cicada.usageMode` key. "Add a source" is a neutral button in the
-  eyebrow row, which reads "Sources · n connected".
+**Sources page — v3 (owner 2026-10-19; supersedes v2's tile grid, G124, DS-3c).** The owner: *"The Sources page needs
+an urgent redesign. It has these graphs and stuff, and it's not intuitive … in two clicks I click on something, then I
+click on Chrome, and then I can see all the things that I've saved in Chrome. Instead of putting the Chrome logo maybe put
+the website's logo … Clicking again on Sources takes me back to the main Sources page also."* Dated ruling:
+`docs/design/DESIGN_RULES.md` §9, 2026-10-19.
+- **The root answers "where did my stuff come from".** Two groups of rows (`SourceIntentGroups`, pure): **Saved by
+  you** — the sources whose items the person saved on purpose (every browser's bookmarks, Pinterest, Reddit, X,
+  Instagram, YouTube, LinkedIn, TikTok, Files & links) — then **Captured for you** (agent conversations, chat exports,
+  messages, calendars, feeds, Notes, folders, open tabs and tab groups). The split is the backend's: every
+  `GET /sources/overview` row carries `intent` (`source_overview.intent_of`, `SAVED_SOURCES`; an unknown origin, a
+  harness and a folder are captured; the ETag's shape moved to `overview-v3`), and an older payload reads as captured.
+  Within a group the newest activity leads. A row (`SourceListRow`, 56 pt, `listRowSurface`) is the bare mark, the
+  brand and one line — what came from it in its own unit and what it is doing ("342 saved · Watching", "204
+  conversations · Captured by hook"; `SourceListText`); a failing source says its failure in `warning` instead, the
+  whole error in `.help`. No sparkline, week-dots, delta or tile (v2's `SourceCardGrid`, `SourceGridColumns` and
+  `SourceGridPacking` are gone).
+- **Statistics, one quiet disclosure.** *Statistics* (collapsed, remembered on the old `cicada.usageMode` key, DR-39)
+  holds *Who wrote your memory* (`ContributorsStrip`, whose chips still open the contributor column) and
+  `AdvancedStatsView`. Both are statistics, so neither sits on the first screen; the contributors are no longer rows
+  of the list and ↑/↓ walks sources only.
+- **Two clicks.** Opening a source narrows the page to the same two groups (`SourceGroupsList`, triage) and opens its
+  detail column. A **saved** source's column is its list: the sync row (Sync now / Last synced, as before) and
+  `CapturedItemsList(style: .saved)` — everything saved from it, newest first, twenty a page with *Show more*
+  (`ChannelItemsCache`, a `LazyVStack`), read from `GET /sources/channels/{id}/items` under the channel, or under the
+  row id for a channel-less import (`SourceOverview.itemsListId`). Its 30-day header card and queue strip stay with
+  captured sources only. Each `SavedItemRow` (56 pt) is the **site's mark**, the title and the day ("Today",
+  "Yesterday", a weekday, "Oct 3"; the full date in `.help`, DR-58), and under them the person's own words from *Ask
+  why*, then the reasons they tapped, then the host (`SavedItemText`). A row opens where a saved item opens (Sleep ›
+  Saved, `CapturedItemRoute`). A bookmark that left the browser keeps its dimmed row and `bookmark.slash` mark.
+- **The site's own mark (owner ruling 2026-10-19).** `SiteIcon(site:savedItem:)`: the row asks
+  `GET /sources/saved/{id}/site-icon` (`SiteIconStore`, one answer per site and bank, misses too), and the backend asks
+  the link's own site — never an icon service (`storage.md`, "A saved link's own site icon"). Until it arrives, or for a
+  site with none: the bundled mark of a known family (LinkedIn, X, Instagram, TikTok, Reddit), else a ring monogram of
+  the site. Never the browser's mark. With `CICADA_ALLOW_LOGO_FETCH=off` every row is its monogram.
+- **Watch history is never a save.** YouTube and TikTok history days are their own captured rows (*YouTube history*,
+  *TikTok history*), headlined by their days ("30 watched days", `SourceOverview.isWatchHistory`), and their detail
+  lists those days by title under the row's own id (`GET /sources/channels/youtube-history/items`, each opening in the
+  Reader); a channel-less saved row counts its saved media pages — the set its list lists — never its episodes
+  (review of #347).
+- **Clicking Sources again returns to the root.** `NavRail` reports a cell tapped while its page shows
+  (`RailReselect`) to `AppRouter.reselect(_:byKey:)`; `SourcesPageView` closes the Reader and the detail together on the
+  columns' curve, instantly when the ⌘ shortcut did it (DR-60).
+- Kept from v2: the eyebrow ("Sources · n connected", "Sources · 2 of 9 · Saved by you"), "Add a source" and *Explore
+  saved sites* in the eyebrow row, the contributor and conversation columns, the Reader as the third column, and every
+  number through `UsageFormat.count`. Tests: `SourcesV3Tests`, `SourcesListTests`; screenshots render offscreen from a
+  demo-bank dump in `SourcesV3RenderTests` (skipped without `SOURCES_V3_RENDER_DIR`).
 
 **Explore saved sites (G166 slice 1, owner 2026-10-14).** A neutral **Explore saved sites** button beside "Add a source"
 in the Sources eyebrow (hidden when the backend answers 404) opens `ExploreSheet`: sites not explored yet or every saved
@@ -837,10 +863,11 @@ Home's Getting started rows use it. `BrowserWatcher`, `TabGroupWatcher` and `Con
 per channel, `cicada.sources.capturedOpen.<channel>`) lists the items that source brought in by their own title and
 day, newest first, twenty at a time with "Show more" (`CapturedItemsList`): under onboarding's Import rows (a preview —
 the rows open nothing there), under every Integrations row, and as the Sources detail column's content for a source
-whose items are not saved links. `GET /sources/channels/{id}/items?offset&limit` (≤ 200; `api/services/channel_items.py`)
+whose items are not saved links (a saved source's column is the same list in its `.saved` style, above).
+`GET /sources/channels/{id}/items?offset&limit` (≤ 200; `api/services/channel_items.py`)
 derives it at read from the same set the row's count means — the notes index, the calendar and tab-group episodes (never
 a tombstoned one), the bookmark seen-set joined to the url index, a channel's media pages, a folder's files — engine-free
-and read-only; titles only (scrubbed, one line), never a body, and for Contacts the matched page's name only. Its
+and read-only; titles only (scrubbed, one line), never a body, and for Contacts the matched page's name only; a saved link's row adds `host` (its bare host, never the URL), `site` (the key its mark is asked under, `reading_hosts.site_of`) and `why` (the newest *Ask why* answer: reason labels and the person's words, one line ≤ 160 characters), read only for the page served. A channel-less saved import (Instagram, YouTube, LinkedIn, TikTok) is listed by its Sources row id. Its
 `total` is its own count, not a promise to equal the row's (a notes index keeps a deleted note). It ETags over
 `sources`+`episodes`+`entities` with the channel and page in `extra`, and is **not** a Store domain: `ChannelItemsCache`
 keeps it in memory, revalidates when the list opens or the channels move, and empties on a bank switch. A row opens its

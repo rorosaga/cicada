@@ -28,6 +28,20 @@ final class AppRouter {
     /// consumes it once it is on screen.
     var pendingSourceDetail: String?
 
+    /// Sources v3 (owner 2026-10-19: "Clicking again on Sources takes me back to the main Sources page") — a rail cell
+    /// clicked while its page already shows, counted per page so the page can return to its root like a tab bar does.
+    /// A page that has no root to return to ignores it.
+    private(set) var reselectCounts: [AppTab: Int] = [:]
+    /// Whether the last reselect came from the ⌘ shortcut — a keyboard action never animates (DR-60).
+    private(set) var lastReselectByKey = false
+
+    func reselect(_ tab: AppTab, byKey: Bool = false) {
+        lastReselectByKey = byKey
+        reselectCounts[tab, default: 0] += 1
+    }
+
+    func reselections(of tab: AppTab) -> Int { reselectCounts[tab] ?? 0 }
+
     /// Sets both fields together — a `pendingAddSource` with no matching
     /// tab-switch would stage a sheet nobody ever sees, since the Sleep page
     /// only consumes it once it's actually on screen. The one-shot import's

@@ -64,6 +64,9 @@ enum SourceBlurb {
         "youtube": "Videos in the YouTube playlists you follow.",
         "linkedin": "Posts you save on LinkedIn, as links with their titles.",
         "tiktok": "Videos you save on TikTok, as links with their captions.",
+        // Sources v3 (review of #347): history rows, never saves (G71, ruling 30).
+        "youtube-history": "What you watched on YouTube — one entry per day, never saved links.",
+        "tiktok-history": "What you watched on TikTok — one entry per day, never saved links.",
         "rss": "New posts from the feeds you subscribed to.",
         "calendar": "Events from the calendars you subscribed to.",
         "telegram": "Messages you send the bot, as notes.",

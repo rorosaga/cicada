@@ -1,8 +1,8 @@
 import Foundation
 import SwiftUI
 
-/// The tile's fixed geometry (R-S1) and the two windows its time bands cover
-/// (R-S3).
+/// The header card's mark and the windows its time bands cover (R-S3). The v2 tile it was written for retired
+/// with Sources v3 (2026-10-19).
 ///
 /// **Every scaled token is a computed `static var`, never a `static let`.**
 /// `static let tileHeight = CicadaTheme.scaled(112)` is evaluated once, lazily,
@@ -11,11 +11,6 @@ import SwiftUI
 /// `CicadaTheme` spells its own tokens `static var spacingMD: CGFloat {
 /// scaled(12) }`. `sparkDays` and `weeks` are pure counts and stay `static let`.
 enum SourceCardMetrics {
-    /// A fixed height is how critique C1 — the "Files & links offset" — stops
-    /// existing: a `LazyVGrid` row is as tall as its tallest card and centres
-    /// the shorter ones vertically, so cards of equal height cannot misalign. It is the whole tile, padding included —
-    /// 128 → 96 (R-DL19, §10: the duplicate "Nothing yet" lines are gone).
-    static var tileHeight: CGFloat { CicadaTheme.scaled(96) }
     /// DR-52 — a bare mark, never on a tinted tile.
     static var markSize: CGFloat { CicadaTheme.scaled(20) }
     /// The sparkline's window, in days, and the dot row's, in weeks. Handed to

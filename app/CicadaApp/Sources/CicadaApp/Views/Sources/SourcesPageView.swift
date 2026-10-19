@@ -1,10 +1,11 @@
 import SwiftUI
 
-/// The Sources page (G124) in progressive columns (Direction D, DS-3c; §10). With nothing open it is Sources v2's grid —
-/// packed 96 pt tiles, who wrote your memory, Advanced statistics; opening a source or an author narrows the page to a
-/// list of rows and opens its detail column; a conversation's Reader is the third column. No prices, no tokens anywhere
-/// (the 2026-09-03 G124 ruling); every value is a projection over `Store` snapshots, and the only on-demand fetches are
-/// the per-source and per-author drill-downs.
+/// The Sources page (G124) in progressive columns (Direction D, DS-3c; §10). Sources v3 (owner 2026-10-19): with
+/// nothing open it answers "where did my stuff come from" — *Saved by you*, then *Captured for you*, as rows, and one
+/// quiet *Statistics* disclosure (who wrote your memory, the counts); opening a source narrows the page to those rows
+/// and opens its detail column — for a saved source, everything saved from it, newest first, each with the site's mark
+/// and why it was saved; a conversation's Reader is the third column. Clicking Sources in the sidebar again returns
+/// here (`AppRouter.reselect`). No prices, no tokens anywhere (the 2026-09-03 G124 ruling).
 struct SourcesPageView: View {
     /// Entity chip → the app's existing entity navigation, threaded from `ContentView` like Ask citations.
     var onSelectEntity: ((String) -> Void)?
@@ -27,16 +28,15 @@ struct SourcesPageView: View {
 
     var body: some View {
         let rows = self.rows
-        let sections = SourceSections.group(rows)
+        let groups = SourceIntentGroups.group(rows)
         let segments = ContributorShare.segments(contributorsVM.contributors)
-        let order = SourcesModel.order(sections: sections,
-                                       authors: segments.filter { !$0.isRemainder }.map(\.author))
+        let order = SourcesModel.order(groups: groups)
         let detailOpen = columns.openId.map {
             SourcesModel.present(rows: rows, contributors: contributorsVM.contributors).contains($0)
         } ?? false
         ProgressiveColumns(hasDetail: detailOpen, hasTrailing: provenance.isPresented,
                            navWidth: ShellMetrics.navWidth(labelled: labelledSidebar)) { plan in
-            EyebrowRow(eyebrow: SourcesModel.eyebrow(sections: sections, open: detailOpen ? columns.openId : nil),
+            EyebrowRow(eyebrow: SourcesModel.eyebrow(groups: groups, open: detailOpen ? columns.openId : nil),
                        horizontalPadding: !detailOpen && !provenance.isPresented ? plan.gutter : CicadaTheme.spacingXL) {
                 // R-S7 / §10 — the way in lives in the eyebrow row at all times, as a neutral button (DR-40).
                 HStack(spacing: CicadaTheme.spacingSM) {
@@ -53,7 +53,7 @@ struct SourcesPageView: View {
                 SourcesOverviewColumn(rows: rows, hasLoaded: store.sourcesOverview.value != nil,
                                       onOpen: { select($0) }, onSelectEntity: onSelectEntity)
             } else {
-                SourcesListColumn(sections: sections, segments: segments, style: plan.listStyle,
+                SourcesListColumn(groups: groups, style: plan.listStyle,
                                   selection: columns.openId, open: { select($0) },
                                   move: { move($0, order: order) }, escape: { escape() })
                     .focused($focus, equals: .list)
@@ -75,6 +75,8 @@ struct SourcesPageView: View {
         // Track Z §7.1 — a Sleep spine's "Open in Sources ›" lands here with the tab switch.
         .onAppear { openPendingSource() }
         .onChange(of: router.pendingSourceDetail) { _, _ in openPendingSource() }
+        // Sources v3 — Sources clicked again in the sidebar: back to the root, like a tab bar.
+        .onChange(of: router.reselections(of: .sources)) { _, _ in popToRoot() }
         .onChange(of: rows.map(\.id)) { _, _ in reconcile() }
         .onChange(of: contributorsVM.contributors.map(\.author)) { _, _ in reconcile() }
     }
@@ -155,6 +157,21 @@ struct SourcesPageView: View {
     private func showList() {
         withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion)) {
             if provenance.isPresented { provenance.close() } else { columns.close() }
+        }
+    }
+
+    /// Sources v3 — the sidebar's Sources clicked while Sources shows: the Reader and the detail close together. A
+    /// pointer click closes on the columns' curve; the ⌘ shortcut never animates (DR-60).
+    private func popToRoot() {
+        guard SourcesModel.popsToRoot(detailOpen: columns.openId != nil, readerOpen: provenance.isPresented) else { return }
+        let change = {
+            provenance.close()
+            columns.close()
+        }
+        if router.lastReselectByKey {
+            Instant.run { change() }
+        } else {
+            withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion)) { change() }
         }
     }
 

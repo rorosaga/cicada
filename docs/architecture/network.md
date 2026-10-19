@@ -33,6 +33,11 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   and injects fetchers instead. It also gates the icons of the sites Settings, Reading the web, lists (G166): those
   come from the icon service only and the login-walled site is never contacted for its favicon (nor, since
   `fetch_logo` skips its first two rungs for a walled host, is a company or tool page's logo domain when it is one).
+  It also gates a saved link's own site icon (owner ruling 2026-10-19): Sources' saved rows ask the backend
+  (`GET /sources/saved/{id}/site-icon`), which asks the link's own registrable domain — `/apple-touch-icon.png`, then
+  `/favicon.ico`, never its HTML and **never an icon service**, so no third party learns what was saved — only when the
+  person opens that list, never from Sleep; same-site hops only, through the SSRF guard, 4 s, ≤ 512 KB streamed, no
+  cookies, a block (401/403/407/451) never retried; hits and misses cached under `logos/<bank>/sites/own/` (`storage.md`).
   It also covers a person's public-profile photo, which has a second, narrower gate of its own:
 - **`CICADA_ALLOW_PERSON_PHOTO_FETCH=off`** (G159 amendment, owner 2026-10-09; on by default, off for the test suite)
   stops every public-profile photo lookup for people while logos keep working. `person_photo` asks only when the app

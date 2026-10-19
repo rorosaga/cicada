@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// One source, as the Sources page's detail column (G124; R-DL19). A harness shows its conversations; every other kind
-/// shows its channel state, folder counts and items. Close × and ⌘[ return to all sources (R15's key, kept) — the same
+/// One source, as the Sources page's detail column (G124; R-DL19). A harness shows its conversations; a saved source
+/// (Sources v3) shows everything saved from it, newest first; every other kind shows its channel state, folder counts
+/// and items. Close × and ⌘[ return to all sources (R15's key, kept) — the same
 /// key the entity card uses on the Graph tab, which is never mounted at the same time as this view; "‹ N sources" leads
 /// the head when DR-27 hid the list.
 ///
@@ -61,8 +62,12 @@ struct SourceDetailView: View {
                 OriginMark(origin: source.mark, size: CicadaTheme.scaled(20)).markHover()
             }
             .padding(.horizontal, CicadaTheme.spacingXL)
-            headerCard
-            SourceQueueStrip(source: source)
+            // Sources v3 — a saved source is its list (the second click lands on what was saved, not on graphs): no
+            // 30-day line, no queue strip; its sync state is the one row atop the list (`ChannelSourceView`).
+            if source.intent == .captured {
+                headerCard
+                SourceQueueStrip(source: source)
+            }
             switch source.kind {
             case .harness:
                 HarnessConversationsView(source: source, onSelectEntity: onSelectEntity)
