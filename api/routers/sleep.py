@@ -29,6 +29,7 @@ from api.models.schemas import (
 from api.services import (
     bank_index,
     episode_copy,
+    folder_source,
     git_service,
     last_cycle,
     sleep_autocontinue,
@@ -51,7 +52,8 @@ from api.services.sleep_cycle import (
     configured_batch_size,
     get_sleep_state,
     is_writing,
-    list_all_episodes,
+    episode_headers,
+    episode_rows,
     progress_pct,
     request_cancel,
     reserve_cycle,
@@ -368,30 +370,56 @@ async def sleep_queue(
     return SleepQueueResponse(total=len(rows), offset=offset, items=rows[offset:offset + limit])
 
 
+#: Bumped when a row of `GET /sleep/episodes` gains a field or changes for the same files (folded into its ETag).
+EPISODES_SHAPE = "episodes-1"
+
+
 @router.get("/sleep/episodes", response_model=list[EpisodeQueueItem])
-async def sleep_episodes(settings: Settings = Depends(get_settings)):
-    """Return every episode (queued + processed), sorted by frontmatter timestamp."""
+async def sleep_episodes(
+    request: Request,
+    response: Response,
+    processed: bool | None = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int | None = Query(None, ge=1, le=1000),
+    settings: Settings = Depends(get_settings),
+):
+    """Episodes in the cycle's chronology, one row each. With no query, every episode (queued + processed) — the
+    original shape, kept for any client that still asks for it. ``processed=false`` is what the Sleep page shows (its
+    Waiting rows and a source's queue strip): only the waiting ones, chosen from the cached headers, so a bank of
+    thousands read episodes costs one directory scan, not a body read each (2026-10-19: 8,237 rows, 4.5 MB, 2.4–3.5 s
+    on every Sleep page load). ``processed=true`` with ``offset``/``limit`` pages the read ones. ``X-Total-Count`` is
+    the filtered total. ETag over ``episodes`` (+ the folder registry a folder file's copy path reads, the query and
+    :data:`EPISODES_SHAPE`); not a Store domain — the app holds the rows and the tag in memory."""
+    mp = settings.memory_path
+    folders = sync_service.file_mtime(folder_source.registry_path(mp))
+    etag = sync_service.etag_for(mp, "episodes",
+                                 extra=f"{EPISODES_SHAPE}|{processed}|{offset}|{limit}|{folders:.6f}")
+    not_modified = sync_service.conditional(request, response, etag)
+    if not_modified is not None:
+        return not_modified
+    headers = episode_headers(mp, processed)
+    response.headers["X-Total-Count"] = str(len(headers))
+    window = headers[offset:offset + limit] if limit is not None else headers[offset:]
+    roots = episode_copy.folder_roots(mp)
     items: list[EpisodeQueueItem] = []
-    roots = episode_copy.folder_roots(settings.memory_path)
-    for ep in list_all_episodes(settings.memory_path):
-        body = (ep.get("body") or "").lstrip()
-        preview = body[:200].strip()
-        fm = ep.get("frontmatter") or {}
-        kind, value = episode_copy.copy_target(fm, ep.get("body") or "", roots)
+    for ep in episode_rows(window):   # a file gone since the listing is skipped, never a 500
+        body = ep["body"]
+        fm = ep["frontmatter"]
+        kind, value = episode_copy.copy_target(fm, body, roots)
         items.append(
             EpisodeQueueItem(
                 id=ep["id"],
-                timestamp=ep.get("timestamp", ""),
-                source=ep.get("source", "unknown"),
-                origin=ep.get("origin", "unknown"),
-                title=ep.get("title"),
-                preview=preview,
-                chars=len(ep.get("body") or ""),
-                processed=ep.get("processed", False),
-                processed_by=ep.get("processed_by"),
+                timestamp=ep["timestamp"],
+                source=ep["source"],
+                origin=ep["origin"],
+                title=ep["title"],
+                preview=body.lstrip()[:200].strip(),
+                chars=len(body),
+                processed=ep["processed"],
+                processed_by=ep["processed_by"],
                 copy_kind=kind,
                 copy_value=value or ep["id"],
-                changed_at=episode_copy.changed_at(fm) or ep.get("timestamp", ""),
+                changed_at=episode_copy.changed_at(fm) or ep["timestamp"],
             )
         )
     return items
