@@ -61,10 +61,11 @@ extension Copy {
         static let showPage = "Show the page"
         static let hidePage = "Hide the page"
 
-        /// "Oct 3 · 2 weeks" — the day and how long ago; a page first heard of today is just its day, never
-        /// "Oct 16 · 0 days" (QA 2026-10-16: the day said twice; DR-38).
+        /// "Oct 3 · 2 weeks" — the day and how long ago; a page first heard of under two weeks ago is just its day,
+        /// never "Oct 18 · 1 day" (QA 2026-10-16 and say it once, 2026-10-19: a span of days beside a recent day is the
+        /// day said twice; DR-38). From two weeks on the span says a length the day does not.
         static func knownSinceValue(_ day: String, days: Int) -> String {
-            days < 1 ? day : "\(day) · \(span(days: days))"
+            days < 14 ? day : "\(day) · \(span(days: days))"
         }
 
         /// How long someone has been in memory — a span in plain units, never a day word (those are `RelativeDay`'s).

@@ -111,7 +111,9 @@ struct SleepPastReads: View {
                              // The status's reason describes the engine the backend last resolved; it is shown only
                              // beside that same engine, never under another cycle's.
                              engineDetail: status?.lastEngine == lastFigures?.engine ? status?.engineDetail : nil,
-                             hasFinishedCycle: lastFigures != nil)
+                             hasFinishedCycle: lastFigures != nil,
+                             engineShownBelow: lastFigures?.engine != nil
+                                 && history.first(where: { $0.kind == "sleep" })?.engine == lastFigures?.engine)
                 .id(DetailsSection.readout.anchorID)
                 .saturation(liveness.saturation)
             ConsolidationHistoryCard(entries: history, details: details, expanded: expanded,

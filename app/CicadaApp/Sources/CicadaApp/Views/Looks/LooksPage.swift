@@ -14,6 +14,8 @@ import UniformTypeIdentifiers
 /// keeps the picture in the bank and embeds it (`api/routers/design.py`) — nothing here decodes or ranks.
 struct LooksPage: View {
     @Environment(Store.self) private var store
+    @Environment(AppRouter.self) private var router: AppRouter?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var cache = LooksCache()
     @State private var query = ""
     @State private var openId: String?
@@ -50,6 +52,14 @@ struct LooksPage: View {
                           })
         }
         .task { await cache.refresh() }
+        // Say it once — Looks clicked again in the rail: the whole board, nothing open, no search.
+        .onRailReselect(.looks, router: router) {
+            router?.popToRoot(reduceMotion: reduceMotion) {
+                openId = nil
+                query = ""
+                cache.clearSearch()
+            }
+        }
         .onChange(of: query) { _, text in if text.isEmpty { cache.clearSearch() } }
         .onChange(of: store.version) { old, new in
             guard LooksRefresh.shouldRevalidate(old: old, new: new) else { return }

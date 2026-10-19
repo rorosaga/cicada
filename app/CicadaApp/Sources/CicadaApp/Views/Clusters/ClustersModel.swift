@@ -91,17 +91,10 @@ enum ClustersModel {
     }
 
     /// DR-25 — "Clusters · 957 entities in 11 groups" / "· Projects · 42 entities" / "· Projects · 3 of 42" / "· 12 matches".
+    /// Say it once (owner 2026-10-19) — "Clusters", plus find's match count (said nowhere else). The tabs carry each
+    /// type's count and the open card says what it is, so the eyebrow repeats neither.
     static func eyebrow(groups: [Group], tab: EntityType?, matches: [Entity]?, openId: String?) -> String {
-        if let matches { return Eyebrow.text(Copy.Lists.clusters, Copy.Lists.matches(matches.count)) }
-        if let tab, let group = groups.first(where: { $0.type == tab }) {
-            if let openId, let i = group.entities.firstIndex(where: { $0.id == openId }) {
-                return Eyebrow.text(Copy.Lists.clusters, tab.groupLabel, Copy.Inbox.position(i + 1, of: group.entities.count))
-            }
-            return Eyebrow.text(Copy.Lists.clusters, tab.groupLabel, Copy.Lists.entities(group.entities.count))
-        }
-        let total = groups.reduce(0) { $0 + $1.entities.count }
-        return Eyebrow.text(Copy.Lists.clusters,
-                            total == 0 ? "" : Copy.Lists.entitiesInGroups(total, groups: groups.count))
+        Eyebrow.text(Copy.Lists.clusters, matches.map { Copy.Lists.matches($0.count) } ?? "")
     }
 
     /// F-11 — a tile's one line in words: the page's Summary, else the graph's preview. Never tags, a percentage or a

@@ -37,6 +37,11 @@ extension Copy {
     /// plan window's share — and a plan's share carries the honest limit that it covers all use.
     enum SleepUsage {
         static let notRecorded = "Usage not recorded"
+        /// Say it once — Past nights' label carries what no row recorded, instead of every row repeating it.
+        static let pastNights = "Past nights"
+        static let usageNotRecordedNote = "usage not recorded"
+        static let timeNotRecordedNote = "time not recorded"
+        static let usageAndTimeNotRecorded = "usage and time not recorded"
         static let noCalls = "No model calls"
         static let ranLocally = "Ran on this Mac"
         static let modelsTitle = "Models"

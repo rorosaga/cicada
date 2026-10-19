@@ -68,17 +68,23 @@ struct InboxReviewView: View {
             end()
             return .handled
         }
-        .onChange(of: viewModel.review?.currentId) { _, _ in
+        .onChange(of: viewModel.review?.currentId) { old, _ in
+            if let old { viewModel.noteDraft(old, "") }
             text = ""
             settleFocus()
         }
+        // Say it once (review of #363) — a half-typed answer keeps the review up when Inbox is clicked again.
+        .onChange(of: text) { _, now in
+            if let id = viewModel.review?.currentId { viewModel.noteDraft(id, now) }
+        }
+        .onDisappear { if let id = viewModel.review?.currentId { viewModel.noteDraft(id, "") } }
         .onAppear { settleFocus() }
     }
 
     private var eyebrow: String {
         guard let review = viewModel.review else { return Copy.Inbox.title }
-        return Eyebrow.text(Copy.Inbox.title, review.kind.title,
-                            review.total == 0 ? "" : Copy.Inbox.Review.position(review.position, of: review.total))
+        // Say it once — the line under the card counts answered, skipped and left; the eyebrow names the review.
+        return Eyebrow.text(Copy.Inbox.title, review.kind.title)
     }
 
     // MARK: The line under the card — progress, Skip, Undo
@@ -205,10 +211,13 @@ struct ReviewCardView: View {
     private var header: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             KindGlyph(kind: item.kind)
-            Text(item.displayName)
-                .font(CicadaTheme.metaFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .lineLimit(1)
+            // Say it once — the question under it already names the page ("Still tracking Beta Project?").
+            if !InboxRowWords.repeats(name: item.displayName, in: ReviewContext.question(item)) {
+                Text(item.displayName)
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .lineLimit(1)
+            }
             Spacer(minLength: CicadaTheme.spacingSM)
             TextButton(title: Copy.Inbox.Review.openInInbox, help: Copy.Inbox.Review.openInInboxHelp,
                        action: onOpenInInbox)
@@ -296,8 +305,12 @@ enum ReviewContext {
         case .decay:
             let said = item.subject?.lastSaid ?? item.options.first { $0.key == ReviewCard.keepKey }?.lastReferenced
             let day = ReviewCard.day(said, locale: locale, timeZone: timeZone)
-            let age = InboxAge.days(since: said, now: now).map { InboxAge.phrase(days: $0) }
-            var out = [Copy.Inbox.Review.lastSaid(day: day, age: age)]
+            let days = InboxAge.days(since: said, now: now)
+            // Say it once (owner 2026-10-19) — the day or its age, never both: this week reads "today" / "3 days
+            // ago", anything older its date ("Oct 19, 2026 · today" was one fact twice).
+            let recent = days.map { $0 < 7 } ?? false
+            let age = recent ? days.map { InboxAge.phrase(days: $0) } : nil
+            var out = [Copy.Inbox.Review.lastSaid(day: recent ? nil : day, age: day == nil || recent ? age : nil)]
             if let subject = item.subject { out.append(Copy.Inbox.Review.conversations(subject.conversations)) }
             return out
         case .normalization:
