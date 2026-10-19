@@ -137,6 +137,13 @@ final class SleepViewModel {
     /// Defaults to the real `PUT /sleep/schedule` call.
     private let putSchedule: (ScheduleConfig) async throws -> ScheduleConfig
 
+    /// Injectable, same reasoning as `fetchSleepStatus`: `load()` (which the poll loop's close-out awaits before
+    /// `onCycleCompleted`) was the last path in this view model that always reached the live backend, so a unit
+    /// test's timing depended on how long the running bank took to list its episodes. Defaults to the real
+    /// `GET /sleep/episodes` and `GET /sleep/schedule` calls.
+    private let fetchEpisodes: () async throws -> [EpisodeQueueItem]
+    private let fetchSchedule: () async throws -> ScheduleConfig
+
     /// True from the moment `cancel()` is called until the poll loop
     /// observes the cycle has actually stopped (whether because of the
     /// cancel or otherwise) — cooperative cancellation means the backend
@@ -208,8 +215,16 @@ final class SleepViewModel {
         },
         fetchRun: @escaping (String) async throws -> SleepRunDetail = {
             try await APIClient.shared.fetchSleepRun($0)
+        },
+        fetchEpisodes: @escaping () async throws -> [EpisodeQueueItem] = {
+            try await APIClient.shared.fetchEpisodeQueue()
+        },
+        fetchSchedule: @escaping () async throws -> ScheduleConfig = {
+            try await APIClient.shared.fetchSchedule()
         }
     ) {
+        self.fetchEpisodes = fetchEpisodes
+        self.fetchSchedule = fetchSchedule
         self.requestEnd = requestEnd
         self.requestRetry = requestRetry
         self.fetchRunOptions = fetchRunOptions
@@ -278,8 +293,8 @@ final class SleepViewModel {
         }
 
         async let statusTask = fetchSleepStatus()
-        async let episodesTask = APIClient.shared.fetchEpisodeQueue()
-        async let scheduleTask = APIClient.shared.fetchSchedule()
+        async let episodesTask = fetchEpisodes()
+        async let scheduleTask = fetchSchedule()
         // `loadHistory()` does its own guarding against `loadToken` (reading,
         // never bumping, it — only `load()` mints a new generation) rather
         // than being raced through a fourth do/catch here, so it can also be
