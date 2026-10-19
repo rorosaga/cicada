@@ -15,39 +15,31 @@ Precedence, and the reason for each rung:
      Sleep tests pass) — so a UI choice can promote the configured mode
      exactly as if it had been typed into ``api/.env``, without a second,
      independent registry read anywhere else in this module.
-  3. ``"auto"`` — the Claude plan if it probes connected, else the ChatGPT
-     plan if it is signed in (R-E20), else Ollama if it is running, else the
-     configured API model.
-  4. ``"byok"`` (the shipped default, i.e. nobody chose) — defers to the
-     ``use_for_sleep`` pref — once the Claude card's **Use for Sleep** toggle,
-     now Settings → Engines' "Use my Claude plan when I start a cycle", shown
-     only under the API key card because this is the only rung that reads it
-     (G139 final review) — so flipping a switch in the app picks the engine
-     without editing a dotfile. With no toggle set this is
-     exactly today's behaviour, so every existing install is unchanged.
+  3. ``"auto"`` — the shipped default since 2026-10-19 (owner: "OpenRouter, eliminate it as the default … the
+     defaults now are either the Claude plan or the Codex/ChatGPT plan"): the Claude plan if it probes connected,
+     else the ChatGPT plan if it is signed in (R-E20), else Ollama if it is running — else NO engine
+     (``NO_ENGINE``), never a metered API key by itself. A resolved copy then carries ``no_engine_reason`` and every
+     call built from it refuses before it is made (``providers.resolve_llm_fn``).
+  4. ``"byok"`` — the person CHOSE an API key (``CICADA_LLM_MODE=byok`` or the picker): it defers to the
+     ``use_for_sleep`` pref — once the Claude card's **Use for Sleep** toggle, now Settings → Engines' "Use my
+     Claude plan when I start a cycle", shown only under the API key card because this is the only rung that reads
+     it (G139 final review) — and otherwise reads with the key.
 
-Trigger scope (spec §7, fix round 1 H1/H2): the toggle/auto resolution paths
-(anything that can pick "agent" without an explicit ``CICADA_LLM_MODE=agent``)
-are **user-triggered only**. ``resolve_llm_mode``/``resolve_settings`` take a
-``user_triggered`` flag — ``POST /sleep/trigger`` passes ``True`` (the
-default), the nightly cron (``sleep_scheduler._run_if_idle``) passes
-``False``. A scheduled cycle degrades straight to byok, before ever touching
-the registry, regardless of the toggle — "the scheduler stays on the existing
-engine selection" per spec §7, and `Copy.sleepEngineExplainer` promises
-exactly that ("never on the nightly schedule"). An explicit
-``CICADA_LLM_MODE=agent``/``local`` still wins on a scheduled cycle: that is
-deliberate dotfile configuration, unaffected by who pressed Run — spec §7's
-"existing engine selection" the scheduler keeps.
+Trigger scope (spec §7, fix round 1 H1/H2; ruling 4): ``resolve_llm_mode``/``resolve_settings`` take a
+``user_triggered`` flag — ``POST /sleep/trigger`` passes ``True`` (the default), the nightly cron
+(``sleep_scheduler._run_if_idle``) passes ``False``. On a scheduled cycle a plan rung (a Settings-chosen ``agent`` or
+``codex``, Auto's plan rungs, the Claude toggle) opens only through the person's switch (ruling 4b, below). With it off
+the schedule never touches a plan's probe; it gets the local model, a key the person chose, or — 2026-10-19 — no engine
+(``SCHEDULE_DEGRADED``), never a metered key by itself. An explicit ``CICADA_LLM_MODE=agent|codex|local`` still wins on
+a scheduled cycle: deliberate dotfile configuration, unaffected by who pressed Run.
 
-Ruling 4 covers BOTH plans (spec Decision 3, R-E20): a Settings-chosen mode in
-``SUBSCRIPTION_MODES`` (``agent``, ``codex``) degrades to byok on a schedule,
-and so does every auto/toggle rung. ``CICADA_LLM_MODE=codex`` is dotfile
-configuration exactly as ``=agent`` is, and runs on a schedule.
+Ruling 4 covers BOTH plans (spec Decision 3, R-E20), through one tuple: ``SUBSCRIPTION_MODES``.
 
 Ruling 4b (owner, 2026-10-16: "The server should be allowed to use plans too. Just have to set them up somehow"):
-the machine's explicit, off-by-default "Scheduled runs may use my plan" switch (``sleep_run_prefs``) opens the
-plans (``SCHEDULE_PLAN_MODES``: Claude and, owner same day, "Yeah chat too", ChatGPT) on a schedule: a scheduled run
-then resolves exactly as one the person starts would. It is the guard's only other door.
+the machine's "Scheduled runs may use my plan" switch (``sleep_run_prefs``) opens the plans
+(``SCHEDULE_PLAN_MODES``: Claude and, owner same day, "Yeah chat too", ChatGPT) on a schedule: a scheduled run
+then resolves exactly as one the person starts would. It is the guard's only other door. Amended 2026-10-19 (owner:
+"Make scheduled runs run on the plan by default"): the switch is ON unless the person turned it off.
 """
 from __future__ import annotations
 
@@ -73,6 +65,12 @@ SLEEP_ENGINE_PREF_KEY = "sleep-engine"
 # generalised before the mode became selectable; it became selectable in the
 # same change that put it under ruling 4's guard (Task 4, SUBSCRIPTION_MODES).
 ENGINE_LABELS = {"agent": "claude-cli", "codex": "codex-cli", "local": "ollama", "byok": "litellm"}
+#: The engine label of a resolved copy whose selection found nothing it may use (ruling 2026-10-19: Auto never falls
+#: to a metered key by itself). Never stamped on a call: every call from such a copy refuses first.
+NO_ENGINE_LABEL = "none"
+#: Why a resolved Auto has no engine (a person-started run, or a scheduled one whose plan is open).
+NO_ENGINE = ("no Sleep engine chosen — no plan is signed in, the local model isn't running, and an API key is used "
+             "only when you choose it")
 
 #: Engine label → (connection id, billing) for the two plan engines — the one
 #: map every site that used to test the literal "claude-cli" reads now
@@ -96,8 +94,28 @@ def engine_label(settings: Settings) -> str:
     rather than raising ``AttributeError``, mirroring
     ``sleep_cycle._engine_label``'s own guard.
     """
+    if no_engine(settings):
+        return NO_ENGINE_LABEL
     mode = (getattr(settings, "llm_mode", None) or "byok").strip().lower()
     return ENGINE_LABELS.get(mode, "litellm")
+
+
+def no_engine(settings) -> bool:
+    """A resolved copy whose engine selection found nothing it may use (``resolve_settings``): no plan, no local
+    model, and no API key the person chose. Every engine call built from it refuses before it is made."""
+    return bool(str(getattr(settings, "no_engine_reason", "") or "").strip())
+
+
+def no_engine_sentence(why: str | None) -> str:
+    """What a run with no engine says, in words, with the fix — naming the scheduled-plan switch when it is the
+    reason (ruling 4b). Provider-neutral."""
+    if why == SCHEDULE_DEGRADED:
+        return ("Scheduled runs have no engine they may use: your plan is off for scheduled runs (“Scheduled runs may "
+                "use my plan” in Settings → Sleep), no local model is running, and an API key is used only when you "
+                "choose it as Sleep's engine. What was waiting is still waiting.")
+    return ("No engine to read with: no plan is signed in, the local model isn't running, and an API key is used only "
+            "when you choose it. Connect your plan, or choose an engine in Settings → Engines. What was waiting is "
+            "still waiting.")
 
 
 def shown_model(settings) -> str:
@@ -105,6 +123,8 @@ def shown_model(settings) -> str:
     (``DrainState.engine_shown``), one rule so the two compare. Unlike :func:`author_model` (provenance), a
     local engine shows its own model and an unpicked ChatGPT-plan model reads as the plan's default."""
     engine = engine_label(settings)
+    if engine == NO_ENGINE_LABEL:
+        return ""
     if engine == "claude-cli":
         from api.services import agent_engine
 
@@ -150,7 +170,8 @@ SUBSCRIPTION_MODES = ("agent", "codex")
 
 #: Ruling 4b (owner, 2026-10-16: "The server should be allowed to use plans too"; on the ChatGPT plan: "Yeah chat
 #: too"): the plan modes the person's explicit switch — Settings → Sleep's "Scheduled runs may use my plan",
-#: ``cicada sleep schedule --use-plan on``, stored as ``sleep_run_prefs.scheduled_use_plan`` — may open on a schedule:
+#: ``cicada sleep schedule --use-plan on|off``, stored as ``sleep_run_prefs.scheduled_use_plan``, on unless turned off
+#: (2026-10-19) — may open on a schedule:
 #: both plans, each only when it is the engine the person's own choice resolves to and it is signed in. The switch is
 #: the guard's only door besides an explicit ``CICADA_LLM_MODE``.
 SCHEDULE_PLAN_MODES = ("agent", "codex")
@@ -161,16 +182,15 @@ SCHEDULE_DEGRADED = "scheduled cycle — Sleep engine selection is user-triggere
 
 
 def scheduled_plan_allowed(registry) -> bool:
-    """The machine's "Scheduled runs may use my plan" switch (ruling 4b). Off when unset, unreadable or not ``True``
-    — never a reason to spend a plan on a schedule."""
-    if registry is None:
-        return False
+    """The machine's "Scheduled runs may use my plan" switch (ruling 4b, amended 2026-10-19: on by default). On when
+    unset — a new install, a machine that never chose — and off only on the person's explicit off (or a hand-edited
+    value that is not a boolean, ``sleep_run_prefs.load``)."""
     from api.services import sleep_run_prefs
 
     try:
         return sleep_run_prefs.load(registry).scheduled_use_plan
-    except Exception:  # noqa: BLE001 — a corrupt prefs file reads as off
-        return False
+    except Exception:  # noqa: BLE001 — ``load`` never raises; a stand-in that does reads as the default
+        return sleep_run_prefs.RunOptions().scheduled_use_plan
 
 
 def _schedule_may_use(mode: str, registry) -> bool:
@@ -240,10 +260,12 @@ def powered_connection_id(settings, registry, connected_ids) -> str | None:
     if mode in direct:
         return direct[mode] if direct[mode] in connected else None
     if mode == "auto":
+        # Ruling 2026-10-19: Auto never reaches a metered key by itself — nothing on the ladder connected, nothing powers.
         for connection_id in _AUTO_LADDER:
             if connection_id in connected:
                 return connection_id
-    elif registry is not None and use_for_sleep(registry) and CLAUDE_CONNECTION_ID in connected:
+        return None
+    if registry is not None and use_for_sleep(registry) and CLAUDE_CONNECTION_ID in connected:
         return CLAUDE_CONNECTION_ID
     from api.services import telemetry
 
@@ -459,7 +481,9 @@ async def resolve_llm_mode(
         # untouched by trigger source (unchanged from before G122).
         if configured in SUBSCRIPTION_MODES and not env_explicit and not user_triggered:
             if not _schedule_may_use(configured, registry):
-                return "byok", SCHEDULE_DEGRADED
+                # Ruling 2026-10-19: the person chose a plan, not a key — a schedule the plan is closed to has no
+                # engine, never the metered key by itself.
+                return "auto", SCHEDULE_DEGRADED
             return configured, "scheduled runs may use your plan (Settings → Sleep)"
         return configured, (
             f"CICADA_LLM_MODE={configured}" if env_explicit
@@ -481,63 +505,59 @@ async def resolve_llm_mode(
     if not hasattr(settings, "model_copy"):
         return "byok", "no Sleep engine chosen — using the configured API model"
 
-    # Fix round 1, H1/H2: the toggle/auto rungs are user-triggered only
-    # (spec §7) — a scheduled cycle must never spend plan quota unattended,
-    # matching what `Copy.sleepEngineExplainer` promises. Explicit
-    # agent/local (above) is deliberate dotfile config and is untouched by
-    # trigger source — that's "the existing engine selection" spec §7 says
-    # the scheduler keeps.
-    if registry is None and not user_triggered:
-        from api.services.connections.registry import get_registry
-
-        registry = get_registry(settings)
-    # Ruling 4b: with the person's switch on, a scheduled run walks the same ladder a run they start would, minus
-    # every plan the switch does not open (`_schedule_may_use`).
-    if not user_triggered and not _schedule_may_use("agent", registry):
-        return "byok", SCHEDULE_DEGRADED
-
     # Fix round 1, L3: an unrecognized ``llm_mode`` (a typo, or a future
-    # value this module doesn't know yet) must degrade to byok WITHOUT ever
-    # touching the registry — never silently escalate an unrecognized
-    # string into the agent rung just because it isn't literally "byok".
+    # value this module doesn't know yet) must never silently escalate into
+    # the agent rung — and (2026-10-19) never into a metered key either: no
+    # engine, said in words, before the registry is ever touched.
     if configured not in ("byok", "auto"):
-        return "byok", f"unrecognized CICADA_LLM_MODE={configured!r} — using the configured API model"
+        return "auto", f"unrecognized CICADA_LLM_MODE={configured!r} — choose an engine in Settings → Engines"
 
     if registry is None:
         from api.services.connections.registry import get_registry
 
         registry = get_registry(settings)
 
-    prefer_claude = use_for_sleep(registry)
-    if configured == "byok" and not prefer_claude:
-        return "byok", "no Sleep engine chosen — using the configured API model"
-
-    claude = await _connected(registry, CLAUDE_CONNECTION_ID)
-    if claude is None:
-        return "byok", "could not probe the Claude plan — using the configured API model"
-    if claude:
-        if not user_triggered:
-            return "agent", "scheduled runs may use your plan (Settings → Sleep)"
-        return "agent", (
-            "Claude plan is set as the Sleep engine" if prefer_claude
-            else "Claude plan connected — running Sleep on your plan"
-        )
     if configured == "byok":
+        # The person chose an API key (the env pin or the picker). Fix round 1, H1/H2 + ruling 4b: the Claude toggle
+        # below is a plan, so a scheduled run reaches it only through the switch; without it, the chosen key.
+        chose = "CICADA_LLM_MODE=byok" if env_explicit else "Sleep engine set to an API key in Settings"
+        if not user_triggered and not _schedule_may_use("agent", registry):
+            return "byok", SCHEDULE_DEGRADED
+        prefer_claude = use_for_sleep(registry)
+        if not prefer_claude:
+            return "byok", chose
+        claude = await _connected(registry, CLAUDE_CONNECTION_ID)
+        if claude:
+            if not user_triggered:
+                return "agent", "scheduled runs may use your plan (Settings → Sleep)"
+            return "agent", "Claude plan is set as the Sleep engine"
         # Only the use_for_sleep switch (Engines, under API key) reaches here, and that
         # toggle is Claude-only (R-E20) — never a reason to reach for ChatGPT.
-        return "byok", "Claude plan is not connected — using the configured API model"
+        if claude is None:
+            return "byok", "could not probe the Claude plan — using the API key you chose"
+        return "byok", "Claude plan is not connected — using the API key you chose"
 
-    # configured == "auto" from here. R-E20: the ChatGPT plan is the second
-    # rung; a probe that fails (None) falls through to Ollama — the second
-    # rung must not abort the ladder the way an unprobeable FIRST rung does.
-    codex_open = user_triggered or _schedule_may_use("codex", registry)   # ruling 4b: only through the switch
-    codex = await _connected(registry, CODEX_CONNECTION_ID) if codex_open else False
-    if codex:
-        return "codex", "ChatGPT plan signed in — running Sleep on your ChatGPT plan"
+    # configured == "auto" from here — the default (2026-10-19). R-E20's ladder: the Claude plan, the ChatGPT plan,
+    # Ollama; a plan is open to a scheduled run only through the person's switch (ruling 4b). A rung whose probe fails
+    # (None) falls through to the next, as an unconnected one does; the ladder never ends on a metered key.
+    claude_open = user_triggered or _schedule_may_use("agent", registry)
+    codex_open = user_triggered or _schedule_may_use("codex", registry)
+    if claude_open:
+        claude = await _connected(registry, CLAUDE_CONNECTION_ID)
+        if claude:
+            if not user_triggered:
+                return "agent", "scheduled runs may use your plan (Settings → Sleep)"
+            return "agent", "Claude plan connected — running Sleep on your plan"
+    if codex_open:
+        codex = await _connected(registry, CODEX_CONNECTION_ID)
+        if codex:
+            return "codex", "ChatGPT plan signed in — running Sleep on your ChatGPT plan"
     ollama = await _connected(registry, OLLAMA_CONNECTION_ID)
     if ollama:
         return "local", "Ollama is running — using the local engine"
-    return "byok", "No plan is signed in and Ollama isn't running — using the configured API model"
+    if not (claude_open or codex_open):
+        return "auto", SCHEDULE_DEGRADED
+    return "auto", NO_ENGINE
 
 
 async def resolve_settings(
@@ -582,6 +602,9 @@ async def resolve_settings(
     updates: dict = {}
     if mode != configured:
         updates["llm_mode"] = mode
+    if mode == "auto":
+        # Nothing on the ladder may read (ruling 2026-10-19): the copy refuses every call, saying why.
+        updates["no_engine_reason"] = no_engine_sentence(why)
     if not env_explicit:
         updates.update(_model_overrides(registry, mode))
         if _prefs_allow_overage(registry):

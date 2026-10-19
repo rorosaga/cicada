@@ -832,9 +832,10 @@ settled with a cited claim and moved to `inbox/settled/` (features.md). **Gate:*
 demo bank never. **Engine (ruling 4):** resolved lazily, only when there is something to look up: a person-started run
 on the Claude plan gets one `claude -p` whose ONE tool is the plan's web search (`--tools WebSearch --allowedTools
 WebSearch`, `agent_engine.ALLOWED_TOOLS`); a scheduled run uses the Claude plan's search only when the person let
-scheduled runs use their plan (ruling 4b, `engine_select.scheduled_plan_allowed`) — never on an explicit
+scheduled runs use their plan (ruling 4b, `engine_select.scheduled_plan_allowed`, on by default since 4c) — never on an explicit
 `CICADA_LLM_MODE` pin alone — and a metered engine whose model litellm lists with web search uses the provider's own search
-(`web_search_options: {search_context_size: low}`, one search) at its price, scheduled or not, **only on a provider
+(`web_search_options: {search_context_size: low}`, one search) at its price, scheduled or not — when the person chose it
+(ruling 31; a resolved Auto with no engine skips with `no_engine`) — **only on a provider
 whose searches litellm reports with their query** (`web_lookup.SEARCH_REPORTED_PROVIDERS`: Anthropic, whose
 `server_tool_use` comes back as a `web_search` tool call). Any other metered engine — OpenRouter (the router bills, so
 `openrouter/anthropic/…` counts as OpenRouter), OpenAI's search models, Gemini, xAI — skips with `search_unreported`
@@ -854,10 +855,24 @@ evidence span or first mention, then the page's latest conversations), ≤ 600 c
 too, and a person held without a page) replaced by "someone" — whole words, any case, the full name and each word of it (a word of the subject's own name
 aside); each line is cleaned whole before it is cut, so a cut never leaves half a name or a code without its cue. It is never searched for; the same engine read those conversations during Sleep. **Order:**
 clarifications first, then conflicts with a mention line, then the rest — each by priority, then age
-(`web_lookup.select`). **The dry run:** `api/scripts/web_check_dry_run.py --bank <path> --limit N [--include-recent]`
-(`web_lookup.dry_run`) runs the person's engine, as a person-started run would, on the next N and prints counts only
-(eligible, looked up, would settle, prompts with mentions/description, bare-name queries, reasons by kind); it writes
-nothing — no settle, no memo, no ledger row (a no-op usage sink), no commit. An unsure or uncited answer settles nothing either; a type question's single option without
+(`web_lookup.select`). **On every plan run (ruling 27b, owner 2026-10-19: "That's not what the inbox is for"):** with
+the scheduled-plan switch on by default (4c), a scheduled run looks up on the plan's search too. **The sweep:** the
+backlog already open gets a one-off pass the person starts — `POST /inbox/web-check?dryRun=true|false[&limit=N]
+[&includeRecent=true]`, `GET /inbox/web-check` for its counts (`web_lookup.sweep`): the same eligibility, query, local
+context and citation, on the engine a run the person starts would use (the connector gate reported, never applied — a
+person's start is never gated); every eligible question, not eight; one lookup at a time with the model call outside any
+lock, each settle under the bank's write admission and page lock with its own `Web check` commit
+(`web_lookup._settle_admitted`; an edit already on the page committed apart first), undoable under "Settled by a
+check"; it stops when Sleep starts, on a plan limit, or after three engine failures in a row; 409 while Sleep, a tidy
+or another sweep runs, and `/sleep/status`'s `inboxTidy` is true while it runs so an updater waits. **The dry run:**
+`api/scripts/web_check_dry_run.py --bank <path> [--census | --limit N] [--include-recent]` (`web_lookup.sweep` with
+`dry_run=True`) prints counts only: the census (`web_settle.census` — per kind, how many are `public`, `repo_state`, or
+stay and why: `person`, `person_context`, `private_type`, `own_settings`, `no_page` …), then, unless `--census`, the
+person's engine on up to N of them (eligible, looked up, would settle, reasons by kind); it writes nothing — no settle,
+no memo, no ledger row (a no-op usage sink), no commit. **Who the description says it is:** Stage 1's way of naming the
+speaker ("the user mentioned it", "the person's") is taken out before the person cues read a page-less subject's
+description (`web_settle.person_context`), and a description that says the subject is the speaker's own (built by the
+user, the user's project or file, their own) keeps it home. An unsure or uncited answer settles nothing either; a type question's single option without
 `others_ruled_out: true` settles nothing (`not_exclusive`), and an option the item lacks never does (`no_option`). A question looked up and left open is not looked
 up again for 30 days (`$CICADA_HOME/web_check/<bank>.json`, ids and enums). A page or item someone left dirty waits. A
 plan limit stops the step (the rest waits for the next run); a drain stopped at the plan's limit skips it. One commit,
@@ -896,7 +911,12 @@ writes, Stages 5.5–5.56, 5.6, 5.7 and the processed flags each run in `asyncio
 request — `GET /sleep/status` measured at ~4 s on a synthetic 3,600-page bank and ~11 s on the owner's — for as long as
 they ran; `entity_resolver._name_tokens` is memoised for the same reason) (`Sleep cycle <date> (batch k of n)`, `sleep_run` refs gain `drain_id`/`batch`/`batches`, ids and
 ints only), so a cancel or a plan stop loses at most the batch in progress and the next Consolidate continues with what is
-left. A plan limit (`EngineThrottled`/`Exhausted`/`Overage`, the breaker tripped by a swallowed per-episode throttle, or the
+left. **No engine (ruling 31, owner 2026-10-19: "the defaults now are either the Claude plan or the Codex/ChatGPT
+plan"):** the shipped `llm_mode` is `auto` — the Claude plan, the ChatGPT plan, a running local model — and when none
+of them may read (and no API key was chosen) the resolved copy carries `no_engine_reason`; the batch stops before
+Stage 1 with that sentence and its fix (reason `engine`, nothing read, nothing spent, the queue intact), and every call
+built from such a copy anywhere (Ask, the link backfill, a rebuild) refuses before it is sent
+(`providers.resolve_llm_fn`). A plan limit (`EngineThrottled`/`Exhausted`/`Overage`, the breaker tripped by a swallowed per-episode throttle, or the
 ChatGPT pre-flight's used-up sentence, whose snapshot `resets_at` rides along via `codex_engine.last_limit_resets_at`) is a **pause, not a failure**: the vendor's own sentence and reset time
 (`agent_engine.breaker_resets_at`) ride `drain.stop`, `error` stays null, and the run does **not** continue itself after the
 reset unless the person switched on *Continue after a plan reset* (off by default, ruling 15, below) — otherwise the person presses Continue. A cancel is the
@@ -950,16 +970,19 @@ auth or quota matching; a timeout stays a timeout despite an unrelated unsupport
 An id another writer marked processed meanwhile is `skipped`, and a bank switch between batches stops the run (`bank_switched`; `activate`, `demo`,
 `leave-demo` and the active bank's rename answer **409** while `SleepState.drain_run`). **A scheduled cycle drains too**
 (ruling 16: both scheduler entry points pass `drain=True`) but with `user_triggered=False`, so automatic engine
-selection never chooses a plan (ruling 4) **unless the person turned on "Scheduled runs may use my plan"** (ruling 4b,
-2026-10-16: `sleep_run_prefs.scheduled_use_plan`, machine-wide, off by default; `PUT /sleep/run-options
-{"scheduledUsePlan"}`, Settings → Sleep, `cicada sleep schedule --use-plan on|off`). With it on, a scheduled run
+selection chooses a plan (ruling 4) **only through "Scheduled runs may use my plan"** (ruling 4b, 2026-10-16:
+`sleep_run_prefs.scheduled_use_plan`, machine-wide; `PUT /sleep/run-options {"scheduledUsePlan"}`, Settings → Sleep,
+`cicada sleep schedule --use-plan on|off`) — **on unless the person turned it off** (ruling 4c, owner 2026-10-19: "Make
+scheduled runs run on the plan by default"; an off is stored as `false` so it outlives the default, a machine that never
+chose reads as on). With it on, a scheduled run
 resolves exactly as one the person starts would — the Claude or the ChatGPT plan, each only when it is the chosen
 engine and signed in (`engine_select.SCHEDULE_PLAN_MODES`, the switch being `SUBSCRIPTION_MODES`' only door besides
 the dotfile pin) — and drains like any scheduled run; its plan-limit pause (`plan_window`, `plan_weekly`) is the
 schedule's to replace once the limit has reset (the vendor's `resets_at`, else after `ENGINE_RETRY_S`), since on a
 server nobody presses Continue; extra usage stays the person's, and continue-after-reset (ruling 15) still never arms
 from a scheduled run. The dotfile pin keeps its one batch (ruling 16); on a metered engine it spends until the queue is empty, with no limit Cicada sets, and the engine menu and Details
-say so in words. The default scheduled BYOK/local selection is unchanged; an explicit `CICADA_LLM_MODE` CLI
+say so in words. With the switch off, a plan the person chose — or Auto's plan rungs — gives a scheduled run no engine
+(`SCHEDULE_DEGRADED`), never the metered key by itself (ruling 31); a key the person chose still reads; an explicit `CICADA_LLM_MODE` CLI
 override also reaches the transient retry/pause policy. Such a scheduled engine pause is eligible for replacement
 by a fresh unattended run only after six hours (`sleep_paused.ENGINE_RETRY_S`), rather than the next scheduler tick.
 **Before the freeze:** every run that holds the bank first marks what is only ever looked up as read — watch

@@ -1,16 +1,22 @@
-"""Measure the web check on a bank without writing anything (owner brief, 2026-10-16; ``web_lookup.dry_run``).
+"""Measure the web check on a bank without writing anything (owner brief, 2026-10-16; the sweep, owner ruling
+2026-10-19: ``web_lookup.sweep``).
 
-    api/.venv/bin/python -m api.scripts.web_check_dry_run --bank <path> --limit 8
-    api/.venv/bin/python -m api.scripts.web_check_dry_run --bank <path> --limit 8 --include-recent
+    api/.venv/bin/python -m api.scripts.web_check_dry_run --bank <path> --census          # no engine call at all
+    api/.venv/bin/python -m api.scripts.web_check_dry_run --bank <path> --limit 20
+    api/.venv/bin/python -m api.scripts.web_check_dry_run --bank <path> --limit 20 --include-recent
 
-Runs the engine the person chose — as a person-started Sleep would, so the Claude plan's own web search when that is the
-engine (ruling 4 binds a scheduled run; this is the person's command) — on the next ``--limit`` questions the web check
-would look up, and prints one JSON object of COUNTS: how many were eligible, looked up, would have settled, how many
-prompts carried a mention line or a description, how many queries were a bare name, and the reasons by kind
-(``clarification``, ``conflict``, ``type_conflict``). Never an item id, a name, a query, a link or a quote. It writes
-nothing: no settle, no commit, no memo row, no ledger row. ``--include-recent`` also re-measures questions a run looked
-up in the last 30 days. The bank is named explicitly; nothing is resolved from the active bank. Exit 0 done, 2 not a
-bank.
+Prints one JSON object of COUNTS. Always the census: per kind, how many open questions a lookup may answer
+(``public``), a trusted local agent may (``repo_state``), or stay for the person and why (``person``,
+``private_type``, ``own_settings``, ``no_page`` …). Then — unless ``--census`` — it runs the engine the person chose,
+as a run they start would (their Claude plan's own web search when that is the engine), on up to ``--limit`` of the
+eligible questions and counts how many were looked up and would settle, with the reasons by kind (``clarification``,
+``conflict``, ``type_conflict``). Never an item id, a name, a query, a link or a quote. It writes nothing: no settle,
+no commit, no memo row, no ledger row. ``--include-recent`` also re-measures questions a run looked up in the last 30
+days. The bank is named explicitly; nothing is resolved from the active bank. Exit 0 done, 2 not a bank.
+
+The real sweep is the running backend's own route (it holds the bank's write admission and Sleep's window, ruling
+21a): ``POST /inbox/web-check?dryRun=false[&limit=N]`` with the token, then ``GET /inbox/web-check`` for its counts;
+each settle is undoable under "Settled by a check".
 """
 from __future__ import annotations
 
@@ -27,6 +33,7 @@ def main(argv=None) -> int:
     parser.add_argument("--limit", type=int, default=8, help="look up at most this many questions (default 8)")
     parser.add_argument("--include-recent", action="store_true",
                         help="also re-measure questions looked up in the last 30 days")
+    parser.add_argument("--census", action="store_true", help="count what a lookup may answer; no engine call")
     args = parser.parse_args(argv)
     bank = Path(args.bank).expanduser().resolve()
     if not (bank / "entities").is_dir() or not (bank / "inbox").is_dir():
@@ -36,7 +43,8 @@ def main(argv=None) -> int:
     from api.config import Settings
     from api.services import web_lookup
 
-    counts = asyncio.run(web_lookup.dry_run(bank, Settings(), limit=args.limit, include_recent=args.include_recent))
+    counts = asyncio.run(web_lookup.sweep(bank, Settings(), dry_run=True, limit=0 if args.census else args.limit,
+                                          include_recent=args.include_recent))
     print(json.dumps(counts, sort_keys=True))
     return 0
 

@@ -25,6 +25,9 @@ words are already the question's cause or one option's evidence).
   words of the person's on it): archived;
 * ``conflict`` — the newest dated statement settles it (single-valued, one option said strictly later than every
   other, never a machine claim over the person's own);
+* ``conflict`` / ``clarification`` about Cicada's OWN settings — its engine, its schedule, whether scheduled runs use
+  the plan (``web_settle.own_settings``; owner 2026-10-19) — retired as ``own_settings`` (no claim touched): the system
+  knows them and Settings shows them, so they are never asked;
 * everything else — a clarification, a follow-up, a proposed edit — stays for the person (move 1 aside).
 
 Never a question about who a person is, or merging two people, without the person's own words on the record (move 1).
@@ -101,10 +104,11 @@ RULES: dict[str, str] = {
     "said_on_record": "You already said this in an earlier conversation",
     "in_passing": "Mentioned once in passing; nothing ties it to your life",
     "newest_words": "Your newest words on it say this",
+    "own_settings": "About Cicada's own settings, which Cicada already knows: Settings shows them",
 }
 #: The rules that read only the bank: re-run inside each settle, which goes ahead only when they still agree.
 ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "one_off", "newest_evidence",
-                         "multi_valued", "in_passing", "newest_words"})
+                         "multi_valued", "in_passing", "newest_words", "own_settings"})
 #: The judged kinds (owner, 2026-10-17: the inbox keeps only what genuinely needs the person).
 JUDGED_KINDS = frozenset({"merge_suggestion", "conflict", "normalization", "decay"})
 MAX_REASON_CHARS = 160
@@ -152,7 +156,7 @@ class Decision:
     kind: str
     rule: str
     #: The resolver call: ``{"action": ..., "option_key": ..., "merge_target": ..., "answer": ...}``; ``None`` retires
-    #: the question (its subject is gone) without a resolver.
+    #: the question without a resolver, touching nothing else (its subject is gone, or it is Cicada's own settings).
     request: dict | None
     #: What Sleep answered, in words, for the settled list.
     answer: str = ""
@@ -534,6 +538,14 @@ def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
                         guard=_guard(memory_path, str(fm.get("entity_id") or ""))), ""
     if page_state == "unreadable":
         return None, "unreadable_page"   # never retired on a read error: the person (or a repair) looks at it
+    if kind in ("conflict", "clarification"):
+        from api.services import web_settle
+
+        if web_settle.own_settings(fm):
+            # Owner 2026-10-19: Cicada's own engine, schedule or plan switch is the system's to know — never asked.
+            # Retired like a question whose subject is gone: moved to its record, no claim touched, one Sleep commit.
+            return Decision(item_id, kind, "own_settings", None, answer="Cicada's own settings",
+                            guard=_guard(memory_path, str(fm.get("entity_id") or ""))), ""
     if kind == "merge_suggestion":
         return _merge_rule(memory_path, item_id, fm)
     if kind == "normalization":

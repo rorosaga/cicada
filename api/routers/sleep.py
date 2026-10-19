@@ -223,9 +223,10 @@ def _remembered_embedding_problem(state, settings: Settings) -> str | None:
 
 
 def _tidy_running() -> bool:
-    from api.services import inbox_tend
+    """The tidy (ruling 29) or the web-check sweep (2026-10-19) settling questions: an updater waits for either."""
+    from api.services import inbox_tend, web_lookup
 
-    return inbox_tend.tidy_running()
+    return inbox_tend.tidy_running() or web_lookup.sweep_running()
 
 
 @router.get("/sleep/status", response_model=SleepStatusResponse)

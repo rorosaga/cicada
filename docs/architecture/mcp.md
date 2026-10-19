@@ -141,15 +141,18 @@ public things and closes the question. The answer is saved with its link and quo
 by a check' list. Never searched: people's names, your own files, your projects, your life." The S3 rule above — a check
 settles nothing — still holds for every other question. **Which:** a pending conflict or clarification whose subject is
 a `company`, `concept`, `tool` or `media` page (or such a suggested type with a pending line); never a `person`, an
-untyped name Cicada's own description says is someone (person words), a person page's name or alias, the owner's page,
+untyped name Cicada's own description says is someone (person words; "the user"/"the person" as the speaker aside, and
+one it says is the speaker's own kept home — 2026-10-19), a person page's name or alias, the owner's page, a question
+about Cicada's own settings (`own_settings`: never searched, never asked — 27b),
 a file, path or handle, a page with `path:`/`repos:`, a project, a question that says "you/your", an option naming a
 person or saying "my"/"her" (labels ride in the prompt), a question the person already took a check back on
 (`web_check: undone`), a multi-valued predicate other than what the thing *is*, or a conflict whose predicate is not
 world-truth (`locus` world/artifact or a short public list: `description`, `is-a`… — `web_settle.classify`). **What it
 is** (owner, 2026-10-16, his own example "Is <tool-a> an agent harness or an AI agent itself?"): a type question
 (`web_settle.TYPE_PREDICATES`: `is-a`, `type`, `kind`, `category`, `genre`, `description`) is eligible though `is-a` is
-multi-valued; one option settles only when the page rules the others out (Sleep's answer must say
-`others_ruled_out: true`), the item's own `both` option when the page says it is all of them — one cited claim per
+multi-valued; one option settles only when the page rules the others out — defines it as that option and nowhere as
+another (Sleep's answer must say `others_ruled_out: true`) — the item's own `both` option when the page describes it as
+more than one of them (2026-10-19) — one cited claim per
 option, nothing closed — and never an option the item does not have. **What leaves the machine:** the search query is the
 subject's name plus at most one generic category word from a fixed list, read from Cicada's own description, none on a
 type question and none when unsure (`web_settle.query_for`); nothing else. **What the model may read (ruling 27a,

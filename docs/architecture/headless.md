@@ -154,10 +154,12 @@ The same layout as on a Mac, created by the backend and the CLI. The ones that m
 The schedule runs inside the backend (APScheduler, `sleep_scheduler`), from the bank's `sleep_schedule.yaml`, so it
 needs no app and no timer unit. A run the person starts (`cicada sleep start`, or a client's click) may use a plan.
 **A scheduled run uses a plan only when the person said so** (TODO ruling 4b, owner 2026-10-16: "The server should be
-allowed to use plans too. Just have to set them up somehow"; "Yeah chat too"): the machine's switch, off by default,
-is `cicada sleep schedule --use-plan on|off` here and Settings → Sleep → *Scheduled runs may use my plan* in the app,
-and saying it once is where it is said that nightly runs then count against the plan's limits. Otherwise a server
-Sleeps on its schedule with a metered key in its `secrets.env` or a local model (`capture-and-sleep.md`).
+allowed to use plans too. Just have to set them up somehow"; "Yeah chat too"): the machine's switch — **on unless the
+person turned it off** (ruling 4c, 2026-10-19) — is `cicada sleep schedule --use-plan on|off` here and Settings → Sleep →
+*Scheduled runs may use my plan* in the app, beside the words that nightly runs count against the plan's limits. With
+it off, a server Sleeps on its schedule with a local model, or with a metered key only when the person chose it as
+Sleep's engine (`cicada sleep engine --mode byok`; ruling 31: Auto never falls to a key by itself;
+`capture-and-sleep.md`).
 
 ### Setting a plan up on a server
 

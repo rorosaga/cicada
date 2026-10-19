@@ -18,8 +18,11 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   two a week apart mark the source dead) — **the web check** (TODO ruling 27: `web_lookup.run_tail` sends no request of
   its own; the engine's search does, so the gate is asked before any engine call, and what reaches the search is only a
   public subject's name plus at most one generic category word, every reported search held to it (the prompt's
-  local context, ruling 27a, is never searched) — `capture-and-sleep.md`) — and
+  local context, ruling 27a, is never searched) — `capture-and-sleep.md`; on every plan run, scheduled ones included
+  since the plan switch is on by default, ruling 27b) — and
   paper details (below). It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite sets).
+  The backlog's one-off web-check sweep (`POST /inbox/web-check`, ruling 27b) is the person's start, so the gate is
+  reported in its counts, never applied — the same pinned query and nothing else leaves.
   A user-initiated `sync_now`, `POST /maintenance/enrich-links`, `POST /maintenance/verify-sites`, the person's
   "check now" on one source (`POST /entities/{id}/sources/refresh`; a login-walled source is only marked asked for
   their agent, never fetched), every OAuth

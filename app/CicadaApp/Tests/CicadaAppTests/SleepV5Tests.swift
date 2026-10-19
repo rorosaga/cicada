@@ -95,6 +95,7 @@ final class SleepV5WireTests: XCTestCase {
         XCTAssertEqual(defaults.batchSizeChoices, [10, 25, 50])
         XCTAssertFalse(defaults.continueAfterReset, "ruling 15: off by default")
         XCTAssertNil(defaults.reservePct, "Leave room in my plan: off by default")
+        XCTAssertTrue(defaults.scheduledUsePlan, "ruling 4b, amended 2026-10-19: scheduled runs use the plan by default")
         let custom = try V5Fixture.decode(SleepRunOptions.self, "sleep-run-options.json", key: "custom")
         XCTAssertEqual(custom.batchSize, 10)
         let queue = try V5Fixture.decode(SleepQueueResponse.self, "sleep-queue.json")

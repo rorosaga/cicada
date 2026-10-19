@@ -319,9 +319,13 @@ section through `AppRouter`; Sleep consumes it once on appear/change, selects Pa
 Claude plan, ChatGPT plan, OpenRouter, Ollama (tagged *Local*), API key — over the connections registry's candidates writes
 `PUT /sleep/engine`, which lands in the same bank-independent `~/.cicada/connections.json` prefs
 `use_for_sleep` already uses, never `api/.env`. A plan card is selectable once that plan is signed
-in. The card shows both `preview.manual` and `preview.scheduled` lines rather than hiding **ruling
-4** (a scheduled cycle never spends Claude *or* ChatGPT plan quota — `engine_select.SUBSCRIPTION_MODES`)
-— the asymmetry stays visible, not silently applied. *Keep going on extra usage* (off) is the only
+in. **Auto is the default (ruling 31, 2026-10-19):** an untouched install selects the Auto card, whose caption says it
+reads with the Claude plan, else the ChatGPT plan, else Ollama — never an API key unless the person chooses it; with
+none of them a preview's engine is `none` ("No engine yet", `Copy.engineLabel`), the chooser asks for a choice before a
+read (`EngineReadiness.needsChoice`) and the onboarding caption says nothing can read yet. OpenRouter and the API key
+stay cards the person may pick. The card shows both `preview.manual` and `preview.scheduled` lines rather than hiding
+**ruling 4** (a scheduled cycle uses a plan only through Settings → Sleep's switch, on by default —
+`engine_select.SUBSCRIPTION_MODES`) — the asymmetry stays visible, not silently applied. *Keep going on extra usage* (off) is the only
 way a Claude cycle continues past the plan's included usage; otherwise it stops with one plain
 sentence and the reset time. Ask follows the same choice. The ChatGPT plan runs as `codex exec` in
 Cicada's own Codex home (`~/.cicada/codex`), signed into in-app with a device code; Cicada never
@@ -1212,10 +1216,11 @@ in the system's short format, after the window and before the lamp; it is not a 
 also checks every new night frame. The preview includes the same clock leaf. Motion sidecars exclude its state angles.
 
 **Settings → Sleep → Scheduled runs (TODO ruling 4b, owner 2026-10-16).** One switch, *Scheduled runs may use my
-plan* (`SettingsRowID.sleepUsePlan`, in the find index), off by default: the machine's `scheduledUsePlan` on
-`/sleep/run-options` (`SleepRunOptionsChange.scheduledUsePlan`). Its detail says what it costs where it is turned on
+plan* (`SettingsRowID.sleepUsePlan`, in the find index), **on unless the person turned it off** (ruling 4c, 2026-10-19;
+an older server that sends no value reads as off): the machine's `scheduledUsePlan` on
+`/sleep/run-options` (`SleepRunOptionsChange.scheduledUsePlan`). Its detail says what it costs while on
 (runs on their own count against the plan's limits; a limit pauses one and the next picks up after the reset) and,
-off, that a run on its own reads only with a key or a local model. Writing it reloads the schedule (its warning) and
+off, that a run on its own never reads with the plan — only with an API key the person chose or a local model. Writing it reloads the schedule (its warning) and
 the engine previews (the scheduled line). While the schedule runs on its own and the server says a scheduled run would
 have no engine it may use (`ScheduleConfig.warning`/`warningCode`, decoded only, never sent back), the Runs card shows
 that sentence with the app's own fix, connecting a plan first (`Copy.ServerPlan`, provider-neutral). The engine menu's

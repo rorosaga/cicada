@@ -354,8 +354,10 @@ prompt_key() {
   if [ -n "$entered" ]; then ok "$key saved"; else warn "$key skipped"; fi
 }
 
-prompt_key OPENAI_API_KEY "optional, for an OpenAI sleep-cycle model"
-prompt_key ANTHROPIC_API_KEY "optional, for an Anthropic sleep-cycle model"
+# A key is only an option: Sleep reads with it only when the person chooses it (CICADA_LLM_MODE=byok or Settings →
+# Engines). The default is Auto — the Claude plan, else the ChatGPT plan, else Ollama — never a key by itself (2026-10-19).
+prompt_key OPENAI_API_KEY "optional; read only if you choose an OpenAI model as Sleep's engine"
+prompt_key ANTHROPIC_API_KEY "optional; read only if you choose an Anthropic model as Sleep's engine"
 ensure_env GEMINI_API_KEY ""
 
 ok "api/.env ready"
