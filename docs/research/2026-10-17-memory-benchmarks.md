@@ -129,7 +129,7 @@ api/.venv/bin/python -m benchmarks.public.run report --run <run folder>
 - **Judges** (`judges.py`): Mem0's J prompt and LongMemEval's per-type prompts, verbatim — with one dated amendment
   (2026-10-19, `ABSTENTION_AMENDMENT`): the abstention prompt adds one sentence saying a reply that reports no record
   of the asked thing ("none recorded", "zero as far as the record goes") identifies the question as unanswerable,
-  and that answering with a value from something else does not; the report names it (`judge_protocol`). Without it the
+  and that answering with a value from something else does not; each judgment row records the protocol it was judged under, the run records the set in its `config.json` once judged (`judge_protocols`), and the report reads it from there — a LoCoMo run without category 5 says "published prompts". Without it the
   judge flipped on equivalent abstentions between runs; LoCoMo token F1 rules
   (category 1 multi-answer, category 3 first-of-`;`); LoCoMo category 5 off by default and, when on, scored apart
   with LongMemEval's abstention prompt. Category numbers map as LoCoMo's own scorer treats them

@@ -123,7 +123,7 @@ AGENT_SOURCES = frozenset({"mcp", "mcp-remote", "cli"})
 
 
 def _who(turn, fm: dict, owner_name: str | None) -> str:
-    if turn.role == "user" and turn.marker is None and str(fm.get("source") or "") in AGENT_SOURCES:
+    if _speaker(turn, fm) == AGENT_NOTE:
         return "an agent's saved note (not the person's own words)"
     if turn.role == "user":
         return f"{owner_name} (the person this memory belongs to)" if owner_name else "the person this memory belongs to"
@@ -301,7 +301,10 @@ _ENUMERATE = re.compile(
     r"\b(?:how many|how often|number of|in total|total (?:number|amount|count|cost|time)|"
     r"list (?:all|every|each|the|my)|what are all|name (?:all|every|each)|every (?:time|one)|each time|"
     r"all (?:the|of the|of my|my) \w+)\b"
-    r"|\b(?:what|which) (?:\w+ ){0,2}\w+s (?:has|have|did|does|do)\b")
+    r"|\b(?:what|which) (?:\w+ ){0,2}\w+s (?:has|have|did|does|do)\b"
+    # Spanish (the owner writes both): cuántos/cuántas, cuántas veces, cuáles, lista de, enumera, todos los/todas las.
+    r"|(?<!\w)(?:cu[aá]nt[oa]s|cu[aá]les|cada vez|en total|n[uú]mero de|lista(?:me)? (?:de|todos|todas|los|las)|"
+    r"enumera(?:me)?|nombra (?:todos|todas)|tod[oa]s (?:los|las|mis) \w+)(?!\w)")
 _LATEST = re.compile(
     r"\b(?:final|finally|end(?:ed)? up|eventually|in the end|outcome|result(?:ed)?|turn(?:ed)? out|"
     r"current(?:ly)?|now|still|latest|most recent(?:ly)?|these days|any ?more|so far|agreed|settled on|"
@@ -567,7 +570,7 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
     # said, not on the agent's reply repeating the question's words (the agent's, for "what did you suggest").
     enumerate_ = found.shape == SHAPE_ENUMERATE
     for ep in dict.fromkeys(list(found.kept) + (list(docs) if enumerate_ else [])):
-        best = _first_line(candidates, ep, taken, prefs if enumerate_ else None)
+        best = _first_line(candidates, ep, taken, prefs if enumerate_ else None, docs)
         if best is not None:
             lead.append(best)
     led = {id(c) for c in lead}
@@ -583,7 +586,7 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
         extra.sort(key=lambda c: (-c[0], c[1], c[2]))
         firsts: dict[str, tuple] = {}
         for ep in dict.fromkeys(c[3] for c in extra):
-            best = _first_line(extra, ep, taken, prefs)
+            best = _first_line(extra, ep, taken, prefs, extra_docs)
             if best is not None:
                 firsts[ep] = best
         chosen += _take(sorted(firsts.values(), key=lambda c: c[1]), extra_docs, terms, owner_name,
@@ -599,7 +602,11 @@ _ASKS_AGENT = re.compile(
     r"\byou(?:'ve| have| had)? (?:said|told|mentioned|recommended|suggested|gave|provided|listed|shared|wrote|"
     r"explained|described|named|offered|proposed|came up with)\b|\b(?:did|do|would|could) you (?:say|tell|mention|"
     r"recommend|suggest|give|provide|list|share|write|explain|describe|name|offer|propose)\b|\byour "
-    r"(?:recommendation|suggestion|advice|list|answer|reply)s?\b")
+    r"(?:recommendation|suggestion|advice|list|answer|reply)s?\b"
+    # Spanish: "lo que me dijiste", "el hotel que recomendaste", "tu sugerencia".
+    r"|(?<!\w)(?:me |nos )?(?:dijiste|recomendaste|sugeriste|mencionaste|propusiste|diste|explicaste|nombraste|"
+    r"contaste|escribiste|listaste|ofreciste|aconsejaste)(?!\w)"
+    r"|(?<!\w)tus? (?:recomendaci[oó]n|recomendaciones|sugerencias?|consejos?|respuestas?|lista)(?!\w)")
 #: One sentence of a turn (a line break ends one too): where an answer is stated, and where its excerpt is clipped.
 _SENTENCE = re.compile(r"[^.!?\n]+(?:[.!?]+|\n|$)")
 _NUMBER_WORDS = frozenset(
@@ -637,12 +644,16 @@ def answer_prefs(question: str) -> Prefs:
 
 _ASKING_START = frozenset(
     "can could would will should shall do does did is are was were am have has had what which who whom whose where when "
-    "why how any anything".split())
+    "why how any anything "
+    "que como cual cuales cuando donde adonde quien quienes cuanto cuanta cuantos cuantas por puedes podrias puede "
+    "podria sabes tienes hay me nos".split())
 
 
 def _asks(sentence: str) -> bool:
     """The sentence is a question — it ends with "?" and opens like one ("Can you …", "What …"). A statement with a
     tag ("The play I attended was X, have you heard of it?") states its value and is not one."""
+    if sentence.lstrip().startswith("¿"):   # Spanish opens its questions; a tag ("…, ¿sabes?") does not
+        return True
     if not sentence.rstrip().endswith("?"):
         return False
     first = next(iter(text_fold.words(sentence)), "")
@@ -700,18 +711,31 @@ def answer_score(body: str, pattern, weights: dict[str, float], role: str, prefs
     return score, where
 
 
+#: An unmarked block of an episode an agent saved through a tool door (:data:`AGENT_SOURCES`): the agent's note,
+#: never a person's statement (as :func:`_who` labels it).
+AGENT_NOTE = "agent-note"
+
+
+def _speaker(turn, fm: dict) -> str:
+    """Who spoke the turn, for :func:`_speaks`: its role, or :data:`AGENT_NOTE` for an agent's saved note."""
+    if turn.role == "user" and turn.marker is None and str(fm.get("source") or "") in AGENT_SOURCES:
+        return AGENT_NOTE
+    return turn.role
+
+
 def _speaks(role: str, prefs: Prefs) -> bool:
     """The speaker is the one the question is about: the agent for "what did you suggest", else a person (the owner
     or another speaker in a message conversation)."""
     return role == "assistant" if prefs.agent else role in ("user", "speaker")
 
 
-def _first_line(candidates: list[tuple], ep: str, taken: set, prefs: Prefs | None) -> tuple | None:
+def _first_line(candidates: list[tuple], ep: str, taken: set, prefs: Prefs | None, docs: dict) -> tuple | None:
     """The best not-yet-shown candidate of ``ep`` (``candidates`` best first): with ``prefs``, the best one whose
-    speaker the question is about, when there is one."""
+    speaker the question is about, when there is one (an agent's saved note never is a person)."""
     own = [c for c in candidates if c[3] == ep and (ep, c[2]) not in taken]
     if prefs is not None:
-        return next((c for c in own if _speaks(c[4].role, prefs)), own[0] if own else None)
+        fm = docs[ep][0] if ep in docs else {}
+        return next((c for c in own if _speaks(_speaker(c[4], fm), prefs)), own[0] if own else None)
     return own[0] if own else None
 
 
@@ -740,7 +764,7 @@ def _scored_turns(memory_path: Path, episodes: list[str], pattern, weights: dict
         docs[ep] = (fm, text, turns)
         for i, turn in enumerate(turns):
             body = text[turn.content_start:turn.end]
-            score, where = answer_score(body, pattern, weights, turn.role, prefs)
+            score, where = answer_score(body, pattern, weights, _speaker(turn, fm), prefs)
             if score > 0:
                 # The excerpt is clipped around the stated answer, not the first word that matched.
                 at = turn.content_start + where

@@ -125,8 +125,22 @@ ABSTENTION_AMENDMENT = (
     "identifies the question as unanswerable, the same as saying the information is not available. A response that "
     "answers as if the asked thing were recorded, with a value from something else (another item, role or date), "
     "does not.")
-#: How the report names the judging protocol beside the judge model.
-JUDGE_PROTOCOL = "published prompts; abstention + 'none recorded' amendment (2026-10-19)"
+#: The judging protocol a judgment was made under, stamped on its row (``unit.py``) and gathered into the run's
+#: ``config.json`` (``run.py``): the report reads it from there, never from the code that prints it. Only a judgment
+#: through the abstention prompt carries the amendment; a row from before the stamp is the unamended original.
+PROTOCOL_PUBLISHED = "published prompts"
+PROTOCOL_ABSTENTION = "published abstention prompt + 'none recorded' amendment (2026-10-19)"
+PROTOCOL_ABSTENTION_ORIGINAL = "published abstention prompt, unamended"
+
+
+def protocol(abstention: bool) -> str:
+    """The protocol a judgment made now is under."""
+    return PROTOCOL_ABSTENTION if abstention else PROTOCOL_PUBLISHED
+
+
+def row_protocol(row: dict) -> str:
+    """The protocol a judgment row was made under: its stamp, else (a row from before the stamp) the original."""
+    return row.get("protocol") or (PROTOCOL_ABSTENTION_ORIGINAL if row.get("abstention") else PROTOCOL_PUBLISHED)
 _LME_DEFAULT_TYPES = ("single-session-user", "single-session-assistant", "multi-session")
 
 

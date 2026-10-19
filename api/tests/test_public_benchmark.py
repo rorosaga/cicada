@@ -147,7 +147,34 @@ def test_report_scores_paths_and_categories_apart(tmp_path):
     assert ask["n"] == 2 and ask["accuracy"] == 50.0          # adversarial never in the headline
     assert ask["categories"]["adversarial"]["accuracy"] == 100.0
     assert s["calls_total"] == 1 and "J 50.0%" in report.render(s)
-    assert s["judge_protocol"] == judges.JUDGE_PROTOCOL and "judging: " in report.render(s)
+    # The protocol is what the run recorded when judged, never the code's current one: none recorded here.
+    assert s["judge_protocols"] is None and "judging: not recorded" in report.render(s)
+
+
+def test_the_judging_protocol_is_recorded_from_the_judgments_and_read_from_the_config(tmp_path):
+    run = tmp_path / "run"
+    unit = run / "units" / "u1"
+    unit.mkdir(parents=True)
+    cfg = {"dataset": "locomo", "paths": ["ask"], "sleep_model": "s", "disambiguation_model": "d",
+           "answer_model": "a", "judge_model": "j"}
+    (run / "config.json").write_text(json.dumps(cfg))
+    row = {"path": "ask", "category": "single-hop", "abstention": False, "correct": True, "f1": 1.0}
+    # A LoCoMo run without category 5 never used the abstention prompt: it is not labelled with the amendment.
+    (unit / "judgments.jsonl").write_text(json.dumps({**row, "key": "1|ask", "qid": "1",
+                                                      "protocol": judges.protocol(False)}) + "\n")
+    assert report.judged_protocols(run) == [judges.PROTOCOL_PUBLISHED]
+    # An abstention judged now carries the amendment; one judged before the stamp is the unamended original.
+    rows = [{**row, "key": "2|ask", "qid": "2", "abstention": True, "protocol": judges.protocol(True)},
+            {**row, "key": "3|ask", "qid": "3", "abstention": True}]
+    with (unit / "judgments.jsonl").open("a") as f:
+        f.write("".join(json.dumps(r) + "\n" for r in rows))
+    assert report.judged_protocols(run) == sorted([judges.PROTOCOL_PUBLISHED, judges.PROTOCOL_ABSTENTION,
+                                                   judges.PROTOCOL_ABSTENTION_ORIGINAL])
+    (run / "config.json").write_text(json.dumps({**cfg, "judge_protocols": [judges.PROTOCOL_PUBLISHED]}))
+    s = report.summarize(run)
+    assert s["judge_protocols"] == [judges.PROTOCOL_PUBLISHED], "read from the config, not from the code"
+    assert f"judging: {judges.PROTOCOL_PUBLISHED}\n" in report.render(s) + "\n"
+    assert "amendment" not in report.render(s)
 
 
 def test_offline_unit_runs_intake_sleep_ask_and_judge(tmp_path):
@@ -175,6 +202,9 @@ def test_offline_unit_runs_intake_sleep_ask_and_judge(tmp_path):
     assert ask["n"] == 2 and ask["categories"]["single-hop"]["accuracy"] == 100.0, summary
     assert summary["paths"]["full-context"]["n"] == 2
     assert summary["calls_by_phase"]["sleep"]["calls"] > 0 and summary["calls_by_phase"]["judge"]["calls"] == 4
+    # Judged LoCoMo without category 5: recorded in the run's config as the published prompts, no amendment.
+    assert json.loads((run_dir / "config.json").read_text())["judge_protocols"] == [judges.PROTOCOL_PUBLISHED]
+    assert summary["judge_protocols"] == [judges.PROTOCOL_PUBLISHED]
     # Resume: nothing is redone.
     calls_before = summary["calls_total"]
     proc = subprocess.run([sys.executable, "-m", "benchmarks.public.run", "run", "--cache", str(cache),

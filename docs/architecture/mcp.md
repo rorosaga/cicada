@@ -888,7 +888,11 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   matching word. A kept conversation (the newest on the subject, a named day) leads with that turn, so the newest
   conversation shows its answer. **Counts and lists** lead with one line from each conversation in the window before
   any conversation gets a second, and each conversation's line (window and breadth) is its speaker's own statement
-  when they made one — a count of what the person did rests on what they said. Why not expand the question with the
+  when they made one — a count of what the person did rests on what they said. An agent's saved note (an unmarked block in an episode a tool
+  door saved, `AGENT_SOURCES`) is never a person's statement here, as it is never labelled one. The question's own
+  words are read in English and Spanish: counts and lists ("cuántos / cuántas", "cuáles", "lista de", "enumera"),
+  questions about the agent ("me dijiste", "recomendaste", "sugeriste", "tu recomendación") and a sentence that only
+  asks (opens with "¿" or a question word). Why not expand the question with the
   graph's aliases or seed the search with the page leg's entities: on the misses the conversations were already in
   the window or the breadth lines; the lost part was the turn. Measured (LongMemEval_S, no model): multi-session
   evidence sessions whose answer turn is shown 19 → 30 of 49, the newer knowledge-update answer turn 14 → 15 of 16,

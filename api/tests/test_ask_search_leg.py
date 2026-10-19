@@ -429,3 +429,48 @@ def test_answer_score_reads_the_speaker_the_value_and_a_question():
                                         about_agent)
     assert yours > mine, "a question about what the agent said reads the agent's turns first"
     assert ask_sources.answer_score("Nothing here.", pattern, weights, "user", prefs) == (0.0, 0)
+
+
+def test_a_count_never_takes_an_agents_saved_note_for_the_persons_statement(bank):
+    """An episode an agent saved through a tool door (source mcp) opens with its own unmarked note — the agent's
+    words, never the person's (`_who`'s rule). A count's line is the speaker's own statement: the person's marked
+    turn, not the note, even when the note holds more of the question's words and a value."""
+    days = ["2025-02-03", "2025-02-17", "2025-03-02", "2025-03-16", "2025-04-06"]
+    for day in days:
+        _episode(bank, f"ep_{day}_004", [
+            f"Agent note ({day}): the person went to the climbing gym for bouldering, 12 visits to the climbing gym "
+            "so far.",
+            "user: Went bouldering at the climbing gym today, sent a new problem.",
+            "assistant: Nice!"], source="mcp")
+    search_index.ensure_fresh(bank, wait=True, max_age_s=0)
+    question = "How many times did I go to the climbing gym?"
+    found = ask_sources.search(bank, question)
+    shown = ask_sources.gather_search(bank, question, found)
+    for day in days:
+        first = [e for e in shown if e.episode == f"ep_{day}_004"]
+        assert first, day
+        assert any("Went bouldering" in e.text for e in first), f"{day}: the person's own turn is its line"
+    notes = [e for e in shown if e.text.startswith("Agent note")]
+    assert all(e.who.startswith("an agent's saved note") for e in notes), "a note shown is labelled the agent's"
+    turn = evidence.turns("Agent note: x.\nuser: y.\n")[0]
+    assert ask_sources._speaker(turn, {"source": "mcp"}) == ask_sources.AGENT_NOTE
+    assert ask_sources._speaker(turn, {"source": "import"}) == "user"
+    assert not ask_sources._speaks(ask_sources.AGENT_NOTE, ask_sources.Prefs())
+
+
+def test_spanish_questions_read_their_shape_who_they_ask_about_and_what_only_asks():
+    shape = ask_sources.question_shape
+    assert shape("¿Cuántas veces fui al gimnasio de escalada?") == ask_sources.SHAPE_ENUMERATE
+    assert shape("¿Cuántos libros he leído este año?") == ask_sources.SHAPE_ENUMERATE
+    assert shape("¿Cuáles proyectos he terminado?") == ask_sources.SHAPE_ENUMERATE
+    assert shape("Dame la lista de restaurantes que probé") == ask_sources.SHAPE_ENUMERATE
+    assert shape("Enumera los viajes que hice con mi familia") == ask_sources.SHAPE_ENUMERATE
+    assert shape("¿Qué base de datos elegí para alpha-project?") == ask_sources.SHAPE_LOOKUP
+    for q in ("¿Qué hotel me recomendaste en Lisboa?", "¿Cómo se llamaba el libro que sugeriste?",
+              "Recuérdame lo que me dijiste sobre la bici", "¿Cuál fue tu recomendación para el viaje?"):
+        assert ask_sources.answer_prefs(q).agent, q
+    assert not ask_sources.answer_prefs("¿Qué hotel reservé en Lisboa?").agent
+    assert ask_sources._asks("¿Me puedes ayudar a planear un viaje en familia?")
+    assert ask_sources._asks("Qué hotel reservé en Lisboa?")
+    assert not ask_sources._asks("El viaje en familia fue a Kioto, ¿sabes?"), "a tag still states its value"
+    assert not ask_sources._asks("Nuestro último viaje en familia fue a Kioto.")
