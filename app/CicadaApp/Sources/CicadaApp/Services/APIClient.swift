@@ -3258,6 +3258,31 @@ actor APIClient {
         return try decoder.decode(RemoteConnector.self, from: data)
     }
 
+    /// `GET /remote/oauth/requests` — that sign-ins wait (ruling 32): no code, no name. Not a Store domain: the From
+    /// anywhere page polls it while it is open.
+    func fetchRemoteSignIns() async throws -> [RemoteSignInWaiting] {
+        try await get("/remote/oauth/requests")
+    }
+
+    /// `POST /remote/oauth/match` — the waiting sign-in whose page shows this code (404 when none does).
+    func matchRemoteSignIn(code: String) async throws -> RemoteSignInMatch {
+        try await post("/remote/oauth/match", body: ["userCode": code])
+    }
+
+    /// `POST /remote/oauth/approve` — approves only by the typed code, never by a request id.
+    func approveRemoteSignIn(code: String, scopes: [String], expiresInDays: Int) async throws -> RemoteConnector {
+        let body: [String: Any] = ["userCode": code, "scopes": scopes, "expiresInDays": expiresInDays]
+        return try await post("/remote/oauth/approve", body: body)
+    }
+
+    func denyRemoteSignIn(ref: String) async throws {
+        _ = try await post("/remote/oauth/requests/\(encodedID(ref))/deny") as Data
+    }
+
+    func denyAllRemoteSignIns() async throws {
+        _ = try await post("/remote/oauth/requests/deny-all") as Data
+    }
+
     // MARK: - Devices (G181 phase 3)
 
     /// `GET /devices` — outside every bank, so never a Store domain (`DeviceDirectory` keeps it in memory).

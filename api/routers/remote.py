@@ -14,8 +14,9 @@ from fastapi import APIRouter, HTTPException
 from starlette.concurrency import run_in_threadpool
 
 from api.models.schemas import (RemoteConnectorCreatedOut, RemoteConnectorIn, RemoteConnectorOut,
-                                RemoteSettingsIn, RemoteStatusOut)
-from api.remote import catalog, reach, store
+                                RemoteSettingsIn, RemoteSignInApproveIn, RemoteSignInCodeIn, RemoteSignInOut,
+                                RemoteSignInWaitingOut, RemoteStatusOut)
+from api.remote import catalog, oauth, reach, store
 from api.remote.listener import LISTENER
 from api.services import telemetry
 
@@ -27,6 +28,7 @@ def _out(connector: catalog.Connector) -> RemoteConnectorOut:
         id=connector.id, label=connector.label, app=connector.app, scopes=sorted(connector.scopes),
         created_at=connector.created_at, expires_at=connector.expires_at, revoked_at=connector.revoked_at,
         last_used_at=connector.last_used_at, last_client=connector.last_client, state=connector.state(),
+        auth=connector.auth,
     )
 
 
@@ -122,6 +124,8 @@ async def rotate_connector(connector_id: str) -> RemoteConnectorCreatedOut:
         raise HTTPException(404, "no such connector")
     if existing.state() != "active":
         raise HTTPException(409, f"this connector is {existing.state()} — make a new one instead")
+    if existing.auth == "oauth":
+        raise HTTPException(409, "this app signed in — it renews its own access; revoke it to end it")
     base = await _base_or_409()  # the old secret keeps working until a new one can be shown
     try:
         connector, token = db.rotate(connector_id)
@@ -141,3 +145,64 @@ def revoke_connector(connector_id: str) -> RemoteConnectorOut:
         raise HTTPException(404, "no such connector") from exc
     _auth_event(connector, "revoked")
     return _out(connector)
+
+
+# ── Sign-in requests (ruling 32) ─────────────────────────────────────────────
+# The person's yes or no to an app that started OAuth sign-in on the public listener. Only here — loopback, behind
+# the API token — can a request be approved, and only by the code the person's own browser page shows them, typed in:
+# whoever starts a sign-in collects its result, so a list to click would let a stranger's request be approved
+# (security review of #359). Waiting requests are listed as "one waits", to deny.
+
+_WRONG_CODES = oauth.Bucket(10, 10)  # a typo is fine; a guessing loop on this machine is not
+
+
+def _oauth() -> oauth.OAuthServer:
+    db = store.ConnectorStore()
+    return oauth.OAuthServer(db.path, connectors=db)
+
+
+def _code_or_429() -> None:
+    if not _WRONG_CODES.take():
+        raise HTTPException(429, "too many codes that matched nothing — wait a minute")
+
+
+@router.get("/oauth/requests", response_model=list[RemoteSignInWaitingOut])
+def list_sign_ins() -> list[RemoteSignInWaitingOut]:
+    return [RemoteSignInWaitingOut(**vars(w)) for w in _oauth().waiting()]
+
+
+@router.post("/oauth/match", response_model=RemoteSignInOut)
+def match_sign_in(req: RemoteSignInCodeIn) -> RemoteSignInOut:
+    found = _oauth().match(req.user_code)
+    if found is None:
+        _code_or_429()
+        raise HTTPException(404, "no sign-in is waiting with that code")
+    return RemoteSignInOut(**vars(found))
+
+
+@router.post("/oauth/approve", response_model=RemoteConnectorOut)
+def approve_sign_in(req: RemoteSignInApproveIn) -> RemoteConnectorOut:
+    try:
+        connector = _oauth().approve(req.user_code, scopes=req.scopes, expires_in_days=req.expires_in_days,
+                                     label=req.label)
+    except KeyError as exc:
+        _code_or_429()
+        raise HTTPException(404, "no sign-in is waiting with that code — it was answered or it expired") from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    _auth_event(connector, "created")
+    return _out(connector)
+
+
+@router.post("/oauth/requests/deny-all")
+def deny_all_sign_ins() -> dict:
+    return {"status": "denied", "count": _oauth().deny_all()}
+
+
+@router.post("/oauth/requests/{ref}/deny")
+def deny_sign_in(ref: str) -> dict:
+    try:
+        _oauth().deny(ref)
+    except KeyError as exc:
+        raise HTTPException(404, "this sign-in is gone — it was answered or it expired") from exc
+    return {"status": "denied"}

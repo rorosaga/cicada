@@ -181,6 +181,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   around one marker line (G110 gate B2; its G104 costs in `capture-and-sleep.md`). Recall is the same move (G149): the
   SessionStart/UserPromptSubmit hooks inject Cicada's note; a note the harness records as a separate non-person record
   is never captured, and one that arrives inside the person's own text is kept, counted and disclosed (G110 gate C).
+  **Apps with no hook** (claude.ai, ChatGPT, their phone apps) relay each turn through the remote connector's
+  `cicada_capture_turns` (ruling 32): one episode per conversation, stored as relayed (`evidence_kind: assistant`),
+  never the person's own words until that app's export upgrades it in place (`capture-and-sleep.md`).
 - **Transcripts under `~/.claude/` are never read anywhere else** — the MCP seam and resume only `isfile()` them.
   A client of a server elsewhere reads its session there with Cicada's own extractor and posts the capped turns (ruling 28).
 - **One id rule** (`episode_ids`): max-suffix+1 per date, aware UTC timestamps; `processed_by` says who flipped it.
@@ -304,6 +307,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **The remote connector (G135)** is off by default, serves only MCP on its own listener, through a tunnel **the person**
   runs; capability tokens are hashed, scoped (`sources` gates every verbatim word of the person's), expiring and
   revocable; a remote claim is never the person's own words.
+  Apps sign in through the listener's own OAuth 2.1 server (ruling 32): consent only in the app, by typing the code the
+  person's own page shows, never a click or the public page; PKCE S256, single-use codes, rotating refresh tokens, all
+  hashed and mapped to connector rows; a self-registered app is never named by its claim (`network.md`).
 - **Reading with the person's own agent (G166):** Cicada never spawns a browser and never signs in; it only asks. Only a
   link the person asked about, or a wall page of a site they allowed, can be recorded — and (owner 2026-10-16, G71) the
   person's YouTube Watch later or history page, a standing ask once they turn that list on, stdio only; one person's
@@ -364,7 +370,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   photo through unavatar.io from an X or LinkedIn link already on their page, behind its own gate, off by default.
 - **Credentials** live in `~/.cicada/secrets.env` (0600) — never in a bank, never logged.
 - **Headless (G181):** a server is its bank's one writer and binds 127.0.0.1 only; reach from another machine is an
-  overlay the person runs (never a public port, never funnel), and no installer creates or copies a credential (`headless.md`).
+  overlay the person runs (never a public port, never funnel — only the G135 listener may be, by the person, ruling 32), and no installer creates or copies a credential (`headless.md`).
   Another machine is a client (`CICADA_API_BASE`, or the app's `api_base` file, ruling 28) with its own revocable device
   token and no bank of its own; what it posts records `device` (`headless.md`).
 - **Video:** only a provider's own player URL is loaded; an oEmbed response is read for its fields, never its HTML.

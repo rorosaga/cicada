@@ -1184,3 +1184,18 @@ the CLI.
     against the MCP schemas (R12 for the MCP half).
   - `handshake.build_cli`'s prelude names the same fallback, and stays within 1,800 tokens.
 - **Not yet built:** the overhead and latency measurement (T9). Its later slices are in the G180 row.
+
+## The remote connector's sign-in and capture (ruling 32, owner 2026-10-19)
+
+- **Sign-in.** The G135 listener is also an OAuth 2.1 authorization server (`api/remote/oauth.py`; the whole flow,
+  its checks and its limits are in `network.md`). A signed-in app holds an hour-long `cic_at_` access token and a
+  rotating `cic_rt_` refresh token; the gate verifies an access token against the connector row it maps to, so tool
+  lists, scopes, the Sleep gate, the ledger and every write's provenance (`Cicada-Author: <app harness>`,
+  `Cicada-Session: rc_…`) are the link connector's, unchanged. The secret link (`/c/<token>/mcp`) still works; the docs
+  and the From anywhere page steer Claude and ChatGPT to sign-in, which puts no secret in a URL.
+- **`cicada_capture_turns(message, previous_reply?, conversation)`** (`record` scope, remote only —
+  `catalog.REMOTE_ONLY`, so `test_remote_tools.py` classifies every stdio tool plus it). Not read-only, idempotent, not
+  destructive and not open-world: an app that confirms writes (ChatGPT) asks the person, who can allow it always.
+  `REMOTE_CONTRACT_VERSION` 12 puts "Capture every turn" first in the remote contract, only where the connection holds
+  the tool (R12 per scope set). What it writes and why it is never the person's own words: `capture-and-sleep.md`,
+  "Hookless apps, through the remote connector".

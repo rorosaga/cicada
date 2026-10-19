@@ -51,8 +51,11 @@ def test_no_token_is_a_401_that_says_how_to_authenticate(world):
         resp = c.post("/mcp", json=_rpc("tools/list"), headers=H)
     assert resp.status_code == 401 and resp.json()["error"] == "invalid_token"
     challenge = resp.headers["www-authenticate"]
-    assert challenge.startswith('Bearer realm="cicada", error="invalid_token"')
-    assert "resource_metadata" not in challenge
+    # Ruling 32: the challenge points at the resource metadata (which names Cicada's own sign-in), with no error
+    # code when no token was sent at all (RFC 6750 §3.1).
+    assert challenge.startswith('Bearer realm="cicada", resource_metadata="https://testserver/.well-known/'
+                                'oauth-protected-resource/mcp"')
+    assert "error=" not in challenge
 
 
 def test_revoked_and_expired_tokens_are_401_with_their_reason(world):
@@ -143,7 +146,8 @@ def test_protected_resource_metadata_is_public_and_names_cicada(world):
         resp = c.get("/.well-known/oauth-protected-resource/mcp", headers={"Host": "mac.example-tailnet.ts.net"})
     body = resp.json()
     assert resp.status_code == 200 and body["resource_name"] == "Cicada"
-    assert body["resource"] == "https://mac.example-tailnet.ts.net/mcp" and "authorization_servers" not in body
+    assert body["resource"] == "https://mac.example-tailnet.ts.net/mcp"
+    assert body["authorization_servers"] == ["https://mac.example-tailnet.ts.net"]  # ruling 32: its own sign-in
 
 
 def test_the_instructions_name_only_the_handshake(world):

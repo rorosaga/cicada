@@ -564,11 +564,34 @@ fixtures, not yet run against the installed app.
 | Cursor | `beforeSubmitPrompt`, `afterAgentResponse` in `~/.cursor/hooks.json` | `prompt`; `text` (final reply); `conversation_id`, `generation_id`, `model`; `transcript_path` nullable, format undocumented | Every local chat, per turn (`turn_capture`); unverified |
 | Gemini CLI | `AfterAgent` in `~/.gemini/settings.json` | `prompt`, `prompt_response`, `stop_hook_active`, `session_id`; `transcript_path` format undocumented | Every session, per exchange (`turn_capture`); unverified |
 | Claude app (desktop) | none; MCP only | — | Only what it saves through MCP; its chats arrive by the claude.ai data export import (G197) |
-| Claude on the web, ChatGPT, Grok | none; remote connector (G135) | — | Only what they save when asked; exports through the importers |
+| Claude on the web and phone, ChatGPT, Grok | none; remote connector (G135) | — | Every turn its model relays through `cicada_capture_turns` (ruling 32, below), stored as relayed; an export upgrades it |
 | Windsurf (Cascade) | `pre_user_prompt`, `post_cascade_response` in `~/.codeium/windsurf/hooks.json` | `user_prompt`; `response`; `trajectory_id`, `execution_id` | Not yet: the same shape as Cursor, so it is a registry and an adapter on `/capture/turn` (G197) |
 | GitHub Copilot CLI | `userPromptSubmitted`, `agentStop` in `~/.copilot/hooks/` | `prompt`; the reply only inside `transcriptPath`, format undocumented | Not yet: the reply needs a transcript reader (G197) |
 | OpenCode | JS/TS plugins only (`~/.config/opencode/plugins/`) | events (`message.updated`, `session.idle`) with undocumented payloads | Not yet: needs a plugin, not a command hook (G197) |
 | Hermes, OpenClaw | no hooks documented | — | MCP saves only |
+
+**Hookless apps, through the remote connector (ruling 32, owner 2026-10-19; amends G105 for apps with no hook).**
+Owner: "Exports should only be a starter seed for users; the usual should always be real-time captures." claude.ai,
+ChatGPT and their phone apps run no hook, so the one capture path they have depends on a model calling a tool — the
+exception G105 names, taken knowingly and disclosed. The remote handshake's contract (and the tool's own description)
+asks the app's model to call `cicada_capture_turns(message, previous_reply, conversation)` on every turn, before it
+answers: the person's message word for word and its own previous reply word for word. The body
+(`api/services/relay_capture.py`) is the per-turn writer below (`turn_capture.capture_turns(relay=…)`): the same
+cleaning, scrub and caps, one episode per conversation keyed by the handle the handshake minted (a call without one
+falls into the connector's day bucket), a re-sent turn `unchanged`. It is `record` scope, remote only
+(`catalog.REMOTE_ONLY`), and behaves like a hook rather than a remote write: no commit of its own and no Sleep gate
+(an episode written while Sleep runs is read by the next one), the demo guard and the remote write lock still apply.
+**Relayed, not heard** (the coordinator's conservative default until the owner rules otherwise): the episode carries
+`relay: {app, connector, channel: remote, first}` and `evidence_kind: assistant`, so its words are stored, searchable
+and read by Sleep but never counted as the person's own — not for promotion's own-words rung and not for ruling 29's
+settling — because a model may paraphrase. **An export upgrades it:** importing the app's export stages each
+conversation through `episode_staging`; a Claude or ChatGPT conversation whose `source_id` is new and whose first
+person message, cleaned the same way, matches exactly one not-yet-upgraded relayed episode of that app within two days
+(`relay.first`, `turn_capture.relay_match_key`: letters and digits, case-folded, the first 400, at least 24) rewrites
+that episode in place — same file and id, re-queued, `evidence_kind` and `hook_turns` dropped, `relay.upgraded_at` and
+`upgraded_by` stamped — instead of adding a second copy. Two candidates, a short first message, another app or a date
+too far apart upgrade nothing (a second episode, as before). A later relay into an upgraded conversation is answered
+"already in Cicada from the export" and writes nothing; the next export brings its later turns.
 
 **Per-turn capture (`api/services/turn_capture.py`, `POST /capture/turn`).** The hook posts `{harness, session_id,
 messages: [{speaker, text}], turn_id?, retry?, model?, cwd?, hook_event}` — one turn (Cursor) or one exchange (Gemini
