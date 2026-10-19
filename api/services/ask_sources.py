@@ -142,11 +142,11 @@ def _snap(text: str, lo: int, hi: int) -> tuple[int, int]:
 def _clip_answer(text: str, anchors: list[int], limit: int, *, opening: bool = True) -> str:
     """A long turn cut to ``limit`` characters around what answers, not around one point (2026-10-20): the sentence
     at ``anchors[0]`` (the answer, :func:`answer_score`) with what follows and precedes it, each sentence at
-    ``anchors[1:]`` (the question's other asks: "…, and what was wrong with it?"), and, with ``opening``, the turn's
-    opening (:data:`OPENING_CHARS`) — the greeting that names who a message is to, the first line that says what it
-    is and why. Pieces in the turn's order, joined by "…". Why: one window around the best sentence answered one ask
-    and cut the rest — the device's make and the second problem, a message's addressee, the person's reason before
-    a pasted draft, the request after a reply (the owner's eval after #365: five questions lost)."""
+    ``anchors[1:]`` (the question's other asks: "…, and what was wrong with it?"), and, with ``opening`` (a person's
+    turn), its opening (:data:`OPENING_CHARS`) — the greeting that names who a message is to, the first line that
+    says what it is and why. Pieces in the turn's order, joined by "…". Why: one window around the best sentence
+    answered one ask and cut the rest — the device's make and the second problem, a message's addressee, the
+    person's reason before a pasted draft, the request after a reply (the owner's eval after #365: five lost)."""
     whole = " ".join(text.split())
     if len(whole) <= limit:
         return whole
@@ -296,7 +296,10 @@ def _take(candidates: list[tuple], docs: dict[str, tuple], terms: set[str], owne
         at = (span.start - turn.content_start) if span is not None else _first_match(body, terms)
         limit = min(excerpt_chars, total_chars - used)
         if span is not None and span.answer:
-            clipped = _clip_answer(body, [at, *(k - turn.content_start for k in span.keep)], limit, opening=context)
+            # The opening is a person's (a greeting, the addressee, why they write); an agent's is courtesy ("What a
+            # great idea!") that only takes room from its substance (LongMemEval_S: three answers lost to it).
+            opening = context and _speaker(turn, fm) in ("user", "speaker")
+            clipped = _clip_answer(body, [at, *(k - turn.content_start for k in span.keep)], limit, opening=opening)
         else:
             clipped = _clip(body, at, limit)
         if len(clipped) < 20 and len(body.strip()) >= 20:
@@ -746,8 +749,9 @@ class Prefs:
 _ASK_SPLIT = re.compile(
     r"(?:,|;|\?)?\s+(?:and|y|e)\s+(?=(?:what|which|why|who|whom|whose|how|when|where|did|do|does|was|were|is|are|"
     r"qu[eé]|cu[aá]l(?:es)?|por qu[eé]|qui[eé]n(?:es)?|c[oó]mo|cu[aá]ndo|d[oó]nde)\b)|[;?]\s+(?=\S)", re.I)
-_WHY = re.compile(r"\b(?:why|how come|what (?:made|led) (?:you|me|him|her|them|us))\b|(?<!\w)(?:por ?qu[eé]|para qu[eé])(?!\w)",
-                  re.I)
+_WHY = re.compile(
+    r"\b(?:why|how come|what (?:made|led) (?:you|me|him|her|them|us))\b|(?<!\w)(?:por ?qu[eé]|para qu[eé])(?!\w)",
+    re.I)
 #: A sentence that gives a reason: the value a "why" question asks for.
 _REASON = re.compile(
     r"\b(?:because|since|so that|in order to|the reason|that'?s why|which is why|named (?:it|him|her|them) after|"

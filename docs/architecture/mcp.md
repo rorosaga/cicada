@@ -906,8 +906,9 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   problem, a message's addressee in its greeting, the person's reason before a pasted draft, the request after a
   reply. A long search-leg turn is now cut by `ask_sources._clip_answer`, in the same budget: the answering
   sentence, each sentence that best answers another of the question's asks (`question_asks` splits "…, and what /
-  which / why …", "; …", "? And …", "y qué …"; each ask's own words pick its sentence), and the turn's opening
-  (≤ 160 characters: the greeting, the first line that says what a message is and why); what is left grows the
+  which / why …", "; …", "? And …", "y qué …"; each ask's own words pick its sentence), and, for a person's turn, its
+  opening (≤ 160 characters: the greeting, the first line that says what a message is and why — an agent's opening
+  is courtesy, "What a great idea!", and is not kept); what is left grows the
   answering sentence's own window, a third before and the rest after. Pieces keep the turn's order, joined by "…".
   Breadth lines (counts and lists, ≤ 300 characters) keep no opening. A "why" question's value is a stated reason
   ("because", "since", "so that", "named it after", "porque", "ya que" …), not a number or a name, so the person's
