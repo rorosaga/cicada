@@ -123,7 +123,7 @@ AGENT_SOURCES = frozenset({"mcp", "mcp-remote", "cli"})
 
 
 def _who(turn, fm: dict, owner_name: str | None) -> str:
-    if _speaker(turn, fm) == AGENT_NOTE:
+    if turn.role == "user" and turn.marker is None and str(fm.get("source") or "") in AGENT_SOURCES:
         return "an agent's saved note (not the person's own words)"
     if turn.role == "user":
         return f"{owner_name} (the person this memory belongs to)" if owner_name else "the person this memory belongs to"
@@ -301,10 +301,7 @@ _ENUMERATE = re.compile(
     r"\b(?:how many|how often|number of|in total|total (?:number|amount|count|cost|time)|"
     r"list (?:all|every|each|the|my)|what are all|name (?:all|every|each)|every (?:time|one)|each time|"
     r"all (?:the|of the|of my|my) \w+)\b"
-    r"|\b(?:what|which) (?:\w+ ){0,2}\w+s (?:has|have|did|does|do)\b"
-    # Spanish (the owner writes both): cuántos/cuántas, cuántas veces, cuáles, lista de, enumera, todos los/todas las.
-    r"|(?<!\w)(?:cu[aá]nt[oa]s|cu[aá]les|cada vez|en total|n[uú]mero de|lista(?:me)? (?:de|todos|todas|los|las)|"
-    r"enumera(?:me)?|nombra (?:todos|todas)|tod[oa]s (?:los|las|mis) \w+)(?!\w)")
+    r"|\b(?:what|which) (?:\w+ ){0,2}\w+s (?:has|have|did|does|do)\b")
 _LATEST = re.compile(
     r"\b(?:final|finally|end(?:ed)? up|eventually|in the end|outcome|result(?:ed)?|turn(?:ed)? out|"
     r"current(?:ly)?|now|still|latest|most recent(?:ly)?|these days|any ?more|so far|agreed|settled on|"
@@ -542,14 +539,11 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
 def gather_search(memory_path: Path, question: str, found: Searched, *, owner_name: str | None = None,
                   taken: set[tuple[str, int]] | None = None, max_episodes: int = SEARCH_EPISODES,
                   max_excerpts: int = SEARCH_EXCERPTS, total_chars: int = SEARCH_CHARS) -> list[Excerpt]:
-    """The turns of the best :func:`search` conversations that hold the question's words, scored as answers
-    (:func:`answer_score`: the rarer words counting more, the sentence that states a value, the speaker the question
-    is about), oldest first. A conversation kept for its day (the newest on the subject, a day the question names)
-    shows its best turn before the others fill the budget by score, so the one that settled the subject is never
-    crowded out. A count or a list gives each conversation of the window its own line first — its speaker's own
-    statement when they made one — then adds one short line from each further conversation on the subject
-    (``found.more``) in a budget of its own. A turn holding only common words is never one. ``taken``: turns the
-    page leg already showed.
+    """The turns of the best :func:`search` conversations that hold the question's words, the rarer words counting
+    more, oldest first. A conversation kept for its day (the newest on the subject, a day the question names) shows
+    its best turn before the others fill the budget by score, so the one that settled the subject is never crowded out.
+    A count or a list then adds one short line from each further conversation on the subject (``found.more``) in a
+    budget of its own. A turn holding only common words is never one. ``taken``: turns the page leg already showed.
     Same who-spoke labels, clipping and bounds as :func:`gather`; index-only episodes are skipped (ruling 30)."""
     weights = found.weights
     if not weights or not found.episodes:
@@ -560,17 +554,11 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
     pattern = re.compile(r"\b(" + "|".join(re.escape(t) for t in sorted(terms, key=len, reverse=True)) + ")")
     taken = set(taken or ())
     docs: dict[str, tuple] = {}
-    prefs = answer_prefs(question)
-    candidates = _scored_turns(memory_path, found.episodes, pattern, weights, docs, max_episodes, prefs)
+    candidates = _scored_turns(memory_path, found.episodes, pattern, weights, docs, max_episodes)
     candidates.sort(key=lambda c: (-c[0], c[1], c[2]))
     lead: list[tuple] = []
-    # A count or a list needs each conversation's own line before any conversation's second one: one rich
-    # conversation could otherwise fill the budget while another holding a counted event shows nothing.
-    # Its line is the speaker's own statement when they made one — a count of what the person did rests on what they
-    # said, not on the agent's reply repeating the question's words (the agent's, for "what did you suggest").
-    enumerate_ = found.shape == SHAPE_ENUMERATE
-    for ep in dict.fromkeys(list(found.kept) + (list(docs) if enumerate_ else [])):
-        best = _first_line(candidates, ep, taken, prefs if enumerate_ else None, docs)
+    for ep in found.kept:
+        best = next((c for c in candidates if c[3] == ep and (ep, c[2]) not in taken), None)
         if best is not None:
             lead.append(best)
     led = {id(c) for c in lead}
@@ -582,13 +570,12 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
         shown_eps = {e.episode for e in chosen}
         rest = [ep for ep in docs if ep not in shown_eps] + [ep for ep in found.more if ep not in docs]
         extra_docs: dict[str, tuple] = {}
-        extra = _scored_turns(memory_path, rest, pattern, weights, extra_docs, len(rest), prefs)
+        extra = _scored_turns(memory_path, rest, pattern, weights, extra_docs, len(rest))
         extra.sort(key=lambda c: (-c[0], c[1], c[2]))
         firsts: dict[str, tuple] = {}
-        for ep in dict.fromkeys(c[3] for c in extra):
-            best = _first_line(extra, ep, taken, prefs, extra_docs)
-            if best is not None:
-                firsts[ep] = best
+        for c in extra:
+            if c[3] not in firsts and (c[3], c[2]) not in taken:
+                firsts[c[3]] = c
         chosen += _take(sorted(firsts.values(), key=lambda c: c[1]), extra_docs, terms, owner_name,
                         max_excerpts=len(firsts), total_chars=ENUM_CHARS, taken=taken,
                         excerpt_chars=ENUM_EXCERPT_CHARS, context=False)
@@ -596,157 +583,12 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
     return chosen
 
 
-#: A question about what the agent said ("the hotel you recommended", "what did you suggest"): the answer is in the
-#: agent's turns, not the person's.
-_ASKS_AGENT = re.compile(
-    r"\byou(?:'ve| have| had)? (?:said|told|mentioned|recommended|suggested|gave|provided|listed|shared|wrote|"
-    r"explained|described|named|offered|proposed|came up with)\b|\b(?:did|do|would|could) you (?:say|tell|mention|"
-    r"recommend|suggest|give|provide|list|share|write|explain|describe|name|offer|propose)\b|\byour "
-    r"(?:recommendation|suggestion|advice|list|answer|reply)s?\b"
-    # Spanish: "lo que me dijiste", "el hotel que recomendaste", "tu sugerencia".
-    r"|(?<!\w)(?:me |nos )?(?:dijiste|recomendaste|sugeriste|mencionaste|propusiste|diste|explicaste|nombraste|"
-    r"contaste|escribiste|listaste|ofreciste|aconsejaste)(?!\w)"
-    r"|(?<!\w)tus? (?:recomendaci[oó]n|recomendaciones|sugerencias?|consejos?|respuestas?|lista)(?!\w)")
-#: One sentence of a turn (a line break ends one too): where an answer is stated, and where its excerpt is clipped.
-_SENTENCE = re.compile(r"[^.!?\n]+(?:[.!?]+|\n|$)")
-_NUMBER_WORDS = frozenset(
-    "two three four five six seven eight nine ten eleven twelve fifteen twenty thirty forty fifty hundred thousand "
-    "dozen half twice dos tres cuatro cinco seis siete ocho nueve diez".split())
-_CAPITAL = re.compile(r"(?<![.!?]\s)(?<!^)\b[A-Z][\w'’-]+")
-#: How much more a turn counts when it reads like the answer (:func:`answer_score`): the speaker the question is
-#: about stating it, a value beside the words (a number, an amount, a name the question does not say), the
-#: question's own "recent" / "first" said there; a sentence that only asks counts less than one that states.
-PERSON_BONUS = 1.5
-BREADTH_SHARE = 0.5
-VALUE_BONUS = 1.5
-TENSE_BONUS = 1.25
-ASKING_FACTOR = 0.5
-
-
-@dataclass
-class Prefs:
-    """What the question says about where its answer is (:func:`answer_prefs`) — read from its own words."""
-
-    #: The question asks what the agent said: the agent's turns, else the people's.
-    agent: bool = False
-    #: The question's own folded words: a capitalized word among them is not a new value.
-    said: frozenset = frozenset()
-    #: The question's tense words ("recent", "first") as their folded stems: said beside the subject, they mark the
-    #: sentence the question is about ("my recent family trip").
-    tense: frozenset = frozenset()
-
-
-def answer_prefs(question: str) -> Prefs:
-    q = question or ""
-    return Prefs(agent=bool(_ASKS_AGENT.search(q.lower())), said=frozenset(text_fold.words(q)),
-                 tense=frozenset(text_fold.stem(w) for w in text_fold.words(q)) & TENSE_WORDS)
-
-
-_ASKING_START = frozenset(
-    "can could would will should shall do does did is are was were am have has had what which who whom whose where when "
-    "why how any anything "
-    "que como cual cuales cuando donde adonde quien quienes cuanto cuanta cuantos cuantas por puedes podrias puede "
-    "podria sabes tienes hay me nos".split())
-
-
-def _asks(sentence: str) -> bool:
-    """The sentence is a question — it ends with "?" and opens like one ("Can you …", "What …"). A statement with a
-    tag ("The play I attended was X, have you heard of it?") states its value and is not one."""
-    if sentence.lstrip().startswith("¿"):   # Spanish opens its questions; a tag ("…, ¿sabes?") does not
-        return True
-    if not sentence.rstrip().endswith("?"):
-        return False
-    first = next(iter(text_fold.words(sentence)), "")
-    return first in _ASKING_START
-
-
-def _has_value(sentence: str, said: frozenset) -> bool:
-    """The sentence states a value the question does not: a number, an amount, a number word, or a capitalized
-    name that is not the sentence's first word and not one of the question's own words."""
-    if any(ch.isdigit() for ch in sentence):
-        return True
-    if any(w in _NUMBER_WORDS for w in text_fold.words(sentence)):
-        return True
-    for m in _CAPITAL.finditer(sentence.strip()):
-        word = text_fold.fold(m.group(0)).strip("'’-")
-        if word not in said and word != "i" and not word.startswith("i'"):
-            return True
-    return False
-
-
-def answer_score(body: str, pattern, weights: dict[str, float], role: str, prefs: Prefs) -> tuple[float, int]:
-    """``(score, where)`` for one turn: its best sentence's weight of the question's words — more when it states a
-    value or says the question's "recent" / "first", less when it only asks — plus half the weight the whole turn
-    holds, the sum more when the speaker is the one the question is about (a person, or the agent for "what did you
-    suggest"). ``where``: the best sentence's offset in ``body``, where its excerpt is clipped. No model: the words,
-    the speaker and the punctuation.
-
-    Why: the best-matching turn of a conversation is often the person's request ("I'm planning a family trip …")
-    or the agent's long reply that repeats every word, while the answer is the person's own statement with the value
-    ("my recent family trip to Paris", "I'll have four bikes"), which shares fewer of the question's words."""
-    held = set(pattern.findall(text_fold.fold(body)))
-    base = sum(weights[t] for t in held)
-    if base <= 0:
-        return 0.0, 0
-    best, where = 0.0, 0
-    for m in _SENTENCE.finditer(body):
-        sentence = m.group(0)
-        words = set(pattern.findall(text_fold.fold(sentence)))   # folded per sentence: offsets stay the body's
-        if not words:
-            continue
-        score = sum(weights[t] for t in words)
-        if _has_value(sentence, prefs.said):
-            score *= VALUE_BONUS
-        if prefs.tense and prefs.tense & {text_fold.stem(w) for w in text_fold.words(sentence)}:
-            score *= TENSE_BONUS
-        if _asks(sentence):
-            score *= ASKING_FACTOR
-        if score > best:
-            best, where = score, m.start() + len(sentence) - len(sentence.lstrip())
-    # The best sentence leads; the rest of the turn's words count half, so a long reply that repeats every word of
-    # the question does not outrank the short statement that answers it.
-    score = best + BREADTH_SHARE * base
-    if _speaks(role, prefs):
-        score *= PERSON_BONUS
-    return score, where
-
-
-#: An unmarked block of an episode an agent saved through a tool door (:data:`AGENT_SOURCES`): the agent's note,
-#: never a person's statement (as :func:`_who` labels it).
-AGENT_NOTE = "agent-note"
-
-
-def _speaker(turn, fm: dict) -> str:
-    """Who spoke the turn, for :func:`_speaks`: its role, or :data:`AGENT_NOTE` for an agent's saved note."""
-    if turn.role == "user" and turn.marker is None and str(fm.get("source") or "") in AGENT_SOURCES:
-        return AGENT_NOTE
-    return turn.role
-
-
-def _speaks(role: str, prefs: Prefs) -> bool:
-    """The speaker is the one the question is about: the agent for "what did you suggest", else a person (the owner
-    or another speaker in a message conversation)."""
-    return role == "assistant" if prefs.agent else role in ("user", "speaker")
-
-
-def _first_line(candidates: list[tuple], ep: str, taken: set, prefs: Prefs | None, docs: dict) -> tuple | None:
-    """The best not-yet-shown candidate of ``ep`` (``candidates`` best first): with ``prefs``, the best one whose
-    speaker the question is about, when there is one (an agent's saved note never is a person)."""
-    own = [c for c in candidates if c[3] == ep and (ep, c[2]) not in taken]
-    if prefs is not None:
-        fm = docs[ep][0] if ep in docs else {}
-        return next((c for c in own if _speaks(_speaker(c[4], fm), prefs)), own[0] if own else None)
-    return own[0] if own else None
-
-
 def _scored_turns(memory_path: Path, episodes: list[str], pattern, weights: dict[str, float], docs: dict,
-                  max_episodes: int, prefs: Prefs | None = None) -> list[tuple]:
-    """``(score, rank, turn index, episode, turn, anchor)`` for every turn of the first ``max_episodes`` readable
-    conversations of ``episodes`` that holds a weighted word, scored by :func:`answer_score`; ``anchor`` points at
-    its best sentence. ``docs`` receives what was read."""
+                  max_episodes: int) -> list[tuple]:
+    """``(score, rank, turn index, episode, turn, None)`` for every turn of the first ``max_episodes`` readable
+    conversations of ``episodes`` that holds a weighted word; ``docs`` receives what was read."""
     from api.services import history_index
 
-    prefs = prefs or Prefs()
     candidates: list[tuple] = []
     for ep in episodes:
         if len(docs) >= max_episodes:
@@ -763,12 +605,10 @@ def _scored_turns(memory_path: Path, episodes: list[str], pattern, weights: dict
         rank = len(docs)
         docs[ep] = (fm, text, turns)
         for i, turn in enumerate(turns):
-            body = text[turn.content_start:turn.end]
-            score, where = answer_score(body, pattern, weights, _speaker(turn, fm), prefs)
+            held = set(pattern.findall(text_fold.fold(text[turn.content_start:turn.end])))
+            score = sum(weights[t] for t in held)
             if score > 0:
-                # The excerpt is clipped around the stated answer, not the first word that matched.
-                at = turn.content_start + where
-                candidates.append((score, rank, i, ep, turn, Pointer(episode=ep, weight=0, start=at, end=at)))
+                candidates.append((score, rank, i, ep, turn, None))
     return candidates
 
 
