@@ -135,8 +135,8 @@ tool door (`mcp.md`, "A client of a server on another machine"). Both run their 
 answers `{text, code, data, error, state, bank}` with 200 for anything a body said (a body's exception is `error`, the
 stdio server's `Error: …`), 404 for an unknown tool and 403 for a tool the command-line surface does not hold.
 
-**ETags.** `/graph`, `/inbox`, `/contributors`, `/sources`, `/sources/channels`, `/origins` and
-`/banks` all return an `ETag` and honor `If-None-Match` with a `304`. This matters: `/graph` on the
+**ETags.** `/graph`, `/inbox`, `/contributors`, `/sources`, `/sources/channels`, `/origins`,
+`/banks` and `/sleep/episodes` (not a Store domain, below) all return an `ETag` and honor `If-None-Match` with a `304`. This matters: `/graph` on the
 live bank is ~1.8 MB. **Ship the ETag and its client mapping together** — `GET /inbox` ETags over
 `inbox`+`entities`+`episodes`, and `VersionVector.swift` maps `entities` and `episodes` onto
 `.inbox`; change one half, change both. `/graph`'s `extra` carries a node-shape tag
@@ -193,6 +193,17 @@ memory path or the app-spawned developer backend's copy of the file, counts as f
 never a value — and `effective`, the four values Sleep's pace and page
 writing turn on (`agentMaxConcurrency`, `sleepResolveConcurrency`, `summarySynthesisEnabled`, `pageArticlesEnabled`).
 The backend logs the same names once at startup. Settings → Advanced shows them (`app.md`).
+
+**`GET /sleep/episodes` (2026-10-19)** answers a bare list of episode rows, as before. With no query it is every
+episode (the original shape, kept for any client still asking); `processed=false` is only the waiting ones — what the
+app asks for (`APIClient.fetchEpisodeQueue(etag:)`: the Sleep page's Waiting rows and count fallback, a source's queue
+strip) — and `processed=true` with `offset`/`limit` (≤ 1000) pages the read ones; `X-Total-Count` is the filtered total.
+Rows are chosen from `bank_index`'s cached headers (`sleep_cycle.episode_headers`) and only the sent rows' bodies are
+read: on a synthetic 8,237-episode bank (10 waiting) the bare call is 4.3 MB / 1.7 s warm before and 0.4 s after, the
+waiting list 5 KB / 45 ms, a 304 ~25 ms. ETag over `episodes` with `extra` = `sleep.EPISODES_SHAPE|<query>|<folders.json
+mtime>` (a folder file's row copies its path from that registry). Not a Store domain: no `VersionVector` mapping —
+`SleepViewModel` holds the rows and the tag in memory, sends `If-None-Match` on every `load()` and drops both on a bank
+switch.
 
 `GET /status` has no ETag (the app refetches it whenever the vector's `sleep` component moves). Its `sleep.writing`
 (G177) is `sleep_cycle.is_writing()` — the predicate behind every "Sleep is running" 409 — and the SSE `sleep` event and

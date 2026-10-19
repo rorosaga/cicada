@@ -1052,7 +1052,10 @@ ruling-4 previews; the "Runs on …" caption retired into it, and Cancel's capti
 **Waiting · Saved · Videos · Past reads**, a `LazyVStack` pinned header so it sticks under the titlebar once the room
 scrolls away; a count of zero hides its tab (`SleepTab.visible`), the page opens on Waiting while anything waits and on
 Past reads otherwise (`SleepTab.resolve`), and a tab switch is instant and closes whatever was open. **Waiting**
-(`SleepWaitingList`, Details' What's waiting until 2026-10-16) is the run's own block and the queued rows; **Saved** and
+(`SleepWaitingList`, Details' What's waiting until 2026-10-16) is the run's own block and the queued rows — fetched as
+`GET /sleep/episodes?processed=false` (the waiting episodes only, never the read ones: every episode was 8,237 rows and
+4.5 MB per load on a large bank, 2026-10-19) and revalidated with its ETag, the rows and tag held in `SleepViewModel`
+(not a Store domain; a 304 keeps them, a bank switch drops both); **Saved** and
 **Videos** are the Feed's lists (above, *Clusters and Sleep's saved lists*); **Past reads** (`SleepPastReads`) is Last
 cycle · Readout · Past nights in D's list grammar — section labels over rows, no cards; Last cycle's rows in words,
 "Rested" as a sentence, the readout as key–value rows, a past read opening in place under its row with its Models, tokens
@@ -1272,7 +1275,7 @@ folded by run (`PastNightItem.group`, the run's numbers from the server's `run`,
 batches and pauses from `GET /sleep/runs/{id}`, cached in the view model and refetched when the run's counts, pause or end move; touched pages
 by name, the id in `.help`). A scheduled run that caught up a time the Mac slept or was off through (`sleep_catch_up`,
 `features.md`) carries `catchUpFor` on its `run` and its row says so in words — "Missed 3:00 AM — caught up at 8:12 AM",
-"tried" for a failed one, the missed day added when it is not the run's (`RunPresentation.catchUp`, owner 2026-10-19). The app-level `SleepViewModel` empties its queue, run details and history details on a bank switch
+"tried" for a failed one, the missed day added when it is not the run's (`RunPresentation.catchUp`, owner 2026-10-19). The app-level `SleepViewModel` empties its queue, waiting rows (and their ETag), run details and history details on a bank switch
 (`Store.onBankChanged`). `PriceLintTests` keeps `$` and token literals out of every other Sleep
 file.
 A refused bank switch shows the server's own 409 sentence (`BankSwitchFailure`), from every door: the switcher, the demo's enter and leave (`DemoMode.leaveToast`) and an active bank's rename.

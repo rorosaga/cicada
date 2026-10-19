@@ -61,7 +61,10 @@ final class SleepViewModelTests: XCTestCase {
             throw URLError(.notConnectedToInternet)
         },
         fetchRunOptions: @escaping () async throws -> SleepRunOptions = { throw URLError(.notConnectedToInternet) },
-        fetchRun: @escaping (String) async throws -> SleepRunDetail = { _ in throw URLError(.notConnectedToInternet) }
+        fetchRun: @escaping (String) async throws -> SleepRunDetail = { _ in throw URLError(.notConnectedToInternet) },
+        fetchEpisodes: @escaping (String?) async throws -> Conditional<[EpisodeQueueItem]> = { _ in
+            throw URLError(.notConnectedToInternet)
+        }
     ) -> SleepViewModel {
         let offline = URLError(.notConnectedToInternet)
         return SleepViewModel(
@@ -70,7 +73,7 @@ final class SleepViewModelTests: XCTestCase {
             requestEnd: { throw offline }, requestRetry: { _ in throw offline },
             fetchRunOptions: fetchRunOptions, putRunOptions: { _ in throw offline },
             fetchQueue: { throw offline }, fetchRun: fetchRun,
-            fetchEpisodes: { throw offline }, fetchSchedule: { throw offline })
+            fetchEpisodes: fetchEpisodes, fetchSchedule: { throw offline })
     }
 
     /// A `Store` whose `.status` snapshot stays "idle" throughout — simulating
@@ -733,5 +736,53 @@ final class SleepViewModelTests: XCTestCase {
         XCTAssertNil(older.writing)
         store.applySleepEvent(older)
         XCTAssertTrue(ProjectWriteGate.blocked(store.status.value))
+    }
+
+    // MARK: The waiting rows, revalidated with their ETag (2026-10-19)
+
+    private func waitingRow(_ id: String) throws -> EpisodeQueueItem {
+        try JSONDecoder().decode(EpisodeQueueItem.self, from: Data("""
+        {"id":"\(id)","timestamp":"2026-10-19T08:00:00Z","source":"mcp","origin":"claude-code",
+         "preview":"","chars":10,"processed":false}
+        """.utf8))
+    }
+
+    /// `load()` sends back the tag its rows came with; a 304 keeps them; a bank switch drops both, so the next bank's
+    /// list is fetched whole and never shown under the old bank's rows.
+    func test_load_revalidatesTheWaitingRowsWithTheirETag() async throws {
+        let rows = [try waitingRow("ep_a"), try waitingRow("ep_b")]
+        var sent: [String?] = []
+        var replies: [Conditional<[EpisodeQueueItem]>] = [
+            Conditional(value: rows, etag: "\"e1\"", notModified: false),
+            Conditional(value: nil, etag: "\"e1\"", notModified: true),
+            Conditional(value: [rows[1]], etag: "\"e2\"", notModified: false),
+        ]
+        let vm = offlineVM(store: idleStore(), fetchEpisodes: { etag in
+            sent.append(etag)
+            return replies.removeFirst()
+        })
+
+        await vm.load()
+        XCTAssertEqual(vm.queuedEpisodes.map(\.id), ["ep_a", "ep_b"])
+        await vm.load()
+        XCTAssertEqual(vm.queuedEpisodes.map(\.id), ["ep_a", "ep_b"], "a 304 keeps the rows held")
+        await vm.bankChanged()
+        XCTAssertTrue(vm.episodes.isEmpty, "another bank's rows are never shown")
+        await vm.load()
+        XCTAssertEqual(vm.queuedEpisodes.map(\.id), ["ep_b"])
+        XCTAssertEqual(sent, [nil, "\"e1\"", nil])
+    }
+
+    /// An older backend ignores `processed=false` and answers every episode: the page still lists only the waiting.
+    func test_queuedEpisodes_keepsOnlyTheWaiting_fromAnOlderBackend() async throws {
+        let read = try JSONDecoder().decode(EpisodeQueueItem.self, from: Data("""
+        {"id":"ep_read","timestamp":"2026-10-18T08:00:00Z","source":"mcp","preview":"","processed":true}
+        """.utf8))
+        let waiting = try waitingRow("ep_w")
+        let vm = offlineVM(store: idleStore(), fetchEpisodes: { _ in
+            Conditional(value: [read, waiting], etag: nil, notModified: false)
+        })
+        await vm.load()
+        XCTAssertEqual(vm.queuedEpisodes.map(\.id), ["ep_w"])
     }
 }

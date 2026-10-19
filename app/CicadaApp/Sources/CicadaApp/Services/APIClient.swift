@@ -2819,9 +2819,16 @@ actor APIClient {
         return try await post("/ask", body: ["query": query, "topK": topK])
     }
 
-    func fetchEpisodeQueue() async throws -> [EpisodeQueueItem] {
-        return try await get("/sleep/episodes")
+    /// `GET /sleep/episodes?processed=false` — only the episodes still waiting for Sleep (the Sleep page's Waiting rows,
+    /// a source's queue strip), revalidated with its ETag: a 304 keeps the rows held. Not a Store
+    /// domain — `SleepViewModel` holds the rows and the tag in memory. Every episode, read ones too, was 8k rows and
+    /// 4.5 MB on a large bank, fetched on every Sleep page load (2026-10-19). An older backend ignores the query and
+    /// answers every episode without a tag; `SleepViewModel.queuedEpisodes` still keeps only the waiting ones.
+    func fetchEpisodeQueue(etag: String?) async throws -> Conditional<[EpisodeQueueItem]> {
+        try await getConditional(Self.waitingEpisodesPath, etag: etag)
     }
+
+    static let waitingEpisodesPath = "/sleep/episodes?processed=false"
 
     func fetchSchedule() async throws -> ScheduleConfig {
         return try await get("/sleep/schedule")

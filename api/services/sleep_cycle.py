@@ -3199,44 +3199,49 @@ def _derive_origin(source: str | None) -> str:
     return s
 
 
-def list_all_episodes(memory_path: Path) -> list[dict]:
-    """Return every episode (processed + unprocessed), sorted by timestamp.
-
-    Used by ``GET /sleep/episodes`` so the Sleep dashboard can show both the
-    queue and recently processed episodes in the same chronology that the
-    sleep cycle consumes them in.
-    """
-    episodes_dir = memory_path / "episodes"
-    results: list[dict] = []
-    for filepath in episodes_dir.glob("*.md"):
-        try:
-            parsed = markdown_parser.parse(filepath)
-        except Exception as exc:  # noqa: BLE001 - one malformed episode must not abort the cycle
-            logger.warning(f"list_all_episodes: skipping malformed episode {filepath}: {exc}")
+def episode_headers(memory_path: Path, processed: bool | None = None) -> list[bank_index.IndexedFile]:
+    """Every episode's cached header (``bank_index``: one scandir, a YAML parse only for a file that changed), in the
+    cycle's chronology, optionally only the waiting (``processed=False``) or the read ones. No body is read: the Sleep
+    page asks for its handful of waiting rows out of thousands, and a body read per episode is what made
+    ``GET /sleep/episodes`` cost seconds on a large bank (2026-10-19)."""
+    out: list[bank_index.IndexedFile] = []
+    for f in bank_index.files(memory_path, "episodes"):
+        if processed is not None and bool(f.frontmatter.get("processed", False)) != processed:
             continue
-        fm = parsed.frontmatter
-        source = fm.get("source", "unknown")
-        results.append({
-            "id": fm.get("id", filepath.stem),
-            "timestamp": str(fm.get("timestamp", "") or ""),
-            "source": source,
-            # G9 origin, same derivation as `_get_unprocessed_episodes` — an
-            # explicit `origin:` field if present, else derived from the
-            # legacy `source`. Lets the Sleep debt breakdown (and any other
-            # consumer of this endpoint) group by the harness-normalized id.
-            "origin": fm.get("origin") or _derive_origin(source),
-            "title": fm.get("title"),
-            "body": parsed.body or "",
-            "processed": bool(fm.get("processed", False)),
-            # G114 R6: who marked it — "sleep" or an agent/harness name. None
-            # for every queued episode and every pre-G114 processed one.
-            "processed_by": (str(fm.get("processed_by")) if fm.get("processed_by") else None),
-            "filepath": filepath,
-            # What a click on the row copies and the day it shows (`episode_copy`, owner 2026-10-05).
-            "frontmatter": fm,
-        })
-    results.sort(key=_episode_sort_key)  # by instant, same key as the cycle's queue (G114 R2)
-    return results
+        out.append(f)
+    out.sort(key=lambda f: _episode_sort_key({"timestamp": str(f.frontmatter.get("timestamp", "") or ""),
+                                              "id": str(f.frontmatter.get("id", f.stem))}))
+    return out
+
+
+def episode_row(f: bank_index.IndexedFile) -> dict:
+    """One episode as ``list_all_episodes`` lists it; reads its body (the cached header's YAML is not parsed again)."""
+    fm = f.frontmatter
+    source = fm.get("source", "unknown")
+    return {
+        "id": fm.get("id", f.stem),
+        "timestamp": str(fm.get("timestamp", "") or ""),
+        "source": source,
+        # G9 origin, same derivation as `_get_unprocessed_episodes` — an explicit `origin:` field if present, else
+        # derived from the legacy `source`, so the Sleep debt breakdown groups by the harness-normalized id.
+        "origin": fm.get("origin") or _derive_origin(source),
+        "title": fm.get("title"),
+        "body": f.body() or "",
+        "processed": bool(fm.get("processed", False)),
+        # G114 R6: who marked it — "sleep" or an agent/harness name. None for every queued episode and every pre-G114
+        # processed one.
+        "processed_by": (str(fm.get("processed_by")) if fm.get("processed_by") else None),
+        "filepath": f.path,
+        # What a click on the row copies and the day it shows (`episode_copy`, owner 2026-10-05). The cached header:
+        # never an episode's `turns` sidecar, which neither reads.
+        "frontmatter": fm,
+    }
+
+
+def list_all_episodes(memory_path: Path, processed: bool | None = None) -> list[dict]:
+    """Every episode (or only the waiting / read ones), sorted by timestamp — the chronology the cycle consumes them
+    in (G114 R2). ``GET /sleep/episodes`` pages :func:`episode_headers` itself so it reads only the bodies it sends."""
+    return [episode_row(f) for f in episode_headers(memory_path, processed)]
 
 
 def _load_existing_entities(memory_path: Path) -> list[dict]:
