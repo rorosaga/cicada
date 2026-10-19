@@ -834,6 +834,52 @@ the website's logo … Clicking again on Sources takes me back to the main Sourc
   number through `UsageFormat.count`. Tests: `SourcesV3Tests`, `SourcesListTests`; screenshots render offscreen from a
   demo-bank dump in `SourcesV3RenderTests` (skipped without `SOURCES_V3_RENDER_DIR`).
 
+**Sources page — v4 (owner 2026-10-19, on v3 against his real bank; DESIGN_RULES §9).** *"Remove the graph and just put
+what the source is. Avoid repetition."* — *"just have a 'Consolidate now' button at the top, with how many things are
+pending from that category, as a small notification."*
+- **One header per source** (`SourceDetailHead`): the bare mark, the name, what the source is in one line
+  (`SourceBlurb`, now with Messages, Apple Calendar and "Other agents"), then one state line with only what the row
+  beside it can't say — when it last synced, the whole error in `warning`, or "Syncing now" with its × — never the
+  row's own "Watching" / "Syncs when you ask" (`SourceDetailText.state`; no line at all when there is nothing), with
+  Sync now / Poll now inline, and **"Consolidate now · N waiting"** as a compact `NeutralButton` only while
+  `waiting > 0` (or a read runs); when other sources wait too it says "N here, M in all" (a read takes everything).
+  The run state follows the Store's status and re-reads Sleep's status when it moves, so the button is never enabled
+  during a run. The eyebrow stays the page's ("Sources · n connected") whatever is open — v3's position and group
+  repeated the selected row and its group label beside it. `waiting` is the backend's per-source count on every
+  `/sources/overview` row (`history_index.waits_for_model`, Sleep's own rule), so the app no longer derives it from the
+  Sleep queue. Gone: v3's 30-day card and sparkline, the queue strip and its "Consolidated so far" line, the sync card that
+  named the source a third time (`SourceHeaderCard`, `SourceQueueStrip` deleted), and an empty "By folder" heading
+  (`SourceItemsGrouping.showsFolders`). The Full Disk Access fix stays under the state line where the read failed.
+- **Faces on the root rows** (wide style only): up to three, newest first, then a "+N" ring (`SourceFaces`,
+  `SourceFaceStack`) — the chats that fed Messages (each the photo the chat shares, `GET /sources/messages/chats/{id}/
+  photo`, else a ring with a letter) and the sites a saved source's things came from (their own icon by the saved page,
+  `SiteIcon(savedItem:)`). Served as `faces`/`facesMore` on the overview row; the overview's ETag folds `photos` in and
+  `VersionVector` routes `photos` to `.sourcesOverview` too; a saved source's faces come from the set its list lists
+  (a bookmark that left the browser is none), and a row whose count is zero has none. Pictures load through
+  `SourcePictureStore` (in memory, misses kept, per bank, at most four asks at a time). Bundled marks draw on the first
+  frame (`LogoImage.bundledImageNow`), never the generic "app" placeholder.
+- **Rows say each thing once.** A list row's title drops a trailing " · <its own day>" (`channel_items._without_day`).
+  Messages lists one row per chat — its face, who it is with, its newest day and "N sittings" — opening in place to
+  its sittings by day and message count, each opening in the Reader (`ChatSittingsRow`, `GET /sources/messages/chats/
+  {id}/sittings`, `ChannelItemsCache.refreshSittings`); the list follows the overview too, so a chat photo reaches it. A conversation row inside its
+  harness's list shows neither the harness badge nor "1 episode" (`ConversationRow.inSourceList`). The conversations'
+  find moved out from under the header into the list's own header, behind its magnifier and ⌘F (DR-46; kept, not
+  dropped, because the list holds the newest 200 and find is how an older one is reached by title, and where the
+  palette's hand-off lands).
+- **YouTube history by day** (`WatchedDayRow`, sharing `InPlaceDisclosureRow` with chats): one row per watched day — the day said once ("Today", a weekday, "Oct
+  3") and "12 videos" — opening in place to that day's videos (read then, `ChannelItemsCache.refreshDay` over
+  `GET /sources/watch-history/days/{episode}`, emptied on a bank switch): the still, the title, the channel and when it
+  was watched on this Mac's clock, laid out lazily so a still is asked only as its row comes on screen; a click opens the saved item in Sleep › Saved when the person also saved it, else
+  the provider's own watch page in the browser (`WatchedVideoRoute`, `LinkOpen`'s target). Month summaries are not
+  listed. Stills: `storage.md`, "A watched or saved YouTube video's still".
+- **Sleep is not a source.** The owner's `origin:sleep` row ("1 capture", empty) was the citation episode a web check
+  Sleep settled writes (`web_settle`, `source: web-check`, `origin: sleep`); its home is Inbox › "Settled by a check".
+  Check records (`web-check`, `source-check`) are left out of every row (`source_overview.CHECK_RECORD_SOURCES`), so
+  an agent's check no longer makes an "Other agents" conversation either. **"Other agents"** (`harness:unknown`) stays
+  for real conversations an agent saved without naming its app, with its own sentence, never folded into an app it may
+  not be. Tests: `SourcesV4Tests`; screenshots render offscreen in `SourcesV4RenderTests` (skipped without
+  `SOURCES_V4_RENDER_DIR`).
+
 **Explore saved sites (G166 slice 1, owner 2026-10-14).** A neutral **Explore saved sites** button beside "Add a source"
 in the Sources eyebrow (hidden when the backend answers 404) opens `ExploreSheet`: sites not explored yet or every saved
 site, with counts, a checkbox per browser when there are several, the run's size (Light / Medium / Heavy and minutes with
@@ -862,7 +908,7 @@ again). Nothing in the app reads YouTube; the person's own agent does (`mcp.md`,
 (`Views/Common/SourceRow.swift`) from a pure `SourceRowModel`: the bare mark, name and what it reads, what came in
 (`SourceRowText.countLine`: the count in the reader's locale and the channel's `parts`), and on the right 'Syncing now'
 with an × or 'Last synced 2 minutes ago' (the persisted `lastSync`, re-read every 30 s; an import says 'Imported …').
-× cancels the run only (R-SR11). Sources' detail column, the browser, tab-group and Contacts rows in Integrations, and
+× cancels the run only (R-SR11). The browser, tab-group and Contacts rows in Integrations (Sources' detail column says the same in its header's state line since v4), and
 Home's Getting started rows use it. `BrowserWatcher`, `TabGroupWatcher` and `ContactsReader` report their runs into
 `SyncActivity`; `LocalSourceWatcher` and `CalendarReader` keep their own lights (R-SR17).
 

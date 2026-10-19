@@ -40,8 +40,11 @@ struct CapturedItemsList: View {
 
     /// Re-read when the list opens and whenever the channels move (`/sources/channels` ETags over the same
     /// components this list does, so a sync that brought something in lands here too; a 304 moves nothing).
+    /// Sources v4 (review of #358): and when the overview moves — it rides `photos` too, so a chat photo that arrives
+    /// for a chat with no page reaches its row.
     private var refreshKey: String {
         "\(channel)|\(isOpen)|\(store?.channels.loadedAt?.timeIntervalSinceReferenceDate ?? 0)"
+            + "|\(store?.sourcesOverview.loadedAt?.timeIntervalSinceReferenceDate ?? 0)"
     }
 
     private var noun: (one: String, many: String) {
@@ -114,9 +117,17 @@ struct CapturedItemsList: View {
                 let today = ISODay.today()
                 VStack(spacing: 0) {
                     ForEach(list.items, id: \.self) { item in
-                        CapturedItemRow(item: item, today: today,
-                                        route: CapturedItemRoute.of(item, interactive: interactive), open: go,
-                                        leftLine: CapturedItems.leftLine(item, channel: channel))
+                        if item.videos != nil && interactive {
+                            // Sources v4 — a watched day opens in place to that day's videos.
+                            WatchedDayRow(item: item, today: today)
+                        } else if item.kind == .chat && interactive {
+                            // Sources v4 (review of #358) — one row per chat, opening in place to its sittings.
+                            ChatSittingsRow(item: item, today: today, open: go)
+                        } else {
+                            CapturedItemRow(item: item, today: today,
+                                            route: CapturedItemRoute.of(item, interactive: interactive), open: go,
+                                            leftLine: CapturedItems.leftLine(item, channel: channel))
+                        }
                     }
                 }
                 if list.hasMore { showMore(list, loading: cache.isLoadingMore(channel), cache: cache) }
@@ -205,6 +216,10 @@ private struct CapturedItemRow: View {
 
     private func label(_ age: (text: String, help: String)?) -> some View {
         HStack(spacing: CicadaTheme.spacingSM) {
+            // Sources v4 — a Messages row leads with the chat's face (its photo, else a ring with a letter).
+            if let chat = item.chat {
+                ChatFace(id: chat.id, label: chat.label, photo: chat.photo, side: CicadaTheme.scaled(20))
+            }
             Text(item.title)
                 .font(CicadaTheme.bodyFont)
                 .foregroundStyle(leftLine == nil ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)

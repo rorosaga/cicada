@@ -724,6 +724,23 @@ Round 4 (C2–C4):
   `$CICADA_HOME/logos/<bank>/sites/own/` — hits 30 days, misses 7 — never in a bank; any failure is a 404 the row draws
   as its monogram. This is a row's mark only: it never becomes a page's picture, and `domain_for` still takes no saved
   link's site.
+  **A watched or saved YouTube video's still (owner direction 2026-10-19, Sources v4).** *"For YouTube … why don't you
+  render the thumbnail of the video?"* A video in a watched day the person opened (Sources › YouTube history › a day)
+  may show its still: `GET /sources/watch-history/days/{episode}/videos/{video_id}/thumbnail`, asked by the app only for a row of a
+  day the person opened (as the row comes on screen, at most four at a time), never from Sleep. The backend asks **YouTube's own thumbnail host for that video id only**
+  (`i.ytimg.com/vi/<id>/hqdefault.jpg`, `media_preview.YOUTUBE_STILL`, the pin a saved video's preview already uses),
+  and only for an id THAT day's record holds (`channel_items.day_has_video`, one file read — never an id a request
+  merely names, never a walk of the bank). Behind `CICADA_ALLOW_LOGO_FETCH`, through the ToS rail (`media_preview._get`: `net_guard` on every hop, 4 s,
+  ≤ 512 KB, no cookies, raster only, a wall never retried), cached outside every bank at
+  `$CICADA_HOME/previews/<bank>/watched/<id>.<ext>` with its misses (`media_preview.ensure_video_still`); any failure is
+  a 404 the row draws as a quiet play glyph. A picture is not a read: no model ever reads watch history (ruling 30).
+  A day's videos come from `GET /sources/watch-history/days/{episode}` (`channel_items.watched_day`: title, channel,
+  times, the provider's watch URL, the id, and the saved page when the person also saved it — read from the day's own
+  record, nothing fetched; ETag over `sources`+`episodes`+`entities`, not a Store domain).
+  **A Messages chat's face (Sources v4).** The photo a ticked chat shares (above, `messages_photos`) is also that chat's
+  face on its Sources row and in its list, served by conversation: `GET /sources/messages/chats/{conversation}/photo`
+  (404 for an id that is not a chat hash, a chat not ticked, or no photo; nothing fetched). `messages_photos.stamp`
+  (the `photos` component) hashes every stored photo, a chat with no page yet included, so its face arrives too.
 - `picture:` (G146) — the person's own choice of picture for a page: `{kind: upload, sha, ext, added}` for a
   picture they uploaded, whose bytes live **in the bank** at `assets/pictures/<id>.<png|jpg>` (their record, so it
   travels with the bank; the path is derived from the id, never read from the page), or `{kind: initials, added}`

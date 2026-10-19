@@ -38,11 +38,12 @@ final class VersionVectorTests: XCTestCase {
     }
 
     /// G159 (2026-10-09) — a person's public-profile photo is cached outside the bank too; a fetch or a miss aging
-    /// out moves only the `photos` component, and `/graph` carries the node's versioned `picture`.
-    func testPhotosComponentRefreshesTheGraph() {
+    /// out moves only the `photos` component, and `/graph` carries the node's versioned `picture`. Sources v4: a
+    /// Messages chat's photo is a face on its Sources row, and `/sources/overview` folds `photos` into its ETag.
+    func testPhotosComponentRefreshesTheGraphAndTheSourcesOverview() {
         let old = VersionVector(version: "1", components: ["photos": "a", "bank": "x"])
         let new = VersionVector(version: "2", components: ["photos": "b", "bank": "x"])
-        XCTAssertEqual(new.changedDomains(since: old), [.graph])
+        XCTAssertEqual(new.changedDomains(since: old), [.graph, .sourcesOverview])
     }
 
     /// `sync_service.components` folds `feeds.yaml` and `calendars.yaml` into

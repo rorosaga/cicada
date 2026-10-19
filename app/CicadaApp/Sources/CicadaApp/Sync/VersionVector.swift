@@ -36,8 +36,9 @@ struct VersionVector: Codable, Equatable {
         // own key or the node keeps painting a monogram.
         "logos": [.graph],
         // G159 (2026-10-09): a person's public-profile photo is cached outside the bank as well; a fetch, or a miss
-        // aging out, moves `/graph`'s versioned `picture` and nothing else.
-        "photos": [.graph],
+        // aging out, moves `/graph`'s versioned `picture`. Sources v4: a Messages chat's photo is a face on its
+        // Sources row (`/sources/overview` folds `photos` into its ETag), so the overview rides it too.
+        "photos": [.graph, .sourcesOverview],
         // The telemetry ledger and the consumption endpoints' etags all move
         // together with the current `events-YYYY-MM.jsonl` mtime (see
         // `sync_service.components`'s "telemetry" key) — one component so the

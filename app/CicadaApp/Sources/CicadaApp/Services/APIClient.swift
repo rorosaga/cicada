@@ -3111,6 +3111,21 @@ actor APIClient {
         return data
     }
 
+    /// Sources v4 — a picture Cicada's own API serves for a Sources row (a Messages chat's photo, a watched video's
+    /// still): its bytes, or nil on a 404 ("draw the monogram"). `path` is built by `SourcePictures`, never by a caller.
+    func fetchSourcePicture(path: String) async throws -> Data? {
+        var request = makeRequest(path, method: "GET", json: false)
+        request.timeoutInterval = Self.refreshTimeout
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        if http.statusCode == 404 { return nil }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+        return data
+    }
+
     func fetchSiteIcon(site: String) async throws -> Data? {
         guard site.range(of: "^[a-z0-9][a-z0-9.-]*$", options: .regularExpression) != nil, !site.contains("..") else {
             return nil
