@@ -74,15 +74,20 @@ def _register(c, **extra):
     return resp.json()
 
 
-def _authorize(c, client_id, challenge, *, redirect=CLAUDE_CB, state="st-123", **extra):
+def _authorize(c, client_id, challenge, *, redirect=CLAUDE_CB, state="st-123", headers=None, **extra):
     params = {"response_type": "code", "client_id": client_id, "redirect_uri": redirect,
               "code_challenge": challenge, "code_challenge_method": "S256", "state": state,
               "resource": f"{BASE}/mcp", "scope": "search read record offline_access", **extra}
-    return c.get("/authorize", params=params)
+    return c.get("/authorize", params=params, headers=headers)
 
 
 def _handle(page) -> str:
     return re.search(r"url=/authorize/wait\?r=([A-Za-z0-9_-]+)", page.text).group(1)
+
+
+def _code(page) -> str:
+    """The code the person reads on their own browser's page — the only thing that approves a sign-in."""
+    return re.search(r'<div class="code">([A-Z0-9]{4}-[A-Z0-9]{4})</div>', page.text).group(1)
 
 
 def _signed_in(world, c, *, scopes=("search", "read", "record"), state="st-123", client=None):
@@ -92,8 +97,7 @@ def _signed_in(world, c, *, scopes=("search", "read", "record"), state="st-123",
     verifier, challenge = _pkce()
     page = _authorize(c, client["client_id"], challenge, state=state)
     assert page.status_code == 200
-    [pending] = server.pending()
-    connector = server.approve(pending.ref, scopes=list(scopes), expires_in_days=30)
+    connector = server.approve(_code(page), scopes=list(scopes), expires_in_days=30)
     back = c.get("/authorize/wait", params={"r": _handle(page)})
     assert back.status_code == 302
     query = parse_qs(urlparse(back.headers["location"]).query)
@@ -146,7 +150,8 @@ def test_sign_in_end_to_end_reaches_the_tools_the_person_chose(world):
     assert sorted(t["name"] for t in listed.json()["result"]["tools"]) == [
         "cicada_handshake", "cicada_open_hub", "cicada_recall"]
     row = db.get(connector.id)
-    assert row.auth == "oauth" and row.app == "claude" and row.label == "Claude" and row.use_count == 1
+    # A registered client is never named or branded by what it claims or where it returns (review of #359).
+    assert row.auth == "oauth" and row.app == "other" and row.label == "Unverified app" and row.use_count == 1
 
 
 def test_the_public_page_only_shows_a_code_and_waits(world):
@@ -155,14 +160,19 @@ def test_the_public_page_only_shows_a_code_and_waits(world):
         client = _register(c)
         _, challenge = _pkce()
         page = _authorize(c, client["client_id"], challenge)
-        [pending] = server.pending()
-        assert pending.user_code in page.text and "claude.ai" in page.text
+        code = _code(page)
+        assert "claude.ai" in page.text and "Claude" not in page.text  # a registered client's name is its own claim
         assert "<form" not in page.text and "password" not in page.text.lower()
         assert page.headers["x-frame-options"] == "DENY" and "default-src 'none'" in page.headers["content-security-policy"]
         again = c.get("/authorize/wait", params={"r": _handle(page)})
-    assert again.status_code == 200 and pending.user_code in again.text  # still waiting: nothing approved it
-    assert pending.app == "claude" and pending.redirect_host == "claude.ai" and pending.scopes_asked == [
+    assert again.status_code == 200 and code in again.text  # still waiting: nothing approved it
+    [waiting] = server.waiting()
+    assert set(vars(waiting)) == {"ref", "created_at", "expires_at"}  # the app's list carries no code and no name
+    found = server.match(code.lower().replace("-", " "))  # typed loosely
+    assert found.ref == waiting.ref and not found.verified and found.client_name is None and found.app == "other"
+    assert found.redirect_host == "claude.ai" and found.client_registered_at and found.scopes_asked == [
         "search", "read", "record"]
+    assert server.match("ZZZZ-ZZZZ") is None and server.match("nonsense") is None
 
 
 def test_a_denial_goes_back_with_access_denied_state_and_iss(world):
@@ -171,7 +181,7 @@ def test_a_denial_goes_back_with_access_denied_state_and_iss(world):
         client = _register(c)
         _, challenge = _pkce()
         page = _authorize(c, client["client_id"], challenge, state="keep-me")
-        server.deny(server.pending()[0].ref)
+        server.deny(server.waiting()[0].ref)
         back = c.get("/authorize/wait", params={"r": _handle(page)})
         q = parse_qs(urlparse(back.headers["location"]).query)
         assert back.headers["location"].startswith(CLAUDE_CB + "?")
@@ -222,7 +232,7 @@ def test_pkce_s256_is_required_and_verified(world):
             q = parse_qs(urlparse(resp.headers["location"]).query)
             assert q["error"] == ["invalid_request"] and q["iss"] == [BASE]
         page = _authorize(c, client["client_id"], challenge)
-        server.approve(server.pending()[0].ref, scopes=["search"], expires_in_days=7)
+        server.approve(_code(page), scopes=["search"], expires_in_days=7)
         code = parse_qs(urlparse(c.get("/authorize/wait", params={"r": _handle(page)}).headers["location"]).query)["code"][0]
         wrong = c.post("/token", headers=FORM, data={"grant_type": "authorization_code", "code": code,
                                                      "redirect_uri": CLAUDE_CB, "client_id": client["client_id"],
@@ -253,7 +263,7 @@ def test_a_code_expires_and_is_bound_to_its_client_and_redirect(world):
         for _ in range(3):
             verifier, challenge = _pkce()
             page = _authorize(c, client["client_id"], challenge)
-            server.approve(server.pending()[0].ref, scopes=["search"], expires_in_days=7)
+            server.approve(_code(page), scopes=["search"], expires_in_days=7)
             loc = c.get("/authorize/wait", params={"r": _handle(page)}).headers["location"]
             codes.append((parse_qs(urlparse(loc).query)["code"][0], verifier))
 
@@ -274,7 +284,7 @@ def test_the_waiting_page_is_bound_to_its_browser(world):
         client = _register(c)
         _, challenge = _pkce()
         page = _authorize(c, client["client_id"], challenge)
-        server.approve(server.pending()[0].ref, scopes=["search"], expires_in_days=7)
+        server.approve(_code(page), scopes=["search"], expires_in_days=7)
         handle = _handle(page)
     with _client(world) as stranger:  # the request id alone, without the browser's cookie
         assert stranger.get("/authorize/wait", params={"r": handle}).status_code == 400
@@ -289,9 +299,9 @@ def test_a_request_nobody_approves_expires(world):
         _, challenge = _pkce()
         page = _authorize(c, client["client_id"], challenge)
         clock.now += timedelta(seconds=oauth.REQUEST_TTL_S + 1)
-        assert server.pending() == []
+        assert server.waiting() == []
         with pytest.raises(KeyError):
-            server.approve("rq_whatever", scopes=["search"], expires_in_days=7)
+            server.approve(_code(page), scopes=["search"], expires_in_days=7)
         assert "expired" in c.get("/authorize/wait", params={"r": _handle(page)}).text
 
 
@@ -386,8 +396,9 @@ def test_a_client_id_metadata_document_is_fetched_checked_and_cached(world):
         verifier, challenge = _pkce()
         page = _authorize(c, url, challenge, redirect="http://localhost:3118/callback")
         assert page.status_code == 200
-        [pending] = server.pending()
-        assert pending.app == "claude-code" and pending.loopback and pending.client_host == "claude.ai"
+        found = server.match(_code(page))
+        assert found.app == "claude-code" and found.loopback and found.client_host == "claude.ai" and found.verified
+        assert found.client_name == "Claude Code"
         del docs[url]  # cached: the second sign-in does not fetch again
         assert _authorize(c, url, challenge, redirect="http://127.0.0.1:5/callback").status_code == 200
 
@@ -416,7 +427,7 @@ def test_the_real_document_fetch_goes_through_net_guard():
 
 # ── rate limits and the Origin rule ─────────────────────────────────────────
 
-def test_registration_authorization_and_waiting_requests_are_limited(world):
+def test_registration_and_authorization_are_limited_without_sending_the_person_to_approve(world):
     _, server, _, _, _ = world
     with _client(world) as c:
         codes = [c.post("/register", json={"redirect_uris": [CLAUDE_CB]}).status_code for _ in range(12)]
@@ -425,11 +436,125 @@ def test_registration_authorization_and_waiting_requests_are_limited(world):
     with _client(world) as c:
         client = _register(c)
         _, challenge = _pkce()
-        waits = [_authorize(c, client["client_id"], challenge).status_code for _ in range(oauth.MAX_PENDING + 1)]
-        assert waits[:oauth.MAX_PENDING] == [200] * oauth.MAX_PENDING and waits[-1] == 429
-        assert len(server.pending()) == oauth.MAX_PENDING
-        server.limits.authorize = oauth.Bucket(0, 0)
-        assert _authorize(c, client["client_id"], challenge).status_code == 429
+        one_source = [_authorize(c, client["client_id"], challenge).status_code for _ in range(11)]
+        assert one_source[:10] == [200] * 10 and one_source[-1] == 429
+        refused = _authorize(c, client["client_id"], challenge)
+        assert "approve" not in refused.text.lower() and "waiting" not in refused.text.lower()
+        other = _authorize(c, client["client_id"], challenge, headers={"X-Forwarded-For": "198.51.100.7"})
+    assert other.status_code == 200  # another source is not locked out by the first one's flood
+
+
+def test_a_full_queue_evicts_the_flooders_requests_not_the_persons(world, monkeypatch):
+    _, server, _, _, _ = world
+    monkeypatch.setattr(oauth, "MAX_PENDING", 6)
+    with _client(world) as c:
+        client = _register(c)
+        _, challenge = _pkce()
+        owner = _authorize(c, client["client_id"], challenge, headers={"X-Forwarded-For": "203.0.113.9"})
+        flood = [_authorize(c, client["client_id"], challenge, headers={"X-Forwarded-For": "192.0.2.1"})
+                 for _ in range(9)]
+        assert all(f.status_code == 200 for f in flood) and len(server.waiting()) == 6
+        assert server.match(_code(owner)) is not None  # the person's one request survived the flood
+        assert server._request_by_handle(_handle(flood[0]))["status"] == "evicted"  # the flood's own went
+        assert server._request_by_handle(_handle(owner))["status"] == "pending"
+
+
+def test_the_review_probe_a_stranger_cannot_get_a_sign_in_approved(world):
+    """Security review of #359, the probe kept as a regression test: a stranger registers an app called "Claude"
+    returning to claude.ai, floods the queue, and waits for the person to approve the look-alike. The person sees no
+    clickable look-alike, approves by the code on their own page, and the stranger never obtains a code or a token."""
+    _, server, _, _, _ = world
+    with _client(world) as attacker:
+        evil = _register(attacker)  # client_name "Claude", claude.ai's callback — anyone may register this
+        flows = []
+        for i in range(oauth.MAX_PENDING):
+            verifier, challenge = _pkce()
+            page = _authorize(attacker, evil["client_id"], challenge, headers={"X-Forwarded-For": f"192.0.2.{i % 9}"})
+            assert page.status_code == 200
+            flows.append((verifier, _handle(page)))
+        with _client(world) as owner:
+            real = _register(owner)
+            verifier, challenge = _pkce()
+            mine = _authorize(owner, real["client_id"], challenge, headers={"X-Forwarded-For": "203.0.113.9"})
+            assert mine.status_code == 200  # never locked out, never told to approve what waits
+            listed = server.waiting()
+            assert all(set(vars(w)) == {"ref", "created_at", "expires_at"} for w in listed)
+            with pytest.raises(KeyError):
+                server.approve("", scopes=["search"], expires_in_days=7)
+            server.approve(_code(mine), scopes=["search"], expires_in_days=7)  # the person types their own code
+            back = owner.get("/authorize/wait", params={"r": _handle(mine)})
+            assert back.status_code == 302 and "code=" in back.headers["location"]
+        for verifier, handle in flows:
+            resp = attacker.get("/authorize/wait", params={"r": handle})
+            assert "location" not in resp.headers  # still waiting or evicted: no code ever reaches the stranger
+        assert server.match(_code(mine)) is None  # the person's code is spent
+
+
+def test_a_spent_token_bucket_still_lets_a_valid_refresh_through(world, monkeypatch):
+    monkeypatch.setattr(oauth, "TOKEN_PER_CLIENT_PER_MINUTE", 2)
+    with _client(world) as c:
+        client, _, tokens, _ = _signed_in(world, c)  # the exchange took one
+        spam = [c.post("/token", headers=FORM, data={"grant_type": "refresh_token", "client_id": client["client_id"],
+                                                     "refresh_token": "cic_rt_bogus"}).status_code for _ in range(3)]
+        assert spam[-1] == 429
+        ok = c.post("/token", headers=FORM, data={"grant_type": "refresh_token", "client_id": client["client_id"],
+                                                  "refresh_token": tokens["refresh_token"]})
+        other = _register(c)
+        fresh = c.post("/token", headers=FORM, data={"grant_type": "refresh_token", "client_id": other["client_id"],
+                                                     "refresh_token": "cic_rt_bogus"})
+    assert ok.status_code == 200 and ok.json()["access_token"].startswith("cic_at_")
+    assert fresh.status_code == 400  # another client's bucket is its own
+
+
+def test_a_full_client_table_drops_the_oldest_grantless_client(world, monkeypatch):
+    _, server, _, _, _ = world
+    monkeypatch.setattr(oauth, "MAX_CLIENTS", 3)
+    server.limits = oauth.OAuthLimits.default()
+    with _client(world) as c:
+        client, _, _, _ = _signed_in(world, c)  # has a grant: never dropped
+        first = _register(c)
+        ids = [_register(c)["client_id"] for _ in range(4)]
+    assert server.get_client(client["client_id"]) is not None
+    assert server.get_client(first["client_id"]) is None and server.get_client(ids[-1]) is not None
+
+
+@pytest.mark.parametrize("bad", [CLAUDE_CB.replace("/api/", "\\api/"), "https://claude.ai:99999/cb",
+                                 "https://claude.ai:x/cb", CLAUDE_CB + "\x01", CLAUDE_CB + "\x7f"])
+def test_a_presented_redirect_with_odd_characters_is_refused(world, bad):
+    assert not oauth.redirect_matches([bad, CLAUDE_CB], bad)  # refused even if it were registered
+    with _client(world) as c:
+        client = _register(c)
+        _, challenge = _pkce()
+        resp = _authorize(c, client["client_id"], challenge, redirect=bad)
+    assert resp.status_code == 400 and "location" not in resp.headers
+
+
+def test_refresh_reuse_also_revokes_the_connector_so_settings_shows_it(world):
+    db, _, _, clock, _ = world
+    with _client(world) as c:
+        client, connector, first, _ = _signed_in(world, c)
+        c.post("/token", headers=FORM, data={"grant_type": "refresh_token", "client_id": client["client_id"],
+                                             "refresh_token": first["refresh_token"]})
+        clock.now += timedelta(seconds=oauth.REFRESH_REUSE_GRACE_S + 1)
+        c.post("/token", headers=FORM, data={"grant_type": "refresh_token", "client_id": client["client_id"],
+                                             "refresh_token": first["refresh_token"]})
+    assert db.get(connector.id).state() == "revoked"
+
+
+def test_the_metadata_fetch_has_one_overall_deadline(world, monkeypatch):
+    import asyncio
+
+    _, server, _, _, _ = world
+    monkeypatch.setattr(oauth, "CIMD_TIMEOUT_S", 0.2)
+
+    async def slow(url):
+        await asyncio.sleep(5)
+        return b"{}"
+
+    server.fetcher = slow
+    started = datetime.now()
+    assert asyncio.run(server.resolve_client("https://slow.example/meta")) is None
+    assert (datetime.now() - started).total_seconds() < 2
 
 
 def test_origin_is_refused_everywhere_but_the_sign_in_pages(world):
@@ -497,19 +622,26 @@ def test_the_app_approves_and_denies_through_the_loopback_api(tmp_path, monkeypa
                                  state=None, resource="https://x.example/mcp", scopes_asked=["search"])
     server.start_request(client=found, redirect_uri=found.redirect_uris[0], code_challenge="a" * 43,
                          state=None, resource="https://x.example/mcp", scopes_asked=[])
+    third = server.start_request(client=found, redirect_uri=found.redirect_uris[0], code_challenge="a" * 43,
+                                 state=None, resource="https://x.example/mcp", scopes_asked=[])
     api = ApiClient(main.app)
     listed = api.get("/remote/oauth/requests").json()
-    assert [r["app"] for r in listed] == ["chatgpt", "chatgpt"] and listed[0]["userCode"] == first[2]
-    assert set(listed[0]) == {"ref", "userCode", "clientName", "clientKind", "clientHost", "redirectHost",
-                              "loopback", "app", "scopesAsked", "createdAt", "expiresAt"}
-    made = api.post(f"/remote/oauth/requests/{listed[0]['ref']}/approve",
-                    json={"scopes": ["search", "record"], "expiresInDays": 7}).json()
-    assert made["auth"] == "oauth" and made["app"] == "chatgpt" and made["scopes"] == ["record", "search"]
-    assert api.post(f"/remote/oauth/requests/{listed[0]['ref']}/approve",
-                    json={"scopes": ["search"], "expiresInDays": 7}).status_code == 404  # answered already
-    assert api.post(f"/remote/oauth/requests/{listed[1]['ref']}/approve",
-                    json={"scopes": ["search"], "expiresInDays": 365}).status_code == 400  # every connector expires
-    assert api.post(f"/remote/oauth/requests/{listed[1]['ref']}/deny").status_code == 200
+    assert len(listed) == 3 and all(set(r) == {"ref", "createdAt", "expiresAt"} for r in listed)  # no code, no name
+    matched = api.post("/remote/oauth/match", json={"userCode": first[2].lower()}).json()
+    assert matched["verified"] is False and matched["clientName"] is None and matched["app"] == "other"
+    assert matched["redirectHost"] == "chatgpt.com" and matched["clientRegisteredAt"] and "userCode" not in matched
+    assert api.post("/remote/oauth/match", json={"userCode": "ZZZZ-ZZZZ"}).status_code == 404
+    made = api.post("/remote/oauth/approve", json={"userCode": first[2], "scopes": ["search", "record"],
+                                                   "expiresInDays": 7}).json()
+    assert made["auth"] == "oauth" and made["app"] == "other" and made["scopes"] == ["record", "search"]
+    assert made["label"] == "Unverified app"
+    assert api.post("/remote/oauth/approve", json={"userCode": first[2], "scopes": ["search"],
+                                                   "expiresInDays": 7}).status_code == 404  # answered already
+    assert api.post("/remote/oauth/approve", json={"userCode": third[2], "scopes": ["search"],
+                                                   "expiresInDays": 365}).status_code == 400  # every connector expires
+    waiting = api.get("/remote/oauth/requests").json()
+    assert api.post(f"/remote/oauth/requests/{waiting[0]['ref']}/deny").status_code == 200
+    assert api.post("/remote/oauth/requests/deny-all").json()["count"] == 1
     assert api.get("/remote/oauth/requests").json() == []
     monkeypatch.setattr(remote_router, "_base_or_409", lambda: _async("https://x.example"))
     assert api.post(f"/remote/connectors/{made['id']}/rotate").status_code == 409  # no link to rotate

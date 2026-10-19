@@ -14,7 +14,8 @@ from fastapi import APIRouter, HTTPException
 from starlette.concurrency import run_in_threadpool
 
 from api.models.schemas import (RemoteConnectorCreatedOut, RemoteConnectorIn, RemoteConnectorOut,
-                                RemoteSettingsIn, RemoteSignInApproveIn, RemoteSignInOut, RemoteStatusOut)
+                                RemoteSettingsIn, RemoteSignInApproveIn, RemoteSignInCodeIn, RemoteSignInOut,
+                                RemoteSignInWaitingOut, RemoteStatusOut)
 from api.remote import catalog, oauth, reach, store
 from api.remote.listener import LISTENER
 from api.services import telemetry
@@ -148,7 +149,11 @@ def revoke_connector(connector_id: str) -> RemoteConnectorOut:
 
 # ── Sign-in requests (ruling 31) ─────────────────────────────────────────────
 # The person's yes or no to an app that started OAuth sign-in on the public listener. Only here — loopback, behind
-# the API token — can a request be approved: the public page only shows its code and waits.
+# the API token — can a request be approved, and only by the code the person's own browser page shows them, typed in:
+# whoever starts a sign-in collects its result, so a list to click would let a stranger's request be approved
+# (security review of #359). Waiting requests are listed as "one waits", to deny.
+
+_WRONG_CODES = oauth.Bucket(10, 10)  # a typo is fine; a guessing loop on this machine is not
 
 
 def _oauth() -> oauth.OAuthServer:
@@ -156,21 +161,42 @@ def _oauth() -> oauth.OAuthServer:
     return oauth.OAuthServer(db.path, connectors=db)
 
 
-@router.get("/oauth/requests", response_model=list[RemoteSignInOut])
-def list_sign_ins() -> list[RemoteSignInOut]:
-    return [RemoteSignInOut(**vars(p)) for p in _oauth().pending()]
+def _code_or_429() -> None:
+    if not _WRONG_CODES.take():
+        raise HTTPException(429, "too many codes that matched nothing — wait a minute")
 
 
-@router.post("/oauth/requests/{ref}/approve", response_model=RemoteConnectorOut)
-def approve_sign_in(ref: str, req: RemoteSignInApproveIn) -> RemoteConnectorOut:
+@router.get("/oauth/requests", response_model=list[RemoteSignInWaitingOut])
+def list_sign_ins() -> list[RemoteSignInWaitingOut]:
+    return [RemoteSignInWaitingOut(**vars(w)) for w in _oauth().waiting()]
+
+
+@router.post("/oauth/match", response_model=RemoteSignInOut)
+def match_sign_in(req: RemoteSignInCodeIn) -> RemoteSignInOut:
+    found = _oauth().match(req.user_code)
+    if found is None:
+        _code_or_429()
+        raise HTTPException(404, "no sign-in is waiting with that code")
+    return RemoteSignInOut(**vars(found))
+
+
+@router.post("/oauth/approve", response_model=RemoteConnectorOut)
+def approve_sign_in(req: RemoteSignInApproveIn) -> RemoteConnectorOut:
     try:
-        connector = _oauth().approve(ref, scopes=req.scopes, expires_in_days=req.expires_in_days, label=req.label)
+        connector = _oauth().approve(req.user_code, scopes=req.scopes, expires_in_days=req.expires_in_days,
+                                     label=req.label)
     except KeyError as exc:
-        raise HTTPException(404, "this sign-in is gone — it was answered or it expired") from exc
+        _code_or_429()
+        raise HTTPException(404, "no sign-in is waiting with that code — it was answered or it expired") from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     _auth_event(connector, "created")
     return _out(connector)
+
+
+@router.post("/oauth/requests/deny-all")
+def deny_all_sign_ins() -> dict:
+    return {"status": "denied", "count": _oauth().deny_all()}
 
 
 @router.post("/oauth/requests/{ref}/deny")

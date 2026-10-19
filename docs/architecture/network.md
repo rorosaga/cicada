@@ -182,24 +182,40 @@ URIs only, ≤ 5, no fragment or credentials; unused clients pruned after a day,
 `client_id` must equal the URL, public clients only, cached a day). **Consent is never on the public page:** `/authorize`
 checks the client and the redirect URI first (exact match; an `http` loopback URI matches on any port, RFC 8252 — Claude
 Code's), and a mismatch is an error page, never a redirect (no open redirect); then it shows an eight-character code
-and waits (meta refresh, no script, no form, a strict CSP, framing denied). The person approves or denies in the app —
-Settings → Agents → From anywhere, "Waiting for your yes" — choosing the scopes (what the app asked, else the defaults)
-and the expiry (7/30/90 days) there; the loopback API is `GET /remote/oauth/requests`,
-`POST /remote/oauth/requests/{ref}/approve|deny`, behind the API token. The waiting page is bound to its browser by an
-HttpOnly, Secure cookie, so a leaked request id collects nothing; the client's `state` is echoed untouched and `iss`
-rides every response, errors included. At most five requests wait at once; one unanswered for ten minutes expires.
+and waits (meta refresh, no script, no form, a strict CSP, framing denied; it names no app). **The person approves by
+typing that code** into the app — Settings → Agents → From anywhere, "A sign-in is waiting" — and only then sees who it
+is and where it returns, choosing the scopes (what the app asked, else the defaults) and the expiry (7/30/90 days). The
+app never lists codes and never offers a request to approve with a click (security review of #359: whoever starts a
+sign-in collects its result from `/authorize/wait`'s redirect, PKCE included, so a stranger who registers an app called
+"Claude" returning to claude.ai — or reuses Claude's public metadata-document client id — and waits for a click would
+get the tokens; a typed code only the person's own page shows closes that). Waiting requests are listed only as
+waiting, each with Deny, plus Deny all. A registered (DCR) client is never named or branded: it is "Unverified app
+(registered <time> ago)" with the generic mark, and its connector's app is `other`; only a metadata-document client is
+named, as "<its name>, published by <the host it was fetched from>". The loopback API is `GET /remote/oauth/requests`
+(ref and times only), `POST /remote/oauth/match` and `POST /remote/oauth/approve` (by `userCode`, ten misses then a
+minute's wait), `POST /remote/oauth/requests/{ref}/deny` and `…/deny-all`, behind the API token. The waiting page is
+bound to its browser by an HttpOnly, Secure cookie, so a leaked request id collects nothing; the client's `state` is
+echoed untouched and `iss` rides every response, errors included. At most 50 requests wait; past that one is dropped —
+the oldest of the source holding the most (the last address the tunnel appended to `X-Forwarded-For`, hashed), never
+the new one refused — so a flood evicts itself before the person's one sign-in; one unanswered for ten minutes
+expires. The code is the one value stored in the clear (the page must show it again), and it is blanked when the
+request is answered, denied or dropped.
 **Tokens:** the code is single-use, 120 s, bound to the client, the redirect URI, the PKCE challenge and the resource;
 a replayed code revokes what it issued. Access tokens (`cic_at_<connector>_<secret>`) live an hour; refresh tokens
 (`cic_rt_…`) rotate on every use, and a rotated one presented again more than 30 s later (a client's own concurrent
-refresh is forgiven) ends the whole grant. An access token is good only for the resource it was issued for (its
+refresh is forgiven) ends the whole grant and revokes the connector, so Settings shows it. An access token is good only for the resource it was issued for (its
 audience). Every token, code, client secret and browser binding is stored as its sha256 only (`~/.cicada/remote/connectors.db`,
 the same 0600 file), compared in constant time, and none is ever logged; the client's `state` is dropped once the
 code is used. Approval creates an ordinary connector row (`auth: oauth`) — hashed, scoped, expiring, revocable — whose
 app is read from where the code goes (claude.ai → Claude, chatgpt.com → ChatGPT, a loopback redirect from Claude's own
 metadata document → Claude Code, else Other), so its writes carry that app's harness; revoking it in Settings ends its
 access and refresh tokens at once, and a grant never outlives it. A signed-in connector has no link and cannot be
-rotated. **Rate limits** (in memory): registration 10 then 2 a minute, authorization 20 then 10 a minute, token and
-revocation 60 a minute, document fetches 10 then 2 a minute. **Origin:** refused everywhere except a GET of the two
+rotated. **Rate limits** (in memory): registration 10 then 2 a minute; authorization 10 then 6 a minute per source
+and 60 a minute in all; token and revocation 30 a minute per client id and 300 in all — a spent bucket still admits a
+valid refresh, so spamming an app's public client id cannot starve its renewal; document fetches 10 then 2 a minute,
+each inside one overall 4 s deadline. A full client table (200) drops its oldest client that never got a grant rather
+than refuse a new one. A redirect URI with a backslash, a control character or a port that does not parse is refused,
+registered or presented. **Origin:** refused everywhere except a GET of the two
 sign-in pages (a browser navigation). Not supported: `private_key_jwt`, `client_credentials`, OpenID scopes.
 
 **The tunnel for sign-in is the person's, to this listener only.** claude.ai and ChatGPT reach the Mac from their own

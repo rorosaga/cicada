@@ -304,8 +304,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **The remote connector (G135)** is off by default, serves only MCP on its own listener, through a tunnel **the person**
   runs; capability tokens are hashed, scoped (`sources` gates every verbatim word of the person's), expiring and
   revocable; a remote claim is never the person's own words.
-  Apps sign in through the listener's own OAuth 2.1 server (ruling 31): consent only in the app, never on the public
-  page; PKCE S256, single-use codes, rotating refresh tokens, all hashed and mapped to connector rows (`network.md`).
+  Apps sign in through the listener's own OAuth 2.1 server (ruling 31): consent only in the app, by typing the code the
+  person's own page shows, never a click or the public page; PKCE S256, single-use codes, rotating refresh tokens, all
+  hashed and mapped to connector rows; a self-registered app is never named by its claim (`network.md`).
 - **Reading with the person's own agent (G166):** Cicada never spawns a browser and never signs in; it only asks. Only a
   link the person asked about, or a wall page of a site they allowed, can be recorded — and (owner 2026-10-16, G71) the
   person's YouTube Watch later or history page, a standing ask once they turn that list on, stdio only; one person's

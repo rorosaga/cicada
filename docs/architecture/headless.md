@@ -245,9 +245,10 @@ person's overlay; no installer creates, copies or logs a credential; the demo gu
 server's, per request. The G135 remote listener is still the door for apps off the person's devices, never trusted to
 edit a page. **Sign-in on a server with no app (ruling 31):** an app's sign-in waits for a yes the app would give; on a
 headless server the person gives it on the server itself, through the loopback API with the token —
-`curl -H "Authorization: Bearer $(cat ~/.cicada/api_token)" http://127.0.0.1:8000/remote/oauth/requests` lists what waits
-(the code on the app's page is `userCode`), and `POST …/remote/oauth/requests/<ref>/approve` with
-`{"scopes": ["search","read","record"], "expiresInDays": 30}` (or `…/deny`) answers it.
+with the code the app's sign-in page shows: `POST http://127.0.0.1:8000/remote/oauth/match` with `{"userCode": "<code>"}`
+(and `-H "Authorization: Bearer $(cat ~/.cicada/api_token)"`) says who it is and where it returns, and
+`POST …/remote/oauth/approve` with `{"userCode": "<code>", "scopes": ["search","read","record"], "expiresInDays": 30}`
+approves it; `GET …/remote/oauth/requests` lists what waits (times only) and `…/requests/deny-all` clears it.
 
 ## The Mac app as a client (phase 3)
 

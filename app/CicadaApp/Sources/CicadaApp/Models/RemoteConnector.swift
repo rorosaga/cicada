@@ -37,15 +37,27 @@ struct RemoteConnectorCreated: Codable, Equatable, Identifiable {
     var id: String { connector.id + "·" + String(token.suffix(6)) }
 }
 
-/// One sign-in an app started on the public listener, waiting for the person's yes here (ruling 31). The public
-/// page only shows `userCode` and waits; this is the one place it can be approved. Never carries the browser's
-/// handle, the app's state or a code.
-struct RemoteSignInRequest: Codable, Identifiable, Equatable {
+/// That a sign-in waits (ruling 31). The list carries no code, no name and no return address: a sign-in is approved
+/// only by typing the code the person's own browser page shows (security review of #359 — whoever starts a sign-in
+/// collects its result, so a list to click would let a stranger's look-alike through).
+struct RemoteSignInWaiting: Codable, Identifiable, Equatable {
     let ref: String
-    let userCode: String
+    let createdAt: String
+    let expiresAt: String
+
+    var id: String { ref }
+}
+
+/// The waiting sign-in whose code the person typed, shown before their yes. `verified` only for an app that
+/// publishes its identity (named with the host it was fetched from); any other is an unverified app, never named or
+/// branded by what it claims.
+struct RemoteSignInMatch: Codable, Identifiable, Equatable {
+    let ref: String
+    let verified: Bool
     var clientName: String? = nil
     let clientKind: String
     var clientHost: String? = nil
+    var clientRegisteredAt: String? = nil
     let redirectHost: String
     let loopback: Bool
     let app: String
@@ -54,21 +66,47 @@ struct RemoteSignInRequest: Codable, Identifiable, Equatable {
     let expiresAt: String
 
     var id: String { ref }
-    var remoteApp: RemoteApp { RemoteApp(rawValue: app) ?? .other }
+    var remoteApp: RemoteApp { verified ? (RemoteApp(rawValue: app) ?? .other) : .other }
     /// What the app asked for, else the defaults — the person changes either before approving.
     var initialScopes: Set<RemoteScope> {
         let asked = Set(RemoteScope.allCases.filter { scopesAsked.contains($0.rawValue) })
         return asked.isEmpty ? RemoteScope.defaults : asked
     }
-    /// Who is asking, in words: the app's own name only beside where it sends the person back.
-    var title: String {
-        let name = clientName?.isEmpty == false ? clientName! : remoteApp.name
-        return "\(name) wants to connect"
+
+    func title(now: Date = Date()) -> String {
+        if verified, let host = clientHost {
+            let name = clientName?.isEmpty == false ? clientName! : host
+            return "\(name), published by \(host)"
+        }
+        return "Unverified app" + (RemoteSignInText.ago(clientRegisteredAt, now: now).map { " (registered \($0))" } ?? "")
     }
+
     var detail: String {
-        loopback
-            ? "Code \(userCode) · returns to a program on the device that started it"
-            : "Code \(userCode) · returns to \(redirectHost)"
+        loopback ? "Returns to a program on the device that started it" : "Returns to \(redirectHost)"
+    }
+}
+
+enum RemoteSignInText {
+    /// "just now", "3 min ago", "2 h ago", "4 days ago" — for when an unverified app registered.
+    static func ago(_ iso: String?, now: Date = Date()) -> String? {
+        guard let iso, let date = ISO8601DateFormatter().date(from: iso) else { return nil }
+        let seconds = max(0, now.timeIntervalSince(date))
+        switch seconds {
+        case ..<60: return "just now"
+        case ..<3600: return "\(Int(seconds / 60)) min ago"
+        case ..<86400: return "\(Int(seconds / 3600)) h ago"
+        default:
+            let days = Int(seconds / 86400)
+            return days == 1 ? "1 day ago" : "\(days) days ago"
+        }
+    }
+
+    /// What the person typed, forgiving case, spaces and the dash; nil until it can be a code.
+    static func normalizedCode(_ raw: String) -> String? {
+        let allowed = Set("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
+        let folded = raw.uppercased().filter { !$0.isWhitespace && $0 != "-" }
+        guard folded.count == 8, folded.allSatisfy(allowed.contains) else { return nil }
+        return String(folded.prefix(4)) + "-" + String(folded.suffix(4))
     }
 }
 

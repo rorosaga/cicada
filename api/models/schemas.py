@@ -4912,13 +4912,23 @@ class RemoteConnectorOut(CamelModel):
     auth: str = "link"  # "link" (a shown-once secret) | "oauth" (the app signed in, ruling 31)
 
 
-class RemoteSignInOut(CamelModel):
-    """One sign-in waiting for the person's yes (ruling 31). Never the browser handle, the state or a code."""
+class RemoteSignInWaitingOut(CamelModel):
+    """That a sign-in waits (ruling 31, security review of #359): no code, no name, no return host — a request is
+    approved only by typing the code the person's own browser page shows."""
     ref: str
-    user_code: str
+    created_at: str
+    expires_at: str
+
+
+class RemoteSignInOut(CamelModel):
+    """The waiting sign-in whose code the person typed. ``verified`` only for a metadata-document client, named with the
+    host it was fetched from; a registered client shows no name, only when it registered. Never the code."""
+    ref: str
+    verified: bool
     client_name: Optional[str] = None
     client_kind: str
     client_host: Optional[str] = None
+    client_registered_at: Optional[str] = None
     redirect_host: str
     loopback: bool
     app: str
@@ -4927,7 +4937,12 @@ class RemoteSignInOut(CamelModel):
     expires_at: str
 
 
+class RemoteSignInCodeIn(CamelModel):
+    user_code: str
+
+
 class RemoteSignInApproveIn(CamelModel):
+    user_code: str
     scopes: list[str]
     expires_in_days: int = 30  # 7/30/90 only — every connector expires
     label: str = ""

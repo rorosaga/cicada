@@ -11,26 +11,35 @@ What it is, end to end:
   (``client_id`` is an https URL; the document is fetched through ``net_guard`` under the ToS rail: 4 s,
   ≤ 64 KB, no cookies, no redirects, cached a day). Redirect URIs are matched exactly; only an ``http`` loopback
   redirect (Claude Code's) matches on any port.
-* **Consent never happens on the public page.** ``GET /authorize`` validates the client and redirect URI (an error
-  there is a page, never a redirect — no open redirect), then shows a short code and waits. The person approves
-  the request in the Cicada app on the Mac (``/remote/oauth/requests``, loopback, behind the API token), choosing
-  the scopes and the expiry there. There is no password and no approve button on the public surface. The waiting
-  page is bound to its browser by a cookie (only that browser can collect the code), and the client's ``state``
-  is echoed back untouched, with ``iss`` (RFC 9207) on every response, errors included.
+* **Consent never happens on the public page, and only by the code the person sees.** ``GET /authorize`` validates
+  the client and redirect URI (an error there is a page, never a redirect — no open redirect), then shows a short
+  code and waits. The person approves in the Cicada app on the Mac by TYPING the code their own browser page shows
+  (``/remote/oauth/approve``, loopback, behind the API token), choosing the scopes and the expiry there. The app never
+  lists codes and never offers a request to approve with a click: whoever starts a sign-in holds its result (the
+  code comes back on ``/authorize/wait``'s redirect to them, PKCE included), so a request someone else started —
+  under any name, with any app's public client id and return address — is approvable only by a code the person
+  never sees (security review of #359). Waiting requests show only that one waits, with Deny and Deny all. A
+  registered (DCR) client is labelled an unverified app; only a metadata document names a publisher, its host.
+  The waiting page is bound to its browser by a cookie, and the client's ``state`` is echoed back untouched, with
+  ``iss`` (RFC 9207) on every response, errors included.
 * **Tokens.** An authorization code is single-use, lives 120 s, is bound to the client, the redirect URI, the PKCE
   challenge and the resource; replaying a used code revokes what it issued. Access tokens (``cic_at_``) live an
   hour; refresh tokens (``cic_rt_``) rotate on every use, and a rotated one presented again (past a short grace
   for a client's own concurrent refresh) revokes the whole grant. Every token is stored as its sha256 only,
   compared in constant time, and maps to a connector row — the same hashed, scoped, expiring and revocable row a
   link connector is — so Settings → From anywhere revokes it and the grant can never outlive the connector.
-* **Rate limits.** Registration, authorization, token and document fetches each have their own bucket; at most
-  :data:`MAX_PENDING` requests wait at once.
+* **Rate limits.** Registration, authorization and document fetches each have a bucket; the token and revocation
+  endpoints have one per client id (a valid refresh is let through a spent bucket, so nobody can starve an app's
+  renewal by spamming its public client id). At most :data:`MAX_PENDING` requests wait; past it the oldest of the
+  source holding the most is dropped, never the new one refused — a flood cannot lock the person's own sign-in out, and the refusal copy never
+  tells them to approve what is waiting.
 
 Nothing here logs a token, a code, a state or a URL a client sent. Store calls are sqlite on the event loop, the
 same single-row millisecond work as ``api/remote/store.py``; the one network call (a metadata document) is async.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -60,8 +69,11 @@ REFRESH_REUSE_GRACE_S = 30
 CIMD_TTL_S = 24 * 3600
 CIMD_MAX_BYTES = 64 * 1024
 CIMD_TIMEOUT_S = 4.0
-MAX_PENDING = 5
+MAX_PENDING = 50
 MAX_CLIENTS = 200
+TOKEN_PER_CLIENT_PER_MINUTE = 30
+AUTHORIZE_PER_SOURCE_PER_MINUTE = 6
+MAX_CLIENT_BUCKETS = 2000
 MAX_REDIRECTS = 5
 MAX_FORM_BYTES = 16 * 1024
 WAIT_REFRESH_S = 3
@@ -71,6 +83,7 @@ OFFLINE = "offline_access"
 LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]"})
 ACCESS_RE = re.compile(r"^cic_at_([a-z0-9]{8})_([A-Za-z0-9_-]{43})$")
 REFRESH_RE = re.compile(r"^cic_rt_([a-z0-9]{8})_([A-Za-z0-9_-]{43})$")
+_USER_CODE_RE = re.compile(r"^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$")
 _PKCE_RE = re.compile(r"^[A-Za-z0-9._~-]{43,128}$")
 _CHALLENGE_RE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 _HOST_RE = re.compile(r"^[A-Za-z0-9.-]{1,253}(:\d{1,5})?$")
@@ -104,6 +117,7 @@ _SCHEMA = (
         state TEXT,
         resource TEXT NOT NULL,
         scopes_asked TEXT,
+        source TEXT,
         binding_hash TEXT NOT NULL,
         created_at TEXT NOT NULL,
         expires_at TEXT NOT NULL,
@@ -160,10 +174,24 @@ def clean_name(raw) -> str | None:
     return _NAME_UNSAFE.sub("", str(raw or ""))[:64].strip() or None
 
 
+def _clean_uri(uri) -> bool:
+    """No whitespace, backslash or control character, bounded, and a port that parses (security review of #359:
+    browsers read ``\\`` as ``/`` and a parser may not)."""
+    if not isinstance(uri, str) or not uri or len(uri) > 512:
+        return False
+    if any(c.isspace() or c == "\\" or ord(c) < 0x20 or ord(c) == 0x7F for c in uri):
+        return False
+    try:
+        urlparse(uri).port
+    except ValueError:
+        return False
+    return True
+
+
 def _valid_redirect(uri) -> bool:
     """A redirect URI a client may register: https anywhere, or http on a loopback host (a native app, RFC 8252);
     no fragment, no credentials, bounded."""
-    if not isinstance(uri, str) or not uri or len(uri) > 512 or any(c.isspace() for c in uri):
+    if not _clean_uri(uri):
         return False
     parsed = urlparse(uri)
     if parsed.fragment or parsed.username or parsed.password or not parsed.hostname:
@@ -181,7 +209,7 @@ def _netloc_host(parsed) -> str:
 def redirect_matches(registered: list[str], presented: str) -> bool:
     """Exact string match (OAuth 2.1), with RFC 8252's one exception: an ``http`` loopback redirect matches on any
     port (Claude Code's callback port changes every session), the rest of it still exact."""
-    if not isinstance(presented, str) or not presented:
+    if not _clean_uri(presented):
         return False
     if presented in registered:
         return True
@@ -196,17 +224,29 @@ def redirect_matches(registered: list[str], presented: str) -> bool:
     return False
 
 
-def guess_app(client_id: str, redirect_uri: str) -> str:
-    """Which catalog app a client is, for the connector's harness label — read from where the code goes, the one
-    thing a client cannot fake usefully (a code sent to another app's callback is lost to whoever registered it)."""
-    host = (urlparse(redirect_uri).hostname or "").lower()
+def guess_app(client_id: str, redirect_uri: str, kind: str) -> str:
+    """Which catalog app a client is, for the connector's harness label and mark. Never read from the redirect URI —
+    anyone may register claude.ai's callback and read the code off the redirect themselves (security review of
+    #359). A registered (DCR) client is always ``other``; a metadata document is named by the host that publishes it,
+    the one thing about a client this server verified (it fetched the document there)."""
+    if kind != "cimd":
+        return "other"
+    host = (urlparse(client_id).hostname or "").lower()
     if host == "claude.ai":
-        return "claude"
-    if host in ("chatgpt.com", "chat.openai.com") or host.endswith(".chatgpt.com"):
+        loopback = (urlparse(redirect_uri).hostname or "").lower() in ("localhost", "127.0.0.1", "::1")
+        return "claude-code" if loopback else "claude"
+    if host in ("chatgpt.com", "chat.openai.com", "openai.com"):
         return "chatgpt"
-    if host in ("localhost", "127.0.0.1", "::1") and (urlparse(client_id).hostname or "").lower() == "claude.ai":
-        return "claude-code"
     return "other"
+
+
+def request_source(request: Request) -> str:
+    """Where a browser request came from, as a short hash (never stored or logged in the clear): the address the
+    person's tunnel appended last to ``X-Forwarded-For`` (Funnel and ngrok both append), else the peer. Only a rate
+    key and an eviction key — never an access decision."""
+    forwarded = [p.strip() for p in (request.headers.get("x-forwarded-for") or "").split(",") if p.strip()]
+    peer = forwarded[-1] if forwarded else (request.client.host if request.client else "")
+    return hashlib.sha256(peer.encode("utf-8", "replace")).hexdigest()[:16]
 
 
 def public_base(request: Request) -> str | None:
@@ -249,13 +289,14 @@ class Bucket:
 class OAuthLimits:
     register: Bucket
     authorize: Bucket
-    token: Bucket
+    token: Bucket  # the whole endpoint's ceiling, far above one client's
     fetch: Bucket
+    clock: Callable[[], float] = time.monotonic
 
     @classmethod
     def default(cls, clock: Callable[[], float] = time.monotonic) -> "OAuthLimits":
-        return cls(register=Bucket(2, 10, clock), authorize=Bucket(10, 20, clock), token=Bucket(60, 60, clock),
-                   fetch=Bucket(2, 10, clock))
+        return cls(register=Bucket(2, 10, clock), authorize=Bucket(60, 60, clock), token=Bucket(300, 300, clock),
+                   fetch=Bucket(2, 10, clock), clock=clock)
 
 
 @dataclass(frozen=True)
@@ -269,14 +310,25 @@ class Client:
 
 
 @dataclass(frozen=True)
-class PendingRequest:
-    """One sign-in waiting for the person, as the app shows it — ids, enums, times, the client's self-reported
-    name and the host the code would go to. Never the browser handle, the state or a code."""
+class WaitingRequest:
+    """That a sign-in waits — all the app lists before the person types a code: no code, no name, no return host."""
     ref: str
-    user_code: str
+    created_at: str
+    expires_at: str
+
+
+@dataclass(frozen=True)
+class PendingRequest:
+    """The sign-in whose code the person typed, as the app shows it before they approve. ``verified`` is true only for
+    a metadata document's client, named with ``client_host``, the host it was fetched from; a registered client's
+    self-reported name is never shown (``client_name`` is ``None``), only when it registered. Never the browser
+    handle, the state or a code."""
+    ref: str
+    verified: bool
     client_name: str | None
     client_kind: str
     client_host: str | None
+    client_registered_at: str | None
     redirect_host: str
     loopback: bool
     app: str
@@ -327,6 +379,8 @@ class OAuthServer:
         self.connectors = connectors or remote_store.ConnectorStore(self.path)
         self.limits = limits or OAuthLimits.default()
         self.fetcher = fetcher or fetch_metadata_document
+        self._client_buckets: dict[str, Bucket] = {}
+        self._source_buckets: dict[str, Bucket] = {}
         self.clock = clock
         with self._db() as db:
             for statement in _SCHEMA:
@@ -382,7 +436,11 @@ class OAuthServer:
             return None
         if not self.limits.fetch.take():
             return None
-        raw = await self.fetcher(client_id)
+        try:
+            # The whole fetch, name lookup included, inside the rail's 4 s (httpx's timeout is per phase).
+            raw = await asyncio.wait_for(self.fetcher(client_id), timeout=CIMD_TIMEOUT_S)
+        except (asyncio.TimeoutError, Exception):  # noqa: BLE001 — an unreachable document is an unknown client
+            return None
         try:
             doc = json.loads(raw or b"null")
         except ValueError:
@@ -432,8 +490,16 @@ class OAuthServer:
         secret = secrets.token_urlsafe(32) if method != "none" else None
         name = clean_name(payload.get("client_name"))
         with self._db() as db:
-            if db.execute("SELECT COUNT(*) FROM oauth_clients WHERE kind='dcr'").fetchone()[0] >= MAX_CLIENTS:
-                raise OAuthError("temporarily_unavailable", "too many registered apps", status=429)
+            over = db.execute("SELECT COUNT(*) FROM oauth_clients WHERE kind='dcr'").fetchone()[0] - MAX_CLIENTS + 1
+            if over > 0:
+                # The oldest clients that never got a grant make room (a flood of registrations never locks a real
+                # app out); a client with a token or a live request is never dropped.
+                db.execute("DELETE FROM oauth_clients WHERE client_id IN (SELECT client_id FROM oauth_clients "
+                           "WHERE kind='dcr' AND client_id NOT IN (SELECT DISTINCT client_id FROM oauth_tokens) "
+                           "AND client_id NOT IN (SELECT client_id FROM oauth_requests WHERE status IN "
+                           "('pending', 'approved', 'issued')) ORDER BY created_at LIMIT ?)", (over,))
+                if db.execute("SELECT COUNT(*) FROM oauth_clients WHERE kind='dcr'").fetchone()[0] >= MAX_CLIENTS:
+                    raise OAuthError("temporarily_unavailable", "too many registered apps", status=429)
             db.execute("INSERT INTO oauth_clients (client_id, kind, name, redirect_uris, auth_method, secret_hash, "
                        "created_at) VALUES (?, 'dcr', ?, ?, ?, ?, ?)",
                        (client_id, name, json.dumps(uris), method, _hash(secret) if secret else None, _iso(now)))
@@ -457,9 +523,10 @@ class OAuthServer:
     # ── authorization requests ────────────────────────────────────────────
 
     def start_request(self, *, client: Client, redirect_uri: str, code_challenge: str, state: str | None,
-                      resource: str, scopes_asked: list[str]) -> tuple[str, str, str]:
-        """``(browser handle, binding secret, user code)``. Raises ``OAuthError("slow_down")`` past
-        :data:`MAX_PENDING` waiting requests."""
+                      resource: str, scopes_asked: list[str], source: str = "") -> tuple[str, str, str]:
+        """``(browser handle, binding secret, user code)``. Past :data:`MAX_PENDING` waiting requests one is dropped
+        (``evicted``) — never the new one refused — and it is the oldest of the source holding the most, so a flood
+        from anywhere evicts its own requests before the person's one sign-in."""
         now = self.clock()
         handle, binding = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         raw = "".join(secrets.choice(_CODE_ALPHABET) for _ in range(8))
@@ -468,66 +535,100 @@ class OAuthServer:
         with self._db() as db:
             waiting = db.execute("SELECT COUNT(*) FROM oauth_requests WHERE status='pending' AND expires_at > ?",
                                  (_iso(now),)).fetchone()[0]
-            if waiting >= MAX_PENDING:
-                raise OAuthError("slow_down", "too many sign-ins are waiting", status=429)
+            for _ in range(max(0, waiting - MAX_PENDING + 1)):
+                db.execute(
+                    "UPDATE oauth_requests SET status='evicted', state=NULL, user_code='' WHERE handle_hash = ("
+                    "SELECT r.handle_hash FROM oauth_requests r JOIN (SELECT source, COUNT(*) AS n FROM oauth_requests "
+                    "WHERE status='pending' AND expires_at > ? GROUP BY source) c ON c.source IS r.source "
+                    "WHERE r.status='pending' AND r.expires_at > ? ORDER BY c.n DESC, r.created_at, r.rowid LIMIT 1)",
+                    (_iso(now), _iso(now)))
             db.execute(
                 "INSERT INTO oauth_requests (handle_hash, ref, user_code, client_id, redirect_uri, code_challenge, "
-                "state, resource, scopes_asked, binding_hash, created_at, expires_at, status) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
+                "state, resource, scopes_asked, source, binding_hash, created_at, expires_at, status) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
                 (_hash(handle), ref, user_code, client.client_id, redirect_uri, code_challenge, state, resource,
-                 ",".join(scopes_asked), _hash(binding), _iso(now), _iso(now + timedelta(seconds=REQUEST_TTL_S))))
+                 ",".join(scopes_asked), source, _hash(binding), _iso(now), _iso(now + timedelta(seconds=REQUEST_TTL_S))))
         return handle, binding, user_code
 
     def _request_by_handle(self, handle: str) -> sqlite3.Row | None:
         with self._db() as db:
             return db.execute("SELECT * FROM oauth_requests WHERE handle_hash=?", (_hash(handle or ""),)).fetchone()
 
-    def pending(self) -> list[PendingRequest]:
+    def waiting(self) -> list[WaitingRequest]:
         now = _iso(self.clock())
         with self._db() as db:
-            rows = db.execute("SELECT r.*, c.name AS client_name, c.kind AS client_kind FROM oauth_requests r "
-                              "LEFT JOIN oauth_clients c ON c.client_id = r.client_id "
-                              "WHERE r.status='pending' AND r.expires_at > ? ORDER BY r.created_at", (now,)).fetchall()
-        out = []
-        for row in rows:
-            redirect = urlparse(row["redirect_uri"])
-            host = _netloc_host(redirect)
-            out.append(PendingRequest(
-                ref=row["ref"], user_code=row["user_code"], client_name=row["client_name"],
-                client_kind=row["client_kind"] or "dcr",
-                client_host=(urlparse(row["client_id"]).hostname if row["client_kind"] == "cimd" else None),
-                redirect_host=host, loopback=host in LOOPBACK_HOSTS,
-                app=guess_app(row["client_id"], row["redirect_uri"]),
-                scopes_asked=[s for s in (row["scopes_asked"] or "").split(",") if s],
-                created_at=row["created_at"], expires_at=row["expires_at"]))
-        return out
+            rows = db.execute("SELECT ref, created_at, expires_at FROM oauth_requests WHERE status='pending' "
+                              "AND expires_at > ? ORDER BY created_at", (now,)).fetchall()
+        return [WaitingRequest(ref=r["ref"], created_at=r["created_at"], expires_at=r["expires_at"]) for r in rows]
 
-    def approve(self, ref: str, *, scopes, expires_in_days: int, label: str | None = None) -> catalog.Connector:
-        """The person's yes, from the app: a connector with the scopes and expiry they chose. ``KeyError`` for an
-        unknown, decided or expired request; ``ValueError`` for scopes or an expiry the store refuses."""
-        now = self.clock()
+    @staticmethod
+    def normalize_code(raw) -> str | None:
+        """What the person typed, as the code it names: case, spaces and the dash forgiven; ``None`` if it can't be
+        one."""
+        folded = re.sub(r"[\s-]+", "", str(raw or "")).upper()
+        return f"{folded[:4]}-{folded[4:]}" if _USER_CODE_RE.match(folded) else None
+
+    def _row_by_code(self, user_code) -> sqlite3.Row | None:
+        code = self.normalize_code(user_code)
+        if code is None:
+            return None
+        now = _iso(self.clock())
         with self._db() as db:
-            row = db.execute("SELECT * FROM oauth_requests WHERE ref=?", (ref,)).fetchone()
-        if row is None or row["status"] != "pending" or (_at(row["expires_at"]) or now) <= now:
-            raise KeyError(ref)
-        app = guess_app(row["client_id"], row["redirect_uri"])
-        client = self.get_client(row["client_id"])
-        connector = self.connectors.create_oauth(app=app, label=label or (client.name if client else None),
+            rows = db.execute("SELECT r.*, c.name AS client_name, c.kind AS client_kind, c.created_at AS client_at "
+                              "FROM oauth_requests r LEFT JOIN oauth_clients c ON c.client_id = r.client_id "
+                              "WHERE r.status='pending' AND r.expires_at > ?", (now,)).fetchall()
+        found = [r for r in rows if r["user_code"] and hmac.compare_digest(r["user_code"], code)]
+        return found[0] if len(found) == 1 else None
+
+    def match(self, user_code) -> PendingRequest | None:
+        """The waiting sign-in whose page shows this code, as the app shows it before the person's yes."""
+        row = self._row_by_code(user_code)
+        if row is None:
+            return None
+        kind = row["client_kind"] or "dcr"
+        verified = kind == "cimd"
+        host = _netloc_host(urlparse(row["redirect_uri"]))
+        return PendingRequest(
+            ref=row["ref"], verified=verified, client_name=row["client_name"] if verified else None,
+            client_kind=kind, client_host=(urlparse(row["client_id"]).hostname if verified else None),
+            client_registered_at=None if verified else row["client_at"],
+            redirect_host=host, loopback=host in LOOPBACK_HOSTS,
+            app=guess_app(row["client_id"], row["redirect_uri"], kind),
+            scopes_asked=[s for s in (row["scopes_asked"] or "").split(",") if s],
+            created_at=row["created_at"], expires_at=row["expires_at"])
+
+    def approve(self, user_code, *, scopes, expires_in_days: int, label: str | None = None) -> catalog.Connector:
+        """The person's yes, from the app, for the sign-in whose page shows ``user_code`` — the code only the person's
+        own browser shows them. A connector with the scopes and expiry they chose. ``KeyError`` when no waiting
+        request shows that code; ``ValueError`` for scopes or an expiry the store refuses."""
+        now = self.clock()
+        row = self._row_by_code(user_code)
+        if row is None:
+            raise KeyError("code")
+        kind = row["client_kind"] or "dcr"
+        app = guess_app(row["client_id"], row["redirect_uri"], kind)
+        default_label = (row["client_name"] if kind == "cimd" else None) or "Unverified app"
+        connector = self.connectors.create_oauth(app=app, label=label or default_label,
                                                  scopes=scopes, expires_in_days=expires_in_days, now=now)
         with self._db() as db:
-            moved = db.execute("UPDATE oauth_requests SET status='approved', connector_id=? WHERE ref=? "
-                               "AND status='pending'", (connector.id, ref)).rowcount
+            moved = db.execute("UPDATE oauth_requests SET status='approved', connector_id=?, user_code='' "
+                               "WHERE ref=? AND status='pending'", (connector.id, row["ref"])).rowcount
         if moved != 1:
             self.connectors.revoke(connector.id)
-            raise KeyError(ref)
+            raise KeyError("code")
         return connector
 
     def deny(self, ref: str) -> None:
         with self._db() as db:
-            moved = db.execute("UPDATE oauth_requests SET status='denied' WHERE ref=? AND status='pending'",
-                               (ref,)).rowcount
+            moved = db.execute("UPDATE oauth_requests SET status='denied', user_code='' WHERE ref=? "
+                               "AND status='pending'", (ref,)).rowcount
         if moved != 1:
             raise KeyError(ref)
+
+    def deny_all(self) -> int:
+        with self._db() as db:
+            return db.execute("UPDATE oauth_requests SET status='denied', user_code='' WHERE status='pending'"
+                              ).rowcount
 
     def collect(self, handle: str, binding: str | None) -> tuple[str, sqlite3.Row | None, str | None]:
         """What the waiting page does next: ``("unknown"|"expired"|"pending"|"done", row, None)``,
@@ -536,6 +637,8 @@ class OAuthServer:
         if row is None or not binding or not _same(row["binding_hash"], binding):
             return "unknown", None, None
         now = self.clock()
+        if row["status"] == "evicted":
+            return "expired", row, None
         if row["status"] == "pending":
             if (_at(row["expires_at"]) or now) <= now:
                 return "expired", row, None
@@ -645,9 +748,11 @@ class OAuthServer:
             if row["revoked_at"]:
                 revoked = _at(row["revoked_at"]) or now
                 if not row["rotated"] or (now - revoked).total_seconds() > REFRESH_REUSE_GRACE_S:
-                    # A rotated refresh token used again: it leaked. End the whole grant.
+                    # A rotated refresh token used again: it leaked. End the whole grant, and the connector, so
+                    # Settings shows it revoked and the person signs the app in again knowingly.
                     self._revoke_grant(db, row["grant_ref"], now)
                     db.commit()  # as above: the raise must not roll the revocation back
+                    self._revoke_connector(row["connector_id"], "refresh_reuse")
                 raise OAuthError("invalid_grant", "this refresh token is no longer valid")
             if (_at(row["expires_at"]) or now) <= now:
                 raise OAuthError("invalid_grant", "this refresh token expired")
@@ -659,6 +764,50 @@ class OAuthServer:
                 raise OAuthError("invalid_grant", "this refresh token is no longer valid")
             return self._issue(db, connector=connector, client_id=client.client_id, grant_ref=row["grant_ref"],
                                resource=row["resource"], now=now)
+
+    def _revoke_connector(self, connector_id: str, reason: str) -> None:
+        try:
+            connector = self.connectors.revoke(connector_id)
+        except KeyError:
+            return
+        from api.services import telemetry
+
+        telemetry.record(telemetry.UsageEvent(
+            kind="connector_auth", stage="remote", connection=None, engine=None, model=None, bank=None,
+            billing="free", invocations=0,
+            refs={"connector_id": connector.id, "app": connector.app, "event": "revoked", "reason": reason}))
+
+    def _valid_refresh(self, form: dict) -> bool:
+        """A live refresh token for the client the form names — what a spent rate bucket still lets through."""
+        token = form.get("refresh_token") or ""
+        if form.get("grant_type") != "refresh_token" or not REFRESH_RE.match(token):
+            return False
+        with self._db() as db:
+            row = db.execute("SELECT client_id, revoked_at, expires_at FROM oauth_tokens WHERE token_hash=? "
+                             "AND kind='refresh'", (_hash(token),)).fetchone()
+        now = self.clock()
+        return bool(row and not row["revoked_at"] and row["client_id"] == form.get("client_id")
+                    and (_at(row["expires_at"]) or now) > now)
+
+    def _admit(self, form: dict, authorization: str | None) -> bool:
+        """The token and revocation endpoints' rate limit: one bucket per client id plus a high ceiling for the
+        endpoint. A spent bucket still admits a valid refresh, so spamming an app's public client id cannot starve
+        that app's own renewal."""
+        client_id = form.get("client_id") or ""
+        if not client_id and authorization and authorization.lower().startswith("basic "):
+            try:
+                client_id = unquote(base64.b64decode(authorization[6:].strip(), validate=True)
+                                    .decode("utf-8").partition(":")[0])
+            except (ValueError, UnicodeDecodeError):
+                client_id = ""
+        key = client_id[:512]
+        bucket = self._client_buckets.pop(key, None) or Bucket(TOKEN_PER_CLIENT_PER_MINUTE,
+                                                               TOKEN_PER_CLIENT_PER_MINUTE, self.limits.clock)
+        self._client_buckets[key] = bucket
+        while len(self._client_buckets) > MAX_CLIENT_BUCKETS:
+            self._client_buckets.pop(next(iter(self._client_buckets)))
+        ok = bucket.take() and self.limits.token.take()
+        return ok or self._valid_refresh(form)
 
     def revoke_token(self, client: Client, token: str) -> None:
         """RFC 7009: a refresh token ends its grant, an access token itself; an unknown token is not an error."""
@@ -735,9 +884,9 @@ class OAuthServer:
                     raise OAuthError("invalid_client_metadata", "the body must be JSON") from None
                 return JSONResponse(self.register(payload), status_code=201, headers=_NO_STORE)
             if path == "/token" and request.method == "POST":
-                if not self.limits.token.take():
-                    raise OAuthError("slow_down", "too many requests — try again in a minute", status=429)
                 form = await _read_form(request)
+                if not self._admit(form, request.headers.get("authorization")):
+                    raise OAuthError("slow_down", "too many requests — try again in a minute", status=429)
                 client = self.authenticate_client(form, request.headers.get("authorization"))
                 grant = form.get("grant_type")
                 if grant == "authorization_code":
@@ -746,9 +895,9 @@ class OAuthServer:
                     return JSONResponse(self.refresh(client, form), headers=_NO_STORE)
                 raise OAuthError("unsupported_grant_type", "authorization_code or refresh_token")
             if path == "/revoke" and request.method == "POST":
-                if not self.limits.token.take():
-                    raise OAuthError("slow_down", "too many requests — try again in a minute", status=429)
                 form = await _read_form(request)
+                if not self._admit(form, request.headers.get("authorization")):
+                    raise OAuthError("slow_down", "too many requests — try again in a minute", status=429)
                 client = self.authenticate_client(form, request.headers.get("authorization"))
                 self.revoke_token(client, form.get("token") or "")
                 return Response(status_code=200, headers=_NO_STORE)
@@ -768,7 +917,13 @@ class OAuthServer:
 
     async def _authorize(self, request: Request, base: str) -> Response:
         q = request.query_params
-        if not self.limits.authorize.take():
+        source = request_source(request)
+        bucket = self._source_buckets.pop(source, None) or Bucket(AUTHORIZE_PER_SOURCE_PER_MINUTE, 10,
+                                                                  self.limits.clock)
+        self._source_buckets[source] = bucket
+        while len(self._source_buckets) > MAX_CLIENT_BUCKETS:
+            self._source_buckets.pop(next(iter(self._source_buckets)))
+        if not (bucket.take() and self.limits.authorize.take()):
             return _page("Too many sign-ins", "Too many sign-in attempts reached Cicada. Wait a minute and try "
                          "again from the app.", status=429)
         client = await self.resolve_client(q.get("client_id") or "")
@@ -795,13 +950,9 @@ class OAuthServer:
         if resource not in resources(base):
             return back(error="invalid_target", error_description="this server is " + f"{base}/mcp")
         asked = [s for s in (q.get("scope") or "").split() if s in catalog.SCOPES]
-        try:
-            handle, binding, user_code = self.start_request(
-                client=client, redirect_uri=redirect_uri, code_challenge=q["code_challenge"], state=state,
-                resource=resource, scopes_asked=asked)
-        except OAuthError:
-            return _page("Too many sign-ins", "Several sign-ins are already waiting for you in Cicada. Approve or "
-                         "deny them there, then try again.", status=429)
+        handle, binding, user_code = self.start_request(
+            client=client, redirect_uri=redirect_uri, code_challenge=q["code_challenge"], state=state,
+            resource=resource, scopes_asked=asked, source=source)
         response = _wait_page(handle, user_code, client, redirect_uri)
         response.set_cookie(COOKIE, binding, max_age=REQUEST_TTL_S, path="/authorize", secure=True, httponly=True,
                             samesite="lax")
@@ -850,14 +1001,15 @@ def _page(title: str, text: str, *, status: int = 200, extra_head: str = "", bod
 
 
 def _wait_page(handle: str, user_code: str, client: Client | None, redirect_uri: str) -> HTMLResponse:
-    who = (client.name if client and client.name else None) or "An app"
+    """The code and the wait. It names no app — a registered client's name is its own claim — and asks the person to
+    TYPE the code into Cicada, the only way a sign-in is approved."""
     host = _netloc_host(urlparse(redirect_uri))
     refresh = f"<meta http-equiv=\"refresh\" content=\"{WAIT_REFRESH_S};url=/authorize/wait?r={html.escape(handle)}\">"
     return _page(
-        "Approve in Cicada",
-        f"{who} wants to connect to your memory and will be sent back to {host}. Open Cicada on your Mac — "
-        "Settings, Agents, From anywhere — and approve the sign-in showing this code. This page moves on by "
-        "itself once you do. Didn't start this? Deny it there.",
+        "Type this code in Cicada",
+        f"To let the app you are connecting reach your memory, open Cicada on your Mac — Settings, Agents, From "
+        f"anywhere — and type this code there. This page then sends you back to {host} by itself. If you didn't "
+        "start this, close this page: nothing happens without the code.",
         extra_head=refresh, body_html=f"<div class=\"code\">{html.escape(user_code)}</div>")
 
 

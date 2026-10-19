@@ -735,10 +735,12 @@ the value itself). Round 4 C8: Settings → Agents is one selector of eleven age
 reused by onboarding. OpenCode, Hermes and OpenClaw register by editing their own config from a pasted prompt — Cicada
 runs nothing for them and only reads that file (`agent_wiring.config_state`, ≤ 256 KB, parse-only); Claude, ChatGPT and
 Grok go through From anywhere (`kind: remote`). **Sign-in (ruling 31):** while the switch is on, From anywhere polls
-`GET /remote/oauth/requests` every 3 s (everything else every 30 s) and shows a *Waiting for your yes* card above the
-reach card for each app sign-in in progress (`RemoteSignInRow`: the app's mark and self-reported name, the code its page
-shows, the host it returns to — a loopback return is warned about — scope checkboxes starting from what it asked, else
-the defaults, a 7/30/90-day expiry, Deny and Approve). It is the only place a sign-in is approved. The connectors card
+`GET /remote/oauth/requests` every 3 s (everything else every 30 s) and, while any wait, shows *A sign-in is waiting*
+above the reach card: a field for the code the person's own sign-in page shows (`RemoteSignInApproval`: Find shows who
+it is — "Unverified app (registered … ago)" with the generic mark, or a metadata-document app "published by <host>" —
+where it returns, a loopback warning, scope checkboxes starting from what it asked, else the defaults, a 7/30/90-day
+expiry, Cancel and Approve), and *Waiting requests* listed only by when they started, each with Deny, plus Deny all.
+It is the only place a sign-in is approved, and only by the typed code (security review of #359). The connectors card
 says, under its header, how Claude and ChatGPT sign in with `<address>/mcp`; a signed-in connector (`auth: oauth`) shows
 no Rotate. Cursor's card adds *Or copy and send this to Cursor* (its prompt, shown
 before it is copied) after Open in Cursor. The last pill, *Another agent* (`AgentCatalogEntry.Kind.anyAgent`, the

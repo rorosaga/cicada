@@ -1091,7 +1091,9 @@ A whole row moves to DONE only after its remaining implementation and required a
     tunnel with a stable hostname (Tailscale Funnel or ngrok) **to the G135 listener only** — its port serves MCP and
     sign-in and nothing else; the backend's own port is never funnelled, and Cicada never starts a tunnel. **Consent
     happens in the Cicada app on the Mac** (or the local API on a server), never by a password on the public page: the
-    public page shows a short code and waits. The secret-link door keeps working; the docs steer to sign-in, because a
+    public page shows a short code and waits, and the person approves by **typing that code** — never by clicking a
+    listed request, and a self-registered app is never named or branded by what it claims (security review of #359:
+    the flow's initiator collects the result, so a click-to-approve list let a stranger's look-alike through). The secret-link door keeps working; the docs steer to sign-in, because a
     link is a credential in a URL. **2 — Real-time capture is the usual; exports are a starter seed.** Owner: "Exports
     should only be a starter seed for users; the usual should always be real-time captures." For apps with no hook,
     the connector's contract asks the app's model to call `cicada_capture_turns` every turn with the person's message

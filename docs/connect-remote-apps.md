@@ -43,13 +43,15 @@ Your server URL is your address plus `/mcp`, for example `https://<machine>.<tai
   endpoint*, paste the URL → Authentication: OAuth → *I understand and want to continue* → *Create as a plugin*. Start
   a new conversation and pick Cicada with `@`. ChatGPT asks before each tool that writes; for capture, allow it always.
 
-## 4. Approve the sign-in in Cicada
+## 4. Type the code into Cicada
 
-The app opens a Cicada page showing an eight-character code and *Approve in Cicada*. On your Mac, **From anywhere**
-shows the same request under **Waiting for your yes**: check the code matches and that it returns to `claude.ai` or
-`chatgpt.com`, choose what it may do (search, read and record are the defaults; *record* includes keeping each
-conversation) and when it expires (7, 30 or 90 days), then **Approve**. The app's page moves on by itself. Nothing is
-typed into the public page: no password exists there to steal. Didn't start it? **Deny**.
+The app opens a Cicada page showing an eight-character code. On your Mac, **From anywhere** says *A sign-in is
+waiting*: type that code and press **Find**. Cicada shows who it is (an app that only registered itself is shown as
+*Unverified app*, whatever it calls itself) and where it returns — check it is `claude.ai` or `chatgpt.com` — then
+choose what it may do (search, read and record are the defaults; *record* includes keeping each conversation) and when
+it expires (7, 30 or 90 days), and **Approve**. The app's page moves on by itself. Only the code on your own page can
+approve a sign-in, so a request someone else started cannot be approved by mistake; if you see requests you didn't
+start, **Deny all**. Nothing is typed into the public page: no password exists there to steal.
 
 On a server with no app, approve from the server itself — see `docs/architecture/headless.md` ("Sign-in on a server
 with no app").
