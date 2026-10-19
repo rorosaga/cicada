@@ -240,7 +240,7 @@ _PRELUDE = {
         "## Claude Code\n"
         "- Your session id is stamped on every episode you save; this conversation is resumable later with "
         "`claude --resume <id>`.\n"
-        "- The `cicada` skill (~/.claude/skills/cicada) is the long-form policy; this text is the contract."
+        "{skill}"
     ),
     "codex": (
         "## Codex\n"
@@ -255,6 +255,37 @@ _PRELUDE = {
         "- The tools are the whole interface; nothing needs a file on disk."
     ),
 }
+
+# Where Claude Code finds the `cicada` skill (#357): the plugin carries it as `cicada:cicada`; `install.sh --skill` (or
+# the Skills page) copies it to ~/.claude/skills/cicada; with neither there is no policy file to point at. The line
+# names only the one that is there, so an agent never looks for a skill that is not installed.
+CLAUDE_SKILL_LINES = {
+    "plugin": "- The `cicada:cicada` skill (from the Cicada plugin) is the long-form policy; this text is the contract.",
+    "file": "- The `cicada` skill (~/.claude/skills/cicada) is the long-form policy; this text is the contract.",
+    "none": "- This text is the contract; no separate policy file is installed.",
+}
+
+
+def claude_skill(home: Path | None = None) -> str:
+    """``plugin`` | ``file`` | ``none``: which `cicada` skill Claude Code has. The plugin wins when it is on (enabled,
+    installed and able to run a Cicada — ``registry.plugin_state``, the test install.sh uses), since install.sh then
+    leaves the skill to it. Reads Claude Code's settings and plugin list (never a transcript) and one ``isfile``."""
+    from api.hooks import registry as hook_registry
+
+    home = Path(home) if home is not None else skill_catalog.agent_home()
+    try:
+        if hook_registry.plugin_state(home / ".claude" / "settings.json", runtime_layout.cicada_home())[0] == "on":
+            return "plugin"
+    except Exception as exc:  # noqa: BLE001 — an unreadable settings file is no plugin, never a failed handshake
+        logger.debug(f"handshake: plugin state unread ({type(exc).__name__})")
+    return "file" if (home / ".claude" / "skills" / "cicada" / "SKILL.md").is_file() else "none"
+
+
+def _prelude(variant: str, skill: str) -> str:
+    text = _PRELUDE[variant]
+    return text.replace("{skill}", CLAUDE_SKILL_LINES.get(skill, CLAUDE_SKILL_LINES["file"])) \
+        if variant == "claude-code" else text
+
 
 # Item 2 (owner, 2026-10-14, amends the G75/G115 discipline below): questions come up only when the
 # conversation is about them (`mode="ask"`, the server-side gate in `inbox_ask_gate`), are woven in by the
@@ -527,10 +558,10 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
 
 def _assemble(state: dict | None, variant: str, bank: str, tz: str | None = None,
               bridges: tuple[str, ...] = (), reading: bool = False, methods: tuple[str, ...] = (),
-              reading_tools: str | None = None) -> str:
+              reading_tools: str | None = None, skill: str = "file") -> str:
     capabilities = _CAPABILITIES + "".join(f"\n{line}" for line in bridges) + "".join(f"\n{line}" for line in methods)
     contract = _CONTRACT + (f"\n{_reading_item(reading_tools)}" if reading else "")
-    return "\n\n".join([_WHAT, _PRELUDE[variant], contract, _now_block(state, bank, tz=tz), capabilities])
+    return "\n\n".join([_WHAT, _prelude(variant, skill), contract, _now_block(state, bank, tz=tz), capabilities])
 
 
 def _fit(assemble, state: dict | None, max_tokens: int = MAX_TOKENS) -> str:
@@ -561,8 +592,11 @@ def _fit(assemble, state: dict | None, max_tokens: int = MAX_TOKENS) -> str:
 
 def build(state: dict | None, *, variant: str, bank: str, tz: str | None = None,
           bridges: tuple[str, ...] = (), reading: bool = False, methods: tuple[str, ...] = (),
-          reading_tools: str | None = None, max_tokens: int = MAX_TOKENS) -> str:
+          reading_tools: str | None = None, max_tokens: int = MAX_TOKENS, skill: str = "file") -> str:
     """Pure: the primer for a parsed state (or none) and a variant.
+
+    ``skill`` (#357) is ``claude_skill()``'s answer, which ``load_or_build`` reads: the claude-code prelude names the
+    plugin's `cicada:cicada`, the ~/.claude/skills copy, or no policy file. Other variants ignore it.
 
     ``max_tokens`` (G110): what ``_fit`` aims at — ``MAX_TOKENS`` less the
     SessionStart reserve when a continuity block will ride in the same note.
@@ -598,7 +632,7 @@ def build(state: dict | None, *, variant: str, bank: str, tz: str | None = None,
     variant = variant if variant in VARIANTS else "generic"
     bridges = tuple(bridges)[: skill_catalog.MAX_BRIDGE_LINES]
     methods = tuple(methods)[: skill_catalog.MAX_METHOD_LINES]
-    return _fit(lambda st: _assemble(st, variant, bank, tz, bridges, reading, methods, reading_tools), state,
+    return _fit(lambda st: _assemble(st, variant, bank, tz, bridges, reading, methods, reading_tools, skill), state,
                 max_tokens)
 
 
@@ -750,17 +784,19 @@ def load_or_build(
         # follows, it must say the same thing (the queue tool's reply swaps the phrase the same way).
         reading_tools = (agent_methods.tool_phrase("reading", voice="reply")
                          if any(m.startswith("- Reading pages:") for m in methods) else None)
+        # #357: which `cicada` skill Claude Code has is in the text, so in the key.
+        skill = claude_skill() if variant == "claude-code" else "-"
         cache_name = variant
         # The bridge set is part of the text, so it is part of the key: installing
         # or removing a bridged skill must never serve yesterday's primer.
-        key = f"{CONTRACT_VERSION}:{variant}:{stamp}:{tz_key}:{skill_catalog.fingerprint(bridges)}:{reading_key}:{skill_catalog.fingerprint(methods)}:{hashlib.sha256((reading_tools or '').encode('utf-8')).hexdigest()[:6]}"
+        key = f"{CONTRACT_VERSION}:{variant}:sk-{skill}:{stamp}:{tz_key}:{skill_catalog.fingerprint(bridges)}:{reading_key}:{skill_catalog.fingerprint(methods)}:{hashlib.sha256((reading_tools or '').encode('utf-8')).hexdigest()[:6]}"
         reserve = max(0, int(reserve or 0))
         if reserve:
             key += f":rv{reserve}"
             cache_name = f"{variant}.rv{reserve}"
         make = lambda st: build(  # noqa: E731
             st, variant=variant, bank=memory_path.name, tz=tz, bridges=bridges, reading=reading, methods=methods,
-            reading_tools=reading_tools, max_tokens=MAX_TOKENS - reserve)
+            reading_tools=reading_tools, max_tokens=MAX_TOKENS - reserve, skill=skill)
     cache_dir = Path(cache_dir) if cache_dir is not None else _cache_dir()
     cache_file = cache_dir / f"{memory_path.name}.{cache_name}.json"
     state = state_dictionary.read_state(memory_path)

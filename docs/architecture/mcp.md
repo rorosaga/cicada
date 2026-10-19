@@ -534,6 +534,10 @@ wiring stay `install.sh`'s and the app's).
   `CICADA_CAPTURE=off` (Cicada's own spawns; Sleep's `claude -p` also runs `--safe-mode`, which disables plugins), one
   episode per session, the transcript read by the backend only under the harness root. The plugin's `recall` setting
   (*Remember automatically*, on by default) silences only the recall hooks.
+- **The skill the handshake names.** The Claude Code prelude names the `cicada` skill that is there
+  (`handshake.claude_skill`, part of the primer's cache key): `cicada:cicada` when the plugin is on (the same
+  `registry.plugin_state` test), else `~/.claude/skills/cicada` when `install.sh --skill` or the Skills page put a copy
+  there, else no policy file at all.
 - **The MCP server.** `scripts/cicada-mcp` execs the same checkout's `mcp/server.py` or the app's `cicada-mcp`
   launcher; the `memory_path` setting, when set, becomes `CICADA_MEMORY_PATH` (the memory root — the server resolves
   the active bank itself, as install.sh's own registration does).
