@@ -1328,3 +1328,164 @@ def test_the_sure_bar_names_what_is_sure_and_keeps_a_local_place_unsure():
     assert "as the search showed them to you" in prompt and "verbatim" not in prompt
     assert "a small local place" in prompt and "name outright is a sure answer" in prompt
     assert '{"sure": false}' in prompt and "could be a private person" in prompt
+
+
+# ---------- a conflict about the person's own situation never settles (2026-10-20) ----------
+#
+# The real sweep settled nine conflicts and eight were the owner's own (real values redacted). Each shape is a fixture
+# here with placeholder names; only "what a public thing IS" stays eligible.
+
+_BOTH = {"key": "both", "label": "Both are true (different contexts)", "claim_id": None}
+
+
+def _conflict(entity_id, name, question, labels, *, predicate="description"):
+    return dict(kind="conflict", status="pending", entity_id=entity_id, entity_name=name, predicate=predicate,
+                question=question, title=question,
+                options=[{"key": k, "label": label, "claim_id": None} for k, label in zip("ab", labels)] + [_BOTH])
+
+
+#: (shape, entity id, name, type, question, labels, expected reason)
+THE_EIGHT = [
+    ("which accessory am I using", "stylus-example", "Stylus Example", "tool",
+     "Which Stylus Example am I actually using?", ["Stylus Example Pro", "Stylus Example Mini"], "personal"),
+    ("the device I'm modding", "reader-example", "Reader Example", "tool",
+     "Is the Reader Example I'm modding a Model A or a Model B?", ["Model A", "Model B"], "personal"),
+    ("the model in the owner's thesis", "model-example", "Model Example", "tool",
+     "Is the Model Example in Owner's thesis evaluation actually version 2 or version 3?",
+     ["version 2", "version 3"], "personal"),
+    ("currently uses / superseded by", "tunnel-example", "Tunnel Example", "tool",
+     "Does Owner currently use Tunnel Example to reach the lab network, or is it superseded by Setup B?",
+     ["Currently uses Tunnel Example", "Superseded by Setup B"], "personal"),
+    ("the person's own term vs a product", "abx", "ABX", "concept",
+     "Is ABX the usability research method or the screen-recording product?",
+     ["usability research method", "screen-recording product"], "different_things"),
+    ("two different things sharing a name", "nova", "Nova", "tool",
+     "Is this entity Nova web framework, or Nova charting library?",
+     ["Nova web framework", "Nova charting library"], "different_things"),
+    ("planned for the owner's project", "api", "API", "concept",
+     "Is Gizmo Example an API feature planned for Alpha Project, or a separate developer-tools product the owner "
+     "was interested in?", ["API feature planned for Alpha Project", "developer-tools product"], "personal"),
+    ("a platform or a class in the owner's code", "course", "Course", "concept",
+     "Is Course the online learning platform, or the nested C++ class called `Course` in Owner's code?",
+     ["online learning platform", "nested C++ class"], "personal"),
+]
+
+
+def _seed_conflicts(memory):
+    for i, (_, eid, name, etype, question, labels, _) in enumerate(THE_EIGHT):
+        _entity(memory, eid, type=etype, name=name)
+        _item(memory, f"inbox-{401 + i}", **_conflict(eid, name, question, labels))
+    _entity(memory, "tool-c", type="tool", name="Tool C")
+    _item(memory, "inbox-409", **_conflict("tool-c", "Tool C", "Is Tool C an AI code editor or an AI agent?",
+                                           ["AI code editor", "AI agent"]))
+    _commit(memory, "seed the eight")
+
+
+@pytest.mark.parametrize("shape,eid,name,etype,question,labels,reason", THE_EIGHT, ids=[s[0] for s in THE_EIGHT])
+def test_each_of_the_eight_shapes_is_not_lookup_eligible(bank, shape, eid, name, etype, question, labels, reason):
+    _entity(bank, eid, type=etype, name=name)
+    bank_index.invalidate()
+    fm = _conflict(eid, name, question, labels)
+    assert web_settle.classify(bank, fm, "", web_settle.bank_facts(bank)) == (None, reason), shape
+
+
+def test_what_a_public_thing_is_stays_eligible(bank):
+    _entity(bank, "tool-c", type="tool", name="Tool C")
+    bank_index.invalidate()
+    facts = web_settle.bank_facts(bank)
+    fm = _conflict("tool-c", "Tool C", "Is Tool C an AI code editor or an AI agent?", ["AI code editor", "AI agent"])
+    assert web_settle.classify(bank, fm, "", facts) == ("public", "public")
+    # Words that only look personal: "US" in the question is a country, "the user interface" is a thing.
+    us = _conflict("tool-c", "Tool C", "Is Tool C a US product or a UK product?", ["a framework", "a library"])
+    assert web_settle.classify(bank, us, "", facts) == ("public", "public")
+    ui = _conflict("tool-c", "Tool C", "Is Tool C a user interface library or a database?",
+                   ["user interface library", "database"])
+    assert web_settle.classify(bank, ui, "", facts) == ("public", "public")
+
+
+@pytest.mark.parametrize("question,labels", [
+    ("¿Qué versión de Tool C estoy usando?", ["v1", "v2"]),
+    ("Is Tool C what we use at work or a library?", ["a service", "a library"]),
+    ("Is Tool C still used by Alpha Project?", ["yes", "no"]),
+    ("Is Tool C an editor or an agent?", ["an editor", "my agent"]),
+    ("Is Tool C an editor or an agent?", ["an editor", "Formerly an agent"]),
+    ("Is Tool C in Ali's setup a CLI or an app?", ["a CLI", "an app"]),
+    ("Is Tool C the owner's editor or a plugin?", ["an editor", "a plugin"]),
+])
+def test_the_person_in_a_question_or_an_option_keeps_it_home(bank, question, labels):
+    _entity(bank, "tool-c", type="tool", name="Tool C")
+    bank_index.invalidate()
+    scope, _ = web_settle.classify(bank, _conflict("tool-c", "Tool C", question, labels), "",
+                                   web_settle.bank_facts(bank))
+    assert scope is None, question
+
+
+def test_a_page_its_own_description_calls_the_persons_own_keeps_its_conflict_home(bank):
+    _entity(bank, "tool-c", type="tool", name="Tool C", description="A script the user wrote for their notes.")
+    bank_index.invalidate()
+    fm = _conflict("tool-c", "Tool C", "Is Tool C a CLI or an app?", ["a CLI", "an app"])
+    assert web_settle.classify(bank, fm, "", web_settle.bank_facts(bank)) == (None, "personal")
+
+
+def test_the_census_counts_the_eight_as_kept_and_the_right_one_as_public(bank):
+    _seed_conflicts(bank)
+    counts = web_settle.census(bank)["by_kind"]["conflict"]
+    for k in [f"inbox-{n}" for n in range(401, 410)]:
+        assert (bank / "inbox" / f"{k}.md").exists()
+    eight = {f"inbox-{401 + i}": row[-1] for i, row in enumerate(THE_EIGHT)}
+    facts = web_settle.bank_facts(bank)
+    for item_id, reason in eight.items():
+        parsed = markdown_parser.parse(bank / "inbox" / f"{item_id}.md")
+        assert web_settle.classify(bank, parsed.frontmatter, parsed.body, facts) == (None, reason), item_id
+    assert counts.get("personal", 0) >= 6 and counts.get("different_things", 0) >= 2
+    assert web_settle.candidate(bank, bank / "inbox" / "inbox-409.md", facts) is not None
+    assert {c.item_id for c in web_settle.candidates(bank, facts=facts)} & set(eight) == set()
+
+
+def test_two_things_sharing_a_name_settle_only_on_the_pages_own_name(bank):
+    _entity(bank, "nova", type="tool", name="Nova", aliases=["Nóva Framework"])
+    question = "Is this entity the Nova Framework, or Nova charting library?"
+    _item(bank, "inbox-420", **_conflict("nova", "Nova", question, ["the nova framework", "Nova charting library"]))
+    _commit(bank, "seed nova")
+    facts = web_settle.bank_facts(bank)
+    c = web_settle.candidate(bank, bank / "inbox" / "inbox-420.md", facts)
+    assert c is not None and c.different_things, "an option is the page's own alias (accents and case folded)"
+    before = (bank / "entities" / "nova.md").read_text()
+    for key in ("b", "both"):
+        with pytest.raises(web_settle.NotSettleable):
+            web_settle.settle(bank, "inbox-420", ref=TOOL_URL, quote="Nova is a charting library.", option_key=key,
+                              checker="fake-model", checker_kind="sleep")
+        assert (bank / "entities" / "nova.md").read_text() == before and (bank / "inbox" / "inbox-420.md").exists()
+    assert not list((bank / "episodes").glob("*.md")) or all(
+        "Web check" not in p.read_text() for p in (bank / "episodes").glob("*.md"))
+    done = web_settle.settle(bank, "inbox-420", ref=TOOL_URL, quote="Nova Framework is a web framework.",
+                             option_key="a", checker="fake-model", checker_kind="sleep")
+    claims = parse_claims(markdown_parser.parse(bank / "entities" / "nova.md").body)
+    assert [c.object for c in claims if c.id == done.claim_id] == ["the nova framework"]
+
+
+def test_a_situation_is_never_written_as_a_description(bank, monkeypatch):
+    """Belt and braces at the writer: should a situation label reach :func:`settle`, nothing is written."""
+    _entity(bank, "tool-c", type="tool", name="Tool C")
+    _item(bank, "inbox-421", **_conflict("tool-c", "Tool C", "Is Tool C a CLI or an app?",
+                                         ["Currently uses Tool D", "an app"]))
+    _commit(bank, "seed situation")
+    monkeypatch.setattr(web_settle, "personal_conflict", lambda *a, **k: None)   # the gate, bypassed
+    before = (bank / "entities" / "tool-c.md").read_text()
+    with pytest.raises(web_settle.NotSettleable):
+        web_settle.settle(bank, "inbox-421", ref=TOOL_URL, quote="Tool C is a CLI.", option_key="a",
+                          checker="fake-model", checker_kind="sleep")
+    assert (bank / "entities" / "tool-c.md").read_text() == before and (bank / "inbox" / "inbox-421.md").exists()
+
+
+def test_a_lookup_that_picks_the_other_thing_sharing_the_name_is_counted_and_never_settles():
+    c = web_settle.Candidate("inbox-1", "conflict", "public", "nova", "Nova", "tool", True, "description",
+                             [("a", "Nova Framework"), ("b", "Nova charting library")], [], type_question=True,
+                             both_key="both", different_things=True, subject_names=frozenset({"nova framework"}))
+    for key in ("b", "both"):
+        a = web_lookup.parse_answer(c, json.dumps({"sure": True, "option_key": key, "others_ruled_out": True,
+                                                   "url": TOOL_URL, "quote": "q"}))
+        assert (a.ok, a.reason) == (False, "different_thing")
+    a = web_lookup.parse_answer(c, json.dumps({"sure": True, "option_key": "a", "others_ruled_out": True,
+                                               "url": TOOL_URL, "quote": "q"}))
+    assert a.ok
