@@ -77,7 +77,8 @@ MAX_CLIENT_BUCKETS = 2000
 MAX_REDIRECTS = 5
 MAX_FORM_BYTES = 16 * 1024
 WAIT_REFRESH_S = 3
-COOKIE = "cicada_signin"
+#: ``__Host-``: the browser keeps it only if Secure, Path=/ and no Domain — no sibling host can set or shadow it.
+COOKIE = "__Host-cicada_signin"
 AUTH_METHODS = ("none", "client_secret_post", "client_secret_basic")
 OFFLINE = "offline_access"
 LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]"})
@@ -89,7 +90,7 @@ _CHALLENGE_RE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 _HOST_RE = re.compile(r"^[A-Za-z0-9.-]{1,253}(:\d{1,5})?$")
 _CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _ID_ALPHABET = string.ascii_lowercase + string.digits
-_NAME_UNSAFE = re.compile(r"[^A-Za-z0-9 ._()/'-]")
+_NAME_UNSAFE = re.compile(r"[^A-Za-z0-9 '-]")
 
 PATHS = frozenset({"/.well-known/oauth-authorization-server", "/authorize", "/authorize/wait", "/token",
                    "/register", "/revoke"})
@@ -170,8 +171,18 @@ def pkce_challenge(verifier: str) -> str:
     return base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).rstrip(b"=").decode("ascii")
 
 
+_NAME_CLAIMS = re.compile(r"publish|verif|official|trusted|signed|approved|by\s|\bvia\b|https?|www", re.IGNORECASE)
+
+
 def clean_name(raw) -> str | None:
-    return _NAME_UNSAFE.sub("", str(raw or ""))[:64].strip() or None
+    """An app's self-reported name, for display beside Cicada's own words: letters, digits, spaces, dashes and
+    apostrophes only (no dots, parentheses or commas, so no host or "(…)" aside can be faked), at most 48, and none
+    that claims a status ("published by", "verified", "official"…) — such a name is dropped and the host stands
+    alone (re-review of #359)."""
+    name = re.sub(r" +", " ", _NAME_UNSAFE.sub("", re.sub(r"\s+", " ", str(raw or "")))).strip()[:48].strip()
+    if not name or _NAME_CLAIMS.search(name):
+        return None
+    return name
 
 
 def _clean_uri(uri) -> bool:
@@ -246,7 +257,46 @@ def request_source(request: Request) -> str:
     key and an eviction key — never an access decision."""
     forwarded = [p.strip() for p in (request.headers.get("x-forwarded-for") or "").split(",") if p.strip()]
     peer = forwarded[-1] if forwarded else (request.client.host if request.client else "")
-    return hashlib.sha256(peer.encode("utf-8", "replace")).hexdigest()[:16]
+    return hashlib.sha256(source_key(peer).encode("utf-8", "replace")).hexdigest()[:16]
+
+
+def source_key(peer: str) -> str:
+    """One key per party, not per address: an IPv6 address counts as its /64 (one subscriber's whole block — rotating
+    within it buys nothing; re-review of #359), an IPv4-mapped one as its IPv4; anything unparsable as itself."""
+    import ipaddress
+
+    try:
+        ip = ipaddress.ip_address(peer.strip("[]").split("%", 1)[0])
+    except ValueError:
+        return peer
+    if ip.version == 6 and ip.ipv4_mapped is not None:
+        return str(ip.ipv4_mapped)
+    if ip.version == 6:
+        return str(ipaddress.ip_network(f"{ip}/64", strict=False))
+    return str(ip)
+
+
+_ASCII_HOST_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$")
+
+
+def fetched_host(client_id: str) -> str | None:
+    """The host a metadata document is fetched from, when it is the host the person would read: the whole client id
+    plain printable ASCII, its host lower-case letters, digits, dots and dashes, and exactly the host httpx connects
+    to. Anything else — a full-width dot (``claude.ai．evil.example``), an IDN, a host two parsers read apart — is
+    refused, so the name shown beside "published by" is the server Cicada actually asked (re-review of #359)."""
+    if not client_id.isascii() or any(not c.isprintable() or c.isspace() or c == "\\" for c in client_id):
+        return None
+    try:
+        import httpx
+
+        host = httpx.URL(client_id).host
+        ours = urlparse(client_id).hostname
+        urlparse(client_id).port
+    except Exception:  # noqa: BLE001 — unparsable is refused
+        return None
+    if not host or host != ours or not _ASCII_HOST_RE.match(host):
+        return None
+    return host
 
 
 def public_base(request: Request) -> str | None:
@@ -287,6 +337,9 @@ class Bucket:
 
 @dataclass
 class OAuthLimits:
+    """No global /authorize ceiling (re-review of #359): one would let many sources lock everyone out, and the cost
+    it would bound is already bounded — at most :data:`MAX_PENDING` waiting rows and the document-fetch bucket.
+    ``authorize`` is the per-source bucket's shape."""
     register: Bucket
     authorize: Bucket
     token: Bucket  # the whole endpoint's ceiling, far above one client's
@@ -434,6 +487,8 @@ class OAuthServer:
         if (parsed.scheme != "https" or not parsed.hostname or parsed.path in ("", "/") or parsed.fragment
                 or parsed.username or parsed.password):
             return None
+        if fetched_host(client_id) is None:
+            return None
         if not self.limits.fetch.take():
             return None
         try:
@@ -460,6 +515,7 @@ class OAuthServer:
             return None
         client = Client(client_id=client_id, kind="cimd", name=clean_name(doc.get("client_name")),
                         redirect_uris=list(uris), auth_method="none")
+        self._prune_clients(self.clock())
         with self._db() as db:
             db.execute("INSERT OR REPLACE INTO oauth_clients (client_id, kind, name, redirect_uris, auth_method, "
                        "secret_hash, created_at, fetched_at) VALUES (?, 'cimd', ?, ?, 'none', NULL, ?, ?)",
@@ -513,11 +569,14 @@ class OAuthServer:
         return out
 
     def _prune_clients(self, now: datetime) -> None:
-        """A registered client that never got a grant goes after a day — DCR runs on every fresh connection."""
+        """A client — registered or a metadata document's — that never got a grant goes after a day: DCR runs on every
+        fresh connection, and anyone can point a metadata URL at this server. One with a token or a live request
+        stays."""
         cutoff = _iso(now - timedelta(days=1))
         with self._db() as db:
-            db.execute("DELETE FROM oauth_clients WHERE kind='dcr' AND created_at < ? AND client_id NOT IN "
-                       "(SELECT DISTINCT client_id FROM oauth_tokens)", (cutoff,))
+            db.execute("DELETE FROM oauth_clients WHERE created_at < ? AND client_id NOT IN "
+                       "(SELECT DISTINCT client_id FROM oauth_tokens) AND client_id NOT IN (SELECT client_id FROM "
+                       "oauth_requests WHERE status IN ('pending', 'approved', 'issued'))", (cutoff,))
             db.execute("DELETE FROM oauth_requests WHERE expires_at < ?", (_iso(now - timedelta(days=1)),))
 
     # ── authorization requests ────────────────────────────────────────────
@@ -590,7 +649,7 @@ class OAuthServer:
         host = _netloc_host(urlparse(row["redirect_uri"]))
         return PendingRequest(
             ref=row["ref"], verified=verified, client_name=row["client_name"] if verified else None,
-            client_kind=kind, client_host=(urlparse(row["client_id"]).hostname if verified else None),
+            client_kind=kind, client_host=(fetched_host(row["client_id"]) if verified else None),
             client_registered_at=None if verified else row["client_at"],
             redirect_host=host, loopback=host in LOOPBACK_HOSTS,
             app=guess_app(row["client_id"], row["redirect_uri"], kind),
@@ -800,6 +859,10 @@ class OAuthServer:
                                     .decode("utf-8").partition(":")[0])
             except (ValueError, UnicodeDecodeError):
                 client_id = ""
+        if self.get_client(client_id) is None:
+            # An unregistered client id spends no bucket — it is refused as invalid_client after one row lookup —
+            # so junk ids cannot drain the endpoint's ceiling for real apps (re-review of #359).
+            return True
         key = client_id[:512]
         bucket = self._client_buckets.pop(key, None) or Bucket(TOKEN_PER_CLIENT_PER_MINUTE,
                                                                TOKEN_PER_CLIENT_PER_MINUTE, self.limits.clock)
@@ -807,7 +870,20 @@ class OAuthServer:
         while len(self._client_buckets) > MAX_CLIENT_BUCKETS:
             self._client_buckets.pop(next(iter(self._client_buckets)))
         ok = bucket.take() and self.limits.token.take()
-        return ok or self._valid_refresh(form)
+        return ok or self._valid_refresh(form) or self._valid_code(form)
+
+    def _valid_code(self, form: dict) -> bool:
+        """A live, unused authorization code for the client the form names — let through a spent bucket like a valid
+        refresh, so a flood on an app's public client id cannot stop the person finishing their own sign-in."""
+        code = form.get("code") or ""
+        if form.get("grant_type") != "authorization_code" or not code:
+            return False
+        with self._db() as db:
+            row = db.execute("SELECT client_id, code_used, code_expires_at FROM oauth_requests WHERE code_hash=?",
+                             (_hash(code),)).fetchone()
+        now = self.clock()
+        return bool(row and not row["code_used"] and row["client_id"] == form.get("client_id")
+                    and (_at(row["code_expires_at"]) or now) > now)
 
     def revoke_token(self, client: Client, token: str) -> None:
         """RFC 7009: a refresh token ends its grant, an access token itself; an unknown token is not an error."""
@@ -923,7 +999,7 @@ class OAuthServer:
         self._source_buckets[source] = bucket
         while len(self._source_buckets) > MAX_CLIENT_BUCKETS:
             self._source_buckets.pop(next(iter(self._source_buckets)))
-        if not (bucket.take() and self.limits.authorize.take()):
+        if not bucket.take():
             return _page("Too many sign-ins", "Too many sign-in attempts reached Cicada. Wait a minute and try "
                          "again from the app.", status=429)
         client = await self.resolve_client(q.get("client_id") or "")
@@ -954,7 +1030,7 @@ class OAuthServer:
             client=client, redirect_uri=redirect_uri, code_challenge=q["code_challenge"], state=state,
             resource=resource, scopes_asked=asked, source=source)
         response = _wait_page(handle, user_code, client, redirect_uri)
-        response.set_cookie(COOKIE, binding, max_age=REQUEST_TTL_S, path="/authorize", secure=True, httponly=True,
+        response.set_cookie(COOKIE, binding, max_age=REQUEST_TTL_S, path="/", secure=True, httponly=True,
                             samesite="lax")
         return response
 

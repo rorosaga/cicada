@@ -440,7 +440,7 @@ struct RemoteSignInApproval: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Text("Type the code your sign-in page shows. Didn't start a sign-in? Deny it — nothing connects without the code.")
+            Text("Only type a code shown in a browser you opened just now. Didn't start a sign-in? Deny it — nothing connects without the code.")
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)

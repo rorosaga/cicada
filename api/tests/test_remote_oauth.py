@@ -650,3 +650,112 @@ def test_the_app_approves_and_denies_through_the_loopback_api(tmp_path, monkeypa
 
 async def _async(value):
     return value
+
+
+# ── re-review of #359: availability and look-alikes ─────────────────────────
+
+def test_one_ipv6_block_is_one_source_and_cannot_evict_the_person(world):
+    """The re-review's probe: rotating addresses inside one /64 buys nothing."""
+    _, server, _, _, _ = world
+    assert oauth.source_key("2001:db8::1") == oauth.source_key("2001:db8::ffff:1") == "2001:db8::/64"
+    assert oauth.source_key("::ffff:198.51.100.7") == "198.51.100.7"
+    with _client(world) as owner:
+        real = _register(owner)
+        _, challenge = _pkce()
+        mine = _authorize(owner, real["client_id"], challenge, headers={"X-Forwarded-For": "198.51.100.7"})
+    with _client(world) as attacker:
+        evil = _register(attacker)
+        statuses = []
+        for i in range(70):
+            _, challenge = _pkce()
+            statuses.append(_authorize(attacker, evil["client_id"], challenge,
+                                       headers={"X-Forwarded-For": f"2001:db8::{i:x}"}).status_code)
+    assert statuses.count(200) == 10 and statuses.count(429) == 60
+    assert server.match(_code(mine)) is not None
+    with _client(world) as owner:
+        _, challenge = _pkce()
+        again = _authorize(owner, real["client_id"], challenge, headers={"X-Forwarded-For": "198.51.100.7"})
+    assert again.status_code == 200  # no global ceiling for a flood to spend
+
+
+def test_junk_client_ids_spend_nothing_and_a_live_code_passes_a_spent_bucket(world, monkeypatch):
+    """The re-review's token-drain probe, plus a real client's own bucket spent by someone spamming its id."""
+    _, server, _, _, _ = world
+    monkeypatch.setattr(oauth, "TOKEN_PER_CLIENT_PER_MINUTE", 2)
+    with _client(world) as c:
+        client = _register(c)
+        verifier, challenge = _pkce()
+        page = _authorize(c, client["client_id"], challenge)
+        server.approve(_code(page), scopes=["search"], expires_in_days=30)
+        back = c.get("/authorize/wait", params={"r": _handle(page)})
+        code = parse_qs(urlparse(back.headers["location"]).query)["code"][0]
+        junk = [c.post("/token", headers=FORM, data={"grant_type": "authorization_code", "code": "x",
+                                                     "client_id": f"junk{i}", "code_verifier": "y"}).status_code
+                for i in range(320)]
+        assert 429 not in junk and set(junk) == {401}
+        spam = [c.post("/token", headers=FORM, data={"grant_type": "authorization_code", "code": "nope",
+                                                     "client_id": client["client_id"], "code_verifier": "y"}
+                       ).status_code for _ in range(3)]
+        assert spam[-1] == 429
+        mine = c.post("/token", headers=FORM, data={"grant_type": "authorization_code", "code": code,
+                                                    "redirect_uri": CLAUDE_CB, "client_id": client["client_id"],
+                                                    "code_verifier": verifier})
+    assert mine.status_code == 200 and mine.json()["access_token"].startswith("cic_at_")
+
+
+@pytest.mark.parametrize("client_id", [
+    "https://claude.ai．evil.example/meta",   # full-width dot
+    "https://claude.ai。evil.example/meta",   # ideographic full stop
+    "https://xn--clude-0ra.ai/meta" if False else "https://cläude.ai/meta",  # an IDN
+    "https://claude.ai\\@evil.example/meta",
+    "https://claude.ai%2eevil.example/meta",
+])
+def test_a_look_alike_metadata_host_is_refused_before_any_fetch(world, client_id):
+    _, server, _, _, docs = world
+    fetched = []
+
+    async def fetcher(url):
+        fetched.append(url)
+        return json.dumps({"client_id": url, "redirect_uris": [CLAUDE_CB]}).encode()
+
+    server.fetcher = fetcher
+    with _client(world) as c:
+        _, challenge = _pkce()
+        resp = _authorize(c, client_id, challenge)
+    assert resp.status_code == 400 and fetched == []
+    assert oauth.fetched_host("https://claude.ai/oauth/meta") == "claude.ai"
+
+
+@pytest.mark.parametrize("raw,shown", [
+    ("Claude Code", "Claude Code"),
+    ("Claude (published by claude.ai)", None),
+    ("Official Claude", None),
+    ("Verified ChatGPT", None),
+    ("Claude, by Anthropic", None),
+    ("claude.ai", "claudeai"),
+    ("Tab\tName\n", "Tab Name"),
+])
+def test_a_documents_name_cannot_claim_a_status_or_a_host(raw, shown):
+    assert oauth.clean_name(raw) == shown
+
+
+def test_the_binding_cookie_is_host_only(world):
+    with _client(world) as c:
+        client = _register(c)
+        _, challenge = _pkce()
+        page = _authorize(c, client["client_id"], challenge)
+    cookie = page.headers["set-cookie"]
+    assert cookie.startswith("__Host-cicada_signin=") and "Path=/;" in cookie + ";" and "Domain" not in cookie
+    assert "Secure" in cookie and "HttpOnly" in cookie
+
+
+def test_metadata_document_clients_are_pruned_like_registered_ones(world):
+    _, server, _, clock, docs = world
+    url = "https://app.example/meta"
+    docs[url] = json.dumps({"client_id": url, "redirect_uris": [CLAUDE_CB]}).encode()
+    import asyncio
+
+    assert asyncio.run(server.resolve_client(url)) is not None
+    clock.now += timedelta(days=2)
+    server._prune_clients(clock.now)
+    assert server.get_client(url) is None

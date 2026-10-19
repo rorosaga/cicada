@@ -179,7 +179,9 @@ scopes; that document names `<base>` as the one authorization server; the AS met
 saved address, else the `Host` the tunnel forwarded. **Registration:** DCR (`/register`: https or loopback-http redirect
 URIs only, ≤ 5, no fragment or credentials; unused clients pruned after a day, ≤ 200) or a Client ID Metadata Document
 (an https `client_id`, fetched through `net_guard` under the ToS rail — 4 s, ≤ 64 KB, no cookies, no redirects — its
-`client_id` must equal the URL, public clients only, cached a day). **Consent is never on the public page:** `/authorize`
+`client_id` must equal the URL, public clients only, cached a day; a client id that is not plain ASCII, or whose
+host is not lower-case letters, digits, dots and dashes exactly as httpx would connect to it — a full-width dot, an
+IDN, a host two parsers read apart — is refused before any fetch, so the host shown as publisher is the one asked). **Consent is never on the public page:** `/authorize`
 checks the client and the redirect URI first (exact match; an `http` loopback URI matches on any port, RFC 8252 — Claude
 Code's), and a mismatch is an error page, never a redirect (no open redirect); then it shows an eight-character code
 and waits (meta refresh, no script, no form, a strict CSP, framing denied; it names no app). **The person approves by
@@ -191,13 +193,14 @@ sign-in collects its result from `/authorize/wait`'s redirect, PKCE included, so
 get the tokens; a typed code only the person's own page shows closes that). Waiting requests are listed only as
 waiting, each with Deny, plus Deny all. A registered (DCR) client is never named or branded: it is "Unverified app
 (registered <time> ago)" with the generic mark, and its connector's app is `other`; only a metadata-document client is
-named, as "<its name>, published by <the host it was fetched from>". The loopback API is `GET /remote/oauth/requests`
+named, as "<its name>, published by <the host it was fetched from>" — the name is letters, digits, spaces, dashes and
+apostrophes only, and one that claims a status ("published by", "verified", "official"…) is dropped. The loopback API is `GET /remote/oauth/requests`
 (ref and times only), `POST /remote/oauth/match` and `POST /remote/oauth/approve` (by `userCode`, ten misses then a
 minute's wait), `POST /remote/oauth/requests/{ref}/deny` and `…/deny-all`, behind the API token. The waiting page is
-bound to its browser by an HttpOnly, Secure cookie, so a leaked request id collects nothing; the client's `state` is
+bound to its browser by an HttpOnly, Secure, `__Host-` cookie (Path=/, no Domain), so a leaked request id collects nothing; the client's `state` is
 echoed untouched and `iss` rides every response, errors included. At most 50 requests wait; past that one is dropped —
-the oldest of the source holding the most (the last address the tunnel appended to `X-Forwarded-For`, hashed), never
-the new one refused — so a flood evicts itself before the person's one sign-in; one unanswered for ten minutes
+the oldest of the source holding the most (the last address the tunnel appended to `X-Forwarded-For`, an IPv6
+address as its /64, hashed), never the new one refused — so a flood evicts itself before the person's one sign-in; one unanswered for ten minutes
 expires. The code is the one value stored in the clear (the page must show it again), and it is blanked when the
 request is answered, denied or dropped.
 **Tokens:** the code is single-use, 120 s, bound to the client, the redirect URI, the PKCE challenge and the resource;
@@ -210,11 +213,14 @@ code is used. Approval creates an ordinary connector row (`auth: oauth`) — has
 app is read from where the code goes (claude.ai → Claude, chatgpt.com → ChatGPT, a loopback redirect from Claude's own
 metadata document → Claude Code, else Other), so its writes carry that app's harness; revoking it in Settings ends its
 access and refresh tokens at once, and a grant never outlives it. A signed-in connector has no link and cannot be
-rotated. **Rate limits** (in memory): registration 10 then 2 a minute; authorization 10 then 6 a minute per source
-and 60 a minute in all; token and revocation 30 a minute per client id and 300 in all — a spent bucket still admits a
-valid refresh, so spamming an app's public client id cannot starve its renewal; document fetches 10 then 2 a minute,
-each inside one overall 4 s deadline. A full client table (200) drops its oldest client that never got a grant rather
-than refuse a new one. A redirect URI with a backslash, a control character or a port that does not parse is refused,
+rotated. **Rate limits** (in memory): registration 10 then 2 a minute; authorization 10 then 6 a minute per source,
+with no global ceiling (many sources could spend one; the 50-request cap and the fetch bucket already bound the cost);
+token and revocation 30 a minute per registered client id and 300 in all — an unregistered id spends nothing (it is
+refused as `invalid_client`), and a spent bucket still admits a valid refresh token or a live, unused authorization
+code, so spamming an app's public client id cannot stop its sign-in or its renewal; document fetches 10 then 2 a
+minute, each inside one overall 4 s deadline. A full client table (200) drops its oldest client that never got a grant
+rather than refuse a new one, and any client — registered or a metadata document's — with no grant and no live request
+is pruned after a day. A redirect URI with a backslash, a control character or a port that does not parse is refused,
 registered or presented. **Origin:** refused everywhere except a GET of the two
 sign-in pages (a browser navigation). Not supported: `private_key_jwt`, `client_credentials`, OpenID scopes.
 
