@@ -27,6 +27,7 @@ from api.services import (
     inbox_actor,
     inbox_context,
     inbox_questions,
+    inbox_review,
     markdown_parser,
     predicates,
     source_check,
@@ -134,10 +135,13 @@ def _item_from_file(
         # G115 R6: Sleep's own proposal is served FIRST so the card's initial
         # highlight (and `1`) lands on it. The file on disk keeps its order —
         # this is a read-time projection, like `age_days` and `cause`.
+        # A decay question keeps its fixed order (Keep, then Archive — owner 2026-10-19): one key never means
+        # opposite things in the Inbox's card and the quick review; the marker still names Sleep's proposal.
         rec = recommended_key(kind, fm, raw_options)
-        raw_options = [o for o in raw_options if str(o.get("key")) == rec] + [
-            o for o in raw_options if str(o.get("key")) != rec
-        ]
+        if kind != "decay":
+            raw_options = [o for o in raw_options if str(o.get("key")) == rec] + [
+                o for o in raw_options if str(o.get("key")) != rec
+            ]
         extra["recommended_key"] = rec
         extra["entity_type"] = context.entity_type(entity_id)
         extra["cause"] = InboxCause(**context.cause_for(fm, raw_options).to_wire())
@@ -146,6 +150,15 @@ def _item_from_file(
             and predicates.cardinality(context.memory_path, str(fm.get("predicate", "") or "")) == "multi"
         )
         extra.update(_extractor_refs(fm, kind, context))
+        # The quick review (owner 2026-10-19): what the page is and how often it was said, and a fold in words —
+        # derived at read, never stored; a failure costs the field, never the card.
+        if kind in inbox_review.SUBJECT_KINDS:
+            try:
+                extra["subject"] = inbox_review.subject_for(entity_id, context)
+                if kind == "normalization":
+                    extra["fold"] = inbox_review.fold_for({**fm, "entity_id": entity_id}, context)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"review context skipped for {filepath.name}: {type(exc).__name__}")
         # G61 phase 2 S2: which rung could answer this, derived at read and
         # never stored (source_check). Read-only — nothing acts on it yet. A
         # failure degrades to no `check`, never to a hidden card: load_inbox

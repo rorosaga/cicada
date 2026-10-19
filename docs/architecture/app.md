@@ -1460,7 +1460,33 @@ page), its failure saying the page changed since (`settledSleepUndoFailed`). Neu
 `pencil`, clarification's hue in both palettes — no new hue, DR-8) and renders as an options card (`apply` / `dismiss`
 from the server, Not now); `InboxBodyPreview` draws its `body` — "Why: …" and the changes as "- Replace “old” with
 “new”" lines — even beside a cause quote, because the body is the change itself (every other kind keeps the old rule:
-the body only when there is neither a cause nor a quote). Every other
+the body only when there is neither a cause nor a quote).
+**The quick review (owner 2026-10-19)** goes one kind at a time inside the Inbox page, never a new window. Above the
+questions at full width (`InboxQuestionList`'s `header`), `InboxReviewEntriesRow` lists one text button per kind with
+something to review — "Fading pages · 49", then Folds, Conflicts and Questions with theirs (`ReviewEntries`, counts
+through `UsageFormat`) — and a click replaces the columns with `InboxReviewView`: the eyebrow says the place ("Inbox ·
+Fading pages · 3 of 49"), one card at a time (`ReviewCardView`, capped at the focus card's width), the same answers in
+the same place on every card (`ReviewCard.answers`): **Keep / Let fade** for decay (`keep`/`archive`, in that order
+whatever order the server sent), **Same / Different** for a fold (`0`/`1`, each described in the fold's two names), **A /
+B (/ C…) / Both** for a conflict (every side with the day it was said; Neither and Other… stay the full card's), a typed
+answer for a question (`NameAnswer` for a name, else `FreeTextSubmit`; "I'd rather not say" keeps its option). Sleep's
+proposal is marked Recommended and never pre-picked — ⏎ accepts nothing, and there is no "accept all": one decision per
+card. Context to decide without opening the page comes from `GET /inbox`'s `subject` / `fold` (`features.md`): a decay
+card says when the page was last said and in how many conversations, and its lead sentence; a fold card asks "Is
+“built with” the same as “uses”?", what it covers and an example; a conflict or question shows the quote and source line
+that raised it. Keys (`ReviewKeys`, DR-68's grammar, DR-60 — every path runs in `Instant.run`): 1–9 answer, S skips, O or
+⏎ moves into the answer field, ⌘Z (the Undo button's shortcut, never while the field has focus — R-DI4) takes back the
+last skip or the last answer while the Inbox still holds it, Esc leaves the field and then ends the review. An answer is
+the Inbox's own (`InboxViewModel.answer` → `Store.hold`, the 5 s send delay — nothing new writes); a skip writes nothing
+and the question stays. The queue (`InboxReview`) is the kind's reviewable questions frozen at the start in the Inbox's
+order; the card on screen is the first undecided one, so Undo puts a card back exactly where it was; a question settled
+elsewhere leaves the queue, and an answer the server refused comes back at the END of it — after the card being read,
+never in front of it (`reconcile`). Every answer and skip names the card it was drawn for (`reviewAnswer(itemId:)`): one
+for a card no longer on screen is a no-op, so a key or click never lands on a card that swapped in under it. The Inbox's
+own decay card has the same order (1 = Keep active, 2 = Archive, served fixed by `decay_question`; Recommended marks
+Archive, it no longer moves it first), so one key never means opposite things in the two views. A legacy decay with no options,
+a multi-valued conflict (G98) and the other kinds stay in the Inbox's full card ("Open in Inbox" on every card lands
+there too). A bank switch ends the review. Tests: `InboxReviewTests`. Every other
 page paragraph below describes what ships until that page's DS track lands.
 
 **Graphite and Meadow (Direction D, G137).** Working surfaces are graphite — `bgRail` · `bgBase` · `bgPane` · `bgHover`

@@ -58,7 +58,10 @@ final class InboxViewModel {
         columns.filter(kind, visibleAfter: InboxColumns.visible(items, filter: kind))
     }
     func reconcile() { columns.reconcile(visible: visible, kinds: Set(items.map(\.kind))) }
-    func resetColumns() { columns = InboxColumns() }
+    func resetColumns() {
+        columns = InboxColumns()
+        review = nil   // ids repeat across banks: a review never crosses a switch
+    }
 
     /// R-DI16 — the Sources page's own Undo row: a held removal for that browser channel, with its
     /// question (still in the snapshot; only `visibleInbox` hides it).
@@ -98,16 +101,18 @@ final class InboxViewModel {
 
     /// DR-42 — the one tap. The answer is held (`Store.hold`) and its question leaves every list at
     /// once; the POST waits for the Undo window (R-DI2). Nothing to await: there is no request yet.
-    func answer(_ item: InboxItem, _ resolution: QuestionResolution) {
+    @discardableResult
+    func answer(_ item: InboxItem, _ resolution: QuestionResolution) -> Bool {
         let words = UndoLabel.of(resolution, item: item, names: store.entityNames)
         let held = store.hold(InboxResolve(id: item.id, action: resolution.action, answer: resolution.answer,
                                 optionKey: resolution.optionKey, remindDays: resolution.remindDays,
                                 mergeTarget: resolution.mergeTarget, mergeSurvivor: resolution.mergeSurvivor),
                    label: words.full, shortLabel: words.short, question: item.questionText,
                    kind: item.kind, channel: item.channel)
-        guard held else { return }   // a bank switch is in flight: the question stays open (G183(d))
+        guard held else { return false }   // a bank switch is in flight: the question stays open (G183(d))
         // DR-29 — the next row opens at once (`visible` already leaves the held one out).
         columns.afterAnswer(item.id, remaining: visible)
+        return true
     }
 
     /// DR-42 — Undo: the held answer is dropped unsent. Returns the question so the page can reopen
@@ -118,5 +123,65 @@ final class InboxViewModel {
         guard let id = store.undoHeld(), let item = store.inbox.value?.first(where: { $0.id == id }) else { return nil }
         if reopen { columns.undo(item) }
         return item
+    }
+
+    // MARK: - The quick review (owner 2026-10-19)
+
+    /// One kind at a time, one card at a time. `nil` is the Inbox as it always was. Held here, not in the page, so a
+    /// page switch keeps the place; a bank switch ends it (`resetColumns`).
+    var review: InboxReview?
+
+    /// The entry points: "Fading pages · 49", one per kind with something to review.
+    var reviewEntries: [ReviewEntries.Entry] { ReviewEntries.of(items) }
+
+    /// The card on screen. `items` already hides a held answer, so the current card is never the one just answered.
+    var reviewItem: InboxItem? { review?.currentId.flatMap { id in items.first { $0.id == id } } }
+
+    func startReview(_ kind: ReviewKind) {
+        review = InboxReview(kind: kind, items: items)
+    }
+
+    func endReview() { review = nil }
+
+    /// The card's answer, through the Inbox's own hold (`answer` → `Store.hold`): the same resolver, the same Undo
+    /// window, the same send. Recorded only when the Store took it (a bank switch refuses it and the card stays).
+    ///
+    /// `itemId` is the card the key or the button was drawn for: an answer for any other card is ignored (review B1 —
+    /// the card on screen can change between the draw and the press, and an option's key is valid on both cards).
+    @discardableResult
+    func reviewAnswer(itemId: String, _ resolution: QuestionResolution) -> Bool {
+        guard let item = reviewItem, item.id == itemId, answer(item, resolution) else { return false }
+        review?.record(.answered(item.id))
+        return true
+    }
+
+    /// Skip writes nothing: the question stays in the Inbox, and the review moves on. Only the card drawn.
+    func reviewSkip(itemId: String) {
+        guard let id = review?.currentId, id == itemId else { return }
+        review?.record(.skipped(id))
+    }
+
+    var canUndoReview: Bool { review?.undoable(heldId: held?.id) != nil }
+
+    /// ⌘Z — the last skip, or the last answer while it is still held (the Inbox's Undo window): that card is on
+    /// screen again and nothing was sent.
+    func reviewUndo() {
+        guard let step = review?.undoable(heldId: held?.id) else { return }
+        if case .answered = step { undo(reopen: false) }
+        review?.undo(heldId: step.id)
+    }
+
+    /// What the review's undo line says: the held answer's words, or "Skipped".
+    var reviewLastStep: String? {
+        guard let step = review?.undoable(heldId: held?.id) else { return nil }
+        switch step {
+        case .answered: return held?.label
+        case .skipped: return Copy.Inbox.skipped
+        }
+    }
+
+    /// The Inbox moved under the review (a refresh, a rollback, Sleep settled one).
+    func reconcileReview() {
+        review?.reconcile(visible: Set(items.map(\.id)))
     }
 }

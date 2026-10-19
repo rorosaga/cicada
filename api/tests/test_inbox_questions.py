@@ -134,7 +134,7 @@ def test_resolve_request_accepts_option_key_and_remind_days():
 def test_decay_question_shape_and_age_first_descriptions():
     q = inbox_questions.decay_question("Alpha Project", "2026-02-18", "2026-08-30")
     assert q["question"] == "Still tracking Alpha Project?"
-    assert [o["key"] for o in q["options"]] == ["archive", "keep"]
+    assert [o["key"] for o in q["options"]] == ["keep", "archive"]   # fixed: 1 = Keep everywhere (2026-10-19)
     assert all(o["description"].startswith("Last mentioned 6 months ago") for o in q["options"])
     assert q["allow_defer"] is True and q["allow_other"] is False
     assert inbox_questions.validate_question(q["question"], q["options"], recommended_key="archive") == []
@@ -165,9 +165,9 @@ def test_decay_item_is_served_as_a_question_with_archive_recommended(tmp_path):
                                         "created_date": "2026-08-01"})
     [item] = inbox_service.load_inbox(tmp_path)
     assert item.question == "Still tracking Alpha Project?"
-    assert [o.key for o in item.options] == ["archive", "keep"]
-    assert item.recommended_key == "archive" and item.options[0].recommended is True
-    assert item.options[0].verdict == "agreed" and item.options[1].verdict == "overruled"
+    assert [o.key for o in item.options] == ["keep", "archive"]   # fixed order; the marker, not the place, proposes
+    assert item.recommended_key == "archive" and item.options[1].recommended is True
+    assert item.options[1].verdict == "agreed" and item.options[0].verdict == "overruled"
     assert item.allow_defer is True and item.extractor_confidence == 0.3
     # synthesised at read, never written back (R5)
     assert markdown_parser.parse(tmp_path / "inbox" / "inbox-010.md").frontmatter.get("options") in (None, [])

@@ -152,6 +152,7 @@ class InboxContext:
         self._claims: dict[str, list] = {}
         self._bodies: dict[str, str] = {}
         self._check_vocab = None
+        self._untimed: frozenset[str] | None = None
 
     # ---------- indices ----------
 
@@ -238,6 +239,15 @@ class InboxContext:
                     parsed = []
             self._claims[entity_id] = parsed
         return self._claims[entity_id]
+
+    def untimed(self) -> frozenset[str]:
+        """Episode ids that are no time signal (a memory export entry, a watched day), read once per context and only
+        when a card asks how many conversations its page was said in (the quick review, 2026-10-19)."""
+        if self._untimed is None:
+            from api.services import episode_time
+
+            self._untimed = episode_time.untimed_ids(self.memory_path)
+        return self._untimed
 
     def check_vocab(self):
         """G61 phase 2 S2: the predicate vocabulary ``source_check`` reads, built
