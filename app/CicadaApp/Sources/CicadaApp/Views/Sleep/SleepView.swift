@@ -480,7 +480,7 @@ struct SleepView: View {
     /// The tab row as the list's pinned header: on the page ground, so rows scrolling under it never show through.
     private func stickyTabRow(_ page: SleepPageModel, tab: SleepTab, gutter: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            SleepTabRow(tabs: tabRowTabs(page, roomShown: true), selected: tab, select: { selectTab($0) },
+            SleepTabRow(tabs: tabRowTabs(page), selected: tab, select: { selectTab($0) },
                         findOpen: $findOpen, onAdd: { openSheet(nil) })
             if findOpen && tab.hasFind {
                 PageFindRow(text: Binding(get: { feedVM.searchText }, set: { feedVM.searchText = $0 }),
@@ -646,14 +646,12 @@ struct SleepView: View {
                          exportWaiting: exportWaiting, videos: videoItems.count)
     }
 
-    /// `roomShown` — the room's headline is on screen above the tabs (nothing open): when it already says how many
-    /// wait ("23 to read."), the Waiting tab does not count them again (say it once, owner 2026-10-19).
-    private func tabRowTabs(_ page: SleepPageModel, roomShown: Bool = false) -> [TextTab<SleepTab>] {
-        let lead = roomShown ? roomSentence(page.roomContext(recentCycleCommit: room.recentCycleCommit)) : nil
-        return SleepTabRow.tabs(SleepTab.visible(waitingHasRows: waitingHasRows(page), saved: feedVM.items.count,
-                                                 exportWaiting: exportWaiting, videos: videoItems.count),
-                                waiting: waitingCount, saved: feedVM.items.count, videos: videoItems.count,
-                                roomLead: lead)
+    /// The Waiting tab keeps its count everywhere (review of #363): the tab row is pinned, so once the room scrolls
+    /// away it is the one place the waiting total is still on screen.
+    private func tabRowTabs(_ page: SleepPageModel) -> [TextTab<SleepTab>] {
+        SleepTabRow.tabs(SleepTab.visible(waitingHasRows: waitingHasRows(page), saved: feedVM.items.count,
+                                          exportWaiting: exportWaiting, videos: videoItems.count),
+                         waiting: waitingCount, saved: feedVM.items.count, videos: videoItems.count)
     }
 
     /// The detail column is open while the watch run is on, or while a saved item is open on a tab of saved items —

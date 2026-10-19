@@ -24,6 +24,7 @@ struct InboxFocusCard: View {
 
     @Environment(ProvenanceRouter.self) private var provenance: ProvenanceRouter?
     @Environment(Store.self) private var store
+    @Environment(InboxViewModel.self) private var inboxVM: InboxViewModel?
     @State private var selection: QuestionSelection
     @State private var otherText = ""
     @State private var showAllLines = false
@@ -269,6 +270,9 @@ struct InboxFocusCard: View {
                         InboxTextField(prompt: Copy.Inbox.otherPrompt, text: $otherText, isFocused: field == .other)
                             .focused($field, equals: .other)
                             .onSubmit(submitOther)
+                            // Say it once (review of #363) — a draft keeps its question open on a rail re-click.
+                            .onChange(of: otherText) { _, now in inboxVM?.noteDraft(item.id, now) }
+                            .onDisappear { inboxVM?.noteDraft(item.id, "") }
                         NeutralButton(title: Copy.Inbox.submit, keyHint: "⏎",
                                       isDisabled: otherText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                                       disabledHelp: Copy.Inbox.submitNeedsText, action: submitOther)

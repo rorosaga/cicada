@@ -44,22 +44,34 @@ final class SayItOnceTests: XCTestCase {
         var ran = 0
         router.popToRoot(reduceMotion: false) { ran += 1 }
         XCTAssertEqual(ran, 1, "the change runs once, whichever motion")
+        XCTAssertNil(AppRouter.rootMotion(byKey: true, reduceMotion: false), "the ⌘ key never animates (DR-60)")
+        XCTAssertNotNil(AppRouter.rootMotion(byKey: false, reduceMotion: false), "a click rides the columns' curve")
+        XCTAssertNil(AppRouter.rootMotion(byKey: false, reduceMotion: true), "Reduce Motion: no motion either")
     }
 
-    // MARK: Sleep — the queue is the room's headline
+    /// A half-typed answer keeps its question: the page's root is not worth a person's words (review of #363).
+    func testADraftKeepsTheOpenQuestionOnAReselect() throws {
+        let vm = InboxViewModel(store: Store(cache: SnapshotCache(root: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)), api: FakeSyncAPI()))
+        XCTAssertFalse(vm.hasDraft)
+        vm.noteDraft("inbox-001", "she moved to")
+        XCTAssertTrue(vm.hasDraft)
+        vm.noteDraft("inbox-001", "   ")
+        XCTAssertFalse(vm.hasDraft, "whitespace is no draft")
+        let page = try source("Views/Inbox/InboxPage.swift")
+        XCTAssertTrue(page.contains("guard !viewModel.hasDraft else { return }"), "the reselect leaves a draft's question open")
+        for path in ["Views/Inbox/InboxFocusCard.swift", "Views/Inbox/FocusCardVariants.swift",
+                     "Views/Inbox/InboxReviewView.swift"] {
+            XCTAssertTrue(try source(path).contains("noteDraft("), "\(path) reports its field's draft")
+        }
+    }
 
-    func testTheWaitingTabDropsItsCountWhileTheRoomSaysIt() {
-        let lead = SentenceLine(lead: "23 to read — overdue.", numeral: "23", qualifier: "overdue")
-        let tabs = SleepTabRow.tabs([.waiting, .saved, .pastReads], waiting: 23, saved: 7, videos: 0, roomLead: lead)
-        XCTAssertEqual(tabs.map(\.count), [nil, 7, nil])
-        let reading = SentenceLine(lead: "Reading 14 of 25.", numeral: "14 of 25")
-        XCTAssertEqual(SleepTabRow.tabs([.waiting], waiting: 23, saved: 0, videos: 0, roomLead: reading).first?.count, 23,
-                       "a run's progress is another number: the tab keeps its count")
-        XCTAssertEqual(SleepTabRow.tabs([.waiting], waiting: 1_200, saved: 0, videos: 0,
-                                        roomLead: SentenceLine(lead: "1,200 to read.", numeral: "1,200")).first?.count,
-                       nil, "a grouped numeral is the same count")
-        XCTAssertEqual(SleepTabRow.tabs([.waiting], waiting: 23, saved: 0, videos: 0).first?.count, 23,
-                       "no room on screen (an item open): the tab counts")
+    // MARK: Sleep — the pinned Waiting tab keeps the total
+
+    func testTheWaitingTabAlwaysCountsAndTheEyebrowDoesNot() {
+        let tabs = SleepTabRow.tabs([.waiting, .saved, .pastReads], waiting: 23, saved: 7, videos: 0)
+        XCTAssertEqual(tabs.map(\.count), [23, 7, nil], "pinned under the titlebar, the tab is where the total stays")
+        XCTAssertEqual(SleepEyebrow.text(waiting: 23, lastSleepAt: nil, now: .now), "Sleep")
     }
 
     // MARK: Past nights — the day once, what no row recorded once
@@ -93,6 +105,19 @@ final class SayItOnceTests: XCTestCase {
                        "one row says its own")
     }
 
+    /// A run's batch with usage beside bare cycles: the label never claims "not recorded", and the batch keeps its line
+    /// (ruling 12; review of #363).
+    func testARunsBatchUsageIsNeverHiddenUnderTheLabel() throws {
+        let batch = #"{"commitHash":"r1b1","date":"2026-10-19T14:00:00+00:00","message":"Sleep cycle","filesChanged":[],"#
+            + #""kind":"sleep","drainId":"run-1","batch":1,"batches":1,"usageSummary":{"costUsd":0.02},"#
+            + #""run":{"id":"run-1","batches":1,"startedAt":"2026-10-19T14:00:00+00:00","startedBy":"user"}}"#
+        let entries = try history([batch, row("b", "2026-10-18T12:00:00+00:00"), row("c", "2026-10-17T12:00:00+00:00")])
+        let layout = PastNightsLayout(entries)
+        XCTAssertTrue(layout.items.contains { if case .run = $0 { return true } else { return false } })
+        XCTAssertFalse(layout.usageSaidOnce, "one batch recorded usage: every row says its own")
+        XCTAssertEqual(layout.title, "Past nights · time not recorded")
+    }
+
     func testTheReadoutLeavesTheEngineToPastNightsUnlessItHasAReason() {
         let shown = readoutRows(entityCount: 74, sourceCount: 8, lastDurationMs: nil, lastEngine: "litellm",
                                 engineDetail: nil, engineShownBelow: true)
@@ -108,12 +133,40 @@ final class SayItOnceTests: XCTestCase {
 
     func testAQuestionThatNamesItsPageDoesNotPrintTheNameAgain() {
         XCTAssertTrue(InboxRowWords.repeats(name: "Beta Project", in: "Still tracking Beta Project?"))
-        XCTAssertTrue(InboxRowWords.repeats(name: "grace example", in: "I'm reading something different about Grace Example"))
+        XCTAssertTrue(InboxRowWords.repeats(name: "Grace Example", in: "I'm reading something different about Grace EXAMPLE"),
+                      "case-insensitive after the first letter")
+        XCTAssertTrue(InboxRowWords.repeats(name: "Tool Example A (CLI)", in: "Tool Example A (CLI)"), "literal characters")
+        XCTAssertTrue(InboxRowWords.repeats(name: "Jose Example", in: "Where does José Example work now?"), "diacritics")
         XCTAssertFalse(InboxRowWords.repeats(name: "Rover Arm Project", in: "How did the gripper calibration go?"))
         XCTAssertFalse(InboxRowWords.repeats(name: "", in: "Who is Sam?"))
     }
 
-    func testAReviewCardSaysTheDayOrItsAgeNeverBoth() {
+    /// Whole words only, and never part of a longer name (review of #363).
+    func testAPartOfAWordOrOfALongerNameIsNotTheName() {
+        XCTAssertFalse(InboxRowWords.repeats(name: "Al", in: "What does Alpha Project use now?"))
+        XCTAssertFalse(InboxRowWords.repeats(name: "Go", in: "How did it go?"))
+        XCTAssertFalse(InboxRowWords.repeats(name: "Rust", in: "Do you still trust the old cluster?"))
+        XCTAssertFalse(InboxRowWords.repeats(name: "Claude", in: "Which plan does Claude Code use?"))
+        XCTAssertFalse(InboxRowWords.repeats(name: "Code", in: "Which plan does Claude Code use?"))
+        XCTAssertFalse(InboxRowWords.repeats(name: "Tool Example A", in: "Tool Example A (CLI)"))
+        XCTAssertFalse(InboxRowWords.repeats(name: "Beta", in: "Still tracking beta-testers?"))
+        XCTAssertFalse(InboxRowWords.repeats(name: "C++", in: "Is C+ enough?"), "the name's characters are literal")
+    }
+
+    private func decayItem(lastSaid: String) throws -> InboxItem {
+        var item = try JSONDecoder().decode(InboxItem.self, from: Data(#"{"id":"inbox-d","kind":"decay","requiredInput":"choice","title":"Still tracking Beta Project?","priority":0.5,"createdDate":"2026-09-01","entityId":"beta-project"}"#.utf8))
+        item.subject = InboxSubject(conversations: 2, lastSaid: lastSaid)
+        return item
+    }
+
+    func testAReviewCardSaysTheDayOrItsAgeNeverBoth() throws {
+        let en = Locale(identifier: "en_US"), utc = TimeZone(identifier: "UTC")!
+        let now = try XCTUnwrap(InboxAge.date("2026-10-19"))
+        let recent = ReviewContext.lines(try decayItem(lastSaid: "2026-10-17"), now: now, locale: en, timeZone: utc)
+        XCTAssertEqual(recent.first, "Last said 2 days ago", "this week: the age alone, never the day beside it")
+        let older = ReviewContext.lines(try decayItem(lastSaid: "2026-03-02"), now: now, locale: en, timeZone: utc)
+        XCTAssertEqual(older.first?.hasPrefix("Last said "), true)
+        XCTAssertFalse(older.first?.contains("ago") ?? true, "older: the day alone")
         XCTAssertEqual(Copy.Inbox.Review.lastSaid(day: nil, age: "today"), "Last said today")
         XCTAssertEqual(Copy.People.knownSinceValue("Oct 18", days: 1), "Oct 18")
         XCTAssertEqual(Copy.People.knownSinceValue("Oct 1", days: 20), "Oct 1 · 2 weeks")

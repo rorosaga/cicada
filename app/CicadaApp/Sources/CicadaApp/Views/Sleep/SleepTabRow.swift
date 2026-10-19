@@ -43,27 +43,16 @@ struct SleepTabRow: View {
                    shortcut: KeyboardShortcut("n", modifiers: .command), action: onAdd)
     }
 
-    /// The tabs on screen with their counts; Past reads carries none (it is not a pile). Waiting carries none either
-    /// while the room's headline above it already says the same number (`roomLead`, say it once).
-    static func tabs(_ shown: [SleepTab], waiting: Int, saved: Int, videos: Int,
-                     roomLead: SentenceLine? = nil) -> [TextTab<SleepTab>] {
-        let waitingCount = leadSays(waiting, roomLead) ? nil : waiting
-        return shown.map { tab in
+    /// The tabs on screen with their counts; Past reads carries none (it is not a pile).
+    static func tabs(_ shown: [SleepTab], waiting: Int, saved: Int, videos: Int) -> [TextTab<SleepTab>] {
+        shown.map { tab in
             switch tab {
-            case .waiting: TextTab(id: tab, label: tab.label, count: waitingCount)
+            case .waiting: TextTab(id: tab, label: tab.label, count: waiting)
             case .saved: TextTab(id: tab, label: tab.label, count: saved)
             case .videos: TextTab(id: tab, label: tab.label, count: videos)
             case .pastReads: TextTab(id: tab, label: tab.label)
             }
         }
-    }
-}
-
-extension SleepTabRow {
-    /// Whether the room's lead names exactly this count as its numeral ("23 to read." — not "Reading 14 of 25.").
-    static func leadSays(_ waiting: Int, _ lead: SentenceLine?) -> Bool {
-        guard waiting > 0, let numeral = lead?.numeral else { return false }
-        return numeral.filter(\.isNumber) == String(waiting)
     }
 }
 

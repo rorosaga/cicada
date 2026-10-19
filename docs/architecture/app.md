@@ -834,7 +834,8 @@ the website's logo … Clicking again on Sources takes me back to the main Sourc
   and scrolls to its headline; Graph closes find, the legend, the Reader and the card; Clusters returns to All's cards
   with nothing open and find closed; Skills to Installed with nothing selected; Sleep leaves the watch run, closes the
   item, the Reader and find, lets its state choose the tab again and scrolls to the room; Inbox ends a review and
-  returns to All with nothing open; Projects as below; Looks closes the open look and clears its search
+  returns to All with nothing open — unless a field holds a half-typed answer (`InboxViewModel.drafts`, reported by
+  Other…, a free answer, a name and the review's field), when only the Reader closes; Projects as below; Looks closes the open look and clears its search
   (`SayItOnceTests`).
 - Kept from v2: the eyebrow ("Sources · n connected", "Sources · 2 of 9 · Saved by you"), "Add a source" and *Explore
   saved sites* in the eyebrow row, the contributor and conversation columns, the Reader as the third column, and every
@@ -944,7 +945,9 @@ detail; one that find (or Clusters' View menu) hides stays open. Keys follow DR-
 the page's find row. **Say it once (owner 2026-10-19):** the eyebrow is the page's name ("Clusters", "Inbox", "Sleep")
 plus find's match count, never a count or a position the tabs, the selected row or the card already say; Clusters'
 type cards and list headers drop the count their type's tab carries (a find's per-type count stays); an Inbox row,
-⌘K row or card header leaves out the page's name when the question already names it (`InboxRowWords`).
+⌘K row or card header leaves out the page's name when the question already names it (`InboxRowWords`: the whole
+name on word boundaries, literal characters, diacritic-insensitive and case-insensitive after the first letter, never
+the start or end of a longer name — "Claude" is not named by "Claude Code"; in doubt the name shows).
 - **Clusters has one filter:** a View menu with the Graph's own types (`graphVM.filter.types`), labels, and a
   remembered *Expand all*. Its tabs are navigation: All plus each present type, by plural name. With nothing open it
   is mock A's icon-led cards (F-11, G146): People · Projects · Companies · Tools · Concepts · Media two to a row, the
@@ -1137,8 +1140,8 @@ Glass, so the composer's action row (`LooksComposerActions`, Save the one primar
 sprite sheets; to watch every animation, open `app/CicadaApp/Art/sprites/bookworm-2026-10-01/preview.html` in a browser
 (*The sprite art and its preview*, below). **A room-over-list page (DESIGN_RULES §5.2, owner approval 2026-10-16):** one
 scroll — no title (the "Sleep Cycle" `PageTitle` retired; the page opens on an eyebrow, "Sleep · last read
-2 h ago", `SleepEyebrow` — what waits is the room's headline ("23 to read."), so neither the eyebrow nor the Waiting
-tab counts it again while that headline is on screen (`SleepTabRow.leadSays`, say it once 2026-10-19) — with the staleness chip at its right, R-A12); then the room **out of its card**, on the page
+2 h ago", `SleepEyebrow` — what waits is the room's headline ("23 to read.") and the Waiting tab's count, so the eyebrow
+no longer counts it a third time (say it once, 2026-10-19; the pinned tab keeps the total once the room scrolls away) — with the staleness chip at its right, R-A12); then the room **out of its card**, on the page
 ground, drawn at a whole 5, 4 or 3 pt per lattice cell by the width the art may take (`SleepLayout.artScale`: 5 from
 880, 4 from 720, else 3 — 2 only under ⌘+ zoom with the Reader open; `StudyRoom(cell:)`), its floor fading into the
 page over its bottom five cells (`RoomFloorFade`, a mask on the art layer only, never the pile). **The painted room is
@@ -1174,8 +1177,9 @@ Past reads otherwise (`SleepTab.resolve`), and a tab switch is instant and close
 cycle · Readout · Past nights in D's list grammar — section labels over rows, no cards; Last cycle's rows in words,
 "Rested" as a sentence, the readout as key–value rows, a past read opening in place under its row with its Models, tokens
 and cost (ruling 12). Said once (2026-10-19): a Past nights row prints its day only when it is the first of that day;
-when no row recorded usage or a time the section's label says so once ("Past nights · usage and time not recorded",
-`PastNightsLayout`) instead of every row; the readout's *Last engine* row steps aside while the newest Past nights row
+when no row — a run's batches included — recorded usage or a time the section's label says so once ("Past nights ·
+usage and time not recorded", `PastNightsLayout`) instead of every row; a run's row names its engine in words beside
+its mark; the readout's *Last engine* row steps aside while the newest Past nights row
 names the same engine and the backend gave no reason to add. A tail link, a spine or a Home hand-off names an old Details section (`DetailsSection`), and the
 page selects the tab holding it (`SleepTab.holding`) and brings the tab row to the top in one frame. Opening a saved item
 (or the watch run) turns the page into progressive columns: the tab row rides the eyebrow, the list is the triage

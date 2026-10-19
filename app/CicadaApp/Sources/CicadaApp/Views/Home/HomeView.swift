@@ -133,8 +133,9 @@ struct HomeView: View {
     private func popToRoot() {
         guard let router else { return }
         router.popToRoot(reduceMotion: reduceMotion) {
-            search.model.setQuery("")
+            // Mode first: leaving Ask puts its question back in the field (`setMode`), so the clear comes after.
             search.model.setMode(.find)
+            search.model.setQuery("")
             seeHow = nil
         }
         toTop &+= 1

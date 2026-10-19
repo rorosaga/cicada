@@ -48,11 +48,16 @@ final class AppRouter {
     /// for the ⌘ shortcut (DR-60), on the columns' curve for a click (DR-61). Every page calls it from
     /// `onRailReselect`, so no page decides the motion on its own.
     func popToRoot(reduceMotion: Bool, _ change: () -> Void) {
-        if lastReselectByKey {
-            Instant.run(change)
+        if let motion = Self.rootMotion(byKey: lastReselectByKey, reduceMotion: reduceMotion) {
+            withAnimation(motion, change)
         } else {
-            withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion), change)
+            Instant.run(change)
         }
+    }
+
+    /// The motion a return to the root takes: none for the ⌘ key (DR-60), the columns' curve for a click (DR-61).
+    static func rootMotion(byKey: Bool, reduceMotion: Bool) -> Animation? {
+        byKey ? nil : CicadaMotion.columns(reduceMotion: reduceMotion)
     }
 
     /// Sets both fields together — a `pendingAddSource` with no matching

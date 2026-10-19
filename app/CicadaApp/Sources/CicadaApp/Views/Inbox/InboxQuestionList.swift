@@ -305,16 +305,50 @@ struct InboxUndoRow: View {
 }
 
 /// Say it once (owner 2026-10-19) — whether a question's own words already name the page it is about, so a row (or a
-/// ⌘K row) does not print that name a second time beside it. Case- and diacritic-insensitive; a name the question
-/// does not contain is still shown.
+/// ⌘K row, or the card's header) does not print that name a second time beside it. Review of #363: the WHOLE name as
+/// whole words, diacritic-insensitive and case-insensitive after its first letter, its characters matched literally —
+/// "Al" is not in "Alpha", "Go" not in "go?", "Rust" not in "trust" — and not as the start or end of a longer name:
+/// "Claude" is not named by "Claude Code" (a capitalised word or a number right beside it continues the name). When in
+/// doubt the name shows.
 enum InboxRowWords {
     static func namesItsPage(_ item: InboxItem) -> Bool {
         repeats(name: item.displayName, in: item.questionText)
     }
 
     static func repeats(name: String, in text: String) -> Bool {
-        let name = name.trimmingCharacters(in: .whitespaces)
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return false }
-        return text.range(of: name, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        let pattern = "(?<![\\p{L}\\p{N}_\\-])" + NSRegularExpression.escapedPattern(for: name)
+            + "(?![\\p{L}\\p{N}_\\-])"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return false }
+        let ns = text as NSString
+        for match in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            // A capitalised name is never named by a lowercase word: "Go" is not in "How did it go?".
+            guard ns.substring(with: match.range).first == name.first else { continue }
+            let before = ns.substring(to: match.range.location)
+            let after = ns.substring(from: match.range.location + match.range.length)
+            if !continuesAName(word: lastWord(before)), !continuesAName(word: firstWord(after)) { return true }
+        }
+        // Diacritics: "Jose" names "José" — fold both once (folding is idempotent, so this recurses at most once).
+        let fold: (String) -> String = { $0.folding(options: [.diacriticInsensitive], locale: nil) }
+        let (n, t) = (fold(name), fold(text))
+        if n != name || t != text { return repeats(name: n, in: t) }
+        return false
+    }
+
+    /// The word right beside the match, across one space only: punctuation or a line between ends the name.
+    private static func lastWord(_ s: String) -> String? {
+        guard s.hasSuffix(" ") else { return nil }
+        return s.dropLast().split(separator: " ").last.map(String.init)
+    }
+
+    private static func firstWord(_ s: String) -> String? {
+        guard s.hasPrefix(" ") else { return nil }
+        return s.dropFirst().split(separator: " ").first.map(String.init)
+    }
+
+    private static func continuesAName(word: String?) -> Bool {
+        guard let first = word?.first else { return false }
+        return first.isUppercase || first.isNumber || first == "("
     }
 }

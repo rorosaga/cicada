@@ -68,10 +68,16 @@ struct InboxReviewView: View {
             end()
             return .handled
         }
-        .onChange(of: viewModel.review?.currentId) { _, _ in
+        .onChange(of: viewModel.review?.currentId) { old, _ in
+            if let old { viewModel.noteDraft(old, "") }
             text = ""
             settleFocus()
         }
+        // Say it once (review of #363) — a half-typed answer keeps the review up when Inbox is clicked again.
+        .onChange(of: text) { _, now in
+            if let id = viewModel.review?.currentId { viewModel.noteDraft(id, now) }
+        }
+        .onDisappear { if let id = viewModel.review?.currentId { viewModel.noteDraft(id, "") } }
         .onAppear { settleFocus() }
     }
 

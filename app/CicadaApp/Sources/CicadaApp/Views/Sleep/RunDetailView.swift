@@ -132,8 +132,20 @@ struct PastRunRow: View {
                     }
                 }
                 Spacer(minLength: CicadaTheme.spacingSM)
-                if let engine = newest.engine {
-                    EngineMark(engine: engine, size: CicadaTheme.scaled(12))
+                // The engine in words beside its mark, as a cycle row says it (review of #363): the readout leaves its
+                // engine row to Past nights' newest row, which may be this one.
+                if let pill = SleepHistoryPresentation.enginePill(newest) {
+                    HStack(spacing: CicadaTheme.scaled(4)) {
+                        if let engine = newest.engine {
+                            EngineMark(engine: engine, size: CicadaTheme.scaled(12))
+                        }
+                        Text(pill)
+                            .font(CicadaTheme.metaFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .frame(maxWidth: CicadaTheme.scaled(250), alignment: .trailing)
                 }
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                     .font(CicadaTheme.icon(.inline))

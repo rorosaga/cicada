@@ -515,11 +515,10 @@ struct PastNightsLayout {
             lastDay = day
         }
         datedIds = dated
-        // Only rows that draw the lines: plain cycles (a run's row draws its own numbers).
-        let cycles = items.compactMap { item -> SleepHistoryEntry? in
-            if case .cycle(let entry) = item, entry.kind == "sleep" { return entry }
-            return nil
-        }
+        // Over EVERY cycle row the section can draw — a run's batches included, which draw these lines when the run is
+        // open (review of #363): one batch with usage means each row says its own, so no row's figure is ever hidden
+        // under a label that says it was not recorded (ruling 12).
+        let cycles = entries.filter { $0.kind == "sleep" }
         usageSaidOnce = cycles.count > 1 && cycles.allSatisfy { $0.usageSummary == nil }
         durationSaidOnce = cycles.count > 1 && cycles.allSatisfy { $0.durationMs == nil }
     }

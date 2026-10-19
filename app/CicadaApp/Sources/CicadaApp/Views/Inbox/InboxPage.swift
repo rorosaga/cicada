@@ -157,15 +157,17 @@ struct InboxPage: View {
         DispatchQueue.main.async { focus = .question }
     }
 
-    /// The root is the whole list under All: a review ends, the Reader and the open question close.
+    /// The root is the whole list under All: a review ends, the Reader and the open question close. A half-typed
+    /// answer keeps its question (or its review) where it is — only the Reader closes — so a click never drops it.
     private func popToRoot() {
         router.popToRoot(reduceMotion: reduceMotion) {
-            if viewModel.review != nil { viewModel.endReview() }
             provenance.close()
+            guard !viewModel.hasDraft else { return }
+            if viewModel.review != nil { viewModel.endReview() }
             viewModel.columns.close()
             viewModel.setFilter(nil)
         }
-        arrive()
+        if !viewModel.hasDraft { arrive() }
     }
 
     // MARK: - Paths (R-DI10: a pointer path may animate, a keyboard path never does — DR-60)

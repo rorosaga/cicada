@@ -59,6 +59,7 @@ struct FreeTextBody: View {
     let onAnswer: (QuestionResolution) -> Void
 
     @State private var text = ""
+    @Environment(InboxViewModel.self) private var inboxVM: InboxViewModel?
 
     private var isEmpty: Bool { text.trimmed.isEmpty }
 
@@ -68,6 +69,8 @@ struct FreeTextBody: View {
                 InboxTextField(prompt: Copy.Inbox.answerPrompt, text: $text, isFocused: field.wrappedValue == .answer)
                     .focused(field, equals: .answer)
                     .onSubmit(submit)
+                    .onChange(of: text) { _, now in inboxVM?.noteDraft(item.id, now) }
+                    .onDisappear { inboxVM?.noteDraft(item.id, "") }
                 NeutralButton(title: Copy.Inbox.submit, keyHint: "⏎", isDisabled: isEmpty,
                               disabledHelp: Copy.Inbox.answerNeedsText, action: submit)
             }
@@ -97,6 +100,7 @@ struct NameBody: View {
     let onAnswer: (QuestionResolution) -> Void
 
     @State private var text = ""
+    @Environment(InboxViewModel.self) private var inboxVM: InboxViewModel?
 
     private var isEmpty: Bool { text.trimmed.isEmpty }
 
@@ -106,6 +110,8 @@ struct NameBody: View {
                 InboxTextField(prompt: Copy.Inbox.namePrompt, text: $text, isFocused: field.wrappedValue == .answer)
                     .focused(field, equals: .answer)
                     .onSubmit(submit)
+                    .onChange(of: text) { _, now in inboxVM?.noteDraft(item.id, now) }
+                    .onDisappear { inboxVM?.noteDraft(item.id, "") }
                 NeutralButton(title: Copy.Inbox.submit, keyHint: "⏎", isDisabled: isEmpty,
                               disabledHelp: Copy.Inbox.nameNeedsText, action: submit)
             }
