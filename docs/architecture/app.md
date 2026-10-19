@@ -1387,7 +1387,13 @@ pt, an opaque `bgMenu` floating surface over the panel scrim — that appears an
 answers every keystroke with no network; ~150 ms later `GET /search` (prefix, then hybrid) appends
 conversations, beliefs (superseded ones as history), backlog items (G150; the server tier only) and whatever
 the local tier missed — a shown row
-never moves. Ask is a mode (⌘⏎) hosting the unchanged `AskPanel` body. One ranker, `QuickMatch`,
+never moves. Ask is a mode (⌘⏎) hosting the `AskPanel` body — the one place the app draws an Ask answer (the palette
+and Home's field both host it). Under the page sources (chips, then each page's evidence chips) it lists **From
+conversations**: `POST /ask` `conversations` (2026-10-19), the conversations the answer used that no page cites. A row
+is a conversation glyph, the title ("A conversation" without one) and the day; the episode id only in `.help` (DR-54,
+DR-48, DR-34); a click opens it in the Reader from the top (`AskConversationRow.primary`, the target a Sleep page row
+opens; DR-31) and the palette steps aside as for an evidence chip. An older backend sends no field and nothing is
+drawn; an answer kept in Ask history keeps its rows. One ranker, `QuickMatch`,
 folds text exactly like the server's `text_fold`; every in-page field is `CicadaSearchField`.
 Recents are `(kind, id)` pairs in the cache-only `.quickRecents` domain; the query is never stored,
 logged or sent anywhere but `/search` and `/conversations/recent?q=`. `FindPanelBody` is the hostable

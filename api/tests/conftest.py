@@ -25,6 +25,29 @@ import sys
 
 import pytest
 
+# The suite never writes under the real home, whatever the caller's environment (follow-ups 2026-10-19). Machine-local
+# state — `$CICADA_HOME/sleep/<bank>/admission.lock` (write admission, G183), the catch-up stamps, the hook hints — is
+# resolved when it is written, and the per-test `CICADA_HOME` below only covers a test's own body: a module-scoped
+# fixture (set up before any function fixture), a thread or job that outlives its test's monkeypatch, a test that
+# deletes `CICADA_HOME` to exercise the `~/.cicada` default, and a subprocess that inherits the environment all
+# resolved the caller's real `~/.cicada` — hundreds of `sleep/memory-<hash>/admission.lock` directories, one per tmp
+# bank named `memory`. So before anything is imported, the whole process (and every child it spawns) gets its own
+# `HOME` and `CICADA_HOME` under one session tmp dir; the per-test default still gives each test its own on top.
+# `test_suite_home_isolation.py` holds it.
+import atexit as _atexit
+import pwd as _pwd
+import shutil as _shutil
+import tempfile as _tempfile
+
+_SUITE_ROOT = Path(_tempfile.mkdtemp(prefix="cicada-suite-")).resolve()
+os.environ["CICADA_SUITE_CALLER_HOMES"] = os.pathsep.join(
+    dict.fromkeys(p for p in (os.environ.get("HOME"), _pwd.getpwuid(os.getuid()).pw_dir) if p))
+(_SUITE_ROOT / "home").mkdir()
+os.environ["CICADA_SUITE_ROOT"] = str(_SUITE_ROOT)
+os.environ["HOME"] = str(_SUITE_ROOT / "home")
+os.environ["CICADA_HOME"] = str(_SUITE_ROOT / "home" / ".cicada")
+_atexit.register(_shutil.rmtree, _SUITE_ROOT, ignore_errors=True)
+
 # A developer checkout's settings file (`api/.env`, `api/settings_file.py`) never reaches the suite: off before any
 # module builds `Settings` or imports the backend's entry. A test that wants it turns it back on for itself.
 from api import settings_file as _settings_file

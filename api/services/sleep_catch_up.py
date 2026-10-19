@@ -220,8 +220,9 @@ async def probe(settings) -> None:
     """The catch-up job (see the module docstring). Never stacks, never reads over a pause, never flips ruling 4.
 
     The schedule is the ACTIVE bank's own (`load_schedule`), read at every probe — never the one the job was
-    registered with: a bank switch does not re-register jobs, and a bank set to ``manual`` (or ``after_import``,
-    which has no due times) must never be caught up on another bank's 03:00. A demo bank is never read on a schedule
+    registered with: a bank switch re-registers the jobs from the new bank's schedule
+    (``sleep_scheduler.follow_active_bank``), but a probe still in flight, or a switch that came by another path, must
+    never catch a bank set to ``manual`` (or ``after_import``, which has no due times) up on another bank's 03:00. A demo bank is never read on a schedule
     (`demo_guard`)."""
     from api.services import bank_registry, demo_guard, sleep_cycle, sleep_debt, sleep_scheduler
 

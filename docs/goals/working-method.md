@@ -53,6 +53,12 @@ list is what a reviewer checks:
   of the ±window about a month after they were written. They are built relative to today now, which is
   what a window test actually means. Use `_soon(days)`; pin a date only where the window boundary
   itself is under test (those pass their own `now` to `parse_ics`).
+- **The suite wrote into the developer's real `~/.cicada` (2026-10-19).** The per-test `CICADA_HOME` covered only
+  a test's own body: a `monkeypatch.undo()` mid-test (nine files), a module-scoped fixture, a thread outliving its
+  test or a hook subprocess fell back to `~/.cicada` — write-admission locks (`sleep/<bank>-<hash>/admission.lock`),
+  hook hints, the image cache, telemetry. `conftest.py` now pins `HOME` and `CICADA_HOME` for the whole process to a
+  session tmp dir before anything is imported; `test_suite_home_isolation.py` holds it. A scratch HOME on the command
+  line is still good practice, no longer the only guard.
 
 Do not trust a remembered count. Compare the same command on a clean baseline in an isolated checkout when attribution is needed; preserve shared staged/unstaged work.
 
