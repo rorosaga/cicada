@@ -39,6 +39,13 @@ struct ProjectSummary: Equatable {
         }
     }
 
+    /// The Plan section's folded words: nothing when the summary's *Where it stands* already says the plan (its
+    /// count, or "no plan yet" while in motion or quiet); "No plan yet" only for a resting project, whose summary
+    /// does not.
+    static func planMeta(_ state: ProjectState.Output) -> String {
+        state.planned || state.section != .resting ? "" : Copy.Projects.noPlanYet
+    }
+
     /// The newest happening: "Yesterday · Bob got the arm to pick a part".
     static func last(_ item: ProjectItem, today: ISODay, locale: Locale = .autoupdatingCurrent) -> Line {
         let text = ISODay(item.day).map { Eyebrow.text(RelativeDay.phrase($0, today: today, locale: locale), item.text) }
@@ -51,11 +58,15 @@ struct ProjectSummary: Equatable {
     static func next(_ t: ProjectTimeline, state: ProjectState.Output, skipping lastId: String?, today: ISODay,
                      locale: Locale = .autoupdatingCurrent) -> Line? {
         if let slug = state.next, let m = t.milestones.first(where: { $0.slug == slug }) {
-            guard let target = ISODay(m.target) else { return Line(text: m.name, key: .milestone(slug)) }
+            // A milestone named after its own project says only its day (owner: avoid repetition).
+            let name = ProjectsModel.milestoneName(m.name, project: t.project.name) ?? ""
+            guard let target = ISODay(m.target) else {
+                return Line(text: name.isEmpty ? Copy.Projects.someday : name, key: .milestone(slug))
+            }
             let day = RelativeDay.absolute(target, today: today, locale: locale)
             let when = target < today ? Copy.Projects.overdueSinceLower(day)
                 : Copy.Projects.dayAndDistance(day, RelativeDay.distance(target, today: today))
-            return Line(text: Eyebrow.text(m.name, when), key: .milestone(slug))
+            return Line(text: Eyebrow.text(name, when), key: .milestone(slug))
         }
         let live = ProjectStory.nowThreads(t, state: state)
             .first { !state.isQuiet($0.claimId) && $0.claimId != lastId }

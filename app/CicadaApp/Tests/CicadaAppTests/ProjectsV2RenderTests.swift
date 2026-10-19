@@ -63,9 +63,7 @@ final class ProjectsV2RenderTests: XCTestCase {
 
             // STATE 0 — Current: in motion, one parent unfolded, Fading folded.
             let current = ProjectsModel.entries(rows, tab: .current, query: "", today: today, options: options)
-            let shown = current.compactMap(\.line).count
-            let root = page(eyebrow: ProjectsModel.eyebrow(tab: .current, count: 9, position: nil, visible: shown,
-                                                           partial: false),
+            let root = page(eyebrow: ProjectsModel.eyebrow(partial: false),
                             tab: .current, rows: rows) {
                 list(current, tab: .current, style: .wide, openId: nil)
             }
@@ -74,9 +72,7 @@ final class ProjectsV2RenderTests: XCTestCase {
 
             // Past: searchable, under year labels, a page at a time.
             let past = ProjectsModel.entries(rows, tab: .past, query: "", today: today)
-            let pastShown = past.compactMap(\.line).count
-            let pastPage = page(eyebrow: ProjectsModel.eyebrow(tab: .past, count: 129, position: nil, visible: pastShown,
-                                                               partial: false),
+            let pastPage = page(eyebrow: ProjectsModel.eyebrow(partial: false),
                                 tab: .past, rows: rows) {
                 list(past, tab: .past, style: .wide, openId: nil)
             }
@@ -85,8 +81,7 @@ final class ProjectsV2RenderTests: XCTestCase {
 
             // STATE 1 — a project open: the list narrows, the detail answers first and folds the rest.
             let rover = try XCTUnwrap(rows.first { $0.id == "rover-arm-project" })
-            let detail = page(eyebrow: ProjectsModel.eyebrow(tab: .current, count: 9, position: 1, visible: shown,
-                                                             partial: false),
+            let detail = page(eyebrow: ProjectsModel.eyebrow(partial: false),
                               tab: .current, rows: rows) {
                 HStack(alignment: .top, spacing: 0) {
                     list(current, tab: .current, style: .triage, openId: "rover-arm-project")
@@ -107,7 +102,7 @@ final class ProjectsV2RenderTests: XCTestCase {
                                      @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             EyebrowRow(eyebrow: eyebrow) {
-                AdaptiveTextTabs(tabs: ProjectsModel.tabs(rows, today: self.today), selection: .constant(tab),
+                AdaptiveTextTabs(tabs: ProjectsModel.tabs(ProjectsModel.counts(rows, today: self.today)), selection: .constant(tab),
                                  menuTitle: Copy.Projects.tabMenu)
             }
             content()

@@ -23,11 +23,11 @@ final class ProjectsListTests: XCTestCase {
 
     func testTwoTabsCurrentAndPast() throws {
         let rows = try rows()
-        let tabs = ProjectsModel.tabs(rows, today: today)
+        let tabs = ProjectsModel.tabs(ProjectsModel.counts(rows, today: today))
         XCTAssertEqual(tabs.map(\.label), ["Current", "Past"])
         XCTAssertEqual(tabs.map(\.count), [6, 9], "nine demo projects were never heard from: they are past")
-        XCTAssertEqual(ProjectsModel.defaultTab(rows, today: today), .current)
-        XCTAssertEqual(ProjectsModel.defaultTab(rows, today: today.adding(400)), .past,
+        XCTAssertEqual(ProjectsModel.defaultTab(ProjectsModel.counts(rows, today: today)), .current)
+        XCTAssertEqual(ProjectsModel.defaultTab(ProjectsModel.counts(rows, today: today.adding(400))), .past,
                        "nothing current: the page opens on Past")
         XCTAssertEqual(ProjectsGroup(.inMotion), .current)
         XCTAssertEqual(ProjectsGroup(.quiet).tab, .current, "fading sits under Current")
@@ -126,10 +126,12 @@ final class ProjectsListTests: XCTestCase {
         XCTAssertEqual(ProjectsModel.accessibilityLabel(garden, today: today), "Garden Sensor Project, Heard 9 days ago")
 
         let past = ProjectsModel.entries(try rows(), tab: .past, query: "", today: today).compactMap(\.line)
-        XCTAssertEqual(ProjectsModel.standing(try XCTUnwrap(past.first), today: today, locale: us), "Nothing heard yet")
+        XCTAssertEqual(ProjectsModel.standing(try XCTUnwrap(past.first), today: today, locale: us), "",
+                       "under the Nothing heard yet label a row says nothing more")
         let old = try pastRows(1, from: ISODay(year: 2025, month: 3, day: 3))
         let oldLine = try XCTUnwrap(ProjectsModel.entries(old, tab: .past, query: "", today: today).compactMap(\.line).first)
-        XCTAssertEqual(ProjectsModel.standing(oldLine, today: today, locale: us), "Last heard Mar 3, 2025")
+        XCTAssertEqual(ProjectsModel.standing(oldLine, today: today, locale: us), "Mar 3",
+                       "the date alone: its year is the label above it")
         // Overdue says so in words, never red (DR-7).
         let late = ProjectLine(row: rover.row, state: ProjectsModel.state(rover.row, today: today.adding(10)), depth: 0)
         XCTAssertEqual(ProjectsModel.standing(late, today: today.adding(10), locale: us),
@@ -151,13 +153,48 @@ final class ProjectsListTests: XCTestCase {
         XCTAssertNil(ProjectsModel.reveal("past-10", rows: past, today: today, pastLimit: 50)?.pastLimit)
     }
 
+    /// The tabs carry the counts and the detail says where the open project stands: the eyebrow repeats neither.
     func testTheEyebrowSaysWhereYouAre() {
-        XCTAssertEqual(ProjectsModel.eyebrow(tab: .current, count: 6, position: nil, visible: 4, partial: false),
-                       "Projects · 6 current")
-        XCTAssertEqual(ProjectsModel.eyebrow(tab: .past, count: 481, position: nil, visible: 50, partial: false),
-                       "Projects · 481 past")
-        XCTAssertEqual(ProjectsModel.eyebrow(tab: .current, count: 6, position: 1, visible: 4, partial: true),
-                       "Projects · 1 of 4 · still indexing", "where the open project stands is the detail's, said once")
+        XCTAssertEqual(ProjectsModel.eyebrow(partial: false), "Projects")
+        XCTAssertEqual(ProjectsModel.eyebrow(partial: true), "Projects · still indexing")
+    }
+
+    /// DR-68 — every project is reachable by keyboard: ↓ past Current opens Fading, ↓ past Past's page draws the next,
+    /// → / ← unfold and fold a parent's parts, ← on a part goes to its parent.
+    func testEveryProjectIsReachableByKeyboard() throws {
+        let rows = try rows()
+        let later = today.adding(30)
+        let current = ProjectsModel.entries(rows, tab: .current, query: "", today: later).compactMap(\.line)
+        let lastCurrent = try XCTUnwrap(current.last?.id)
+        let down = ProjectsModel.step(1, openId: lastCurrent, rows: rows, tab: .current, query: "", today: later,
+                                      options: ProjectsListOptions())
+        XCTAssertTrue(down.options.fadingOpen, "↓ past the last current row opens Fading")
+        let landed = try XCTUnwrap(rows.first { $0.id == down.open })
+        XCTAssertEqual(ProjectsModel.group(landed, today: later), .fading, "and lands on its first row")
+        XCTAssertEqual(ProjectsModel.step(-1, openId: lastCurrent, rows: rows, tab: .current, query: "", today: later,
+                                          options: ProjectsListOptions()).options.fadingOpen, false)
+        XCTAssertEqual(ProjectsModel.step(1, openId: nil, rows: rows, tab: .current, query: "", today: today,
+                                          options: ProjectsListOptions()).open, "rover-arm-project")
+
+        let past = try pastRows(120, from: ISODay(year: 2026, month: 3, day: 1))
+        let paged = ProjectsModel.step(1, openId: "past-49", rows: past, tab: .past, query: "", today: today,
+                                       options: ProjectsListOptions())
+        XCTAssertEqual(paged.options.pastLimit, 100, "↓ on the 50th row draws the next page")
+        XCTAssertEqual(paged.open, "past-50")
+        let end = ProjectsModel.step(1, openId: "past-119", rows: past, tab: .past, query: "", today: today,
+                                     options: ProjectsListOptions(pastLimit: 150))
+        XCTAssertEqual(end.open, "past-119", "the last project stays put")
+
+        let lines = ProjectsModel.entries(rows, tab: .current, query: "", today: today,
+                                          options: ProjectsListOptions(expanded: ["rover-arm-project"])).compactMap(\.line)
+        let rover = try XCTUnwrap(lines.first { $0.id == "rover-arm-project" })
+        let pick = try XCTUnwrap(lines.first { $0.id == "pick-and-place-demo" })
+        let folded = ProjectLine(row: rover.row, state: rover.state, depth: 0, children: 1, expanded: false)
+        XCTAssertEqual(ProjectsModel.side(1, line: folded), .expand(true))
+        XCTAssertEqual(ProjectsModel.side(1, line: rover), .none)
+        XCTAssertEqual(ProjectsModel.side(-1, line: rover), .expand(false))
+        XCTAssertEqual(ProjectsModel.side(-1, line: pick), .open("rover-arm-project"))
+        XCTAssertEqual(ProjectsModel.side(-1, line: nil), .none)
     }
 
     /// What it is, where it stands, what happened last, what's next — once each.
@@ -182,6 +219,38 @@ final class ProjectsListTests: XCTestCase {
         XCTAssertEqual(g.stands, "In motion · no plan yet")
         XCTAssertEqual(g.last?.text, "Sep 14 · Garden Sensor Project uses Tool Example G")
         XCTAssertNil(g.next, "no plan and nothing going: the page says Nothing planned and offers Add a milestone")
+
+        // Across the screen, each fact once. The Plan section's folded words never restate the summary's plan.
+        XCTAssertEqual(ProjectSummary.planMeta(state), "", "Where it stands already says 1 of 4 milestones done")
+        XCTAssertEqual(ProjectSummary.planMeta(ProjectState.state(ProjectState.Input(garden), today: today)), "",
+                       "Where it stands already says no plan yet")
+        XCTAssertEqual(ProjectSummary.planMeta(ProjectState.state(ProjectState.Input(garden), today: today.adding(400))),
+                       "No plan yet", "a resting project's summary does not say it, so the section does")
+        // A milestone named after its own project says only its day — in the row and in the detail.
+        let pick = try ProjectFixtures.timeline("pick-and-place-demo")
+        let p = ProjectSummary.make(pick, state: ProjectState.state(ProjectState.Input(pick), today: today), today: today,
+                                    locale: us)
+        XCTAssertEqual(p.next?.text, "Oct 5 (in 12 days)")
+        let late = today.adding(20)
+        XCTAssertEqual(ProjectSummary.make(pick, state: ProjectState.state(ProjectState.Input(pick), today: late),
+                                           today: late, locale: us).next?.text, "overdue since Oct 5")
+        let pickRow = try ProjectFixtures.row("pick-and-place-demo")
+        XCTAssertEqual(ProjectsModel.standing(ProjectLine(row: pickRow, state: ProjectsModel.state(pickRow, today: today),
+                                                          depth: 1), today: today, locale: us), "Next · Oct 5")
+        XCTAssertEqual(ProjectsModel.standing(ProjectLine(row: pickRow, state: ProjectsModel.state(pickRow, today: late),
+                                                          depth: 1), today: late, locale: us),
+                       "Next · overdue since Oct 5")
+        XCTAssertNil(ProjectsModel.milestoneName("pick and place demo ", project: "Pick And Place Demo"))
+        XCTAssertEqual(ProjectsModel.milestoneName("First grasp", project: "Rover Arm Project"), "First grasp")
+        // The open row beside its detail is only its name; the others say where they stand; at rest, what they are.
+        let roverRow = try ProjectFixtures.row("rover-arm-project")
+        let roverLine = ProjectLine(row: roverRow, state: ProjectsModel.state(roverRow, today: today), depth: 0)
+        XCTAssertNil(ProjectsModel.secondLine(roverLine, style: .triage, selected: true, today: today, locale: us))
+        XCTAssertEqual(ProjectsModel.secondLine(roverLine, style: .triage, selected: false, today: today, locale: us),
+                       "Next · First grasp, Oct 1")
+        XCTAssertEqual(ProjectsModel.secondLine(roverLine, style: .wide, selected: false, today: today, locale: us),
+                       "A small arm that picks parts off a tray.")
+        XCTAssertNil(ProjectsModel.secondLine(roverLine, style: .titles, selected: false, today: today, locale: us))
     }
 
     /// The thread Last already says is never Next too.

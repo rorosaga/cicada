@@ -164,7 +164,7 @@ struct ProjectDetailColumn: View {
                                     save: { text, status, when in await write(.log(text: text, status: status, when: when)) },
                                     undo: { claimId in _ = await write(.withdraw(claimId: claimId)) })
                         .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.questionMaxWidth))
-                    section(.now, title: Copy.Projects.now, meta: Copy.Projects.inMotionCount(t.now.threads.count)) {
+                    section(.now, title: Copy.Projects.now, meta: UsageFormat.count(t.now.threads.count)) {
                         ProjectNowSection(timeline: t, state: state, today: today, selection: selection,
                                           followups: ProjectStory.followups(store.visibleInbox),
                                           pick: { pickRow($0, in: t) }, openEntity: openEntity,
@@ -175,7 +175,7 @@ struct ProjectDetailColumn: View {
                     }
                     .padding(.top, gap(nil))
                     let latelyOpen = !collapsed.contains(.lately)
-                    ProjectSectionHeader(title: Copy.Projects.lately, meta: Copy.Projects.happeningsCount(d.happenings),
+                    ProjectSectionHeader(title: Copy.Projects.lately, meta: UsageFormat.count(d.happenings),
                                          isOpen: latelyOpen) { setOpen(.lately, !latelyOpen) }
                         .padding(.top, gap(.now))
                     if latelyOpen {
@@ -188,9 +188,7 @@ struct ProjectDetailColumn: View {
                         }
                     }
                     // Where the plan stands is the summary's; folded, the section says only what it holds.
-                    section(.plan, title: Copy.Projects.plan,
-                            meta: state.planned ? Copy.Projects.milestonesCount(state.milestones.count)
-                                : Copy.Projects.noPlanYet) {
+                    section(.plan, title: Copy.Projects.plan, meta: ProjectSummary.planMeta(state)) {
                         ProjectPlanSection(timeline: t, today: today, selection: selection, names: names,
                                            pick: { pickRow($0, in: t) }, showSource: { show($0, in: t) },
                                            markDone: { slug in
@@ -208,7 +206,7 @@ struct ProjectDetailColumn: View {
                     // G150 (R-B19) — after Plan: the plan is what is dated, the backlog what is kept for later.
                     section(.backlog, title: Copy.Projects.Backlog.title,
                             meta: backlogCache.list(projectId)
-                                .map { Copy.Projects.Backlog.openCount(BacklogModel.openCount($0)) } ?? "") {
+                                .map { UsageFormat.count(BacklogModel.openCount($0)) } ?? "") {
                         ProjectBacklogSection(projectId: projectId, today: today, openItem: openBacklogItem,
                                               writesBlocked: blocked, open: openItem,
                                               onEditingChange: { backlogEditing = $0 })

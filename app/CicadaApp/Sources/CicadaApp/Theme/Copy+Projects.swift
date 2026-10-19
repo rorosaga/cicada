@@ -45,9 +45,6 @@ extension Copy {
             }
             return "Something went wrong reading your projects. Try again in a moment."
         }
-        static func countCurrent(_ n: Int) -> String { "\(UsageFormat.count(n)) current" }
-        static func countPast(_ n: Int) -> String { "\(UsageFormat.count(n)) past" }
-        static func position(_ i: Int, of n: Int) -> String { "\(UsageFormat.count(i)) of \(UsageFormat.count(n))" }
         static func noMatch(_ query: String) -> String { "No project matches “\(query)”" }
 
         // MARK: A row (Projects v2: a name, one line, one signal)
@@ -57,8 +54,19 @@ extension Copy {
         static func lastHeard(_ day: String) -> String { "Last heard \(day)" }
         /// "Heard yesterday", "Heard 9 days ago" — the distance is `RelativeDay`'s (DR-58).
         static func heard(_ distance: String) -> String { "Heard \(distance)" }
-        static func next(_ name: String, _ when: String?) -> String { when.map { "Next · \(name), \($0)" } ?? "Next · \(name)" }
-        static func nextOverdue(_ name: String, since day: String) -> String { "Next · \(name), overdue since \(day)" }
+        /// A nil name is a milestone named after its own project: only its day is said.
+        static func next(_ name: String?, _ when: String?) -> String {
+            switch (name, when) {
+            case let (name?, when?): "Next · \(name), \(when)"
+            case let (name?, nil): "Next · \(name)"
+            case let (nil, when?): "Next · \(when)"
+            case (nil, nil): "Next · \(noDateYet)"
+            }
+        }
+        static func nextOverdue(_ name: String?, since day: String) -> String {
+            name.map { "Next · \($0), overdue since \(day)" } ?? "Next · overdue since \(day)"
+        }
+        static let noDateYet = "no date yet"
         static func doneOf(_ p: ProjectProgress) -> String {
             "\(UsageFormat.count(p.done)) of \(UsageFormat.count(p.total)) done"
         }
@@ -116,9 +124,6 @@ extension Copy {
         static let around = "Around this project"
         static let collapse = "Collapse"
         static let expand = "Expand"
-        static func inMotionCount(_ n: Int) -> String { "\(UsageFormat.count(n)) going" }
-        static func milestonesCount(_ n: Int) -> String { n == 1 ? "1 milestone" : "\(UsageFormat.count(n)) milestones" }
-        static func happeningsCount(_ n: Int) -> String { n == 1 ? "1 happening" : "\(UsageFormat.count(n)) happenings" }
         static func nothingInMotion(lastHeard day: String?, distance: String?) -> String {
             guard let day, let distance else { return "Nothing in motion right now" }
             return "Nothing in motion right now · last heard \(day) (\(distance))"
@@ -300,7 +305,6 @@ extension Copy.Projects {
         static let emptyDropped = "Nothing set aside."
         static let emptyAll = "Nothing on this backlog yet. Add a task, or ask an agent to put one here."
 
-        static func openCount(_ n: Int) -> String { "\(UsageFormat.count(n)) open" }
         static func notesTitle(_ n: Int) -> String { n == 0 ? notes : "\(notes) · \(UsageFormat.count(n))" }
         static func addedBy(_ who: String) -> String { "Added by \(who)" }
         static func addedBy(_ who: String, day: String) -> String { "Added by \(who) · \(day)" }

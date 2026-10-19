@@ -971,20 +971,27 @@ the demo scenario's real wire, `app/CicadaApp/Tests/fixtures/projects-demo.json`
   nothing heard for 90 days) → Past. `ProjectsModel.entries` is the whole column as `ProjectsEntry` values — rows,
   the Fading head, Past's year labels and "Show 50 more" — pure, so a test pins it. A row (`ProjectRowView`, 56 pt)
   is the name over the one-liner and ONE signal (`ProjectsModel.standing`): the next milestone ("Next · First grasp,
-  Oct 1", overdue in words), else the plan's count, else "Heard 9 days ago"; Fading "Quiet 30 days"; Past "Last heard
-  Mar 3, 2025". Sub-projects nest under a parent in the same group behind a chevron (`ProjectsModel.nest`, folded by
+  Oct 1", overdue in words; a milestone named after its own project only its day, "Next · Oct 5" —
+  `ProjectsModel.milestoneName`), else the plan's count, else "Heard 9 days ago"; Fading "Quiet 30 days"; Past the
+  day alone ("Mar 3", `RelativeDay.dayInYear` — the year is the label), nothing under *Nothing heard yet*. Beside an
+  open project the narrow rows say where they stand and the open row only its name (`ProjectsModel.secondLine`). Sub-projects nest under a parent in the same group behind a chevron (`ProjectsModel.nest`, folded by
   default, every parent unfolded while a find runs); `ProjectsModel.tap` — a parent's click opens it and unfolds its
   parts, the open parent clicked again folds them; the chevron folds without opening. Past keeps its find field
   always, sorts newest heard first under year labels and draws 50 rows at a time (`pageSize`); a ⌘K landing on a
   hidden project opens its tab, Fading, its parents and enough of Past first (`ProjectsModel.reveal`). Find matches
-  the name and one-liner (`QuickMatch`). "still indexing" while the server says `partial`. **Projects clicked again
+  the name and one-liner (`QuickMatch`). The eyebrow is "Projects" (+ "still indexing" while the server says
+  `partial`): the tabs carry the counts, `counts` computed once per render. **Keys** (`ProjectsModel.step` / `side`,
+  `listKeys(side:)`, all `Instant.run`): ↑/↓ open the neighbour — past Current's last row ↓ opens Fading onto its
+  first row, past Past's page ↓ draws the next; → unfolds the open parent, ← folds it or goes from a part to its
+  parent. **Projects clicked again
   in the rail** (`AppRouter.reselect`, the Sources v3 mechanism) closes the Reader, card or item and project, clears
   the find and shows the default tab; ⌘8 does it without animation.
 - **The summary (v2):** under the name and one-liner, `ProjectSummary` — *Where it stands* ("In motion · 1 of 4
   milestones done"), *Last* (the newest happening with `RelativeDay.phrase`) and *Next* (the next milestone with its
   day, else the newest live thread Last did not already say, else "Nothing planned" with Add a milestone), each said
   once; Last and Next select their row on the band and unfold its section. The band's old header line and the
-  eyebrow's Planned / No plan yet retired with it.
+  eyebrow's Planned / No plan yet retired with it. Folded sections say their bare count ("2", "9"); Plan says nothing
+  when *Where it stands* gives the plan (`ProjectSummary.planMeta`).
 - **The band** (`BandLayout`, pure, the approved mock's coordinates): `progressFill` from the first moment up to a
   "You, today" marker in `textPrimary`; done milestones filled inside the green, planned ones hollow on the track, a
   closed `due` slashed ("passed, no word on how it went"), a moved one's dashed ghost and bracket; happenings as neutral

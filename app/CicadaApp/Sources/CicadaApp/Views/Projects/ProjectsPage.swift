@@ -60,13 +60,14 @@ struct ProjectsPage: View {
     var body: some View {
         let entries = ProjectsModel.entries(rows, tab: tab, query: activeQuery, today: today, options: options)
         let lines = entries.compactMap(\.line)
+        let counts = ProjectsModel.counts(rows, today: today)
         let openId = columns.openId
         ProgressiveColumns(hasDetail: openId != nil, hasTrailing: provenance.isPresented || trailing != nil,
                            navWidth: ShellMetrics.navWidth(labelled: labelledSidebar)) { plan in
-            EyebrowRow(eyebrow: eyebrow(lines),
+            EyebrowRow(eyebrow: cache.list.map { ProjectsModel.eyebrow(partial: $0.partial) } ?? Copy.Projects.page,
                        horizontalPadding: openId == nil && !provenance.isPresented ? plan.gutter : CicadaTheme.spacingXL) {
                 HStack(spacing: CicadaTheme.spacingXS) {
-                    AdaptiveTextTabs(tabs: ProjectsModel.tabs(rows, today: today), selection: tabSelection,
+                    AdaptiveTextTabs(tabs: ProjectsModel.tabs(counts), selection: tabSelection,
                                      menuTitle: Copy.Projects.tabMenu)
                     PageFindButton(isOpen: $findOpen).padding(.leading, CicadaTheme.spacingSM)
                 }
@@ -81,7 +82,7 @@ struct ProjectsPage: View {
                 tab: tab, query: query, findOpen: $findOpen, findText: $query, openId: openId,
                 tap: { tap($0) }, toggleParts: { toggleParts($0) }, toggleFading: { toggleFading() },
                 showMore: { Instant.run { pastLimit += ProjectsModel.pageSize } },
-                move: { move($0, in: lines) },
+                move: { move($0) }, side: { side($0, in: lines) },
                 focusDetail: { focus = .detail }, escape: { escape() },
                 retry: { Task { await cache.refreshList() } })
                 .focused($focus, equals: .list)
@@ -127,7 +128,7 @@ struct ProjectsPage: View {
         .onChange(of: cache.list?.projects.map(\.id)) { _, ids in
             guard let ids else { return }
             columns.reconcile(present: Set(ids))
-            if !tabChosen { tab = ProjectsModel.defaultTab(rows, today: today) }
+            if !tabChosen { tab = ProjectsModel.defaultTab(ProjectsModel.counts(rows, today: today)) }
             expanded.formIntersection(ids)
         }
         // R-PP3 / R-B18 — a sync version event that moved what an ETag folds asks again (a 304 costs nothing).
@@ -154,16 +155,6 @@ struct ProjectsPage: View {
             pastLimit = ProjectsModel.pageSize
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in today = ISODay.today() }
-    }
-
-    private func eyebrow(_ lines: [ProjectLine]) -> String {
-        guard let list = cache.list else { return Copy.Projects.page }
-        let openId = columns.openId
-        let position = openId.flatMap { id in lines.firstIndex { $0.id == id }.map { $0 + 1 } }
-        let counts = ProjectsModel.counts(rows, today: today)
-        let count = tab == .past ? counts[.past] ?? 0 : (counts[.current] ?? 0) + (counts[.fading] ?? 0)
-        return ProjectsModel.eyebrow(tab: tab, count: count, position: position, visible: lines.count,
-                                     partial: list.partial)
     }
 
     private func parentName(of id: String?) -> String? {
@@ -205,7 +196,7 @@ struct ProjectsPage: View {
             findOpen = false
             query = ""
             pastLimit = ProjectsModel.pageSize
-            tab = ProjectsModel.defaultTab(rows, today: today)
+            tab = ProjectsModel.defaultTab(ProjectsModel.counts(rows, today: today))
             tabChosen = false
         }
         if router.lastReselectByKey {
@@ -232,12 +223,33 @@ struct ProjectsPage: View {
         focus = .list
     }
 
-    private func move(_ delta: Int, in lines: [ProjectLine]) {
+    /// ↑/↓ — the neighbour opens in place; past the end of Current it opens Fading, past Past's page it draws the
+    /// next (`ProjectsModel.step`). Never animated (DR-60).
+    private func move(_ delta: Int) {
         Instant.run {
-            guard let next = columns.neighbour(delta, in: lines.map(\.id)) else { return }
+            let step = ProjectsModel.step(delta, openId: columns.openId, rows: rows, tab: tab, query: activeQuery,
+                                          today: today, options: options)
+            fadingOpen = step.options.fadingOpen
+            pastLimit = step.options.pastLimit
+            guard let next = step.open, next != columns.openId else { return }
             columns.open(next)
             trailing = nil
             if provenance.isPresented { provenance.close() }
+        }
+    }
+
+    /// →/← — unfold or fold the open parent's parts, or from a part go to its parent. Never animated (DR-60).
+    private func side(_ delta: Int, in lines: [ProjectLine]) {
+        let line = columns.openId.flatMap { id in lines.first { $0.id == id } }
+        Instant.run {
+            switch ProjectsModel.side(delta, line: line) {
+            case .expand(let open): if let line { setExpanded(line.id, open) }
+            case .open(let parent):
+                columns.open(parent)
+                trailing = nil
+                if provenance.isPresented { provenance.close() }
+            case .none: break
+            }
         }
     }
 

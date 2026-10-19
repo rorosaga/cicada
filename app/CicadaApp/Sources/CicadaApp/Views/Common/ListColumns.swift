@@ -88,7 +88,8 @@ extension View {
 
     /// DR-68 (R-DL8) — a browse list's keys: ↑/↓ open the neighbour in place, ⏎ steps into the detail (return false
     /// when nothing is open), Esc closes the rightmost column. The caller runs each in `Instant.run` (DR-60).
-    func listKeys(move: @escaping (Int) -> Void, enter: @escaping () -> Bool,
+    /// `side`, when given, takes ←/→ (Projects: fold and unfold a parent's parts).
+    func listKeys(move: @escaping (Int) -> Void, side: ((Int) -> Void)? = nil, enter: @escaping () -> Bool,
                   escape: @escaping () -> Void) -> some View {
         focusable()
             .focusEffectDisabled()
@@ -96,6 +97,8 @@ extension View {
                 switch direction {
                 case .up: move(-1)
                 case .down: move(1)
+                case .left: side?(-1)
+                case .right: side?(1)
                 default: break
                 }
             }

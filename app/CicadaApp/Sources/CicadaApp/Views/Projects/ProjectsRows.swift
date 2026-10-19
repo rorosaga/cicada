@@ -34,6 +34,7 @@ struct ProjectsListColumn: View {
     let toggleFading: () -> Void
     let showMore: () -> Void
     let move: (Int) -> Void
+    var side: (Int) -> Void = { _ in }
     let focusDetail: () -> Void
     let escape: () -> Void
     let retry: () -> Void
@@ -78,7 +79,7 @@ struct ProjectsListColumn: View {
                 }
             }
         }
-        .listKeys(move: move, enter: {
+        .listKeys(move: move, side: side, enter: {
             guard openId != nil else { return false }
             focusDetail()
             return true
@@ -205,25 +206,21 @@ struct ProjectRowView: View {
             .help(line.row.name)
     }
 
-    private var parts: String { line.children > 0 && !line.expanded ? Copy.Projects.parts(line.children) : "" }
-
     @ViewBuilder
     private var content: some View {
-        let standing = ProjectsModel.standing(line, today: today)
+        let second = ProjectsModel.secondLine(line, style: style, selected: selected, today: today)
         switch style {
         case .wide:
+            let parts = line.children > 0 && !line.expanded ? Copy.Projects.parts(line.children) : ""
             HStack(spacing: CicadaTheme.spacingMD) {
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(3)) {
                     name
-                    if let what = ProjectsModel.oneLine(line.row) {
-                        Text(what)
-                            .font(CicadaTheme.metaFont)
-                            .foregroundStyle(tertiary)
-                            .lineLimit(1)
+                    if let second {
+                        Text(second).font(CicadaTheme.metaFont).foregroundStyle(tertiary).lineLimit(1)
                     }
                 }
                 Spacer(minLength: CicadaTheme.spacingMD)
-                Text(Eyebrow.text(parts, standing))
+                Text(Eyebrow.text(parts, ProjectsModel.standing(line, today: today)))
                     .font(CicadaTheme.metaFont)
                     .monospacedDigit()
                     .foregroundStyle(CicadaTheme.textSecondary)
@@ -231,13 +228,12 @@ struct ProjectRowView: View {
                     .frame(maxWidth: CicadaTheme.scaled(260), alignment: .trailing)
             }
         case .triage:
+            // The open row is only its name: the detail beside it says where it stands.
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(3)) {
                 name
-                Text(Eyebrow.text(parts, standing))
-                    .font(CicadaTheme.metaFont)
-                    .monospacedDigit()
-                    .foregroundStyle(tertiary)
-                    .lineLimit(1)
+                if let second {
+                    Text(second).font(CicadaTheme.metaFont).monospacedDigit().foregroundStyle(tertiary).lineLimit(1)
+                }
             }
         case .titles, .hidden:
             name

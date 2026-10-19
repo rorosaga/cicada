@@ -209,48 +209,65 @@ enum ProjectsModel {
         return out
     }
 
-    /// Current counts everything it holds, fading included; Past the rest.
-    static func tabs(_ rows: [ProjectRow], today: ISODay) -> [TextTab<ProjectsTab>] {
-        let c = counts(rows, today: today)
-        return [TextTab(id: .current, label: Copy.Projects.current, count: (c[.current] ?? 0) + (c[.fading] ?? 0)),
-                TextTab(id: .past, label: Copy.Projects.past, count: c[.past] ?? 0)]
+    /// Current counts everything it holds, fading included; Past the rest. `counts` is computed once per render.
+    static func tabs(_ c: [ProjectsGroup: Int]) -> [TextTab<ProjectsTab>] {
+        [TextTab(id: .current, label: Copy.Projects.current, count: (c[.current] ?? 0) + (c[.fading] ?? 0)),
+         TextTab(id: .past, label: Copy.Projects.past, count: c[.past] ?? 0)]
     }
 
     /// Current, unless nothing is current and something is past.
-    static func defaultTab(_ rows: [ProjectRow], today: ISODay) -> ProjectsTab {
-        let c = counts(rows, today: today)
-        return (c[.current] ?? 0) + (c[.fading] ?? 0) == 0 && (c[.past] ?? 0) > 0 ? .past : .current
+    static func defaultTab(_ c: [ProjectsGroup: Int]) -> ProjectsTab {
+        (c[.current] ?? 0) + (c[.fading] ?? 0) == 0 && (c[.past] ?? 0) > 0 ? .past : .current
     }
 
-    /// DR-25 — "Projects · 6 current" / "Projects · 481 past"; with a project open, "Projects · 1 of 6"; R-PP8's
-    /// "still indexing" while the server says `partial`. Where the open project stands is the detail's, said once.
-    static func eyebrow(tab: ProjectsTab, count: Int, position: Int?, visible: Int, partial: Bool) -> String {
-        let indexing = partial ? Copy.Projects.stillIndexing : ""
-        if let position { return Eyebrow.text(Copy.Projects.page, Copy.Projects.position(position, of: visible), indexing) }
-        let words = tab == .current ? Copy.Projects.countCurrent(count) : Copy.Projects.countPast(count)
-        return Eyebrow.text(Copy.Projects.page, words, indexing)
+    /// DR-25 — "Projects", and R-PP8's "still indexing" while the server says `partial`. The tabs carry the counts
+    /// and the open project says where it stands, so the eyebrow repeats neither (owner: avoid repetition).
+    static func eyebrow(partial: Bool) -> String {
+        Eyebrow.text(Copy.Projects.page, partial ? Copy.Projects.stillIndexing : "")
+    }
+
+    /// A milestone named after its own project ("Pick And Place Demo" on Pick And Place Demo) says only its day.
+    static func milestoneName(_ name: String, project: String) -> String? {
+        name.trimmingCharacters(in: .whitespaces).caseInsensitiveCompare(project.trimmingCharacters(in: .whitespaces))
+            == .orderedSame ? nil : name
     }
 
     /// Where a project stands, as ONE signal (owner 2026-10-19: "one signal, not five"). In motion: the next
     /// milestone (overdue said so, never red — DR-7), else the plan's count, else when it was last heard. Fading: how
-    /// long it has been quiet. Past: when it was last heard.
+    /// long it has been quiet. Past: the day it was last heard — its year is the label above it, and a project never
+    /// heard from says nothing (its label already does).
     static func standing(_ line: ProjectLine, today: ISODay, locale: Locale = .autoupdatingCurrent) -> String {
         let row = line.row
         let last = ISODay(row.lastMomentDay)
         switch line.group {
         case .current:
             if let slug = line.state.next, let m = row.milestones.first(where: { $0.slug == slug }) {
-                guard let target = ISODay(m.target) else { return Copy.Projects.next(m.name, nil) }
+                let name = milestoneName(m.name, project: row.name)
+                guard let target = ISODay(m.target) else { return Copy.Projects.next(name, nil) }
                 let day = RelativeDay.absolute(target, today: today, locale: locale)
-                return target < today ? Copy.Projects.nextOverdue(m.name, since: day) : Copy.Projects.next(m.name, day)
+                return target < today ? Copy.Projects.nextOverdue(name, since: day) : Copy.Projects.next(name, day)
             }
             if row.planned { return Copy.Projects.doneOf(row.progress) }
             return last.map { Copy.Projects.heard(RelativeDay.distance($0, today: today)) } ?? Copy.Projects.nothingHeard
         case .fading:
             return Copy.Projects.quietFor(days: last.map { today - $0 } ?? 0)
         case .past:
-            return last.map { Copy.Projects.lastHeard(RelativeDay.absolute($0, today: today, locale: locale)) }
-                ?? Copy.Projects.nothingHeard
+            return last.map { RelativeDay.dayInYear($0, locale: locale) } ?? ""
+        }
+    }
+
+    /// A row's second line: what it is at rest, where it stands beside an open project — and nothing on the open row
+    /// itself, whose detail says it beside it.
+    static func secondLine(_ line: ProjectLine, style: ColumnPlan.ListStyle, selected: Bool, today: ISODay,
+                           locale: Locale = .autoupdatingCurrent) -> String? {
+        switch style {
+        case .wide: return oneLine(line.row)
+        case .triage:
+            guard !selected else { return nil }
+            let parts = line.children > 0 && !line.expanded ? Copy.Projects.parts(line.children) : ""
+            let text = Eyebrow.text(parts, standing(line, today: today, locale: locale))
+            return text.isEmpty ? nil : text
+        case .titles, .hidden: return nil
         }
     }
 
@@ -261,8 +278,40 @@ enum ProjectsModel {
     }
 
     static func accessibilityLabel(_ line: ProjectLine, today: ISODay) -> String {
-        Copy.Projects.rowLabel(line.row.name, standing: standing(line, today: today), parts: line.children,
-                               expanded: line.expanded)
+        let standing = standing(line, today: today)
+        return Copy.Projects.rowLabel(line.row.name, standing: standing.isEmpty ? Copy.Projects.nothingHeard : standing,
+                                      parts: line.children, expanded: line.expanded)
+    }
+
+    // MARK: - Keys (DR-68; every key path runs in `Instant.run`, DR-60)
+
+    /// ↑/↓ from the open row. Past the last current row ↓ opens Fading and lands on its first row; past Past's last
+    /// drawn row it draws the next page and moves on — so every project is reachable by keyboard.
+    static func step(_ delta: Int, openId: String?, rows: [ProjectRow], tab: ProjectsTab, query: String,
+                     today: ISODay, options: ProjectsListOptions) -> (open: String?, options: ProjectsListOptions) {
+        var options = options
+        var ids = entries(rows, tab: tab, query: query, today: today, options: options).compactMap(\.line).map(\.id)
+        guard !ids.isEmpty else { return (nil, options) }
+        guard let id = openId, let i = ids.firstIndex(of: id) else {
+            return (delta >= 0 ? ids.first : ids.last, options)
+        }
+        if delta > 0, i == ids.count - 1 {
+            if tab == .current, !options.fadingOpen { options.fadingOpen = true }
+            else if tab == .past { options.pastLimit += pageSize }
+            ids = entries(rows, tab: tab, query: query, today: today, options: options).compactMap(\.line).map(\.id)
+        }
+        return (ids[min(max(i + delta, 0), ids.count - 1)], options)
+    }
+
+    enum Side: Equatable { case expand(Bool), open(String), none }
+
+    /// →/← on the open row: → unfolds a parent's parts; ← folds them, or on a part goes to its parent.
+    static func side(_ delta: Int, line: ProjectLine?) -> Side {
+        guard let line else { return .none }
+        if delta > 0 { return line.children > 0 && !line.expanded ? .expand(true) : .none }
+        if line.expanded { return .expand(false) }
+        if line.depth > 0, let parent = line.row.parent { return .open(parent) }
+        return .none
     }
 
     /// What a click on a row does. A plain row opens. A parent opens and unfolds its parts; clicked again while open,
