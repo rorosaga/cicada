@@ -56,8 +56,8 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import (bank_index, bank_registry, episode_ids, evidence, fact_sources, inbox_questions,
-                          markdown_parser, text_fold)
+from api.services import (bank_index, bank_registry, episode_ids, evidence, fact_sources, history_index,
+                          inbox_questions, markdown_parser, text_fold)
 from api.services.claims import is_event, is_record, parse_claims, strip_claims_block
 from api.services.graph_builder import summarize
 
@@ -69,7 +69,10 @@ DB_FILE = "search_index.db"
 # happening (R-PJB11); the bump rebuilds every index once (TODO ruling 3).
 # "4": G150 — backlog items are their own kind (`blg`); the bump rebuilds
 # every index once (TODO ruling 3).
-SCHEMA_VERSION = "5"
+# "6": an episode's `docs.meta` says when it is index-only (a watched day, a list save: ruling 30), so Ask's search
+# leg counts a word's rarity over the conversations it can show, not over thousands of watched days; the bump
+# rebuilds every index once (TODO ruling 3).
+SCHEMA_VERSION = "6"
 TOKENIZER = "unicode61 remove_diacritics 2"
 # Prefix indexes for 2-, 3- and 4-character prefixes: type-as-you-go queries
 # are mostly that short, and a prefix with no index is a range scan over
@@ -535,6 +538,8 @@ def _index_episode(conn, doc_key: str, f, fm: dict, body: str) -> None:
         # same `evidence.kind_for` answer a stored span carries.
         "evidence_kind": str(fm.get("evidence_kind") or "").strip(),
     }
+    if history_index.is_index_only(fm):
+        meta["index_only"] = True   # ruling 30: a record to look up — Ask's search leg neither counts nor shows it
     gaps = evidence.gap_ranges(fm, body)
     if gaps:
         meta["gaps"] = [list(g) for g in gaps]   # gate B2: the episode's own record, for a hit's kind

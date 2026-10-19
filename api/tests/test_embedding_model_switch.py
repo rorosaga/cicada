@@ -129,3 +129,155 @@ def test_an_explicit_embedding_setting_moves_every_bank_and_still_rebuilds(dev_h
     switched = SqliteVecIndexer(bank)
     _index_all(switched)
     assert {v for k, v in _widths(bank).items() if k.startswith("dim:")} == {"384"}
+
+
+# --------------------------------------------------------------------------------------------------------------- #
+# Episode passages cut to the search model's window (2026-10-19): a layout change is the background job's
+# --------------------------------------------------------------------------------------------------------------- #
+
+def _long_episode(bank, n: int, chars: int = 9000) -> None:
+    body = "\n".join(f"user: alpha-project note {n}.{i}: " + "the reporting joins need care " * 3
+                     for i in range(chars // 110))
+    markdown_parser.write(bank / "episodes" / f"ep_2026-07-{n:02d}_001.md",
+                          {"id": f"ep_2026-07-{n:02d}_001", "processed": True, "source": "import",
+                           "timestamp": f"2026-07-{n:02d}T10:00:00"}, body)
+
+
+def _rows(bank, kind="episodes") -> int:
+    conn = sqlite3.connect(bank / "vector_index.db")
+    try:
+        return int(conn.execute(f"SELECT count(*) FROM meta_{kind}").fetchone()[0])
+    finally:
+        conn.close()
+
+
+def _legacy_table(bank, monkeypatch) -> int:
+    """An episode table as every index before 2026-10-19 cut it: 4,000-character passages, no layout recorded."""
+    from api.services import vector_index
+
+    with monkeypatch.context() as m:
+        m.setattr(vector_index, "EPISODE_CHUNKING", vector_index.LEGACY_EPISODE_CHUNKING)
+        _index_all(SqliteVecIndexer(bank))
+    conn = sqlite3.connect(bank / "vector_index.db")
+    conn.execute("DELETE FROM index_meta WHERE key = ?", (vector_index.CHUNKING_KEY,))
+    conn.commit()
+    conn.close()
+    return _rows(bank)
+
+
+def test_passages_fit_the_search_models_window():
+    from api.services import vector_index
+
+    body = "\n".join("user: " + "word " * 40 for _ in range(200))
+    chunks = vector_index._chunk_episode_body(body)
+    assert max(len(c) for c in chunks) <= vector_index.EPISODE_CHUNK_CHARS <= 2000, "~512 tokens of English"
+    assert vector_index.EPISODE_CHUNKING == f"{vector_index.EPISODE_CHUNK_CHARS}/{vector_index.EPISODE_CHUNK_OVERLAP}"
+
+
+def test_an_old_cut_is_re_cut_by_the_background_job_never_by_sleep(dev_home, tmp_path, monkeypatch):
+    import time as _time
+
+    from api.services import sleep_cycle, vector_index
+
+    monkeypatch.setenv("CICADA_BACKGROUND_REINDEX", "on")
+    bank = _bank(tmp_path)
+    for n in (1, 2):
+        _long_episode(bank, n)
+    legacy_rows = _legacy_table(bank, monkeypatch)
+    idx = SqliteVecIndexer(bank)
+    assert idx.episode_chunking() == vector_index.LEGACY_EPISODE_CHUNKING
+    assert embedding_models.pending_switch(bank, get_settings()) == (E5, ["episodes"]), "same model, other cut"
+
+    # Sleep's own sync keeps the recorded cut: only the new conversation is embedded, at that cut.
+    _long_episode(bank, 3)
+    calls = {"texts": 0}
+    real = onnx_embedder.OnnxEmbedder.__call__
+
+    def counted(self, texts, *, is_query=False):
+        calls["texts"] += len(texts)
+        return real(self, texts, is_query=is_query)
+
+    monkeypatch.setattr(onnx_embedder.OnnxEmbedder, "__call__", counted)
+    assert sleep_cycle._sync_vector_indexes(bank) == []
+    assert SqliteVecIndexer(bank).episode_chunking() == vector_index.LEGACY_EPISODE_CHUNKING
+    legacy_third = len(vector_index._chunk_episode_body(
+        markdown_parser.parse(bank / "episodes" / "ep_2026-07-03_001.md").body.strip(), chars=4000, overlap=200))
+    assert calls["texts"] == legacy_third, "Sleep embedded the new conversation only, never the whole table"
+    assert _rows(bank) == legacy_rows + legacy_third
+
+    # The background job re-cuts it; recall answers from the old table until the new one commits.
+    embedding_models.REINDEX._set(state="idle")
+    assert embedding_models.start_reindex_if_needed(bank, get_settings())
+    deadline = _time.monotonic() + 10
+    while embedding_models.REINDEX.snapshot()["state"] == "running" and _time.monotonic() < deadline:
+        _time.sleep(0.01)
+    assert embedding_models.REINDEX.snapshot()["state"] == "done"
+    assert SqliteVecIndexer(bank).episode_chunking() == vector_index.EPISODE_CHUNKING
+    assert _rows(bank) > legacy_rows + legacy_third, "smaller passages: more of them"
+    assert embedding_models.pending_switch(bank, get_settings()) is None, "nothing left to do"
+    assert SqliteVecIndexer(bank).search_episodes("alpha-project reporting", top_k=3)
+
+
+def test_with_the_job_off_sleep_re_cuts_as_it_switches_models(dev_home, tmp_path, monkeypatch):
+    from api.services import sleep_cycle, vector_index
+
+    bank = _bank(tmp_path)
+    _long_episode(bank, 1)
+    _legacy_table(bank, monkeypatch)
+    sleep_cycle._sync_vector_indexes(bank)
+    assert SqliteVecIndexer(bank).episode_chunking() == vector_index.EPISODE_CHUNKING
+
+
+def test_sleep_racing_the_re_cut_never_re_embeds_the_bank_at_the_old_cut(dev_home, tmp_path, monkeypatch):
+    """Review of #349: Sleep's sync starts while the background job is committing the new cut. It reads the cut
+    under the write lock, after the job's commit — so it embeds only the new conversation, at the new cut, and never
+    stamps the old cut back."""
+    import threading
+
+    from api.services import vector_index
+
+    monkeypatch.setenv("CICADA_BACKGROUND_REINDEX", "on")
+    bank = _bank(tmp_path)
+    for n in (1, 2, 3):
+        _long_episode(bank, n)
+    _legacy_table(bank, monkeypatch)
+    inside, release = threading.Event(), threading.Event()
+    calls = {"job": 0, "sleep": 0}
+    real = onnx_embedder.OnnxEmbedder.__call__
+
+    def embed(self, texts, *, is_query=False):
+        who = threading.current_thread().name
+        calls[who] = calls.get(who, 0) + len(texts)
+        if who == "job":
+            inside.set()
+            release.wait(5)
+        return real(self, texts, is_query=is_query)
+
+    monkeypatch.setattr(onnx_embedder.OnnxEmbedder, "__call__", embed)
+    job = threading.Thread(name="job", target=lambda: SqliteVecIndexer(bank, should_stop=lambda: False)
+                           .index_episodes())
+    job.start()
+    assert inside.wait(5), "the job is embedding the new cut, holding the write lock"
+    _long_episode(bank, 4)                       # a conversation captured meanwhile
+    sleep_idx = SqliteVecIndexer(bank, defer_model_switch=True)
+    sleep = threading.Thread(name="sleep", target=sleep_idx.index_episodes)
+    sleep.start()
+    sleep.join(0.3)
+    assert sleep.is_alive(), "Sleep's sync waits for the job's commit"
+    release.set()
+    job.join(10), sleep.join(10)
+    assert SqliteVecIndexer(bank).episode_chunking() == vector_index.EPISODE_CHUNKING, "the new cut stays"
+    new_conv = len(vector_index._chunk_episode_body(
+        markdown_parser.parse(bank / "episodes" / "ep_2026-07-04_001.md").body.strip()))
+    assert calls["sleep"] == new_conv, "only the new conversation, at the new cut — never the whole bank"
+    assert sleep_idx.last_sync["episodes"]["embedded"] == new_conv
+
+
+def test_a_huge_days_ago_is_clamped_and_never_raises():
+    from datetime import date
+
+    from api.services import ask_sources
+
+    assert ask_sources.named_days("what did I say 99999999999 days ago?", today=date(2025, 1, 10)) == ["1925-02-04"], \
+        "clamped to a century back"
+    assert ask_sources.question_shape("what did I say 99999999999 days ago?") == ask_sources.SHAPE_ANCHORED

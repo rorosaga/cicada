@@ -30,7 +30,8 @@ that never chose it) moves to it; a model the person picked, or set explicitly, 
 **A model change is a background re-embed, never Sleep's** (``start_reindex_if_needed``): each table is
 re-embedded in full with the new model from this process's background thread — the embed first (in a child
 process, ``embed_worker``: Core ML holds the GIL), then one transaction swaps the table, so recall keeps
-answering from the old table (queried with the old model it records) until the new one is written. It starts after a choice, an install, the backend's start and the end
+answering from the old table (queried with the old model it records) until the new one is written. An episode table
+whose passages were cut another way than ``vector_index.EPISODE_CHUNKING`` is re-cut the same way. It starts after a choice, an install, the backend's start and the end
 of every Sleep run, never while Sleep runs, and gives way within one chunk of 64 texts when Sleep starts
 (Sleep's own syncs keep each table's recorded model meanwhile: ``SqliteVecIndexer(defer_model_switch=True)``).
 
@@ -244,13 +245,19 @@ def build_model(bank: Path, settings, environ=os.environ) -> str:
 
 def pending_switch(bank: Path, settings, environ=os.environ) -> tuple[str, list[str]] | None:
     """``(model, kinds)`` when some vector table holds another model than the one ``bank`` is built with and
-    that model runs here — what the background re-embed would do — else None."""
-    from api.services.vector_index import SqliteVecIndexer
+    that model runs here — what the background re-embed would do — else None. The episode table is also stale when
+    its passages were cut another way than :data:`vector_index.EPISODE_CHUNKING` (2026-10-19: re-cut to the search
+    model's window), the same background job re-cutting it."""
+    from api.services.vector_index import EPISODE_CHUNKING, SqliteVecIndexer
 
     target = build_model(bank, settings, environ)
     if not is_available(target, environ):
         return None
-    stale = [kind for kind, model in SqliteVecIndexer(Path(bank)).table_models().items() if model != target]
+    indexer = SqliteVecIndexer(Path(bank))
+    models = indexer.table_models()
+    stale = [kind for kind, model in models.items() if model != target]
+    if "episodes" in models and "episodes" not in stale and indexer.episode_chunking() not in (None, EPISODE_CHUNKING):
+        stale.append("episodes")
     return (target, stale) if stale else None
 
 
