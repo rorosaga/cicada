@@ -679,7 +679,7 @@ def test_a_redirect_is_never_followed_with_the_device_token():
 
     first = http.server.HTTPServer(("127.0.0.1", 0), Redirector)
     for srv in (first, target):
-        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
     from api.services import tool_client
 
     try:
@@ -724,7 +724,7 @@ def test_an_http_base_the_server_sends_to_https_is_said_plainly_and_the_post_is_
         do_GET = do_POST = _answer
 
     srv = http.server.HTTPServer(("127.0.0.1", 0), Upgrade)
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
     base = f"http://127.0.0.1:{srv.server_port}"
     home = tmp_path / "home"
     home.mkdir()

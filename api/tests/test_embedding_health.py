@@ -169,7 +169,7 @@ class _Health(BaseHTTPRequestHandler):
 def _doctor(tmp_path, health: dict) -> str:
     _Health.body = json.dumps(health).encode()
     server = HTTPServer(("127.0.0.1", 0), _Health)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
     try:
         env = {**os.environ, "CICADA_PORT": str(server.server_port), "HOME": str(tmp_path),
                "CICADA_HOME": str(tmp_path / "home"), "CICADA_MEMORY_PATH": str(tmp_path / "memory"),
