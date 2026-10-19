@@ -35,7 +35,8 @@ final class ReaderChatTests: XCTestCase {
                              timestamp: String? = "2026-10-19T09:00:00+00:00", harness: String? = nil,
                              origin: String? = nil, conversationId: String? = nil, captureKind: String? = nil,
                              correspondent: String? = nil, focus: EpisodeFocus? = nil,
-                             truncated: Bool = false) -> EpisodeText {
+                             truncated: Bool = false, agent: EpisodeAgent? = nil, forcedRole: String? = nil,
+                             relay: EpisodeRelay? = nil) -> EpisodeText {
         var text = ""
         var turns: [EpisodeTurn] = []
         for (i, line) in lines.enumerated() {
@@ -51,14 +52,17 @@ final class ReaderChatTests: XCTestCase {
             case nil where line.text.hasPrefix("[Cicada: "): role = "gap"
             default: role = "user"
             }
+            // `evidence.turns`: a declared `evidence_kind` forces every turn's role; the marker stays as written.
             turns.append(EpisodeTurn(index: i + 1, start: start, contentStart: start + prefix.unicodeScalars.count,
-                                     end: text.unicodeScalars.count, role: role,
-                                     marker: line.marker.map { $0.hasPrefix("speaker:") ? "speaker" : $0 },
-                                     ts: line.ts, model: line.model))
+                                     end: text.unicodeScalars.count, role: role == "gap" ? role : (forcedRole ?? role),
+                                     marker: role == "gap" ? "gap" : line.marker, ts: line.ts, model: line.model))
         }
-        return EpisodeText(episode: episode, text: text, truncated: truncated, title: title, timestamp: timestamp,
-                           harness: harness, origin: origin, conversationId: conversationId, captureKind: captureKind,
-                           turns: turns, focus: focus, correspondent: correspondent)
+        var doc = EpisodeText(episode: episode, text: text, truncated: truncated, title: title, timestamp: timestamp,
+                              harness: harness, origin: origin, conversationId: conversationId,
+                              captureKind: captureKind, turns: turns, focus: focus, agent: agent,
+                              correspondent: correspondent)
+        doc.relay = relay
+        return doc
     }
 
     /// A Messages sitting over two days: the person and a contact, short messages in runs.
@@ -89,7 +93,7 @@ final class ReaderChatTests: XCTestCase {
             Line(marker: "assistant", text: "Done — the PR is open against dev.", ts: "2026-10-19T11:14:00+00:00",
                  model: "claude-opus-5-5"),
         ], title: "Index switch", harness: "claude-code", origin: "claude-code", conversationId: "ses_alpha",
-           captureKind: "transcript", focus: focus)
+           captureKind: "transcript", focus: focus, agent: EpisodeAgent(model: "claude-opus-5-5"))
     }
 
     /// A chat export with one very long reply (47k characters).
@@ -175,13 +179,14 @@ final class ReaderChatTests: XCTestCase {
 
     func testARunShowsItsFaceNameAndTimeOnceAndTheNameOnlyWhenItChanges() {
         let out = messages(rows(Self.messagesSitting()).rows)
-        // Sam's first run: face, name, time; the second message of the run: nothing above it.
-        XCTAssertEqual(out[0].header, ReaderChat.Header(avatar: .face("Sam"), name: "Sam", time: clock("2026-10-18T17:02:00+00:00")))
+        // Sam's first run: the face and the time — the title already names Sam (DR-38); the run's second message:
+        // nothing above it.
+        XCTAssertEqual(out[0].header, ReaderChat.Header(avatar: .face("Sam"), name: nil, time: clock("2026-10-18T17:02:00+00:00")))
         XCTAssertNil(out[1].header)
         // The person's run: the time alone, once.
         XCTAssertEqual(out[2].header, ReaderChat.Header(avatar: .none, name: nil, time: clock("2026-10-18T17:20:00+00:00")))
         XCTAssertNil(out[3].header)
-        // Sam again, the next day: the face and the time, not the name again.
+        // Sam again, the next day: the face and the time.
         XCTAssertEqual(out[4].header, ReaderChat.Header(avatar: .face("Sam"), name: nil, time: clock("2026-10-19T08:10:00+00:00")))
     }
 
@@ -196,13 +201,60 @@ final class ReaderChatTests: XCTestCase {
         XCTAssertEqual(messages(out).map { $0.header?.time }, [clock("2026-10-19T08:00:00+00:00"), nil, clock("2026-10-19T09:00:00+00:00")])
     }
 
-    func testAnAgentWearsItsMarkAndIsNamedOnce() {
+    func testAnAgentWearsItsMarkAndIsNamedOnlyWhereTheHeaderDoesNot() {
         let out = messages(rows(Self.claudeCodeSession()).rows)
         let agent = out.filter { $0.side == .other && $0.header != nil }
         XCTAssertEqual(agent.first?.header?.avatar, .mark("claude-code"))
-        XCTAssertEqual(agent.first?.header?.name, "Claude Code · Opus 5.5")
-        XCTAssertTrue(agent.dropFirst().allSatisfy { $0.header?.name == nil }, "the same agent is not named again")
+        XCTAssertTrue(agent.allSatisfy { $0.header?.name == nil }, "the meta line names Claude Code · Opus 5.5")
         XCTAssertTrue(agent.allSatisfy { $0.header?.time != nil })
+        // A reply from another model than the one the header names says so.
+        let mixed = Self.conversation([Line(marker: "user", text: "hi"),
+                                       Line(marker: "assistant", text: "hello", model: "claude-sonnet-5"),
+                                       Line(marker: "user", text: "again"),
+                                       Line(marker: "assistant", text: "hi again", model: "claude-opus-5-5")],
+                                      harness: "claude-code", origin: "claude-code",
+                                      agent: EpisodeAgent(model: "claude-opus-5-5"))
+        let names = messages(rows(mixed).rows).filter { $0.side == .other }.map { $0.header?.name }
+        XCTAssertNotNil(names[0])
+        XCTAssertEqual(names[1], ReaderChat.namedParty(mixed), "back to another model: named again")
+    }
+
+    // MARK: Relayed conversations (ruling 32)
+
+    func testARelayedConversationIsSidedByItsWrittenMarkersAndThePersonIsNeverYou() {
+        let doc = Self.conversation([
+            Line(marker: "user", text: "Help me plan the launch.", ts: "2026-10-19T09:00:00+00:00"),
+            Line(marker: "assistant", text: "Here is a checklist.", ts: "2026-10-19T09:01:00+00:00"),
+            Line(marker: "user", text: "Add a rollback step.", ts: "2026-10-19T09:02:00+00:00"),
+        ], harness: "chatgpt", origin: "chatgpt", captureKind: "transcript", forcedRole: "assistant",
+           relay: EpisodeRelay(app: "chatgpt", label: "ChatGPT"))
+        XCTAssertEqual(doc.turns.map(\.role), ["assistant", "assistant", "assistant"], "the fixture forces the roles")
+        XCTAssertTrue(ReaderChat.isChat(doc))
+        let out = messages(rows(doc).rows)
+        XCTAssertEqual(out.map(\.side), [.person, .other, .person], "the marker says who spoke, not the forced role")
+        XCTAssertEqual(out[0].header?.name, "Relayed by ChatGPT")
+        XCTAssertNil(out[2].header?.name, "said once")
+        XCTAssertTrue(out.allSatisfy { $0.speaker != Copy.you })
+        XCTAssertEqual(out[2].speaker, "Relayed by ChatGPT", "VoiceOver says it too")
+        XCTAssertEqual(out[1].header?.avatar, .mark("chatgpt"))
+        // Each change of marker is a new run.
+        XCTAssertEqual(rows(doc).rows.filter { if case .message = $0.kind { true } else { false } }.map(\.gap),
+                       [.newRun, .newRun, .newRun])
+        // The header never says "Your words…", and names the app once — on the person's run, not in the meta.
+        XCTAssertEqual(ReaderHeader.captureLine(doc), Copy.Provenance.relayHonesty)
+        XCTAssertFalse(ReaderHeader.captureLine(doc)?.contains("Your words") ?? true)
+        XCTAssertFalse(ReaderHeader.meta(doc).contains("ChatGPT"))
+    }
+
+    func testAMarkerlessDocumentWithAForcedRoleIsNotAChat() {
+        // An agent-written folder file, a memory export entry: `evidence_kind: assistant`, no turn markers.
+        let note = Self.conversation([Line(marker: nil, text: "The person prefers mornings for deep work.")],
+                                     forcedRole: "assistant")
+        XCTAssertEqual(note.turns.first?.role, "assistant")
+        XCTAssertFalse(ReaderChat.isChat(note))
+        let attached = Self.conversation([Line(marker: "attachment [plan.pdf]", text: "> page one")],
+                                         forcedRole: "assistant")
+        XCTAssertFalse(ReaderChat.isChat(attached), "an attachment alone is a document")
     }
 
     func testCicadasGapNoteIsAQuietRowNotAMessage() {
@@ -234,11 +286,27 @@ final class ReaderChatTests: XCTestCase {
         XCTAssertTrue(open.contains { $0.kind == .toggle(turn: 2, side: .other, expanded: true) })
     }
 
-    func testTooManyLinesFoldsAtALineBreak() throws {
+    func testTooManyLinesFoldsAtALineBreakWithNoEllipsis() throws {
         let out = messages(rows(Self.claudeCodeSession()).rows)
         let long = try XCTUnwrap(out.first { $0.block.index == 4 })
         XCTAssertTrue(long.folded)
         XCTAssertEqual(long.block.text.components(separatedBy: "\n").count, ReaderChat.previewLines)
+        XCTAssertTrue(long.block.text.hasSuffix("bench."), "a whole line ends as written: \(long.block.text.suffix(12))")
+    }
+
+    func testAMidLineCutDropsItsTrailingPunctuationBeforeTheEllipsis() throws {
+        // Sentences of 40 scalars: the back half of the 480 window holds spaces, and the one the cut lands on
+        // follows a full stop — the preview must end "…", never ".…".
+        let sentence = "Read one chapter, then write a summary. "
+        let text = String(repeating: sentence, count: 40)
+        let block = ReaderBlock(index: 1, chunk: 0, role: "assistant", speaker: "ChatGPT", mark: nil, time: nil,
+                                text: text, contentStart: 0, washes: [ReaderWash(range: 470..<479, style: .focus)])
+        let preview = try XCTUnwrap(ReaderChat.preview(block))
+        XCTAssertTrue(preview.text.hasSuffix("…"))
+        XCTAssertFalse(preview.text.hasSuffix(".…"))
+        XCTAssertFalse(preview.text.dropLast().last.map { ".,;:… ".contains($0) } ?? true)
+        let kept = preview.text.unicodeScalars.count - 1
+        XCTAssertTrue(preview.washes.allSatisfy { $0.range.upperBound <= kept }, "a wash is clipped to the kept words")
     }
 
     func testTheTurnACitationLandsInNeverFolds() throws {
@@ -278,15 +346,73 @@ final class ReaderChatTests: XCTestCase {
         XCTAssertEqual(day("2025-03-02T12:00:00Z"), "Mar 2, 2025")
     }
 
-    func testKeysMoveAMessageAPageOrToEitherEnd() {
-        XCTAssertEqual(ReaderChatKeys.target(.previous, from: nil, count: 10)?.index, 8, "from the newest")
-        XCTAssertEqual(ReaderChatKeys.target(.next, from: 9, count: 10)?.index, 9, "the newest is an end, not a loop")
-        XCTAssertEqual(ReaderChatKeys.target(.pageUp, from: 9, count: 10)?.index, 4)
-        XCTAssertEqual(ReaderChatKeys.target(.pageDown, from: 7, count: 10)?.index, 9)
-        XCTAssertEqual(ReaderChatKeys.target(.first, from: 5, count: 10)?.index, 0)
-        XCTAssertEqual(ReaderChatKeys.target(.first, from: 5, count: 10)?.alignsTop, true)
-        XCTAssertEqual(ReaderChatKeys.target(.last, from: 0, count: 10)?.alignsTop, false)
-        XCTAssertNil(ReaderChatKeys.target(.last, from: nil, count: 0))
+    func testKeysMoveFromTheRowAtTheTop() {
+        // Opened at the newest: the column shows rows 16…19 of 20, so row 16 is at the top. ↑ must move at once —
+        // the old cursor sat on row 19 and asked for row 18 at the top, which the scroll view clamped: nothing moved.
+        let opened = ReaderChatKeys.target(.previous, top: 16, count: 20)
+        XCTAssertEqual(opened?.index, 15)
+        XCTAssertEqual(opened?.alignsTop, true)
+        XCTAssertEqual(ReaderChatKeys.target(.pageUp, top: 16, count: 20)?.index, 11)
+        XCTAssertEqual(ReaderChatKeys.target(.next, top: 16, count: 20)?.index, 17)
+        XCTAssertEqual(ReaderChatKeys.target(.pageDown, top: 17, count: 20)?.index, 19, "the newest is an end")
+        // A trackpad scroll moved the top to row 3: the keys start there, not where they last left off.
+        XCTAssertEqual(ReaderChatKeys.target(.previous, top: 3, count: 20)?.index, 2)
+        XCTAssertEqual(ReaderChatKeys.target(.first, top: 9, count: 20).map { [$0.index, $0.alignsTop ? 1 : 0] }, [0, 1])
+        XCTAssertEqual(ReaderChatKeys.target(.last, top: 0, count: 20).map { [$0.index, $0.alignsTop ? 1 : 0] }, [19, 0])
+        XCTAssertEqual(ReaderChatKeys.target(.previous, top: nil, count: 20)?.index, 18, "before the view has said")
+        XCTAssertNil(ReaderChatKeys.target(.last, top: nil, count: 0))
+    }
+
+    // MARK: Saying each thing once
+
+    func testAChatTitleDropsTheDayItsSeparatorsSay() {
+        XCTAssertEqual(ReaderHeader.title(Self.messagesSitting()), "Messages with Sam")
+        XCTAssertEqual(ReaderHeader.title(Self.claudeCodeSession()), "Index switch")
+        let note = EpisodeText(episode: "ep_2026-10-18_002", text: "A note.", title: "Notes · 2026-10-18",
+                               turns: [EpisodeTurn(index: 1, start: 0, contentStart: 0, end: 7)])
+        XCTAssertEqual(ReaderHeader.title(note), "Notes · 2026-10-18", "a document keeps its title")
+    }
+
+    func testAChatMetaDropsTheDayAndTheCountAndNamesTheVendorOnce() {
+        XCTAssertEqual(ReaderHeader.meta(Self.claudeCodeSession(), locale: us, timeZone: utc), "Claude Code · Opus 5.5")
+        XCTAssertEqual(ReaderHeader.meta(Self.messagesSitting(), locale: us, timeZone: utc), "")
+        let export = Self.exportWithLongReply()
+        XCTAssertEqual(ReaderHeader.meta(export, locale: us, timeZone: utc), "", "the capture line names the export's vendor")
+        XCTAssertEqual(ReaderHeader.captureLine(export), Copy.Provenance.importedFrom("ChatGPT"))
+        // The document view is unchanged.
+        let note = EpisodeText(episode: "ep_2026-10-18_002", text: "A note.", timestamp: "2026-10-18T10:00:00+00:00",
+                               turns: [EpisodeTurn(index: 1, start: 0, contentStart: 0, end: 7)])
+        XCTAssertEqual(ReaderHeader.meta(note, locale: us, timeZone: utc), "Oct 18, 2026 · 1 turn")
+    }
+
+    // MARK: What never folds
+
+    func testKeepOpenHoldsTheLandingTurnAndEveryTurnWithACitedSpan() throws {
+        // A 47k reply is many blocks; a quote in its third block keeps the WHOLE turn open.
+        let doc = Self.exportWithLongReply()
+        let scalars = ScalarText(doc.text)
+        let all = ReaderLayout.blocks(doc: doc, scalars: scalars, focus: nil, focusStyle: .focus)
+        let third = try XCTUnwrap(all.first { $0.index == 2 && $0.chunk == 2 })
+        let quote = (third.contentStart + 10)..<(third.contentStart + 40)
+        let blocks = ReaderLayout.blocks(doc: doc, scalars: scalars, focus: quote, focusStyle: .focus)
+        let landing = ReaderLayout.blockID(containing: quote.lowerBound, in: blocks)
+        XCTAssertEqual(landing, ReaderBlock.Key(turn: 2, chunk: 2))
+        XCTAssertEqual(ReaderChat.keepOpen(blocks: blocks, landing: landing), [2])
+        let built = ReaderChat.rows(blocks: blocks, doc: doc, keepOpen: ReaderChat.keepOpen(blocks: blocks, landing: landing),
+                                    now: now, locale: us, timeZone: utc)
+        XCTAssertTrue(built.contains { $0.scrollID == AnyHashable(ReaderBlock.Key(turn: 2, chunk: 2)) },
+                      "the block landed on is drawn, so the scroll can reach it")
+        XCTAssertFalse(built.contains { if case .toggle(2, _, _) = $0.kind { true } else { false } })
+
+        // A found name (derived, bold, not washed as a quote) still holds the focus.
+        let derived = ReaderLayout.blocks(doc: doc, scalars: scalars, focus: quote, focusStyle: .mention)
+        XCTAssertEqual(ReaderChat.keepOpen(blocks: derived, landing: nil), [2])
+
+        // A focus with no range to wash (a stale quote, a name not found) lands by offset alone: that turn stays open.
+        let plain = ReaderLayout.blocks(doc: doc, scalars: scalars, focus: nil, focusStyle: .focus)
+        let stale = ReaderLayout.blockID(containing: third.contentStart, in: plain)
+        XCTAssertEqual(ReaderChat.keepOpen(blocks: plain, landing: stale), [2])
+        XCTAssertEqual(ReaderChat.keepOpen(blocks: plain, landing: nil), [], "nothing landed: everything may fold")
     }
 
     // MARK: Speed
@@ -353,6 +479,12 @@ final class ReaderChatTests: XCTestCase {
             ("claude-code-session", session, nil, []),
             ("export-long-reply", Self.exportWithLongReply(), nil, []),
             ("highlighted-quote", session, quote, []),
+            ("relayed", Self.conversation([
+                Line(marker: "user", text: "Help me plan the launch for next week.", ts: "2026-10-19T09:00:00+00:00"),
+                Line(marker: "assistant", text: "Here is a checklist: scope, owners, dates.", ts: "2026-10-19T09:01:00+00:00"),
+                Line(marker: "user", text: "Add a rollback step after the dates.", ts: "2026-10-19T09:02:00+00:00"),
+            ], title: "Launch plan", harness: "chatgpt", origin: "chatgpt", captureKind: "transcript",
+               forcedRole: "assistant", relay: EpisodeRelay(app: "chatgpt", label: "ChatGPT")), nil, []),
         ]
         let store = Self.store()
         for mode in [AppColorScheme.dark, .light] {
@@ -370,7 +502,7 @@ final class ReaderChatTests: XCTestCase {
                 let view = VStack(alignment: .leading, spacing: 0) {
                     ReaderColumnHeader(canGoBack: false, onBack: {}, page: nil,
                                        markOrigin: ReaderHeader.markOrigin(harness: doc.harness, origin: doc.origin),
-                                       episode: doc.episode, title: doc.title,
+                                       episode: doc.episode, title: ReaderHeader.title(doc),
                                        meta: ReaderHeader.meta(doc, locale: us, timeZone: utc), canResume: false,
                                        agent: nil, onResume: {}, onClose: {})
                     if let line = ReaderHeader.captureLine(doc) {

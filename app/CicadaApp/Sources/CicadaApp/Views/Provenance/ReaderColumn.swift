@@ -47,9 +47,12 @@ struct ReaderColumn: View {
     @State private var jump: EpisodeCitation?
     /// The chat layout's unfolded long messages, by turn (owner, 2026-10-19); emptied on every load.
     @State private var unfolded: Set<Int> = []
-    /// The chat row the keys last brought into view (`ReaderChatKeys`), and the scroll they asked for.
-    @State private var keyCursor: Int?
+    /// The chat row at the top of the column, as the scroll view reports it (`scrollPosition(id:)`) — the keys move
+    /// from here, so a trackpad scroll moves their starting point too — and the scroll a key asked for.
+    @State private var topRow: AnyHashable?
     @State private var keyScroll: KeyScroll?
+    /// The last layout built, so a key press or a hover redraw does not rebuild a 500-turn chat (`LayoutMemo`).
+    @State private var memo = LayoutMemo()
 
     /// A keyboard scroll: the row, the edge it lines up with, and a token so asking for the same row twice still moves.
     struct KeyScroll: Equatable {
@@ -110,7 +113,7 @@ struct ReaderColumn: View {
         jump = nil
         citations = nil
         unfolded = []
-        keyCursor = nil
+        topRow = nil
         let result = await cache.document(episode: target.episode, focus: target.query)
         // `.task(id:)` cancels a superseded load, but cancellation is
         // cooperative: a slow fetch for the previous target must never land
@@ -141,7 +144,7 @@ struct ReaderColumn: View {
     }
 
     private var title: String {
-        let known = loadedDoc?.title ?? router.current?.knownTitle ?? ""
+        let known = loadedDoc.map(ReaderHeader.title) ?? router.current?.knownTitle ?? ""
         return known.isEmpty ? Copy.Provenance.untitled : known
     }
 
@@ -198,7 +201,33 @@ struct ReaderColumn: View {
         let landingBlock: ReaderBlock.Key?
     }
 
+    /// One built layout and what it was built from. A class held in `@State`, so filling it while a body is drawn
+    /// mutates no view state.
+    private final class LayoutMemo {
+        struct Key: Hashable {
+            let target: ReaderTarget
+            let episode: String
+            let hash: String
+            let length: Int
+            let unfolded: Set<Int>
+            let jump: EpisodeCitation?
+            let citations: EpisodeCitations?
+        }
+        var key: Key?
+        var layout: Layout?
+    }
+
     private func layout(_ doc: EpisodeText, scalars: ScalarText, target: ReaderTarget) -> Layout {
+        let key = LayoutMemo.Key(target: target, episode: doc.episode, hash: doc.hash, length: doc.length,
+                                 unfolded: unfolded, jump: jump, citations: citations)
+        if memo.key == key, let built = memo.layout { return built }
+        let built = buildLayout(doc, scalars: scalars, target: target)
+        memo.key = key
+        memo.layout = built
+        return built
+    }
+
+    private func buildLayout(_ doc: EpisodeText, scalars: ScalarText, target: ReaderTarget) -> Layout {
         let presentation = jump.map {
             ReaderPresentation.citation($0, truncated: doc.truncated, textCount: scalars.count)
         } ?? ReaderPresentation.resolve(target: target, doc: doc, textCount: scalars.count)
@@ -211,9 +240,8 @@ struct ReaderColumn: View {
         var chat: [ReaderChat.Row]?
         if ReaderChat.isChat(doc) {
             // A turn holding the cited words, or the one landed on, never folds: the wash is always on screen.
-            var keepOpen = Set(blocks.filter(\.holdsFocus).map(\.index))
-            if let landingBlock { keepOpen.insert(landingBlock.turn) }
-            chat = ReaderChat.rows(blocks: blocks, doc: doc, expanded: unfolded, keepOpen: keepOpen)
+            chat = ReaderChat.rows(blocks: blocks, doc: doc, expanded: unfolded,
+                                   keepOpen: ReaderChat.keepOpen(blocks: blocks, landing: landingBlock))
         }
         return Layout(presentation: presentation, blocks: blocks, stops: stops, rows: rows, chat: chat,
                       landingBlock: landingBlock)
@@ -302,10 +330,12 @@ struct ReaderColumn: View {
                                 .padding(.top, CicadaTheme.scaled(32))
                         }
                     }
+                    .scrollTargetLayout()
                     .padding(.top, CicadaTheme.scaled(4))
                     .padding(.horizontal, CicadaTheme.scaled(Self.inset))
                     .padding(.bottom, CicadaTheme.scaled(layout.chat == nil ? 72 : 24))
                 }
+                .scrollPosition(id: $topRow, anchor: .top)
                 .accessibilityRotor("Cited passages") {
                     ForEach(citedStops, id: \.id) { stop in
                         AccessibilityRotorEntry(Text(stop.label), id: stop.id)
@@ -370,8 +400,8 @@ struct ReaderColumn: View {
         case .end: move = .last
         default: return .ignored
         }
-        guard let to = ReaderChatKeys.target(move, from: keyCursor, count: chat.count) else { return .ignored }
-        keyCursor = to.index
+        let top = topRow.flatMap { id in chat.firstIndex { $0.scrollID == id } }
+        guard let to = ReaderChatKeys.target(move, top: top, count: chat.count) else { return .ignored }
         keyScroll = KeyScroll(id: chat[to.index].scrollID, alignsTop: to.alignsTop, token: (keyScroll?.token ?? 0) &+ 1)
         return .handled
     }
@@ -445,14 +475,12 @@ struct ReaderColumn: View {
             await Task.yield()
             if let block {
                 proxy.scrollTo(block, anchor: .center)
-                keyCursor = chat?.firstIndex { $0.scrollID == AnyHashable(block) }
             } else if let chat, let newest = chat.last {
                 // A chat opens at its newest message, history above (owner, 2026-10-19). A lazy stack places what it
                 // has not measured by estimate, so it is asked twice: the second lands on the measured rows.
                 proxy.scrollTo(newest.scrollID, anchor: .bottom)
                 await Task.yield()
                 proxy.scrollTo(newest.scrollID, anchor: .bottom)
-                keyCursor = chat.count - 1
             }
             withAnimation(CicadaMotion.spanReveal(reduceMotion: reduceMotion)) { washVisible = true }
             // The first block's piece of the words: a chunk holds at least

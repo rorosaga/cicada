@@ -314,6 +314,26 @@ struct EpisodeWatch: Codable, Hashable {
     }
 }
 
+/// Ruling 32 — a conversation a hookless app's model relayed through the remote connector, until an export upgrades
+/// it: `app` is the connector catalog's id, `label` its name ("ChatGPT"), the person's own app. Both may be nil.
+struct EpisodeRelay: Codable, Hashable {
+    var app: String? = nil
+    var label: String? = nil
+
+    enum CodingKeys: String, CodingKey { case app, label }
+
+    init(app: String? = nil, label: String? = nil) {
+        self.app = app
+        self.label = label
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        app = (try? c.decodeIfPresent(String.self, forKey: .app)) ?? nil
+        label = (try? c.decodeIfPresent(String.self, forKey: .label)) ?? nil
+    }
+}
+
 /// `EpisodeText` — a whole stored document for the Reader. `text` is capped
 /// at 400,000 characters server-side (`truncated`, R-PB5); `length` and
 /// `hash` always describe the WHOLE text. `conversationId` is the stamped
@@ -348,6 +368,8 @@ struct EpisodeText: Codable, Hashable {
     /// G181 phase 3 — the id of the person's device whose token posted this conversation; nil for a page and for what
     /// the server's own machine wrote.
     var device: String? = nil
+    /// Ruling 32 — set while the episode is a relay no export has upgraded; nil against an older backend.
+    var relay: EpisodeRelay? = nil
 
     var isPage: Bool { kind == "page" }
     var isPageRead: Bool { source == EvidenceSpeaker.pageReadSource }
@@ -380,7 +402,7 @@ struct EpisodeText: Codable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case episode, kind, text, length, hash, truncated, title, timestamp, harness, origin
-        case conversationId, captureKind, turns, focus, agent, watch, source, correspondent, device
+        case conversationId, captureKind, turns, focus, agent, watch, source, correspondent, device, relay
     }
 
     init(from decoder: Decoder) throws {
@@ -388,6 +410,7 @@ struct EpisodeText: Codable, Hashable {
         source = try? c.decodeIfPresent(String.self, forKey: .source)
         correspondent = try? c.decodeIfPresent(String.self, forKey: .correspondent)
         device = (try? c.decodeIfPresent(String.self, forKey: .device)) ?? nil
+        relay = (try? c.decodeIfPresent(EpisodeRelay.self, forKey: .relay)) ?? nil
         episode = try c.decodeIfPresent(String.self, forKey: .episode) ?? ""
         kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "episode"
         text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""

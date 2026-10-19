@@ -1765,19 +1765,28 @@ are on screen together (Direction D, DS-2). It shows C's header — mark, title,
 Resume when an `isfile()` check says the session is resumable — the pinned "1 of N cited here"
 navigator, the turns in the quote face with `CitedSpan`, and the "Noted from this conversation" rows. **A conversation
 reads as a chat** (owner 2026-10-19, DESIGN_RULES §9): `ReaderChat.isChat` — an episode, not a page, a page-read, a watch
-record, a feed item or a calendar entry, with at least one `assistant`/`speaker` turn or a written `user:` marker — draws
+record, a feed item or a calendar entry, with at least one turn a conversation marker WROTE (`user:`/`human:`,
+`assistant:`/`ai:`, `speaker:<name>:`; a role forced by `evidence_kind` on a marker-less file never counts) — draws
 `ReaderChat.rows` (`ReaderChatModel.swift`, pure, `ReaderChatTests`) through `ReaderChatRows` (`ReaderChatView.swift`)
 in the same `LazyVStack`, over the very `ReaderLayout.blocks` the document view uses, so washes, landing, the navigator
 and both rotors address the same `ReaderBlock.Key`s. The person's turns sit right in a `chatBubbleFill` bubble, the
-other party's left as plain text; a run (one side and speaker, turns under 15 minutes apart) shows the face — the
+other party's left as plain text — the side read from each turn's written marker, not its role, because a relayed
+conversation (ruling 32) forces every role to `assistant`: `/episodes/{id}/text` carries `relay: {app, label}` until an
+export upgrades the episode, and then the person's side reads "Relayed by ChatGPT" (never "You") and the capture line
+says the words came through the app's model; a run (one side and speaker, turns under 15 minutes apart) shows the face — the
 Messages chat's own picture by `MessageBubbles.face`, the chat parsed from the sitting's `imessage:<chat>:…` source id
-(`ReaderChat.messagesChat`), a monogram for a meeting speaker — or the agent's mark, the name only when it changed, and
-its first stored time, once; day separators ("Today", "Yesterday", a weekday, "Thu, Sep 3") replace a date per turn,
+(`ReaderChat.messagesChat`), a monogram for a meeting speaker — or the agent's mark, the name only when it differs from
+the one the header already names (`ReaderChat.namedParty`), and its first stored time, once. A chat's title drops a
+trailing " · YYYY-MM-DD" and its meta drops the day and the turn count, naming the agent only when the capture line
+does not (`ReaderHeader.title`, `chatMeta`); a document's header is unchanged. Day separators ("Today", "Yesterday", a weekday, "Thu, Sep 3") replace a date per turn,
 computed when read; a gate-B2 gap is a centred line with its stamps as clock times. No "turn N", on screen or in
-VoiceOver. A turn over 1,000 characters or 12 lines folds to 480 / 6 lines behind "Show more" (`unfolded`, per load),
-except the turn a quote lands in or that holds a cited span. A chat with no quote to land on opens at its newest row
+VoiceOver. A turn over 1,000 characters or 12 lines folds to 480 / 6 lines behind "Show more" (`unfolded`, per load) —
+whole lines when cut at a break, else trailing punctuation dropped before "…" — except `ReaderChat.keepOpen`'s turns:
+the one landed on and any holding a cited or found span. A chat with no quote to land on opens at its newest row
 (scrolled twice, so the lazy stack's estimate settles) and pins its banners above the scroll; ↑/↓, ⇞/⇟, ⌘↑/⌘↓ and
-Home/End move a row cursor (`ReaderChatKeys`) and scroll in one frame. Everything else keeps the document view. A turn is
+Home/End move from the row at the column's top as the scroll view reports it (`scrollTargetLayout` +
+`scrollPosition(id:)`, so a trackpad scroll moves the start too; `ReaderChatKeys`), top-aligned, in one frame. The
+built layout is memoised per document, target, unfolded set, jump and citations (`LayoutMemo`). Everything else keeps the document view. A turn is
 selectable **and** washed through `CitedPassage` (2026-10-16): a selectable `Text` never reaches a `TextRenderer`, and
 a renderer-drawn copy behind the words breaks lines differently from them (the wash on the wrong words at some widths),
 so the passage is one selectable `Text` whose wash and underline are attributes of its own string (`CitedSpan.fallback`:

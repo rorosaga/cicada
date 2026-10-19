@@ -20,7 +20,9 @@ struct ReaderChatRows: View {
     var onToggle: (Int) -> Void = { _ in }
 
     var body: some View {
-        ForEach(rows) { row in
+        // Identified by the id landing, the rotors and `scrollPosition(id:)` read, so the column can say which row is
+        // at its top.
+        ForEach(rows, id: \.scrollID) { row in
             ReaderChatRowView(row: row, landingTurn: landingTurn, revealed: revealed, messagesChat: messagesChat,
                               onToggle: onToggle)
                 .padding(.top, Self.space(row.gap))

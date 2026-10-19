@@ -77,6 +77,10 @@ extension Copy {
 
         static let today = "Today"
         static let yesterday = "Yesterday"
+        /// Ruling 32 — a relayed person's turn: on their side, never "You"; `app` is the person's own app.
+        static func relayedBy(_ app: String?) -> String { "Relayed by \(app ?? "an app")" }
+        /// The capture line over a relayed conversation (the app is named once, on the person's first run).
+        static let relayHonesty = "Relayed by the app's model as you talked, so your side may not be word for word."
         static let showMore = "Show more"
         static let showLess = "Show less"
         static let showMoreHelp = "Show the whole message"

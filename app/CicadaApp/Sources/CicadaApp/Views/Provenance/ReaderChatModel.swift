@@ -27,20 +27,47 @@ enum ReaderChat {
     // MARK: Which documents are chats
 
     /// A conversation, as opposed to a document: an episode (never a page or a watch record, never a feed item or a
-    /// calendar entry) with at least one turn a conversation marker opened — the other party's (`assistant`,
-    /// `speaker`) or the person's own written `user:`. A note with no marker is one marker-less block and stays a
-    /// document.
+    /// calendar entry) with at least one turn a conversation marker WROTE — `user:`/`human:`, `assistant:`/`ai:` or
+    /// `speaker:<name>:`. The role alone never makes a chat: an episode that declares whose words it holds
+    /// (`evidence_kind`, R-LS7 — an agent-written folder file, a memory export entry) has every turn's role forced,
+    /// marker or not, and a note with no marker is one block of prose.
     static func isChat(_ doc: EpisodeText) -> Bool {
         guard !doc.isPage, !doc.isPageRead, doc.watch == nil, EvidenceSpeaker.sourceSpeaker(doc.origin) == nil else {
             return false
         }
-        return doc.turns.contains { turn in
-            switch turn.role {
-            case "assistant", "speaker": return true
-            case "user": return turn.marker != nil
-            default: return false
-            }
-        }
+        return doc.turns.contains { conversationMarker($0.marker) }
+    }
+
+    /// The written words that open a conversation's turn (`evidence._TURN_RE`'s role words and the note-taker's
+    /// `speaker:` family); an attachment, a video line or Cicada's gap are not a conversation by themselves.
+    static func conversationMarker(_ marker: String?) -> Bool {
+        guard let m = marker?.lowercased() else { return false }
+        return ["user", "human", "assistant", "ai"].contains(m) || m.hasPrefix("speaker")
+    }
+
+    /// Which side the WRITTEN marker puts a turn on, or nil when the turn has none (a block before the first marker,
+    /// a reply resumed after a gap). The marker, not the role: a relayed conversation (ruling 32) forces every role to
+    /// `assistant` while keeping each line's marker as written, so only the marker still says who spoke.
+    static func markerSide(_ marker: String?) -> Side? {
+        guard let m = marker?.lowercased(), m != "gap" else { return nil }
+        return ["user", "human", "system", "unknown"].contains(m) ? .person : .other
+    }
+
+    /// The party a chat's header already names — its correspondent, else its agent with the latest turn's model, as
+    /// `EvidenceSpeaker.turnSpeaker` would label that turn — so a run head does not say it again (DR-38).
+    static func namedParty(_ doc: EpisodeText) -> String? {
+        if let correspondent = doc.correspondent, !correspondent.isEmpty { return correspondent }
+        guard let agent = EvidenceSpeaker.agentName(harness: doc.harness, origin: doc.origin) else { return nil }
+        return ModelNames.agentLine(agent: agent, harness: nil, model: doc.agent?.model, effort: doc.agent?.effort)
+    }
+
+    /// The turns that never fold: each one holding a cited or found span (any of its blocks — a quote in a long turn's
+    /// third block keeps the whole turn open), and the turn a landing scrolls to, even when nothing there is washed
+    /// (a stale quote, a name that was not found).
+    static func keepOpen(blocks: [ReaderBlock], landing: ReaderBlock.Key?) -> Set<Int> {
+        var open = Set(blocks.filter(\.holdsFocus).map(\.index))
+        if let landing { open.insert(landing.turn) }
+        return open
     }
 
     /// The Messages chat a sitting belongs to (`imessage:<chat>:<first key>`), for its picture; nil for anything else.
@@ -156,8 +183,12 @@ enum ReaderChat {
         var out: [Row] = []
         var day: DateComponents?
         var last: (side: Side, speaker: String, date: Date?)?
-        var lastOtherName: String?
+        var lastOtherName: String? = namedParty(doc)
         var lastPersonName: String?
+        // Ruling 32: a relayed person's turn is on their side but is not "You" — the model relayed it.
+        let relayed = doc.relay.map { relay in
+            Copy.Provenance.relayedBy(relay.label ?? EvidenceSpeaker.agentName(harness: doc.harness, origin: nil))
+        }
         for (position, index) in order.enumerated() {
             guard let turnBlocks = pieces[index], let head = turnBlocks.first else { continue }
             let turn = turnsByIndex[index]
@@ -184,8 +215,9 @@ enum ReaderChat {
                 continue
             }
 
-            let side = side(of: head)
-            let speaker = head.speaker
+            let side = markerSide(turn?.marker) ?? (turn?.marker == nil && position > 0 ? last?.side : nil)
+                ?? side(of: head)
+            let speaker = side == .person ? (relayed ?? head.speaker) : head.speaker
             let startsRun: Bool = {
                 guard let last else { return true }
                 if last.side != side || last.speaker != speaker { return true }
@@ -212,7 +244,7 @@ enum ReaderChat {
             last = (side, speaker, date ?? last?.date)
 
             let open = keepOpen.contains(index) || expanded.contains(index)
-            let foldable = isLong(turnBlocks)
+            let foldable = isLong(turnBlocks) && !keepOpen.contains(index)
             let gapAbove: Gap = out.isEmpty ? .none : (startsRun ? .newRun : .inRun)
             if foldable && !open, let preview = preview(head) {
                 out.append(Row(id: .block(head.id), kind: .message(Message(
@@ -227,7 +259,7 @@ enum ReaderChat {
                         time: head.time, folded: false)), gap: n == 0 ? gapAbove : .none))
                 }
             }
-            if foldable && !keepOpen.contains(index) {
+            if foldable {
                 out.append(Row(id: .toggle(index), kind: .toggle(turn: index, side: side, expanded: open), gap: .none))
             }
         }
@@ -267,19 +299,25 @@ enum ReaderChat {
         return false
     }
 
-    /// The first `previewScalars` / `previewLines` of a turn's first block, cut at a line break or a space in the
-    /// back half of the window (never inside a word when one is there), its washes clipped to what is kept; nil when
-    /// the block already fits.
+    /// The first `previewScalars` / `previewLines` of a turn's first block, its washes clipped to what is kept; nil
+    /// when the block already fits. Cut at a line break, the preview simply stops there (the line is whole); cut
+    /// mid-line, at a space where one is in the back half of the window, it drops the trailing space and punctuation
+    /// and ends in "…" — never ".…".
     static func preview(_ block: ReaderBlock) -> ReaderBlock? {
         let scalars = ScalarText(block.text)
-        guard var cut = previewEnd(scalars) else { return nil }
-        // Trailing space only: a leading trim would move every wash.
-        while cut > 0, CharacterSet.whitespacesAndNewlines.contains(scalars.scalars[cut - 1]) { cut -= 1 }
+        guard let end = previewEnd(scalars) else { return nil }
+        let s = scalars.scalars
+        let atLineBreak = end < s.count && (s[end] == "\n" || s[end] == "\r")
+        var cut = end
+        // Trailing only: a leading trim would move every wash.
+        let trailing = atLineBreak ? CharacterSet.whitespacesAndNewlines
+            : CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".,;:…"))
+        while cut > 0, trailing.contains(s[cut - 1]) { cut -= 1 }
         let washes = block.washes.compactMap { wash -> ReaderWash? in
             let hi = min(wash.range.upperBound, cut)
             return hi > wash.range.lowerBound ? ReaderWash(range: wash.range.lowerBound..<hi, style: wash.style) : nil
         }
-        let text = scalars.slice(0, cut) + "…"
+        let text = scalars.slice(0, cut) + (atLineBreak ? "" : "…")
         return ReaderBlock(index: block.index, chunk: block.chunk, role: block.role, speaker: block.speaker,
                            mark: block.mark, time: block.time, text: text, contentStart: block.contentStart,
                            washes: washes)
@@ -347,25 +385,27 @@ enum ReaderChat {
 
 // MARK: - Keyboard
 
-/// ↑ / ↓, the page keys, Home / End and ⌘↑ / ⌘↓ in a chat (DR-60, DR-68): which row to bring into view. The Reader
-/// keeps a cursor on the row the keys last showed; nothing here animates.
+/// ↑ / ↓, the page keys, Home / End and ⌘↑ / ⌘↓ in a chat (DR-60, DR-68): which row to bring into view. Every move
+/// is relative to the row at the top of the column as it is now — the scroll view reports it (`scrollPosition(id:)`),
+/// so a trackpad scroll moves the keys' starting point too — and lines its target up with the top, except the newest,
+/// which lines up with the bottom. Nothing here animates.
 enum ReaderChatKeys {
     enum Move: Equatable { case previous, next, pageUp, pageDown, first, last }
     /// Rows a page key moves.
     static let page = 5
 
-    /// The target row's position among `count` rows from `current` (nil: the Reader has not moved yet, so the
-    /// newest is where it is), and the edge it lines up with.
-    static func target(_ move: Move, from current: Int?, count: Int) -> (index: Int, alignsTop: Bool)? {
+    /// The target row among `count` rows, from the row at the top (`top`; nil before the scroll view has said, when
+    /// the chat has just opened at its newest row), and whether it lines up with the top.
+    static func target(_ move: Move, top: Int?, count: Int) -> (index: Int, alignsTop: Bool)? {
         guard count > 0 else { return nil }
-        let here = current ?? count - 1
+        let here = min(max(top ?? count - 1, 0), count - 1)
         switch move {
         case .first: return (0, true)
         case .last: return (count - 1, false)
         case .previous: return (max(here - 1, 0), true)
-        case .next: return (min(here + 1, count - 1), false)
+        case .next: return (min(here + 1, count - 1), true)
         case .pageUp: return (max(here - page, 0), true)
-        case .pageDown: return (min(here + page, count - 1), false)
+        case .pageDown: return (min(here + page, count - 1), true)
         }
     }
 }

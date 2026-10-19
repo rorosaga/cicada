@@ -40,6 +40,7 @@ from api.models.schemas import (
     EpisodeFocus,
     EpisodeText,
     EpisodeTurn,
+    EpisodeRelay,
     EpisodeWatch,
     EvidenceModel,
     ProvenanceContributor,
@@ -208,7 +209,26 @@ def episode_document(
         focus=focus_model,
         agent=agent,
         watch=watch,
+        relay=_relay(fm) if is_episode else None,
     )
+
+
+def _relay(fm: dict) -> EpisodeRelay | None:
+    """Ruling 32: the relay record of an episode an export has not upgraded yet, or ``None``. An upgraded episode
+    holds the export's words — the person's own — so it is no longer a relay to the Reader."""
+    from api.services.turn_capture import RELAY_KEY
+
+    record = (fm or {}).get(RELAY_KEY)
+    if not isinstance(record, dict) or record.get("upgraded_at"):
+        return None
+    app = _opt(record.get("app"))
+    label = None
+    if app:
+        from api.remote.catalog import APPS
+
+        known = APPS.get(app)
+        label = known.label if known is not None and app != "other" else None
+    return EpisodeRelay(app=app, label=label)
 
 
 def _correspondent(fm: dict) -> dict:
