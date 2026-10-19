@@ -77,7 +77,8 @@ def test_source_key_routes_mcp_and_session_episodes_to_a_harness_row():
     assert source_overview.source_key({"origin": "safari-bookmark"}) == "safari-bookmarks"
     assert source_overview.source_key({"origin": "claude-export", "source_id": "t"}) == "chat-export:claude"
     assert source_overview.source_key({"origin": "gemini-export", "source_id": "t"}) == "chat-export:gemini", "conversations.py:599 writes it"
-    assert source_overview.source_key({"origin": "tiktok-history"}) == "tiktok"
+    assert source_overview.source_key({"origin": "tiktok-history"}) == "tiktok-history", "history is never a save (#347)"
+    assert source_overview.source_key({"origin": "youtube-history"}) == "youtube-history"
     assert source_overview.source_key({"origin": "mystery-app"}) == "origin:mystery-app"
     assert source_overview.source_key({}) == "origin:unknown"
 
@@ -367,3 +368,36 @@ def test_the_overview_carries_the_intent_on_the_wire(client):
     assert r.status_code == 200
     rows = r.json()["sources"]
     assert rows and all(row["intent"] in source_overview.INTENTS for row in rows)
+
+
+def test_watch_history_is_captured_and_never_counted_as_saved(tmp_path):
+    """Review of #347: 30 days of YouTube history and no save read "YouTube · 30 saved" over an empty list. History is
+    its own captured row; a saved row counts what its list lists."""
+    m = tmp_path / "memory"
+    m.mkdir()
+    for d in range(1, 31):
+        _episode(m, f"ep_2026-09-{d:02d}_001", timestamp=f"2026-09-{d:02d}T09:00:00+00:00", origin="youtube-history")
+    bank_index.invalidate()
+    rows = _rows(m)
+    assert "youtube" not in rows, "no save, no YouTube row"
+    history = rows["youtube-history"]
+    assert history["intent"] == "captured" and history["episodes"] == 30 and history["items"] == 0
+    from api.services import channel_items
+    assert channel_items.known(m, "youtube") and channel_items.items(m, "youtube")["total"] == 0
+    assert not channel_items.known(m, "youtube-history"), "a captured row is not a saved list"
+
+
+def test_a_saved_row_without_a_channel_counts_its_saved_pages_like_its_list(tmp_path):
+    m = tmp_path / "memory"
+    m.mkdir()
+    for n, origin in enumerate(["youtube-playlist", "youtube-playlist", "youtube-history"]):
+        _episode(m, f"ep_2026-09-0{n + 1}_001", timestamp=f"2026-09-0{n + 1}T09:00:00+00:00", origin=origin)
+    (m / "entities").mkdir(exist_ok=True)
+    for name, status in (("media-a", "active"), ("media-b", "active"), ("media-c", "archived")):
+        (m / "entities" / f"{name}.md").write_text(
+            f"---\nid: {name}\ntype: media\nname: {name}\norigin: youtube-playlist\nstatus: {status}\n---\n", encoding="utf-8")
+    bank_index.invalidate()
+    youtube = _rows(m)["youtube"]
+    from api.services import channel_items
+    assert youtube["intent"] == "saved"
+    assert youtube["items"] == 2 == channel_items.items(m, "youtube")["total"], "the row's number is its list's"

@@ -100,10 +100,13 @@ CATALOG: tuple[SourceSpec, ...] = (
     # `x-likes`: the X archive's like.js (saved_exports); bookmarks come from the connector.
     SourceSpec("x", "X", "social", "x-bookmarks", ("x-bookmarks", "x-likes"), "x"),
     SourceSpec("instagram", "Instagram", "social", "instagram-saved", ("instagram-saved",), None),
-    # G71 (2026-10-16): `youtube-history` — the day episodes of what was watched (Takeout, Chrome, the agent).
-    SourceSpec("youtube", "YouTube", "social", "youtube-playlist", ("youtube-playlist", "youtube-history"), None),
+    SourceSpec("youtube", "YouTube", "social", "youtube-playlist", ("youtube-playlist",), None),
+    # G71 (2026-10-16): `youtube-history` — the day episodes of what was watched (Takeout, Chrome, the agent). Its own
+    # row since Sources v3 (review of #347): watch history is never a save, so it is captured, never counted as saved.
+    SourceSpec("youtube-history", "YouTube history", "social", "youtube-history", ("youtube-history",), None),
     SourceSpec("linkedin", "LinkedIn", "social", "linkedin-saved", ("linkedin-saved",), None),
-    SourceSpec("tiktok", "TikTok", "social", "tiktok-saved", ("tiktok-saved", "tiktok-history"), None),
+    SourceSpec("tiktok", "TikTok", "social", "tiktok-saved", ("tiktok-saved",), None),
+    SourceSpec("tiktok-history", "TikTok history", "social", "tiktok-history", ("tiktok-history",), None),
     SourceSpec("rss", "RSS feeds", "feed", "rss", ("rss",), "rss"),
     SourceSpec("calendar", "Calendars", "feed", "calendar", ("calendar",), "calendar"),
     # G142 (round 4): Apple Calendar through EventKit, so its episodes never read as a raw id.
@@ -137,6 +140,8 @@ def intent_of(key: str) -> str:
 _BY_ID = {spec.id: spec for spec in CATALOG}
 _ORIGIN_TO_ID = {origin: spec.id for spec in CATALOG for origin in spec.origins}
 _FILES_ORIGINS = frozenset(_BY_ID["files"].origins)
+#: The saved rows with no channel: their `items` is their saved media pages, counted here (the list's own set).
+_SAVED_LIST_ROWS = frozenset(spec.id for spec in CATALOG if spec.channel is None and spec.id in SAVED_SOURCES)
 
 # Final review F6 — the ONE predicate for "this media page is hidden from
 # every read path". `GET /sources/{id}` filters its item list on it (a
@@ -280,10 +285,16 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
     # "400 items" on a card whose page showed 3. Counted here, on the same
     # entity walk as the credits, from the pages themselves.
     files_media = 0
+    # Sources v3 (review of #347): a saved source with no channel counts what its list lists — its live saved media
+    # pages (`channel_items` lists them by these origins) — never its episodes, so a history day can never read "saved".
+    saved_media: dict[str, int] = {}
     for f in bank_index.files(memory_path, "entities"):
         fm = f.frontmatter
         entity_id = str(fm.get("id") or f.stem)
         origin = str(fm.get("origin") or "").strip()
+        owner = _ORIGIN_TO_ID.get(origin)
+        if (fm.get("type") == "media" and owner in _SAVED_LIST_ROWS and not is_hidden(fm)):
+            saved_media[owner] = saved_media.get(owner, 0) + 1
         # Nil-origin OR `saved-link`: the writers stamp an origin now, but every
         # link saved before they did carries none, and both are the same card.
         # F6: skipping the hidden ones is what keeps this count equal to the
@@ -323,6 +334,10 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
         # stamp differ in shape and would otherwise compare by string length.
         if _sortable(last_sync) > _sortable(state["last_activity_at"]):
             state["last_activity_at"] = last_sync
+
+    for key, count in saved_media.items():
+        state = states.setdefault(key, _new_state(key, labels))
+        state["items"] = count
 
     rows = []
     for state in states.values():

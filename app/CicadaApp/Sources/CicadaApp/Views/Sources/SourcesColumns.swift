@@ -87,8 +87,9 @@ enum SourceListText {
     static func count(_ source: SourceOverview) -> String {
         switch source.intent {
         case .saved:
-            let n = source.items > 0 ? source.items : source.episodes
-            return n > 0 ? Copy.Lists.savedCount(n) : Copy.Lists.nothingSavedYet
+            // What the row's list lists, never its episodes: a capture is not a save (review of #347 — a watch-history
+            // day once read "30 saved" over an empty list). The backend counts a channel-less row's saved pages.
+            return source.items > 0 ? Copy.Lists.savedCount(source.items) : Copy.Lists.nothingSavedYet
         case .captured:
             guard let headline = source.headline else { return Copy.Lists.nothingYet }
             return Copy.Lists.headline(headline.count, noun: headline.noun)

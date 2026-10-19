@@ -236,8 +236,8 @@ private struct CapturedItemRow: View {
 }
 
 /// Sources v3 — one saved thing as a two-line row (DR-34: 56 pt, 2 pt apart, DR-35): the site's own mark (`SiteIcon` —
-/// the favicon the reading list already holds, a bundled family mark, else a ring monogram of the site; never the
-/// browser's mark), the title and the day on the first line, and on the second why the person saved it — their own
+/// the site's own icon, asked of that site by the backend (owner ruling 2026-10-19), else a bundled family mark, else a
+/// ring monogram of the site; never the browser's mark), the title and the day on the first line, and on the second why the person saved it — their own
 /// words, then the reasons they tapped — and the site. A row opens where a saved item opens today (Sleep › Saved,
 /// `CapturedItemRoute`); hover is a fill (DR-48, DR-63).
 struct SavedItemRow: View {
@@ -272,7 +272,9 @@ struct SavedItemRow: View {
     private var mark: some View {
         switch SavedItemText.mark(item) {
         case .site(let key, let label):
-            SiteIcon(site: key, label: label)
+            // Owner ruling 2026-10-19: the site's own icon, asked of that site only (never an icon service), now that
+            // the person opened this list; a bundled family mark or a monogram until — or unless — it arrives.
+            SiteIcon(site: key, label: label, savedItem: item.kind == .media ? item.id : nil)
         case .monogram(let letter):
             SiteMonogram(letter: letter, side: CicadaTheme.scaled(SiteIconLayout.Size.row.points))
                 .accessibilityHidden(true)

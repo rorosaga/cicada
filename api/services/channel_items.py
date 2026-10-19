@@ -424,3 +424,29 @@ def items(memory_path: Path, channel_id: str, *, offset: int = 0, limit: int = L
     rows.sort(key=lambda r: (-r["_sort"], r["title"].casefold(), r["id"]))
     page = [_enrich(memory_path, r) for r in rows[offset:offset + limit]]
     return {"channel": channel_id, "total": len(rows), "offset": offset, "limit": limit, "items": page}
+
+
+def saved_link_site(memory_path: Path, media_entity_id: str) -> str | None:
+    """The one site a saved link's own icon may be asked of (owner ruling 2026-10-19): the registrable domain of THIS
+    link's own URL (`logo_service.own_site_domain`), only for a live media page a saved source lists (a bookmark, a
+    saved post, a pasted link — an origin a `saved` row owns, or none, as Files & links takes) — else None, and the
+    route answers 404 with nothing asked. Never a name the caller supplies: the site comes from the bank's record."""
+    from api.services import logo_service
+
+    memory_path = Path(memory_path)
+    f = bank_index.file(memory_path, "entities", f"{media_entity_id}.md")
+    fm = (f.frontmatter or {}) if f is not None else {}
+    if fm.get("type") != "media" or source_overview.is_hidden(fm):
+        return None
+    origin = str(fm.get("origin") or "").strip()
+    owner = source_overview.source_key({"origin": origin}) if origin else "files"
+    if source_overview.intent_of(owner) != "saved":
+        return None
+    try:
+        index = media_ingestor.load_url_index(memory_path)
+    except Exception:
+        return None
+    url = next((str(e.get("url") or "") for e in (index.values() if isinstance(index, dict) else [])
+                if isinstance(e, dict) and str(e.get("media_entity_id") or "") == media_entity_id
+                and not e.get("alias_of")), "") or str(fm.get("url") or "")
+    return logo_service.own_site_domain(url) if url else None

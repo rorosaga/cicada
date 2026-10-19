@@ -17,22 +17,31 @@ actor SiteIconStore {
     /// which serves only a trusted site of THAT page; `(entity, site)`.
     typealias EntityFetcher = @Sendable (String, String) async throws -> Data?
 
+    /// Owner ruling 2026-10-19 — a saved link's row asks its own site's icon by the link's media id
+    /// (`GET /sources/saved/{id}/site-icon`); the answer is kept per site, so one site's rows ask once.
+    typealias SavedFetcher = @Sendable (String) async throws -> Data?
+
     private let fetch: Fetcher
     private let fetchForEntity: EntityFetcher
+    private let fetchForSaved: SavedFetcher
 
     init(fetch: @escaping Fetcher = { try await APIClient.shared.fetchSiteIcon(site: $0) },
-         fetchForEntity: @escaping EntityFetcher = { try await APIClient.shared.fetchEntitySourceIcon(entityId: $0, site: $1) }) {
+         fetchForEntity: @escaping EntityFetcher = { try await APIClient.shared.fetchEntitySourceIcon(entityId: $0, site: $1) },
+         fetchForSaved: @escaping SavedFetcher = { try await APIClient.shared.fetchSavedLinkSiteIcon(mediaEntityId: $0) }) {
         self.fetch = fetch
         self.fetchForEntity = fetchForEntity
+        self.fetchForSaved = fetchForSaved
     }
 
-    private func key(_ site: String, _ bank: String, _ entity: String? = nil) -> String {
-        entity.map { "\(bank)|\(site)|\($0)" } ?? "\(bank)|\(site)"
+    private func key(_ site: String, _ bank: String, _ entity: String? = nil, saved: Bool = false) -> String {
+        if saved { return "\(bank)|\(site)|saved" }
+        return entity.map { "\(bank)|\(site)|\($0)" } ?? "\(bank)|\(site)"
     }
 
-    /// `entity` set: the icon of a site a source on that page names; nil: a Settings/Feed site (the surfaced list).
-    func image(site: String, bank: String, entity: String? = nil) async -> NSImage? {
-        let k = key(site, bank, entity)
+    /// `entity` set: the icon of a site a source on that page names; `savedItem` set: a saved link's own site (asked of
+    /// that site only, by the backend); neither: a Settings/Feed site (the surfaced list).
+    func image(site: String, bank: String, entity: String? = nil, savedItem: String? = nil) async -> NSImage? {
+        let k = key(site, bank, entity, saved: savedItem != nil)
         if let hit = images[k] { return hit }
         if misses.contains(k) { return nil }
         // A caller that joins a running request takes its answer. Once it resumes, the first caller may already have
@@ -43,9 +52,11 @@ actor SiteIconStore {
         }
         let fetch = self.fetch
         let fetchForEntity = self.fetchForEntity
+        let fetchForSaved = self.fetchForSaved
         let task = Task<Answer, Never> {
             do {
-                let bytes = if let entity { try await fetchForEntity(entity, site) } else { try await fetch(site) }
+                let bytes = if let savedItem { try await fetchForSaved(savedItem) }
+                    else if let entity { try await fetchForEntity(entity, site) } else { try await fetch(site) }
                 guard let data = bytes, let image = NSImage(data: data) else { return .none }
                 return .image(image)
             } catch {

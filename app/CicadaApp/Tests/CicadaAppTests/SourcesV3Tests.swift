@@ -58,8 +58,10 @@ final class SourcesV3Tests: XCTestCase {
         let chrome = row("chrome-bookmarks", .browser, .saved, items: 342, channelId: "chrome-bookmarks")
         let watching = SourceLiveness(state: .watching, detail: nil)
         XCTAssertEqual(SourceListText.line(chrome, liveness: watching), "342 saved · Watching")
-        let youtube = row("youtube", .social, .saved, episodes: 12)
-        XCTAssertEqual(SourceListText.count(youtube), "12 saved", "an import with no channel counts what it brought")
+        let youtube = row("youtube", .social, .saved, items: 12, episodes: 40)
+        XCTAssertEqual(SourceListText.count(youtube), "12 saved", "the saved pages its list lists, never its episodes")
+        XCTAssertEqual(SourceListText.count(row("youtube", .social, .saved, episodes: 30)), "Nothing saved yet",
+                       "review of #347: thirty captured days are not thirty saves")
         XCTAssertEqual(SourceListText.count(row("x", .social, .saved)), "Nothing saved yet")
         let claude = row("harness:claude-code", .harness, .captured, episodes: 300, conversations: 204,
                          harness: "claude-code")
@@ -188,15 +190,17 @@ final class SourcesV3Tests: XCTestCase {
         XCTAssertEqual(SiteIconLayout.rung(favicon: false, site: "linkedin", markExists: { _ in true }),
                        .bundled("linkedin"), "a family's own bundled mark")
         XCTAssertEqual(SiteIconLayout.rung(favicon: false, site: "example.com", markExists: { _ in true }), .monogram,
-                       "a site with no icon Cicada holds draws its monogram — no new fetch (the logo rail)")
+                       "a site whose own icon has not arrived (or does not exist) draws its monogram")
         let noSite = ChannelItem(kind: .media, id: "m2", title: "Zebra notes", host: "zebra.example")
         XCTAssertEqual(SavedItemText.mark(noSite), .monogram("Z"))
         XCTAssertEqual(SavedItemText.mark(ChannelItem(kind: .media, id: "m3", title: "quiet page")), .monogram("Q"))
     }
 
-    func testTheRowsMarkAsksOnlyTheReadingListsIconRoute() throws {
+    func testTheRowsMarkAsksItsOwnSiteThroughTheBackend() throws {
         let row = try source("Views/Sources/CapturedItemsList.swift")
-        XCTAssertTrue(row.contains("SiteIcon(site: key, label: label)"))
+        XCTAssertTrue(row.contains("SiteIcon(site: key, label: label, savedItem: item.kind == .media ? item.id : nil)"))
+        let client = try source("Services/APIClient.swift")
+        XCTAssertTrue(client.contains("\"/sources/saved/\\(encodedID(mediaEntityId))/site-icon\""))
         XCTAssertFalse(row.contains("OriginMark(origin"), "never the browser's mark on a saved row")
         XCTAssertFalse(row.contains("URL(string"), "the app loads no picture a page names from the web")
     }
@@ -215,6 +219,19 @@ final class SourcesV3Tests: XCTestCase {
         XCTAssertEqual(Copy.savedRowLabel("A design system", day: "Monday, October 19, 2026", why: "the type scale",
                                           host: "example.com", left: nil),
                        "A design system, saved Monday, October 19, 2026, why: the type scale, example.com")
+    }
+
+    /// Owner ruling 2026-10-19 — a saved row asks its own site's icon by its media id, once per site; never the
+    /// reading list's icon-service route.
+    func testASavedRowAsksItsOwnSiteOncePerSiteAndNeverTheIconService() async {
+        let saved = SavedAsks()
+        let store = SiteIconStore(fetch: { _ in XCTFail("the icon-service route is never asked for a saved row"); return nil },
+                                  fetchForSaved: { id in await saved.add(id); return nil })
+        _ = await store.image(site: "paperfold.io", bank: "b1", savedItem: "media-1")
+        _ = await store.image(site: "paperfold.io", bank: "b1", savedItem: "media-2")
+        _ = await store.image(site: "other.io", bank: "b1", savedItem: "media-3")
+        let asked = await saved.ids
+        XCTAssertEqual(asked, ["media-1", "media-3"], "a second row of the same site reuses the first answer, a miss too")
     }
 
     // MARK: 5 · Paging at the owner's scale
@@ -247,4 +264,9 @@ final class SourcesV3Tests: XCTestCase {
         let list = try source("Views/Sources/CapturedItemsList.swift")
         XCTAssertTrue(list.contains("LazyVStack(spacing: CicadaTheme.scaled(RowMetrics.twoLineGap))"))
     }
+}
+
+private actor SavedAsks {
+    var ids: [String] = []
+    func add(_ id: String) { ids.append(id) }
 }

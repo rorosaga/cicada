@@ -1223,6 +1223,42 @@ async def list_channel_items(
     return page
 
 
+_OWN_ICON_SEMAPHORE = asyncio.Semaphore(4)
+
+
+@router.get("/sources/saved/{media_entity_id}/site-icon")
+async def get_saved_link_site_icon(media_entity_id: str, request: Request, settings: Settings = Depends(get_settings)):
+    """A saved link's own site icon (owner ruling 2026-10-19), for its row in a list the person opened. Asked of that
+    site only — `https://<registrable domain>/apple-touch-icon.png`, then `/favicon.ico` — never of an icon service,
+    so no one else learns what was saved; behind `CICADA_ALLOW_LOGO_FETCH`; cached under `logos/<bank>/sites/own/`
+    with misses. 404 means "draw the monogram": a page that is not a live saved link, a walled or private host, the
+    gate off, a miss. Nothing calls this but the app's row; Sleep never does."""
+    import hashlib
+
+    from fastapi.responses import FileResponse
+
+    from api.services import logo_service
+
+    memory_path = settings.memory_path
+    site = await run_in_threadpool(channel_items.saved_link_site, memory_path, media_entity_id)
+    if not site:
+        raise HTTPException(404, "no icon for this site")
+    bank = logo_service.own_site_bank(logo_service.bank_name(memory_path))
+    path = logo_service.cached_path(bank, site)
+    if path is None:
+        async with _OWN_ICON_SEMAPHORE:
+            path = await logo_service.ensure_own_site_icon(memory_path, site)
+    if path is None or not path.exists():
+        raise HTTPException(404, "no icon for this site")
+    stat = path.stat()
+    etag = '"' + hashlib.sha1(f"{path.name}:{stat.st_mtime_ns}:{stat.st_size}".encode()).hexdigest()[:16] + '"'
+    headers = {"ETag": etag, "Cache-Control": "max-age=86400"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    types = {"png": "image/png", "jpg": "image/jpeg", "gif": "image/gif", "webp": "image/webp", "ico": "image/x-icon"}
+    return FileResponse(path, media_type=types.get(path.suffix.lstrip("."), "application/octet-stream"), headers=headers)
+
+
 # --- Feed subscriptions (registry + poll) -----------------------------------
 
 

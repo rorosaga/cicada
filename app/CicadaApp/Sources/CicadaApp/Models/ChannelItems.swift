@@ -194,9 +194,9 @@ enum SavedItemText {
         return text.isEmpty ? nil : text
     }
 
-    /// Which mark the row draws: the site's own key when the row has one — `SiteIcon` then shows the favicon the
-    /// reading list already holds, a bundled family mark, or a monogram of the site — else a monogram of the host or
-    /// the title. Never the browser's mark: the row is the site, not where it was saved from.
+    /// Which mark the row draws: the site's own key when the row has one — `SiteIcon` then shows the site's own icon
+    /// (asked of that site only, owner ruling 2026-10-19), a bundled family mark, or a monogram of the site — else a
+    /// monogram of the host or the title. Never the browser's mark: the row is the site, not where it was saved from.
     enum Mark: Equatable {
         case site(key: String, label: String)
         case monogram(String)

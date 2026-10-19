@@ -394,16 +394,25 @@ async def _http_get(url: str) -> FetchResult:
     """
     import httpx
 
+    # Streamed and cut at MAX_BYTES + 1 (Sources v3, 2026-10-19): the ToS rail is "≤ 512 KB read", so an oversize body
+    # is never pulled in whole only to be refused; one byte over is enough for `_accept` to say no. A fresh client per
+    # hop carries no cookie from anywhere.
     async with httpx.AsyncClient(follow_redirects=False, timeout=TIMEOUT_SECONDS) as client:
-        resp = await client.get(url, headers={"User-Agent": USER_AGENT})
-        body = resp.content[: MAX_BYTES + 1]
-        return FetchResult(
-            status=resp.status_code,
-            body=body,
-            content_type=resp.headers.get("content-type", ""),
-            etag=resp.headers.get("etag"),
-            location=resp.headers.get("location"),
-        )
+        async with client.stream("GET", url, headers={"User-Agent": USER_AGENT}) as resp:
+            chunks, size = [], 0
+            async for chunk in resp.aiter_bytes():
+                chunks.append(chunk)
+                size += len(chunk)
+                if size > MAX_BYTES:
+                    break
+            body = b"".join(chunks)[: MAX_BYTES + 1]
+            return FetchResult(
+                status=resp.status_code,
+                body=body,
+                content_type=resp.headers.get("content-type", ""),
+                etag=resp.headers.get("etag"),
+                location=resp.headers.get("location"),
+            )
 
 
 def looks_like_svg(data: bytes) -> bool:
@@ -959,4 +968,131 @@ async def ensure_site_icon(
             logger.warning(f"Could not cache a site icon: {type(exc).__name__}: {exc}")
             return None
         await _record_meta(bank, site, {"fetched_at": now, "domain": domain, "miss": False, "etag": etag, "ext": ext})
+        return path
+
+
+
+# --- a saved link's own site (owner ruling 2026-10-19) ---------------------------------------------------------------
+#
+# The owner, 2026-10-19: a saved link's row shows the site's own icon, asked of the site itself — never through a
+# third-party service (the icon service is never told what the person saved) — only when the app asks for a list the
+# person opened (never from Sleep, never a whole bank), the registrable domain of the saved link's own URL only, through
+# the SSRF guard and the ToS rail, behind `CICADA_ALLOW_LOGO_FETCH`, cached outside every bank with misses cached too;
+# a failure is a monogram, never an error.
+#
+# Two fixed paths, never the homepage's HTML: `/apple-touch-icon.png` (big enough for a 20 pt row at 2×) then
+# `/favicon.ico`. Reading the homepage for a `<link rel=icon>` would fetch a whole page of the site's HTML — the most
+# bytes, the most likely to meet a consent wall or a login redirect — to learn a path these two conventions already
+# cover for most sites; a site with neither keeps its monogram. At most two requests per site, each with its own
+# redirects checked hop by hop.
+
+#: The cache namespace: `logos/<bank>/sites/own/` — beside, never mixed with, the icon-service icons in `sites/`, so a miss
+#: on one path never hides the other.
+OWN_SITE_DIR = "own"
+OWN_SITE_PATHS = ("/apple-touch-icon.png", "/favicon.ico")
+#: A site that says no: a miss at once, the next path never tried, nothing retried with other headers (the ToS rail).
+_BLOCK_STATUSES = {401, 403, 407, 451}
+_MAGIC_EXT = ((b"\x89PNG\r\n\x1a\n", "png"), (b"\x00\x00\x01\x00", "ico"), (b"GIF8", "gif"), (b"\xff\xd8\xff", "jpg"))
+
+
+def own_site_bank(bank: str) -> str:
+    return f"{site_bank(bank)}/{OWN_SITE_DIR}"
+
+
+def own_site_domain(url: str) -> str | None:
+    """The one name a saved link's own icon is asked of: the registrable domain of the link's URL
+    (`reading_hosts.site_of`), when it is a public-looking domain and not a login-walled family — else None (the row
+    keeps its bundled family mark or its monogram, and nothing is asked)."""
+    from api.services import reading_hosts
+
+    site = reading_hosts.site_of(url or "")
+    if not site or "." not in site or not reading_hosts.valid_site_key(site):
+        return None
+    if reading_hosts.is_walled(f"https://{site}/") or not reading_hosts.is_public_name(site):
+        return None
+    return site
+
+
+def _sniffed(result: FetchResult) -> tuple[bytes, str, str | None] | None:
+    """A favicon served as `application/octet-stream` or `text/plain` is still an icon when its bytes say so; the same
+    size, SVG and pixel rules as `_accept`."""
+    if result.status != 200 or not result.body or len(result.body) > MAX_BYTES or looks_like_svg(result.body):
+        return None
+    ext = next((e for magic, e in _MAGIC_EXT if result.body.startswith(magic)), None)
+    if ext is None:
+        return None
+    smallest = min_dimension(result.body)
+    if smallest is not None and smallest < MIN_PIXELS:
+        return None
+    return result.body, ext, result.etag
+
+
+async def _get_on_site(url: str, site: str, *, fetcher: Fetcher, resolver: Resolver) -> FetchResult | None:
+    """One GET that never leaves `site`: every hop (≤ `MAX_REDIRECTS`) must pass the SSRF check, stay on the same
+    registrable domain and not be a login-walled host — a redirect anywhere else is a miss, never followed."""
+    from api.services import reading_hosts
+
+    current = url
+    for _ in range(MAX_REDIRECTS + 1):
+        if reading_hosts.site_of(current) != site or reading_hosts.is_walled(current):
+            return None
+        if not _is_safe_url(current, resolver=resolver):
+            return None
+        try:
+            result = await fetcher(current)
+        except Exception as exc:  # a dead host is a monogram, never an error
+            logger.debug(f"own-site icon fetch failed: {type(exc).__name__}")
+            return None
+        if result.status in _REDIRECT_STATUSES and result.location:
+            current = urljoin(current, result.location)
+            continue
+        return result
+    return None
+
+
+async def fetch_own_site_icon(
+    site: str, *, fetcher: Fetcher | None = None, resolver: Resolver | None = None
+) -> tuple[bytes, str, str | None] | None:
+    """The site's own icon, asked of `https://<site>` only: `OWN_SITE_PATHS` in order, the first acceptable raster
+    wins; a block (401/403/407/451) stops at once. Never the icon service."""
+    if fetcher is None:
+        if not fetch_allowed():
+            return None
+        fetcher = _http_get
+    resolver = resolver or _resolve_host
+    for path in OWN_SITE_PATHS:
+        result = await _get_on_site(f"https://{site}{path}", site, fetcher=fetcher, resolver=resolver)
+        if result is None:
+            continue
+        if result.status in _BLOCK_STATUSES:
+            return None
+        accepted = _accept(result) or _sniffed(result)
+        if accepted:
+            return accepted
+    return None
+
+
+async def ensure_own_site_icon(memory_path: Path, site: str, *, fetcher: Fetcher | None = None) -> Path | None:
+    """Cache-check -> at most one `fetch_own_site_icon` -> store, under `logos/<bank>/sites/own/`. A hit lasts 30 days,
+    a miss 7; with the gate off (and no injected fetcher) nothing is asked and nothing is recorded."""
+    bank = own_site_bank(bank_name(Path(memory_path)))
+    async with _lock(f"own:{bank}/{site}"):
+        entry = read_meta(bank).get(site)
+        if entry and is_fresh(entry):
+            return cached_path(bank, site)
+        if fetcher is None and not fetch_allowed():
+            return None
+        result = await fetch_own_site_icon(site, fetcher=fetcher)
+        now = datetime.now(timezone.utc).isoformat()
+        if result is None:
+            await _record_meta(bank, site, {"fetched_at": now, "miss": True, "etag": None, "ext": None})
+            return None
+        body, ext, etag = result
+        path = logos_dir(bank) / f"{site}.{ext}"
+        try:
+            path.write_bytes(body)
+        except OSError as exc:
+            logger.warning(f"Could not cache a site icon: {type(exc).__name__}: {exc}")
+            return None
+        await _record_meta(bank, site, {"fetched_at": now, "miss": False, "etag": etag, "ext": ext})
         return path

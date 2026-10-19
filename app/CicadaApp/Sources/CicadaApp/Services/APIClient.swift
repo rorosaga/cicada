@@ -3047,6 +3047,21 @@ actor APIClient {
 
     /// `GET /reading/sites/{site}/icon` — a site's favicon from the icon service (the site is never contacted). nil on
     /// a 404: "no icon" is an ordinary answer and the row draws its own mark.
+    /// Owner ruling 2026-10-19 — a saved link's own site icon, asked of that site by the backend (never an icon
+    /// service) for a row of a list the person opened. 404 is "draw the monogram".
+    func fetchSavedLinkSiteIcon(mediaEntityId: String) async throws -> Data? {
+        var request = makeRequest("/sources/saved/\(encodedID(mediaEntityId))/site-icon", method: "GET", json: false)
+        request.timeoutInterval = Self.refreshTimeout
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        if http.statusCode == 404 { return nil }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+        return data
+    }
+
     func fetchSiteIcon(site: String) async throws -> Data? {
         guard site.range(of: "^[a-z0-9][a-z0-9.-]*$", options: .regularExpression) != nil, !site.contains("..") else {
             return nil
