@@ -68,7 +68,9 @@ struct LogoImage: View {
     /// hair against its own 0.14 × size radius — accepted.
     private func bundledBody(_ name: String) -> some View {
         ZStack(alignment: .bottomTrailing) {
-            if let image {
+            // Review of #358 (Sources v4): a bundled mark is drawn on the first frame — a small PNG read once and
+            // cached — so a row never flashes the generic "app" placeholder before its own mark.
+            if let image = Self.bundledImageNow(for: name) ?? image {
                 Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
                     .frame(width: size, height: size)
             } else {
@@ -207,6 +209,18 @@ struct LogoImage: View {
             return NSImage(contentsOf: url)
         }.value
         if let loaded { await MainActor.run { cache[file] = loaded } }
+        return loaded
+    }
+
+    /// The bundled mark now, synchronously: the cache, else one small PNG read and cached (main actor, like
+    /// `menuImage`). Nil only when no such mark ships — then the placeholder is the honest answer.
+    @MainActor
+    static func bundledImageNow(for name: String) -> NSImage? {
+        guard let file = resolvedName(for: name) else { return nil }
+        if let cached = cache[file] { return cached }
+        guard let url = Bundle.cicadaResources.cicadaResource(file, ext: "png", in: "logos"),
+              let loaded = NSImage(contentsOf: url) else { return nil }
+        cache[file] = loaded
         return loaded
     }
 

@@ -9,7 +9,8 @@
 #   CICADA_REPO          repo root           (default: parent of scripts/)
 #   CLAUDE_CLI           claude binary name  (default: claude)
 #   CICADA_PORT          backend port        (default: 8000)
-#   CLAUDE_SETTINGS      Claude Code settings (default: ~/.claude/settings.json)
+#   CLAUDE_SETTINGS      Claude Code settings (default: ~/.claude/settings.json); its
+#                        enabledPlugins["cicada@cicada"] says whether the plugin is Claude Code's door
 
 REPO="${CICADA_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 MEMORY_PATH="${CICADA_MEMORY_PATH:-$HOME/cicada/memory}"
@@ -17,6 +18,16 @@ CLAUDE_CLI="${CLAUDE_CLI:-claude}"
 PORT="${CICADA_PORT:-8000}"
 VENV_PY="$REPO/api/.venv/bin/python"
 TOKEN_FILE="${CICADA_HOME:-$HOME/.cicada}/api_token"
+CLAUDE_SETTINGS="${CLAUDE_SETTINGS:-$HOME/.claude/settings.json}"
+# Claude Code's door (owner 2026-10-19): the Cicada plugin when the person enabled it, else install.sh's hooks and MCP
+# entry. Never both — each hook would fire twice and every tool would be listed twice. The registry is stdlib.
+REG_PY="$VENV_PY"; [ -x "$REG_PY" ] || REG_PY="$(command -v python3 || true)"
+# "on" only when enabled, installed and able to run a Cicada; "broken" when enabled but it would run nothing.
+PLUGIN_LINE=""
+[ -n "$REG_PY" ] && PLUGIN_LINE="$("$REG_PY" -B "$REPO/api/hooks/registry.py" plugin --settings "$CLAUDE_SETTINGS" \
+  --cicada-home "${CICADA_HOME:-$HOME/.cicada}" 2>/dev/null)"
+PLUGIN_ON=0
+case "$PLUGIN_LINE" in on:*) PLUGIN_ON=1 ;; esac
 
 FAILURES=0
 
@@ -27,6 +38,13 @@ note() { printf '    \033[2m%s\033[0m\n' "$1"; }
 printf '\033[1mCicada doctor\033[0m\n'
 echo "  repo:   $REPO"
 echo "  memory: $MEMORY_PATH"
+if [ "$PLUGIN_ON" -eq 1 ]; then
+  echo "  claude: the Cicada plugin (cicada@cicada)"
+elif [ "${PLUGIN_LINE%%:*}" = "broken" ]; then
+  echo "  claude: install.sh's hooks and MCP entry (the Cicada plugin is enabled but can't run)"
+else
+  echo "  claude: install.sh's hooks and MCP entry"
+fi
 echo
 
 # 1. Backend /healthz reachable (+ embeddingMode shown). Its details (mode, model, index) answer only a caller
@@ -113,8 +131,22 @@ else
   note "run a sleep cycle or 'make rebuild-episodes' to build the index"
 fi
 
-# 6. MCP registered (tolerate CLI absence).
-if command -v "$CLAUDE_CLI" >/dev/null 2>&1; then
+# 6. MCP registered (tolerate CLI absence). With the plugin on, the plugin carries the server: a user-scope 'cicada'
+#    entry beside it lists every tool twice. An enabled plugin that would run nothing is a failure of its own, and
+#    install.sh's entries are checked as before.
+if [ "${PLUGIN_LINE%%:*}" = "broken" ]; then
+  fail "The Cicada plugin is enabled but ${PLUGIN_LINE#broken: }"
+  note "/plugin install cicada@cicada, set its cicada_repo to $REPO (or open the Cicada app once), then ./install.sh"
+fi
+if [ "$PLUGIN_ON" -eq 1 ]; then
+  if command -v "$CLAUDE_CLI" >/dev/null 2>&1 && "$CLAUDE_CLI" mcp list 2>/dev/null | grep -q '^cicada\b'; then
+    fail "MCP server 'cicada' is registered twice: by the plugin and as a user-scope entry"
+    note "run ./install.sh (it removes the older entry) or: $CLAUDE_CLI mcp remove cicada -s user"
+  else
+    pass "MCP server comes from Claude Code's Cicada plugin"
+  fi
+  pass "The plugin runs ${PLUGIN_LINE#on: }"
+elif command -v "$CLAUDE_CLI" >/dev/null 2>&1; then
   if "$CLAUDE_CLI" mcp list 2>/dev/null | grep -q 'cicada'; then
     pass "MCP server 'cicada' registered"
   else
@@ -217,9 +249,25 @@ fi
 # 12. Session-capture hook registered (G105). `install.sh` registers it under
 #     hooks.Stop; a moved repo shows as "stale" (exit 2) and is fixed by
 #     re-running ./install.sh. Doctor is the loop-until-green target (G76).
-CLAUDE_SETTINGS="${CLAUDE_SETTINGS:-$HOME/.claude/settings.json}"
 HOOK_CMD=$(printf '"%s" "%s" --harness claude-code' "$VENV_PY" "$REPO/api/hooks/capture.py")
-if [ -x "$VENV_PY" ] && "$VENV_PY" "$REPO/api/hooks/registry.py" status \
+RECALL_CMD=$(printf '"%s" "%s" --harness claude-code' "$VENV_PY" "$REPO/api/hooks/recall.py")
+if [ "$PLUGIN_ON" -eq 1 ]; then
+  # 12–13 with the plugin: its own hooks capture and recall, so any Cicada entry left in the settings file fires twice.
+  LEFT=""
+  for pair in "Stop:$HOOK_CMD" "PreCompact:$HOOK_CMD" "SessionEnd:$HOOK_CMD" \
+              "SessionStart:$RECALL_CMD" "UserPromptSubmit:$RECALL_CMD"; do
+    ev="${pair%%:*}"; cmd="${pair#*:}"
+    "$REG_PY" -B "$REPO/api/hooks/registry.py" status --settings "$CLAUDE_SETTINGS" --event "$ev" --command "$cmd" \
+      >/dev/null 2>&1; rc=$?
+    { [ "$rc" -eq 0 ] || [ "$rc" -eq 2 ]; } && LEFT="$LEFT $ev"
+  done
+  if [ -z "$LEFT" ]; then
+    pass "Claude Code's capture and recall hooks come from its Cicada plugin"
+  else
+    fail "Cicada's hooks are in both the plugin and $CLAUDE_SETTINGS ($LEFT ) — each fires twice"
+    note "run ./install.sh: with the plugin on it removes its older entries from the settings file"
+  fi
+elif [ -x "$VENV_PY" ] && "$VENV_PY" "$REPO/api/hooks/registry.py" status \
       --settings "$CLAUDE_SETTINGS" --event Stop --command "$HOOK_CMD" >/dev/null 2>&1; then
   pass "Session-capture Stop hook registered in $CLAUDE_SETTINGS"
 else
@@ -231,13 +279,17 @@ fi
 #     decides whether sessions are captured, so absent (an install from before the flush) passes with a
 #     note; half-registered or stale is a failure, like the Stop hook's.
 F1=1; F2=1
-if [ -x "$VENV_PY" ]; then
+if [ "$PLUGIN_ON" -eq 1 ]; then
+  :
+elif [ -x "$VENV_PY" ]; then
   "$VENV_PY" "$REPO/api/hooks/registry.py" status --settings "$CLAUDE_SETTINGS" --event PreCompact \
     --command "$HOOK_CMD" >/dev/null 2>&1 && F1=0 || F1=$?
   "$VENV_PY" "$REPO/api/hooks/registry.py" status --settings "$CLAUDE_SETTINGS" --event SessionEnd \
     --command "$HOOK_CMD" >/dev/null 2>&1 && F2=0 || F2=$?
 fi
-if [ "$F1" -eq 0 ] && [ "$F2" -eq 0 ]; then
+if [ "$PLUGIN_ON" -eq 1 ]; then
+  :
+elif [ "$F1" -eq 0 ] && [ "$F2" -eq 0 ]; then
   pass "Capture flush registered in $CLAUDE_SETTINGS (PreCompact, SessionEnd)"
 elif [ "$F1" -eq 1 ] && [ "$F2" -eq 1 ]; then
   pass "Capture flush not registered — the Stop hook still captures every reply"
@@ -250,15 +302,18 @@ fi
 # 13. Implicit recall hooks (G149). Registered by install.sh unless CICADA_RECALL=off, and turned
 #     on or off in Settings → Agents. Absent is a choice, not a failure; half-registered or stale
 #     (a moved repo) is a failure, like the Stop hook's.
-RECALL_CMD=$(printf '"%s" "%s" --harness claude-code' "$VENV_PY" "$REPO/api/hooks/recall.py")
 S1=1; S2=1
-if [ -x "$VENV_PY" ]; then
+if [ "$PLUGIN_ON" -eq 1 ]; then
+  :
+elif [ -x "$VENV_PY" ]; then
   "$VENV_PY" "$REPO/api/hooks/registry.py" status --settings "$CLAUDE_SETTINGS" --event SessionStart \
     --command "$RECALL_CMD" >/dev/null 2>&1 && S1=0 || S1=$?
   "$VENV_PY" "$REPO/api/hooks/registry.py" status --settings "$CLAUDE_SETTINGS" --event UserPromptSubmit \
     --command "$RECALL_CMD" >/dev/null 2>&1 && S2=0 || S2=$?
 fi
-if [ "$S1" -eq 0 ] && [ "$S2" -eq 0 ]; then
+if [ "$PLUGIN_ON" -eq 1 ]; then
+  :
+elif [ "$S1" -eq 0 ] && [ "$S2" -eq 0 ]; then
   pass "Recall hooks registered in $CLAUDE_SETTINGS (Claude Code remembers automatically)"
 elif [ "$S1" -eq 1 ] && [ "$S2" -eq 1 ]; then
   pass "Recall hooks are off for Claude Code"

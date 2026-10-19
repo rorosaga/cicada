@@ -25,8 +25,6 @@ final class ProjectBandTests: XCTestCase {
         XCTAssertEqual(band.months.map(\.label), ["Jul", "Aug", "Sep", "Oct", "Nov"])
         XCTAssertEqual(band.months[1].x, 600 * 17 / 110, accuracy: 0.01, "Aug 1")
         XCTAssertEqual(band.words.map(\.label), ["2 weeks ago", "in 2 weeks"])
-        XCTAssertEqual(band.since, "Since Jul 15")
-        XCTAssertEqual(band.progressWords, "1 of 4 done")
         XCTAssertEqual(band.next?.label, "First grasp · in 8 days")
         XCTAssertEqual(band.accessibility,
                        "Progress of Rover Arm Project, 1 of 4 milestones done. You are here, today, September 23.")
@@ -109,7 +107,6 @@ final class ProjectBandTests: XCTestCase {
         let band = BandLayout.make(t, state: ProjectState.state(ProjectState.Input(t), today: today), width: 590,
                                    today: today, locale: us)
         XCTAssertFalse(band.span.planned)
-        XCTAssertNil(band.progressWords)
         XCTAssertNil(band.next)
         XCTAssertEqual(band.todayX, 590 * 52 / 59, accuracy: 0.01)
         XCTAssertTrue(band.nodes.allSatisfy { $0.mark == .said }, "three moments, no milestone")

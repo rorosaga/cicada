@@ -169,6 +169,20 @@ make dev              # build the app, install to ~/Applications, launch
 the backend as a `launchd` agent that starts on login, and registers the `cicada` MCP server with
 Claude Code. Check health any time with `make doctor`.
 
+### Claude Code: the plugin
+
+Claude Code connects through the Cicada plugin: the memory tools, the `cicada` skill, and the hooks that save each
+session and add what Cicada remembers. In Claude Code:
+
+```
+/plugin install cicada --marketplace rorosaga/cicada
+```
+
+(or `/plugin marketplace add rorosaga/cicada`, then `/plugin install cicada@cicada`). With the app installed, leave the
+plugin's settings empty. From a source checkout, set its `cicada_repo` setting to the checkout's folder, then re-run
+`./install.sh` once: with the plugin on it leaves Claude Code to the plugin and removes the entries it had registered,
+so nothing runs twice. `make doctor` says which one Claude Code is using.
+
 First launch opens a four-step sheet — your name, a consolidation engine, one capture channel, and
 your first Sleep cycle — or "try a demo bank first" if you'd rather look around before wiring in
 your own life. Re-open it any time from Settings → General → "Run setup again".

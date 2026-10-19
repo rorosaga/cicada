@@ -166,7 +166,7 @@ extension Copy {
         case .episode: "Open in the Reader"
         case .media: "Open in Saved"
         case .page: "Open their card"
-        case .unknown: ""
+        case .chat, .unknown: ""
         }
     }
     static func capturedRowLabel(_ title: String, age: String?, left: String? = nil) -> String {

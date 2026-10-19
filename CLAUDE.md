@@ -255,7 +255,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   day or undated asks once; dead = two failed visits a week apart; walled pages only by the person's agent (`storage.md`).
 - **Pictures:** one precedence (the person's choice → Contacts photo → the photo a ticked Messages chat shares → a
   person's public-profile photo → a brand's logo → a media thumbnail → a monogram). **A logo comes only from a trusted
-  `website` source — never a domain guessed from a name; a person never gets a logo and no service is sent a person's name (G146/G159).** A saved link's own site may show its own icon, asked of that site only, on the person's view (owner 2026-10-19; `storage.md`). A person's photo is asked only
+  `website` source — never a domain guessed from a name; a person never gets a logo and no service is sent a person's name (G146/G159).** A saved link's own site may show its own icon, asked of that site only, on the person's view (owner 2026-10-19; `storage.md`); a watched or saved YouTube video its still, from YouTube's own host for that id only, on the same terms (2026-10-19). A person's photo is asked only
   with an identifier already on the page or record and given as their own account — the owner's hashed email, a GitHub,
   X or LinkedIn profile link (owner, 2026-10-09; `network.md`); a LinkedIn link from the person's connections counts as given
   on a confident match, never an alias-only one (owner 2026-10-17). The photo a chat shares in Messages is its page's
@@ -416,6 +416,11 @@ behind its healthy-skip guard, and the app runs it from Settings → General (G1
 is the supported one. **A release app (G182) carries its own backend** and every agent, hook and plist runs the
 `~/.cicada/bin` launchers it rewrites on launch — never a path inside the app; a developer build is unchanged
 (`docs/architecture/app.md`, "The release app").
+**Claude Code (owner 2026-10-19): the plugin is the canonical Claude Code door; `install.sh` the canonical machine
+install.** `plugins/cicada` (this repo is its marketplace, id `cicada@cicada`) carries the MCP server, the skill and the
+capture/recall hooks; only when it is enabled, installed and able to run a Cicada does `install.sh` stop registering
+them for Claude Code and remove its older ones — never both, never neither (`docs/architecture/mcp.md`, "The Claude
+Code plugin").
 **Without the app (G181):** a Linux server installs with one `curl | bash` line (`scripts/install-server.sh`) and any
 Homebrew with this repo's tap (`Formula/cicada.rb` + `cicada-setup`); both end in the checkout's own `install.sh`, the
 formula has no `service do` (the two service scripts stay the one source), and its tag is a `VERSION` stamp
