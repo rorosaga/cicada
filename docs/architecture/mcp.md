@@ -911,7 +911,8 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   is courtesy, "What a great idea!", and is not kept); what is left grows the
   answering sentence's own window, a third before and the rest after. Pieces keep the turn's order, joined by "…".
   Breadth lines (counts and lists, ≤ 300 characters) keep no opening. A "why" question's value is a stated reason
-  ("because", "since", "so that", "named it after", "porque", "ya que" …), not a number or a name, so the person's
+  ("because", "so that", "named it after", "porque", "ya que" …; never "since" or "after …", which are
+  usually time), not a number or a name, so the person's
   reason outranks a draft that repeats the name with numbers (`answer_prefs(...).why`). The page leg's clip
   (around its evidence span) is unchanged. Measured: `docs/research/2026-10-17-memory-benchmarks.md`, "Ask clip".
 - **The `sources` scope.** `answer_query(source_words=...)`, `POST /ask` `sourceWords` (default true): `cicada_ask`

@@ -594,3 +594,53 @@ def test_named_days_in_spanish_and_a_month_alone():
     assert named("I may go in May 2025") == ["2025-05"]
     assert named("What may I have said?") == []
     assert named("What have I built since September?") == [], "a range, not one occasion"
+
+
+def test_a_count_or_lists_breadth_lines_keep_no_opening(bank):
+    """A breadth line (≤ 300 characters, no context turns) is the statement alone: a greeting never takes its room —
+    from the second excerpt on as much as the first."""
+    days = ["2025-02-03", "2025-02-17", "2025-03-02", "2025-03-16", "2025-04-06", "2025-04-20", "2025-05-04",
+            "2025-05-18"]
+    for day in days:
+        _episode(bank, f"ep_{day}_005", [
+            "user: Hello there, quick note for my training log today. " + _PADDING
+            + f"Went bouldering at the climbing gym ({day}) and sent a new problem."])
+    search_index.ensure_fresh(bank, wait=True, max_age_s=0)
+    question = "How many times did I go to the climbing gym?"
+    found = ask_sources.search(bank, question)
+    assert found.more, "breadth lines past the plain four"
+    shown = ask_sources.gather_search(bank, question, found)
+    breadth = [e for e in shown if e.episode in found.more]
+    assert len(breadth) >= 2
+    assert all("Hello there" not in e.text for e in breadth), "no opening on a breadth line"
+    assert all("Went bouldering" in e.text for e in breadth)
+
+
+def test_a_verb_or_a_name_is_not_a_month():
+    named = ask_sources.named_days
+    assert named("How early may I check in?") == []
+    assert named("How late may I check out now?") == []
+    assert ask_sources.question_shape("How late may I check out now?") == ask_sources.SHAPE_LATEST
+    assert named("¿Qué médico vi en Mayo Clinic?") == []
+    assert named("¿Qué médico vi en mayo Clinic?") == []
+    assert named("¿Qué hice en mayo?") == ["-05"] and named("En mayo, ¿qué hice?") == ["-05"]
+    assert named("What did I plant in late March?") == ["-03"]
+
+
+def test_clip_answer_stays_in_its_limit_and_quotes_the_turn():
+    """Every piece the clip joins with " … " is the turn's own words (whitespace folded), and the whole fits."""
+    import random
+
+    rng = random.Random(7)
+    words = "alpha beta gamma delta. epsilon zeta? eta theta iota\nkappa lambda mu! nu xi omicron pi".split(" ")
+    for _ in range(300):
+        text = " ".join(rng.choice(words) for _ in range(rng.randint(5, 400)))
+        if rng.random() < 0.3:
+            text = "Hi Marta,\n\n" + text
+        collapsed = " ".join(text.split())
+        anchors = [rng.randrange(len(text)) for _ in range(rng.randint(1, 3))]
+        limit = rng.choice([80, 150, 300, 600])
+        out = ask_sources._clip_answer(text, anchors, limit, opening=rng.random() < 0.5)
+        assert len(out) <= limit, (limit, len(out))
+        for piece in out.strip("…").split(" … "):
+            assert piece.strip() and piece.strip() in collapsed, piece

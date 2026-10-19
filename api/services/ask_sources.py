@@ -298,7 +298,7 @@ def _take(candidates: list[tuple], docs: dict[str, tuple], terms: set[str], owne
         if span is not None and span.answer:
             # The opening is a person's (a greeting, the addressee, why they write); an agent's is courtesy ("What a
             # great idea!") that only takes room from its substance (LongMemEval_S: three answers lost to it).
-            opening = context and _speaker(turn, fm) in ("user", "speaker")
+            opening = with_context and _speaker(turn, fm) in ("user", "speaker")   # `context` is rebound below
             clipped = _clip_answer(body, [at, *(k - turn.content_start for k in span.keep)], limit, opening=opening)
         else:
             clipped = _clip(body, at, limit)
@@ -417,12 +417,18 @@ _MESES = {m: i for i, m in enumerate(
 _MES = r"(enero|febrero|marzo|abril|mayo|junio|julio|agosto|se?ptiembre|octubre|noviembre|diciembre)"
 _DIA_MES = re.compile(r"(?<!\w)(\d{1,2}) de " + _MES + r"(?: de(?:l)? (\d{4}))?(?!\w)")
 _MES_ANO = re.compile(r"(?<!\w)" + _MES + r" (?:de(?:l)? )?(\d{4})(?!\w)")
-#: A month alone, after a word that makes it a time ("in September", "back in August", "en agosto"): that month in
-#: any year. Full names only — "may" alone is a verb, "in may" is not.
+#: A month alone, after a word that makes it a time ("in September", "back in August"): that month in any year. Full
+#: names only. "May" alone is a verb: "in may" is the month, "how early / late may I …" is not, so early / late / mid
+#: never take it.
 _MONTH_ALONE = re.compile(
-    r"\b(?:in|during|back in|early|late|mid)[ -](january|february|march|april|may|june|july|august|"
-    r"september|october|november|december)\b(?!,? \d)"
-    r"|(?<!\w)(?:en|durante|a principios de|a finales de|a mediados de) " + _MES + r"(?! de(?:l)? \d)(?!\w)")
+    r"\b(?:(?:in|during|back in)[ -](january|february|march|april|may|june|july|august|september|october|november|"
+    r"december)|(?:early|late|mid)[ -](january|february|march|april|june|july|august|september|october|november|"
+    r"december))\b(?!,? \d)")
+#: Spanish ("en agosto", "a finales de mayo"), matched on the question as written: a Spanish month is lowercase, and
+#: one followed by a capitalised word is a name ("en Mayo Clinic", "en mayo Clinic").
+_MES_ALONE = re.compile(
+    r"(?<!\w)(?i:en|durante|a principios de|a finales de|a mediados de) " + _MES
+    + r"(?! de(?:l)? \d)(?!\w)(?!\s+[A-ZÁÉÍÓÚÑ])")
 _SMALL = {"a": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
 
 
@@ -454,8 +460,10 @@ def named_days(question: str, today=None) -> list[str]:
         month = f"{int(y):04d}-{(mon if isinstance(mon, int) else _month(mon)):02d}"
         if not any(day.startswith(month) for day in out):   # "9 April 2025" names the day, not all of April
             out.append(month)
-    for mon, mes in _MONTH_ALONE.findall(q):
-        month = f"-{(_month(mon) if mon else _MESES.get(mes, 9)):02d}"
+    alone = [_month(a or b) for a, b in _MONTH_ALONE.findall(q)]
+    alone += [_MESES.get(mes, 9) for mes in _MES_ALONE.findall(question or "")]
+    for m in alone:
+        month = f"-{m:02d}"
         if not any(day[4:].startswith(month) if not day.startswith("-") else day.startswith(month) for day in out):
             out.append(month)
     if re.search(r"\b(yesterday|days? ago)\b", q):
@@ -754,8 +762,8 @@ _WHY = re.compile(
     re.I)
 #: A sentence that gives a reason: the value a "why" question asks for.
 _REASON = re.compile(
-    r"\b(?:because|since|so that|in order to|the reason|that'?s why|which is why|named (?:it|him|her|them) after|"
-    r"after (?:my|his|her|the|a)|due to|thanks to|inspired by)\b|(?<!\w)(?:porque|ya que|para que|debido a|"
+    r"\b(?:because|so that|in order to|the reason|that'?s why|which is why|named (?:it|him|her|them) after|"
+    r"due to|thanks to|inspired by)\b|(?<!\w)(?:porque|ya que|para que|debido a|"
     r"por eso|la raz[oó]n)(?!\w)", re.I)
 
 
