@@ -141,6 +141,13 @@ extension Copy {
 
     // MARK: What came in, by name (G161)
     static let capturedTitle = "What came in"
+    /// Sources v3 — a saved source's list: everything saved from it, newest first.
+    static let savedListTitle = "Everything you saved here"
+    static let savedListNone = "Nothing saved from here yet."
+    static func savedRowLabel(_ title: String, day: String?, why: String?, host: String?, left: String?) -> String {
+        ([title] + [day.map { "saved \($0)" }, why.map { "why: \($0)" }, host, left].compactMap { $0 })
+            .joined(separator: ", ")
+    }
     static let capturedHelp = "Each thing this source brought in, by its own title, newest first"
     static let capturedLoading = "Reading what came in…"
     static let capturedNone = "Nothing has come in from this source yet."

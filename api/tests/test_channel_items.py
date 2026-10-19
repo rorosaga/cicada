@@ -274,3 +274,86 @@ def test_route_etag_moves_when_the_bank_does(client, bank):
     second = client.get("/sources/channels/wispr-flow/items", headers={"If-None-Match": first.headers["etag"]})
     assert second.status_code == 200
     assert second.json()["items"][0]["title"] == "New capture"
+
+
+# --- Sources v3: a saved link's site and why (owner 2026-10-19) -------------------------------------------------
+
+
+def _with_why(bank):
+    """`media-one`'s link carries two answers (the newest wins); `media-two` none."""
+    entries = json.loads((bank / "sources" / "url_index.json").read_text())
+    entries["h1"]["episode_id"] = "ep_2026-09-01_101"
+    entries["h1"]["url"] = "https://www.example.com/1?utm=secret"
+    entries["h2"]["episode_id"] = "ep_2026-09-02_101"
+    _json(bank, "sources/url_index.json", entries)
+    _episode(bank, "ep_2026-09-01_101", title="One", origin="chrome-bookmark", media_entity_id="media-one",
+             timestamp="2026-09-01T10:00:00+00:00",
+             saved_why_earlier=[{"reasons": ["read_later"], "text": "older words", "at": "2026-09-01T10:00:05+00:00"}],
+             saved_why={"reasons": ["design", "technique"], "text": "the   layout\nof the hero", "project": None,
+                        "at": "2026-09-05T10:00:05+00:00"})
+    _episode(bank, "ep_2026-09-02_101", title="Two", origin="chrome-bookmark", media_entity_id="media-two",
+             timestamp="2026-09-02T10:00:00+00:00")
+    bank_index.invalidate()
+
+
+def test_a_saved_link_row_names_its_site_and_the_newest_why(bank):
+    _with_why(bank)
+    rows = {r["id"]: r for r in channel_items.items(bank, "chrome-bookmarks")["items"]}
+    one = rows["media-one"]
+    assert one["host"] == "example.com", "the bare host, www. dropped — never the URL, path or query"
+    assert one["site"] == "example.com", "the key its mark is asked under"
+    assert "utm" not in json.dumps(one) and "https" not in json.dumps(one)
+    assert one["why"] == {"labels": ["The design", "A technique to reuse"], "text": "the layout of the hero"}, \
+        "the newest answer, retired reasons still read, words on one line"
+    assert "why" not in rows["media-two"], "no answer, no why"
+    assert rows["media-two"]["host"] == "example.com"
+
+
+def test_a_long_why_is_cut_to_one_line(bank):
+    _with_why(bank)
+    path = bank / "episodes" / "ep_2026-09-01_101.md"
+    _write(path, {"id": "ep_2026-09-01_101", "saved_why": {"reasons": [], "text": "word " * 100,
+                                                            "at": "2026-09-05T10:00:05+00:00"}})
+    bank_index.invalidate()
+    one = next(r for r in channel_items.items(bank, "chrome-bookmarks")["items"] if r["id"] == "media-one")
+    assert len(one["why"]["text"]) <= channel_items.WHY_CAP and one["why"]["text"].endswith("…")
+    assert one["why"]["labels"] == []
+
+
+def test_only_the_page_served_is_read_for_its_why(bank, monkeypatch):
+    _with_why(bank)
+    asked = []
+    real = bank_index.file
+
+    def spy(memory_path, subdir, name):
+        asked.append(name)
+        return real(memory_path, subdir, name)
+
+    monkeypatch.setattr(channel_items.bank_index, "file", spy)
+    page = channel_items.items(bank, "chrome-bookmarks", limit=1)
+    assert _ids(page) == ["media-one"] and asked == ["ep_2026-09-01_101.md"], "the second row's episode is never read"
+
+
+def test_episode_and_page_rows_carry_no_site_or_why(bank):
+    for row in channel_items.items(bank, "notes")["items"] + channel_items.items(bank, "contacts-local")["items"]:
+        assert "site" not in row and "host" not in row and "why" not in row
+
+
+def test_a_saved_source_without_a_channel_lists_by_its_row_id(bank):
+    _page(bank, "media-ig", type="media", name="A saved post", origin="instagram-saved", created="2026-09-06")
+    _page(bank, "media-yt", type="media", name="A video", origin="youtube-playlist", created="2026-09-07")
+    bank_index.invalidate()
+    assert channel_items.known(bank, "instagram") and channel_items.known(bank, "youtube")
+    assert _ids(channel_items.items(bank, "instagram")) == ["media-ig"]
+    assert _ids(channel_items.items(bank, "youtube")) == ["media-yt"]
+    assert not channel_items.known(bank, "harness:claude-code"), "a captured source is not a saved list"
+
+
+def test_a_walled_sites_mark_is_asked_under_its_family_name(bank):
+    entries = json.loads((bank / "sources" / "url_index.json").read_text())
+    entries["h1"]["url"] = "https://www.linkedin.com/posts/someone-123"
+    _json(bank, "sources/url_index.json", entries)
+    bank_index.invalidate()
+    one = next(r for r in channel_items.items(bank, "chrome-bookmarks")["items"] if r["id"] == "media-one")
+    assert one["host"] == "linkedin.com" and one["site"] == "linkedin"
+    assert "someone" not in json.dumps(one)

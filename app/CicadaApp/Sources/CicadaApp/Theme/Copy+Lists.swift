@@ -88,8 +88,15 @@ extension Copy {
         static let whoWrote = "Who wrote your memory"
         static let addSourceHelp = "Add another source of memory"
         static let closeSource = "Close (Esc) · back to all sources (⌘[)"
-        static let advancedStatistics = "Advanced statistics"
-        static let advancedHelp = "Counts only: writes, Sleep runs, most written and most read"
+        static let advancedStatistics = "Statistics"
+        static let advancedHelp = "Who wrote your memory, and counts: writes, Sleep runs, most written and most read"
+        /// Sources v3 (owner 2026-10-19) — the page's two groups: what the person saved on purpose, and what Cicada
+        /// captures on its own.
+        static let savedByYou = "Saved by you"
+        static let capturedForYou = "Captured for you"
+        static let nothingSavedYet = "Nothing saved yet"
+        static let nothingYet = "Nothing yet"
+        static func savedCount(_ n: Int) -> String { "\(UsageFormat.count(n)) saved" }
         static let expanded = "Expanded"
         static let collapsed = "Collapsed"
         static let shareOfEntities = "share of entities written"

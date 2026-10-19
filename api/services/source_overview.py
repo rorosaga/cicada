@@ -115,6 +115,25 @@ CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("notes", "Apple Notes", "import", "apple-notes", ("apple-notes",), "notes"),
     SourceSpec("files", "Files & links", "import", "bookmark", ("saved-link",), "files"),
 )
+#: Sources v3 (owner 2026-10-19): "where did my stuff come from" — the sources whose items the person saved on purpose
+#: (a bookmark, a saved post, a pin, a Watch later, a link they pasted) are `saved`; everything Cicada captures on its
+#: own (agent conversations, chat exports, watch history days, messages, calendars, feeds, notes, folders, open tabs)
+#: is `captured`. A fact of the catalog, served on every row as `intent`, so every client groups the same way.
+SAVED_SOURCES = frozenset({
+    "chrome-bookmarks", "safari-bookmarks", "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks",
+    "pinterest", "reddit", "x", "instagram", "youtube", "linkedin", "tiktok", "files",
+})
+INTENTS = ("saved", "captured")
+#: Folded into `/sources/overview`'s ETag: bump it when the body changes for the same bank files (v3: `intent`).
+SHAPE = "overview-v3"
+
+
+def intent_of(key: str) -> str:
+    """``saved`` for a source of things the person saved on purpose, else ``captured`` (harnesses, folders and an
+    origin the catalog does not know are captured: nothing says the person picked each item)."""
+    return "saved" if key in SAVED_SOURCES else "captured"
+
+
 _BY_ID = {spec.id: spec for spec in CATALOG}
 _ORIGIN_TO_ID = {origin: spec.id for spec in CATALOG for origin in spec.origins}
 _FILES_ORIGINS = frozenset(_BY_ID["files"].origins)
@@ -201,7 +220,7 @@ def _new_state(key: str, labels: dict[str, str] | None = None) -> dict:
         origin = key.split(":", 1)[1]
         label, kind, mark, origins, channel, harness = origin, "import", origin, [origin], None, None
     return {
-        "id": key, "label": label, "kind": kind, "mark": mark,
+        "id": key, "label": label, "kind": kind, "mark": mark, "intent": intent_of(key),
         "conversations": set(), "episodes": 0, "entities": set(),
         # Sparse ISO-UTC-day -> captures that day (R-A16); a silent day has no
         # key, so a gap can never be read as a zero the backend asserted.

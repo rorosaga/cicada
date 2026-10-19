@@ -1132,7 +1132,7 @@ async def sources_overview(
     connector_tag = ",".join(f"{k}:{v}" for k, v in sorted(connectors_connected.items()))
     etag = sync_service.etag_for(
         memory_path, "sources", "episodes", "entities",
-        extra=f"overview|telegram:{settings.telegram_enabled}|connectors:{connector_tag}",
+        extra=f"{source_overview.SHAPE}|telegram:{settings.telegram_enabled}|connectors:{connector_tag}",
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early

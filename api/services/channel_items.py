@@ -29,6 +29,19 @@ means wherever the bank records it, and says so channel by channel below:
 * ``folder:<id>`` — one row per file of the folder (its episodes by
   ``folder_id``; a long file's sections are one row), by the file's own name.
 
+* the saved sources with no channel (``instagram``, ``youtube``, ``linkedin``,
+  ``tiktok``: one-shot imports, ``source_overview.CATALOG``) — listed by their
+  Sources row id, as the media pages stamped with the row's origins.
+
+A saved link's row (``kind: media``) also carries, for Sources v3 (owner
+2026-10-19: "in two clicks … I can see all the things that I've saved in
+Chrome"): ``host``, the bare host of the URL the person saved (``www.``
+dropped; never the URL, its path or query), ``site``, the key its mark is
+asked under (:func:`_site`), and ``why``,
+the newest answer the person gave to "What made you save this?"
+(``saved_why`` on the link's episode: the reasons' labels and their own
+words), when there is one.
+
 Titles only on the wire (scrubbed, one line, ≤ 120 characters), never a body.
 Engine-free, read-only, never outside the bank, and never a Store domain: the
 router ETags each page and the app keeps it in memory, like provenance. The
@@ -53,6 +66,8 @@ from api.services import (
     folder_source,
     media_ingestor,
     notes_sync,
+    reading_hosts,
+    saved_why,
     source_overview,
     tab_groups,
     wispr_flow,
@@ -61,7 +76,8 @@ from api.services.channel_registry import CHANNEL_IDS
 
 #: Folded into the route's ETag: bump it when the body changes for the same bank files.
 #: `g161-2`: a bookmark channel also lists the links that left the browser, with `left` (G191 v4).
-SHAPE = "g161-2"
+#: `g161-3`: a saved link's row carries `site` and `why`; channel-less saved sources list by their row id (Sources v3).
+SHAPE = "g161-3"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -77,6 +93,11 @@ _ORIGIN_CHANNELS = {
 }
 #: A channel whose items are media pages, by the origins its catalog row owns.
 _MEDIA_CHANNELS = ("safari-tabs", "pinterest", "reddit", "x", "rss", "files")
+#: Sources v3 — a saved source with no channel (a one-shot import): listed by its Sources row id, by its origins.
+_SAVED_SOURCE_ROWS = {spec.id: spec.origins for spec in source_overview.CATALOG
+                      if spec.channel is None and spec.id in source_overview.SAVED_SOURCES}
+#: The why's own words on a row: one line, at most this many characters (the full answer is on the item's page).
+WHY_CAP = 160
 
 
 def _catalog_origins(channel_id: str) -> tuple[str, ...]:
@@ -89,7 +110,7 @@ def _catalog_origins(channel_id: str) -> tuple[str, ...]:
 def known(memory_path: Path, channel_id: str) -> bool:
     """A channel id this bank can list: every fixed row, the always-listed local
     sources, each browser's bookmarks and tab groups, and every registered folder."""
-    if channel_id in CHANNEL_IDS or channel_id in _ORIGIN_CHANNELS:
+    if channel_id in CHANNEL_IDS or channel_id in _ORIGIN_CHANNELS or channel_id in _SAVED_SOURCE_ROWS:
         return True
     if channel_id in (calendar_local.CHANNEL_ID, contacts_local.CHANNEL_ID):
         return True
@@ -191,7 +212,11 @@ class _Media:
         entry = self.by_entity.get(entity_id) or {}
         saved = entry.get("content_saved_at") or entry.get("saved_at") or fm.get("created")
         title = entry.get("title") or fm.get("name") or entry.get("url") or entity_id
-        return _row("media", entity_id, _title(title), _day(saved), _instant(saved))
+        row = _row("media", entity_id, _title(title), _day(saved), _instant(saved))
+        # Read only for the page served (`items`): the site and the why are per-row file reads at thousands of rows.
+        row["_url"] = entry.get("url") or fm.get("url")
+        row["_episode"] = entry.get("episode_id")
+        return row
 
     def by_origins(self, origins: tuple[str, ...], *, unstamped: bool = False) -> list[dict]:
         wanted = set(origins)
@@ -202,6 +227,22 @@ class _Media:
                 if (row := self.row(entity_id)) is not None:
                     rows.append(row)
         return rows
+
+
+def _site(url) -> dict:
+    """Where a saved URL lives, as a row may name it — never the URL itself: ``host``, its bare host (``www.``
+    dropped, sanitized), and ``site``, the key a site's mark is asked under (``reading_hosts.site_of``: a walled
+    family's name, else the registrable domain). The app asks ``GET /reading/sites/{site}/icon``, which serves only
+    a site the reading list already holds and looks nothing else up, then draws a bundled family mark or a monogram."""
+    raw = str(url or "")
+    host = reading_hosts.display_host(reading_hosts.host_of(raw))
+    if not host:
+        return {}
+    out = {"host": host}
+    site = reading_hosts.site_of(raw)
+    if reading_hosts.valid_site_key(site):
+        out["site"] = site
+    return out
 
 
 def _live(fm: dict) -> bool:
@@ -303,6 +344,8 @@ def _collect(memory_path: Path, channel_id: str) -> list[dict]:
         return _bookmarks(memory_path, channel_id, media)
     if channel_id in _MEDIA_CHANNELS:
         return media.by_origins(_catalog_origins(channel_id), unstamped=channel_id == "files")
+    if channel_id in _SAVED_SOURCE_ROWS:
+        return media.by_origins(tuple(_SAVED_SOURCE_ROWS[channel_id]))
     if channel_id in _ORIGIN_CHANNELS:
         origins = set(_ORIGIN_CHANNELS[channel_id])
         return _episodes(memory_path, lambda fm: str(fm.get("origin") or "") in origins, media=media)
@@ -337,6 +380,39 @@ def _folder(memory_path: Path, folder_id: str) -> list[dict]:
     return rows
 
 
+def _why(memory_path: Path, episode_id) -> dict | None:
+    """The newest answer to "What made you save this?" on the link's episode (`saved_why`, G191), as the row shows it:
+    the reasons' labels (a stored project as "For <name>") and the person's own words, one line. None without one."""
+    episode_id = str(episode_id or "").strip()
+    if not episode_id:
+        return None
+    f = bank_index.file(memory_path, "episodes", f"{episode_id}.md")
+    records = saved_why.records_of((f.frontmatter or {}) if f is not None else {})
+    if not records:
+        return None
+    newest = saved_why.wire(records[-1], added_at=None) or {}
+    labels = list(newest.get("labels") or [])
+    if project := newest.get("project"):
+        labels.append(f"For {saved_why._name_of(memory_path, project)}")
+    text = " ".join(str(newest.get("text") or "").split())
+    if text:
+        text, _ = episode_scrub.scrub(text)
+        text = text if len(text) <= WHY_CAP else text[: WHY_CAP - 1].rstrip() + "…"
+    if not labels and not text:
+        return None
+    return {"labels": labels, "text": text or None}
+
+
+def _enrich(memory_path: Path, row: dict) -> dict:
+    """A served saved-link row gains its `site` and its `why`; every private key is dropped."""
+    out = {k: v for k, v in row.items() if not k.startswith("_")}
+    if row.get("kind") == "media":
+        out.update(_site(row.get("_url")))
+        if why := _why(memory_path, row.get("_episode")):
+            out["why"] = why
+    return out
+
+
 def items(memory_path: Path, channel_id: str, *, offset: int = 0, limit: int = LIMIT_DEFAULT) -> dict | None:
     """One page of what `channel_id` brought in, newest first — or None for a channel this bank does not know."""
     memory_path = Path(memory_path)
@@ -346,5 +422,5 @@ def items(memory_path: Path, channel_id: str, *, offset: int = 0, limit: int = L
     limit = max(1, min(int(limit), LIMIT_MAX))
     rows = _collect(memory_path, channel_id)
     rows.sort(key=lambda r: (-r["_sort"], r["title"].casefold(), r["id"]))
-    page = [{k: v for k, v in r.items() if k != "_sort"} for r in rows[offset:offset + limit]]
+    page = [_enrich(memory_path, r) for r in rows[offset:offset + limit]]
     return {"channel": channel_id, "total": len(rows), "offset": offset, "limit": limit, "items": page}

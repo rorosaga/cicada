@@ -2,6 +2,14 @@ import Foundation
 
 /// The kinds `api/services/source_overview.KIND_ORDER` declares, plus a
 /// fallback so an unknown kind from a newer backend never drops the grid.
+/// Sources v3 (owner 2026-10-19) — whether the person saved each item on purpose (bookmarks, saved posts, Watch
+/// later, links they pasted) or Cicada captures it on its own (conversations, messages, calendars, feeds, notes). The
+/// backend's `source_overview.intent_of`; an older backend sends none and every row reads as captured until the next
+/// read (the overview's ETag moved with the field, so that read comes at once).
+enum SourceIntent: String, Codable, CaseIterable {
+    case saved, captured
+}
+
 enum SourceKind: String, Codable, CaseIterable {
     case harness, browser, social, feed, messaging, voice, `import`, unknown
 
@@ -36,18 +44,24 @@ struct SourceOverview: Codable, Identifiable, Hashable {
     /// `VersionVector.mapping` already routes to `.sourcesOverview`), so the
     /// ship-together rule is satisfied with no mapping change.
     let activity: [String: Int]
+    /// Sources v3 — saved on purpose, or captured on Cicada's own (`SourceIntent`).
+    let intent: SourceIntent
 
     init(id: String, label: String, kind: SourceKind, mark: String = "", conversations: Int = 0,
          episodes: Int = 0, entities: Int = 0, items: Int = 0, lastActivityAt: String? = nil,
          connected: Bool = false, lastError: String? = nil, actions: [String] = [],
          channelId: String? = nil, origins: [String] = [], harness: String? = nil,
-         activity: [String: Int] = [:]) {
+         activity: [String: Int] = [:], intent: SourceIntent = .captured) {
         self.id = id; self.label = label; self.kind = kind; self.mark = mark
         self.conversations = conversations; self.episodes = episodes; self.entities = entities
         self.items = items; self.lastActivityAt = lastActivityAt; self.connected = connected
         self.lastError = lastError; self.actions = actions; self.channelId = channelId
-        self.origins = origins; self.harness = harness; self.activity = activity
+        self.origins = origins; self.harness = harness; self.activity = activity; self.intent = intent
     }
+
+    /// Sources v3 — the id a saved source's list is read under (`GET /sources/channels/{id}/items`): its channel, else
+    /// its own row id (the one-shot imports with no channel, which the backend lists by their row id).
+    var itemsListId: String { channelId ?? id }
 
     /// The Feed items belonging to this row, newest first (R6 — a client-side
     /// filter over the existing `sources` Store domain, no new endpoint).
@@ -113,7 +127,7 @@ struct SourceOverview: Codable, Identifiable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case id, label, kind, mark, conversations, episodes, entities, items, lastActivityAt
-        case connected, lastError, actions, channelId, origins, harness, activity
+        case connected, lastError, actions, channelId, origins, harness, activity, intent
     }
 
     init(from decoder: Decoder) throws {
@@ -136,6 +150,7 @@ struct SourceOverview: Codable, Identifiable, Hashable {
         // Optional-with-default: a payload from before `activity` shipped (a
         // cached snapshot, or an older backend) must still yield a usable card.
         activity = try c.decodeIfPresent([String: Int].self, forKey: .activity) ?? [:]
+        intent = SourceIntent(rawValue: (try? c.decodeIfPresent(String.self, forKey: .intent)) ?? "") ?? .captured
     }
 
     /// `lastActivityAt` parsed for sorting — the same three shapes

@@ -10,8 +10,12 @@ import SwiftUI
 ///
 /// It reads `ChannelItemsCache` (never a Store domain) and keeps the last list while a newer one is read (never
 /// blank). Every environment value is optional, so a host without one draws nothing rather than trapping.
+///
+/// Sources v3 (owner 2026-10-19) adds `.saved`: a saved source's page is this list — every thing saved from it, newest
+/// first, each row with the site's own mark, the title, the day and why the person saved it (`SavedItemRow`), paged the
+/// same way.
 struct CapturedItemsList: View {
-    enum Style { case disclosure, open }
+    enum Style { case disclosure, open, saved }
 
     let channel: String
     var interactive: Bool = true
@@ -32,7 +36,7 @@ struct CapturedItemsList: View {
         _remembered = AppStorage(wrappedValue: false, CapturedItems.openKey(channel))
     }
 
-    private var isOpen: Bool { style == .open || remembered }
+    private var isOpen: Bool { style != .disclosure || remembered }
 
     /// Re-read when the list opens and whenever the channels move (`/sources/channels` ETags over the same
     /// components this list does, so a sync that brought something in lands here too; a 304 moves nothing).
@@ -51,6 +55,7 @@ struct CapturedItemsList: View {
                 switch style {
                 case .disclosure: disclosure
                 case .open: SectionLabel(Copy.capturedTitle).frame(minHeight: CicadaTheme.scaled(28), alignment: .leading)
+                case .saved: SectionLabel(Copy.savedListTitle).frame(minHeight: CicadaTheme.scaled(28), alignment: .leading)
                 }
                 if isOpen { content(cache) }
             }
@@ -92,7 +97,19 @@ struct CapturedItemsList: View {
     private func content(_ cache: ChannelItemsCache) -> some View {
         if let list = cache.list(channel) {
             if list.items.isEmpty {
-                line(channel == "contacts-local" ? Copy.capturedNoPeople : Copy.capturedNone)
+                line(style == .saved ? Copy.savedListNone
+                                     : channel == "contacts-local" ? Copy.capturedNoPeople : Copy.capturedNone)
+            } else if style == .saved {
+                let today = ISODay.today()
+                // Lazy: a page holds every row "Show more" brought in, thousands at the owner's scale.
+                LazyVStack(spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {
+                    ForEach(list.items, id: \.self) { item in
+                        SavedItemRow(item: item, today: today,
+                                     route: CapturedItemRoute.of(item, interactive: interactive), open: go,
+                                     leftLine: CapturedItems.leftLine(item, channel: channel))
+                    }
+                }
+                if list.hasMore { showMore(list, loading: cache.isLoadingMore(channel), cache: cache) }
             } else {
                 let today = ISODay.today()
                 VStack(spacing: 0) {
@@ -210,6 +227,98 @@ private struct CapturedItemRow: View {
             }
         }
         .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
+        .padding(.horizontal, CicadaTheme.scaled(10))
+        .background(hovering && route != nil ? CicadaTheme.bgHover : Color.clear,
+                    in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+        .contentShape(Rectangle())
+    }
+}
+
+/// Sources v3 — one saved thing as a two-line row (DR-34: 56 pt, 2 pt apart, DR-35): the site's own mark (`SiteIcon` —
+/// the favicon the reading list already holds, a bundled family mark, else a ring monogram of the site; never the
+/// browser's mark), the title and the day on the first line, and on the second why the person saved it — their own
+/// words, then the reasons they tapped — and the site. A row opens where a saved item opens today (Sleep › Saved,
+/// `CapturedItemRoute`); hover is a fill (DR-48, DR-63).
+struct SavedItemRow: View {
+    let item: ChannelItem
+    let today: ISODay
+    let route: CapturedItemRoute?
+    let open: (CapturedItemRoute) -> Void
+    var leftLine: String? = nil
+
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let day = SavedItemText.day(item, today: today)
+        let spoken = Copy.savedRowLabel(item.title, day: day?.help, why: SavedItemText.whySpoken(item),
+                                        host: item.host, left: leftLine)
+        if let route {
+            Button { open(route) } label: { label(day) }
+                .buttonStyle(.cicadaPlain)
+                .onHover { hovering = $0 }
+                .help(Copy.capturedOpenHelp(item.kind))
+                .accessibilityLabel(spoken)
+                .accessibilityHint(Copy.capturedOpenHelp(item.kind))
+        } else {
+            label(day)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(spoken)
+        }
+    }
+
+    @ViewBuilder
+    private var mark: some View {
+        switch SavedItemText.mark(item) {
+        case .site(let key, let label):
+            SiteIcon(site: key, label: label)
+        case .monogram(let letter):
+            SiteMonogram(letter: letter, side: CicadaTheme.scaled(SiteIconLayout.Size.row.points))
+                .accessibilityHidden(true)
+        }
+    }
+
+    private func label(_ day: (text: String, help: String)?) -> some View {
+        HStack(alignment: .center, spacing: CicadaTheme.scaled(10)) {
+            mark.opacity(leftLine == nil ? 1 : 0.6)
+            VStack(alignment: .leading, spacing: CicadaTheme.scaled(3)) {
+                HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
+                    Text(item.title)
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(leftLine == nil ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: CicadaTheme.spacingSM)
+                    if let leftLine {
+                        Image(systemName: "bookmark.slash")
+                            .font(CicadaTheme.metaFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                            .help(leftLine)
+                    }
+                    if let day {
+                        Text(day.text)
+                            .font(CicadaTheme.metaFont)
+                            .monospacedDigit()
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                            .lineLimit(1)
+                            .fixedSize()
+                            .help(day.help)
+                    }
+                }
+                if let line = SavedItemText.line(item) {
+                    Text(line)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(SavedItemText.words(item) != nil ? CicadaTheme.textSecondary
+                                                                          : CicadaTheme.textTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .help(line)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.twoLine),
+               maxHeight: CicadaTheme.scaled(RowMetrics.twoLine), alignment: .leading)
         .padding(.horizontal, CicadaTheme.scaled(10))
         .background(hovering && route != nil ? CicadaTheme.bgHover : Color.clear,
                     in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))

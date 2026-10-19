@@ -321,7 +321,7 @@ def test_overview_etag_recipe_is_unchanged_by_the_activity_field(client, bank):
     tag = ",".join(f"{k}:{a.is_connected()}" for k, a in sorted(ADAPTERS.items()))
     expected = sync_service.etag_for(
         bank, "sources", "episodes", "entities",
-        extra=f"overview|telegram:False|connectors:{tag}",
+        extra=f"{source_overview.SHAPE}|telegram:False|connectors:{tag}",
     )
     assert r.headers["etag"] == expected
     assert client.get("/sources/overview", headers={"If-None-Match": expected}).status_code == 304
@@ -345,3 +345,25 @@ def test_the_files_card_does_not_count_what_its_page_hides(bank):
     (bank / "entities" / "media-live.md").unlink()
     bank_index.invalidate()
     assert "files" not in _rows(bank)
+
+
+# --- Sources v3: saved on purpose vs captured (owner 2026-10-19) -------------------------------------------------
+
+
+def test_every_row_says_whether_the_person_saved_it_or_cicada_captured_it():
+    saved = {spec.id for spec in source_overview.CATALOG if source_overview.intent_of(spec.id) == "saved"}
+    assert {"chrome-bookmarks", "safari-bookmarks", "pinterest", "x", "youtube", "files"} <= saved
+    for captured in ("chat-export:claude", "safari-tabs", "chrome-tab-groups", "rss", "calendar-local", "imessage",
+                     "telegram", "wispr-flow", "notes"):
+        assert source_overview.intent_of(captured) == "captured", captured
+    assert source_overview.intent_of("harness:claude-code") == "captured"
+    assert source_overview.intent_of("folder:abc") == "captured"
+    assert source_overview.intent_of("origin:something-new") == "captured", "nothing says the person picked it"
+    assert source_overview.SAVED_SOURCES <= {spec.id for spec in source_overview.CATALOG}, "no stray id"
+
+
+def test_the_overview_carries_the_intent_on_the_wire(client):
+    r = client.get("/sources/overview")
+    assert r.status_code == 200
+    rows = r.json()["sources"]
+    assert rows and all(row["intent"] in source_overview.INTENTS for row in rows)
