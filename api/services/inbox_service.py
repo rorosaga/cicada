@@ -135,10 +135,13 @@ def _item_from_file(
         # G115 R6: Sleep's own proposal is served FIRST so the card's initial
         # highlight (and `1`) lands on it. The file on disk keeps its order —
         # this is a read-time projection, like `age_days` and `cause`.
+        # A decay question keeps its fixed order (Keep, then Archive — owner 2026-10-19): one key never means
+        # opposite things in the Inbox's card and the quick review; the marker still names Sleep's proposal.
         rec = recommended_key(kind, fm, raw_options)
-        raw_options = [o for o in raw_options if str(o.get("key")) == rec] + [
-            o for o in raw_options if str(o.get("key")) != rec
-        ]
+        if kind != "decay":
+            raw_options = [o for o in raw_options if str(o.get("key")) == rec] + [
+                o for o in raw_options if str(o.get("key")) != rec
+            ]
         extra["recommended_key"] = rec
         extra["entity_type"] = context.entity_type(entity_id)
         extra["cause"] = InboxCause(**context.cause_for(fm, raw_options).to_wire())

@@ -1468,7 +1468,11 @@ last skip or the last answer while the Inbox still holds it, Esc leaves the fiel
 the Inbox's own (`InboxViewModel.answer` → `Store.hold`, the 5 s send delay — nothing new writes); a skip writes nothing
 and the question stays. The queue (`InboxReview`) is the kind's reviewable questions frozen at the start in the Inbox's
 order; the card on screen is the first undecided one, so Undo puts a card back exactly where it was; a question settled
-elsewhere leaves the queue and an answer the server refused comes back to it (`reconcile`). A legacy decay with no options,
+elsewhere leaves the queue, and an answer the server refused comes back at the END of it — after the card being read,
+never in front of it (`reconcile`). Every answer and skip names the card it was drawn for (`reviewAnswer(itemId:)`): one
+for a card no longer on screen is a no-op, so a key or click never lands on a card that swapped in under it. The Inbox's
+own decay card has the same order (1 = Keep active, 2 = Archive, served fixed by `decay_question`; Recommended marks
+Archive, it no longer moves it first), so one key never means opposite things in the two views. A legacy decay with no options,
 a multi-valued conflict (G98) and the other kinds stay in the Inbox's full card ("Open in Inbox" on every card lands
 there too). A bank switch ends the review. Tests: `InboxReviewTests`. Every other
 page paragraph below describes what ships until that page's DS track lands.

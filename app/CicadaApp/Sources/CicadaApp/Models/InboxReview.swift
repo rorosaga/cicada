@@ -209,11 +209,18 @@ struct InboxReview: Equatable {
 
     /// The Inbox moved. `visible` is what the Inbox shows now (a held or sending answer is not in it):
     /// - a card not yet decided that is gone (Sleep settled it, another client answered it) leaves the queue;
-    /// - an answer that came back (refused, rolled back with a toast) is undecided again, so its card returns.
+    /// - an answer that came back (refused, rolled back with a toast) is undecided again and goes to the END of the
+    ///   queue — after the card on screen, never in front of it, so the next key still lands on the card being read
+    ///   (review B1, 2026-10-19).
     mutating func reconcile(visible: Set<String>) {
-        history.removeAll { step in
-            if case .answered(let id) = step { return visible.contains(id) }
-            return false
+        let returned = history.compactMap { step -> String? in
+            if case .answered(let id) = step, visible.contains(id) { return id }
+            return nil
+        }
+        if !returned.isEmpty {
+            history.removeAll { returned.contains($0.id) }   // each id is decided once, and these were answers
+            queue.removeAll { returned.contains($0) }
+            queue.append(contentsOf: returned)
         }
         let decided = decided
         queue.removeAll { !decided.contains($0) && !visible.contains($0) }

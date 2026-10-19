@@ -213,10 +213,47 @@ final class InboxReviewTests: XCTestCase {
         review.reconcile(visible: [])
         XCTAssertEqual(review.queue, ["inbox-006"])
         XCTAssertTrue(review.isFinished)
-        // The answer came back (refused, rolled back): its card is on screen again.
+        // The answer came back (refused, rolled back) and nothing else is left: its card is on screen again.
         review.reconcile(visible: ["inbox-006"])
         XCTAssertEqual(review.currentId, "inbox-006")
         XCTAssertEqual(review.answered, 0)
+    }
+
+    /// Review B1 — a refused answer goes back AFTER the card being read, never in front of it: answer A (held), answer
+    /// B (A sends), read C; A is rolled back → C stays on screen and A waits at the end.
+    func testARefusedAnswerNeverDisplacesTheCardBeingRead() throws {
+        let three = try decoded().filter { $0.kind == .decay }.map { item -> InboxItem in
+            var copy = item
+            copy.options = [InboxOption(key: "keep", label: "Keep active", description: nil, claimId: nil,
+                                        observedAt: nil, lastReferenced: nil, ageDays: nil),
+                            InboxOption(key: "archive", label: "Archive", description: nil, claimId: nil,
+                                        observedAt: nil, lastReferenced: nil, ageDays: nil)]
+            return copy
+        }
+        var review = InboxReview(kind: .decay, items: three)
+        XCTAssertEqual(review.queue, ["inbox-002", "inbox-001", "inbox-003"])
+        review.record(.answered("inbox-002"))   // A
+        review.record(.answered("inbox-001"))   // B
+        XCTAssertEqual(review.currentId, "inbox-003")   // C on screen
+        review.reconcile(visible: ["inbox-002", "inbox-003"])   // A rolled back; B still sending
+        XCTAssertEqual(review.currentId, "inbox-003", "the card being read stays")
+        XCTAssertEqual(review.queue, ["inbox-001", "inbox-003", "inbox-002"])
+        XCTAssertEqual([review.answered, review.left], [1, 2])
+        review.record(.skipped("inbox-003"))
+        XCTAssertEqual(review.currentId, "inbox-002", "the refused one comes back after it")
+    }
+
+    func testAnAnswerOrSkipForACardNoLongerOnScreenIsIgnored() throws {
+        let (store, api, vm) = try makeModel()
+        vm.startReview(.decay)
+        XCTAssertEqual(vm.reviewItem?.id, "inbox-002")
+        XCTAssertFalse(vm.reviewAnswer(itemId: "inbox-001", QuestionResolution(action: "resolve", optionKey: "keep")),
+                       "a key or button drawn for another card is a no-op")
+        XCTAssertNil(store.currentHeld)
+        vm.reviewSkip(itemId: "inbox-001")
+        XCTAssertEqual(vm.reviewItem?.id, "inbox-002")
+        XCTAssertEqual(vm.review?.history, [])
+        XCTAssertEqual(api.writes, [])
     }
 
     // MARK: Keys
@@ -247,7 +284,7 @@ final class InboxReviewTests: XCTestCase {
         let (store, api, vm) = try makeModel()
         vm.startReview(.decay)
         XCTAssertEqual(vm.reviewItem?.id, "inbox-002")
-        XCTAssertTrue(vm.reviewAnswer(QuestionResolution(action: "resolve", optionKey: "keep")))
+        XCTAssertTrue(vm.reviewAnswer(itemId: "inbox-002", QuestionResolution(action: "resolve", optionKey: "keep")))
         XCTAssertEqual(api.writes, [], "a tap is not a commit")
         XCTAssertEqual(store.currentHeld?.id, "inbox-002")
         XCTAssertEqual(vm.reviewItem?.id, "inbox-001", "the next card swaps in")
@@ -264,17 +301,17 @@ final class InboxReviewTests: XCTestCase {
     func testTheNextAnswerSendsTheLastAndSkipsWriteNothing() async throws {
         let (store, api, vm) = try makeModel()
         vm.startReview(.decay)
-        vm.reviewSkip()
+        vm.reviewSkip(itemId: "inbox-002")
         XCTAssertEqual(vm.reviewItem?.id, "inbox-001")
         XCTAssertEqual(api.writes, [])
         XCTAssertEqual(vm.reviewLastStep, Copy.Inbox.skipped)
-        vm.reviewAnswer(QuestionResolution(action: "resolve", optionKey: "archive"))
+        vm.reviewAnswer(itemId: "inbox-001", QuestionResolution(action: "resolve", optionKey: "archive"))
         XCTAssertTrue(vm.review?.isFinished ?? false)
         XCTAssertEqual(store.currentHeld?.id, "inbox-001")
         // A second review's answer sends the first — the Inbox's one Undo window, unchanged.
         vm.endReview()
         vm.startReview(.fold)
-        vm.reviewAnswer(QuestionResolution(action: "resolve", optionKey: "0"))
+        vm.reviewAnswer(itemId: "inbox-004", QuestionResolution(action: "resolve", optionKey: "0"))
         await eventually(api.writes == ["resolveInbox:inbox-001:resolve:archive:nil"])
         XCTAssertEqual(store.currentHeld?.id, "inbox-004")
     }
@@ -295,6 +332,6 @@ final class InboxReviewTests: XCTestCase {
         let source = try String(contentsOf: root.appendingPathComponent("Sources/CicadaApp/Views/Inbox/InboxReviewView.swift"),
                                 encoding: .utf8)
         XCTAssertFalse(source.contains("withAnimation"))
-        XCTAssertTrue(source.contains("Instant.run { viewModel.reviewAnswer(resolution) }"))
+        XCTAssertTrue(source.contains("Instant.run { viewModel.reviewAnswer(itemId: itemId, resolution) }"))
     }
 }

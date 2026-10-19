@@ -29,7 +29,7 @@ struct InboxReviewView: View {
                         ReviewCardView(item: item, answers: ReviewCard.answers(item) ?? [],
                                        takesText: ReviewCard.takesText(item), names: store.entityNames,
                                        text: $text, field: $focus,
-                                       onAnswer: { answer($0) }, onSubmitText: { submitText(item) },
+                                       onAnswer: { answer(item.id, $0) }, onSubmitText: { submitText(item) },
                                        onOpenInInbox: { onOpenInInbox(item) })
                             .id(item.id)
                     } else {
@@ -53,8 +53,8 @@ struct InboxReviewView: View {
                   let key = ReviewKeys.action(press.characters, answers: answers.count, takesText: ReviewCard.takesText(item),
                                               fieldFocused: focus == .answer) else { return .ignored }
             switch key {
-            case .answer(let i): answer(answers[i].resolution)
-            case .skip: skip()
+            case .answer(let i): answer(item.id, answers[i].resolution)
+            case .skip: skip(item.id)
             case .type: focus = .answer
             }
             return .handled
@@ -87,8 +87,8 @@ struct InboxReviewView: View {
     private var footer: some View {
         if let review = viewModel.review {
             HStack(spacing: CicadaTheme.spacingSM) {
-                if !review.isFinished {
-                    TextButton(title: Copy.Inbox.Review.skip, keyHint: "S", help: Copy.Inbox.Review.skipHelp) { skip() }
+                if let id = review.currentId {
+                    TextButton(title: Copy.Inbox.Review.skip, keyHint: "S", help: Copy.Inbox.Review.skipHelp) { skip(id) }
                         .padding(.leading, -CicadaTheme.scaled(10))
                 }
                 Text(Copy.Inbox.Review.progress(answered: review.answered, skipped: review.skipped, left: review.left))
@@ -130,17 +130,18 @@ struct InboxReviewView: View {
 
     // MARK: Actions (keys and pointer alike — a swap is instant, DR-29 / DR-60)
 
-    private func answer(_ resolution: QuestionResolution) {
-        Instant.run { viewModel.reviewAnswer(resolution) }
+    /// Every answer and skip names the card it was drawn for (review B1): one for a card no longer on screen is a no-op.
+    private func answer(_ itemId: String, _ resolution: QuestionResolution) {
+        Instant.run { viewModel.reviewAnswer(itemId: itemId, resolution) }
     }
 
     private func submitText(_ item: InboxItem) {
         guard let resolution = ReviewCard.typed(item, text: text) else { return }
-        answer(resolution)
+        answer(item.id, resolution)
     }
 
-    private func skip() {
-        Instant.run { viewModel.reviewSkip() }
+    private func skip(_ itemId: String) {
+        Instant.run { viewModel.reviewSkip(itemId: itemId) }
     }
 
     private func undo() {

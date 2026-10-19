@@ -44,7 +44,7 @@ struct InboxPage: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CicadaTheme.bgBase)
-        .onAppear { consumeLanding(); viewModel.reconcile() }
+        .onAppear { consumeLanding(); viewModel.reconcile(); viewModel.reconcileReview() }
         .onChange(of: router.pendingInboxItem) { _, _ in consumeLanding() }
         .onChange(of: viewModel.items.map(\.id)) { _, _ in
             viewModel.reconcile()

@@ -145,16 +145,19 @@ final class InboxViewModel {
 
     /// The card's answer, through the Inbox's own hold (`answer` → `Store.hold`): the same resolver, the same Undo
     /// window, the same send. Recorded only when the Store took it (a bank switch refuses it and the card stays).
+    ///
+    /// `itemId` is the card the key or the button was drawn for: an answer for any other card is ignored (review B1 —
+    /// the card on screen can change between the draw and the press, and an option's key is valid on both cards).
     @discardableResult
-    func reviewAnswer(_ resolution: QuestionResolution) -> Bool {
-        guard let item = reviewItem, answer(item, resolution) else { return false }
+    func reviewAnswer(itemId: String, _ resolution: QuestionResolution) -> Bool {
+        guard let item = reviewItem, item.id == itemId, answer(item, resolution) else { return false }
         review?.record(.answered(item.id))
         return true
     }
 
-    /// Skip writes nothing: the question stays in the Inbox, and the review moves on.
-    func reviewSkip() {
-        guard let id = review?.currentId else { return }
+    /// Skip writes nothing: the question stays in the Inbox, and the review moves on. Only the card drawn.
+    func reviewSkip(itemId: String) {
+        guard let id = review?.currentId, id == itemId else { return }
         review?.record(.skipped(id))
     }
 
