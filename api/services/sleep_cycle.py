@@ -3238,10 +3238,22 @@ def episode_row(f: bank_index.IndexedFile) -> dict:
     }
 
 
+def episode_rows(files) -> list[dict]:
+    """:func:`episode_row` for each file, skipping one that cannot be read — deleted or rewritten unreadable between
+    the listing and its body read (capture keeps running). One missing episode never fails the whole list."""
+    rows: list[dict] = []
+    for f in files:
+        try:
+            rows.append(episode_row(f))
+        except Exception as exc:  # noqa: BLE001 - one unreadable episode must not fail the listing
+            logger.debug(f"episode_rows: skipping {f.path.name}: {exc}")
+    return rows
+
+
 def list_all_episodes(memory_path: Path, processed: bool | None = None) -> list[dict]:
     """Every episode (or only the waiting / read ones), sorted by timestamp — the chronology the cycle consumes them
     in (G114 R2). ``GET /sleep/episodes`` pages :func:`episode_headers` itself so it reads only the bodies it sends."""
-    return [episode_row(f) for f in episode_headers(memory_path, processed)]
+    return episode_rows(episode_headers(memory_path, processed))
 
 
 def _load_existing_entities(memory_path: Path) -> list[dict]:

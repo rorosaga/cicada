@@ -124,3 +124,35 @@ def test_a_folder_rename_moves_the_tag(bank):
     moved = client.get("/sleep/episodes?processed=false", headers={"If-None-Match": r.headers["ETag"]})
     assert moved.status_code == 200
     assert next(row for row in moved.json() if row["id"] == "ep_wait_file")["copyValue"] == "/tmp/two/notes/a.md"
+
+
+def test_an_episode_deleted_between_the_listing_and_its_body_read_is_skipped(bank, monkeypatch):
+    """Capture keeps running: a file can go between `episode_headers` and its body read. The list skips it."""
+    from api.routers import sleep as sleep_router
+
+    real = sleep_router.episode_headers
+
+    def listing_then_delete(memory_path, processed=None):
+        headers = real(memory_path, processed)
+        (bank / "episodes" / "ep_wait_a.md").unlink()
+        return headers
+
+    monkeypatch.setattr(sleep_router, "episode_headers", listing_then_delete)
+    r = TestClient(main.app).get("/sleep/episodes?processed=false")
+    assert r.status_code == 200
+    assert [row["id"] for row in r.json()] == ["ep_wait_b"]
+
+
+def test_list_all_episodes_skips_a_file_gone_before_its_body_read(bank, monkeypatch):
+    from api.services import sleep_cycle
+
+    real = sleep_cycle.episode_headers
+
+    def listing_then_delete(memory_path, processed=None):
+        headers = real(memory_path, processed)
+        (bank / "episodes" / "ep_read_0.md").unlink()
+        return headers
+
+    monkeypatch.setattr(sleep_cycle, "episode_headers", listing_then_delete)
+    ids = [e["id"] for e in sleep_cycle.list_all_episodes(bank)]
+    assert "ep_read_0" not in ids and len(ids) == 7

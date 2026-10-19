@@ -53,7 +53,7 @@ from api.services.sleep_cycle import (
     get_sleep_state,
     is_writing,
     episode_headers,
-    episode_row,
+    episode_rows,
     progress_pct,
     request_cancel,
     reserve_cycle,
@@ -402,7 +402,7 @@ async def sleep_episodes(
     window = headers[offset:offset + limit] if limit is not None else headers[offset:]
     roots = episode_copy.folder_roots(mp)
     items: list[EpisodeQueueItem] = []
-    for ep in (episode_row(f) for f in window):
+    for ep in episode_rows(window):   # a file gone since the listing is skipped, never a 500
         body = ep["body"]
         fm = ep["frontmatter"]
         kind, value = episode_copy.copy_target(fm, body, roots)
