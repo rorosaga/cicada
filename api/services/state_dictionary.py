@@ -751,3 +751,22 @@ async def refresh_and_commit(
         )
     return result
 
+
+async def refresh_admitted(memory_path: Path, settings=None, **refresh_kw) -> dict | None:
+    """``refresh_and_commit`` for a writer OUTSIDE Sleep, after its own transaction: one admitted transaction
+    (G183), skipped — ``None`` — while Sleep holds the pages, since the run's tail refreshes it and a write here could
+    ride the batch commit under Sleep's author. ``GET /state``'s pattern, for the undo routes, the inbox tidy and the
+    web sweep. Best-effort: a failure logs and returns ``None``, never failing the write that came before it."""
+    from api.services import write_admission
+
+    async def body() -> dict | None:
+        if write_admission.holding():
+            return None
+        return await refresh_and_commit(memory_path, settings, **refresh_kw)
+
+    try:
+        return await write_admission.run_admitted(memory_path, body)
+    except Exception as exc:  # noqa: BLE001 — the projection never fails the person's write
+        logger.info(f"state refresh skipped: {type(exc).__name__}")
+        return None
+

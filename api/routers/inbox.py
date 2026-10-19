@@ -86,10 +86,7 @@ async def undo_settled(item_id: str, settings: Settings = Depends(get_settings))
     except web_settle.NotSettleable as exc:
         raise HTTPException(404, str(exc)) from exc
     web_settle.record_event(memory_path, action="undo", item_id=item_id, entity_id=None, by_kind="person")
-    try:
-        await state_dictionary.refresh_and_commit(memory_path, settings)
-    except Exception:  # noqa: BLE001 — the projection never fails the person's undo
-        pass
+    await state_dictionary.refresh_admitted(memory_path, settings)   # admitted; skipped while Sleep holds the pages
     return {"status": "reopened", "id": target}
 
 
@@ -134,10 +131,7 @@ async def _undo_sleep_settle(item_id: str, settings: Settings) -> dict:
     except inbox_tend.NotUndoable as exc:
         raise HTTPException(409 if "changed" in str(exc) or "moved" in str(exc) else 404, str(exc)) from exc
     inbox_tend.record_undo(memory_path, item_id, out.get("rec") or {})
-    try:
-        await state_dictionary.refresh_and_commit(memory_path, settings)
-    except Exception:  # noqa: BLE001 — the projection never fails the person's undo
-        pass
+    await state_dictionary.refresh_admitted(memory_path, settings)   # admitted; skipped while Sleep holds the pages
     return {"status": "reopened", "id": target}
 
 

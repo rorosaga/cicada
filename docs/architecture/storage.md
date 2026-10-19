@@ -1060,7 +1060,10 @@ Every regeneration that touches disk goes through `state_dictionary.refresh_and_
 commits `_state.md` ALONE (`commit_paths`, never `git add -A`) as `State snapshot <date>` /
 `Cicada-Author: cicada`. **The read path commits too, on purpose:** a projection left dirty "for
 Sleep's tail" gets swept into the next `git add -A` writer's commit under the wrong author — the
-G85-class smear. `sleep.next_at` is computed per request, never persisted: in the file it advanced
+G85-class smear. Outside Sleep, that refresh is one admitted transaction skipped while Sleep holds the pages
+(G183), or it could ride Sleep's batch commit under Sleep's author: `GET /state` and an inbox resolution inline,
+every other writer (the settled-question undos, the inbox tidy, the web sweep) through
+`state_dictionary.refresh_admitted`; `test_write_admission_sites.py` lists the direct callers. `sleep.next_at` is computed per request, never persisted: in the file it advanced
 every day and made every idle night commit.
 
 **`_state.md` schema v3 (G141):** each of the top 7 project rows gains `next: {slug, name, target}`

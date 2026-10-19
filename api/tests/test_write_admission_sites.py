@@ -474,6 +474,10 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /remote/connectors": (OUTSIDE, None),
     "POST /remote/connectors/{connector_id}/rotate": (OUTSIDE, None),
     "DELETE /remote/connectors/{connector_id}": (OUTSIDE, None),
+    "POST /remote/oauth/match": (OUTSIDE, None),
+    "POST /remote/oauth/approve": (OUTSIDE, None),
+    "POST /remote/oauth/requests/deny-all": (OUTSIDE, None),
+    "POST /remote/oauth/requests/{ref}/deny": (OUTSIDE, None),
     "PUT /videos/queue/{key}": (OUTSIDE, None),
     "DELETE /videos/queue/{key}": (OUTSIDE, None),
     "POST /videos/queue/{key}/retry": (OUTSIDE, None),
@@ -545,8 +549,9 @@ TOOLS: dict[str, tuple[str, str | None]] = {
 
 #: `write_admission.holding()` is the in-hold question: each site and what holds the bank around it.
 HOLDING_SITES = {
-    "api/services/web_lookup.py": "the web-check sweep's closing `_state.md` refresh: inside its own run_admitted() "
-                                  "transaction, skipped while Sleep holds the pages (GET /state's pattern)",
+    "api/services/state_dictionary.py": "refresh_admitted(): the `_state.md` refresh after the undo routes, the inbox "
+                                        "tidy and the web sweep — inside its own run_admitted() transaction, skipped "
+                                        "while Sleep holds the pages (GET /state's pattern)",
     "api/routers/maintenance.py": "the sweep's may_write: asked inside each merge's own hold (and, stale, before a "
                                   "judge call, where nothing is written)",
     "api/routers/local_sources.py": "folder update/sync and Wispr Flow: inside their route()'s hold",
@@ -777,6 +782,62 @@ def test_get_state_inside_the_window_serves_the_file_and_writes_nothing(tmp_path
     assert calls == [1], "no refresh while Sleep holds the pages"
     assert subprocess.run(["git", "-C", str(memory), "rev-parse", "HEAD"], capture_output=True,
                                         text=True).stdout == head
+
+
+def test_refresh_admitted_holds_admission_and_skips_while_sleep_holds_the_pages(tmp_path, monkeypatch):
+    """The undo routes, the inbox tidy and the web sweep refresh `_state.md` through this one door."""
+    import asyncio
+
+    from api.services import state_dictionary
+
+    memory = _bank(tmp_path)
+    seen: list[int] = []
+
+    async def refresh_and_commit(memory_path, settings=None, **_kw):
+        seen.append(write_admission.holders(memory))
+        return {"written": False}
+
+    monkeypatch.setattr(state_dictionary, "refresh_and_commit", refresh_and_commit)
+    assert asyncio.run(state_dictionary.refresh_admitted(memory, None)) == {"written": False}
+    assert seen == [1], "inside the bank's admission"
+    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: True)
+    assert asyncio.run(state_dictionary.refresh_admitted(memory, None)) is None
+    assert seen == [1], "skipped while Sleep holds the pages — it would ride Sleep's batch commit"
+
+    async def boom(*_a, **_kw):
+        raise RuntimeError("projection failed")
+
+    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: False)
+    monkeypatch.setattr(state_dictionary, "refresh_and_commit", boom)
+    assert asyncio.run(state_dictionary.refresh_admitted(memory, None)) is None, "never fails the write before it"
+
+
+#: Every module that calls `state_dictionary.refresh_and_commit` directly, and why that call cannot ride Sleep's batch
+#: commit. Any other writer refreshes through `state_dictionary.refresh_admitted`.
+REFRESH_AND_COMMIT_CALLERS = {
+    "api/services/state_dictionary.py": "its own definition and `refresh_admitted`",
+    "api/services/sleep_cycle.py": "Sleep's tail: Sleep itself, under its own git lock",
+    "api/routers/state.py": "GET /state: inside run_admitted, skipped while write_admission.holding()",
+    "api/services/inbox_service.py": "resolve(): inside the resolution's run_admitted, never when Sleep is the actor",
+}
+
+
+def test_every_state_refresh_outside_sleep_is_admitted():
+    """Review of #360: the undo routes and the tidy refreshed `_state.md` outside admission."""
+    found = set()
+    for path in sorted((ROOT / "api").rglob("*.py")):
+        rel = path.relative_to(ROOT).as_posix()
+        if "/tests/" in rel or "/.venv/" in rel:
+            continue
+        if "refresh_and_commit(" in path.read_text(encoding="utf-8"):
+            found.add(rel)
+    assert sorted(found - set(REFRESH_AND_COMMIT_CALLERS)) == [], \
+        "a direct refresh_and_commit caller: use state_dictionary.refresh_admitted, or classify it here"
+    assert sorted(set(REFRESH_AND_COMMIT_CALLERS) - found) == [], "a stale REFRESH_AND_COMMIT_CALLERS entry"
+    for route in ("undo_settled", "_undo_sleep_settle"):
+        from api.routers import inbox
+
+        assert "refresh_admitted(" in _src(getattr(inbox, route)), route
 
 
 # --- G98/G115: the one-shot bank migrations (boot and every bank activation) -----------------------------------------
