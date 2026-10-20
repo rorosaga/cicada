@@ -148,6 +148,19 @@ class _Engine:
         roll = _h(prompt, 12)
         if roll == 11:
             raise ValueError("synthetic unreadable answer")  # a non-engine failure: logged, the page goes on
+        if "checking, for each entity below" in prompt:
+            # Several pages in one call (`CONTRADICTION_BATCH`): each page's result is a function of its own block.
+            blocks = prompt.split("ENTITY ")[1:]
+            results = []
+            for number, block in enumerate(blocks, start=1):
+                own = _h(block, 12)
+                results.append({"entity": number, "has_unresolvable_contradiction": not own % 3,
+                                "contradiction": f"Two states, variant {own}." if not own % 3 else "",
+                                "question": f"Which state holds, variant {own}?" if not own % 3 else "",
+                                "options": [{"label": f"State {own}a", "description": "From the page."},
+                                            {"label": f"State {own}b", "description": "From the new conversation."}]
+                                if not own % 3 else []})
+            return json.dumps({"results": results})
         if "checking whether two descriptions" in prompt:
             if roll % 3:
                 return json.dumps({"has_unresolvable_contradiction": False, "contradiction": "", "question": "",

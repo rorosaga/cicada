@@ -1229,7 +1229,7 @@ decides in order, with no call, which pages are asked and with what (`_page_job`
 under synthesis, an update with nothing to merge and a re-read are settled there), then runs those pages' calls with at
 most `agent_max_concurrency` pages in flight (`CICADA_AGENT_MAX_CONCURRENCY`, default 3; 1 is the serial loop; a plan
 engine is held to the same number process-wide by the provider permit; no Stage 3 knob of its own), pages started in
-order (`_overlap_pages`). A page's own two calls stay in order. Once every answer is in, the results — the synthesized
+order (`_overlap_pages`). Since 2026-10-20 the write calls (article or synthesis) run first and the contradiction checks after them, several pages a call (see *Fewer calls per conversation*). Once every answer is in, the results — the synthesized
 body, the contradiction's `conflict_nudge` — are applied in the pages' order, so `changes`, every page Stage 5 writes
 and every inbox item (a second conflict on a page merging into the first's item included) are byte-for-byte the serial
 run's (`test_conflict_resolver_concurrency`: randomized per-call latency, concurrency 1 vs 2/3/5/10, both synthesis
@@ -1241,6 +1241,71 @@ plan-limit pause and its error classification are unchanged. Measured on a fake 
 (25 updates, 20 with a summary: 45 calls, 8–12 s per synthesis call and 2.5–3.5 s per contradiction call):
 304 s serial (concurrency 1, as before), 110 s at 3 (the default), 38 s at 10 — the measured run's setting, ~4.4 minutes
 saved per batch.
+
+**Fewer calls per conversation (2026-10-20).** A scheduled 14-conversation night on haiku made 574 model calls
+(owner's telemetry ledger): disambiguation 268, merge 116, conflict 110, extraction 48 — reading was 8 % of them.
+What triggered each:
+
+- **Disambiguation** — one call per (extracted name, same-type page sharing a content word or listing the name as an
+  alias), one after another until the first `same`. A name sharing a common word ("google", "model", "review", a
+  first name) with N pages cost N calls, almost all `different`. Now **one call weighs up to `JUDGE_BATCH` (6) of a
+  name's candidates** (`entity_resolver._llm_judge_batch`, `_DISAMBIG_BATCH_PROMPT`): the same guidelines, each
+  existing page a numbered entry cut as the one-pair prompt cut it (2,000 characters; an alias entry carries the alias
+  note and its page context first, and the name's connections ride along), one decision per entry. Candidates keep
+  their judging order; a call holding a `same` ends the name and the first `same` in order is the match, so the
+  rule is the one-by-one loop's. A lone candidate keeps `_DISAMBIG_PROMPT` byte for byte. An answer is read only when it
+  lines up (`json_parse.numbered_rows`: its numbers exactly 1..n, or no numbers and exactly n rows); 0-based, duplicate,
+  missing or mixed numbering, or a short or long list, is `unsure` for every entry (as an unreadable one-pair answer),
+  never a decision read against the wrong page; an engine error still raises. The stage keeps its name
+  `disambiguation`; its plan schemas take both shapes (`agent_engine.SCHEMA_BY_STAGE`,
+  `engine_schemas.disambiguation_schema`).
+- **The judge read nothing about the new name.** It was given the extraction's `description`, a legacy field
+  Stage 1 almost never fills (1 of 79 entities on the synthetic night) — `summary` is what it writes. So nearly
+  every call compared a page with "(empty)", and the guidelines' own rule ("an empty description and names that don't
+  obviously line up" → `different`, a bare first name → `unsure`) made every first-name mention a "Possible duplicate
+  of …" question. Stage 2 now reads `summary`, falling back to `description` (`_effective_summary`), for the name, for
+  an in-cycle create as a candidate, and for the context of the questions it files.
+- **Conflict** — one contradiction call per updated page with a summary. Now **one call checks up to
+  `CONTRADICTION_BATCH` (5) pages** (`conflict_resolver._check_pages` → `_detect_contradictions`,
+  `_CONTRADICTIONS_RULES`): every line of the one-page definition, then each page in its own numbered block with the
+  same cuts (4,000 / 2,000 characters) and dates, answered in its own result. A page's check reads only its page as it
+  was before the stage and its own update, so the checks run after all the write calls, grouped in the pages' order
+  (the groups depend on that order alone, so every concurrency asks the same calls); results are applied in the
+  pages' order as before. A lone page keeps `_CONTRADICTION_INPUT` byte for byte; an answer that does not line up (the same
+  rule) files no question for any of its pages, as an unreadable one-page answer.
+- **Merge** — one write per page with something to write (the article or the synthesis), already none for a stub, a
+  re-read or a hand-edited page. Unchanged: its output is the page, too long to share a call.
+
+Not built, and why. *A deterministic pre-filter on names* ("both names have a word of their own" → different): on
+the synthetic night every such pair was `different`, but the same shape covers "Personal Site"/"Personal Website",
+"ML Pipeline"/"Machine Learning Pipeline", a nickname and a surname — the judge exists for those, and with batching
+the pairs it would remove share a call with the ones it must keep, so it would save a call only for names whose
+every candidate it removes. *A cross-run decision ledger*: keyed on what the judge reads it never hits (the
+description is new every conversation); keyed on less it replays a `different` the new description might overturn —
+the first-name case. *An embedding-distance cut*: a threshold that is conservative on the synthetic night is a guess
+on the owner's bank. Exact names, fuzz > 85 and a type mismatch were already settled with no call.
+
+Measured (`benchmarks/scale/sleep_calls.py`: a ~290-page synthetic developer bank, eight conversations, one drain on
+the plan with haiku for every stage, one call at a time, articles and summary synthesis on, the clock pinned; a
+prompt the change did not alter is answered from the earlier run's record, so the bank diff is the change's own):
+
+| calls per conversation | extraction | disambiguation | merge | conflict | skills + inbox | total |
+|---|---|---|---|---|---|---|
+| before | 1.0 | 4.4 | 5.4 | 4.6 | 0.6 | 16.0 (128) |
+| batching | 1.0 | 2.6 | 5.4 | 1.0 | 0.6 | 10.6 (85) |
+| batching + the judge reads the summary | 1.0 | 2.6 | 6.1 | 1.1 | 0.5 | 11.4 (91) |
+
+Batching alone: every page, claim and source identical; of 35 judged pairs 33 got the same decision, and the two that
+differ flip on the one-pair prompt itself (re-asked three times each: `different, unsure, unsure` and
+`different` ×3 against a recorded `unsure`) — run-to-run variance, not the batch; 37 contradiction checks, none found
+either way, and on ten labelled pairs (five unresolvable) the one-page and the batched check were both 10/10. The
+summary fix then merged six first-name and short-form mentions into their own pages (a colleague, the advisor, a
+recruiter, a teacher, a friend, the thesis) — correct on the fixture, the namesake pages judged `different` —
+instead of filing six "Possible duplicate" questions (inbox 15 → 9), so six more pages were updated (merge +6,
+conflict +1). Stage 2's wall time 137 → 96 s; contradiction-call time 130 → 55 s. For the 14-conversation night
+above: disambiguation ≈ one call per name with candidates (≤ 6 each; ~60–90), conflict 110 → 22, merge ~116–130,
+the rest unchanged (extraction 48, inbox tend 18, enrichment 12, skills, web check): **~280–320 calls, ~20–23 a
+conversation, against 574 (~41)**. The owner's own next night is the measurement that counts.
 
 **An alias brings its page to the judge, never a decision (2026-10-08).** The judge's candidates used to be only the
 same-type pages sharing a content word with the name, and Stage 2 never read a page's `aliases`, so a short form or
@@ -1257,7 +1322,7 @@ relationships and the names mentioned in the same conversations, speaker referen
 duplicate of …" inbox item for the person; `different` moves on to the token-sharing pages, then to a page of its own
 or a pending line, as before. An alias two pages share puts both in front of the judge. The context is built before
 the loop from the batch and the bank, so the lookahead still decides exactly as the serial loop. Calls: one per
-same-type alias holder judged (first `same` stops); a name with no shared word went from 0 calls and a duplicate to
+same-type alias holder judged (first `same` stops; since 2026-10-20 the holders and the token-sharing pages share one call, the holders as its first entries — see *Fewer calls per conversation*); a name with no shared word went from 0 calls and a duplicate to
 usually 1 call; one that shares a word and names its alias holder usually costs fewer calls than before, because the
 holder is judged first. A judge call with no alias candidate gets the prompt it always got, byte for byte. Link recon
 (`match_existing`) does not read aliases.

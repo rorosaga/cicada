@@ -421,10 +421,10 @@ async def resolve(
                             "uncertainty_type": _infer_uncertainty_type(entity),
                             "suggested_classification": (
                                 f"{entity.get('type', 'concept')} — "
-                                f"{(entity.get('description') or '')[:120]}"
+                                f"{_effective_summary(entity)[:120]}"
                             ),
                             "suggested_confidence": confidence,
-                            "source_context": entity.get("description", "") or "",
+                            "source_context": _effective_summary(entity),
                             "source_episode_timestamp": entity.get("source_episode_timestamp"),
                         },
                     ))
@@ -1106,7 +1106,7 @@ def _create_duplicate_clarification(
             ),
             suggested_confidence=float(entity.get("confidence", 0.0) or 0.0),
             source_context=(
-                (entity.get("description") or "").strip()
+                _effective_summary(entity)
                 or f"Could not safely decide whether this refers to {candidate_name}."
             ),
             source_episode_timestamp=entity.get("source_episode_timestamp"),
@@ -1137,7 +1137,7 @@ def _candidate_description(candidate: dict) -> str:
     if candidate["source"] == "existing":
         return candidate["data"].get("body", "") or ""
     entity = candidate["data"].get("entity", {}) or {}
-    description = (entity.get("description") or "").strip()
+    description = _effective_summary(entity)
     history = entity.get("history_entries", []) or []
     if history:
         lines = []
@@ -1362,6 +1362,124 @@ async def _llm_judge_same_entity(
         return "unsure"
 
 
+#: How many of one name's candidates one judge call weighs (2026-10-20). A name that shares a common word ("model",
+#: "google", a first name) with many same-type pages used to cost one call per page, ~85 % of a night's calls ending
+#: in "different"; now its candidates go to the judge together, in their judging order, at most this many a call.
+#: A lone candidate keeps the one-pair prompt (`_DISAMBIG_PROMPT`) byte for byte.
+JUDGE_BATCH = 6
+
+_DISAMBIG_BATCH_PROMPT = """You are deciding whether a new entity entry from a personal knowledge graph refers to the same real-world thing as any of the existing entries listed below.
+
+Each existing entry has a name that overlaps the new one (for example a bare first name and that same first name with a surname), or lists the new name among its other names, but was built from different conversations, so you need to look at the descriptions and decide, for each existing entry on its own, whether merging the new entry into it would be correct.
+
+NEW ENTRY (B)
+Name: {new_name}
+Type: {new_type}
+Description:
+{new_description}{new_connections}
+
+EXISTING ENTRIES (each one is an A, judged on its own against B)
+{entries}
+Guidelines:
+- Say SAME only when the descriptions clearly point at the same real person, project, company, concept, tool, deadline, skill, or location. Shared last names alone are not enough. Shared first names alone are definitely not enough.
+- Say SAME when one description is a vague subset of the other and nothing in either description contradicts the merge.
+- Say DIFFERENT when the descriptions place the entities in clearly different contexts (different roles, different companies, different cities) or when one description is empty and the names don't obviously line up.
+- Say UNSURE when there is overlap in the name tokens but the descriptions are too weak to merge safely. If you are hesitating, return UNSURE.
+- If the type fields disagree (e.g. person vs project), they are not the same.
+
+Respond with JSON only, one decision for every existing entry, in the order given:
+{{"decisions": [{{"entry": 1, "decision": "same" | "different" | "unsure", "reason": "one short sentence"}}]}}
+"""
+
+_BATCH_ENTRY = """[{index}] Name: {name}
+Type: {type}
+{alias_note}Description:
+{body}
+"""
+
+#: `_ALIAS_NOTE` for one entry of a batch.
+_BATCH_ALIAS_NOTE = ('Note: this entry already lists "{new_name}" among the other names it goes by (its aliases), so '
+                     "the names need not share a word. That is a lead, not proof: acronyms, short forms and first "
+                     "names are often shared by different things. Say SAME only when B's description and connections "
+                     "fit this entry's; say DIFFERENT when they point at something else; say UNSURE when there is too "
+                     "little to tell.\n")
+
+
+def _batch_decisions(parsed: dict, count: int) -> list[str]:
+    """One decision per entry from a batch answer, lined up by `json_parse.numbered_rows` (the numbers exactly 1..n,
+    or no numbers and exactly n rows). An answer that does not line up is ``unsure`` for every entry, and a row whose
+    decision is not one of the three words is ``unsure`` — the reading an unreadable one-pair answer gets; never a
+    decision read against the wrong candidate."""
+    rows = json_parse.numbered_rows(parsed.get("decisions") if isinstance(parsed, dict) else None, count, "entry")
+    if rows is None:
+        return ["unsure"] * count
+    words = {"same", "different", "unsure"}
+    return [d if (d := str(row.get("decision", "")).strip().lower()) in words else "unsure" for row in rows]
+
+
+async def _llm_judge_batch(
+    new_name: str,
+    new_type: str,
+    new_description: str,
+    entries: list[dict],
+    settings: Settings,
+    *,
+    new_connections: str = "",
+) -> list[str]:
+    """One LLM call over several existing entries: ``same``, ``different`` or ``unsure`` for each, in order.
+
+    ``entries``: ``{name, type, body, alias}`` per candidate, the body already chosen as the one-pair call would
+    (`_alias_page_context` for an alias candidate). Each entry is cut as the one-pair prompt cuts it and an alias
+    entry carries the alias note; a type that disagrees is ``different`` without asking, as there."""
+    from api.services.claims import strip_claims_block
+
+    decisions: list[str | None] = [
+        "different" if new_type and e["type"] and new_type.lower() != str(e["type"]).lower() else None
+        for e in entries]
+    asked = [i for i, d in enumerate(decisions) if d is None]
+    if not asked:
+        return [str(d) for d in decisions]
+    blocks = []
+    for number, i in enumerate(asked, start=1):
+        entry = entries[i]
+        blocks.append(_BATCH_ENTRY.format(
+            index=number, name=entry["name"], type=entry["type"] or "unknown",
+            alias_note=_BATCH_ALIAS_NOTE.format(new_name=new_name) if entry.get("alias") else "",
+            body=strip_claims_block(entry["body"] or "")[:2000] or "(empty)"))
+    prompt = _DISAMBIG_BATCH_PROMPT.format(
+        new_name=new_name,
+        new_type=new_type or "unknown",
+        new_description=(new_description or "")[:1500] or "(empty)",
+        new_connections=f"\nConnections in its conversations:\n{new_connections[:800]}" if new_connections else "",
+        entries="\n".join(blocks),
+    )
+    disambig_model = (
+        getattr(settings, "litellm_disambiguation_model", "") or settings.litellm_model
+    )
+    try:
+        from api.services.providers import resolve_llm_fn
+
+        llm_fn = resolve_llm_fn(
+            settings, model=disambig_model, completion=litellm.acompletion, stage="disambiguation"
+        )
+        response = await llm_fn(
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            extra_body={"reasoning": {"enabled": False}},  # as the one-pair call: a judgment, no chain of thought
+            timeout=120,
+        )
+        answered = _batch_decisions(json_parse.parse_json_object(response.choices[0].message.content or "{}"),
+                                    len(asked))
+    except engine_errors.EngineError:
+        raise  # G74(a): an engine failure is never a model's uncertainty
+    except Exception as e:
+        logger.debug(f"Disambiguation judge failed for {new_name} against {len(asked)} pages: {e}")
+        answered = ["unsure"] * len(asked)
+    for i, decision in zip(asked, answered):
+        decisions[i] = decision
+    return [str(d) for d in decisions]
+
+
 def _existing_llm_candidates(
     new_entity: dict, existing_by_name: dict[str, dict], aliases: dict[str, list[dict]] | None = None,
 ) -> list[dict]:
@@ -1430,47 +1548,73 @@ async def _judge_candidates(
     stop: Callable[[], bool] | None = None,
     connections: str = "",
 ) -> list[tuple[dict, str]]:
-    """Judge ``candidates`` in order, one call each, stopping at the first ``same``.
+    """Judge ``candidates`` in order, up to ``JUDGE_BATCH`` of them a call, stopping after the first call (or cached
+    decision) that says ``same``.
 
-    Returns ``(candidate, decision)`` per candidate judged. ``gate`` bounds the
-    calls in flight across every name ``resolve`` is judging; ``stop`` is polled
-    before each call so a cancel or a plan limit starts nothing new. A candidate an
-    alias brought is judged with the alias note, the page's context first
-    (``_alias_page_context``) and the name's ``connections`` in the batch."""
+    Returns ``(candidate, decision)`` per candidate judged, in order — always a prefix of ``candidates``, which may
+    run past the first ``same`` within its call (`_pick_match` takes the first). ``gate`` bounds the calls in flight
+    across every name ``resolve`` is judging; ``stop`` is polled before each call so a cancel or a plan limit starts
+    nothing new. A candidate an alias brought is judged with the alias note, the page's context first
+    (``_alias_page_context``) and the name's ``connections`` in the batch. A call over one candidate is the one-pair
+    judge (`_llm_judge_same_entity`), over several `_llm_judge_batch`."""
     new_name = new_entity.get("name") or ""
     new_name_lower = new_name.lower()
     new_type = (new_entity.get("type") or "concept").lower()
-    new_description = new_entity.get("description") or ""
+    # What the extraction said about the name: Stage 1 fills `summary`; `description` is a legacy field it almost
+    # never fills (1 of 79 entities on the synthetic night, 2026-10-20), so the judge used to read "(empty)" for B.
+    new_description = _effective_summary(new_entity)
     judged: list[tuple[dict, str]] = []
-    for candidate in candidates:
-        cache_key = (new_name_lower, candidate["id"])
-        if cache_key in cache:
-            decision = cache[cache_key]
-        else:
-            if stop is not None and stop():
+    index = 0
+    while index < len(candidates):
+        cached = cache.get((new_name_lower, candidates[index]["id"]))
+        if cached is not None:
+            judged.append((candidates[index], cached))
+            index += 1
+            if cached == "same":
                 break
-            kwargs = dict(
-                new_name=new_name,
-                new_type=new_type,
-                new_description=new_description,
-                existing_name=_candidate_display_name(candidate),
-                existing_type=_candidate_type(candidate),
-                existing_body=_candidate_description(candidate),
-                settings=settings,
-            )
-            if candidate.get("alias"):
-                kwargs.update(existing_body=_alias_page_context(candidate["data"]), recorded_alias=True,
-                              new_connections=connections)
-            if gate is None:
-                decision = await _llm_judge_same_entity(**kwargs)
-            else:
-                async with gate:
-                    if stop is not None and stop():  # stopped while waiting for a slot
-                        break
-                    decision = await _llm_judge_same_entity(**kwargs)
-            cache[cache_key] = decision
-        judged.append((candidate, decision))
-        if decision == "same":
+            continue
+        chunk: list[dict] = []
+        while (index + len(chunk) < len(candidates) and len(chunk) < JUDGE_BATCH
+               and (new_name_lower, candidates[index + len(chunk)]["id"]) not in cache):
+            chunk.append(candidates[index + len(chunk)])
+        if stop is not None and stop():
+            break
+
+        async def ask(chunk=chunk) -> list[str]:
+            if len(chunk) == 1:
+                candidate = chunk[0]
+                kwargs = dict(
+                    new_name=new_name,
+                    new_type=new_type,
+                    new_description=new_description,
+                    existing_name=_candidate_display_name(candidate),
+                    existing_type=_candidate_type(candidate),
+                    existing_body=_candidate_description(candidate),
+                    settings=settings,
+                )
+                if candidate.get("alias"):
+                    kwargs.update(existing_body=_alias_page_context(candidate["data"]), recorded_alias=True,
+                                  new_connections=connections)
+                return [await _llm_judge_same_entity(**kwargs)]
+            entries = [{"name": _candidate_display_name(c), "type": _candidate_type(c), "alias": bool(c.get("alias")),
+                        "body": _alias_page_context(c["data"]) if c.get("alias") else _candidate_description(c)}
+                       for c in chunk]
+            return await _llm_judge_batch(
+                new_name, new_type, new_description, entries, settings,
+                new_connections=connections if any(c.get("alias") for c in chunk) else "")
+
+        if gate is None:
+            decisions = await ask()
+        else:
+            async with gate:
+                if stop is not None and stop():  # stopped while waiting for a slot
+                    break
+                decisions = await ask()
+        for candidate, decision in zip(chunk, decisions):
+            cache[(new_name_lower, candidate["id"])] = decision
+            judged.append((candidate, decision))
+        index += len(chunk)
+        if "same" in decisions:
             break
     return judged
 

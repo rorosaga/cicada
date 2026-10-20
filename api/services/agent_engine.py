@@ -91,14 +91,28 @@ JSON_ONLY_SUFFIX = (
 #: the shared lenient parser (``json_parse``), which is belt-and-braces the
 #: spec asks for regardless. Widen this map once a live cycle proves no
 #: field-stripping.
+#: Disambiguation answers one pair (``decision``) or, since 2026-10-20, several candidates in one call
+#: (``decisions``, `entity_resolver._llm_judge_batch`): both shapes are declared, neither required — the prompt asks
+#: for the one it needs and the parser reads a missing decision as ``unsure``.
 SCHEMA_BY_STAGE: dict[str, dict] = {
     "disambiguation": {
         "type": "object",
         "properties": {
             "decision": {"type": "string", "enum": ["same", "different", "unsure"]},
             "reason": {"type": "string"},
+            "decisions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "entry": {"type": "integer"},
+                        "decision": {"type": "string", "enum": ["same", "different", "unsure"]},
+                        "reason": {"type": "string"},
+                    },
+                    "required": ["entry", "decision"],
+                },
+            },
         },
-        "required": ["decision"],
     },
 }
 

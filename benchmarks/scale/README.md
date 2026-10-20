@@ -76,3 +76,18 @@ api/.venv/bin/python -m benchmarks.recall_ab --bank $S/bank --queries $S/q.jsonl
 `benchmarks.recall_ab` is not a scale probe (it does not import `isolate`): it is the side-by-side recall test for the
 `entity_embed_text` setting, meant for the person's own bank with their own labeled queries and the bank's own search
 model (`docs/architecture/storage.md`). With `--embedder hash` it runs on a synthetic bank as a proof of the harness.
+
+## Model calls per conversation (2026-10-20)
+
+`sleep_calls` counts a night's calls by stage on a ~290-page synthetic developer bank (names that share "google",
+"model", a first name) and eight conversations, run on the plan (`claude -p`, haiku) one call at a time with the clock
+pinned. `--replay` answers every prompt an earlier run already asked, so only what a change made new reaches the plan
+and `diff` shows the change's own effect on pages, claims and questions (`docs/architecture/capture-and-sleep.md`,
+*Fewer calls per conversation*):
+
+```sh
+api/.venv/bin/python -m benchmarks.scale.sleep_calls build --bank $S/bank
+cp -R $S/bank $S/before && api/.venv/bin/python -m benchmarks.scale.sleep_calls run --bank $S/before --record $S/before.jsonl --live
+cp -R $S/bank $S/after && api/.venv/bin/python -m benchmarks.scale.sleep_calls run --bank $S/after --replay $S/before.jsonl --record $S/after.jsonl --live
+api/.venv/bin/python -m benchmarks.scale.sleep_calls diff $S/before $S/after
+```

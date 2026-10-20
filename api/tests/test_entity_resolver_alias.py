@@ -67,8 +67,21 @@ def bank(tmp_path, monkeypatch):
     return root
 
 
+def per_pair(judge):
+    """`_llm_judge_batch` answered by a one-pair fake, entry by entry, with the arguments a one-pair call gets."""
+    async def batch(new_name, new_type, new_description, entries, settings, *, new_connections=""):
+        out = []
+        for e in entries:
+            extra = {"recorded_alias": True, "new_connections": new_connections} if e.get("alias") else {}
+            out.append(await judge(new_name, new_type, new_description, e["name"], e["type"], e["body"], settings,
+                                   **extra))
+        return out
+    return batch
+
+
 def _resolve(bank, monkeypatch, pages, extracted, judge, concurrency=3):
     monkeypatch.setattr(er, "_llm_judge_same_entity", judge)
+    monkeypatch.setattr(er, "_llm_judge_batch", per_pair(judge))
     return asyncio.run(er.resolve(extracted, pages, _settings(bank, concurrency)))
 
 
@@ -113,12 +126,13 @@ def test_a_first_name_alias_on_a_person_page_is_never_settled_without_the_judge(
     assert all(c["id"] != "bob-example" for c in out["changes"])
 
 
-def test_the_alias_holder_is_judged_first_so_a_same_spends_one_call(bank, monkeypatch):
+def test_the_alias_holder_is_judged_first_and_one_call_weighs_the_pages_beside_it(bank, monkeypatch):
     pages = [_page("Delta Ember", "project"), _page("Delta Onyx", "project"),
              _page("Delta Prism Works", "project", aliases=["Delta Prism"])]
     judge = _Judge({"Delta Prism Works": "same"})
     out = _resolve(bank, monkeypatch, pages, _batch("Delta Prism", "project", episodes=(1, 2)), judge)
-    assert judge.pairs == [("Delta Prism", "Delta Prism Works")]
+    # One call weighs all three (2026-10-20, `JUDGE_BATCH`): the alias holder is its first entry, and the match.
+    assert judge.pairs[0] == ("Delta Prism", "Delta Prism Works") and len(judge.pairs) == 3
     assert out["name_to_id"]["delta prism"] == "delta-prism-works"
 
 
