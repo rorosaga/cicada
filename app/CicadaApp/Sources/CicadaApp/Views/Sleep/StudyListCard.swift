@@ -284,8 +284,7 @@ struct StudyListCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
-        .background(room?.hoveredOrigin == row.origin ? CicadaTheme.bgHover : Color.clear,
-                    in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+        .rowHoverFill(hovering: room?.hoveredOrigin == row.origin)
         .onHover { inside in room?.hover(origin: row.origin, inside: inside) }
         .help(chatsLine(row) ?? "")
         .accessibilityLabel([Self.rowAccessibilityLabel(row), chatsLine(row)].compactMap { $0 }.joined(separator: ", "))

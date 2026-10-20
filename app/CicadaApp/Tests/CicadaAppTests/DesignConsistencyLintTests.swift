@@ -1,7 +1,7 @@
 import XCTest
 @testable import CicadaApp
 
-/// The consistency pass (2026-10-20, §9; DR-39, DR-40, DR-43, DR-53, DR-74): one component per thing, so the pages
+/// The consistency pass (2026-10-20, §9; DR-39, DR-40, DR-43, DR-53, DR-74; round 2: DR-48, DR-75, DR-76, §5.3): one component per thing, so the pages
 /// cannot drift apart again. Before it, sixteen folds drew their chevron at five sizes, two ways, Skills' and Looks' side columns set their titles
 /// in a face no other detail used, and the Inbox, Skills and Looks each spelled their own first-read state. Source
 /// lints, because "a page built its own" is a fact about the source, not about one render.
@@ -16,16 +16,16 @@ final class DesignConsistencyLintTests: XCTestCase {
         try ThemeTokenTests.swiftSources().filter { $0.path.contains("/Views/") }
     }
 
-    /// DR-39 / DR-53 — every fold draws `DisclosureChevron` (or `DisclosureHeader`): no hand-swapped
-    /// `chevron.down`/`chevron.right`/`chevron.up` and no hand-turned chevron (a ‹ › pair that opens or closes the
-    /// Reader is a direction, not a fold). The one exception is an `IconButton` fold, whose 28 pt
-    /// target is the control itself (DR-53).
+    /// DR-39 / DR-53 — every fold draws `DisclosureChevron` (or `DisclosureHeader`, or `DisclosureButton` for a fold
+    /// whose only control is its glyph): no hand-swapped `chevron.down`/`chevron.right`/`chevron.up` and no hand-turned
+    /// chevron (a ‹ › pair that opens or closes the Reader is a direction, not a fold). Round 2 (2026-10-20) retired the
+    /// `IconButton` exemption: its one user, Projects' "Around this project", draws `DisclosureButton`.
     func testEveryFoldDrawsTheOneDisclosureGlyph() throws {
         let swap = try NSRegularExpression(pattern: #""chevron\.(down|right|up)"\s*:\s*"chevron\.(down|right|up)""#)
         let turn = try NSRegularExpression(pattern: #"rotationEffect\(\.degrees\([^)]*\?\s*90"#)
         var offenders: [String] = []
         for file in try viewSources() where file.lastPathComponent != "Disclosure.swift" {
-            for (n, line) in try lines(file) where !line.contains("IconButton(") {
+            for (n, line) in try lines(file) {
                 let range = NSRange(location: 0, length: (line as NSString).length)
                 if swap.firstMatch(in: line, range: range) != nil || turn.firstMatch(in: line, range: range) != nil {
                     offenders.append("\(file.lastPathComponent):\(n)")
@@ -100,6 +100,102 @@ final class DesignConsistencyLintTests: XCTestCase {
             }
         }
         XCTAssertEqual(offenders, [], "DR-11: use .columnEdge()")
+    }
+}
+
+// MARK: - Round 2 (2026-10-20)
+
+extension DesignConsistencyLintTests {
+    /// DR-48 — a list row's fill is `rowHover` / `rowHoverFill` (Views/Common/RowHover.swift): selected over hover,
+    /// only the pointer's hover eased. About twenty-five rows spelled `hovering ? bgHover : …` by hand, three ways.
+    /// What remains on the list is not a list row, each named with why.
+    func testEveryRowFillIsTheSharedOne() throws {
+        let notRows: [String: String] = [
+            "RowHover.swift": "the shared fill itself",
+            "TextTabs.swift": "a tab, not a row (DR-45)",
+            "GraphControlGroup.swift": "the Graph's control group button, a control",
+            "MascotSettings.swift": "a Settings picker tile resting on bgFocus",
+            "ScenerySettings.swift": "a Settings picker tile resting on bgFocus",
+            "LinkCards.swift": "a link card resting on bgFocus",
+            "ProjectSentence.swift": "a story row: bgFocus and the strong ring while selected, grows in place (Projects v2)",
+            "ReaderColumn.swift": "the Reader, out of this pass (#362/#375)",
+            "EngineChooser.swift": "a Settings engine card resting on surface",
+            "SleepRunDetails.swift": "a parked item's resting emphasis, not a hover",
+        ]
+        let handFill = try NSRegularExpression(
+            pattern: #"\?\s*CicadaTheme\.(bgHover|surfaceHover)\b|CicadaTheme\.(bgHover|surfaceHover)\s*:"#)
+        var offenders: [String] = []
+        for file in try viewSources() where notRows[file.lastPathComponent] == nil {
+            for (n, line) in try lines(file) {
+                let range = NSRange(location: 0, length: (line as NSString).length)
+                if handFill.firstMatch(in: line, range: range) != nil { offenders.append("\(file.lastPathComponent):\(n)") }
+            }
+        }
+        XCTAssertEqual(offenders, [], "DR-48: a row's hover fill is rowHover / rowHoverFill")
+        let shared = try XCTUnwrap(try viewSources().first { $0.lastPathComponent == "ListColumns.swift" })
+        XCTAssertTrue(try String(contentsOf: shared, encoding: .utf8).contains(".rowHover("),
+                      "ListRowSurface draws the shared fill too")
+    }
+
+    /// DR-75 — a page's way to add is `PageAddButton` in its eyebrow; a bare `+` is the Sleep tab row's alone (R-DL14).
+    func testAPageAddsThroughOneLabelledButton() throws {
+        let allowed: [String: String] = [
+            "SleepTabRow.swift": "R-DL14: the one-shot import's door and ⌘N's only home",
+            "GraphControlGroup.swift": "zoom in, not an add",
+        ]
+        var bare: [String] = []
+        for file in try viewSources() where allowed[file.lastPathComponent] == nil {
+            for (n, line) in try lines(file) where line.contains(#"IconButton(systemName: "plus""#) {
+                bare.append("\(file.lastPathComponent):\(n)")
+            }
+        }
+        XCTAssertEqual(bare, [], "DR-75: add with PageAddButton")
+        for page in ["SourcesPageView.swift", "LooksPage.swift"] {
+            let file = try XCTUnwrap(try viewSources().first { $0.lastPathComponent == page })
+            XCTAssertTrue(try String(contentsOf: file, encoding: .utf8).contains("PageAddButton("), page)
+        }
+    }
+
+    /// §5.3 — Skills and Looks sit on the shared progressive columns (list → detail → Reader), with no fixed side
+    /// column of their own, and host their own Reader.
+    func testSkillsAndLooksUseTheProgressiveColumns() throws {
+        for page in ["SkillsPage.swift", "LooksPage.swift"] {
+            let file = try XCTUnwrap(try viewSources().first { $0.lastPathComponent == page })
+            let text = try String(contentsOf: file, encoding: .utf8)
+            XCTAssertTrue(text.contains("ProgressiveColumns("), "\(page): the shared columns")
+            XCTAssertTrue(text.contains("listKeys("), "\(page): the list pages' keys (DR-68)")
+            XCTAssertFalse(text.contains("detailWidth"), "\(page): no fixed-width side column")
+        }
+        XCTAssertTrue(AppTab.skills.hostsOwnReader)
+        XCTAssertTrue(AppTab.looks.hostsOwnReader)
+    }
+
+    /// DR-76 — a field on a page, a column or a page's own sheet is `cicadaField`; the native rounded field stays in
+    /// Settings' forms and the setup sheets, the Welcome card, and Skills' header (the owner's own design).
+    func testAPageFieldIsTheAppsOwn() throws {
+        let nativeDirs = ["/Views/Settings/", "/Views/Capture/Sheets/", "/Views/Intake/", "/Views/Connections/",
+                          "/Views/Connect/", "/Views/Onboarding/"]
+        let owners: Set<String> = ["SkillsPage.swift"]
+        var offenders: [String] = []
+        for file in try viewSources()
+        where !nativeDirs.contains(where: { file.path.contains($0) }) && !owners.contains(file.lastPathComponent) {
+            for (n, line) in try lines(file) where line.contains(".textFieldStyle(.roundedBorder)") {
+                offenders.append("\(file.lastPathComponent):\(n)")
+            }
+        }
+        XCTAssertEqual(offenders, [], "DR-76: use .cicadaField()")
+        let inbox = try XCTUnwrap(try viewSources().first { $0.lastPathComponent == "InboxFocusCard.swift" })
+        XCTAssertTrue(try String(contentsOf: inbox, encoding: .utf8).contains(".cicadaField("),
+                      "the Inbox's field, which first drew the style, draws through it")
+    }
+
+    /// DR-43 — Sources' lists read in words over the still skeleton, never a spinner.
+    func testSourcesListsHaveNoSpinner() throws {
+        for page in ["HarnessConversationsView.swift", "CapturedItemsList.swift", "WatchedDay.swift"] {
+            let file = try XCTUnwrap(try viewSources().first { $0.lastPathComponent == page })
+            let offenders = try lines(file).filter { $0.1.contains("ProgressView(") }.map { "\(page):\($0.0)" }
+            XCTAssertEqual(offenders, [], "DR-43: words over ListSkeleton, no spinner")
+        }
     }
 }
 

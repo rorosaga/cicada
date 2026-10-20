@@ -407,14 +407,7 @@ struct InboxTextField: View {
 
     var body: some View {
         TextField(prompt, text: $text)
-            .textFieldStyle(.plain)
-            .font(CicadaTheme.detailBodyFont)
-            .foregroundStyle(CicadaTheme.textPrimary)
-            .padding(.horizontal, CicadaTheme.scaled(10))
-            .frame(height: CicadaTheme.scaled(32))
             .frame(maxWidth: .infinity)
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgBase))
-            .overlay(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-                .strokeBorder(isFocused ? CicadaTheme.accent.opacity(0.7) : CicadaTheme.ring(.input), lineWidth: 1))
+            .cicadaField(isFocused: isFocused)   // DR-76 — the app's one field, which this one first drew
     }
 }

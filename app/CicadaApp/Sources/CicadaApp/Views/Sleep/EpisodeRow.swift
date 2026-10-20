@@ -173,9 +173,7 @@ struct EpisodeRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-            .fill(hovering ? CicadaTheme.bgHover : Color.clear))
-        .onHover { hovering = $0 }
+        .rowHover($hovering)
         .help(EpisodeRowText.help(kind: kind, timestamp: item.timestamp, changedAt: item.changedAt, id: item.id))
         .contextMenu {
             Button(Copy.SleepDetailsWords.copyAction(kind), action: copy)

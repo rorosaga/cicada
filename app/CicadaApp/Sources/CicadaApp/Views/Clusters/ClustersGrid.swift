@@ -257,8 +257,7 @@ struct ClusterTile: View {
         .padding(.horizontal, CicadaTheme.scaled(8))
         .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.twoLine),
                maxHeight: CicadaTheme.scaled(RowMetrics.twoLine), alignment: .leading)
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering ? CicadaTheme.bgHover : Color.clear))
+        .rowHover($hovering)
         .contentShape(Rectangle())
-        .onHover { hovering = $0 }
     }
 }

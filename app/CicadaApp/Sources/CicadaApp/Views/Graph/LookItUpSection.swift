@@ -139,13 +139,7 @@ struct LookItUpSection: View {
     private var addField: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             TextField(placeholder, text: $newRef)
-                .textFieldStyle(.plain)
-                .font(CicadaTheme.font(size: 13))
-                .foregroundStyle(CicadaTheme.textPrimary)
-                .padding(.horizontal, CicadaTheme.spacingMD)
-                .frame(height: CicadaTheme.scaled(32))
-                .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgBase))
-                .ringed(.input, in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+                .cicadaField()   // DR-76
                 .onSubmit(add)
             NeutralButton(title: Copy.Graph.add, keyHint: "⏎",
                           isDisabled: newRef.trimmed.isEmpty || pendingAdd == newRef.trimmed, action: add)
@@ -376,9 +370,7 @@ private struct FactSourceRow: View {
         .padding(.leading, CicadaTheme.scaled(10))
         .padding(.trailing, CicadaTheme.spacingXS)
         .padding(.vertical, CicadaTheme.scaled(6))
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-            .fill(hovering ? CicadaTheme.bgHover : (isHighlighted ? CicadaTheme.bgSelected : Color.clear)))
-        .onHover { hovering = $0 }
+        .rowHover($hovering, selected: isHighlighted)
     }
 
     /// The linked page's own picture (its "own memory node"), else the kind's glyph.

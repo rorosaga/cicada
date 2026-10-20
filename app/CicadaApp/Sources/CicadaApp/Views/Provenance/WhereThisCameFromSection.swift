@@ -216,8 +216,7 @@ struct WhereThisCameFromSection: View {
             }
             .padding(CicadaTheme.spacingSM)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-                .fill(hoveredRow == row.id ? CicadaTheme.bgHover : Color.clear))
+            .rowHoverFill(hovering: hoveredRow == row.id)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)

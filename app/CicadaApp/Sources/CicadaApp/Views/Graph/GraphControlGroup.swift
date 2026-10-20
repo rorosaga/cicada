@@ -269,7 +269,7 @@ private struct LegendRow<Swatch: View, Label: View, Trailing: View>: View {
             }
             .padding(.horizontal, CicadaTheme.spacingSM)
             .frame(height: CicadaTheme.scaled(GraphLegendPanel.rowHeight))
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering ? CicadaTheme.bgHover : Color.clear))
+            .rowHoverFill(hovering: hovering)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)

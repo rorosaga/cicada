@@ -32,8 +32,7 @@ struct ExportVendorRow: View {
             }
             .padding(.horizontal, CicadaTheme.scaled(10))
             .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.oneLine), alignment: .leading)
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-                .fill(hovering ? CicadaTheme.bgHover : Color.clear))
+            .rowHoverFill(hovering: hovering)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)

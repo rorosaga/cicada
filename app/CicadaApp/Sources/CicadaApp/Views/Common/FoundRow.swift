@@ -107,11 +107,9 @@ struct FoundRow: View {
         }
         .padding(.vertical, CicadaTheme.spacingXS)
         .padding(.horizontal, CicadaTheme.spacingSM)
-        .background(hovering ? CicadaTheme.surfaceHover : .clear,
-                    in: RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall, style: .continuous))
+        .rowHover($hovering)   // DR-48 — the shared row fill
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
         .animation(CicadaMotion.settle(reduceMotion: reduceMotion), value: expanded)
-        .onHover { hovering = $0 }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(tick.map { Self.tickLabel(title: title, detail: detail, ticked: $0.wrappedValue) }
                             ?? Self.accessibilityLabel(title: title, detail: detail, state: state))

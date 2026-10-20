@@ -70,8 +70,8 @@ final class SourcesListTests: XCTestCase {
     /// R-S7's pins, restated for the rewritten page (SourcesV2Tests holds the originals).
     func testTheWayInStaysInTheEyebrowRow() throws {
         let page = try source("Views/Sources/SourcesPageView.swift")
-        XCTAssertTrue(page.contains("Add a source"))
-        XCTAssertTrue(page.contains("NeutralButton("))
+        // DR-75 (2026-10-20, round 2) — the labelled add button every page shares, worded from `Copy.addASource`.
+        XCTAssertTrue(page.contains("PageAddButton(title: Copy.addASource"))
         XCTAssertEqual(page.components(separatedBy: "AddSourceSheet(").count - 1, 1)
     }
 }

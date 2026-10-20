@@ -1372,8 +1372,7 @@ private struct TimelineKeyRow: View {
             }
             .padding(.horizontal, CicadaTheme.scaled(10))
             .frame(height: CicadaTheme.scaled(RowMetrics.oneLine))
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-                .fill(expanded ? CicadaTheme.bgSelected : (hovering ? CicadaTheme.bgHover : Color.clear)))
+            .rowHoverFill(hovering: hovering, selected: expanded)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)

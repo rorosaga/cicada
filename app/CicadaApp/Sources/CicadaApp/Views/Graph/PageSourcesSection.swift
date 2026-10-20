@@ -197,7 +197,7 @@ private struct BackedFactRow: View {
             .padding(.leading, Self.indent)
             .padding(.trailing, CicadaTheme.spacingSM)
             .padding(.vertical, CicadaTheme.scaled(3))
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering ? CicadaTheme.bgHover : .clear))
+            .rowHoverFill(hovering: hovering)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
@@ -300,7 +300,7 @@ struct PageLinkRow: View {
         .padding(.leading, CicadaTheme.scaled(10))
         .padding(.trailing, CicadaTheme.spacingXS)
         .padding(.vertical, CicadaTheme.scaled(6))
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering ? CicadaTheme.bgHover : Color.clear))
+        .rowHoverFill(hovering: hovering)
         .onHover { hover($0) }
         .onDisappear { hoverTask?.cancel() }
         .popover(isPresented: $previewing, arrowEdge: .leading) {

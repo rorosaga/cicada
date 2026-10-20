@@ -6,6 +6,8 @@ import Foundation
 extension Copy {
     enum Skills {
         static let page = "Skills"
+        /// DR-27 — the list hid beside a skill and the Reader: "‹ 4 skills" brings it back.
+        static func skillsBack(_ n: Int) -> String { n == 1 ? "‹ 1 skill" : "‹ \(UsageFormat.count(n)) skills" }
         static let discover = "Discover"
         static let drafts = "Drafts"
         static let skillColumn = "Skill"

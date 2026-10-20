@@ -76,7 +76,7 @@ extension AppTab {
     /// Feed folded into it (2026-10-16): a saved item's detail sits beside its list, the Reader beside both.
     var hostsOwnReader: Bool {
         switch self {
-        case .inbox, .clusters, .sleep, .sources, .projects: true
+        case .inbox, .clusters, .sleep, .sources, .projects, .skills, .looks: true
         default: false
         }
     }

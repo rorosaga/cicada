@@ -27,10 +27,10 @@ struct FindRowView: View {
         }
         .padding(.horizontal, CicadaTheme.spacingMD)
         .padding(.vertical, CicadaTheme.spacingSM)
-        .background(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
-            .fill(selected || hovered ? CicadaTheme.surfaceHover : Color.clear))
+        // DR-48 — the palette's rows are rows: the selected one `bgSelected`, a hovered one `bgHover` (both read
+        // `bgHover` until round 2, so the ⏎ target and the pointer's row looked the same).
+        .rowHover($hovered, selected: selected)
         .contentShape(Rectangle())
-        .onHover { hovered = $0 }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(FindRowText.accessibilityLabel(row))
         .accessibilityHint(FindRowText.primaryVerb(row.destination))

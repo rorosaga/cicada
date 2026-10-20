@@ -25,8 +25,8 @@ struct AddSkillSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: CicadaTheme.spacingSM) {
                 TextField(Copy.Skills.addPlaceholder, text: $source)
-                    .textFieldStyle(.roundedBorder)
                     .focused($fieldFocused)
+                    .cicadaField(isFocused: fieldFocused)
                     .onSubmit { look(choose: nil) }
                 NeutralButton(title: looking ? Copy.Skills.looking : Copy.Skills.look, size: .compact,
                               isDisabled: looking || source.trimmingCharacters(in: .whitespaces).isEmpty) {

@@ -153,7 +153,7 @@ struct BookmarkReasonsSection: View {
                 }
             }
             TextField(Copy.Bookmarks.editPrompt, text: $words)
-                .textFieldStyle(.roundedBorder)
+                .cicadaField()
                 .onSubmit { Task { await save() } }
             HStack(spacing: CicadaTheme.spacingSM) {
                 NeutralButton(title: Copy.Bookmarks.save, size: .compact) { Task { await save() } }

@@ -118,10 +118,9 @@ struct CapturedItemsList: View {
             case .failed(let why): line(why)
             case .gone: line(Copy.capturedNone)
             case .idle, .loading, .loaded:
-                HStack(spacing: CicadaTheme.spacingXS) {
-                    ProgressView().controlSize(.small)
-                    line(Copy.capturedLoading)
-                }
+                // DR-43 — the first read is the list pages' own state: words over a still skeleton, no spinner.
+                ListSkeleton(message: Copy.capturedLoading, rows: 3)
+                    .padding(.vertical, CicadaTheme.spacingSM)
             }
         }
     }
@@ -137,9 +136,11 @@ struct CapturedItemsList: View {
 
     private func showMore(_ list: ChannelItemsList, loading: Bool, cache: ChannelItemsCache) -> some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            TextButton(title: Copy.capturedShowMore) { Task { await cache.loadMore(channel) } }
-                .disabled(loading)
-            if loading { ProgressView().controlSize(.small) }
+            // The next page says so in words on its own button (DR-43: words, no spinner).
+            TextButton(title: loading ? Copy.capturedLoadingMore : Copy.capturedShowMore) {
+                Task { await cache.loadMore(channel) }
+            }
+            .disabled(loading)
             Spacer(minLength: CicadaTheme.spacingSM)
             Text(Copy.capturedShown(list.items.count, of: list.total, noun: noun))
                 .font(CicadaTheme.metaFont)
@@ -224,8 +225,7 @@ private struct CapturedItemRow: View {
         }
         .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
         .padding(.horizontal, CicadaTheme.scaled(10))
-        .background(hovering && route != nil ? CicadaTheme.bgHover : Color.clear,
-                    in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+        .rowHoverFill(hovering: hovering && route != nil)
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
         .contentShape(Rectangle())
     }
@@ -309,8 +309,7 @@ struct SavedItemRow: View {
         .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.twoLine),
                maxHeight: CicadaTheme.scaled(RowMetrics.twoLine), alignment: .leading)
         .padding(.horizontal, CicadaTheme.scaled(10))
-        .background(hovering && route != nil ? CicadaTheme.bgHover : Color.clear,
-                    in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+        .rowHoverFill(hovering: hovering && route != nil)
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
         .contentShape(Rectangle())
     }

@@ -301,8 +301,8 @@ struct ProjectPlanSection: View {
                 PlanDiamond(style: ProjectPlan.diamond(row))
                 if renaming == m.slug, let rename {
                     TextField(Copy.Projects.milestoneName, text: $renameText)
-                        .textFieldStyle(.roundedBorder)
                         .focused($renameFocused)
+                        .cicadaField(isFocused: renameFocused)
                         .onSubmit {
                             let name = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
                             if !name.isEmpty, name != m.name { rename(m.slug, name) }
@@ -383,8 +383,8 @@ struct ProjectPlanSection: View {
         if adding {
             HStack(spacing: CicadaTheme.spacingSM) {
                 TextField(Copy.Projects.milestonePlaceholder, text: $newName)
-                    .textFieldStyle(.roundedBorder)
                     .focused($addFocused)
+                    .cicadaField(isFocused: addFocused)
                     .onSubmit(submitAdd)
                     .onExitCommand { adding = false }
                     .accessibilityLabel(Copy.Projects.milestoneName)
@@ -496,8 +496,9 @@ struct ProjectAroundSection: View {
                             .foregroundStyle(CicadaTheme.textTertiary).help(last.help)
                     }
                     if ProjectAround.expands(m) {
-                        IconButton(systemName: expanded.contains(id) ? "chevron.down" : "chevron.right",
-                                   help: expanded.contains(id) ? Copy.Projects.hideSpecs(m.name) : Copy.Projects.showSpecs(m.name)) {
+                        DisclosureButton(isOpen: expanded.contains(id),
+                                         help: expanded.contains(id) ? Copy.Projects.hideSpecs(m.name)
+                                                                     : Copy.Projects.showSpecs(m.name)) {
                             toggle(id)
                         }
                     }

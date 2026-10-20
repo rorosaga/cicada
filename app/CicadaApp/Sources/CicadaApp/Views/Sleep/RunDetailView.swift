@@ -154,8 +154,7 @@ struct PastRunRow: View {
             .padding(.trailing, CicadaTheme.scaled(4))
             .padding(.vertical, CicadaTheme.scaled(6))
             .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-                .fill(hovering ? CicadaTheme.bgHover : Color.clear))
+            .rowHoverFill(hovering: hovering)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)

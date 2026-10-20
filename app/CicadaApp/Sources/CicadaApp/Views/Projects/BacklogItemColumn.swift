@@ -128,8 +128,8 @@ struct BacklogItemColumn: View {
     private var renameRow: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             TextField(Copy.Projects.Backlog.titleLabel, text: $newTitle)
-                .textFieldStyle(.roundedBorder)
                 .focused($titleFocused)
+                .cicadaField(isFocused: titleFocused)
                 .onSubmit { submitTitle() }
                 .onExitCommand { renaming = false }
                 .accessibilityLabel(Copy.Projects.Backlog.titleLabel)
@@ -192,8 +192,8 @@ struct BacklogItemColumn: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             SectionLabel(Copy.Projects.Backlog.addNote)
             TextField(Copy.Projects.Backlog.notePlaceholder, text: $note, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
                 .lineLimit(2...8)
+                .cicadaField()
                 .accessibilityLabel(Copy.Projects.Backlog.addNote)
             HStack {
                 Spacer(minLength: 0)

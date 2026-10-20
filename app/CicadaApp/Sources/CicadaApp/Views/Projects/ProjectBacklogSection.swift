@@ -122,14 +122,14 @@ struct ProjectBacklogSection: View {
         if adding {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 TextField(Copy.Projects.Backlog.titlePlaceholder, text: $newTitle)
-                    .textFieldStyle(.roundedBorder)
                     .focused($titleFocused)
+                    .cicadaField(isFocused: titleFocused)
                     .onSubmit(submit)
                     .onExitCommand { cancel() }
                     .accessibilityLabel(Copy.Projects.Backlog.titleLabel)
                 TextField(Copy.Projects.Backlog.descriptionPlaceholder, text: $newWhy, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
                     .lineLimit(2...6)
+                    .cicadaField()
                     .onExitCommand { cancel() }
                     .accessibilityLabel(Copy.Projects.Backlog.descriptionLabel)
                 HStack(spacing: CicadaTheme.spacingSM) {
