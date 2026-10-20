@@ -8,6 +8,16 @@
 
 ## Current state and evidence
 
+- **2026-10-20 — Sleep asks about half the model calls per conversation (branch `perf/sleep-calls`).** A
+  14-conversation haiku night made 574 calls (disambiguation 268, merge 116, conflict 110, extraction 48). Stage 2's
+  judge now weighs up to 6 of a name's candidates in one call and Stage 3 checks up to 5 pages for contradictions in
+  one call (a lone one keeps the old prompt); and the judge now reads the extraction's `summary` — it was reading
+  `description`, which Stage 1 almost never fills, so first-name mentions became "Possible duplicate" questions.
+  Synthetic night (`benchmarks/scale/sleep_calls.py`, 8 conversations, plan + haiku, replayed prompts): 16.0 → 11.4
+  calls a conversation, pages identical under batching alone; projected ~280–320 calls for the owner's night.
+  Detail: `capture-and-sleep.md`, *Fewer calls per conversation*. Tests: `test_sleep_call_batching.py`,
+  `test_entity_resolver_concurrency.py`, `test_conflict_resolver_concurrency.py`. Pick up: the coordinator reads the
+  next scheduled night's `llm_call` counts by stage and the inbox's new "Possible duplicate" count.
 - **2026-10-20 — the owner's answer eval runs each question several times and judges a change on majorities (G148;
   branch `feat/eval-repeats`).** Four runs of the owner's 60 questions on near-identical code scored 46, 44, 42, 42 with
   13 questions flipping, so one run cannot judge an Ask change (#365 read −2; its revert did not restore the number).

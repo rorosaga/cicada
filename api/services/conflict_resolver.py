@@ -71,15 +71,17 @@ async def resolve_and_prune(
     """Apply conflict resolution and temporal decay to all entities.
 
     The synthesis and contradiction calls — the long, paid part of this stage — overlap
-    across pages, at most ``agent_max_concurrency`` pages at once (1 is one page after
+    across pages, at most ``agent_max_concurrency`` calls at once (1 is one call after
     another; a plan engine is further held to the same number process-wide by the
-    provider permit). A page's own two calls stay in order, and every result is applied
-    in the pages' order once all are in, so ``changes`` is the serial loop's
-    (``_overlap_pages``). An engine error stops new pages, waits out the ones in flight
-    and is raised as it was.
+    provider permit). First every page's write call (article or synthesis), then the
+    contradiction checks, ``CONTRADICTION_BATCH`` pages a call in the pages' order
+    (`_check_pages`); every result is applied in the pages' order once all are in, so
+    ``changes`` does not depend on the concurrency (``_overlap_pages``). An engine error
+    stops new calls, waits out the ones in flight and is raised as it was (the earliest
+    write's, else the earliest check's).
 
     ``cancel_check`` (Sleep page v5, a pause must be able to land here): polled before
-    each page's calls start. Once it says stop, no further page is asked about, the
+    each call starts. Once it says stop, no further page is asked about, the
     pages in flight finish, and the partial ``changes`` come back for the caller to
     discard, as Stage 2 does; nothing is on disk before Stage 5.
     ``progress_callback(done, total)`` counts the pages to update, fixed when the stage
@@ -149,14 +151,33 @@ async def resolve_and_prune(
             progress_callback(finished, total_pages)
 
     concurrency = max(1, int(getattr(settings, "agent_max_concurrency", 1) or 1))
-    decided = await _overlap_pages(
-        jobs, lambda job: _decide_page(job, settings, cycle_day),
-        concurrency=concurrency, cancel_check=cancel_check, on_done=_page_done,
-    )
+
+    async def write(job: dict):
+        synthesized = await _decide_page(job, settings, cycle_day)
+        if not job["new_desc"]:
+            _page_done()   # no contradiction check: the page is done
+        return synthesized
+
+    decided = await _overlap_pages(jobs, write, concurrency=concurrency, cancel_check=cancel_check)
+    # The contradiction checks, `CONTRADICTION_BATCH` pages a call, the pages in their order (2026-10-20): each
+    # page's check reads only its page as it was before the stage and its own update, never a write, so it waits
+    # for no synthesis; a group is a function of the jobs' order alone, so every concurrency asks the same calls.
+    asked = [index for index, job in enumerate(jobs) if index in decided and job["new_desc"]]
+    groups = [asked[k:k + CONTRADICTION_BATCH] for k in range(0, len(asked), CONTRADICTION_BATCH)]
+
+    async def check(group: list[int]) -> list[dict | None]:
+        found = await _check_pages([jobs[index] for index in group], settings, cycle_day)
+        for _ in group:
+            _page_done()
+        return found
+
+    checked = await _overlap_pages(groups, check, concurrency=concurrency, cancel_check=cancel_check)
+    contradictions = {index: found for g, group in enumerate(groups) if g in checked
+                      for index, found in zip(group, checked[g])}
     for index, job in enumerate(jobs):
         if index not in decided:
             continue  # a cancel stopped before this page; the caller discards the partial result
-        change, synthesized, contradiction = job["change"], *decided[index]
+        change, synthesized, contradiction = job["change"], decided[index], contradictions.get(index)
         if isinstance(synthesized, dict):
             change["article"] = synthesized   # the article writer's lead and sections (`entity_article.payload`)
         elif synthesized:
@@ -574,9 +595,9 @@ async def _write_article(job: dict, settings: Settings) -> dict | None:
     return entity_article.payload(writer["inputs"], written, name=writer["name"], aliases=writer["aliases"])
 
 
-async def _decide_page(job: dict, settings: Settings, cycle_day: str) -> tuple[str | None, dict | None]:
-    """One page's calls, in their serial order: the synthesis, then (with a description) the contradiction check.
-    Returns ``(synthesized body, contradiction payload)``; writes nothing and touches no other page."""
+async def _decide_page(job: dict, settings: Settings, cycle_day: str) -> str | dict | None:
+    """One page's write call — the article, the synthesis, or none (a stub): the synthesized body or article, or
+    ``None``. Writes nothing and touches no other page. Its contradiction check is `_check_pages`'."""
     entity_id = job["change"]["id"]
     synthesized = None
     try:
@@ -607,28 +628,31 @@ async def _decide_page(job: dict, settings: Settings, cycle_day: str) -> tuple[s
         raise
     except Exception as e:
         logger.debug(f"Synthesis failed for {entity_id}: {e}")
+    return synthesized
 
-    if not job["new_desc"]:
-        return synthesized, None
 
+#: How many pages one contradiction call checks (2026-10-20). One call per updated page with a summary was ~110 of
+#: a 14-conversation night's ~574 calls; each page is still judged on its own page and its own update, in a
+#: numbered block, and answered in its own result. A lone page keeps the one-page prompt byte for byte.
+CONTRADICTION_BATCH = 5
+
+
+async def _check_pages(jobs: list[dict], settings: Settings, cycle_day: str) -> list[dict | None]:
+    """The contradiction check for ``jobs`` (each with a description), one call: a payload or ``None`` per page,
+    in order. An engine failure propagates (never "no contradiction"); an unreadable answer is ``None`` for each
+    page it covers, as one page's unreadable answer always was."""
+    items = [dict(entity_name=job["entity_name"], existing_body=job["existing_body"], new_description=job["new_desc"],
+                  existing_as_of=job["page_said"], new_as_of=job["change_days"]) for job in jobs]
     try:
-        contradiction = await _detect_contradiction(
-            entity_name=job["entity_name"],
-            existing_body=job["existing_body"],
-            new_description=job["new_desc"],
-            settings=settings,
-            existing_as_of=job["page_said"],
-            new_as_of=job["change_days"],
-            today=cycle_day,
-        )
+        if len(items) == 1:
+            return [await _detect_contradiction(**items[0], settings=settings, today=cycle_day)]
+        return await _detect_contradictions(items, settings, today=cycle_day)
     except engine_errors.EngineError:
-        # Same reasoning as the synthesis branch above: an engine failure
-        # must not be read as "no contradiction found".
+        # Same reasoning as the synthesis branch: an engine failure must not be read as "no contradiction found".
         raise
     except Exception as e:
-        logger.debug(f"Contradiction check failed for {entity_id}: {e}")
-        contradiction = None
-    return synthesized, contradiction
+        logger.debug(f"Contradiction check failed for {', '.join(j['change']['id'] for j in jobs)}: {e}")
+        return [None] * len(jobs)
 
 
 async def _overlap_pages(jobs: list, run, *, concurrency: int, cancel_check=None, on_done=None) -> dict[int, object]:
@@ -1612,6 +1636,86 @@ def build_entity_question(entity_name: str, raw: dict | None, today: str) -> dic
 
     options.append(dict(_BOTH_OPTION))
     return {"question": question, "options": options}
+
+
+# The same check over several pages in one call (2026-10-20): the definition and the answer shape once, as the system
+# message (every line of `_CONTRADICTION_RULES`' definition kept, in order); each page's two descriptions in its own
+# numbered block of the user message.
+_CONTRADICTIONS_RULES = """You are checking, for each entity below, whether its two descriptions contain an unresolvable contradiction. Judge every entity on its own: nothing said about one entity bears on another.
+
+A contradiction is unresolvable when newer information alone does not make it obvious which statement is currently true. For example: two different stacks mentioned across two conversations with no date cue, or two different roles for the same person.
+
+"Newer" means said on a later date (below), not read later: a description from an earlier conversation does not replace a later one, and two statements made months apart can both have been true at their own dates.
+
+Respond with JSON only, one result for every entity, in the order given:
+{
+  "results": [
+    {
+      "entity": 1,
+      "has_unresolvable_contradiction": true | false,
+      "contradiction": "one-sentence description of the contradiction, or empty",
+      "question": "ONE short question, in the user's voice, that resolves it (e.g. 'Where does the owner work now?'). Empty when there is no contradiction.",
+      "options": [
+        {"label": "the existing claim, 1-4 words", "description": "one short clause saying where this came from and when"},
+        {"label": "the new claim, 1-4 words", "description": "one short clause saying where this came from and when"},
+        {"label": "Both are true (different contexts)", "description": "Keep both, each tagged with its context"}
+      ]
+    }
+  ]
+}
+
+For an entity with no contradiction, set has_unresolvable_contradiction to false, question to "", and options to []."""
+
+_CONTRADICTIONS_ENTITY = """ENTITY {index}: {entity_name}
+
+EXISTING DESCRIPTION (last mentioned in a conversation dated {existing_as_of}):
+{existing_body}
+
+NEW DESCRIPTION (from conversation(s) dated {new_as_of}):
+{new_description}"""
+
+
+def _contradiction_results(parsed: dict, count: int) -> list[dict | None]:
+    """Each entity's result from a batch answer, by its ``entity`` number (else its position); one the answer leaves
+    out is ``None`` — no question, as an unreadable one-page answer."""
+    rows = parsed.get("results") if isinstance(parsed, dict) else None
+    out: list[dict | None] = [None] * count
+    for position, row in enumerate(rows if isinstance(rows, list) else []):
+        if not isinstance(row, dict):
+            continue
+        try:
+            index = int(row.get("entity")) - 1
+        except (TypeError, ValueError):
+            index = position
+        if 0 <= index < count and out[index] is None:
+            out[index] = row
+    return out
+
+
+async def _detect_contradictions(items: list[dict], settings: Settings, *, today: str | None = None) -> list[dict | None]:
+    """`_detect_contradiction` for several pages in one call: a payload (or ``None``) per item, in order. Each item
+    carries that function's ``entity_name``, ``existing_body``, ``new_description``, ``existing_as_of`` and
+    ``new_as_of``, cut the same way."""
+    from api.services.claims import strip_claims_block
+
+    blocks = [_CONTRADICTIONS_ENTITY.format(
+        index=number, entity_name=item["entity_name"],
+        existing_body=strip_claims_block(item["existing_body"])[:4000],
+        new_description=(item["new_description"] or "")[:2000],
+        existing_as_of=source_dates.describe(item.get("existing_as_of")),
+        new_as_of=_days_line(item.get("new_as_of") or [])) for number, item in enumerate(items, start=1)]
+    prompt = f"TODAY: {source_dates.describe(today or date.today())}\n\n" + "\n\n".join(blocks)
+    completion = _litellm().acompletion
+    llm_fn = resolve_llm_fn(
+        settings, model=settings.effective_consolidation_model,
+        completion=completion, stage="conflict",
+    )
+    response = await llm_fn(
+        messages=[{"role": "system", "content": _CONTRADICTIONS_RULES},
+                  {"role": "user", "content": prompt}],
+        response_format={"type": "json_object"},
+    )
+    return _contradiction_results(json_parse.parse_json_object(response.choices[0].message.content), len(items))
 
 
 async def _detect_contradiction(

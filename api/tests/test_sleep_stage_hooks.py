@@ -33,8 +33,12 @@ def _stub(monkeypatch, calls):
         calls.append(("contradiction", kw["entity_name"]))
         return None
 
+    async def contradictions(items, settings, **kw):   # several pages a call (`CONTRADICTION_BATCH`)
+        return [await contradiction(**item) for item in items]
+
     monkeypatch.setattr(conflict_resolver, "_synthesize_entity_update", synth)
     monkeypatch.setattr(conflict_resolver, "_detect_contradiction", contradiction)
+    monkeypatch.setattr(conflict_resolver, "_detect_contradictions", contradictions)
 
 
 def test_stage_three_counts_pages_and_fixes_its_total_when_the_loop_starts(monkeypatch):
