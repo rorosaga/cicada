@@ -606,7 +606,17 @@ final class ReaderChatTests: XCTestCase {
         let quoteStart = try XCTUnwrap(ScalarText(session.text).offset(of: "keep the old table"))
         let quoteEnd = try XCTUnwrap(ScalarText(session.text).offset(of: "one commits")) + "one commits".count
         let quote = quoteStart..<quoteEnd
+        let sitting = Self.messagesSitting()
+        let sittingText = ScalarText(sitting.text)
+        let packAt = try XCTUnwrap(sittingText.offset(of: "pack the map and the water filter"))
+        let packed = packAt..<(packAt + "pack the map and the water filter".count)
+        let satAt = try XCTUnwrap(sittingText.offset(of: "Saturday morning works"))
+        let saturday = satAt..<(satAt + "Saturday morning works".count)
+        // "-landed" draws the brief ring a pointer jump gives the landed message (held at full emphasis here).
+        let others: [String: [Range<Int>]] = ["messages-cited": [saturday], "messages-cited-landed": [saturday]]
         let cases: [(String, EpisodeText, Range<Int>?, Set<Int>)] = [
+            ("messages-cited", sitting, packed, []),
+            ("messages-cited-landed", sitting, packed, []),
             ("messages-sitting", Self.messagesSitting(), nil, []),
             ("messages-extras", Self.messagesSittingWithExtras(), nil, []),
             ("export-extras", Self.conversation([
@@ -631,7 +641,8 @@ final class ReaderChatTests: XCTestCase {
             CicadaTheme.mode = mode
             for (name, doc, focus, expanded) in cases {
                 let blocks = ReaderLayout.blocks(doc: doc, scalars: ScalarText(doc.text), focus: focus,
-                                                 focusStyle: .focus, locale: gb, timeZone: utc)
+                                                 focusStyle: .focus, others: others[name] ?? [], locale: gb,
+                                                 timeZone: utc)
                 var keepOpen = Set(blocks.filter(\.holdsFocus).map(\.index))
                 if let focus, let key = ReaderLayout.blockID(containing: focus.lowerBound, in: blocks) {
                     keepOpen.insert(key.turn)
@@ -652,7 +663,8 @@ final class ReaderChatTests: XCTestCase {
                             .padding(.horizontal, CicadaTheme.scaled(ReaderColumn.inset))
                             .padding(.bottom, CicadaTheme.spacingSM)
                     }
-                    ReaderChatView(rows: built, landingTurn: landing, revealed: true)
+                    ReaderChatView(rows: built, landingTurn: landing, revealed: true,
+                                   emphasis: name.hasSuffix("-landed") ? 1 : 0)
                         .padding(.horizontal, CicadaTheme.scaled(ReaderColumn.inset))
                         .padding(.bottom, CicadaTheme.scaled(24))
                 }

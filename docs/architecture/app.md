@@ -1764,7 +1764,9 @@ spacing token. `DesignConsistency3LintTests` and `ContinuousCornerLintTests` hol
 semibold (tracking −0.3 at 20 pt, −0.4 above, floor 20, paired and counted by `FontLiteralLintTests`), `quoteFont` SF
 15 regular, one `SectionLabel` (11 medium, sentence case, never mono or tracked — `SectionLabelLintTests`), monospace
 only on `MonospaceLintTests`' allowlist (code, commands, paths, keys, ids), and `CitedSpan` the washed, underlined span,
-read by the Inbox's quote and the Reader's turns since DS-2 (a mention found by name is its semibold, unwashed case). **Motion:** `CicadaMotion` (nil under Reduce Motion) is the only place outside
+read by the Inbox's quote and the Reader's turns since DS-2 (a mention found by name is its semibold, unwashed case);
+its tint (`wash` / `washSoft`) is neutral ink since 2026-10-20 — an accent fill behind words read as a text selection —
+and the accent stays on the current span's underline. **Motion:** `CicadaMotion` (nil under Reduce Motion) is the only place outside
 `SleepMotion` a duration is spelled; `hoverLift()` for things that open, `iconHover()` for glyphs; a keyboard action
 never animates. Sprites play per frame from their sheets within `CicadaMotion`'s sprite caps (ruling 18).
 
@@ -1837,7 +1839,9 @@ record, a feed item or a calendar entry, with at least one turn a conversation m
 `ReaderChat.rows` (`ReaderChatModel.swift`, pure, `ReaderChatTests`) through `ReaderChatRows` (`ReaderChatView.swift`)
 in the same `LazyVStack`, over the very `ReaderLayout.blocks` the document view uses, so washes, landing, the navigator
 and both rotors address the same `ReaderBlock.Key`s. The person's turns sit right in a `chatBubbleFill` bubble, the
-other party's left as plain text — the side read from each turn's written marker, not its role, because a relayed
+other party's left in a `chatBubbleOtherFill` bubble with the resting ring (owner 2026-10-20: both sides bubbled; each
+bubble hugs its words and leaves 48 pt on its far side; a long message's pieces read as one bubble, its ring drawn open
+where they meet) — the side read from each turn's written marker, not its role, because a relayed
 conversation (ruling 32) forces every role to `assistant`: `/episodes/{id}/text` carries `relay: {app, label}` until an
 export upgrades the episode, and then the person's side reads "Relayed by ChatGPT" (never "You") and the capture line
 says the words came through the app's model; a run (one side and speaker, turns under 15 minutes apart) shows the face — the
@@ -1862,7 +1866,14 @@ reacted on hover (`.help`, "You and Sam reacted 😂") and in VoiceOver; "Edited
 "[image: …]" words leave the bubble when its chips say them (`ReaderChat.withoutAttachmentNames`; an attachment-only
 message is its chips alone). An unsent message is a centred line where it was ("You unsent a message"). Thumbnails are
 not drawn yet: every attachment is a chip with its kind and name. An episode saved before extras has none and reads as
-it always did. A turn is
+it always did. **A cited passage never looks selected (owner 2026-10-20, DESIGN_RULES §9):** a message holding a cited
+span carries a quiet "Cited" marker beside its bubble, in the room the bubble leaves (`ReaderCitedMarker`: a 2 pt bar,
+the accent for the landed span and `quoteRule` for another cited one, `ReaderChat.citedMark`), said first by VoiceOver
+("Cited here. …" / "Also cited here. …", `ReaderChat.accessibilityLabel`); the words keep only the neutral tint and
+the current span's underline. A navigator step or a "Noted" row re-lands by its trigger (`ReaderLandingMotion`, the
+event read through `LooksZoom.trigger(for:)`): a pointer's fades the wash in and rings the landed bubble briefly
+(`citedEmphasis`, held `rowHighlightHold`, faded `rowHighlightFade`); a key's (⌥↑ / ⌥↓, ⏎) lands in one frame with
+the wash already there and no ring (DR-60). `ReaderBubblesTests`. A turn is
 selectable **and** washed through `CitedPassage` (2026-10-16): a selectable `Text` never reaches a `TextRenderer`, and
 a renderer-drawn copy behind the words breaks lines differently from them (the wash on the wrong words at some widths),
 so the passage is one selectable `Text` whose wash and underline are attributes of its own string (`CitedSpan.fallback`:

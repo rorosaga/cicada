@@ -206,9 +206,12 @@ enum CicadaTheme {
     /// Links and "Recommended" (DR-5 uses 5–6) — see `AccentInk` (R-DS4).
     static var accentText: Color { mode == .dark ? AccentInk.textDark : AccentInk.textLight }
     static var accentTextHover: Color { mode == .dark ? AccentInk.hoverDark : AccentInk.hoverLight }
-    /// The cited span's wash (DR-18) and the other spans' (`washSoft`).
-    static var wash: Color { accent.opacity(mode == .dark ? 0.18 : 0.10) }
-    static var washSoft: Color { accent.opacity(mode == .dark ? 0.08 : 0.07) }
+    /// The cited span's tint (DR-18) and the other spans' (`washSoft`). Neutral ink, never the accent (owner
+    /// 2026-10-20, DESIGN_RULES §9): an accent fill behind words is exactly what macOS draws for a text selection, so a
+    /// cited passage read as "selected". The accent stays on the current span's underline and its marker
+    /// (`ReaderChat.CitedMark`); the tint only says which words, and is distinct from every selection and hover fill.
+    static var wash: Color { mode == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.07) }
+    static var washSoft: Color { mode == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.04) }
     /// Keyboard focus — 2 pt at 60 % (DR-5 use 1).
     static var focusRing: Color { accent.opacity(0.6) }
 
@@ -556,7 +559,11 @@ enum CicadaTheme {
 
     /// The person's side of a chat in the Reader (owner, 2026-10-19; DESIGN_RULES §9): a neutral graphite fill — never
     /// the accent (DR-5), never a shadow (DR-10). Tertiary text never sits on it (DR-2); the times are outside it.
-    static var chatBubbleFill: Color { bgSelected }
+    /// Its own value since 2026-10-20, not `bgSelected`: a bubble is a speaker, not a selected row.
+    static var chatBubbleFill: Color { mode == .dark ? Dark.chatBubble : Light.chatBubble }
+    /// The other party's bubble (owner, 2026-10-20: "the sender side, on the other side, also had a chat bubble"): a
+    /// quieter neutral than the person's, lifted by the resting ring (DR-9), never a shadow (DR-10), never the accent.
+    static var chatBubbleOtherFill: Color { mode == .dark ? Dark.chatBubbleOther : Light.chatBubbleOther }
     /// A chat bubble's shape: `cornerRadius`, continuous (DR-12); a long message drawn as several blocks squares the
     /// corners where one block meets the next, so it reads as one bubble.
     static func chatBubble(roundTop: Bool, roundBottom: Bool) -> UnevenRoundedRectangle {
@@ -610,6 +617,10 @@ private extension CicadaTheme {
         // Round 2 (2026-10-20): one step further from bgHover (was #222326, 1.09:1 against it; now 1.13:1) so the
         // selected row and the pointer's row never read alike. Tertiary on it stays 4.68:1.
         static let bgSelected = Color(hex: 0x252629)
+        // The Reader's chat bubbles (2026-10-20): the person's a step above bgSelected, the other party's a step above
+        // the pane, with its ring.
+        static let chatBubble = Color(hex: 0x2B2C30)
+        static let chatBubbleOther = Color(hex: 0x1A1B1D)
         static let bgMenu = Color(hex: 0x1B1C1E)
         static let bgKey = Color(hex: 0x26272A)
         static let keyGlyph = Color(hex: 0x9A9CA1)
@@ -766,6 +777,8 @@ private extension CicadaTheme {
         // Round 2 (2026-10-20): one step further from bgHover (was #E8E8E5, 1.07:1 against it; now 1.14:1) — the
         // palette's selected and hovered rows read alike. textTertiaryOnFill on it stays 4.86:1.
         static let bgSelected = Color(hex: 0xE1E1DE)
+        static let chatBubble = Color(hex: 0xE7E7E3)
+        static let chatBubbleOther = Color(hex: 0xFFFFFF)
         static let bgMenu = Color(hex: 0xFFFFFF)
         static let bgKey = Color(hex: 0xEAEAE7)
         static let keyGlyph = Color(hex: 0x5A5B60)

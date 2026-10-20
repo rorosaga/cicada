@@ -123,17 +123,29 @@ final class ThemeContrastTests: XCTestCase {
         }
     }
 
-    /// DR-18 / R-DI11 — cited words stay primary-ink legible on the wash, on the Reader's pane and
-    /// on the focus card, in both themes. Measured on the rules' mocked system blue, like every accent
-    /// bar in this file (R-DS4): the live accent is whatever the test Mac's is.
+    /// DR-18 / R-DI11 — cited words stay primary-ink legible on the wash, on the Reader's pane, on the focus card and
+    /// on both chat bubbles, in both themes. The wash is neutral ink since 2026-10-20 (an accent fill read as a text
+    /// selection), so it is measured as it is drawn: white 10 % in dark, black 7 % in light.
     func testPrimaryInkReadsOnTheCitedWash() {
         for mode in [AppColorScheme.dark, .light] {
             CicadaTheme.mode = mode
-            let accent = Color(hex: mode == .dark ? 0x0A84FF : 0x007AFF)
-            let alpha = mode == .dark ? 0.18 : 0.10   // `CicadaTheme.wash`'s opacity
-            for surface in [CicadaTheme.bgPane, CicadaTheme.bgFocus] {
-                let wash = ThemeTokenTests.blend(accent, over: surface, alpha: alpha)
+            let ink = Color(hex: mode == .dark ? 0xFFFFFF : 0x000000)
+            let alpha = mode == .dark ? 0.10 : 0.07   // `CicadaTheme.wash`'s opacity
+            for surface in [CicadaTheme.bgPane, CicadaTheme.bgFocus, CicadaTheme.chatBubbleFill,
+                            CicadaTheme.chatBubbleOtherFill] {
+                let wash = ThemeTokenTests.blend(ink, over: surface, alpha: alpha)
                 XCTAssertGreaterThanOrEqual(c(CicadaTheme.textPrimary, wash), 7, "\(mode.rawValue)")
+            }
+        }
+    }
+
+    /// The Reader's chat bubbles (2026-10-20): both inks a message can be drawn in clear AA on both bubbles.
+    func testBothInksReadOnBothChatBubbles() {
+        for mode in [AppColorScheme.dark, .light] {
+            CicadaTheme.mode = mode
+            for bubble in [CicadaTheme.chatBubbleFill, CicadaTheme.chatBubbleOtherFill] {
+                XCTAssertGreaterThanOrEqual(c(CicadaTheme.textPrimary, bubble), 7, "\(mode.rawValue)")
+                XCTAssertGreaterThanOrEqual(c(CicadaTheme.textSecondary, bubble), 4.5, "\(mode.rawValue)")
             }
         }
     }
