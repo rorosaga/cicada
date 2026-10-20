@@ -94,7 +94,9 @@ from api.services.channel_registry import CHANNEL_IDS
 #: `g161-3`: a saved link's row carries `site` and `why`; channel-less saved sources list by their row id (Sources v3).
 #: `g161-4`: Sources v4 — a title says its day once; Messages lists one row per chat (`kind: chat`, `sittings`, `chat`);
 #: a watched day carries `videos` and the month summaries are not listed.
-SHAPE = "g161-5"
+#: `g161-6`: marks-2 — a saved YouTube video's row carries `video` (its still is asked by the page's id), and a saved
+#: link still waiting for Sleep (an episode row) carries `host`/`site` (its icon is asked by the episode's id).
+SHAPE = "g161-6"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -309,7 +311,12 @@ def _episodes(memory_path: Path, keep, *, when_key: str | None = None, media: _M
                 seen_media.add(media_id)
                 rows.append(row)
             continue
-        rows.append(_episode_row(fm, f.stem, when_key=when_key))
+        row = _episode_row(fm, f.stem, when_key=when_key)
+        # marks-2 — a saved link Sleep has not made a page of yet still names its site, so its row asks that site's
+        # icon by the episode's id (`GET /sources/saved/episodes/{id}/site-icon`) instead of drawing a letter.
+        if url := saved_episode_url(fm):
+            row["_url"] = url
+        rows.append(row)
     return rows
 
 
@@ -522,17 +529,25 @@ def day_has_video(memory_path: Path, episode_id: str, video_id: str) -> bool:
 
 def saved_faces(memory_path: Path, list_id: str, *, limit: int = 3) -> tuple[list[dict], int]:
     """A saved source's faces, from the same set its list lists (review of #358: a row never says "Nothing saved"
-    beside faces): the sites of its live saved pages — never a bookmark that left the browser — newest first, one face
-    per site (`{id, label, site}`: the newest page of that site, its bare host, its site key), and how many more sites
-    there are."""
+    beside faces): the sites of its live saved pages — never a bookmark that left the browser — those whose own icon is
+    already cached first, then the rest, each newest first, one face per site (`{id, label, site}`: the newest page of
+    that site, its bare host, its site key), and how many more sites there are."""
+    from api.services import logo_service
+
     rows = [r for r in _collect(Path(memory_path), list_id) if r.get("kind") == "media" and not r.get("left")]
     rows.sort(key=lambda r: (-r["_sort"], r["title"].casefold(), r["id"]))
     seen: dict[str, dict] = {}
+    known: set[str] = set()
+    hits = logo_service.own_site_hits(memory_path)
     for r in rows:
         where = _site(r.get("_url"))
         if where.get("site") and where["site"] not in seen:
             seen[where["site"]] = {"id": r["id"], "label": where["host"], "site": where["site"]}
-    faces = list(seen.values())
+            if logo_service.own_site_domain(str(r.get("_url") or "")) in hits:
+                known.add(where["site"])
+    # marks-2 (owner 2026-10-20: a letter where the site has its own picture) — the newest sites whose icon is already
+    # cached come first, then the rest, newest first; the app asks those as they show (`SiteIconStore`).
+    faces = sorted(seen.values(), key=lambda f: f["site"] not in known)
     return faces[:limit], max(0, len(faces) - limit)
 
 
@@ -588,8 +603,14 @@ def _why(memory_path: Path, episode_id) -> dict | None:
 def _enrich(memory_path: Path, row: dict) -> dict:
     """A served saved-link row gains its `site` and its `why`; every private key is dropped."""
     out = {k: v for k, v in row.items() if not k.startswith("_")}
+    if row.get("kind") == "episode" and row.get("_url"):
+        out.update(_site(row["_url"]))
     if row.get("kind") == "media":
         out.update(_site(row.get("_url")))
+        # marks-2 (owner 2026-10-20: "none of the YouTube stuff shows thumbnails") — a saved YouTube video's row draws
+        # its still, asked by the page's id (`GET /sources/saved/{id}/still`); the id itself never rides the wire.
+        if media_preview.youtube_video_id(str(row.get("_url") or "")):
+            out["video"] = True
         if why := _why(memory_path, row.get("_episode")):
             out["why"] = why
     return out
@@ -643,6 +664,27 @@ def is_saved_link_page(fm: dict) -> bool:
     origin = str(fm.get("origin") or "").strip()
     owner = source_overview.source_key({"origin": origin}) if origin else "files"
     return source_overview.intent_of(owner) == "saved"
+
+
+def media_video_id(memory_path: Path, media_entity_id: str) -> str | None:
+    """The YouTube video a live media page is (marks-2, owner direction 2026-10-19/20): the id `video_urls` resolves
+    from THIS page's own URL (the url index's entry, else its frontmatter), for a page the Feed and the lists show —
+    else None and nothing is asked. Never an id the caller supplies; the still is keyed by it so a video watched and
+    saved is asked once (`media_preview.ensure_video_still`)."""
+    memory_path = Path(memory_path)
+    f = bank_index.file(memory_path, "entities", f"{media_entity_id}.md")
+    fm = (f.frontmatter or {}) if f is not None else {}
+    if fm.get("type") != "media" or source_overview.is_hidden(fm):
+        return None
+    try:
+        index = media_ingestor.load_url_index(memory_path)
+    except Exception:
+        index = {}
+    media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
+    url = next((str(e.get("url") or "") for e in (index.values() if isinstance(index, dict) else [])
+                if isinstance(e, dict) and str(e.get("media_entity_id") or "") == media_entity_id
+                and not e.get("alias_of")), "") or str(fm.get("url") or media.get("url") or "")
+    return media_preview.youtube_video_id(url) if url else None
 
 
 def saved_link_site(memory_path: Path, media_entity_id: str) -> str | None:

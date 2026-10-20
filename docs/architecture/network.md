@@ -41,8 +41,9 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   Waiting row with no page yet; rows ask as they appear, at most four at a time), which asks the link's own registrable domain and **never an icon service**, so
   no third party learns what was saved — only when the person opens that list, never from the Sleep cycle. **Amended (owner
   2026-10-20: "when I open the website I can clearly see a favicon in the Chrome tab"):** discovery goes the way a
-  browser does — the homepage (its www. host when the bare domain has no address; same-registrable-domain redirects
-  only), its `<link rel>` icon declarations, best raster first (≤ 3 asked), then `/apple-touch-icon.png` and
+  browser does — the homepage (its www. host when the bare domain has no address; redirects on the same registrable
+  domain, or — marks-2, 2026-10-20 — to the public, non-walled domain a renamed site moved to, each hop through the
+  SSRF guard), its `<link rel>` icon declarations, best raster first (≤ 3 asked), then `/apple-touch-icon.png` and
   `/favicon.ico`. An icon URL the page itself declares may sit on another host (a CDN): https only, every hop through
   the SSRF guard and kept on that host's or the site's domain, accepted only when it says `image/*` and its bytes sniff
   as a raster. 4 s for the whole discovery, ≤ 512 KB per response streamed, no cookies, a block (401/403/407/451) from
@@ -57,7 +58,8 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   It also gates a watched video's still (owner direction 2026-10-19, Sources v4): a day the person opened in Sources ›
   YouTube history asks `GET /sources/watch-history/days/{episode}/videos/{id}/thumbnail`, which asks YouTube's own
   thumbnail host for that id only, and only for an id that day records; the media-preview rail, cached under
-  `previews/<bank>/watched/` (`storage.md`).
+  `previews/<bank>/watched/` (`storage.md`). The same still for a saved YouTube video's row in a list the person
+  opened (`GET /sources/saved/{id}/still`, marks-2): the id that page's own URL names, the same store.
   It also covers a person's public-profile photo, which has a second, narrower gate of its own:
 - **`CICADA_ALLOW_PERSON_PHOTO_FETCH=off`** (G159 amendment, owner 2026-10-09; on by default, off for the test suite)
   stops every public-profile photo lookup for people while logos keep working. `person_photo` asks only when the app

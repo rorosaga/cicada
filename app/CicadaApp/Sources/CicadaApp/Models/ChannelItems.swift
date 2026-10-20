@@ -25,13 +25,18 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
     var videos: Int? = nil
     /// Sources v4 (review of #358) — a Messages chat's sitting count (the row opens to its sittings).
     var sittings: Int? = nil
+    /// marks-2 (owner 2026-10-20) — a saved YouTube video: the row draws its still, asked by this page's id
+    /// (`GET /sources/saved/{id}/still`). Nil for every other row and from an older backend.
+    var video: Bool? = nil
 
-    enum CodingKeys: String, CodingKey { case kind, id, title, day, left, host, site, why, chat, videos, sittings }
+    enum CodingKeys: String, CodingKey { case kind, id, title, day, left, host, site, why, chat, videos, sittings, video }
 
     init(kind: Kind, id: String, title: String, day: String? = nil, left: String? = nil, host: String? = nil,
-         site: String? = nil, why: ChannelItemWhy? = nil, chat: ChannelItemChat? = nil, videos: Int? = nil) {
+         site: String? = nil, why: ChannelItemWhy? = nil, chat: ChannelItemChat? = nil, videos: Int? = nil,
+         video: Bool? = nil) {
         self.kind = kind; self.id = id; self.title = title; self.day = day; self.left = left
         self.host = host; self.site = site; self.why = why; self.chat = chat; self.videos = videos
+        self.video = video
     }
 
     init(from decoder: Decoder) throws {
@@ -48,6 +53,7 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         chat = try? c.decodeIfPresent(ChannelItemChat.self, forKey: .chat)
         videos = try? c.decodeIfPresent(Int.self, forKey: .videos)
         sittings = try? c.decodeIfPresent(Int.self, forKey: .sittings)
+        video = try? c.decodeIfPresent(Bool.self, forKey: .video)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -63,6 +69,7 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         try c.encodeIfPresent(chat, forKey: .chat)
         try c.encodeIfPresent(videos, forKey: .videos)
         try c.encodeIfPresent(sittings, forKey: .sittings)
+        try c.encodeIfPresent(video, forKey: .video)
     }
 }
 
@@ -215,11 +222,25 @@ enum SavedItemText {
     }
 
     /// Which mark the row draws — the shared rule (`SavedLinkMarkModel`, owner 2026-10-20): the site's own key when
-    /// the row has one, asked by the media page's id; else a monogram of the host or the title. Never the browser's
-    /// mark: the row is the site, not where it was saved from.
+    /// the row has one, asked by the media page's id — or, for a saved link Sleep has not made a page of yet, by its
+    /// episode's id (marks-2: that row asked nothing and drew a letter); else a monogram of the host or the title.
+    /// Never the browser's mark: the row is the site, not where it was saved from.
     static func mark(_ item: ChannelItem) -> SavedLinkMarkModel.Mark {
-        SavedLinkMarkModel.mark(site: item.site, host: item.host, title: item.title,
-                                door: item.kind == .media ? .media(item.id) : nil)
+        SavedLinkMarkModel.mark(site: item.site, host: item.host, title: item.title, door: door(item))
+    }
+
+    static func door(_ item: ChannelItem) -> SavedLinkMarkModel.Door? {
+        switch item.kind {
+        case .media: .media(item.id)
+        case .episode: .episode(item.id)
+        default: nil
+        }
+    }
+
+    /// marks-2 — a saved YouTube video's row draws its still (asked by its page's id), not the site's mark.
+    static func stillPath(_ item: ChannelItem) -> String? {
+        guard item.kind == .media, item.video == true else { return nil }
+        return SourcePictures.savedStillPath(mediaId: item.id)
     }
 
     /// The row's day — "Today", "Yesterday", a weekday this week, else "Oct 3" — with the full date as its `.help`

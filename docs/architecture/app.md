@@ -913,7 +913,11 @@ the website's logo … Clicking again on Sources takes me back to the main Sourc
   (the group *is* the source). Entity pictures (Find's saved rows, Ask's citations, the entity card, the graph) keep
   the picture precedence — a page's own thumbnail outranks a site icon there. `SiteIconStore` keeps an icon per
   site and bank whichever id asked but a miss per id (one refused id never hides the site's icon), and puts at most four requests on the wire (`maxConcurrent`); a row that scrolled
-  away before its turn asks nothing.
+  away before its turn asks nothing. A miss is believed for ten minutes (`missTTL`, marks-2), so a window left open
+  across a backend update asks once more — a cache read there while the backend's own miss is fresh. A saved list's
+  row of a link Sleep has not made a page of yet asks by its episode (`SavedItemText.door`; the list names its site,
+  `channel_items` `g161-6`). **A saved YouTube video's row draws its still** (`VideoStill`, the watched day's view, at
+  64 × 36; `GET /sources/saved/{id}/still`, `SourcePictures.savedStillPath`), not the site's mark (owner 2026-10-20).
 - **Watch history is never a save.** YouTube and TikTok history days are their own captured rows (*YouTube history*,
   *TikTok history*), headlined by their days ("30 watched days", `SourceOverview.isWatchHistory`), and their detail
   lists those days by title under the row's own id (`GET /sources/channels/youtube-history/items`, each opening in the
@@ -956,7 +960,11 @@ pending from that category, as a small notification."*
   photo`, else a ring with a letter) and the sites a saved source's things came from (their own icon by the saved page,
   `SiteIcon(savedItem:)`). Served as `faces`/`facesMore` on the overview row; the overview's ETag folds `photos` in and
   `VersionVector` routes `photos` to `.sourcesOverview` too; a saved source's faces come from the set its list lists
-  (a bookmark that left the browser is none), and a row whose count is zero has none. Pictures load through
+  (a bookmark that left the browser is none), and a row whose count is zero has none. **Icons first (marks-2,
+  2026-10-20):** a saved row's faces put the sites whose own icon is already cached first, then the rest, each newest
+  first (`channel_items.saved_faces`), and the overview's ETag folds in the own-site icon index's stamp
+  (`logo_service.own_site_stamp`, outside the bank like the connector tag), so a letter shows only beside sites still
+  unasked or truly iconless — and those faces ask as they appear. Pictures load through
   `SourcePictureStore` (in memory, misses kept, per bank, at most four asks at a time). Bundled marks draw on the first
   frame (`LogoImage.bundledImageNow`), never the generic "app" placeholder.
 - **Rows say each thing once.** A list row's title drops a trailing " · <its own day>" (`channel_items._without_day`).

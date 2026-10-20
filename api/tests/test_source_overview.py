@@ -309,6 +309,8 @@ def test_overview_etag_recipe_is_unchanged_by_the_activity_field(client, bank):
     `.sourcesOverview`. Pinned behaviourally, not by grepping the source.
     Sources v4 adds `photos` (a Messages face carries its chat photo's hash),
     which the app's mapping routes to `.sourcesOverview` in the same PR.
+    marks-2 adds the own-site icon index's stamp (`icons:`, "-" with none yet):
+    outside the bank, like the connector tag, so a faces reorder revalidates.
 
     (The connector tag is built from `ADAPTERS`, so read it off the response
     rather than retyping it: the point of this test is that adding `activity`
@@ -323,7 +325,7 @@ def test_overview_etag_recipe_is_unchanged_by_the_activity_field(client, bank):
     tag = ",".join(f"{k}:{a.is_connected()}" for k, a in sorted(ADAPTERS.items()))
     expected = sync_service.etag_for(
         bank, "sources", "episodes", "entities", "photos",
-        extra=f"{source_overview.SHAPE}|telegram:False|connectors:{tag}",
+        extra=f"{source_overview.SHAPE}|telegram:False|connectors:{tag}|icons:-",
     )
     assert r.headers["etag"] == expected
     assert client.get("/sources/overview", headers={"If-None-Match": expected}).status_code == 304
