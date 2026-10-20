@@ -92,6 +92,38 @@ class Excerpt:
     shown: list[int] = field(default_factory=list)
     #: The conversation's title, as its episode names it.
     title: str = ""
+    #: The turn's own stamp (else the episode's), as stored: :func:`local_day` reads the day it was said, locally.
+    stamp: str = ""
+
+
+def local_day(raw):
+    """A stored stamp of any shape (naive local, ``Z``, ``+00:00``, a bare day, a YAML ``datetime``) as the LOCAL
+    calendar day it was said — the day ``claims.current_day`` counts in (a turn at 01:30 in Madrid is stored on the
+    previous UTC day). ``None`` when unreadable."""
+    from datetime import date, datetime
+
+    from api.services import episode_ids
+
+    if isinstance(raw, datetime):
+        dt = raw
+    else:
+        text = str(raw or "").strip()
+        if len(text) == 10:
+            try:
+                return date.fromisoformat(text)
+            except ValueError:
+                return None
+        key = episode_ids.timestamp_sort_key(text or None)
+        if not key:
+            return None
+        try:
+            dt = datetime.fromisoformat(key)
+        except ValueError:
+            return None
+    try:
+        return dt.astimezone().date()
+    except (ValueError, OverflowError, OSError):
+        return None
 
 
 def _clip_around(text: str, at: int | None, limit: int) -> str:
@@ -221,7 +253,8 @@ def _take(candidates: list[tuple], docs: dict[str, tuple], terms: set[str], owne
             break
         day = (turn.ts or str(fm.get("timestamp") or "") or episode_day(ep))[:10]
         excerpt = Excerpt(episode=ep, day=day, who=_who(turn, fm, owner_name), text=clipped,
-                          order=(day, ep, i), title=str(fm.get("title") or "").strip())
+                          order=(day, ep, i), title=str(fm.get("title") or "").strip(),
+                          stamp=str(turn.ts or fm.get("timestamp") or "") or day)
         taken.add((ep, i))
         used += len(clipped)
 
@@ -425,9 +458,12 @@ _FROM_TO = (
                r"(?:to|into) (?P<b>.+?)" + _STOP_AT),
 )
 _BETWEEN = re.compile(r"\b(?:between|entre) (?P<a>.+?) (?:and|y|e) (?P<b>.+?)" + _STOP_AT)
+#: "Which happened first, A or B" asks about the past: a past verb before "first", and "first" closing its clause —
+#: never "what should I do first, A or B" (advice) or "which did I prefer, the first draft or the second".
 _WHICH_FIRST = (
-    re.compile(r"\b(?:which|what)\b[^?]*?\b(?:first|earlier)\b[,:]? (?P<a>.+?),? or (?P<b>.+?)(?=[?!]|$)"),
-    re.compile(r"\b(?:did|do|was|were|had) (?:i|we) (?P<a>.+?),? or (?P<b>.+?) (?:first|earlier)\b"),
+    re.compile(r"\b(?:which|what)\b[^?]*?\b(?:did|happened|came|was|were|had|occurred)\b[^?]*?\b(?:first|earlier)"
+               r"[,:] ?(?P<a>.+?),? or (?P<b>.+?)(?=[?!]|$)"),
+    re.compile(r"\b(?:did|was|were|had) (?:i|we) (?P<a>.+?),? or (?P<b>.+?) (?<!\bat )(?:first|earlier)\b"),
     re.compile(r"(?P<a>[^,?]+?) (?:before or after|after or before) (?P<b>.+?)(?=[?!]|$)"),
     re.compile(r"\bque (?:fue|paso|hice|ocurrio|vino) (?:primero|antes)[,:]? (?P<a>.+?),? o (?P<b>.+?)(?=[?!]|$)"),
     re.compile(r"(?P<a>[^,?]+?) antes o despues de (?P<b>.+?)(?=[?!]|$)"),
@@ -435,11 +471,24 @@ _WHICH_FIRST = (
 #: "How many days had passed since A when B", "how many days before A did I B".
 _SINCE_WHEN = re.compile(r"\b(?:before|after|since|until|antes de|despues de|desde)\b (?P<a>.+?) "
                          r"\b(?:when|did|was|were|had|cuando)\b (?P<b>.+?)(?=[?!]|$)")
-_FIRST_CUE = re.compile(r"\b(?:first|originally|initially|at first|at the start|in the beginning|al principio|"
-                        r"primero|la primera vez|por primera vez|inicialmente|originalmente|en un principio)\b")
+#: "First" as the first of two moments — never "first and foremost", "first of all", "primero que nada", or a
+#: "First, …" / "Primero, …" that only opens the question.
+_FIRST_CUE = re.compile(r"(?<!^)\b(?:first|originally|initially|at first|at the start|in the beginning|al principio|"
+                        r"primero|la primera vez|por primera vez|inicialmente|originalmente|en un principio)\b"
+                        r"(?! and foremost| of all| off\b| que nada)")
 _LATER_CUE = re.compile(r"\b(?:later|by the time|afterwards?|after that|eventually|subsequently|the next time|"
                         r"the second time|when i (?:came|went|got) back|when i returned|cuando volvi|despues|luego|"
                         r"mas tarde|al final|la segunda vez|la siguiente vez)\b")
+#: What makes "from A to B", "between A and B" or two named months two moments rather than a route, a pair or a
+#: range: a change, a duration or an order said OUTSIDE the matched words ("switching from vim to emacs" is no
+#: change cue by its own verb; "the time difference between Madrid and Lima" is no duration).
+_ENDS_CUE = re.compile(
+    r"\b(?:chang\w*|evolv\w*|shift\w*|cambi\w*|evoluciono|evolucion\w*|how long (?:did|had|has|was|were)\b|"
+    r"how (?:many|much) (?:days|weeks|months|years|time)\b(?! ago)|cuanto tiempo|cuant[oa]s (?:dias|semanas|meses|"
+    r"anos)\b|passed|elapsed|pasaron|paso|transcurri\w*|apart|first|before|after|earlier|later|again|order|"
+    r"primero|antes|despues|luego|orden|de nuevo|otra vez)\b")
+#: A Spanish count ("¿cuántas veces…?", "¿cuántos libros…?") is a count, never two ends; "cuántos días" is a duration.
+_ES_COUNT = re.compile(r"\bcuant[oa]s (?!dias\b|semanas\b|meses\b|anos\b|horas\b|minutos\b)\w+")
 _RETURN_CUE = re.compile(r"\bcuando volvi\b")
 _ORDER_CUE = re.compile(r"\b(?:order|first|earliest|latest|before|after|orden|primero|antes|despues)\b")
 _QUOTED = re.compile(r"(?:^|(?<=[\s:(]))['\"‘“]([^'\"’”]{3,}?)['\"’”](?=[\s,.;:?!)]|$)")
@@ -522,7 +571,7 @@ def _clean(half: str) -> str:
 
 def _split(q: str, at: int, *, shared: str = "") -> Ends | None:
     a, b = _clean(q[:at]), _clean(q[at:])
-    if not text_fold.subject_terms(a) or not text_fold.subject_terms(b):
+    if not (_end_terms_strict(a) or _end_days(a)) or not (_end_terms_strict(b) or _end_days(b)):
         return None
     return Ends(ends=[End(a, _end_days(a)), End(b, _end_days(b))], shared=shared)
 
@@ -535,8 +584,11 @@ def two_ends(question: str) -> Ends | None:
     q = " ".join(text_fold.fold(question or "").split())
     if not q:
         return None
-    if _ENUMERATE.search(q) and not _DURATION.search(q):
+    if (_ENUMERATE.search(q) and not _DURATION.search(q)) or _ES_COUNT.search(q):
         return None
+
+    def cued(m) -> bool:
+        return bool(_ENDS_CUE.search(f"{q[:m.start()]} {q[m.end():]}"))
 
     def matched(m) -> Ends | None:
         a, b = _clean(m.group("a")), _clean(m.group("b"))
@@ -548,9 +600,9 @@ def two_ends(question: str) -> Ends | None:
         return Ends(ends=[End(a, _end_days(a)), End(b, _end_days(b))], shared=shared)
 
     for rx in _FROM_TO:
-        if (m := rx.search(q)) and (found := matched(m)):
+        if (m := rx.search(q)) and cued(m) and (found := matched(m)):
             return found
-    if (m := _BETWEEN.search(q)) and (_TIME_CUE.search(q) or (_end_days(m.group("a")) and _end_days(m.group("b")))):
+    if (m := _BETWEEN.search(q)) and (cued(m) or (_end_days(m.group("a")) and _end_days(m.group("b")))):
         if found := matched(m):
             return found
     if _ORDER_CUE.search(q):
@@ -573,7 +625,7 @@ def two_ends(question: str) -> Ends | None:
             head.text = " ".join(_clean(head.text.replace(first.group(0), " ", 1)).split())
         return found
     spans = _date_spans(q)
-    if len(spans) >= 2 and len({tuple(_end_days(q[lo:hi])) for lo, hi in spans}) >= 2:
+    if len(spans) >= 2 and len({tuple(_end_days(q[lo:hi])) for lo, hi in spans}) >= 2 and _ENDS_CUE.search(q):
         (_, end0), (lo1, _) = spans[0], spans[1]
         cut = max((m.start() for m in re.finditer(r",|\b(?:and|y)\b", q[end0:lo1])), default=None)
         if found := _split(q, end0 + cut if cut is not None else lo1):
@@ -643,6 +695,9 @@ class EndPick:
     episode: str | None
     weights: dict[str, float]
     days: list[str] = field(default_factory=list)
+    #: The stamp of the end's own best turn in its conversation (set when its turns are read): a session that ran
+    #: over several days is dated by the turn that speaks of this moment, not by its first day.
+    stamp: str = ""
 
 
 def search_terms(question: str) -> set[str]:
@@ -733,6 +788,32 @@ def _end_terms(text: str) -> set[str]:
     return (terms - QUESTION_WORDS - ENDS_WORDS) or (terms - QUESTION_WORDS)
 
 
+#: How many of an end's best conversations :func:`_whole_words_first` reorders.
+_REORDER = 3
+
+
+def _whole_words_first(memory_path: Path, cands: list[str], own: set[str]) -> list[str]:
+    """The end's first few conversations, the one whose best turn holds most of the end's words as whole words first
+    (the index matches a word's start: "start" also finds "starter", so "making a sourdough starter" ties with
+    "started the sourdough starter"); the rest unchanged."""
+    head = cands[:_REORDER]
+    if len(head) < 2 or not own:
+        return cands
+
+    def whole(ep: str) -> int:
+        doc = evidence.source_document(memory_path, ep)
+        if doc is None:
+            return 0
+        fm, text = doc
+        turns = evidence.turns(text, stamps=evidence.turn_stamps(fm), override=fm.get("evidence_kind"),
+                               gaps=evidence.gap_ranges(fm, text))
+        return max((len(own & text_fold.subject_terms(text[t.content_start:t.end])) for t in turns
+                    if t.role != evidence.GAP_KIND), default=0)
+
+    hits = {ep: whole(ep) for ep in head}
+    return sorted(head, key=lambda ep: (-hits[ep], head.index(ep))) + cands[_REORDER:]
+
+
 def _pick_ends(memory_path: Path, ends: Ends, terms: set[str], weights: dict[str, float], order: list[str],
                held: dict[str, set[str]], on_subject: list[str], indexer) -> list[EndPick]:
     """The best conversation for each end: searched on the end's own words (with the words the question says around
@@ -777,6 +858,7 @@ def _pick_ends(memory_path: Path, ends: Ends, terms: set[str], weights: dict[str
         if end.days:
             cands = [ep for ep in cands if _on_day(episode_day(ep), end.days)] or \
                 [ep for ep in order if held.get(ep) and _on_day(episode_day(ep), end.days)]
+        cands = _whole_words_first(memory_path, cands, own)
         ranked.append((end, w, cands, scores, held_e))
 
     def strength(i: int, ep: str) -> float:
@@ -789,16 +871,30 @@ def _pick_ends(memory_path: Path, ends: Ends, terms: set[str], weights: dict[str
             return -1.0
         return scores.get(cands[0], 0.0) - (scores.get(cands[1], 0.0) if len(cands) > 1 else 0.0)
 
+    def best_turn(i: int, ep: str) -> int | None:
+        w = ranked[i][1]
+        if not w:
+            return None
+        pattern = re.compile(r"\b(" + "|".join(re.escape(t) for t in sorted(w, key=len, reverse=True)) + ")")
+        found = _scored_turns(memory_path, [ep], pattern, w, {}, 1)
+        return min(found, key=lambda c: (-c[0], c[2]))[2] if found else None
+
     chosen: dict[int, str | None] = {}
     for i in sorted(range(len(ranked)), key=lambda i: -margin(i)):
         cands = ranked[i][2]
-        taken = set(v for v in chosen.values() if v)
         first = cands[0] if cands else None
         pick = first
-        if first in taken:
-            alt = next((ep for ep in cands if ep not in taken), None)
-            if alt is not None and strength(i, alt) >= 0.5 * strength(i, first):
-                pick = alt
+        holders = [j for j, ep in chosen.items() if ep is not None and ep == first]
+        if holders:
+            # One conversation can hold both moments (a session resumed days later): share it when this end's best
+            # turn there is another turn than the holder's; else take the next conversation that holds at least
+            # half as much of this end's words.
+            mine = best_turn(i, first)
+            if mine is None or any(best_turn(j, first) == mine for j in holders):
+                taken = set(v for v in chosen.values() if v)
+                alt = next((ep for ep in cands if ep not in taken), None)
+                if alt is not None and strength(i, alt) >= 0.5 * strength(i, first):
+                    pick = alt
         chosen[i] = pick
     return [EndPick(label=end.text, episode=chosen[i], weights=w or weights, days=list(end.days))
             for i, (end, w, _, _, _) in enumerate(ranked)]
@@ -871,12 +967,23 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
                     order.append(pick.episode)
                 for t, w in pick.weights.items():
                     weights.setdefault(t, w)
-        order = _reserve(order, [*kept, order[0]], max(SEARCH_EPISODES, len(kept) + 1))
-        return Searched(episodes=order, weights=weights, shape=shape, kept=kept, ends=picks)
     named = named_days(question, today)
+    if ends is not None:
+        # A day the question names outside every end ("on March 5, how had it changed from …") is still that day's
+        # conversation; an outcome or a current value still keeps the newest on the subject.
+        end_days = {d for e in ends.ends for d in e.days}
+        named = [d for d in named if d not in end_days and not any(d.startswith(e) or e.startswith(d)
+                                                                   for e in end_days)]
     if named:
         for ep in [ep for ep in order if held.get(ep) and _on_day(episode_day(ep), named)][:NAMED_SLOTS]:
-            kept[ep] = "named"
+            kept.setdefault(ep, "named")
+    if ends is not None:
+        if _LATEST.search(" ".join((question or "").lower().split())):
+            newest = sorted(on_subject, key=lambda ep: (episode_day(ep), ep), reverse=True)
+            for ep in newest[:1]:
+                kept.setdefault(ep, "latest")
+        order = _reserve(order, [*kept, order[0]], max(SEARCH_EPISODES, len(kept) + 1))
+        return Searched(episodes=order, weights=weights, shape=shape, kept=kept, ends=picks)
     if shape in LATEST_SLOTS:
         newest = sorted(on_subject, key=lambda ep: (episode_day(ep), ep), reverse=True)
         for ep in newest[: LATEST_SLOTS[shape]]:
@@ -909,6 +1016,9 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
     pattern = re.compile(r"\b(" + "|".join(re.escape(t) for t in sorted(terms, key=len, reverse=True)) + ")")
     taken = set(taken or ())
     docs: dict[str, tuple] = {}
+    if found.ends:
+        # Every kept conversation (each end, a named day, the newest) is read, beside the best of the question.
+        max_episodes = max(max_episodes, len(found.kept) + 1)
     candidates = _scored_turns(memory_path, found.episodes, pattern, weights, docs, max_episodes)
     candidates.sort(key=lambda c: (-c[0], c[1], c[2]))
     lead: list[tuple] = []
@@ -928,6 +1038,9 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
             turns_e = _scored_turns(memory_path, [pick.episode], own, pick.weights, mine, 1)
             docs.update({k: v for k, v in mine.items() if k not in docs})
             turns_e.sort(key=lambda c: (-c[0], c[2]))
+            if turns_e:   # the end is dated by its own best turn, whether or not another end shows it
+                fm_e = docs[turns_e[0][3]][0]
+                pick.stamp = str(turns_e[0][4].ts or fm_e.get("timestamp") or "")
             mine_lead: list[tuple] = []
             for c in [c for c in turns_e if (c[3], c[2]) not in taken and (c[3], c[2]) not in led_turns][:END_TURNS]:
                 body = docs[c[3]][1][c[4].content_start:c[4].end]
@@ -941,9 +1054,10 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
             lead += [turns[k] for turns in per_end if len(turns) > k]
         lead_keys = {(c[3], c[2]) for c in lead}
         candidates = [c for c in candidates if (c[3], c[2]) not in lead_keys]
+    end_eps = {p.episode for p in found.ends}
     for ep in found.kept:
-        if found.ends:
-            break
+        if ep in end_eps:
+            continue
         best = next((c for c in candidates if c[3] == ep and (ep, c[2]) not in taken), None)
         if best is not None:
             lead.append(best)

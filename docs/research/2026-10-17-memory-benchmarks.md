@@ -487,3 +487,11 @@ characters on the changed questions; context build p50 +27 ms (one more embed an
 LongMemEval misses left are one-moment "how many days ago … when I …" questions whose event is dated relative to its
 session; out of scope here. Plan calls: 122.
 
+*After review (same day):* "from A to B", "between A and B" and two named months now need a change, duration or order
+word outside the matched words; "which … first" needs a past verb; Spanish counts and "first and foremost"-style
+openers are excluded; a named day outside the ends and an outcome word keep their reservations; days are the local day
+of each line's stamp (a line whose stored UTC date differs is named beside it); an end is dated by its own best turn,
+and two ends may share a session resumed days later. The same 20 public questions changed (nothing else did); one
+more repeat of them with the reviewed code: LongMemEval_S temporal 19/23, LoCoMo's two right. Plan calls: 40 (162 in
+all).
+

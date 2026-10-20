@@ -18,8 +18,8 @@ import pytest
 from api.services import ask_service, ask_sources, bank_index, evidence, markdown_parser, search_index
 
 
-def _episode(memory, ep_id: str, turns: list[str], **fm) -> None:
-    body = "\n".join(turns) + "\n"
+def _episode(memory, ep_id: str, lines: list[str], **fm) -> None:
+    body = "\n".join(lines) + "\n"
     meta = {"id": ep_id, "timestamp": f"{ep_id[3:13]}T10:00:00+00:00", "processed": True, "source": "import",
             "content_hash": evidence.body_hash(body), **fm}
     markdown_parser.write(memory / "episodes" / f"{ep_id}.md", meta, body)
@@ -260,3 +260,125 @@ def test_only_elapsed_time_is_a_time_question():
     assert not elapsed("How long is my daily commute?"), "a length, not time passed"
     assert not elapsed("How many days did I spend on the camping trip?")
     assert not elapsed("What hobby did bob-example start a few years ago?"), "not a question of how long"
+
+
+# --------------------------------------------------------------------------------------------------------------- #
+# Review of #379: ordinary questions stay ordinary; the local day; a session that ran over several days
+# --------------------------------------------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize("question", [
+    "What did I say on March 5 about switching from vim to emacs?",
+    "What's my latest decision about moving from Madrid to Lisbon?",
+    "When did I move from Madrid to Lisbon?",
+    "What's the time difference between Madrid and Lima that I noted?",
+    "¿Cuál es la diferencia de tiempo entre Madrid y Lima?",
+    "How long is the flight between Lima and Madrid?",
+    "Which train did I take between Madrid and Barcelona last time?",
+    "What should I do first, the taxes or the report?",
+    "What's the difference between my first and second car?",
+    "Which did I prefer, the first draft or the second?",
+    "First and foremost, how long have I been vegan, and later what did I add?",
+    "Primero que nada, ¿qué cambió en alpha-project después del lanzamiento?",
+    "¿Cuántas veces fui al gimnasio entre marzo y julio?",
+    "¿Cuántos libros leí entre marzo y julio?",
+    "What do I like to do in May and June?",
+    "Did I prefer coffee or tea at first?",
+    "Just between you and me, has my opinion of the new manager changed?",
+])
+def test_ordinary_questions_are_not_two_ends(question):
+    assert ask_sources.two_ends(question) is None
+    assert ask_sources.question_shape(question) != ask_sources.SHAPE_TWO_ENDS
+
+
+def _editor_bank(memory) -> None:
+    for d in ("2025-01-10", "2025-01-20", "2025-02-02", "2025-02-14", "2025-02-25", "2025-03-20", "2025-04-02"):
+        _episode(memory, f"ep_{d}_001", [f"user: I keep thinking about switching from vim to emacs; emacs org-mode vs "
+                                         f"vim modal editing, vim plugins, emacs lisp ({d}).",
+                                         "assistant: Switching from vim to emacs: evil-mode keeps vim keys inside emacs."])
+    _episode(memory, "ep_2025-03-05_001", ["user: Decision on editors: I'm staying with vim, not switching.",
+                                           "assistant: Noted, vim it is."])
+    _index(memory)
+
+
+def test_a_named_day_phrased_from_a_to_b_keeps_its_day(bank):
+    _editor_bank(bank)
+    q = "What did I say on March 5 about switching from vim to emacs?"
+    found = ask_sources.search(bank, q)
+    assert found.shape == ask_sources.SHAPE_ANCHORED and found.kept == {"ep_2025-03-05_001": "named"}
+    assert any(e.episode == "ep_2025-03-05_001" for e in ask_sources.gather_search(bank, q, found))
+
+
+def test_the_newest_phrased_from_a_to_b_stays_the_newest(bank):
+    for d in ("2025-01-10", "2025-01-20", "2025-02-02", "2025-02-14", "2025-02-25", "2025-03-20", "2025-04-02"):
+        _episode(bank, f"ep_{d}_001", [f"user: Thinking about moving from Madrid to Lisbon: Lisbon rent, Madrid job, "
+                                       f"moving costs, Lisbon weather ({d}).",
+                                       "assistant: Moving from Madrid to Lisbon could lower rent; Lisbon is sunny."])
+    _episode(bank, "ep_2025-06-01_001", ["user: Final call on the move: I'm staying in Madrid after all, not moving.",
+                                         "assistant: Understood, staying put."])
+    _index(bank)
+    q = "What's my latest decision about moving from Madrid to Lisbon?"
+    found = ask_sources.search(bank, q)
+    assert found.shape == ask_sources.SHAPE_LATEST and found.kept.get("ep_2025-06-01_001") == "latest"
+
+
+def test_a_two_ends_question_keeps_a_named_day_and_the_newest_too(bank):
+    _editor_bank(bank)
+    _episode(bank, "ep_2025-05-01_001", ["user: Final editor decision: vim stays, emacs is out for good.",
+                                         "assistant: Final answer noted."])
+    _index(bank)
+    q = ("How had my thinking on vim and emacs changed between the org-mode chats and the evil-mode chats, what did I "
+         "say on March 5, and what is my final decision?")
+    found = ask_sources.search(bank, q)
+    assert found.shape == ask_sources.SHAPE_TWO_ENDS and found.ends
+    assert found.kept.get("ep_2025-03-05_001") == "named", "a day outside every end is still that day's"
+    assert "latest" in found.kept.values(), "an outcome still keeps the newest on the subject"
+    assert set(found.kept) <= set(found.episodes[:max(ask_sources.SEARCH_EPISODES, len(found.kept) + 1)])
+
+
+def test_days_are_local_days_never_the_utc_slice(bank, monkeypatch):
+    """Said at 01:30 in Madrid on 20 October is stored as 19 October 23:30 UTC; asked the same local day, it is
+    day 0 and today, never "yesterday"."""
+    import time
+    from datetime import date
+
+    monkeypatch.setenv("TZ", "Europe/Madrid")
+    time.tzset()
+    try:
+        body = ["user: Just booked the pottery workshop for next month.", "assistant: Nice, enjoy the pottery workshop."]
+        _episode(bank, "ep_2026-10-19_001", body, timestamp="2026-10-19T23:30:00+00:00",
+                 turns=[{"offset": 0, "ts": "2026-10-19T23:30:00+00:00", "speaker": None},
+                        {"offset": len(body[0]) + 1, "ts": "2026-10-19T23:30:05+00:00", "speaker": None}])
+        _index(bank)
+        monkeypatch.setattr(ask_service, "current_day", lambda: date(2026, 10, 20))
+        timing = _prompt(bank, "How many days ago did I book the pottery workshop?").split(
+            "TIME BETWEEN THE CONVERSATIONS", 1)[1]
+        assert "- 2026-10-20 = day 0 (lines dated 2026-10-19 above: their stored UTC date)" in timing
+        assert "- 2026-10-19 = day" not in timing, "never numbered as the day before"
+        assert "- 2026-10-20 (the current local day) = day 0" in timing
+    finally:
+        monkeypatch.delenv("TZ")
+        time.tzset()
+
+
+def test_a_session_over_several_days_dates_each_end_by_its_own_turn(bank):
+    turns = ["user: Started the sourdough starter today, feeding it flour and water.",
+             "assistant: Keep the sourdough starter warm.",
+             "user: Baked my first loaf from the sourdough starter at last, crusty and open crumb!",
+             "assistant: Congratulations on the loaf."]
+    stamps = ["2025-01-01T09:00:00+00:00", "2025-01-01T09:01:00+00:00", "2025-01-10T09:00:00+00:00",
+              "2025-01-10T09:01:00+00:00"]
+    offsets, at = [], 0
+    for t in turns:
+        offsets.append(at)
+        at += len(t) + 1
+    _episode(bank, "ep_2025-01-01_001", turns,
+             turns=[{"offset": o, "ts": s, "speaker": None} for o, s in zip(offsets, stamps)])
+    _episode(bank, "ep_2024-12-20_001", ["user: Thinking of making a sourdough starter soon.", "assistant: Sure."])
+    _index(bank)
+    q = "How many days passed between the day I started the sourdough starter and the day I baked my first loaf?"
+    found = ask_sources.search(bank, q)
+    assert [p.episode for p in found.ends] == ["ep_2025-01-01_001", "ep_2025-01-01_001"], \
+        "one conversation holds both moments in different turns: shared, not a weaker one for the second"
+    timing = _prompt(bank, q).split("TIME BETWEEN THE CONVERSATIONS", 1)[1]
+    assert "- 2025-01-01 = day" in timing and "- 2025-01-10 = day" in timing, "every day a shown turn was said"
+    assert "said 2025-01-01" in timing and "said 2025-01-10 — 9 days (= 1 week 2 days" in timing
