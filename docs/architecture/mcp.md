@@ -1003,8 +1003,9 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
      `MEANING_EXTRA_EXCERPTS` = 2 lines (800 characters) after them, a conversation the words left out first
      (`Searched.adds`); the page leg reads as for any question. Leading:
      the vector leg's nearest passages (`Searched.passages`, the chunks' own text, no extra search) lead the search
-     leg — each of the first `MEANING_EPISODES` = 4 conversations shows the turns of its nearest passage ranked by
-     the search model (`turn_similar`, an allowance of `MEANING_TURNS` = 48), one per conversation first, taking
+     leg — each of the first `MEANING_EPISODES` = 4 conversations shows the turns of its `MEANING_PASSAGES` = 2
+     nearest passages ranked by the search model on the question less the bank's common words (`turn_similar`, an
+     allowance of `MEANING_TURNS` = 96; gap 3 below), one per conversation first, taking
      turns with what the words found; a day the question names leads (that day's conversations, read whole when the
      vector leg missed them). The full-budget pages rank their first `_NEAR_SCAN` = 24 claims and their items by the
      search model (`MEANING_TEXTS` = 160 for the question): the `_NEAR_CLAIMS` = 4 nearest claims point to WHAT WAS
@@ -1019,6 +1020,49 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
      tres días" name days. English prompts are
      byte-identical except the judgement questions'. Measured: `docs/research/2026-10-17-memory-benchmarks.md`,
      "Judgements and Spanish".
+- **Implied facts, English over Spanish, names across languages (2026-10-20, G148, the gaps after #385).** No model in
+  retrieval; measured in `docs/research/2026-10-17-memory-benchmarks.md`, "Implied facts and the record's language".
+  1. *A fact the record only implies.* `ask_sources.asks_implied` (no model) reads a question worded as a fact whose
+     answer is usually shown, not said: a state, country, continent or holiday ("which US state …", "in what country
+     …"; "state" only beside a place or a verb of place, never a status — "what state is the PR in"), an age ("how old
+     is <name>"), a preference ("which … does <name> prefer"), the common name of something described ("what card
+     game is <name> talking about", "which popular composer …"), a yes or no about someone ("does <name> live in …",
+     "is <name> married") — someone a person page in front of the model names, or he/she/they; "is Docker running?"
+     is not one — and "who is <name>?" alone; Spanish forms too. Never a judgement (that keeps `_INFERENCE_NOTE`),
+     never about I, we or you, never a request. Such a question gets `_IMPLIED_NOTE` after the question, stricter than
+     the judgement note: a line that states it wins; when none does but the lines plainly imply it (a city's state or
+     country, a day's holiday, a described thing's well-known name, what someone's words and doings show) the answer
+     is marked "Probably …, because …" with its lines and days; general knowledge may make the link, never a fact
+     about the people; an inference is only about whom the question names (what the lines say of someone else is
+     theirs — LoCoMo's adversarial shape); a loose link is still a decline; confidence below 0.7. Its named pages'
+     items are ranked by the search model as a judgement's are. Over LoCoMo it fires on 31 of the 48 open-domain
+     questions the judgement detector leaves out, and on 25 of the other 1,890 (4 adversarial, 3 of which name a
+     person page); on none of the broad sample's 100 LongMemEval questions.
+  2. *An English question over conversations held in Spanish.* `ask_sources.record_language`: when the nearest
+     passage of one of the vector leg's first `MEANING_EPISODES` conversations is in another language than the
+     question (`text_language`) **and scores at least the search model's floor** (`RECORD_FLOORS`: EmbeddingGemma 2
+     0.72; a model with no measured floor never takes this path), the question goes by meaning too
+     (`Searched.record_lang`) — decided by the record's language and evidence that a passage speaks of the question,
+     never by the question's missing words (an abstention looks like that). Review of #390: on a record in both
+     languages the nearest passages always exist, so without the floor "what is the name of my hamster?" went by
+     meaning onto unrelated Spanish turns. On `locomo-es-turns.json` the nearest Spanish passage of 24 never-said
+     questions scored 0.635–0.717 and of answerable ones 0.625–0.821 (70 % at or above 0.72): no floor separates them
+     cleanly, so it sits above every never-said one and the rest read as on dev. It **leads** when most of the
+     three nearest passages are in the other language; otherwise it **adds** at most two lines beside the words, from
+     the other-language passages only (the words read the question's own). The prompt adds `_RECORD_LANGUAGE_NOTE`
+     (a translated name is the same thing, a line that does not mean what is asked is no answer; answer in the
+     question's language). Over a record all in the question's
+     language nothing changes: every English prompt of the broad sample's banks (382 LoCoMo, 100 LongMemEval_S) is
+     byte-identical to dev but the implied-fact questions'.
+  3. *A name in one language, the conversation in the other.* The claims vector leg already finds the page by its
+     translated name ("la academia de baile de Jon" → the dance-studio page, four of four pairs checked); aliases
+     bridge only what Sleep recorded; the word legs never can, and no word list is added. What did not bridge was the
+     meaning leg's turn choice: it ranked only a conversation's nearest passage, and the speakers' names won it — in a
+     two-person chat every greeting names the other ("¡Hola Jon! ¿Qué tal?"). Turns are now ranked on the question
+     less the words said in most of the bank's conversations (`_without`, the word index's own `COMMON_SHARE`), from
+     each conversation's `MEANING_PASSAGES` = 2 nearest passages (`MEANING_TURNS` 48 → 96). This also changes every
+     Spanish question's prompt (#385's path). LoCoMo's two Spanish film-title misses were not a language gap: the
+     conversation never names the film in either language.
 - **The `sources` scope.** `answer_query(source_words=...)`, `POST /ask` `sourceWords` (default true): `cicada_ask`
   passes `ctx.raw_excerpts`, so a remote connector without `sources` gets no conversation words in the prompt (R-R22)
   — neither leg runs for it.

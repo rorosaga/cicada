@@ -697,11 +697,37 @@ _INFERENCE_NOTE = (
     "nothing in the context bears on the question say that it can't be judged. Keep confidence below 0.7 for an "
     "inference.")
 
+#: 2026-10-20 (G148, gap 1): a question worded as a fact whose answer the record only implies ("does <name> live in
+#: <state>?", "which US state …", "what is the card game <name> was talking about?") was declined as missing — 31 of
+#: the 48 LoCoMo open-domain questions the judgement note leaves out are of these shapes (ask_sources.asks_implied).
+#: Stricter than the judgement note: a stated fact still wins, and a loose link is still a decline.
+_IMPLIED_NOTE = (
+    "THIS QUESTION ASKS FOR A FACT THE RECORD MAY HOLD ONLY BY IMPLICATION (a yes or no about someone, a state, "
+    "country or holiday, an age, a preference, the common name of something described). When a line states it, "
+    "answer from that line. When none states it but the lines plainly imply it — a city or place whose state or "
+    "country is common knowledge, a day that falls on a known holiday, a described game or work with a well-known "
+    "name, what someone's own words and doings show about them — give that answer marked as an inference: "
+    "\"Probably …, because …\", naming the lines it rests on and their days. General knowledge may make that link "
+    "(say so) but never supplies a fact about the people. The inference must be about whom the question names: what "
+    "the lines say of someone else is theirs, not the asked person's — say whose it is instead of transferring it. "
+    "When the lines only touch the subject loosely, or not at all, say what memory does not hold, as rule 1 says. "
+    "Keep confidence below 0.7 for an inference.")
+
 #: 2026-10-20 (G148): the owner's Spanish questions answered half as often as their English counterparts.
 _SPANISH_NOTE = (
     "The question is in Spanish; the memory may record its subject in English, in Spanish or in both. A line answers "
     "it when it means the same thing in either language (\"grupo de apoyo\" is a support group) — never decline for "
     "a word that appears only in translation. Answer in Spanish, quoting the record's own words as they were said.")
+
+
+#: 2026-10-20 (G148 gap 2): an English question over conversations held in Spanish (ask_sources.record_language).
+_RECORD_LANGUAGE_NOTE = (
+    "Some of the conversations in memory are held in {language}, not in the question's language. A line answers the "
+    "question when it means the same thing in either language (\"grupo de apoyo\" is a support group; a group, job, "
+    "event, place or title named in translation is the same thing): a word that appears only in translation is no "
+    "reason to decline, and a line that does not mean what the question asks is no answer — when none does, say what "
+    "memory does not hold. Answer in the question's language, quoting the record's own words as they were said.")
+_LANGUAGE_NAMES = {"es": "Spanish", "en": "English"}
 
 
 def _near_claims(rows: list, claims: list, similar) -> set[int]:
@@ -718,6 +744,17 @@ def _near_claims(rows: list, claims: list, similar) -> set[int]:
     return set(ranked[:_NEAR_CLAIMS])
 
 
+def _person_names(entities: list[dict]) -> set[str]:
+    """The folded words of the names and aliases of the person pages in front of the model — who a yes or no can be
+    about (:func:`ask_sources.asks_implied`)."""
+    out: set[str] = set()
+    for ent in entities:
+        if str(ent.get("type") or "") == "person":
+            for name in (ent.get("entity_name"), *(ent.get("aliases") or [])):
+                out |= set(text_fold.words(str(name or "")))
+    return out
+
+
 def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None = None,
                   source_words: bool = False, owner_name: str | None = None,
                   searched: "ask_sources.Searched | None" = None, shown: dict | None = None) -> str:
@@ -729,10 +766,11 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
     terms = _focus(ask_sources.question_terms(query), [e for e in entities if not e.get("linked_from")])
     enumerate_ = getattr(searched, "shape", None) == ask_sources.SHAPE_ENUMERATE
     inference = ask_sources.asks_inference(query)
+    implied = ask_sources.asks_implied(query, _person_names(entities))
     # 2026-10-20: a question in another language than the record shares no word with it — the search model ranks
     # the page's claims and items instead, and each leads to the turn that told it (ask_sources.by_meaning).
     meaning = bool(getattr(searched, "meaning", False))
-    asked = ask_sources.asked_about(query, owner_name) if (enumerate_ or inference) else None
+    asked = ask_sources.asked_about(query, owner_name) if (enumerate_ or inference or implied) else None
     blocks: list[str] = []
     people: list[dict] = []
     found: list = []
@@ -837,8 +875,13 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
     notes = ""
     if ask_sources.question_language(query) == "es":
         notes += _SPANISH_NOTE + "\n\n"
+    elif getattr(searched, "record_lang", ""):
+        language = _LANGUAGE_NAMES.get(searched.record_lang, "another language")
+        notes += _RECORD_LANGUAGE_NOTE.format(language=language) + "\n\n"
     if inference:
         notes += _INFERENCE_NOTE + "\n\n"
+    elif implied:
+        notes += _IMPLIED_NOTE + "\n\n"
     return (
         f"QUESTION:\n{query}\n\n{notes}"
         f"CURRENT LOCAL DAY: {current_day().isoformat()}\n"

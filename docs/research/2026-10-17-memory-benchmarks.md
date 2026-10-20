@@ -781,3 +781,86 @@ as on dev (the list path included) and meaning adds at most two lines after them
 English conversations checks both: the Spanish word hits all stay, the English answer turn is still reached. Every
 LoCoMo Spanish passage set is English, so all 50 fixture prompts and all 400 English prompts are byte-identical to the
 measured ones: no answer was re-run.
+
+## Implied facts and the record's language (2026-10-20, branch `feat/ask-gaps`)
+
+**Why.** Three shapes still missed after #385: open-domain questions worded as facts ("does <name> live in <state>?"),
+an English question over conversations held in Spanish, and a thing named in one language and said in the other.
+
+**Fixture.** `benchmarks/public/fixtures/locomo-es-turns.json`: 28 LoCoMo sessions translated to Spanish once by
+`claude-haiku-5-5` (every session of conv-30, the even sessions of conv-26; names of people and pets kept, names of
+things in their usual Spanish words), questions left in English. `benchmarks.public.run --turns <fixture>` applies it
+(`datasets.apply_turns`). Measured here on banks of those conversations without Sleep (staged and indexed only), so
+the search leg is the whole context; the English originals the same way, as the ceiling.
+
+**Causes found.**
+1. 31 of the 48 open-domain questions the judgement detector leaves out are fact-worded inferences (a state or
+   country from a city, a holiday from a day, a described game's name, a yes or no about someone, an age, a
+   preference). 9 of the 10 measured declined in every dev run ("memory does not say which country …" beside the city).
+2. An English question over Spanish conversations: every word leg missed, and `by_meaning` was keyed on the question's
+   language only. Answer turns reached the prompt 19 of 106 times over conv-30 in Spanish (English originals 59).
+3. Across languages the claims vector leg already finds the page (four of four Spanish/English name pairs on the slept
+   banks retrieved the same pages). The meaning leg's turn choice did not: the speakers' names dominated its ranking
+   ("¡Hola Jon! ¿Qué tal?" nearest to "what book is Jon reading?") and it read only each conversation's nearest
+   passage. #385's two film-title misses are a dataset artifact: the conversation never names the film.
+
+**Fixes.** `docs/architecture/mcp.md`, "Implied facts, English over Spanish, names across languages".
+
+**Retrieval, no model** (answer turns shown, answerable questions; EmbeddingGemma 2):
+
+| | dev | this branch | English originals |
+|---|---|---|---|
+| conv-30 held in Spanish, English questions (106 turns) | 19 | **46** (56 before the floor) | 59 |
+| conv-26 half in Spanish, English questions (203 turns) | 70 | **94** (105 before the floor) | 114 |
+| #385's Spanish questions over English banks (74 turns) | 33 | **39** | 38 |
+| LoCoMo implied-fact questions (the evidence turns of the questions with the note) | 53 of 99 | 52 of 96 | — |
+
+Context build p50: Spanish-record banks 13 → 139 ms; Spanish questions 412 → 439 ms; implied-fact questions +215 ms
+(their pages' items ranked). Every English prompt of the broad sample's banks (382 LoCoMo, 100 LongMemEval_S) is
+byte-identical to dev except the implied-fact questions' (at most 33 of the 382).
+
+**Answers on haiku** (answers and judge `claude-haiku-5-5`, `benchmarks.answer_eval` format, 3 runs each side,
+`--compare`):
+
+| | dev | this branch | compare |
+|---|---|---|---|
+| Implied facts: 10 open-domain + 1 single-hop + 1 multi-hop + 3 adversarial (15) | 4.67 (4–5) | **12 (12–12)** | better: 7 wrong→right, 0 lost, p = 0.016 |
+| — open-domain (10) | 0.67 (0–1) | **8** | |
+| — adversarial whose prompt changed (3) | 2 / 3 | 2 / 3 | same question wrong both sides |
+| English over Spanish: conv-30 (6) + conv-26 mixed (4), incl. 3 adversarial | 3 (3–3) | **8 (8–8)** | 5 wrong→right, 0 lost, p = 0.063 (within noise by the rule: too few questions) |
+| — adversarial (3) | 3 / 3 | 3 / 3 | |
+| answered when it should decline (implied set · Spanish-record set) | 1 · 0 | 1 · 0 | unchanged |
+
+- Implied facts: right answers say "Probably France, because … Paris (said 2023-01-23) … the country comes from general
+  knowledge", confidence 0.3–0.6. The two still wrong: "who is Anthony?" (the record holds one shared event) and
+  "what state did Nate visit?" (no line about a trip). The adversarial miss is "did Caroline make the bowl?",
+  answered "no, Melanie did" on both sides — right, but the abstention grading wants a decline.
+- English over Spanish: answers quote the Spanish turn and translate it. The temporal miss gives "about 20 May" for
+  "the Saturday before 25 May"; the multi-hop miss lists two of the shared things.
+- Questions picked by rule, not by result: implied — round-robin across conversations in qid order, every adversarial
+  question whose prompt changed, the first single-hop and multi-hop; Spanish record — the first questions of each
+  category in conv-30, and in conv-26 the first of each category whose evidence is all in Spanish sessions.
+- **Plan calls: 296** (9 translations, 287 answers and judgments — a dev answer with nothing to ground on makes no
+  call).
+
+*Review of #390 (same day):* on a record in both languages the nearest passages always exist, so an English question
+about something never said ("what is the name of my hamster?") went by meaning onto unrelated Spanish turns with the
+record-language note. The path now needs the nearest other-language passage to score at least a per-model floor
+(`RECORD_FLOORS`, EmbeddingGemma 2: 0.72). Set on this fixture: the nearest Spanish passage of 24 never-said questions
+(12 a bank) scored 0.635–0.717; answerable questions 0.625–0.821, p50 0.74, 70 % at or above 0.72 (adversarial 72 %).
+No floor separates them cleanly, so it sits above every never-said one: all 24 now read exactly as on dev, and the
+answerable ones below it lose the path (retrieval above: 56 → 46 and 105 → 94). The note now also says a line that
+does not mean what is asked is no answer. Re-measured (3 runs a side, 99 plan calls), the 10 questions above plus two
+never-said questions and two more adversarial ones:
+
+| | dev | after the floor | compare |
+|---|---|---|---|
+| English over Spanish, 14 questions (7 adversarial or never said) | 7 (7–7) | **11 (11–11)** | 4 gained, 0 lost, p = 0.125 (within noise: too few) |
+| — answerable (7) | 0 | **4** | conv-26:q082 fell below the floor and reads as on dev |
+| — adversarial and never said (7) | 7 / 7 | 7 / 7 | answered when it should decline: 0 → 0 |
+
+**Plan calls in all: 395** (296 above, 99 for the review).
+
+**Still open.** The owner's sets (coordinator, `--compare`): every Spanish question's prompt changed (the turn
+ranking), and his conversations are largely Spanish. The Spanish-record sets are small; a larger run would settle
+p < 0.05.

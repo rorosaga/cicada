@@ -805,6 +805,62 @@ def asks_inference(question: str) -> bool:
     return likely or _third_party_modal(question)
 
 
+#: A fact asked at a level the record rarely says it at (2026-10-20, G148 gap 1): the state, country, continent or
+#: holiday of something the conversations name by its city, place or day ("which US state was Sam travelling in",
+#: "around which holiday …") — general knowledge links the two.
+_IMPLIED_KIND = re.compile(
+    r"\b(?:which|what)\s+(?:(?!is\b|was\b|are\b|were\b|the\b|a\b|an\b|my\b|your\b|our\b|his\b|"
+    r"her\b|their\b)\w+\s+){0,2}(?:country|continent|province|holiday)\b"
+    # "State" is a place only beside one ("which US state", "what state did <name> visit") — never a status ("what
+    # state is the PR in").
+    r"|\b(?:which|what) (?:us |u s |american )state\b"
+    r"|\b(?:which|what) state\b[^?]*\b(?:visit\w*|live[sd]?|living|travel\w*|from|mov\w+|born|located|went|go)\b"
+    r"|\b(?:que|cual)\s+(?:pais|continente|provincia|festividad)\b"
+    r"|\b(?:que|cual) estado\b[^?]*\b(?:visit\w*|viv\w*|viaj\w*|naci\w*|ubicad\w*)"
+    # An age, and a preference, the record shows more often than it says ("how old is <name>", "which … does <name>
+    # prefer"); never one's own.
+    r"|^how old (?:is|was) (?!my\b|our\b|your\b|i\b)|^cuantos anos tiene (?!mi\b|tu\b)"
+    r"|^(?:what|which)\b(?![^?]*\b(?:i|we|you)\b)[^?]*\bprefers?\b|^(?:que|cual)\b[^?]*\bprefiere\b")
+#: The common name of a thing someone described without naming it ("what is the card game Deborah is talking about",
+#: "which popular composer's tunes …", "¿de qué juego hablaba …?").
+_IMPLIED_NAME = re.compile(
+    r"^(?:what|which)\b[^?]*\b(?:(?:talking|talked) about(?: with \w+)?\s*\??$|referring to|refers? to)"
+    r"|^(?:what|which) (?:\w+ )?(?:popular|famous|well known)\b"
+    r"|^(?:de que|que|cual)\b[^?]*\b(?:hablaba|hablaban|estaba hablando|se refiere|se referia)\b"
+    r"|^(?:que|cual) (?:\w+ )?(?:popular|famos[oa]|conocid[oa])\b")
+#: A yes or no about someone else ("does <name> live in …", "is <name> married", "are <name> and <name> fans of …"):
+#: often answered by what the record shows rather than says. The auxiliaries that open one.
+_YES_NO = frozenset("does do did is are was were has have had".split())
+#: "Who is <name>?" alone: who someone is to the people in the record, often shown and never said.
+_WHO_IS = re.compile(r"^(?:[Ww]ho (?:is|was)|[Qq]ui[eé]n (?:es|era)) [A-Z][\w'’-]*(?: [A-Z][\w'’-]*)?\s*\??$")
+
+
+def asks_implied(question: str, people: set[str] | None = None) -> bool:
+    """The question is worded as a fact, but its answer is often only implied by the record (2026-10-20, G148 gap 1:
+    LoCoMo open-domain questions like "does <name> live in <state>?", "which US state …", "what is the game <name> was
+    talking about?" declined although the lines implied the answer): a state, country, continent or holiday
+    (:data:`_IMPLIED_KIND`), the common name of a described thing (:data:`_IMPLIED_NAME`), a yes or no about someone
+    else, or "who is <name>?" alone. Never a judgement (:func:`asks_inference` has its own note) or a request; the age,
+    preference and yes-or-no shapes are never about I, we or you (a place or a holiday may be the person's own: "which
+    country did I visit …" from the city they named). ``people``: the folded names of the people the record knows (their pages' names and aliases); given,
+    a yes or no is about someone only when it names one of them or he, she or they — "is Docker running?" asks after a
+    thing, not a person. No model."""
+    if asks_inference(question):
+        return False
+    text = (question or "").strip()
+    q = " ".join(text_fold.fold(text).replace("¿", " ").replace("¡", " ").split())
+    if not q or _NOT_INFER.search(q):
+        return False
+    if _IMPLIED_KIND.search(q) or _IMPLIED_NAME.search(q):
+        return True
+    raw = text.replace("¿", " ").split()
+    if len(raw) >= 3 and text_fold.fold(raw[0]) in _YES_NO and _named(raw, 1):
+        name = text_fold.fold(raw[1].rstrip("?,.;:!").removesuffix("'s").removesuffix("’s"))
+        if people is None or name in _THIRD_PERSON or name in people:
+            return True
+    return bool(_WHO_IS.match(" ".join(text.replace("¿", " ").split())))
+
+
 #: Function words that tell a Spanish question from an English one (folded; none is a word of the other language
 #: a question would use — "a", "me", "no" are both and count for neither).
 _ES_WORDS = frozenset("que cual cuales quien quienes cuando donde como cuanto cuanta cuantos cuantas por para del "
@@ -897,6 +953,9 @@ class Searched:
     #: A question by meaning over conversations in its own language: the words lead as for any question, and the
     #: meaning leg adds at most :data:`MEANING_EXTRA_EXCERPTS` lines after them (review of #385).
     adds: bool = False
+    #: An English question whose nearest conversations include some in another language (:func:`record_language`):
+    #: that language, else ``""``.
+    record_lang: str = ""
 
 
 @dataclass
@@ -921,15 +980,15 @@ def search_terms(question: str) -> set[str]:
     return (terms - QUESTION_WORDS - tense) or terms
 
 
-def _lexical(memory_path: Path, terms: set[str], *,
-             common_share: float = COMMON_SHARE) -> tuple[dict[str, float], list[str], dict[str, set[str]]]:
+def _lexical(memory_path: Path, terms: set[str], *, common_share: float = COMMON_SHARE,
+             common: set[str] | None = None) -> tuple[dict[str, float], list[str], dict[str, set[str]]]:
     """``(weights, ranked, held)`` from the word index alone. Every count is over the conversations the leg can show
     — an index-only episode (a watched day, a list save: ruling 30) is neither counted nor ranked, so thousands of
     watched days can't make a word look common or fill the ranking. A word's weight is its rarity across
     conversations; a passage scores the weights of the words it holds; a conversation ranks by its best passage (the
     middle of a long export counts as much as its head), then by the weight of all the words it holds. ``held``: the
     weighted words each ranked conversation holds anywhere. ``common_share``: the share past which a word ranks
-    nothing (:data:`COMMON_SHARE`)."""
+    nothing (:data:`COMMON_SHARE`). ``common`` receives the words said in more than that share."""
     import math
 
     from api.services import search_index
@@ -955,6 +1014,8 @@ def _lexical(memory_path: Path, terms: set[str], *,
             if df and df <= common_share * n:
                 weights[t] = math.log((n + 1) / (df + 0.5))
                 rows_by_term[t] = rows
+            elif df and common is not None:
+                common.add(t)
     passage: dict[int, float] = {}
     held: dict[str, set[str]] = {}
     for t, rows in rows_by_term.items():
@@ -977,9 +1038,10 @@ def _reserve(order: list[str], kept: list[str], window: int) -> list[str]:
     return top + [ep for ep in order if ep not in top]
 
 
-def _semantic(indexer, text: str, k: int, passages: dict[str, list[str]] | None = None) -> list[str]:
+def _semantic(indexer, text: str, k: int, passages: dict[str, list[str]] | None = None,
+              best: dict[str, float] | None = None) -> list[str]:
     """The conversations whose chunks the vector index finds nearest ``text``, best first (``[]`` on any failure).
-    ``passages`` receives each one's nearest chunks' text, nearest first."""
+    ``passages`` receives each one's nearest chunks' text, nearest first; ``best`` each one's nearest score."""
     try:
         rows = indexer.search_kinds(text, {"episodes": k}).get("episodes", [])
     except Exception as exc:  # noqa: BLE001 — the leg is context; its absence never fails an answer
@@ -990,6 +1052,12 @@ def _semantic(indexer, text: str, k: int, passages: dict[str, list[str]] | None 
         for ep, row in zip(eps, rows):
             if evidence.is_episode_id(ep) and str(row.get("text") or "").strip():
                 passages.setdefault(ep, []).append(str(row["text"]))
+    if best is not None:
+        for ep, row in zip(eps, rows):
+            try:
+                best[ep] = max(best.get(ep, float("-inf")), float(row.get("score")))
+            except (TypeError, ValueError):
+                continue
     found = list(dict.fromkeys(eps))
     return [ep for ep in found if evidence.is_episode_id(ep)]
 
@@ -1164,7 +1232,10 @@ def _pick_ends(memory_path: Path, ends: Ends, terms: set[str], weights: dict[str
 #: ``MEANING_TEXTS``: the page leg's allowance (claims and items of the full-budget pages); ``MEANING_TURNS``: the
 #: turns of the nearest passages. Measured on EmbeddingGemma 2, warm: see the PR.
 MEANING_TEXTS = 160
-MEANING_TURNS = 48
+MEANING_TURNS = 96
+#: Of each such conversation, the turns of its this many nearest passages (2026-10-20: "what book is <name> reading?"
+#: over a conversation held in Spanish — the turn naming the book sat in its second-nearest passage).
+MEANING_PASSAGES = 2
 #: How many of the vector leg's best conversations show their nearest passage's best turns.
 MEANING_EPISODES = 4
 
@@ -1199,6 +1270,52 @@ def _other_language(passages: dict[str, list[str]], lang: str) -> bool:
     return bool(texts) and sum(text_language(t) != lang for t in texts) * 2 > len(texts)
 
 
+def _without(question: str, common: set[str]) -> str:
+    """``question`` less the words said in most of the bank's conversations (:data:`COMMON_SHARE`) — the speakers'
+    names, above all. A turn's nearness to the question is read on what it asks: in a chat between two people every
+    greeting names the other ("¡Hola Jon! ¿Qué tal?"), and with the name kept those short turns came nearest to "what
+    book is Jon reading?" ahead of the turn naming the book (2026-10-20). Unchanged when nothing is common or nothing
+    else is left."""
+    if not common:
+        return question
+    kept = [w for w in (question or "").split()
+            if not (set(text_fold.stem(x) for x in text_fold.words(w)) & common)]
+    return " ".join(kept) if text_fold.subject_terms(" ".join(kept)) else question
+
+
+#: How near (cosine, the vector index's own score) a passage in another language must be before an English question goes
+#: by meaning over it, per search model (review of #390: on a record in both languages the nearest passages always
+#: exist, so "what is the name of my hamster?" went by meaning onto unrelated Spanish turns). Set on
+#: ``locomo-es-turns.json`` with EmbeddingGemma 2: the nearest Spanish passage of 24 questions about things never said
+#: scored 0.635–0.717; answerable questions' 0.625–0.821 (p50 0.74), 70 % of them at or above 0.72. No floor separates
+#: them cleanly, so it sits above every never-said one and the rest read as on dev. A model with no measured floor
+#: never sends an English question by meaning.
+RECORD_FLOORS = {"google/embeddinggemma-2": 0.72}
+
+
+def record_floor(indexer) -> float | None:
+    """The floor of :data:`RECORD_FLOORS` for the model the conversations' table was built with, else ``None``."""
+    try:
+        model = str((indexer.index_info("episodes") or {}).get("model") or "")
+    except Exception:  # noqa: BLE001 — no table, no model: no floor
+        return None
+    return RECORD_FLOORS.get(model.split(":", 1)[0].strip())
+
+
+def record_language(passages: dict[str, list[str]], lang: str, best: dict[str, float] | None = None,
+                    floor: float | None = None) -> str:
+    """The other language the record holds near a question: the language of the nearest passage of one of the vector
+    leg's first :data:`MEANING_EPISODES` conversations when it is not ``lang`` (:func:`text_language`) and that
+    conversation scored at least ``floor`` (:data:`RECORD_FLOORS`) — evidence that it speaks of the question, not only
+    that the record is in two languages. ``""`` otherwise, with no floor, and over a record all in ``lang``."""
+    if floor is None:
+        return ""
+    for ep, texts in list(passages.items())[:MEANING_EPISODES]:
+        if texts and (other := text_language(texts[0])) != lang and (best or {}).get(ep, float("-inf")) >= floor:
+            return other
+    return ""
+
+
 def by_meaning(question: str) -> bool:
     """Whether the question's own words can't be trusted to find what the record says of it: it is not in English
     (the stemming, the stopwords and the shape detectors are English-first, and a person's record is often in another
@@ -1228,8 +1345,9 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
     weights: dict[str, float] = {}
     lexical: list[str] = []
     held: dict[str, set[str]] = {}
+    common: set[str] = set()
     try:
-        weights, lexical, held = _lexical(memory_path, terms)
+        weights, lexical, held = _lexical(memory_path, terms, common=common)
         if not weights and shape == SHAPE_ENUMERATE:
             # A list over a subject the conversations keep coming back to ("what books has <name> read" in a chat
             # about books): its words are common because the thing is everywhere — they still tell a turn that holds
@@ -1239,22 +1357,36 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
         logger.debug(f"ask search leg: word index unavailable ({type(exc).__name__})")
     semantic: list[str] = []
     passages: dict[str, list[str]] = {}
+    best: dict[str, float] = {}
     try:
         if indexer is None:
             from api.services.vector_index import SqliteVecIndexer
 
             indexer = SqliteVecIndexer(memory_path, embed_fn=embed_fn) if embed_fn else SqliteVecIndexer(memory_path)
         k = ENUM_CHUNKS if shape == SHAPE_ENUMERATE else SEARCH_CHUNKS
-        semantic = _semantic(indexer, question, k, passages)
+        semantic = _semantic(indexer, question, k, passages, best)
     except Exception as exc:  # noqa: BLE001
         indexer = None
         logger.debug(f"ask search leg: vector index unavailable ({type(exc).__name__})")
-    by_mean = by_meaning(question) and bool(passages)
+    lang = question_language(question)
+    # 2026-10-20 (G148 gap 2): an English question over conversations held in Spanish shares no word with them, so
+    # the words alone found none of their turns (LoCoMo sessions translated, the questions kept in English: 3 of 49
+    # single-hop answer turns shown against 29 over the English originals). The record's own language decides it, read
+    # from the vector leg's nearest passages — never the question's missing words (an abstention looks like that,
+    # `by_meaning`): when one of the nearest conversations is in another language and near enough to speak of the
+    # question (`RECORD_FLOORS`, review of #390), the question goes by meaning too.
+    record_lang = (record_language(passages, lang, best, record_floor(indexer))
+                   if passages and indexer is not None and not by_meaning(question) else "")
+    by_mean = bool(passages) and (by_meaning(question) or bool(record_lang))
     # Review of #385 (the owner's Spanish questions over his own Spanish conversations fell 50 → 43 %): the meaning leg
     # leads only when the words can't — no word of the question is weighed, or the nearest passages are in another
     # language than the question. Over conversations in the question's own language the words already find the
     # turns, and the meaning leg only adds a few lines after them (`adds`).
-    meaning = by_mean and (not weights or _other_language(passages, question_language(question)))
+    meaning = by_mean and (not weights or _other_language(passages, lang))
+    if record_lang and not meaning:
+        # Beside the words over a record in both languages: the passages in the other one — the words already read
+        # the question's own.
+        passages = {ep: v for ep, v in passages.items() if v and text_language(v[0]) != lang}
     if by_mean:
         named_m = named_days(question, today)
         if named_m:
@@ -1265,10 +1397,12 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
             passages = {ep: passages.get(ep, []) for ep in first} | {ep: v for ep, v in passages.items()
                                                                        if ep not in first}
     similar = None
-    if indexer is not None and (shape == SHAPE_ENUMERATE or meaning or asks_inference(question)):
+    if indexer is not None and (shape == SHAPE_ENUMERATE or meaning or asks_inference(question)
+                                or asks_implied(question)):
         similar = _similarity(indexer, question, MEANING_TEXTS if meaning else SIMILAR_TEXTS)
-    by = ({"meaning": meaning, "adds": not meaning, "passages": passages,
-           "turn_similar": _similarity(indexer, question, MEANING_TURNS) if indexer is not None else None}
+    by = ({"meaning": meaning, "adds": not meaning, "passages": passages, "record_lang": record_lang,
+           "turn_similar": _similarity(indexer, _without(question, common), MEANING_TURNS)
+           if indexer is not None else None}
           if by_mean else {})
     if not weights:
         if meaning:
@@ -1561,12 +1695,12 @@ def _name_terms(turn, fm: dict, owner_name: str | None) -> set[str]:
 
 
 def _meaning_turns(memory_path: Path, found: Searched, docs: dict, taken: set[tuple[str, int]]) -> list[tuple]:
-    """``(score, rank, turn index, episode, turn, None)`` for the turns inside the nearest passage of each of the first
-    :data:`MEANING_EPISODES` conversations the vector leg found (``found.passages``), best first: by their nearness to
-    the question (``found.turn_similar``, one batch), else in the passage's order. A passage is found in its
-    conversation by its own opening words (the passages are cut from the episode's body); one not found shows
-    nothing. A conversation with no passage (from a day the question names) is read whole. ``docs`` receives what
-    was read."""
+    """``(score, rank, turn index, episode, turn, None)`` for the turns inside the :data:`MEANING_PASSAGES` nearest
+    passages of each of the first :data:`MEANING_EPISODES` conversations the vector leg found (``found.passages``),
+    best first: by their nearness to the question (``found.turn_similar``, one batch), else in the passage's order. A
+    passage is found in its conversation by its own opening words (the passages are cut from the episode's body); one
+    not found shows nothing. A conversation with no passage (from a day the question names) is read whole. ``docs``
+    receives what was read."""
     from api.services import history_index
 
     rows: list[tuple] = []
@@ -1577,21 +1711,24 @@ def _meaning_turns(memory_path: Path, found: Searched, docs: dict, taken: set[tu
         fm, text = doc
         if history_index.is_index_only(fm):
             continue
-        if passages:
-            head = passages[0].strip()[:160]
+        spans: list[tuple[int, int]] = []
+        for passage in passages[:MEANING_PASSAGES]:
+            head = passage.strip()[:160]
             at = text.find(head) if head else -1
-            if at < 0:
-                continue
-            end = at + len(passages[0].strip())
-        else:   # a conversation from a day the question names: read whole
-            at, end = 0, len(text)
+            if at >= 0:
+                spans.append((at, at + len(passage.strip())))
+        if not passages:   # a conversation from a day the question names: read whole
+            spans = [(0, len(text))]
+        if not spans:
+            continue
         if ep not in docs:
             gaps = evidence.gap_ranges(fm, text)
             docs[ep] = (fm, text, [t for t in evidence.turns(text, stamps=evidence.turn_stamps(fm),
                                                              override=fm.get("evidence_kind"), gaps=gaps)
                                    if t.role != evidence.GAP_KIND])
         for i, turn in enumerate(docs[ep][2]):
-            if turn.start < end and turn.end > at and (ep, i) not in taken and text[turn.content_start:turn.end].strip():
+            if (any(turn.start < end and turn.end > at for at, end in spans) and (ep, i) not in taken
+                    and text[turn.content_start:turn.end].strip()):
                 rows.append((rank, i, ep, turn))
     if not rows:
         return []

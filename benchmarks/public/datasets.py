@@ -241,6 +241,32 @@ def apply_questions(units: list[dict], fixture: dict, lang: str = "") -> list[di
     return out
 
 
+def apply_turns(units: list[dict], fixture: dict) -> list[dict]:
+    """A turn fixture (``benchmarks/public/fixtures/*-turns.json``: ``{"lang", "turns": {unit_id: {session number:
+    {turn index: text}}}}``): those turns reworded — e.g. translated, to ask a question over conversations held in
+    another language — every other turn as the dataset has it. Sessions keep their ids, days and speakers, and each
+    turn its dialogue id, so the evidence still names the (reworded) answer turns. A turn index past the session is an
+    error, never a silent skip."""
+    wanted = fixture.get("turns") or {}
+    out = []
+    for unit in units:
+        mine = wanted.get(unit["unit_id"]) or {}
+        if not mine:
+            out.append(unit)
+            continue
+        sessions = []
+        for s in unit["sessions"]:
+            reworded = mine.get(s["source_id"].rsplit("-", 1)[-1]) or {}
+            turns = [dict(t) for t in s["turns"]]
+            for i, text in reworded.items():
+                if not 0 <= int(i) < len(turns):
+                    raise ValueError(f"turn fixture: {unit['unit_id']} {s['source_id']} has no turn {i}")
+                turns[int(i)]["text"] = str(text)
+            sessions.append({**s, "turns": turns})
+        out.append({**unit, "sessions": sessions})
+    return out
+
+
 def select(units: list[dict], *, units_limit: int | None = None, only: list[str] | None = None,
            per_category: int | None = None, limit: int | None = None,
            skip_categories: tuple[str, ...] = ()) -> list[dict]:
