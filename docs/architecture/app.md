@@ -1749,7 +1749,17 @@ pointer's hover eased, so a key never animates); a page adds through `PageAddBut
 the accent ring while focused — the field tracks its own focus unless its caller passes `isFocused:`; the field draws its
 own prompt in `textTertiary`); a fold whose only control is its glyph is `DisclosureButton`; Skills and Looks sit on
 `ProgressiveColumns`; Sources' lists read in words over `ListSkeleton`, no spinner. `DesignConsistencyLintTests` holds
-all of these. Pixel sprites carry their provenance in
+all of these. **Round 3 (2026-10-20; DR-12, DR-16, DR-43, DR-44, DR-45, DR-48, DR-53, DR-58, DR-70):** the menu-bar
+menu's words, hover text and the bookworm's moods live in `Copy.MenuBar` / `Copy.Mood` (`Theme/Copy+MenuBar.swift`), its
+next run in `RelativeDay`'s day words with the viewer's clock ("Next sleep: Today, 3:00 AM"; AppKit draws the rows
+themselves); onboarding's "still coming in" is words alone and the export walkthrough's vendor switch is `TextTabs`
+with each vendor's mark (`TextTab.mark`); the ⌘K palette waits in words — the footer's "Searching conversations…"
+with no bar over the divider, Ask's "Asking your memory…" over `ListSkeleton` (above the dimmed answer when it asks
+again) with no spinner in the field — its row type is a `Tag`, its recent questions are rows on `rowHover`; the
+Reader's "Noted from this conversation" row is on `rowHover` (the current row a selection; the cited span's wash is
+`CitedSpan`'s, unchanged). Every rounded rectangle draws through `CicadaTheme.shape` (continuous), a `Text` at a ladder
+size uses its type token and a glyph at 14/12/10 its icon role, and a padding or spacing equal to a step is the
+spacing token. `DesignConsistency3LintTests` and `ContinuousCornerLintTests` hold these. Pixel sprites carry their provenance in
 `Resources/sprites/sprites.manifest.json` (script, source, sha256), checked by `SpriteAssetTests`. **Type:** SF only. `displayFont(size:italic:)` is SF Pro Display
 semibold (tracking −0.3 at 20 pt, −0.4 above, floor 20, paired and counted by `FontLiteralLintTests`), `quoteFont` SF
 15 regular, one `SectionLabel` (11 medium, sentence case, never mono or tracked — `SectionLabelLintTests`), monospace

@@ -38,7 +38,7 @@ private struct WaitRow: View {
     @State private var targeted = false
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall, style: .continuous)
+        let shape = CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
         HStack(spacing: CicadaTheme.spacingSM) {
             VendorMark(origin: ChatVendor(rawValue: wait.vendor)?.origin, size: CicadaTheme.scaled(18))
             Text(ExportWaits.stripLine(wait, now: now))

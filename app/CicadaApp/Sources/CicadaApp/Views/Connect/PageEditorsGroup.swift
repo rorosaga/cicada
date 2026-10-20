@@ -49,7 +49,7 @@ struct PageEditorsGroup: View {
                                    size: CicadaTheme.scaled(20), systemFallback: "terminal")
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                 Text(agent.label)
-                    .font(CicadaTheme.font(size: 13, weight: .medium))
+                    .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                 Text(PageEditorsWords.detail(agent.harness, in: editors))
                     .font(CicadaTheme.captionFont)

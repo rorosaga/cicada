@@ -110,7 +110,7 @@ struct ExploreSheet: View {
             }
             if let c {
                 Text(Copy.Explore.size(scope == .all ? c.estimate : c.estimateNeverExplored))
-                    .font(CicadaTheme.font(size: 13, weight: .medium))
+                    .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                 Text(c.exploreSignedIn ? Copy.Explore.signedInNote : Copy.Explore.privateNote)
                     .font(CicadaTheme.captionFont)

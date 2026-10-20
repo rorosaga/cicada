@@ -38,18 +38,20 @@ struct AskPanel: View {
                         if let error = vm.error {
                             errorBanner(error)
                         }
+                        // DR-43 (round 3, 2026-10-20): asking is said in words — over the still skeleton the first
+                        // time, above the dimmed answer when it asks again — never a spinner (the field drew one too).
                         if let answer = vm.answer {
+                            if vm.isAsking {
+                                Text(Copy.AskWords.asking)
+                                    .font(CicadaTheme.metaFont)
+                                    .foregroundStyle(CicadaTheme.textTertiary)
+                            }
                             answerView(answer)
                                 .opacity(vm.isAsking ? 0.5 : 1.0)
                                 .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: vm.isAsking)
                         } else if vm.isAsking {
-                            HStack(spacing: CicadaTheme.spacingSM) {
-                                ProgressView().controlSize(.small)
-                                Text("Asking your memory…")
-                                    .font(CicadaTheme.bodyFont)
-                                    .foregroundStyle(CicadaTheme.textSecondary)
-                            }
-                            .padding(.top, CicadaTheme.spacingSM)
+                            ListSkeleton(message: Copy.AskWords.asking, rows: 3)
+                                .padding(.top, CicadaTheme.spacingSM)
                         } else if !vm.history.isEmpty {
                             recentQuestions(vm)
                         } else {
@@ -85,7 +87,7 @@ struct AskPanel: View {
     private var header: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             Image(systemName: "sparkle.magnifyingglass")
-                .font(CicadaTheme.font(size: 14))
+                .font(CicadaTheme.icon(.list))
                 .foregroundStyle(CicadaTheme.accent)
 
             TextField("Ask your memory…", text: Binding(
@@ -98,15 +100,11 @@ struct AskPanel: View {
             .focused($questionFocused)
             .onSubmit { submit() }
 
-            if vm?.isAsking == true {
-                ProgressView().controlSize(.small)
-            }
-
             Button {
                 dismiss()
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .font(CicadaTheme.font(size: 14))
+                    .font(CicadaTheme.icon(.list))
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
             .buttonStyle(.cicadaPlain)
@@ -173,7 +171,7 @@ struct AskPanel: View {
                         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
                             Text("•").foregroundStyle(CicadaTheme.textTertiary)
                             Text(row.text)
-                                .font(CicadaTheme.font(size: 12))
+                                .font(CicadaTheme.metaFont)
                                 .foregroundStyle(CicadaTheme.textSecondary)
                         }
                     }
@@ -190,12 +188,12 @@ struct AskPanel: View {
                 EntityPicture(id: citation.entityId, name: citation.entityName,
                               type: graphVM.nodes.first { $0.id == citation.entityId }?.type ?? .concept, size: 20)
                 Text("[[\(citation.entityName)]]")
-                    .font(CicadaTheme.font(size: 12, weight: .medium))
+                    .font(CicadaTheme.metaMediumFont)
                     .foregroundStyle(CicadaTheme.accent)
             }
-            .padding(.leading, 4)
+            .padding(.leading, CicadaTheme.spacingXS)
             .padding(.trailing, CicadaTheme.spacingSM)
-            .padding(.vertical, 4)
+            .padding(.vertical, CicadaTheme.spacingXS)
             .background(Capsule().fill(CicadaTheme.accent.opacity(0.12)))
         }
         .buttonStyle(.cicadaPlain)
@@ -218,7 +216,7 @@ struct AskPanel: View {
             .frame(height: 4)
 
             Text("\(Int(confidence * 100))%")
-                .font(CicadaTheme.font(size: 11).monospacedDigit())
+                .font(CicadaTheme.captionFont.monospacedDigit())
                 .foregroundStyle(CicadaTheme.textSecondary)
         }
     }
@@ -231,7 +229,7 @@ struct AskPanel: View {
                 .font(CicadaTheme.bodyFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
             Text("Answers cite the entities they draw on, and say what they don't know.")
-                .font(CicadaTheme.font(size: 11))
+                .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
         }
         .padding(.top, CicadaTheme.spacingSM)
@@ -242,25 +240,7 @@ struct AskPanel: View {
             SectionLabel("Recent")
 
             ForEach(vm.history) { entry in
-                Button {
-                    vm.select(entry)
-                } label: {
-                    HStack {
-                        Text(entry.question)
-                            .font(CicadaTheme.bodyFont)
-                            .foregroundStyle(CicadaTheme.textPrimary)
-                            .lineLimit(1)
-                        Spacer()
-                        Image(systemName: "arrow.up.left")
-                            .font(CicadaTheme.font(size: 10))
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                    }
-                    .padding(.vertical, CicadaTheme.spacingSM)
-                    .padding(.horizontal, CicadaTheme.spacingMD)
-                    .background(CicadaTheme.surfaceHover)
-                    .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-                }
-                .buttonStyle(.cicadaPlain)
+                AskRecentRow(question: entry.question) { vm.select(entry) }
             }
         }
     }
@@ -268,15 +248,15 @@ struct AskPanel: View {
     private func errorBanner(_ message: String) -> some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(CicadaTheme.font(size: 12))
+                .font(CicadaTheme.icon(.inline))
                 .foregroundStyle(CicadaTheme.entityColor(for: .deadline))
             Text(message)
-                .font(CicadaTheme.font(size: 12))
+                .font(CicadaTheme.metaFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
         }
         .padding(CicadaTheme.spacingSM)
-        .background(CicadaTheme.entityColor(for: .deadline).opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+        .background(CicadaTheme.entityColor(for: .deadline).opacity(0.1),
+                    in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))   // DR-12: continuous
     }
 }
 
@@ -341,6 +321,35 @@ private struct AskEvidenceRow: View {
                 EvidenceChipRun(chips: citation.evidenceChips, subjectId: citation.entityId, expanded: $expanded)
             }
         }
+    }
+}
+
+/// A question asked before (round 3, 2026-10-20): a row like every other (DR-48) — no fill at rest, the shared hover
+/// fill under the pointer. It rested on the hover fill in a bare `RoundedRectangle` until then, so every row read as
+/// hovered.
+private struct AskRecentRow: View {
+    let question: String
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                Text(question)
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .lineLimit(1)
+                Spacer()
+                Image(systemName: "arrow.up.left")
+                    .font(CicadaTheme.icon(.badge))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+            .padding(.vertical, CicadaTheme.spacingSM)
+            .padding(.horizontal, CicadaTheme.spacingMD)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.cicadaPlain)
+        .rowHover($hovering)
     }
 }
 

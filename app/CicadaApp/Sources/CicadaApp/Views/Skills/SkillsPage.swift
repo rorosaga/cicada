@@ -386,7 +386,7 @@ struct SkillTableRow: View {
     var body: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                Text(skill.name).font(CicadaTheme.font(size: 13, weight: .medium)).lineLimit(1)
+                Text(skill.name).font(CicadaTheme.rowFont).lineLimit(1)
                 Text(skill.description).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                     .lineLimit(1)
             }
@@ -651,7 +651,7 @@ struct SkillChangesPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             Text(Copy.Skills.changesTitle(from: update.from, to: update.latest))
-                .font(CicadaTheme.font(size: 13, weight: .medium))
+                .font(CicadaTheme.rowFont)
             ScrollView {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                     ForEach(Array((update.changes ?? []).enumerated()), id: \.offset) { _, change in
@@ -699,7 +699,7 @@ struct SuggestedSkillRow: View {
         HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                 HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
-                    Text(skill.title).font(CicadaTheme.font(size: 13, weight: .medium))
+                    Text(skill.title).font(CicadaTheme.rowFont)
                     if let url = skill.sourceUrl.flatMap(URL.init(string:)) {
                         Link((skill.publisher ?? url.host() ?? "") + " ↗", destination: url).font(CicadaTheme.metaFont)
                     }
@@ -775,7 +775,7 @@ struct DraftSkillRow: View {
         HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                 HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
-                    Text(draft.name).font(CicadaTheme.font(size: 13, weight: .medium))
+                    Text(draft.name).font(CicadaTheme.rowFont)
                     Text(Copy.Skills.madeBy(draft.authorLabel)).font(CicadaTheme.metaFont)
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }

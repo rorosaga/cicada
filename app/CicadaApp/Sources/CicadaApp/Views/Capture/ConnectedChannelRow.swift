@@ -106,7 +106,7 @@ struct ConnectedChannelRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: CicadaTheme.spacingXS) {
                     Text(channel.label)
-                        .font(CicadaTheme.font(size: 13, weight: .medium))
+                        .font(CicadaTheme.rowFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                     // G129: a watched browser wears its light here
                     // too, so "is this live" is answerable from the

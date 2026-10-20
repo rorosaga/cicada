@@ -136,7 +136,7 @@ struct VideoBlock: View {
 
     private func quoteView(_ quote: (text: String, time: String?)) -> some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-            RoundedRectangle(cornerRadius: 1).fill(CicadaTheme.textTertiary).frame(width: 2)
+            CicadaTheme.shape(1).fill(CicadaTheme.textTertiary).frame(width: 2)
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 Text(quote.text)
                     .font(CicadaTheme.quoteFont)

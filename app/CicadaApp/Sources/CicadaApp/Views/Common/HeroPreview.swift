@@ -129,9 +129,9 @@ private struct EmbedVideoHero: View {
             WebView(url: embedURL)
                 .frame(maxWidth: .infinity)
                 .frame(height: HeroPreview.maxHeight)
-                .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius))
+                .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadius))
                 .overlay(
-                    RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
+                    CicadaTheme.shape(CicadaTheme.cornerRadius)
                         .stroke(CicadaTheme.border, lineWidth: 1)
                 )
         } else {
@@ -163,9 +163,9 @@ private struct EmbedVideoHero: View {
             }
             .frame(maxWidth: .infinity)
             .frame(height: HeroPreview.maxHeight)
-            .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius))
+            .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadius))
             .overlay(
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
+                CicadaTheme.shape(CicadaTheme.cornerRadius)
                     .stroke(CicadaTheme.border, lineWidth: 1)
             )
         }
@@ -197,9 +197,9 @@ private struct FileVideoHero: View {
         VideoPlayerView(url: ref.watchURL)
             .frame(maxWidth: .infinity)
             .frame(height: HeroPreview.maxHeight)
-            .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius))
+            .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadius))
             .overlay(
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
+                CicadaTheme.shape(CicadaTheme.cornerRadius)
                     .stroke(CicadaTheme.border, lineWidth: 1)
             )
     }
@@ -222,9 +222,9 @@ private struct HeroStoredImage: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: HeroPreview.maxHeight)
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius))
+        .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadius))
         .overlay(
-            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
+            CicadaTheme.shape(CicadaTheme.cornerRadius)
                 .stroke(CicadaTheme.border, lineWidth: 1)
         )
     }
@@ -263,9 +263,9 @@ private struct WebsiteHero: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(CicadaTheme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius))
+            .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadius))
             .overlay(
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
+                CicadaTheme.shape(CicadaTheme.cornerRadius)
                     .stroke(CicadaTheme.border, lineWidth: 1)
             )
         }
@@ -316,15 +316,15 @@ private struct CompactSiteHero: View {
                 Spacer()
 
                 Image(systemName: "arrow.up.right.square")
-                    .font(CicadaTheme.font(size: 12))
+                    .font(CicadaTheme.icon(.inline))
                     .foregroundStyle(CicadaTheme.textSecondary)
             }
             .padding(CicadaTheme.spacingMD)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(CicadaTheme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius))
+            .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadius))
             .overlay(
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
+                CicadaTheme.shape(CicadaTheme.cornerRadius)
                     .stroke(CicadaTheme.border, lineWidth: 1)
             )
         }
@@ -445,9 +445,9 @@ struct LocationHero: View {
         .frame(maxWidth: .infinity)
         .frame(height: HeroPreview.maxHeight)
         .background(CicadaTheme.surfaceHover.opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius))
+        .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadius))
         .overlay(
-            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
+            CicadaTheme.shape(CicadaTheme.cornerRadius)
                 .stroke(CicadaTheme.border, lineWidth: 1)
         )
     }
@@ -514,9 +514,9 @@ struct LocationMap: View {
         .allowsHitTesting(false)
         .frame(maxWidth: .infinity)
         .frame(height: HeroPreview.maxHeight)
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius))
+        .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadius))
         .overlay(
-            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
+            CicadaTheme.shape(CicadaTheme.cornerRadius)
                 .stroke(CicadaTheme.border, lineWidth: 1)
         )
     }

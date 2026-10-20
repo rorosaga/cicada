@@ -10,5 +10,7 @@ extension Copy {
         static let untitledConversation = "A conversation"
         static let openConversationHint = "Click to read the conversation in the Reader"
         static func openConversationLabel(_ title: String) -> String { "Open the conversation \(title)" }
+        /// While an answer is being worked out — over the still skeleton, or above the last answer (DR-43, round 3).
+        static let asking = "Asking your memory…"
     }
 }

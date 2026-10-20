@@ -29,7 +29,7 @@ struct SettingsRow<Control: View, Below: View>: View {
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                     HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
                         Text(title)
-                            .font(CicadaTheme.font(size: 13, weight: .medium))
+                            .font(CicadaTheme.rowFont)
                             .foregroundStyle(CicadaTheme.textPrimary)
                         // F-10 — a live fact beside the title ("Day now"), never a control.
                         if let accessory {

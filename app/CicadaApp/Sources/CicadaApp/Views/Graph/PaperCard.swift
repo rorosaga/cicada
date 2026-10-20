@@ -122,7 +122,7 @@ struct PaperCard: View {
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
                 .padding(CicadaTheme.spacingSM)
-                .background(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.surface))
+                .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.surface))
             }
 
             Divider().background(CicadaTheme.border)

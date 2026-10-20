@@ -114,8 +114,7 @@ struct SourceFaces: View {
                 FaceView(face: face, side: s)
                     .padding(CicadaTheme.scaled(1.5))
                     .background(CicadaTheme.bgBase,
-                                in: face.kind == .site ? AnyShape(RoundedRectangle(cornerRadius: CicadaTheme.scaled(5),
-                                                                                   style: .continuous))
+                                in: face.kind == .site ? AnyShape(CicadaTheme.shape(CicadaTheme.scaled(5)))
                                                        : AnyShape(Circle()))
                     .zIndex(Double(plan.shown.count - index))
             }

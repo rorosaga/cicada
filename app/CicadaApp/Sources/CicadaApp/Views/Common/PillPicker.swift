@@ -33,7 +33,7 @@ struct PillPicker<Value: Hashable>: View {
                 let selected = option.value == selection
                 Button { selection = option.value } label: {
                     Text(option.label)
-                        .font(CicadaTheme.font(size: 12, weight: .medium))
+                        .font(CicadaTheme.metaMediumFont)
                         .foregroundStyle(selected ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
                         .padding(.horizontal, compact ? CicadaTheme.scaled(6) : CicadaTheme.spacingMD)
                         .frame(height: CicadaTheme.scaled(Self.pillHeight))

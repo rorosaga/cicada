@@ -44,11 +44,11 @@ struct CommandBox: View {
             .padding(.trailing, CicadaTheme.spacingXS)
         }
         .background(
-            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+            CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                 .fill(CicadaTheme.codeBackground)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+            CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                 .stroke(CicadaTheme.border, lineWidth: 1)
         )
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: copied)

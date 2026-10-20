@@ -163,7 +163,7 @@ struct FeedListRow: View {
 
     private var titleText: some View {
         Text(title)
-            .font(CicadaTheme.font(size: 13, weight: .medium))
+            .font(CicadaTheme.rowFont)
             .foregroundStyle(CicadaTheme.textPrimary)
             .lineLimit(1)
     }

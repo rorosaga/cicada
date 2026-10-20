@@ -228,17 +228,17 @@ struct AboutCicadaPopover: View {
 
             HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
                 Image(systemName: "antenna.radiowaves.left.and.right")
-                    .font(CicadaTheme.font(size: 14))
+                    .font(CicadaTheme.icon(.list))
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .frame(width: 20)
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                     Text("Capture")
                         .font(CicadaTheme.font(size: 13, weight: .semibold))
                         .foregroundStyle(CicadaTheme.textPrimary)
 
                     Text(Copy.aboutCicadaCapture)
-                        .font(CicadaTheme.font(size: 11))
+                        .font(CicadaTheme.captionFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -246,18 +246,18 @@ struct AboutCicadaPopover: View {
 
             HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
                 Image(systemName: "moon.fill")
-                    .font(CicadaTheme.font(size: 14))
+                    .font(CicadaTheme.icon(.list))
                     // DR-5: the accent is never decorative.
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .frame(width: 20)
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                     Text("Sleep")
                         .font(CicadaTheme.font(size: 13, weight: .semibold))
                         .foregroundStyle(CicadaTheme.textPrimary)
 
                     Text(Copy.aboutCicadaSleep)
-                        .font(CicadaTheme.font(size: 11))
+                        .font(CicadaTheme.captionFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }

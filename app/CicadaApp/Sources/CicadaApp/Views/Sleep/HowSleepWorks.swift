@@ -32,7 +32,7 @@ struct HowSleepWorksContent: View {
             // Track Z §7.3 (P16) — a pointer to the window's legend, never a
             // copy of it: `WindowWeather.all` is the one list of skies.
             Text(Copy.windowLegendPointer)
-                .font(CicadaTheme.font(size: 11))
+                .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -42,7 +42,7 @@ struct HowSleepWorksContent: View {
             // than retyping "Settings → Sleep" — `CopyConstantsTests`
             // greps the whole source tree for the literal.
             Text("Scheduled runs never use a plan you signed in to — only a cycle you start yourself does. Change when it runs in \(Copy.settingsSleep).")
-                .font(CicadaTheme.font(size: 11))
+                .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -67,16 +67,16 @@ struct HowSleepWorksContent: View {
     private func row(icon: String, title: String, detail: String) -> some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
             Image(systemName: icon)
-                .font(CicadaTheme.font(size: 14))
+                .font(CicadaTheme.icon(.list))
                 .foregroundStyle(CicadaTheme.accent)
                 .frame(width: 20)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 Text(title)
                     .font(CicadaTheme.font(size: 13, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textPrimary)
                 Text(detail)
-                    .font(CicadaTheme.font(size: 11))
+                    .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

@@ -263,7 +263,7 @@ private struct DropOutline: View {
     @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
-        RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall, style: .continuous)
+        CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
             .strokeBorder(contrast == .increased ? CicadaTheme.textPrimary : CicadaTheme.accent,
                           style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
             .opacity(room.drag == nil ? 0 : 1)

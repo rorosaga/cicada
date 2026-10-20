@@ -5,6 +5,9 @@ struct TextTab<ID: Hashable>: Identifiable {
     let id: ID?
     let label: String
     var count: Int? = nil
+    /// A service's real mark before the label (DR-52), for tabs that name services — the export walkthrough's
+    /// Claude · ChatGPT · Gemini, which drew its own selected pill until round 3 (2026-10-20).
+    var mark: AnyView? = nil
 }
 
 /// DR-45 — tabs are single-select; tapping the active one returns to All.
@@ -65,6 +68,7 @@ private struct TextTabButton<ID: Hashable>: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: CicadaTheme.scaled(5)) {
+                if let mark = tab.mark { mark.accessibilityHidden(true) }
                 Text(tab.label)
                 if showsCount, let count = tab.count {
                     Text(UsageFormat.count(count))

@@ -434,7 +434,7 @@ struct ConnectView: View {
             .padding(.top, CicadaTheme.spacingSM)
         } label: {
             Text(Copy.agentsDoItByHand)
-                .font(CicadaTheme.font(size: 13, weight: .medium))
+                .font(CicadaTheme.rowFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
         }
     }
