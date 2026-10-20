@@ -1899,7 +1899,8 @@ the accent for the landed span and `quoteRule` for another cited one, `ReaderCha
 the current span's underline. A navigator step or a "Noted" row re-lands by its trigger (`ReaderLandingMotion`, the
 event read through `LooksZoom.trigger(for:)`): a pointer's fades the wash in and rings the landed bubble briefly
 (`citedEmphasis`, held `rowHighlightHold`, faded `rowHighlightFade`); a key's (⌥↑ / ⌥↓, ⏎) lands in one frame with
-the wash already there and no ring (DR-60). `ReaderBubblesTests`. A turn is
+the wash already there and no ring (DR-60); a VoiceOver press on the chevrons or a row lands as a key does, whatever
+event came last (`ReaderJumpAsk`, through `IconButton`'s `accessibilityPress` / `AssistivePress`). `ReaderBubblesTests`. A turn is
 selectable **and** washed through `CitedPassage` (2026-10-16): a selectable `Text` never reaches a `TextRenderer`, and
 a renderer-drawn copy behind the words breaks lines differently from them (the wash on the wrong words at some widths),
 so the passage is one selectable `Text` whose wash and underline are attributes of its own string (`CitedSpan.fallback`:

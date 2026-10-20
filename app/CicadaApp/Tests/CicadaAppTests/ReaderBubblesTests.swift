@@ -202,8 +202,31 @@ final class ReaderBubblesTests: XCTestCase {
             .deletingLastPathComponent().appendingPathComponent("Sources/CicadaApp")
         let source = try String(contentsOf: root.appendingPathComponent("Views/Provenance/ReaderColumn.swift"),
                                 encoding: .utf8)
-        XCTAssertTrue(source.contains("let trigger = LooksZoom.currentTrigger()"))
+        XCTAssertTrue(source.contains("let trigger = ReaderJumpAsk.trigger(ask, eventType: NSApp.currentEvent?.type)"))
         XCTAssertTrue(source.contains("case .instant:\n                Instant.run { washVisible = true }"))
+    }
+
+    /// DR-60 — a VoiceOver press on the navigator's chevrons or a "Noted" row is never the pointer, whatever event came
+    /// last (a click, often): it lands as a key does, in one frame with no ring. Every jump control routes it.
+    func testAnAssistivePressLandsAsAKeyDoes() throws {
+        for type: NSEvent.EventType? in [nil, .leftMouseUp, .leftMouseDown, .mouseMoved, .keyDown, .scrollWheel] {
+            XCTAssertEqual(ReaderJumpAsk.trigger(.assistive, eventType: type), .keyboard, "\(String(describing: type))")
+        }
+        XCTAssertEqual(ReaderJumpAsk.trigger(.event, eventType: .leftMouseUp), .pointer)
+        XCTAssertEqual(ReaderJumpAsk.trigger(.event, eventType: .keyDown), .keyboard)
+        XCTAssertEqual(ReaderLandingMotion.choose(isJump: true, trigger: ReaderJumpAsk.trigger(.assistive,
+                                                  eventType: .leftMouseUp), isChat: true, landed: true), .instant)
+
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/CicadaApp")
+        let source = try String(contentsOf: root.appendingPathComponent("Views/Provenance/ReaderColumn.swift"),
+                                encoding: .utf8)
+        // Both chevrons, and the noted row's jump button.
+        XCTAssertEqual(source.components(separatedBy: "position: position, ask: .assistive)").count - 1, 2)
+        XCTAssertTrue(source.contains(".modifier(AssistivePress(action: { onJump(.assistive) }))"))
+        let button = try String(contentsOf: root.appendingPathComponent("Views/Common/IconButton.swift"), encoding: .utf8)
+        XCTAssertTrue(button.contains(".modifier(AssistivePress(action: accessibilityPress))"))
+        XCTAssertTrue(button.contains("content.accessibilityAction(.default, action)"))
     }
 
     // MARK: Helpers

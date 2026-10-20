@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The Reader (G118 slice 2, design §4.4): a conversation, or a page's stored
@@ -431,7 +432,10 @@ struct ReaderColumn: View {
         HStack(spacing: CicadaTheme.spacingXS) {
             IconButton(systemName: "chevron.up", help: "\(Copy.Provenance.previousCited) (⌥↑)",
                        accessibilityLabel: Copy.Provenance.previousCited,
-                       shortcut: KeyboardShortcut(.upArrow, modifiers: .option)) {
+                       shortcut: KeyboardShortcut(.upArrow, modifiers: .option),
+                       accessibilityPress: {
+                           step(-1, stops: stops, rows: rows, subjectId: subjectId, position: position, ask: .assistive)
+                       }) {
                 step(-1, stops: stops, rows: rows, subjectId: subjectId, position: position)
             }
             .disabled(position == 0)
@@ -443,7 +447,10 @@ struct ReaderColumn: View {
                 .fixedSize()
             IconButton(systemName: "chevron.down", help: "\(Copy.Provenance.nextCited) (⌥↓)",
                        accessibilityLabel: Copy.Provenance.nextCited,
-                       shortcut: KeyboardShortcut(.downArrow, modifiers: .option)) {
+                       shortcut: KeyboardShortcut(.downArrow, modifiers: .option),
+                       accessibilityPress: {
+                           step(1, stops: stops, rows: rows, subjectId: subjectId, position: position, ask: .assistive)
+                       }) {
                 step(1, stops: stops, rows: rows, subjectId: subjectId, position: position)
             }
             .disabled(position == stops.count - 1)
@@ -451,18 +458,19 @@ struct ReaderColumn: View {
     }
 
     private func step(_ delta: Int, stops: [Range<Int>], rows: [EpisodeCitation], subjectId: String?,
-                      position: Int?) {
+                      position: Int?, ask: ReaderJumpAsk = .event) {
         guard let next = ReaderNavigator.step(from: position, count: stops.count, by: delta) else { return }
         let stop = stops[next]
         let candidates = rows.filter { $0.range == stop }
-        jumpTo(candidates.first { $0.subjectId == subjectId } ?? candidates.first)
+        jumpTo(candidates.first { $0.subjectId == subjectId } ?? candidates.first, ask: ask)
     }
 
     /// A navigator step or a noted row: re-land in place. The trigger is read from the event running the action — a
-    /// key press (the ⌥↑ / ⌥↓ shortcut, ⏎ on a row) or anything else, the pointer (`LooksZoom.trigger(for:)`).
-    private func jumpTo(_ citation: EpisodeCitation?) {
+    /// key press (the ⌥↑ / ⌥↓ shortcut, ⏎ on a row) or anything else, the pointer (`LooksZoom.trigger(for:)`) — unless
+    /// an assistive technology pressed it, which lands as a key does (`ReaderJumpAsk`).
+    private func jumpTo(_ citation: EpisodeCitation?, ask: ReaderJumpAsk = .event) {
         guard let citation, citation.range != nil else { return }
-        let trigger = LooksZoom.currentTrigger()
+        let trigger = ReaderJumpAsk.trigger(ask, eventType: NSApp.currentEvent?.type)
         jumpTrigger = trigger
         emphasisFade?.cancel()
         Instant.run {
@@ -497,7 +505,7 @@ struct ReaderColumn: View {
             rows: payload.citations, currentRange: currentRange, isPage: doc.isPage,
             agent: EvidenceSpeaker.agentName(harness: doc.harness, origin: doc.origin), source: doc.source,
             origin: doc.origin, alsoOn: alsoOn, partial: payload.partial,
-            onJump: { jumpTo($0) },
+            onJump: { jumpTo($0, ask: $1) },
             onShowOnGraph: { row in
                 appRouter.pendingTab = .graph
                 graphVM.revealEntity(id: row.subjectId)
@@ -538,6 +546,18 @@ struct ReaderColumn: View {
             AccessibilityNotification.Announcement(Copy.Provenance.citedPassage(String(words.prefix(120))))
                 .post()
         }
+    }
+}
+
+/// Who asked for an in-place jump (2026-10-20, DR-60). A click or a key is read from the event running the action
+/// (`LooksZoom.trigger(for:)`). An assistive technology's press — VoiceOver's VO-Space on the navigator's chevrons or on
+/// a "Noted" row — carries no event of its own (`NSApp.currentEvent` is whatever came last, often a click), and it is
+/// not a pointer: it lands as a key does, in one frame and with no ring.
+enum ReaderJumpAsk: Equatable {
+    case event, assistive
+
+    static func trigger(_ ask: ReaderJumpAsk, eventType: NSEvent.EventType?) -> LooksZoom.Trigger {
+        ask == .assistive ? .keyboard : LooksZoom.trigger(for: eventType)
     }
 }
 
@@ -727,7 +747,8 @@ struct ReaderNotedList: View {
     let alsoOn: [String]
     /// R-PB10: the server stopped at its page cap.
     let partial: Bool
-    let onJump: (EpisodeCitation) -> Void
+    /// A row asked for its span: by the event that ran it, or by an assistive press (`ReaderJumpAsk`).
+    let onJump: (EpisodeCitation, ReaderJumpAsk) -> Void
     let onShowOnGraph: (EpisodeCitation) -> Void
 
     var body: some View {
@@ -737,7 +758,7 @@ struct ReaderNotedList: View {
             ForEach(rows) { row in
                 ReaderNotedRow(row: row, isCurrent: row.range != nil && row.range == currentRange, agent: agent, source: source,
                                origin: origin,
-                               onJump: { onJump(row) }, onShowOnGraph: { onShowOnGraph(row) })
+                               onJump: { onJump(row, $0) }, onShowOnGraph: { onShowOnGraph(row) })
             }
             if rows.isEmpty { metaLine(Copy.Provenance.nothingNoted) }
             if !alsoOn.isEmpty { metaLine(Copy.Provenance.alsoOn(alsoOn)) }
@@ -759,7 +780,7 @@ private struct ReaderNotedRow: View {
     let agent: String?
     var source: String? = nil
     var origin: String? = nil
-    let onJump: () -> Void
+    let onJump: (ReaderJumpAsk) -> Void
     let onShowOnGraph: () -> Void
 
     @State private var hovering = false
@@ -768,7 +789,7 @@ private struct ReaderNotedRow: View {
         let name = row.subjectName.isEmpty ? row.subjectId : row.subjectName
         let label = EvidenceLabel.speaker(kind: row.displayKind, agent: agent, source: source, origin: origin)
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-            Button(action: onJump) {
+            Button { onJump(.event) } label: {
                 VStack(alignment: .leading, spacing: RowMetrics.twoLineGap) {
                     Text(renderWikilinks(row.text.isEmpty ? name : row.text))
                         .font(CicadaTheme.bodyFont)
@@ -784,6 +805,8 @@ private struct ReaderNotedRow: View {
             }
             .buttonStyle(.cicadaPlain)
             .disabled(row.range == nil)
+            // VoiceOver's press lands as a key does, never the pointer's fade and ring (DR-60).
+            .modifier(AssistivePress(action: { onJump(.assistive) }))
             IconButton(systemName: "scope", help: Copy.Provenance.showOnGraph(name), action: onShowOnGraph)
         }
         .padding(.horizontal, CicadaTheme.spacingSM)
