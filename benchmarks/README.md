@@ -9,7 +9,16 @@
   `python -m benchmarks.public.run prepare|run|report --help`.
 - `benchmarks/answer_eval.py` — **your own questions on your own bank**, graded against facts you write down
   (expected / forbidden / should abstain); the question file is gitignored (`benchmarks/*.local.*`), start from
-  `benchmarks/answer_eval.example.yaml`.
+  `benchmarks/answer_eval.example.yaml`. Each question is answered and judged `--repeats` times (default 3; one run
+  moves by ±4 of 60 questions by chance); `--summary FILE` prints mean and min–max per measure and the questions that
+  flip, and `--compare BEFORE.jsonl AFTER.jsonl` is how an Ask change is accepted or rejected (no calls):
+  ```sh
+  api/.venv/bin/python -m benchmarks.answer_eval --bank <bank> --questions benchmarks/answer_eval.local.yaml \
+      --repeats 3 --out benchmark_results/answer_eval/after.jsonl
+  api/.venv/bin/python -m benchmarks.answer_eval --summary benchmark_results/answer_eval/after.jsonl
+  api/.venv/bin/python -m benchmarks.answer_eval --compare benchmark_results/answer_eval/before.jsonl \
+      benchmark_results/answer_eval/after.jsonl
+  ```
 - `benchmarks/hard_questions.py` — **hard questions drafted from your own bank** for `answer_eval`: seeded samples
   of the shapes hand-written questions miss (knowledge updates with the stale value forbidden, one subject months
   apart, multi-hop across two conversations, counting/listing across 3+ conversations, dated-event order, abstention
@@ -30,10 +39,16 @@ api/.venv/bin/python -m benchmarks.hard_questions --bank <bank dir> --limit 40 -
 api/.venv/bin/python -m benchmarks.hard_questions --bank <bank dir> --limit 40 --seed 1
 # 3. read benchmarks/answer_eval.hard.review.local.md; tick "- [x] accept <id>" on each fair question
 api/.venv/bin/python -m benchmarks.hard_questions --accept
-# 4. grade Cicada on the accepted ones
+# 4. grade Cicada on the accepted ones — repeated like any answer_eval run (3 is the default; say it so the
+#    before/after files match), then summarise or compare as above
 api/.venv/bin/python -m benchmarks.answer_eval --bank <bank dir> \
-    --questions benchmarks/answer_eval.hard.accepted.local.yaml
+    --questions benchmarks/answer_eval.hard.accepted.local.yaml \
+    --repeats 3 --out benchmark_results/answer_eval/hard-after.jsonl
+api/.venv/bin/python -m benchmarks.answer_eval --summary benchmark_results/answer_eval/hard-after.jsonl
 ```
+
+Each accepted question costs `--repeats` answer calls plus `--repeats` judge calls (6 at the default), on top of
+the one call that drafted it.
 
 **Sampling** (`--seed` fixes it; one sample per page; the owner page and saved links are never a subject; a
 conversation is a dated episode that is not a memory-export entry or an indexed watch record):
