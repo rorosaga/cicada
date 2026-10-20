@@ -273,3 +273,129 @@ def test_compare_majority_gains_while_the_mean_falls_is_noise():
     assert c["significant"] and c["beyond_spread"] and c["delta_correct"] < 0
     assert not c["directions_agree"] and c["verdict"] == "within noise (directions disagree)"
     assert "DIRECTIONS DISAGREE" in answer_eval.format_compare(c)
+
+
+# --- failed calls: retried once when transient, otherwise ungraded — never wrong ------------------------------------
+
+from api.services.engine_errors import EngineConnectionLost, EngineThrottled, EngineUnavailable  # noqa: E402
+
+
+class FailingEngine(FakeEngine):
+    """``fail(kind, question, call_number)`` returns an exception to raise for that call, or None to answer."""
+
+    def __init__(self, script, fail):
+        super().__init__(script)
+        self.fail = fail
+        self.calls: dict[tuple[str, str], int] = {}
+
+    def _maybe_fail(self, kind, q):
+        n = self.calls.get((kind, q), 0)
+        self.calls[(kind, q)] = n + 1
+        exc = self.fail(kind, q, n)
+        if exc is not None:
+            raise exc
+
+    def answer(self, question):
+        self._maybe_fail("answer", question)
+        return super().answer(question)
+
+    def judge(self, messages):
+        q = messages[1]["content"].split("QUESTION:\n", 1)[1].split("\n", 1)[0]
+        self._maybe_fail("judge", q)
+        return super().judge(messages)
+
+
+def _run_failing(out, eng, repeats=1, waits=None, **kw):
+    return answer_eval.run_eval(QUESTIONS, out, repeats=repeats, answer_fn=eng.answer, judge_fn=eng.judge,
+                                meta={"engine": "plan", "answer_model": "sonnet", "judge_model": "sonnet",
+                                      "effort": None},
+                                sleep=(waits.append if waits is not None else (lambda s: None)), **kw)
+
+
+def test_a_transient_failure_is_retried_once_after_a_short_wait(tmp_path):
+    waits: list[float] = []
+    # The judge drops its connection on Q1's first call, the answer is throttled on Q2's first call.
+    eng = FailingEngine(default_script, lambda kind, q, n: (
+        EngineConnectionLost("gone") if (kind, q, n) == ("judge", "Q1", 0)
+        else EngineThrottled("slow down") if (kind, q, n) == ("answer", "Q2", 0) else None))
+    rows = _run_failing(tmp_path / "a.jsonl", eng, waits=waits)
+    assert all(answer_eval.is_graded(r) for r in rows) and [r["error"] for r in rows] == [None] * 4
+    assert waits == [answer_eval.RETRY_BACKOFF_S] * 2 and 0 < answer_eval.RETRY_BACKOFF_S <= 10
+    assert {r["id"]: r["retries"] for r in rows} == {"steady": 1, "never": 1, "flaky": 0, "unknown": 0}
+
+    class RateLimitError(Exception):   # the configured engine's litellm name, matched by class name
+        pass
+
+    assert answer_eval.is_transient(RateLimitError()) and answer_eval.is_transient(EngineConnectionLost())
+    assert not answer_eval.is_transient(EngineUnavailable()) and not answer_eval.is_transient(ValueError())
+
+
+def test_a_call_that_fails_twice_or_for_good_is_ungraded_never_judged_and_never_retried_in_vain(tmp_path):
+    waits: list[float] = []
+    eng = FailingEngine(default_script, lambda kind, q, n: (
+        EngineConnectionLost("gone") if (kind, q) == ("judge", "Q1")             # fails on the retry too
+        else EngineUnavailable("signed out") if (kind, q) == ("answer", "Q2") else None))
+    rows = _run_failing(tmp_path / "a.jsonl", eng, waits=waits)
+    by = {r["id"]: r for r in rows}
+    assert by["steady"]["error"] == "judge: EngineConnectionLost" and not answer_eval.is_graded(by["steady"])
+    assert by["never"]["error"] == "EngineUnavailable" and not by["never"]["grade"]["graded"]
+    assert ("judge", "Q2") not in eng.calls                   # a failed answer is not judged as "(empty)"
+    assert eng.calls[("judge", "Q1")] == 2 and eng.calls[("answer", "Q2")] == 1 and waits == [5.0]
+
+
+def test_ungraded_pairs_are_left_out_of_counts_majorities_and_the_spread(tmp_path):
+    out = tmp_path / "a.jsonl"
+    _run_failing(out, FakeEngine(lambda q, n: STATED if q != "Q4" else DECLINED), repeats=2)
+    # run 3: the judge's connection drops for good on two questions that were right in runs 1 and 2
+    eng = FailingEngine(lambda q, n: STATED if q != "Q4" else DECLINED,
+                        lambda kind, q, n: EngineConnectionLost("gone") if kind == "judge" and q in ("Q1", "Q2")
+                        else None)
+    rows = _run_failing(out, eng, repeats=3)
+    o = answer_eval.summarize(rows)["overall"]
+    assert [b["correct"] for b in o["per_run"].values()] == [4, 4, 2]
+    assert [b["ungraded"] for b in o["per_run"].values()] == [0, 0, 2]
+    assert o["ungraded"] == 2 and o["ungraded_per_run"] == {1: 0, 2: 0, 3: 2}
+    # 2 of 2 graded right in run 3 scales to 4 of 4: the spread stays 0 instead of reading two failures as wrong
+    assert o["correct"] == {"mean": 4, "min": 4, "max": 4} and o["correct_pct"]["min"] == 100.0
+    assert o["contradictions"]["max"] == 0 and o["stability"]["flips"] == 0
+    assert answer_eval.majorities(rows)["steady"] is True     # two graded rights, the failure casts no vote
+    text = answer_eval.format_summary(answer_eval.summarize(rows))
+    assert "2 pair(s) still ungraded, re-run with the same --out to fill" in text and "run 3: 2" in text
+    assert "Q1" not in text
+    # A resume into the same file asks exactly those two again, and the file then reads fully graded.
+    again = FakeEngine(lambda q, n: STATED if q != "Q4" else DECLINED)
+    rows = _run_failing(out, again, repeats=3)
+    assert sorted(again.answers) == ["Q1", "Q2"]
+    done, _ = answer_eval.read_results(out)
+    assert all(answer_eval.is_graded(r) for r in done.values()) and len(done) == 12
+    s = answer_eval.summarize(list(done.values()))
+    assert s["overall"]["ungraded"] == 0 and "still ungraded" not in answer_eval.format_summary(s)
+
+
+def test_an_old_row_that_judged_a_failed_answer_is_ungraded_and_asked_again(tmp_path):
+    out = tmp_path / "old.jsonl"
+    bad = {"kind": "answer", "id": "steady", "run": 1, "tags": [], "abstain": False, "seconds": 0.1,
+           "error": "EngineConnectionLost", "grade": answer_eval.grade(QUESTIONS[0], json.loads(MISSING))}
+    out.write_text(json.dumps(bad) + "\n")
+    assert bad["grade"]["graded"] and not answer_eval.is_graded(bad)
+    eng = FakeEngine(default_script)
+    rows = _run_failing(out, eng)
+    assert eng.answers.count("Q1") == 1 and all(answer_eval.is_graded(r) for r in rows)
+
+
+def test_compare_is_not_moved_by_one_run_losing_judgments_to_a_dropped_connection():
+    """The coordinator's case: 44 questions, ~43 right every run, run 3 of B lost six judgments."""
+    base = {f"s{i}": [True] * 3 for i in range(43)} | {"w0": [False] * 3}
+    a = _rows_for(base)
+    b = _rows_for(base)
+    for r in b:
+        if r["run"] == 3 and r["id"] in {f"s{i}" for i in range(6)}:
+            r["grade"], r["error"] = {"graded": False}, "judge: EngineConnectionLost"
+    c = answer_eval.compare(a, b)
+    # run 3 of B: 37 right of 38 graded, scaled to 44 = 42.84 — a spread of 0.16, not the 6 a raw count would read
+    assert c["correct_b"] == {"mean": 42.95, "min": 42.84, "max": 43.0}
+    assert c["spread"] < 0.2 and abs(c["delta_correct"]) < 0.1
+    assert c["lost"] == [] and c["ungraded_a"] == 0 and c["ungraded_b"] == 6
+    assert c["verdict"] == "within noise"
+    assert any("ungraded pairs: A 0, B 6" in n and "--out" in n for n in c["notes"])
+    assert "ungraded pairs" in answer_eval.format_compare(c)
