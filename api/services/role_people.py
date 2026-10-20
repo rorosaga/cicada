@@ -925,7 +925,7 @@ def _rename_footprint(memory_path: Path, page_id: str, new_name: str) -> list[st
     entities = Path(memory_path) / "entities"
     fm = markdown_parser.parse(entities / f"{page_id}.md").frontmatter
     old_name = str(fm.get("name") or page_id)
-    new_id = sanitize_id(new_name)
+    new_id = _free_id(entities, new_name, page_id)   # the id `rename` will write, a taken title's `-2` included
     paths = [f"entities/{page_id}.md", f"entities/{new_id}.md",
              *entity_picture.rename_footprint(memory_path, page_id, new_id, fm)]
     if entity_merge._edges_name(memory_path, page_id):

@@ -170,6 +170,22 @@ def test_the_placeholder_rename_footprint_names_the_picture(tmp_path):
     assert f"assets/pictures/{role_people.sanitize_id('Carol Example')}.png" in footprint
 
 
+def test_the_placeholder_rename_footprint_follows_a_taken_title_to_its_free_id(tmp_path):
+    from api.services import role_people
+
+    _page(tmp_path, "your-sister", "Your sister")
+    _page(tmp_path, "carol-example", "Carol Example")
+    _upload(tmp_path, "your-sister")
+
+    footprint = role_people._rename_footprint(tmp_path, "your-sister", "Carol Example")
+    out = role_people.rename(tmp_path, "your-sister", "Carol Example", None, named=True, note=None)
+
+    assert out.page_id == "carol-example-2"
+    assert {"entities/carol-example-2.md", "assets/pictures/carol-example-2.png"} <= set(footprint)
+    assert set(out.paths) <= set(footprint), "the retitle writes only inside its footprint"
+    assert (tmp_path / "assets" / "pictures" / "carol-example-2.png").exists()
+
+
 # --- the dedup sweep's transaction commits the move ----------------------------------------------------------------
 
 

@@ -472,7 +472,7 @@ def _merge_plan(memory_path, loser_id: str, loser_fm: dict, winner_id: str,
     loser_choice = _choice(loser_fm)
     if _choice(winner_fm) is None and loser_choice is not None:
         if loser_choice.get("kind") == "initials":
-            return dict(loser_choice), None, upload_rel(loser_id, stored[0]) if stored else None
+            return dict(loser_choice), None, None   # no upload is named by an initials mark (`write_initials`)
         if stored is not None and upload_path(memory_path, winner_id, stored[0]) is not None:
             ext = stored[0]
             return dict(loser_choice), (upload_rel(loser_id, ext), upload_rel(winner_id, ext)), None
