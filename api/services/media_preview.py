@@ -129,6 +129,11 @@ def _youtube_id(url: str) -> str | None:
     return ref.video_id if _YOUTUBE_ID_RE.fullmatch(ref.video_id) else None
 
 
+def youtube_video_id(url: str) -> str | None:
+    """The YouTube video id a page's URL names (the pin `YOUTUBE_STILL` is built from), else None."""
+    return _youtube_id(url or "")
+
+
 def _never_scraped(url: str) -> bool:
     from api.services.papers import never_scraped   # lazy: papers imports the graph builder
 

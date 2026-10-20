@@ -266,7 +266,16 @@ struct SavedItemRow: View {
 
     /// Owner ruling 2026-10-19: the site's own icon, asked of that site only (never an icon service), now that the
     /// person opened this list; a bundled family mark or a monogram until — or unless — it arrives (`SavedLinkMark`).
-    private var mark: some View { SavedLinkMark(mark: SavedItemText.mark(item)) }
+    /// marks-2 (owner 2026-10-20: "none of the YouTube stuff shows thumbnails"): a saved YouTube video draws its still
+    /// instead, as a watched day's row does.
+    @ViewBuilder
+    private var mark: some View {
+        if let still = SavedItemText.stillPath(item) {
+            VideoStill(path: still)
+        } else {
+            SavedLinkMark(mark: SavedItemText.mark(item))
+        }
+    }
 
     private func label(_ day: (text: String, help: String)?) -> some View {
         HStack(alignment: .center, spacing: CicadaTheme.scaled(10)) {

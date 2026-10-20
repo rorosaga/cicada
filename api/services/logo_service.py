@@ -988,8 +988,9 @@ async def ensure_site_icon(
 #
 # Amended (owner 2026-10-20: "when I open the website I can clearly see a favicon in the Chrome tab"): the two fixed
 # paths alone missed every site that declares its icon in its HTML at another path, on a CDN, or behind a same-site
-# redirect. Discovery now goes the way a browser does: the homepage (same-registrable-domain redirects only, e.g. → www),
-# its `<link rel>` icon declarations (icon, shortcut icon, apple-touch-icon; sizes; light/dark `media`), relative hrefs
+# redirect. Discovery now goes the way a browser does: the homepage (its redirects on the same registrable domain, e.g.
+# → www, or — marks-2, 2026-10-20 — to the public, non-walled domain a renamed site moved to, which then counts as the
+# site for the rest of the discovery), its `<link rel>` icon declarations (icon, shortcut icon, apple-touch-icon; sizes; light/dark `media`), relative hrefs
 # resolved against the page's final URL (or its `<base href>`), the best raster first, then the two fixed paths. A URL
 # the page itself declares may live on another host (a CDN) — https only, through the SSRF guard, its redirects kept on
 # that host's or the site's registrable domain, and accepted only when the content-type says image AND the bytes sniff
@@ -1007,8 +1008,9 @@ async def ensure_site_icon(
 OWN_SITE_DIR = "own"
 OWN_SITE_PATHS = ("/apple-touch-icon.png", "/favicon.ico")
 #: The discovery's version, stamped on every own-site cache entry. A miss recorded by an older discovery (the two fixed
-#: paths of 2026-10-19) is asked once more with this one; hits stay.
-OWN_SITE_DISCOVERY = 3
+#: paths of 2026-10-19; v3 refused a homepage that moved to another domain) — or one with no `v` at all — is asked once
+#: more with this one; hits stay. v4 (marks-2, 2026-10-20): a homepage's redirect to the domain the site moved to.
+OWN_SITE_DISCOVERY = 4
 #: The whole discovery for one site — homepage, declared icons, fixed paths — fits in this many seconds (the ToS rail).
 OWN_SITE_BUDGET_SECONDS = TIMEOUT_SECONDS
 #: At most this many declared icons are asked, best first, before the fixed paths.
@@ -1297,16 +1299,14 @@ def _plain_https(url: str) -> bool:
     return (parsed.scheme == "https" and bool(parsed.hostname) and port is None and "@" not in parsed.netloc)
 
 
-def _on_site(site: str) -> Callable[[str], bool]:
-    from api.services import reading_hosts
+def _off_site_wall(url: str) -> bool:
+    """A hop that would land on a login or consent wall — a consent host, a known sign-in host, or a sign-in path
+    (`/login`, `/signin`, `/auth`, `/oauth2`, `/sso`…), the redirect-to-wall rule every other fetch uses
+    (`link_enrichment._redirected_to_wall`). Asked of every hop that leaves the saved site, before it is fetched: the
+    ToS rail retires a wall without a byte, and an identity provider's icon must never be cached as a site's."""
+    from api.services import link_enrichment   # lazy: link_enrichment imports this module's neighbours
 
-    return lambda url: _plain_https(url) and reading_hosts.site_of(url) == site
-
-
-async def _get_on_site(url: str, site: str, *, fetcher: Fetcher, resolver: Resolver | None) -> FetchResult | None:
-    """One GET that never leaves `site` (same registrable domain on every hop)."""
-    got = await _follow(url, _on_site(site), fetcher=fetcher, resolver=resolver)
-    return got[0] if got else None
+    return link_enrichment._redirected_to_wall("", url)
 
 
 class _Blocked(Exception):
@@ -1319,22 +1319,41 @@ async def _discover(site: str, *, fetcher: Fetcher, resolver: Resolver | None) -
     tried: set[str] = set()
     asked: list[str] = []
     svgs: list[str] = []
+    # The sites this discovery may ask: the saved link's own, plus — once its homepage answered from there — the
+    # domain the homepage moved to (marks-2, 2026-10-20: a renamed site 301s its homepage to its new domain; refusing
+    # that hop left every such site a monogram although a browser tab shows its icon).
+    sites = {site}
+
+    def ours(url: str) -> bool:
+        return _plain_https(url) and reading_hosts.site_of(url) in sites
+
+    def homepage_hop(url: str) -> bool:
+        # A homepage may follow its own redirect to another public, non-walled registrable domain (where the site
+        # moved) — every hop still https on the default port, SSRF-checked and never a login host (`_follow`), and
+        # never a login or consent wall (`_off_site_wall`, refused before a byte is fetched — security review of #387).
+        if not _plain_https(url):
+            return False
+        if reading_hosts.site_of(url) == site:
+            return True
+        return own_site_domain(url) is not None and not _off_site_wall(url)
 
     async def counted(url: str) -> FetchResult:
         asked.append(url)
         return await fetcher(url)
 
     host = site
-    page = await _follow(f"https://{site}/", _on_site(site), fetcher=counted, resolver=resolver)
+    page = await _follow(f"https://{site}/", homepage_hop, fetcher=counted, resolver=resolver)
     if page is None and not asked and not site.startswith("www."):
         # Nothing was asked: the bare registrable domain has no public address of its own (some sites answer only on
         # their www. host). Ask www. once — the same site, its own SSRF check.
-        page = await _follow(f"https://www.{site}/", _on_site(site), fetcher=counted, resolver=resolver)
+        page = await _follow(f"https://www.{site}/", homepage_hop, fetcher=counted, resolver=resolver)
         if asked:  # the www. host answered (even with a redirect off the site): the fixed paths are asked there
             host = f"www.{site}"
     if page is not None:
         result, final_url = page
-        host = urlparse(final_url).hostname or host  # on the site: `_follow` checked every hop
+        host = urlparse(final_url).hostname or host  # every hop passed `homepage_hop`
+        if (moved := reading_hosts.site_of(final_url)) and moved != site:
+            sites.add(moved)
         if result.status in _BLOCK_STATUSES:
             raise _Blocked
         ctype = (result.content_type or "").lower()
@@ -1349,8 +1368,9 @@ async def _discover(site: str, *, fetcher: Fetcher, resolver: Resolver | None) -
                     continue
                 tried.add(link.url)
                 declared_site = reading_hosts.site_of(link.url)
-                own = declared_site == site
-                allowed = (lambda u, d=declared_site: _plain_https(u) and reading_hosts.site_of(u) in (d, site))
+                own = declared_site in sites
+                allowed = (lambda u, d=declared_site: _plain_https(u) and (reading_hosts.site_of(u) == d or ours(u))
+                           and (reading_hosts.site_of(u) == site or not _off_site_wall(u)))
                 got = await _follow(link.url, allowed, fetcher=fetcher, resolver=resolver)
                 if got is None:
                     continue
@@ -1365,9 +1385,10 @@ async def _discover(site: str, *, fetcher: Fetcher, resolver: Resolver | None) -
         url = f"https://{host}{path}"
         if url in tried:
             continue
-        result = await _get_on_site(url, site, fetcher=fetcher, resolver=resolver)
-        if result is None:
+        got = await _follow(url, ours, fetcher=fetcher, resolver=resolver)
+        if got is None:
             continue
+        result = got[0]
         if result.status in _BLOCK_STATUSES:
             raise _Blocked
         accepted = _sniffed(result)
@@ -1380,7 +1401,7 @@ async def _discover(site: str, *, fetcher: Fetcher, resolver: Resolver | None) -
         if href.startswith("data:"):
             body = _data_svg_icon(href)
         else:
-            body = await _fetch_svg(href, site, fetcher=fetcher, resolver=resolver)
+            body = await _fetch_svg(href, site, sites, fetcher=fetcher, resolver=resolver)
         clean = await asyncio.to_thread(svg_raster.sanitize, body) if body else None
         if clean:
             return clean.encode("utf-8"), "svg", None
@@ -1390,15 +1411,18 @@ async def _discover(site: str, *, fetcher: Fetcher, resolver: Resolver | None) -
 _SVG_TYPES = ("image/svg+xml", "image/svg", "application/svg+xml")
 
 
-async def _fetch_svg(url: str, site: str, *, fetcher: Fetcher, resolver: Resolver | None) -> bytes | None:
+async def _fetch_svg(url: str, site: str, sites: set[str], *, fetcher: Fetcher,
+                     resolver: Resolver | None) -> bytes | None:
     """A declared SVG icon's bytes: https, the SSRF guard on every hop, redirects kept on its host's or the site's
     registrable domain, a 200 whose content-type says SVG (on the site itself an XML or octet-stream type also counts),
     at most `svg_raster.MAX_SVG_BYTES`, and bytes that open as SVG. A block from the site stops the discovery."""
     from api.services import reading_hosts
 
     declared_site = reading_hosts.site_of(url)
-    own = declared_site == site
-    allowed = (lambda u: _plain_https(u) and reading_hosts.site_of(u) in (declared_site, site))
+    own = declared_site in sites
+    allowed = (lambda u: _plain_https(u)
+               and (reading_hosts.site_of(u) == declared_site or reading_hosts.site_of(u) in sites)
+               and (reading_hosts.site_of(u) == site or not _off_site_wall(u)))
     got = await _follow(url, allowed, fetcher=fetcher, resolver=resolver)
     if got is None:
         return None
@@ -1436,6 +1460,16 @@ async def fetch_own_site_icon(
     # A sanitised SVG: drawn to a PNG out of process (`svg_raster`); only the PNG is ever cached or served.
     drawn = await svg_raster.rasterise(found[0].decode("utf-8"))
     return (drawn, "png", None) if drawn else None
+
+
+def own_site_hits(memory_path: Path) -> set[str]:
+    """Every site with a fresh cached own-site icon for this bank — read-only, no network, nothing created. A source
+    row's faces put these first (marks-2: a face shows the site's icon whenever one is already known)."""
+    bank = own_site_bank(bank_name(Path(memory_path)))
+    directory = meta_path(bank).parent
+    return {site for site, entry in read_meta(bank).items()
+            if isinstance(entry, dict) and not entry.get("miss") and is_fresh(entry) and entry.get("ext")
+            and (directory / f"{site}.{entry['ext']}").exists()}
 
 
 def _own_entry_current(entry: dict) -> bool:

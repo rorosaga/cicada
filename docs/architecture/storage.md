@@ -748,7 +748,13 @@ Round 4 (C2–C4):
   see a favicon in the Chrome tab").** The 2026-10-19 rule asked two fixed paths and never the HTML; it missed every
   site that declares its icon at another path, on a CDN, or only behind a redirect to www. Now, like a browser
   (`logo_service.fetch_own_site_icon`): the homepage `https://<site>/` (or `https://www.<site>/` when the bare domain has
-  no public address), following only https redirects on the same registrable domain and default port; its `<link rel>` declarations — `icon`,
+  no public address), following https redirects on the default port — on the same registrable domain, or (owner
+  direction 2026-10-20, "a picture specific to the site, not a letter"; marks-2) to the public, non-walled domain a
+  renamed site moved to, which then counts as the site for the rest of the discovery (its declared icons and fixed
+  paths; a fixed path that redirects to a third domain is still a miss). Every hop that leaves the saved site is first
+  put to the redirect-to-wall rule (`link_enrichment._redirected_to_wall`: a `consent.` host, a known sign-in host, a
+  `/login`·`/signin`·`/auth`·`/oauth2`·`/sso` path) and refused before a byte is fetched — an identity provider's icon
+  is never cached as a site's (security review of #387); its `<link rel>` declarations — `icon`,
   `shortcut icon`, `apple-touch-icon` — found by one linear scan of `<link>`/`<base>` tags only, off the event loop (`declared_icons`; never the
   stdlib HTML tokenizer, which is quadratic on hostile markup — security review of #371; the first 64 tags; `mask-icon` skipped,
   anything typed or named SVG kept aside for the SVG step below; an href with an explicit port or userinfo skipped), resolved against the page's final URL or its `<base href>`, ranked light-scheme
@@ -780,12 +786,12 @@ Round 4 (C2–C4):
   of 3 only capped the number — security review of #382), and is killed at 2 s wall clock — and **checks** the
   answer is a 64×64 PNG that is not fully transparent. Only that PNG is cached (`<site>.png`) and served; SVG bytes are
   never stored or served. Any failure is a miss, the monogram. The drawing happens after the 4 s network budget, not
-  inside it. A homepage that redirects to another
-  registrable domain is not followed (the fixed paths are still asked). One 4 s budget covers the whole discovery
+  inside it. A homepage that redirects to a login host, a private or reserved name is not followed (the saved
+  site's fixed paths are still asked). One 4 s budget covers the whole discovery
   (`OWN_SITE_BUDGET_SECONDS`); each hop never a login host, the body streamed with `Accept-Encoding: identity` and cut at 512 KB of raw bytes (no compressed body inflates first), DNS checked off the event loop, no cookies, raster only; 401/403/407/451 stops at once and nothing is retried
   with other headers. Behind `CICADA_ALLOW_LOGO_FETCH` (off: nothing asked, nothing recorded, the monogram). Cached in
   `$CICADA_HOME/logos/<bank>/sites/own/` — hits 30 days, misses 7, each entry stamped with the discovery's version
-  `v` (`OWN_SITE_DISCOVERY` = 3, bumped for the SVG ruling): a miss recorded by an older discovery is asked once more, hits stay — never in a bank; any failure is a 404 the row draws
+  `v` (`OWN_SITE_DISCOVERY` = 4: 3 for the SVG ruling, 4 for the moved homepage): a miss recorded by an older discovery — a lower `v`, or none — is asked once more, hits stay — never in a bank; any failure is a 404 the row draws
   as its monogram. This is a row's mark only: it never becomes a page's picture, and `domain_for` still takes no saved
   link's site.
   **A watched or saved YouTube video's still (owner direction 2026-10-19, Sources v4).** *"For YouTube … why don't you
@@ -798,6 +804,13 @@ Round 4 (C2–C4):
   ≤ 512 KB, no cookies, raster only, a wall never retried), cached outside every bank at
   `$CICADA_HOME/previews/<bank>/watched/<id>.<ext>` with its misses (`media_preview.ensure_video_still`); any failure is
   a 404 the row draws as a quiet play glyph. A picture is not a read: no model ever reads watch history (ruling 30).
+  **A saved YouTube video draws the same still (marks-2, owner 2026-10-20: "none of the YouTube stuff shows
+  thumbnails, just low-res YouTube logos").** A saved list's row of a media page whose own URL is a YouTube video carries
+  `video: true` (`channel_items` shape `g161-6`) and asks `GET /sources/saved/{media_entity_id}/still`: the id is the
+  one THAT page's own URL names (`channel_items.media_video_id` — only a page `is_saved_link_page` admits, the site-icon
+  route's predicate; never an id a request names), served by the same `ensure_video_still` fetch and cache as a watched video's, so a video watched
+  and saved is asked once. Same gate, same rail; 404 = no picture. Sleep › Saved/Videos and the entity card already
+  draw a video page's stored preview (`/entities/{id}/preview`, the same YouTube still pin).
   A day's videos come from `GET /sources/watch-history/days/{episode}` (`channel_items.watched_day`: title, channel,
   times, the provider's watch URL, the id, and the saved page when the person also saved it — read from the day's own
   record, nothing fetched; ETag over `sources`+`episodes`+`entities`, not a Store domain).

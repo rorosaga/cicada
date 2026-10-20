@@ -1141,8 +1141,10 @@ async def sources_overview(
     connectors_connected = {cid: adapter.is_connected() for cid, adapter in ADAPTERS.items()}
     connector_tag = ",".join(f"{k}:{v}" for k, v in sorted(connectors_connected.items()))
     # Sources v4: `photos` too — a Messages face carries its chat photo's hash (`messages_photos`, outside the bank).
+    # marks-2: `siteIcons` too — a saved row's faces put sites with a cached own icon first (`VersionVector` maps it to
+    # `.sourcesOverview` in the same PR).
     etag = sync_service.etag_for(
-        memory_path, "sources", "episodes", "entities", "photos",
+        memory_path, "sources", "episodes", "entities", "photos", "siteIcons",
         extra=f"{source_overview.SHAPE}|telegram:{settings.telegram_enabled}|connectors:{connector_tag}",
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
@@ -1320,10 +1322,6 @@ async def get_watched_video_thumbnail(episode_id: str, video_id: str, request: R
     behind `CICADA_ALLOW_LOGO_FETCH`, through the ToS rail, cached outside every bank
     (`media_preview.ensure_video_still`), at most four at a time. 404 = no picture. Sleep never calls it; no model
     reads history."""
-    import hashlib
-
-    from fastapi.responses import FileResponse
-
     from api.services import media_preview
 
     memory_path = settings.memory_path
@@ -1332,6 +1330,34 @@ async def get_watched_video_thumbnail(episode_id: str, video_id: str, request: R
         if not known:
             raise HTTPException(404, "no picture for this video")
         path = await media_preview.ensure_video_still(memory_path, video_id)
+    return _serve_still(request, path)
+
+
+@router.get("/sources/saved/{media_entity_id}/still")
+async def get_saved_video_still(media_entity_id: str, request: Request, settings: Settings = Depends(get_settings)):
+    """marks-2 (owner 2026-10-20: "none of the YouTube stuff shows thumbnails, just low-res YouTube logos") — a saved
+    YouTube video's still, for its row in a list the person opened: the same fetch and cache as a watched video's
+    (`media_preview.ensure_video_still`, YouTube's own thumbnail host, that id only, behind `CICADA_ALLOW_LOGO_FETCH`,
+    outside every bank), keyed by the id THIS page's own URL names (`channel_items.media_video_id`) — never an id the
+    request names. 404 = no picture (the row keeps its site mark). Sleep never calls it."""
+    from api.services import media_preview
+
+    memory_path = settings.memory_path
+    async with _STILL_SEMAPHORE:
+        video_id = await run_in_threadpool(channel_items.media_video_id, memory_path, media_entity_id)
+        if not video_id:
+            raise HTTPException(404, "no picture for this video")
+        path = await media_preview.ensure_video_still(memory_path, video_id)
+    return _serve_still(request, path)
+
+
+def _serve_still(request: Request, path):
+    import hashlib
+
+    from fastapi.responses import FileResponse
+
+    from api.services import media_preview
+
     if path is None or not path.exists():
         raise HTTPException(404, "no picture for this video")
     stat = path.stat()

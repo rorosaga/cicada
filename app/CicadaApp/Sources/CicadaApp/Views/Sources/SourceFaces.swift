@@ -22,6 +22,13 @@ enum SourcePictures {
         return "/sources/watch-history/days/\(episode)/videos/\(videoId)/thumbnail"
     }
 
+    /// marks-2 — a saved YouTube video's still, asked by its media page's id (the backend reads the video id from that
+    /// page's own URL and asks the same store a watched video's still comes from).
+    static func savedStillPath(mediaId: String) -> String? {
+        guard !mediaId.isEmpty, mediaId.count <= 200, isToken(mediaId, extra: "-_") else { return nil }
+        return "/sources/saved/\(mediaId)/still"
+    }
+
     private static func isToken(_ s: String, extra: String) -> Bool {
         s.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || extra.contains($0)) }
     }
@@ -59,6 +66,11 @@ actor SourcePictureStore {
 
     /// How many asks run now (tests).
     var inFlightCount: Int { running }
+
+    /// An offscreen render (a PR screenshot) hands a picture in, so nothing is asked of a backend.
+    func prime(_ image: NSImage, path: String, bank: String) {
+        images["\(bank)|\(path)"] = image
+    }
 
     func image(path: String, bank: String) async -> NSImage? {
         let key = "\(bank)|\(path)"

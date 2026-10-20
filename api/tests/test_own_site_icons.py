@@ -244,12 +244,83 @@ def test_a_bare_domain_with_no_address_asks_its_www_host_once():
     assert "www.site-l.example" not in answered.hosts
 
 
-def test_a_cross_site_homepage_redirect_is_never_followed():
-    fetcher = Recorder({"https://site-f.example/": (308, b"", "text/html", "https://elsewhere.example/"),
-                        "https://elsewhere.example/": (200, page('<link rel=icon href="/x.png">'), "text/html"),
-                        "https://site-f.example/favicon.ico": (200, ico(), "image/x-icon")})
+def test_a_homepage_that_moved_to_another_domain_is_followed_there():
+    """marks-2 regression (real values redacted): a renamed site 301s its homepage to its new domain, which declares a
+    192 px PNG at a non-standard path beside an SVG and an apple-touch icon. (`.zz`, not `.example`: the moved-to name
+    must look public, and `reading_hosts` treats every RFC 2606 name as private.) v3 refused the off-site hop, then asked the
+    old domain's fixed paths (which redirected off-site too) and recorded a miss; a browser tab shows the icon."""
+    links = ('<link rel="icon" type="image/png" sizes="192x192" href="/assets/favicon-search.png">'
+             '<link rel="icon" type="image/svg+xml" sizes="any" href="/assets/favicon-browser.svg">'
+             '<link rel="apple-touch-icon" href="/assets/poster/icon.png">')
+    fetcher = Recorder({
+        "https://old-name.example/": (301, b"", "", "https://new-name.zz/?from=old"),
+        "https://new-name.zz/?from=old": (200, page(links), "text/html; charset=utf-8"),
+        "https://new-name.zz/assets/favicon-search.png": (200, png(192, 192), "image/png"),
+    })
+    got = run(logo_service.fetch_own_site_icon("old-name.example", fetcher=fetcher))
+    assert got is not None and got[1] == "png" and logo_service.min_dimension(got[0]) == 192
+    assert fetcher.urls[-1] == "https://new-name.zz/assets/favicon-search.png"
+
+
+def test_a_moved_homepage_lends_its_fixed_paths_but_nothing_else_leaves():
+    fetcher = Recorder({"https://site-f.example/": (308, b"", "text/html", "https://elsewhere.zz/"),
+                        "https://elsewhere.zz/": (200, page(), "text/html"),
+                        "https://elsewhere.zz/favicon.ico": (200, ico(), "image/x-icon")})
     assert run(logo_service.fetch_own_site_icon("site-f.example", fetcher=fetcher)) is not None
-    assert "elsewhere.example" not in fetcher.hosts, "the other site is never asked; the fixed paths still are"
+    assert "site-f.example" not in {urlparse(u).hostname for u in fetcher.urls[1:]}, "the fixed paths on the new host"
+    # A fixed path that redirects to a third domain is still a miss: only the saved site and where it moved count.
+    third = Recorder({"https://site-f.example/": (308, b"", "text/html", "https://elsewhere.zz/"),
+                      "https://elsewhere.zz/": (200, page(), "text/html"),
+                      "https://elsewhere.zz/apple-touch-icon.png": (302, b"", "", "https://cdn.third.example/a.png"),
+                      "https://cdn.third.example/a.png": (200, png(), "image/png")})
+    assert run(logo_service.fetch_own_site_icon("site-f.example", fetcher=third)) is None
+    assert "cdn.third.example" not in third.hosts
+
+
+@pytest.mark.parametrize("wall", [
+    "https://login.microsoftonline.com/common/oauth2/authorize?client_id=x",
+    "https://accounts.google.com/ServiceLogin?continue=x",
+    "https://consent.vendor.zz/?continue=x",
+    "https://sso.idp.zz/login?next=x",
+    "https://other-site.zz/oauth2/authorize?client_id=x",
+])
+def test_a_homepage_never_moves_onto_a_login_or_consent_wall(tmp_path, wall):
+    """Security review of #387: an off-site hop that a redirect-to-wall check catches is refused before a byte is
+    fetched — the identity provider's icon is never cached as the saved site's; the saved site's own fixed paths are
+    still asked."""
+    host = urlparse(wall).hostname
+    fetcher = Recorder({"https://site-w.example/": (302, b"", "", wall),
+                        wall: (200, page('<link rel=icon href="/idp.png">'), "text/html"),
+                        f"https://{host}/idp.png": (200, png(), "image/png"),
+                        f"https://{host}/favicon.ico": (200, ico(), "image/x-icon"),
+                        "https://site-w.example/favicon.ico": (200, ico(), "image/x-icon")})
+    got = run(logo_service.ensure_own_site_icon(tmp_path / "memory", "site-w.example", fetcher=fetcher))
+    assert host not in fetcher.hosts, "the wall is never asked"
+    assert fetcher.urls[-2:] == ["https://site-w.example/apple-touch-icon.png", "https://site-w.example/favicon.ico"]
+    assert got is not None and got.read_bytes() == ico(), "the saved site's own favicon, nothing from the other host"
+    assert set(logo_service.read_meta(logo_service.own_site_bank("memory"))) == {"site-w.example"}
+
+
+def test_a_moved_site_never_lends_a_wall_its_icon_paths():
+    """The domain a site moved to counts as the site — but a declared icon or SVG on a third host behind a sign-in
+    path is still never asked."""
+    links = '<link rel="icon" href="https://cdn.third.zz/auth/icon.png"><link rel="icon" href="https://cdn.third.zz/sso/i.svg">'
+    fetcher = Recorder({"https://old-name.example/": (301, b"", "", "https://new-name.zz/"),
+                        "https://new-name.zz/": (200, page(links), "text/html"),
+                        "https://cdn.third.zz/auth/icon.png": (200, png(), "image/png")})
+    assert run(logo_service.fetch_own_site_icon("old-name.example", fetcher=fetcher)) is None
+    assert "cdn.third.zz" not in fetcher.hosts
+
+
+def test_a_homepage_never_moves_to_a_login_wall_or_a_private_name():
+    walled = Recorder({"https://site-w.example/": (302, b"", "", "https://www.linkedin.com/company/x"),
+                       "https://site-w.example/favicon.ico": (200, ico(), "image/x-icon")})
+    assert run(logo_service.fetch_own_site_icon("site-w.example", fetcher=walled)) is not None
+    assert "www.linkedin.com" not in walled.hosts, "a walled host is never asked; the site's own fixed paths still are"
+    private = Recorder({"https://site-p.example/": (302, b"", "", "https://router.local/"),
+                        "https://router.local/": (200, page('<link rel=icon href="/x.png">'), "text/html")})
+    assert run(logo_service.fetch_own_site_icon("site-p.example", fetcher=private)) is None
+    assert "router.local" not in private.hosts
 
 
 def test_a_cdn_icon_the_page_declares_light_before_dark():
@@ -449,6 +520,9 @@ def test_a_miss_from_the_older_discovery_is_asked_once_more_and_hits_stay(tmp_pa
     now = datetime.now(timezone.utc).isoformat()
     run(logo_service._record_meta(own, "old-miss.example", {"fetched_at": now, "miss": True, "etag": None, "ext": None}))
     run(logo_service._record_meta(own, "old-hit.example", {"fetched_at": now, "miss": False, "etag": None, "ext": "png"}))
+    # marks-2: a miss stamped by the discovery just before this one (v3 refused a moved homepage) is asked again too.
+    run(logo_service._record_meta(own, "v3-miss.example", {"fetched_at": now, "miss": True, "etag": None, "ext": None,
+                                                           "v": logo_service.OWN_SITE_DISCOVERY - 1}))
     (logo_service.logos_dir(own) / "old-hit.example.png").write_bytes(png())
     fetcher = Recorder({"https://old-miss.example/": (200, page('<link rel=icon href="/i.png">'), "text/html"),
                         "https://old-miss.example/i.png": (200, png(), "image/png")})
@@ -456,6 +530,11 @@ def test_a_miss_from_the_older_discovery_is_asked_once_more_and_hits_stay(tmp_pa
     assert run(logo_service.ensure_own_site_icon(bank, "old-hit.example", fetcher=fetcher)) is not None
     assert "old-hit.example" not in fetcher.hosts, "a hit from the older discovery is kept"
     assert logo_service.read_meta(own)["old-miss.example"]["v"] == logo_service.OWN_SITE_DISCOVERY
+    still_missing = Recorder()
+    assert run(logo_service.ensure_own_site_icon(bank, "v3-miss.example", fetcher=still_missing)) is None
+    assert still_missing.urls, "a lower-v miss is asked once more"
+    assert run(logo_service.ensure_own_site_icon(bank, "v3-miss.example", fetcher=still_missing)) is None
+    assert len(still_missing.urls) == 3, "…and only once: the new miss carries this discovery's v"
     again = Recorder()
     assert run(logo_service.ensure_own_site_icon(bank, "new-miss.example", fetcher=again)) is None
     assert run(logo_service.ensure_own_site_icon(bank, "new-miss.example", fetcher=again)) is None

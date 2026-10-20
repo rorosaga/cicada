@@ -12,7 +12,10 @@ actor SiteIconStore {
     private enum Answer { case image(NSImage), none, transient }
 
     private var images: [String: NSImage] = [:]
-    private var misses: Set<String> = []
+    /// A miss and when it was heard. It is believed for `missTTL` only (marks-2): the backend keeps its own misses (7
+    /// days) and asks again once when its discovery improves, so a window left open across an update re-asks a site
+    /// that answered 404 before — a cache read on the backend, never a new fetch while its miss is fresh.
+    private var misses: [String: Date] = [:]
     private var inFlight: [String: Task<Answer, Never>] = [:]
     /// G61 S3-b — a source row's mark is asked of the page that lists the site (`GET /entities/{id}/sources/icon/{site}`),
     /// which serves only a trusted site of THAT page; `(entity, site)`.
@@ -44,12 +47,16 @@ actor SiteIconStore {
     /// ask as they appear (a lazy stack), answers are kept per site, and a row that scrolled away before its turn
     /// asks nothing.
     static let maxConcurrent = 4
+    /// How long a 404 is believed before the row asks again (marks-2).
+    static let missTTL: TimeInterval = 10 * 60
 
     private let fetch: Fetcher
     private let fetchForEntity: EntityFetcher
     private let fetchForSaved: SavedFetcher
     private let fetchForSavedEpisode: SavedEpisodeFetcher
     private let maxConcurrent: Int
+    private let missTTL: TimeInterval
+    private let now: @Sendable () -> Date
     private var running = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
     /// The most requests ever on the wire at once (tests read it).
@@ -61,12 +68,24 @@ actor SiteIconStore {
          fetchForSavedEpisode: @escaping SavedEpisodeFetcher = {
              try await APIClient.shared.fetchSavedEpisodeSiteIcon(episodeId: $0)
          },
-         maxConcurrent: Int = SiteIconStore.maxConcurrent) {
+         maxConcurrent: Int = SiteIconStore.maxConcurrent,
+         missTTL: TimeInterval = SiteIconStore.missTTL,
+         now: @escaping @Sendable () -> Date = { Date() }) {
         self.fetch = fetch
         self.fetchForEntity = fetchForEntity
         self.fetchForSaved = fetchForSaved
         self.fetchForSavedEpisode = fetchForSavedEpisode
         self.maxConcurrent = max(1, maxConcurrent)
+        self.missTTL = missTTL
+        self.now = now
+    }
+
+    /// Whether `key` is a miss still believed; an expired one is forgotten here, so the caller asks again.
+    private func missed(_ key: String) -> Bool {
+        guard let at = misses[key] else { return false }
+        if now().timeIntervalSince(at) < missTTL { return true }
+        misses[key] = nil
+        return false
     }
 
     private func acquire() async {
@@ -101,14 +120,14 @@ actor SiteIconStore {
         let k = key(site, bank, entity, saved: saved != nil)
         let missKey = saved.map { "\(k)|\($0.tag)" } ?? k
         if let hit = images[k] { return hit }
-        if misses.contains(missKey) { return nil }
+        if missed(missKey) { return nil }
         // A caller that joins a running request takes its answer. Once it resumes, the first caller may already have
         // cleared `inFlight`, so re-checking it would ask the same question again (2026-10-05).
         if let running = inFlight[k] { return await joined(running) }
         await acquire()
         // While this caller waited its turn the row may have gone (its `.task` cancelled) or another caller may have
         // asked the same site: either way nothing new is asked.
-        if Task.isCancelled || images[k] != nil || misses.contains(missKey) || inFlight[k] != nil {
+        if Task.isCancelled || images[k] != nil || missed(missKey) || inFlight[k] != nil {
             release()
             if let hit = images[k] { return hit }
             if let running = inFlight[k] { return await joined(running) }
@@ -137,7 +156,7 @@ actor SiteIconStore {
         release()
         switch answer {
         case .image(let image): images[k] = image; return image
-        case .none: misses.insert(missKey); return nil
+        case .none: misses[missKey] = now(); return nil
         case .transient: return nil
         }
     }
@@ -152,7 +171,7 @@ actor SiteIconStore {
     /// relaunch).
     func forget(entity: String) {
         let suffix = "|\(entity)"
-        misses = misses.filter { !$0.hasSuffix(suffix) }
+        misses = misses.filter { !$0.key.hasSuffix(suffix) }
         images = images.filter { !$0.key.hasSuffix(suffix) }
     }
 
@@ -165,6 +184,6 @@ actor SiteIconStore {
     func clear(bank: String) {
         let prefix = "\(bank)|"
         images = images.filter { !$0.key.hasPrefix(prefix) }
-        misses = misses.filter { !$0.hasPrefix(prefix) }
+        misses = misses.filter { !$0.key.hasPrefix(prefix) }
     }
 }

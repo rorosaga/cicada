@@ -384,7 +384,7 @@ struct WatchedVideoRow: View {
         let route = WatchedVideoRoute.of(video)
         Button { open(route) } label: {
             HStack(spacing: CicadaTheme.scaled(10)) {
-                VideoStill(episode: episode, videoId: video.videoId)
+                VideoStill(path: SourcePictures.stillPath(episode: episode, videoId: video.videoId))
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(3)) {
                     Text(video.title)
                         .font(CicadaTheme.bodyFont)
@@ -414,10 +414,11 @@ struct WatchedVideoRow: View {
 }
 
 /// A video's still at 16:9, asked of Cicada's own API (which asks YouTube's own thumbnail host for that id only, behind
-/// the picture gate) — until it arrives, or when there is none, a quiet play glyph on the selected fill.
-private struct VideoStill: View {
-    let episode: String
-    let videoId: String?
+/// the picture gate) — until it arrives, or when there is none, a quiet play glyph on the selected fill. Drawn by a
+/// watched day's rows (`SourcePictures.stillPath`) and, since marks-2, a saved YouTube video's row
+/// (`SourcePictures.savedStillPath`).
+struct VideoStill: View {
+    let path: String?
 
     @Environment(Store.self) private var store: Store?
     @State private var image: NSImage?
@@ -439,8 +440,8 @@ private struct VideoStill: View {
         }
         .frame(width: width, height: height)
         .accessibilityHidden(true)
-        .task(id: "\(store?.bank ?? "")|\(episode)|\(videoId ?? "")") {
-            guard let path = SourcePictures.stillPath(episode: episode, videoId: videoId) else { image = nil; return }
+        .task(id: "\(store?.bank ?? "")|\(path ?? "")") {
+            guard let path else { image = nil; return }
             image = await SourcePictureStore.shared.image(path: path, bank: store?.bank ?? "")
         }
     }
