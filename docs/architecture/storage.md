@@ -770,11 +770,14 @@ Round 4 (C2–C4):
   refused outright (no billion laughs, no XXE), ≤ 32 deep and ≤ 1,000 elements while parsing, rebuilt from an
   allow-list (shapes, paths, groups, `defs`/`symbol`, gradients and stops, `clipPath`, `mask`, `<style>` and presentation
   attributes, transforms); `script`, `foreignObject`, `image`, `text`, filters, animation, `on*` handlers, any `href`
-  but a local `#id`, any `url()` but `url(#id)`, CSS with `@` or escapes are dropped; a `<use>` only of a local element
-  that held no `<use>` (≤ 64); a viewBox of four finite numbers within ±1e6; the output a fresh document Cicada wrote at
+  but a local `#id`, any `url()` but `url(#id)`, CSS with `@`, escapes, comments or `filter` is dropped; a `<use>` only of a local element
+  that held no `<use>` (≤ 64); a mask or clip path that applies another (directly, by inline style, through a `<use>`, or
+  any `<style>` setting one beside a mask or clip path) refuses the icon — each level multiplies the work; a viewBox of four finite numbers within ±1e6; the output a fresh document Cicada wrote at
   64×64 — then **draws** it with resvg (Rust; no script engine, no network code) in a child `python -I` with an empty
-  environment and working directory that, before reading the SVG, drops to no new file descriptor (no file, no
-  socket), caps its CPU seconds (and address space where enforced), and is killed at 2 s wall clock — and **checks** the
+  environment and working directory that caps its CPU seconds (and address space where the OS enforces it — Linux,
+  not macOS, where the sanitiser's expansion limits and the wall clock bound memory), reads the SVG, then sets
+  `RLIMIT_NOFILE` to 0 (no new descriptor at all, so no file and no socket even after closing one of its own; a limit
+  of 3 only capped the number — security review of #382), and is killed at 2 s wall clock — and **checks** the
   answer is a 64×64 PNG that is not fully transparent. Only that PNG is cached (`<site>.png`) and served; SVG bytes are
   never stored or served. Any failure is a miss, the monogram. The drawing happens after the 4 s network budget, not
   inside it. A homepage that redirects to another

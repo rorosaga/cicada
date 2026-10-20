@@ -10,15 +10,17 @@ that way, in three walls, and only its PNG ever leaves it — SVG bytes are neve
    is capped in depth and node count, and rebuilt from an allow-list: shapes, paths, groups, gradients, clip paths,
    masks and ``<use>`` of a local ``#id`` only. Everything else is dropped with its subtree — ``script``,
    ``foreignObject``, ``image``, ``text`` (no font file is ever opened), filters, animation, links, ``on*`` handlers,
-   any ``href`` that is not a local fragment, any ``url(...)`` that is not ``url(#id)``, any CSS with ``@`` rules or
-   escapes. A ``<use>`` may not point at anything that itself holds a ``<use>`` (no exponential expansion). A viewBox
+   any ``href`` that is not a local fragment, any ``url(...)`` that is not ``url(#id)``, any CSS with ``@`` rules,
+   escapes or comments. A ``<use>`` may not point at anything that itself holds a ``<use>``, and a mask or clip path
+   may not apply another mask or clip path (no exponential expansion; the icon is refused). A viewBox
    must be four finite numbers inside :data:`MAX_COORD`. The output is a fresh document Cicada wrote, sized
    :data:`ICON_PX` square.
 2. **Render out of process** (:func:`rasterise`). The sanitised text is drawn by resvg (Rust; no script engine, no
    network code at all) in a child Python started with ``-I`` and an empty environment, in an empty working
-   directory. Before it reads the SVG the child lowers its own limits: no new file descriptors (so no file and no
-   socket can be opened, whatever the renderer tried), a CPU-seconds cap, and an address-space cap where the OS
-   enforces one. The parent kills it at :data:`RENDER_TIMEOUT_SECONDS`.
+   directory. It caps its own CPU seconds (and address space where the OS enforces it: Linux, not macOS — there the
+   sanitiser's expansion limits and the wall clock bound memory), reads the SVG, then sets ``RLIMIT_NOFILE`` to 0: no
+   new descriptor can be created, so no file and no socket, even after closing one of its own. The parent kills it at
+   :data:`RENDER_TIMEOUT_SECONDS`.
 3. **Check the answer**: a PNG of exactly :data:`ICON_PX` square that is not fully transparent, or nothing.
 
 Any failure at any wall is ``None`` — the row keeps its monogram, never an error.
@@ -94,13 +96,23 @@ class _Refused(Exception):
 
 
 def _safe_value(value: str) -> bool:
-    """No `url(...)` but a local `url(#id)`, no CSS escapes or at-rules, no expression()/javascript:, no control chars."""
+    """No `url(...)` but a local `url(#id)`; no CSS escapes, comments or at-rules; no expression()/javascript:; no
+    control characters."""
     if len(value) > _MAX_ATTR_CHARS or any(ord(c) < 32 and c not in "\t\n\r" for c in value):
         return False
     lowered = value.lower()
-    if "\\" in value or "@" in value or "expression" in lowered or "javascript:" in lowered or "<" in value:
+    if any(bad in value for bad in ("\\", "@", "/*", "<")) or "expression" in lowered or "javascript:" in lowered:
         return False
     return len(_URL_RE.findall(value)) == len(_LOCAL_URL_RE.findall(value))
+
+
+_CSS_FILTER = re.compile(r"filter", re.IGNORECASE)
+
+
+def _safe_css(value: str) -> bool:
+    """A `style` attribute or `<style>` text: `_safe_value`, and no CSS `filter` (the `filter` attribute is not on the
+    allow-list; its CSS twin — `blur()`, `drop-shadow()` — cost 1.5 s for 500 shapes in review of #382)."""
+    return _safe_value(value) and not _CSS_FILTER.search(value)
 
 
 def _viewbox(value: str) -> tuple[float, float, float, float] | None:
@@ -200,7 +212,7 @@ def _clean_attrs(node: _Node) -> dict[str, str]:
             continue
         if ns or local not in ALLOWED_ATTRIBUTES or local.lower().startswith("on"):
             continue
-        if not _safe_value(value):
+        if not (_safe_css(value) if local == "style" else _safe_value(value)):
             continue
         kept[local] = value
     return kept
@@ -226,7 +238,7 @@ def _rebuild(node: _Node, out: list[_Node]) -> None:
         clean = _Node(local, _clean_attrs(child))
         if local == "style":
             css = "".join(child.text)
-            if css.strip() and _safe_value(css):
+            if css.strip() and _safe_css(css):
                 clean.text = [css]
                 out.append(clean)
             continue
@@ -256,6 +268,46 @@ def _prune_uses(nodes: list[_Node], drawable: set[str], budget: list[int]) -> No
             _prune_uses(node.children, drawable, budget)
         keep.append(node)
     nodes[:] = keep
+
+
+_CLIP_OR_MASK = {"clipPath", "mask"}
+_CSS_CLIP_OR_MASK = re.compile(r"(?:^|[;{\s])(?:mask|clip-path)\s*:", re.IGNORECASE)
+
+
+def _refs_clip_or_mask(node: _Node) -> bool:
+    """`node` itself applies a mask or clip path (attribute or inline style)."""
+    if "mask" in node.attrs or "clip-path" in node.attrs:
+        return True
+    return bool(_CSS_CLIP_OR_MASK.search(node.attrs.get("style", "")))
+
+
+def _subtree(node: _Node):
+    yield node
+    for child in node.children:
+        yield from _subtree(child)
+
+
+def _nested_clip_or_mask(nodes: list[_Node], ids: dict[str, _Node]) -> bool:
+    """True when a mask or clip path (itself or anything inside it, a `<use>` target included) applies another mask or
+    clip path — each level multiplies the work by its fan-out (security review of #382: 5 levels × 150 ≈ 1 GB), so
+    such an icon is refused. A `<style>` that sets mask/clip-path is refused alongside any mask or clip path, since
+    its selectors can reach inside them."""
+    every = [n for top in nodes for n in _subtree(top)]
+    clips = [n for n in every if n.tag in _CLIP_OR_MASK]
+    if not clips:
+        return False
+    if any(n.tag == "style" and _CSS_CLIP_OR_MASK.search("".join(n.text)) for n in every):
+        return True
+    for clip in clips:
+        for inner in _subtree(clip):
+            if _refs_clip_or_mask(inner):
+                return True
+            if inner.tag == "use":
+                target = ids.get(inner.attrs.get("href", "")[1:])
+                if target is not None and any(_refs_clip_or_mask(t) or t.tag in _CLIP_OR_MASK
+                                              for t in _subtree(target)):
+                    return True
+    return False
 
 
 def _escape(value: str) -> str:
@@ -303,12 +355,14 @@ def sanitize(data: bytes) -> str | None:
         _prune_uses(children, drawable, [MAX_USES])
         if not children:
             raise _Refused("nothing drawable")
+        if _nested_clip_or_mask(children, ids):
+            raise _Refused("a mask or clip path that applies another")
         out = _Node("svg", {})
         out.attrs = {"xmlns": SVG_NS, "xmlns:xlink": XLINK_NS, "width": str(ICON_PX), "height": str(ICON_PX),
                      "viewBox": " ".join(f"{v:g}" for v in box), "preserveAspectRatio": "xMidYMid meet"}
         for key in ("fill", "stroke", "color", "style"):
             value = root.attrs.get(key)
-            if value is not None and _safe_value(value):
+            if value is not None and (_safe_css(value) if key == "style" else _safe_value(value)):
                 out.attrs[key] = value
         out.children = children
         parts: list[str] = []
@@ -323,11 +377,10 @@ def sanitize(data: bytes) -> str | None:
 
 # --- the renderer, out of process ---------------------------------------------------------------------------------
 
-#: The child's program. It imports the renderer, then — before it reads a byte of SVG — lowers its own limits: no new
-#: file descriptor (no file, no socket), a CPU-seconds cap, an address-space cap where enforced. It draws with system
-#: fonts skipped and no resources directory, and writes the PNG to stdout.
-#: The child's prelude: import the renderer, then — before reading a byte of SVG — lower its own limits (CPU seconds,
-#: address space where enforced), read the SVG from stdin, and drop to no new file descriptor (no file, no socket).
+#: The child's prelude: import the renderer, lower its CPU-seconds cap (and address space where the OS enforces it —
+#: Linux, not macOS), read the SVG from stdin, then set RLIMIT_NOFILE to 0: no new descriptor can be created at all, so
+#: no file and no socket, even after closing one of its own (a limit of 3 only capped the NUMBER, and close(0) then
+#: open() landed on fd 0 — security review of #382). The already-open stdout is still written.
 _WORKER_PRELUDE = r"""
 import sys, resource
 sys.path.append(sys.argv[1])
@@ -339,7 +392,7 @@ try:
 except (ValueError, OSError):
     pass
 svg = sys.stdin.buffer.read().decode("utf-8")
-resource.setrlimit(resource.RLIMIT_NOFILE, (3, 3))
+resource.setrlimit(resource.RLIMIT_NOFILE, (0, 0))
 """
 #: Then draw, with system fonts skipped and no resources directory, and write the PNG to stdout.
 _WORKER = _WORKER_PRELUDE + r"""

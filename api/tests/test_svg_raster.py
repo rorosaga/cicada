@@ -155,6 +155,57 @@ def test_use_cannot_expand_exponentially_or_point_outside():
     assert many is not None and many.count("<use") == r.MAX_USES
 
 
+def _nested(tag: str, attr: str, levels: int, fan: int) -> bytes:
+    out = []
+    for k in range(levels):
+        ref = f' {attr}="url(#n{k + 1})"' if k + 1 < levels else ""
+        out.append(f'<{tag} id="n{k}">' + f'<rect width="24" height="24" fill="#fff"{ref}/>' * fan + f"</{tag}>")
+    return svg("".join(out) + f'<rect width="24" height="24" {attr}="url(#n0)"/>')
+
+
+@pytest.mark.parametrize("data", [
+    _nested("mask", "mask", 5, 150),
+    _nested("mask", "mask", 2, 2),
+    _nested("clipPath", "clip-path", 6, 100),
+    _nested("clipPath", "clip-path", 2, 1),
+    # Through an inline style, on the mask element itself, across kinds, and through a <use> target.
+    svg('<mask id="a"><rect width="9" height="9" style="fill:#fff;mask:url(#b)"/></mask><mask id="b">' + DOT + "</mask>"
+        '<rect width="24" height="24" mask="url(#a)"/>'),
+    svg('<mask id="a" mask="url(#b)">' + DOT + '</mask><mask id="b">' + DOT + '</mask><rect width="9" height="9" '
+        'mask="url(#a)"/>'),
+    svg('<clipPath id="c"><rect width="9" height="9" mask="url(#m)"/></clipPath><mask id="m">' + DOT + "</mask>"
+        '<rect width="24" height="24" clip-path="url(#c)"/>'),
+    svg('<defs><g id="g"><rect width="9" height="9" clip-path="url(#c2)"/></g></defs><clipPath id="c1"><use href="#g"/>'
+        '</clipPath><clipPath id="c2">' + DOT + '</clipPath><rect width="24" height="24" clip-path="url(#c1)"/>'),
+    # A <style> that sets a mask or clip path, beside any mask or clip path: its selectors reach inside.
+    svg('<style>rect{mask:url(#m)}</style><mask id="m"><rect width="9" height="9" fill="#fff"/></mask>' + DOT),
+])
+def test_a_mask_or_clip_path_that_applies_another_is_refused(data):
+    started = time.monotonic()
+    assert r.sanitize(data) is None
+    assert time.monotonic() - started < 1
+
+
+def test_one_level_of_mask_and_clip_path_still_draws():
+    data = svg('<mask id="m"><rect width="24" height="24" fill="#fff"/></mask><clipPath id="c"><circle cx="12" '
+               'cy="12" r="9"/></clipPath><g clip-path="url(#c)"><rect width="24" height="24" fill="#c33" '
+               'mask="url(#m)"/></g><style>.a{fill:#123}</style>')
+    assert draw(data) is not None
+
+
+def test_a_css_comment_cannot_hide_a_url():
+    clean = r.sanitize(svg('<style>.a{fill:url/**/(https://evil.example/p#a)}</style>'
+                           '<circle class="a" cx="12" cy="12" r="9" style="fill:url/* */(https://evil.example/q)"/>'
+                           + DOT))
+    assert clean is not None and "evil" not in clean and "/*" not in clean
+
+
+def test_css_filters_never_reach_the_renderer():
+    clean = r.sanitize(svg('<style>.a{filter:blur(9)}</style>' + '<rect width="24" height="24" '
+                           'style="fill:#000;filter:blur(1000) drop-shadow(5 5 1000 red)"/>' * 3 + DOT))
+    assert clean is not None and "filter" not in clean and "blur" not in clean
+
+
 def test_text_and_filters_never_reach_the_renderer():
     clean = r.sanitize(svg('<text x="2" y="20" font-family="Evil">A</text><filter id="f"><feGaussianBlur '
                            'stdDeviation="99999"/></filter><rect width="24" height="24" filter="url(#f)"/>'))
@@ -170,12 +221,28 @@ def test_the_output_is_a_fresh_document_cicada_wrote():
 # --- hostile: the renderer ----------------------------------------------------------------------------------------
 
 
-def test_the_child_cannot_open_a_file_or_a_socket():
-    for attempt in ("open('/etc/hosts').read()", "import socket; socket.socket()"):
-        worker = r._WORKER_PRELUDE + attempt + "\nsys.stdout.buffer.write(b'\\x89PNG')\n"
-        assert asyncio.run(r.rasterise(r.sanitize(svg(DOT)), worker=worker)) is None
-    # Control: the same prelude does let the real render through.
-    assert asyncio.run(r.rasterise(r.sanitize(svg(DOT)))) is not None
+_RENDER = "\npng = resvg_py.svg_to_bytes(svg_string=svg, skip_system_fonts=True)\nsys.stdout.buffer.write(png)\n"
+_ESCAPES = (
+    "open('/etc/hosts').read()",
+    "import os\nos.close(0)\nopen('/etc/hosts').read()",  # reuse a closed descriptor's number (review of #382)
+    "import os\nos.close(0)\nfd = os.open('/etc/hosts', os.O_RDONLY)\nos.read(fd, 10)",
+    "import socket\nsocket.socket()",
+    "import os, socket\nos.close(0)\nos.close(2)\nsocket.socket(socket.AF_INET, socket.SOCK_DGRAM)",
+)
+
+
+@pytest.mark.parametrize("attempt", _ESCAPES)
+def test_the_child_cannot_open_a_file_or_a_socket(attempt):
+    # The worker tries to escape, THEN renders for real: a PNG back means the escape worked, so None can only mean
+    # the descriptor limit refused it.
+    clean = r.sanitize(svg(DOT))
+    assert asyncio.run(r.rasterise(clean, worker=r._WORKER_PRELUDE + attempt + _RENDER)) is None
+    # The same worker without the limit does get its PNG back — the test above is not passing for another reason.
+    limit = "resource.setrlimit(resource.RLIMIT_NOFILE, (0, 0))"
+    assert limit in r._WORKER_PRELUDE
+    unlimited = r._WORKER_PRELUDE.replace(limit, "pass")
+    assert asyncio.run(r.rasterise(clean, worker=unlimited + attempt + _RENDER)) is not None
+    assert asyncio.run(r.rasterise(clean)) is not None, "and the real worker still draws under the limit"
 
 
 def test_a_slow_render_is_killed_at_its_time_cap():

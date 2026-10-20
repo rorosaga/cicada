@@ -50,8 +50,9 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   ruling 2026-10-20: "yes, we should draw the SVG icon safely"):** only when no raster answered, at most two declared
   SVG icons (served or `data:`) are asked under the same declared-icon rules, ≤ 64 KB, sanitised (no DTD or entities,
   an allow-list of shapes/paths/gradients/transforms, no script, `foreignObject`, image, text, external `href` or
-  `url()`) and drawn to a 64×64 PNG by `svg_raster` in a child process that can open no file or socket and is killed
-  at 2 s; only the PNG is cached and served, SVG never is. The drawing makes no request of its own. Hits and misses
+  `url()`, no CSS comments or filters, no mask or clip path applying another) and drawn to a 64×64 PNG by
+  `svg_raster` in a child process whose descriptor limit is 0 (it can create no file or socket descriptor) and which is
+  killed at 2 s; the release build draws one real icon this way before it ships; only the PNG is cached and served, SVG never is. The drawing makes no request of its own. Hits and misses
   cached under `logos/<bank>/sites/own/` (a miss from an older discovery is asked once more; `storage.md`).
   It also gates a watched video's still (owner direction 2026-10-19, Sources v4): a day the person opened in Sources ›
   YouTube history asks `GET /sources/watch-history/days/{episode}/videos/{id}/thumbnail`, which asks YouTube's own
