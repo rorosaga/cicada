@@ -880,6 +880,31 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   embedded once per Ask: the page leg's claim search and this leg share the vector through the indexer's per-model
   query cache (measured: one query embed per Ask). Measured: `docs/research/2026-10-17-memory-benchmarks.md`, "Ask
   depth".
+- **Two ends (2026-10-20).** A question about two moments needs both in front of the model. The owner's hard set had
+  0 of 7 temporal questions right: "when I first … and by the time I later …" found the first conversation and not
+  the later one; "between <month> and <month>" got one end and an adjacent conversation for the other; a gap came
+  back one day off or as a range. One search over the whole question ranks the conversation holding most of its words
+  first, and that is one end. `ask_sources.two_ends` (no model) reads the moments from the question's own words —
+  "first … later / by the time / eventually", "between A and B" (with a time word or a date each side), "which came
+  first, A or B", "A before or after B", "how many days since A when B", "go/change from A to B", the order of two
+  or three quoted events or "the day …" items, a day or month named for each half, and Spanish "entre … y …", "de ser
+  A a ser B", "al principio … después", "cuando volví a", "qué fue primero, A o B" (Spanish dates and a month named
+  alone now count as named days); "two conversations 47 days apart" names a pair. A count that is not a duration
+  ("how many times between March and July") stays a count. Its shape is `two_ends`: each end is searched on its own
+  words (the half, with what the question says around it; an end that names a month or day, or has fewer than two
+  words of its own, also carries the whole question's) through the same two legs, and the best conversation for each
+  end is kept inside the 4 read — from the end's own named month or day when it names one. Two ends share a
+  conversation only when the second has no other holding half as much of its words; a pair "N days apart" is the two
+  on-subject conversations whose days are closest to N apart. Each end's conversation leads with its 2 best turns by
+  the end's own words (each end's best first), and the leg's budget grows by 2 excerpts and 1,000 characters. For a
+  two-ends question, or one that asks how much time has passed ("how many days ago", "how many months have passed
+  since", "how long ago", "¿hace cuántos días…?" — not a length: "how long is my commute"), the prompt adds
+  TIME BETWEEN THE CONVERSATIONS: each shown conversation's day numbered from the earliest, today's number, and for
+  each end its best-matching conversation, its day and the exact gap from the end above (days, weeks, about months)
+  — computed from the dates, never left to the model to estimate; it says a kept conversation is a best match, not
+  proof (rule 11), and that an event told as "yesterday" or "last week" moves by that much. The system prompt is
+  unchanged; every other question's prompt is byte-identical. Measured: the PR (#<n>) and
+  `docs/research/2026-10-17-memory-benchmarks.md`.
 - **The `sources` scope.** `answer_query(source_words=...)`, `POST /ask` `sourceWords` (default true): `cicada_ask`
   passes `ctx.raw_excerpts`, so a remote connector without `sources` gets no conversation words in the prompt (R-R22)
   — neither leg runs for it.

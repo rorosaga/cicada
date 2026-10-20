@@ -323,10 +323,20 @@ _DAY_MONTH = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)?(?: of)? " + _MON + r"\b(?:
 _MONTH_DAY = re.compile(r"\b" + _MON + r" (\d{1,2})(?:st|nd|rd|th)?\b(?:,? (\d{4}))?")
 _MONTH_YEAR = re.compile(r"\b" + _MON + r",? (\d{4})\b")
 _DAYS_AGO = re.compile(r"\b(\d+|a|one|two|three|four|five|six|seven) days? ago\b")
+#: Spanish dates (2026-10-20, the owner's hard set: "entre octubre de 2024 y abril de 2025", "el 5 de marzo").
+_ES_MONTHS = {m: i for i, m in enumerate(
+    "enero febrero marzo abril mayo junio julio agosto septiembre octubre noviembre diciembre".split(), start=1)}
+_ES_MON = r"(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)"
+_ES_DAY_MONTH = re.compile(r"\b(\d{1,2}) de " + _ES_MON + r"\b(?: (?:de|del) (\d{4}))?")
+_ES_MONTH_YEAR = re.compile(r"\b" + _ES_MON + r" (?:de |del )?(\d{4})\b")
 _SMALL = {"a": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
 
 
 def _month(name: str) -> int:
+    if name == "setiembre":
+        return 9
+    if name in _ES_MONTHS:
+        return _ES_MONTHS[name]
     return next(v for k, v in _MONTHS.items() if k.startswith(name[:3]))
 
 
@@ -346,7 +356,10 @@ def named_days(question: str, today=None) -> list[str]:
     for mon, d, y in _MONTH_DAY.findall(q):
         if 1 <= int(d) <= 31:
             out.append(f"{int(y):04d}-{_month(mon):02d}-{int(d):02d}" if y else f"-{_month(mon):02d}-{int(d):02d}")
-    for mon, y in _MONTH_YEAR.findall(q):
+    for d, mon, y in _ES_DAY_MONTH.findall(q):
+        if 1 <= int(d) <= 31:
+            out.append(f"{int(y):04d}-{_month(mon):02d}-{int(d):02d}" if y else f"-{_month(mon):02d}-{int(d):02d}")
+    for mon, y in _MONTH_YEAR.findall(q) + _ES_MONTH_YEAR.findall(q):
         month = f"{int(y):04d}-{_month(mon):02d}"
         if not any(day.startswith(month) for day in out):   # "9 April 2025" names the day, not all of April
             out.append(month)
@@ -370,11 +383,232 @@ def _on_day(day: str, named: list[str]) -> bool:
     return bool(day) and any(day.startswith(n) if not n.startswith("-") else day[4:].startswith(n) for n in named)
 
 
+# --------------------------------------------------------------------------------------------------------------- #
+# Two ends (2026-10-20): a question about two moments needs both in front of the model
+# --------------------------------------------------------------------------------------------------------------- #
+#
+# The owner's hard set: 0 of 7 temporal questions right. "When I first asked about X … and how had it changed by the
+# time I later said Y?" found the first conversation and not the later one; "between <date> and <date>" got one end
+# right and an adjacent day for the other; the gap came back as a guessed range. One search over the whole question
+# ranks the conversation that holds most of its words first, and that is one end. Each end is now searched for on its
+# own words (the question split where it names the two moments, each half with what the question says around it),
+# the best conversation for each end is kept in the window (on the end's own named month or day), and the prompt
+# carries the days and the gap between them computed here — still the derived indexes only, never a model.
+
+SHAPE_TWO_ENDS = "two_ends"      # two moments (first … later, between … and …, which came first): each end its own
+
+#: At most this many ends ("the order of the three events: 'a', 'b' and 'c'").
+MAX_ENDS = 3
+#: Each end's conversation leads with up to this many of its best turns, by the end's own words.
+END_TURNS = 2
+#: What a two-ends question adds to the leg's budget: the ends' turns lead, the best of the rest still fit.
+ENDS_EXTRA_EXCERPTS = 2
+ENDS_EXTRA_CHARS = 1000
+
+_SMALL_NUMBERS = {"a": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+                  "nine": 9, "ten": 10, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6, "siete": 7}
+_UNIT_DAYS = {"day": 1, "week": 7, "month": 30, "year": 365, "dia": 1, "semana": 7, "mes": 30, "ano": 365}
+#: A duration asked for: "how many days", "how long ago", "cuántos días", "cuánto tiempo" (folded: no accents).
+_DURATION = re.compile(
+    r"\bhow (?:many|much|long)(?: \w+)?(?: of)? (?:days?|weeks?|months?|years?|hours?|time)\b|\bhow long\b"
+    r"|\b(?:days?|weeks?|months?|years?) ago\b|\bcuant[oa]s? (?:dias|semanas|meses|anos|horas|tiempo)\b"
+    r"|\bhace cuant")
+_TIME_CUE = re.compile(
+    r"\b(?:days?|weeks?|months?|years?|time|long|passed|elapsed|apart|chang\w*|evolv\w*|shift\w*|first|earlier|"
+    r"later|dias|semanas|meses|anos|tiempo|paso|pasaron|transcurri\w*|cambi\w*|evoluciono|primero|despues)\b")
+_STOP_AT = r"(?=[,;?!]|\band (?:how|what|when|which|why|did|was|is)\b|\by (?:cuant|como|que|cual|por)|$)"
+#: Forms that name the two moments in the question's own words, in the order tried. Each yields ``a`` and ``b``.
+_FROM_TO = (
+    re.compile(r"\bde ser (?P<a>.+?) a ser (?P<b>.+?)" + _STOP_AT),
+    re.compile(r"\b(?:paso|cambio|evoluciono) de (?P<a>.+?) a (?P<b>.+?)" + _STOP_AT),
+    re.compile(r"\b(?:go|goes|went|gone|chang\w*|mov\w*|shift\w*|evolv\w*|turn\w*|switch\w*) from (?P<a>.+?) "
+               r"(?:to|into) (?P<b>.+?)" + _STOP_AT),
+)
+_BETWEEN = re.compile(r"\b(?:between|entre) (?P<a>.+?) (?:and|y|e) (?P<b>.+?)" + _STOP_AT)
+_WHICH_FIRST = (
+    re.compile(r"\b(?:which|what)\b[^?]*?\b(?:first|earlier)\b[,:]? (?P<a>.+?),? or (?P<b>.+?)(?=[?!]|$)"),
+    re.compile(r"\b(?:did|do|was|were|had) (?:i|we) (?P<a>.+?),? or (?P<b>.+?) (?:first|earlier)\b"),
+    re.compile(r"(?P<a>[^,?]+?) (?:before or after|after or before) (?P<b>.+?)(?=[?!]|$)"),
+    re.compile(r"\bque (?:fue|paso|hice|ocurrio|vino) (?:primero|antes)[,:]? (?P<a>.+?),? o (?P<b>.+?)(?=[?!]|$)"),
+    re.compile(r"(?P<a>[^,?]+?) antes o despues de (?P<b>.+?)(?=[?!]|$)"),
+)
+#: "How many days had passed since A when B", "how many days before A did I B".
+_SINCE_WHEN = re.compile(r"\b(?:before|after|since|until|antes de|despues de|desde)\b (?P<a>.+?) "
+                         r"\b(?:when|did|was|were|had|cuando)\b (?P<b>.+?)(?=[?!]|$)")
+_FIRST_CUE = re.compile(r"\b(?:first|originally|initially|at first|at the start|in the beginning|al principio|"
+                        r"primero|la primera vez|por primera vez|inicialmente|originalmente|en un principio)\b")
+_LATER_CUE = re.compile(r"\b(?:later|by the time|afterwards?|after that|eventually|subsequently|the next time|"
+                        r"the second time|when i (?:came|went|got) back|when i returned|cuando volvi|despues|luego|"
+                        r"mas tarde|al final|la segunda vez|la siguiente vez)\b")
+_RETURN_CUE = re.compile(r"\bcuando volvi\b")
+_ORDER_CUE = re.compile(r"\b(?:order|first|earliest|latest|before|after|orden|primero|antes|despues)\b")
+_QUOTED = re.compile(r"(?:^|(?<=[\s:(]))['\"‘“]([^'\"’”]{3,}?)['\"’”](?=[\s,.;:?!)]|$)")
+_THE_DAY = re.compile(r",? (?:and )?the day ")
+_APART = re.compile(r"\b(\d+|a|one|two|three|four|five|six|seven|eight|nine|ten) (days?|weeks?|months?|years?) "
+                    r"apart\b|\b(\d+|dos|tres|cuatro|cinco|seis|siete) (dias|semanas|meses|anos) (?:de diferencia|"
+                    r"de distancia|aparte|entre)")
+_PAIR = re.compile(r"\b(?:two|both|dos|ambas|las dos) (?:separate |different |distintas )?"
+                   r"(?:conversations?|chats?|sessions?|conversaciones|charlas)\b")
+#: A month named alone, as one end's time ("in March", "late July", "en marzo", "a finales de julio").
+_EN_MONTH_ALONE = re.compile(r"\b(?:in|during|by|until|since|early|late|mid|end of|beginning of|start of) "
+                             r"(january|february|march|april|may|june|july|august|september|october|november|"
+                             r"december)\b")
+_ES_MONTH_ALONE = re.compile(r"\b" + _ES_MON + r"\b")
+#: A two-ends question's own scaffolding: never a word to search an end by.
+ENDS_WORDS = frozenset(text_fold.stem(w) for w in (
+    "day days week weeks month months year years time times passed pass apart between change changed changing "
+    "later earlier earliest latest conversation conversations event events happened happen order late "
+    "early mid end beginning each tell told thinking thought approach "
+    "january february march april may june july august september october november december "
+    "enero febrero marzo abril mayo junio julio agosto septiembre setiembre octubre noviembre diciembre "
+    "dias semanas meses anos tiempo paso pasaron pasado cambio cambiado cambiar cambiaron como cuantos cuantas "
+    "cuanto cuanta entre cuando volvi vez despues luego tarde final finales principio principios "
+    "mediados conversacion conversaciones charla esas esos estas estos dos ser habia fue era sobre hace mas pero "
+    "porque donde quien cual cuales forma manera dijeron dije dijo").split())
+
+
+@dataclass
+class End:
+    """One moment a question asks about: its own words (``text``), the days or months it names (``days``)."""
+
+    text: str
+    days: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Ends:
+    """The moments a two-ends question names (two or three, in the question's order), and the context words they
+    share. ``pair``: the question names no split, only "two conversations" (``apart_days``: "47 days apart")."""
+
+    ends: list[End]
+    shared: str = ""
+    pair: bool = False
+    apart_days: int | None = None
+
+
+def _end_terms_strict(text: str) -> set[str]:
+    return text_fold.subject_terms(text) - QUESTION_WORDS - ENDS_WORDS
+
+
+def _end_days(text: str) -> list[str]:
+    """The days and months one end names: :func:`named_days` (no relative days) plus a month named alone."""
+    out = [d for d in named_days(text, today=None) if d] if not re.search(r"\b(yesterday|days? ago)\b", text) else []
+    months = {f"-{_month(m):02d}" for m in _EN_MONTH_ALONE.findall(text) + _ES_MONTH_ALONE.findall(text)}
+    for m in sorted(months):
+        if not any(d.startswith(m) or d[4:].startswith(m) for d in out):
+            out.append(m)
+    return out
+
+
+def _date_spans(q: str) -> list[tuple[int, int]]:
+    """Where ``q`` names a day or a month, in order (overlapping mentions merged)."""
+    spans: list[tuple[int, int]] = []
+    for rx in (_ISO_DAY, _DAY_MONTH, _MONTH_DAY, _MONTH_YEAR, _ES_DAY_MONTH, _ES_MONTH_YEAR, _EN_MONTH_ALONE,
+               _ES_MONTH_ALONE):
+        spans += [m.span() for m in rx.finditer(q)]
+    merged: list[list[int]] = []
+    for lo, hi in sorted(spans):
+        if merged and lo <= merged[-1][1] + 4:   # "5 de marzo de 2025", "march 3, 2025": one mention
+            merged[-1][1] = max(merged[-1][1], hi)
+        else:
+            merged.append([lo, hi])
+    return [(lo, hi) for lo, hi in merged]
+
+
+def _clean(half: str) -> str:
+    half = re.sub(r"^(?:[,;:¿¡]|\b(?:and|y|or|o|the day|el dia)\b|\s)+", "", half.strip())
+    return re.sub(r"[\s,;:?.!]+$", "", half)
+
+
+def _split(q: str, at: int, *, shared: str = "") -> Ends | None:
+    a, b = _clean(q[:at]), _clean(q[at:])
+    if not text_fold.subject_terms(a) or not text_fold.subject_terms(b):
+        return None
+    return Ends(ends=[End(a, _end_days(a)), End(b, _end_days(b))], shared=shared)
+
+
+def two_ends(question: str) -> Ends | None:
+    """The moments ``question`` asks about when it asks about two (or three) of them — "first … later", "between A
+    and B", "which came first, A or B", "how many days since A when B", "de ser A a ser B", a named month or day for
+    each, "two conversations 47 days apart" — else ``None``. Its own words only, no model. A count that is not a
+    duration ("how many times between March and July") is a count, never two ends."""
+    q = " ".join(text_fold.fold(question or "").split())
+    if not q:
+        return None
+    if _ENUMERATE.search(q) and not _DURATION.search(q):
+        return None
+
+    def matched(m) -> Ends | None:
+        a, b = _clean(m.group("a")), _clean(m.group("b"))
+        shared = _clean(f"{q[:m.start()]} {q[m.end():]}")
+        if not _end_terms_strict(a) and not _end_days(a):
+            return None
+        if not _end_terms_strict(b) and not _end_days(b):
+            return None
+        return Ends(ends=[End(a, _end_days(a)), End(b, _end_days(b))], shared=shared)
+
+    for rx in _FROM_TO:
+        if (m := rx.search(q)) and (found := matched(m)):
+            return found
+    if (m := _BETWEEN.search(q)) and (_TIME_CUE.search(q) or (_end_days(m.group("a")) and _end_days(m.group("b")))):
+        if found := matched(m):
+            return found
+    if _ORDER_CUE.search(q):
+        quoted = [x for x in _QUOTED.findall(q) if text_fold.subject_terms(x)]
+        if 2 <= len(quoted) <= MAX_ENDS:
+            return Ends(ends=[End(x, _end_days(x)) for x in quoted], shared="")
+        days = [_clean(x) for x in _THE_DAY.split(q.split(":", 1)[1] if ":" in q else q)[1:]]
+        if 2 <= len(days) <= MAX_ENDS and all(text_fold.subject_terms(x) for x in days):
+            return Ends(ends=[End(x, _end_days(x)) for x in days], shared="")
+    for rx in _WHICH_FIRST:
+        if (m := rx.search(q)) and (found := matched(m)):
+            return found
+    if _DURATION.search(q) and (m := _SINCE_WHEN.search(q)) and (found := matched(m)):
+        return found
+    first = _FIRST_CUE.search(q)
+    later = _LATER_CUE.search(q, first.end()) if first else _RETURN_CUE.search(q)
+    if later and (found := _split(q, later.start())):
+        if first:   # the cue is the question's, not the moment's words
+            head = found.ends[0]
+            head.text = " ".join(_clean(head.text.replace(first.group(0), " ", 1)).split())
+        return found
+    spans = _date_spans(q)
+    if len(spans) >= 2 and len({tuple(_end_days(q[lo:hi])) for lo, hi in spans}) >= 2:
+        (_, end0), (lo1, _) = spans[0], spans[1]
+        cut = max((m.start() for m in re.finditer(r",|\b(?:and|y)\b", q[end0:lo1])), default=None)
+        if found := _split(q, end0 + cut if cut is not None else lo1):
+            return found
+    if m := _APART.search(q):
+        n, unit = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
+        count = int(n) if n.isdigit() else _SMALL_NUMBERS.get(n, 1)
+        return Ends(ends=[], shared=q, pair=True, apart_days=count * _UNIT_DAYS.get(unit.rstrip("s"), 1))
+    if _PAIR.search(q) and _TIME_CUE.search(q):
+        return Ends(ends=[], shared=q, pair=True)
+    return None
+
+
+#: Time elapsed from a moment: "ago", "since", "passed", "how long before" — not a length ("how long is my commute",
+#: "how many days did I spend").
+_ELAPSED = re.compile(r"\b(?:ago|since|passed|elapsed|how long (?:ago|before|after|since|until))\b"
+                      r"|\bhace cuant|\b(?:pasaron|paso|transcurri\w*)\b")
+
+
+def asks_elapsed(question: str) -> bool:
+    """The question asks how much time passed ("how many days ago", "how many months have passed since", "how long
+    ago", "¿hace cuántos días…?", "¿cuántos días pasaron…?")."""
+    q = " ".join(text_fold.fold(question or "").split())
+    return bool(re.search(r"\bhow (?:many|much|long)\b|\bcuant[oa]s?\b", q) and _DURATION.search(q)
+                and _ELAPSED.search(q))
+
+
 def question_shape(question: str) -> str:
-    """What ``question`` asks for, from its own words (no model): a count or list (:data:`SHAPE_ENUMERATE`), one past
-    occasion (:data:`SHAPE_ANCHORED` — a day it names, "the first time"), an outcome or a current value
-    (:data:`SHAPE_LATEST`), else one fact (:data:`SHAPE_LOOKUP`)."""
+    """What ``question`` asks for, from its own words (no model): two moments (:data:`SHAPE_TWO_ENDS`,
+    :func:`two_ends`), a count or list (:data:`SHAPE_ENUMERATE`), one past occasion (:data:`SHAPE_ANCHORED` — a day
+    it names, "the first time"), an outcome or a current value (:data:`SHAPE_LATEST`), else one fact
+    (:data:`SHAPE_LOOKUP`)."""
     q = " ".join((question or "").lower().split())
+    if two_ends(q) is not None:
+        return SHAPE_TWO_ENDS
     if _ENUMERATE.search(q):
         return SHAPE_ENUMERATE
     if named_days(q) or _ANCHORED.search(q):
@@ -396,6 +630,19 @@ class Searched:
     kept: dict[str, str] = field(default_factory=dict)
     #: A count or a list: the other conversations on the subject, best first, read one line each.
     more: list[str] = field(default_factory=list)
+    #: Two ends: the best conversation for each moment the question names, in the question's order.
+    ends: list["EndPick"] = field(default_factory=list)
+
+
+@dataclass
+class EndPick:
+    """One end of a two-ends question and the conversation kept for it (``None``: nothing holds its words on its day),
+    with the weights of the end's own words — the turns it leads with are the ones holding them."""
+
+    label: str
+    episode: str | None
+    weights: dict[str, float]
+    days: list[str] = field(default_factory=list)
 
 
 def search_terms(question: str) -> set[str]:
@@ -459,6 +706,104 @@ def _reserve(order: list[str], kept: list[str], window: int) -> list[str]:
     return top + [ep for ep in order if ep not in top]
 
 
+def _semantic(indexer, text: str, k: int) -> list[str]:
+    """The conversations whose chunks the vector index finds nearest ``text``, best first (``[]`` on any failure)."""
+    try:
+        rows = indexer.search_kinds(text, {"episodes": k}).get("episodes", [])
+    except Exception as exc:  # noqa: BLE001 — the leg is context; its absence never fails an answer
+        logger.debug(f"ask search leg: vector index unavailable ({type(exc).__name__})")
+        return []
+    found = list(dict.fromkeys(Path(str((r.get("metadata") or {}).get("file_path") or "")).stem for r in rows))
+    return [ep for ep in found if evidence.is_episode_id(ep)]
+
+
+def _fuse(*ranked_lists: list[str]) -> tuple[list[str], dict[str, float]]:
+    """Reciprocal-rank fusion: the order, and each conversation's fused score."""
+    scores: dict[str, float] = {}
+    for ranked_list in ranked_lists:
+        for rank, ep in enumerate(ranked_list):
+            scores[ep] = scores.get(ep, 0.0) + 1.0 / (_RRF_K + rank)
+    return sorted(scores, key=lambda ep: (-scores[ep], ep)), scores
+
+
+def _end_terms(text: str) -> set[str]:
+    """An end's own words: its subject words less the question's and the two-ends scaffolding — an ordinal kept
+    ("the first class", "la primera clase" is the event's own name; the "first … later" cue is cut from the half)."""
+    terms = text_fold.subject_terms(text)
+    return (terms - QUESTION_WORDS - ENDS_WORDS) or (terms - QUESTION_WORDS)
+
+
+def _pick_ends(memory_path: Path, ends: Ends, terms: set[str], weights: dict[str, float], order: list[str],
+               held: dict[str, set[str]], on_subject: list[str], indexer) -> list[EndPick]:
+    """The best conversation for each end: searched on the end's own words (with the words the question says around
+    it; an end that names a day, or has fewer than two words of its own, also carries the whole question's), from the
+    end's named day or month when it names one. Two ends never share a conversation while the second has another that
+    holds at least half as much of its words — the end surest of its best keeps it. ``ends.pair`` ("two conversations
+    47 days apart"): the two conversations on the subject whose days are that far apart (else the two best on
+    different days)."""
+    if ends.pair:
+        on = [ep for ep in on_subject if episode_day(ep)][:SUBJECT_RANKS]
+        pairs = [(a, b) for i, a in enumerate(on) for b in on[i + 1:] if episode_day(a) != episode_day(b)]
+        if not pairs:
+            return []
+        if ends.apart_days is not None:
+            from datetime import date
+
+            def gap(p) -> int:
+                d0, d1 = (date.fromisoformat(episode_day(x)) for x in p)
+                return abs(abs((d1 - d0).days) - ends.apart_days)
+
+            best = min(pairs, key=lambda p: (gap(p), on.index(p[0]) + on.index(p[1])))
+        else:
+            best = pairs[0]
+        best = tuple(sorted(best, key=lambda ep: (episode_day(ep), ep)))
+        return [EndPick(label=f"conversation {i + 1}", episode=ep, weights=weights) for i, ep in enumerate(best)]
+
+    shared = _end_terms(ends.shared)
+    ranked: list[tuple[End, dict[str, float], list[str], dict[str, float], dict[str, set[str]]]] = []
+    for end in ends.ends[:MAX_ENDS]:
+        own = _end_terms(end.text) | shared
+        if end.days or len(own) < 2:
+            own |= terms
+        try:
+            w, lexical, held_e = _lexical(memory_path, own)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"ask two ends: word index unavailable ({type(exc).__name__})")
+            w, lexical, held_e = {}, [], {}
+        semantic = _semantic(indexer, f"{end.text} {ends.shared}".strip(), SEARCH_CHUNKS) if indexer is not None \
+            else []
+        fused, scores = _fuse(lexical, semantic)
+        cands = [ep for ep in fused if held_e.get(ep)]
+        if end.days:
+            cands = [ep for ep in cands if _on_day(episode_day(ep), end.days)] or \
+                [ep for ep in order if held.get(ep) and _on_day(episode_day(ep), end.days)]
+        ranked.append((end, w, cands, scores, held_e))
+
+    def strength(i: int, ep: str) -> float:
+        _, w, _, _, held_e = ranked[i]
+        return sum(w.get(t, 0.0) for t in held_e.get(ep, ()))
+
+    def margin(i: int) -> float:
+        _, _, cands, scores, _ = ranked[i]
+        if not cands:
+            return -1.0
+        return scores.get(cands[0], 0.0) - (scores.get(cands[1], 0.0) if len(cands) > 1 else 0.0)
+
+    chosen: dict[int, str | None] = {}
+    for i in sorted(range(len(ranked)), key=lambda i: -margin(i)):
+        cands = ranked[i][2]
+        taken = set(v for v in chosen.values() if v)
+        first = cands[0] if cands else None
+        pick = first
+        if first in taken:
+            alt = next((ep for ep in cands if ep not in taken), None)
+            if alt is not None and strength(i, alt) >= 0.5 * strength(i, first):
+                pick = alt
+        chosen[i] = pick
+    return [EndPick(label=end.text, episode=chosen[i], weights=w or weights, days=list(end.days))
+            for i, (end, w, _, _, _) in enumerate(ranked)]
+
+
 def search(memory_path: Path, question: str, *, terms: set[str] | None = None, embed_fn=None,
            indexer=None, today=None) -> Searched:
     """The conversations most likely to hold what ``question`` asks, read from the derived indexes only — never a
@@ -473,6 +818,9 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
     (a watched day, a list save) are dropped when their words are read (:func:`gather_search`)."""
     terms = set(terms) if terms is not None else search_terms(question)
     shape = question_shape(question)
+    ends = two_ends(question) if shape == SHAPE_TWO_ENDS else None
+    if ends is not None:
+        terms = (terms - ENDS_WORDS) or terms
     weights: dict[str, float] = {}
     lexical: list[str] = []
     held: dict[str, set[str]] = {}
@@ -487,20 +835,14 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
 
             indexer = SqliteVecIndexer(memory_path, embed_fn=embed_fn) if embed_fn else SqliteVecIndexer(memory_path)
         k = ENUM_CHUNKS if shape == SHAPE_ENUMERATE else SEARCH_CHUNKS
-        rows = indexer.search_kinds(question, {"episodes": k}).get("episodes", [])
-        semantic = list(dict.fromkeys(Path(str((r.get("metadata") or {}).get("file_path") or "")).stem
-                                      for r in rows))
-        semantic = [ep for ep in semantic if evidence.is_episode_id(ep)]
+        semantic = _semantic(indexer, question, k)
     except Exception as exc:  # noqa: BLE001
+        indexer = None
         logger.debug(f"ask search leg: vector index unavailable ({type(exc).__name__})")
     # With no word to weigh (no word index yet, or only common words) no turn can be told apart: nothing is shown.
     if not weights:
         return Searched(episodes=[], weights={}, shape=shape)
-    scores: dict[str, float] = {}
-    for ranked_list in (lexical, semantic):
-        for rank, ep in enumerate(ranked_list):
-            scores[ep] = scores.get(ep, 0.0) + 1.0 / (_RRF_K + rank)
-    order = sorted(scores, key=lambda ep: (-scores[ep], ep))
+    order, _ = _fuse(lexical, semantic)
     if not order:
         return Searched(episodes=[], weights=weights, shape=shape)
 
@@ -518,6 +860,19 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
     on_subject = [ep for ep in order[:SUBJECT_RANKS] if len(held.get(ep, ())) >= need and weight(ep) >= floor]
 
     kept: dict[str, str] = {}
+    picks: list[EndPick] = []
+    if ends is not None:
+        # Each end its own conversation, inside the window beside the best of the whole question.
+        picks = _pick_ends(memory_path, ends, terms, weights, order, held, on_subject, indexer)
+        for i, pick in enumerate(picks):
+            if pick.episode is not None:
+                kept.setdefault(pick.episode, f"end {i + 1}")
+                if pick.episode not in order:
+                    order.append(pick.episode)
+                for t, w in pick.weights.items():
+                    weights.setdefault(t, w)
+        order = _reserve(order, [*kept, order[0]], max(SEARCH_EPISODES, len(kept) + 1))
+        return Searched(episodes=order, weights=weights, shape=shape, kept=kept, ends=picks)
     named = named_days(question, today)
     if named:
         for ep in [ep for ep in order if held.get(ep) and _on_day(episode_day(ep), named)][:NAMED_SLOTS]:
@@ -557,7 +912,38 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
     candidates = _scored_turns(memory_path, found.episodes, pattern, weights, docs, max_episodes)
     candidates.sort(key=lambda c: (-c[0], c[1], c[2]))
     lead: list[tuple] = []
+    if found.ends:
+        # Two ends: each end's conversation leads with its best turns by the end's OWN words — the turn that says
+        # the later thing, not the one that repeats the earlier — so both moments reach the model.
+        max_excerpts += ENDS_EXTRA_EXCERPTS
+        total_chars += ENDS_EXTRA_CHARS
+        led_turns: set[tuple[str, int]] = set()
+        per_end: list[list[tuple]] = []
+        for pick in found.ends:
+            if pick.episode is None or not pick.weights:
+                continue
+            own = re.compile(r"\b(" + "|".join(re.escape(t) for t in sorted(pick.weights, key=len, reverse=True))
+                             + ")")
+            mine: dict[str, tuple] = {}
+            turns_e = _scored_turns(memory_path, [pick.episode], own, pick.weights, mine, 1)
+            docs.update({k: v for k, v in mine.items() if k not in docs})
+            turns_e.sort(key=lambda c: (-c[0], c[2]))
+            mine_lead: list[tuple] = []
+            for c in [c for c in turns_e if (c[3], c[2]) not in taken and (c[3], c[2]) not in led_turns][:END_TURNS]:
+                body = docs[c[3]][1][c[4].content_start:c[4].end]
+                at = _first_match(body, set(pick.weights))
+                span = Pointer(episode=c[3], weight=0, start=c[4].content_start + at) if at is not None else None
+                mine_lead.append((c[0], -1, c[2], c[3], c[4], span))
+                led_turns.add((c[3], c[2]))
+            per_end.append(mine_lead)
+        # Each end's best turn first, then each end's second: a tight budget still shows every end.
+        for k in range(END_TURNS):
+            lead += [turns[k] for turns in per_end if len(turns) > k]
+        lead_keys = {(c[3], c[2]) for c in lead}
+        candidates = [c for c in candidates if (c[3], c[2]) not in lead_keys]
     for ep in found.kept:
+        if found.ends:
+            break
         best = next((c for c in candidates if c[3] == ep and (ep, c[2]) not in taken), None)
         if best is not None:
             lead.append(best)

@@ -564,6 +564,72 @@ def _conversation_refs(excerpts: list) -> dict[str, dict]:
     return out
 
 
+#: The most days the time block lists (the conversations shown rarely span more).
+_TIME_DAYS = 12
+
+
+def _time_block(query: str, searched, shown: list) -> str:
+    """TIME BETWEEN THE CONVERSATIONS (2026-10-20): for a question about two moments, or one that asks how much time
+    passed ("how many days ago", "how many months since"), the
+    days of the conversations shown, each numbered from the earliest (so any gap is a subtraction) with today, and
+    the exact gap between the conversations kept for the ends — computed here from their dates, never left to the
+    model to estimate (the owner's hard set: a "178–208 day" range, 16 for 17). Empty for any other question."""
+    from datetime import date
+
+    ends = [p for p in (getattr(searched, "ends", None) or []) if p.episode]
+    if not ends and not ask_sources.asks_elapsed(query):
+        return ""
+
+    def parse(day: str) -> date | None:
+        try:
+            return date.fromisoformat(str(day)[:10])
+        except ValueError:
+            return None
+
+    shown_day: dict[str, date] = {}
+    for e in shown:
+        d = parse(e.day)
+        if d is not None:
+            shown_day.setdefault(e.episode, d)
+    end_days = [(p, shown_day.get(p.episode) or parse(ask_sources.episode_day(p.episode))) for p in ends]
+    days = sorted(set(shown_day.values()) | {d for _, d in end_days if d})
+    if not days:
+        return ""
+    days = days[:_TIME_DAYS]
+    today = current_day()
+    origin = days[0]
+
+    def spell(n: int) -> str:
+        weeks, rest = divmod(abs(n), 7)
+        return (f"{n} days (= {weeks} weeks {rest} days, about {abs(n) / 30.44:.1f} months)" if abs(n) >= 7
+                else f"{n} days")
+
+    lines = ["TIME BETWEEN THE CONVERSATIONS (computed from the dates of the conversations shown above, not by a "
+             "model — use these numbers, never estimate a gap they give):"]
+    lines += [f"- {d.isoformat()} = day {(d - origin).days}" for d in days]
+    lines.append(f"- {today.isoformat()} (the current local day) = day {(today - origin).days}")
+    if ends:
+        lines.append("The question asks about more than one moment. The conversation that best matches each one's "
+                     "words (a best match, not proof — use it only if its lines plainly speak of that moment, rule "
+                     "11):")
+        prev = None
+        for i, (p, d) in enumerate(end_days):
+            when = d.isoformat() if d else "an undated day"
+            after = ""
+            if prev is not None and d is not None and prev != d:
+                gap = (d - prev).days
+                after = f" — {spell(abs(gap))} {'after' if gap > 0 else 'before'} the one above"
+            lines.append(f"- \"{p.label}\": [{p.episode}], said {when}{after}")
+            prev = d or prev
+        if len({d for _, d in end_days if d}) < len(end_days):
+            lines.append("Two moments share a conversation: say so, and give its day for both.")
+    lines.append("A day here is when the conversation was held. When a line places its event relative to that day "
+                 "(\"yesterday\", \"last week\", \"two days ago\"), shift the event by that much and say so; when "
+                 "the lines show another conversation to be one of the moments, use its day the same way. Days "
+                 "between two days = the difference of their day numbers; say whether you count the last day.")
+    return "\n".join(lines)
+
+
 def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None = None,
                   source_words: bool = False, owner_name: str | None = None,
                   searched: "ask_sources.Searched | None" = None, shown: dict | None = None) -> str:
@@ -648,9 +714,18 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
                        "in all; each names its conversation's id and day, oldest first. Count each distinct event "
                        "once — the same event told in two conversations is one — add what the entities above show, "
                        "and say the count covers what memory shows")
+            if getattr(searched, "ends", None):
+                how += ("; the question asks about more than one moment, so each was searched for on its own words "
+                        "and its best conversation leads (see TIME BETWEEN THE CONVERSATIONS)")
             context += ("\n\nOTHER CONVERSATIONS (word for word, found by searching every conversation for the "
                         "question's words; no page above cites these lines, so they may be about something else; "
                         f"{how}):\n" + ask_sources.render(more, with_episode=True))
+    else:
+        more = []
+    if source_words:
+        timing = _time_block(query, searched, excerpts + more)
+        if timing:
+            context += "\n\n" + timing
     return (
         f"QUESTION:\n{query}\n\n"
         f"CURRENT LOCAL DAY: {current_day().isoformat()}\n"
