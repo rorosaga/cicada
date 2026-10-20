@@ -530,9 +530,12 @@ async def _backfill_links_safely(memory_path: Path, settings: Settings, *, user_
     zero-LLM work (§2a reuse, junk) nothing is resolved and the run is
     authored ``cicada`` (fix round 1, M1: an idle cycle must not touch the
     connections registry for nothing). Only with a fetch or recon candidate
-    is ``engine_select.resolve_settings`` consulted — a scheduled cycle gets
-    byok before the registry is touched; a user-triggered one may probe
-    cache-first. ``CICADA_ALLOW_CONNECTOR_FETCH`` gates ONLY this unattended
+    is ``engine_select.resolve_settings`` consulted, with ``user_triggered``
+    passed through: a scheduled cycle reaches a plan (a cache-first sign-in
+    check, never a model call) only through the person's "Scheduled runs may
+    use my plan" switch — on unless they turned it off (ruling 4c) — and
+    otherwise gets the key they chose, the local model, or no engine, never a
+    metered key by itself (ruling 31). ``CICADA_ALLOW_CONNECTOR_FETCH`` gates ONLY this unattended
     step's default fetch (opt-out, the connector contract — G71 final review
     H2); reuse and recon are never gated; the maintenance endpoint is never
     gated at all.
@@ -1280,8 +1283,8 @@ async def _run_engine_independent_tail(
     sweeper — but it writes media pages, and on a half-written cycle those
     writes would sit on the dirty tree the NEXT ``_finalize`` sweeps under
     that cycle's model. ``user_triggered`` is threaded through only for the
-    backfill's lazy engine resolution (R10): a scheduled cycle must resolve
-    byok without ever probing the plan — TODO.md ruling 4.
+    backfill's lazy engine resolution (R10): a scheduled cycle reaches a plan
+    only through the person's switch — TODO.md rulings 4, 4c and 31.
 
     G133: ``_resolve_papers_safely`` shares this branch — it writes paper pages
     (scoped commits), and the fetch half is gated by

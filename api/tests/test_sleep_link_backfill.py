@@ -79,29 +79,67 @@ def test_zero_llm_work_never_resolves_the_engine(tmp_path, monkeypatch):
     assert kwargs["summarize_fn"] is None and kwargs["fetch_fn"] is None and kwargs["engine"] is None
 
 
-def test_scheduled_cycle_resolves_byok_without_probing_and_passes_gated_fetch(tmp_path, monkeypatch):
-    """TODO.md ruling 4: a scheduled cycle never spends plan quota."""
+def _scheduled_backfill(tmp_path, monkeypatch, *, mode, plan_switch, connected=()):
+    """Run the backfill as the nightly schedule does (``user_triggered=False``) with a fetch owed, the person's
+    engine choice ``mode`` and their "Scheduled runs may use my plan" switch (``None`` = never set, which reads as
+    on since ruling 4c). Returns the connections probed, the resolved copy and the driver's kwargs."""
+    from api.services import sleep_run_prefs
+    from api.services.connections.registry import get_registry
+
     memory = _empty_memory(tmp_path)
     scan = link_enrichment._Scan(fetch=[link_enrichment._Candidate(Path("x"), "media-x", "X", "https://x.example", "", "", "2026")])
     calls = _spy(monkeypatch, scan=scan)
+    asked: list[str] = []
 
-    async def never(*a, **k):
-        raise AssertionError("the registry must not be probed on a scheduled cycle")
+    async def probe(_registry, connection_id):
+        asked.append(connection_id)
+        return connection_id in connected
 
-    monkeypatch.setattr(engine_select, "_connected", never)
+    monkeypatch.setattr(engine_select, "_connected", probe)
     monkeypatch.setenv("CICADA_ALLOW_CONNECTOR_FETCH", "1")
     monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    (tmp_path / "home").mkdir()
     # A REAL Settings (not a SimpleNamespace) so `resolve_settings` takes the
     # `model_copy` path; `memory_path` is a computed property over
     # `memory_root`, which only the env alias sets (config.py:33-41).
     monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
-    monkeypatch.setenv("CICADA_LLM_MODE", "auto")
+    monkeypatch.setenv("CICADA_LLM_MODE", mode)
     settings = Settings()
+    if plan_switch is not None:
+        sleep_run_prefs.write(get_registry(settings), scheduled_use_plan=plan_switch)
     asyncio.run(sleep_cycle._backfill_links_safely(memory, settings, user_triggered=False))
     (_, resolved, kwargs), = calls
-    assert resolved.llm_mode == "byok" and kwargs["engine"] == "litellm"
     assert kwargs["fetch_fn"] is link_enrichment.default_fetch
     assert kwargs["summarize_fn"] is link_enrichment._summarize_excerpt
+    return asked, resolved, kwargs
+
+
+def test_scheduled_cycle_with_the_plan_switch_off_keeps_the_chosen_key_without_probing(tmp_path, monkeypatch):
+    """Ruling 4: with the person's switch off a scheduled cycle never touches a plan — the key they chose reads,
+    and nothing is probed on the way."""
+    asked, resolved, kwargs = _scheduled_backfill(tmp_path, monkeypatch, mode="byok", plan_switch=False,
+                                                  connected={"claude-plan", "chatgpt-plan"})
+    assert asked == []
+    assert resolved.llm_mode == "byok" and kwargs["engine"] == "litellm"
+
+
+def test_scheduled_auto_cycle_with_the_plan_switch_off_probes_no_plan_and_never_a_key(tmp_path, monkeypatch):
+    """Rulings 4 + 31: Auto on a schedule the switch closes asks only whether the local model runs — never a plan —
+    and with none running it has no engine rather than a metered key nobody chose."""
+    asked, resolved, kwargs = _scheduled_backfill(tmp_path, monkeypatch, mode="auto", plan_switch=False,
+                                                  connected={"claude-plan", "chatgpt-plan"})
+    assert asked == [engine_select.OLLAMA_CONNECTION_ID]
+    assert resolved.llm_mode == "auto" and kwargs["engine"] == engine_select.NO_ENGINE_LABEL
+    assert resolved.no_engine_reason
+
+
+def test_scheduled_auto_cycle_reads_on_the_plan_by_default(tmp_path, monkeypatch):
+    """Ruling 4c: a switch never set reads as on, so a scheduled Auto resolves as a run the person starts — the
+    Claude plan first (a cache-first sign-in check, never a model call)."""
+    asked, resolved, kwargs = _scheduled_backfill(tmp_path, monkeypatch, mode="auto", plan_switch=None,
+                                                  connected={"claude-plan"})
+    assert asked == [engine_select.CLAUDE_CONNECTION_ID]
+    assert resolved.llm_mode == "agent" and kwargs["engine"] == "claude-cli"
 
 
 def test_connector_gate_off_disables_only_the_fetch_tier(tmp_path, monkeypatch):
