@@ -1,7 +1,7 @@
 import asyncio
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
 
 from api.config import Settings, get_settings
 from api.models.schemas import CheckCensus, InboxItem, InboxResolveRequest, SettledCheck
@@ -160,6 +160,27 @@ async def tidy_inbox(
     if not inbox_tend.start_tidy(settings.memory_path, settings, limit=limit, judge=judge):
         raise HTTPException(409, "The inbox is already being tidied.")
     return {"status": "started"}
+
+
+@router.post("/inbox/tidy/apply")
+async def tidy_apply_vetted(payload: dict = Body(...), settings: Settings = Depends(get_settings)):
+    """Owner rule 2026-10-20 — the vetted apply: settle exactly the rows a coordinator kept from a trace
+    (``api/scripts/inbox_tidy_trace.py``), each as the dry run decided it, through the person's own resolver as Sleep's
+    undoable commit, one at a time under the bank's write admission. A row whose question or pages moved since the
+    trace is left as it is (``changed``); one asking for anything the rules never ask is ``refused``. Answers per id
+    and counts — no text. 409 while Sleep runs or a tidy, a sweep or another apply is running."""
+    from api.services import inbox_tend, web_lookup, write_admission
+
+    rows = payload.get("decisions") if isinstance(payload, dict) else None
+    if not isinstance(rows, list) or not rows:
+        raise HTTPException(422, "Send {\"decisions\": [...]}: the trace rows to apply.")
+    if len(rows) > inbox_tend.MAX_VETTED:
+        raise HTTPException(422, f"At most {inbox_tend.MAX_VETTED} decisions at once.")
+    if write_admission.probe():
+        raise HTTPException(409, inbox_service.SLEEP_BUSY)
+    if inbox_tend.tidy_status()["running"] or web_lookup.sweep_running():
+        raise HTTPException(409, "The inbox is already being tidied.")
+    return await inbox_tend.apply_vetted(settings.memory_path, settings, rows)
 
 
 @router.get("/inbox/tidy")

@@ -309,7 +309,17 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   bank's `contacts.json` and thumbnails (Contacts is app-wide; token-gated like every route; counts only), so no first
   mention and no tail rematch uses a card again; what matched pages already gained stays. LinkedIn's kept export has
   its own forget, `DELETE /sources/linkedin-connections` (this bank; *Forget kept connections* in the LinkedIn panel).
-  The notes field is still never read. A bank's trash takes its people directory with
+  **The Contacts forget lands at once, even while Sleep runs (review of #393):** the app sends it once, so a 409 would
+  keep a disconnected address book's cards. It deletes the set and then stamps a forget marker,
+  `$CICADA_HOME/people/.contacts-forgotten` (ns), under the lock every save of the set takes. Every Sleep read of the
+  set is stamped with its read time (`load_waiting` → `READ_AT`) and treats a set read before the marker as empty
+  (`forgotten_since`): Stage 2's index matches nothing, Stage 5's `seed_page` seeds nothing, the tail's rematch writes
+  no further page and never saves the set back, and a sync that read the book before the forget never saves its
+  waiting cards. A sync sent before Disconnect but handled after the forget is dropped whole (409, nothing written):
+  the app mints a connection id at each Connect, sends it with every sync and names it in the forget, and the
+  marker keeps the last 32 ended ids (`connection_ended`; an older app sends none). Its admission class is
+  `MARKED` (`test_write_admission_sites.py`). The LinkedIn forget is admitted
+  (409 while Sleep holds the pages; its panel says so in words). The notes field is still never read. A bank's trash takes its people directory with
   it and a rename moves it (`people_directory.forget` / `rename`).
   LinkedIn connections (owner 2026-10-16: "extracting people profiles from my LinkedIn connections … would be nice";
   G154's pattern): the export's `Connections.csv` — or the export `.zip` carrying it — comes in only through its own

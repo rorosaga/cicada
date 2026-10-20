@@ -4748,6 +4748,9 @@ class ContactsLocalSyncRequest(CamelModel):
     """``POST /sources/contacts-local/sync`` — the WHOLE address book (a removal needs the complete set)."""
 
     contacts: list[ContactRecord] = []
+    # Review of #393: the app's Contacts connection this sync belongs to (minted at Connect). A sync from a connection
+    # the person ended is dropped (`contacts_local.connection_ended`); an older app sends none.
+    connection: Optional[str] = None
 
 
 class ContactsLocalSyncResponse(CamelModel):

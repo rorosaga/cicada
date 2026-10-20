@@ -39,6 +39,9 @@ struct ContactRecord: Encodable, Equatable, Sendable {
 /// `POST /sources/contacts-local/sync` — the whole address book (a removal needs the complete set).
 struct ContactsSyncPayload: Encodable, Equatable, Sendable {
     let contacts: [ContactRecord]
+    /// Review of #393: the connection this sync belongs to (minted at each Connect). The backend drops a sync from a
+    /// connection the person has since ended, so one sent before Disconnect never saves its cards back. Omitted when nil.
+    var connection: String? = nil
 }
 
 /// Task 3's answer; lenient, so a backend one field ahead or behind never fails the sync.
@@ -87,8 +90,9 @@ protocol ContactStore: AnyObject, Sendable {
 
 protocol ContactsSyncAPI: Sendable {
     func syncLocalContacts(_ payload: ContactsSyncPayload) async throws -> ContactsSyncResult
-    /// Review of #391: Contacts stopped — every bank's waiting cards are deleted on the backend.
-    func forgetWaitingContacts() async throws
+    /// Review of #391: Contacts stopped — every bank's waiting cards are deleted on the backend; `connection` names the
+    /// connection that ended, so a sync of it still in flight is dropped (review of #393).
+    func forgetWaitingContacts(connection: String?) async throws
 }
 
 extension APIClient: ContactsSyncAPI {}

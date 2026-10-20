@@ -411,3 +411,80 @@ def test_forgetting_linkedin_connections_stops_the_rematch(tmp_path, monkeypatch
     _entity(memory, "ivy-example", type="person", name="Ivy Example")
     assert linkedin_people.rematch(memory).paths == []
     config.get_settings.cache_clear()
+
+
+def test_the_contacts_forget_lands_at_once_while_sleep_runs_and_linkedins_waits(stage2, monkeypatch):
+    """Review of #393: the app sends the Contacts forget once — a 409 would keep a disconnected address book's cards —
+    so it is accepted while Sleep holds the pages and deletes at once. LinkedIn's forget (a click in a panel that says
+    a refusal in words) is still admitted."""
+    from api.services import linkedin_people, sleep_cycle
+
+    config.get_settings.cache_clear()
+    linkedin_people.save_directory(stage2.name, [linkedin_people.Connection(
+        "Ivy", "Example", "https://www.linkedin.com/in/ivy-example", "Acme Example", "Engineer", "2024-01-02")],
+        "2026-10-01")
+    c = TestClient(main.app)
+    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: True)
+    assert c.delete("/sources/contacts-local/waiting").json() == {"forgotten": 3}
+    assert not people_directory.path(stage2.name, contacts_local.WAITING_FILE).exists()
+    assert c.delete("/sources/linkedin-connections").status_code == 409
+    assert linkedin_people.directory_path(stage2.name).exists()
+    config.get_settings.cache_clear()
+
+
+def test_a_tail_rematch_that_read_the_cards_before_the_forget_neither_writes_nor_brings_them_back(stage2, monkeypatch):
+    _entity(stage2, "erin-example", type="person", name="Erin Example")
+    real_index = contacts_local._index
+
+    def forget_mid_run(*a, **k):   # the person stops Contacts after the tail read the cards, before it writes
+        contacts_local.forget_waiting()
+        return real_index(*a, **k)
+
+    monkeypatch.setattr(contacts_local, "_index", forget_mid_run)
+    assert contacts_local.rematch(stage2).paths == []
+    assert fact_sources.list_sources(stage2, "erin-example") == [], "no page takes a card read before the forget"
+    assert not people_directory.path(stage2.name, contacts_local.WAITING_FILE).exists(), "nothing saved back"
+    assert contacts_local.load_waiting(stage2.name) == []
+    monkeypatch.setattr(contacts_local, "_index", real_index)
+    assert contacts_local.rematch(stage2).paths == [], "and the next tail has nothing to match"
+
+
+def test_stage2_and_stage5_never_use_a_card_read_before_the_forget(stage2, monkeypatch):
+    before = contacts_local.waiting_index(stage2)          # Stage 2 read the set at the start of its batch
+    card = before.match(["Erin Example"])
+    assert card is not None and card["id"] == "C1"
+    contacts_local.forget_waiting()
+    assert before.match(["Erin Example"]) is None, "the index read earlier now matches nothing"
+    monkeypatch.setattr(contacts_local, "waiting_index", lambda *a, **k: before)
+    out = _resolve(stage2, _mention("Erin Example"))
+    assert not [ch for ch in out["changes"] if ch.get("contacts_card")]
+    frontmatter: dict = {"name": "Erin Example", "type": "person"}
+    contacts_local.seed_page(stage2, frontmatter, "erin-example", card)   # a change made before the forget
+    assert frontmatter == {"name": "Erin Example", "type": "person"}, "seeds nothing"
+    # A sync that read the address book before the forget never saves its waiting set after it.
+    assert contacts_local.save_waiting(stage2.name, [{"id": "C9", "given_name": "Hal", "family_name": "Sample"}],
+                                       read_at=card[contacts_local.READ_AT]) == 0
+    assert contacts_local.load_waiting(stage2.name) == []
+
+
+def test_a_sync_from_a_connection_the_person_ended_is_dropped_whole(client):
+    """Review of #393: a sync sent before Disconnect but handled after the forget never saves its cards back, and
+    writes no page. The app mints a connection id at each Connect and sends it with every sync and with the forget."""
+    c, memory = client
+    ended, fresh = "conn-1111aaaa", "conn-2222bbbb"
+    r = c.post("/sources/contacts-local/sync", json={"contacts": [_card("C1", "Hal", "Sample")], "connection": ended})
+    assert r.status_code == 200 and _waiting_file(memory).exists()
+    assert c.delete(f"/sources/contacts-local/waiting?connection={ended}").json() == {"forgotten": 1}
+    head = subprocess.run(["git", "-C", str(memory), "rev-parse", "HEAD"], capture_output=True, text=True).stdout
+    late = c.post("/sources/contacts-local/sync",
+                  json={"contacts": [_card("C1", "Hal", "Sample"), _card("C2", "Bob", "Example", email=True)],
+                        "connection": ended})
+    assert late.status_code == 409
+    assert not _waiting_file(memory).exists(), "the late sync brought no card back"
+    assert subprocess.run(["git", "-C", str(memory), "rev-parse", "HEAD"], capture_output=True,
+                          text=True).stdout == head, "and wrote no page"
+    assert fact_sources.list_sources(memory, "bob-example") == []
+    again = c.post("/sources/contacts-local/sync", json={"contacts": [_card("C1", "Hal", "Sample")],
+                                                         "connection": fresh})
+    assert again.status_code == 200 and _waiting_file(memory).exists(), "a new Connect syncs as ever"
+    assert _post(c, [_card("C1", "Hal", "Sample")])["waiting"] == 1, "an older app (no connection id) as before"

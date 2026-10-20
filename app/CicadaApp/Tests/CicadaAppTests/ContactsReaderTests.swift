@@ -27,7 +27,12 @@ final class FakeContactsAPI: ContactsSyncAPI {
     /// The bank each post named (`BankScope.origin`, G183(d)).
     private(set) var banks: [String?] = []
     private(set) var forgets = 0
-    func forgetWaitingContacts() async throws { forgets += 1 }
+    /// The connection each forget ended (review of #393).
+    private(set) var forgotConnections: [String?] = []
+    func forgetWaitingContacts(connection: String?) async throws {
+        forgets += 1
+        forgotConnections.append(connection)
+    }
     func syncLocalContacts(_ payload: ContactsSyncPayload) async throws -> ContactsSyncResult {
         payloads.append(payload)
         banks.append(BankScope.origin)
@@ -114,6 +119,26 @@ final class ContactsReaderTests: XCTestCase {
         await r.forgetTask?.value
         XCTAssertEqual(r.status, .denied)
         XCTAssertEqual(api.forgets, 2)
+    }
+
+    /// Review of #393: each Connect mints a connection id, every sync carries it, and the forget names the one it ends —
+    /// so the backend drops a sync of that connection still in flight. A reconnect is a new connection.
+    func testSyncsCarryTheConnectionAndTheForgetEndsIt() async {
+        let store = FakeContactStore()
+        let api = FakeContactsAPI()
+        let r = reader(store, api, defaults())
+        await r.connect()
+        let first = try? XCTUnwrap(api.payloads.first?.connection)
+        XCTAssertNotNil(first)
+        r.disconnect()
+        await r.forgetTask?.value
+        XCTAssertEqual(api.forgotConnections, [first])
+        await r.connect()
+        let second = api.payloads.last?.connection
+        XCTAssertNotNil(second)
+        XCTAssertNotEqual(second, first, "a reconnect is a new connection")
+        let json = String(decoding: try! JSONEncoder().encode(ContactsSyncPayload(contacts: [])), as: UTF8.self)
+        XCTAssertFalse(json.contains("connection"), "no id, no key")
     }
 
     func testSyncNowAfterAccessWasTakenAwaySaysSoInWords() async {

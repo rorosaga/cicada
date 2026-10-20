@@ -32,7 +32,11 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import json
 import os
+import re
+import threading
+import time
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -63,6 +67,11 @@ FACT_PREDICATES = (
     ("has_birthday", "birthday"),
 )
 SLEEP_REFUSAL = "Cicada is tidying up your memory right now — Contacts will sync again in a minute."
+
+
+class Disconnected(ValueError):
+    """A sync from a Contacts connection the person has since ended (review of #393): its request was sent before
+    Disconnect and handled after the forget. Nothing is read from it and nothing is written."""
 
 
 class PayloadError(ValueError):
@@ -293,6 +302,9 @@ def sync(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict:
     Owner ruling 2026-10-20: a card that matches no page is kept waiting outside the bank (:func:`save_waiting`) —
     rewritten whole by every sync, so an edited or deleted card is gone from it at once — and the bank gets nothing
     for it. The person's own card (``is_me``) belongs to the owner's page (G169), never to a namesake, and never waits."""
+    read_at = time.time_ns()   # a forget after this moment wins over this sync's waiting set (`forgotten_since`)
+    if connection_ended(payload.get("connection")):
+        raise Disconnected("Contacts was disconnected; this sync was sent before that and is dropped.")
     memory_path = Path(memory_path)
     bank = bank or memory_path.name
     contacts = [c for c in (payload.get("contacts") or []) if 0 < len(str(c.get("id") or "").strip()) <= ID_CAP]
@@ -336,7 +348,7 @@ def sync(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict:
         photo = _photo(contact.get("photo_b64")) if contact is not None else None
         if _write_page(memory_path, eid, contact, photo, bank=bank, refused=refused, today=today, counts=counts):
             paths.append(f"entities/{eid}.md")
-    kept = save_waiting(bank, waiting)
+    kept = save_waiting(bank, waiting, read_at=read_at)
     return {"contacts": len(contacts), "matched": len(matched), "people": len(matched), "ambiguous": ambiguous,
             "unmatched": unmatched, "waiting": kept, **counts, "paths": paths}
 
@@ -359,10 +371,75 @@ def _waiting_photos(bank: str) -> Path:
     return people_directory.path(bank, WAITING_PHOTOS)
 
 
-def save_waiting(bank: str, contacts: list[dict]) -> int:
+#: The forget marker (review of #393): when the person last stopped Contacts, in nanoseconds — one file for every bank,
+#: in ``$CICADA_HOME/people/``, outside every bank. A set read before it is a set the person took back.
+FORGOTTEN_MARKER = ".contacts-forgotten"
+#: The private key a loaded card carries: when its set was read (``load_waiting``), checked against the marker.
+READ_AT = "_read_at"
+#: A forget and a save of the waiting set never interleave (the backend is the directory's one writer).
+_WAITING_LOCK = threading.Lock()
+#: The app's Contacts connections the person ended (a random id minted at each Connect, sent with every sync and with
+#: the forget): a sync still carrying one is dropped. The newest few are kept — an id is never reused.
+ENDED_KEEP = 32
+_CONNECTION_ID = re.compile(r"[A-Za-z0-9-]{8,64}")
+
+
+def _marker_body() -> dict:
+    try:
+        body = json.loads(_marker().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+def connection_ended(connection) -> bool:
+    """Did the person end this Contacts connection (Disconnect, or access taken away)? ``None`` (an older app): no."""
+    if not isinstance(connection, str) or not _CONNECTION_ID.fullmatch(connection):
+        return False
+    return connection in (_marker_body().get("ended") or [])
+
+
+def _marker() -> Path:
+    return people_directory.folder("x").parent / FORGOTTEN_MARKER
+
+
+def forgotten_at() -> int:
+    """When the person last stopped Contacts (ns), 0 if never."""
+    try:
+        return int(_marker_body().get("at") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def forgotten_since(read_at) -> bool:
+    """Was the waiting set taken back after ``read_at`` (a read's ``time.time_ns()``, or a card's ``READ_AT``)? Then
+    whatever was read is treated as empty: never saved back, never matched, never seeded."""
+    if read_at is None:
+        return False
+    try:
+        return forgotten_at() > int(read_at)
+    except (TypeError, ValueError):
+        return True
+
+
+def card_live(card: dict) -> bool:
+    """A loaded card the person has not taken back since it was read."""
+    return not forgotten_since(card.get(READ_AT))
+
+
+def save_waiting(bank: str, contacts: list[dict], *, read_at: int | None = None) -> int:
     """Keep the cards that matched no page — the whole set, replacing the last one, so a card edited away or deleted
     in the address book leaves with the next sync, thumbnail included. Returns how many wait. A bank with nothing
-    waiting keeps no file."""
+    waiting keeps no file. With ``read_at`` (when the set being saved was read), a forget since then wins: nothing is
+    saved and 0 is returned — a sync or a rematch that started before the person stopped Contacts never brings a card
+    back."""
+    with _WAITING_LOCK:
+        if forgotten_since(read_at):
+            return 0
+        return _save_waiting(bank, contacts)
+
+
+def _save_waiting(bank: str, contacts: list[dict]) -> int:
     rows: list[dict] = []
     photos: dict[str, bytes] = {}
     for contact in contacts:
@@ -396,8 +473,14 @@ def save_waiting(bank: str, contacts: list[dict]) -> int:
 
 
 def load_waiting(bank: str) -> list[dict]:
+    """The waiting cards, each stamped with when they were read (``READ_AT``, taken before the read) so a later use asks
+    :func:`card_live` — the forget removes the file first and stamps the marker after, so a read that saw the file
+    always reads as taken back."""
+    read_at = time.time_ns()
     rows = people_directory.load_json(bank, WAITING_FILE).get("cards")
-    return [r for r in rows if isinstance(r, dict) and str(r.get("id") or "").strip()] if isinstance(rows, list) else []
+    if not isinstance(rows, list):
+        return []
+    return [{**r, READ_AT: read_at} for r in rows if isinstance(r, dict) and str(r.get("id") or "").strip()]
 
 
 def waiting_photo(bank: str, card: dict) -> tuple[bytes, str] | None:
@@ -412,15 +495,34 @@ def waiting_photo(bank: str, card: dict) -> tuple[bytes, str] | None:
     return _photo(base64.b64encode(data).decode("ascii"))
 
 
-def forget_waiting() -> int:
+def forget_waiting(connection: str | None = None) -> int:
     """The person stopped Contacts (Disconnect, or access taken away in System Settings): every bank's waiting cards
     and their thumbnails are deleted — Contacts is connected app-wide, so its kept cards go app-wide too (review of
     #391). Returns how many cards were forgotten. What a sync already wrote on matched pages stays (git holds it; the
-    person removes a source as ever). Never raises for a folder that is already gone."""
+    person removes a source as ever). Never raises for a folder that is already gone.
+
+    Accepted even while Sleep runs (review of #393): the files go at once, then the marker is stamped, both under the
+    lock every save takes — so whatever Sleep read before it (Stage 2's index, Stage 5's seed, the tail's rematch and
+    its save) is treated as empty (:func:`forgotten_since`), and nothing brings a card back."""
     root = people_directory.folder("x").parent
     forgotten = 0
-    if not root.is_dir():
-        return 0
+    with _WAITING_LOCK:
+        if root.is_dir():
+            forgotten = _forget_files(root)
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        ended = [c for c in (_marker_body().get("ended") or []) if isinstance(c, str)]
+        if isinstance(connection, str) and _CONNECTION_ID.fullmatch(connection) and connection not in ended:
+            ended = (ended + [connection])[-ENDED_KEEP:]
+        marker = _marker()
+        tmp = marker.with_name(f"{FORGOTTEN_MARKER}.tmp")
+        tmp.write_text(json.dumps({"at": time.time_ns(), "ended": ended}), encoding="utf-8")
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, marker)
+    return forgotten
+
+
+def _forget_files(root: Path) -> int:
+    forgotten = 0
     for folder in sorted(p for p in root.iterdir() if p.is_dir() and not p.is_symlink()):
         forgotten += len(load_waiting(folder.name))
         (folder / WAITING_FILE).unlink(missing_ok=True)
@@ -455,7 +557,8 @@ class WaitingIndex:
             if " " not in key:
                 continue
             for card in self.cards.get(key, []):
-                found[str(card["id"])] = card
+                if card_live(card):   # a card the person took back since this index was read matches nothing
+                    found[str(card["id"])] = card
         return next(iter(found.values())) if len(found) == 1 else None
 
 
@@ -482,7 +585,10 @@ def card_name(card: dict) -> str:
 
 def seed_page(memory_path: Path, frontmatter: dict, entity_id: str, card: dict, *, bank: str | None = None) -> None:
     """A page born from a card's first mention (Stage 5's create): the card's G61 sources and its thumbnail, exactly
-    what a sync writes on a matched page. Mutates ``frontmatter``; the page is written by its caller."""
+    what a sync writes on a matched page. Mutates ``frontmatter``; the page is written by its caller. A card taken back
+    since it was read seeds nothing."""
+    if not card_live(card):
+        return
     memory_path = Path(memory_path)
     bank = bank or memory_path.name
     _apply_card(frontmatter, entity_id, card, waiting_photo(bank, card), bank=bank,
@@ -510,6 +616,7 @@ def rematch(memory_path: Path, *, bank: str | None = None, skip: frozenset[str] 
     cards = load_waiting(bank)
     if not cards:
         return report
+    read_at = cards[0][READ_AT]
     keys, _carrying, owner = _index(memory_path)
     # The owner's page takes only the person's own card, and only from a sync (G169): never a waiting namesake.
     keys = {k: ids - {owner} for k, ids in keys.items()} if owner else keys
@@ -529,6 +636,8 @@ def rematch(memory_path: Path, *, bank: str | None = None, skip: frozenset[str] 
         if len(found) != 1 or rel in skip:
             continue
         card = found[0]
+        if forgotten_since(read_at):
+            break   # the person stopped Contacts mid-run: no further page takes a card, and the set is not saved back
         changed = _write_page(memory_path, eid, card, waiting_photo(bank, card), bank=bank, refused=refused,
                               today=today, counts=_counts())
         done.add(str(card["id"]))
@@ -537,7 +646,7 @@ def rematch(memory_path: Path, *, bank: str | None = None, skip: frozenset[str] 
             report.paths.append(rel)
     if done:
         save_waiting(bank, [{**c, "photo_b64": _b64(waiting_photo(bank, c))} for c in cards
-                            if str(c["id"]) not in done])   # the rest, thumbnails kept
+                            if str(c["id"]) not in done], read_at=read_at)   # the rest, thumbnails kept
     if report.paths:
         bank_index.invalidate(memory_path)
     return report

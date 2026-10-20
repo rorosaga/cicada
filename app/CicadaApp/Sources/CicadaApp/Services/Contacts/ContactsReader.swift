@@ -50,6 +50,9 @@ final class ContactsReader {
     }
 
     private func tokenKey(_ bank: String) -> String { ServerConnection.current.scoped("cicada.contacts.\(bank).token") }
+    /// Review of #393: the current connection's id — minted at Connect, sent with every sync and with the forget that
+    /// ends it, so the backend drops a sync of an ended connection that was still in flight.
+    private var connectionKey: String { ServerConnection.current.scoped("cicada.contacts.connection") }
     private func lastPostKey(_ bank: String) -> String {
         ServerConnection.current.scoped("cicada.contacts.\(bank).lastPost")  // per connection (G181 phase 3)
     }
@@ -83,6 +86,7 @@ final class ContactsReader {
             return
         }
         defaults.set(true, forKey: Self.enabledKey)
+        defaults.set(UUID().uuidString, forKey: connectionKey)
         enabled = true
         arm()
         await sync()
@@ -108,7 +112,9 @@ final class ContactsReader {
     /// mention and no tail rematch uses one again. Best effort: a backend that is down keeps them until the next stop.
     private func forgetWaiting() {
         let api = self.api
-        forgetTask = Task { try? await api.forgetWaitingContacts() }
+        let connection = defaults.string(forKey: connectionKey)
+        defaults.removeObject(forKey: connectionKey)
+        forgetTask = Task { try? await api.forgetWaitingContacts(connection: connection) }
     }
 
     func syncNow() async { await sync() }
@@ -181,7 +187,8 @@ final class ContactsReader {
         try Task.checkCancellation()
         guard !records.isEmpty else { throw ContactsReadError.empty }
         activity?.progressed(Self.channel, detail: Copy.contactsMatching(records.count))
-        let result = try await api.syncLocalContacts(ContactsSyncPayload(contacts: records))
+        let result = try await api.syncLocalContacts(
+            ContactsSyncPayload(contacts: records, connection: defaults.string(forKey: connectionKey)))
         try Task.checkCancellation()
         defaults.set(token, forKey: tokenKey(bank))
         defaults.set(now(), forKey: lastPostKey(bank))

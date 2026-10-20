@@ -89,6 +89,9 @@ MATCH_ALIAS = "alias"
 #: The matches that are the person's connection beyond doubt: their link may draw the page's photo before they take it.
 CONFIDENT_MATCHES = frozenset({MATCH_LINK, MATCH_NAME})
 SLEEP_REFUSAL = "Cicada is tidying up your memory right now — add your LinkedIn connections again in a minute."
+#: The forget's 409 while Sleep holds the pages (its tail may be reading the kept export).
+FORGET_SLEEP_REFUSAL = ("Cicada is tidying up your memory right now — forget your kept connections again in a "
+                        "minute.")
 _DATE_FORMATS = ("%d %b %Y", "%d %B %Y", "%Y-%m-%d", "%d-%b-%y", "%d-%b-%Y", "%m/%d/%y", "%m/%d/%Y")
 _SLUG_RE = re.compile(r"[^/?#\s]{1,100}")
 

@@ -101,7 +101,8 @@ PROBE_SITES = {
     "api/services/explore_queue.py": "the same lease judgement and the sync stamp",
     "api/services/inbox_service.py": "the early 409 before an answer's model call; the admitted write asks again",
     "api/services/paper_metadata.py": "a long networked run's stop check; its writes are left to the tail (disclosed)",
-    "api/routers/inbox.py": "the one-time tidy's and the web-check sweep's early 409s (ruling 29; 2026-10-19); each "
+    "api/routers/inbox.py": "the one-time tidy's, its vetted apply's and the web-check sweep's early 409s (ruling 29; "
+                            "2026-10-19/20); each "
                             "settle admits itself (`_settle_one`, `web_lookup._settle_admitted`)",
     "api/services/inbox_tend.py": "the tidy's stop check before each judge call; each settle admits itself and asks "
                                   "again (`_settle_one`)",
@@ -351,6 +352,8 @@ INTAKE = ("intake: creates NEW media pages and episodes in a batch with fetches 
 CAPTURE = "capture: episodes and capture sidecars only (Awake, ungated by rail) — never an entity page"
 REGISTRY = "registry: one bank file Sleep never reads or rewrites, committed alone"
 OUTSIDE = "outside: writes nothing in the bank (settings, credentials, ledger, caches, the video queue)"
+MARKED = ("marked: writes only outside every bank, at once even while Sleep runs — what Sleep reads of it in its "
+          "window it re-checks against a marker the write stamps, so no hold is needed")
 SLEEP = "sleep: Sleep's own controls"
 BANKS = "banks: bank lifecycle — refused while a run is pinned to its bank"
 NONE = "none: reads or computes; writes nothing"
@@ -364,6 +367,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     # Ruling 29: the one-time tidy settles each question under its own admission, refused while Sleep holds the pages.
     "POST /inbox/tidy": (ADMITTED, "api.services.inbox_tend._settle_one"),
     "POST /inbox/web-check": (ADMITTED, "api.services.web_lookup._settle_admitted"),   # the 2026-10-19 sweep
+    # Owner rule 2026-10-20: the vetted apply of a coordinator's trace, each row settled under its own admission.
+    "POST /inbox/tidy/apply": (ADMITTED, "api.services.inbox_tend._settle_one"),
     "POST /nudges/{nudge_id}/resolve": (ADMITTED, "api.services.inbox_service.resolve"),
     "POST /clarifications/{clarification_id}": (ADMITTED, "api.services.inbox_service.resolve"),
     "POST /entities/{entity_id}/read": (OUTSIDE, None),
@@ -438,6 +443,13 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/contacts-local/sync": (ADMITTED, None),
     "POST /sources/linkedin-connections/preview": (NONE, None),   # reads pages, writes nothing, keeps nothing
     "POST /sources/linkedin-connections/import": (ADMITTED, None),
+    # Review of #391/#393: the Contacts forget writes only `$CICADA_HOME/people/*`, at once, even while Sleep runs —
+    # the app sends it once and a 409 would keep a disconnected address book's cards. It stamps a forget marker that
+    # every Sleep read of the waiting set honours (Stage 2's index, Stage 5's seed, the rematch and its save back).
+    "DELETE /sources/contacts-local/waiting": (MARKED, None),
+    # The LinkedIn forget is the person's click in a panel that shows a refusal in words: admitted, 409 while Sleep's
+    # tail may be reading the kept export.
+    "DELETE /sources/linkedin-connections": (ADMITTED, None),
     "POST /sources/messages/sync": (CAPTURE, None),            # G179: one ticked conversation's sittings
     "PUT /sources/messages/settings": (CAPTURE, None),         # G179: the registry file + a re-attributed sitting
     "POST /sources/messages/conversations": (NONE, None),      # G179: detection over names and counts, stores nothing

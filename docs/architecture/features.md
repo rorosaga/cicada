@@ -350,7 +350,30 @@ bank's write admission and the tidy stopping before any judge call or settle onc
 `$CICADA_HOME/inbox_tidy/<bank-id>.json` (counts and enums only, outside every bank), so `GET /inbox/tidy` still
 answers after a restart — `interrupted: true` when the run was cut short (each settle had already committed alone); `judge=true` lets the judges (duplicates, conflicts, label folds, fading pages) read with the
 person's chosen engine, their plan included (a plan limit pauses it). `api/scripts/inbox_tidy_dry_run.py --bank <path>
-[--judge]` measures it offline, writing nothing.
+[--judge]` measures it offline, writing nothing. **The coordinator's trace and vetted apply (owner rule 2026-10-20:
+read every proposed answer before any bulk write).** `api/scripts/inbox_tidy_trace.py trace --bank <path> --out <file>
+--engine plan --model haiku [--kind K] [--limit N]` is the same dry run, in process (read-only: no backend, no
+admission, no settle, no commit, no ledger row — only the derived lexical index may be brought up to date), writing one
+JSON line per question to a 0600 file the caller names, refused inside the bank or the memory root: `id`, `kind`, the
+two `names`, `decision` (`merge` / `keep_apart` / `settle` / `leave`), `rule`, the judge's own `confidence` (null for
+an engine-free rule), a one-line `reason`, and for a decided question an `apply` block — the decision as made, with
+hashes of the question file and every page it read. stdout gets counts only. `--engine plan` pins the judge to the
+Claude plan with that model (`llm_mode=agent` on a copy): the bank's configured engine is never resolved or called.
+`… apply --vetted <file>` sends the rows still carrying `apply` to `POST /inbox/tidy/apply` (ruling 21a: token, pinned
+bank, `/healthz` root check), which settles each through `inbox_tend.apply` — the person's own resolver, Sleep's undoable
+commit, one at a time under the bank's write admission. **The row only chooses a question; the server decides
+(`vetted_decision`, review of #393), whatever the body says:** the question file is the traced bytes and not put off,
+taken back or a proposed edit; the rule is in `VETTED_RULES` for that kind with exactly the request shape it produces
+(a merge only into the question's own target, an option only among its keys); an engine-free rule is decided again
+and that fresh decision is applied; a judged rule needs `policy()` to still answer `needs_judge` (so the person,
+type-mismatch and same-page refusals hold) and a guard over at least every page the judge reads, unchanged; a name
+question (`asks: name`) and any free `answer` settle only as `said_on_record`, on the person's words located again
+(`persons_span`) in a conversation that does not raise it, said after every side of it, and only when those words
+SAY the answer (`answer_supported`, no model: a free answer's words, a name as one phrase, a conflict side's label
+or claim object, a follow-up's state word — the same check Sleep's own reading applies in `_answer_decision`); the model and engine become
+the author only for a rule an engine read and only as an id that engine uses — any other settle is Sleep's own
+(`cicada`). Per-id outcomes: `settled`, `changed`, `refused` (a code),
+`not_reached`. Busy for an updater while it runs, like the tidy; 409 while Sleep, a tidy or a sweep runs.
 
 **Decay is no longer the special case.** Served as `Still tracking {name}?` with `archive` / `keep`,
 synthesised at read from the page's `last_referenced`, never written. (The item *file* Sleep writes for
