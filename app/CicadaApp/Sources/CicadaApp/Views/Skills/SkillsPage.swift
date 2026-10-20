@@ -1,12 +1,13 @@
 import AppKit
 import SwiftUI
 
-/// The Skills page (owner 2026-10-15, third take) — the tenth rail page, after Looks (DR-22). One plain table: the
-/// skill (its name and one muted line), the agents that have it (one pull-down that ticks agents on and off), and one
-/// quiet word of status; details in a side column when a row is selected; adding a skill from one field in the
-/// header (⌘N); an agent's request as one line above the table; tabs Installed · Discover · Drafts. No pictures on
-/// rows. Applies DR-22, DR-25, DR-37, DR-40, DR-41, DR-43 (never blank over good data), DR-44, DR-45, DR-47, DR-48,
-/// DR-59.
+/// The Skills page (owner 2026-10-15, third take) — a rail page at ⌘4 (DR-22). One plain table: the skill (its name and
+/// one muted line), the agents that have it (one pull-down that ticks agents on and off), and one quiet word of status;
+/// details in a side column when a row is selected; an agent's request as one line above the table. The top row is
+/// every other page's (owner 2026-10-20): the tabs Installed · Discover · Drafts in the eyebrow row (DR-25, DR-45),
+/// then Check for updates and a labelled *Add a skill* (DR-75, ⌘N) that opens the Add sheet. No pictures on rows.
+/// Applies DR-22, DR-25, DR-37, DR-40, DR-41, DR-43 (never blank over good data), DR-44, DR-45, DR-47, DR-48, DR-59,
+/// DR-75.
 ///
 /// The app decides nothing: the backend reads the folders, checks upstream and writes every file
 /// (`api/services/skill_store.py`); a click here is one route (`SkillsPageModel`).
@@ -17,18 +18,13 @@ struct SkillsPage: View {
     @State private var reading: SkillDraft?
     @State private var tab: SkillsTab?
     @State private var selected: String?
-    @State private var addText = ""
-    @FocusState private var addFocused: Bool
     @Environment(AppRouter.self) private var router: AppRouter?
     @Environment(ProvenanceRouter.self) private var provenance: ProvenanceRouter?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        SkillsPageView(model: model, tab: $tab, selected: $selected, addText: $addText, addFocused: $addFocused,
-                       onAdd: { source in
-                           adding = SkillAddInput(source: source, requestId: nil, agents: [])
-                           addText = ""
-                       },
+        SkillsPageView(model: model, tab: $tab, selected: $selected,
+                       onAdd: { adding = SkillAddInput(source: "", requestId: nil, agents: []) },
                        onReview: { request in
                            adding = SkillAddInput(source: request.source ?? "", requestId: request.id,
                                                   agents: request.agents)
@@ -43,10 +39,6 @@ struct SkillsPage: View {
                     tab = nil
                     selected = nil
                 }
-            }
-            .background {
-                // ⌘N — the add field (a page-local key; no menu item claims it on this page).
-                Button("") { addFocused = true }.keyboardShortcut("n", modifiers: .command).hidden()
             }
             .sheet(item: $adding) { input in
                 AddSkillSheet(model: model, input: input, agents: model.data?.agents ?? []) { adding = nil }
@@ -79,14 +71,12 @@ struct SkillAddInput: Identifiable {
 /// skill opens the triage list (two-line rows) beside its detail, which takes the rest; the Reader, when something
 /// opens it, is the third column, and DR-27 hides the list before the detail or the Reader drop below their floors
 /// ("‹ N skills" brings it back). ↑/↓ move the open skill, ⏎ steps into it, Esc closes the rightmost (DR-28, DR-68).
-/// The header above the columns is the owner's (2026-10-15) and is unchanged.
+/// The top row is every other page's since 2026-10-20 (owner): the tabs in the eyebrow row, then the page's actions.
 struct SkillsPageView: View {
     let model: SkillsPageModel
     @Binding var tab: SkillsTab?
     @Binding var selected: String?
-    @Binding var addText: String
-    var addFocused: FocusState<Bool>.Binding
-    var onAdd: (String) -> Void = { _ in }
+    var onAdd: () -> Void = {}
     var onReview: (SkillRequest) -> Void = { _ in }
     var onPublish: (SkillDraft) -> Void = { _ in }
     var onRead: (SkillDraft) -> Void = { _ in }
@@ -136,21 +126,24 @@ struct SkillsPageView: View {
         }
     }
 
-    /// The owner's header (2026-10-15): the add field, an agent's requests, the tabs, a message and running jobs.
+    /// The top row (owner 2026-10-20: "align the top row with every other page"): the tabs in the eyebrow row, Check
+    /// for updates, and *Add a skill* (DR-75, ⌘N), which opens the Add sheet; then an agent's requests, a message and
+    /// running jobs.
     private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
             EyebrowRow(eyebrow: Copy.Skills.page) {
                 HStack(spacing: CicadaTheme.spacingSM) {
-                    TextField(Copy.Skills.addPlaceholder, text: $addText)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: CicadaTheme.scaled(340))
-                        .focused(addFocused)
-                        .onSubmit { submitAdd() }
-                        .help(Copy.Skills.addHelp)
-                    KeyHint("⌘N")
+                    TextTabs(tabs: [TextTab(id: nil, label: Copy.Skills.installed, count: data?.installed.count),
+                                    TextTab(id: .discover, label: Copy.Skills.discover, count: nil),
+                                    TextTab(id: .drafts, label: Copy.Skills.drafts,
+                                            count: (data?.drafts.count ?? 0) == 0 ? nil : data?.drafts.count)],
+                             selection: $tab)
                     IconButton(systemName: "arrow.clockwise", help: Copy.Skills.checkHelp,
                                accessibilityLabel: Copy.Skills.check) { Task { await model.checkNow() } }
                         .disabled(model.checking)
+                        .padding(.leading, CicadaTheme.spacingSM)
+                    PageAddButton(title: Copy.Skills.add, help: Copy.Skills.addHelp,
+                                  shortcut: KeyboardShortcut("n", modifiers: .command), action: onAdd)
                 }
             }
             ForEach(data?.requests ?? []) { request in
@@ -161,13 +154,6 @@ struct SkillsPageView: View {
                     .padding(.horizontal, CicadaTheme.spacingGutter)
                     .padding(.bottom, CicadaTheme.spacingSM)
             }
-            TextTabs(tabs: [TextTab(id: nil, label: Copy.Skills.installed, count: data?.installed.count),
-                            TextTab(id: .discover, label: Copy.Skills.discover, count: nil),
-                            TextTab(id: .drafts, label: Copy.Skills.drafts,
-                                    count: (data?.drafts.count ?? 0) == 0 ? nil : data?.drafts.count)],
-                     selection: $tab)
-                .padding(.horizontal, CicadaTheme.spacingGutter)
-                .padding(.bottom, CicadaTheme.spacingMD)
             if let message = model.message {
                 Label(message, systemImage: "exclamationmark.circle")
                     .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
@@ -182,11 +168,6 @@ struct SkillsPageView: View {
                 .padding(.horizontal, CicadaTheme.spacingGutter).padding(.bottom, CicadaTheme.spacingSM)
             }
         }
-    }
-
-    private func submitAdd() {
-        let text = addText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !text.isEmpty { onAdd(text) }
     }
 
     // MARK: Paths (R-DL8, DR-28, DR-60)
