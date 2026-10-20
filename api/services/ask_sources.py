@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Callable
 from pathlib import Path
 
 from loguru import logger
@@ -36,6 +37,12 @@ MAX_EPISODES = 8
 MAX_EXCERPTS = 10
 EXCERPT_CHARS = 600
 TOTAL_CHARS = 6000
+#: A count's or a list's breadth (:func:`gather` ``breadth``): one line of at most this many characters from each of
+#: up to :data:`ENUM_EPISODES` conversations, then second lines, inside :data:`BREADTH_EXCERPTS` and
+#: :data:`BREADTH_CHARS` — a conversation that told two of the things keeps both.
+BREADTH_EXCERPT_CHARS = 300
+BREADTH_EXCERPTS = 24
+BREADTH_CHARS = 7200
 #: A reply this short is shown with the turn it answers ("Yes, Sweden!" means nothing alone).
 SHORT_REPLY_CHARS = 160
 CONTEXT_CHARS = 240
@@ -185,9 +192,11 @@ def _first_match(text: str, terms: set[str]) -> int | None:
 
 def gather(memory_path: Path, question: str, found: list[Pointer], *, owner_name: str | None = None,
            terms: set[str] | None = None, max_episodes: int = MAX_EPISODES, max_excerpts: int = MAX_EXCERPTS,
-           total_chars: int = TOTAL_CHARS) -> list[Excerpt]:
+           total_chars: int = TOTAL_CHARS, breadth: bool = False) -> list[Excerpt]:
     """The excerpts for ``question`` from the episodes ``found`` points at, oldest first (see the module doc).
-    ``terms``: the question's words to rank turns by (default: all of its subject words)."""
+    ``terms``: the question's words to rank turns by (default: all of its subject words). ``breadth`` (a count or
+    a list): each episode's best turn first, in rank order, each at most :data:`BREADTH_EXCERPT_CHARS` — one line from
+    every conversation the shown items came from before a second from any — then the rest by score."""
     terms = set(terms) if terms else text_fold.subject_terms(question)
     terms = (terms - QUESTION_WORDS) or terms
     by_episode: dict[str, dict] = {}
@@ -222,12 +231,24 @@ def gather(memory_path: Path, question: str, found: list[Pointer], *, owner_name
             words = text_fold.subject_terms(body)
             overlap = len(terms & words)
             span = next((p for p in spans if turn.start <= p.start < turn.end), None)
-            if not overlap and span is None:
+            # A count or a list follows a shown line to the turn that told it by the line's own words (two of them,
+            # or its only one): "went camping at the beach" shares nothing with "what activities …".
+            told = breadth and bool(extra) and len(extra & words) >= min(2, len(extra))
+            if not overlap and span is None and not told:
                 continue
             score = 2 * overlap + min(len(extra & words), 3) + (3 if span is not None else 0)
             candidates.append((score, rank, i, ep, turn, span))
 
     candidates.sort(key=lambda c: (-c[0], c[1], c[2]))
+    if breadth:
+        firsts: dict[str, tuple] = {}
+        for c in candidates:
+            firsts.setdefault(c[3], c)
+        lead = sorted(firsts.values(), key=lambda c: c[1])
+        led = {id(c) for c in lead}
+        candidates = lead + [c for c in candidates if id(c) not in led]
+        return _take(candidates, docs, terms, owner_name, max_excerpts=max_excerpts, total_chars=total_chars,
+                     excerpt_chars=BREADTH_EXCERPT_CHARS)
     return _take(candidates, docs, terms, owner_name, max_excerpts=max_excerpts, total_chars=total_chars)
 
 
@@ -296,11 +317,17 @@ SEARCH_CHARS = 3000
 #: A count or a list ("how many times …", "which … have I …") needs every conversation that holds it, not the best
 #: four (LongMemEval multi-session 0/2, LoCoMo's list questions): past the plain leg's four, up to this many
 #: conversations in all, each one short dated line, inside a budget of its own — still bounded, still no model. The
-#: plain leg's four are read exactly as for any question, so a value question the gate mistakes for a count ("how
-#: many stars do I need") loses nothing.
-ENUM_EPISODES = 10
+#: plain leg's four are read as for any question but for whose turn counts (:data:`OTHER_SPEAKER_SHARE`), so a value
+#: question the gate mistakes for a count ("how many stars do I need") keeps its own turns. 2026-10-20: ten → sixteen
+#: conversations (the broad sample: LoCoMo multi-hop 147 of 322 answer turns shown, LongMemEval_S multi-session 28 of
+#: 71; a LoCoMo bank holds 19–32 conversations).
+ENUM_EPISODES = 16
 ENUM_EXCERPT_CHARS = 300
-ENUM_CHARS = 1800
+ENUM_CHARS = 3600
+#: A count or a list about one speaker ("how many … have I …", "what books has <name> read"): another speaker's turn
+#: counts this share of its words' weight — the other side of a chat repeats the words ("did you enjoy the wedding?")
+#: but never did the thing.
+OTHER_SPEAKER_SHARE = 0.5
 #: Episode chunks read from the vector index before fusing (a chunk is a window of a conversation, so a few
 #: conversations can fill them).
 SEARCH_CHUNKS = 16
@@ -333,8 +360,35 @@ SHAPE_ANCHORED = "anchored"      # one past occasion (a day it names, the first 
 _ENUMERATE = re.compile(
     r"\b(?:how many|how often|number of|in total|total (?:number|amount|count|cost|time)|"
     r"list (?:all|every|each|the|my)|what are all|name (?:all|every|each)|every (?:time|one)|each time|"
-    r"all (?:the|of the|of my|my) \w+)\b"
-    r"|\b(?:what|which) (?:\w+ ){0,2}\w+s (?:has|have|did|does|do)\b")
+    r"all (?:the|of the|of my|my) \w+)\b")
+#: Spanish counts (2026-10-20): "¿cuántas veces …?", "¿cuántos libros …?", "en total", "todas las veces".
+#: Not "¿cuántos años tiene …?" (an age) nor "todos los días" (a habit: "¿a qué hora me levanto todos los días?").
+_ES_ENUMERATE = re.compile(
+    r"\bcu[aá]nt[oa]s\b(?! a[nñ]os\b)|\ben total\b"
+    r"|\btod[oa]s (?:las|los|mis) (?!d[ií]as\b|semanas\b|ma[nñ]anas\b|tardes\b|noches\b|meses\b|a[nñ]os\b)\w+")
+#: A list asked as a plain question ("where has <name> camped?", "what are <name>'s hobbies?", "which of my friends
+#: …", "what kind of indoor activities has …") — read as a count or a list only when nothing else in the question
+#: (a named day, an outcome) says what it is (2026-10-20: 15 of LoCoMo's 100 multi-hop list questions were read as
+#: one fact).
+#: "Which books have I read", "what activities does <name> do" — a list, unless a superlative asks for one of them.
+_PLURAL_ASK = re.compile(r"\b(?:what|which) (?:\w+ ){0,2}\w+s (?:has|have|did|does|do)\b")
+#: A superlative asks for one thing ("what type of movies does <name> enjoy the most"), never a list.
+_ONE_OF = re.compile(r"\b(?:most|favou?rite|best|least|worst)\b")
+#: Plural nouns that name one thing about a subject, never items to list ("what are Bob's thoughts on the move",
+#: "the chances that it rains", "¿cuáles son tus planes?"), and a choice among several ("which of my laptops is
+#: faster") — review of #381. Only the plain-question list forms (:data:`_LIST`) read them.
+_ONE_THING = re.compile(
+    r"\b(?:thoughts|opinions|views|feelings|reasons|chances|odds|details|plans|intentions|"
+    r"pensamientos|opiniones|razones|planes|sentimientos|detalles|intenciones|posibilidades)\b"
+    r"|\bwhich of [\w' ]+? (?:is|was)\b")
+_LIST = re.compile(
+    r"\b(?:what|which) (?:\w+ ){0,3}\w+s (?:has|have|did|does|do|were|are|give|gave)\b"
+    r"|\bwhat (?:are|were) (?:the \w+s of )?(?:\w+'s )+\w+s\b"
+    r"|\bwhat (?:are|were) the \w+s (?:of|that)\b"
+    r"|\bwhere (?:has|have) (?!you\b)[\w-]+ (?:been|\w+ed|made|gone|lived|worked)\b"
+    r"|\bwhich of (?:\w+'s|my|his|her|their)\b"
+    r"|\bqu[eé] (?:\w+ ){0,2}(?!m[aá]s\b|menos\b)\w+s (?:he|has|ha|hemos|han|hice|hizo|hicimos)\b"
+    r"|\bcu[aá]les (?:son|fueron|han sido) (?:(?:los|las|mis|tus|sus|nuestr[oa]s) )?\w+[sz]\b")
 _LATEST = re.compile(
     r"\b(?:final|finally|end(?:ed)? up|eventually|in the end|outcome|result(?:ed)?|turn(?:ed)? out|"
     r"current(?:ly)?|now|still|latest|most recent(?:ly)?|these days|any ?more|so far|agreed|settled on|"
@@ -584,7 +638,7 @@ def two_ends(question: str) -> Ends | None:
     q = " ".join(text_fold.fold(question or "").split())
     if not q:
         return None
-    if (_ENUMERATE.search(q) and not _DURATION.search(q)) or _ES_COUNT.search(q):
+    if ((_ENUMERATE.search(q) or _PLURAL_ASK.search(q)) and not _DURATION.search(q)) or _ES_COUNT.search(q):
         return None
 
     def cued(m) -> bool:
@@ -661,12 +715,15 @@ def question_shape(question: str) -> str:
     q = " ".join((question or "").lower().split())
     if two_ends(q) is not None:
         return SHAPE_TWO_ENDS
-    if _ENUMERATE.search(q):
+    if _ENUMERATE.search(q) or _ES_ENUMERATE.search(q) or (_PLURAL_ASK.search(q) and not _ONE_OF.search(q)):
         return SHAPE_ENUMERATE
     if named_days(q) or _ANCHORED.search(q):
         return SHAPE_ANCHORED
     if _LATEST.search(q):
         return SHAPE_LATEST
+    plain = q.replace("`", "'").replace("\u2019", "'")
+    if _LIST.search(plain) and not _ONE_OF.search(plain) and not _ONE_THING.search(plain):
+        return SHAPE_ENUMERATE
     return SHAPE_LOOKUP
 
 
@@ -684,6 +741,9 @@ class Searched:
     more: list[str] = field(default_factory=list)
     #: Two ends: the best conversation for each moment the question names, in the question's order.
     ends: list["EndPick"] = field(default_factory=list)
+    #: A count or a list: how near each of some texts is to the question, by the search model the conversations
+    #: were indexed with (:func:`_similarity`) — the page leg ranks a page's items with it. ``None`` without an index.
+    similar: "Callable[[list[str]], list[float]] | None" = None
 
 
 @dataclass
@@ -707,13 +767,15 @@ def search_terms(question: str) -> set[str]:
     return (terms - QUESTION_WORDS - TENSE_WORDS) or terms
 
 
-def _lexical(memory_path: Path, terms: set[str]) -> tuple[dict[str, float], list[str], dict[str, set[str]]]:
+def _lexical(memory_path: Path, terms: set[str], *,
+             common_share: float = COMMON_SHARE) -> tuple[dict[str, float], list[str], dict[str, set[str]]]:
     """``(weights, ranked, held)`` from the word index alone. Every count is over the conversations the leg can show
     — an index-only episode (a watched day, a list save: ruling 30) is neither counted nor ranked, so thousands of
     watched days can't make a word look common or fill the ranking. A word's weight is its rarity across
     conversations; a passage scores the weights of the words it holds; a conversation ranks by its best passage (the
     middle of a long export counts as much as its head), then by the weight of all the words it holds. ``held``: the
-    weighted words each ranked conversation holds anywhere."""
+    weighted words each ranked conversation holds anywhere. ``common_share``: the share past which a word ranks
+    nothing (:data:`COMMON_SHARE`)."""
     import math
 
     from api.services import search_index
@@ -736,7 +798,7 @@ def _lexical(memory_path: Path, terms: set[str]) -> tuple[dict[str, float], list
             rows = {int(r) for (r,) in conn.execute(
                 f"SELECT rowid FROM pas WHERE pas MATCH ? LIMIT {DF_CAP}", (f'"{t}"*',)) if (int(r) >> bits) in refs}
             df = len({r >> bits for r in rows})
-            if df and df <= COMMON_SHARE * n:
+            if df and df <= common_share * n:
                 weights[t] = math.log((n + 1) / (df + 0.5))
                 rows_by_term[t] = rows
     passage: dict[int, float] = {}
@@ -770,6 +832,41 @@ def _semantic(indexer, text: str, k: int) -> list[str]:
         return []
     found = list(dict.fromkeys(Path(str((r.get("metadata") or {}).get("file_path") or "")).stem for r in rows))
     return [ep for ep in found if evidence.is_episode_id(ep)]
+
+
+#: The most texts :func:`_similarity` embeds for ONE question, across every page it ranks — one allowance, not one
+#: per page — each clipped to :data:`SIMILAR_CHARS` (an item's head says what it is about; short texts share the
+#: on-device model's packed calls). Measured on EmbeddingGemma 2, warm: 120 texts of 240 characters ≈ 0.3 s
+#: (600 characters: 0.74 s; whole long items: ~4 s — review of #381).
+SIMILAR_TEXTS = 120
+SIMILAR_CHARS = 240
+
+
+def _similarity(indexer, question: str):
+    """``texts -> scores``: each text's cosine nearness to ``question``, embedded as a passage by the model the
+    conversations' table was built with (never another space; only a model that runs on this machine —
+    :meth:`SqliteVecIndexer.similarity`), each clipped to :data:`SIMILAR_CHARS`, at most :data:`SIMILAR_TEXTS` in
+    all for the question — past the allowance a text scores 0. Nothing is stored and nothing is logged; on any
+    failure every score is 0, and no later call embeds."""
+    left = {"n": SIMILAR_TEXTS, "off": False}
+
+    def similar(texts: list[str]) -> list[float]:
+        take = 0 if left["off"] else min(left["n"], len(texts))
+        if not take:
+            return [0.0] * len(texts)
+        head = [" ".join(str(t or "").split())[:SIMILAR_CHARS] for t in texts[:take]]
+        left["n"] -= take
+        try:
+            got = [float(x) for x in indexer.similarity(question, head, kind="episodes")]
+            if len(got) != len(head):
+                raise ValueError("one score per text")
+        except Exception as exc:  # noqa: BLE001 — a ranking aid; its absence never fails an answer
+            logger.debug(f"ask similarity skipped ({type(exc).__name__})")
+            left["off"] = True
+            got = [0.0] * len(head)
+        return got + [0.0] * (len(texts) - len(head))
+
+    return similar
 
 
 def _fuse(*ranked_lists: list[str]) -> tuple[list[str], dict[str, float]]:
@@ -922,6 +1019,11 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
     held: dict[str, set[str]] = {}
     try:
         weights, lexical, held = _lexical(memory_path, terms)
+        if not weights and shape == SHAPE_ENUMERATE:
+            # A list over a subject the conversations keep coming back to ("what books has <name> read" in a chat
+            # about books): its words are common because the thing is everywhere — they still tell a turn that holds
+            # them from one that doesn't, at the low weight their rarity gives.
+            weights, lexical, held = _lexical(memory_path, terms, common_share=1.0)
     except Exception as exc:  # noqa: BLE001 — the leg is context; its absence never fails an answer (no query logged)
         logger.debug(f"ask search leg: word index unavailable ({type(exc).__name__})")
     semantic: list[str] = []
@@ -936,11 +1038,12 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
         indexer = None
         logger.debug(f"ask search leg: vector index unavailable ({type(exc).__name__})")
     # With no word to weigh (no word index yet, or only common words) no turn can be told apart: nothing is shown.
+    similar = _similarity(indexer, question) if shape == SHAPE_ENUMERATE and indexer is not None else None
     if not weights:
-        return Searched(episodes=[], weights={}, shape=shape)
+        return Searched(episodes=[], weights={}, shape=shape, similar=similar)
     order, _ = _fuse(lexical, semantic)
     if not order:
-        return Searched(episodes=[], weights=weights, shape=shape)
+        return Searched(episodes=[], weights=weights, shape=shape, similar=similar)
 
     # The subject: what the best conversation holds of the question's words, by weight. A conversation is on it when
     # it holds at least half of that weight — the thing without the attribute ("the gravel bike" said again without
@@ -995,7 +1098,7 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
         # Every other conversation on the subject, best first, one line each (the window shows them oldest first).
         window = set(order[:SEARCH_EPISODES])
         more = [ep for ep in on_subject if ep not in window][: ENUM_EPISODES - SEARCH_EPISODES]
-    return Searched(episodes=order, weights=weights, shape=shape, kept=kept, more=more)
+    return Searched(episodes=order, weights=weights, shape=shape, kept=kept, more=more, similar=similar)
 
 
 def gather_search(memory_path: Path, question: str, found: Searched, *, owner_name: str | None = None,
@@ -1061,17 +1164,25 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
         best = next((c for c in candidates if c[3] == ep and (ep, c[2]) not in taken), None)
         if best is not None:
             lead.append(best)
+    enumerate_ = found.shape == SHAPE_ENUMERATE
+    if enumerate_:
+        # A count or a list: the turns of whoever it is about first — the other side of a chat repeats the
+        # question's words but never did the thing. The window is otherwise read as for any question (a value
+        # question the gate takes for a count — "how many stars do I need" — keeps its own turns); the breadth below
+        # gives every other conversation its line.
+        asked = asked_about(question, owner_name)
+        candidates = _about_first(candidates, docs, asked, weights, owner_name)
     led = {id(c) for c in lead}
     chosen = _take(lead + [c for c in candidates if id(c) not in led], docs, terms, owner_name,
                    max_excerpts=max_excerpts, total_chars=total_chars, taken=taken)
-    if found.shape == SHAPE_ENUMERATE:
+    if enumerate_:
         taken |= shown_turns(chosen)
         # The window's conversations the budget left without a line, then the further ones on the subject.
         shown_eps = {e.episode for e in chosen}
         rest = [ep for ep in docs if ep not in shown_eps] + [ep for ep in found.more if ep not in docs]
         extra_docs: dict[str, tuple] = {}
-        extra = _scored_turns(memory_path, rest, pattern, weights, extra_docs, len(rest))
-        extra.sort(key=lambda c: (-c[0], c[1], c[2]))
+        extra = _about_first(_scored_turns(memory_path, rest, pattern, weights, extra_docs, len(rest)), extra_docs,
+                             asked, weights, owner_name)
         firsts: dict[str, tuple] = {}
         for c in extra:
             if c[3] not in firsts and (c[3], c[2]) not in taken:
@@ -1081,6 +1192,109 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
                         excerpt_chars=ENUM_EXCERPT_CHARS, context=False)
         chosen.sort(key=lambda e: e.order)
     return chosen
+
+
+#: First-person words: a question in them is about the person this memory belongs to ("how many … have I …").
+_FIRST_PERSON = frozenset("i me my mine myself i'm i've i'd i'll im ive yo mi mis me conmigo".split())
+#: The person named the way an agent speaks of them ("what did the user decide").
+_SELF_PHRASES = re.compile(r"\b(?:the user|the owner|el usuario|la usuaria|el dueno|la duena)\b")
+#: Spanish says the first person in the verb, not a pronoun: "¿qué libros he leído?", "¿cuántas veces fui…?",
+#: "¿qué compré?" — the perfect with "he/hemos", the common irregular preterites, and a preterite's stressed "-é"/
+#: "-í" ending (read on the question as written, accents kept), less the words that end so without being one.
+_ES_FIRST_PERSON = re.compile(
+    r"\b(?:he|hemos) \w+(?:ado|[ií]do|to|cho|so)\b"
+    r"|\b(?:fui|fuimos|hice|hicimos|tuve|estuve|vi|di|puse|dije|supe|quise|pude|vine|traje|anduve)\b"
+    r"|\b\w{2,}(?:é|í)\b")
+_NOT_A_VERB = frozenset("qué porqué café bebé josé puré sé té fué aquí allí ahí así sí mí rubí esquí maniquí "
+                        "jabalí colibrí israelí marroquí iraní paquistaní".split())
+#: Words that ask about the agent's side of a chat ("what did you recommend").
+_SECOND_PERSON = frozenset("you your yours yourself assistant".split())
+
+
+@dataclass(frozen=True)
+class Asked:
+    """Who a question is about, from its own words: the person (first person, or their name), the agent (second
+    person), and the folded words it holds — another speaker is asked about when the question names them."""
+
+    words: frozenset[str]
+    person: bool
+    agent: bool
+
+
+def asked_about(question: str, owner_name: str | None = None) -> Asked:
+    words = frozenset(text_fold.words(question))
+    low = " ".join((question or "").lower().split())
+    spanish = any(m.group(0) not in _NOT_A_VERB for m in _ES_FIRST_PERSON.finditer(low))
+    person = (bool(words & _FIRST_PERSON) or _names(owner_name or "", words) or bool(_SELF_PHRASES.search(low))
+              or spanish)
+    return Asked(words=words, person=person, agent=bool(words & _SECOND_PERSON))
+
+
+def _names(name: str, words: frozenset[str]) -> bool:
+    """Whether ``words`` name ``name``: all of it, or its first word — "Bob" names "Bob Example"; a surname two people
+    share names neither."""
+    own = text_fold.words(name)
+    return bool(own) and (set(own) <= words or own[0] in words)
+
+
+def _turn_asked(turn, fm: dict, asked: Asked) -> bool:
+    """Whether ``turn`` is said by someone ``asked`` names. An agent's saved note is nobody's."""
+    if turn.role == "user":
+        return asked.person and not (turn.marker is None and str(fm.get("source") or "") in AGENT_SOURCES)
+    if turn.role == "assistant":
+        return asked.agent
+    if turn.role == "speaker":
+        label = (turn.marker or "").split(":", 1)[-1]
+        corr = fm.get("correspondent") if isinstance(fm.get("correspondent"), dict) else {}
+        return _names(label, asked.words) or _names(str(corr.get("name") or ""), asked.words)
+    return False
+
+
+def _about_first(candidates: list[tuple], docs: dict, asked: Asked, weights: dict[str, float],
+                 owner_name: str | None = None) -> list[tuple]:
+    """``candidates`` (:func:`_scored_turns`' rows) best first, where the question asks about some of a
+    conversation's speakers and not all of them: a turn by someone else is weighed at :data:`OTHER_SPEAKER_SHARE`,
+    less the weight of the asked speakers' names it holds — said by someone else a name addresses them ("Bob, which
+    sports do you play?") and tells nothing; a turn holding nothing more is dropped. Else unchanged."""
+    by_ep: dict[str, list[tuple]] = {}
+    for c in candidates:
+        by_ep.setdefault(c[3], []).append(c)
+    out: list[tuple] = []
+    for ep, rows in by_ep.items():
+        fm, text, turns = docs[ep]
+        spoken = [t for t in turns if t.role in ("user", "assistant", "speaker")]
+        said = {(t.role, t.marker) for t in spoken}
+        on = {(t.role, t.marker) for t in spoken if _turn_asked(t, fm, asked)}
+        if not on or on == said:
+            out += rows
+            continue
+        names: set[str] = set()
+        for t in spoken:
+            if (t.role, t.marker) in on:
+                names |= _name_terms(t, fm, owner_name)
+        names &= set(weights)
+        for c in rows:
+            score = c[0]
+            if (c[4].role, c[4].marker) not in on:
+                if names:
+                    body = text_fold.fold(text[c[4].content_start:c[4].end])
+                    score -= sum(weights[n] for n in names if re.search(r"\b" + re.escape(n), body))
+                score *= OTHER_SPEAKER_SHARE
+            if score > 1e-9:
+                out.append((score, *c[1:]))
+    out.sort(key=lambda c: (-c[0], c[1], c[2]))
+    return out
+
+
+def _name_terms(turn, fm: dict, owner_name: str | None) -> set[str]:
+    """The search words of the name of whoever said ``turn``."""
+    if turn.role == "user":
+        return text_fold.subject_terms(owner_name or "")
+    if turn.role == "speaker":
+        corr = fm.get("correspondent") if isinstance(fm.get("correspondent"), dict) else {}
+        return (text_fold.subject_terms((turn.marker or "").split(":", 1)[-1].replace("-", " "))
+                | text_fold.subject_terms(str(corr.get("name") or "")))
+    return set()
 
 
 def _scored_turns(memory_path: Path, episodes: list[str], pattern, weights: dict[str, float], docs: dict,

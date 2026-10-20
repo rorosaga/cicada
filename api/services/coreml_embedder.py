@@ -29,6 +29,7 @@ import json
 import os
 import platform
 import threading
+import time
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeout
 from pathlib import Path
@@ -273,15 +274,17 @@ class CoreMLEmbedder:
         out = np.asarray(out, dtype=np.float32).reshape(PACK_SLOTS, FULL_DIM)
         return [out[i] for i in range(len(seqs))]
 
-    def _documents(self, tokenized: list[list[int]]) -> np.ndarray:
-        """Short texts share ``pack_256`` calls (eight at most, 256 tokens in all); longer ones run alone."""
-        result = np.zeros((len(tokenized), FULL_DIM), dtype=np.float32)
+    @staticmethod
+    def _bins(tokenized: list[list[int]]) -> tuple[list[int], list[list[int]]]:
+        """``(alone, bins)``: the texts too long to pack, and the short ones grouped into ``pack_256`` calls (eight
+        at most, 256 tokens in all)."""
+        alone: list[int] = []
         bins: list[list[int]] = []
         current: list[int] = []
         used = 0
         for i, ids in enumerate(tokenized):
             if len(ids) > PACK_LEN:
-                result[i] = self._single(ids, None)
+                alone.append(i)
                 continue
             if used + len(ids) > PACK_LEN or len(current) == PACK_SLOTS:
                 bins.append(current)
@@ -290,6 +293,21 @@ class CoreMLEmbedder:
             used += len(ids)
         if current:
             bins.append(current)
+        return alone, bins
+
+    def _functions_for(self, tokenized: list[list[int]]) -> list[str]:
+        """The functions :meth:`_documents` will call for ``tokenized``."""
+        alone, bins = self._bins(tokenized)
+        sizes = [len(tokenized[i]) for i in alone] + [len(tokenized[g[0]]) for g in bins if len(g) == 1]
+        names = sorted({f"embed_{next(s for s in LENGTHS if s >= n)}" for n in sizes})
+        return names + (["pack_256"] if any(len(g) > 1 for g in bins) else [])
+
+    def _documents(self, tokenized: list[list[int]]) -> np.ndarray:
+        """Short texts share ``pack_256`` calls (eight at most, 256 tokens in all); longer ones run alone."""
+        result = np.zeros((len(tokenized), FULL_DIM), dtype=np.float32)
+        alone, bins = self._bins(tokenized)
+        for i in alone:
+            result[i] = self._single(tokenized[i], None)
         for group in bins:
             if len(group) == 1:  # one text: its own smallest function is cheaper than a 256 pack
                 result[group[0]] = self._single(tokenized[group[0]], None)
@@ -334,7 +352,23 @@ class CoreMLEmbedder:
 
         return embed
 
-    def __call__(self, texts: list[str], *, is_query: bool = False, _query_wait: float | None = None) -> np.ndarray:
+    def passages(self, *, wait: float):
+        """This embedder for passages embedded while someone waits (Ask ranking a page's items, review of #381):
+        every function the batch needs is loaded first within ``wait`` seconds in all — past it
+        :class:`EmbedderWarming` is raised and the loads go on in the background — never the open-ended wait of an
+        index build."""
+        def embed(texts: list[str], *, is_query: bool = False) -> np.ndarray:
+            return self(texts, is_query=is_query, _doc_wait=wait)
+
+        return embed
+
+    def _ready(self, names, wait: float) -> None:
+        deadline = time.monotonic() + max(wait, 0.0)
+        for name in names:
+            self._function(name, wait=max(deadline - time.monotonic(), 0.0))
+
+    def __call__(self, texts: list[str], *, is_query: bool = False, _query_wait: float | None = None,
+                 _doc_wait: float | None = None) -> np.ndarray:
         if not texts:
             return np.zeros((0, self.width), dtype=np.float32)
         self._base()
@@ -344,6 +378,8 @@ class CoreMLEmbedder:
             wait = QUERY_LOAD_WAIT_S if _query_wait is None else _query_wait
             vectors = np.vstack([self._single(ids, wait) for ids in tokenized])
         else:
+            if _doc_wait is not None:
+                self._ready(self._functions_for(tokenized), _doc_wait)
             vectors = self._documents(tokenized)
         vectors = vectors[:, : self.width]  # Matryoshka: the first N values, re-normalised
         return (vectors / np.clip(np.linalg.norm(vectors, axis=1, keepdims=True), 1e-12, None)).astype(np.float32)
