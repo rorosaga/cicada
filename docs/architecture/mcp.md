@@ -924,8 +924,9 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   they saw, one or two short. Three causes, three changes, no model in retrieval:
   1. *Whose turn tells it.* The other side of a chat repeats the question's words ("weddings are such fun to attend")
      and its turn beat the person's own line that told the event. `ask_sources.asked_about` reads who the question
-     is about from its own words — the person (first person, or their name: all of it or its first word, never a
-     shared surname alone), the agent ("you"), another speaker named by their label or the conversation's
+     is about from its own words — the person (first person — in Spanish also the verb alone: "he leído", "fui",
+     "compré" —, "the user"/"the owner", or their name: all of it or its first word, never a shared surname alone),
+     the agent ("you"), another speaker named by their label or the conversation's
      correspondent. In a conversation where it asks about some speakers and not all, another speaker's turn counts
      `OTHER_SPEAKER_SHARE` (0.5) of its words' weight, less the weight of the asked speakers' names it holds (said by
      someone else a name only addresses them); a turn holding nothing more is dropped (`_about_first`). Window and
@@ -936,7 +937,10 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
      the question says what it is (no named day, no outcome word): "where has <name> camped", "what are <name>'s
      hobbies", "what are the names of …", "which of my …", "what kind of indoor activities has …" (`_LIST`), and
      Spanish counts and lists ("¿cuántas veces…?", "¿cuántos libros…?", "en total", "¿qué libros he leído?",
-     "¿cuáles son…?"). A superlative ("the most", "favorite", "best") asks for one thing and is never a list — also
+     "¿cuáles fueron los resultados?" — a plural noun after "cuáles son/fueron"). Never a list: a plural that names
+     one thing about a subject (thoughts, opinions, views, feelings, reasons, chances, odds, details, plans;
+     pensamientos, opiniones, razones, planes, detalles — `_ONE_THING`), "which of my laptops is faster", "where have
+     you been", "¿cuántos años tiene…?" (an age), "todos los días" (a habit), "¿qué más has hecho?". A superlative ("the most", "favorite", "best") asks for one thing and is never a list — also
      for the older "which … have I" form. `two_ends` reads exactly the forms it read before. A list made only of
      words common across the bank ("what books has <name> read" in a chat about books) keeps them at the low
      weight their rarity gives instead of showing nothing (`_lexical(common_share=1.0)`, only when no word of the
@@ -947,10 +951,17 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
      alias, as words — never the person's own page because the question says "I"), among the first three pages the
      items the question's words leave unchosen are ranked by the search model the conversations' table was built
      with (`SqliteVecIndexer.similarity`: the question as a query, the items as passages, cosine; computed now, never
-     stored, nothing logged; at most `SIMILAR_TEXTS` = 120 items, one batch, ~1.7 ms an item warm on the Neural
-     Engine; no table → nothing embedded) and fill the page's existing prose budget (4,800 characters) nearest first.
+     stored, nothing logged) and fill the page's existing prose budget (4,800 characters) nearest first. Bounds
+     (review of #381): only a model this machine runs (`vector_index.runs_on_device`: `onnx_embedder.find` resolves
+     it, never an OpenAI or OpenRouter id — a hosted model would be sent the page's text at answer time; otherwise
+     no ranking); one allowance of `SIMILAR_TEXTS` = 120 items for the whole question across every page it ranks,
+     each clipped to `SIMILAR_CHARS` = 240 characters (120 × 240 ≈ 0.3 s warm on the Neural Engine; whole long items
+     were ~4 s, three pages ~11 s); the Core ML passage functions load within `PASSAGE_LOAD_WAIT_S` = 1.5 s
+     (`CoreMLEmbedder.passages`), else the ranking is skipped and the load goes on in the background; any failure
+     turns ranking off for the rest of the question.
      Each such item's conversation leads to WHAT WAS SAID like any chosen item's, and there a turn qualifies by the
-     item's own words (two of them, or its only one) — the line that told it. WHAT WAS SAID for a count or a list is
+     item's own words (two of them, or its only one; an item with none of its own leads nowhere) — the line that
+     told it. WHAT WAS SAID for a count or a list is
      read breadth first: each pointed conversation's best turn (≤ 300 characters), in rank order, up to 16
      conversations, then second turns, within 24 excerpts and 7,200 characters (`BREADTH_*`; was 8 / 10 / 6,000).
   No computed list of distinct occurrences is added: without a model, an event retold in a second conversation

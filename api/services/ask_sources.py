@@ -233,7 +233,7 @@ def gather(memory_path: Path, question: str, found: list[Pointer], *, owner_name
             span = next((p for p in spans if turn.start <= p.start < turn.end), None)
             # A count or a list follows a shown line to the turn that told it by the line's own words (two of them,
             # or its only one): "went camping at the beach" shares nothing with "what activities …".
-            told = breadth and len(extra & words) >= min(2, len(extra))
+            told = breadth and bool(extra) and len(extra & words) >= min(2, len(extra))
             if not overlap and span is None and not told:
                 continue
             score = 2 * overlap + min(len(extra & words), 3) + (3 if span is not None else 0)
@@ -362,7 +362,10 @@ _ENUMERATE = re.compile(
     r"list (?:all|every|each|the|my)|what are all|name (?:all|every|each)|every (?:time|one)|each time|"
     r"all (?:the|of the|of my|my) \w+)\b")
 #: Spanish counts (2026-10-20): "¿cuántas veces …?", "¿cuántos libros …?", "en total", "todas las veces".
-_ES_ENUMERATE = re.compile(r"\bcu[aá]nt[oa]s\b|\ben total\b|\btod[oa]s (?:las|los|mis) \w+")
+#: Not "¿cuántos años tiene …?" (an age) nor "todos los días" (a habit: "¿a qué hora me levanto todos los días?").
+_ES_ENUMERATE = re.compile(
+    r"\bcu[aá]nt[oa]s\b(?! a[nñ]os\b)|\ben total\b"
+    r"|\btod[oa]s (?:las|los|mis) (?!d[ií]as\b|semanas\b|ma[nñ]anas\b|tardes\b|noches\b|meses\b|a[nñ]os\b)\w+")
 #: A list asked as a plain question ("where has <name> camped?", "what are <name>'s hobbies?", "which of my friends
 #: …", "what kind of indoor activities has …") — read as a count or a list only when nothing else in the question
 #: (a named day, an outcome) says what it is (2026-10-20: 15 of LoCoMo's 100 multi-hop list questions were read as
@@ -371,13 +374,21 @@ _ES_ENUMERATE = re.compile(r"\bcu[aá]nt[oa]s\b|\ben total\b|\btod[oa]s (?:las|l
 _PLURAL_ASK = re.compile(r"\b(?:what|which) (?:\w+ ){0,2}\w+s (?:has|have|did|does|do)\b")
 #: A superlative asks for one thing ("what type of movies does <name> enjoy the most"), never a list.
 _ONE_OF = re.compile(r"\b(?:most|favou?rite|best|least|worst)\b")
+#: Plural nouns that name one thing about a subject, never items to list ("what are Bob's thoughts on the move",
+#: "the chances that it rains", "¿cuáles son tus planes?"), and a choice among several ("which of my laptops is
+#: faster") — review of #381. Only the plain-question list forms (:data:`_LIST`) read them.
+_ONE_THING = re.compile(
+    r"\b(?:thoughts|opinions|views|feelings|reasons|chances|odds|details|plans|intentions|"
+    r"pensamientos|opiniones|razones|planes|sentimientos|detalles|intenciones|posibilidades)\b"
+    r"|\bwhich of [\w' ]+? (?:is|was)\b")
 _LIST = re.compile(
     r"\b(?:what|which) (?:\w+ ){0,3}\w+s (?:has|have|did|does|do|were|are|give|gave)\b"
     r"|\bwhat (?:are|were) (?:the \w+s of )?(?:\w+'s )+\w+s\b"
     r"|\bwhat (?:are|were) the \w+s (?:of|that)\b"
-    r"|\bwhere (?:has|have) [\w-]+ (?:been|\w+ed|made|gone|lived|worked)\b"
+    r"|\bwhere (?:has|have) (?!you\b)[\w-]+ (?:been|\w+ed|made|gone|lived|worked)\b"
     r"|\bwhich of (?:\w+'s|my|his|her|their)\b"
-    r"|\bqu[eé] (?:\w+ ){0,2}\w+s (?:he|has|ha|hemos|han|hice|hizo|hicimos)\b|\bcu[aá]les (?:son|fueron|han)\b")
+    r"|\bqu[eé] (?:\w+ ){0,2}(?!m[aá]s\b|menos\b)\w+s (?:he|has|ha|hemos|han|hice|hizo|hicimos)\b"
+    r"|\bcu[aá]les (?:son|fueron|han sido) (?:(?:los|las|mis|tus|sus|nuestr[oa]s) )?\w+[sz]\b")
 _LATEST = re.compile(
     r"\b(?:final|finally|end(?:ed)? up|eventually|in the end|outcome|result(?:ed)?|turn(?:ed)? out|"
     r"current(?:ly)?|now|still|latest|most recent(?:ly)?|these days|any ?more|so far|agreed|settled on|"
@@ -710,7 +721,8 @@ def question_shape(question: str) -> str:
         return SHAPE_ANCHORED
     if _LATEST.search(q):
         return SHAPE_LATEST
-    if _LIST.search(q.replace("`", "'").replace("\u2019", "'")) and not _ONE_OF.search(q):
+    plain = q.replace("`", "'").replace("\u2019", "'")
+    if _LIST.search(plain) and not _ONE_OF.search(plain) and not _ONE_THING.search(plain):
         return SHAPE_ENUMERATE
     return SHAPE_LOOKUP
 
@@ -822,27 +834,37 @@ def _semantic(indexer, text: str, k: int) -> list[str]:
     return [ep for ep in found if evidence.is_episode_id(ep)]
 
 
-#: The most texts :func:`_similarity` embeds for one question (one batch on the search model: ~2–5 ms a short line).
+#: The most texts :func:`_similarity` embeds for ONE question, across every page it ranks — one allowance, not one
+#: per page — each clipped to :data:`SIMILAR_CHARS` (an item's head says what it is about; short texts share the
+#: on-device model's packed calls). Measured on EmbeddingGemma 2, warm: 120 texts of 240 characters ≈ 0.3 s
+#: (600 characters: 0.74 s; whole long items: ~4 s — review of #381).
 SIMILAR_TEXTS = 120
+SIMILAR_CHARS = 240
 
 
 def _similarity(indexer, question: str):
     """``texts -> scores``: each text's cosine nearness to ``question``, embedded as a passage by the model the
-    conversations' table was built with (never another space), at most :data:`SIMILAR_TEXTS` of them — the rest
-    score 0. Nothing is stored and nothing is logged; on any failure every score is 0."""
+    conversations' table was built with (never another space; only a model that runs on this machine —
+    :meth:`SqliteVecIndexer.similarity`), each clipped to :data:`SIMILAR_CHARS`, at most :data:`SIMILAR_TEXTS` in
+    all for the question — past the allowance a text scores 0. Nothing is stored and nothing is logged; on any
+    failure every score is 0, and no later call embeds."""
+    left = {"n": SIMILAR_TEXTS, "off": False}
 
     def similar(texts: list[str]) -> list[float]:
-        head = [t for t in texts[:SIMILAR_TEXTS]]
-        if not head:
-            return []
-        if not indexer.index_info("episodes"):
-            return [0.0] * len(texts)   # no conversations' table: no space to compare in, and no model loaded for it
+        take = 0 if left["off"] else min(left["n"], len(texts))
+        if not take:
+            return [0.0] * len(texts)
+        head = [" ".join(str(t or "").split())[:SIMILAR_CHARS] for t in texts[:take]]
+        left["n"] -= take
         try:
-            got = indexer.similarity(question, head, kind="episodes")
+            got = [float(x) for x in indexer.similarity(question, head, kind="episodes")]
+            if len(got) != len(head):
+                raise ValueError("one score per text")
         except Exception as exc:  # noqa: BLE001 — a ranking aid; its absence never fails an answer
             logger.debug(f"ask similarity skipped ({type(exc).__name__})")
+            left["off"] = True
             got = [0.0] * len(head)
-        return list(got) + [0.0] * (len(texts) - len(head))
+        return got + [0.0] * (len(texts) - len(head))
 
     return similar
 
@@ -1174,6 +1196,17 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
 
 #: First-person words: a question in them is about the person this memory belongs to ("how many … have I …").
 _FIRST_PERSON = frozenset("i me my mine myself i'm i've i'd i'll im ive yo mi mis me conmigo".split())
+#: The person named the way an agent speaks of them ("what did the user decide").
+_SELF_PHRASES = re.compile(r"\b(?:the user|the owner|el usuario|la usuaria|el dueno|la duena)\b")
+#: Spanish says the first person in the verb, not a pronoun: "¿qué libros he leído?", "¿cuántas veces fui…?",
+#: "¿qué compré?" — the perfect with "he/hemos", the common irregular preterites, and a preterite's stressed "-é"/
+#: "-í" ending (read on the question as written, accents kept), less the words that end so without being one.
+_ES_FIRST_PERSON = re.compile(
+    r"\b(?:he|hemos) \w+(?:ado|[ií]do|to|cho|so)\b"
+    r"|\b(?:fui|fuimos|hice|hicimos|tuve|estuve|vi|di|puse|dije|supe|quise|pude|vine|traje|anduve)\b"
+    r"|\b\w{2,}(?:é|í)\b")
+_NOT_A_VERB = frozenset("qué porqué café bebé josé puré sé té fué aquí allí ahí así sí mí rubí esquí maniquí "
+                        "jabalí colibrí israelí marroquí iraní paquistaní".split())
 #: Words that ask about the agent's side of a chat ("what did you recommend").
 _SECOND_PERSON = frozenset("you your yours yourself assistant".split())
 
@@ -1190,7 +1223,10 @@ class Asked:
 
 def asked_about(question: str, owner_name: str | None = None) -> Asked:
     words = frozenset(text_fold.words(question))
-    person = bool(words & _FIRST_PERSON) or _names(owner_name or "", words)
+    low = " ".join((question or "").lower().split())
+    spanish = any(m.group(0) not in _NOT_A_VERB for m in _ES_FIRST_PERSON.finditer(low))
+    person = (bool(words & _FIRST_PERSON) or _names(owner_name or "", words) or bool(_SELF_PHRASES.search(low))
+              or spanish)
     return Asked(words=words, person=person, agent=bool(words & _SECOND_PERSON))
 
 

@@ -859,12 +859,22 @@ class SqliteVecIndexer:
     def similarity(self, query: str, texts: list[str], *, kind: str = "episodes") -> list[float]:
         """How near each of ``texts`` is to ``query`` (cosine), both embedded by the model ``kind``'s table was
         built with — the query as a query, the texts as passages, as that table's rows were. Computed now, never
-        stored. Raises on a failed embed (the caller degrades)."""
+        stored. Only with a model that runs on this machine (a hosted model would be sent the page's text at answer
+        time — review of #381): a table built by any other, or none, raises :class:`SimilarityUnavailable`. An
+        on-device model whose passage functions aren't loaded waits at most :data:`PASSAGE_LOAD_WAIT_S` for them
+        (a dropped compile cache never stalls an answer); past it, and on a failed embed, this raises (the caller
+        degrades)."""
         if not texts:
             return []
         info = self.index_info(kind)
+        recorded = (info or {}).get("model")
+        if not _named(recorded) or not runs_on_device(recorded):
+            raise SimilarityUnavailable("no on-device model for this table")
         embed_fn, _model = self._query_embed_fn(kind, info)
         qvec = self._query_vector(query, kind)
+        passages = getattr(embed_fn, "passages", None)
+        if callable(passages):
+            embed_fn = passages(wait=PASSAGE_LOAD_WAIT_S)
         docs = self._checked(embed_fn(list(texts), is_query=False), len(texts))
         norms = np.linalg.norm(docs, axis=1) * (float(np.linalg.norm(qvec)) or 1.0)
         norms[norms == 0] = 1.0
@@ -1127,6 +1137,29 @@ class SqliteVecIndexer:
                         "metadata": {**meta, **claim.to_dict(), "claim_id": claim.id,
                                      "file_path": str(page)}})
         return out
+
+
+class SimilarityUnavailable(RuntimeError):
+    """No on-device model to compare texts with (:meth:`SqliteVecIndexer.similarity`)."""
+
+
+#: How long an answer waits for an on-device model's passage functions to load (a warm load is ~1 s; a cold
+#: Neural Engine compile ~90 s keeps loading in the background, and the answer goes on without the ranking).
+PASSAGE_LOAD_WAIT_S = 1.5
+
+
+def runs_on_device(model_id: str | None) -> bool:
+    """Whether ``model_id`` is a model this machine runs itself (a bundled or downloaded ONNX / Core ML model) —
+    never a hosted one (OpenAI, OpenRouter), whatever its name says."""
+    from api.services import onnx_embedder, providers
+
+    mid = (model_id or "").strip()
+    if not mid or providers._model_is_openai(mid) or providers._model_is_openrouter(mid):
+        return False
+    try:
+        return onnx_embedder.find(mid) is not None
+    except Exception:  # noqa: BLE001 — an unreadable models folder runs nothing
+        return False
 
 
 def _blob(vector) -> bytes:

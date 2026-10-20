@@ -699,3 +699,13 @@ fruits" told as "lime", "doctors" told as "my dermatologist"): only a turn-level
 measured here it cost more than it ranked. A question that names no page and asks in the first person ("how many
 weddings have I attended") gets the search leg's breadth only: the person's own page holds a whole life and is never
 item-ranked.
+
+*After review (same day):* the page ranking runs only on a model this machine runs (a hosted embedding model would
+have been sent page text at answer time), with one allowance of 120 items for the whole question, each clipped to 240
+characters, and a bounded 1.5 s wait for the Core ML passage functions; more one-thing plurals, an age, a habit and
+"what else" are no longer lists; Spanish first-person verbs and "the user" count as the person. Re-measured: answer
+turns LoCoMo multi-hop 188 / 322, LongMemEval_S multi-session 45 / 72 (unchanged), gold items 199 / 242; no question
+lost an answer turn against dev. Context build on the changed LoCoMo questions +217–222 ms p50, +242–648 ms p95, at
+most +717 ms (the first question in a process loads the packed function); the largest prompt 29.9k characters. The
+15 multi-hop questions whose prompt changed again were re-answered once: 9 → 10 right, so LoCoMo multi-hop is **74**
+of 100 (one repeat; dev 65). Plan calls: 30 (288 in all).

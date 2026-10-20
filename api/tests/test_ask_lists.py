@@ -96,6 +96,21 @@ def test_lists_asked_as_plain_questions_and_spanish_counts_are_counts_or_lists()
         ask_sources.SHAPE_TWO_ENDS
 
 
+def test_one_thing_asked_in_the_plural_is_not_a_list():
+    """Review of #381: plural nouns that name one thing about a subject, a choice among several, an age, a habit,
+    "what else", a greeting — none of them is a list."""
+    shape = ask_sources.question_shape
+    for q in ("¿Cuáles son tus planes?", "¿Cuáles son tus pensamientos sobre la mudanza?",
+              "What are Bob's thoughts on the move?", "What were Alice's reasons for leaving?",
+              "What are the chances that it rains?", "What are the details of the lease?", "Where have you been?",
+              "Which of my laptops is faster?", "¿Cuántos años tiene Bob?", "¿A qué hora me levanto todos los días?",
+              "¿Qué más has hecho?", "What are Bob's plans for the weekend?", "What are Bob's opinions on remote work?"):
+        assert shape(q) != ask_sources.SHAPE_ENUMERATE, q
+    for q in ("¿Cuáles fueron los resultados?", "¿Cuáles son mis libros favoritos de este año?" ,
+              "Where has Bob lived?", "¿Cuántas veces fui a la playa todos los veranos?"):
+        assert shape(q) == ask_sources.SHAPE_ENUMERATE, q
+
+
 def test_who_a_question_is_about():
     asked = ask_sources.asked_about("How many weddings have I attended?", "Alice Example")
     assert asked.person and not asked.agent
@@ -104,6 +119,12 @@ def test_who_a_question_is_about():
     asked = ask_sources.asked_about("Which books did you recommend to me?", "Alice Example")
     assert asked.person and asked.agent
     assert ask_sources.asked_about("What did Alice Example plan?", "Alice Example").person
+    assert ask_sources.asked_about("Which tools has the user tried?", None).person
+    for q in ("¿Qué libros he leído?", "¿Cuántas veces fui al gimnasio?", "¿Qué compré en marzo?",
+              "¿Qué hemos comido esta semana?"):
+        assert ask_sources.asked_about(q, None).person, q
+    for q in ("¿Qué hay aquí?", "¿Qué café tiene Bob?", "¿Cuántos libros leyó Bob?"):
+        assert not ask_sources.asked_about(q, None).person, q
 
 
 # --------------------------------------------------------------------------------------------------------------- #
@@ -193,16 +214,29 @@ def _bob_page(memory) -> None:
     _index(memory)
 
 
-def _near(calls: list):
-    """A stand-in for the search model: the activity items are near "activities", the rest far."""
-    def similar(texts):
-        calls.append(len(texts))
+class _Indexer:
+    """A stand-in for the vector index's on-device nearness: the activity items are near "activities", the rest
+    far. Records each batch; ``fail`` raises as an unavailable or warming model does."""
+
+    def __init__(self, fail: bool = False):
+        self.batches: list[list[str]] = []
+        self.fail = fail
+
+    def similarity(self, question, texts, *, kind="episodes"):
+        self.batches.append(list(texts))
+        if self.fail:
+            from api.services.vector_index import SimilarityUnavailable
+
+            raise SimilarityUnavailable("no on-device model")
         return [0.9 if any(w in t for w in ("camping", "pottery", "swims")) else 0.1 for t in texts]
 
+
+def _near(indexer: _Indexer):
+    """The real :func:`ask_sources._similarity` (its allowance, clipping and failure path) over ``indexer``."""
     def search_fn(memory, question):
         found = ask_sources.search(memory, question)
         if found.shape == ask_sources.SHAPE_ENUMERATE:
-            found.similar = similar
+            found.similar = ask_sources._similarity(indexer, question)
         return found
 
     return search_fn
@@ -210,10 +244,10 @@ def _near(calls: list):
 
 def test_a_list_about_a_named_page_reads_its_nearest_items_and_the_turns_that_told_them(bank):
     _bob_page(bank)
-    calls: list = []
+    indexer = _Indexer()
     prompt = _prompt(bank, "What activities does Bob Example partake in?", pages=("bob-example",),
-                     search_fn=_near(calls))
-    assert calls and calls[0] <= ask_sources.SIMILAR_TEXTS + 3
+                     search_fn=_near(indexer))
+    assert len(indexer.batches) == 1 and len(indexer.batches[0]) <= ask_sources.SIMILAR_TEXTS
     for fact, turn in ACTIVITIES.values():
         assert fact in prompt, "the item, though it shares no word with the question"
     said = prompt.split("WHAT WAS SAID", 1)[1]
@@ -231,13 +265,47 @@ def test_without_the_search_model_the_page_reads_as_before(bank):
 
 def test_a_question_that_names_no_page_never_embeds_its_items(bank):
     _bob_page(bank)
-    calls: list = []
-    _prompt(bank, "What activities do I partake in?", pages=("bob-example",), search_fn=_near(calls))
-    assert calls == [], "the person's own words name no page; nothing is embedded"
-    calls.clear()
+    indexer = _Indexer()
+    _prompt(bank, "What activities do I partake in?", pages=("bob-example",), search_fn=_near(indexer))
+    assert indexer.batches == [], "the person's own words name no page; nothing is embedded"
     _prompt(bank, "What did Bob Example say about the office schedule?", pages=("bob-example",),
-            search_fn=_near(calls))
-    assert calls == [], "not a list: the page reads as before"
+            search_fn=_near(indexer))
+    assert indexer.batches == [], "not a list: the page reads as before"
+
+
+def test_a_failed_or_unavailable_model_leaves_the_page_as_before(bank):
+    _bob_page(bank)
+    indexer = _Indexer(fail=True)
+    prompt = _prompt(bank, "What activities does Bob Example partake in?", pages=("bob-example",),
+                     search_fn=_near(indexer))
+    for fact, _turn in ACTIVITIES.values():
+        assert fact not in prompt
+    assert "Bob Example is a friend" in prompt, "the page still reads"
+
+
+def test_one_allowance_for_the_whole_question_each_text_clipped():
+    indexer = _Indexer()
+    similar = ask_sources._similarity(indexer, "What activities do Bob and Carol share?")
+    long_item = "Bob Example went camping " + "and then kept talking about the weather " * 30
+    first = similar([long_item] * 100)
+    second = similar(["Carol Example took a pottery class"] * 100)
+    third = similar(["anything"] * 5)
+    assert [len(b) for b in indexer.batches] == [100, ask_sources.SIMILAR_TEXTS - 100], "one allowance, not per page"
+    assert all(len(t) <= ask_sources.SIMILAR_CHARS for b in indexer.batches for t in b), "what the prompt shows, less"
+    assert len(first) == 100 and len(second) == 100 and second[20:] == [0.0] * 80 and third == [0.0] * 5
+    failing = _Indexer(fail=True)
+    similar = ask_sources._similarity(failing, "What activities?")
+    assert similar(["a", "b"]) == [0.0, 0.0] and similar(["c"]) == [0.0]
+    assert len(failing.batches) == 1, "after a failure nothing more is embedded for the question"
+
+
+def test_an_item_with_no_words_of_its_own_never_makes_every_turn_a_candidate(bank):
+    ep = "ep_2024-08-11_001"
+    _episode(bank, ep, ["user: Morning!", "speaker:bob-example: Lovely weather today."],
+             correspondent={"name": "Bob Example", "kind": "person", "decided_by": "person"})
+    shown = ask_sources.gather(bank, "What activities does Bob Example partake in?",
+                               [ask_sources.Pointer(episode=ep, weight=1, terms=set())], breadth=True)
+    assert shown == []
 
 
 def test_breadth_keeps_two_things_one_conversation_told(bank):
@@ -272,20 +340,64 @@ def _bow(texts, *, is_query=False):
     return np.vstack(rows)
 
 
-def test_similarity_embeds_texts_as_passages_with_the_tables_model(bank):
+def _indexed(bank, model: str, seen: list):
     from api.services.vector_index import SqliteVecIndexer
 
-    _episode(bank, "ep_2024-01-05_001", ["user: camping at the beach, an activity I love"])
-    indexer = SqliteVecIndexer(bank, embed_fn=_bow)
-    indexer.index_episodes()
-    seen = []
-
     def recording(texts, *, is_query=False):
-        seen.append(is_query)
+        seen.append(("query" if is_query else "passage", list(texts)))
         return _bow(texts, is_query=is_query)
 
-    indexer._embed_fn = recording
+    _episode(bank, "ep_2024-01-05_001", ["user: camping at the beach, an activity I love"])
+    indexer = SqliteVecIndexer(bank, embed_fn=recording, model_name=model)
+    indexer.index_episodes()
+    assert indexer.index_info("episodes").get("model") == model
+    seen.clear()
+    return indexer
+
+
+def test_similarity_embeds_texts_as_passages_with_the_tables_on_device_model(bank, monkeypatch):
+    from api.services import onnx_embedder
+
+    model = "google/embeddinggemma-2:768"
+    monkeypatch.setattr(onnx_embedder, "find", lambda mid, *a, **k: object() if mid == model else None)
+    seen: list = []
+    indexer = _indexed(bank, model, seen)
     scores = indexer.similarity("camping beach activity", ["camping at the beach", "office hours", ""])
     assert len(scores) == 3 and scores[0] > 0.8 and scores[1] == 0.0
-    assert False in seen, "the texts are embedded as passages"
+    assert ("passage", ["camping at the beach", "office hours", ""]) in seen, "the texts are embedded as passages"
     assert indexer.similarity("anything", []) == []
+
+
+@pytest.mark.parametrize("model", ["openai/text-embedding-3-small", "text-embedding-3-large",
+                                   "openrouter/google/gemini-embedding-001", "some/model-not-on-this-mac"])
+def test_similarity_never_sends_a_page_to_a_hosted_or_missing_model(bank, monkeypatch, model):
+    from api.services import onnx_embedder
+    from api.services.vector_index import SimilarityUnavailable
+
+    monkeypatch.setattr(onnx_embedder, "find", lambda mid, *a, **k: None)
+    seen: list = []
+    indexer = _indexed(bank, model, seen)
+    with pytest.raises(SimilarityUnavailable):
+        indexer.similarity("camping beach activity", ["Bob Example went camping at the beach"])
+    assert seen == [], "nothing embedded, nothing sent anywhere"
+
+
+def test_passage_functions_load_within_a_bounded_wait():
+    """A dropped compile cache (a ~90 s load) never stalls an answer: past the wait the ranking is skipped and the
+    load goes on in the background."""
+    import threading
+    import time
+    from types import SimpleNamespace
+
+    from api.services import coreml_embedder
+
+    release = threading.Event()
+    emb = coreml_embedder.CoreMLEmbedder(SimpleNamespace(dimensions=768))
+    emb._load_function = lambda name: (release.wait(10), object())[1]
+    started = time.monotonic()
+    with pytest.raises(coreml_embedder.EmbedderWarming):
+        emb._ready(["embed_64", "pack_256"], 0.2)
+    assert time.monotonic() - started < 1.0, "one bound for every function the batch needs"
+    release.set()
+    assert emb._functions_for([[1] * 20] * 8) == ["pack_256"], "short texts share packed calls"
+    assert emb._functions_for([[1] * 300, [1] * 20]) == ["embed_32", "embed_512"]
