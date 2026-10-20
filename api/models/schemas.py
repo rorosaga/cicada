@@ -1985,7 +1985,9 @@ class SearchHit(CamelModel):
       ``valid_to``/``superseded_by`` set means history ("was X until …").
     - ``episode``: ``id`` is the episode (evidence doc) id and ``name`` its
       title; ``start``/``end``/``hash`` are a span into the evidence text
-      (G118) around the best passage, and ``evidence_kind`` is its speaker.
+      (G118) around the best passage, and ``evidence_kind`` is its speaker;
+      ``site`` is a saved link's site key (``reading_hosts.mark_key``, review
+      of #372), so its row wears the site's own mark, never the browser's.
     - ``inbox``: ``id`` is the inbox item id, ``name`` the question it is
       served as, ``type`` the item's kind, ``subject_id`` its entity.
 
@@ -2011,6 +2013,7 @@ class SearchHit(CamelModel):
     conversation_id: str | None = None
     harness: str | None = None
     origin: str | None = None
+    site: str | None = None
     timestamp: str | None = None
     start: int | None = None
     end: int | None = None

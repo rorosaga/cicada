@@ -67,10 +67,12 @@ enum FindGroupID: Int, CaseIterable, Comparable, Sendable {
 }
 
 /// A row's leading mark: the entity's own logo, a service's real mark
-/// (`OriginMark` — installed app icon → bundled PNG → symbol), or a symbol.
+/// (`OriginMark` — installed app icon → bundled PNG → symbol), a saved link's own site (`SavedLinkMark`, never the
+/// browser's — owner 2026-10-20), or a symbol.
 enum FindMark: Equatable, Sendable {
     case entity(id: String, name: String, type: EntityType)
     case origin(String)
+    case savedLink(SavedLinkMarkModel.Mark)
     case symbol(String)
 }
 

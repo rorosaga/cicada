@@ -20,6 +20,8 @@ struct MemorySearchHit: Decodable, Equatable, Sendable {
     let conversationId: String?
     let harness: String?
     let origin: String?
+    /// A saved link's site key (review of #372): its conversation row wears the site's own mark (`SavedLinkMark`).
+    let site: String?
     let timestamp: String?
     let start: Int?
     let end: Int?
@@ -33,7 +35,7 @@ struct MemorySearchHit: Decodable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, score, snippet, kind, subtitle, snippetOffsets, matchedField, subjectId
-        case episodeId, conversationId, harness, origin, timestamp, start, end, hash, evidenceKind
+        case episodeId, conversationId, harness, origin, site, timestamp, start, end, hash, evidenceKind
         case validFrom, validTo, supersededBy, eventStatus, eventDay
     }
 
@@ -54,6 +56,7 @@ struct MemorySearchHit: Decodable, Equatable, Sendable {
         conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
         harness = try c.decodeIfPresent(String.self, forKey: .harness)
         origin = try c.decodeIfPresent(String.self, forKey: .origin)
+        site = try c.decodeIfPresent(String.self, forKey: .site)
         timestamp = try c.decodeIfPresent(String.self, forKey: .timestamp)
         start = try c.decodeIfPresent(Int.self, forKey: .start)
         end = try c.decodeIfPresent(Int.self, forKey: .end)

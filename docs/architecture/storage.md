@@ -1306,7 +1306,10 @@ claim-sentence query (search MRR 0.927 → 0.743) and ties every name query.
 inside it**: entity names + aliases + prose, every claim (superseded ones kept as history), episode
 titles + 600-character passages that tile the evidence text exactly, media/paper metadata, inbox
 questions and backlog items (G150), in seven per-kind FTS5 tables (`unicode61 remove_diacritics 2`, prefix `2 3 4`; rowid
-`doc_id << 16 | n`). `dropped` pages are never indexed. **Derived and disposable** (TODO ruling 3):
+`doc_id << 16 | n`). `dropped` pages are never indexed. An episode's `docs.meta` carries what a hit shows without
+reading the file — title, harness, origin, conversation id, hash, `index_only` (ruling 30, schema 6) and, for a saved
+link's episode, its `site` key (schema 7, review of #372; `channel_items.saved_episode_url` → `reading_hosts.mark_key`,
+the Waiting row's rule), so the palette draws the site's own mark. **Derived and disposable** (TODO ruling 3):
 deleting it costs a few seconds of CPU and never a fact; a missing, corrupt or schema-mismatched file is
 rebuilt, never an error. **Never tracked:** `bank_registry.ensure_derived_excluded` writes
 `.git/info/exclude` before the file first exists. It follows a worktree or submodule bank's `.git` file

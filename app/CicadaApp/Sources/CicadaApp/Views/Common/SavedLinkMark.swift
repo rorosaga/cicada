@@ -23,7 +23,7 @@ enum SavedLinkMarkModel {
         }
     }
 
-    enum Mark: Equatable {
+    enum Mark: Equatable, Sendable {
         /// The site's key (the backend's `reading_hosts.mark_key`), the words its monogram is drawn from, and the door.
         case site(key: String, label: String, door: Door?)
         /// No site to name: a ring monogram of the host or the title.
@@ -53,6 +53,13 @@ enum SavedLinkMarkModel {
         guard applies(site: item.site) else { return nil }
         let host = item.copyKind == "link" ? item.copyValue.flatMap(LinkGrammar.site) : nil
         return mark(site: item.site, host: host, title: item.title ?? "", door: .episode(item.id))
+    }
+
+    /// A ⌘K conversation row of a saved link (review of #372): the search index records the episode's site key
+    /// (`search_index._saved_site`, the Waiting row's rule), and the episode is the door. A conversation has none.
+    static func mark(_ hit: MemorySearchHit) -> Mark? {
+        guard hit.kind == "episode", applies(site: hit.site) else { return nil }
+        return mark(site: hit.site, host: hit.site, title: hit.name, door: .episode(hit.episodeId ?? hit.id))
     }
 
     private static func nonEmpty(_ value: String?) -> String? {

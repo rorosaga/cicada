@@ -72,7 +72,9 @@ DB_FILE = "search_index.db"
 # "6": an episode's `docs.meta` says when it is index-only (a watched day, a list save: ruling 30), so Ask's search
 # leg counts a word's rarity over the conversations it can show, not over thousands of watched days; the bump
 # rebuilds every index once (TODO ruling 3).
-SCHEMA_VERSION = "6"
+# "7": a saved link's episode records its site key in `docs.meta` (`site`, review of #372), so the ⌘K palette draws
+# a bookmark's conversation row with the site's own mark, never the browser's; the bump rebuilds every index once.
+SCHEMA_VERSION = "7"
 TOKENIZER = "unicode61 remove_diacritics 2"
 # Prefix indexes for 2-, 3- and 4-character prefixes: type-as-you-go queries
 # are mostly that short, and a prefix with no index is a range scan over
@@ -548,6 +550,8 @@ def _index_episode(conn, doc_key: str, f, fm: dict, body: str) -> None:
     }
     if history_index.is_index_only(fm):
         meta["index_only"] = True   # ruling 30: a record to look up — Ask's search leg neither counts nor shows it
+    if site := _saved_site(fm):
+        meta["site"] = site   # a saved link's own site key: its row's mark (owner 2026-10-20, review of #372)
     gaps = evidence.gap_ranges(fm, body)
     if gaps:
         meta["gaps"] = [list(g) for g in gaps]   # gate B2: the episode's own record, for a hit's kind
@@ -565,6 +569,16 @@ def _index_episode(conn, doc_key: str, f, fm: dict, body: str) -> None:
             "INSERT INTO pas(rowid, body, s, e) VALUES (?, ?, ?, ?)",
             ((doc_id << ROW_BITS) | n, text[s:e], s, e),
         )
+
+
+def _saved_site(fm: dict) -> str | None:
+    """The site key a saved link's episode is marked with — the Waiting row's and the Reader header's one rule
+    (`channel_items.saved_episode_url` → `reading_hosts.mark_key`), else None. Read from the episode's own
+    frontmatter, so a rebuild derives the same answer. Imported here: `channel_items` reads half the services."""
+    from api.services import channel_items, reading_hosts
+
+    url = channel_items.saved_episode_url(fm)
+    return reading_hosts.mark_key(url) if url else None
 
 
 def _index_inbox(conn, doc_key: str, f, fm: dict, body: str) -> None:

@@ -907,8 +907,9 @@ the website's logo … Clicking again on Sources takes me back to the main Sourc
   `SavedLinkMarkModel`: the site the backend named (`siteKey` / `site`, `reading_hosts.mark_key`) → `SiteIcon`, asked by
   the item's media id or, before Sleep made its page, its episode id; else the family's bundled mark; else the site's
   monogram. Drawn by Sources' saved rows, Sleep › Saved and Videos rows, Sleep › Waiting rows of a saved link (a
-  conversation, note or file keeps its source's mark), an open saved item's eyebrow, and the Reader's header for a
-  saved link. Where it was saved from stays in words: the open item's "Saved from" line keeps the browser's mark beside
+  conversation, note or file keeps its source's mark), an open saved item's eyebrow, the Reader's header for a
+  saved link, and the ⌘K palette's conversation row of a saved link (review of #372: the search hit carries `site`,
+  recorded by the search index from the episode's own frontmatter; `FindMark.savedLink`, asked by the episode id). Where it was saved from stays in words: the open item's "Saved from" line keeps the browser's mark beside
   its name (that line answers that question), and a source's group row, spine and pile plate keep the source's mark
   (the group *is* the source). Entity pictures (Find's saved rows, Ask's citations, the entity card, the graph) keep
   the picture precedence — a page's own thumbnail outranks a site icon there. `SiteIconStore` keeps an icon per
