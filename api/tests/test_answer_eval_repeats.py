@@ -212,3 +212,64 @@ def test_effort_pin_reaches_the_plan_cli_for_answer_and_judge(monkeypatch, agent
     assert argvs[0][argvs[0].index("--effort") + 1] == "medium" and "sonnet" in argvs[0]
     assert argvs[1][argvs[1].index("--effort") + 1] == "medium" and "haiku" in argvs[1]
     assert "--effort" not in argvs[2]                         # no pin: the model's own default, as before
+
+
+def test_fresh_starts_the_file_over_and_with_only_re_asks_just_those(tmp_path):
+    out = tmp_path / "a.jsonl"
+    _run(tmp_path, out, FakeEngine(default_script), repeats=2)
+    _run(tmp_path, out, FakeEngine(default_script), repeats=1, fresh=True)
+    done, meta = answer_eval.read_results(out)
+    assert sorted({run for _, run in done}) == [1] and len(done) == 4 and [m["run"] for m in meta] == [1]
+    _run(tmp_path, out, FakeEngine(default_script), repeats=2)
+    only = FakeEngine(default_script)
+    answer_eval.run_eval([QUESTIONS[2]], out, repeats=2, answer_fn=only.answer, judge_fn=only.judge,
+                         meta={"engine": "plan", "answer_model": "sonnet", "judge_model": "sonnet", "effort": None},
+                         fresh=True, only=True)
+    assert only.answers == ["Q3", "Q3"]
+    done, _ = answer_eval.read_results(out)
+    assert len(done) == 8                                     # the other questions' runs are kept
+
+
+def test_resume_refuses_a_file_made_under_other_run_settings(tmp_path):
+    out = tmp_path / "a.jsonl"
+    base = {"engine": "plan", "answer_model": "sonnet", "judge_model": "sonnet", "effort": None, "top_k": 6,
+            "claude_version": "2.1.304"}
+    eng = FakeEngine(default_script)
+    answer_eval.run_eval(QUESTIONS, out, repeats=1, answer_fn=eng.answer, judge_fn=eng.judge, meta=base)
+    for change in ({"effort": "low"}, {"answer_model": "claude-sonnet-5-5"}, {"claude_version": "2.1.310"},
+                   {"top_k": 8}, {"engine": "configured"}):
+        again = FakeEngine(default_script)
+        try:
+            answer_eval.run_eval(QUESTIONS, out, repeats=2, answer_fn=again.answer, judge_fn=again.judge,
+                                 meta=base | change)
+        except SystemExit as exc:
+            key = next(iter(change))
+            assert key in str(exc) and "--fresh" in str(exc) and "Q1" not in str(exc)
+        else:
+            raise AssertionError(f"resumed under {change}")
+        assert again.answers == []
+    same = FakeEngine(default_script)
+    answer_eval.run_eval(QUESTIONS, out, repeats=2, answer_fn=same.answer, judge_fn=same.judge, meta=base)
+    assert len(same.answers) == 4                             # same settings: run 2 is added
+    fresh = FakeEngine(default_script)
+    answer_eval.run_eval(QUESTIONS, out, repeats=1, answer_fn=fresh.answer, judge_fn=fresh.judge,
+                         meta=base | {"effort": "low"}, fresh=True)
+    assert len(fresh.answers) == 4                            # --fresh over everything starts the file over
+
+
+def test_compare_majority_gains_while_the_mean_falls_is_noise():
+    """The reviewer's case: six questions move wrong→right on majority while mean correct falls."""
+    a = {f"s{i}": [True] * 4 for i in range(30)} | {f"w{i}": [False] * 4 for i in range(6)}
+    b = dict(a)
+    # each gain is right on 3 of 4 runs, the wrong run rotating, so B's runs stay close together
+    for i in range(6):
+        b[f"w{i}"] = [j != i % 4 for j in range(4)]
+    # twenty always-right questions lose two runs each, split evenly: a tie, so no majority and no sign-test vote,
+    # but ten fewer right on every run
+    for i in range(20):
+        b[f"s{i}"] = [True, True, False, False] if i % 2 else [False, False, True, True]
+    c = answer_eval.compare(_rows_for(a), _rows_for(b))
+    assert c["gained"] == [f"w{i}" for i in range(6)] and c["lost"] == []
+    assert c["significant"] and c["beyond_spread"] and c["delta_correct"] < 0
+    assert not c["directions_agree"] and c["verdict"] == "within noise (directions disagree)"
+    assert "DIRECTIONS DISAGREE" in answer_eval.format_compare(c)

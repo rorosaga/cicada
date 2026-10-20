@@ -28,8 +28,8 @@ runs, overall and per tag, and per question: always right, always wrong, or flip
 
 **Compare.** ``--compare A.jsonl B.jsonl`` (no calls) takes each question's majority verdict over its runs in A and in
 B and calls B different from A only when the exact two-sided sign test on the questions whose majority changed gives
-p < 0.05 **and** the change in mean correct is wider than either file's own min–max. ``--summary FILE`` re-prints a
-file's summary.
+p < 0.05, the change in mean correct is wider than either file's own min–max, **and** both move the same way.
+``--summary FILE`` re-prints a file's summary.
 
 **Variance.** ``claude -p`` exposes no temperature, top-p or seed, so sampling cannot be pinned on the plan. What it
 does expose is pinned or recorded: ``--answer-model``/``--judge-model`` take a full model id as well as an alias, the
@@ -40,8 +40,9 @@ inherited ``CLAUDE_CODE_EFFORT_LEVEL``, which would override it), and each run's
 **Privacy.** The question file is yours and gitignored (``benchmarks/*.local.*``). Answers, judgments and the summary
 go to ``--out`` (default ``benchmark_results/answer_eval/<timestamp>.jsonl``, gitignored), written 0600. The terminal
 shows question ids and scores only, unless ``--show``; the summary and compare print ids and numbers only. Re-running
-with the same ``--out`` skips (question, run) pairs already graded and asks failed ones again (``--fresh`` redoes
-all of them).
+with the same ``--out`` skips (question, run) pairs already graded and asks failed ones again; ``--fresh`` starts the
+file over (with ``--only``, re-asks just those questions). A file is never resumed under other run settings (models,
+effort, CLI version, engine, top-k) than the ones its runs recorded — the eval refuses and says which differ.
 """
 from __future__ import annotations
 
@@ -293,10 +294,11 @@ def compare(rows_a: list[dict], rows_b: list[dict], meta_a: list[dict] | None = 
             meta_b: list[dict] | None = None) -> dict:
     """Before (A) vs after (B), on the questions both files graded.
 
-    The rule (stated in the output): B differs from A only when BOTH hold —
-    1. the exact two-sided sign test on questions whose majority verdict changed gives p < ``ALPHA``, and
+    The rule (stated in the output): B differs from A only when ALL hold —
+    1. the exact two-sided sign test on questions whose majority verdict changed gives p < ``ALPHA``,
     2. the difference in mean correct (count, over the shared questions) is larger than the runs' own spread
-       (the wider of the two files' min–max of correct).
+       (the wider of the two files' min–max of correct), and
+    3. the two point the same way (more majorities gained than lost and the mean up, or both down).
     Anything else is within noise.
     """
     ids = sorted({r["id"] for r in rows_a} & {r["id"] for r in rows_b})
@@ -316,8 +318,12 @@ def compare(rows_a: list[dict], rows_b: list[dict], meta_a: list[dict] | None = 
     p = sign_test_p(len(gained), len(lost))
     beyond_spread = delta is not None and abs(delta) > spread
     significant = p < ALPHA
-    if significant and beyond_spread:
+    # The two readings must point the same way: majorities moving up while the mean falls (or the reverse) is noise.
+    agree = delta is not None and (len(gained) - len(lost)) * delta > 0
+    if significant and beyond_spread and agree:
         verdict = "better" if delta > 0 else "worse"
+    elif significant and beyond_spread:
+        verdict = "within noise (directions disagree)"
     else:
         verdict = "within noise"
     notes = _like_for_like(meta_a or [], meta_b or [])
@@ -331,11 +337,12 @@ def compare(rows_a: list[dict], rows_b: list[dict], meta_a: list[dict] | None = 
             "correct_a": ca, "correct_b": cb, "delta_correct": delta, "spread": spread,
             "fact_recall_a": agg_a["fact_recall_pct"], "fact_recall_b": agg_b["fact_recall_pct"],
             "gained": gained, "lost": lost, "no_majority": no_majority, "sign_test_p": round(p, 4),
-            "significant": significant, "beyond_spread": beyond_spread, "verdict": verdict,
+            "significant": significant, "beyond_spread": beyond_spread, "directions_agree": agree,
+            "verdict": verdict,
             "only_in_one": only, "notes": notes,
             "rule": (f"B differs from A only when the exact two-sided sign test on questions whose majority verdict "
                      f"changed gives p < {ALPHA} AND |mean correct B − mean correct A| exceeds the wider min–max "
-                     f"of correct across either file's runs; otherwise within noise")}
+                     f"of correct across either file's runs, AND both move the same way; otherwise within noise")}
 
 
 def format_compare(c: dict) -> str:
@@ -354,7 +361,8 @@ def format_compare(c: dict) -> str:
         lines.append(f"  {len(c['only_in_one'])} question(s) in one file only, left out: " + " ".join(c["only_in_one"]))
     lines.append(f"  verdict: {c['verdict'].upper()}"
                  f" (sign test {'p < ' if c['significant'] else 'p ≥ '}{ALPHA}; "
-                 f"Δ {'beyond' if c['beyond_spread'] else 'within'} the runs' spread)")
+                 f"Δ {'beyond' if c['beyond_spread'] else 'within'} the runs' spread; "
+                 f"majority moves and Δ {'agree' if c['directions_agree'] else 'disagree'})")
     for n in c["notes"]:
         lines.append(f"  note: {n}")
     lines.append(f"  rule: {c['rule']}")
@@ -407,15 +415,41 @@ def _claude_version() -> str | None:
         return None
 
 
+#: The settings a run is made under. A results file holds runs of ONE set of them: resuming into a file written under
+#: other settings would mix two systems into one mean.
+RUN_SETTINGS = ("engine", "answer_model", "judge_model", "effort", "effort_env", "top_k", "claude_version")
+
+
+def settings_conflicts(recorded: list[dict], meta: dict) -> list[str]:
+    """Each run setting this invocation would change in a file whose runs recorded others."""
+    out = []
+    for key in RUN_SETTINGS:
+        before = sorted({str(m.get(key)) for m in recorded if key in m})
+        if before and before != [str(meta.get(key))]:
+            out.append(f"{key}: file has {', '.join(before)}, this run {meta.get(key)}")
+    return out
+
+
 def run_eval(questions: list[dict], out: Path, *, repeats: int, answer_fn, judge_fn, meta: dict,
-             fresh: bool = False, show: bool = False, models_fn=None) -> list[dict]:
+             fresh: bool = False, only: bool = False, show: bool = False, models_fn=None) -> list[dict]:
     """Answer and judge every (question, run) not already in ``out``; append each row as it lands.
 
     Run-major: run 1 covers every question before run 2 starts, so a stopped eval leaves whole runs behind.
     ``answer_fn(question) -> resp`` and ``judge_fn(messages) -> str`` are the engine; ``models_fn()`` (optional)
     returns and clears the models the engine reported since the last call.
+
+    ``fresh`` over every question (``only`` false) starts the file over; ``fresh`` with ``only`` re-asks those
+    questions into it. Either way a file is never resumed under run settings other than the ones it recorded.
     """
-    done, _ = ({}, []) if fresh else read_results(out)
+    if fresh and not only and out.exists():
+        out.write_text("", encoding="utf-8")
+    done, recorded = read_results(out)
+    conflicts = settings_conflicts(recorded, meta)
+    if conflicts:
+        raise SystemExit(f"{out} holds runs made under other settings — " + "; ".join(conflicts)
+                         + ". Give a new --out, or --fresh (without --only) to start this file over.")
+    if fresh:
+        done = {}
     # A pair that failed (no verdict) is asked again; only graded pairs are kept.
     done = {k: r for k, r in done.items() if r["grade"].get("graded")}
     wanted = {q["id"] for q in questions}
@@ -494,7 +528,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--repeats", type=int, default=3, help="answer and judge each question this many times (3)")
     ap.add_argument("--only", nargs="*", help="these question ids only")
     ap.add_argument("--out", type=Path, help="results (JSON Lines, 0600); default benchmark_results/answer_eval/")
-    ap.add_argument("--fresh", action="store_true", help="re-ask (question, run) pairs already in --out")
+    ap.add_argument("--fresh", action="store_true",
+                    help="start --out over (with --only: re-ask just those questions into it)")
     ap.add_argument("--show", action="store_true", help="print each question, answer and judge note")
     ap.add_argument("--summary", type=Path, metavar="RESULTS", help="print the summary of a results file; no calls")
     ap.add_argument("--compare", nargs=2, type=Path, metavar=("A", "B"),
@@ -564,7 +599,7 @@ def main(argv: list[str] | None = None) -> int:
             "judge_model": a.judge_model, "effort": a.effort, "top_k": a.top_k,
             "effort_env": os.environ.get("CLAUDE_CODE_EFFORT_LEVEL"), "claude_version": _claude_version()}
     rows = run_eval(questions, out, repeats=a.repeats, answer_fn=answer_fn, judge_fn=judge_fn, meta=meta,
-                    fresh=a.fresh, show=a.show, models_fn=models_fn)
+                    fresh=a.fresh, only=bool(a.only), show=a.show, models_fn=models_fn)
     print("\n" + format_summary(summarize(rows)))
     print(f"\nresults: {out}")
     return 0

@@ -14,8 +14,9 @@
   `benchmarks/answer_eval.py --repeats N` (default 3) answers and judges every question N times into one `--out`,
   resumable per (question, run), failed pairs re-asked; the summary gives each measure's mean and min–max across runs,
   overall and per tag, and always right / always wrong / flips (ids only). `--compare A.jsonl B.jsonl` (no calls) is
-  the accept rule: B differs only when the exact sign test on questions whose majority verdict changed gives p < 0.05
-  **and** Δ mean correct exceeds the wider min–max of either file. `claude -p` has no temperature/top-p/seed; the model
+  the accept rule: B differs only when the exact sign test on questions whose majority verdict changed gives p < 0.05,
+  Δ mean correct exceeds the wider min–max of either file, **and** both move the same way; a file is never resumed
+  under other run settings, and `--fresh` starts it over. `claude -p` has no temperature/top-p/seed; the model
   the plan reported, the CLI version and `--effort` (opt-in pin; drops an inherited `CLAUDE_CODE_EFFORT_LEVEL`) are
   recorded and compare flags any mismatch. Tests: `test_answer_eval_repeats.py`, `test_public_benchmark.py`. Pick up:
   the coordinator re-runs the owner's eval with `--repeats 3` on dev as the baseline file every Ask change compares to.
