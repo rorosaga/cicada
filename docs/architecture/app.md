@@ -1792,7 +1792,9 @@ semibold (tracking −0.3 at 20 pt, −0.4 above, floor 20, paired and counted b
 only on `MonospaceLintTests`' allowlist (code, commands, paths, keys, ids), and `CitedSpan` the washed, underlined span,
 read by the Inbox's quote and the Reader's turns since DS-2 (a mention found by name is its semibold, unwashed case);
 its tint (`wash` / `washSoft`) is neutral ink since 2026-10-20 — an accent fill behind words read as a text selection —
-and the accent stays on the current span's underline. **Motion:** `CicadaMotion` (nil under Reduce Motion) is the only place outside
+and the accent stays on the current span's underline; `washSoft` is `wash` (white 10 % / black 7 %) since the review
+of #383, so another cited span is as findable as the current one in the document view, and that view's blocks say
+"Cited here" / "Also cited here" to VoiceOver (`ReaderTurnView.accessibilityWords`). **Motion:** `CicadaMotion` (nil under Reduce Motion) is the only place outside
 `SleepMotion` a duration is spelled; `hoverLift()` for things that open, `iconHover()` for glyphs; a keyboard action
 never animates. Sprites play per frame from their sheets within `CicadaMotion`'s sprite caps (ruling 18).
 

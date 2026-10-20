@@ -129,14 +129,46 @@ final class ThemeContrastTests: XCTestCase {
     func testPrimaryInkReadsOnTheCitedWash() {
         for mode in [AppColorScheme.dark, .light] {
             CicadaTheme.mode = mode
-            let ink = Color(hex: mode == .dark ? 0xFFFFFF : 0x000000)
-            let alpha = mode == .dark ? 0.10 : 0.07   // `CicadaTheme.wash`'s opacity
-            for surface in [CicadaTheme.bgPane, CicadaTheme.bgFocus, CicadaTheme.chatBubbleFill,
-                            CicadaTheme.chatBubbleOtherFill] {
-                let wash = ThemeTokenTests.blend(ink, over: surface, alpha: alpha)
-                XCTAssertGreaterThanOrEqual(c(CicadaTheme.textPrimary, wash), 7, "\(mode.rawValue)")
+            for (name, tint) in [("wash", CicadaTheme.wash), ("washSoft", CicadaTheme.washSoft)] {
+                for surface in citedSurfaces {
+                    XCTAssertGreaterThanOrEqual(c(CicadaTheme.textPrimary, tinted(tint, over: surface)), 7,
+                                                "\(mode.rawValue) \(name)")
+                }
             }
         }
+    }
+
+    /// Review of #383 — another cited span (`washSoft`) was 1.09:1 off the light pane and 1.17:1 off the dark person
+    /// bubble, so in the document view, which has no "Cited" marker, it could not be found. Every cited span now stands
+    /// at least as far off every surface it sits on as the current span's tint does (≥ 1.16:1; measured light 1.17,
+    /// dark 1.32–1.37), and no tinted pane reads as a hovered or selected row (≥ 1.04:1 from both; measured light
+    /// 1.08 / 1.05, dark 1.09 / 1.23).
+    func testEveryCitedSpanIsFindableAndNoneReadsAsARow() {
+        for mode in [AppColorScheme.dark, .light] {
+            CicadaTheme.mode = mode
+            for surface in citedSurfaces {
+                let current = c(tinted(CicadaTheme.wash, over: surface), surface)
+                let other = c(tinted(CicadaTheme.washSoft, over: surface), surface)
+                XCTAssertGreaterThanOrEqual(other, current - 0.001, "\(mode.rawValue): another span is fainter")
+                XCTAssertGreaterThanOrEqual(other, 1.16, "\(mode.rawValue): another span is hard to find")
+            }
+            for tint in [CicadaTheme.wash, CicadaTheme.washSoft] {
+                let pane = tinted(tint, over: CicadaTheme.bgPane)
+                XCTAssertGreaterThanOrEqual(c(pane, CicadaTheme.bgSelected), 1.04, "\(mode.rawValue): reads as selected")
+                XCTAssertGreaterThanOrEqual(c(pane, CicadaTheme.bgHover), 1.04, "\(mode.rawValue): reads as hovered")
+            }
+        }
+    }
+
+    private var citedSurfaces: [Color] {
+        [CicadaTheme.bgPane, CicadaTheme.bgFocus, CicadaTheme.chatBubbleFill, CicadaTheme.chatBubbleOtherFill]
+    }
+
+    /// A translucent token as it is drawn over `surface`.
+    private func tinted(_ tint: Color, over surface: Color) -> Color {
+        let t = NSColor(tint).usingColorSpace(.sRGB)!
+        return ThemeTokenTests.blend(Color(.sRGB, red: t.redComponent, green: t.greenComponent, blue: t.blueComponent),
+                                     over: surface, alpha: t.alphaComponent)
     }
 
     /// The Reader's chat bubbles (2026-10-20): both inks a message can be drawn in clear AA on both bubbles.

@@ -723,9 +723,20 @@ struct ReaderTurnView: View {
                          reveal: revealed ? 1 : 0)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(block.speaker.isEmpty || !block.startsTurn
-                            ? block.text
-                            : Copy.Provenance.turnLabel(speaker: block.speaker, turn: block.index, text: block.text))
+        .accessibilityLabel(Self.accessibilityWords(block))
+    }
+
+    /// What VoiceOver reads for a block of the document view: the chat's cited words first when it holds a cited span
+    /// (review of #383, 2026-10-20 — the tint is seen, never only seen), then the speaker line and the words.
+    static func accessibilityWords(_ block: ReaderBlock) -> String {
+        let words = block.speaker.isEmpty || !block.startsTurn
+            ? block.text
+            : Copy.Provenance.turnLabel(speaker: block.speaker, turn: block.index, text: block.text)
+        switch ReaderChat.citedMark(block) {
+        case .current: return Copy.Provenance.citedHere + ". " + words
+        case .other: return Copy.Provenance.alsoCitedHere + ". " + words
+        case nil: return words
+        }
     }
 }
 
