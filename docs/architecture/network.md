@@ -46,9 +46,14 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   `/favicon.ico`. An icon URL the page itself declares may sit on another host (a CDN): https only, every hop through
   the SSRF guard and kept on that host's or the site's domain, accepted only when it says `image/*` and its bytes sniff
   as a raster. 4 s for the whole discovery, ≤ 512 KB per response streamed, no cookies, a block (401/403/407/451) from
-  the site stops it and is never retried; SVG (served or `data:`) stays a miss — nothing in the backend rasterises it
-  safely, and it is never served to the app as-is; a base64 raster `data:` icon is decoded, capped at 512 KB. Hits and
-  misses cached under `logos/<bank>/sites/own/` (a miss from the 2026-10-19 discovery is asked once more; `storage.md`).
+  the site stops it and is never retried; a base64 raster `data:` icon is decoded, capped at 512 KB. **SVG (owner
+  ruling 2026-10-20: "yes, we should draw the SVG icon safely"):** only when no raster answered, at most two declared
+  SVG icons (served or `data:`) are asked under the same declared-icon rules, ≤ 64 KB, sanitised (no DTD or entities,
+  an allow-list of shapes/paths/gradients/transforms, no script, `foreignObject`, image, text, external `href` or
+  `url()`, no CSS comments or filters, no mask or clip path applying another) and drawn to a 64×64 PNG by
+  `svg_raster` in a child process whose descriptor limit is 0 (it can create no file or socket descriptor) and which is
+  killed at 2 s; the release build draws one real icon this way before it ships; only the PNG is cached and served, SVG never is. The drawing makes no request of its own. Hits and misses
+  cached under `logos/<bank>/sites/own/` (a miss from an older discovery is asked once more; `storage.md`).
   It also gates a watched video's still (owner direction 2026-10-19, Sources v4): a day the person opened in Sources ›
   YouTube history asks `GET /sources/watch-history/days/{episode}/videos/{id}/thumbnail`, which asks YouTube's own
   thumbnail host for that id only, and only for an id that day records; the media-preview rail, cached under

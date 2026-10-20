@@ -750,23 +750,42 @@ Round 4 (C2–C4):
   (`logo_service.fetch_own_site_icon`): the homepage `https://<site>/` (or `https://www.<site>/` when the bare domain has
   no public address), following only https redirects on the same registrable domain and default port; its `<link rel>` declarations — `icon`,
   `shortcut icon`, `apple-touch-icon` — found by one linear scan of `<link>`/`<base>` tags only, off the event loop (`declared_icons`; never the
-  stdlib HTML tokenizer, which is quadratic on hostile markup — security review of #371; the first 64 tags; `mask-icon` and
-  anything typed or named SVG skipped; an href with an explicit port or userinfo skipped), resolved against the page's final URL or its `<base href>`, ranked light-scheme
+  stdlib HTML tokenizer, which is quadratic on hostile markup — security review of #371; the first 64 tags; `mask-icon` skipped,
+  anything typed or named SVG kept aside for the SVG step below; an href with an explicit port or userinfo skipped), resolved against the page's final URL or its `<base href>`, ranked light-scheme
   (or scheme-less) before dark, then the largest declared raster of at least 32 px (an apple-touch icon with no `sizes`
   counts as 180), then unknown sizes, then small ones; at most three asked; then `/apple-touch-icon.png` and
   `/favicon.ico` on the host that answered. A declared URL on another host (a CDN the page names) is asked: https only,
   through the SSRF guard on every hop, its redirects kept on its own or the site's registrable domain, and kept only
   when the content-type says `image/*` **and** the bytes sniff as PNG/ICO/GIF/JPEG/WebP; on the site itself a favicon
   served as `application/octet-stream` still counts by its bytes, but anything that says HTML/XML/SVG never does (an SPA
-  answering `/favicon.ico` with its page). **SVG stays a miss** — no rasteriser in the backend can be trusted with
-  attacker-chosen SVG (Pillow is deliberately absent, and a hand-rolled renderer is no sanitizer), and SVG is never
-  served to the app as-is; a `data:` icon is decoded only when it is base64 raster, its size capped at 512 KB before
-  decoding and its bytes sniffed like a download (`data:image/svg+xml` is a miss). A homepage that redirects to another
+  answering `/favicon.ico` with its page). A `data:` raster icon is decoded only when it is base64 raster, its size
+  capped at 512 KB before decoding and its bytes sniffed like a download.
+  **SVG is drawn, safely (owner ruling 2026-10-20: "yes, we should draw the SVG icon safely"; amends "SVG stays a miss"
+  of the same day).** Only when no raster answered — declared or at the fixed paths, so a site with any raster keeps
+  it — the page's declared SVG icons (typed `image/svg+xml`, a path ending `.svg`, or `data:image/svg+xml`, base64 or
+  percent-encoded; never `mask-icon`; at most two, `declared_svg_icons`) are asked under the declared-icon rules (https,
+  SSRF guard per hop, redirects on its own or the site's domain, a block stops discovery), kept only when the
+  content-type says SVG (on the site itself also XML/octet-stream/plain) and the bytes open as SVG, ≤ 64 KB.
+  `svg_raster` then: **sanitises** in pure Python — expat with every DTD, entity declaration and external entity
+  refused outright (no billion laughs, no XXE), ≤ 32 deep and ≤ 1,000 elements while parsing, rebuilt from an
+  allow-list (shapes, paths, groups, `defs`/`symbol`, gradients and stops, `clipPath`, `mask`, `<style>` and presentation
+  attributes, transforms); `script`, `foreignObject`, `image`, `text`, filters, animation, `on*` handlers, any `href`
+  but a local `#id`, any `url()` but `url(#id)`, CSS with `@`, escapes, comments or `filter` is dropped; a `<use>` only of a local element
+  that held no `<use>` (≤ 64); a mask or clip path that applies another (directly, by inline style, through a `<use>`, or
+  any `<style>` setting one beside a mask or clip path) refuses the icon — each level multiplies the work; a viewBox of four finite numbers within ±1e6; the output a fresh document Cicada wrote at
+  64×64 — then **draws** it with resvg (Rust; no script engine, no network code) in a child `python -I` with an empty
+  environment and working directory that caps its CPU seconds (and address space where the OS enforces it — Linux,
+  not macOS, where the sanitiser's expansion limits and the wall clock bound memory), reads the SVG, then sets
+  `RLIMIT_NOFILE` to 0 (no new descriptor at all, so no file and no socket even after closing one of its own; a limit
+  of 3 only capped the number — security review of #382), and is killed at 2 s wall clock — and **checks** the
+  answer is a 64×64 PNG that is not fully transparent. Only that PNG is cached (`<site>.png`) and served; SVG bytes are
+  never stored or served. Any failure is a miss, the monogram. The drawing happens after the 4 s network budget, not
+  inside it. A homepage that redirects to another
   registrable domain is not followed (the fixed paths are still asked). One 4 s budget covers the whole discovery
   (`OWN_SITE_BUDGET_SECONDS`); each hop never a login host, the body streamed with `Accept-Encoding: identity` and cut at 512 KB of raw bytes (no compressed body inflates first), DNS checked off the event loop, no cookies, raster only; 401/403/407/451 stops at once and nothing is retried
   with other headers. Behind `CICADA_ALLOW_LOGO_FETCH` (off: nothing asked, nothing recorded, the monogram). Cached in
   `$CICADA_HOME/logos/<bank>/sites/own/` — hits 30 days, misses 7, each entry stamped with the discovery's version
-  `v` (`OWN_SITE_DISCOVERY` = 2): a miss recorded by the 2026-10-19 discovery is asked once more, hits stay — never in a bank; any failure is a 404 the row draws
+  `v` (`OWN_SITE_DISCOVERY` = 3, bumped for the SVG ruling): a miss recorded by an older discovery is asked once more, hits stay — never in a bank; any failure is a 404 the row draws
   as its monogram. This is a row's mark only: it never becomes a page's picture, and `domain_for` still takes no saved
   link's site.
   **A watched or saved YouTube video's still (owner direction 2026-10-19, Sources v4).** *"For YouTube … why don't you

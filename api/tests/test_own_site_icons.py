@@ -199,7 +199,7 @@ def test_shortcut_icon_and_apple_touch_the_larger_raster_first():
     assert got is not None and logo_service.min_dimension(got[0]) == 32
 
 
-def test_an_svg_only_site_is_a_miss_and_an_spa_html_favicon_is_never_an_icon():
+def test_an_svg_only_site_asks_its_svgs_last_and_an_spa_html_favicon_is_never_an_icon():
     svg_links = ('<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3">'
                  '<link rel="icon" href="assets/favicon.svg">'
                  '<link rel="mask-icon" href="/mask.png" color="#000">')
@@ -208,9 +208,10 @@ def test_an_svg_only_site_is_a_miss_and_an_spa_html_favicon_is_never_an_icon():
                         "https://site-d.example/favicon.ico": (200, spa, "text/html"),
                         "https://site-d.example/apple-touch-icon.png": (200, spa, "image/png")})
     assert run(logo_service.fetch_own_site_icon("site-d.example", fetcher=fetcher)) is None
-    assert not any(".svg" in u or "mask" in u for u in fetcher.urls), "an SVG or mask icon is never even asked"
+    assert not any("mask" in u for u in fetcher.urls), "a mask icon is never even asked"
     assert fetcher.urls == ["https://site-d.example/", "https://site-d.example/apple-touch-icon.png",
-                            "https://site-d.example/favicon.ico"]
+                            "https://site-d.example/favicon.ico", "https://site-d.example/favicon.svg?v=3",
+                            "https://site-d.example/assets/favicon.svg"], "the rasters first; SVGs only after they miss"
 
 
 def test_a_data_icon_decodes_only_as_a_capped_raster():
@@ -366,12 +367,12 @@ def test_the_budget_stops_slow_answers_and_cpu_work_alike(tmp_path, monkeypatch)
     assert logo_service.read_meta(logo_service.own_site_bank("bank"))["site-k.example"]["miss"] is True
     # CPU work counts against the same clock: the page's scan runs off the loop, so the budget still fires on time
     # even when the scan itself is slow.
-    real = logo_service.declared_icons
+    real = logo_service._declared
 
     def slow_scan(html, url):
         time.sleep(0.5)
         return real(html, url)
-    monkeypatch.setattr(logo_service, "declared_icons", slow_scan)
+    monkeypatch.setattr(logo_service, "_declared", slow_scan)
 
     async def page_then_icon(url):
         if url.endswith("/"):
@@ -697,3 +698,71 @@ def test_the_readers_document_names_a_saved_links_site(episodes):
     assert provenance.episode_document(episodes, "ep_2026-10-01_1").site == "paperfold.io"
     assert provenance.episode_document(episodes, "ep_2026-10-01_2").site is None, "a conversation keeps its harness"
     assert provenance.episode_document(episodes, "ep_2026-10-01_3").site is None
+
+
+# --- SVG icons, drawn safely (owner 2026-10-20) -------------------------------------------------------------------
+
+ICON_SVG = (b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><script>fetch("https://evil.example/")</script>'
+            b'<circle cx="12" cy="12" r="10" fill="#c33" onload="x()"/></svg>')
+
+
+def test_an_svg_only_site_gets_a_png_drawn_from_its_svg_and_never_stores_svg(tmp_path):
+    bank = tmp_path / "memory"
+    bank.mkdir()
+    fetcher = Recorder({"https://site-s.example/": (200, page('<link rel="icon" type="image/svg+xml" href="/i.svg">'),
+                                                     "text/html"),
+                        "https://site-s.example/i.svg": (200, ICON_SVG, "image/svg+xml")})
+    path = run(logo_service.ensure_own_site_icon(bank, "site-s.example", fetcher=fetcher))
+    assert path is not None and path.suffix == ".png" and bank not in path.parents
+    data = path.read_bytes()
+    assert data.startswith(b"\x89PNG") and struct.unpack(">II", data[16:24]) == (64, 64)
+    assert not list(path.parent.glob("*.svg")) and b"<svg" not in data
+    assert logo_service.read_meta(logo_service.own_site_bank("memory"))["site-s.example"]["ext"] == "png"
+    assert "evil.example" not in fetcher.hosts
+
+
+def test_a_data_svg_icon_is_drawn_and_a_raster_still_wins():
+    import base64
+    from urllib.parse import quote
+
+    for uri in (f"data:image/svg+xml,{quote(ICON_SVG.decode())}",
+                f"data:image/svg+xml;base64,{base64.b64encode(ICON_SVG).decode()}"):
+        fetcher = Recorder({"https://site-t.example/": (200, page(f'<link rel="icon" href="{uri}">'), "text/html")})
+        got = run(logo_service.fetch_own_site_icon("site-t.example", fetcher=fetcher))
+        assert got is not None and got[1] == "png" and got[0].startswith(b"\x89PNG")
+    fetcher = Recorder({"https://site-t.example/": (200, page('<link rel="icon" href="/i.svg">'), "text/html"),
+                        "https://site-t.example/favicon.ico": (200, ico(), "image/x-icon")})
+    got = run(logo_service.fetch_own_site_icon("site-t.example", fetcher=fetcher))
+    assert got is not None and got[1] == "ico" and "https://site-t.example/i.svg" not in fetcher.urls, \
+        "a site with any raster keeps it; its SVG is never asked"
+
+
+def test_a_declared_svg_is_held_to_the_declared_icon_rules():
+    links = page('<link rel="icon" href="https://cdn.example/i.svg">')
+    for answer in ((200, ICON_SVG, "text/html"), (200, ICON_SVG, "application/octet-stream"),
+                   (200, b"<html>not an svg</html>", "image/svg+xml"),
+                   (200, ICON_SVG + b"<!--" + b"x" * (64 * 1024) + b"-->", "image/svg+xml")):
+        fetcher = Recorder({"https://site-u.example/": (200, links, "text/html"), "https://cdn.example/i.svg": answer})
+        assert run(logo_service.fetch_own_site_icon("site-u.example", fetcher=fetcher)) is None
+    hostile = (b'<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/passwd">]>'
+               b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><desc>&x;</desc><rect width="1" height="1"/></svg>')
+    fetcher = Recorder({"https://site-u.example/": (200, links, "text/html"),
+                        "https://cdn.example/i.svg": (200, hostile, "image/svg+xml")})
+    assert run(logo_service.fetch_own_site_icon("site-u.example", fetcher=fetcher)) is None
+    off_site = Recorder({"https://site-u.example/": (200, links, "text/html"),
+                         "https://cdn.example/i.svg": (302, b"", "text/html", "https://third.example/i.svg"),
+                         "https://third.example/i.svg": (200, ICON_SVG, "image/svg+xml")})
+    assert run(logo_service.fetch_own_site_icon("site-u.example", fetcher=off_site)) is None
+    assert "third.example" not in off_site.hosts
+    ok = Recorder({"https://site-u.example/": (200, links, "text/html"),
+                   "https://cdn.example/i.svg": (200, ICON_SVG, "image/svg+xml; charset=utf-8")})
+    assert run(logo_service.fetch_own_site_icon("site-u.example", fetcher=ok)) is not None
+
+
+def test_a_block_on_a_declared_svg_stops_discovery():
+    fetcher = Recorder({"https://site-v.example/": (200, page('<link rel="icon" href="/a.svg"><link rel="icon" '
+                                                              'href="/b.svg">'), "text/html"),
+                        "https://site-v.example/a.svg": (403, b"no", "text/html"),
+                        "https://site-v.example/b.svg": (200, ICON_SVG, "image/svg+xml")})
+    assert run(logo_service.fetch_own_site_icon("site-v.example", fetcher=fetcher)) is None
+    assert "https://site-v.example/b.svg" not in fetcher.urls

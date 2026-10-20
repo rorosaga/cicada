@@ -896,7 +896,8 @@ the website's logo … Clicking again on Sources takes me back to the main Sourc
   Saved, `CapturedItemRoute`). A bookmark that left the browser keeps its dimmed row and `bookmark.slash` mark.
 - **The site's own mark (owner ruling 2026-10-19).** `SiteIcon(site:savedItem:)`: the row asks
   `GET /sources/saved/{id}/site-icon` (`SiteIconStore`, one answer per site and bank, misses too), and the backend asks
-  the link's own site, the way a browser finds its icon (declared in its homepage first, 2026-10-20) — never an icon service (`storage.md`, "A saved link's own site icon"). Until it arrives, or for a
+  the link's own site, the way a browser finds its icon (declared in its homepage first, 2026-10-20; an SVG-only site's icon arrives as a PNG the backend drew, 2026-10-20)
+  — never an icon service (`storage.md`, "A saved link's own site icon"). Until it arrives, or for a
   site with none: the bundled mark of a known family (LinkedIn, X, Instagram, TikTok, Reddit), else a ring monogram of
   the site. Never the browser's mark. With `CICADA_ALLOW_LOGO_FETCH=off` every row is its monogram.
 - **One mark for a saved link (owner 2026-10-20).** *"Instead of the Chrome logo make this an app-wide change."* Every
