@@ -54,9 +54,9 @@ struct ReaderColumn: View {
     @State private var keyScroll: KeyScroll?
     /// The last layout built, so a key press or a hover redraw does not rebuild a 500-turn chat (`LayoutMemo`).
     @State private var memo = LayoutMemo()
-    /// How the last in-place jump was asked for (owner, 2026-10-20): a pointer's jump fades the wash in and gives the
-    /// landed message a brief ring that fades (`citedEmphasis`); a keyboard's (⌥↑ / ⌥↓, ⏎ on a noted row) lands in
-    /// one frame with neither (DR-60).
+    /// How the last in-place jump was asked for (owner, 2026-10-20): a pointer's jump hides the wash while the column
+    /// moves, shows it once landed and gives the landed message a brief ring that fades (`citedEmphasis`); a
+    /// keyboard's (⌥↑ / ⌥↓, ⏎ on a noted row) lands in one frame with the wash kept and no ring (DR-60).
     @State private var jumpTrigger: LooksZoom.Trigger = .pointer
     @State private var citedEmphasis: Double = 0
     @State private var emphasisFade: Task<Void, Never>?
@@ -512,8 +512,9 @@ struct ReaderColumn: View {
             })
     }
 
-    /// Scroll to the cited turn after the first layout, fade the wash in over
-    /// `spanReveal`, then say what was landed on (§4.4 Landing).
+    /// Scroll to the cited turn after the first layout, show the wash, then say what was landed on (§4.4 Landing).
+    /// The wash appears in one step: a `CitedPassage`'s marks are attributes of its selectable string, which no
+    /// animation interpolates, so `spanReveal` here times only what can move with it.
     private func land(proxy: ScrollViewProxy, block: ReaderBlock.Key?, blocks: [ReaderBlock],
                       presentation: ReaderPresentation, chat: [ReaderChat.Row]?) {
         Task { @MainActor in
@@ -561,10 +562,10 @@ enum ReaderJumpAsk: Equatable {
     }
 }
 
-/// How a landing moves (owner, 2026-10-20; DR-60, DR-61). Opening the Reader fades the wash in over `spanReveal`, as
-/// it always did. An in-place jump asked for by a key (⌥↑ / ⌥↓, ⏎ on a noted row) lands in one frame: the wash is
-/// simply there and nothing rings. A jump asked for by the pointer fades the wash in and, in a chat, gives the landed
-/// message a brief ring that fades — the eye's cue to where the column moved.
+/// How a landing moves (owner, 2026-10-20; DR-60, DR-61). Opening the Reader shows the wash once landed. An in-place
+/// jump asked for by a key (⌥↑ / ⌥↓, ⏎ on a noted row) lands in one frame: the wash is simply there and nothing
+/// rings. A jump asked for by the pointer shows the wash once landed and, in a chat, gives the landed message a brief
+/// ring that fades — the eye's cue to where the column moved. The wash itself never fades (`CitedPassage`).
 enum ReaderLandingMotion: Equatable {
     case instant, reveal, revealAndEmphasise
 

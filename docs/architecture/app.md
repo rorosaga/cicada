@@ -1897,7 +1897,8 @@ span carries a quiet "Cited" marker beside its bubble, in the room the bubble le
 the accent for the landed span and `quoteRule` for another cited one, `ReaderChat.citedMark`), said first by VoiceOver
 ("Cited here. …" / "Also cited here. …", `ReaderChat.accessibilityLabel`); the words keep only the neutral tint and
 the current span's underline. A navigator step or a "Noted" row re-lands by its trigger (`ReaderLandingMotion`, the
-event read through `LooksZoom.trigger(for:)`): a pointer's fades the wash in and rings the landed bubble briefly
+event read through `LooksZoom.trigger(for:)`): a pointer's hides the wash while the column moves, shows it once landed
+(in one step — the passage's marks are attributes of its string and never fade, see below) and rings the landed bubble briefly
 (`citedEmphasis`, held `rowHighlightHold`, faded `rowHighlightFade`); a key's (⌥↑ / ⌥↓, ⏎) lands in one frame with
 the wash already there and no ring (DR-60); a VoiceOver press on the chevrons or a row lands as a key does, whatever
 event came last (`ReaderJumpAsk`, through `IconButton`'s `accessibilityPress` / `AssistivePress`). `ReaderBubblesTests`. A turn is
