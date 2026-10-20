@@ -2,6 +2,9 @@
 #   cp benchmarks/answer_eval.example.yaml benchmarks/answer_eval.local.yaml
 #   api/.venv/bin/python -m benchmarks.answer_eval --bank <your bank dir> --questions benchmarks/answer_eval.local.yaml
 #
+# That bare command runs every question 3 times (--repeats 3, the default: one run moves by chance, so the summary
+# reports the mean and min–max across runs). Add --repeats 1 for a single quick run.
+#
 # expect:  facts a right answer must state (paraphrase is fine)
 # forbid:  facts it must NOT assert as current (an old value that changed)
 # abstain: true when memory should not know — the right answer says so

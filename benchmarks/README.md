@@ -9,7 +9,16 @@
   `python -m benchmarks.public.run prepare|run|report --help`.
 - `benchmarks/answer_eval.py` — **your own questions on your own bank**, graded against facts you write down
   (expected / forbidden / should abstain); the question file is gitignored (`benchmarks/*.local.*`), start from
-  `benchmarks/answer_eval.example.yaml`.
+  `benchmarks/answer_eval.example.yaml`. Each question is answered and judged `--repeats` times (default 3; one run
+  moves by ±4 of 60 questions by chance); `--summary FILE` prints mean and min–max per measure and the questions that
+  flip, and `--compare BEFORE.jsonl AFTER.jsonl` is how an Ask change is accepted or rejected (no calls):
+  ```sh
+  api/.venv/bin/python -m benchmarks.answer_eval --bank <bank> --questions benchmarks/answer_eval.local.yaml \
+      --repeats 3 --out benchmark_results/answer_eval/after.jsonl
+  api/.venv/bin/python -m benchmarks.answer_eval --summary benchmark_results/answer_eval/after.jsonl
+  api/.venv/bin/python -m benchmarks.answer_eval --compare benchmark_results/answer_eval/before.jsonl \
+      benchmark_results/answer_eval/after.jsonl
+  ```
 - `benchmarks/system/` — the whole-system integrity benchmark (synthetic, offline fake engine).
 - `benchmarks/recall_ab.py` — page-ranking A/B (finds the right page; does not grade the answer).
 
