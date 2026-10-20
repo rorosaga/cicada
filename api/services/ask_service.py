@@ -158,15 +158,19 @@ def _wants_history(query: str) -> bool:
     Explicit past/change language or an as-of date also permits labeled history.
     No interpretation here ever converts a closed claim back into a current one.
     """
-    return bool(re.search(
+    if re.search(
         r"\b(history|historical|past|previously|previous|earlier|formerly|former|before|"
         r"used to|as of|back then|changed?|happened|was|were|did|had|"
-        r"yesterday|last (?:week|month|year)|in \d{4}|"
-        # Spanish (2026-10-20): the same cues, and a preterite's stressed "-ó" ("¿qué investigó …?", "¿cuándo cenó …?").
-        r"historia|pasad[oa]|antes|anterior(?:mente)?|sol[ií]a|cambi[oó]|pas[oó]|ocurri[oó]|fue|fueron|era|eran|"
-        r"estaba|hab[ií]a|hizo|tuvo|ayer|la semana pasada|el mes pasado|el a[nñ]o pasado|en \d{4}|\w{2,}ó)\b",
+        r"yesterday|last (?:week|month|year)|in \d{4})\b",
         query, re.IGNORECASE,
-    ))
+    ):
+        return True
+    # Spanish (2026-10-20), only for a Spanish question ("era" and a word ending in "-ó" are English words too —
+    # review of #385): the same cues, and a preterite's stressed "-ó" ("¿qué investigó …?", "¿cuándo cenó …?").
+    return ask_sources.question_language(query) == "es" and bool(re.search(
+        r"\b(historia|pasad[oa]|antes|anterior(?:mente)?|sol[ií]a|cambi[oó]|pas[oó]|ocurri[oó]|fue|fueron|era|eran|"
+        r"estaba|hab[ií]a|hizo|tuvo|ayer|la semana pasada|el mes pasado|el a[nñ]o pasado|en \d{4}|\w{2,}ó)\b",
+        query, re.IGNORECASE))
 
 
 def _claim_context(claim, all_claims) -> dict:
@@ -372,7 +376,7 @@ def _retrieved_entities(memory_path: Path, hits: list[dict], *, include_history:
             continue
         page_claims = parse_claims(loaded["body"])
         eligible = [c for c in page_claims if not is_record(c) and (include_history or is_current(c) or (is_event(c) and not c.superseded_by))]
-        terms = _focus(text_fold.subject_terms(query), [loaded])
+        terms = _focus(ask_sources.question_terms(query), [loaded])
         eligible.sort(key=lambda c: -len(terms & text_fold.subject_terms(f"{c.text} {c.predicate} {c.object}")))
         if include_history:
             current = [c for c in eligible if is_current(c)]
@@ -722,7 +726,7 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
     verbatim words (a remote connector without ``sources``). ``searched`` (with ``source_words`` only) adds OTHER
     CONVERSATIONS: the turns of the conversations the question's own words find, past what the pages point at;
     ``shown`` receives ``{"conversations": {episode_id: {title, day}}}`` for them."""
-    terms = _focus(text_fold.subject_terms(query), [e for e in entities if not e.get("linked_from")])
+    terms = _focus(ask_sources.question_terms(query), [e for e in entities if not e.get("linked_from")])
     enumerate_ = getattr(searched, "shape", None) == ask_sources.SHAPE_ENUMERATE
     inference = ask_sources.asks_inference(query)
     # 2026-10-20: a question in another language than the record shares no word with it — the search model ranks
@@ -931,7 +935,7 @@ def _linked_people(memory_path: Path, entities: list[dict], query: str, people: 
     if people is None or not people.pages:
         return []
     shown = {e["entity_id"] for e in entities}
-    terms = text_fold.subject_terms(query)
+    terms = ask_sources.question_terms(query)
     found: dict[str, dict] = {}
 
     def note(person_id: str | None, source: dict, line: str, order: int) -> None:

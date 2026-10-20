@@ -737,7 +737,7 @@ lookup).
 
 **Retrieval, no model:** Spanish answer turns **8 → 33 of 74** (English 38). Every English prompt of the broad
 sample's banks (300 LoCoMo, 100 LongMemEval_S) is byte-identical to dev except the 42 open-domain judgement questions'.
-The judgement detector fires on 49 of LoCoMo's 96 open-domain questions and on none of its other 1,890 (446
+The judgement detector fires on 48 of LoCoMo's 96 open-domain questions and on none of its other 1,890 (446
 adversarial), nor on the 100 LongMemEval_S questions. Context build: Spanish 35 → 420 ms p50 (the search model ranks
 up to 160 page texts and 48 turns); judgement questions +210 ms p50 (their named pages' items ranked). Prompt p50:
 Spanish 9.0k → 19.4k characters (English 15.6k), max 26.1k.
@@ -766,3 +766,9 @@ Spanish 9.0k → 19.4k characters (English 15.6k), max 26.1k.
 "what nickname does …") are not read as judgements and still decline. A Spanish question about something named only
 in English (a film title translated) misses it. An English question over Spanish conversations is not helped: going
 by meaning on missing words breaks abstention, so it would need the bank's own language, not the question's words.
+
+*After review (same day):* a bare conditional is a judgement only about someone else (never I/we, a thing, "could
+not", a request such as "¿sabrías decirme …?"); an English question with Spanish names stays English; the Spanish
+stopwords, tense words and history cues apply to Spanish questions only, so the shared stopword list is dev's ("Ella",
+"Han", "Como" are names in English). Re-probed: all 400 English prompts and all 50 Spanish prompts are byte-identical to
+the ones measured above, so no answer was re-run (0 more plan calls).

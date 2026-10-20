@@ -199,7 +199,7 @@ def gather(memory_path: Path, question: str, found: list[Pointer], *, owner_name
     every conversation the shown items came from before a second from any — then the rest by score. ``follow`` (a
     question by meaning, :func:`by_meaning`): a shown line leads to the turn that told it by the line's own words, as
     for ``breadth`` — the question's words are not the record's, so they find no turn."""
-    terms = set(terms) if terms else text_fold.subject_terms(question)
+    terms = set(terms) if terms else question_terms(question)
     terms = (terms - QUESTION_WORDS) or terms
     by_episode: dict[str, dict] = {}
     for p in found:
@@ -411,7 +411,9 @@ _ES_ANCHORED = re.compile(
     r"el dia (?:en )?que)\b")
 TENSE_WORDS = frozenset(text_fold.stem(w) for w in (
     "final finally eventually outcome result resulted latest recent recently currently nowadays originally "
-    "initially previously first "
+    "initially previously first").split())
+#: Their Spanish forms, dropped only from a Spanish question's words ("primer" is an English word too).
+ES_TENSE_WORDS = frozenset(text_fold.stem(w) for w in (
     "finalmente actualmente ahora todavia ultimamente reciente recientemente originalmente inicialmente "
     "anteriormente primera primer resultado").split())
 _MONTHS = {m: i for i, m in enumerate(
@@ -730,35 +732,77 @@ def asks_elapsed(question: str) -> bool:
 
 #: A question asking for a judgement rather than a recorded fact (2026-10-20, G148: 37 of 42 LoCoMo open-domain
 #: misses declined "would <name> likely …", "what might …", "is it likely …" although the record gave grounds to
-#: judge): a likelihood word, a conditional ("would", "might", "could" — never "could you", the agent asked to do
-#: something), "be considered", "based on", a choice of what someone is nearer to, and the Spanish forms on the folded
-#: question ("¿es probable que …?", "¿le gustaría …?", "¿qué podría …?", "¿sería …?").
-_INFER = re.compile(
-    r"\b(?:likely|unlikely|probabl[ey]|possibl[ey]|potentially|suspected|presumably|"
-    r"(?:would|might|could)|be considered|do you think|"
-    r"probable(?:mente)?|posible(?:mente)?|quizas?|tal vez|a lo mejor|se sospecha|se considera(?:ria)?|crees que|"
-    r"(?:ser|podr|gustar|disfrutar|preferir|har|tendr|ir|estar|querr|sabr|deber|encantar|interesar)ia[ns]?)\b"
+#: judge). A likelihood word asks for one on its own ("is it likely …", "¿es probable que …?", "do you think …"), as
+#: do "be considered", a leading "based on"/"in light of"/"según", and a choice of where someone is nearer to.
+_LIKELIHOOD = re.compile(
+    r"\b(?:likely|unlikely|probabl[ey]|possibl[ey]|potentially|suspected|presumably|be considered|do you think|"
+    r"probable(?:mente)?|posible(?:mente)?|quizas?|tal vez|a lo mejor|se sospecha|se considera(?:ria)?|crees que)\b"
     r"|^(?:based on|in light of|considering|segun|teniendo en cuenta)\b"
-    # A choice of where someone is nearer ("does <name> live close to a beach or the mountains?"): rarely said, often
-    # shown by where they go.
+    # "does <name> live close to a beach or the mountains?": rarely said, often shown by where they go.
     r"|\b(?:close|closer|near|nearer) to\b[^?]*\bor\b|\bmas cerca de\b[^?]*\bo\b")
+#: A bare conditional is a judgement only about someone else (review of #385): "would <name> enjoy …", "what might
+#: <name>'s degree be", "what could <name> do after …", "¿disfrutaría <name> …?", "¿le gustaría a <name> …?". Never
+#: about I or we ("which restaurant would we go to", "what would I have paid" ask what happened), never a thing
+#: ("when would the dentist appointment be"), never "could not"/"couldn't" (a recorded fact).
+_EN_MODAL = re.compile(r"\b(would|might|could)\b(?! not\b|n't)")
+#: Spanish third-person conditionals of the verbs a judgement uses; "-rías" (you) is a request, "-ríamos" (we) a fact.
+_ES_MODAL = re.compile(r"\b(?:ser|podr|gustar|disfrutar|preferir|har|tendr|ir|estar|querr|sabr|deber|encantar|"
+                       r"interesar|elegir|escoger|vivir)ia(?:n)?\b")
 #: Not a judgement: a conditional reported ("what did <name> say she would do", "what does he feel he could do" — what
-#: was said is a recorded fact), and a request to the agent ("could you remind me …", "can you suggest … that I might
-#: like") — unless a likelihood word asks for one.
+#: was said is a recorded fact), and a request to the agent ("could you remind me …", "¿sabrías decirme …?", "¿me
+#: harías un resumen …?", "please remind me …") — unless a likelihood word asks for one.
 _NOT_INFER = re.compile(r"\b(?:say|says|said|tell|told|promise[sd]?|plan(?:s|ned)?|decide[sd]?|agree[sd]?|feels?|felt|"
                         r"dijo|dijeron|prometio|decidio|planeo|siente|sintio)\b[^?]*\b(?:would|might|could|\w+ia[ns]?)\b"
-                        r"|\b(?:can|could|would|will) you\b|\byou (?:could|would|might)\b|\b(?:puedes|podrias) \w+r(?:me)?\b")
-_LIKELIHOOD = re.compile(r"\b(?:likely|unlikely|probabl[ey]|possibl[ey]|probable(?:mente)?|posible(?:mente)?)\b")
+                        r"|\b(?:can|could|would|will) you\b|\byou (?:could|would|might)\b|\b\w+rias\b|\bplease\b"
+                        r"|\b(?:puedes|podrias) \w+r(?:me)?\b|\bpor favor\b")
+_THIRD_PERSON = frozenset("he she they el ella ellos ellas".split())
+#: Capitalised words that are not a person's name at the start of a clause.
+_NOT_A_NAME = frozenset("i what which who whom whose when where why how would could might does do did is are was were "
+                        "will can should based in on considering the a an if us usa uk".split())
+
+
+def _named(words: list[str], i: int) -> bool:
+    """Whether the raw token at ``i`` names someone else: a capitalised word (not "I", not a question word), or
+    he/she/they — "Ana's" counts as Ana."""
+    if not 0 <= i < len(words):
+        return False
+    w = words[i].rstrip("?,.;:!").removesuffix("'s").removesuffix("’s")
+    low = text_fold.fold(w)
+    return low in _THIRD_PERSON or (w[:1].isupper() and low not in _NOT_A_NAME)
+
+
+def _third_party_modal(question: str) -> bool:
+    """A conditional whose subject is someone else: the word next to it (before or after) names them; Spanish "le/les
+    gustaría" and "a <name>" or "de <name>" within the next words count too."""
+    words = (question or "").replace("¿", " ").split()
+    folded = [" ".join(text_fold.words(w)) for w in words]
+    for i, f in enumerate(folded):
+        if f in ("would", "might", "could"):
+            nxt = folded[i + 1] if i + 1 < len(folded) else ""
+            if nxt in ("not", "i", "we", "you") or words[i].lower().endswith("n't"):
+                continue
+            if _named(words, i + 1) or _named(words, i - 1):
+                return True
+        elif _ES_MODAL.fullmatch(f):
+            if i > 0 and folded[i - 1] in ("me", "nos", "te", "os"):
+                continue
+            after = folded[i + 1:i + 7]
+            if (_named(words, i + 1) or _named(words, i - 1) or (i > 0 and folded[i - 1] in ("le", "les"))
+                    or any(a in ("a", "de") and _named(words, i + 2 + k) for k, a in enumerate(after))):
+                return True
+    return False
 
 
 def asks_inference(question: str) -> bool:
     """The question asks what is likely, would or might be — a judgement the record can ground — rather than for a
-    recorded fact (:data:`_INFER`); a conditional only reported ("what did she say she would do") is a fact unless a
-    likelihood word says otherwise. Read on the folded question, no model."""
+    recorded fact: a likelihood word (:data:`_LIKELIHOOD`), or a conditional about someone else
+    (:func:`_third_party_modal`); a reported conditional or a request to the agent (:data:`_NOT_INFER`) only with a
+    likelihood word. No model."""
     q = " ".join(text_fold.fold(question or "").split())
-    if not _INFER.search(q):
+    likely = bool(_LIKELIHOOD.search(q))
+    if _NOT_INFER.search(q) and not likely:
         return False
-    return not _NOT_INFER.search(q) or bool(_LIKELIHOOD.search(q))
+    return likely or _third_party_modal(question)
 
 
 #: Function words that tell a Spanish question from an English one (folded; none is a word of the other language
@@ -768,15 +812,41 @@ _ES_WORDS = frozenset("que cual cuales quien quienes cuando donde como cuanto cu
                       "tiene tienen y en de se lo le les al hay".split())
 _EN_WORDS = frozenset("what which who whom when where how why the of to is was are were did does do for with from "
                       "and or his her their my your has have had an in on at it this that".split())
+#: Spanish words that sit inside a name in an English question ("Juan de la Torre", "Los Olivos", "El Niño y La Niña"):
+#: next to a capitalised word they count for neither language.
+_NAME_GLUE = frozenset("de del la las los el y".split())
+_EN_OPENERS = frozenset("what which who whom whose when where why how is are was were do does did can could would "
+                        "should will have has had am".split())
 
 
 def question_language(question: str) -> str:
-    """``"es"`` for a Spanish question (more Spanish function words than English, or an opening "¿"), else
-    ``"en"`` — the language the shape detectors and the word index's stemming were written for."""
-    words = text_fold.words(question)
-    es = sum(w in _ES_WORDS for w in words)
-    en = sum(w in _EN_WORDS for w in words)
-    return "es" if es > en or ("¿" in (question or "") and es >= en) else "en"
+    """``"es"`` for a Spanish question, else ``"en"`` — the language the shape detectors and the word index's stemming
+    were written for. English when it opens with an English question word or auxiliary and has no "¿"; otherwise
+    Spanish when its Spanish function words outnumber its English ones (an opening "¿" breaks a tie). An article or
+    "de"/"y" next to a capitalised word is part of a name (review of #385: "the house at Los Olivos") and counts for
+    neither."""
+    text = question or ""
+    raw = text.replace("¿", " ").split()
+    words = [" ".join(text_fold.words(w)) for w in raw]
+    if "¿" not in text and words and words[0] in _EN_OPENERS:
+        return "en"
+
+    def capital(i: int) -> bool:   # the first word is capitalised by the sentence, not by a name
+        return 0 < i < len(raw) and raw[i][:1].isupper()
+
+    es = en = 0
+    for i, w in enumerate(words):
+        if w in _ES_WORDS and not (w in _NAME_GLUE and (capital(i - 1) or capital(i + 1) or capital(i))):
+            es += 1
+        elif w in _EN_WORDS:
+            en += 1
+    return "es" if es > en or ("¿" in text and es >= en) else "en"
+
+
+def question_terms(question: str) -> set[str]:
+    """A question's subject words: :func:`text_fold.subject_terms`, less Spanish function words for a Spanish
+    question only."""
+    return text_fold.subject_terms(question, spanish=question_language(question) == "es")
 
 
 def question_shape(question: str) -> str:
@@ -789,7 +859,7 @@ def question_shape(question: str) -> str:
         return SHAPE_TWO_ENDS
     if _ENUMERATE.search(q) or _ES_ENUMERATE.search(q) or (_PLURAL_ASK.search(q) and not _ONE_OF.search(q)):
         return SHAPE_ENUMERATE
-    folded = text_fold.fold(q)
+    folded = text_fold.fold(q) if question_language(question) == "es" else ""
     if named_days(q) or _ANCHORED.search(q) or _ES_ANCHORED.search(folded):
         return SHAPE_ANCHORED
     if _LATEST.search(q) or _ES_LATEST.search(folded):
@@ -843,8 +913,9 @@ class EndPick:
 def search_terms(question: str) -> set[str]:
     """The question's subject words less its scaffolding — names kept: across conversations a name is what tells
     one from another, and a name said everywhere is weighed down by :data:`COMMON_SHARE`, not dropped by hand."""
-    terms = text_fold.subject_terms(question)
-    return (terms - QUESTION_WORDS - TENSE_WORDS) or terms
+    terms = question_terms(question)
+    tense = TENSE_WORDS | ES_TENSE_WORDS if question_language(question) == "es" else TENSE_WORDS
+    return (terms - QUESTION_WORDS - tense) or terms
 
 
 def _lexical(memory_path: Path, terms: set[str], *,

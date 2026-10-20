@@ -972,21 +972,25 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   with no model in retrieval:
   1. *A judgement is reasoned, a fact still declines.* LoCoMo open-domain scored 48.8 against 75 for the
      whole-conversation control; 37 of 42 misses said memory doesn't state what the record gave grounds to judge.
-     `ask_sources.asks_inference` (no model, on the folded question) reads a judgement: a likelihood word (likely,
-     probably, possibly, suspected; probable, posible, quizás, tal vez), a conditional (would, might, could — never
-     "could you"/"can you", a request to the agent; "sería", "podría", "le gustaría", "disfrutaría" …), "be
-     considered", a leading "based on"/"in light of"/"según", or a choice of what someone lives nearer to. A
-     conditional only reported ("what did she say she would do", "what does he feel he could do") is a recorded fact
-     unless a likelihood word asks for a judgement. Over the whole of LoCoMo it fires on 49 of 96 open-domain
-     questions and on none of the 1,890 others (adversarial included), nor on the broad sample's 100 LongMemEval
-     questions. Only such a question gets the `_INFERENCE_NOTE` block after the question (the system prompt is
+     `ask_sources.asks_inference` (no model) reads a judgement: a likelihood word (likely, probably, possibly,
+     suspected, "do you think", "be considered"; probable, posible, quizás, tal vez), a leading "based on"/"in light
+     of"/"según", a choice of what someone lives nearer to — or a conditional about someone else (review of #385):
+     would/might/could, or a Spanish third-person "-ría" ("sería", "podría", "le gustaría", "disfrutaría"), only next
+     to a name or he/she/they (a Spanish "le", "a <name>", "de <name>" too). Never about I or we ("which restaurant
+     would we go to"), a thing ("when would the dentist appointment be"), "could not"/"couldn't", a request to the
+     agent ("could you", "-rías": "¿sabrías decirme …?", "please"), or a conditional only reported ("what did she say
+     she would do") — unless a likelihood word asks for a judgement. Over the whole of LoCoMo it fires on 48 of 96
+     open-domain questions and on none of the 1,890 others (adversarial included), nor on the broad sample's 100
+     LongMemEval questions. Only such a question gets the `_INFERENCE_NOTE` block after the question (the system prompt is
      unchanged): give the most likely answer marked as an inference ("Probably …, because …"), with the lines it
      rests on; general knowledge may connect the record to the question's terms but never supplies a fact about the
      people; "memory doesn't say" is not the answer when the record bears on it; confidence below 0.7. Its named
      pages' items are ranked by the search model as a list's are (`Searched.similar`, same bounds).
   2. *A Spanish question by meaning.* A Spanish question over English conversations put none of their words in
      front of the model: every word leg (claims and page items by shared words, WHAT WAS SAID, the search leg's
-     turns) matches words. `ask_sources.question_language` (function words, no model) reads a Spanish question;
+     turns) matches words. `ask_sources.question_language` (no model) reads a Spanish question: Spanish function words outnumber English ones,
+     an article or "de"/"y" next to a capitalised word counting for neither ("Juan de la Torre", "Los Olivos"), and a
+     question opening with an English question word or auxiliary without "¿" is English;
      `by_meaning` is then true — never for an English question whose words the record lacks, which is how an
      abstention looks (the first cut turned "what is the name of my hamster?" into a lookup). By meaning:
      the vector leg's nearest passages (`Searched.passages`, the chunks' own text, no extra search) lead the search
@@ -998,10 +1002,12 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
      SAID, and a pointed line leads to its turn by the line's own words (`gather(follow=True)`). The prompt says the
      lines were found by meaning and adds `_SPANISH_NOTE` (the record may be in English, Spanish or both; answer in
      Spanish). Same on-device-only bounds as the list ranking; without the search model a Spanish question reads as
-     before. Also: Spanish function words are subject stopwords (`text_fold.SUBJECT_STOPWORDS`, never a word English
-     uses as a subject — "todo", "uno", "hay", "era" stay), Spanish time phrasing reads as English does ("por primera
-     vez", "al principio", "solía" → anchored; "al final", "actualmente", "todavía" → latest; "ayer", "anteayer",
-     "hace tres días" → named days; past-tense cues and a preterite's "-ó" ask for history). English prompts are
+     before. Also, for a Spanish question only (`ask_sources.question_terms`; in English several are names — "Ella",
+     "Han", "Como" — so the shared `text_fold.SUBJECT_STOPWORDS` is unchanged): Spanish function words are not subject
+     words (`text_fold.SPANISH_STOPWORDS`), Spanish tense words leave the search words (`ES_TENSE_WORDS`), Spanish time
+     phrasing reads as English does ("por primera vez", "al principio", "solía" → anchored; "al final", "actualmente",
+     "todavía" → latest), and past-tense cues and a preterite's "-ó" ask for history. "ayer", "anteayer" and "hace
+     tres días" name days. English prompts are
      byte-identical except the judgement questions'. Measured: `docs/research/2026-10-17-memory-benchmarks.md`,
      "Judgements and Spanish".
 - **The `sources` scope.** `answer_query(source_words=...)`, `POST /ask` `sourceWords` (default true): `cicada_ask`

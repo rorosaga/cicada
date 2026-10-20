@@ -104,6 +104,10 @@ def _prompt(memory, question: str, *, pages=("alice-example",), indexer=None) ->
     "¿Qué problemas de salud se sospecha que tiene Bob?",
     "¿Sería Alice considerada religiosa?",
     "¿Preferiría Bob un parque nacional o un parque temático?",
+    "What could Bob do after his basketball career?",
+    "What is something that Alice could do to fit birdwatching in?",
+    "Would she enjoy a theme park?",
+    "¿Qué actividad disfrutaría Alice con su perro?",
 ])
 def test_a_judgement_is_read_as_one(question):
     assert ask_sources.asks_inference(question)
@@ -121,6 +125,19 @@ def test_a_judgement_is_read_as_one(question):
     "¿Cuándo fue Alice al grupo de apoyo?",
     "¿Qué dijo Bob que haría después de la mudanza?",
     "¿Qué historia me contó Bob?",
+    # Review of #385: requests, and conditionals about I, we or a thing — facts asked politely.
+    "¿Sabrías decirme cuándo es la reunión?",
+    "¿Me harías un resumen de lo que hablamos?",
+    "¿Tendrías a mano el número del fontanero?",
+    "¿Qué día sería la cita?",
+    "When would the dentist appointment be?",
+    "What would the address be?",
+    "Which restaurant would we go to on Fridays?",
+    "Where would we go every Sunday as kids?",
+    "What would I have paid for the flight?",
+    "Please remind me what Ana could not find",
+    "What couldn't Bob find at the store?",
+    "¿Adónde iríamos los domingos?",
 ])
 def test_a_recorded_fact_or_a_request_is_not_a_judgement(question):
     assert not ask_sources.asks_inference(question)
@@ -138,6 +155,18 @@ def test_only_a_judgement_gets_the_inference_note(bank):
 # Spanish
 # --------------------------------------------------------------------------------------------------------------- #
 
+@pytest.mark.parametrize("question", [
+    "When did Juan de la Torre move to Los Olivos?",
+    "What did we do at la casa de la playa?",
+    "How did Bob celebrate el Día de los Muertos?",
+    "Did El Niño y La Niña come up when we talked about the weather?",
+    "Who is Ella?",
+    "where did Maria de los Angeles study",
+])
+def test_an_english_question_with_spanish_names_is_english(question):
+    assert ask_sources.question_language(question) == "en"
+
+
 def test_the_question_language():
     assert ask_sources.question_language("¿Cuándo fue Caroline al grupo de apoyo LGBTQ?") == "es"
     assert ask_sources.question_language("¿Qué investigó Caroline?") == "es"
@@ -146,11 +175,21 @@ def test_the_question_language():
     assert ask_sources.question_language("What is the name of my hamster?") == "en"
 
 
-def test_spanish_function_words_carry_no_subject():
-    assert text_fold.subject_terms("¿Cuándo fue Caroline al grupo de apoyo?") == {"caroline", "grupo", "apoyo"}
-    assert text_fold.subject_terms("¿Con quién cenó Maria el 3 de mayo?") == {"ceno", "maria", "mayo"}
-    # English words that a Spanish list could have swallowed are kept.
+def test_spanish_function_words_carry_no_subject_in_a_spanish_question_only():
+    assert ask_sources.question_terms("¿Cuándo fue Caroline al grupo de apoyo?") == {"caroline", "grupo", "apoyo"}
+    assert ask_sources.question_terms("¿Con quién cenó Maria el 3 de mayo?") == {"ceno", "maria", "mayo"}
+    # Review of #385: in English they are names and subjects, and the shared list is dev's.
+    assert {"ella", "han", "como", "esa", "algo", "mas"} <= ask_sources.question_terms(
+        "When did Ella, Han, Como, ESA, Algo and Mas meet?")
+    assert {"ella", "han", "como"} <= text_fold.subject_terms("Ella and Han went to Como")
     assert {"todo", "uno", "hay", "era"} <= text_fold.subject_terms("the todo list, uno cards, hay bales, an era")
+    assert "primer" in ask_sources.search_terms("Which primer did Bob buy first?")
+
+
+def test_spanish_cues_never_read_an_english_question():
+    assert not ask_service._wants_history("What era is the Rococo style from?")
+    assert not ask_service._wants_history("Who is Bob's favourite artist, Miró?")
+    assert ask_sources.question_shape("Is the ahora cafe open?") == ask_sources.SHAPE_LOOKUP
 
 
 def test_spanish_time_phrasing_reads_as_english_does():

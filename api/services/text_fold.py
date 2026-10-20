@@ -118,6 +118,11 @@ such than that the their them then there these they this those to too true under
 where which while who whom whose why will with would yes yet you your
 tracking track keep kept same different value values answer option options
 el la los las un una unos unas de del al y o que en es son por para con sin su sus lo se mi mis tu ya
+""".split())
+
+#: More Spanish function words, dropped only from a Spanish question's words (``subject_terms(spanish=True)``) — in
+#: English several are names or subjects ("Ella", "Han", "Como", "ESA", "Algo"; review of #385).
+SPANISH_STOPWORDS = frozenset("""
 cual cuales quien quienes cuando donde adonde como cuanto cuanta cuantos cuantas porque pero mas menos muy tambien
 aun todavia este esta estos estas ese esa esos esas aquel aquella le les nos te tus nuestro nuestra nuestros
 nuestras fue fueron ser sido estar estan estaba estaban estuvo ha han hemos habia hubo tiene tienen tenia tuvo hizo
@@ -134,9 +139,11 @@ def stem(word: str) -> str:
     return word
 
 
-def subject_terms(text: str | None) -> set[str]:
-    """The subject words of ``text``: folded, three letters or more, function words and numbers dropped, stemmed."""
-    return {stem(w) for w in words(text) if len(w) >= 3 and w not in SUBJECT_STOPWORDS and not w.isdigit()}
+def subject_terms(text: str | None, *, spanish: bool = False) -> set[str]:
+    """The subject words of ``text``: folded, three letters or more, function words and numbers dropped, stemmed.
+    ``spanish``: a Spanish question — its function words (:data:`SPANISH_STOPWORDS`) go too."""
+    drop = SUBJECT_STOPWORDS | SPANISH_STOPWORDS if spanish else SUBJECT_STOPWORDS
+    return {stem(w) for w in words(text) if len(w) >= 3 and w not in drop and not w.isdigit()}
 
 
 def contains_all(text: str | None, q: str | None) -> bool:
