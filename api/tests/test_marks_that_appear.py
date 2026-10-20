@@ -82,6 +82,18 @@ def test_faces_put_sites_with_a_cached_icon_first_then_the_rest_newest_first(ban
     assert row["faces_more"] == 1
 
 
+def test_an_icon_landing_moves_the_site_icons_component(bank):
+    """Security review of #387: the overview's ETag rides a sync component the app maps (`siteIcons` →
+    `.sourcesOverview`), never a bare extra the SSE stream cannot see."""
+    from api.services import sync_service
+
+    before = sync_service.components(bank)["siteIcons"]
+    _hit(bank, "site-a.zz")
+    after = sync_service.components(bank)["siteIcons"]
+    assert after != before
+    assert sync_service.components(bank)["logos"] == sync_service.components(bank)["logos"], "logos is untouched"
+
+
 def test_the_overview_etag_moves_when_an_icon_lands(client, bank):
     _page(bank, "media-0", type="media", origin="chrome-bookmark", name="Saved", url="https://site-a.zz/p",
           created="2026-10-01")
@@ -113,11 +125,13 @@ def test_a_saved_youtube_row_says_video_and_others_do_not(bank):
 
 
 def test_the_video_id_comes_from_the_pages_own_url_only(bank):
-    _page(bank, "media-v", type="media", origin="youtube-watch-later", name="A video", url=YT)
+    _page(bank, "media-v", type="media", origin="youtube-playlist", name="A video", url=YT)
     _page(bank, "media-p", type="media", name="A page", url="https://site-a.zz/p")
     _page(bank, "media-gone", type="media", name="Gone", url=YT, status="archived")
     _page(bank, "concept-x", type="concept", name="Not media", url=YT)
+    _page(bank, "media-rss", type="media", origin="rss", name="A captured video", url=YT)
     bank_index.invalidate()
+    assert channel_items.media_video_id(bank, "media-rss") is None, "only a saved link's page (security review of #387)"
     assert channel_items.media_video_id(bank, "media-v") == VID
     assert channel_items.media_video_id(bank, "media-p") is None
     assert channel_items.media_video_id(bank, "media-gone") is None, "a page the lists hide asks nothing"
@@ -126,7 +140,7 @@ def test_the_video_id_comes_from_the_pages_own_url_only(bank):
 
 
 def test_the_still_route_asks_the_watched_video_store_by_the_pages_id(client, bank, monkeypatch, tmp_path):
-    _page(bank, "media-v", type="media", origin="youtube-watch-later", name="A video", url=YT)
+    _page(bank, "media-v", type="media", origin="youtube-playlist", name="A video", url=YT)
     _page(bank, "media-p", type="media", name="A page", url="https://site-a.zz/p")
     bank_index.invalidate()
     # The suite runs with the picture gate off: a video page asks nothing and stores nothing.

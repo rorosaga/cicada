@@ -1141,13 +1141,11 @@ async def sources_overview(
     connectors_connected = {cid: adapter.is_connected() for cid, adapter in ADAPTERS.items()}
     connector_tag = ",".join(f"{k}:{v}" for k, v in sorted(connectors_connected.items()))
     # Sources v4: `photos` too — a Messages face carries its chat photo's hash (`messages_photos`, outside the bank).
-    # marks-2: the own-site icon index too — a saved row's faces put sites with a cached icon first.
-    from api.services import logo_service
-
+    # marks-2: `siteIcons` too — a saved row's faces put sites with a cached own icon first (`VersionVector` maps it to
+    # `.sourcesOverview` in the same PR).
     etag = sync_service.etag_for(
-        memory_path, "sources", "episodes", "entities", "photos",
-        extra=(f"{source_overview.SHAPE}|telegram:{settings.telegram_enabled}|connectors:{connector_tag}"
-               f"|icons:{logo_service.own_site_stamp(memory_path)}"),
+        memory_path, "sources", "episodes", "entities", "photos", "siteIcons",
+        extra=f"{source_overview.SHAPE}|telegram:{settings.telegram_enabled}|connectors:{connector_tag}",
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early

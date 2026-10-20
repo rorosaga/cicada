@@ -122,7 +122,12 @@ def _logos_component(mp: Path) -> str:
     stops claiming a logo behind an ETag that never moved. The expired count
     moves on exactly those transitions (see ``logo_service.expiry_state``).
     """
-    bank = logo_service.bank_name(mp)
+    return _cache_stamp(logo_service.bank_name(mp))
+
+
+def _cache_stamp(bank: str) -> str:
+    """``<meta.json mtime>:<expired entries>`` for one logo-style index (``bank`` is its cache key: a bank's logos, or
+    its own-site icons ``<bank>/sites/own``), memoised until the index changes or its next entry expires."""
     mtime = file_mtime(logo_service.meta_path(bank))
     cached = _LOGO_TTL_CACHE.get(bank)
     if (
@@ -225,6 +230,11 @@ def components(memory_path: Path, *, sleep_state=None, reuse: dict | None = None
         # (The other direction — an entry aging out of its TTL, which writes
         # nothing — rides the expired count; see `_logos_component`.)
         "logos": _logos_component(mp),
+        # marks-2 (security review of #387): a saved link's own site icon is cached at
+        # `$CICADA_HOME/logos/<bank>/sites/own/`, outside the bank; `/sources/overview` puts the sites whose icon is
+        # cached first among a saved row's faces, so an icon landing (or a hit aging out, which writes nothing and
+        # rides the expired count) must move its ETag. Its own key — `logos` refetches `.graph`, this only the overview.
+        "siteIcons": _cache_stamp(logo_service.own_site_bank(logo_service.bank_name(mp))),
         # G159 (2026-10-09): a person's public-profile photo is cached at `$CICADA_HOME/pictures/<bank>/people/`,
         # outside the bank, and `/graph` bakes its `?v=` (or its absence, after a miss) into the node's hash. The
         # stamp is `meta.json`'s mtime plus the misses past their retry window (an expiry writes nothing). The app

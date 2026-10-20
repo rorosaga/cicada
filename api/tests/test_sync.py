@@ -454,14 +454,15 @@ def test_logo_expiry_scan_is_memoized_between_polls(tmp_path, monkeypatch):
                     "miss": False, "ext": "png"},
     })
     sync_service._LOGO_TTL_CACHE.clear()
-    calls = {"n": 0}
+    calls: dict[str, int] = {}
     real = logo_service.expiry_state
 
     def counting(bank, **kw):
-        calls["n"] += 1
+        calls[bank] = calls.get(bank, 0) + 1
         return real(bank, **kw)
 
     monkeypatch.setattr(logo_service, "expiry_state", counting)
     for _ in range(5):
         sync_service.components(tmp_path)
-    assert calls["n"] == 1
+    # Each index once: the bank's logos and (marks-2) its own-site icons, `siteIcons`.
+    assert calls and all(n == 1 for n in calls.values()) and len(calls) == 2

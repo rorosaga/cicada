@@ -39,6 +39,10 @@ struct VersionVector: Codable, Equatable {
         // aging out, moves `/graph`'s versioned `picture`. Sources v4: a Messages chat's photo is a face on its
         // Sources row (`/sources/overview` folds `photos` into its ETag), so the overview rides it too.
         "photos": [.graph, .sourcesOverview],
+        // marks-2: a saved link's own site icon is cached outside the bank; `/sources/overview` puts the sites whose
+        // icon is cached first among a saved row's faces and folds this into its ETag. Not `logos` (that refetches
+        // `.graph`).
+        "siteIcons": [.sourcesOverview],
         // The telemetry ledger and the consumption endpoints' etags all move
         // together with the current `events-YYYY-MM.jsonl` mtime (see
         // `sync_service.components`'s "telemetry" key) — one component so the

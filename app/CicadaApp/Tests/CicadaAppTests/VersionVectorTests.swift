@@ -46,6 +46,14 @@ final class VersionVectorTests: XCTestCase {
         XCTAssertEqual(new.changedDomains(since: old), [.graph, .sourcesOverview])
     }
 
+    /// marks-2 (security review of #387) — a saved link's own site icon landing moves only `siteIcons`, which refreshes
+    /// the Sources overview (its faces put cached icons first) and never the graph.
+    func testSiteIconsComponentRefreshesOnlyTheSourcesOverview() {
+        let old = VersionVector(version: "1", components: ["siteIcons": "a", "bank": "x"])
+        let new = VersionVector(version: "2", components: ["siteIcons": "b", "bank": "x"])
+        XCTAssertEqual(new.changedDomains(since: old), [.sourcesOverview])
+    }
+
     /// `sync_service.components` folds `feeds.yaml` and `calendars.yaml` into
     /// the `sources` component, so a `sources` bump must refresh the calendar
     /// list too — subscribing to an ICS feed changes nothing else. G124 R7:

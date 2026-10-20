@@ -667,14 +667,14 @@ def is_saved_link_page(fm: dict) -> bool:
 
 
 def media_video_id(memory_path: Path, media_entity_id: str) -> str | None:
-    """The YouTube video a live media page is (marks-2, owner direction 2026-10-19/20): the id `video_urls` resolves
-    from THIS page's own URL (the url index's entry, else its frontmatter), for a page the Feed and the lists show —
-    else None and nothing is asked. Never an id the caller supplies; the still is keyed by it so a video watched and
+    """The YouTube video a saved link's page is (marks-2, owner direction 2026-10-19/20): the id `video_urls` resolves
+    from THIS page's own URL (the url index's entry, else its frontmatter), only for a live media page a saved source
+    owns (`is_saved_link_page`, the site-icon route's predicate) — else None and nothing is asked. Never an id the caller supplies; the still is keyed by it so a video watched and
     saved is asked once (`media_preview.ensure_video_still`)."""
     memory_path = Path(memory_path)
     f = bank_index.file(memory_path, "entities", f"{media_entity_id}.md")
     fm = (f.frontmatter or {}) if f is not None else {}
-    if fm.get("type") != "media" or source_overview.is_hidden(fm):
+    if not is_saved_link_page(fm):   # security review of #387: a saved link's page, the media icon route's predicate
         return None
     try:
         index = media_ingestor.load_url_index(memory_path)

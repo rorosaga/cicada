@@ -42,8 +42,9 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   no third party learns what was saved — only when the person opens that list, never from the Sleep cycle. **Amended (owner
   2026-10-20: "when I open the website I can clearly see a favicon in the Chrome tab"):** discovery goes the way a
   browser does — the homepage (its www. host when the bare domain has no address; redirects on the same registrable
-  domain, or — marks-2, 2026-10-20 — to the public, non-walled domain a renamed site moved to, each hop through the
-  SSRF guard), its `<link rel>` icon declarations, best raster first (≤ 3 asked), then `/apple-touch-icon.png` and
+  domain, or — owner direction 2026-10-20, "a picture specific to the site, not a letter" — to the public, non-walled
+  domain a renamed site moved to, each hop through the SSRF guard and never a hop the redirect-to-wall rule catches:
+  a `consent.` host, a sign-in host or a sign-in path, refused before a byte is fetched), its `<link rel>` icon declarations, best raster first (≤ 3 asked), then `/apple-touch-icon.png` and
   `/favicon.ico`. An icon URL the page itself declares may sit on another host (a CDN): https only, every hop through
   the SSRF guard and kept on that host's or the site's domain, accepted only when it says `image/*` and its bytes sniff
   as a raster. 4 s for the whole discovery, ≤ 512 KB per response streamed, no cookies, a block (401/403/407/451) from

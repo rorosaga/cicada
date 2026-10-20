@@ -277,6 +277,41 @@ def test_a_moved_homepage_lends_its_fixed_paths_but_nothing_else_leaves():
     assert "cdn.third.example" not in third.hosts
 
 
+@pytest.mark.parametrize("wall", [
+    "https://login.microsoftonline.com/common/oauth2/authorize?client_id=x",
+    "https://accounts.google.com/ServiceLogin?continue=x",
+    "https://consent.vendor.zz/?continue=x",
+    "https://sso.idp.zz/login?next=x",
+    "https://other-site.zz/oauth2/authorize?client_id=x",
+])
+def test_a_homepage_never_moves_onto_a_login_or_consent_wall(tmp_path, wall):
+    """Security review of #387: an off-site hop that a redirect-to-wall check catches is refused before a byte is
+    fetched — the identity provider's icon is never cached as the saved site's; the saved site's own fixed paths are
+    still asked."""
+    host = urlparse(wall).hostname
+    fetcher = Recorder({"https://site-w.example/": (302, b"", "", wall),
+                        wall: (200, page('<link rel=icon href="/idp.png">'), "text/html"),
+                        f"https://{host}/idp.png": (200, png(), "image/png"),
+                        f"https://{host}/favicon.ico": (200, ico(), "image/x-icon"),
+                        "https://site-w.example/favicon.ico": (200, ico(), "image/x-icon")})
+    got = run(logo_service.ensure_own_site_icon(tmp_path / "memory", "site-w.example", fetcher=fetcher))
+    assert host not in fetcher.hosts, "the wall is never asked"
+    assert fetcher.urls[-2:] == ["https://site-w.example/apple-touch-icon.png", "https://site-w.example/favicon.ico"]
+    assert got is not None and got.read_bytes() == ico(), "the saved site's own favicon, nothing from the other host"
+    assert set(logo_service.read_meta(logo_service.own_site_bank("memory"))) == {"site-w.example"}
+
+
+def test_a_moved_site_never_lends_a_wall_its_icon_paths():
+    """The domain a site moved to counts as the site — but a declared icon or SVG on a third host behind a sign-in
+    path is still never asked."""
+    links = '<link rel="icon" href="https://cdn.third.zz/auth/icon.png"><link rel="icon" href="https://cdn.third.zz/sso/i.svg">'
+    fetcher = Recorder({"https://old-name.example/": (301, b"", "", "https://new-name.zz/"),
+                        "https://new-name.zz/": (200, page(links), "text/html"),
+                        "https://cdn.third.zz/auth/icon.png": (200, png(), "image/png")})
+    assert run(logo_service.fetch_own_site_icon("old-name.example", fetcher=fetcher)) is None
+    assert "cdn.third.zz" not in fetcher.hosts
+
+
 def test_a_homepage_never_moves_to_a_login_wall_or_a_private_name():
     walled = Recorder({"https://site-w.example/": (302, b"", "", "https://www.linkedin.com/company/x"),
                        "https://site-w.example/favicon.ico": (200, ico(), "image/x-icon")})

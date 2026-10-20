@@ -960,11 +960,10 @@ pending from that category, as a small notification."*
   photo`, else a ring with a letter) and the sites a saved source's things came from (their own icon by the saved page,
   `SiteIcon(savedItem:)`). Served as `faces`/`facesMore` on the overview row; the overview's ETag folds `photos` in and
   `VersionVector` routes `photos` to `.sourcesOverview` too; a saved source's faces come from the set its list lists
-  (a bookmark that left the browser is none), and a row whose count is zero has none. **Icons first (marks-2,
-  2026-10-20):** a saved row's faces put the sites whose own icon is already cached first, then the rest, each newest
-  first (`channel_items.saved_faces`), and the overview's ETag folds in the own-site icon index's stamp
-  (`logo_service.own_site_stamp`, outside the bank like the connector tag), so a letter shows only beside sites still
-  unasked or truly iconless — and those faces ask as they appear. Pictures load through
+  (a bookmark that left the browser is none), and a row whose count is zero has none. **Icons first (owner direction 2026-10-20, "a picture specific to the site, not a letter"; marks-2):** a saved row's faces put the sites whose own icon is already cached first, then the rest, each newest
+  first (`channel_items.saved_faces`), and the overview's ETag folds in the `siteIcons` sync component (the own-site
+  icon index outside the bank: its mtime plus entries past their TTL), which `VersionVector` maps to `.sourcesOverview`
+  only, so a letter shows only beside sites still unasked or truly iconless — and those faces ask as they appear. Pictures load through
   `SourcePictureStore` (in memory, misses kept, per bank, at most four asks at a time). Bundled marks draw on the first
   frame (`LogoImage.bundledImageNow`), never the generic "app" placeholder.
 - **Rows say each thing once.** A list row's title drops a trailing " · <its own day>" (`channel_items._without_day`).

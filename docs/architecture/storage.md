@@ -748,9 +748,13 @@ Round 4 (C2–C4):
   see a favicon in the Chrome tab").** The 2026-10-19 rule asked two fixed paths and never the HTML; it missed every
   site that declares its icon at another path, on a CDN, or only behind a redirect to www. Now, like a browser
   (`logo_service.fetch_own_site_icon`): the homepage `https://<site>/` (or `https://www.<site>/` when the bare domain has
-  no public address), following https redirects on the default port — on the same registrable domain, or (marks-2,
-  2026-10-20) to the public, non-walled domain a renamed site moved to, which then counts as the site for the rest of
-  the discovery (its declared icons and fixed paths; a fixed path that redirects to a third domain is still a miss); its `<link rel>` declarations — `icon`,
+  no public address), following https redirects on the default port — on the same registrable domain, or (owner
+  direction 2026-10-20, "a picture specific to the site, not a letter"; marks-2) to the public, non-walled domain a
+  renamed site moved to, which then counts as the site for the rest of the discovery (its declared icons and fixed
+  paths; a fixed path that redirects to a third domain is still a miss). Every hop that leaves the saved site is first
+  put to the redirect-to-wall rule (`link_enrichment._redirected_to_wall`: a `consent.` host, a known sign-in host, a
+  `/login`·`/signin`·`/auth`·`/oauth2`·`/sso` path) and refused before a byte is fetched — an identity provider's icon
+  is never cached as a site's (security review of #387); its `<link rel>` declarations — `icon`,
   `shortcut icon`, `apple-touch-icon` — found by one linear scan of `<link>`/`<base>` tags only, off the event loop (`declared_icons`; never the
   stdlib HTML tokenizer, which is quadratic on hostile markup — security review of #371; the first 64 tags; `mask-icon` skipped,
   anything typed or named SVG kept aside for the SVG step below; an href with an explicit port or userinfo skipped), resolved against the page's final URL or its `<base href>`, ranked light-scheme
@@ -803,8 +807,8 @@ Round 4 (C2–C4):
   **A saved YouTube video draws the same still (marks-2, owner 2026-10-20: "none of the YouTube stuff shows
   thumbnails, just low-res YouTube logos").** A saved list's row of a media page whose own URL is a YouTube video carries
   `video: true` (`channel_items` shape `g161-6`) and asks `GET /sources/saved/{media_entity_id}/still`: the id is the
-  one THAT page's own URL names (`channel_items.media_video_id` — a live media page the lists show; never an id a
-  request names), served by the same `ensure_video_still` fetch and cache as a watched video's, so a video watched
+  one THAT page's own URL names (`channel_items.media_video_id` — only a page `is_saved_link_page` admits, the site-icon
+  route's predicate; never an id a request names), served by the same `ensure_video_still` fetch and cache as a watched video's, so a video watched
   and saved is asked once. Same gate, same rail; 404 = no picture. Sleep › Saved/Videos and the entity card already
   draw a video page's stored preview (`/entities/{id}/preview`, the same YouTube still pin).
   A day's videos come from `GET /sources/watch-history/days/{episode}` (`channel_items.watched_day`: title, channel,

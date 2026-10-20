@@ -1299,6 +1299,16 @@ def _plain_https(url: str) -> bool:
     return (parsed.scheme == "https" and bool(parsed.hostname) and port is None and "@" not in parsed.netloc)
 
 
+def _off_site_wall(url: str) -> bool:
+    """A hop that would land on a login or consent wall — a consent host, a known sign-in host, or a sign-in path
+    (`/login`, `/signin`, `/auth`, `/oauth2`, `/sso`…), the redirect-to-wall rule every other fetch uses
+    (`link_enrichment._redirected_to_wall`). Asked of every hop that leaves the saved site, before it is fetched: the
+    ToS rail retires a wall without a byte, and an identity provider's icon must never be cached as a site's."""
+    from api.services import link_enrichment   # lazy: link_enrichment imports this module's neighbours
+
+    return link_enrichment._redirected_to_wall("", url)
+
+
 class _Blocked(Exception):
     """The site said no (401/403/407/451): the whole discovery stops, nothing else is asked."""
 
@@ -1319,8 +1329,13 @@ async def _discover(site: str, *, fetcher: Fetcher, resolver: Resolver | None) -
 
     def homepage_hop(url: str) -> bool:
         # A homepage may follow its own redirect to another public, non-walled registrable domain (where the site
-        # moved) — every hop still https on the default port, SSRF-checked and never a login host (`_follow`).
-        return _plain_https(url) and (reading_hosts.site_of(url) == site or own_site_domain(url) is not None)
+        # moved) — every hop still https on the default port, SSRF-checked and never a login host (`_follow`), and
+        # never a login or consent wall (`_off_site_wall`, refused before a byte is fetched — security review of #387).
+        if not _plain_https(url):
+            return False
+        if reading_hosts.site_of(url) == site:
+            return True
+        return own_site_domain(url) is not None and not _off_site_wall(url)
 
     async def counted(url: str) -> FetchResult:
         asked.append(url)
@@ -1354,7 +1369,8 @@ async def _discover(site: str, *, fetcher: Fetcher, resolver: Resolver | None) -
                 tried.add(link.url)
                 declared_site = reading_hosts.site_of(link.url)
                 own = declared_site in sites
-                allowed = (lambda u, d=declared_site: _plain_https(u) and (reading_hosts.site_of(u) == d or ours(u)))
+                allowed = (lambda u, d=declared_site: _plain_https(u) and (reading_hosts.site_of(u) == d or ours(u))
+                           and (reading_hosts.site_of(u) == site or not _off_site_wall(u)))
                 got = await _follow(link.url, allowed, fetcher=fetcher, resolver=resolver)
                 if got is None:
                     continue
@@ -1385,7 +1401,7 @@ async def _discover(site: str, *, fetcher: Fetcher, resolver: Resolver | None) -
         if href.startswith("data:"):
             body = _data_svg_icon(href)
         else:
-            body = await _fetch_svg(href, sites, fetcher=fetcher, resolver=resolver)
+            body = await _fetch_svg(href, site, sites, fetcher=fetcher, resolver=resolver)
         clean = await asyncio.to_thread(svg_raster.sanitize, body) if body else None
         if clean:
             return clean.encode("utf-8"), "svg", None
@@ -1395,7 +1411,8 @@ async def _discover(site: str, *, fetcher: Fetcher, resolver: Resolver | None) -
 _SVG_TYPES = ("image/svg+xml", "image/svg", "application/svg+xml")
 
 
-async def _fetch_svg(url: str, sites: set[str], *, fetcher: Fetcher, resolver: Resolver | None) -> bytes | None:
+async def _fetch_svg(url: str, site: str, sites: set[str], *, fetcher: Fetcher,
+                     resolver: Resolver | None) -> bytes | None:
     """A declared SVG icon's bytes: https, the SSRF guard on every hop, redirects kept on its host's or the site's
     registrable domain, a 200 whose content-type says SVG (on the site itself an XML or octet-stream type also counts),
     at most `svg_raster.MAX_SVG_BYTES`, and bytes that open as SVG. A block from the site stops the discovery."""
@@ -1403,7 +1420,9 @@ async def _fetch_svg(url: str, sites: set[str], *, fetcher: Fetcher, resolver: R
 
     declared_site = reading_hosts.site_of(url)
     own = declared_site in sites
-    allowed = (lambda u: _plain_https(u) and (reading_hosts.site_of(u) == declared_site or reading_hosts.site_of(u) in sites))
+    allowed = (lambda u: _plain_https(u)
+               and (reading_hosts.site_of(u) == declared_site or reading_hosts.site_of(u) in sites)
+               and (reading_hosts.site_of(u) == site or not _off_site_wall(u)))
     got = await _follow(url, allowed, fetcher=fetcher, resolver=resolver)
     if got is None:
         return None
@@ -1451,16 +1470,6 @@ def own_site_hits(memory_path: Path) -> set[str]:
     return {site for site, entry in read_meta(bank).items()
             if isinstance(entry, dict) and not entry.get("miss") and is_fresh(entry) and entry.get("ext")
             and (directory / f"{site}.{entry['ext']}").exists()}
-
-
-def own_site_stamp(memory_path: Path) -> str:
-    """A cheap stamp of this bank's own-site icon index (its size and mtime), folded into the Sources overview's ETag
-    so a row's faces move when an icon lands."""
-    try:
-        stat = meta_path(own_site_bank(bank_name(Path(memory_path)))).stat()
-    except OSError:
-        return "-"
-    return f"{stat.st_size}:{stat.st_mtime_ns}"
 
 
 def _own_entry_current(entry: dict) -> bool:
