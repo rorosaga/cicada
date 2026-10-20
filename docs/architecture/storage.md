@@ -383,13 +383,20 @@ stem ignoring case, reads one index built from that listing, never a glob per ca
 themselves (`recall_detail`, `sources`, progress participants, the backlog's project page) use the same rule. Before the loser's
 page is deleted, `graph_edges.yaml` and every other page's `related:`, `[[wikilinks]]` (with `|label` or `#section`),
 source `entity:` links and claims whose subject or node object named it are repointed (`repoint_references`), the
-loser's name joins the winner's `aliases`, and the result lists the paths it wrote. The inbox's
-rename-to-the-cleaner-slug branch repoints the same references (`rename_references`), and every inbox note lands above
-the fence. `episodes/` is never rewritten. **The dedup sweep commits its own merges (G183(e)):** `POST
+loser's name joins the winner's `aliases`, and the result lists the paths it wrote. **What the person gave either page
+survives (2026-10-21):** both pages' `kept_on` days are unioned (oldest first, the newest 52; G147), and the person's
+picture choice travels when the winner has none of its own (G146) — an upload's file moves to
+`assets/pictures/<winner>.<ext>`, "use initials" is copied, an upload mark whose file is gone does not travel, and a
+loser's upload that the winner's own choice outranks is removed (git keeps it), so no file nothing names is left behind;
+one plan (`entity_picture._merge_plan`) feeds the footprint and the writer. The inbox's
+rename-to-the-cleaner-slug branch repoints the same references (`rename_references`), which also moves the page's
+uploaded picture to its new id (`entity_picture.carry_on_rename`; the placeholder repair's `_rename_footprint` names
+it), and every inbox note lands above the fence. `episodes/` is never rewritten. **The dedup sweep commits its own merges (G183(e)):** `POST
 /maintenance/dedup-sweep` with `dryRun: false` runs each merge as one transaction under the page lock **and** the bank's
 git write lock, from its footprint check through its commit or recovery (never across the judge's model call). The
-footprint — `entity_merge.merge_footprint`: winner, loser, `graph_edges.yaml` when an edge names the loser, and every page
-naming the loser, found by `_repoint_page`, the same matcher `repoint_references` writes with — is known before any write.
+footprint — `entity_merge.merge_footprint`: winner, loser, `graph_edges.yaml` when an edge names the loser, every page
+naming the loser, found by `_repoint_page`, the same matcher `repoint_references` writes with, and the picture files the
+merge moves or removes — is known before any write.
 The merge is refused untouched when a footprint path is unsafe to put back (`skippedUnsafe`: unmerged index stages, a
 symlink, not a regular file) or dirty (`skippedDirty`), so nothing another writer left uncommitted is ever committed as
 `cicada`. Only the footprint is snapshotted (bytes, permission bits, stage-0 index entry or absence). The merge must write
@@ -822,7 +829,8 @@ Round 4 (C2–C4):
   picture they uploaded, whose bytes live **in the bank** at `assets/pictures/<id>.<png|jpg>` (their record, so it
   travels with the bank; the path is derived from the id, never read from the page), or `{kind: initials, added}`
   for "Use initials instead". Written only by `POST|DELETE /entities/{id}/picture` and `…/picture/initials`, each
-  committed alone as `user`, 409 while Sleep runs; never by an agent. The app shrinks a picture to ≤ 512 px before
+  committed alone as `user`, 409 while Sleep runs; never by an agent. A merge or a rename to a new id carries the
+  choice and moves the file with it (2026-10-21, "A merge keeps both claim sets" above). The app shrinks a picture to ≤ 512 px before
   it leaves the Mac; the server keeps only a PNG or JPEG ≤ 512 KB (no Pillow). `entity_picture.resolve` is the one
   precedence (the person's choice → a person's Contacts photo → the photo a ticked Messages chat shares, on its
   `person`/`tool` page → a person's public-profile photo → a brand's logo → a media page's preview → a ring monogram),
@@ -918,7 +926,7 @@ Round 4 (C2–C4):
   `capture-and-sleep.md`, "Placeholder people", has the rules; `features.md` the question.
 - `kept_on:` (G147) — the days the person answered *keep* to a decay question; each joins the page's
   mention weeks, so a kept page fades a little slower. Written only by the decay resolver, deduped,
-  capped at 52. Not an episode id and never read as one.
+  capped at 52, and unioned by a merge (`decay_policy.merged_keeps`). Not an episode id and never read as one.
 - `paths:` (G133) — on a `project` page a watched folder anchors: `[{path, device}]`, where that
   folder lives on which Mac. For display and relink only; the backend never opens it.
 - `media.kind: paper` + `paper:` (G133) — a paper page: `arxiv_id`, `doi`, `authors`, `published`,

@@ -260,13 +260,19 @@ def _edges_name(memory_path: Path, old_id: str) -> bool:
 def merge_footprint(memory_path: Path, loser_id: str, winner_id: str) -> list[str]:
     """Every memory-relative path :func:`merge_entities` would write or remove,
     computed before it runs and without writing (G183(e)): the winner, the
-    loser, ``graph_edges.yaml`` when an edge names the loser, and each page the
-    shared matcher (:func:`_repoint_page`) would repoint."""
+    loser, ``graph_edges.yaml`` when an edge names the loser, each page the
+    shared matcher (:func:`_repoint_page`) would repoint, and the person's
+    picture files the merge moves or removes (``entity_picture.merge_footprint``)."""
     ents = Path(memory_path) / "entities"
     lp, wp = ents / f"{loser_id}.md", ents / f"{winner_id}.md"
-    loser_name = str(markdown_parser.parse(lp).frontmatter.get("name", loser_id))
-    winner_name = str(markdown_parser.parse(wp).frontmatter.get("name", winner_id))
+    lfm, wfm = markdown_parser.parse(lp).frontmatter, markdown_parser.parse(wp).frontmatter
+    loser_name = str(lfm.get("name", loser_id))
+    winner_name = str(wfm.get("name", winner_id))
     paths = [f"entities/{winner_id}.md", f"entities/{loser_id}.md"]
+    # The person's picture files the merge moves or removes (G146), by the same plan `carry_on_merge` follows.
+    from api.services import entity_picture
+
+    paths += entity_picture.merge_footprint(memory_path, loser_id, lfm, winner_id, wfm)
     if _edges_name(memory_path, loser_id):
         paths.append("graph_edges.yaml")
     old = _names(loser_id, loser_name)
@@ -343,8 +349,8 @@ def repoint_edges(memory_path: Path, old_id: str, new_id: str) -> int | None:
 def rename_references(memory_path: Path, old_id: str, old_name: str, new_id: str, new_name: str) -> list[str]:
     """After a page moved from ``old_id`` to ``new_id`` (the inbox's
     keep-the-cleaner-name merge): its own claims, ``related`` and wikilinks
-    that named the old id, the graph's edges, and every other page's
-    references. Returns the memory-relative paths written."""
+    that named the old id, its uploaded picture's file, the graph's edges, and
+    every other page's references. Returns the memory-relative paths written."""
     page = Path(memory_path) / "entities" / f"{new_id}.md"
     parsed = markdown_parser.parse(page)
     fm, body = dict(parsed.frontmatter), parsed.body
@@ -369,6 +375,10 @@ def rename_references(memory_path: Path, old_id: str, old_name: str, new_id: str
     if changed or n:
         markdown_parser.write(page, fm, body)
         paths.append(f"entities/{new_id}.md")
+    # G146: the person's uploaded picture lives at a path derived from the id, so it moves with the page.
+    from api.services import entity_picture
+
+    paths += entity_picture.carry_on_rename(memory_path, old_id, new_id, fm)
     if repoint_edges(memory_path, old_id, new_id) is not None:
         paths.append("graph_edges.yaml")
     return paths + repoint_references(memory_path, old_id, old_name, new_id, new_name)
@@ -428,6 +438,17 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
     from api.services import page_edits
 
     page_edits.carry_marks(wfm, lfm)
+    # G147: the person's "keep" answers on either page count for the merged one.
+    from api.services import decay_policy
+
+    kept = decay_policy.merged_keeps(wfm, lfm)
+    if kept:
+        wfm[decay_policy.KEPT_ON_KEY] = kept
+    # G146: the person's own picture choice travels when the winner has none of its own (its file moves to the
+    # winner's id); a loser's upload the winner's own choice outranks is removed — git keeps it.
+    from api.services import entity_picture
+
+    picture_paths = entity_picture.carry_on_merge(memory_path, loser_id, lfm, winner_id, wfm)
     wfm["confidence"] = max(float(wfm.get("confidence", 0) or 0),
                             float(lfm.get("confidence", 0) or 0))
     # Mentioned most recently on either page: a merge must not make the
@@ -497,7 +518,7 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
     if all_claims:
         new_body = write_claims(new_body, all_claims)
     markdown_parser.write(wp, wfm, new_body)
-    paths = [f"entities/{winner_id}.md"]
+    paths = [f"entities/{winner_id}.md", *picture_paths]
 
     repointed = repoint_edges(memory_path, loser_id, winner_id)
     if repointed is not None:
