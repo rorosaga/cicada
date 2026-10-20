@@ -325,7 +325,16 @@ async def run_unit(job: dict) -> int:
         calls.phase = "sleep"
         with Runtime(_clock(unit["clock"]), settings).frozen():
             setup_bank(bank, unit)
-        if job["sleep_schedule"] == "per-session":
+        if job["sleep_schedule"] == "none":
+            # The control for "what do the raw conversations alone give Ask": stage and index, never consolidate.
+            with Runtime(_clock(unit["clock"]), settings).frozen():
+                staged = stage_sessions(bank, unit, unit["sessions"])
+                started = time.perf_counter()
+                build_indexes(bank)
+            state["sleep"] = {"skipped": True, "staged": staged, "drains": [],
+                              "index_seconds": round(time.perf_counter() - started, 2), "seconds": 0.0}
+            steps = []
+        elif job["sleep_schedule"] == "per-session":
             steps = [[s] for s in unit["sessions"]]
         else:
             steps = [unit["sessions"]]
@@ -371,6 +380,11 @@ async def run_unit(job: dict) -> int:
     # A failed answer is retried on every run until it succeeds; it is never silently dropped.
     todo = answers_to_do(unit["questions"], paths, answers.rows)
     calls.phase = "answer"
+    if todo and "ask" in paths:
+        from api.services import search_index
+
+        search_index.ensure_fresh(bank, wait=True)   # what the running backend keeps fresh; never a half-built index
+    prompts = Checkpoint(out / "prompts.jsonl")
     transcript = full_transcript(unit) if "full-context" in paths else ""
     answer_fn = make_answerers(bank, answer_settings, transcript)
 
@@ -383,11 +397,19 @@ async def run_unit(job: dict) -> int:
             err = None
         except Exception as exc:  # noqa: BLE001 — one failed answer is recorded, never fatal
             response, err = {"answer": ""}, f"{type(exc).__name__}: {exc}"[:300]
+        seen = response.pop("_bench", None) or {}
+        prompt = seen.get("prompt")
+        extra = {}
+        if path == "ask":
+            extra = {"prompt_chars": len(prompt) if prompt is not None else 0,
+                     "model_called": prompt is not None, "context_ms": seen.get("context_ms"),
+                     **evidence_shown(unit, q, prompt or "")}
+            prompts.add({"key": f"{q['qid']}|{path}", "prompt": prompt})
         answers.add({"key": f"{q['qid']}|{path}", "qid": q["qid"], "path": path, "clock": clock.isoformat(),
                      "answer": str(response.get("answer", "")), "confidence": response.get("confidence"),
                      "gaps": response.get("gaps"), "cited": len(response.get("citations") or []),
                      "used_entities": response.get("used_entities"), "error": err,
-                     "seconds": round(time.perf_counter() - started, 2)})
+                     "seconds": round(time.perf_counter() - started, 2), **extra})
 
     if todo:
         # Questions share one clock per unit except LongMemEval, where a unit is one question.
@@ -449,8 +471,19 @@ def make_answerers(bank: Path, settings, transcript: str) -> dict:
     from api.services import ask_service, providers
 
     def ask(question: str) -> dict:
-        return ask_service.answer_query(bank, question, top_k=6, llm_fn=ask_service._default_llm_fn(settings),
-                                        no_engine=False)
+        """``cicada_ask``'s body; the prompt the model read and the time spent before the model call are kept beside
+        the answer (``_bench``) — the retrieval stats read them. No model call (an honest gap) leaves no prompt."""
+        real = ask_service._default_llm_fn(settings)
+        seen: dict = {}
+        started = time.perf_counter()
+
+        def llm(prompt: str) -> str:
+            seen["context_ms"] = round((time.perf_counter() - started) * 1000, 1)
+            seen["prompt"] = prompt
+            return real(prompt)
+
+        response = ask_service.answer_query(bank, question, top_k=6, llm_fn=llm, no_engine=False)
+        return {**response, "_bench": seen}
 
     def full_context(question: str) -> dict:
         """The control: the whole conversation history, raw, with the same answer prompt Ask uses."""
@@ -466,6 +499,43 @@ def make_answerers(bank: Path, settings, transcript: str) -> dict:
         return parsed if isinstance(parsed, dict) else {"answer": resp.choices[0].message.content or ""}
 
     return {"ask": ask, "full-context": full_context}
+
+
+def build_indexes(bank: Path) -> None:
+    """The derived indexes Sleep's tail would build (episode vectors, the word index), with no model call."""
+    from api.services import search_index, vector_index
+
+    vector_index.SqliteVecIndexer(bank).index_episodes()
+    search_index.ensure_fresh(bank, wait=True)
+
+
+def _norm(text: str) -> str:
+    return " ".join(str(text).split()).lower()
+
+
+def evidence_turns(unit: dict, q: dict) -> list[str]:
+    """The dataset's own answer turns for a question: LoCoMo's ``evidence`` dialogue ids; LongMemEval's
+    ``has_answer`` turns inside its answer sessions."""
+    if unit["dataset"] == "locomo":
+        wanted = {e.strip() for raw in q.get("evidence") or [] for e in str(raw).replace(",", ";").split(";")
+                  if e.strip()}
+        return [t["text"] for s in unit["sessions"] for t in s["turns"] if t.get("dia_id") in wanted]
+    sids = set(q.get("evidence") or [])
+    return [t["text"] for s in unit["sessions"] if s["source_id"].rsplit(":", 1)[-1] in sids
+            for t in s["turns"] if t.get("has_answer")]
+
+
+def evidence_shown(unit: dict, q: dict, prompt: str, *, window: int = 40, step: int = 20) -> dict:
+    """Whether an answer turn's own words reached the prompt: any ``window``-character stretch of the turn (case and
+    spacing folded) appearing verbatim. A clipped turn still counts; a paraphrase on a page never does."""
+    turns = evidence_turns(unit, q)
+    text = _norm(prompt)
+    shown = 0
+    for turn in turns:
+        t = _norm(turn)
+        pieces = [t] if len(t) <= window else [t[i:i + window] for i in range(0, len(t) - window + 1, step)]
+        shown += any(p and p in text for p in pieces)
+    return {"evidence_turns": len(turns), "evidence_shown": shown}
 
 
 def full_transcript(unit: dict) -> str:
