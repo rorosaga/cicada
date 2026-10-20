@@ -27,6 +27,7 @@ final class ReaderChatTests: XCTestCase {
         let text: String
         var ts: String? = nil
         var model: String? = nil
+        var extras: EpisodeTurnExtras? = nil
     }
 
     /// Builds the episode text and the turns `evidence.turns` would return for it: one block per line, offsets in
@@ -55,7 +56,8 @@ final class ReaderChatTests: XCTestCase {
             // `evidence.turns`: a declared `evidence_kind` forces every turn's role; the marker stays as written.
             turns.append(EpisodeTurn(index: i + 1, start: start, contentStart: start + prefix.unicodeScalars.count,
                                      end: text.unicodeScalars.count, role: role == "gap" ? role : (forcedRole ?? role),
-                                     marker: role == "gap" ? "gap" : line.marker, ts: line.ts, model: line.model))
+                                     marker: role == "gap" ? "gap" : line.marker, ts: line.ts, model: line.model,
+                                     extras: line.extras))
         }
         var doc = EpisodeText(episode: episode, text: text, truncated: truncated, title: title, timestamp: timestamp,
                               harness: harness, origin: origin, conversationId: conversationId,
@@ -76,6 +78,29 @@ final class ReaderChatTests: XCTestCase {
             Line(marker: "user", text: "See you there.", ts: "2026-10-19T08:41:00+00:00"),
         ], title: "Messages with Sam · 2026-10-18", timestamp: "2026-10-18T17:02:00+00:00", origin: "imessage",
            conversationId: "imessage:0123456789abcdef:k1", correspondent: "Sam")
+    }
+
+    /// The same chat as Messages keeps it since 2026-10-20: a reply quoting its target, reactions from both sides,
+    /// an attachment (its "[image: …]" words still in the text), an edit, and a message the person unsent.
+    static func messagesSittingWithExtras() -> EpisodeText {
+        var doc = conversation([
+            Line(marker: "speaker:sam", text: "Are we still on for the trail this weekend?", ts: "2026-10-18T17:02:00+00:00",
+                 extras: EpisodeTurnExtras(reactions: [EpisodeReaction(by: "user", kind: "like", emoji: "\u{1F44D}")])),
+            Line(marker: "speaker:sam", text: "I can bring the small stove. [image: stove.jpg]", ts: "2026-10-18T17:03:00+00:00",
+                 extras: EpisodeTurnExtras(
+                    reactions: [EpisodeReaction(by: "user", kind: "love", emoji: "\u{2764}\u{FE0F}")],
+                    attachments: [EpisodeAttachment(kind: "image", name: "stove.jpg", size: 1_250_000, mime: "image/jpeg")])),
+            Line(marker: "user", text: "Yes! Saturday morning works.", ts: "2026-10-18T17:20:00+00:00",
+                 extras: EpisodeTurnExtras(replyTo: 1, edited: true)),
+            Line(marker: "speaker:sam", text: "Perfect. 7:30 at the north lot?", ts: "2026-10-19T08:10:00+00:00",
+                 extras: EpisodeTurnExtras(reactions: [
+                    EpisodeReaction(by: "user", kind: "laugh", emoji: "\u{1F602}"),
+                    EpisodeReaction(by: "speaker:sam", kind: "laugh", emoji: "\u{1F602}")])),
+            Line(marker: "user", text: "See you there.", ts: "2026-10-19T08:41:00+00:00"),
+        ], title: "Messages with Sam · 2026-10-18", timestamp: "2026-10-18T17:02:00+00:00", origin: "imessage",
+           conversationId: "imessage:0123456789abcdef:k1", correspondent: "Sam")
+        doc.unsent = [EpisodeUnsent(before: 5, speaker: "user", ts: "2026-10-19T08:40:00+00:00")]
+        return doc
     }
 
     /// A Claude Code session: the person's turns and each final reply, a model per reply, one long reply.
@@ -439,6 +464,113 @@ final class ReaderChatTests: XCTestCase {
         }
     }
 
+    // MARK: What made it a conversation (2026-10-20)
+
+    func testRepliesReactionsAttachmentsAndEditsRideTheirMessage() throws {
+        let doc = Self.messagesSittingWithExtras()
+        let built = rows(doc)
+        let all = messages(built.rows)
+        XCTAssertEqual(all.count, 5)
+        // A reaction is never a message of its own.
+        XCTAssertFalse(all.contains { $0.block.text.contains("Liked") })
+        XCTAssertEqual(all[0].extras?.reactions.map(\.emoji), ["\u{1F44D}"])
+        XCTAssertEqual(all[0].extras?.reactions.first?.help, "You reacted \u{1F44D}")
+        // The attachment is a chip; the bubble no longer says "[image: …]".
+        XCTAssertEqual(all[1].block.text, "I can bring the small stove.")
+        XCTAssertEqual(all[1].extras?.attachments.first?.hasPrefix("Image · stove.jpg · "), true)
+        // The reply quotes its target and jumps to it.
+        let reply = try XCTUnwrap(all[2].extras?.reply)
+        XCTAssertEqual(reply.target, ReaderBlock.Key(turn: 1, chunk: 0))
+        XCTAssertEqual(reply.words, "Replying to Sam: \u{201C}Are we still on for the trail this weekend?\u{201D}")
+        XCTAssertEqual(all[2].extras?.edited, true)
+        // Two people choosing one emoji is one chip with a count, both named on hover.
+        let laugh = try XCTUnwrap(all[3].extras?.reactions.first)
+        XCTAssertEqual(laugh.count, 2)
+        XCTAssertEqual(laugh.help, "You and Sam reacted \u{1F602}")
+        XCTAssertNil(all[4].extras)
+    }
+
+    func testAnUnsentMessageIsSaidInWordsWhereItWas() {
+        let built = rows(Self.messagesSittingWithExtras())
+        let kinds: [String] = built.rows.map {
+            switch $0.kind {
+            case .unsent(let words): return "unsent:\(words)"
+            case .message(let m): return "message:\(m.block.index)"
+            default: return "other"
+            }
+        }
+        let gone = kinds.firstIndex(of: "unsent:You unsent a message")
+        XCTAssertNotNil(gone)
+        XCTAssertEqual(gone.map { kinds[$0 + 1] }, "message:5", "it sits before the message it preceded")
+    }
+
+    func testAConversationSavedBeforeExtrasReadsAsItAlwaysDid() {
+        let built = rows(Self.messagesSitting())
+        XCTAssertTrue(messages(built.rows).allSatisfy { $0.extras == nil })
+        XCTAssertFalse(built.rows.contains { if case .unsent = $0.kind { true } else { false } })
+    }
+
+    func testAReplyToAMessageNotHereSaysSoAndJumpsNowhere() throws {
+        let doc = Self.conversation([
+            Line(marker: "user", text: "About that.", ts: "2026-10-19T09:00:00+00:00",
+                 extras: EpisodeTurnExtras(replyElsewhere: true)),
+        ], origin: "imessage", conversationId: "imessage:0123456789abcdef:k2", correspondent: "Sam")
+        let reply = try XCTUnwrap(messages(rows(doc).rows).first?.extras?.reply)
+        XCTAssertNil(reply.target)
+        XCTAssertEqual(reply.words, Copy.Provenance.earlierMessage)
+    }
+
+    func testAnAttachmentOnlyMessageIsItsChipsAlone() throws {
+        let doc = Self.conversation([
+            Line(marker: "user", text: "[image: a.png] [file: b.pdf]", ts: "2026-10-19T09:00:00+00:00",
+                 extras: EpisodeTurnExtras(attachments: [EpisodeAttachment(kind: "image", name: "a.png"),
+                                                         EpisodeAttachment(kind: "file", name: "b.pdf")])),
+        ], origin: "imessage", conversationId: "imessage:0123456789abcdef:k3", correspondent: "Sam")
+        let message = try XCTUnwrap(messages(rows(doc).rows).first)
+        XCTAssertEqual(message.block.text, "")
+        XCTAssertEqual(message.extras?.attachments, ["Image · a.png", "File · b.pdf"])
+    }
+
+    func testALongTurnPutsItsReplyAboveTheFirstPieceAndItsChipsUnderTheLast() {
+        let extras = ReaderChat.Extras(reply: ReaderChat.Reply(target: nil, words: "r"),
+                                       reactions: [ReaderChat.ReactionChip(emoji: "x", count: 1, help: "h")],
+                                       attachments: ["a"], edited: true)
+        XCTAssertEqual(ReaderChat.Piece.first.part(of: extras)?.reply?.words, "r")
+        XCTAssertEqual(ReaderChat.Piece.first.part(of: extras)?.reactions, [])
+        XCTAssertNil(ReaderChat.Piece.middle.part(of: extras))
+        XCTAssertEqual(ReaderChat.Piece.last.part(of: extras)?.attachments, ["a"])
+        XCTAssertNil(ReaderChat.Piece.last.part(of: extras)?.reply)
+    }
+
+    func testTheExtrasDecodeAndAnOlderBackendDecodesWithout() throws {
+        let json = #"{"episode":"ep_1","text":"user: hi","turns":[{"index":1,"start":0,"contentStart":6,"end":8,"role":"user","marker":"user","extras":{"reactions":[{"by":"assistant","kind":"love","emoji":"x"}],"replyTo":null,"replyElsewhere":false,"attachments":[{"kind":"image","name":"a.png","size":3,"mime":"image/png","generated":false}],"edited":true,"forwardedFrom":null,"codeRuns":null}}],"unsent":[{"before":2,"speaker":"assistant","ts":null}]}"#
+        let doc = try JSONDecoder().decode(EpisodeText.self, from: Data(json.utf8))
+        XCTAssertEqual(doc.turns.first?.extras?.reactions.first?.kind, "love")
+        XCTAssertEqual(doc.turns.first?.extras?.attachments.first?.size, 3)
+        XCTAssertEqual(doc.unsent.first?.before, 2)
+        let old = try JSONDecoder().decode(EpisodeText.self, from: Data(#"{"episode":"ep_1","text":"user: hi","turns":[{"index":1,"start":0,"end":8}]}"#.utf8))
+        XCTAssertNil(old.turns.first?.extras)
+        XCTAssertEqual(old.unsent, [])
+    }
+
+    func testAChatWithExtrasNeverWantsMoreThanItsColumn() throws {
+        let store = Self.store()
+        let doc = Self.conversation([
+            Line(marker: "user", text: "see attached", ts: "2026-10-19T09:00:00+00:00",
+                 extras: EpisodeTurnExtras(replyTo: 1, attachments: [EpisodeAttachment(
+                    kind: "file", name: String(repeating: "long-name-", count: 30) + ".pdf", size: 9_000_000)])),
+        ], origin: "imessage", conversationId: "imessage:0123456789abcdef:k4", correspondent: "Sam")
+        for scale in [0.8, 1.0, 1.4] {
+            CicadaTheme.uiScale = scale
+            let width = 304 * CGFloat(scale)
+            let renderer = ImageRenderer(content: ReaderChatView(rows: rows(doc).rows, landingTurn: nil, revealed: true)
+                .environment(store))
+            renderer.proposedSize = ProposedViewSize(width: width, height: nil)
+            let size = try XCTUnwrap(renderer.nsImage).size
+            XCTAssertLessThanOrEqual(size.width, width + 0.5, "\(scale): \(size.width)")
+        }
+    }
+
     // MARK: Fit
 
     func testAChatNeverWantsMoreThanItsColumn() throws {
@@ -476,6 +608,14 @@ final class ReaderChatTests: XCTestCase {
         let quote = quoteStart..<quoteEnd
         let cases: [(String, EpisodeText, Range<Int>?, Set<Int>)] = [
             ("messages-sitting", Self.messagesSitting(), nil, []),
+            ("messages-extras", Self.messagesSittingWithExtras(), nil, []),
+            ("export-extras", Self.conversation([
+                Line(marker: "user", text: "Chart these numbers for the alpha-project review.", ts: "2026-10-19T09:00:00+00:00",
+                     extras: EpisodeTurnExtras(attachments: [EpisodeAttachment(kind: "file", name: "numbers.csv", size: 512)])),
+                Line(marker: "assistant", text: "Here is the chart, with the outlier marked.", ts: "2026-10-19T09:01:00+00:00",
+                     extras: EpisodeTurnExtras(attachments: [EpisodeAttachment(kind: "image", name: "", generated: true)],
+                                               codeRuns: 2)),
+            ], title: "Charting", origin: "chatgpt-export", conversationId: "conv-2"), nil, []),
             ("claude-code-session", session, nil, []),
             ("export-long-reply", Self.exportWithLongReply(), nil, []),
             ("highlighted-quote", session, quote, []),

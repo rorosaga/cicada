@@ -543,6 +543,26 @@ small memo keyed on the file's stamp) or from a parse it already makes. First `/
 0.5 s.
 
 G110 A2's `reply_gaps: [{offset, omitted_chars}]` records clipped final-reply gaps outside `content_hash`.
+
+**What made a conversation a conversation (2026-10-20, `turn_extras`).** Beside the words, never in them: two
+frontmatter keys written by `episode_staging` alone (the one writer of a source-keyed episode), before the `turns`
+sidecar, outside `content_hash`. `turn_extras: [{offset, reactions?, reply_to?, attachments?, edited?, forwarded_from?,
+code_runs?}]` — one entry per turn that has any, keyed by its marker-line start (the sidecar's offset):
+`reactions: [{by, kind, emoji?}]` with `by` a turn marker (`user` / `assistant` / `speaker:<label>`) and `kind` one of
+love · like · dislike · laugh · emphasize · question · emoji · sticker; `reply_to` the target turn's offset, or `{ref}`
+(a source's opaque message key) when the target is in another episode; `attachments: [{kind, name, size?, mime?,
+generated?}]` (kind image · video · audio · file · sticker — a name and a size, never a path or a byte);
+`edited: true`; `forwarded_from`; `code_runs`. `unsent_turns: [{at, speaker, ts?, ref?}]` — where an unsent message
+was (`at` = the offset of the turn it preceded, or one past the body's end) and who sent it, never its words. A draft
+carries them as `Turn.extras` (a reply's target an index into the draft's turns) and `EpisodeDraft.unsent`; the stager
+renders the offsets against the scrubbed body, scrubs every string, and drops a malformed value rather than raising.
+**No span can move:** the body, its hash and the sidecar are byte-identical with or without extras
+(`test_turn_extras`). A draft whose words did not move but whose extras did (a reaction, an unsend, a reply's target,
+a re-imported export) is written frontmatter-only (`_set_extras`, counted `extras_updated` and `skipped`): never
+re-queued, so a reaction never makes Sleep read a conversation again. Reactions are never turns: no body line, so never
+a person's statement, an episode or anything Sleep reads. `/episodes/{id}/text` serves them per turn as `extras`
+(`reply_to` as the target turn's `index`, `reply_elsewhere` when it is not here) and the episode's `unsent: [{before,
+speaker, ts}]` (`before` a turn index).
 Evidence readers accept only the exact marker at that recorded offset. Reader head/gap/tail blocks keep their
 block indexes; the reply fragments retain the original timestamp, model and effort. Evidence `turn_at` counts
 the head and tail as one original turn; a marker or touching quote is nobody's words
@@ -874,7 +894,8 @@ Round 4 (C2–C4):
   (`media-arxiv-<id>` / `media-doi-<hash>`); the abstract is a `describes` claim from
   `external:arxiv` or `external:crossref`, a dated cache shown under the personal tier (G121).
 - On an episode (G133/G134): `turns` (the G118 per-turn sidecar), `evidence_kind`,
-  `source_deleted_at`, and a section's `content_sha` — see the Awake rails.
+  `source_deleted_at`, and a section's `content_sha` — see the Awake rails; on a conversation, `turn_extras` and
+  `unsent_turns` (2026-10-20, above).
 
 ### Backlogs (G150)
 

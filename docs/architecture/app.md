@@ -389,7 +389,9 @@ before the flip — see *Ask why* below.
 **Calendars, contacts & feeds** offers Calendar on this Mac and
 Contacts (G154), both app-owned rows.
 
-**Messages (G179, 2026-10-15).** Integrations → Messaging carries an app-owned **Messages** row (`MessagesRow`: the
+**Messages (G179, 2026-10-15).** Its panel's **Read again** (2026-10-20, shown while a chat is ticked) re-reads every
+ticked chat from its first message so sittings saved before reactions, replies, edits and attachments were kept get
+them (`MessagesWatcher.readAgain`; capture-and-sleep.md). Integrations → Messaging carries an app-owned **Messages** row (`MessagesRow`: the
 Messages app's own icon, "Pick the conversations Cicada should remember" / "Remembering N conversations", *Sync now*
 once one is ticked, *Choose…*, the browsers' `FullDiskAccessHint` when the read was refused, and *What came in*). *Choose…*
 is a `SettingsSheet` (`MessagesPanel`): one sentence on what Cicada reads and why it needs Full Disk Access, one on
@@ -1827,7 +1829,16 @@ the one landed on and any holding a cited or found span. A chat with no quote to
 (scrolled twice, so the lazy stack's estimate settles) and pins its banners above the scroll; ↑/↓, ⇞/⇟, ⌘↑/⌘↓ and
 Home/End move from the row at the column's top as the scroll view reports it (`scrollTargetLayout` +
 `scrollPosition(id:)`, so a trackpad scroll moves the start too; `ReaderChatKeys`), top-aligned, in one frame. The
-built layout is memoised per document, target, unfolded set, jump and citations (`LayoutMemo`). Everything else keeps the document view. A turn is
+built layout is memoised per document, target, unfolded set, jump and citations (`LayoutMemo`). Everything else keeps the document view. **What made it a conversation (2026-10-20, `turn_extras`; DR-11, DR-38, DR-40, DR-44, DR-60):** a turn's
+`extras` ride its message (`ReaderChat.Extras`, `Piece.part`): a reply's line above the first piece — "Replying to Sam:
+“…”", a `TextButton` that scrolls its target to the top in one frame, or "Replying to an earlier message" in words when
+the target is not in this sitting; "Forwarded from …" there too; under the last piece, attachments as `Tag`s ("Image ·
+stove.jpg · 1.3 MB", "Generated image", "Ran code 2 times") and reactions as `Tag`s, one per emoji with a count, who
+reacted on hover (`.help`, "You and Sam reacted 😂") and in VoiceOver; "Edited" in words. A Messages turn's
+"[image: …]" words leave the bubble when its chips say them (`ReaderChat.withoutAttachmentNames`; an attachment-only
+message is its chips alone). An unsent message is a centred line where it was ("You unsent a message"). Thumbnails are
+not drawn yet: every attachment is a chip with its kind and name. An episode saved before extras has none and reads as
+it always did. A turn is
 selectable **and** washed through `CitedPassage` (2026-10-16): a selectable `Text` never reaches a `TextRenderer`, and
 a renderer-drawn copy behind the words breaks lines differently from them (the wash on the wrong words at some widths),
 so the passage is one selectable `Text` whose wash and underline are attributes of its own string (`CitedSpan.fallback`:

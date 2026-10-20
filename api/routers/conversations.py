@@ -8,7 +8,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import ConversationSummary, ConversationUploadResponse, ResumeDescriptor
-from api.services import episode_ids, episode_scrub, episode_staging, session_stats, sync_service
+from api.services import episode_ids, episode_scrub, episode_staging, session_stats, sync_service, turn_extras
 
 router = APIRouter()
 
@@ -252,6 +252,25 @@ def _attachment_turns(msg: dict) -> list[dict]:
     return turns
 
 
+def _anthropic_files(msg: dict) -> list[dict]:
+    """What the person attached to a message, as the Reader's chips (`turn_extras`): each file's name, size and kind —
+    the extracted text stays the ``attachment [<name>]`` turn it always was, an image only its name."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for item in (msg.get("attachments") or []) + (msg.get("files") or []) + (msg.get("files_v2") or []):
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("file_name") or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        entry = {"kind": turn_extras.kind_for(item.get("file_type"), name), "name": name}
+        if isinstance(item.get("file_size"), int) and item["file_size"] >= 0:
+            entry["size"] = item["file_size"]
+        out.append(entry)
+    return out
+
+
 def parse_anthropic_conversations(data: list) -> list[dict]:
     """Parse Anthropic conversations.json export.
 
@@ -288,11 +307,10 @@ def parse_anthropic_conversations(data: list) -> list[dict]:
                 continue
 
             if text and text.strip():
-                parsed_msgs.append({
-                    "role": role,
-                    "text": text.strip(),
-                    "timestamp": msg.get("created_at"),
-                })
+                turn = {"role": role, "text": text.strip(), "timestamp": msg.get("created_at")}
+                if role == "user" and (files := _anthropic_files(msg)):
+                    turn["extras"] = {"attachments": files}
+                parsed_msgs.append(turn)
             parsed_msgs.extend(attached)
 
         if not parsed_msgs:
@@ -464,19 +482,15 @@ def parse_chatgpt_json(data: list) -> list[dict]:
         title = conversation.get("title", "Untitled")
         mapping = conversation.get("mapping", {})
         messages: list[dict] = []
+        tool_events: list[tuple[str, str]] = []   # (timestamp, "image" | "code") — what a tool gave the reply
 
         for node in mapping.values():
             msg = node.get("message")
             if not msg:
                 continue
-            parts = msg.get("content", {}).get("parts", [])
-            if not parts:
-                continue
-
+            content = msg.get("content") or {}
+            parts = content.get("parts", [])
             role = msg.get("author", {}).get("role", "unknown")
-            text = "\n".join(str(p) for p in parts if isinstance(p, str))
-            if not text.strip() or role not in ("user", "assistant"):
-                continue
 
             create_time = msg.get("create_time")
             timestamp = None
@@ -486,12 +500,34 @@ def parse_chatgpt_json(data: list) -> list[dict]:
                 # UTC, shifting every imported message by the machine's offset.
                 timestamp = episode_ids.to_utc_iso(create_time)
 
-            messages.append({"role": role, "text": text.strip(), "timestamp": timestamp})
+            if role == "tool":
+                # Never a turn: a generated image or a code run's output is noted on the reply it fed.
+                if content.get("content_type") == "execution_output":
+                    tool_events.append((timestamp or "", "code"))
+                for part in parts or []:
+                    if isinstance(part, dict) and part.get("content_type") == "image_asset_pointer":
+                        tool_events.append((timestamp or "", "image"))
+                continue
+            if not parts:
+                continue
+
+            text = "\n".join(str(p) for p in parts if isinstance(p, str))
+            if not text.strip() or role not in ("user", "assistant"):
+                continue
+
+            turn = {"role": role, "text": text.strip(), "timestamp": timestamp}
+            metadata = msg.get("metadata") or {}
+            if role == "assistant" and isinstance(metadata.get("model_slug"), str):
+                turn["model"] = metadata["model_slug"]
+            if role == "user" and (files := _chatgpt_files(metadata, parts)):
+                turn["extras"] = {"attachments": files}
+            messages.append(turn)
 
         if not messages:
             continue
 
         messages.sort(key=lambda m: m.get("timestamp") or "")
+        _note_tool_events(messages, tool_events)
 
         # Conversation-level timestamp
         conv_time = conversation.get("create_time")
@@ -521,6 +557,40 @@ def parse_chatgpt_json(data: list) -> list[dict]:
 
     episodes.sort(key=lambda e: e.get("timestamp", ""))
     return episodes
+
+
+def _chatgpt_files(metadata: dict, parts: list) -> list[dict]:
+    """A person's uploads on one ChatGPT message (``metadata.attachments``: name, size, type), or one unnamed image
+    per uploaded picture the export names nowhere else — never the file."""
+    out: list[dict] = []
+    for item in metadata.get("attachments") or []:
+        if not isinstance(item, dict) or not item.get("name"):
+            continue
+        entry = {"kind": turn_extras.kind_for(item.get("mime_type"), item.get("name")), "name": str(item["name"])}
+        if isinstance(item.get("size"), int) and item["size"] >= 0:
+            entry["size"] = item["size"]
+        if item.get("mime_type"):
+            entry["mime"] = str(item["mime_type"])
+        out.append(entry)
+    if not out:
+        pictures = sum(1 for p in parts or [] if isinstance(p, dict) and p.get("content_type") == "image_asset_pointer")
+        out = [{"kind": "image", "name": ""} for _ in range(pictures)]
+    return out
+
+
+def _note_tool_events(messages: list[dict], events: list[tuple[str, str]]) -> None:
+    """Each tool result onto the first agent reply at or after it (else the last one): a generated image as an
+    ``image`` attachment marked ``generated``, a code run as a count. ``messages`` are sorted by time."""
+    replies = [m for m in messages if m["role"] == "assistant"]
+    if not replies or not events:
+        return
+    for ts, kind in sorted(events):
+        target = next((m for m in replies if (m.get("timestamp") or "") >= ts), replies[-1])
+        extras = target.setdefault("extras", {})
+        if kind == "image":
+            extras.setdefault("attachments", []).append({"kind": "image", "name": "", "generated": True})
+        else:
+            extras["code_runs"] = extras.get("code_runs", 0) + 1
 
 
 def _parse_chatgpt_html(html: str) -> list[dict]:
