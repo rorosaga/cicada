@@ -724,8 +724,9 @@ _SPANISH_NOTE = (
 _RECORD_LANGUAGE_NOTE = (
     "Some of the conversations in memory are held in {language}, not in the question's language. A line answers the "
     "question when it means the same thing in either language (\"grupo de apoyo\" is a support group; a group, job, "
-    "event, place or title named in translation is the same thing) — never decline for a word that appears only in "
-    "translation. Answer in the question's language, quoting the record's own words as they were said.")
+    "event, place or title named in translation is the same thing): a word that appears only in translation is no "
+    "reason to decline, and a line that does not mean what the question asks is no answer — when none does, say what "
+    "memory does not hold. Answer in the question's language, quoting the record's own words as they were said.")
 _LANGUAGE_NAMES = {"es": "Spanish", "en": "English"}
 
 

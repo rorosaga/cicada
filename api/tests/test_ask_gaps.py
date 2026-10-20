@@ -106,6 +106,8 @@ def test_a_fact_the_record_may_only_imply_is_read_as_one(question):
     "Was Python 3.12 released?",
     "How old is my laptop?",
     "Who is the owner of this repo?",
+    "What do I prefer for breakfast?",
+    "Which editor do you prefer?",
     # "State" as a status, never a place.
     "What state is the PR in?",
     "What is the state of my deployment?",
@@ -178,7 +180,8 @@ _BOOK_ES = "user: Ahora mismo estoy leyendo *El método Lean Startup* y me está
 
 class _Nearest:
     """A search model whose nearest passages are the given conversations' bodies, in order (``split`` cuts each body
-    into that many passages, nearest first); a text is near when it holds one of ``near_words``."""
+    into that many passages, nearest first); a text is near when it holds one of ``near_words`` — a passage scores
+    0.80 then, else 0.66, as EmbeddingGemma 2 scores the nearest passage of a question about something never said."""
 
     def __init__(self, memory: Path, episodes: list[str], near_words: tuple[str, ...], split: int = 1):
         self.memory, self.episodes, self.near_words, self.split = memory, episodes, near_words, split
@@ -193,8 +196,12 @@ class _Nearest:
             size = max(1, -(-len(lines) // self.split))
             parts = ["\n".join(lines[i:i + size]) for i in range(0, len(lines), size)]
             for part in reversed(parts) if self.split > 1 else parts:
-                rows.append({"score": 0.8, "text": part, "metadata": {"file_path": str(path)}})
+                near = any(w in part for w in self.near_words)
+                rows.append({"score": 0.8 if near else 0.66, "text": part, "metadata": {"file_path": str(path)}})
         return {"episodes": rows}
+
+    def index_info(self, kind):
+        return {"model": "google/embeddinggemma-2:768"}
 
     def similarity(self, question, texts, *, kind="episodes"):
         self.batches.append(list(texts))
@@ -276,10 +283,39 @@ def test_an_english_question_over_english_conversations_is_unchanged(english, qu
 
 def test_the_record_language():
     es, en = "user: Hoy fui al dentista por la muela, me la sacaron por fin.", "user: I went to the gym and it was fun."
-    assert ask_sources.record_language({"a": [en], "b": [en], "c": [es]}, "en") == "es"
-    assert ask_sources.record_language({"a": [en], "b": [en]}, "en") == ""
+    near = {"a": 0.8, "b": 0.8, "c": 0.8}
+    assert ask_sources.record_language({"a": [en], "b": [en], "c": [es]}, "en", near, 0.72) == "es"
+    assert ask_sources.record_language({"a": [en], "b": [en]}, "en", near, 0.72) == ""
     far = {f"e{i}": [en] for i in range(ask_sources.MEANING_EPISODES)} | {"z": [es]}
-    assert ask_sources.record_language(far, "en") == "", "only the nearest few conversations tell it"
+    assert ask_sources.record_language(far, "en", {"z": 0.9}, 0.72) == "", "only the nearest few conversations tell it"
+    # Review of #390: Spanish passages near the question only by being the record's language are no evidence.
+    assert ask_sources.record_language({"a": [en], "c": [es]}, "en", {"a": 0.8, "c": 0.70}, 0.72) == ""
+    assert ask_sources.record_language({"c": [es]}, "en", {"c": 0.9}, None) == "", "a model with no measured floor"
+
+
+def test_the_floor_is_the_measured_models_only():
+    class Indexer:
+        def __init__(self, model):
+            self.model = model
+
+        def index_info(self, kind):
+            return {"model": self.model}
+
+    assert ask_sources.record_floor(Indexer("google/embeddinggemma-2:768")) == 0.72
+    assert ask_sources.record_floor(Indexer("intfloat/multilingual-e5-small")) is None
+    assert ask_sources.record_floor(object()) is None
+
+
+@pytest.mark.parametrize("question", ["What is the name of my hamster?", "What car does Bob drive?"])
+def test_an_english_abstention_over_spanish_conversations_reads_as_on_dev(spanish, question):
+    """Review of #390: on a record in Spanish the nearest passages always exist — never-said things must not turn into a
+    lookup of unrelated Spanish turns."""
+    indexer = _Nearest(spanish, ["ep_2024-09-03_001", "ep_2024-01-01_001", "ep_2024-02-01_001"], ("hamster",))
+    found = ask_sources.search(spanish, question, indexer=indexer)
+    assert not found.record_lang and not found.meaning and not found.adds and not found.passages
+    prompt = _prompt(spanish, question, indexer=indexer)
+    assert "found by meaning" not in prompt and "se llama Ned" not in prompt
+    assert "held in Spanish" not in prompt
 
 
 # --------------------------------------------------------------------------------------------------------------- #

@@ -820,7 +820,7 @@ _IMPLIED_KIND = re.compile(
     # An age, and a preference, the record shows more often than it says ("how old is <name>", "which … does <name>
     # prefer"); never one's own.
     r"|^how old (?:is|was) (?!my\b|our\b|your\b|i\b)|^cuantos anos tiene (?!mi\b|tu\b)"
-    r"|^(?:what|which)\b[^?]*\bprefers?\b|^(?:que|cual)\b[^?]*\bprefiere\b")
+    r"|^(?:what|which)\b(?![^?]*\b(?:i|we|you)\b)[^?]*\bprefers?\b|^(?:que|cual)\b[^?]*\bprefiere\b")
 #: The common name of a thing someone described without naming it ("what is the card game Deborah is talking about",
 #: "which popular composer's tunes …", "¿de qué juego hablaba …?").
 _IMPLIED_NAME = re.compile(
@@ -840,8 +840,9 @@ def asks_implied(question: str, people: set[str] | None = None) -> bool:
     LoCoMo open-domain questions like "does <name> live in <state>?", "which US state …", "what is the game <name> was
     talking about?" declined although the lines implied the answer): a state, country, continent or holiday
     (:data:`_IMPLIED_KIND`), the common name of a described thing (:data:`_IMPLIED_NAME`), a yes or no about someone
-    else, or "who is <name>?" alone. Never a judgement (:func:`asks_inference` has its own note), never a question about
-    I, we or you. ``people``: the folded names of the people the record knows (their pages' names and aliases); given,
+    else, or "who is <name>?" alone. Never a judgement (:func:`asks_inference` has its own note) or a request; the age,
+    preference and yes-or-no shapes are never about I, we or you (a place or a holiday may be the person's own: "which
+    country did I visit …" from the city they named). ``people``: the folded names of the people the record knows (their pages' names and aliases); given,
     a yes or no is about someone only when it names one of them or he, she or they — "is Docker running?" asks after a
     thing, not a person. No model."""
     if asks_inference(question):
@@ -1037,9 +1038,10 @@ def _reserve(order: list[str], kept: list[str], window: int) -> list[str]:
     return top + [ep for ep in order if ep not in top]
 
 
-def _semantic(indexer, text: str, k: int, passages: dict[str, list[str]] | None = None) -> list[str]:
+def _semantic(indexer, text: str, k: int, passages: dict[str, list[str]] | None = None,
+              best: dict[str, float] | None = None) -> list[str]:
     """The conversations whose chunks the vector index finds nearest ``text``, best first (``[]`` on any failure).
-    ``passages`` receives each one's nearest chunks' text, nearest first."""
+    ``passages`` receives each one's nearest chunks' text, nearest first; ``best`` each one's nearest score."""
     try:
         rows = indexer.search_kinds(text, {"episodes": k}).get("episodes", [])
     except Exception as exc:  # noqa: BLE001 — the leg is context; its absence never fails an answer
@@ -1050,6 +1052,12 @@ def _semantic(indexer, text: str, k: int, passages: dict[str, list[str]] | None 
         for ep, row in zip(eps, rows):
             if evidence.is_episode_id(ep) and str(row.get("text") or "").strip():
                 passages.setdefault(ep, []).append(str(row["text"]))
+    if best is not None:
+        for ep, row in zip(eps, rows):
+            try:
+                best[ep] = max(best.get(ep, float("-inf")), float(row.get("score")))
+            except (TypeError, ValueError):
+                continue
     found = list(dict.fromkeys(eps))
     return [ep for ep in found if evidence.is_episode_id(ep)]
 
@@ -1275,12 +1283,35 @@ def _without(question: str, common: set[str]) -> str:
     return " ".join(kept) if text_fold.subject_terms(" ".join(kept)) else question
 
 
-def record_language(passages: dict[str, list[str]], lang: str) -> str:
-    """The other language the record holds near a question, when the nearest passage of one of the vector leg's first
-    :data:`MEANING_EPISODES` conversations is in a language other than ``lang`` (:func:`text_language`); else ``""``.
-    Over a record all in the question's language it is always ``""``."""
-    for texts in list(passages.values())[:MEANING_EPISODES]:
-        if texts and (other := text_language(texts[0])) != lang:
+#: How near (cosine, the vector index's own score) a passage in another language must be before an English question goes
+#: by meaning over it, per search model (review of #390: on a record in both languages the nearest passages always
+#: exist, so "what is the name of my hamster?" went by meaning onto unrelated Spanish turns). Set on
+#: ``locomo-es-turns.json`` with EmbeddingGemma 2: the nearest Spanish passage of 24 questions about things never said
+#: scored 0.635–0.717; answerable questions' 0.625–0.821 (p50 0.74), 70 % of them at or above 0.72. No floor separates
+#: them cleanly, so it sits above every never-said one and the rest read as on dev. A model with no measured floor
+#: never sends an English question by meaning.
+RECORD_FLOORS = {"google/embeddinggemma-2": 0.72}
+
+
+def record_floor(indexer) -> float | None:
+    """The floor of :data:`RECORD_FLOORS` for the model the conversations' table was built with, else ``None``."""
+    try:
+        model = str((indexer.index_info("episodes") or {}).get("model") or "")
+    except Exception:  # noqa: BLE001 — no table, no model: no floor
+        return None
+    return RECORD_FLOORS.get(model.split(":", 1)[0].strip())
+
+
+def record_language(passages: dict[str, list[str]], lang: str, best: dict[str, float] | None = None,
+                    floor: float | None = None) -> str:
+    """The other language the record holds near a question: the language of the nearest passage of one of the vector
+    leg's first :data:`MEANING_EPISODES` conversations when it is not ``lang`` (:func:`text_language`) and that
+    conversation scored at least ``floor`` (:data:`RECORD_FLOORS`) — evidence that it speaks of the question, not only
+    that the record is in two languages. ``""`` otherwise, with no floor, and over a record all in ``lang``."""
+    if floor is None:
+        return ""
+    for ep, texts in list(passages.items())[:MEANING_EPISODES]:
+        if texts and (other := text_language(texts[0])) != lang and (best or {}).get(ep, float("-inf")) >= floor:
             return other
     return ""
 
@@ -1326,13 +1357,14 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
         logger.debug(f"ask search leg: word index unavailable ({type(exc).__name__})")
     semantic: list[str] = []
     passages: dict[str, list[str]] = {}
+    best: dict[str, float] = {}
     try:
         if indexer is None:
             from api.services.vector_index import SqliteVecIndexer
 
             indexer = SqliteVecIndexer(memory_path, embed_fn=embed_fn) if embed_fn else SqliteVecIndexer(memory_path)
         k = ENUM_CHUNKS if shape == SHAPE_ENUMERATE else SEARCH_CHUNKS
-        semantic = _semantic(indexer, question, k, passages)
+        semantic = _semantic(indexer, question, k, passages, best)
     except Exception as exc:  # noqa: BLE001
         indexer = None
         logger.debug(f"ask search leg: vector index unavailable ({type(exc).__name__})")
@@ -1341,8 +1373,10 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
     # the words alone found none of their turns (LoCoMo sessions translated, the questions kept in English: 3 of 49
     # single-hop answer turns shown against 29 over the English originals). The record's own language decides it, read
     # from the vector leg's nearest passages — never the question's missing words (an abstention looks like that,
-    # `by_meaning`): when one of the nearest conversations is in another language, the question goes by meaning too.
-    record_lang = record_language(passages, lang) if passages and not by_meaning(question) else ""
+    # `by_meaning`): when one of the nearest conversations is in another language and near enough to speak of the
+    # question (`RECORD_FLOORS`, review of #390), the question goes by meaning too.
+    record_lang = (record_language(passages, lang, best, record_floor(indexer))
+                   if passages and indexer is not None and not by_meaning(question) else "")
     by_mean = bool(passages) and (by_meaning(question) or bool(record_lang))
     # Review of #385 (the owner's Spanish questions over his own Spanish conversations fell 50 → 43 %): the meaning leg
     # leads only when the words can't — no word of the question is weighed, or the nearest passages are in another
