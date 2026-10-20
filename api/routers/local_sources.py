@@ -387,6 +387,14 @@ async def sync_contacts_local(req: ContactsLocalSyncRequest, settings: Settings 
     return ContactsLocalSyncResponse(**out, bank=memory_path.name)
 
 
+@router.delete("/sources/contacts-local/waiting")
+async def forget_contacts_waiting():
+    """Review of #391: the app stopped Contacts (Disconnect, or access found taken away) — every bank's waiting cards
+    and thumbnails are deleted (Contacts is app-wide), so no first mention and no tail rematch uses a card again. Writes
+    nothing in a bank, so it needs no write admission; counts only, never a name."""
+    return {"forgotten": await run_in_threadpool(contacts_local.forget_waiting)}
+
+
 # --- LinkedIn connections (2026-10-16; G154's pattern) ---------------------------------------------------------------
 
 
@@ -402,6 +410,14 @@ async def linkedin_connections_status(settings: Settings = Depends(get_settings)
     """The kept export's day and how many connections it lists — what the LinkedIn tile shows. Not a Store domain."""
     bank = settings.memory_path.name
     return LinkedInConnectionsStatus(**linkedin_people.status(bank), bank=bank)
+
+
+@router.delete("/sources/linkedin-connections")
+async def forget_linkedin_connections(settings: Settings = Depends(get_settings)):
+    """Review of #391: forget this bank's kept LinkedIn export — Sleep's rematch never reads it again. Pages already
+    enriched keep what they gained. Counts only."""
+    bank = settings.memory_path.name
+    return {"forgotten": await run_in_threadpool(linkedin_people.forget_directory, bank), "bank": bank}
 
 
 @router.post("/sources/linkedin-connections/preview", response_model=LinkedInConnectionsPreview,

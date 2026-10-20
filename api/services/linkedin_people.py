@@ -617,6 +617,14 @@ def save_directory(bank: str, connections: list[Connection], day: str) -> bool:
     return True
 
 
+def forget_directory(bank: str) -> int:
+    """The person's "Forget kept connections" (review of #391): this bank's kept export is deleted, so Sleep's rematch
+    and nothing else ever reads it again. What earlier matches wrote on pages stays. Returns how many were kept."""
+    kept = status(bank)["connections"]
+    directory_path(bank).unlink(missing_ok=True)
+    return int(kept or 0)
+
+
 #: A bank's trash and rename take the whole people directory along (`people_directory`), Contacts' waiting cards too.
 forget = people_directory.forget
 rename = people_directory.rename

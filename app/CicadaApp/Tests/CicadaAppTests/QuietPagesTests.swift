@@ -66,3 +66,12 @@ final class QuietPagesTests: XCTestCase {
         XCTAssertLessThan(CicadaTheme.quietPictureOpacity, 1)
     }
 }
+
+/// Review of #391: forgetting the kept LinkedIn export says what happened, in words, with counts only.
+final class LinkedInForgetWordsTests: XCTestCase {
+    func testForgetSaysHowManyAndNeverAName() {
+        XCTAssertEqual(LinkedInConnectionsWords.forgotten(0), "No connections were kept for this memory.")
+        XCTAssertTrue(LinkedInConnectionsWords.forgotten(1).hasPrefix("Forgot 1 kept connection."))
+        XCTAssertTrue(LinkedInConnectionsWords.forgotten(3).hasPrefix("Forgot 3 kept connections."))
+    }
+}

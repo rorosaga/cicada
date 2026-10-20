@@ -412,6 +412,30 @@ def waiting_photo(bank: str, card: dict) -> tuple[bytes, str] | None:
     return _photo(base64.b64encode(data).decode("ascii"))
 
 
+def forget_waiting() -> int:
+    """The person stopped Contacts (Disconnect, or access taken away in System Settings): every bank's waiting cards
+    and their thumbnails are deleted — Contacts is connected app-wide, so its kept cards go app-wide too (review of
+    #391). Returns how many cards were forgotten. What a sync already wrote on matched pages stays (git holds it; the
+    person removes a source as ever). Never raises for a folder that is already gone."""
+    root = people_directory.folder("x").parent
+    forgotten = 0
+    if not root.is_dir():
+        return 0
+    for folder in sorted(p for p in root.iterdir() if p.is_dir() and not p.is_symlink()):
+        forgotten += len(load_waiting(folder.name))
+        (folder / WAITING_FILE).unlink(missing_ok=True)
+        photos = folder / WAITING_PHOTOS
+        if photos.is_dir() and not photos.is_symlink():
+            for item in photos.iterdir():
+                if item.is_file() or item.is_symlink():
+                    item.unlink(missing_ok=True)
+            try:
+                photos.rmdir()
+            except OSError:
+                pass
+    return forgotten
+
+
 def waiting_status(bank: str) -> dict:
     """What the app may show: how many cards wait — never a name."""
     return {"waiting": len(load_waiting(bank))}

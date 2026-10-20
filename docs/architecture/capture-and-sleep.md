@@ -304,7 +304,12 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   promotion*); Sleep's engine-free tail matches the cards still waiting against the night's pages
   (`_rematch_contacts_safely` → `contacts_local.rematch`, right after the LinkedIn rematch; its own `cicada` commit,
   `sleep/contacts`; dirty pages skipped; undone on a failed commit; never the owner's page, never a demo bank), and a
-  matched card stops waiting. The notes field is still never read. A bank's trash takes its people directory with
+  matched card stops waiting. **Stopping Contacts forgets them (review of #391):** Disconnect, or the app finding
+  access refused or taken away in System Settings, calls `DELETE /sources/contacts-local/waiting`, which deletes every
+  bank's `contacts.json` and thumbnails (Contacts is app-wide; token-gated like every route; counts only), so no first
+  mention and no tail rematch uses a card again; what matched pages already gained stays. LinkedIn's kept export has
+  its own forget, `DELETE /sources/linkedin-connections` (this bank; *Forget kept connections* in the LinkedIn panel).
+  The notes field is still never read. A bank's trash takes its people directory with
   it and a rename moves it (`people_directory.forget` / `rename`).
   LinkedIn connections (owner 2026-10-16: "extracting people profiles from my LinkedIn connections … would be nice";
   G154's pattern): the export's `Connections.csv` — or the export `.zip` carrying it — comes in only through its own
@@ -1142,10 +1147,14 @@ summary and for every relationship); "an explicit link" was any relationship the
   one it inferred.
 - **2+ conversations** counts the batch's and the pending line's conversations together, so a resumed conversation
   read again (G104) is not a second one.
-- **A waiting Contacts card (owner ruling 2026-10-20)** is a fourth rung, on its own: a `person` mention in a
-  conversation (an episode that is not a save, a watch or Cicada's own check — `quiet_pages.episode_kind`) whose name
-  or an alias is exactly one waiting card's given + family name, either order, folded as `contacts_local` folds
-  (`contacts_local.WaitingIndex.match`). Never a one-part name, a name two cards share, a name an existing person page
+- **A waiting Contacts card (owner ruling 2026-10-20)** is a fourth rung, on its own: a `person` mention **the person
+  made in their own words** — Stage 1 measured it `named_by_person`, in a conversation (not a save, a watch or Cicada's
+  own check — `quiet_pages.episode_kind`), and the card's full name stands in one of the person's own *marked* turns
+  (`user:` or a meeting's `speaker:`; `_said_in_person_turn`). So never an agent's reply, a relayed connector turn
+  (`evidence_kind: assistant`, ruling 32), a body with no turn markers (which promotion reads as the person's own
+  writing: a note, a feed item), a tab group's titles or a calendar entry (`CARD_REFUSED_SOURCES`, review of #391) —
+  and its name or an alias must be exactly one waiting card's given + family name, either order, folded as
+  `contacts_local` folds (`contacts_local.WaitingIndex.match`). Never a one-part name, a name two cards share, a name an existing person page
   already holds (that card is the page's: the sync or the tail's rematch matches it), a relation-only person
   (`role_people`'s `unnamed`), a mention from a saved link's text, a demo bank, or the person's own card (the app marks
   the "me" card and it is the owner's page's alone, G169). The page is born under the card's name (`sanitize_id` of

@@ -2533,6 +2533,18 @@ actor APIClient {
         try await postData("/sources/contacts-local/sync", json: try JSONEncoder().encode(payload))
     }
 
+    /// Owner ruling 2026-10-20 (review of #391): `DELETE /sources/contacts-local/waiting` — Contacts was stopped, so the
+    /// cards waiting outside every bank for a first mention are deleted, app-wide.
+    func forgetWaitingContacts() async throws {
+        try await delete("/sources/contacts-local/waiting")
+    }
+
+    /// `DELETE /sources/linkedin-connections` — forget this memory's kept LinkedIn export; returns how many were kept.
+    func forgetLinkedInConnections() async throws -> Int {
+        let data = try await delete("/sources/linkedin-connections")
+        return (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["forgotten"] as? Int ?? 0
+    }
+
     /// Round 4 (G160): one browser profile's open tab groups, read by the app from Chrome's session file.
     func syncTabGroups(_ payload: TabGroupsPayload) async throws -> TabGroupsSyncResult {
         try await postData("/sources/tab-groups/sync", json: try JSONEncoder().encode(payload))

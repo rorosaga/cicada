@@ -164,6 +164,16 @@ def stage2(tmp_path, monkeypatch):
     _episode(bank, "ep_2026-10-01_001", {"harness": "claude-code"}, "user: lunch with Erin Example today")
     _episode(bank, "ep_2026-10-01_002", {"source": "url", "media_entity_id": "media-x", "url": "https://example.com"},
              "A page that names Erin Example.")
+    # Review of #391: places the name appears that are not the person saying it.
+    _episode(bank, "ep_2026-10-01_003", {"source": "mcp-remote", "evidence_kind": "assistant"},
+             "user: who wrote that library?\n\nassistant: Erin Example wrote that library.")    # relayed (ruling 32)
+    _episode(bank, "ep_2026-10-01_004", {"harness": "claude-code"},
+             "user: who touched this module last?\n\nassistant: git log says Erin Example did.")   # the agent's reply
+    _episode(bank, "ep_2026-10-01_005", {"source": "tab-group", "source_id": "tab-group:chrome:Default:x"},
+             "# Research\n\n- Erin Example | Profile — https://example.com/in/x")                # a tab title
+    _episode(bank, "ep_2026-10-01_006", {"source": "calendar", "origin": "calendar-local"},
+             "Lunch with Erin Example")                                                          # an event title
+    _episode(bank, "ep_2026-10-01_007", {"source": "apple-notes"}, "Call Erin Example about the lab")  # no markers
     contacts_local.save_waiting(bank.name, [
         {"id": "C1", "given_name": "Erin", "family_name": "Example", "has_organization": True, "has_email": True,
          "photo_b64": base64.b64encode(JPEG).decode()},
@@ -178,10 +188,12 @@ def _episode(bank, eid, fm, body):
                           {"id": eid, "timestamp": "2026-10-01T12:00:00+00:00", "processed": False, **fm}, body)
 
 
-def _mention(name, *, episode="ep_2026-10-01_001", etype="person", **extra):
+def _mention(name, *, episode="ep_2026-10-01_001", etype="person", named=True, **extra):
+    """One Stage-1 mention. ``named`` is what `promotion.measure` set; the cases below force it True where Stage 1
+    would have, or might wrongly have, so the turn check is tested on its own."""
     return [{"episode_id": episode, "relationships": [], "entities": [
         {"name": name, "type": etype, "confidence": 0.6, "description": f"{name} came up.", "source_episode": episode,
-         "source_episode_timestamp": "2026-10-01T12:00:00Z", **extra}]}]
+         "source_episode_timestamp": "2026-10-01T12:00:00Z", "named_by_person": named, **extra}]}]
 
 
 def _resolve(bank, extracted, pages=()):
@@ -203,6 +215,12 @@ def test_one_conversation_naming_a_waiting_card_in_full_promotes_under_the_cards
     ("a save's text is not a conversation", _mention("Erin Example", episode="ep_2026-10-01_002"), ()),
     ("not a person", _mention("Erin Example", etype="project"), ()),
     ("a relation-only person", _mention("Erin Example", **{role_people.UNNAMED_KEY: True}), ()),
+    ("Stage 1 measured nobody named it", _mention("Erin Example", named=False), ()),
+    ("a relayed connector turn", _mention("Erin Example", episode="ep_2026-10-01_003"), ()),
+    ("only the agent's reply names it", _mention("Erin Example", episode="ep_2026-10-01_004"), ()),
+    ("a tab group's tab title", _mention("Erin Example", episode="ep_2026-10-01_005"), ()),
+    ("a calendar event's title", _mention("Erin Example", episode="ep_2026-10-01_006"), ()),
+    ("a body with no turn markers", _mention("Erin Example", episode="ep_2026-10-01_007"), ()),
     ("a page already holds the name", _mention("Erin Example"),
      ({"id": "erin-e", "frontmatter": {"name": "Erin E", "type": "person", "aliases": ["Erin Example"]},
        "body": "## Summary\nA page."},)),
@@ -348,3 +366,48 @@ def test_the_quiet_rules_source_names_are_the_writers_own():
     assert quiet_pages.WATCH_SOURCES == {watch_record.SOURCE, watch_history.SOURCE, history_index.MONTH_SOURCE}
     assert quiet_pages.CHECK_SOURCES == {check_record.SOURCE, source_refresh.ORIGIN, web_settle.SOURCE,
                                          linkedin_people.PROFILE_SOURCE}
+
+
+# --------------------------------------------------------------------------- stopping Contacts forgets the cards
+
+
+def test_disconnecting_contacts_forgets_every_banks_waiting_cards_and_nothing_uses_them_after(stage2, monkeypatch):
+    from api.services import auth
+
+    contacts_local.save_waiting("other-bank", [{"id": "C7", "given_name": "Hal", "family_name": "Sample",
+                                                "photo_b64": base64.b64encode(PNG).decode()}])
+    monkeypatch.setenv("CICADA_API_AUTH", "on")
+    monkeypatch.delenv("CICADA_API_TOKEN", raising=False)
+    config.get_settings.cache_clear()
+    c = TestClient(main.app)
+    assert c.delete("/sources/contacts-local/waiting").status_code == 401, "token-gated like every sources route"
+    r = c.delete("/sources/contacts-local/waiting", headers={"Authorization": f"Bearer {auth.get_token()}"})
+    assert r.status_code == 200 and r.json() == {"forgotten": 4}
+    for bank in (stage2.name, "other-bank"):
+        folder = people_directory.folder(bank)
+        assert not (folder / contacts_local.WAITING_FILE).exists()
+        assert not (folder / contacts_local.WAITING_PHOTOS).exists()
+    assert contacts_local.waiting_index(stage2).cards == {}
+    assert _resolve(stage2, _mention("Erin Example"))["changes"] == [], "no first mention promotes on a forgotten card"
+    _entity(stage2, "erin-example", type="person", name="Erin Example")
+    assert contacts_local.rematch(stage2).paths == [], "and the tail matches nothing"
+    assert fact_sources.list_sources(stage2, "erin-example") == []
+    config.get_settings.cache_clear()
+
+
+def test_forgetting_linkedin_connections_stops_the_rematch(tmp_path, monkeypatch):
+    from api.services import linkedin_people
+
+    memory = _bank(tmp_path, git=False)
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
+    config.get_settings.cache_clear()
+    linkedin_people.save_directory(memory.name, [linkedin_people.Connection(
+        "Ivy", "Example", "https://www.linkedin.com/in/ivy-example", "Acme Example", "Engineer", "2024-01-02")],
+        "2026-10-01")
+    r = TestClient(main.app).delete("/sources/linkedin-connections")
+    assert r.status_code == 200 and r.json()["forgotten"] == 1
+    assert not linkedin_people.directory_path(memory.name).exists()
+    _entity(memory, "ivy-example", type="person", name="Ivy Example")
+    assert linkedin_people.rematch(memory).paths == []
+    config.get_settings.cache_clear()

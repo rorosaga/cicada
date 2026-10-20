@@ -87,6 +87,8 @@ protocol ContactStore: AnyObject, Sendable {
 
 protocol ContactsSyncAPI: Sendable {
     func syncLocalContacts(_ payload: ContactsSyncPayload) async throws -> ContactsSyncResult
+    /// Review of #391: Contacts stopped — every bank's waiting cards are deleted on the backend.
+    func forgetWaitingContacts() async throws
 }
 
 extension APIClient: ContactsSyncAPI {}

@@ -376,7 +376,8 @@ async def resolve(
                 or linked_to_existing
                 or any(promotion.substantive(e) for e in (entity, *siblings))
             )
-            card = None if ambiguous_match else _card_for(entity, siblings, waiting_cards, person_keys, episode_kind)
+            card = None if ambiguous_match else _card_for(entity, siblings, waiting_cards, person_keys, episode_kind,
+                                                          memory_path=Path(settings.memory_path))
             if card is not None and str(card["id"]) in card_creates:
                 # A second spelling of a name this batch already gave a card's page to ("Example Bob"): the same page.
                 card_page = card_creates[str(card["id"])]
@@ -782,28 +783,68 @@ def _person_page_keys(existing: list[dict]) -> set[str]:
     return keys
 
 
+#: Episodes whose text is a title or an item list, never a turn the person typed — a tab group's tab titles, a
+#: calendar's event titles. A body with no turn markers is never a person's turn here anyway (`_said_in_person_turn`);
+#: these are refused by name too, so a marker-shaped title can never pass.
+CARD_REFUSED_SOURCES = frozenset({"tab-group", "calendar", "calendar-local"})
+
+
+def _said_in_person_turn(memory_path: Path | None, episode_id: str, card: dict) -> bool:
+    """Did the person themselves say this card's full name — in a MARKED turn of theirs (``user:`` or a meeting's
+    ``speaker:``)? Not a reply of the agent's, not a relayed turn (``evidence_kind: assistant``, ruling 32), and not a
+    document with no turn markers, which `promotion.exchanges` reads as the person's own writing (a tab group, a
+    calendar, a feed item, a note): a card promotes only on the person's own words (owner ruling 2026-10-20)."""
+    from api.services import bank_index, evidence
+
+    if memory_path is None or not str(episode_id or "").startswith("ep_"):
+        return False
+    entry = bank_index.file(memory_path, "episodes", f"{episode_id}.md")
+    if entry is None:
+        return False
+    fm = entry.frontmatter or {}
+    if str(fm.get("source") or "") in CARD_REFUSED_SOURCES or str(fm.get("origin") or "") in CARD_REFUSED_SOURCES:
+        return False
+    try:
+        text = entry.body()
+    except Exception:
+        return False
+    keys = contacts_local.name_keys(card.get("given_name"), card.get("family_name"))
+    for turn in evidence.turns(text, override=fm.get("evidence_kind")):
+        if turn.marker is None or turn.role not in promotion.PERSON_KINDS:
+            continue
+        said = f" {people_directory.fold(text[turn.content_start:turn.end])} "
+        if any(f" {key} " in said for key in keys):
+            return True
+    return False
+
+
 def _card_for(entity: dict, siblings: list[dict], waiting: "contacts_local.WaitingIndex",
-              person_keys: set[str], episode_kind: Callable[[str], str | None]) -> dict | None:
+              person_keys: set[str], episode_kind: Callable[[str], str | None], *,
+              memory_path: Path | None = None) -> dict | None:
     """The ONE waiting card this person mention names in full (owner ruling 2026-10-20), or None.
 
-    Only a ``person`` mention, made in a conversation (a saved link's or a watched video's text is not the person
-    mentioning anyone: `quiet_pages.episode_kind`); never one titled by a relation to the owner (`role_people` — a
-    person known only as "my partner" is never named from a card without the person's words); the mention's own name
-    or an alias must be a card's given + family name in either order (`WaitingIndex.match`: never a one-part name,
-    never a name two cards share); and no existing person page may hold that name already (two pages, or a card that
-    is some page's)."""
+    Only a ``person`` mention the person made in their own words: Stage 1 measured it named by a person
+    (``named_by_person``), in a conversation (not a save, a watch or a check: `quiet_pages.episode_kind`), and the
+    card's full name stands in one of the person's own marked turns (:func:`_said_in_person_turn` — never an agent's
+    reply, a relayed turn, a tab title or a calendar entry). Never one titled by a relation to the owner
+    (`role_people` — a person known only as "my partner" is never named from a card without the person's words); the
+    mention's own name or an alias must be a card's given + family name in either order (`WaitingIndex.match`: never a
+    one-part name, never a name two cards share); and no existing person page may hold that name already (two pages,
+    or a card that is some page's)."""
     if not waiting.cards:
         return None
     group = (entity, *siblings)
     if any(entity_types.in_set(e.get("type")) != "person" or e.get(role_people.UNNAMED_KEY) for e in group):
-        return None
-    if not any(episode_kind(str(e.get("source_episode") or "")) == quiet_pages.CONVERSATION for e in group):
         return None
     labels = [label for e in group for label in [e.get("name"), *(e.get("aliases") or [])] if label]
     card = waiting.match(labels)
     if card is None:
         return None
     if contacts_local.name_keys(card.get("given_name"), card.get("family_name")) & person_keys:
+        return None
+    spoken = [e for e in group if e.get("named_by_person")
+              and episode_kind(str(e.get("source_episode") or "")) == quiet_pages.CONVERSATION]
+    if not any(_said_in_person_turn(memory_path, str(e.get("source_episode") or ""), card) for e in spoken):
         return None
     return card
 

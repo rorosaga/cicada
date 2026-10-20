@@ -22,6 +22,8 @@ final class ContactsReader {
 
     @ObservationIgnored private let store: ContactStore
     @ObservationIgnored private let api: any ContactsSyncAPI
+    /// The last forget request (`forgetWaiting`), kept so a test can await it.
+    @ObservationIgnored private(set) var forgetTask: Task<Void, Never>?
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let activity: SyncActivity?
     @ObservationIgnored private let now: () -> Date
@@ -62,7 +64,7 @@ final class ContactsReader {
 
     func start() {
         guard enabled else { status = .off; return }
-        guard store.access() == .granted else { status = .denied; return }
+        guard store.access() == .granted else { denied(); return }
         arm()
         status = .watching
         let bank = self.bank()
@@ -77,7 +79,7 @@ final class ContactsReader {
         guard await store.requestAccess(), store.access() == .granted else {
             defaults.set(false, forKey: Self.enabledKey)
             enabled = false
-            status = .denied
+            denied()
             return
         }
         defaults.set(true, forKey: Self.enabledKey)
@@ -92,6 +94,21 @@ final class ContactsReader {
         watch?.cancel(); pending?.cancel(); running?.cancel()
         watch = nil; pending = nil
         status = .off
+        forgetWaiting()
+    }
+
+    /// Access was found taken away (System Settings, or never given): said as denied, and the cards kept for a first
+    /// mention are forgotten — Cicada keeps nothing from an address book it may no longer read (review of #391).
+    private func denied() {
+        status = .denied
+        forgetWaiting()
+    }
+
+    /// Owner ruling 2026-10-20 (review of #391): stopping Contacts deletes every bank's waiting cards, so no first
+    /// mention and no tail rematch uses one again. Best effort: a backend that is down keeps them until the next stop.
+    private func forgetWaiting() {
+        let api = self.api
+        forgetTask = Task { try? await api.forgetWaitingContacts() }
     }
 
     func syncNow() async { await sync() }
@@ -120,7 +137,7 @@ final class ContactsReader {
         // Access can be taken away in System Settings while Cicada runs; a read without it comes back empty. Said as
         // the refusal it is — a `CancellationError` here read "Stopped" on a card's Sync now (`ChannelActions.sync`).
         guard store.access() == .granted else {
-            status = .denied
+            denied()
             return .failure(BrowserImportActions.ImportActionError.failed(Copy.contactsDenied))
         }
         let task = Task { @MainActor [weak self] () throws -> String in
