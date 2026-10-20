@@ -406,8 +406,8 @@ struct InboxTextField: View {
     let isFocused: Bool
 
     var body: some View {
-        TextField(prompt, text: $text)
+        TextField("", text: $text)
             .frame(maxWidth: .infinity)
-            .cicadaField(isFocused: isFocused)   // DR-76 — the app's one field, which this one first drew
+            .cicadaField(isFocused: isFocused, prompt: prompt, isEmpty: text.isEmpty)   // DR-76 — the app's one field, which this one first drew
     }
 }

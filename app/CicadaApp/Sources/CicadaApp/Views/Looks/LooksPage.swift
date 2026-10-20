@@ -226,6 +226,9 @@ struct LooksBoardView: View {
                                   onImageFrame: { frame in frames.detail = (open.id, frame) })
                     .id(open.id)
                     .columnEdge()   // DR-11: the one permitted rule, from the theme, never a hand-drawn line
+                    // After ⏎ the detail holds the keys: ↑/↓ still swap the look in place, Esc closes the rightmost
+                    // (DR-28, DR-68); ⏎ here steps nowhere further.
+                    .listKeys(move: { move($0) }, enter: { false }, escape: { escapeColumns() })
                     .focused($focus, equals: .detail)
             }
         } trailing: { _ in
@@ -676,11 +679,11 @@ struct LooksComposer: View {
                 .frame(maxWidth: .infinity, maxHeight: CicadaTheme.scaled(220))
                 .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
             // DR-76 — the app's own field, as every page's.
-            TextField(Copy.Looks.linkField, text: $link).cicadaField()
-            TextField(Copy.Looks.titleField, text: $title).cicadaField()
-            TextField(Copy.Looks.noteField, text: $note, axis: .vertical)
+            TextField("", text: $link).cicadaField(prompt: Copy.Looks.linkField, isEmpty: link.isEmpty)
+            TextField("", text: $title).cicadaField(prompt: Copy.Looks.titleField, isEmpty: title.isEmpty)
+            TextField("", text: $note, axis: .vertical)
                 .lineLimit(3...6)
-                .cicadaField()
+                .cicadaField(prompt: Copy.Looks.noteField, isEmpty: note.isEmpty)
             if let error {
                 Text(error).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
             }

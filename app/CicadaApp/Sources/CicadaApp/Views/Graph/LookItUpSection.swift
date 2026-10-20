@@ -138,8 +138,8 @@ struct LookItUpSection: View {
     /// The add field: a real input border (DR-9), a neutral Add with its ⏎ (DR-49), disabled until there is text.
     private var addField: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            TextField(placeholder, text: $newRef)
-                .cicadaField()   // DR-76
+            TextField("", text: $newRef)
+                .cicadaField(prompt: placeholder, isEmpty: newRef.isEmpty)   // DR-76
                 .onSubmit(add)
             NeutralButton(title: Copy.Graph.add, keyHint: "⏎",
                           isDisabled: newRef.trimmed.isEmpty || pendingAdd == newRef.trimmed, action: add)

@@ -189,6 +189,64 @@ extension DesignConsistencyLintTests {
                       "the Inbox's field, which first drew the style, draws through it")
     }
 
+    /// DR-76 / DR-5 — no `cicadaField` lacks its focus ring (review of #377: six fields shipped without one). The field
+    /// tracks its own focus unless the caller passes `isFocused:`; so a bare `.cicadaField()` must not sit on a field
+    /// the caller already binds with `.focused(` (two bindings), and an `isFocused:` one must sit on a field the caller
+    /// binds (else nothing ever lights it). The Inbox's field is bound by its own caller, one view out.
+    func testEveryFieldShowsItsFocusRing() throws {
+        let boundOutside: Set<String> = ["InboxFocusCard.swift"]
+        var offenders: [String] = []
+        var checked = 0
+        for file in try viewSources() where file.lastPathComponent != "CicadaField.swift" {
+            let all = try lines(file)
+            for (index, (n, line)) in all.enumerated() where line.contains(".cicadaField(") {
+                checked += 1
+                // The field's own chain: back to the line that opens it.
+                var chain: [String] = []
+                var i = index
+                while i >= 0 {
+                    chain.append(all[i].1)
+                    if all[i].1.contains("TextField(") || all[i].1.contains("SecureField(") { break }
+                    i -= 1
+                }
+                let bound = chain.contains { $0.contains(".focused(") }
+                // The prompt is drawn by the style in the tertiary ink; a titled field would draw the system's too.
+                if !(chain.last ?? "").contains(#"TextField("","#) {
+                    offenders.append("\(file.lastPathComponent):\(n) titles its field; the prompt goes to cicadaField")
+                }
+                let passes = line.contains("isFocused:")
+                if passes && !bound && !boundOutside.contains(file.lastPathComponent) {
+                    offenders.append("\(file.lastPathComponent):\(n) passes isFocused but binds no focus")
+                }
+                if !passes && bound { offenders.append("\(file.lastPathComponent):\(n) binds focus but passes none") }
+            }
+        }
+        XCTAssertEqual(offenders, [], "DR-76: every cicadaField shows its focus ring")
+        XCTAssertGreaterThanOrEqual(checked, 10, "the call pattern no longer matches — this lint would pass vacuously")
+        let style = try XCTUnwrap(try viewSources().first { $0.lastPathComponent == "CicadaField.swift" })
+        let text = try String(contentsOf: style, encoding: .utf8)
+        XCTAssertTrue(text.contains("@FocusState"), "the field tracks its own focus when the caller passes none")
+        XCTAssertFalse(text.contains("foregroundStyle(CicadaTheme.textPrimary"), "one ink for words and prompt")
+        CicadaTheme.mode = .light
+        XCTAssertEqual(CicadaField.promptInk, CicadaTheme.textTertiary, "the prompt is the tertiary step (DR-2)")
+        CicadaTheme.mode = .dark
+        XCTAssertNotEqual(CicadaField.ring(focused: true), CicadaField.ring(focused: false))
+    }
+
+    /// DR-68 — after ⏎ steps into a skill or a look, its detail holds the list's keys (↑/↓ swap in place, Esc closes
+    /// the rightmost): review of #377 found Looks' ⏎ moved focus to a detail that could not take it, so every key died.
+    func testTheDetailTakesTheKeysAfterReturn() throws {
+        for page in ["SkillsPage.swift", "LooksPage.swift"] {
+            let file = try XCTUnwrap(try viewSources().first { $0.lastPathComponent == page })
+            let text = try String(contentsOf: file, encoding: .utf8)
+            let start = try XCTUnwrap(text.range(of: "} detail: { plan in"), page)
+            let end = try XCTUnwrap(text.range(of: ".focused($focus, equals: .detail)", range: start.upperBound..<text.endIndex),
+                                    page)
+            XCTAssertTrue(text[start.upperBound..<end.lowerBound].contains(".listKeys("),
+                          "\(page): the detail is focusable and takes ↑/↓ · Esc before it is a focus target")
+        }
+    }
+
     /// DR-43 — Sources' lists read in words over the still skeleton, never a spinner.
     func testSourcesListsHaveNoSpinner() throws {
         for page in ["HarnessConversationsView.swift", "CapturedItemsList.swift", "WatchedDay.swift"] {

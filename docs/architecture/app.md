@@ -1746,7 +1746,8 @@ buttons are the four kinds, the native bordered styles only in Settings and setu
 list row's fill is `rowHover` / `rowHoverFill` (`Views/Common/RowHover.swift`: `bgSelected` over `bgHover`, only the
 pointer's hover eased, so a key never animates); a page adds through `PageAddButton` in its eyebrow (Sleep's tab-row
 `+` the one exception); a field on a page, a column or a page's own sheet is `cicadaField` (`bgBase`, the input ring,
-the accent ring while focused); a fold whose only control is its glyph is `DisclosureButton`; Skills and Looks sit on
+the accent ring while focused — the field tracks its own focus unless its caller passes `isFocused:`; the field draws its
+own prompt in `textTertiary`); a fold whose only control is its glyph is `DisclosureButton`; Skills and Looks sit on
 `ProgressiveColumns`; Sources' lists read in words over `ListSkeleton`, no spinner. `DesignConsistencyLintTests` holds
 all of these. Pixel sprites carry their provenance in
 `Resources/sprites/sprites.manifest.json` (script, source, sha256), checked by `SpriteAssetTests`. **Type:** SF only. `displayFont(size:italic:)` is SF Pro Display

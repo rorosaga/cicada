@@ -126,9 +126,9 @@ struct SkillsPageView: View {
                                   })
                     .id(skill.name)
                     .columnEdge()   // DR-11: the one permitted rule, from the theme
-                    .focusable()
-                    .focusEffectDisabled()
-                    .onExitCommand { escape() }
+                    // After ⏎ the detail holds the keys: ↑/↓ still swap the skill in place, Esc closes the rightmost
+                    // (DR-28, DR-68); ⏎ here steps nowhere further.
+                    .listKeys(move: { move($0) }, enter: { false }, escape: { escape() })
                     .focused($focus, equals: .detail)
             }
         } trailing: { _ in
