@@ -992,7 +992,13 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
      an article or "de"/"y" next to a capitalised word counting for neither ("Juan de la Torre", "Los Olivos"), and a
      question opening with an English question word or auxiliary without "¿" is English;
      `by_meaning` is then true — never for an English question whose words the record lacks, which is how an
-     abstention looks (the first cut turned "what is the name of my hamster?" into a lookup). By meaning:
+     abstention looks (the first cut turned "what is the name of my hamster?" into a lookup). The meaning leg **leads** only when the words can't (review of #385:
+     the owner's Spanish questions over his own Spanish conversations fell 50 → 43 % when it always led): no word of
+     the question is weighed, or most of the `LANGUAGE_PASSAGES` = 3 nearest passages are in another language
+     (`text_language`, function words). Over conversations in the question's own language the words lead exactly as
+     for an English question — #381's count and list path included — and the meaning leg only **adds** at most
+     `MEANING_EXTRA_EXCERPTS` = 2 lines (800 characters) after them, a conversation the words left out first
+     (`Searched.adds`); the page leg reads as for any question. Leading:
      the vector leg's nearest passages (`Searched.passages`, the chunks' own text, no extra search) lead the search
      leg — each of the first `MEANING_EPISODES` = 4 conversations shows the turns of its nearest passage ranked by
      the search model (`turn_similar`, an allowance of `MEANING_TURNS` = 48), one per conversation first, taking

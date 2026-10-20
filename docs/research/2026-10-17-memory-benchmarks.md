@@ -772,3 +772,12 @@ not", a request such as "¿sabrías decirme …?"); an English question with Spa
 stopwords, tense words and history cues apply to Spanish questions only, so the shared stopword list is dev's ("Ella",
 "Han", "Como" are names in English). Re-probed: all 400 English prompts and all 50 Spanish prompts are byte-identical to
 the ones measured above, so no answer was re-run (0 more plan calls).
+
+*Second review (owner's sets on haiku, three runs):* within noise overall, but the owner's Spanish questions fell 50 →
+43 % — his conversations are largely Spanish, and always leading by meaning displaced word hits that already worked
+(one Spanish count across several sessions went right → wrong). Now the meaning leg leads only when no word of the
+question is weighed or the nearest passages are in another language; over same-language conversations the words lead
+as on dev (the list path included) and meaning adds at most two lines after them. A synthetic bank with Spanish and
+English conversations checks both: the Spanish word hits all stay, the English answer turn is still reached. Every
+LoCoMo Spanish passage set is English, so all 50 fixture prompts and all 400 English prompts are byte-identical to the
+measured ones: no answer was re-run.

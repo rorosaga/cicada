@@ -281,3 +281,96 @@ def test_the_spanish_fixture_and_apply_questions():
     [kept] = datasets.apply_questions([unit, {**unit, "unit_id": "none", "questions": []}], fixture)
     assert [q["question"] for q in kept["questions"]] == [qs[qid]["es"]]
     assert datasets.apply_questions([unit], fixture, "en")[0]["questions"][0]["question"] == qs[qid]["en"]
+
+
+# --------------------------------------------------------------------------------------------------------------- #
+# Review of #385: by meaning beside the words, not instead of them
+# --------------------------------------------------------------------------------------------------------------- #
+
+_DENTIST = ["user: Hoy fui al dentista por la muela del juicio, me la sacaron por fin.",
+            "user: Otra vez al dentista: revisión de la muela, todo bien.",
+            "user: Tercera visita al dentista este año, ahora por una limpieza."]
+
+
+@pytest.fixture
+def mixed(tmp_path):
+    """Spanish conversations (the person's own, word hits strong) beside English ones (a Spanish question's words
+    find nothing there), and Spanish filler the search model wrongly finds nearest."""
+    memory = tmp_path / "memory"
+    for sub in ("entities", "episodes", "inbox"):
+        (memory / sub).mkdir(parents=True)
+    for i in range(1, 9):
+        _episode(memory, f"ep_2024-0{i}-01_001", [f"user: Ayúdame a planear la lista de recados número {i}.",
+                                                  f"assistant: Claro, recados {i}: compras, lavandería y el banco."])
+    for i, turn in enumerate(_DENTIST):
+        _episode(memory, f"ep_2024-0{i + 2}-15_001", ["user: Buenos días, qué semana.", turn,
+                                                      "assistant: Me alegro de que haya ido bien."])
+    _episode(memory, "ep_2024-09-03_001", ["user: Long week at work.", _SUPPORT, "assistant: That sounds meaningful."])
+    markdown_parser.write(memory / "entities" / "alice-example.md",
+                          {"name": "Alice Example", "type": "person", "status": "active", "owner": True},
+                          "## Summary\nAlice Example is the person this memory belongs to.\n")
+    assert search_index.ensure_fresh(memory, wait=True, max_age_s=0) == "ready"
+    bank_index.invalidate()
+    yield memory
+    bank_index.invalidate()
+
+
+class _Nearest:
+    """A search model whose nearest passages are the given conversations, in order; a turn is near when it holds
+    one of ``near_words``."""
+
+    def __init__(self, memory: Path, episodes: list[str], near_words: tuple[str, ...]):
+        self.memory, self.episodes, self.near_words = memory, episodes, near_words
+        self.batches: list[list[str]] = []
+
+    def search_kinds(self, text, top_k_by_kind):
+        rows = []
+        for ep in self.episodes:
+            path = self.memory / "episodes" / f"{ep}.md"
+            rows.append({"score": 0.8, "text": markdown_parser.parse(path).body.strip(),
+                         "metadata": {"file_path": str(path)}})
+        return {"episodes": rows}
+
+    def similarity(self, question, texts, *, kind="episodes"):
+        self.batches.append(list(texts))
+        return [0.9 if any(w in t for w in self.near_words) else 0.2 for t in texts]
+
+
+def test_a_spanish_question_over_spanish_conversations_keeps_its_word_hits(mixed):
+    # The search model is wrong here: it finds the errands chats nearest. The words find the dentist.
+    indexer = _Nearest(mixed, ["ep_2024-01-01_001", "ep_2024-02-01_001"], ("recados",))
+    found = ask_sources.search(mixed, "¿Cuándo me sacaron la muela del juicio?", indexer=indexer)
+    assert not found.meaning and found.adds, "same language as the record: the words lead, meaning only adds"
+    prompt = _prompt(mixed, "¿Cuándo me sacaron la muela del juicio?", indexer=indexer)
+    other = prompt.split("OTHER CONVERSATIONS", 1)[1]
+    assert "me la sacaron por fin" in other
+    lines = [l for l in other.splitlines() if l.startswith("- ")]
+    assert sum("recados" in l for l in lines) <= ask_sources.MEANING_EXTRA_EXCERPTS
+    words_only = _prompt(mixed, "¿Cuándo me sacaron la muela del juicio?").split("OTHER CONVERSATIONS", 1)[1]
+    for line in (l for l in words_only.splitlines() if l.startswith("- ")):
+        assert line in lines, "every line the words found is still shown: meaning adds, never displaces"
+
+
+def test_a_spanish_count_over_spanish_conversations_keeps_the_list_path(mixed):
+    indexer = _Nearest(mixed, ["ep_2024-01-01_001"], ("recados",))
+    prompt = _prompt(mixed, "¿Cuántas veces fui al dentista?", indexer=indexer)
+    other = prompt.split("OTHER CONVERSATIONS", 1)[1]
+    assert "the question asks for a count or a list" in other
+    for turn in _DENTIST:
+        assert turn.split(": ", 1)[1][:40] in other, "every conversation that told it (#381's list path)"
+    words_only = _prompt(mixed, "¿Cuántas veces fui al dentista?").split("OTHER CONVERSATIONS", 1)[1]
+    for line in (l for l in words_only.splitlines() if l.startswith("- ")):
+        assert line in other
+
+
+def test_a_spanish_question_over_english_conversations_still_goes_by_meaning(mixed):
+    indexer = _Nearest(mixed, ["ep_2024-09-03_001", "ep_2024-01-01_001"], ("support group",))
+    found = ask_sources.search(mixed, "¿Cuándo fue Alice al grupo de apoyo?", indexer=indexer)
+    assert found.meaning and not found.adds, "the nearest passages are English: meaning leads"
+    other = _prompt(mixed, "¿Cuándo fue Alice al grupo de apoyo?", indexer=indexer).split("OTHER CONVERSATIONS", 1)[1]
+    assert _SUPPORT.split(": ", 1)[1][:60] in other
+
+
+def test_a_passages_language():
+    assert ask_sources.text_language("user: Hoy fui al dentista por la muela, me la sacaron por fin.") == "es"
+    assert ask_sources.text_language("user: I went to the support group and it was powerful.") == "en"

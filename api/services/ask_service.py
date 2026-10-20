@@ -819,6 +819,9 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
                 how += ("; the question's words are not the record's (another language, or other words), so lines "
                         "were also found by meaning: a line is about the question only when it means what the "
                         "question asks")
+            elif getattr(searched, "adds", False):
+                how += ("; after the lines its words found, a few may have been found by meaning: a line is about "
+                        "the question only when it means what the question asks")
             if getattr(searched, "ends", None):
                 how += ("; the question asks about more than one moment, so each was searched for on its own words "
                         "and its best conversation leads; TIME BETWEEN THE CONVERSATIONS below dates them")

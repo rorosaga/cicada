@@ -894,6 +894,9 @@ class Searched:
     passages: dict[str, list[str]] = field(default_factory=dict)
     #: With :attr:`meaning`: the nearness of a passage's turns to the question (an allowance of its own).
     turn_similar: "Callable[[list[str]], list[float]] | None" = None
+    #: A question by meaning over conversations in its own language: the words lead as for any question, and the
+    #: meaning leg adds at most :data:`MEANING_EXTRA_EXCERPTS` lines after them (review of #385).
+    adds: bool = False
 
 
 @dataclass
@@ -1176,6 +1179,26 @@ def _episodes_on(memory_path: Path, named: list[str], limit: int = MEANING_EPISO
     return sorted(out, reverse=True)[:limit]
 
 
+#: How many of the nearest passages tell the record's language around a question (:func:`_other_language`).
+LANGUAGE_PASSAGES = 3
+#: By meaning beside the words (`Searched.adds`): at most this many more lines, in this many characters.
+MEANING_EXTRA_EXCERPTS = 2
+MEANING_EXTRA_CHARS = 800
+
+
+def text_language(text: str) -> str:
+    """``"es"`` when a text's Spanish function words outnumber its English ones, else ``"en"`` — a passage's language,
+    cheaply (no model)."""
+    words = text_fold.words(text)
+    return "es" if sum(w in _ES_WORDS for w in words) > sum(w in _EN_WORDS for w in words) else "en"
+
+
+def _other_language(passages: dict[str, list[str]], lang: str) -> bool:
+    """Whether most of the nearest :data:`LANGUAGE_PASSAGES` passages are in another language than ``lang``."""
+    texts = [texts[0] for texts in passages.values() if texts][:LANGUAGE_PASSAGES]
+    return bool(texts) and sum(text_language(t) != lang for t in texts) * 2 > len(texts)
+
+
 def by_meaning(question: str) -> bool:
     """Whether the question's own words can't be trusted to find what the record says of it: it is not in English
     (the stemming, the stopwords and the shape detectors are English-first, and a person's record is often in another
@@ -1226,8 +1249,13 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
     except Exception as exc:  # noqa: BLE001
         indexer = None
         logger.debug(f"ask search leg: vector index unavailable ({type(exc).__name__})")
-    meaning = by_meaning(question) and bool(passages)
-    if meaning:
+    by_mean = by_meaning(question) and bool(passages)
+    # Review of #385 (the owner's Spanish questions over his own Spanish conversations fell 50 → 43 %): the meaning leg
+    # leads only when the words can't — no word of the question is weighed, or the nearest passages are in another
+    # language than the question. Over conversations in the question's own language the words already find the
+    # turns, and the meaning leg only adds a few lines after them (`adds`).
+    meaning = by_mean and (not weights or _other_language(passages, question_language(question)))
+    if by_mean:
         named_m = named_days(question, today)
         if named_m:
             # A day the question names leads, as it does for the words: the vector leg's passages from that day
@@ -1239,9 +1267,9 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
     similar = None
     if indexer is not None and (shape == SHAPE_ENUMERATE or meaning or asks_inference(question)):
         similar = _similarity(indexer, question, MEANING_TEXTS if meaning else SIMILAR_TEXTS)
-    by = ({"meaning": True, "passages": passages,
+    by = ({"meaning": meaning, "adds": not meaning, "passages": passages,
            "turn_similar": _similarity(indexer, question, MEANING_TURNS) if indexer is not None else None}
-          if meaning else {})
+          if by_mean else {})
     if not weights:
         if meaning:
             # No word the record uses, but the search model found where it speaks of this: its passages lead.
@@ -1413,6 +1441,18 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
         chosen += _take(sorted(firsts.values(), key=lambda c: c[1]), extra_docs, terms, owner_name,
                         max_excerpts=len(firsts), total_chars=ENUM_CHARS, taken=taken,
                         excerpt_chars=ENUM_EXCERPT_CHARS, context=False)
+        chosen.sort(key=lambda e: e.order)
+    if found.adds:
+        # Beside the words: the meaning leg's best turns not already shown, a conversation the words left out first.
+        shown = taken | shown_turns(chosen)
+        shown_eps = {e.episode for e in chosen}
+        near_docs: dict[str, tuple] = {}
+        firsts: dict[str, tuple] = {}
+        for c in _meaning_turns(memory_path, found, near_docs, shown):
+            firsts.setdefault(c[3], c)
+        extra = sorted(firsts.values(), key=lambda c: (c[3] in shown_eps, c[1]))
+        chosen += _take(extra, near_docs, terms, owner_name, max_excerpts=MEANING_EXTRA_EXCERPTS,
+                        total_chars=MEANING_EXTRA_CHARS, taken=shown)
         chosen.sort(key=lambda e: e.order)
     return chosen
 
