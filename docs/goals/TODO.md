@@ -18,6 +18,14 @@
   Detail: `capture-and-sleep.md`, *Fewer calls per conversation*. Tests: `test_sleep_call_batching.py`,
   `test_entity_resolver_concurrency.py`, `test_conflict_resolver_concurrency.py`. Pick up: the coordinator reads the
   next scheduled night's `llm_call` counts by stage and the inbox's new "Possible duplicate" count.
+- **2026-10-20 — Ask reasons a judgement from the record and answers Spanish by meaning (G148; branch
+  `feat/ask-infer-es`).** A judgement question ("would <name> likely …", "¿es probable que …?") gets a note to answer
+  "probably …, because …" from the record; a recorded fact still declines. A Spanish question goes by meaning: the
+  search model's nearest passages and ranked claims/items reach the prompt (Spanish answer turns 8 → 33 of 74 on
+  LoCoMo; English 38). On haiku: open-domain judgement questions 17 → 26 of 42, LoCoMo in Spanish 50.0 → 67.5,
+  Spanish adversarial 10 → 9 of 10 (an honest decline judged wrong); every other English prompt byte-identical.
+  `--questions benchmarks/public/fixtures/locomo-es.json` runs the Spanish set. Pick up: the coordinator's `--compare`
+  on the owner's two sets with haiku. Detail: `docs/research/2026-10-17-memory-benchmarks.md`.
 - **2026-10-20 — the owner's answer eval runs each question several times and judges a change on majorities (G148;
   branch `feat/eval-repeats`).** Four runs of the owner's 60 questions on near-identical code scored 46, 44, 42, 42 with
   13 questions flipping, so one run cannot judge an Ask change (#365 read −2; its revert did not restore the number).

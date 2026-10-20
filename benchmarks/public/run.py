@@ -40,7 +40,7 @@ PATHS = ("ask", "full-context")
 #: The run's settings that must match on --resume (anything else would mix two experiments in one table).
 PINNED = ("dataset", "sleep_model", "disambiguation_model", "answer_model", "judge_model", "paths",
           "sleep_schedule", "batch_size", "embedding_model", "units", "only", "per_category", "limit",
-          "include_adversarial")
+          "include_adversarial", "questions", "questions_lang")
 
 
 def _mark(path: Path, marker: str) -> None:
@@ -140,6 +140,8 @@ def _config(args) -> dict:
         "sleep_schedule": args.sleep_schedule, "batch_size": args.batch_size,
         "embedding_model": args.embedding_model or "", "units": args.units, "only": args.only or [],
         "per_category": args.per_category, "limit": args.limit, "include_adversarial": args.include_adversarial,
+        "questions": str(Path(args.questions).absolute()) if args.questions else "",
+        "questions_lang": args.questions_lang or "",
         "concurrency": args.concurrency, "fake_engine": bool(args.fake_engine),
         "dataset_file": str(args.dataset_file) if args.dataset_file else "",
     }
@@ -177,9 +179,13 @@ def run(args) -> int:
                  else datasets.longmemeval_units(path, cfg["dataset"].split("-", 1)[1]))
     else:
         units = datasets.load_units(cfg["dataset"], lay["data"])
+    if cfg.get("questions"):   # a question fixture: its questions only, in its wording, every category it lists
+        fixture = json.loads(Path(cfg["questions"]).read_text(encoding="utf-8"))
+        units = datasets.apply_questions(units, fixture, cfg.get("questions_lang") or "")
     units = datasets.select(units, units_limit=cfg["units"], only=cfg["only"] or None,
                             per_category=cfg["per_category"], limit=cfg["limit"],
-                            skip_categories=() if cfg["include_adversarial"] else ("adversarial",))
+                            skip_categories=() if cfg["include_adversarial"] or cfg.get("questions")
+                            else ("adversarial",))
     print(f"run {run_dir}\n  {len(units)} unit(s), {sum(len(u['questions']) for u in units)} question(s) · "
           f"Sleep {cfg['sleep_model']} (+{cfg['disambiguation_model']}) · answer {cfg['answer_model']} · "
           f"judge {cfg['judge_model']} · paths {','.join(cfg['paths'])}", flush=True)
@@ -268,6 +274,10 @@ def parser() -> argparse.ArgumentParser:
     r.add_argument("--limit", type=int, help="at most N questions per unit (LongMemEval: N units)")
     r.add_argument("--include-adversarial", action="store_true",
                    help="LoCoMo category 5 too (scored apart with the abstention judge; never in the headline)")
+    r.add_argument("--questions", help="a question fixture (benchmarks/public/fixtures/): only its questions, in its "
+                                       "wording — e.g. locomo-es.json, LoCoMo questions in Spanish")
+    r.add_argument("--questions-lang", help="the fixture wording to ask (default: the fixture's own language; 'en' "
+                                            "asks the same questions in the dataset's English)")
     r.add_argument("--sleep-model", default="sonnet", help="Sleep's model on the plan (CICADA_AGENT_MODEL)")
     r.add_argument("--disambiguation-model", default="haiku")
     r.add_argument("--answer-model", default="sonnet")

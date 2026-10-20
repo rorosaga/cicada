@@ -11,7 +11,12 @@
   (expected / forbidden / should abstain); the question file is gitignored (`benchmarks/*.local.*`), start from
   `benchmarks/answer_eval.example.yaml`. Each question is answered and judged `--repeats` times (default 3; one run
   moves by ±4 of 60 questions by chance); `--summary FILE` prints mean and min–max per measure and the questions that
-  flip, and `--compare BEFORE.jsonl AFTER.jsonl` is how an Ask change is accepted or rejected (no calls):
+  flip, and `--compare BEFORE.jsonl AFTER.jsonl` is how an Ask change is accepted or rejected (no calls).
+  A dropped connection or a throttle is retried once after a short wait; a (question, run) pair whose answer or judge
+  call still fails is **ungraded**, never wrong: it is left out of every count and majority, each run's `correct` is
+  its graded rate × the question count (so the mean, the min–max spread and the compare Δ are not moved by failures),
+  and the summary prints `k pair(s) still ungraded, re-run with the same --out to fill` — re-running with the same
+  `--out` asks exactly those pairs again:
   ```sh
   api/.venv/bin/python -m benchmarks.answer_eval --bank <bank> --questions benchmarks/answer_eval.local.yaml \
       --repeats 3 --out benchmark_results/answer_eval/after.jsonl

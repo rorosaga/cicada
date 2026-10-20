@@ -37,6 +37,13 @@ model the plan actually reported is kept on every row, ``--effort`` pins the CLI
 inherited ``CLAUDE_CODE_EFFORT_LEVEL``, which would override it), and each run's header row records the CLI version.
 ``--compare`` names any of these that differ between A and B.
 
+**Failures.** A dropped connection or a throttle (``TRANSIENT``) is tried once more after a short wait. A pair whose
+answer or judge call still fails is written **ungraded** with its ``error``, and is never scored as wrong: it is left
+out of correct, fact recall, contradictions and every majority, and a run's ``correct`` across runs (the mean, the
+min–max spread, ``--compare``'s Δ) is its graded rate scaled to every question — correct ÷ graded × questions — so a
+run that lost judgments is not read as a worse run. The summary says how many pairs are ungraded, per run and overall;
+re-running into the same ``--out`` asks exactly those again.
+
 **Privacy.** The question file is yours and gitignored (``benchmarks/*.local.*``). Answers, judgments and the summary
 go to ``--out`` (default ``benchmark_results/answer_eval/<timestamp>.jsonl``, gitignored), written 0600. The terminal
 shows question ids and scores only, unless ``--show``; the summary and compare print ids and numbers only. Re-running
@@ -147,6 +154,37 @@ MEASURES = ("correct", "correct_pct", "fact_recall_pct", "contradictions", "forb
 #: The compare rule's significance level for the paired sign test (two-sided).
 ALPHA = 0.05
 
+#: Engine failures worth one more try inside the run: the transport dropped or the plan said "slow down". Anything
+#: else (signed out, model not found, plan spent) fails the same way twice, so it is recorded at once.
+TRANSIENT = ("EngineConnectionLost", "EngineThrottled", "RateLimitError", "APIConnectionError")
+
+#: Seconds to wait before that one retry.
+RETRY_BACKOFF_S = 5.0
+
+
+def is_transient(exc: BaseException) -> bool:
+    """A dropped connection or a throttle, by class (or any base class) name — the plan engine's own
+    ``engine_errors`` and the configured engine's litellm errors alike."""
+    return any(c.__name__ in TRANSIENT for c in type(exc).__mro__)
+
+
+def with_retry(fn, *args, sleep=time.sleep):
+    """``fn(*args)``, tried once more after ``RETRY_BACKOFF_S`` when the first try fails transiently.
+    Returns ``(result, retries)``; a second failure (or a first non-transient one) raises."""
+    try:
+        return fn(*args), 0
+    except Exception as exc:  # noqa: BLE001
+        if not is_transient(exc):
+            raise
+        sleep(RETRY_BACKOFF_S)
+    return fn(*args), 1
+
+
+def is_graded(row: dict) -> bool:
+    """A row counts only when its answer AND its judgment both landed. A failed answer call (``error`` set) is never
+    scored, even if an older file holds a judgment of its empty answer."""
+    return bool(row["grade"].get("graded")) and not row.get("error")
+
 
 def _run_of(row: dict) -> int:
     """A row's run index; a file written before repeats existed is run 1."""
@@ -156,13 +194,20 @@ def _run_of(row: dict) -> int:
         return 1
 
 
-def block(rs: list[dict]) -> dict:
-    """One run's scores over ``rs`` (rows of that run only)."""
-    graded = [r for r in rs if r["grade"].get("graded")]
+def block(rs: list[dict], questions: int | None = None) -> dict:
+    """One run's scores over ``rs`` (rows of that run only), graded rows only.
+
+    ``questions`` is how many questions the run should cover (default: the ids in ``rs``). A pair without a graded row
+    — its answer or judge call failed, or it was never asked — is ``ungraded``: left out of every count, and
+    ``correct_scaled`` (correct ÷ graded × questions) is what the across-run mean, spread and compare use, so a run
+    that lost six judgments to a dropped connection is not read as six wrong answers."""
+    questions = len({r["id"] for r in rs}) if questions is None else questions
+    graded = [r for r in rs if is_graded(r)]
     recalls = [r["grade"]["fact_recall"] for r in graded if r["grade"].get("fact_recall") is not None]
-    secs = sorted(r["seconds"] for r in rs)
+    secs = sorted(r["seconds"] for r in graded)
     right = sum(1 for r in graded if r["grade"]["correct"])
-    return {"n": len(rs), "graded": len(graded), "correct": right,
+    return {"n": len(rs), "graded": len(graded), "ungraded": max(0, questions - len(graded)), "correct": right,
+            "correct_scaled": round(right * questions / len(graded), 2) if graded else None,
             "correct_pct": round(100 * right / len(graded), 1) if graded else None,
             "fact_recall_pct": round(100 * sum(recalls) / len(recalls), 1) if recalls else None,
             "contradictions": sum(r["grade"].get("contradicted", 0) for r in graded),
@@ -177,7 +222,7 @@ def stability(rs: list[dict]) -> dict:
     verdicts: dict[str, list[bool]] = defaultdict(list)
     for r in rs:
         verdicts.setdefault(r["id"], [])   # a question never graded is still counted
-        if r["grade"].get("graded"):
+        if is_graded(r):
             verdicts[r["id"]].append(bool(r["grade"]["correct"]))
     right = sorted(q for q, v in verdicts.items() if v and all(v))
     wrong = sorted(q for q, v in verdicts.items() if v and not any(v))
@@ -191,10 +236,15 @@ def aggregate(rs: list[dict]) -> dict:
     by_run: dict[int, list] = defaultdict(list)
     for r in rs:
         by_run[_run_of(r)].append(r)
-    per_run = {run: block(by_run[run]) for run in sorted(by_run)}
-    out: dict = {"runs": len(per_run), "questions": len({r["id"] for r in rs})}
+    questions = len({r["id"] for r in rs})
+    per_run = {run: block(by_run[run], questions) for run in sorted(by_run)}
+    out: dict = {"runs": len(per_run), "questions": questions,
+                 "ungraded": sum(b["ungraded"] for b in per_run.values()),
+                 "ungraded_per_run": {run: b["ungraded"] for run, b in per_run.items()}}
     for m in MEASURES:
-        vals = [b[m] for b in per_run.values() if b[m] is not None]
+        # "correct" across runs is each run's graded rate scaled to every question: an ungraded pair is no answer.
+        key = "correct_scaled" if m == "correct" else m
+        vals = [b[key] for b in per_run.values() if b[key] is not None]
         out[m] = ({"mean": round(sum(vals) / len(vals), 2), "min": min(vals), "max": max(vals)}
                   if vals else {"mean": None, "min": None, "max": None})
     out["stability"] = stability(rs)
@@ -236,6 +286,11 @@ def format_summary(summary: dict) -> str:
              f"{st['flips']} flip" + (f" · {st['ungraded']} never graded" if st["ungraded"] else "")]
     if st["flip_ids"]:
         lines.append("  flips: " + " ".join(st["flip_ids"]))
+    if o.get("ungraded"):
+        per = ", ".join(f"run {run}: {n}" for run, n in o["ungraded_per_run"].items() if n)
+        lines += [f"  ungraded             {o['ungraded']} pair(s) ({per}) — left out of every count and majority; "
+                  f"correct is each run's graded rate × {o['questions']}",
+                  f"  {o['ungraded']} pair(s) still ungraded, re-run with the same --out to fill"]
     for tag, b in summary["tags"].items():
         s = b["stability"]
         lines.append(f"  {tag:24} correct {_fmt(b['correct_pct'], True)}  facts {_fmt(b['fact_recall_pct'], True)}"
@@ -254,7 +309,7 @@ def majorities(rows: list[dict]) -> dict[str, bool | None]:
     votes: dict[str, list[bool]] = defaultdict(list)
     for r in rows:
         votes.setdefault(r["id"], [])
-        if r["grade"].get("graded"):
+        if is_graded(r):
             votes[r["id"]].append(bool(r["grade"]["correct"]))
     out: dict[str, bool | None] = {}
     for q, v in votes.items():
@@ -314,7 +369,7 @@ def compare(rows_a: list[dict], rows_b: list[dict], meta_a: list[dict] | None = 
     delta = round(cb["mean"] - ca["mean"], 2) if ca["mean"] is not None and cb["mean"] is not None else None
     spread_a = ca["max"] - ca["min"] if ca["mean"] is not None else 0
     spread_b = cb["max"] - cb["min"] if cb["mean"] is not None else 0
-    spread = max(spread_a, spread_b)
+    spread = round(max(spread_a, spread_b), 2)
     p = sign_test_p(len(gained), len(lost))
     beyond_spread = delta is not None and abs(delta) > spread
     significant = p < ALPHA
@@ -330,10 +385,15 @@ def compare(rows_a: list[dict], rows_b: list[dict], meta_a: list[dict] | None = 
     if _models_used(ra) and _models_used(rb) and _models_used(ra) != _models_used(rb):
         notes.append(f"models the engine reported differ: {', '.join(_models_used(ra))} → "
                      f"{', '.join(_models_used(rb))}")
+    if agg_a["ungraded"] or agg_b["ungraded"]:
+        notes.append(f"ungraded pairs: A {agg_a['ungraded']}, B {agg_b['ungraded']} — left out of the majorities; "
+                     f"correct, Δ and the spread are each run's graded rate × {len(ids)} questions; re-run the file "
+                     f"with the same --out to fill")
     if min(agg_a["runs"], agg_b["runs"]) < 3:
         notes.append("fewer than 3 runs on a side: its spread is not measured well (use --repeats 3 or more)")
     only = sorted(({r["id"] for r in rows_a} ^ {r["id"] for r in rows_b}))
     return {"questions": len(ids), "runs_a": agg_a["runs"], "runs_b": agg_b["runs"],
+            "ungraded_a": agg_a["ungraded"], "ungraded_b": agg_b["ungraded"],
             "correct_a": ca, "correct_b": cb, "delta_correct": delta, "spread": spread,
             "fact_recall_a": agg_a["fact_recall_pct"], "fact_recall_b": agg_b["fact_recall_pct"],
             "gained": gained, "lost": lost, "no_majority": no_majority, "sign_test_p": round(p, 4),
@@ -342,7 +402,8 @@ def compare(rows_a: list[dict], rows_b: list[dict], meta_a: list[dict] | None = 
             "only_in_one": only, "notes": notes,
             "rule": (f"B differs from A only when the exact two-sided sign test on questions whose majority verdict "
                      f"changed gives p < {ALPHA} AND |mean correct B − mean correct A| exceeds the wider min–max "
-                     f"of correct across either file's runs, AND both move the same way; otherwise within noise")}
+                     f"of correct across either file's runs, AND both move the same way; otherwise within noise. "
+                     f"Ungraded pairs vote in no majority, and a run's correct is its graded rate × the questions")}
 
 
 def format_compare(c: dict) -> str:
@@ -431,12 +492,15 @@ def settings_conflicts(recorded: list[dict], meta: dict) -> list[str]:
 
 
 def run_eval(questions: list[dict], out: Path, *, repeats: int, answer_fn, judge_fn, meta: dict,
-             fresh: bool = False, only: bool = False, show: bool = False, models_fn=None) -> list[dict]:
+             fresh: bool = False, only: bool = False, show: bool = False, models_fn=None,
+             sleep=time.sleep) -> list[dict]:
     """Answer and judge every (question, run) not already in ``out``; append each row as it lands.
 
     Run-major: run 1 covers every question before run 2 starts, so a stopped eval leaves whole runs behind.
     ``answer_fn(question) -> resp`` and ``judge_fn(messages) -> str`` are the engine; ``models_fn()`` (optional)
-    returns and clears the models the engine reported since the last call.
+    returns and clears the models the engine reported since the last call. A transient engine failure
+    (``TRANSIENT``) is tried once more after ``RETRY_BACKOFF_S`` (``sleep`` is the wait, swappable in tests); a pair
+    that still fails is written ungraded, with its ``error``, and the next run into the same ``out`` asks it again.
 
     ``fresh`` over every question (``only`` false) starts the file over; ``fresh`` with ``only`` re-asks those
     questions into it. Either way a file is never resumed under run settings other than the ones it recorded.
@@ -450,8 +514,8 @@ def run_eval(questions: list[dict], out: Path, *, repeats: int, answer_fn, judge
                          + ". Give a new --out, or --fresh (without --only) to start this file over.")
     if fresh:
         done = {}
-    # A pair that failed (no verdict) is asked again; only graded pairs are kept.
-    done = {k: r for k, r in done.items() if r["grade"].get("graded")}
+    # A pair that failed (no verdict, or its answer call failed) is asked again; only graded pairs are kept.
+    done = {k: r for k, r in done.items() if is_graded(r)}
     wanted = {q["id"] for q in questions}
     rows = [r for (qid, run), r in done.items() if qid in wanted and run <= repeats]
     fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
@@ -467,8 +531,9 @@ def run_eval(questions: list[dict], out: Path, *, repeats: int, answer_fn, judge
                 started = time.perf_counter()
                 if models_fn:
                     models_fn()
+                retries = 0
                 try:
-                    resp = answer_fn(q["question"])
+                    resp, retries = with_retry(answer_fn, q["question"], sleep=sleep)
                     error = None
                 except Exception as exc:  # noqa: BLE001 — one failure is recorded, never fatal
                     resp, error = {"answer": ""}, type(exc).__name__
@@ -476,28 +541,33 @@ def run_eval(questions: list[dict], out: Path, *, repeats: int, answer_fn, judge
                 answer_models = models_fn() if models_fn else []
                 answer = str(resp.get("answer") or "")
                 verdict = None
-                try:
-                    from api.services import json_parse
+                if error is None:   # a failed answer is not judged: "(empty)" would grade as a wrong answer
+                    try:
+                        from api.services import json_parse
 
-                    verdict = json_parse.parse_json_object(judge_fn(
-                        [{"role": "system", "content": JUDGE_SYSTEM},
-                         {"role": "user", "content": judge_prompt(q, answer)}]) or "")
-                except Exception as exc:  # noqa: BLE001
-                    error = error or f"judge: {type(exc).__name__}"
+                        reply, n = with_retry(judge_fn, [{"role": "system", "content": JUDGE_SYSTEM},
+                                                         {"role": "user", "content": judge_prompt(q, answer)}],
+                                              sleep=sleep)
+                        retries += n
+                        verdict = json_parse.parse_json_object(reply or "")
+                    except Exception as exc:  # noqa: BLE001
+                        error = f"judge: {type(exc).__name__}"
                 judge_models = models_fn() if models_fn else []
                 row = {"kind": "answer", "id": q["id"], "run": run, "tags": q["tags"], "abstain": q["abstain"],
                        "question": q["question"], "answer": answer, "confidence": resp.get("confidence"),
                        "gaps": resp.get("gaps"), "cited": [c.get("entity_id") for c in resp.get("citations") or []],
                        "grade": grade(q, verdict), "verdict": verdict, "seconds": seconds, "error": error,
+                       "retries": retries,
                        "answer_models": answer_models, "judge_models": judge_models,
                        **{k: meta.get(k) for k in ("engine", "answer_model", "judge_model", "effort")}}
                 fh.write(json.dumps(row, ensure_ascii=False) + "\n")
                 fh.flush()
                 rows.append(row)
                 g = row["grade"]
-                mark = "ungraded" if not g.get("graded") else ("right" if g["correct"] else "wrong")
+                mark = "ungraded" if not is_graded(row) else ("right" if g["correct"] else "wrong")
                 line = (f"{q['id']:>10}  run {run}  {mark:8}  "
-                        f"facts {g.get('fact_recall') if g.get('graded') else '-'}  {seconds:.1f} s")
+                        f"facts {g.get('fact_recall') if is_graded(row) else '-'}  {seconds:.1f} s"
+                        + (f"  ({error})" if error else ""))
                 if show:
                     line += f"\n    Q: {q['question']}\n    A: {answer}\n    judge: {g.get('note', '')}"
                 print(line, flush=True)

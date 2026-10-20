@@ -192,12 +192,14 @@ def _first_match(text: str, terms: set[str]) -> int | None:
 
 def gather(memory_path: Path, question: str, found: list[Pointer], *, owner_name: str | None = None,
            terms: set[str] | None = None, max_episodes: int = MAX_EPISODES, max_excerpts: int = MAX_EXCERPTS,
-           total_chars: int = TOTAL_CHARS, breadth: bool = False) -> list[Excerpt]:
+           total_chars: int = TOTAL_CHARS, breadth: bool = False, follow: bool = False) -> list[Excerpt]:
     """The excerpts for ``question`` from the episodes ``found`` points at, oldest first (see the module doc).
     ``terms``: the question's words to rank turns by (default: all of its subject words). ``breadth`` (a count or
     a list): each episode's best turn first, in rank order, each at most :data:`BREADTH_EXCERPT_CHARS` — one line from
-    every conversation the shown items came from before a second from any — then the rest by score."""
-    terms = set(terms) if terms else text_fold.subject_terms(question)
+    every conversation the shown items came from before a second from any — then the rest by score. ``follow`` (a
+    question by meaning, :func:`by_meaning`): a shown line leads to the turn that told it by the line's own words, as
+    for ``breadth`` — the question's words are not the record's, so they find no turn."""
+    terms = set(terms) if terms else question_terms(question)
     terms = (terms - QUESTION_WORDS) or terms
     by_episode: dict[str, dict] = {}
     for p in found:
@@ -233,7 +235,7 @@ def gather(memory_path: Path, question: str, found: list[Pointer], *, owner_name
             span = next((p for p in spans if turn.start <= p.start < turn.end), None)
             # A count or a list follows a shown line to the turn that told it by the line's own words (two of them,
             # or its only one): "went camping at the beach" shares nothing with "what activities …".
-            told = breadth and bool(extra) and len(extra & words) >= min(2, len(extra))
+            told = (breadth or follow) and bool(extra) and len(extra & words) >= min(2, len(extra))
             if not overlap and span is None and not told:
                 continue
             score = 2 * overlap + min(len(extra & words), 3) + (3 if span is not None else 0)
@@ -398,9 +400,22 @@ _ANCHORED = re.compile(
     r"before (?:i|we|he|she|they|the)|the (?:conversation|chat|session|time|day) (?:where|when|about|that|we|i))\b")
 #: The question's own scaffolding for an outcome or the first time: words the answering conversation rarely repeats
 #: ("the final price" is said as "we settled at …"), never a search word.
+#: Their Spanish forms (2026-10-20), read on the folded question: "¿al final …?", "¿todavía …?", "¿qué tengo
+#: ahora?"; "¿cuándo … por primera vez?", "¿qué solía …?", "al principio".
+_ES_LATEST = re.compile(
+    r"\b(?:al final|finalmente|actualmente|ahora|todavia|aun|hoy en dia|por ahora|en este momento|ultimamente|"
+    r"acordamos|acordaron|quedamos en|resultado|termino (?:siendo|por)|acabo (?:siendo|por))\b")
+_ES_ANCHORED = re.compile(
+    r"\b(?:(?:por )?primera vez|al principio|al inicio|originalmente|inicialmente|anteriormente|"
+    r"sol(?:ia|ias|iamos|ian)|en (?:aquel|ese) entonces|la (?:conversacion|charla|sesion) (?:en la que|donde|sobre)|"
+    r"el dia (?:en )?que)\b")
 TENSE_WORDS = frozenset(text_fold.stem(w) for w in (
     "final finally eventually outcome result resulted latest recent recently currently nowadays originally "
     "initially previously first").split())
+#: Their Spanish forms, dropped only from a Spanish question's words ("primer" is an English word too).
+ES_TENSE_WORDS = frozenset(text_fold.stem(w) for w in (
+    "finalmente actualmente ahora todavia ultimamente reciente recientemente originalmente inicialmente "
+    "anteriormente primera primer resultado").split())
 _MONTHS = {m: i for i, m in enumerate(
     "january february march april may june july august september october november december".split(), start=1)}
 _MON = r"(january|february|march|april|may|june|july|august|september|october|november|december|" \
@@ -416,7 +431,11 @@ _ES_MONTHS = {m: i for i, m in enumerate(
 _ES_MON = r"(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)"
 _ES_DAY_MONTH = re.compile(r"\b(\d{1,2}) de " + _ES_MON + r"\b(?: (?:de|del) (\d{4}))?")
 _ES_MONTH_YEAR = re.compile(r"\b" + _ES_MON + r" (?:de |del )?(\d{4})\b")
-_SMALL = {"a": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
+_SMALL = {"a": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+          "un": 1, "uno": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6, "siete": 7}
+#: "ayer", "anteayer", "hace tres días" (2026-10-20), on the folded question.
+_ES_DAYS_AGO = re.compile(r"\bhace (\d+|un|uno|dos|tres|cuatro|cinco|seis|siete) dias?\b")
+_ES_RELATIVE = re.compile(r"\b(?:ayer|anteayer)\b|" + _ES_DAYS_AGO.pattern)
 
 
 def _month(name: str) -> int:
@@ -450,14 +469,17 @@ def named_days(question: str, today=None) -> list[str]:
         month = f"{int(y):04d}-{_month(mon):02d}"
         if not any(day.startswith(month) for day in out):   # "9 April 2025" names the day, not all of April
             out.append(month)
-    if re.search(r"\b(yesterday|days? ago)\b", q):
+    folded = text_fold.fold(q)
+    if re.search(r"\b(yesterday|days? ago)\b", q) or _ES_RELATIVE.search(folded):
         if today is None:
             from api.services.claims import current_day   # the answer's own "today" (a frozen clock in benchmarks)
 
             today = current_day()
-        if re.search(r"\byesterday\b", q):
+        if re.search(r"\byesterday\b|(?<!ante)\bayer\b", q):
             out.append((today - timedelta(days=1)).isoformat())
-        for n in _DAYS_AGO.findall(q):
+        if re.search(r"\banteayer\b", q):
+            out.append((today - timedelta(days=2)).isoformat())
+        for n in _DAYS_AGO.findall(q) + _ES_DAYS_AGO.findall(folded):
             days = min(int(_SMALL.get(n, n)), 36500)   # "99999999 days ago" names no day a bank holds; never a raise
             try:
                 out.append((today - timedelta(days=days)).isoformat())
@@ -595,7 +617,8 @@ def _end_terms_strict(text: str) -> set[str]:
 
 def _end_days(text: str) -> list[str]:
     """The days and months one end names: :func:`named_days` (no relative days) plus a month named alone."""
-    out = [d for d in named_days(text, today=None) if d] if not re.search(r"\b(yesterday|days? ago)\b", text) else []
+    relative = re.search(r"\b(yesterday|days? ago)\b", text) or _ES_RELATIVE.search(text_fold.fold(text))
+    out = [d for d in named_days(text, today=None) if d] if not relative else []
     months = {f"-{_month(m):02d}" for m in _EN_MONTH_ALONE.findall(text) + _ES_MONTH_ALONE.findall(text)}
     for m in sorted(months):
         if not any(d.startswith(m) or d[4:].startswith(m) for d in out):
@@ -707,6 +730,125 @@ def asks_elapsed(question: str) -> bool:
                 and _ELAPSED.search(q))
 
 
+#: A question asking for a judgement rather than a recorded fact (2026-10-20, G148: 37 of 42 LoCoMo open-domain
+#: misses declined "would <name> likely …", "what might …", "is it likely …" although the record gave grounds to
+#: judge). A likelihood word asks for one on its own ("is it likely …", "¿es probable que …?", "do you think …"), as
+#: do "be considered", a leading "based on"/"in light of"/"según", and a choice of where someone is nearer to.
+_LIKELIHOOD = re.compile(
+    r"\b(?:likely|unlikely|probabl[ey]|possibl[ey]|potentially|suspected|presumably|be considered|do you think|"
+    r"probable(?:mente)?|posible(?:mente)?|quizas?|tal vez|a lo mejor|se sospecha|se considera(?:ria)?|crees que)\b"
+    r"|^(?:based on|in light of|considering|segun|teniendo en cuenta)\b"
+    # "does <name> live close to a beach or the mountains?": rarely said, often shown by where they go.
+    r"|\b(?:close|closer|near|nearer) to\b[^?]*\bor\b|\bmas cerca de\b[^?]*\bo\b")
+#: A bare conditional is a judgement only about someone else (review of #385): "would <name> enjoy …", "what might
+#: <name>'s degree be", "what could <name> do after …", "¿disfrutaría <name> …?", "¿le gustaría a <name> …?". Never
+#: about I or we ("which restaurant would we go to", "what would I have paid" ask what happened), never a thing
+#: ("when would the dentist appointment be"), never "could not"/"couldn't" (a recorded fact).
+_EN_MODAL = re.compile(r"\b(would|might|could)\b(?! not\b|n't)")
+#: Spanish third-person conditionals of the verbs a judgement uses; "-rías" (you) is a request, "-ríamos" (we) a fact.
+_ES_MODAL = re.compile(r"\b(?:ser|podr|gustar|disfrutar|preferir|har|tendr|ir|estar|querr|sabr|deber|encantar|"
+                       r"interesar|elegir|escoger|vivir)ia(?:n)?\b")
+#: Not a judgement: a conditional reported ("what did <name> say she would do", "what does he feel he could do" — what
+#: was said is a recorded fact), and a request to the agent ("could you remind me …", "¿sabrías decirme …?", "¿me
+#: harías un resumen …?", "please remind me …") — unless a likelihood word asks for one.
+_NOT_INFER = re.compile(r"\b(?:say|says|said|tell|told|promise[sd]?|plan(?:s|ned)?|decide[sd]?|agree[sd]?|feels?|felt|"
+                        r"dijo|dijeron|prometio|decidio|planeo|siente|sintio)\b[^?]*\b(?:would|might|could|\w+ia[ns]?)\b"
+                        r"|\b(?:can|could|would|will) you\b|\byou (?:could|would|might)\b|\b\w+rias\b|\bplease\b"
+                        r"|\b(?:puedes|podrias) \w+r(?:me)?\b|\bpor favor\b")
+_THIRD_PERSON = frozenset("he she they el ella ellos ellas".split())
+#: Capitalised words that are not a person's name at the start of a clause.
+_NOT_A_NAME = frozenset("i what which who whom whose when where why how would could might does do did is are was were "
+                        "will can should based in on considering the a an if us usa uk".split())
+
+
+def _named(words: list[str], i: int) -> bool:
+    """Whether the raw token at ``i`` names someone else: a capitalised word (not "I", not a question word), or
+    he/she/they — "Ana's" counts as Ana."""
+    if not 0 <= i < len(words):
+        return False
+    w = words[i].rstrip("?,.;:!").removesuffix("'s").removesuffix("’s")
+    low = text_fold.fold(w)
+    return low in _THIRD_PERSON or (w[:1].isupper() and low not in _NOT_A_NAME)
+
+
+def _third_party_modal(question: str) -> bool:
+    """A conditional whose subject is someone else: the word next to it (before or after) names them; Spanish "le/les
+    gustaría" and "a <name>" or "de <name>" within the next words count too."""
+    words = (question or "").replace("¿", " ").split()
+    folded = [" ".join(text_fold.words(w)) for w in words]
+    for i, f in enumerate(folded):
+        if f in ("would", "might", "could"):
+            nxt = folded[i + 1] if i + 1 < len(folded) else ""
+            if nxt in ("not", "i", "we", "you") or words[i].lower().endswith("n't"):
+                continue
+            if _named(words, i + 1) or _named(words, i - 1):
+                return True
+        elif _ES_MODAL.fullmatch(f):
+            if i > 0 and folded[i - 1] in ("me", "nos", "te", "os"):
+                continue
+            after = folded[i + 1:i + 7]
+            if (_named(words, i + 1) or _named(words, i - 1) or (i > 0 and folded[i - 1] in ("le", "les"))
+                    or any(a in ("a", "de") and _named(words, i + 2 + k) for k, a in enumerate(after))):
+                return True
+    return False
+
+
+def asks_inference(question: str) -> bool:
+    """The question asks what is likely, would or might be — a judgement the record can ground — rather than for a
+    recorded fact: a likelihood word (:data:`_LIKELIHOOD`), or a conditional about someone else
+    (:func:`_third_party_modal`); a reported conditional or a request to the agent (:data:`_NOT_INFER`) only with a
+    likelihood word. No model."""
+    q = " ".join(text_fold.fold(question or "").split())
+    likely = bool(_LIKELIHOOD.search(q))
+    if _NOT_INFER.search(q) and not likely:
+        return False
+    return likely or _third_party_modal(question)
+
+
+#: Function words that tell a Spanish question from an English one (folded; none is a word of the other language
+#: a question would use — "a", "me", "no" are both and count for neither).
+_ES_WORDS = frozenset("que cual cuales quien quienes cuando donde como cuanto cuanta cuantos cuantas por para del "
+                      "los las el la una unos unas con fue fueron ha han hizo es son esta estan estaba su sus mis "
+                      "tiene tienen y en de se lo le les al hay".split())
+_EN_WORDS = frozenset("what which who whom when where how why the of to is was are were did does do for with from "
+                      "and or his her their my your has have had an in on at it this that".split())
+#: Spanish words that sit inside a name in an English question ("Juan de la Torre", "Los Olivos", "El Niño y La Niña"):
+#: next to a capitalised word they count for neither language.
+_NAME_GLUE = frozenset("de del la las los el y".split())
+_EN_OPENERS = frozenset("what which who whom whose when where why how is are was were do does did can could would "
+                        "should will have has had am".split())
+
+
+def question_language(question: str) -> str:
+    """``"es"`` for a Spanish question, else ``"en"`` — the language the shape detectors and the word index's stemming
+    were written for. English when it opens with an English question word or auxiliary and has no "¿"; otherwise
+    Spanish when its Spanish function words outnumber its English ones (an opening "¿" breaks a tie). An article or
+    "de"/"y" next to a capitalised word is part of a name (review of #385: "the house at Los Olivos") and counts for
+    neither."""
+    text = question or ""
+    raw = text.replace("¿", " ").split()
+    words = [" ".join(text_fold.words(w)) for w in raw]
+    if "¿" not in text and words and words[0] in _EN_OPENERS:
+        return "en"
+
+    def capital(i: int) -> bool:   # the first word is capitalised by the sentence, not by a name
+        return 0 < i < len(raw) and raw[i][:1].isupper()
+
+    es = en = 0
+    for i, w in enumerate(words):
+        if w in _ES_WORDS and not (w in _NAME_GLUE and (capital(i - 1) or capital(i + 1) or capital(i))):
+            es += 1
+        elif w in _EN_WORDS:
+            en += 1
+    return "es" if es > en or ("¿" in text and es >= en) else "en"
+
+
+def question_terms(question: str) -> set[str]:
+    """A question's subject words: :func:`text_fold.subject_terms`, less Spanish function words for a Spanish
+    question only."""
+    return text_fold.subject_terms(question, spanish=question_language(question) == "es")
+
+
 def question_shape(question: str) -> str:
     """What ``question`` asks for, from its own words (no model): two moments (:data:`SHAPE_TWO_ENDS`,
     :func:`two_ends`), a count or list (:data:`SHAPE_ENUMERATE`), one past occasion (:data:`SHAPE_ANCHORED` — a day
@@ -717,9 +859,10 @@ def question_shape(question: str) -> str:
         return SHAPE_TWO_ENDS
     if _ENUMERATE.search(q) or _ES_ENUMERATE.search(q) or (_PLURAL_ASK.search(q) and not _ONE_OF.search(q)):
         return SHAPE_ENUMERATE
-    if named_days(q) or _ANCHORED.search(q):
+    folded = text_fold.fold(q) if question_language(question) == "es" else ""
+    if named_days(q) or _ANCHORED.search(q) or _ES_ANCHORED.search(folded):
         return SHAPE_ANCHORED
-    if _LATEST.search(q):
+    if _LATEST.search(q) or _ES_LATEST.search(folded):
         return SHAPE_LATEST
     plain = q.replace("`", "'").replace("\u2019", "'")
     if _LIST.search(plain) and not _ONE_OF.search(plain) and not _ONE_THING.search(plain):
@@ -744,6 +887,16 @@ class Searched:
     #: A count or a list: how near each of some texts is to the question, by the search model the conversations
     #: were indexed with (:func:`_similarity`) — the page leg ranks a page's items with it. ``None`` without an index.
     similar: "Callable[[list[str]], list[float]] | None" = None
+    #: The question's words are not the record's (:func:`by_meaning`): the search model's nearest passages lead to
+    #: turns (:attr:`passages`), and the page leg ranks claims and items by :attr:`similar`, since no word is shared.
+    meaning: bool = False
+    #: With :attr:`meaning`: each conversation the vector leg found, best first, and its nearest passages' text.
+    passages: dict[str, list[str]] = field(default_factory=dict)
+    #: With :attr:`meaning`: the nearness of a passage's turns to the question (an allowance of its own).
+    turn_similar: "Callable[[list[str]], list[float]] | None" = None
+    #: A question by meaning over conversations in its own language: the words lead as for any question, and the
+    #: meaning leg adds at most :data:`MEANING_EXTRA_EXCERPTS` lines after them (review of #385).
+    adds: bool = False
 
 
 @dataclass
@@ -763,8 +916,9 @@ class EndPick:
 def search_terms(question: str) -> set[str]:
     """The question's subject words less its scaffolding — names kept: across conversations a name is what tells
     one from another, and a name said everywhere is weighed down by :data:`COMMON_SHARE`, not dropped by hand."""
-    terms = text_fold.subject_terms(question)
-    return (terms - QUESTION_WORDS - TENSE_WORDS) or terms
+    terms = question_terms(question)
+    tense = TENSE_WORDS | ES_TENSE_WORDS if question_language(question) == "es" else TENSE_WORDS
+    return (terms - QUESTION_WORDS - tense) or terms
 
 
 def _lexical(memory_path: Path, terms: set[str], *,
@@ -823,14 +977,20 @@ def _reserve(order: list[str], kept: list[str], window: int) -> list[str]:
     return top + [ep for ep in order if ep not in top]
 
 
-def _semantic(indexer, text: str, k: int) -> list[str]:
-    """The conversations whose chunks the vector index finds nearest ``text``, best first (``[]`` on any failure)."""
+def _semantic(indexer, text: str, k: int, passages: dict[str, list[str]] | None = None) -> list[str]:
+    """The conversations whose chunks the vector index finds nearest ``text``, best first (``[]`` on any failure).
+    ``passages`` receives each one's nearest chunks' text, nearest first."""
     try:
         rows = indexer.search_kinds(text, {"episodes": k}).get("episodes", [])
     except Exception as exc:  # noqa: BLE001 — the leg is context; its absence never fails an answer
         logger.debug(f"ask search leg: vector index unavailable ({type(exc).__name__})")
         return []
-    found = list(dict.fromkeys(Path(str((r.get("metadata") or {}).get("file_path") or "")).stem for r in rows))
+    eps = [Path(str((r.get("metadata") or {}).get("file_path") or "")).stem for r in rows]
+    if passages is not None:
+        for ep, row in zip(eps, rows):
+            if evidence.is_episode_id(ep) and str(row.get("text") or "").strip():
+                passages.setdefault(ep, []).append(str(row["text"]))
+    found = list(dict.fromkeys(eps))
     return [ep for ep in found if evidence.is_episode_id(ep)]
 
 
@@ -842,13 +1002,13 @@ SIMILAR_TEXTS = 120
 SIMILAR_CHARS = 240
 
 
-def _similarity(indexer, question: str):
+def _similarity(indexer, question: str, allowance: int = SIMILAR_TEXTS):
     """``texts -> scores``: each text's cosine nearness to ``question``, embedded as a passage by the model the
     conversations' table was built with (never another space; only a model that runs on this machine —
     :meth:`SqliteVecIndexer.similarity`), each clipped to :data:`SIMILAR_CHARS`, at most :data:`SIMILAR_TEXTS` in
     all for the question — past the allowance a text scores 0. Nothing is stored and nothing is logged; on any
     failure every score is 0, and no later call embeds."""
-    left = {"n": SIMILAR_TEXTS, "off": False}
+    left = {"n": allowance, "off": False}
 
     def similar(texts: list[str]) -> list[float]:
         take = 0 if left["off"] else min(left["n"], len(texts))
@@ -997,6 +1157,57 @@ def _pick_ends(memory_path: Path, ends: Ends, terms: set[str], weights: dict[str
             for i, (end, w, _, _, _) in enumerate(ranked)]
 
 
+#: A question in another language than the record (2026-10-20, G148: the owner's Spanish questions answered half as
+#: often as their English twins; a Spanish question over English conversations put none of their words in front of
+#: the model — 8 of 74 LoCoMo answer turns against 38 for the same questions in English): every word leg matches
+#: words, and the record says the thing in other words. The search model (multilingual) is the one bridge.
+#: ``MEANING_TEXTS``: the page leg's allowance (claims and items of the full-budget pages); ``MEANING_TURNS``: the
+#: turns of the nearest passages. Measured on EmbeddingGemma 2, warm: see the PR.
+MEANING_TEXTS = 160
+MEANING_TURNS = 48
+#: How many of the vector leg's best conversations show their nearest passage's best turns.
+MEANING_EPISODES = 4
+
+
+def _episodes_on(memory_path: Path, named: list[str], limit: int = MEANING_EPISODES) -> list[str]:
+    """The conversations held on the days (or months) ``named`` gives, by their ids' day, newest first."""
+    folder = Path(memory_path) / "episodes"
+    out: set[str] = set()
+    for n in named:
+        pattern = f"ep_????{n}_*.md" if n.startswith("-") else f"ep_{n}*.md"
+        out |= {p.stem for p in folder.glob(pattern)}
+    return sorted(out, reverse=True)[:limit]
+
+
+#: How many of the nearest passages tell the record's language around a question (:func:`_other_language`).
+LANGUAGE_PASSAGES = 3
+#: By meaning beside the words (`Searched.adds`): at most this many more lines, in this many characters.
+MEANING_EXTRA_EXCERPTS = 2
+MEANING_EXTRA_CHARS = 800
+
+
+def text_language(text: str) -> str:
+    """``"es"`` when a text's Spanish function words outnumber its English ones, else ``"en"`` — a passage's language,
+    cheaply (no model)."""
+    words = text_fold.words(text)
+    return "es" if sum(w in _ES_WORDS for w in words) > sum(w in _EN_WORDS for w in words) else "en"
+
+
+def _other_language(passages: dict[str, list[str]], lang: str) -> bool:
+    """Whether most of the nearest :data:`LANGUAGE_PASSAGES` passages are in another language than ``lang``."""
+    texts = [texts[0] for texts in passages.values() if texts][:LANGUAGE_PASSAGES]
+    return bool(texts) and sum(text_language(t) != lang for t in texts) * 2 > len(texts)
+
+
+def by_meaning(question: str) -> bool:
+    """Whether the question's own words can't be trusted to find what the record says of it: it is not in English
+    (the stemming, the stopwords and the shape detectors are English-first, and a person's record is often in another
+    language or in both). Never because its words are missing from the record: that is also how a question about
+    something never said looks (an abstention), and the nearest passage by meaning would answer it wrongly — the
+    first cut (2026-10-20) turned "what is the name of my hamster?" over a bank with no hamster into one."""
+    return question_language(question) != "en"
+
+
 def search(memory_path: Path, question: str, *, terms: set[str] | None = None, embed_fn=None,
            indexer=None, today=None) -> Searched:
     """The conversations most likely to hold what ``question`` asks, read from the derived indexes only — never a
@@ -1027,19 +1238,43 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
     except Exception as exc:  # noqa: BLE001 — the leg is context; its absence never fails an answer (no query logged)
         logger.debug(f"ask search leg: word index unavailable ({type(exc).__name__})")
     semantic: list[str] = []
+    passages: dict[str, list[str]] = {}
     try:
         if indexer is None:
             from api.services.vector_index import SqliteVecIndexer
 
             indexer = SqliteVecIndexer(memory_path, embed_fn=embed_fn) if embed_fn else SqliteVecIndexer(memory_path)
         k = ENUM_CHUNKS if shape == SHAPE_ENUMERATE else SEARCH_CHUNKS
-        semantic = _semantic(indexer, question, k)
+        semantic = _semantic(indexer, question, k, passages)
     except Exception as exc:  # noqa: BLE001
         indexer = None
         logger.debug(f"ask search leg: vector index unavailable ({type(exc).__name__})")
-    # With no word to weigh (no word index yet, or only common words) no turn can be told apart: nothing is shown.
-    similar = _similarity(indexer, question) if shape == SHAPE_ENUMERATE and indexer is not None else None
+    by_mean = by_meaning(question) and bool(passages)
+    # Review of #385 (the owner's Spanish questions over his own Spanish conversations fell 50 → 43 %): the meaning leg
+    # leads only when the words can't — no word of the question is weighed, or the nearest passages are in another
+    # language than the question. Over conversations in the question's own language the words already find the
+    # turns, and the meaning leg only adds a few lines after them (`adds`).
+    meaning = by_mean and (not weights or _other_language(passages, question_language(question)))
+    if by_mean:
+        named_m = named_days(question, today)
+        if named_m:
+            # A day the question names leads, as it does for the words: the vector leg's passages from that day
+            # first, then that day's other conversations, read whole.
+            first = [ep for ep in passages if _on_day(episode_day(ep), named_m)]
+            first += [ep for ep in _episodes_on(memory_path, named_m) if ep not in passages]
+            passages = {ep: passages.get(ep, []) for ep in first} | {ep: v for ep, v in passages.items()
+                                                                       if ep not in first}
+    similar = None
+    if indexer is not None and (shape == SHAPE_ENUMERATE or meaning or asks_inference(question)):
+        similar = _similarity(indexer, question, MEANING_TEXTS if meaning else SIMILAR_TEXTS)
+    by = ({"meaning": meaning, "adds": not meaning, "passages": passages,
+           "turn_similar": _similarity(indexer, question, MEANING_TURNS) if indexer is not None else None}
+          if by_mean else {})
     if not weights:
+        if meaning:
+            # No word the record uses, but the search model found where it speaks of this: its passages lead.
+            return Searched(episodes=list(passages), weights={}, shape=shape, similar=similar, **by)
+        # With no word to weigh (no word index yet, or only common words) no turn can be told apart: nothing shown.
         return Searched(episodes=[], weights={}, shape=shape, similar=similar)
     order, _ = _fuse(lexical, semantic)
     if not order:
@@ -1086,7 +1321,7 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
             for ep in newest[:1]:
                 kept.setdefault(ep, "latest")
         order = _reserve(order, [*kept, order[0]], max(SEARCH_EPISODES, len(kept) + 1))
-        return Searched(episodes=order, weights=weights, shape=shape, kept=kept, ends=picks)
+        return Searched(episodes=order, weights=weights, shape=shape, kept=kept, ends=picks, **by)
     if shape in LATEST_SLOTS:
         newest = sorted(on_subject, key=lambda ep: (episode_day(ep), ep), reverse=True)
         for ep in newest[: LATEST_SLOTS[shape]]:
@@ -1098,7 +1333,7 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
         # Every other conversation on the subject, best first, one line each (the window shows them oldest first).
         window = set(order[:SEARCH_EPISODES])
         more = [ep for ep in on_subject if ep not in window][: ENUM_EPISODES - SEARCH_EPISODES]
-    return Searched(episodes=order, weights=weights, shape=shape, kept=kept, more=more, similar=similar)
+    return Searched(episodes=order, weights=weights, shape=shape, kept=kept, more=more, similar=similar, **by)
 
 
 def gather_search(memory_path: Path, question: str, found: Searched, *, owner_name: str | None = None,
@@ -1111,19 +1346,35 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
     budget of its own. A turn holding only common words is never one. ``taken``: turns the page leg already showed.
     Same who-spoke labels, clipping and bounds as :func:`gather`; index-only episodes are skipped (ruling 30)."""
     weights = found.weights
-    if not weights or not found.episodes:
+    if not found.episodes or not (weights or found.meaning):
         return []
     terms = set(weights)
-    # A turn holds a word as the word index found it: at a word's start, any ending ("decid" meets "decided" and
-    # "deciding", as `"decid"*` did) — one pattern over the turn's folded text, longest first.
-    pattern = re.compile(r"\b(" + "|".join(re.escape(t) for t in sorted(terms, key=len, reverse=True)) + ")")
     taken = set(taken or ())
     docs: dict[str, tuple] = {}
     if found.ends:
         # Every kept conversation (each end, a named day, the newest) is read, beside the best of the question.
         max_episodes = max(max_episodes, len(found.kept) + 1)
-    candidates = _scored_turns(memory_path, found.episodes, pattern, weights, docs, max_episodes)
+    if weights:
+        # A turn holds a word as the word index found it: at a word's start, any ending ("decid" meets "decided" and
+        # "deciding", as `"decid"*` did) — one pattern over the turn's folded text, longest first.
+        pattern = re.compile(r"\b(" + "|".join(re.escape(t) for t in sorted(terms, key=len, reverse=True)) + ")")
+        candidates = _scored_turns(memory_path, found.episodes, pattern, weights, docs, max_episodes)
+    else:
+        pattern, candidates = None, []
     candidates.sort(key=lambda c: (-c[0], c[1], c[2]))
+    if found.meaning:
+        # By meaning: the best turns of the nearest passage of each of the vector leg's best conversations, one per
+        # conversation first, taking turns with what the words found.
+        near = _meaning_turns(memory_path, found, docs, taken)
+        firsts: dict[str, tuple] = {}
+        for c in near:
+            firsts.setdefault(c[3], c)
+        lead_near = sorted(firsts.values(), key=lambda c: c[1])
+        rest_near = [c for c in near if c not in lead_near]
+        mixed: list[tuple] = []
+        for k in range(max(len(lead_near), len(candidates))):
+            mixed += lead_near[k:k + 1] + candidates[k:k + 1]
+        candidates = mixed + rest_near
     lead: list[tuple] = []
     if found.ends:
         # Two ends: each end's conversation leads with its best turns by the end's OWN words — the turn that says
@@ -1164,7 +1415,7 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
         best = next((c for c in candidates if c[3] == ep and (ep, c[2]) not in taken), None)
         if best is not None:
             lead.append(best)
-    enumerate_ = found.shape == SHAPE_ENUMERATE
+    enumerate_ = found.shape == SHAPE_ENUMERATE and pattern is not None
     if enumerate_:
         # A count or a list: the turns of whoever it is about first — the other side of a chat repeats the
         # question's words but never did the thing. The window is otherwise read as for any question (a value
@@ -1190,6 +1441,18 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
         chosen += _take(sorted(firsts.values(), key=lambda c: c[1]), extra_docs, terms, owner_name,
                         max_excerpts=len(firsts), total_chars=ENUM_CHARS, taken=taken,
                         excerpt_chars=ENUM_EXCERPT_CHARS, context=False)
+        chosen.sort(key=lambda e: e.order)
+    if found.adds:
+        # Beside the words: the meaning leg's best turns not already shown, a conversation the words left out first.
+        shown = taken | shown_turns(chosen)
+        shown_eps = {e.episode for e in chosen}
+        near_docs: dict[str, tuple] = {}
+        firsts: dict[str, tuple] = {}
+        for c in _meaning_turns(memory_path, found, near_docs, shown):
+            firsts.setdefault(c[3], c)
+        extra = sorted(firsts.values(), key=lambda c: (c[3] in shown_eps, c[1]))
+        chosen += _take(extra, near_docs, terms, owner_name, max_excerpts=MEANING_EXTRA_EXCERPTS,
+                        total_chars=MEANING_EXTRA_CHARS, taken=shown)
         chosen.sort(key=lambda e: e.order)
     return chosen
 
@@ -1295,6 +1558,49 @@ def _name_terms(turn, fm: dict, owner_name: str | None) -> set[str]:
         return (text_fold.subject_terms((turn.marker or "").split(":", 1)[-1].replace("-", " "))
                 | text_fold.subject_terms(str(corr.get("name") or "")))
     return set()
+
+
+def _meaning_turns(memory_path: Path, found: Searched, docs: dict, taken: set[tuple[str, int]]) -> list[tuple]:
+    """``(score, rank, turn index, episode, turn, None)`` for the turns inside the nearest passage of each of the first
+    :data:`MEANING_EPISODES` conversations the vector leg found (``found.passages``), best first: by their nearness to
+    the question (``found.turn_similar``, one batch), else in the passage's order. A passage is found in its
+    conversation by its own opening words (the passages are cut from the episode's body); one not found shows
+    nothing. A conversation with no passage (from a day the question names) is read whole. ``docs`` receives what
+    was read."""
+    from api.services import history_index
+
+    rows: list[tuple] = []
+    for rank, (ep, passages) in enumerate(list(found.passages.items())[:MEANING_EPISODES]):
+        doc = evidence.source_document(memory_path, ep)
+        if doc is None:
+            continue
+        fm, text = doc
+        if history_index.is_index_only(fm):
+            continue
+        if passages:
+            head = passages[0].strip()[:160]
+            at = text.find(head) if head else -1
+            if at < 0:
+                continue
+            end = at + len(passages[0].strip())
+        else:   # a conversation from a day the question names: read whole
+            at, end = 0, len(text)
+        if ep not in docs:
+            gaps = evidence.gap_ranges(fm, text)
+            docs[ep] = (fm, text, [t for t in evidence.turns(text, stamps=evidence.turn_stamps(fm),
+                                                             override=fm.get("evidence_kind"), gaps=gaps)
+                                   if t.role != evidence.GAP_KIND])
+        for i, turn in enumerate(docs[ep][2]):
+            if turn.start < end and turn.end > at and (ep, i) not in taken and text[turn.content_start:turn.end].strip():
+                rows.append((rank, i, ep, turn))
+    if not rows:
+        return []
+    scores = [0.0] * len(rows)
+    if found.turn_similar is not None:
+        scores = found.turn_similar([docs[ep][1][turn.content_start:turn.end] for _, _, ep, turn in rows])
+    out = [(score, rank, i, ep, turn, None) for score, (rank, i, ep, turn) in zip(scores, rows)]
+    out.sort(key=lambda c: (-c[0], c[1], c[2]))
+    return out
 
 
 def _scored_turns(memory_path: Path, episodes: list[str], pattern, weights: dict[str, float], docs: dict,

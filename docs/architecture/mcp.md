@@ -971,6 +971,54 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   can't be told from a second event, and a conversation count stated as a number would anchor the model on it.
   Bounds: the search leg's breadth +1,800 characters, WHAT WAS SAID +1,200; the page fill uses the budget the page
   already had. Measured: `docs/research/2026-10-17-memory-benchmarks.md`, "Lists and counts".
+- **Judgements and Spanish (2026-10-20, G148).** Two gaps the broad sample and the owner's hard set showed, each fixed
+  with no model in retrieval:
+  1. *A judgement is reasoned, a fact still declines.* LoCoMo open-domain scored 48.8 against 75 for the
+     whole-conversation control; 37 of 42 misses said memory doesn't state what the record gave grounds to judge.
+     `ask_sources.asks_inference` (no model) reads a judgement: a likelihood word (likely, probably, possibly,
+     suspected, "do you think", "be considered"; probable, posible, quizás, tal vez), a leading "based on"/"in light
+     of"/"según", a choice of what someone lives nearer to — or a conditional about someone else (review of #385):
+     would/might/could, or a Spanish third-person "-ría" ("sería", "podría", "le gustaría", "disfrutaría"), only next
+     to a name or he/she/they (a Spanish "le", "a <name>", "de <name>" too). Never about I or we ("which restaurant
+     would we go to"), a thing ("when would the dentist appointment be"), "could not"/"couldn't", a request to the
+     agent ("could you", "-rías": "¿sabrías decirme …?", "please"), or a conditional only reported ("what did she say
+     she would do") — unless a likelihood word asks for a judgement. Over the whole of LoCoMo it fires on 48 of 96
+     open-domain questions and on none of the 1,890 others (adversarial included), nor on the broad sample's 100
+     LongMemEval questions. Only such a question gets the `_INFERENCE_NOTE` block after the question (the system prompt is
+     unchanged): give the most likely answer marked as an inference ("Probably …, because …"), with the lines it
+     rests on; general knowledge may connect the record to the question's terms but never supplies a fact about the
+     people; "memory doesn't say" is not the answer when the record bears on it; confidence below 0.7. Its named
+     pages' items are ranked by the search model as a list's are (`Searched.similar`, same bounds).
+  2. *A Spanish question by meaning.* A Spanish question over English conversations put none of their words in
+     front of the model: every word leg (claims and page items by shared words, WHAT WAS SAID, the search leg's
+     turns) matches words. `ask_sources.question_language` (no model) reads a Spanish question: Spanish function words outnumber English ones,
+     an article or "de"/"y" next to a capitalised word counting for neither ("Juan de la Torre", "Los Olivos"), and a
+     question opening with an English question word or auxiliary without "¿" is English;
+     `by_meaning` is then true — never for an English question whose words the record lacks, which is how an
+     abstention looks (the first cut turned "what is the name of my hamster?" into a lookup). The meaning leg **leads** only when the words can't (review of #385:
+     the owner's Spanish questions over his own Spanish conversations fell 50 → 43 % when it always led): no word of
+     the question is weighed, or most of the `LANGUAGE_PASSAGES` = 3 nearest passages are in another language
+     (`text_language`, function words). Over conversations in the question's own language the words lead exactly as
+     for an English question — #381's count and list path included — and the meaning leg only **adds** at most
+     `MEANING_EXTRA_EXCERPTS` = 2 lines (800 characters) after them, a conversation the words left out first
+     (`Searched.adds`); the page leg reads as for any question. Leading:
+     the vector leg's nearest passages (`Searched.passages`, the chunks' own text, no extra search) lead the search
+     leg — each of the first `MEANING_EPISODES` = 4 conversations shows the turns of its nearest passage ranked by
+     the search model (`turn_similar`, an allowance of `MEANING_TURNS` = 48), one per conversation first, taking
+     turns with what the words found; a day the question names leads (that day's conversations, read whole when the
+     vector leg missed them). The full-budget pages rank their first `_NEAR_SCAN` = 24 claims and their items by the
+     search model (`MEANING_TEXTS` = 160 for the question): the `_NEAR_CLAIMS` = 4 nearest claims point to WHAT WAS
+     SAID, and a pointed line leads to its turn by the line's own words (`gather(follow=True)`). The prompt says the
+     lines were found by meaning and adds `_SPANISH_NOTE` (the record may be in English, Spanish or both; answer in
+     Spanish). Same on-device-only bounds as the list ranking; without the search model a Spanish question reads as
+     before. Also, for a Spanish question only (`ask_sources.question_terms`; in English several are names — "Ella",
+     "Han", "Como" — so the shared `text_fold.SUBJECT_STOPWORDS` is unchanged): Spanish function words are not subject
+     words (`text_fold.SPANISH_STOPWORDS`), Spanish tense words leave the search words (`ES_TENSE_WORDS`), Spanish time
+     phrasing reads as English does ("por primera vez", "al principio", "solía" → anchored; "al final", "actualmente",
+     "todavía" → latest), and past-tense cues and a preterite's "-ó" ask for history. "ayer", "anteayer" and "hace
+     tres días" name days. English prompts are
+     byte-identical except the judgement questions'. Measured: `docs/research/2026-10-17-memory-benchmarks.md`,
+     "Judgements and Spanish".
 - **The `sources` scope.** `answer_query(source_words=...)`, `POST /ask` `sourceWords` (default true): `cicada_ask`
   passes `ctx.raw_excerpts`, so a remote connector without `sources` gets no conversation words in the prompt (R-R22)
   — neither leg runs for it.
