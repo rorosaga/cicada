@@ -488,6 +488,13 @@ enum ReaderHeader {
     }
 
     /// The mark to draw: the harness, else the origin, else nothing known.
+    /// Owner 2026-10-20 — a saved link's episode wears its own site's mark (`SavedLinkMark`, asked by the episode's id);
+    /// nil for a page (its own picture) and for every episode the backend named no site for.
+    static func siteMark(_ doc: EpisodeText) -> SavedLinkMarkModel.Mark? {
+        guard !doc.isPage, let site = doc.site, SavedLinkMarkModel.applies(site: site) else { return nil }
+        return SavedLinkMarkModel.mark(site: site, host: site, title: doc.title, door: .episode(doc.episode))
+    }
+
     static func markOrigin(harness: String?, origin: String?) -> String {
         if let h = harness, !h.isEmpty { return h }
         if let o = origin, !o.isEmpty { return o }

@@ -892,6 +892,18 @@ the website's logo … Clicking again on Sources takes me back to the main Sourc
   the link's own site — never an icon service (`storage.md`, "A saved link's own site icon"). Until it arrives, or for a
   site with none: the bundled mark of a known family (LinkedIn, X, Instagram, TikTok, Reddit), else a ring monogram of
   the site. Never the browser's mark. With `CICADA_ALLOW_LOGO_FETCH=off` every row is its monogram.
+- **One mark for a saved link (owner 2026-10-20).** *"Instead of the Chrome logo make this an app-wide change."* Every
+  surface that draws a saved link draws `SavedLinkMark` (`Views/Common/SavedLinkMark.swift`), from one pure rule,
+  `SavedLinkMarkModel`: the site the backend named (`siteKey` / `site`, `reading_hosts.mark_key`) → `SiteIcon`, asked by
+  the item's media id or, before Sleep made its page, its episode id; else the family's bundled mark; else the site's
+  monogram. Drawn by Sources' saved rows, Sleep › Saved and Videos rows, Sleep › Waiting rows of a saved link (a
+  conversation, note or file keeps its source's mark), an open saved item's eyebrow, and the Reader's header for a
+  saved link. Where it was saved from stays in words: the open item's "Saved from" line keeps the browser's mark beside
+  its name (that line answers that question), and a source's group row, spine and pile plate keep the source's mark
+  (the group *is* the source). Entity pictures (Find's saved rows, Ask's citations, the entity card, the graph) keep
+  the picture precedence — a page's own thumbnail outranks a site icon there. `SiteIconStore` keeps one answer per
+  site and bank whichever id asked, and puts at most four requests on the wire (`maxConcurrent`); a row that scrolled
+  away before its turn asks nothing.
 - **Watch history is never a save.** YouTube and TikTok history days are their own captured rows (*YouTube history*,
   *TikTok history*), headlined by their days ("30 watched days", `SourceOverview.isWatchHistory`), and their detail
   lists those days by title under the row's own id (`GET /sources/channels/youtube-history/items`, each opening in the

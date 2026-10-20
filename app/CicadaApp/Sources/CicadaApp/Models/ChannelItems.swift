@@ -214,18 +214,12 @@ enum SavedItemText {
         return text.isEmpty ? nil : text
     }
 
-    /// Which mark the row draws: the site's own key when the row has one — `SiteIcon` then shows the site's own icon
-    /// (asked of that site only, owner ruling 2026-10-19), a bundled family mark, or a monogram of the site — else a
-    /// monogram of the host or the title. Never the browser's mark: the row is the site, not where it was saved from.
-    enum Mark: Equatable {
-        case site(key: String, label: String)
-        case monogram(String)
-    }
-
-    static func mark(_ item: ChannelItem) -> Mark {
-        let label = (item.host?.isEmpty == false ? item.host : nil) ?? item.title
-        if let key = item.site, !key.isEmpty { return .site(key: key, label: label) }
-        return .monogram(SiteMonogram.letter(label))
+    /// Which mark the row draws — the shared rule (`SavedLinkMarkModel`, owner 2026-10-20): the site's own key when
+    /// the row has one, asked by the media page's id; else a monogram of the host or the title. Never the browser's
+    /// mark: the row is the site, not where it was saved from.
+    static func mark(_ item: ChannelItem) -> SavedLinkMarkModel.Mark {
+        SavedLinkMarkModel.mark(site: item.site, host: item.host, title: item.title,
+                                door: item.kind == .media ? .media(item.id) : nil)
     }
 
     /// The row's day — "Today", "Yesterday", a weekday this week, else "Oct 3" — with the full date as its `.help`

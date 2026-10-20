@@ -252,6 +252,84 @@ def test_sleep_never_reaches_the_own_site_path():
             assert "own_site" not in text and "saved_link_site" not in text, name
 
 
+# --- owner 2026-10-20: a Waiting row of a saved link, before Sleep made its page -------------------------------------
+
+
+@pytest.fixture
+def episodes(bank):
+    ep = bank / "episodes"
+    base = {"timestamp": "2026-10-01T10:00:00+00:00", "processed": False}
+    _write(ep / "ep_2026-10-01_1.md", {**base, "id": "ep_2026-10-01_1", "origin": "chrome-bookmark",
+                                       "url": "https://www.paperfold.io/a?q=1", "title": "A"})
+    _write(ep / "ep_2026-10-01_2.md", {**base, "id": "ep_2026-10-01_2", "origin": "claude-code", "session_id": "s-1",
+                                       "harness": "claude-code", "url": "https://paperfold.io/"})
+    _write(ep / "ep_2026-10-01_3.md", {**base, "id": "ep_2026-10-01_3", "origin": "rss",
+                                       "url": "https://feed.example/post"})
+    _write(ep / "ep_2026-10-01_4.md", {**base, "id": "ep_2026-10-01_4", "origin": "chrome-bookmark",
+                                       "url": "https://gone.example/", "source_deleted_at": "2026-10-02T00:00:00+00:00"})
+    _write(ep / "ep_2026-10-01_5.md", {**base, "id": "ep_2026-10-01_5", "origin": "chrome-bookmark",
+                                       "url": "https://www.linkedin.com/posts/x"})
+    bank_index.invalidate()
+    return bank
+
+
+def test_only_a_live_saved_episode_names_a_site(episodes):
+    assert channel_items.saved_episode_site(episodes, "ep_2026-10-01_1") == "paperfold.io"
+    assert channel_items.saved_episode_site(episodes, "ep_2026-10-01_2") is None, "a conversation is never a saved link"
+    assert channel_items.saved_episode_site(episodes, "ep_2026-10-01_3") is None, "a feed item is captured, not saved"
+    assert channel_items.saved_episode_site(episodes, "ep_2026-10-01_4") is None, "a deleted source is not live"
+    assert channel_items.saved_episode_site(episodes, "ep_2026-10-01_5") is None, "a walled family is never asked"
+    for bad in ("nope", "../entities/media-saved", "ep_2026-10-01_9"):
+        assert channel_items.saved_episode_site(episodes, bad) is None
+
+
+def test_the_episode_route_asks_the_same_site_and_cache(episodes, monkeypatch):
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(episodes))
+    config.get_settings.cache_clear()
+    client = TestClient(main.app)
+    asked: list[str] = []
+    real = logo_service.ensure_own_site_icon
+
+    async def injected(memory_path, site, *, fetcher=None):
+        asked.append(site)
+        return await real(memory_path, site, fetcher=Recorder(
+            {"https://paperfold.io/apple-touch-icon.png": (200, png(), "image/png")}))
+    monkeypatch.setattr(logo_service, "ensure_own_site_icon", injected)
+    try:
+        r = client.get("/sources/saved/episodes/ep_2026-10-01_1/site-icon")
+        assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+        assert asked == ["paperfold.io"]
+        # The media route for the same site is served from the one cache: nothing asked again.
+        assert client.get("/sources/saved/media-saved/site-icon").status_code == 200
+        assert asked == ["paperfold.io"], "one site, one ask"
+        for other in ("ep_2026-10-01_2", "ep_2026-10-01_3", "ep_2026-10-01_4", "ep_2026-10-01_5", "nope"):
+            assert client.get(f"/sources/saved/episodes/{other}/site-icon").status_code == 404
+        assert asked == ["paperfold.io"], "a refused id asks nothing"
+    finally:
+        config.get_settings.cache_clear()
+
+
+def test_rows_carry_the_site_key_their_mark_is_drawn_under(episodes, monkeypatch):
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(episodes))
+    config.get_settings.cache_clear()
+    try:
+        rows = {r["id"]: r for r in TestClient(main.app).get("/sleep/episodes?processed=false").json()}
+        assert rows["ep_2026-10-01_1"]["site"] == "paperfold.io"
+        assert rows["ep_2026-10-01_5"]["site"] == "linkedin", "a walled family keys its bundled mark"
+        assert rows["ep_2026-10-01_2"]["site"] is None, "a conversation's row keeps its harness mark"
+        assert rows["ep_2026-10-01_3"]["site"] is None, "a captured feed item keeps its source's mark"
+    finally:
+        config.get_settings.cache_clear()
+
+
+def test_mark_key_is_site_of_when_valid():
+    from api.services import reading_hosts
+    assert reading_hosts.mark_key("https://blog.paperfold.io/x") == "paperfold.io"
+    assert reading_hosts.mark_key("https://user.github.io/p") == "user.github.io"
+    assert reading_hosts.mark_key("https://lnkd.in/abc") == "linkedin"
+    assert reading_hosts.mark_key("") is None and reading_hosts.mark_key("not a url") is None
+
+
 def test_a_reserved_or_private_name_is_never_asked():
     assert logo_service.own_site_domain("https://paperfold.example/") is None, "a reserved name is not a public site"
 
@@ -304,3 +382,15 @@ def test_the_site_check_never_resolves_on_the_event_loop(monkeypatch):
     fetcher = Recorder({"https://a.example/apple-touch-icon.png": (200, png(), "image/png")})
     assert run(logo_service.fetch_own_site_icon("a.example", fetcher=fetcher)) is not None
     assert calls == ["https://a.example/apple-touch-icon.png"]
+
+
+def test_a_saved_item_on_the_list_carries_its_site_key(client):
+    items = {i["mediaEntityId"]: i for i in client.get("/sources").json()["items"]}
+    assert items["media-saved"]["siteKey"] == "paperfold.io", "the one key every surface draws its mark under"
+
+
+def test_the_readers_document_names_a_saved_links_site(episodes):
+    from api.services import provenance
+    assert provenance.episode_document(episodes, "ep_2026-10-01_1").site == "paperfold.io"
+    assert provenance.episode_document(episodes, "ep_2026-10-01_2").site is None, "a conversation keeps its harness"
+    assert provenance.episode_document(episodes, "ep_2026-10-01_3").site is None

@@ -204,7 +204,7 @@ final class SourcesV3Tests: XCTestCase {
 
     func testTheMarkIsTheSitesNeverTheBrowsersWithAMonogramFallback() {
         let site = ChannelItem(kind: .media, id: "m1", title: "Post", host: "linkedin.com", site: "linkedin")
-        XCTAssertEqual(SavedItemText.mark(site), .site(key: "linkedin", label: "linkedin.com"))
+        XCTAssertEqual(SavedItemText.mark(site), .site(key: "linkedin", label: "linkedin.com", door: .media("m1")))
         XCTAssertEqual(SiteIconLayout.rung(favicon: false, site: "linkedin", markExists: { _ in true }),
                        .bundled("linkedin"), "a family's own bundled mark")
         XCTAssertEqual(SiteIconLayout.rung(favicon: false, site: "example.com", markExists: { _ in true }), .monogram,
@@ -216,7 +216,9 @@ final class SourcesV3Tests: XCTestCase {
 
     func testTheRowsMarkAsksItsOwnSiteThroughTheBackend() throws {
         let row = try source("Views/Sources/CapturedItemsList.swift")
-        XCTAssertTrue(row.contains("SiteIcon(site: key, label: label, savedItem: item.kind == .media ? item.id : nil)"))
+        XCTAssertTrue(row.contains("SavedLinkMark(mark: SavedItemText.mark(item))"), "the one shared mark (2026-10-20)")
+        let mark = try source("Views/Common/SavedLinkMark.swift")
+        XCTAssertTrue(mark.contains("case .media(let id)?: SiteIcon(site: key, label: label, size: size, savedItem: id)"))
         let client = try source("Services/APIClient.swift")
         XCTAssertTrue(client.contains("\"/sources/saved/\\(encodedID(mediaEntityId))/site-icon\""))
         XCTAssertFalse(row.contains("OriginMark(origin"), "never the browser's mark on a saved row")
