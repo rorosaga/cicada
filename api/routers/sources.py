@@ -1242,7 +1242,8 @@ _OWN_ICON_SEMAPHORE = asyncio.Semaphore(4)
 async def get_saved_link_site_icon(media_entity_id: str, request: Request, settings: Settings = Depends(get_settings)):
     """A saved link's own site icon (owner ruling 2026-10-19), for its row in a list the person opened. Asked of that
     site only — its homepage's declared icons (or a CDN URL that page names), then `/apple-touch-icon.png` and
-    `/favicon.ico` (discovery amended 2026-10-20) — never of an icon service, so no one else learns what was saved; behind `CICADA_ALLOW_LOGO_FETCH`; cached under `logos/<bank>/sites/own/`
+    `/favicon.ico` (discovery amended 2026-10-20), then a declared SVG drawn to a PNG by `svg_raster` (2026-10-20; SVG
+    is never served) — never of an icon service, so no one else learns what was saved; behind `CICADA_ALLOW_LOGO_FETCH`; cached under `logos/<bank>/sites/own/`
     with misses. 404 means "draw the monogram": a page that is not a live saved link, a walled or private host, the
     gate off, a miss. Nothing calls this but the app's row; Sleep never does."""
     memory_path = settings.memory_path
