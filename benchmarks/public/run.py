@@ -110,7 +110,10 @@ def prepare(args) -> int:
 def unit_env(home: Path, bank: Path, cfg: dict, claude_home: str) -> dict[str, str]:
     # USER/LOGNAME: the `claude` CLI finds its sign-in in the login keychain by the account name; without them a
     # signed-in plan reads as signed out. Neither is a secret.
-    env = {k: os.environ[k] for k in ("PATH", "TMPDIR", "LANG", "LC_ALL", "USER", "LOGNAME") if k in os.environ}
+    # Thread caps pass through so an eval can keep to a few cores on a shared machine.
+    env = {k: os.environ[k] for k in ("PATH", "TMPDIR", "LANG", "LC_ALL", "USER", "LOGNAME", "OMP_NUM_THREADS",
+                                      "VECLIB_MAXIMUM_THREADS", "RAYON_NUM_THREADS", "TOKENIZERS_PARALLELISM")
+           if k in os.environ}
     env.update({
         "HOME": str(home), "CICADA_HOME": str(home), "CICADA_MEMORY_PATH": str(bank),
         "CICADA_CAPTURE": "off", "CICADA_TELEMETRY": "off",
@@ -197,6 +200,9 @@ def run(args) -> int:
                **{k: cfg[k] for k in ("sleep_model", "disambiguation_model", "answer_model", "judge_model", "paths",
                                       "sleep_schedule", "batch_size", "concurrency")},
                "fake_engine": bool(cfg.get("fake_engine"))}
+        if args.gate:
+            while subprocess.run(args.gate, shell=True, check=False).returncode != 0:   # noqa: S602 — the person's own
+                time.sleep(60)
         started = time.perf_counter()
         print(f"  unit {unit['unit_id']}: {len(unit['sessions'])} sessions, {len(unit['questions'])} questions …",
               flush=True)
@@ -267,12 +273,15 @@ def parser() -> argparse.ArgumentParser:
     r.add_argument("--answer-model", default="sonnet")
     r.add_argument("--judge-model", default="sonnet")
     r.add_argument("--paths", default="ask", help="comma list: ask (cicada_ask) and/or full-context (the control)")
-    r.add_argument("--sleep-schedule", choices=("once", "per-session"), default="once",
-                   help="once: one drain after everything is staged; per-session: a drain after each session, "
+    r.add_argument("--sleep-schedule", choices=("once", "per-session", "none"), default="once",
+                   help="none: stage and index only, no Sleep (Ask over the raw conversations' search leg); "
+                        "once: one drain after everything is staged; per-session: a drain after each session, "
                         "on that session's day (the nightly rhythm; more Sleep calls)")
     r.add_argument("--batch-size", type=int, default=25)
     r.add_argument("--embedding-model", default="", help="pin the search model id (default: what the home has)")
     r.add_argument("--concurrency", type=int, default=3, help="concurrent plan calls (CICADA_AGENT_MAX_CONCURRENCY)")
+    r.add_argument("--gate", help="a shell command run before each unit; the unit starts once it exits 0 (e.g. a "
+                                   "script that waits while another Sleep shares the plan). Never pinned.")
     r.add_argument("--claude-home", help="the home folder whose `claude` sign-in the plan calls use "
                                          "(default: yours; a separate signed-in folder works too)")
     r.add_argument("--fake-engine", action="store_true", help=argparse.SUPPRESS)   # offline test of the harness

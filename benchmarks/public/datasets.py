@@ -141,7 +141,7 @@ def locomo_units(path: Path) -> list[dict]:
                 "date": start.isoformat(),
                 "title": f"Conversation with {b} · session {n}",
                 "turns": [{"speaker": "user" if t.get("speaker") == a else "other",
-                           "text": _locomo_text(t),
+                           "text": _locomo_text(t), "dia_id": str(t.get("dia_id") or ""),
                            "ts": (start + timedelta(seconds=30 * i)).isoformat()}
                           for i, t in enumerate(turns) if _locomo_text(t)],
             })
@@ -191,7 +191,7 @@ def longmemeval_units(path: Path, variant: str) -> list[dict]:
         for sid, when, turns in zip(item["haystack_session_ids"], item["haystack_dates"], item["haystack_sessions"]):
             start = lme_time(when)
             rows = [{"speaker": "user" if t.get("role") == "user" else "assistant",
-                     "text": str(t.get("content") or "").strip(),
+                     "text": str(t.get("content") or "").strip(), "has_answer": bool(t.get("has_answer")),
                      "ts": (start + timedelta(seconds=30 * i)).isoformat()}
                     for i, t in enumerate(turns) if str(t.get("content") or "").strip()]
             if rows:
