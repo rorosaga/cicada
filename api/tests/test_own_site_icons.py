@@ -303,18 +303,103 @@ def test_at_most_three_declared_icons_are_asked():
                      "https://site-j.example/i64.png"], "the largest first, three at most"
 
 
-def test_the_whole_discovery_fits_its_budget(tmp_path, monkeypatch):
+HOSTILE_PAGES = {
+    "lt_a": b"<a" * (logo_service.MAX_BYTES // 2),
+    "nested_quotes": b"<link a='" * (logo_service.MAX_BYTES // 9),
+    "pi": b"<?" * (logo_service.MAX_BYTES // 2),
+    "lt_slash": b"</" * (logo_service.MAX_BYTES // 2),
+    "link_lt": b"<link" * (logo_service.MAX_BYTES // 5),
+    "one_huge_tag": b"<link " + b"a=b " * (logo_service.MAX_BYTES // 4) + b">",
+    "many_links": b'<link rel="icon" href="/f.png" sizes="32x32">' * (logo_service.MAX_BYTES // 46),
+}
+
+
+@pytest.mark.parametrize("name", sorted(HOSTILE_PAGES))
+def test_a_hostile_page_finishes_in_budget_and_never_holds_the_event_loop(name):
+    """Security review of #371: the stdlib HTML tokenizer is quadratic on such markup and ran on the event loop, so
+    `wait_for` could not stop it and the whole backend froze. Now only `<link>`/`<base>` tags are scanned, linearly,
+    off the loop: the discovery ends inside its budget while a 0.1 s ticker keeps ticking."""
+    import time
+
+    body = HOSTILE_PAGES[name][: logo_service.MAX_BYTES]
+
+    async def fetcher(url):
+        await asyncio.sleep(0)
+        if url.endswith("/"):
+            return logo_service.FetchResult(status=200, body=body, content_type="text/html")
+        return logo_service.FetchResult(status=404, body=b"", content_type="text/plain")
+
+    async def main():
+        ticks = [time.perf_counter()]
+        stop = asyncio.Event()
+
+        async def ticker():
+            while not stop.is_set():
+                await asyncio.sleep(0.1)
+                ticks.append(time.perf_counter())
+        task = asyncio.create_task(ticker())
+        await asyncio.sleep(0.15)
+        started = time.perf_counter()
+        await logo_service.fetch_own_site_icon("hostile.example", fetcher=fetcher)
+        wall = time.perf_counter() - started
+        await asyncio.sleep(0.15)
+        stop.set()
+        await task
+        return wall, max(b - a for a, b in zip(ticks, ticks[1:]))
+    wall, stall = run(main())
+    assert wall < logo_service.OWN_SITE_BUDGET_SECONDS
+    assert stall < 0.5, f"the event loop stalled {stall:.2f}s"
+
+
+def test_the_budget_stops_slow_answers_and_cpu_work_alike(tmp_path, monkeypatch):
+    import time
+
     monkeypatch.setattr(logo_service, "OWN_SITE_BUDGET_SECONDS", 0.05)
 
     async def slow(url):
         await asyncio.sleep(2)
         return logo_service.FetchResult(status=200, body=png(), content_type="image/png")
-    import time
     started = time.monotonic()
     assert run(logo_service.fetch_own_site_icon("site-k.example", fetcher=slow)) is None
     assert time.monotonic() - started < 1
     assert run(logo_service.ensure_own_site_icon(tmp_path / "bank", "site-k.example", fetcher=slow)) is None
     assert logo_service.read_meta(logo_service.own_site_bank("bank"))["site-k.example"]["miss"] is True
+    # CPU work counts against the same clock: the page's scan runs off the loop, so the budget still fires on time
+    # even when the scan itself is slow.
+    real = logo_service.declared_icons
+
+    def slow_scan(html, url):
+        time.sleep(0.5)
+        return real(html, url)
+    monkeypatch.setattr(logo_service, "declared_icons", slow_scan)
+
+    async def page_then_icon(url):
+        if url.endswith("/"):
+            return logo_service.FetchResult(status=200, body=page('<link rel=icon href="/i.png">'), content_type="text/html")
+        return logo_service.FetchResult(status=200, body=png(), content_type="image/png")
+    async def timed():
+        started = time.monotonic()
+        got = await logo_service.fetch_own_site_icon("site-k.example", fetcher=page_then_icon)
+        return got, time.monotonic() - started
+    got, wall = run(timed())
+    assert got is None and wall < 0.3, "the budget fired while the scan was still running"
+
+
+def test_every_hop_is_plain_https_and_a_declared_url_has_no_port_or_userinfo():
+    downgrade = Recorder({"https://site-m.example/": (301, b"", "text/html", "http://www.site-m.example/"),
+                          "http://www.site-m.example/": (200, page('<link rel=icon href="/i.png">'), "text/html")})
+    run(logo_service.fetch_own_site_icon("site-m.example", fetcher=downgrade))
+    assert not any(u.startswith("http:") for u in downgrade.urls), "a same-site redirect to http is never followed"
+    ported = Recorder({"https://site-m.example/": (301, b"", "text/html", "https://www.site-m.example:8443/")})
+    run(logo_service.fetch_own_site_icon("site-m.example", fetcher=ported))
+    assert not any(":8443" in u for u in ported.urls), "nor one to another port"
+    links = ('<link rel="icon" sizes="64x64" href="https://cdn.example:8443/i.png">'
+             '<link rel="icon" sizes="48x48" href="https://user:pw@cdn.example/i.png">'
+             '<link rel="icon" sizes="32x32" href="https://cdn.example:443/i.png">')
+    declared = Recorder({"https://site-m.example/": (200, page(links), "text/html")})
+    assert run(logo_service.fetch_own_site_icon("site-m.example", fetcher=declared)) is None
+    assert "cdn.example" not in declared.hosts, "an explicit port or userinfo is never asked"
+    assert logo_service.declared_icons(page(links), "https://site-m.example/") == []
 
 
 def test_declared_icons_ranks_and_skips():

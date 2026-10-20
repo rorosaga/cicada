@@ -49,7 +49,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Awaitable, Callable
-from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse
 
 from loguru import logger
@@ -1087,29 +1086,48 @@ class _IconLink:
         return (self.dark and not self.light, bucket, -(size or 0), self.order)
 
 
-class _IconLinkParser(HTMLParser):
-    """`<link rel>` icon declarations and the first `<base href>`, read with the standard library's tokenizer — no
-    script runs, nothing is fetched, entities are only the HTML ones. Stops collecting after 64 links."""
+#: Only `<link …>` and `<base …>` tags are ever looked at, found by one linear scan: a tag runs to the next `>` and may
+#: not contain `<`, so a hostile page ("<a" × 256k, unclosed quotes, "<?" × n) costs one pass. The standard library's
+#: `HTMLParser` is deliberately NOT used on the page — it is quadratic on such markup (security review of #371: 512 KB
+#: of it held the event loop for minutes).
+_TAG_RE = re.compile(rb"<(link|base)\b([^<>]*)>", re.IGNORECASE)
+_ATTR_RE = re.compile(r"""([^\s=/>"']+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?""")
+MAX_LINK_TAGS = 64
 
-    def __init__(self):
-        super().__init__(convert_charrefs=True)
-        self.base: str | None = None
-        self.links: list[dict] = []
 
-    def handle_starttag(self, tag, attrs):
-        if tag == "base" and self.base is None:
-            href = dict(attrs).get("href")
-            if href:
-                self.base = href.strip()
-        elif tag == "link" and len(self.links) < 64:
-            self.links.append({k.lower(): (v or "") for k, v in attrs})
+def _tag_attrs(raw: bytes) -> dict[str, str]:
+    """A tag's attributes, first occurrence wins, names lowercased, values HTML-unescaped — one linear regex pass."""
+    import html as _html
 
-    handle_startendtag = handle_starttag
+    attrs: dict[str, str] = {}
+    for match in _ATTR_RE.finditer(raw.decode("utf-8", "replace")):
+        name = match.group(1).lower()
+        if name in attrs:
+            continue
+        value = next((g for g in match.group(2, 3, 4) if g is not None), "")
+        attrs[name] = _html.unescape(value)
+    return attrs
+
+
+def _icon_tags(html: bytes) -> tuple[str | None, list[dict[str, str]]]:
+    """The first `<base href>` and the first `MAX_LINK_TAGS` `<link>` tags' attributes, in page order."""
+    base: str | None = None
+    links: list[dict[str, str]] = []
+    for match in _TAG_RE.finditer(html[:MAX_BYTES]):
+        if match.group(1).lower() == b"base":
+            if base is None:
+                href = _tag_attrs(match.group(2)).get("href", "").strip()
+                base = href or None
+            continue
+        links.append(_tag_attrs(match.group(2)))
+        if len(links) >= MAX_LINK_TAGS:
+            break
+    return base, links
 
 
 def _declared_size(sizes: str) -> int | None:
     best = None
-    for token in (sizes or "").lower().split():
+    for token in (sizes or "").lower().split()[:16]:
         match = re.fullmatch(r"(\d{1,4})x(\d{1,4})", token)
         if match:
             side = min(int(match.group(1)), int(match.group(2)))
@@ -1120,15 +1138,13 @@ def _declared_size(sizes: str) -> int | None:
 def declared_icons(html: bytes, page_url: str) -> list[_IconLink]:
     """The raster icons a homepage declares, best first. Skips `mask-icon` and anything typed or named SVG (a miss
     here, see above), a `data:` icon that is not base64 raster, and any href that resolves to something but https."""
-    parser = _IconLinkParser()
+    base_href, links = _icon_tags(html)
     try:
-        parser.feed(html[:MAX_BYTES].decode("utf-8", "replace"))
-        parser.close()
-    except Exception:  # a malformed page is a page with no declarations
-        pass
-    base = urljoin(page_url, parser.base) if parser.base else page_url
+        base = urljoin(page_url, base_href) if base_href else page_url
+    except ValueError:
+        base = page_url
     found: dict[str, _IconLink] = {}
-    for order, attrs in enumerate(parser.links):
+    for order, attrs in enumerate(links):
         rel = frozenset(attrs.get("rel", "").lower().split())
         href = attrs.get("href", "").strip()
         if not href or not rel & _ICON_RELS or "mask-icon" in rel:
@@ -1141,9 +1157,11 @@ def declared_icons(html: bytes, page_url: str) -> list[_IconLink]:
                 continue
             url = href
         else:
-            url = urljoin(base, href)
-            parsed = urlparse(url)
-            if parsed.scheme != "https" or parsed.path.lower().endswith(".svg"):
+            try:
+                url = urljoin(base, href)
+            except ValueError:
+                continue
+            if not _plain_https(url) or urlparse(url).path.lower().endswith(".svg"):
                 continue
         media = attrs.get("media", "").lower().replace(" ", "")
         size = _declared_size(attrs.get("sizes", ""))
@@ -1214,10 +1232,21 @@ async def _follow(url: str, allowed: Callable[[str], bool], *, fetcher: Fetcher,
     return None
 
 
+def _plain_https(url: str) -> bool:
+    """https on its default port, with no userinfo: every hop of an own-site icon fetch, same-site redirects included,
+    and every icon URL a page declares (security review of #371) — an explicit port or a `user@` is never asked."""
+    try:
+        parsed = urlparse(url)
+        port = parsed.port
+    except ValueError:
+        return False
+    return (parsed.scheme == "https" and bool(parsed.hostname) and port is None and "@" not in parsed.netloc)
+
+
 def _on_site(site: str) -> Callable[[str], bool]:
     from api.services import reading_hosts
 
-    return lambda url: reading_hosts.site_of(url) == site
+    return lambda url: _plain_https(url) and reading_hosts.site_of(url) == site
 
 
 async def _get_on_site(url: str, site: str, *, fetcher: Fetcher, resolver: Resolver | None) -> FetchResult | None:
@@ -1255,7 +1284,9 @@ async def _discover(site: str, *, fetcher: Fetcher, resolver: Resolver | None) -
             raise _Blocked
         ctype = (result.content_type or "").lower()
         if result.status == 200 and result.body and ("html" in ctype or not ctype):
-            for link in declared_icons(result.body, final_url)[:MAX_DECLARED_ICONS]:
+            # Off the event loop: the scan is linear, but 512 KB of it should never hold every other request.
+            declared = await asyncio.to_thread(declared_icons, result.body, final_url)
+            for link in declared[:MAX_DECLARED_ICONS]:
                 if link.url.startswith("data:"):
                     got = _decode_data_icon(link.url)
                     if got:
@@ -1264,8 +1295,7 @@ async def _discover(site: str, *, fetcher: Fetcher, resolver: Resolver | None) -
                 tried.add(link.url)
                 declared_site = reading_hosts.site_of(link.url)
                 own = declared_site == site
-                allowed = (lambda u, d=declared_site: urlparse(u).scheme == "https"
-                           and reading_hosts.site_of(u) in (d, site))
+                allowed = (lambda u, d=declared_site: _plain_https(u) and reading_hosts.site_of(u) in (d, site))
                 got = await _follow(link.url, allowed, fetcher=fetcher, resolver=resolver)
                 if got is None:
                     continue

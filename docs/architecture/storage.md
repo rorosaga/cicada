@@ -720,9 +720,10 @@ Round 4 (C2–C4):
   see a favicon in the Chrome tab").** The 2026-10-19 rule asked two fixed paths and never the HTML; it missed every
   site that declares its icon at another path, on a CDN, or only behind a redirect to www. Now, like a browser
   (`logo_service.fetch_own_site_icon`): the homepage `https://<site>/` (or `https://www.<site>/` when the bare domain has
-  no public address), following only redirects on the same registrable domain; its `<link rel>` declarations — `icon`,
-  `shortcut icon`, `apple-touch-icon` — parsed with the standard library's tokenizer (`declared_icons`; `mask-icon` and
-  anything typed or named SVG skipped), resolved against the page's final URL or its `<base href>`, ranked light-scheme
+  no public address), following only https redirects on the same registrable domain and default port; its `<link rel>` declarations — `icon`,
+  `shortcut icon`, `apple-touch-icon` — found by one linear scan of `<link>`/`<base>` tags only, off the event loop (`declared_icons`; never the
+  stdlib HTML tokenizer, which is quadratic on hostile markup — security review of #371; the first 64 tags; `mask-icon` and
+  anything typed or named SVG skipped; an href with an explicit port or userinfo skipped), resolved against the page's final URL or its `<base href>`, ranked light-scheme
   (or scheme-less) before dark, then the largest declared raster of at least 32 px (an apple-touch icon with no `sizes`
   counts as 180), then unknown sizes, then small ones; at most three asked; then `/apple-touch-icon.png` and
   `/favicon.ico` on the host that answered. A declared URL on another host (a CDN the page names) is asked: https only,
