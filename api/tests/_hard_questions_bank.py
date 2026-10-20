@@ -91,28 +91,39 @@ PAGES = [
 ]
 
 
+def write_episode(bank: Path, eid: str, ts: str, title: str, body: str, **extra) -> str:
+    """One episode file (``extra`` lands in its frontmatter: ``origin``, ``url``, ``project_dir``…); its parsed body."""
+    path = bank / "episodes" / f"{eid}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_parser.write(path, {"id": eid, "timestamp": ts, "title": title, "source": "claude_code",
+                                 "processed": True, **extra}, body)
+    return markdown_parser.parse(path).body
+
+
+def write_page(bank: Path, pid: str, name: str, etype: str, extra: dict, rows: list) -> None:
+    """One entity page whose claims are ``rows`` (the ``PAGES`` row shape), each with an evidence span located in
+    its episode's body."""
+    claims = []
+    for (cid, text, subj, pred, obj, okind, vfrom, vto, sup_by, ep, quote, more) in rows:
+        body = markdown_parser.parse(bank / "episodes" / f"{ep}.md").body
+        at = body.find(quote)
+        assert at >= 0, (cid, quote)
+        ev = Evidence(episode=ep, start=at, end=at + len(quote), kind="user", hash=evidence.body_hash(body))
+        claims.append(Claim(id=cid, text=text, subject=subj, predicate=pred, object=obj, object_kind=okind,
+                            valid_from=vfrom, valid_to=vto, superseded_by=sup_by, recorded_at=vfrom,
+                            source_episodes=[ep], evidence=[ev], **more))
+    fm = {"name": name, "type": etype, "status": "active", "confidence": 0.7, "created": "2026-01-01",
+          "source_episodes": sorted({r[9] for r in rows}), "aliases": [], **extra}
+    prose = f"## Summary\n{name} is a synthetic fixture page.\n"
+    (bank / "entities").mkdir(parents=True, exist_ok=True)
+    markdown_parser.write(bank / "entities" / f"{pid}.md", fm, write_claims(prose, claims))
+
+
 def build(bank: Path) -> Path:
     """Write the bank under ``bank`` (entities/ and episodes/) and return it."""
     (bank / "entities").mkdir(parents=True, exist_ok=True)
-    (bank / "episodes").mkdir(parents=True, exist_ok=True)
-    bodies: dict[str, str] = {}
     for eid, ts, title, body in EPISODES:
-        path = bank / "episodes" / f"{eid}.md"
-        markdown_parser.write(path, {"id": eid, "timestamp": ts, "title": title, "source": "claude_code",
-                                     "processed": True}, body)
-        bodies[eid] = markdown_parser.parse(path).body
+        write_episode(bank, eid, ts, title, body)
     for pid, name, etype, extra, rows in PAGES:
-        claims = []
-        for (cid, text, subj, pred, obj, okind, vfrom, vto, sup_by, ep, quote, more) in rows:
-            body = bodies[ep]
-            at = body.find(quote)
-            assert at >= 0, (cid, quote)
-            ev = Evidence(episode=ep, start=at, end=at + len(quote), kind="user", hash=evidence.body_hash(body))
-            claims.append(Claim(id=cid, text=text, subject=subj, predicate=pred, object=obj, object_kind=okind,
-                                valid_from=vfrom, valid_to=vto, superseded_by=sup_by, recorded_at=vfrom,
-                                source_episodes=[ep], evidence=[ev], **more))
-        fm = {"name": name, "type": etype, "status": "active", "confidence": 0.7, "created": "2026-01-01",
-              "source_episodes": sorted({r[9] for r in rows}), "aliases": [], **extra}
-        prose = f"## Summary\n{name} is a synthetic fixture page.\n"
-        markdown_parser.write(bank / "entities" / f"{pid}.md", fm, write_claims(prose, claims))
+        write_page(bank, pid, name, etype, extra, rows)
     return bank
