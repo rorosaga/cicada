@@ -342,13 +342,35 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   `sources/messages.json` (`messages_source.load_settings`: tick, the person's mark and its history); `POST
   /sources/messages/conversations` only computes the Settings list (tick, mark, detector suggestion) and stores nothing.
   The backend decodes `attributedBody` (`typedstream`: the header, the string object's class, then its `+` bytes —
-  `NSUnarchiver` stays out of the app), skips tapbacks (a tapback row quotes the OTHER side's words under the reactor)
-  and events, names attachments (`[image: plan.png]`), folds a message's line breaks so it is one turn line, and stages
+  `NSUnarchiver` stays out of the app), never makes a tapback a turn (a tapback row quotes the OTHER side's words under
+  the reactor) and skips events, names attachments (`[image: plan.png]`), folds a message's line breaks so it is one
+  turn line, and stages
   one episode per **sitting** (messages more than 3 h apart start a new one; the measurement and the reasons are G179's)
   keyed `imessage:<conversation>:<first message key>`. A pass merges into the stored sittings it touches, rebuilt from
-  each episode's own body, `turns` sidecar and `message_keys`: an edit rewrites in place and re-queues, an unsent
-  message leaves (an emptied sitting is tombstoned), a bridging late message merges two sittings into the earlier one,
-  which keeps its key and id. **Who is who:** the person's lines are `user:`; the other side's are `assistant:` when the
+  each episode's own body, `turns` sidecar, `message_keys` and extras: an edit rewrites in place, re-queues and is
+  marked `edited`, an unsent message leaves the words (an emptied sitting is tombstoned), a bridging late message merges
+  two sittings into the earlier one, which keeps its key and id. **What made it a conversation (2026-10-20,
+  `turn_extras`, storage.md):** the app also posts a tapback's target and emoji (`associated_message_guid`,
+  `associated_message_emoji`), an inline reply's target (`thread_originator_guid`) and an attachment's `is_sticker` —
+  ids and a flag, each read only where that Mac's `chat.db` has the column (`PRAGMA table_info`). A tapback
+  (`associated_message_type` 2000–2007 adds, 3000–3007 removes, 1000 a placed sticker) lands on its message's
+  `reactions`, one per reactor (a new one replaces theirs, a removal drops it), its row's words never read; one whose
+  message is not stored is counted (`reactions_orphaned`) and dropped, and a pass that only adds a reaction touches the
+  sitting's frontmatter alone — never its words, never the queue. A reply points at its target turn, or at its key when
+  the target is in another sitting; attachments are described (kind, name, size, type) beside their
+  `[image: …]` words; an unsent message (`date_retracted`, or `date_edited` with the words gone) stays only as where
+  it was and who sent it (`unsent_turns`), its text never kept. Sittings saved before 2026-10-20 have none of this until
+  the person clicks **Read again** in Settings → Integrations → Messages (`MessagesWatcher.readAgain`: every ticked
+  chat's cursor back to its first message; nothing re-reads automatically) — a sitting whose words did not change gets
+  its extras frontmatter-only and is not read by Sleep again. **The exports** fill the same shape where the export has
+  it: ChatGPT's uploads (`metadata.attachments`: name, size, type; an unnamed picture otherwise), a generated image and
+  a code run (a `tool` message — never a turn — noted on the reply it fed) and each reply's `model_slug` (the sidecar's
+  `model`); Claude's attached files (`attachments` / `files`: name, size, kind) on the person's turn, beside the
+  `attachment [<name>]` turns that hold their text. Re-importing an export a person imported before adds the extras the
+  same frontmatter-only way (a large deferred import writes them in its background job, after its new and grown
+  conversations, never in the request). Sittings split on what was **said**; an unsent placeholder then joins the
+  sitting nearest it in time, so it never bridges two (a Read again re-posting an old unsend cannot merge two stored
+  episodes). Telegram has no conversation import (its bot saves links), so it has nothing to carry. **Who is who:** the person's lines are `user:`; the other side's are `assistant:` when the
   conversation is with an AI agent — the person's mark, or an `identified` detection (`agent_detectors`, G188) — else
   `speaker:<label>:`; the frontmatter `correspondent: {name, kind, decided_by, detector?, detection?, signal?}` names
   it, with `conversation`, `service`, `message_count`, `from_person`, `sitting_first_at`/`sitting_last_at` and

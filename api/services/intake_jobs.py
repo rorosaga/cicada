@@ -78,11 +78,15 @@ def reset() -> None:
         _jobs.clear()
 
 
-def run(job_id: str, episodes: list[dict], episodes_dir: Path) -> None:
+def run(job_id: str, episodes: list[dict], episodes_dir: Path, *, extras_only: list[dict] = ()) -> None:
     """Stage ``episodes`` in one ``episode_staging.stage`` call. ``staged``
     advances per draft only after that draft's verdict is on disk, so the
     panel's count is never ahead of the bank. Always ends ``done``; a failure
-    is recorded as ``error`` for the panel, never raised into the server."""
+    is recorded as ``error`` for the panel, never raised into the server.
+
+    ``extras_only`` are unchanged conversations whose export carries extras
+    (`turn_extras`): staged after, without progress — the stager writes their
+    frontmatter only, and they are already in ``skipped``."""
     job = get(job_id)
     if job is None:
         return
@@ -100,6 +104,9 @@ def run(job_id: str, episodes: list[dict], episodes_dir: Path) -> None:
     try:
         drafts = [episode_staging.draft_from_export(e) for e in episodes]
         episode_staging.stage(drafts, episodes_dir, bank=episodes_dir.parent.name, progress=progress)
+        if extras_only:
+            episode_staging.stage([episode_staging.draft_from_export(e) for e in extras_only], episodes_dir,
+                                  bank=episodes_dir.parent.name)
     except Exception as exc:  # recorded for the panel, never raised into the server
         logger.error(f"Intake job {job_id} failed: {type(exc).__name__}")
         with _lock:

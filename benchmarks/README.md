@@ -55,12 +55,12 @@ conversation is a dated episode that is not a memory-export entry or an indexed 
 
 | Kind | Drawn from | The draft |
 |---|---|---|
-| `update` | a claim whose `superseded_by` names a claim on the same page that is still current | asks for the current value; `forbid` holds the stale one (the old claim's text if the drafter gives none) |
-| `temporal` | a page whose first and last conversations are ≥ 14 days apart | needs both moments: what changed, what came first, how long between |
+| `update` | a claim whose `superseded_by` names a claim on the same page that is still current, **and** the later value cannot hold beside the earlier (below) | asks for the current value; `forbid` holds only the value the later evidence replaces — a draft that forbids nothing is skipped, never filled in |
+| `temporal` | a page's first conversation and its latest one ≥ 14 days later in the same context, both cited by a claim on the page and dated when said (below) | needs both moments: what changed, what came first, how long between |
 | `multi-hop` | a current claim linking a page to another page, plus a current claim on that page evidenced in a *different* conversation | asks about the first page; the answer needs the second hop |
 | `count` | a page in ≥ 3 conversations (up to 6 shown) | lists or counts what those conversations state |
-| `event` | a page with `happened`/`milestone` claims on ≥ 2 days | order, or time between |
-| `abstention` | a page in ≥ 2 conversations with claims | a plausible question none of the shown evidence answers; `abstain: true` and a `why` |
+| `event` | a page with `happened`/`milestone` claims on ≥ 2 days, each cited by a conversation dated when said | order, or time between |
+| `abstention` | a page in ≥ 2 conversations with claims | a plausible question none of the shown evidence answers; `abstain: true` and a `why`; rejected when a shown snippet already answers it (below) |
 
 The default mix is 4 update · 4 temporal · 4 multi-hop · 3 count · 2 event · 3 abstention per 20 slots (a kind with
 no candidates gives its slot to the next), and about a quarter of samples (seeded) are drafted in Spanish (`es`).
@@ -69,6 +69,30 @@ mention of the page's name) — the same snippets the review sheet lists under e
 (`skip`); a skipped or unusable draft is listed in the sheet with its reason and never reaches the YAML. Items carry
 `sources` (episode ids), `why` and `sample` beside the eval's own fields; `answer_eval` ignores the extras. A rerun
 keeps every draft already in `--out` for the same sample (`--fresh` redrafts); `--kinds` narrows the mix.
+
+**What the first review rejected, and the rule each became** (2026-10-20, owner's bank: 40 samples, 36 drafted, 27
+accepted; real values redacted):
+
+- *An update whose "stale" value was still true* (4 of 5 updates) — a venue then its city, a managed VM then its OS,
+  an offer at one place then waiting on another. An update is now sampled only when both claims share a predicate and
+  their values cannot both hold: no shared word, neither contains the other, their pages do not link each other, the
+  two claims come from one context, and — on a predicate the vocabulary calls a set (`uses`, `works-at`…) — the later
+  evidence names the earlier value ("moved from X to Y"). The drafter is told to forbid only what the later evidence
+  replaces, never to state a conclusion it does not ("waiting on B" is not "works at B"), and to skip otherwise.
+- *An interval to a bookmark's sync date* (3) — temporal and event samples anchor only on a conversation dated when
+  it was said: never an episode carrying a saved link or from a saving door (bookmarks, saved posts, pasted links,
+  feeds, tab snapshots), and never one of a day on which one origin wrote more than `BULK_DAY` (25) episodes — an
+  import or a sync. A live session's own capture (`session_id`, no link) is never counted toward a bulk day.
+- *An empty draft on the sheet* (4) — a question of fewer than three words or the template's `"..."` echoed back is
+  "empty draft: no usable question" with its reason on the sheet; an engine that returned nothing (no text, or an
+  object with neither a question nor a skip) is asked once more, and the retry counts as a plan call; a blank draft
+  kept from an earlier run is redrafted.
+- *Two things sharing a name read as one* (1) — temporal endpoints must each be cited by a claim on the page (Sleep
+  tied a belief there to it, not a name string), and temporal and update pairs must share a context: not tied to
+  disjoint project pages, not captured in different repos (a worktree folder counts as its repo).
+- *An abstention another snippet answered* (1) — the drafter is told every claim and snippet shown counts, and an
+  abstention asking for a version, a number or a date is rejected when a shown sentence holds one of that kind
+  beside a word of the question.
 
 The rest of this file documents the older thesis scripts.
 
