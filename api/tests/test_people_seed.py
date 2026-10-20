@@ -411,3 +411,30 @@ def test_forgetting_linkedin_connections_stops_the_rematch(tmp_path, monkeypatch
     _entity(memory, "ivy-example", type="person", name="Ivy Example")
     assert linkedin_people.rematch(memory).paths == []
     config.get_settings.cache_clear()
+
+
+def test_a_forget_while_sleep_holds_the_pages_is_refused_and_keeps_both_stores(tmp_path, monkeypatch):
+    """G183: both forgets write only outside every bank, yet Sleep reads the waiting cards and the kept export inside
+    its window and its Contacts rematch rewrites the waiting set — so a forget mid-run is a 409 the app asks again
+    after, never a 200 that Sleep then undoes."""
+    from api.services import linkedin_people, sleep_cycle
+
+    memory = _bank(tmp_path, git=False)
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
+    config.get_settings.cache_clear()
+    contacts_local.save_waiting(memory.name, [{"id": "C9", "given_name": "Hal", "family_name": "Sample"}])
+    linkedin_people.save_directory(memory.name, [linkedin_people.Connection(
+        "Ivy", "Example", "https://www.linkedin.com/in/ivy-example", "Acme Example", "Engineer", "2024-01-02")],
+        "2026-10-01")
+    c = TestClient(main.app)
+    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: True)
+    for route in ("/sources/contacts-local/waiting", "/sources/linkedin-connections"):
+        assert c.delete(route).status_code == 409, route
+    assert contacts_local.load_waiting(memory.name) and linkedin_people.directory_path(memory.name).exists()
+    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: False)
+    assert c.delete("/sources/contacts-local/waiting").json() == {"forgotten": 1}
+    assert c.delete("/sources/linkedin-connections").json()["forgotten"] == 1
+    assert not contacts_local.load_waiting(memory.name)
+    assert not linkedin_people.directory_path(memory.name).exists()
+    config.get_settings.cache_clear()

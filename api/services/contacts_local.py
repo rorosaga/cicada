@@ -63,6 +63,9 @@ FACT_PREDICATES = (
     ("has_birthday", "birthday"),
 )
 SLEEP_REFUSAL = "Cicada is tidying up your memory right now — Contacts will sync again in a minute."
+#: The forget's 409 while Sleep holds the pages (its tail rewrites the waiting set): the app asks again by itself.
+FORGET_SLEEP_REFUSAL = ("Cicada is tidying up your memory right now — the address-book cards it kept will be "
+                        "forgotten in a minute.")
 
 
 class PayloadError(ValueError):

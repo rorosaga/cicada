@@ -441,6 +441,10 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/contacts-local/sync": (ADMITTED, None),
     "POST /sources/linkedin-connections/preview": (NONE, None),   # reads pages, writes nothing, keeps nothing
     "POST /sources/linkedin-connections/import": (ADMITTED, None),
+    # Review of #391's forgets write only `$CICADA_HOME/people/*`, never a bank — admitted all the same: Sleep reads
+    # both stores inside its window and its Contacts rematch rewrites the waiting set, so a forget mid-run is undone.
+    "DELETE /sources/contacts-local/waiting": (ADMITTED, None),
+    "DELETE /sources/linkedin-connections": (ADMITTED, None),
     "POST /sources/messages/sync": (CAPTURE, None),            # G179: one ticked conversation's sittings
     "PUT /sources/messages/settings": (CAPTURE, None),         # G179: the registry file + a re-attributed sitting
     "POST /sources/messages/conversations": (NONE, None),      # G179: detection over names and counts, stores nothing

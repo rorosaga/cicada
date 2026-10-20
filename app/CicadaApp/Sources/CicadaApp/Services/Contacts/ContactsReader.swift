@@ -76,6 +76,7 @@ final class ContactsReader {
     }
 
     func connect() async {
+        forgetTask?.cancel()   // a forget still waiting out Sleep must never delete the cards this Connect posts
         guard await store.requestAccess(), store.access() == .granted else {
             defaults.set(false, forKey: Self.enabledKey)
             enabled = false
@@ -105,10 +106,26 @@ final class ContactsReader {
     }
 
     /// Owner ruling 2026-10-20 (review of #391): stopping Contacts deletes every bank's waiting cards, so no first
-    /// mention and no tail rematch uses one again. Best effort: a backend that is down keeps them until the next stop.
+    /// mention and no tail rematch uses one again. The backend refuses it (409) while Sleep holds the pages — Sleep's
+    /// tail rewrites the waiting set (G183) — so a refusal is asked again after `retryAfter`, up to
+    /// `maxRefusedRetries` times; a Connect in between cancels it. Best effort otherwise: a backend that is down keeps
+    /// them until the next stop.
     private func forgetWaiting() {
-        let api = self.api
-        forgetTask = Task { try? await api.forgetWaitingContacts() }
+        let api = self.api, retryAfter = self.retryAfter
+        forgetTask?.cancel()
+        forgetTask = Task {
+            for attempt in 0...Self.maxRefusedRetries {
+                do {
+                    try await api.forgetWaitingContacts()
+                    return
+                } catch APIError.httpError(409, _) where attempt < Self.maxRefusedRetries {
+                    try? await Task.sleep(for: retryAfter)
+                    if Task.isCancelled { return }
+                } catch {
+                    return
+                }
+            }
+        }
     }
 
     func syncNow() async { await sync() }

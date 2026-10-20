@@ -309,7 +309,12 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   bank's `contacts.json` and thumbnails (Contacts is app-wide; token-gated like every route; counts only), so no first
   mention and no tail rematch uses a card again; what matched pages already gained stays. LinkedIn's kept export has
   its own forget, `DELETE /sources/linkedin-connections` (this bank; *Forget kept connections* in the LinkedIn panel).
-  The notes field is still never read. A bank's trash takes its people directory with
+  **Both forgets are admitted (G183, 2026-10-21)** though they write only `$CICADA_HOME/people/*`: Sleep reads the
+  waiting cards (Stage 2's first-mention index, Stage 5's seed) and the kept export (the tail's rematch) inside its
+  window, and the Contacts rematch rewrites the waiting set — a forget mid-run would be undone by that save, or answer
+  "forgotten" while pages are still enriched from it. So each is a 409 while Sleep holds the pages; the app asks the
+  Contacts forget again after a minute (`ContactsReader.forgetWaiting`, capped; a Connect cancels it) and the
+  LinkedIn panel says the refusal in words. The notes field is still never read. A bank's trash takes its people directory with
   it and a rename moves it (`people_directory.forget` / `rename`).
   LinkedIn connections (owner 2026-10-16: "extracting people profiles from my LinkedIn connections … would be nice";
   G154's pattern): the export's `Connections.csv` — or the export `.zip` carrying it — comes in only through its own

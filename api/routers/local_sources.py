@@ -388,10 +388,14 @@ async def sync_contacts_local(req: ContactsLocalSyncRequest, settings: Settings 
 
 
 @router.delete("/sources/contacts-local/waiting")
-async def forget_contacts_waiting():
+@write_admission.route(refuse=lambda: SleepWriting(contacts_local.FORGET_SLEEP_REFUSAL))
+async def forget_contacts_waiting(settings: Settings = Depends(get_settings)):
     """Review of #391: the app stopped Contacts (Disconnect, or access found taken away) — every bank's waiting cards
-    and thumbnails are deleted (Contacts is app-wide), so no first mention and no tail rematch uses a card again. Writes
-    nothing in a bank, so it needs no write admission; counts only, never a name."""
+    and thumbnails are deleted (Contacts is app-wide), so no first mention and no tail rematch uses a card again.
+    Writes nothing in a bank, but it is admitted all the same (G183): Sleep reads the waiting set inside its window
+    (Stage 2's first-mention index, Stage 5's seed) and its tail REWRITES it (``contacts_local.rematch`` saves the cards
+    it did not match) — a forget landing mid-run would be undone by that save, or a card read before it would still
+    seed a page. 409 while Sleep holds the pages (the app asks again); counts only, never a name."""
     return {"forgotten": await run_in_threadpool(contacts_local.forget_waiting)}
 
 
@@ -413,9 +417,12 @@ async def linkedin_connections_status(settings: Settings = Depends(get_settings)
 
 
 @router.delete("/sources/linkedin-connections")
+@write_admission.route(refuse=lambda: SleepWriting(linkedin_people.FORGET_SLEEP_REFUSAL))
 async def forget_linkedin_connections(settings: Settings = Depends(get_settings)):
     """Review of #391: forget this bank's kept LinkedIn export — Sleep's rematch never reads it again. Pages already
-    enriched keep what they gained. Counts only."""
+    enriched keep what they gained. Counts only. Writes nothing in a bank, but admitted (G183): Sleep's tail reads the
+    export inside its window (``linkedin_people.rematch``), so a forget answered mid-run could still see its pages
+    enriched from the export after it said "forgotten". 409 while Sleep holds the pages."""
     bank = settings.memory_path.name
     return {"forgotten": await run_in_threadpool(linkedin_people.forget_directory, bank), "bank": bank}
 
