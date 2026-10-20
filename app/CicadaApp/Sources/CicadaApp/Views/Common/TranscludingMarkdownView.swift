@@ -169,6 +169,9 @@ struct TransclusionCard: View {
                 DisclosureChevron(isOpen: !collapsed)
             }
             .buttonStyle(.cicadaPlain)
+            // The glyph is hidden from VoiceOver, so the button carries the name and the state itself.
+            .accessibilityLabel(Copy.Lists.embeddedPage(payload?.title ?? ref))
+            .accessibilityValue(collapsed ? Copy.Lists.collapsed : Copy.Lists.expanded)
 
             Image(systemName: "rectangle.on.rectangle.angled")
                 .font(CicadaTheme.font(size: 10))

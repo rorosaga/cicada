@@ -17,10 +17,11 @@ final class DesignConsistencyLintTests: XCTestCase {
     }
 
     /// DR-39 / DR-53 — every fold draws `DisclosureChevron` (or `DisclosureHeader`): no hand-swapped
-    /// `chevron.down`/`chevron.right` and no hand-turned chevron. The one exception is an `IconButton` fold, whose 28 pt
+    /// `chevron.down`/`chevron.right`/`chevron.up` and no hand-turned chevron (a ‹ › pair that opens or closes the
+    /// Reader is a direction, not a fold). The one exception is an `IconButton` fold, whose 28 pt
     /// target is the control itself (DR-53).
     func testEveryFoldDrawsTheOneDisclosureGlyph() throws {
-        let swap = try NSRegularExpression(pattern: #""chevron\.(down|right)"\s*:\s*"chevron\.(down|right)""#)
+        let swap = try NSRegularExpression(pattern: #""chevron\.(down|right|up)"\s*:\s*"chevron\.(down|right|up)""#)
         let turn = try NSRegularExpression(pattern: #"rotationEffect\(\.degrees\([^)]*\?\s*90"#)
         var offenders: [String] = []
         for file in try viewSources() where file.lastPathComponent != "Disclosure.swift" {
@@ -104,6 +105,13 @@ final class DesignConsistencyLintTests: XCTestCase {
 
 /// DR-58 — a look's day reads in the app's one day grammar, never as the stored `YYYY-MM-DD`.
 final class LooksDayWordsTests: XCTestCase {
+    /// A fold's VoiceOver value carries the count the eye reads beside it ("Fading 4"), without the separator dot.
+    func testAFoldSpeaksItsStateAndItsCount() {
+        XCTAssertEqual(DisclosureHeader.spokenValue(isOpen: false, summary: "4"), "\(Copy.Lists.collapsed), 4")
+        XCTAssertEqual(DisclosureHeader.spokenValue(isOpen: false, summary: "· 4,770"), "\(Copy.Lists.collapsed), 4,770")
+        XCTAssertEqual(DisclosureHeader.spokenValue(isOpen: true, summary: nil), Copy.Lists.expanded)
+    }
+
     func testALooksDayIsWordsNotTheStoredStamp() {
         let today = ISODay(year: 2026, month: 10, day: 20)
         XCTAssertEqual(LooksDay.words("2026-10-20", today: today), "Today")

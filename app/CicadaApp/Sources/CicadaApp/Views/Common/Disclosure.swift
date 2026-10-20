@@ -9,11 +9,14 @@ struct DisclosureChevron: View {
     let isOpen: Bool
     /// Nil keeps the inherited foreground (a row that lights its text on hover lights the glyph with it).
     var color: Color? = CicadaTheme.textTertiary
+    /// A fold whose panel opens ABOVE it (the Graph's Legend) points up while closed and down while open; the same
+    /// glyph, turned the other way.
+    var opensUpward = false
 
     var body: some View {
         Image(systemName: "chevron.right")
             .font(CicadaTheme.icon(.disclosure))
-            .rotationEffect(.degrees(isOpen ? 90 : 0))
+            .rotationEffect(.degrees(isOpen ? 90 : (opensUpward ? -90 : 0)))
             .foregroundStyle(color.map(AnyShapeStyle.init) ?? AnyShapeStyle(.foreground))
             .frame(width: CicadaTheme.iconPoints(.inline))
             .accessibilityHidden(true)
@@ -40,6 +43,7 @@ struct DisclosureHeader: View {
     let toggle: () -> Void
 
     @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: toggle) {
@@ -48,7 +52,7 @@ struct DisclosureHeader: View {
                 Text(title)
                     .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
                     .lineLimit(1)
-                if let summary, !summary.isEmpty, !isOpen || summaryWhenOpen {
+                if let summary = summaryShown {
                     Text(summary)
                         .font(CicadaTheme.metaFont)
                         .monospacedDigit()
@@ -62,11 +66,26 @@ struct DisclosureHeader: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
+        // DR-61 / DR-63 — the pointer's hover eases on `CicadaMotion.hover`; a key never hovers, so no keyboard path
+        // animates (DR-60).
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
         .onHover { hovering = $0 }
         .help(help ?? "")
         .accessibilityLabel(spokenTitle ?? title)
         .accessibilityAddTraits(.isHeader)
-        .accessibilityValue(isOpen ? Copy.Lists.expanded : Copy.Lists.collapsed)
+        .accessibilityValue(Self.spokenValue(isOpen: isOpen, summary: summaryShown))
+    }
+
+    private var summaryShown: String? {
+        guard let summary, !summary.isEmpty, !isOpen || summaryWhenOpen else { return nil }
+        return summary
+    }
+
+    /// The state, then what the visible words count ("Collapsed, 4"), so VoiceOver hears "Fading 4", not "Fading".
+    static func spokenValue(isOpen: Bool, summary: String?) -> String {
+        let state = isOpen ? Copy.Lists.expanded : Copy.Lists.collapsed
+        let words = summary?.trimmingCharacters(in: CharacterSet(charactersIn: "· ").union(.whitespaces)) ?? ""
+        return words.isEmpty ? state : "\(state), \(words)"
     }
 
     static let height: CGFloat = 28
