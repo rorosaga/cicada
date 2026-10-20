@@ -1253,8 +1253,10 @@ What triggered each:
   existing page a numbered entry cut as the one-pair prompt cut it (2,000 characters; an alias entry carries the alias
   note and its page context first, and the name's connections ride along), one decision per entry. Candidates keep
   their judging order; a call holding a `same` ends the name and the first `same` in order is the match, so the
-  rule is the one-by-one loop's. A lone candidate keeps `_DISAMBIG_PROMPT` byte for byte. An entry the answer leaves
-  out is `unsure` (as an unreadable one-pair answer); an engine error still raises. The stage keeps its name
+  rule is the one-by-one loop's. A lone candidate keeps `_DISAMBIG_PROMPT` byte for byte. An answer is read only when it
+  lines up (`json_parse.numbered_rows`: its numbers exactly 1..n, or no numbers and exactly n rows); 0-based, duplicate,
+  missing or mixed numbering, or a short or long list, is `unsure` for every entry (as an unreadable one-pair answer),
+  never a decision read against the wrong page; an engine error still raises. The stage keeps its name
   `disambiguation`; its plan schemas take both shapes (`agent_engine.SCHEMA_BY_STAGE`,
   `engine_schemas.disambiguation_schema`).
 - **The judge read nothing about the new name.** It was given the extraction's `description`, a legacy field
@@ -1269,8 +1271,8 @@ What triggered each:
   same cuts (4,000 / 2,000 characters) and dates, answered in its own result. A page's check reads only its page as it
   was before the stage and its own update, so the checks run after all the write calls, grouped in the pages' order
   (the groups depend on that order alone, so every concurrency asks the same calls); results are applied in the
-  pages' order as before. A lone page keeps `_CONTRADICTION_INPUT` byte for byte; a result the answer leaves out is no
-  question, as an unreadable one-page answer.
+  pages' order as before. A lone page keeps `_CONTRADICTION_INPUT` byte for byte; an answer that does not line up (the same
+  rule) files no question for any of its pages, as an unreadable one-page answer.
 - **Merge** — one write per page with something to write (the article or the synthesis), already none for a stub, a
   re-read or a hand-edited page. Unchanged: its output is the page, too long to share a call.
 

@@ -1406,21 +1406,15 @@ _BATCH_ALIAS_NOTE = ('Note: this entry already lists "{new_name}" among the othe
 
 
 def _batch_decisions(parsed: dict, count: int) -> list[str]:
-    """One decision per entry from a batch answer, by its ``entry`` number (else its position); an entry the answer
-    leaves out or answers with anything else is ``unsure`` — the same reading an unreadable one-pair answer gets."""
-    rows = parsed.get("decisions") if isinstance(parsed, dict) else None
-    out: list[str | None] = [None] * count
-    for position, row in enumerate(rows if isinstance(rows, list) else []):
-        if not isinstance(row, dict):
-            continue
-        try:
-            index = int(row.get("entry")) - 1
-        except (TypeError, ValueError):
-            index = position
-        decision = str(row.get("decision", "")).strip().lower()
-        if 0 <= index < count and out[index] is None and decision in {"same", "different", "unsure"}:
-            out[index] = decision
-    return [d or "unsure" for d in out]
+    """One decision per entry from a batch answer, lined up by `json_parse.numbered_rows` (the numbers exactly 1..n,
+    or no numbers and exactly n rows). An answer that does not line up is ``unsure`` for every entry, and a row whose
+    decision is not one of the three words is ``unsure`` — the reading an unreadable one-pair answer gets; never a
+    decision read against the wrong candidate."""
+    rows = json_parse.numbered_rows(parsed.get("decisions") if isinstance(parsed, dict) else None, count, "entry")
+    if rows is None:
+        return ["unsure"] * count
+    words = {"same", "different", "unsure"}
+    return [d if (d := str(row.get("decision", "")).strip().lower()) in words else "unsure" for row in rows]
 
 
 async def _llm_judge_batch(

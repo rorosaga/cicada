@@ -60,9 +60,12 @@ def test_one_judge_call_numbers_each_entry_and_cuts_it_as_the_pair_prompt(monkey
 
 def test_an_entry_the_answer_leaves_out_is_unsure_and_an_engine_error_propagates(monkeypatch):
     prompts: list = []
-    _fake_llm(monkeypatch, providers, json.dumps({"decisions": [{"entry": 1, "decision": "same"}]}), prompts)
     tools = [e for e in _entries() if e["type"] == "tool"]
+    _fake_llm(monkeypatch, providers, json.dumps({"decisions": [{"entry": 1, "decision": "same"},
+                                                                {"entry": 2, "decision": "maybe"}]}), prompts)
     assert asyncio.run(er._llm_judge_batch("Alpha", "tool", "", tools, SETTINGS)) == ["same", "unsure"]
+    _fake_llm(monkeypatch, providers, json.dumps({"decisions": [{"entry": 1, "decision": "same"}]}), prompts)
+    assert asyncio.run(er._llm_judge_batch("Alpha", "tool", "", tools, SETTINGS)) == ["unsure", "unsure"]
     _fake_llm(monkeypatch, providers, "not json at all", prompts)
     assert asyncio.run(er._llm_judge_batch("Alpha", "tool", "", tools, SETTINGS)) == ["unsure", "unsure"]
     _fake_llm(monkeypatch, providers, engine_errors.EngineThrottled("plan limit"), prompts)
@@ -110,13 +113,15 @@ def test_one_contradiction_call_checks_each_page_in_its_own_block(monkeypatch):
     prompts: list = []
     answer = json.dumps({"results": [
         {"entity": 2, "has_unresolvable_contradiction": True, "question": "Which?", "options": []},
+        {"entity": 3, "has_unresolvable_contradiction": False},
         {"entity": 1, "has_unresolvable_contradiction": False}]})
     _fake_llm(monkeypatch, cr, answer, prompts)
     settings = SimpleNamespace(effective_consolidation_model="synthetic-model")
     out = asyncio.run(cr._detect_contradictions(
         [_item("Alpha", "## Summary\nAlpha is red.\n```claims\n[]\n```", "z" * 3000),
          _item("Beta", "w" * 6000, "Beta is blue."), _item("Gamma", "Gamma.", "Gamma.")], settings, today="2026-10-20"))
-    assert out[0]["has_unresolvable_contradiction"] is False and out[1]["question"] == "Which?" and out[2] is None
+    assert out[0]["has_unresolvable_contradiction"] is False and out[1]["question"] == "Which?"
+    assert out[2]["has_unresolvable_contradiction"] is False
     system, user = prompts[0][0]["content"], prompts[0][1]["content"]
     assert system == cr._CONTRADICTIONS_RULES and user.startswith("TODAY: 2026-10-20")
     assert "ENTITY 1: Alpha" in user and "ENTITY 3: Gamma" in user
@@ -196,3 +201,51 @@ def test_the_judge_reads_what_the_extraction_said_about_the_name(monkeypatch):
     assert seen == ["Carol writes the migration."]
     created = {"source": "created", "id": "carol-x", "data": {"entity": {"name": "Carol X", "summary": "A colleague."}}}
     assert er._candidate_description(created) == "A colleague."
+
+
+
+# --- a batch answer is read only when it lines up (review of #389) ----------------------------------------------
+
+def _rows(key, numbers, words):
+    return [({key: n} if n is not None else {}) | words[i] for i, n in enumerate(numbers)]
+
+
+UNALIGNED = {
+    "0-based": [0, 1, 2],
+    "duplicate": [1, 1, 3],
+    "gap": [1, 2, 4],
+    "out of range": [2, 3, 4],
+    "mixed numbered and unnumbered": [1, None, 3],
+    "short list": [1, 2],
+    "long list": [1, 2, 3, 4],
+    "short list without numbers": [None, None],
+    "not a whole number": [1, "two", 3],
+}
+
+
+@pytest.mark.parametrize("case", sorted(UNALIGNED))
+def test_a_judge_answer_that_does_not_line_up_is_unsure_for_every_candidate(case):
+    numbers = UNALIGNED[case]
+    words = [{"decision": "different"}, {"decision": "same"}, {"decision": "different"}, {"decision": "same"}]
+    parsed = {"decisions": _rows("entry", numbers, words)}
+    assert er._batch_decisions(parsed, 3) == ["unsure", "unsure", "unsure"]
+
+
+@pytest.mark.parametrize("case", sorted(UNALIGNED))
+def test_a_contradiction_answer_that_does_not_line_up_files_no_question(case):
+    numbers = UNALIGNED[case]
+    words = [{"has_unresolvable_contradiction": i == 1, "question": f"Q{i}?"} for i in range(4)]
+    parsed = {"results": _rows("entity", numbers, words)}
+    assert cr._contradiction_results(parsed, 3) == [None, None, None]
+
+
+def test_an_answer_that_lines_up_is_read_by_its_numbers_or_by_position_when_none_is_numbered():
+    by_number = {"decisions": [{"entry": "3", "decision": "same"}, {"entry": 1, "decision": "different"},
+                               {"entry": 2, "decision": "unsure"}]}
+    assert er._batch_decisions(by_number, 3) == ["different", "unsure", "same"]
+    by_position = {"decisions": [{"decision": "different"}, {"decision": "same"}, {"decision": "different"}]}
+    assert er._batch_decisions(by_position, 3) == ["different", "same", "different"]
+    results = {"results": [{"entity": 2, "question": "B?"}, {"entity": 1, "question": "A?"}]}
+    assert [r["question"] for r in cr._contradiction_results(results, 2)] == ["A?", "B?"]
+    assert [r["question"] for r in cr._contradiction_results({"results": [{"question": "A?"}, {"question": "B?"}]}, 2)] \
+        == ["A?", "B?"]

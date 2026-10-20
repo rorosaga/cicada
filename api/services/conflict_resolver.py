@@ -1676,20 +1676,11 @@ NEW DESCRIPTION (from conversation(s) dated {new_as_of}):
 
 
 def _contradiction_results(parsed: dict, count: int) -> list[dict | None]:
-    """Each entity's result from a batch answer, by its ``entity`` number (else its position); one the answer leaves
-    out is ``None`` — no question, as an unreadable one-page answer."""
-    rows = parsed.get("results") if isinstance(parsed, dict) else None
-    out: list[dict | None] = [None] * count
-    for position, row in enumerate(rows if isinstance(rows, list) else []):
-        if not isinstance(row, dict):
-            continue
-        try:
-            index = int(row.get("entity")) - 1
-        except (TypeError, ValueError):
-            index = position
-        if 0 <= index < count and out[index] is None:
-            out[index] = row
-    return out
+    """Each entity's result from a batch answer, lined up by `json_parse.numbered_rows` (the numbers exactly 1..n, or
+    no numbers and exactly n rows). An answer that does not line up is ``None`` for every entity — no question, as an
+    unreadable one-page answer; never a contradiction filed against the wrong page."""
+    rows = json_parse.numbered_rows(parsed.get("results") if isinstance(parsed, dict) else None, count, "entity")
+    return [None] * count if rows is None else list(rows)
 
 
 async def _detect_contradictions(items: list[dict], settings: Settings, *, today: str | None = None) -> list[dict | None]:
