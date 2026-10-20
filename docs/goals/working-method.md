@@ -101,6 +101,15 @@ Do not trust a remembered count. Compare the same command on a clean baseline in
 Any additional failure needs attribution against the current baseline. Never `swift run` the app (bundle-less binary, window never becomes key);
 `make dev` is the only correct launch.
 
+**A Swift test that hangs inside an AppKit render is the machine, not the test (2026-10-20).** The first layer-backed
+`NSView` in an `xctest` process runs `+[NSApplication initialize]`, which opens the general pasteboard over a
+synchronous XPC call. When the system's `pboard` daemon is wedged (seen 2026-10-20: its general-pasteboard queue blocked
+waiting on a remote pasteboard item's data), every such test waits forever: `ClustersGridTests` and `EntityHeaderTests`
+(a picture's drop target is an AppKit view) and every `NSHostingView` render. The same tests pass in under a second once
+`pboard` answers. Check before chasing it: `perl -e 'alarm 10; exec @ARGV' /usr/bin/pbpaste >/dev/null; echo $?` —
+`142` means the pasteboard does not answer. The person restarts it (`launchctl kickstart -k gui/$(id -u)/com.apple.pboard`,
+or logs out and back in); a worker never kills a process it did not start.
+
 ### Rails that override convenience
 
 - **Privacy.** Nothing personal in `docs/goals/`, plans, commit messages or PR bodies: no other
