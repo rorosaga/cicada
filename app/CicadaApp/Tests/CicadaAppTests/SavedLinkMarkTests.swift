@@ -62,9 +62,10 @@ final class SavedLinkMarkTests: XCTestCase {
     /// A page and a waiting episode of one site share one answer: the site is asked once.
     func testOneSiteIsAskedOnceWhicheverIdAsks() async {
         let asks = Asks()
+        let icon = Self.png
         let store = SiteIconStore(fetch: { _ in XCTFail("never the icon-service route"); return nil },
-                                  fetchForSaved: { id in await asks.add(id); return nil },
-                                  fetchForSavedEpisode: { id in await asks.add(id); return nil })
+                                  fetchForSaved: { id in await asks.add(id); return icon },
+                                  fetchForSavedEpisode: { id in await asks.add(id); return icon })
         _ = await store.image(site: "paperfold.io", bank: "b", saved: .episode("ep_2026-10-01_1"))
         _ = await store.image(site: "paperfold.io", bank: "b", saved: .media("m1"))
         _ = await store.image(site: "other.io", bank: "b", saved: .media("m2"))
@@ -75,11 +76,12 @@ final class SavedLinkMarkTests: XCTestCase {
     /// A 500-row list never bursts: at most `maxConcurrent` icons are on the wire at once, each site once.
     func testFiveHundredRowsNeverBurst() async {
         let gauge = Gauge()
+        let icon = Self.png
         let store = SiteIconStore(fetch: { _ in nil }, fetchForSaved: { _ in
             await gauge.enter()
             try? await Task.sleep(nanoseconds: 2_000_000)
             await gauge.leave()
-            return nil
+            return icon
         }, maxConcurrent: 4)
         await withTaskGroup(of: Void.self) { group in
             for i in 0..<500 {
@@ -93,6 +95,22 @@ final class SavedLinkMarkTests: XCTestCase {
         let storePeak = await store.peakRunning
         XCTAssertLessThanOrEqual(storePeak, 4)
     }
+
+    /// Review of #372 — one id's 404 (a page the route refuses) never hides the icon another id of that site is served.
+    func testOneRefusedIdNeverHidesTheSitesIcon() async {
+        let icon = Self.png
+        let store = SiteIconStore(fetch: { _ in nil }, fetchForSaved: { id in id == "refused" ? nil : icon })
+        let refused = await store.image(site: "paperfold.io", bank: "b", saved: .media("refused"))
+        XCTAssertNil(refused)
+        let served = await store.image(site: "paperfold.io", bank: "b", saved: .media("saved-1"))
+        XCTAssertNotNil(served, "the miss was the refused id's, not the site's")
+        let again = await store.image(site: "paperfold.io", bank: "b", saved: .episode("ep_2026-10-01_1"))
+        XCTAssertNotNil(again, "a hit is the site's: every id of it shares it")
+    }
+
+    /// A 1×1 PNG `NSImage(data:)` accepts.
+    static let png = Data(base64Encoded:
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")!
 
     /// A row that scrolled away before its turn asks nothing.
     func testACancelledRowAsksNothing() async {

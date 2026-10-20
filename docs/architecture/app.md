@@ -889,7 +889,7 @@ the website's logo … Clicking again on Sources takes me back to the main Sourc
   Saved, `CapturedItemRoute`). A bookmark that left the browser keeps its dimmed row and `bookmark.slash` mark.
 - **The site's own mark (owner ruling 2026-10-19).** `SiteIcon(site:savedItem:)`: the row asks
   `GET /sources/saved/{id}/site-icon` (`SiteIconStore`, one answer per site and bank, misses too), and the backend asks
-  the link's own site — never an icon service (`storage.md`, "A saved link's own site icon"). Until it arrives, or for a
+  the link's own site, the way a browser finds its icon (declared in its homepage first, 2026-10-20) — never an icon service (`storage.md`, "A saved link's own site icon"). Until it arrives, or for a
   site with none: the bundled mark of a known family (LinkedIn, X, Instagram, TikTok, Reddit), else a ring monogram of
   the site. Never the browser's mark. With `CICADA_ALLOW_LOGO_FETCH=off` every row is its monogram.
 - **One mark for a saved link (owner 2026-10-20).** *"Instead of the Chrome logo make this an app-wide change."* Every
@@ -901,8 +901,8 @@ the website's logo … Clicking again on Sources takes me back to the main Sourc
   saved link. Where it was saved from stays in words: the open item's "Saved from" line keeps the browser's mark beside
   its name (that line answers that question), and a source's group row, spine and pile plate keep the source's mark
   (the group *is* the source). Entity pictures (Find's saved rows, Ask's citations, the entity card, the graph) keep
-  the picture precedence — a page's own thumbnail outranks a site icon there. `SiteIconStore` keeps one answer per
-  site and bank whichever id asked, and puts at most four requests on the wire (`maxConcurrent`); a row that scrolled
+  the picture precedence — a page's own thumbnail outranks a site icon there. `SiteIconStore` keeps an icon per
+  site and bank whichever id asked but a miss per id (one refused id never hides the site's icon), and puts at most four requests on the wire (`maxConcurrent`); a row that scrolled
   away before its turn asks nothing.
 - **Watch history is never a save.** YouTube and TikTok history days are their own captured rows (*YouTube history*,
   *TikTok history*), headlined by their days ("30 watched days", `SourceOverview.isWatchHistory`), and their detail

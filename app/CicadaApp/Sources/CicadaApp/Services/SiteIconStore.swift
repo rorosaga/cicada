@@ -30,6 +30,14 @@ actor SiteIconStore {
     enum SavedRef: Equatable, Sendable {
         case media(String)
         case episode(String)
+
+        /// The id a miss is remembered under.
+        var tag: String {
+            switch self {
+            case .media(let id): "media:\(id)"
+            case .episode(let id): "episode:\(id)"
+            }
+        }
     }
 
     /// At most this many icon requests are on the wire at once (owner 2026-10-20: a 500-row list never bursts). Rows
@@ -86,19 +94,21 @@ actor SiteIconStore {
         await image(site: site, bank: bank, entity: entity, saved: savedItem.map(SavedRef.media))
     }
 
-    /// The one door every mark goes through. A saved link's answer is kept per site, whichever id asked it, so one
-    /// site's rows — pages and waiting episodes alike — ask once.
+    /// The one door every mark goes through. A saved link's icon is kept per site, whichever id asked it, so one
+    /// site's rows — pages and waiting episodes alike — share it; a saved link's miss is kept per id (review of #372: a
+    /// 404 for one id — a page the route refuses — never hides the icon another id of that site is served).
     func image(site: String, bank: String, entity: String? = nil, saved: SavedRef?) async -> NSImage? {
         let k = key(site, bank, entity, saved: saved != nil)
+        let missKey = saved.map { "\(k)|\($0.tag)" } ?? k
         if let hit = images[k] { return hit }
-        if misses.contains(k) { return nil }
+        if misses.contains(missKey) { return nil }
         // A caller that joins a running request takes its answer. Once it resumes, the first caller may already have
         // cleared `inFlight`, so re-checking it would ask the same question again (2026-10-05).
         if let running = inFlight[k] { return await joined(running) }
         await acquire()
         // While this caller waited its turn the row may have gone (its `.task` cancelled) or another caller may have
         // asked the same site: either way nothing new is asked.
-        if Task.isCancelled || images[k] != nil || misses.contains(k) || inFlight[k] != nil {
+        if Task.isCancelled || images[k] != nil || misses.contains(missKey) || inFlight[k] != nil {
             release()
             if let hit = images[k] { return hit }
             if let running = inFlight[k] { return await joined(running) }
@@ -127,7 +137,7 @@ actor SiteIconStore {
         release()
         switch answer {
         case .image(let image): images[k] = image; return image
-        case .none: misses.insert(k); return nil
+        case .none: misses.insert(missKey); return nil
         case .transient: return nil
         }
     }

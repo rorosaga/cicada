@@ -945,6 +945,7 @@ async def list_sources(
         preview: str | None = None
         fm_read = None
         wall_page = None
+        saved_page = False
         entity_path = Path(memory_path) / "entities" / f"{entity_id}.md"
         if entity_path.exists():
             try:
@@ -952,6 +953,8 @@ async def list_sources(
 
                 parsed = markdown_parser.parse(entity_path)
                 fm = parsed.frontmatter or {}
+                # Review of #372: a site key only where the media icon route would answer (one predicate).
+                saved_page = channel_items.is_saved_link_page(fm)
                 # G102 R12 — read the excerpt + `about` ids straight after the
                 # parse, before any later field: this block is one `try` whose
                 # `except: pass` would otherwise drop them if relevance or
@@ -1038,7 +1041,7 @@ async def list_sources(
                 title=entry.get("title", ""),
                 media_type=entry.get("media_type", "url"),
                 site=site,
-                site_key=reading_hosts.mark_key(str(entry.get("url") or "")),
+                site_key=reading_hosts.mark_key(str(entry.get("url") or "")) if saved_page else None,
                 channel=channel,
                 thumbnail=entry.get("thumbnail"),
                 preview=preview,
@@ -1238,8 +1241,8 @@ _OWN_ICON_SEMAPHORE = asyncio.Semaphore(4)
 @router.get("/sources/saved/{media_entity_id}/site-icon")
 async def get_saved_link_site_icon(media_entity_id: str, request: Request, settings: Settings = Depends(get_settings)):
     """A saved link's own site icon (owner ruling 2026-10-19), for its row in a list the person opened. Asked of that
-    site only — `https://<registrable domain>/apple-touch-icon.png`, then `/favicon.ico` — never of an icon service,
-    so no one else learns what was saved; behind `CICADA_ALLOW_LOGO_FETCH`; cached under `logos/<bank>/sites/own/`
+    site only — its homepage's declared icons (or a CDN URL that page names), then `/apple-touch-icon.png` and
+    `/favicon.ico` (discovery amended 2026-10-20) — never of an icon service, so no one else learns what was saved; behind `CICADA_ALLOW_LOGO_FETCH`; cached under `logos/<bank>/sites/own/`
     with misses. 404 means "draw the monogram": a page that is not a live saved link, a walled or private host, the
     gate off, a miss. Nothing calls this but the app's row; Sleep never does."""
     memory_path = settings.memory_path

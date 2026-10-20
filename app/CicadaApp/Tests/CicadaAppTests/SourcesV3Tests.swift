@@ -111,6 +111,9 @@ final class SourcesV3Tests: XCTestCase {
         let channel = try source("Views/Sources/ChannelSourceView.swift")
         XCTAssertTrue(channel.contains("if source.intent == .saved {"))
         XCTAssertTrue(channel.contains("CapturedItemsList(channel: source.itemsListId, style: .saved)"))
+        // Review of #372: the captured list is lazy, so a long list asks marks only for the rows on screen.
+        XCTAssertTrue(channel.contains("LazyVStack(spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {\n                ForEach(items)"))
+        XCTAssertFalse(channel.contains("            VStack(spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {\n                ForEach(items)"))
         // Sources v4: no source has a 30-day card or queue strip any more — one header, then the list.
         let detail = try source("Views/Sources/SourceDetailView.swift")
         XCTAssertFalse(detail.contains("headerCard"))
@@ -242,16 +245,18 @@ final class SourcesV3Tests: XCTestCase {
     }
 
     /// Owner ruling 2026-10-19 — a saved row asks its own site's icon by its media id, once per site; never the
-    /// reading list's icon-service route.
+    /// reading list's icon-service route. Review of #372: the icon is the site's, a miss is the id's.
     func testASavedRowAsksItsOwnSiteOncePerSiteAndNeverTheIconService() async {
         let saved = SavedAsks()
+        let icon = SavedLinkMarkTests.png
         let store = SiteIconStore(fetch: { _ in XCTFail("the icon-service route is never asked for a saved row"); return nil },
-                                  fetchForSaved: { id in await saved.add(id); return nil })
+                                  fetchForSaved: { id in await saved.add(id); return id == "media-3" ? nil : icon })
         _ = await store.image(site: "paperfold.io", bank: "b1", savedItem: "media-1")
         _ = await store.image(site: "paperfold.io", bank: "b1", savedItem: "media-2")
         _ = await store.image(site: "other.io", bank: "b1", savedItem: "media-3")
+        _ = await store.image(site: "other.io", bank: "b1", savedItem: "media-3")
         let asked = await saved.ids
-        XCTAssertEqual(asked, ["media-1", "media-3"], "a second row of the same site reuses the first answer, a miss too")
+        XCTAssertEqual(asked, ["media-1", "media-3"], "a second row of the same site reuses its icon; an id's miss is kept")
     }
 
     // MARK: 5 · Paging at the owner's scale
