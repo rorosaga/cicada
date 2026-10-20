@@ -486,6 +486,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /embeddings/install": (OUTSIDE, None),
     "POST /design": (ADMITTED, None),                 # design taste: the reference and its screenshot, committed alone
     "DELETE /design/{ref_id}": (ADMITTED, None),
+    "PUT /design/{ref_id}/entity": (ADMITTED, None),   # a look onto a page: the record and both pages' sections
     "POST /design/search": (OUTSIDE, None),           # the derived index in $CICADA_HOME only
     # G166 exploring: the queue file in $CICADA_HOME only; the bank is written by cicada_record_capture alone.
     "POST /explore/batches": (OUTSIDE, None),

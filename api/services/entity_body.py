@@ -31,6 +31,9 @@ CANONICAL_SECTIONS = [
     "History",
     "Related",
     "Links",
+    # The looks the page shows (owner 2026-10-20): written only by `design_refs` from the look records that name this
+    # page — a rendering, never prose. Canonical so every merge carries it as it is and no writer reads it as a hand edit.
+    "Looks",
     "Open Questions",
 ]
 
@@ -867,7 +870,7 @@ def render_related(related_slugs: list[str], edges: list[dict], id_to_name: dict
 # Priority order for recall summaries: fact-bearing sections first. Summary +
 # Key Facts are ALWAYS included in full (they hold the answer); the rest fill
 # the remaining budget in this order.
-_RECALL_PRIORITY = ["Summary", "Key Facts", "Article", "History", "Links", "Related", "Open Questions"]
+_RECALL_PRIORITY = ["Summary", "Key Facts", "Article", "History", "Links", "Related", "Open Questions", "Looks"]
 
 
 def summarize_for_recall(body: str, *, max_chars: int = 3200) -> str:

@@ -18,6 +18,8 @@ struct ClustersPage: View {
     @State private var query = ""
     @State private var findOpen = false
     @State private var labels: Set<String> = []
+    /// Owner 2026-10-20 — "we can filter looks inside the entities page": only the pages that show a look.
+    @State private var onlyWithLooks = false
     @State private var viewMenuOpen = false
     @State private var landingToken = 0
     @FocusState private var focus: ListFocus?
@@ -43,11 +45,12 @@ struct ClustersPage: View {
     }
 
     private var isFiltered: Bool {
-        !labels.isEmpty || graphVM.filter.types.count < EntityType.selectableCases.count
+        !labels.isEmpty || onlyWithLooks || graphVM.filter.types.count < EntityType.selectableCases.count
     }
 
     var body: some View {
-        let filtered = ClustersModel.filtered(graphVM.entities, types: graphVM.filter.types, labels: labels)
+        let filtered = ClustersModel.filtered(graphVM.entities, types: graphVM.filter.types, labels: labels,
+                                              withLooks: onlyWithLooks ? LooksCache.shared.pagesWithLooks : nil)
         let groups = ClustersModel.groups(filtered)
         let found = ClustersModel.matches(query: findOpen ? query : "", within: filtered) {
             graphVM.clusterSearchIndex().rank($0)
@@ -67,7 +70,8 @@ struct ClustersPage: View {
                                              labelCounts: ClustersModel.labelCounts(graphVM.entities),
                                              typeCounts: Dictionary(grouping: graphVM.entities, by: \.type)
                                                  .mapValues(\.count),
-                                             expandAll: $expandAll)
+                                             expandAll: $expandAll, onlyWithLooks: $onlyWithLooks,
+                                             looksCount: LooksCache.shared.pagesWithLooks.count)
                         }
                 }
             }
@@ -97,7 +101,11 @@ struct ClustersPage: View {
                     showTab: { type in Instant.run { tabSelection.wrappedValue = type } },
                     move: { delta in move(delta, visible: lines.compactMap(\.entity)) },
                     focusDetail: { focus = .detail }, escape: { escape() },
-                    showEverything: { labels = []; graphVM.filter.types = Set(EntityType.selectableCases) })
+                    showEverything: {
+                        labels = []
+                        onlyWithLooks = false
+                        graphVM.filter.types = Set(EntityType.selectableCases)
+                    })
                     .focused($focus, equals: .list)
                     // G152 — this list replaces the cards whenever a card or find is open; without its own anchor
                     // the person stop would lose its hole in a real bank.
@@ -116,6 +124,9 @@ struct ClustersPage: View {
             ReaderColumn().focused($focus, equals: .reader)
         }
         .background(CicadaTheme.bgBase)
+        // The looks' pages, for the View menu's "Only pages with looks": read on appear and again when the menu opens
+        // (an ETag makes an unchanged answer a 304; owner 2026-10-20).
+        .task(id: viewMenuOpen) { await LooksCache.shared.refresh() }
         // DR-46 — the page opens its find row on ⌘F; once open, the field takes ⌘F itself (one publisher, R-SU10).
         // Published from a leaf, never the page: `PageFindPublisher` is an if/else, so on the page it rebuilt the whole
         // column tree on every flip of `findOpen` — the open card's trail and body, the Reader, the scroll position and

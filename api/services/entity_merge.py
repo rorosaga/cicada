@@ -276,6 +276,10 @@ def merge_footprint(memory_path: Path, loser_id: str, winner_id: str) -> list[st
             continue
         if _repoint_page(ep, old, loser_id, winner_id, winner_name, wikilink_re, warn=False)[0]:
             paths.append(f"entities/{ep.name}")
+    # The loser's looks move to the winner (owner 2026-10-20: a look lives on the page of the thing it shows).
+    from api.services import design_refs
+
+    paths += [p for p in design_refs.repoint_footprint(memory_path, loser_id, winner_id) if p not in paths]
     # Each page's claims ledger that exists: the merge folds it in and writes it back (the loser's is removed). A ledger
     # a write creates is committed with its page (`git_service`), never left behind.
     from api.services import claims_ledger
@@ -503,6 +507,11 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
     # otherwise they become dangling references that accumulate across dedup runs.
     others = repoint_references(memory_path, loser_id, loser_name, winner_id, winner_name)
     paths.extend(others)
+
+    # The loser's looks now show on the winner: their records name it and its `## Looks` section lists them.
+    from api.services import design_refs
+
+    paths += [p for p in design_refs.repoint(memory_path, loser_id, winner_id) if p not in paths]
 
     lp.unlink()
     paths.append(f"entities/{loser_id}.md")

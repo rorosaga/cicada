@@ -133,8 +133,10 @@ final class LooksPolishTests: XCTestCase {
     /// zoom while it shows (the detail column drops its own Esc).
     func testTheSourceKeepsTheKeyboardPathInstant() throws {
         let files = try ThemeTokenTests.swiftSources()
-        let page = try String(contentsOf: XCTUnwrap(files.first { $0.path.hasSuffix("Views/Looks/LooksPage.swift") }),
-                              encoding: .utf8)
+        // The board went on 2026-10-20; a look opens large from its page (`PageLooks.swift`) on the same rules.
+        let page = try ["Views/Looks/PageLooks.swift", "Views/Looks/LooksViews.swift"].map { path in
+            try String(contentsOf: XCTUnwrap(files.first { $0.path.hasSuffix(path) }), encoding: .utf8)
+        }.joined(separator: "\n")
         XCTAssertTrue(page.contains("case .instant, .zoom: Instant.run { zoom.present("))
         XCTAssertTrue(page.contains("case .instant: Instant.run { zoom.dismiss() }"))
         XCTAssertTrue(page.contains("closeShortcut: escapeCloses ? .cancelAction : nil"))   // through DetailHeader (2026-10-20)
@@ -142,7 +144,7 @@ final class LooksPolishTests: XCTestCase {
         let overlay = try String(contentsOf: XCTUnwrap(files.first { $0.path.hasSuffix("Views/Looks/LooksZoom.swift") }),
                                  encoding: .utf8)
         XCTAssertTrue(overlay.contains("shortcut: .cancelAction) { onClose(LooksZoom.currentTrigger()) }"))
-        XCTAssertFalse(overlay.contains("withAnimation"), "the overlay itself never animates; the board decides")
+        XCTAssertFalse(overlay.contains("withAnimation"), "the overlay itself never animates; its sheet decides")
     }
 
     func testTheOverlayAndASpecimenRenderOffscreen() throws {

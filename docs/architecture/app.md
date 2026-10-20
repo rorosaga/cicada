@@ -133,7 +133,9 @@ its window shift, else "share of the plan not recorded". Past nights' folded run
 detail does): the row has no whole-run usage on the wire.
 
 **Navigation (Direction D, DS-1).** A 56 pt icon rail (`Views/Shell/NavRail.swift`): Home, Graph, Clusters, Skills,
-Sleep, Inbox, Sources, Projects, Looks at ⌘1–9 in `AppTab.allCases` order (`RailItem`; a page switch is instant). The Feed
+Sleep, Inbox, Sources, Projects at ⌘1–8 in `AppTab.allCases` order (`RailItem`; a page switch is instant). Looks (⌘9
+from 2026-10-14) went on 2026-10-20 — its looks live on their pages' cards — and a stored "Looks" selection restores to
+Clusters. The Feed
 retired into Sleep on 2026-10-16 and Skills took its cell, so ⌘4 opens Skills and no other shortcut moved (⌘ map A);
 for one release the first ⌘4 that lands on Skills toasts "The Feed is now part of Sleep (⌘5) → Saved." once per viewer
 (`FeedMovedHint`, the key only — a click on the cell never shows it), and a stored "Feed" or "Capture" selection
@@ -823,9 +825,9 @@ release smoke test is excluded). `GET /agents/live` lights a pill's ✓ from the
 rows, a used connector (`last_used_at`) or the agent's own config — no subprocess, never `~/Library`, never
 `~/.claude.json`; polled every 3 s while the page is visible.
 
-**The Skills page (owner 2026-10-15, third take).** The tenth rail page, after Looks (DR-22 as amended 2026-10-15: no
-shortcut moved; it has no ⌘ digit — the row ends at 9 and ⌘0 is Actual Size — so it opens from the rail and ⌘K; `RailItem.key` is nil
-past nine). `SkillsPage` over `SkillsPageModel` (in memory, not a Store domain; `SkillsAPI`, faked in `SkillsPageTests`)
+**The Skills page (owner 2026-10-15, third take).** At ⌘4 since ⌘ map A (2026-10-16). **Its top row is every other
+page's (owner 2026-10-20):** the tabs Installed · Discover · Drafts sit in the eyebrow row, then Check for updates and a
+labelled *Add a skill* (`PageAddButton`, DR-75, ⌘N) that opens the Add sheet empty — the header's add field is gone. `SkillsPage` over `SkillsPageModel` (in memory, not a Store domain; `SkillsAPI`, faked in `SkillsPageTests`)
 shows `GET /skills` as **one plain table** — Skill (the name and one muted line), Agents, Status — with no pictures.
 The Agents cell is one pull-down ("Claude Code, Codex +1 ▾", `SkillAgentWords`) listing every agent installed on this
 Mac: tick to turn the skill on for it, untick to turn it off; an agent that reads another's folder shows a hollow tick
@@ -1179,8 +1181,25 @@ the demo scenario's real wire, `app/CicadaApp/Tests/fixtures/projects-demo.json`
   backend (the background install, Restart to update and the updater's cached check), since that ends a drain between
   batches too. L · M · D are key presses on the focused project (the Inbox's O / L precedent), never menu key equivalents.
 
-**Looks (design taste, owner 2026-10-14).** The ninth rail page (⌘9, `paintpalette`, after Projects so no shortcut
-moves; the placement is the owner's call). A board of the looks the person likes over `GET /design`, not a Store domain:
+**Looks on pages (owner rulings 2026-10-20).** The Looks page is gone: a look lives on the page of the thing it shows
+(`storage.md`). The entity card draws a page's looks from `LooksCache.shared` (one in-memory cache for the card and
+Clusters, revalidated by ETag on appear and when an SSE version moves `design` or `bank`), never from the page's
+`## Looks` markdown, which the article drops (`WikiArticle.ownSurfaces`). `PageLooksSection` (`Views/Looks/PageLooks.swift`,
+pure as `PageLooksBlock`): with looks, a block under the article — "Looks · N looks", a grid of `LooksTile`s, the add
+row; with none, a remembered `CardDisclosure` (`CardSections.looksKey`) among the sections behind a click. A tile opens
+`PageLookSheet`: `LooksDetailColumn` (its new `extra` slot holds `PageLookExtra` — the looks most like it from
+`GET /design/{id}/similar`, each "On <page>", a click opening that page — and *Take it off this page*,
+`PUT /design/{id}/entity` with null), the screenshot enlarging over the sheet by `LooksZoom`'s rules. Adding: a pasted
+link (`PageLooks.link`, http/https only, else said) → `POST /sources/save` then `POST /explore/look` with `subject` (the
+prompt copied, "Queued for your agent…"); a picture dropped anywhere on the card's Content tab → `DesignImageShrink` →
+`POST /design` with `entity` (`PageLooks.drop`; a dashed ring while held); *Put a saved look here* lists the looks on no
+page (`LooksCache.unplaced`) and moves one with `PUT /design/{id}/entity`. Clusters' View menu gains "Only pages with
+looks" (`ClustersModel.filtered(withLooks:)` over `LooksCache.pagesWithLooks`). Renders: `LooksTests.
+testRenderThePageLooksForReview` with `LOOKS_RENDER_DIR`. What follows describes the board as it was; its tile, palette
+strip, detail column, specimens, zoom and intake are the views the card uses (`Views/Looks/LooksViews.swift`).
+
+**Looks (design taste, owner 2026-10-14; retired as a page 2026-10-20).** The ninth rail page (⌘9, `paintpalette`, after
+Projects so no shortcut moved; the placement was the owner's call). A board of the looks the person likes over `GET /design`, not a Store domain:
 `LooksCache` (in the page, in memory) revalidates by ETag when the page appears, after a write, when an SSE version moves
 `design` or `bank` (`LooksRefresh`), and is emptied on a bank switch. `LooksBoardView` is pure over its inputs (the page
 feeds it the cache; the offscreen renders feed it fixtures): the eyebrow (`Looks · 5 saved`, `… · 3 matches`), a search

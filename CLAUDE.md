@@ -276,6 +276,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   append-only in the bank beside its captures (`captures/_sites/`, one writer `site_map`; `storage.md`).
 - **Design references (2026-10-14):** one markdown file plus its screenshot per look, in the bank, one writer
   (`design_refs`), never an entity page; palette and vectors are computed here, the index lives outside the bank.
+  **Owner 2026-10-20:** a look lives on the page of the thing it shows — the record's `entity:` plus a `## Looks` section
+  on that page that only `design_refs` writes (never a page invented); the Looks page is gone (`storage.md`, `app.md`).
 - **`_state.md` is a cursor, never a copy**; it commits ALONE, the read path too (the G85-class smear). **The handshake is
   ≤ 1,800 tokens, and R12 holds: every argument a primer names exists in the tool schema.**
 - **Derived indexes are disposable** (vectors, FTS): rebuilt, never an error; never tracked by git; **the query is never

@@ -19,10 +19,12 @@ from, what they liked in their own words, and what the look is made of — its c
   page's web fonts cannot be fetched by the app (it loads nothing a page names from the web), so the specimen is the
   page's own pixels, kept with the look like the screenshot.
 
-**Never an entity page** (the closed set of 10 types stays closed): Stage 1 never reads ``design/``, nothing here
-writes ``entities/``, and a reference never decays — a look the person liked does not become less true. A reference
-may name a page it is about (``entity:``, a site's company or tool page) but never creates one. Vectors are not here:
-``design_index`` keeps them outside the bank, derived and disposable.
+**Never an entity page** (the closed set of 10 types stays closed): Stage 1 never reads ``design/`` and a reference
+never decays — a look the person liked does not become less true. **A look lives on the page of the thing it shows**
+(owner 2026-10-20): the record's ``entity:`` names that page (it never creates one), and the page's markdown carries a
+``## Looks`` section this module alone writes — one line per look linking the record, its screenshot embedded — so
+the page reads whole in git, Obsidian or an agent's recall. The only thing written under ``entities/`` here is that
+section. Vectors are not here: ``design_index`` keeps them outside the bank, derived and disposable.
 
 Every door goes through here — REST (``routers/design.py``), MCP (``mcp_tools.save_design``), the demo generator — so
 the id rule, the scrub and the bounds cannot drift. Callers pass the ACTIVE bank (the split-brain rule) and commit the
@@ -526,7 +528,7 @@ def add_ref(memory_path, *, image: bytes, url: str | None = None, title: str | N
             snippets=None, tags=None, region=None, entity: str | None = None, via: str = "drop",
             author: str = USER, session: str | None = None, now: datetime | None = None,
             look: tuple[list[dict], list[str]] | None = None, explored: dict | None = None,
-            computed=None, note_by: str | None = None, specimens=None) -> dict:
+            computed=None, note_by: str | None = None, specimens=None, attach_auto: bool = True) -> dict:
     """File one reference: ``{"action": "added", "ref", "paths"}``, or a refusal that wrote nothing.
 
     ``look`` is the palette and its words when the caller already read them (a route reads them before it takes
@@ -539,7 +541,13 @@ def add_ref(memory_path, *, image: bytes, url: str | None = None, title: str | N
     words are theirs and Cicada itself read them (an explore Look's note is their saved reason).
 
     ``specimens`` are the capture's type specimens, ``[{family, data}]`` (looks polish): kept beside the screenshot,
-    one per family the computed type names, at most six, each a transparent PNG of at most 400×120 px."""
+    one per family the computed type names, at most six, each a transparent PNG of at most 400×120 px.
+
+    ``entity`` is the page the look shows (owner 2026-10-20): a page that exists, never one created. With none given
+    (and ``attach_auto``), :func:`subject_for` finds it — the one page whose trusted site is the look's, else the saved
+    link's own page — or leaves the look unattached. An attached look's page gets its ``## Looks`` line in the same
+    write (under the page lock); ``paths`` then carries the page, and ``attached`` says how (``given``, ``site``,
+    ``link``) or is None."""
     bank = Path(memory_path).name
     try:
         ext = validate_image(image)
@@ -568,8 +576,12 @@ def add_ref(memory_path, *, image: bytes, url: str | None = None, title: str | N
     day = captured[:10]
     base = f"{day}-{slug(site or title_kept or 'look')}"
     entity_id = str(entity or "").strip() or None
-    if entity_id and not (Path(memory_path) / "entities" / f"{entity_id}.md").is_file():
-        entity_id = None   # a reference may point at a page; it never creates one
+    how: str | None = "given" if entity_id else None
+    if entity_id and not page_exists(memory_path, entity_id):
+        entity_id, how = None, None   # a reference may point at a page; it never creates one
+    if entity_id is None and attach_auto:
+        entity_id, found = subject_for(memory_path, url_kept)
+        how = found if entity_id else None
     ref = Reference(
         id=base, title=title_kept, url=url_kept, site=site, captured=captured, added_by=(author or USER).strip(),
         session=session or None, via=via if via in VIAS else "drop", palette=colours, look=words, tokens=tokens,
@@ -610,7 +622,14 @@ def add_ref(memory_path, *, image: bytes, url: str | None = None, title: str | N
             target.unlink(missing_ok=True)
         (root / f"{ref.id}.md").unlink(missing_ok=True)
         return _error(f"The screenshot couldn't be saved ({type(exc).__name__}).")
-    return {"action": "added", "ref": ref, "paths": [ref.path, ref.image_path, *(s["file"] for s in ref.specimens)]}
+    paths = [ref.path, ref.image_path, *(s["file"] for s in ref.specimens)]
+    if ref.entity:
+        from api.services import page_lock
+
+        with page_lock.page_lock(memory_path):
+            if (page := sync_page(memory_path, ref.entity)) is not None:
+                paths.append(page)
+    return {"action": "added", "ref": ref, "paths": paths, "attached": how if ref.entity else None}
 
 
 def remove_ref(memory_path, ref_id: str, *, author: str = USER) -> dict:
@@ -632,6 +651,12 @@ def remove_ref(memory_path, ref_id: str, *, author: str = USER) -> dict:
             spec.unlink(missing_ok=True)
             paths.append(specimen_rel(ref.id, n))
     (Path(memory_path) / ref.path).unlink(missing_ok=True)
+    if ref.entity:
+        from api.services import page_lock
+
+        with page_lock.page_lock(memory_path):
+            if (page := sync_page(memory_path, ref.entity)) is not None:
+                paths.append(page)
     return {"action": "removed", "ref": ref, "paths": paths}
 
 
@@ -641,7 +666,10 @@ def commit_message(paths: list[str], *, action: str, subject: str, trigger: str,
     from api.services import git_service
 
     return git_service.build_commit_message(
-        f"{subject} {day}", [f"{p}: {action} (source: n/a, trigger: {trigger})" for p in dict.fromkeys(paths)],
+        f"{subject} {day}",
+        # A page the look is on only had its `## Looks` section written: it is updated, whatever the look was.
+        [f"{p}: {'updated' if p.startswith('entities/') else action} (source: n/a, trigger: {trigger})"
+         for p in dict.fromkeys(paths)],
         authors=[author], sessions=[session] if session else None)
 
 
@@ -662,3 +690,214 @@ def describe_for_embedding(ref: Reference) -> str:
              ("Fonts: " + ", ".join(names)) if names else "",
              (f"From {ref.site}") if ref.site else ""]
     return ". ".join(p.strip() for p in parts if p and p.strip())
+
+
+# --------------------------------------------------------------------------- the page a look shows (owner 2026-10-20)
+#
+# "This should be ingrained in the markdown of a specific thing." A look belongs to the page of the thing it shows —
+# a website, a product, a project — and that page's markdown says so in its own ``## Looks`` section. The record stays
+# here, one file per look (its palette, tokens, specimens, note and history are the look's, and a page's prose rewrite
+# can never lose them); the record's ``entity:`` is the attachment, and the page's section is its rendering: one bullet
+# per look, newest first, a link to the record and its screenshot embedded, so git, GitHub, Obsidian and an agent
+# reading the page all see it. This module is the section's ONE writer; Sleep's writers carry it as a canonical
+# record section (``entity_body.CANONICAL_SECTIONS``) and never write one (the article writer's titles refuse it).
+
+LOOKS_SECTION = "Looks"
+_LOOKS_HEAD = re.compile(r"(?m)^## Looks[ \t]*\n?")
+_H1_H2 = re.compile(r"(?m)^#{1,2}[ \t]")
+_BRACKETS = re.compile(r"[\[\]]")
+#: A subject is a real page id, never a path (the same shape ``fact_sources`` and the routes accept).
+ENTITY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
+
+
+def _page(memory_path, entity_id: str | None) -> Path | None:
+    eid = str(entity_id or "").strip()
+    if not eid or not ENTITY_RE.match(eid) or eid.startswith("."):
+        return None
+    path = Path(memory_path) / "entities" / f"{eid}.md"
+    return path if path.is_file() else None
+
+
+def page_exists(memory_path, entity_id: str | None) -> bool:
+    return _page(memory_path, entity_id) is not None
+
+
+def refs_for(memory_path, entity_id: str, refs: list[Reference] | None = None) -> list[Reference]:
+    """The looks attached to one page, newest first."""
+    return [r for r in (refs if refs is not None else list_refs(memory_path)) if r.entity == entity_id]
+
+
+def section_line(ref: Reference) -> str:
+    """One look on its page: the record linked by its title (site · day after it), the screenshot embedded below."""
+    title = _BRACKETS.sub("", ref.title or ref.site or "A look") or "A look"
+    bits = [f"- [{title}](../{ref.path})"]
+    if ref.site:
+        bits.append(ref.site)
+    if ref.day:
+        bits.append(ref.day)
+    line = " · ".join(bits)
+    if ref.image_path:
+        line += f"\n  ![{title}](../{ref.image_path})"
+    return line
+
+
+def page_section(refs: list[Reference]) -> str:
+    """The ``## Looks`` section's content for these looks (empty when there are none)."""
+    return "\n".join(section_line(r) for r in refs)
+
+
+def _section_span(prose: str) -> tuple[int, int] | None:
+    """Where the page's ``## Looks`` section runs in its prose (heading included), or None."""
+    m = _LOOKS_HEAD.search(prose)
+    if m is None:
+        return None
+    nxt = _H1_H2.search(prose, m.end())
+    return m.start(), (nxt.start() if nxt else len(prose))
+
+
+def with_section(prose: str, content: str) -> str:
+    """``prose`` with its ``## Looks`` section set to ``content`` — replaced in place, inserted in its canonical place
+    (before ``## Open Questions`` or any section after it) when absent, removed when ``content`` is empty. Nothing
+    else in the prose moves: this is a surgical edit, never a re-render of the page."""
+    from api.services import entity_body
+
+    block = f"## {LOOKS_SECTION}\n{content.strip()}\n\n" if content.strip() else ""
+    span = _section_span(prose)
+    if span is not None:
+        start, end = span
+        out = prose[:start] + block + prose[end:].lstrip("\n")
+    elif not block:
+        return prose
+    else:
+        order = entity_body.CANONICAL_SECTIONS
+        before = set(order[: order.index(LOOKS_SECTION)])
+        at = None
+        for m in re.finditer(r"(?m)^##[ \t]+(.+?)[ \t]*$", prose):
+            if m.group(1).strip() not in before:
+                at = m.start()
+                break
+        if at is None:
+            out = prose.rstrip() + ("\n\n" if prose.strip() else "") + block
+        else:
+            out = prose[:at] + block + prose[at:]
+    return out.rstrip() + "\n"
+
+
+def sync_page(memory_path, entity_id: str, refs: list[Reference] | None = None) -> str | None:
+    """Write the page's ``## Looks`` section from the looks attached to it: the page's memory-relative path when it
+    changed, None when it was already right (or there is no such page). The prose before the claims fence is edited;
+    the fence and everything after it are put back byte for byte, and the claims ledger is never opened (the
+    ``page_edits`` rule). The caller holds the page lock and commits the path."""
+    from api.services import page_edits
+
+    page = _page(memory_path, entity_id)
+    if page is None:
+        return None
+    parsed = markdown_parser.parse(page, ledger=False)
+    prose, rest = page_edits.split_prose(parsed.body)
+    new_prose = with_section(prose, page_section(refs_for(memory_path, entity_id, refs)))
+    if new_prose.rstrip() == prose.rstrip():
+        return None
+    body = new_prose + ("\n" + rest if rest else "")
+    markdown_parser.write(page, dict(parsed.frontmatter or {}), body)
+    return f"entities/{page.name}"
+
+
+def _set_entity(memory_path, ref: Reference, entity_id: str | None) -> None:
+    """The record's ``entity:`` and nothing else: its body (the note, the snippets) is left exactly as it is."""
+    path = _root(memory_path) / f"{ref.id}.md"
+    parsed = markdown_parser.parse(path)
+    fm = dict(parsed.frontmatter or {})
+    if entity_id:
+        fm["entity"] = entity_id
+    else:
+        fm.pop("entity", None)
+    markdown_parser.write(path, fm, parsed.body)
+    ref.entity = entity_id
+
+
+def attach(memory_path, ref_id: str, entity_id: str | None, *, author: str = USER) -> dict:
+    """Put a look on a page (or take it off one, ``entity_id`` None): ``{"action": "attached" | "detached" |
+    "unchanged", "ref", "paths"}`` — the record and both pages' sections — or a refusal that wrote nothing. A look is
+    attached only to a page that exists (it never creates one). An agent moves only a look it added. The caller holds
+    the write admission and the page lock, and commits ``paths``."""
+    ref = get_ref(memory_path, ref_id)
+    if ref is None:
+        return {"action": "not_found", "error": "No such look."}
+    if author != USER and ref.added_by != author:
+        return _error("An agent moves only the looks it added.")
+    target = str(entity_id or "").strip() or None
+    if target is not None and not page_exists(memory_path, target):
+        return _error("That page isn't in memory, so the look can't go on it.")
+    before = ref.entity if page_exists(memory_path, ref.entity) else None
+    if ref.entity == target:
+        paths = [p for p in [sync_page(memory_path, target)] if p] if target else []
+        return {"action": "unchanged", "ref": ref, "paths": paths}
+    _set_entity(memory_path, ref, target)
+    refs = list_refs(memory_path)
+    paths = [ref.path]
+    for eid in dict.fromkeys(e for e in (before, target) if e):
+        if (p := sync_page(memory_path, eid, refs)) is not None:
+            paths.append(p)
+    return {"action": "attached" if target else "detached", "ref": ref, "paths": paths}
+
+
+def repoint(memory_path, old_id: str, new_id: str) -> list[str]:
+    """A page merge (``entity_merge``): every look on ``old_id`` moves to ``new_id``, whose section is written again.
+    The memory-relative paths written (the records, and the winner's page when its section changed)."""
+    moved = [r for r in list_refs(memory_path) if r.entity == old_id]
+    paths: list[str] = []
+    for ref in moved:
+        _set_entity(memory_path, ref, new_id)
+        paths.append(ref.path)
+    if moved and (p := sync_page(memory_path, new_id)) is not None:
+        paths.append(p)
+    return paths
+
+
+def repoint_footprint(memory_path, old_id: str, new_id: str) -> list[str]:
+    """What :func:`repoint` would write, without writing (a merge's manifest, G183(e))."""
+    moved = [r.path for r in list_refs(memory_path) if r.entity == old_id]
+    return moved + ([f"entities/{new_id}.md"] if moved else [])
+
+
+def _site_key(host: str | None) -> str | None:
+    host = (host or "").strip().lower()
+    return (host[4:] if host.startswith("www.") else host) or None
+
+
+def subject_for(memory_path, url: str | None, *, pages=None) -> tuple[str | None, str]:
+    """The page a look of ``url`` shows — ``(entity_id, how)``, deterministic, no model, never a page invented:
+
+    * ``site`` — exactly one page whose trusted ``website`` source (the one a page's mark is drawn from,
+      ``logo_service``) is the look's site; two or more is ``ambiguous`` and attaches nothing;
+    * ``link`` — else the saved link's own page, when the person saved exactly this URL (``url_index``);
+    * ``none`` — else nothing: the look stays unattached until the person puts it on a page.
+
+    ``pages`` is ``[(stem, frontmatter)]`` when the caller already read them (the migration reads them once)."""
+    from api.services import bank_index, logo_service, media_ingestor
+
+    site = _site_key(site_of(url))
+    if not site:
+        return None, "none"
+    if pages is None:
+        pages = [(f.stem, f.frontmatter or {}) for f in bank_index.files(Path(memory_path), "entities")]
+    hits = []
+    for stem, fm in pages:
+        if str(fm.get("type") or "").lower() == "media" or str(fm.get("status") or "") == "dropped":
+            continue
+        if _site_key(logo_service._trusted_website_host(fm)) == site:
+            hits.append(stem)
+    if len(hits) == 1:
+        return hits[0], "site"
+    if len(hits) > 1:
+        return None, "ambiguous"
+    try:
+        index = media_ingestor.load_url_index(Path(memory_path))
+        entry = index.get(media_ingestor._primary(index, media_ingestor.url_hash(str(url))))
+    except Exception:  # noqa: BLE001 — an unreadable index answers nothing, never a failed save
+        entry = None
+    eid = str((entry or {}).get("media_entity_id") or "") if isinstance(entry, dict) else ""
+    if eid and page_exists(memory_path, eid):
+        return eid, "link"
+    return None, "none"

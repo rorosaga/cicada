@@ -237,7 +237,10 @@ Save: when the person says they like how a site or screen looks, the agent sends
 (an absolute path to a PNG or JPEG it saved, ≤ 4 MB) or `image_base64` — with `url`, a `note` on what they liked, and any
 HTML/CSS they pointed at as `snippets` (`title`, `tags`, `region` optional), and since looks v2 the page's computed type
 and colour roles as `tokens` (`design_tokens.JSON_SCHEMA`, `storage.md`; what is out of bounds is listed back as
-"tokens left out"). The note is the agent's: it is shown as "Noted by <harness>", never as the person's words. The stdio server reads that file as the
+"tokens left out"). **`subject`** (owner 2026-10-20) is the id of the page the look shows — a page recall returned; an
+unknown id is refused with nothing written, and none given lets the writer place it (the one page whose trusted site it
+is, else the saved link's page, else nowhere — `storage.md`); the reply says which page, and `design_search` rows say
+"on page <id>". The note is the agent's: it is shown as "Noted by <harness>", never as the person's words. The stdio server reads that file as the
 agent's own child process, and only a regular PNG/JPEG outside `~/.claude`, `~/.codex`, `~/.cicada` / `CICADA_HOME`,
 `~/Library` and the bank (the transcript rail, and the app-reads-`~/Library` rail). The refusal is **by file identity,
 never by spelling** (review 2026-10-14): the resolved file and every folder above it are compared by `(st_dev,

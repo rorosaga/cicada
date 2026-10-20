@@ -151,7 +151,8 @@ ROWS: tuple[Row, ...] = (
         (_p("item"), _p("note"), _f("status")), mutates=True),
     Row(("design", "save"), "cicada_save_design", "Save a look the person likes: a screenshot, its link, the note.",
         (_p("note"), _f("url"), _f("image_path"), _f("image_base64"), _f("title"), _f("snippets", "json"),
-         _f("tags", "list", flag_name="tag"), _f("region", "json"), _f("tokens", "json")), mutates=True),
+         _f("tags", "list", flag_name="tag"), _f("region", "json"), _f("tokens", "json"), _f("subject")),
+        mutates=True),
     Row(("design", "search"), "cicada_design_search", "The person's saved looks, by words or by a picture.",
         (_f("query"), _f("image_path"), _f("image_base64"), _f("limit", "int"))),
     # The Skills page (2026-10-15): an agent reads, asks and drafts; installing is the person's (`skills add`).

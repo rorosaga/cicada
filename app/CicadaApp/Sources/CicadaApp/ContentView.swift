@@ -553,8 +553,6 @@ struct ContentView: View {
             }
         case .projects:
             ProjectsPage()
-        case .looks:
-            LooksPage()
         case .skills:
             SkillsPage()
         }

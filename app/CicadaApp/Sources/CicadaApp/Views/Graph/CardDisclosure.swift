@@ -26,6 +26,8 @@ enum CardSections {
     static let beliefsKey = "cicada.card.beliefsOpen"
     static let provenanceKey = "cicada.card.provenanceOpen"
     static let connectionsKey = "cicada.card.connectionsOpen"
+    /// A page with no looks yet: the Looks section's ways to add one (owner 2026-10-20).
+    static let looksKey = "cicada.card.looksOpen"
 }
 
 /// A section reading its data, said in words beside a small spinner (DR-32's rule: never a blank).

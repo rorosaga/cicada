@@ -4632,6 +4632,8 @@ def _design_line(ref, *, memory_path: Path | None = None, legs: list[str] | None
     bits = [f"- {ref.id} · {name}"]
     if ref.url:
         bits.append(ref.url)
+    if ref.entity:
+        bits.append(f"on page {ref.entity}")
     if ref.palette:
         bits.append("palette " + " ".join(c["hex"] for c in ref.palette[:6]))
     if ref.look:
@@ -4660,11 +4662,15 @@ def _design_line(ref, *, memory_path: Path | None = None, legs: list[str] | None
 
 
 def save_design(ctx: ToolContext, url=None, note=None, image_path=None, image_base64=None, title=None, snippets=None,
-                tags=None, region=None, tokens=None) -> str:
+                tags=None, region=None, tokens=None, subject=None) -> str:
     """`cicada_save_design` (design taste): a look the person likes, captured by their agent — the screenshot, the
     page, what they liked, and any HTML/CSS they pointed at. Written by the one writer (`design_refs`) as the harness,
     with the conversation as `Cicada-Session:`; refused in a demo bank and while Sleep runs. The palette is read from
-    the pixels before the admission is taken."""
+    the pixels before the admission is taken.
+
+    ``subject`` (owner 2026-10-20) is the page the look shows: a page id already in memory — never one created. Without
+    it the writer finds the page whose own site it is, else the saved link's page, else leaves it unattached. The
+    page's ``## Looks`` line is written and committed with the look, under the page lock."""
     from api.services import design_refs, telemetry
 
     memory_path = ctx.memory_path()
@@ -4679,14 +4685,18 @@ def save_design(ctx: ToolContext, url=None, note=None, image_path=None, image_ba
 
     computed, problems = design_tokens.clean(tokens)
     specimens = _design_specimens(ctx, memory_path, tokens)
+    subject = str(subject or "").strip() or None
+    if subject is not None and not design_refs.page_exists(memory_path, subject):
+        return (f"Not saved: there is no page `{subject[:80]}` in memory. Name a page recall returned, or leave "
+                "`subject` out and Cicada places it.")
     look = design_refs.read_look(data, design_refs.declared_colours(snippets, computed))
-    with write_admission.shared(memory_path):   # G183: from the probe through the commit
+    with write_admission.shared(memory_path), page_lock.page_lock(memory_path):   # G183: probe through commit
         if ctx.sleep_running():
             return DESIGN_SLEEPING
         result = design_refs.add_ref(memory_path, image=data, url=url, title=title, note=note, snippets=snippets,
                                      tags=tags if isinstance(tags, list) else None, region=region, via="agent",
                                      author=ctx.author, session=ctx.session_id, look=look, computed=computed,
-                                     specimens=specimens)
+                                     specimens=specimens, entity=subject)
         if result["action"] == "duplicate":
             return f"NOT saved — that screenshot is already on the board as {result['id']}."
         if result["action"] != "added":
@@ -4700,9 +4710,12 @@ def save_design(ctx: ToolContext, url=None, note=None, image_path=None, image_ba
             billing="subscription", invocations=1, refs=refs))
         agent_commits.commit_write(
             memory_path, subject=ctx.commit_subject,
-            lines=[f"{p}: created (source: n/a, trigger: {ctx.trigger})" for p in result["paths"]],
+            lines=[f"{p}: {'updated' if p.startswith('entities/') else 'created'} (source: n/a, trigger: {ctx.trigger})"
+                   for p in result["paths"]],
             paths=result["paths"], author=ctx.author, session=ctx.session_id)
-    head = f"Saved {ref.id} to the person's design board. Your note shows as yours, never as their words."
+    where = (f" It is on the page `{ref.entity}` (its Looks section)." if ref.entity else
+             " It isn't on a page yet: no page in memory has that site as its own, so the person places it.")
+    head = f"Saved {ref.id}. Your note shows as yours, never as their words.{where}"
     detail = _design_line(ref)
     if problems:
         detail += "\n  tokens left out: " + "; ".join(problems[:6])
@@ -4742,7 +4755,7 @@ def design_search(ctx: ToolContext, query=None, image_path=None, image_base64=No
             lines.append(_design_line(ref, memory_path=None if ctx.is_remote else memory_path, legs=hit["legs"]))
     notes = []
     if "image_model" in out["missing"]:
-        notes.append("Searching by picture isn't set up on this Mac (the person can turn it on from the Looks page), "
+        notes.append("Searching by picture isn't set up on this Mac (the person can turn it on in Settings, Search & files), "
                      "so pictures were compared by their words only.")
     if "model" in out["missing"]:
         notes.append("Only words were compared: the on-device search model isn't installed.")
@@ -4992,7 +5005,8 @@ def _explore_page_shots(ctx: ToolContext, memory_path: Path, page: dict) -> list
 
 def _explore_looks(ctx: ToolContext, memory_path: Path, *, site, cap: dict, landing: bytes | None,
                    pages: list[dict], why_text: str | None, landing_design=None,
-                   save_look: bool = False, landing_specimens=None) -> tuple[list[str], list[str]]:
+                   save_look: bool = False, landing_specimens=None,
+                   subject: str | None = None) -> tuple[list[str], list[str]]:
     """The auto-Look (G196 via G166 slice 2): when the person's reason is the design, the visit's best pictures become
     Looks through the one design writer — the landing page first, then each page whose look is new, never two near
     copies (dHash within ``site_captures.SAME``), at most :data:`MAX_AUTO_LOOKS`. Each names the site, the date and
@@ -5000,13 +5014,17 @@ def _explore_looks(ctx: ToolContext, memory_path: Path, *, site, cap: dict, land
     save, so it shows as what they liked. Each Look keeps the page's computed type and colour roles when the capture
     printed them (``design``, looks v2). ``save_look`` (the person's "Save its look") keeps the landing page even when
     its look has not changed since the last visit. Each Look keeps the type specimens its page's capture drew
-    (``specimens``, looks polish). ``(ids, paths)``."""
+    (``specimens``, looks polish). ``(ids, paths)``.
+
+    Each Look goes on the page of the thing it shows (owner 2026-10-20): ``subject``, the page the person pasted the
+    link on (the queue row's), else the writer's own rule — the page whose trusted site this is, else the saved
+    link's page (the landing picture) — else none."""
     from api.services import design_refs, explore_plan, site_captures
 
     candidates: list[tuple[str, str, str | None, bytes, str | None, str | None, object, object]] = []
     if landing is not None and (save_look or (cap.get("change") or {}).get("look") != "same"):
         candidates.append((explore_plan.page_kind(site.url), site.url, cap.get("title"), landing, cap.get("dhash"),
-                           site.entity_id, landing_design, landing_specimens))
+                           subject, landing_design, landing_specimens))
     stored = {p.get("url"): p for p in cap.get("pages") or [] if isinstance(p, dict)}
     for page in pages:
         kept = stored.get(page["url"]) or {}
@@ -5015,7 +5033,7 @@ def _explore_looks(ctx: ToolContext, memory_path: Path, *, site, cap: dict, land
             continue
         if (kept.get("change") or {}).get("look") == "same":
             continue
-        candidates.append((page["kind"], page["url"], kept.get("title"), viewport, kept.get("dhash"), None,
+        candidates.append((page["kind"], page["url"], kept.get("title"), viewport, kept.get("dhash"), subject,
                            page.get("design"), page.get("specimens")))
     ids: list[str] = []
     paths: list[str] = []
@@ -5135,7 +5153,7 @@ def record_capture(ctx: ToolContext, url: str, lease_token: str, outcome: str, c
                       "design": design_tokens.clean(page_in.get("design"))[0] or None,
                       "specimens": _design_specimens(ctx, memory_path, page_in.get("design"))})
     looks: list[str] = []
-    with write_admission.shared(memory_path):   # G183: from the probe through the commit
+    with write_admission.shared(memory_path), page_lock.page_lock(memory_path):   # G183: probe through commit
         if ctx.sleep_running():
             return EXPLORE_SLEEPING
         result = site_captures.record(
@@ -5170,7 +5188,7 @@ def record_capture(ctx: ToolContext, url: str, lease_token: str, outcome: str, c
                 looks, look_paths = _explore_looks(ctx, memory_path, site=site, cap=cap, landing=landing,
                                                    pages=ready, why_text=(site.why or {}).get("text"),
                                                    landing_design=design, save_look=bool(plan.get("save_look")),
-                                                   landing_specimens=specimens)
+                                                   landing_specimens=specimens, subject=(row or {}).get("subject"))
                 paths += look_paths
         if paths:
             agent_commits.commit_write(
