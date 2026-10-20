@@ -101,7 +101,8 @@ PROBE_SITES = {
     "api/services/explore_queue.py": "the same lease judgement and the sync stamp",
     "api/services/inbox_service.py": "the early 409 before an answer's model call; the admitted write asks again",
     "api/services/paper_metadata.py": "a long networked run's stop check; its writes are left to the tail (disclosed)",
-    "api/routers/inbox.py": "the one-time tidy's and the web-check sweep's early 409s (ruling 29; 2026-10-19); each "
+    "api/routers/inbox.py": "the one-time tidy's, its vetted apply's and the web-check sweep's early 409s (ruling 29; "
+                            "2026-10-19/20); each "
                             "settle admits itself (`_settle_one`, `web_lookup._settle_admitted`)",
     "api/services/inbox_tend.py": "the tidy's stop check before each judge call; each settle admits itself and asks "
                                   "again (`_settle_one`)",
@@ -364,6 +365,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     # Ruling 29: the one-time tidy settles each question under its own admission, refused while Sleep holds the pages.
     "POST /inbox/tidy": (ADMITTED, "api.services.inbox_tend._settle_one"),
     "POST /inbox/web-check": (ADMITTED, "api.services.web_lookup._settle_admitted"),   # the 2026-10-19 sweep
+    # Owner rule 2026-10-20: the vetted apply of a coordinator's trace, each row settled under its own admission.
+    "POST /inbox/tidy/apply": (ADMITTED, "api.services.inbox_tend._settle_one"),
     "POST /nudges/{nudge_id}/resolve": (ADMITTED, "api.services.inbox_service.resolve"),
     "POST /clarifications/{clarification_id}": (ADMITTED, "api.services.inbox_service.resolve"),
     "POST /entities/{entity_id}/read": (OUTSIDE, None),

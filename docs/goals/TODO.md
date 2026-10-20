@@ -8,6 +8,15 @@
 
 ## Current state and evidence
 
+- **2026-10-21 — The inbox tidy as a trace the coordinator reads, then a vetted apply (owner rule 2026-10-20;
+  branch `feat/tidy-trace`).** A counts-only dry run once let 8 wrong conflict settles through. `api/scripts/
+  inbox_tidy_trace.py trace --bank <path> --out <file> --engine plan --model haiku [--kind merge_suggestion]` runs the
+  tidy's dry run in process and writes one 0600 JSONL row per question (id, kind, the two names, merge / keep_apart /
+  settle / leave, the judge's confidence, a one-line reason) outside every bank; `--engine plan` never resolves or
+  calls the bank's configured engine. `… apply --vetted <file>` sends the kept rows to `POST /inbox/tidy/apply`, which
+  settles each exactly as traced as Sleep's undoable commit, only while the question and its pages are unchanged.
+  Detail: `features.md`, "The coordinator's trace and vetted apply". Tests: `test_inbox_tidy_trace.py`. Pick up: the
+  coordinator traces the owner's "Possible duplicate" questions (#389's empty-description cause) and reads every row.
 - **2026-10-20 — Contacts as a seed; imported-only pages stay quiet (ruling 33, G154; branch `feat/people-seed`).**
   Unmatched address-book cards wait in `$CICADA_HOME/people/<bank>/contacts.json` (`people_directory`, shared with
   LinkedIn; 0600); a person's first conversation mention naming exactly one waiting card promotes on its own and the
