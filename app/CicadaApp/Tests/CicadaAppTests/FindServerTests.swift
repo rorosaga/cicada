@@ -163,6 +163,30 @@ final class FindServerTests: XCTestCase {
     }
 
     /// G150 (R-B25) — a backlog hit is a row of its own group that lands on Projects with the item open.
+    /// Review of #372 — a bookmark's conversation row wears its site's own mark (`SavedLinkMark`, asked by its
+    /// episode), never the browser's; a hit with no site (a conversation, an older backend) keeps its origin mark.
+    func testASavedLinksConversationRowWearsItsSitesMark() {
+        let response = FakeFindSearch.decode(#"""
+        {"results": [
+          {"id": "ep_2026-09-03_007", "name": "Paperfold folding guide", "type": "episode", "status": "active",
+           "confidence": 0, "score": 3, "snippet": "", "kind": "episode", "episodeId": "ep_2026-09-03_007",
+           "origin": "chrome-bookmark", "site": "paperfold.io"},
+          {"id": "ep_2026-09-03_008", "name": "Another bookmark", "type": "episode", "status": "active",
+           "confidence": 0, "score": 2, "snippet": "", "kind": "episode", "episodeId": "ep_2026-09-03_008",
+           "origin": "chrome-bookmark"}],
+         "totals": {"episode": 2}, "mode": "prefix", "indexState": "ready"}
+        """#)
+        XCTAssertEqual(response.results[0].site, "paperfold.io")
+        XCTAssertNil(response.results[1].site, "an older backend sends no site")
+        let rows = FindServerRows.rows(response, query: "paperfold", context: context)
+        XCTAssertEqual(rows.map(\.mark), [
+            .savedLink(.site(key: "paperfold.io", label: "paperfold.io", door: .episode("ep_2026-09-03_007"))),
+            .origin("chrome-bookmark"),
+        ])
+        let conversation = FindServerRows.rows(FakeFindSearch.decode(Self.wire), query: "sqlite", context: context)[1]
+        XCTAssertEqual(conversation.mark, .origin("claude-code"), "a conversation keeps its harness's mark")
+    }
+
     func testABacklogHitLandsOnProjectsWithTheItemOpen() {
         let response = FakeFindSearch.decode(#"""
         {"results": [{"id": "RAP3", "name": "Swap the gripper camera for a global-shutter one", "type": "research",

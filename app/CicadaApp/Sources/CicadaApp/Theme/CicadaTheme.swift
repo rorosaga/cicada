@@ -210,8 +210,15 @@ enum CicadaTheme {
     /// 2026-10-20, DESIGN_RULES §9): an accent fill behind words is exactly what macOS draws for a text selection, so a
     /// cited passage read as "selected". The accent stays on the current span's underline and its marker
     /// (`ReaderChat.CitedMark`); the tint only says which words, and is distinct from every selection and hover fill.
+    ///
+    /// `washSoft` is as visible as `wash` (review of #383, 2026-10-20): at white 5 % / black 4 % another cited span
+    /// stood 1.09:1 off the light pane and 1.17:1 off the dark person bubble, so in the document view — no "Cited"
+    /// marker there — the spans the navigator counts could not be found. The current span is told by its accent
+    /// underline (and, in a chat, its marker's accent bar), not by a darker tint. Neither may go further: black 7 % sits
+    /// midway between light `bgHover` and `bgSelected` on the pane, and white 10 % one step above dark `bgSelected`, so
+    /// no tinted word reads as a hovered or selected row (`ThemeContrastTests.testEveryCitedSpanIsFindable…`).
     static var wash: Color { mode == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.07) }
-    static var washSoft: Color { mode == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.04) }
+    static var washSoft: Color { wash }
     /// Keyboard focus — 2 pt at 60 % (DR-5 use 1).
     static var focusRing: Color { accent.opacity(0.6) }
 

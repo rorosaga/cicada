@@ -88,6 +88,8 @@ struct FindMarkView: View {
             EntityPicture(id: id, name: name, type: type, size: 20)
         case .origin(let origin):
             OriginMark(origin: origin, size: CicadaTheme.scaled(20))
+        case .savedLink(let site):
+            SavedLinkMark(mark: site, size: .row)
         case .symbol(let name):
             Image(systemName: name)
                 .font(CicadaTheme.font(size: 13))

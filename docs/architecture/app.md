@@ -907,8 +907,9 @@ the website's logo … Clicking again on Sources takes me back to the main Sourc
   `SavedLinkMarkModel`: the site the backend named (`siteKey` / `site`, `reading_hosts.mark_key`) → `SiteIcon`, asked by
   the item's media id or, before Sleep made its page, its episode id; else the family's bundled mark; else the site's
   monogram. Drawn by Sources' saved rows, Sleep › Saved and Videos rows, Sleep › Waiting rows of a saved link (a
-  conversation, note or file keeps its source's mark), an open saved item's eyebrow, and the Reader's header for a
-  saved link. Where it was saved from stays in words: the open item's "Saved from" line keeps the browser's mark beside
+  conversation, note or file keeps its source's mark), an open saved item's eyebrow, the Reader's header for a
+  saved link, and the ⌘K palette's conversation row of a saved link (review of #372: the search hit carries `site`,
+  recorded by the search index from the episode's own frontmatter; `FindMark.savedLink`, asked by the episode id). Where it was saved from stays in words: the open item's "Saved from" line keeps the browser's mark beside
   its name (that line answers that question), and a source's group row, spine and pile plate keep the source's mark
   (the group *is* the source). Entity pictures (Find's saved rows, Ask's citations, the entity card, the graph) keep
   the picture precedence — a page's own thumbnail outranks a site icon there. `SiteIconStore` keeps an icon per
@@ -1792,7 +1793,9 @@ semibold (tracking −0.3 at 20 pt, −0.4 above, floor 20, paired and counted b
 only on `MonospaceLintTests`' allowlist (code, commands, paths, keys, ids), and `CitedSpan` the washed, underlined span,
 read by the Inbox's quote and the Reader's turns since DS-2 (a mention found by name is its semibold, unwashed case);
 its tint (`wash` / `washSoft`) is neutral ink since 2026-10-20 — an accent fill behind words read as a text selection —
-and the accent stays on the current span's underline. **Motion:** `CicadaMotion` (nil under Reduce Motion) is the only place outside
+and the accent stays on the current span's underline; `washSoft` is `wash` (white 10 % / black 7 %) since the review
+of #383, so another cited span is as findable as the current one in the document view, and that view's blocks say
+"Cited here" / "Also cited here" to VoiceOver (`ReaderTurnView.accessibilityWords`). **Motion:** `CicadaMotion` (nil under Reduce Motion) is the only place outside
 `SleepMotion` a duration is spelled; `hoverLift()` for things that open, `iconHover()` for glyphs; a keyboard action
 never animates. Sprites play per frame from their sheets within `CicadaMotion`'s sprite caps (ruling 18).
 
@@ -1897,9 +1900,11 @@ span carries a quiet "Cited" marker beside its bubble, in the room the bubble le
 the accent for the landed span and `quoteRule` for another cited one, `ReaderChat.citedMark`), said first by VoiceOver
 ("Cited here. …" / "Also cited here. …", `ReaderChat.accessibilityLabel`); the words keep only the neutral tint and
 the current span's underline. A navigator step or a "Noted" row re-lands by its trigger (`ReaderLandingMotion`, the
-event read through `LooksZoom.trigger(for:)`): a pointer's fades the wash in and rings the landed bubble briefly
+event read through `LooksZoom.trigger(for:)`): a pointer's hides the wash while the column moves, shows it once landed
+(in one step — the passage's marks are attributes of its string and never fade, see below) and rings the landed bubble briefly
 (`citedEmphasis`, held `rowHighlightHold`, faded `rowHighlightFade`); a key's (⌥↑ / ⌥↓, ⏎) lands in one frame with
-the wash already there and no ring (DR-60). `ReaderBubblesTests`. A turn is
+the wash already there and no ring (DR-60); a VoiceOver press on the chevrons or a row lands as a key does, whatever
+event came last (`ReaderJumpAsk`, through `IconButton`'s `accessibilityPress` / `AssistivePress`). `ReaderBubblesTests`. A turn is
 selectable **and** washed through `CitedPassage` (2026-10-16): a selectable `Text` never reaches a `TextRenderer`, and
 a renderer-drawn copy behind the words breaks lines differently from them (the wash on the wrong words at some widths),
 so the passage is one selectable `Text` whose wash and underline are attributes of its own string (`CitedSpan.fallback`:

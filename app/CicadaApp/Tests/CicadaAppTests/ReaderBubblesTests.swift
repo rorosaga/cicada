@@ -112,6 +112,26 @@ final class ReaderBubblesTests: XCTestCase {
         XCTAssertFalse(theme.contains("static var chatBubbleFill: Color { bgSelected }"), "the bubble is the selection")
     }
 
+    /// Review of #383 — the document view has no "Cited" marker, so VoiceOver says the cited words there too, in the
+    /// chat's words; a block with no cited span reads as it did.
+    func testTheDocumentViewSaysWhichBlocksAreCited() throws {
+        let doc = ReaderChatTests.conversation([
+            .init(marker: "user", text: "Move the bench to the north lot on Friday.", ts: "2026-10-19T09:00:00+00:00"),
+            .init(marker: "assistant", text: "Noted: the bench moves on Friday.", ts: "2026-10-19T09:01:00+00:00"),
+            .init(marker: "user", text: "Thanks.", ts: "2026-10-19T09:02:00+00:00"),
+        ], harness: "claude-code", origin: "claude-code")
+        let focus = try range(of: "north lot", in: doc)
+        let other = try range(of: "moves on Friday", in: doc)
+        let blocks = ReaderLayout.blocks(doc: doc, scalars: ScalarText(doc.text), focus: focus, focusStyle: .focus,
+                                         others: [other], locale: gb, timeZone: utc)
+        let said = blocks.map(ReaderTurnView.accessibilityWords)
+        XCTAssertEqual(said.filter { $0.hasPrefix(Copy.Provenance.citedHere + ". ") }.count, 1, "\(said)")
+        XCTAssertEqual(said.filter { $0.hasPrefix(Copy.Provenance.alsoCitedHere + ". ") }.count, 1, "\(said)")
+        XCTAssertTrue(said.contains { $0.hasPrefix(Copy.Provenance.citedHere + ". ") && $0.contains("north lot") })
+        XCTAssertTrue(said.contains { $0.hasPrefix(Copy.Provenance.alsoCitedHere + ". ") && $0.contains("moves on") })
+        XCTAssertTrue(said.contains { !$0.hasPrefix("Cited") && !$0.hasPrefix("Also") && $0.contains("Thanks.") })
+    }
+
     // MARK: Both sides bubbled
 
     /// The person's bubble on the right in `chatBubbleFill`, the other party's on the left in `chatBubbleOtherFill`.
@@ -202,8 +222,31 @@ final class ReaderBubblesTests: XCTestCase {
             .deletingLastPathComponent().appendingPathComponent("Sources/CicadaApp")
         let source = try String(contentsOf: root.appendingPathComponent("Views/Provenance/ReaderColumn.swift"),
                                 encoding: .utf8)
-        XCTAssertTrue(source.contains("let trigger = LooksZoom.currentTrigger()"))
+        XCTAssertTrue(source.contains("let trigger = ReaderJumpAsk.trigger(ask, eventType: NSApp.currentEvent?.type)"))
         XCTAssertTrue(source.contains("case .instant:\n                Instant.run { washVisible = true }"))
+    }
+
+    /// DR-60 — a VoiceOver press on the navigator's chevrons or a "Noted" row is never the pointer, whatever event came
+    /// last (a click, often): it lands as a key does, in one frame with no ring. Every jump control routes it.
+    func testAnAssistivePressLandsAsAKeyDoes() throws {
+        for type: NSEvent.EventType? in [nil, .leftMouseUp, .leftMouseDown, .mouseMoved, .keyDown, .scrollWheel] {
+            XCTAssertEqual(ReaderJumpAsk.trigger(.assistive, eventType: type), .keyboard, "\(String(describing: type))")
+        }
+        XCTAssertEqual(ReaderJumpAsk.trigger(.event, eventType: .leftMouseUp), .pointer)
+        XCTAssertEqual(ReaderJumpAsk.trigger(.event, eventType: .keyDown), .keyboard)
+        XCTAssertEqual(ReaderLandingMotion.choose(isJump: true, trigger: ReaderJumpAsk.trigger(.assistive,
+                                                  eventType: .leftMouseUp), isChat: true, landed: true), .instant)
+
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/CicadaApp")
+        let source = try String(contentsOf: root.appendingPathComponent("Views/Provenance/ReaderColumn.swift"),
+                                encoding: .utf8)
+        // Both chevrons, and the noted row's jump button.
+        XCTAssertEqual(source.components(separatedBy: "position: position, ask: .assistive)").count - 1, 2)
+        XCTAssertTrue(source.contains(".modifier(AssistivePress(action: { onJump(.assistive) }))"))
+        let button = try String(contentsOf: root.appendingPathComponent("Views/Common/IconButton.swift"), encoding: .utf8)
+        XCTAssertTrue(button.contains(".modifier(AssistivePress(action: accessibilityPress))"))
+        XCTAssertTrue(button.contains("content.accessibilityAction(.default, action)"))
     }
 
     // MARK: Helpers

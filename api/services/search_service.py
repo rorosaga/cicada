@@ -608,6 +608,7 @@ def _episode_hit(ctx: _Ctx, ep: _Episode, score: float, chunk: str = "") -> Sear
         conversation_id=meta.get("conversation_id") or None,
         harness=meta.get("harness") or None,
         origin=meta.get("origin") or None,
+        site=meta.get("site") or None,
         timestamp=meta.get("timestamp") or None,
         start=start,
         end=end,

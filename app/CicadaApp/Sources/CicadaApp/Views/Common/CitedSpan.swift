@@ -12,8 +12,9 @@ import SwiftUI
 ///
 /// `.mention` — a match found by name (G118 §4.9, DR-57): semibold, never washed; the wash and the
 /// underline are for words someone quoted (R-DI11). `reveal` (0…1) scales the wash and the
-/// underline so `spanReveal` fades them in (DR-61) instead of popping them; every existing call
-/// site passes nothing and gets 1.
+/// underline: `CitedSpanRenderer` animates it, so `spanReveal` fades a renderer-drawn span in (DR-61); a selectable
+/// `CitedPassage` only shows or hides its marks (attributes are not interpolated). A call site that passes nothing
+/// gets 1.
 enum CitedSpan {
     enum Mark: Equatable { case plain, current, other, mention }
     struct Segment: Equatable {
