@@ -713,9 +713,17 @@ Round 4 (C2–C4):
   **A saved link's own site icon (owner ruling 2026-10-19).** A saved link's row (Sources › a saved source) shows its
   site's own icon, asked of **that site only** — never an icon service, so no one learns what the person saved:
   `GET /sources/saved/{media_entity_id}/site-icon`, asked by the app for a row of a list the person opened (never from
-  Sleep, never a whole bank; listing items fetches nothing). The site is the registrable domain of THIS link's own URL
+  the Sleep cycle, never a whole bank; listing items fetches nothing). The site is the registrable domain of THIS link's own URL
   from the url index (`channel_items.saved_link_site` → `logo_service.own_site_domain`), for a live media page a `saved`
   source owns; a walled family, a private or reserved name is never asked (the row keeps its bundled mark or monogram).
+  **Everywhere (owner 2026-10-20):** every surface that draws a saved link draws this mark (`app.md`, "One mark for a
+  saved link"), and a saved link Sleep has not made a page of yet — a Waiting row — asks
+  `GET /sources/saved/episodes/{episode_id}/site-icon`: the site is read from THAT episode's own `url`, only for a live,
+  non-conversation episode of a `saved` source (`channel_items.saved_episode_url` / `saved_episode_site`), with the same
+  gate, fetch and per-site cache. Rows name the key the mark is drawn under — `siteKey` on `GET /sources` items (shape
+  `site-key-1`; only on a page the media route serves, `channel_items.is_saved_link_page`), `site` on `GET /sleep/episodes` rows (`episodes-2`) and on `GET /episodes/{id}/text` (`site1`) — from
+  one function, `reading_hosts.mark_key` (a walled family's name, else the registrable domain); the icon is always asked
+  by an id, never by that name.
   **Discovery, amended (owner 2026-10-20: "a lot of them don't show any logo … when I open the website I can clearly
   see a favicon in the Chrome tab").** The 2026-10-19 rule asked two fixed paths and never the HTML; it missed every
   site that declares its icon at another path, on a CDN, or only behind a redirect to www. Now, like a browser

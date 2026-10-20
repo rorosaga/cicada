@@ -108,7 +108,7 @@ async def get_episode_text(
     memory_path = settings.memory_path
     etag = sync_service.etag_for(
         memory_path, "episodes", "entities",
-        extra=f"text|{episode_id}|{start}|{end}|{hash or ''}|{focus or ''}|{git_service.AUTHOR_SHAPE}|src1|device1|{video_state.VIDEO_SHAPE}",
+        extra=f"text|{episode_id}|{start}|{end}|{hash or ''}|{focus or ''}|{git_service.AUTHOR_SHAPE}|src1|device1|site1|{video_state.VIDEO_SHAPE}",
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early

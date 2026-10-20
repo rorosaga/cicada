@@ -84,6 +84,9 @@ struct FeedItemDetail: View {
                 TextButton(title: Copy.Lists.savedBack(n), help: Copy.Lists.showList, action: onShowList)
                     .padding(.leading, -CicadaTheme.scaled(10))
             }
+            // Owner 2026-10-20 — the item's own site mark leads its eyebrow; the browser it was saved from stays in
+            // "Saved from" below, where it is the answer to that question.
+            if let site = SavedLinkMarkModel.mark(item) { SavedLinkMark(mark: site, size: .inline) }
             // G162 — a video's header reads "Video · youtube.com · 8:14" (its length when known).
             Text(isVideo ? VideoWords.headerLine(item) : Eyebrow.text(FeedKind.of(item).singular, item.site ?? ""))
                 .font(CicadaTheme.metaFont)

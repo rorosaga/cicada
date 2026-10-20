@@ -370,6 +370,9 @@ struct EpisodeText: Codable, Hashable {
     var device: String? = nil
     /// Ruling 32 — set while the episode is a relay no export has upgraded; nil against an older backend.
     var relay: EpisodeRelay? = nil
+    /// Owner 2026-10-20 — a saved link's site key: the Reader's header wears that site's own mark, never the browser's.
+    /// Nil for every other episode, for a page and from an older backend.
+    var site: String? = nil
 
     var isPage: Bool { kind == "page" }
     var isPageRead: Bool { source == EvidenceSpeaker.pageReadSource }
@@ -402,7 +405,7 @@ struct EpisodeText: Codable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case episode, kind, text, length, hash, truncated, title, timestamp, harness, origin
-        case conversationId, captureKind, turns, focus, agent, watch, source, correspondent, device, relay
+        case conversationId, captureKind, turns, focus, agent, watch, source, correspondent, device, relay, site
     }
 
     init(from decoder: Decoder) throws {
@@ -411,6 +414,7 @@ struct EpisodeText: Codable, Hashable {
         correspondent = try? c.decodeIfPresent(String.self, forKey: .correspondent)
         device = (try? c.decodeIfPresent(String.self, forKey: .device)) ?? nil
         relay = (try? c.decodeIfPresent(EpisodeRelay.self, forKey: .relay)) ?? nil
+        site = (try? c.decodeIfPresent(String.self, forKey: .site)) ?? nil
         episode = try c.decodeIfPresent(String.self, forKey: .episode) ?? ""
         kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "episode"
         text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""

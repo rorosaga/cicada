@@ -1188,6 +1188,9 @@ class EpisodeText(CamelModel):
     #: G181 phase 3: the id of the person's device whose token posted this episode; null for a page and for what the
     #: server's own machine wrote.
     device: Optional[str] = None
+    #: Owner 2026-10-20: a saved link's site key (``channel_items.saved_episode_url`` → ``reading_hosts.mark_key``), so
+    #: the Reader's header wears the link's own site mark; null for every other episode and for a page.
+    site: Optional[str] = None
     turns: list[EpisodeTurn] = []
     focus: Optional[EpisodeFocus] = None
     agent: Optional[EpisodeAgent] = None
@@ -3054,6 +3057,10 @@ class EpisodeQueueItem(CamelModel):
     copy_kind: Optional[str] = None
     copy_value: Optional[str] = None
     changed_at: Optional[str] = None
+    # Owner 2026-10-20 — a saved link's site key (`reading_hosts.mark_key` over the url of a live saved-source episode,
+    # `channel_items.saved_episode_url`), the name its row's site mark is drawn under; None for every other episode. The icon itself is asked by the episode's id
+    # (`GET /sources/saved/episodes/{id}/site-icon`), never by this name.
+    site: Optional[str] = None
 
 
 SCHEDULE_MODES = ("manual", "daily", "interval", "after_import")
@@ -3801,6 +3808,10 @@ class MediaSourceItem(CamelModel):
     title: str
     media_type: str
     site: Optional[str] = None
+    # Owner 2026-10-20 — the key the item's own site mark is drawn under (`reading_hosts.site_of` over the link's URL:
+    # a walled family's name, else the registrable domain), so every surface asks the same site and the same cache.
+    # A name, never a URL; None when the URL names no valid site. Additive.
+    site_key: Optional[str] = None
     channel: Optional[str] = None
     thumbnail: Optional[str] = None
     # `EntityMedia.preview`'s twin: the stored copy of the page's own picture, from the page alone. Additive.

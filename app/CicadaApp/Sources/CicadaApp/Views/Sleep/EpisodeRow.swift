@@ -137,8 +137,7 @@ struct EpisodeRow: View {
     var body: some View {
         Button(action: activate) {
             HStack(alignment: .top, spacing: CicadaTheme.scaled(10)) {
-                OriginMark(origin: item.origin, size: CicadaTheme.scaled(14))
-                    .padding(.top, CicadaTheme.scaled(2))
+                mark.frame(width: CicadaTheme.scaled(16)).padding(.top, CicadaTheme.scaled(2))
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                     Text(item.title ?? Copy.SleepDetailsWords.untitled)
                         .font(CicadaTheme.bodyFont)
@@ -183,6 +182,18 @@ struct EpisodeRow: View {
         }
         .accessibilityHint(Copy.SleepDetailsWords.openHint(kind))
         .accessibilityAction(named: Text(Copy.SleepDetailsWords.copyAction(kind)), copy)
+    }
+
+    /// Owner 2026-10-20 — a saved link waiting to be read wears its own site's mark (`SavedLinkMark`, asked by the
+    /// episode's id until Sleep makes its page); the source it came from already heads the group above (DR-38). Every
+    /// other episode — a conversation, a note, a file — keeps its source's real mark (DR-52).
+    @ViewBuilder
+    private var mark: some View {
+        if let site = SavedLinkMarkModel.mark(item) {
+            SavedLinkMark(mark: site, size: .inline)
+        } else {
+            OriginMark(origin: item.origin, size: CicadaTheme.scaled(14))
+        }
     }
 
     private func activate() {

@@ -36,9 +36,10 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   and injects fetchers instead. It also gates the icons of the sites Settings, Reading the web, lists (G166): those
   come from the icon service only and the login-walled site is never contacted for its favicon (nor, since
   `fetch_logo` skips its first two rungs for a walled host, is a company or tool page's logo domain when it is one).
-  It also gates a saved link's own site icon (owner ruling 2026-10-19): Sources' saved rows ask the backend
-  (`GET /sources/saved/{id}/site-icon`), which asks the link's own registrable domain and **never an icon service**, so
-  no third party learns what was saved — only when the person opens that list, never from Sleep. **Amended (owner
+  It also gates a saved link's own site icon (owner ruling 2026-10-19; everywhere a saved link is drawn, 2026-10-20):
+  a saved row asks the backend (`GET /sources/saved/{id}/site-icon`, or `/sources/saved/episodes/{id}/site-icon` for a
+  Waiting row with no page yet; rows ask as they appear, at most four at a time), which asks the link's own registrable domain and **never an icon service**, so
+  no third party learns what was saved — only when the person opens that list, never from the Sleep cycle. **Amended (owner
   2026-10-20: "when I open the website I can clearly see a favicon in the Chrome tab"):** discovery goes the way a
   browser does — the homepage (its www. host when the bare domain has no address; same-registrable-domain redirects
   only), its `<link rel>` icon declarations, best raster first (≤ 3 asked), then `/apple-touch-icon.png` and

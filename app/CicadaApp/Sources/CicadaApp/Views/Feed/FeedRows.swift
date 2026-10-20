@@ -144,9 +144,14 @@ struct FeedListRow: View {
         .listRowSurface(height: ListRowSurface.height(style, twoLineAtRest: true), selected: selected)
     }
 
+    /// Owner 2026-10-20 — the item's own site (`SavedLinkMark`: its icon, a family's bundled mark, else the site's
+    /// monogram); where it was saved from is the detail's "Saved from" line, never this mark. A row the backend named
+    /// no site for (an older backend) keeps the origin's mark, else the kind's glyph — never both (DR-48).
     @ViewBuilder
     private var mark: some View {
-        if let origin = FeedSourceLine.markOrigin(item) {
+        if let site = SavedLinkMarkModel.mark(item) {
+            SavedLinkMark(mark: site, size: .inline)
+        } else if let origin = FeedSourceLine.markOrigin(item) {
             OriginMark(origin: origin, size: CicadaTheme.scaled(12))
         } else {
             Image(systemName: FeedKind.of(item).glyph)
@@ -168,7 +173,7 @@ struct FeedListRow: View {
         switch style {
         case .wide, .triage:
             HStack(alignment: isVideo ? .center : .top, spacing: CicadaTheme.scaled(10)) {
-                mark.frame(width: CicadaTheme.scaled(14)).padding(.top, isVideo ? 0 : CicadaTheme.scaled(2))
+                mark.frame(width: CicadaTheme.scaled(16)).padding(.top, isVideo ? 0 : CicadaTheme.scaled(2))
                 if isVideo {
                     // G162 (§9 2026-09-30) — a 64 × 36 frame with its length at full width, 48 × 27 beside a detail.
                     VideoThumb(preview: item.preview, durationS: item.durationS,
@@ -212,7 +217,7 @@ struct FeedListRow: View {
             }
         case .titles, .hidden:
             HStack(spacing: CicadaTheme.spacingSM) {
-                mark.frame(width: CicadaTheme.scaled(14))
+                mark.frame(width: CicadaTheme.scaled(16))
                 titleText
             }
             .help(title)

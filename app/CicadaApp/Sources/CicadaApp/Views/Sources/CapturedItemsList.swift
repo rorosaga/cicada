@@ -283,18 +283,9 @@ struct SavedItemRow: View {
         }
     }
 
-    @ViewBuilder
-    private var mark: some View {
-        switch SavedItemText.mark(item) {
-        case .site(let key, let label):
-            // Owner ruling 2026-10-19: the site's own icon, asked of that site only (never an icon service), now that
-            // the person opened this list; a bundled family mark or a monogram until — or unless — it arrives.
-            SiteIcon(site: key, label: label, savedItem: item.kind == .media ? item.id : nil)
-        case .monogram(let letter):
-            SiteMonogram(letter: letter, side: CicadaTheme.scaled(SiteIconLayout.Size.row.points))
-                .accessibilityHidden(true)
-        }
-    }
+    /// Owner ruling 2026-10-19: the site's own icon, asked of that site only (never an icon service), now that the
+    /// person opened this list; a bundled family mark or a monogram until — or unless — it arrives (`SavedLinkMark`).
+    private var mark: some View { SavedLinkMark(mark: SavedItemText.mark(item)) }
 
     private func label(_ day: (text: String, help: String)?) -> some View {
         HStack(alignment: .center, spacing: CicadaTheme.scaled(10)) {

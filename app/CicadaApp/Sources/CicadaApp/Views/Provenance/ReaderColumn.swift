@@ -71,6 +71,7 @@ struct ReaderColumn: View {
                 canGoBack: router.canGoBack,
                 onBack: { router.back() },
                 page: loadedDoc.flatMap { $0.isPage ? $0 : nil },
+                site: loadedDoc.flatMap(ReaderHeader.siteMark),
                 markOrigin: ReaderHeader.markOrigin(harness: loadedDoc?.harness ?? router.current?.knownHarness,
                                                     origin: loadedDoc?.origin),
                 episode: loadedDoc?.episode ?? router.current?.episode ?? "",
@@ -505,6 +506,9 @@ struct ReaderColumnHeader: View {
     let onBack: () -> Void
     /// The loaded document when it is a page, else nil.
     let page: EpisodeText?
+    /// Owner 2026-10-20 — a saved link's own site mark (`ReaderHeader.siteMark`); the browser it came from is the meta
+    /// line's words.
+    var site: SavedLinkMarkModel.Mark? = nil
     let markOrigin: String
     let episode: String
     let title: String
@@ -558,6 +562,9 @@ struct ReaderColumnHeader: View {
     private var mark: some View {
         if let page {
             LogoImage(entityId: page.episode, name: page.title, type: .media, size: CicadaTheme.scaled(20))
+        } else if let site {
+            SavedLinkMark(mark: site, size: .row)
+                .help(Copy.Provenance.episodeHelp(episode))
         } else {
             OriginMark(origin: markOrigin, size: CicadaTheme.scaled(20))
                 .markHover()
