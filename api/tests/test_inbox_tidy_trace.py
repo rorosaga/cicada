@@ -462,3 +462,32 @@ def test_apply_refuses_a_conflict_side_the_quoted_words_do_not_state(memory):
     assert (memory / "inbox" / "inbox-012.md").exists()
     d, _engine = inbox_tend.vetted_decision(memory, row("ep_2026-06-02_001", "Tool A is really an agent harness"))
     assert d.request == {"action": "resolve", "option_key": "a"}
+
+
+def test_apply_refuses_an_answer_made_only_of_filler_words(memory):
+    """Re-review of #393: "the" is in every quote — a name or a free answer of fillers alone says nothing."""
+    from api.services import role_people
+
+    _entity(memory, "sister", type="person", name="Sister", status="active", **{role_people.UNNAMED_KEY: True})
+    _item(memory, "inbox-013", kind="clarification", asks="name", entity_id="sister", entity_name="Sister",
+          question="What's the name of your sister?", options=[{"key": "decline", "label": "Rather not say"}])
+    _entity(memory, "example-gadget", type="tool", name="Example Gadget", status="active")
+    _item(memory, "inbox-014", kind="clarification", entity_id="example-gadget", entity_name="Example Gadget",
+          question="What is Example Gadget?")
+    _person_turn(memory, "ep_2026-10-02_001", "I went to the gym this morning")
+    _commit(memory)
+    quote = {"episode": "ep_2026-10-02_001", "quote": "I went to the gym this morning"}
+    rows = [_forged(memory, "inbox-013", "clarification", rule="said_on_record", quote=quote,
+                    request={"action": "answer", "answer": "the"}, guard=inbox_tend._guard(memory, "sister")),
+            _forged(memory, "inbox-014", "clarification", rule="said_on_record", quote=quote,
+                    request={"action": "answer", "answer": "the a of"},
+                    guard=inbox_tend._guard(memory, "example-gadget"))]
+    pages = sorted(p.name for p in (memory / "entities").iterdir())
+    result = run(inbox_tend.apply_vetted(memory, _Settings(memory), rows))
+    assert [(r["id"], r["outcome"], r.get("why")) for r in result["results"]] == [
+        ("inbox-013", "refused", "quote_says_otherwise"), ("inbox-014", "refused", "quote_says_otherwise")]
+    assert sorted(p.name for p in (memory / "entities").iterdir()) == pages
+    path = memory / "inbox" / "inbox-013.md"
+    reply = {"answered": True, "answer": "the", "quote": "I went to the gym this morning"}
+    assert inbox_tend._answer_decision(memory, path, markdown_parser.parse(path).frontmatter, reply, {},
+                                       "ep_2026-10-02_001", "m", "said_on_record") == (None, "quote_says_otherwise")

@@ -1499,12 +1499,11 @@ def answer_supported(memory_path: Path, fm: dict, request: dict, quote: str, *, 
     words = set(said.split())
     action = str((request or {}).get("action") or "")
     if action == "answer":
-        answer = _fold_name(request.get("answer"))
-        if not answer:
-            return False
+        wanted = [w for w in _fold_name(request.get("answer")).split() if w not in _ANSWER_FILLER]
+        if not wanted:
+            return False   # an answer of fillers alone ("the") says nothing
         if str(fm.get("asks") or "") == "name":
-            return _phrase_in(answer, said)
-        wanted = [w for w in answer.split() if w not in _ANSWER_FILLER] or answer.split()
+            return _phrase_in(" ".join(wanted), said)
         return all(w in words for w in wanted)
     if action != "resolve":
         return True
