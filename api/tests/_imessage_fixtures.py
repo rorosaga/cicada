@@ -105,8 +105,11 @@ class ChatDB:
 
     def message(self, chat: int, at: datetime, *, from_me: bool, text: str | None = None, body_only: bool = False,
                 associated_type: int = 0, item_type: int = 0, attachments: list[dict] | None = None,
-                guid: str | None = None) -> int:
-        """One row. ``body_only`` leaves ``text`` empty and keeps the words only in ``attributedBody``."""
+                guid: str | None = None, associated_guid: str | None = None, emoji: str | None = None,
+                reply_to: str | None = None) -> int:
+        """One row. ``body_only`` leaves ``text`` empty and keeps the words only in ``attributedBody``.
+        ``associated_guid`` is a tapback's target as Messages writes it (``p:0/<guid>``); ``reply_to`` an inline
+        reply's ``thread_originator_guid``."""
         self._guid += 1
         guid = guid or f"SYNTH-{self._guid:06d}-0000-0000-000000000000"
         handle = self.db.execute("SELECT handle_id FROM chat_handle_join WHERE chat_id = ?", (chat,)).fetchone()[0]
@@ -116,19 +119,19 @@ class ChatDB:
         blob = attributed_body(words) if words else None
         cur = self.db.execute(
             "INSERT INTO message (guid, text, attributedBody, handle_id, service, date, is_from_me, "
-            "associated_message_type, associated_message_guid, item_type, cache_has_attachments) "
-            "VALUES (?, ?, ?, ?, 'iMessage', ?, ?, ?, ?, ?, ?)",
+            "associated_message_type, associated_message_guid, associated_message_emoji, thread_originator_guid, "
+            "item_type, cache_has_attachments) VALUES (?, ?, ?, ?, 'iMessage', ?, ?, ?, ?, ?, ?, ?, ?)",
             (guid, None if body_only else (words or None), blob, handle, apple_ns(at), int(from_me),
-             associated_type, None, item_type, int(bool(attachments))))
+             associated_type, associated_guid, emoji, reply_to, item_type, int(bool(attachments))))
         rowid = cur.lastrowid
         self.db.execute("INSERT INTO chat_message_join (chat_id, message_id, message_date) VALUES (?, ?, ?)",
                         (chat, rowid, apple_ns(at)))
         for i, att in enumerate(attachments or []):
             a = self.db.execute(
-                "INSERT INTO attachment (guid, original_guid, filename, mime_type, uti, transfer_name, total_bytes) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO attachment (guid, original_guid, filename, mime_type, uti, transfer_name, total_bytes, "
+                "is_sticker) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (f"{guid}-att{i}", f"{guid}-att{i}", f"~/Library/Messages/Attachments/xx/{att['name']}",
-                 att.get("mime"), att.get("uti"), att["name"], 1000))
+                 att.get("mime"), att.get("uti"), att["name"], att.get("bytes", 1000), int(att.get("sticker", 0))))
             self.db.execute("INSERT INTO message_attachment_join (message_id, attachment_id) VALUES (?, ?)",
                             (rowid, a.lastrowid))
         self.db.commit()
@@ -137,6 +140,15 @@ class ChatDB:
     def edit(self, rowid: int, text: str, at: datetime) -> None:
         self.db.execute("UPDATE message SET text = ?, attributedBody = ?, date_edited = ? WHERE ROWID = ?",
                         (text, attributed_body(text), apple_ns(at), rowid))
+        self.db.commit()
+
+    def guid(self, rowid: int) -> str:
+        return self.db.execute("SELECT guid FROM message WHERE ROWID = ?", (rowid,)).fetchone()[0]
+
+    def retract(self, rowid: int, at: datetime) -> None:
+        """An unsend on a macOS that stamps ``date_retracted`` (the words gone too)."""
+        self.db.execute("UPDATE message SET text = NULL, attributedBody = NULL, date_retracted = ? WHERE ROWID = ?",
+                        (apple_ns(at), rowid))
         self.db.commit()
 
     def unsend(self, rowid: int, at: datetime) -> None:
@@ -148,6 +160,7 @@ class ChatDB:
 
 _ROWS_SQL = """
 SELECT m.ROWID AS rowid, m.guid, m.date, m.is_from_me, m.text, m.attributedBody, m.associated_message_type,
+       m.associated_message_guid, m.associated_message_emoji, m.thread_originator_guid,
        m.item_type, m.is_system_message, COALESCE(m.date_edited, 0) AS date_edited,
        COALESCE(m.date_retracted, 0) AS date_retracted
 FROM message m JOIN chat_message_join j ON j.message_id = m.ROWID
@@ -164,8 +177,9 @@ def read_rows(path: Path, chat: int, *, after_rowid: int = 0, changed_after: int
         rows = []
         for r in db.execute(_ROWS_SQL, (chat, after_rowid, changed_after, limit)):
             atts = [{"name": a["transfer_name"], "mimeType": a["mime_type"], "uti": a["uti"],
-                     "totalBytes": a["total_bytes"]}
-                    for a in db.execute("SELECT a.transfer_name, a.mime_type, a.uti, a.total_bytes FROM attachment a "
+                     "totalBytes": a["total_bytes"], **({"isSticker": True} if a["is_sticker"] else {})}
+                    for a in db.execute("SELECT a.transfer_name, a.mime_type, a.uti, a.total_bytes, a.is_sticker "
+                                        "FROM attachment a "
                                         "JOIN message_attachment_join j ON j.attachment_id = a.ROWID "
                                         "WHERE j.message_id = ?", (r["rowid"],))]
             rows.append({"rowid": r["rowid"], "guid": r["guid"], "date": r["date"], "isFromMe": bool(r["is_from_me"]),
@@ -173,7 +187,10 @@ def read_rows(path: Path, chat: int, *, after_rowid: int = 0, changed_after: int
                          "attributedBody": base64.b64encode(r["attributedBody"]).decode() if r["attributedBody"] else None,
                          "associatedMessageType": r["associated_message_type"] or 0, "itemType": r["item_type"] or 0,
                          "isSystemMessage": bool(r["is_system_message"]), "dateEdited": r["date_edited"],
-                         "dateRetracted": r["date_retracted"], "attachments": atts})
+                         "dateRetracted": r["date_retracted"], "attachments": atts,
+                         **{k: r[c] for k, c in (("associatedMessageGuid", "associated_message_guid"),
+                                                 ("associatedMessageEmoji", "associated_message_emoji"),
+                                                 ("threadOriginatorGuid", "thread_originator_guid")) if r[c]}})
         return rows
     finally:
         db.close()

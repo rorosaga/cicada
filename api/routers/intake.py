@@ -421,6 +421,12 @@ def import_bytes(content: bytes, filename: str, settings: Settings, *, bank: str
         # counts past it. The unchanged rest is counted as skipped up front.
         writes = {id(e) for e in staging.create + staging.update}
         pending = [e for e in parsed.episodes if id(e) in writes]
+        # An unchanged conversation whose export carries extras (attachments, generated images, code runs —
+        # `turn_extras`) gets them now, frontmatter only: its words did not move, so it stays out of the job's count.
+        extras_only = [e for e in staging.skip
+                       if e.get("unsent") or any(m.get("extras") for m in e.get("messages") or [])]
+        if extras_only:
+            conv._stage_episodes(extras_only, target / "episodes")
         return ImportResult(name, active, parsed, 0, 0, len(staging.skip), date_from, date_to,
                             pending=(pending, target / "episodes"))
     # `episode_staging.stage` holds its own process-wide lock (G114 ids).

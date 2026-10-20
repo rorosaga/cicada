@@ -34,13 +34,17 @@ from pathlib import Path
 from api.models.schemas import (
     EntityProvenance,
     EpisodeAgent,
+    EpisodeAttachment,
     EpisodeCitation,
     EpisodeCitationEntity,
     EpisodeCitations,
     EpisodeFocus,
     EpisodeText,
     EpisodeTurn,
+    EpisodeReaction,
     EpisodeRelay,
+    EpisodeTurnExtras,
+    EpisodeUnsent,
     EpisodeWatch,
     EvidenceModel,
     ProvenanceContributor,
@@ -65,6 +69,7 @@ from api.services import (
     section_provenance,
     source_dates,
     turn_authorship,
+    turn_extras,
     video_state,
 )
 from api.services.claims import Claim, Evidence, is_current, is_event, is_record, parse_claims, served_prose
@@ -182,11 +187,14 @@ def episode_document(
         focus_model = _derived_focus(memory_path, text, focus)
 
     watch = _watch(memory_path, doc_id, fm) if is_episode else None
+    index_at = {t.start: t.index for t in spans}
+    extras_at = turn_extras.by_offset(fm) if is_episode else {}
     turn_models: list[EpisodeTurn] = []
     for t in spans:
         s = agents.get(t.start) if t.role == "assistant" else None
         turn_models.append(EpisodeTurn(**asdict(t), model=s.model if s else None, effort=s.effort if s else None,
-                                       fidelity=watch.fidelity if watch is not None and t.role == "media" else None))
+                                       fidelity=watch.fidelity if watch is not None and t.role == "media" else None,
+                                       extras=_extras(extras_at.get(t.start), index_at)))
 
     return EpisodeText(
         episode=doc_id,
@@ -210,7 +218,38 @@ def episode_document(
         agent=agent,
         watch=watch,
         relay=_relay(fm) if is_episode else None,
+        unsent=_unsent(fm, spans) if is_episode else [],
     )
+
+
+def _extras(stored: dict | None, index_at: dict[int, int]) -> EpisodeTurnExtras | None:
+    """A turn's stored extras on the wire: a reply's target offset becomes the target turn's index (a target that is
+    no turn start here, or a ``{ref}``, reads as a reply to a message elsewhere). Tolerant: a malformed value is
+    dropped, never raised."""
+    if not stored:
+        return None
+    reply = stored.get("reply_to")
+    reply_to = index_at.get(reply) if isinstance(reply, int) and not isinstance(reply, bool) else None
+    runs = stored.get("code_runs")
+    out = EpisodeTurnExtras(
+        reactions=[EpisodeReaction(**r) for r in turn_extras.clean_reactions(stored.get("reactions"))],
+        reply_to=reply_to,
+        reply_elsewhere=reply is not None and reply_to is None,
+        attachments=[EpisodeAttachment(**a) for a in turn_extras.clean_attachments(stored.get("attachments"))],
+        edited=stored.get("edited") is True,
+        forwarded_from=_opt(stored.get("forwarded_from")),
+        code_runs=runs if isinstance(runs, int) and not isinstance(runs, bool) and runs > 0 else None,
+    )
+    return out if out != EpisodeTurnExtras() else None
+
+
+def _unsent(fm: dict, spans) -> list[EpisodeUnsent]:
+    out = []
+    for entry in turn_extras.unsent(fm):
+        at = int(entry["at"])
+        before = next((t.index for t in spans if t.start >= at), spans[-1].index + 1 if spans else 1)
+        out.append(EpisodeUnsent(before=before, speaker=str(entry["speaker"]), ts=_opt(entry.get("ts"))))
+    return out
 
 
 def _relay(fm: dict) -> EpisodeRelay | None:
