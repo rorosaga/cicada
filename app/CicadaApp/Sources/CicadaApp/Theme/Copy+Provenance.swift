@@ -58,6 +58,12 @@ extension Copy {
         static let close = "Close the conversation"
         static let back = "Back to the previous conversation"
         static func citedPassage(_ text: String) -> String { "Cited passage: \(text)" }
+        /// The quiet marker beside a chat message that holds a cited passage (2026-10-20): one word on screen, the
+        /// whole thought for VoiceOver — the span landed on, or another this conversation's citations name.
+        static let citedMarker = "Cited"
+        static let citedHere = "Cited here"
+        static let alsoCitedHere = "Also cited here"
+        static let citedMarkerHelp = "Words from this message are cited by what Cicada noted"
 
         // MARK: The Reader as a column (DS-2 Task 4, R-DI6)
 

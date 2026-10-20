@@ -3,9 +3,11 @@ import SwiftUI
 /// The Reader's chat layout (owner, 2026-10-19), drawn from `ReaderChat.rows`. A `ForEach` body, flattened into the
 /// Reader's own `LazyVStack` so a 500-turn session or a 47k-character export realises only what is on screen.
 ///
-/// D's grammar (DESIGN_RULES §9, 2026-10-19): the person's turns sit on the right in a neutral `chatBubbleFill` bubble
-/// — never the accent (DR-5), no shadow and no ring (DR-9, DR-10); the other party's read on the left as plain text in
-/// the quote face (DR-18), like a reply in a chat app; day separators and Cicada's gap note are centred words, never a
+/// D's grammar (DESIGN_RULES §9, 2026-10-19, amended 2026-10-20): the person's turns sit on the right in a neutral
+/// `chatBubbleFill` bubble — never the accent (DR-5), no shadow and no ring (DR-9, DR-10); the other party's sit on the
+/// left in a quieter `chatBubbleOtherFill` bubble with the resting ring (DR-9), both in the quote face (DR-18); a
+/// message holding a cited passage says so with a quiet marker beside its bubble ("Cited", a 2 pt bar; in words for
+/// VoiceOver), never with a fill that reads as a selection; day separators and Cicada's gap note are centred words, never a
 /// rule (DR-11); the face or mark, the name and a time are said once per run (DR-38, DR-52, DR-57); a long message
 /// folds behind a text button (DR-39, DR-40). Every passage is a `CitedPassage`, so the wash and the underline are
 /// exactly the document view's.
@@ -22,6 +24,9 @@ struct ReaderChatRows: View {
     let revealed: Bool
     /// The Messages chat this sitting belongs to, for its picture.
     var messagesChat: String? = nil
+    /// 0…1 — the brief ring on the message a pointer jump landed on (`ReaderColumn.citedEmphasis`); a keyboard jump
+    /// leaves it 0 (DR-60).
+    var emphasis: Double = 0
     var onToggle: (Int) -> Void = { _ in }
     /// A reply's line was clicked: bring its target into view.
     var onJump: (ReaderBlock.Key) -> Void = { _ in }
@@ -31,7 +36,7 @@ struct ReaderChatRows: View {
         // at its top.
         ForEach(rows, id: \.scrollID) { row in
             ReaderChatRowView(row: row, landingTurn: landingTurn, revealed: revealed, messagesChat: messagesChat,
-                              onToggle: onToggle, onJump: onJump)
+                              emphasis: emphasis, onToggle: onToggle, onJump: onJump)
                 .padding(.top, Self.space(row.gap))
                 .id(row.scrollID)
         }
@@ -53,10 +58,12 @@ struct ReaderChatView: View {
     let landingTurn: Int?
     let revealed: Bool
     var messagesChat: String? = nil
+    var emphasis: Double = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ReaderChatRows(rows: rows, landingTurn: landingTurn, revealed: revealed, messagesChat: messagesChat)
+            ReaderChatRows(rows: rows, landingTurn: landingTurn, revealed: revealed, messagesChat: messagesChat,
+                           emphasis: emphasis)
         }
     }
 }
@@ -66,6 +73,7 @@ private struct ReaderChatRowView: View {
     let landingTurn: Int?
     let revealed: Bool
     let messagesChat: String?
+    let emphasis: Double
     let onToggle: (Int) -> Void
     let onJump: (ReaderBlock.Key) -> Void
 
@@ -80,15 +88,15 @@ private struct ReaderChatRowView: View {
             centred(words)
                 .accessibilityLabel("\(Copy.Provenance.notCaptured): \(words)")
         case let .message(message):
-            ReaderChatMessageView(message: message, emphasis: emphasis(for: message.block), revealed: revealed,
-                                  messagesChat: messagesChat, onJump: onJump)
+            ReaderChatMessageView(message: message, ink: ink(for: message.block), revealed: revealed,
+                                  messagesChat: messagesChat, emphasis: emphasis, onJump: onJump)
         case let .toggle(turn, side, expanded):
             HStack(spacing: 0) {
                 if side == .person { Spacer(minLength: 0) }
                 TextButton(title: expanded ? Copy.Provenance.showLess : Copy.Provenance.showMore,
                            help: expanded ? Copy.Provenance.showLessHelp : Copy.Provenance.showMoreHelp,
                            inline: true) { onToggle(turn) }
-                    // The text button's own inset, pulled back so its words align with the message's edge.
+                    // The text button's own inset, pulled back so its words align with the bubble's edge.
                     .padding(side == .person ? .trailing : .leading, -CicadaTheme.scaled(6))
                 if side == .other { Spacer(minLength: 0) }
             }
@@ -97,7 +105,7 @@ private struct ReaderChatRowView: View {
     }
 
     /// The Reader's one emphasis rule: the landing turn primary, the rest secondary; with nothing landed on, all primary.
-    private func emphasis(for block: ReaderBlock) -> Color {
+    private func ink(for block: ReaderBlock) -> Color {
         guard let landingTurn else { return CicadaTheme.textPrimary }
         return block.index == landingTurn ? CicadaTheme.textPrimary : CicadaTheme.textSecondary
     }
@@ -113,50 +121,45 @@ private struct ReaderChatRowView: View {
     }
 }
 
-private struct ReaderChatMessageView: View {
+struct ReaderChatMessageView: View {
     let message: ReaderChat.Message
-    let emphasis: Color
+    let ink: Color
     let revealed: Bool
     let messagesChat: String?
+    let emphasis: Double
     let onJump: (ReaderBlock.Key) -> Void
 
-    /// The room a person's bubble always leaves on its left, so the two sides never meet.
+    /// The room a bubble always leaves on its far side, so the two sides never meet — and where its cited marker sits.
     static let otherSideRoom: CGFloat = 48
     static let bubblePadding = EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
+    /// The cited marker: a 2 pt bar the height of a line, `markerGap` from the bubble, its word beyond it.
+    static let markerBar: CGFloat = 2
+    static let markerGap: CGFloat = 6
+    /// The landed message's brief ring (pointer jumps only), at full emphasis.
+    static let emphasisRing: CGFloat = 1.5
+
+    private var side: ReaderChat.Side { message.side }
+    private var mark: ReaderChat.CitedMark? { ReaderChat.citedMark(message.block) }
 
     var body: some View {
-        VStack(alignment: message.side == .person ? .trailing : .leading, spacing: CicadaTheme.spacingXS) {
+        VStack(alignment: side == .person ? .trailing : .leading, spacing: CicadaTheme.spacingXS) {
             if let header = message.header {
-                ReaderChatHeader(header: header, side: message.side, messagesChat: messagesChat)
+                ReaderChatHeader(header: header, side: side, messagesChat: messagesChat)
             }
             if let extras = message.extras {
                 above(extras)
             }
             if !message.block.text.isEmpty {
-                switch message.side {
-                case .person: bubble
-                case .other: passage(fills: true)
-                }
+                bubble
             }
             if let extras = message.extras {
                 below(extras)
             }
         }
-        .frame(maxWidth: .infinity, alignment: message.side == .person ? .trailing : .leading)
+        .frame(maxWidth: .infinity, alignment: side == .person ? .trailing : .leading)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilityWords)
+        .accessibilityLabel(ReaderChat.accessibilityLabel(message))
     }
-
-    private var accessibilityWords: String {
-        var words = Copy.Provenance.chatLabel(speaker: message.speaker, time: message.time, text: message.block.text)
-        if let extras = message.extras {
-            let more = [extras.reply?.words, extras.forwardedFrom] + extras.attachments.map(Optional.some)
-                + extras.reactions.map { Optional.some($0.help) } + [extras.edited ? Copy.Provenance.edited : nil]
-            words += more.compactMap { $0 }.map { ". " + $0 }.joined()
-        }
-        return words
-    }
-
     /// The reply's line (a text button to its target) and "Forwarded from …", above the words.
     @ViewBuilder
     private func above(_ extras: ReaderChat.Extras) -> some View {
@@ -206,22 +209,95 @@ private struct ReaderChatMessageView: View {
             .truncationMode(.tail)
     }
 
-    private func passage(fills: Bool) -> some View {
-        CitedPassage(segments: ReaderText.segments(message.block), color: emphasis, reveal: revealed ? 1 : 0,
-                     fillsWidth: fills)
-    }
-
+    /// Each side's bubble hugs its words and leaves `otherSideRoom` on its far side; a long message's pieces read as
+    /// one bubble (square corners where they meet, and the ring drawn open there).
     private var bubble: some View {
         let top = message.piece == .whole || message.piece == .first
         let bottom = message.piece == .whole || message.piece == .last
-        return HStack(spacing: 0) {
-            Spacer(minLength: CicadaTheme.scaled(Self.otherSideRoom))
-            passage(fills: false)
-                .padding(.horizontal, CicadaTheme.scaled(Self.bubblePadding.leading))
-                .padding(.top, top ? CicadaTheme.scaled(Self.bubblePadding.top) : 0)
-                .padding(.bottom, bottom ? CicadaTheme.scaled(Self.bubblePadding.bottom) : 0)
-                .background(CicadaTheme.chatBubble(roundTop: top, roundBottom: bottom).fill(CicadaTheme.chatBubbleFill))
+        let shape = CicadaTheme.chatBubble(roundTop: top, roundBottom: bottom)
+        let words = CitedPassage(segments: ReaderText.segments(message.block), color: ink, reveal: revealed ? 1 : 0,
+                                 fillsWidth: false)
+            .padding(.horizontal, CicadaTheme.scaled(Self.bubblePadding.leading))
+            .padding(.top, top ? CicadaTheme.scaled(Self.bubblePadding.top) : 0)
+            .padding(.bottom, bottom ? CicadaTheme.scaled(Self.bubblePadding.bottom) : 0)
+            .background(shape.fill(side == .person ? CicadaTheme.chatBubbleFill : CicadaTheme.chatBubbleOtherFill))
+            .overlay {
+                // DR-9 — the other party's bubble is lifted by the resting ring; the landed message's emphasis is a
+                // ring too, fading (never the accent, never a shadow). Drawn past an open end and clipped, so a long
+                // message's pieces show no seam.
+                ZStack {
+                    if side == .other {
+                        shape.strokeBorder(CicadaTheme.ring(.resting), lineWidth: 1)
+                    }
+                    if mark == .current, emphasis > 0 {
+                        shape.strokeBorder(CicadaTheme.textTertiary.opacity(emphasis), lineWidth: Self.emphasisRing)
+                    }
+                }
+                .padding(.top, top ? 0 : -Self.emphasisRing * 2)
+                .padding(.bottom, bottom ? 0 : -Self.emphasisRing * 2)
+            }
+            .clipShape(Rectangle())
+        // The room is the same with or without a marker, so a cited bubble is never narrower than its neighbours:
+        // the marker takes its slot out of the room, against the bubble.
+        let room = CicadaTheme.scaled(Self.otherSideRoom)
+        let slot = room - CicadaTheme.scaled(Self.markerGap)
+        return HStack(alignment: .top, spacing: 0) {
+            if side == .person {
+                if let mark {
+                    Spacer(minLength: 0)
+                    marker(mark, slot: slot, top: top)
+                    Spacer(minLength: room - slot).frame(width: room - slot)
+                } else {
+                    Spacer(minLength: room)
+                }
+            }
+            words
+            if side == .other {
+                if let mark {
+                    Spacer(minLength: room - slot).frame(width: room - slot)
+                    marker(mark, slot: slot, top: top)
+                    Spacer(minLength: 0)
+                } else {
+                    Spacer(minLength: room)
+                }
+            }
         }
+    }
+
+    private func marker(_ mark: ReaderChat.CitedMark, slot: CGFloat, top: Bool) -> some View {
+        ReaderCitedMarker(mark: mark, side: side)
+            .frame(minWidth: slot, alignment: side == .person ? .trailing : .leading)
+            // Level with the bubble's first line.
+            .padding(.top, CicadaTheme.scaled(top ? Self.bubblePadding.top + 3 : 3))
+    }
+}
+
+/// "Cited ▍" beside a bubble (owner, 2026-10-20): the bar against the bubble, the word beyond it, both on the bubble's
+/// inner side, in the room it always leaves. The current span's bar is the accent (DR-5 use 4, the cited span); another
+/// cited span's is the quote rule's neutral (DR-18). The word is tertiary meta text on the pane, never on the bubble
+/// (DR-2). Hidden from VoiceOver here: the message's own label says it first (`ReaderChat.accessibilityLabel`).
+struct ReaderCitedMarker: View {
+    let mark: ReaderChat.CitedMark
+    let side: ReaderChat.Side
+
+    var body: some View {
+        HStack(spacing: CicadaTheme.scaled(4)) {
+            if side == .person { word }
+            Rectangle()
+                .fill(mark == .current ? CicadaTheme.accent : CicadaTheme.quoteRule)
+                .frame(width: ReaderChatMessageView.markerBar, height: CicadaTheme.scaled(14))
+            if side == .other { word }
+        }
+        .fixedSize()
+        .help(Copy.Provenance.citedMarkerHelp)
+        .accessibilityHidden(true)
+    }
+
+    private var word: some View {
+        Text(Copy.Provenance.citedMarker)
+            .font(CicadaTheme.metaFont)
+            .foregroundStyle(CicadaTheme.textTertiary)
+            .lineLimit(1)
     }
 }
 

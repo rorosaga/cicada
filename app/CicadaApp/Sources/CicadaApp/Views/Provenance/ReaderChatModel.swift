@@ -4,10 +4,10 @@ import Foundation
 /// have to go up to go back in history"), pure and tested (`ReaderChatTests`), so `ReaderChatRows` only draws it.
 ///
 /// A conversation — a Messages sitting, a Claude Code / Codex / Cursor / Gemini session, a chat export, a relayed
-/// connector chat — reads as a chat: the person's turns on the right in a bubble, the other party's on the left as
-/// plain text, a day separator where the day changes, the other party's face or mark and a time once per run, no
-/// "turn N". Everything else the Reader opens (a page, a saved link, a note, a watched day, a feed item) keeps the
-/// document view (`isChat`). The rows are built over `ReaderLayout.blocks`, so every wash, every landing and both
+/// connector chat — reads as a chat: the person's turns on the right in a bubble, the other party's on the left in a
+/// quieter bubble of their own (2026-10-20), a day separator where the day changes, the other party's face or mark and
+/// a time once per run, no "turn N". Everything else the Reader opens (a page, a saved link, a note, a watched day, a
+/// feed item) keeps the document view (`isChat`). The rows are built over `ReaderLayout.blocks`, so every wash, every landing and both
 /// rotors address the very blocks the document view would.
 enum ReaderChat {
     /// A turn longer than this (scalars) or with more lines than `collapseLines` starts folded to a preview.
@@ -70,6 +70,36 @@ enum ReaderChat {
         return open
     }
 
+    /// How a message says it holds a cited passage (owner, 2026-10-20: a cited bubble "has a blue highlight even
+    /// though I have not selected [it]"). A quiet marker beside the bubble, in words for VoiceOver, so the citation
+    /// never has to be told by a fill: `.current` for the span the Reader landed on (its bar in the accent, DR-5 use
+    /// 4), `.other` for another span this conversation's citations name (a neutral bar). A name found by searching is
+    /// not a citation (R-DI11) and carries none.
+    enum CitedMark: Hashable { case current, other }
+
+    static func citedMark(_ block: ReaderBlock) -> CitedMark? {
+        if block.washes.contains(where: { $0.style == .focus }) { return .current }
+        if block.washes.contains(where: { $0.style == .other }) { return .other }
+        return nil
+    }
+
+    /// What VoiceOver reads for a message: the cited marker first when it holds one ("Cited here. Sam, 17:02: …"),
+    /// then who, when and what, then its extras — the marker is said, never only shown.
+    static func accessibilityLabel(_ message: Message) -> String {
+        var words = Copy.Provenance.chatLabel(speaker: message.speaker, time: message.time, text: message.block.text)
+        switch citedMark(message.block) {
+        case .current: words = Copy.Provenance.citedHere + ". " + words
+        case .other: words = Copy.Provenance.alsoCitedHere + ". " + words
+        case nil: break
+        }
+        if let extras = message.extras {
+            let more = [extras.reply?.words, extras.forwardedFrom] + extras.attachments.map(Optional.some)
+                + extras.reactions.map { Optional.some($0.help) } + [extras.edited ? Copy.Provenance.edited : nil]
+            words += more.compactMap { $0 }.map { ". " + $0 }.joined()
+        }
+        return words
+    }
+
     /// The Messages chat a sitting belongs to (`imessage:<chat>:<first key>`), for its picture; nil for anything else.
     static func messagesChat(_ doc: EpisodeText) -> String? {
         guard doc.origin == messagesOrigin, let id = doc.conversationId, id.hasPrefix(messagesSourcePrefix) else {
@@ -82,9 +112,10 @@ enum ReaderChat {
     // MARK: Rows
 
     enum Side: Hashable {
-        /// The person: right-aligned, in a bubble.
+        /// The person: right-aligned, in `chatBubbleFill`.
         case person
-        /// Anyone else — an agent, a contact, a meeting speaker, an attached file: left-aligned, plain.
+        /// Anyone else — an agent, a contact, a meeting speaker, an attached file: left-aligned, in
+        /// `chatBubbleOtherFill` with its ring (2026-10-20).
         case other
     }
 

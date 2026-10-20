@@ -53,6 +53,12 @@ struct ReaderColumn: View {
     @State private var keyScroll: KeyScroll?
     /// The last layout built, so a key press or a hover redraw does not rebuild a 500-turn chat (`LayoutMemo`).
     @State private var memo = LayoutMemo()
+    /// How the last in-place jump was asked for (owner, 2026-10-20): a pointer's jump fades the wash in and gives the
+    /// landed message a brief ring that fades (`citedEmphasis`); a keyboard's (⌥↑ / ⌥↓, ⏎ on a noted row) lands in
+    /// one frame with neither (DR-60).
+    @State private var jumpTrigger: LooksZoom.Trigger = .pointer
+    @State private var citedEmphasis: Double = 0
+    @State private var emphasisFade: Task<Void, Never>?
 
     /// A keyboard scroll: the row, the edge it lines up with, and a token so asking for the same row twice still moves.
     struct KeyScroll: Equatable {
@@ -112,6 +118,8 @@ struct ReaderColumn: View {
         phase = .loading
         washVisible = false
         jump = nil
+        emphasisFade?.cancel()
+        citedEmphasis = 0
         citations = nil
         unfolded = []
         topRow = nil
@@ -320,6 +328,7 @@ struct ReaderColumn: View {
                         if let chat = layout.chat {
                             ReaderChatRows(rows: chat, landingTurn: presentation.focus == nil ? nil : landingBlock?.turn,
                                            revealed: washVisible, messagesChat: ReaderChat.messagesChat(doc),
+                                           emphasis: citedEmphasis,
                                            onToggle: { turn in
                                                if unfolded.contains(turn) { unfolded.remove(turn) } else { unfolded.insert(turn) }
                                            },
@@ -449,11 +458,33 @@ struct ReaderColumn: View {
         jumpTo(candidates.first { $0.subjectId == subjectId } ?? candidates.first)
     }
 
+    /// A navigator step or a noted row: re-land in place. The trigger is read from the event running the action — a
+    /// key press (the ⌥↑ / ⌥↓ shortcut, ⏎ on a row) or anything else, the pointer (`LooksZoom.trigger(for:)`).
     private func jumpTo(_ citation: EpisodeCitation?) {
         guard let citation, citation.range != nil else { return }
-        washVisible = false
+        let trigger = LooksZoom.currentTrigger()
+        jumpTrigger = trigger
+        emphasisFade?.cancel()
+        Instant.run {
+            citedEmphasis = 0
+            // DR-60 — a keyboard jump keeps the wash where it is: nothing fades out and back in.
+            if trigger == .pointer { washVisible = false }
+        }
         jump = citation
         landingToken &+= 1
+    }
+
+    /// The brief ring on the message a pointer jump landed on: held, then faded (`rowHighlightHold` /
+    /// `rowHighlightFade`, the landed Settings row's timing); under Reduce Motion held for both and removed in one
+    /// frame (R-O7). Never after a keyboard jump (DR-60) and never on opening the Reader.
+    private func emphasise() {
+        Instant.run { citedEmphasis = 1 }
+        emphasisFade = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(CicadaMotion.rowHighlightHold))
+            if reduceMotion { try? await Task.sleep(for: .seconds(CicadaMotion.rowHighlightFadeDuration)) }
+            guard !Task.isCancelled else { return }
+            withAnimation(CicadaMotion.rowHighlightFade(reduceMotion: reduceMotion)) { citedEmphasis = 0 }
+        }
     }
 
     // MARK: Noted from this conversation (P4, G106 (ii))
@@ -488,7 +519,16 @@ struct ReaderColumn: View {
                 await Task.yield()
                 proxy.scrollTo(newest.scrollID, anchor: .bottom)
             }
-            withAnimation(CicadaMotion.spanReveal(reduceMotion: reduceMotion)) { washVisible = true }
+            switch ReaderLandingMotion.choose(isJump: jump != nil, trigger: jumpTrigger, isChat: chat != nil,
+                                              landed: block != nil) {
+            case .instant:
+                Instant.run { washVisible = true }
+            case .reveal:
+                withAnimation(CicadaMotion.spanReveal(reduceMotion: reduceMotion)) { washVisible = true }
+            case .revealAndEmphasise:
+                withAnimation(CicadaMotion.spanReveal(reduceMotion: reduceMotion)) { washVisible = true }
+                emphasise()
+            }
             // The first block's piece of the words: a chunk holds at least
             // `chunkLimit / 2` scalars, so the 120 announced almost always sit
             // in one block, and never read a marker line out loud.
@@ -498,6 +538,20 @@ struct ReaderColumn: View {
             AccessibilityNotification.Announcement(Copy.Provenance.citedPassage(String(words.prefix(120))))
                 .post()
         }
+    }
+}
+
+/// How a landing moves (owner, 2026-10-20; DR-60, DR-61). Opening the Reader fades the wash in over `spanReveal`, as
+/// it always did. An in-place jump asked for by a key (⌥↑ / ⌥↓, ⏎ on a noted row) lands in one frame: the wash is
+/// simply there and nothing rings. A jump asked for by the pointer fades the wash in and, in a chat, gives the landed
+/// message a brief ring that fades — the eye's cue to where the column moved.
+enum ReaderLandingMotion: Equatable {
+    case instant, reveal, revealAndEmphasise
+
+    static func choose(isJump: Bool, trigger: LooksZoom.Trigger, isChat: Bool, landed: Bool) -> ReaderLandingMotion {
+        guard isJump else { return .reveal }
+        if trigger == .keyboard { return .instant }
+        return isChat && landed ? .revealAndEmphasise : .reveal
     }
 }
 

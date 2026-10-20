@@ -31,7 +31,10 @@ as-is with the right ``Content-Type``; ``min_dimension`` sniffs PNG/GIF/ICO/JPEG
 headers directly so a 1×1 tracking pixel is rejected without a decode. Raster
 formats only — an SVG is a scriptable document and this module stores nothing
 it would have to sanitize, so ``_accept`` refuses ``image/svg+xml`` and any
-payload that sniffs as SVG regardless of the header the site sent.
+payload that sniffs as SVG regardless of the header the site sent. The one
+place an SVG becomes an icon is a saved link's own site (owner 2026-10-20):
+there it is sanitised and drawn to a PNG by ``svg_raster``, and only the PNG
+is stored.
 """
 
 from __future__ import annotations
@@ -53,7 +56,7 @@ from urllib.parse import urljoin, urlparse
 
 from loguru import logger
 
-from api.services import markdown_parser, net_guard
+from api.services import markdown_parser, net_guard, svg_raster
 from api.services.auth import cicada_home
 
 CACHE_DIR_NAME = "logos"
@@ -992,10 +995,12 @@ async def ensure_site_icon(
 # that host's or the site's registrable domain, and accepted only when the content-type says image AND the bytes sniff
 # as a raster. The whole discovery has one 4 s budget per site; every response is cut at 512 KB.
 #
-# SVG stays a miss: there is no in-process rasteriser here (Pillow is deliberately not a dependency, and a hand-rolled
-# SVG renderer is the opposite of safe), and serving SVG to the app as-is would put a scriptable document on the
-# backend's origin. A `data:` icon is decoded only when it is base64 raster (PNG/ICO/GIF/JPEG/WebP), its decoded size
-# capped and its bytes sniffed like any download; a `data:image/svg+xml` icon is a miss.
+# SVG is drawn, safely (owner 2026-10-20: "yes, we should draw the SVG icon safely"): only when no raster answered, the
+# page's declared SVG icons (≤ 2; served, or `data:image/svg+xml`) are fetched under the same rules, capped at 64 KB,
+# sanitised by `svg_raster` (strict expat with every DTD refused, an allow-list of shapes/paths/gradients/transforms) and
+# drawn to a 64×64 PNG in a locked-down child process (no new file descriptors, CPU and wall-clock caps). Only that PNG
+# is cached and served; SVG bytes never are. A `data:` raster icon is decoded only when it is base64 raster
+# (PNG/ICO/GIF/JPEG/WebP), its decoded size capped and its bytes sniffed like any download.
 
 #: The cache namespace: `logos/<bank>/sites/own/` — beside, never mixed with, the icon-service icons in `sites/`, so a miss
 #: on one path never hides the other.
@@ -1003,11 +1008,13 @@ OWN_SITE_DIR = "own"
 OWN_SITE_PATHS = ("/apple-touch-icon.png", "/favicon.ico")
 #: The discovery's version, stamped on every own-site cache entry. A miss recorded by an older discovery (the two fixed
 #: paths of 2026-10-19) is asked once more with this one; hits stay.
-OWN_SITE_DISCOVERY = 2
+OWN_SITE_DISCOVERY = 3
 #: The whole discovery for one site — homepage, declared icons, fixed paths — fits in this many seconds (the ToS rail).
 OWN_SITE_BUDGET_SECONDS = TIMEOUT_SECONDS
 #: At most this many declared icons are asked, best first, before the fixed paths.
 MAX_DECLARED_ICONS = 3
+#: At most this many declared SVG icons are asked — only after every raster missed (owner 2026-10-20).
+MAX_DECLARED_SVGS = 2
 _ICON_RELS = {"icon", "apple-touch-icon", "apple-touch-icon-precomposed"}
 #: A site that says no: a miss at once, the next path never tried, nothing retried with other headers (the ToS rail).
 _BLOCK_STATUSES = {401, 403, 407, 451}
@@ -1136,24 +1143,38 @@ def _declared_size(sizes: str) -> int | None:
 
 
 def declared_icons(html: bytes, page_url: str) -> list[_IconLink]:
-    """The raster icons a homepage declares, best first. Skips `mask-icon` and anything typed or named SVG (a miss
-    here, see above), a `data:` icon that is not base64 raster, and any href that resolves to something but https."""
+    """The raster icons a homepage declares, best first. Skips `mask-icon` and anything typed or named SVG (those are
+    `declared_svg_icons`, asked only when no raster answers), a `data:` icon that is not base64 raster, and any href
+    that resolves to something but https."""
+    return _declared(html, page_url)[0]
+
+
+def declared_svg_icons(html: bytes, page_url: str) -> list[str]:
+    """The SVG icons a homepage declares (typed `image/svg+xml`, a path ending `.svg`, or a `data:image/svg+xml` URI), in
+    page order, at most `MAX_DECLARED_SVGS` — never a `mask-icon` (a one-colour Safari mask, not the site's icon)."""
+    return _declared(html, page_url)[1]
+
+
+def _declared(html: bytes, page_url: str) -> tuple[list[_IconLink], list[str]]:
     base_href, links = _icon_tags(html)
     try:
         base = urljoin(page_url, base_href) if base_href else page_url
     except ValueError:
         base = page_url
     found: dict[str, _IconLink] = {}
+    svgs: list[str] = []
     for order, attrs in enumerate(links):
         rel = frozenset(attrs.get("rel", "").lower().split())
         href = attrs.get("href", "").strip()
         if not href or not rel & _ICON_RELS or "mask-icon" in rel:
             continue
         kind = attrs.get("type", "").strip().lower()
-        if "svg" in kind:
-            continue
         if href.lower().startswith("data:"):
-            if _data_icon_type(href) is None:
+            if _data_svg_icon(href) is not None:
+                if href not in svgs:
+                    svgs.append(href)
+                continue
+            if "svg" in kind or _data_icon_type(href) is None:
                 continue
             url = href
         else:
@@ -1161,7 +1182,11 @@ def declared_icons(html: bytes, page_url: str) -> list[_IconLink]:
                 url = urljoin(base, href)
             except ValueError:
                 continue
-            if not _plain_https(url) or urlparse(url).path.lower().endswith(".svg"):
+            if not _plain_https(url):
+                continue
+            if "svg" in kind or urlparse(url).path.lower().endswith(".svg"):
+                if url not in svgs:
+                    svgs.append(url)
                 continue
         media = attrs.get("media", "").lower().replace(" ", "")
         size = _declared_size(attrs.get("sizes", ""))
@@ -1171,7 +1196,36 @@ def declared_icons(html: bytes, page_url: str) -> list[_IconLink]:
                          light="prefers-color-scheme:light" in media, order=order)
         if url not in found or link.rank() < found[url].rank():
             found[url] = link
-    return sorted(found.values(), key=_IconLink.rank)
+    return sorted(found.values(), key=_IconLink.rank), svgs[:MAX_DECLARED_SVGS]
+
+
+def _data_svg_icon(uri: str) -> bytes | None:
+    """The bytes of a `data:image/svg+xml` icon (base64 or percent-encoded), capped at `svg_raster.MAX_SVG_BYTES` from
+    the encoded length BEFORE decoding; None for anything else."""
+    import base64
+    import binascii
+    from urllib.parse import unquote_to_bytes
+
+    head, sep, payload = uri.partition(",")
+    if not sep:
+        return None
+    parts = [p.strip().lower() for p in head[5:].split(";")]
+    if parts[0] != "image/svg+xml":
+        return None
+    cap = svg_raster.MAX_SVG_BYTES
+    if "base64" in parts[1:]:
+        payload = "".join(payload.split())
+        if len(payload) > (cap * 4) // 3 + 4:
+            return None
+        try:
+            body = base64.b64decode(payload, validate=False)
+        except (binascii.Error, ValueError):
+            return None
+    else:
+        if len(payload) > cap * 3:
+            return None
+        body = unquote_to_bytes(payload)
+    return body if 0 < len(body) <= cap else None
 
 
 def _data_icon_type(uri: str) -> str | None:
@@ -1264,6 +1318,7 @@ async def _discover(site: str, *, fetcher: Fetcher, resolver: Resolver | None) -
 
     tried: set[str] = set()
     asked: list[str] = []
+    svgs: list[str] = []
 
     async def counted(url: str) -> FetchResult:
         asked.append(url)
@@ -1285,7 +1340,7 @@ async def _discover(site: str, *, fetcher: Fetcher, resolver: Resolver | None) -
         ctype = (result.content_type or "").lower()
         if result.status == 200 and result.body and ("html" in ctype or not ctype):
             # Off the event loop: the scan is linear, but 512 KB of it should never hold every other request.
-            declared = await asyncio.to_thread(declared_icons, result.body, final_url)
+            declared, svgs = await asyncio.to_thread(_declared, result.body, final_url)
             for link in declared[:MAX_DECLARED_ICONS]:
                 if link.url.startswith("data:"):
                     got = _decode_data_icon(link.url)
@@ -1318,7 +1373,45 @@ async def _discover(site: str, *, fetcher: Fetcher, resolver: Resolver | None) -
         accepted = _sniffed(result)
         if accepted:
             return accepted
+    # Only when no raster answered: the SVG icons the page declares (owner 2026-10-20). Fetched under the same rules as
+    # a declared raster, then sanitised here (pure Python, off the loop); the first that survives is handed back as
+    # ("svg", sanitised text) for `fetch_own_site_icon` to draw outside this budget. SVG bytes are never stored.
+    for href in svgs:
+        if href.startswith("data:"):
+            body = _data_svg_icon(href)
+        else:
+            body = await _fetch_svg(href, site, fetcher=fetcher, resolver=resolver)
+        clean = await asyncio.to_thread(svg_raster.sanitize, body) if body else None
+        if clean:
+            return clean.encode("utf-8"), "svg", None
     return None
+
+
+_SVG_TYPES = ("image/svg+xml", "image/svg", "application/svg+xml")
+
+
+async def _fetch_svg(url: str, site: str, *, fetcher: Fetcher, resolver: Resolver | None) -> bytes | None:
+    """A declared SVG icon's bytes: https, the SSRF guard on every hop, redirects kept on its host's or the site's
+    registrable domain, a 200 whose content-type says SVG (on the site itself an XML or octet-stream type also counts),
+    at most `svg_raster.MAX_SVG_BYTES`, and bytes that open as SVG. A block from the site stops the discovery."""
+    from api.services import reading_hosts
+
+    declared_site = reading_hosts.site_of(url)
+    own = declared_site == site
+    allowed = (lambda u: _plain_https(u) and reading_hosts.site_of(u) in (declared_site, site))
+    got = await _follow(url, allowed, fetcher=fetcher, resolver=resolver)
+    if got is None:
+        return None
+    answer = got[0]
+    if answer.status in _BLOCK_STATUSES and own:
+        raise _Blocked
+    ctype = (answer.content_type or "").split(";", 1)[0].strip().lower()
+    typed = ctype.startswith(_SVG_TYPES) or (own and ctype in ("", "text/xml", "application/xml",
+                                                                "application/octet-stream", "text/plain"))
+    body = answer.body or b""
+    if answer.status != 200 or not typed or not body or len(body) > svg_raster.MAX_SVG_BYTES or not looks_like_svg(body):
+        return None
+    return body
 
 
 async def fetch_own_site_icon(
@@ -1332,12 +1425,17 @@ async def fetch_own_site_icon(
             return None
         fetcher = _http_get
     try:
-        return await asyncio.wait_for(_discover(site, fetcher=fetcher, resolver=resolver), OWN_SITE_BUDGET_SECONDS)
+        found = await asyncio.wait_for(_discover(site, fetcher=fetcher, resolver=resolver), OWN_SITE_BUDGET_SECONDS)
     except _Blocked:
         return None
     except asyncio.TimeoutError:
         logger.debug("own-site icon discovery ran out of its time budget")
         return None
+    if found is None or found[1] != "svg":
+        return found
+    # A sanitised SVG: drawn to a PNG out of process (`svg_raster`); only the PNG is ever cached or served.
+    drawn = await svg_raster.rasterise(found[0].decode("utf-8"))
+    return (drawn, "png", None) if drawn else None
 
 
 def _own_entry_current(entry: dict) -> bool:
