@@ -8,6 +8,14 @@
 
 ## Current state and evidence
 
+- **2026-10-21 — a merge or rename keeps what the person gave the page (G147, G146; branch `feat/next-row`).**
+  `entity_merge.merge_entities` unions both pages' `kept_on` (`decay_policy.merged_keeps`), so a keep answered on the
+  absorbed page still slows the merged page's fade; it carries the person's picture choice when the winner has none
+  (the upload's file moves to the winner's id) and removes a loser upload the winner's own choice outranks;
+  `rename_references` moves an upload's file with its page. The footprints name the picture files
+  (`entity_picture._merge_plan`, `rename_footprint`), so the dedup sweep's transaction and the placeholder repair's
+  dirty check cover them. Every merge door is driven (`test_merge_edges.DOORS`). Tests:
+  `test_merge_keeps_person_marks.py`. Pick up: review and merge; tonight's inbox tidy merges then keep both.
 - **2026-10-20 — Contacts as a seed; imported-only pages stay quiet (ruling 33, G154; branch `feat/people-seed`).**
   Unmatched address-book cards wait in `$CICADA_HOME/people/<bank>/contacts.json` (`people_directory`, shared with
   LinkedIn; 0600); a person's first conversation mention naming exactly one waiting card promotes on its own and the
