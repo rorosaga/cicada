@@ -182,12 +182,8 @@ struct ConnectedChannelRow: View {
         }
         .padding(.horizontal, CicadaTheme.spacingMD)
         .padding(.vertical, CicadaTheme.spacingSM)
-        .background(
-            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                .fill(isHovered ? CicadaTheme.surfaceHover : .clear)
-        )
-        .onHover { isHovered = $0 }
-        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isHovered)
+        .rowHover($isHovered)   // DR-48 — the shared row fill
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isHovered)   // the actions' fade
     }
 
     /// The backend lists what a channel supports; "Manage…" is appended

@@ -78,8 +78,7 @@ struct GraphFindOverlay: View {
         }
         .padding(.horizontal, CicadaTheme.spacingSM)
         .frame(height: CicadaTheme.scaled(32))
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-            .fill(selected ? CicadaTheme.bgSelected : (hovered == hit.node.id ? CicadaTheme.bgHover : Color.clear)))
+        .rowHoverFill(hovering: hovered == hit.node.id, selected: selected)
         .contentShape(Rectangle())
         .onHover { inside in hovered = inside ? hit.node.id : (hovered == hit.node.id ? nil : hovered) }
         .onTapGesture { pick(index) }

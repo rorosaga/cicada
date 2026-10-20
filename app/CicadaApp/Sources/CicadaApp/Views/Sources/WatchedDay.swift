@@ -184,8 +184,7 @@ struct InPlaceDisclosureRow<Leading: View, Content: View>: View {
                 }
                 .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
                 .padding(.horizontal, CicadaTheme.scaled(10))
-                .background(hovering ? CicadaTheme.bgHover : Color.clear,
-                            in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+                .rowHoverFill(hovering: hovering)
                 .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
                 .contentShape(Rectangle())
             }
@@ -198,14 +197,12 @@ struct InPlaceDisclosureRow<Leading: View, Content: View>: View {
     }
 }
 
-/// A note under an opened row: reading, failed, empty.
+/// A note under an opened row: reading, failed, empty — in words alone (DR-43: no spinner; "Reading…" says it).
 private struct InPlaceNote: View {
     let text: String
-    var loading = false
 
     var body: some View {
         HStack(spacing: CicadaTheme.spacingXS) {
-            if loading { ProgressView().controlSize(.small) }
             Text(text)
                 .font(CicadaTheme.metaFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
@@ -264,7 +261,7 @@ struct WatchedDayRow: View {
         } else if cache.dayFailed(item.id) {
             InPlaceNote(text: Copy.watchedDayFailed)
         } else {
-            InPlaceNote(text: Copy.watchedDayLoading, loading: true)
+            InPlaceNote(text: Copy.watchedDayLoading)
         }
     }
 }
@@ -318,7 +315,7 @@ struct ChatSittingsRow: View {
         } else if cache.sittingsFailed(item.id) {
             InPlaceNote(text: Copy.chatSittingsFailed)
         } else {
-            InPlaceNote(text: Copy.chatSittingsLoading, loading: true)
+            InPlaceNote(text: Copy.chatSittingsLoading)
         }
     }
 }
@@ -360,8 +357,7 @@ private struct CapturedSittingRow: View {
             }
             .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
             .padding(.horizontal, CicadaTheme.scaled(10))
-            .background(hovering ? CicadaTheme.bgHover : Color.clear,
-                        in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+            .rowHoverFill(hovering: hovering)
             .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
             .contentShape(Rectangle())
         }
@@ -406,8 +402,7 @@ struct WatchedVideoRow: View {
             }
             .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.twoLine), alignment: .leading)
             .padding(.horizontal, CicadaTheme.scaled(10))
-            .background(hovering ? CicadaTheme.bgHover : Color.clear,
-                        in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+            .rowHoverFill(hovering: hovering)
             .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
             .contentShape(Rectangle())
         }

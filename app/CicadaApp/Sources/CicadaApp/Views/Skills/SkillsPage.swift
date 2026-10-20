@@ -20,6 +20,7 @@ struct SkillsPage: View {
     @State private var addText = ""
     @FocusState private var addFocused: Bool
     @Environment(AppRouter.self) private var router: AppRouter?
+    @Environment(ProvenanceRouter.self) private var provenance: ProvenanceRouter?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -38,6 +39,7 @@ struct SkillsPage: View {
             // Say it once — Skills clicked again in the rail: Installed, nothing selected.
             .onRailReselect(.skills, router: router) {
                 router?.popToRoot(reduceMotion: reduceMotion) {
+                    provenance?.close()
                     tab = nil
                     selected = nil
                 }
@@ -72,7 +74,12 @@ struct SkillAddInput: Identifiable {
     let agents: [String]
 }
 
-/// The page, pure over the model's state.
+/// The page, pure over the model's state. Round 2 of the consistency pass (2026-10-20): the table and a skill's details
+/// sit on the shared progressive columns (§5.3) like Sources and Projects — the table full width with nothing open; a
+/// skill opens the triage list (two-line rows) beside its detail, which takes the rest; the Reader, when something
+/// opens it, is the third column, and DR-27 hides the list before the detail or the Reader drop below their floors
+/// ("‹ N skills" brings it back). ↑/↓ move the open skill, ⏎ steps into it, Esc closes the rightmost (DR-28, DR-68).
+/// The header above the columns is the owner's (2026-10-15) and is unchanged.
 struct SkillsPageView: View {
     let model: SkillsPageModel
     @Binding var tab: SkillsTab?
@@ -84,14 +91,53 @@ struct SkillsPageView: View {
     var onPublish: (SkillDraft) -> Void = { _ in }
     var onRead: (SkillDraft) -> Void = { _ in }
 
-    static let detailWidth: CGFloat = 360
+    @Environment(ProvenanceRouter.self) private var provenance: ProvenanceRouter?
+    @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @FocusState private var focus: ListFocus?
 
     private var data: SkillsPageData? { model.data }
     private var selectedSkill: InstalledSkill? {
         tab == nil ? selected.flatMap { name in data?.installed.first { $0.name == name } } : nil
     }
+    private var readerOpen: Bool { provenance?.isPresented ?? false }
 
     var body: some View {
+        let open = selectedSkill
+        ProgressiveColumns(hasDetail: open != nil, hasTrailing: readerOpen,
+                           navWidth: ShellMetrics.navWidth(labelled: labelledSidebar)) { _ in
+            header
+        } list: { plan in
+            content(plan)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .listKeys(move: { move($0) }, enter: { enterDetail() }, escape: { escape() })
+                .focused($focus, equals: .list)
+        } detail: { plan in
+            if let skill = open {
+                SkillDetailColumn(skill: skill, busy: model.busy.contains(skill.name),
+                                  backLabel: plan.listHidden ? Copy.Skills.skillsBack(data?.installed.count ?? 0) : nil,
+                                  onShowList: { showList() },
+                                  onClose: { close() },
+                                  onUpdate: { Task { await model.update(skill.name) } },
+                                  onRefresh: { Task { await model.refresh(skill.name) } },
+                                  onRemove: {
+                                      Instant.run { selected = nil }
+                                      Task { await model.remove(skill.name) }
+                                  })
+                    .id(skill.name)
+                    .columnEdge()   // DR-11: the one permitted rule, from the theme
+                    // After ⏎ the detail holds the keys: ↑/↓ still swap the skill in place, Esc closes the rightmost
+                    // (DR-28, DR-68); ⏎ here steps nowhere further.
+                    .listKeys(move: { move($0) }, enter: { false }, escape: { escape() })
+                    .focused($focus, equals: .detail)
+            }
+        } trailing: { _ in
+            ReaderColumn().focused($focus, equals: .reader)
+        }
+    }
+
+    /// The owner's header (2026-10-15): the add field, an agent's requests, the tabs, a message and running jobs.
+    private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
             EyebrowRow(eyebrow: Copy.Skills.page) {
                 HStack(spacing: CicadaTheme.spacingSM) {
@@ -135,21 +181,6 @@ struct SkillsPageView: View {
                 }
                 .padding(.horizontal, CicadaTheme.spacingGutter).padding(.bottom, CicadaTheme.spacingSM)
             }
-            HStack(alignment: .top, spacing: 0) {
-                content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                if let skill = selectedSkill {
-                    SkillDetailColumn(skill: skill, busy: model.busy.contains(skill.name),
-                                      onClose: { Instant.run { selected = nil } },
-                                      onUpdate: { Task { await model.update(skill.name) } },
-                                      onRefresh: { Task { await model.refresh(skill.name) } },
-                                      onRemove: {
-                                          Instant.run { selected = nil }
-                                          Task { await model.remove(skill.name) }
-                                      })
-                        .frame(width: CicadaTheme.scaled(Self.detailWidth))
-                        .columnEdge()   // DR-11: the one permitted rule, from the theme
-                }
-            }
         }
     }
 
@@ -158,8 +189,63 @@ struct SkillsPageView: View {
         if !text.isEmpty { onAdd(text) }
     }
 
+    // MARK: Paths (R-DL8, DR-28, DR-60)
+
+    /// A click from the table opens the columns on their curve; a swap, and every key, is instant (DR-60). A Reader
+    /// the old skill had open closes with it (DR-29).
+    private func select(_ name: String) {
+        let change = {
+            selected = selected == name ? nil : name
+            if readerOpen { provenance?.close() }
+        }
+        if selected == nil {
+            withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion)) { change() }
+        } else {
+            Instant.run { change() }
+        }
+        DispatchQueue.main.async { focus = .list }
+    }
+
+    private func move(_ delta: Int) {
+        guard tab == nil, let names = data?.installed.map(\.name) else { return }
+        Instant.run {
+            var columns = ListColumns<String>()
+            if let selected { columns.open(selected) }
+            guard let next = columns.neighbour(delta, in: names) else { return }
+            selected = next
+            if readerOpen { provenance?.close() }
+        }
+    }
+
+    private func enterDetail() -> Bool {
+        guard selectedSkill != nil else { return false }
+        focus = .detail
+        return true
+    }
+
+    /// DR-28 — the Reader, then the skill.
+    private func escape() {
+        Instant.run {
+            if readerOpen { provenance?.close() } else if selected != nil { selected = nil }
+        }
+    }
+
+    private func close() {
+        withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion)) {
+            provenance?.close()
+            selected = nil
+        }
+    }
+
+    /// "‹ N skills" — the list comes back by closing the Reader that hid it (DR-27).
+    private func showList() {
+        withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion)) {
+            if readerOpen { provenance?.close() } else { selected = nil }
+        }
+    }
+
     @ViewBuilder
-    private var content: some View {
+    private func content(_ plan: ColumnPlan) -> some View {
         switch (model.phase, data) {
         // DR-43 — the list pages' one first-read pair: words over a still skeleton, then why it failed and Retry.
         case (.failed(let why), nil):
@@ -171,38 +257,48 @@ struct SkillsPageView: View {
             ScrollView {
                 Group {
                     switch tab {
-                    case nil: installed(data)
+                    case nil: installed(data, style: plan.listStyle)
                     case .discover?: discover(data)
                     case .drafts?: drafts(data)
                     }
                 }
-                .padding(.horizontal, selectedSkill == nil ? CicadaTheme.spacingGutter : CicadaTheme.spacingXL)
-                .padding(.bottom, CicadaTheme.scaled(72))
+                .padding(plan.listStyle == .wide ? EdgeInsets(top: 0, leading: CicadaTheme.spacingGutter,
+                                                              bottom: CicadaTheme.scaled(72),
+                                                              trailing: CicadaTheme.spacingGutter)
+                                                 : ListInsets.of(plan.listStyle))
             }
         }
     }
 
-    // MARK: Installed: the table
+    // MARK: Installed: the table, or the list beside a skill
 
     @ViewBuilder
-    private func installed(_ data: SkillsPageData) -> some View {
+    private func installed(_ data: SkillsPageData, style: ColumnPlan.ListStyle) -> some View {
         if data.installed.isEmpty {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 Text(Copy.Skills.emptyInstalledTitle).font(CicadaTheme.bodyFont)
                 Text(Copy.Skills.emptyInstalledMessage).font(CicadaTheme.metaFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
             }
-        } else {
+        } else if style == .wide {
             VStack(alignment: .leading, spacing: 0) {
                 SkillsTableHeader()
                 ForEach(data.installed) { skill in
                     Divider().overlay(CicadaTheme.border)
                     SkillTableRow(skill: skill, selected: skill.name == selected,
                                   busy: model.busy.contains(skill.name),
-                                  onSelect: { Instant.run { selected = selected == skill.name ? nil : skill.name } },
+                                  onSelect: { select(skill.name) },
                                   onToggle: { agent in Task { await model.toggle(skill, agent: agent) } },
                                   onUpdate: { Task { await model.update(skill.name) } },
                                   onRefresh: { Task { await model.refresh(skill.name) } })
+                }
+            }
+        } else {
+            // §5.3 STATE 1/2 — beside a skill the table narrows to the list pages' rows: the name and its one line
+            // (titles only beside the Reader), at the shared heights and fill (DR-34, DR-48).
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(data.installed) { skill in
+                    SkillListRow(skill: skill, style: style, selected: skill.name == selected) { select(skill.name) }
                 }
             }
         }
@@ -276,7 +372,7 @@ struct SkillsTableHeader: View {
 }
 
 /// One skill: its name and one muted line, the agents pull-down, one word of status. A click selects it (details in
-/// the side column); DR-48: hover `bgHover`, selected `bgSelected`, never a lift.
+/// the detail column); DR-48: the shared row fill (`rowHover`), never a lift.
 struct SkillTableRow: View {
     let skill: InstalledSkill
     let selected: Bool
@@ -304,10 +400,39 @@ struct SkillTableRow: View {
         }
         .padding(.vertical, CicadaTheme.spacingSM)
         .padding(.horizontal, CicadaTheme.spacingSM)
-        .background(selected ? CicadaTheme.bgSelected : (hovering ? CicadaTheme.bgHover : Color.clear))
-        .onHover { hovering = $0 }
+        .rowHover($hovering, selected: selected)
         .opacity(busy ? NeutralButton.disabledOpacity : 1)
         .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+}
+
+/// A skill in the narrowed list beside its detail (§5.3): its name, and its one line in the triage column (a titles-only
+/// column beside the Reader drops it). The list pages' row surface: one height per role, the shared fill (DR-34, DR-48).
+struct SkillListRow: View {
+    let skill: InstalledSkill
+    let style: ColumnPlan.ListStyle
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {
+                Text(skill.name)
+                    .font(CicadaTheme.rowFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .lineLimit(1)
+                if style == .triage, !skill.description.isEmpty {
+                    Text(skill.description)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .lineLimit(1)
+                }
+            }
+            .listRowSurface(height: ListRowSurface.height(style), selected: selected)
+        }
+        .buttonStyle(.cicadaPlain)
+        .accessibilityLabel(skill.name)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 }
@@ -424,6 +549,9 @@ struct SkillStatusCell: View {
 struct SkillDetailColumn: View {
     let skill: InstalledSkill
     let busy: Bool
+    /// "‹ N skills" when DR-27 hid the list.
+    var backLabel: String? = nil
+    var onShowList: () -> Void = {}
     var onClose: () -> Void = {}
     var onUpdate: () -> Void = {}
     var onRefresh: () -> Void = {}
@@ -433,7 +561,8 @@ struct SkillDetailColumn: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-                DetailHeader(title: skill.name, closeHelp: Copy.Skills.closeHelp, onClose: onClose)
+                DetailHeader(title: skill.name, backLabel: backLabel, onShowList: onShowList,
+                             closeHelp: Copy.Skills.closeHelp, onClose: onClose)
                 source
                 if let tool = skill.tool, tool.text == "older" {
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
@@ -486,6 +615,9 @@ struct SkillDetailColumn: View {
             }
             .padding(.horizontal, CicadaTheme.spacingXL)
             .padding(.bottom, CicadaTheme.spacingXL)
+            // DR-36 — the detail takes the columns' remainder; its text keeps the focus card's measure, as Sources'.
+            .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.questionMaxWidth + 64), alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

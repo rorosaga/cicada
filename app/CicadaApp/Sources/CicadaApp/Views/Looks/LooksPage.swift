@@ -16,6 +16,7 @@ struct LooksPage: View {
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router: AppRouter?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(ProvenanceRouter.self) private var provenance: ProvenanceRouter?
     @State private var cache = LooksCache()
     @State private var query = ""
     @State private var openId: String?
@@ -29,11 +30,14 @@ struct LooksPage: View {
             detail: openId.flatMap { cache.refs[$0] }, writeError: cache.writeError,
             tile: { ref in AnyView(LooksStoredImage(ref: ref)) },
             onSubmit: { Task { await cache.search(query: query) } },
-            onOpen: { ref in open(ref.id) }, onClose: { openId = nil },
+            onOpen: { ref in open(ref.id) },
+            // DR-28 / DR-29 — closing the look closes a Reader it opened; "‹ N looks" closes the Reader that hid the board.
+            onClose: { Instant.run { provenance?.close(); openId = nil } },
             onRemove: { id in Task { await cache.remove(id); if openId == id { openId = nil } } },
             onTurnOn: { Task { await cache.turnOnPictureSearch() } },
             onAdd: { chooseFile() }, onImage: { image, via in present(image, via: via) },
-            onRetry: { Task { await cache.refresh() } })
+            onRetry: { Task { await cache.refresh() } },
+            onShowList: { Instant.run { if provenance?.isPresented == true { provenance?.close() } else { openId = nil } } })
         .background(CicadaTheme.bgBase)
         .sheet(item: $composer) { input in
             LooksComposer(input: input, saving: cache.saving, error: cache.writeError,
@@ -56,6 +60,7 @@ struct LooksPage: View {
         // Say it once — Looks clicked again in the rail: the whole board, nothing open, no search.
         .onRailReselect(.looks, router: router) {
             router?.popToRoot(reduceMotion: reduceMotion) {
+                provenance?.close()
                 openId = nil
                 query = ""
                 cache.clearSearch()
@@ -145,7 +150,13 @@ struct LooksBoardView: View {
     /// DR-43 — a first read that failed says why and offers Retry, as every list page does (`ListErrorCard`).
     var onRetry: () -> Void = {}
 
-    static let detailWidth: CGFloat = 380
+    /// "‹ N looks" — the board comes back (DR-27): the caller closes the Reader that hid it.
+    var onShowList: () -> Void = {}
+
+    @Environment(ProvenanceRouter.self) private var provenance: ProvenanceRouter?
+    @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
+    @FocusState private var focus: ListFocus?
+    private var readerOpen: Bool { provenance?.isPresented ?? false }
     @State private var dropTargeted = false
     @State private var zoom = LooksZoom()
     @State private var frames = LooksFrameBook()
@@ -194,35 +205,34 @@ struct LooksBoardView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            EyebrowRow(eyebrow: eyebrow) {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    CicadaSearchField(text: $query, prompt: Copy.Looks.find, width: CicadaTheme.scaled(280),
-                                      onSubmit: onSubmit)
-                        .help(Copy.Looks.searchHelp)
-                    IconButton(systemName: "plus", help: Copy.Looks.addHelp, accessibilityLabel: Copy.Looks.add,
-                               action: onAdd)
-                }
+        // Round 2 of the consistency pass (2026-10-20): the board and a look sit on the shared progressive columns
+        // (§5.3), as Sources and Projects do — the board full width with nothing open; a look opens the board as the
+        // triage column beside its detail, which takes the rest; the Reader is the third column, and DR-27 hides the
+        // board first ("‹ N looks"). ↑/↓ move the open look, ⏎ steps into it, Esc closes the rightmost (DR-28, DR-68).
+        ProgressiveColumns(hasDetail: open != nil, hasTrailing: readerOpen,
+                           navWidth: ShellMetrics.navWidth(labelled: labelledSidebar)) { _ in
+            header
+        } list: { plan in
+            content(plan)
+                .listKeys(move: { move($0) }, enter: { enterDetail() }, escape: { escapeColumns() })
+                .focused($focus, equals: .list)
+        } detail: { plan in
+            if let open {
+                LooksDetailColumn(summary: open, detail: detail, image: tile(open),
+                                  backLabel: plan.listHidden ? Copy.Looks.looksBack(refs.count) : nil,
+                                  onShowList: onShowList, onClose: onClose,
+                                  onRemove: { onRemove(open.id) }, escapeCloses: !zoom.isPresented && !readerOpen,
+                                  onEnlarge: { frame in enlarge(open, from: frame) },
+                                  onImageFrame: { frame in frames.detail = (open.id, frame) })
+                    .id(open.id)
+                    .columnEdge()   // DR-11: the one permitted rule, from the theme, never a hand-drawn line
+                    // After ⏎ the detail holds the keys: ↑/↓ still swap the look in place, Esc closes the rightmost
+                    // (DR-28, DR-68); ⏎ here steps nowhere further.
+                    .listKeys(move: { move($0) }, enter: { false }, escape: { escapeColumns() })
+                    .focused($focus, equals: .detail)
             }
-            if let vision, vision.supported, !vision.installed { pictureRow(vision) }
-            if let note = searchNote ?? writeError {
-                Text(note)
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .padding(.horizontal, CicadaTheme.spacingGutter)
-                    .padding(.bottom, CicadaTheme.spacingMD)
-            }
-            HStack(alignment: .top, spacing: 0) {
-                content
-                if let open {
-                    LooksDetailColumn(summary: open, detail: detail, image: tile(open), onClose: onClose,
-                                      onRemove: { onRemove(open.id) }, escapeCloses: !zoom.isPresented,
-                                      onEnlarge: { frame in enlarge(open, from: frame) },
-                                      onImageFrame: { frame in frames.detail = (open.id, frame) })
-                        .frame(width: CicadaTheme.scaled(Self.detailWidth))
-                        .columnEdge()   // DR-11: the one permitted rule, from the theme, never a hand-drawn line
-                }
-            }
+        } trailing: { _ in
+            ReaderColumn().focused($focus, equals: .reader)
         }
         .coordinateSpace(.named(LooksZoom.space))
         .overlay {
@@ -248,8 +258,53 @@ struct LooksBoardView: View {
         }
     }
 
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            EyebrowRow(eyebrow: eyebrow) {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    CicadaSearchField(text: $query, prompt: Copy.Looks.find, width: CicadaTheme.scaled(280),
+                                      onSubmit: onSubmit)
+                        .help(Copy.Looks.searchHelp)
+                    // DR-75 — the page's way to add, labelled, as Sources' is.
+                    PageAddButton(title: Copy.Looks.add, help: Copy.Looks.addHelp, action: onAdd)
+                }
+            }
+            if let vision, vision.supported, !vision.installed { pictureRow(vision) }
+            if let note = searchNote ?? writeError {
+                Text(note)
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .padding(.horizontal, CicadaTheme.spacingGutter)
+                    .padding(.bottom, CicadaTheme.spacingMD)
+            }
+        }
+    }
+
+    // MARK: Keys (DR-28, DR-60, DR-68) — every key path is instant.
+
+    private func move(_ delta: Int) {
+        var columns = ListColumns<String>()
+        if let id = open?.id { columns.open(id) }
+        guard let next = columns.neighbour(delta, in: refs.map(\.id)),
+              let ref = refs.first(where: { $0.id == next }) else { return }
+        onOpen(ref)
+    }
+
+    private func enterDetail() -> Bool {
+        guard open != nil else { return false }
+        focus = .detail
+        return true
+    }
+
+    private func escapeColumns() {
+        guard !zoom.isPresented else { return }
+        Instant.run {
+            if readerOpen { provenance?.close() } else if open != nil { onClose() }
+        }
+    }
+
     @ViewBuilder
-    private var content: some View {
+    private func content(_ plan: ColumnPlan) -> some View {
         if refs.isEmpty {
             Group {
                 switch phase {
@@ -285,8 +340,10 @@ struct LooksBoardView: View {
                                   onImageFrame: { frame in frames.tiles[ref.id] = frame }) { onOpen(ref) }
                     }
                 }
-                .padding(.horizontal, open == nil ? CicadaTheme.spacingGutter : CicadaTheme.spacingXL)
-                .padding(.bottom, CicadaTheme.scaled(72))
+                .padding(plan.listStyle == .wide ? EdgeInsets(top: 0, leading: CicadaTheme.spacingGutter,
+                                                              bottom: CicadaTheme.scaled(72),
+                                                              trailing: CicadaTheme.spacingGutter)
+                                                 : ListInsets.of(plan.listStyle))
             }
             .frame(maxWidth: .infinity)
         }
@@ -347,9 +404,7 @@ struct LooksTile: View {
             .accessibilityLabel(ref.displayName)
         }
         .padding(CicadaTheme.spacingSM)
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadius)
-            .fill(selected ? CicadaTheme.bgSelected : (hovering ? CicadaTheme.bgHover : Color.clear)))
-        .onHover { hovering = $0 }
+        .rowHover($hovering, selected: selected, cornerRadius: CicadaTheme.cornerRadius)
     }
 
     private var caption: some View {
@@ -428,6 +483,9 @@ struct LooksDetailColumn: View {
     let summary: DesignRefSummary
     let detail: DesignRef?
     let image: AnyView
+    /// "‹ N looks" when DR-27 hid the board.
+    var backLabel: String? = nil
+    var onShowList: () -> Void = {}
     let onClose: () -> Void
     let onRemove: () -> Void
     /// Esc closes the column — except while its picture is enlarged, when Esc closes that first.
@@ -439,7 +497,8 @@ struct LooksDetailColumn: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                DetailHeader(title: summary.displayName, closeHelp: Copy.Looks.closeHelp,
+                DetailHeader(title: summary.displayName, backLabel: backLabel, onShowList: onShowList,
+                             closeHelp: Copy.Looks.closeHelp,
                              closeShortcut: escapeCloses ? .cancelAction : nil, onClose: onClose)
                 Button { onEnlarge(imageFrame) } label: {
                     image
@@ -561,6 +620,9 @@ struct LooksDetailColumn: View {
             }
             .padding(.horizontal, CicadaTheme.spacingXL)
             .padding(.bottom, CicadaTheme.spacingXL)
+            // DR-36 — the detail takes the columns' remainder; its words keep the focus card's measure, as Sources'.
+            .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.questionMaxWidth + 64), alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(CicadaTheme.bgPane)
     }
@@ -616,11 +678,12 @@ struct LooksComposer: View {
                 .scaledToFit()
                 .frame(maxWidth: .infinity, maxHeight: CicadaTheme.scaled(220))
                 .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
-            TextField(Copy.Looks.linkField, text: $link).textFieldStyle(.roundedBorder)
-            TextField(Copy.Looks.titleField, text: $title).textFieldStyle(.roundedBorder)
-            TextField(Copy.Looks.noteField, text: $note, axis: .vertical)
+            // DR-76 — the app's own field, as every page's.
+            TextField("", text: $link).cicadaField(prompt: Copy.Looks.linkField, isEmpty: link.isEmpty)
+            TextField("", text: $title).cicadaField(prompt: Copy.Looks.titleField, isEmpty: title.isEmpty)
+            TextField("", text: $note, axis: .vertical)
                 .lineLimit(3...6)
-                .textFieldStyle(.roundedBorder)
+                .cicadaField(prompt: Copy.Looks.noteField, isEmpty: note.isEmpty)
             if let error {
                 Text(error).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
             }

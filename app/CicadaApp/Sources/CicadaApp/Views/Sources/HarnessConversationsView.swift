@@ -47,10 +47,9 @@ struct HarnessConversationsView: View {
                     .accessibilityLabel("Retry loading conversations")
                 }
             } else if !viewModel.hasLoaded {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    ProgressView().controlSize(.small)
-                    Text("Loading conversations…").font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
-                }
+                // DR-43 — the first read is the list pages' own state: words over a still skeleton, no spinner.
+                ListSkeleton(message: "Loading conversations…", rows: 3)
+                    .padding(.leading, -CicadaTheme.scaled(10))
             } else if visible.isEmpty {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                     Text(query.isEmpty ? "No conversations from this source yet." : "No titles match “\(query)”.")

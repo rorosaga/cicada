@@ -216,8 +216,7 @@ struct MessagesWaitingRow: View {
                 }
                 .padding(.horizontal, CicadaTheme.scaled(10))
                 .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
-                .background(hovering ? CicadaTheme.bgHover : Color.clear, in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
-                .onHover { hovering = $0 }
+                .rowHover($hovering)
             }
         }
         // The waiting count moves when a capture lands or a read files; a refetch is one small GET.

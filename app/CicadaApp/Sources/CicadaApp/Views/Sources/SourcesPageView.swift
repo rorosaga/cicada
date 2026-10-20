@@ -44,8 +44,7 @@ struct SourcesPageView: View {
                         NeutralButton(title: Copy.Explore.button, systemImage: "safari", size: .compact,
                                       help: Copy.Explore.buttonHelp) { showExploreSheet = true }
                     }
-                    NeutralButton(title: "Add a source", systemImage: "plus", size: .compact,
-                                  help: Copy.Lists.addSourceHelp) { showAddSheet = true }
+                    PageAddButton(title: Copy.addASource, help: Copy.Lists.addSourceHelp) { showAddSheet = true }
                 }
             }
         } list: { plan in

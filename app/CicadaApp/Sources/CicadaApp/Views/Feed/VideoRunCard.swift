@@ -404,9 +404,7 @@ struct VideoRunProgressRow: View {
         }
         .padding(.horizontal, CicadaTheme.spacingSM)
         .frame(height: CicadaTheme.scaled(RowMetrics.twoLine))
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-            .fill(hovering && member.status == .recorded ? CicadaTheme.bgHover : Color.clear))
-        .onHover { hovering = $0 }
+        .rowHover($hovering, enabled: member.status == .recorded)
     }
 
     private var glyph: String {

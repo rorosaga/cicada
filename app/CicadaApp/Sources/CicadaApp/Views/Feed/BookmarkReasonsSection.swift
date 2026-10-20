@@ -152,8 +152,8 @@ struct BookmarkReasonsSection: View {
                     toggle(projectName(held), on: project == held) { project = project == held ? nil : held }
                 }
             }
-            TextField(Copy.Bookmarks.editPrompt, text: $words)
-                .textFieldStyle(.roundedBorder)
+            TextField("", text: $words)
+                .cicadaField(prompt: Copy.Bookmarks.editPrompt, isEmpty: words.isEmpty)
                 .onSubmit { Task { await save() } }
             HStack(spacing: CicadaTheme.spacingSM) {
                 NeutralButton(title: Copy.Bookmarks.save, size: .compact) { Task { await save() } }

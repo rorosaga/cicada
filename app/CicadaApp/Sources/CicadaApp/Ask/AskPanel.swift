@@ -379,9 +379,7 @@ private struct AskConversationRowView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-            .fill(hovering ? CicadaTheme.bgHover : Color.clear))
-        .onHover { hovering = $0 }
+        .rowHover($hovering)
         .help(AskConversationRow.help(conversation))
         .accessibilityLabel(Copy.AskWords.openConversationLabel(title))
         .accessibilityHint(Copy.AskWords.openConversationHint)

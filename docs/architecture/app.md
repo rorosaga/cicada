@@ -832,8 +832,11 @@ Mac: tick to turn the skill on for it, untick to turn it off; an agent that read
 and "through Claude Code"; agents not installed are hidden. Status is one quiet word from the backend's `status`:
 "Up to date" with a dot, "Local", "⚠ Refresh" (a tool skill's text older than its tool), or an **Update** chip whose
 popover (`SkillChangesPopover`) lists what changed ("0.1.13 → 0.2.0", each commit or release) and holds the one Update.
-Selecting a row opens the side column (`SkillDetailColumn`, headed by the shared `DetailHeader` since the 2026-10-20
-consistency pass: the repo link, versions, the install day in words, the Mac permissions in words
+Selecting a row opens the skill on the shared progressive columns (round 2 of the consistency pass, 2026-10-20, like
+Sources and Projects): the table narrows to the triage list (`SkillListRow`, two-line rows; titles only beside the
+Reader) and `SkillDetailColumn` takes the rest, its words held to the focus card's measure; the Reader is the third
+column (`AppTab.hostsOwnReader`), DR-27 hides the list first ("‹ N skills"), ↑/↓ move the open skill, ⏎ steps in, Esc
+closes the rightmost. The detail is headed by the shared `DetailHeader` (2026-10-20): the repo link, versions, the install day in words, the Mac permissions in words
 labelled "Checked for Cicada" with a line that an agent in another app may differ, an instructions excerpt, Remove…).
 A first read shows `ListSkeleton`; a failed one `ListErrorCard` with Retry. The header has the add field ("Add from GitHub, or paste npx skills add…", ⌘N), which
 opens `AddSkillSheet` (the SKILL.md, the files with scripts called out, the commit; Install installs exactly that); an
@@ -1181,15 +1184,19 @@ moves; the placement is the owner's call). A board of the looks the person likes
 `LooksCache` (in the page, in memory) revalidates by ETag when the page appears, after a write, when an SSE version moves
 `design` or `bank` (`LooksRefresh`), and is emptied on a bank switch. `LooksBoardView` is pure over its inputs (the page
 feeds it the cache; the offscreen renders feed it fixtures): the eyebrow (`Looks · 5 saved`, `… · 3 matches`), a search
-field (⏎ searches by words through `POST /design/search`; the board re-ranks), `+` (an image file), and, when this Mac
+field (⏎ searches by words through `POST /design/search`; the board re-ranks), *Add a look* (`PageAddButton`, DR-75;
+an image file), and, when this Mac
 supports it but images aren't understood here yet, one row (DR-37) saying what it is for and its download size with
 *Turn on* (`POST /embeddings/install` with `part: vision`; the page polls while it installs). This is the in-context
 shortcut to Settings → Search & files → *Understand images* and keeps its one click: on a Mac without the meaning part
 it fetches both, and `vision.includesText` makes the row state the combined size ("…which also sets up Understand what
 you mean") before the click. Tiles: the screenshot through
 `StoredPreview` (`PictureURL` accepts `/design/…` as Cicada's own API), its colours as one strip, the site and the day
-(`LooksDay`, the app's one day grammar — never the stored stamp). The open look's side column is headed by the shared
-`DetailHeader` (2026-10-20); a first read shows `ListSkeleton`, a failed one `ListErrorCard` with Retry.
+(`LooksDay`, the app's one day grammar — never the stored stamp). A look opens on the shared progressive columns (round
+2, 2026-10-20): the board narrows to the triage column (one tile across) and the detail, headed by the shared
+`DetailHeader`, takes the rest with its words at the focus card's measure; the Reader is the third column, DR-27 hides
+the board first ("‹ N looks"), ↑/↓ move the open look, Esc closes the rightmost (the enlarged picture first). A first
+read shows `ListSkeleton`, a failed one `ListErrorCard` with Retry.
 **Looks v2 (2026-10-15):** the strip gives the ground half and the colours after it equal shares in their salience
 order (`LooksPaletteStrip.widths`) — by area a thin ink that *is* the look drew as a hairline. The screenshot was never
 drawn before v2: `APIClient.fetchPictureBytes` accepted `/entities/…` only, answered nil for `/design/…`, and
@@ -1735,7 +1742,14 @@ DR-43, DR-53, DR-58, DR-74):** a section that folds is `DisclosureHeader` and an
 a side column that shows one thing opens on `DetailHeader` (the focus-card head line of a project or a saved item is
 the one other head); a list page's first read is `ListSkeleton` and its failure `ListErrorCard` with Retry; a page's
 buttons are the four kinds, the native bordered styles only in Settings and setup sheets; a column's edge is
-`columnEdge()`; a stored day is shown through `RelativeDay`. `DesignConsistencyLintTests` holds all five. Pixel sprites carry their provenance in
+`columnEdge()`; a stored day is shown through `RelativeDay`. **Round 2 (2026-10-20; DR-48, DR-53, DR-75, DR-76):** a
+list row's fill is `rowHover` / `rowHoverFill` (`Views/Common/RowHover.swift`: `bgSelected` over `bgHover`, only the
+pointer's hover eased, so a key never animates); a page adds through `PageAddButton` in its eyebrow (Sleep's tab-row
+`+` the one exception); a field on a page, a column or a page's own sheet is `cicadaField` (`bgBase`, the input ring,
+the accent ring while focused — the field tracks its own focus unless its caller passes `isFocused:`; the field draws its
+own prompt in `textTertiary`); a fold whose only control is its glyph is `DisclosureButton`; Skills and Looks sit on
+`ProgressiveColumns`; Sources' lists read in words over `ListSkeleton`, no spinner. `DesignConsistencyLintTests` holds
+all of these. Pixel sprites carry their provenance in
 `Resources/sprites/sprites.manifest.json` (script, source, sha256), checked by `SpriteAssetTests`. **Type:** SF only. `displayFont(size:italic:)` is SF Pro Display
 semibold (tracking −0.3 at 20 pt, −0.4 above, floor 20, paired and counted by `FontLiteralLintTests`), `quoteFont` SF
 15 regular, one `SectionLabel` (11 medium, sentence case, never mono or tracked — `SectionLabelLintTests`), monospace

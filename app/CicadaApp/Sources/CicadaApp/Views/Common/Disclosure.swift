@@ -90,3 +90,33 @@ struct DisclosureHeader: View {
 
     static let height: CGFloat = 28
 }
+
+/// DR-53 (consistency pass, round 2, 2026-10-20) — a fold whose only control is its glyph, at the end of a row that
+/// itself opens something else (Projects' "Around this project": the row opens the page, the glyph unfolds its specs).
+/// `IconButton`'s 28 pt target and hover (DR-69), drawing `DisclosureChevron` — it swapped `chevron.down`/`chevron.right`
+/// at 14 pt until then. Its help names what it opens or closes; VoiceOver hears that and the state.
+struct DisclosureButton: View {
+    let isOpen: Bool
+    let help: String
+    let action: () -> Void
+
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: action) {
+            DisclosureChevron(isOpen: isOpen, color: hovering ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
+                .iconHover(hovering: hovering)
+                .frame(width: CicadaTheme.scaled(28), height: CicadaTheme.scaled(28))
+                .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+                    .fill(hovering ? CicadaTheme.bgSelected : Color.clear))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.cicadaPlain)
+        .help(help)
+        .accessibilityLabel(help)
+        .accessibilityValue(isOpen ? Copy.Lists.expanded : Copy.Lists.collapsed)
+        .onHover { hovering = $0 }
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+    }
+}

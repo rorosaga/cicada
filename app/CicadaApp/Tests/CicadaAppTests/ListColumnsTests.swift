@@ -42,6 +42,7 @@ final class ListColumnsTests: XCTestCase {
 
     /// R-DL7 — grows with each page's task; the shell draws the Reader for every other page.
     func testWhichPagesDrawTheReaderThemselves() {
-        XCTAssertEqual(AppTab.allCases.filter(\.hostsOwnReader), [.clusters, .sleep, .inbox, .sources, .projects])
+        XCTAssertEqual(AppTab.allCases.filter(\.hostsOwnReader),
+                       [.clusters, .skills, .sleep, .inbox, .sources, .projects, .looks])
     }
 }

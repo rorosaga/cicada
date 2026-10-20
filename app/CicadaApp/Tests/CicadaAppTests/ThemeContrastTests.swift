@@ -38,13 +38,24 @@ final class ThemeContrastTests: XCTestCase {
         }
     }
 
-    /// DR-2 — the one pair that needs its own step: light tertiary on a selected fill is 4.33:1.
+    /// DR-2 — the one pair that needs its own step: light tertiary on a selected fill is 4.06:1.
     func testLightTertiaryOnASelectedFillIsWhyOnFillExists() {
         CicadaTheme.mode = .light
         XCTAssertLessThan(c(CicadaTheme.textTertiary, CicadaTheme.bgSelected), 4.5)
         XCTAssertGreaterThanOrEqual(c(CicadaTheme.textTertiaryOnFill, CicadaTheme.bgSelected), 4.5)
         CicadaTheme.mode = .dark
         XCTAssertGreaterThanOrEqual(c(CicadaTheme.textTertiary, CicadaTheme.bgSelected), 4.5)
+    }
+
+    /// DR-48 (review of #377) — a selected row never reads as the pointer's row: the two fills sit at least a full
+    /// step apart in both modes (they were 1.07:1 in light and 1.09:1 in dark).
+    func testSelectedIsClearlyApartFromHover() {
+        for mode in [AppColorScheme.dark, .light] {
+            CicadaTheme.mode = mode
+            XCTAssertGreaterThanOrEqual(c(CicadaTheme.bgSelected, CicadaTheme.bgHover), 1.12, "\(mode.rawValue)")
+            XCTAssertGreaterThan(c(CicadaTheme.bgSelected, CicadaTheme.bgBase), c(CicadaTheme.bgHover, CicadaTheme.bgBase),
+                                 "\(mode.rawValue): selected is the stronger fill")
+        }
     }
 
     /// DR-3 — quaternary is for disabled controls only: dimmer than tertiary, never the only cue.

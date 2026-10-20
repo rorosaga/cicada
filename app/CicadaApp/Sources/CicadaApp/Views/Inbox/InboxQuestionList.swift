@@ -141,9 +141,7 @@ struct InboxRow: View {
         }
         .padding(.horizontal, CicadaTheme.scaled(10))
         .frame(height: CicadaTheme.scaled(height))
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-            .fill(selected ? CicadaTheme.bgSelected : (hovering ? CicadaTheme.bgHover : Color.clear)))
-        .onHover { hovering = $0 }
+        .rowHover($hovering, selected: selected)
     }
 
     @ViewBuilder
