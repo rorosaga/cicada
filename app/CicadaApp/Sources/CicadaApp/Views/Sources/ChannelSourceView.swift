@@ -29,7 +29,9 @@ struct ChannelSourceView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+            // Review of #372 — lazy all the way down, so a long captured list realises (and asks marks for) only the
+            // rows on screen.
+            LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
                 // Sources v4 — the channel's state, last sync and Sync now live in the one header (`SourceDetailHead`).
                 // The held answer's own Undo row keeps the section up after its last removal (R-DI16).
                 if !removals.isEmpty || inboxVM.heldRemoval(channel: source.channelId) != nil { deletionsSection }
@@ -91,7 +93,7 @@ struct ChannelSourceView: View {
         } else {
             // R-DL16 — a source's saved item opens in Sleep › Saved's detail column ("Open in Saved").
             let now = Date.now
-            VStack(spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {
+            LazyVStack(spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {
                 ForEach(items) { item in
                     FeedListRow(item: item, style: .triage, selected: false, now: now) {
                         router.routeToSavedItem(item.mediaEntityId)
@@ -133,7 +135,7 @@ struct ChannelSourceView: View {
                 ForEach(groups, id: \.folder) { g in
                     // R-SR13: Safari's internal keys in Safari's words ("Favorites/AI", not `BookmarksBar/AI`).
                     Text("\(SafariSections.displayFolder(g.folder)) · \(UsageFormat.count(g.count))")
-                        .font(CicadaTheme.font(size: 11)).padding(.horizontal, 8).padding(.vertical, 3)
+                        .font(CicadaTheme.captionFont).padding(.horizontal, CicadaTheme.spacingSM).padding(.vertical, 3)
                         .background(CicadaTheme.surfaceHover).clipShape(Capsule())
                 }
             }

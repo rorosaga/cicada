@@ -543,6 +543,26 @@ small memo keyed on the file's stamp) or from a parse it already makes. First `/
 0.5 s.
 
 G110 A2's `reply_gaps: [{offset, omitted_chars}]` records clipped final-reply gaps outside `content_hash`.
+
+**What made a conversation a conversation (2026-10-20, `turn_extras`).** Beside the words, never in them: two
+frontmatter keys written by `episode_staging` alone (the one writer of a source-keyed episode), before the `turns`
+sidecar, outside `content_hash`. `turn_extras: [{offset, reactions?, reply_to?, attachments?, edited?, forwarded_from?,
+code_runs?}]` — one entry per turn that has any, keyed by its marker-line start (the sidecar's offset):
+`reactions: [{by, kind, emoji?}]` with `by` a turn marker (`user` / `assistant` / `speaker:<label>`) and `kind` one of
+love · like · dislike · laugh · emphasize · question · emoji · sticker; `reply_to` the target turn's offset, or `{ref}`
+(a source's opaque message key) when the target is in another episode; `attachments: [{kind, name, size?, mime?,
+generated?}]` (kind image · video · audio · file · sticker — a name and a size, never a path or a byte);
+`edited: true`; `forwarded_from`; `code_runs`. `unsent_turns: [{at, speaker, ts?, ref?}]` — where an unsent message
+was (`at` = the offset of the turn it preceded, or one past the body's end) and who sent it, never its words. A draft
+carries them as `Turn.extras` (a reply's target an index into the draft's turns) and `EpisodeDraft.unsent`; the stager
+renders the offsets against the scrubbed body, scrubs every string, and drops a malformed value rather than raising.
+**No span can move:** the body, its hash and the sidecar are byte-identical with or without extras
+(`test_turn_extras`). A draft whose words did not move but whose extras did (a reaction, an unsend, a reply's target,
+a re-imported export) is written frontmatter-only (`_set_extras`, counted `extras_updated` and `skipped`): never
+re-queued, so a reaction never makes Sleep read a conversation again. Reactions are never turns: no body line, so never
+a person's statement, an episode or anything Sleep reads. `/episodes/{id}/text` serves them per turn as `extras`
+(`reply_to` as the target turn's `index`, `reply_elsewhere` when it is not here) and the episode's `unsent: [{before,
+speaker, ts}]` (`before` a turn index).
 Evidence readers accept only the exact marker at that recorded offset. Reader head/gap/tail blocks keep their
 block indexes; the reply fragments retain the original timestamp, model and effort. Evidence `turn_at` counts
 the head and tail as one original turn; a marker or touching quote is nobody's words
@@ -713,15 +733,40 @@ Round 4 (C2–C4):
   **A saved link's own site icon (owner ruling 2026-10-19).** A saved link's row (Sources › a saved source) shows its
   site's own icon, asked of **that site only** — never an icon service, so no one learns what the person saved:
   `GET /sources/saved/{media_entity_id}/site-icon`, asked by the app for a row of a list the person opened (never from
-  Sleep, never a whole bank; listing items fetches nothing). The site is the registrable domain of THIS link's own URL
+  the Sleep cycle, never a whole bank; listing items fetches nothing). The site is the registrable domain of THIS link's own URL
   from the url index (`channel_items.saved_link_site` → `logo_service.own_site_domain`), for a live media page a `saved`
   source owns; a walled family, a private or reserved name is never asked (the row keeps its bundled mark or monogram).
-  Two fixed paths, `https://<site>/apple-touch-icon.png` then `/favicon.ico`, never the homepage's HTML (a page of the
-  site's HTML is the most bytes and the likeliest consent wall or login redirect, for a path the two conventions
-  cover); each hop through the SSRF guard (`net_guard`'s rule), on the same registrable domain and never a login host,
-  4 s, the body streamed with `Accept-Encoding: identity` and cut at 512 KB of raw bytes (no compressed body inflates first), DNS checked off the event loop, no cookies, raster only; 401/403/407/451 stops at once and nothing is retried
+  **Everywhere (owner 2026-10-20):** every surface that draws a saved link draws this mark (`app.md`, "One mark for a
+  saved link"), and a saved link Sleep has not made a page of yet — a Waiting row — asks
+  `GET /sources/saved/episodes/{episode_id}/site-icon`: the site is read from THAT episode's own `url`, only for a live,
+  non-conversation episode of a `saved` source (`channel_items.saved_episode_url` / `saved_episode_site`), with the same
+  gate, fetch and per-site cache. Rows name the key the mark is drawn under — `siteKey` on `GET /sources` items (shape
+  `site-key-1`; only on a page the media route serves, `channel_items.is_saved_link_page`), `site` on `GET /sleep/episodes` rows (`episodes-2`) and on `GET /episodes/{id}/text` (`site1`) — from
+  one function, `reading_hosts.mark_key` (a walled family's name, else the registrable domain); the icon is always asked
+  by an id, never by that name.
+  **Discovery, amended (owner 2026-10-20: "a lot of them don't show any logo … when I open the website I can clearly
+  see a favicon in the Chrome tab").** The 2026-10-19 rule asked two fixed paths and never the HTML; it missed every
+  site that declares its icon at another path, on a CDN, or only behind a redirect to www. Now, like a browser
+  (`logo_service.fetch_own_site_icon`): the homepage `https://<site>/` (or `https://www.<site>/` when the bare domain has
+  no public address), following only https redirects on the same registrable domain and default port; its `<link rel>` declarations — `icon`,
+  `shortcut icon`, `apple-touch-icon` — found by one linear scan of `<link>`/`<base>` tags only, off the event loop (`declared_icons`; never the
+  stdlib HTML tokenizer, which is quadratic on hostile markup — security review of #371; the first 64 tags; `mask-icon` and
+  anything typed or named SVG skipped; an href with an explicit port or userinfo skipped), resolved against the page's final URL or its `<base href>`, ranked light-scheme
+  (or scheme-less) before dark, then the largest declared raster of at least 32 px (an apple-touch icon with no `sizes`
+  counts as 180), then unknown sizes, then small ones; at most three asked; then `/apple-touch-icon.png` and
+  `/favicon.ico` on the host that answered. A declared URL on another host (a CDN the page names) is asked: https only,
+  through the SSRF guard on every hop, its redirects kept on its own or the site's registrable domain, and kept only
+  when the content-type says `image/*` **and** the bytes sniff as PNG/ICO/GIF/JPEG/WebP; on the site itself a favicon
+  served as `application/octet-stream` still counts by its bytes, but anything that says HTML/XML/SVG never does (an SPA
+  answering `/favicon.ico` with its page). **SVG stays a miss** — no rasteriser in the backend can be trusted with
+  attacker-chosen SVG (Pillow is deliberately absent, and a hand-rolled renderer is no sanitizer), and SVG is never
+  served to the app as-is; a `data:` icon is decoded only when it is base64 raster, its size capped at 512 KB before
+  decoding and its bytes sniffed like a download (`data:image/svg+xml` is a miss). A homepage that redirects to another
+  registrable domain is not followed (the fixed paths are still asked). One 4 s budget covers the whole discovery
+  (`OWN_SITE_BUDGET_SECONDS`); each hop never a login host, the body streamed with `Accept-Encoding: identity` and cut at 512 KB of raw bytes (no compressed body inflates first), DNS checked off the event loop, no cookies, raster only; 401/403/407/451 stops at once and nothing is retried
   with other headers. Behind `CICADA_ALLOW_LOGO_FETCH` (off: nothing asked, nothing recorded, the monogram). Cached in
-  `$CICADA_HOME/logos/<bank>/sites/own/` — hits 30 days, misses 7 — never in a bank; any failure is a 404 the row draws
+  `$CICADA_HOME/logos/<bank>/sites/own/` — hits 30 days, misses 7, each entry stamped with the discovery's version
+  `v` (`OWN_SITE_DISCOVERY` = 2): a miss recorded by the 2026-10-19 discovery is asked once more, hits stay — never in a bank; any failure is a 404 the row draws
   as its monogram. This is a row's mark only: it never becomes a page's picture, and `domain_for` still takes no saved
   link's site.
   **A watched or saved YouTube video's still (owner direction 2026-10-19, Sources v4).** *"For YouTube … why don't you
@@ -849,7 +894,8 @@ Round 4 (C2–C4):
   (`media-arxiv-<id>` / `media-doi-<hash>`); the abstract is a `describes` claim from
   `external:arxiv` or `external:crossref`, a dated cache shown under the personal tier (G121).
 - On an episode (G133/G134): `turns` (the G118 per-turn sidecar), `evidence_kind`,
-  `source_deleted_at`, and a section's `content_sha` — see the Awake rails.
+  `source_deleted_at`, and a section's `content_sha` — see the Awake rails; on a conversation, `turn_extras` and
+  `unsent_turns` (2026-10-20, above).
 
 ### Backlogs (G150)
 

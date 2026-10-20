@@ -106,7 +106,21 @@ enum ReaderChat {
 
     /// A bubble's place in its turn, for its corners: a long turn is several blocks (`ReaderLayout.chunks`), drawn
     /// as one bubble.
-    enum Piece: Hashable { case whole, first, middle, last }
+    enum Piece: Hashable {
+        case whole, first, middle, last
+
+        /// The extras this piece draws: the reply above the first, the chips and "Edited" under the last.
+        func part(of extras: Extras) -> Extras? {
+            var out = Extras()
+            if self == .whole || self == .first { out.reply = extras.reply; out.forwardedFrom = extras.forwardedFrom }
+            if self == .whole || self == .last {
+                out.reactions = extras.reactions
+                out.attachments = extras.attachments
+                out.edited = extras.edited
+            }
+            return out.isEmpty ? nil : out
+        }
+    }
 
     /// The space above a row.
     enum Gap: Hashable { case none, inRun, newRun, section }
@@ -121,6 +135,32 @@ enum ReaderChat {
         let speaker: String
         let time: String?
         let folded: Bool
+        /// What made the turn part of a conversation (2026-10-20): the reply line above its first piece, the chips
+        /// and "Edited" under its last. Nil when the turn has none, or on a middle piece.
+        var extras: Extras? = nil
+    }
+
+    /// A reply's line above the bubble: who it answers and the start of what they said; `target` is the block a
+    /// tap scrolls to, nil for a reply to a message this document does not hold.
+    struct Reply: Hashable {
+        let target: ReaderBlock.Key?
+        let words: String
+    }
+
+    /// One chip per emoji under the bubble, the people who chose it said on hover.
+    struct ReactionChip: Hashable {
+        let emoji: String
+        let count: Int
+        let help: String
+    }
+
+    struct Extras: Hashable {
+        var reply: Reply? = nil
+        var forwardedFrom: String? = nil
+        var reactions: [ReactionChip] = []
+        var attachments: [String] = []
+        var edited = false
+        var isEmpty: Bool { reply == nil && forwardedFrom == nil && reactions.isEmpty && attachments.isEmpty && !edited }
     }
 
     struct Row: Identifiable, Hashable {
@@ -128,6 +168,8 @@ enum ReaderChat {
             case day(Int)
             case block(ReaderBlock.Key)
             case toggle(Int)
+            /// An unsent message: before the turn with this index, the n-th there.
+            case unsent(Int, Int)
         }
         enum Kind: Hashable {
             /// "Today", "Yesterday", "Monday", "Sep 3" — computed when read (DR-58).
@@ -137,6 +179,8 @@ enum ReaderChat {
             case message(Message)
             /// "Show more" / "Show less" under a long turn.
             case toggle(turn: Int, side: Side, expanded: Bool)
+            /// "You unsent a message" — where it was, never its words (2026-10-20).
+            case unsent(String)
         }
         let id: ID
         let kind: Kind
@@ -189,9 +233,24 @@ enum ReaderChat {
         let relayed = doc.relay.map { relay in
             Copy.Provenance.relayedBy(relay.label ?? EvidenceSpeaker.agentName(harness: doc.harness, origin: nil))
         }
+        let unsentBefore = Dictionary(grouping: doc.unsent, by: \.before)
+        func emitUnsent(before index: Int) {
+            for (n, gone) in (unsentBefore[index] ?? []).enumerated() {
+                out.append(Row(id: .unsent(index, n), kind: .unsent(Copy.Provenance.unsent(partyName(gone.speaker, doc: doc))),
+                               gap: out.isEmpty ? .none : .newRun))
+                last = nil
+            }
+        }
         for (position, index) in order.enumerated() {
-            guard let turnBlocks = pieces[index], let head = turnBlocks.first else { continue }
+            guard var turnBlocks = pieces[index], let head = turnBlocks.first else { continue }
             let turn = turnsByIndex[index]
+            var extras = turn?.extras.map { chatExtras($0, doc: doc, pieces: pieces) }
+            if extras?.isEmpty == true { extras = nil }
+            if let attachments = turn?.extras?.attachments, !attachments.isEmpty, let tail = turnBlocks.last,
+               let cut = withoutAttachmentNames(tail, count: attachments.count) {
+                // The words keep "[image: name]" (Sleep reads them); the chip says it here, so the bubble does not.
+                turnBlocks[turnBlocks.count - 1] = cut
+            }
             let date = turn?.ts.flatMap { ReaderTime.instant($0, timeZone: timeZone) }
                 ?? (position == 0 ? docDate : nil)
 
@@ -205,6 +264,7 @@ enum ReaderChat {
                     last = nil
                 }
             }
+            emitUnsent(before: index)
 
             if head.role == "gap" {
                 // Cicada's note sits between the turns it separates; a reply resumed after it reads on as the same run.
@@ -246,24 +306,110 @@ enum ReaderChat {
             let open = keepOpen.contains(index) || expanded.contains(index)
             let foldable = isLong(turnBlocks) && !keepOpen.contains(index)
             let gapAbove: Gap = out.isEmpty ? .none : (startsRun ? .newRun : .inRun)
-            if foldable && !open, let preview = preview(head) {
+            if foldable && !open, let preview = preview(turnBlocks[0]) {
                 out.append(Row(id: .block(head.id), kind: .message(Message(
                     block: preview, side: side, header: header, piece: .whole, speaker: speaker, time: head.time,
-                    folded: true)), gap: gapAbove))
+                    folded: true, extras: extras)), gap: gapAbove))
             } else {
                 for (n, block) in turnBlocks.enumerated() {
                     let piece: Piece = turnBlocks.count == 1 ? .whole
                         : n == 0 ? .first : n == turnBlocks.count - 1 ? .last : .middle
                     out.append(Row(id: .block(block.id), kind: .message(Message(
                         block: block, side: side, header: n == 0 ? header : nil, piece: piece, speaker: speaker,
-                        time: head.time, folded: false)), gap: n == 0 ? gapAbove : .none))
+                        time: head.time, folded: false, extras: extras.flatMap { piece.part(of: $0) })),
+                                   gap: n == 0 ? gapAbove : .none))
                 }
             }
             if foldable {
                 out.append(Row(id: .toggle(index), kind: .toggle(turn: index, side: side, expanded: open), gap: .none))
             }
         }
+        // An unsent message after the last turn.
+        emitUnsent(before: (order.last ?? 0) + 1)
         return out
+    }
+
+    // MARK: Extras (2026-10-20)
+
+    /// Who a turn marker names, as the chat says it: "You", the chat's correspondent or agent, a speaker's label.
+    static func partyName(_ marker: String, doc: EpisodeText) -> String {
+        if marker == "user" { return Copy.you }
+        if let named = namedParty(doc) { return named }
+        if marker.hasPrefix("speaker:") {
+            let label = marker.dropFirst("speaker:".count).replacingOccurrences(of: "-", with: " ")
+            return label.isEmpty ? Copy.Provenance.chatSomeone : label.capitalized
+        }
+        return EvidenceSpeaker.agentName(harness: doc.harness, origin: doc.origin) ?? Copy.Provenance.chatSomeone
+    }
+
+    /// The most of a reply's target the line above the bubble quotes.
+    static let replyExcerpt = 60
+
+    static func chatExtras(_ extras: EpisodeTurnExtras, doc: EpisodeText, pieces: [Int: [ReaderBlock]]) -> Extras {
+        var out = Extras()
+        if let target = extras.replyTo, let block = pieces[target]?.first {
+            let who = doc.turns.first { $0.index == target }.map { partyName($0.marker ?? "user", doc: doc) }
+                ?? block.speaker
+            out.reply = Reply(target: block.id, words: Copy.Provenance.replyingTo(who == Copy.you ? "you" : who,
+                                                                                 excerpt: excerpt(block.text)))
+        } else if extras.replyTo != nil || extras.replyElsewhere {
+            out.reply = Reply(target: nil, words: Copy.Provenance.earlierMessage)
+        }
+        out.forwardedFrom = extras.forwardedFrom.map(Copy.Provenance.forwardedFrom)
+        var byEmoji: [(emoji: String, who: [String])] = []
+        for reaction in extras.reactions {
+            let emoji = reaction.emoji ?? defaultEmoji[reaction.kind] ?? "\u{2022}"
+            let who = partyName(reaction.by, doc: doc)
+            if let i = byEmoji.firstIndex(where: { $0.emoji == emoji }) { byEmoji[i].who.append(who) }
+            else { byEmoji.append((emoji, [who])) }
+        }
+        out.reactions = byEmoji.map { ReactionChip(emoji: $0.emoji, count: $0.who.count,
+                                                   help: Copy.Provenance.reacted($0.who, emoji: $0.emoji)) }
+        out.attachments = extras.attachments.map {
+            Copy.Provenance.attachment(kind: $0.kind, name: $0.name, size: $0.size, generated: $0.generated)
+        }
+        if let runs = extras.codeRuns, runs > 0 { out.attachments.append(Copy.Provenance.ranCode(runs)) }
+        out.edited = extras.edited
+        return out
+    }
+
+    static let defaultEmoji = ["love": "\u{2764}\u{FE0F}", "like": "\u{1F44D}", "dislike": "\u{1F44E}",
+                               "laugh": "\u{1F602}", "emphasize": "\u{203C}\u{FE0F}", "question": "\u{2753}"]
+
+    /// The first `replyExcerpt` characters of a target's words, cut at a space, on one line.
+    static func excerpt(_ text: String) -> String {
+        let line = text.split(whereSeparator: \.isNewline).joined(separator: " ")
+        guard line.count > replyExcerpt else { return line }
+        let head = line.prefix(replyExcerpt)
+        let cut = head.lastIndex(of: " ").map { head[..<$0] } ?? head
+        return cut.trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: ".,;:"))) + "\u{2026}"
+    }
+
+    /// A Messages turn's block without the trailing "[image: name]" words its attachments left, when they are there
+    /// (at most `count` of them); nil when there is nothing to cut. Washes are clipped to what stays.
+    static func withoutAttachmentNames(_ block: ReaderBlock, count: Int) -> ReaderBlock? {
+        let scalars = Array(block.text.unicodeScalars)
+        var end = scalars.count
+        var cut = 0
+        while cut < count, end > 0, scalars[end - 1] == "]" {
+            guard let open = scalars[..<end].lastIndex(of: "[") else { break }
+            let token = String(String.UnicodeScalarView(scalars[open..<end]))
+            guard token.range(of: #"^\[(image|video|audio|file): [^\[\]]*\]$"#, options: .regularExpression) != nil else {
+                break
+            }
+            end = open
+            while end > 0, scalars[end - 1] == " " { end -= 1 }
+            cut += 1
+        }
+        guard cut > 0 else { return nil }
+        let washes = block.washes.compactMap { wash -> ReaderWash? in
+            let hi = min(wash.range.upperBound, end)
+            return hi > wash.range.lowerBound ? ReaderWash(range: wash.range.lowerBound..<hi, style: wash.style) : nil
+        }
+        return ReaderBlock(index: block.index, chunk: block.chunk, role: block.role, speaker: block.speaker,
+                           mark: block.mark, time: block.time,
+                           text: String(String.UnicodeScalarView(scalars[0..<end])),
+                           contentStart: block.contentStart, washes: washes)
     }
 
     /// The person's side: their own turns, and the setup / unlabelled lines R4 counts as theirs.

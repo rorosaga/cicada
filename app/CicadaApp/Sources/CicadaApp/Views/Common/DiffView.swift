@@ -256,9 +256,9 @@ struct DiffView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(CicadaTheme.surfaceHover.opacity(0.5))
-            .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+            .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
             .overlay(
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                     .stroke(CicadaTheme.border, lineWidth: 1)
             )
         }
@@ -341,7 +341,7 @@ struct DiffView: View {
             .font(CicadaTheme.monoFont)
             .foregroundStyle(CicadaTheme.textTertiary)
             .frame(width: numberColumnWidth, alignment: .trailing)
-            .padding(.trailing, 4)
+            .padding(.trailing, CicadaTheme.spacingXS)
             .padding(.vertical, 1)
             .background((tint ?? CicadaTheme.textTertiary).opacity(tint == nil ? 0.04 : 0.10))
     }

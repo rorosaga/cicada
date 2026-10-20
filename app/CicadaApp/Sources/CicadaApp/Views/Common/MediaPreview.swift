@@ -203,9 +203,9 @@ struct MediaPreview: View {
                     .shadow(radius: 6)
             }
             .frame(width: 360, height: 202)
-            .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+            .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
             .overlay(
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                     .stroke(CicadaTheme.border, lineWidth: 1)
             )
         }
@@ -240,9 +240,9 @@ struct MediaPreview: View {
     private func fileVideoPreview(_ ref: VideoRef) -> some View {
         VideoPlayerView(url: ref.watchURL)
             .frame(maxWidth: .infinity, minHeight: 202, maxHeight: 360)
-            .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+            .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
             .overlay(
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                     .stroke(CicadaTheme.border, lineWidth: 1)
             )
 
@@ -266,9 +266,9 @@ struct MediaPreview: View {
             }
         }
         .frame(width: 360, height: 220)
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+        .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
         .overlay(
-            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+            CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                 .stroke(CicadaTheme.border, lineWidth: 1)
         )
 
@@ -277,7 +277,7 @@ struct MediaPreview: View {
             if let url = model.resolvedURL { NSWorkspace.shared.open(url) }
         } label: {
             Label("Open in Instagram", systemImage: "arrow.up.right.square")
-                .font(CicadaTheme.font(size: 12, weight: .medium))
+                .font(CicadaTheme.metaMediumFont)
                 .foregroundStyle(CicadaTheme.mediaPink)
         }
         .buttonStyle(.cicadaPlain)
@@ -304,7 +304,7 @@ struct MediaPreview: View {
         HStack(spacing: CicadaTheme.spacingMD) {
             Button { showSitePreview = true } label: {
                 Label("Preview site", systemImage: "safari")
-                    .font(CicadaTheme.font(size: 12, weight: .medium))
+                    .font(CicadaTheme.metaMediumFont)
                     .foregroundStyle(CicadaTheme.accent)
             }
             .buttonStyle(.cicadaPlain)
@@ -329,7 +329,7 @@ struct MediaPreview: View {
                 NSWorkspace.shared.activateFileViewerSelecting([ref.watchURL])
             } label: {
                 Label("Reveal in Finder", systemImage: "folder")
-                    .font(CicadaTheme.font(size: 12))
+                    .font(CicadaTheme.metaFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
             }
             .buttonStyle(.cicadaPlain)
@@ -344,7 +344,7 @@ struct MediaPreview: View {
             if let url = model.resolvedURL { NSWorkspace.shared.open(url) }
         } label: {
             Label("Open externally", systemImage: "arrow.up.right.square")
-                .font(CicadaTheme.font(size: 12))
+                .font(CicadaTheme.metaFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
         }
         .buttonStyle(.cicadaPlain)

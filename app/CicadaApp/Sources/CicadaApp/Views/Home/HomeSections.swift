@@ -72,7 +72,7 @@ struct HomeRowButton<Content: View>: View {
                 Spacer(minLength: CicadaTheme.spacingSM)
                 if let trailingLabel {
                     Text(trailingLabel)
-                        .font(CicadaTheme.font(size: 13))
+                        .font(CicadaTheme.bodyFont)
                         .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
                 } else {
                     Image(systemName: "chevron.right")
@@ -81,8 +81,7 @@ struct HomeRowButton<Content: View>: View {
                         .accessibilityHidden(true)
                 }
             }
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-                .fill(hovering ? CicadaTheme.bgHover : Color.clear))
+            .rowHoverFill(hovering: hovering)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)

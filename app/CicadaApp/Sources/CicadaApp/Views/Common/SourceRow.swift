@@ -15,7 +15,6 @@ struct SourceRow<Accessory: View>: View {
     @ViewBuilder var accessory: () -> Accessory
 
     @State private var hovering = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
@@ -24,7 +23,7 @@ struct SourceRow<Accessory: View>: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
                     Text(model.title)
-                        .font(CicadaTheme.font(size: 13, weight: .medium))
+                        .font(CicadaTheme.rowFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(1)
                     if let meta = model.meta {
@@ -50,10 +49,7 @@ struct SourceRow<Accessory: View>: View {
         }
         .frame(minHeight: CicadaTheme.scaled(RowMetrics.twoLine))
         .padding(.horizontal, CicadaTheme.scaled(10))
-        .background(hovering ? CicadaTheme.bgHover : Color.clear,
-                    in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
-        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
-        .onHover { hovering = $0 }
+        .rowHover($hovering)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(SourceRowText.accessibilityLabel(model, now: now))
     }

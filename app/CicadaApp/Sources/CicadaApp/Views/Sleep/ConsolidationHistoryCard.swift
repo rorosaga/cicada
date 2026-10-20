@@ -301,7 +301,7 @@ struct ConsolidationHistoryCard: View {
                 if !d.episodesByOrigin.isEmpty {
                     FlowLayout(spacing: 6) {
                         ForEach(d.episodesByOrigin.sorted(by: { $0.key < $1.key }), id: \.key) { origin, count in
-                            HStack(spacing: 4) {
+                            HStack(spacing: CicadaTheme.spacingXS) {
                                 OriginMark(origin: origin, size: CicadaTheme.scaled(12))
                                 Text(UsageFormat.count(count))
                                     .font(CicadaTheme.metaFont)
@@ -437,16 +437,13 @@ private struct PastNightRow: View {
                         .help(entry.durationMs == nil ? Copy.noTimingRecorded : "")
                 }
 
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(CicadaTheme.icon(.inline))
-                    .foregroundStyle(CicadaTheme.textTertiary)
+                DisclosureChevron(isOpen: isExpanded)
                     .frame(width: CicadaTheme.scaled(28))
             }
             .padding(.leading, CicadaTheme.scaled(10))
             .padding(.trailing, CicadaTheme.scaled(4))
             .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-                .fill(hovering ? CicadaTheme.bgHover : Color.clear))
+            .rowHoverFill(hovering: hovering)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)

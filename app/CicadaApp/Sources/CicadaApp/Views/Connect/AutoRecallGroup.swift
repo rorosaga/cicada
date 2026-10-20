@@ -51,7 +51,7 @@ private struct AutoRecallRow: View {
                                        size: CicadaTheme.scaled(20), systemFallback: "terminal")
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                     Text(AutoRecall.name(agent.id))
-                        .font(CicadaTheme.font(size: 13, weight: .medium))
+                        .font(CicadaTheme.rowFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                     Text(failure ?? AutoRecall.detail(agent))
                         .font(CicadaTheme.captionFont)

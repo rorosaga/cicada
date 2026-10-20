@@ -147,17 +147,14 @@ struct PastRunRow: View {
                     }
                     .frame(maxWidth: CicadaTheme.scaled(250), alignment: .trailing)
                 }
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(CicadaTheme.icon(.inline))
-                    .foregroundStyle(CicadaTheme.textTertiary)
+                DisclosureChevron(isOpen: isExpanded)
                     .frame(width: CicadaTheme.scaled(28))
             }
             .padding(.leading, CicadaTheme.scaled(10))
             .padding(.trailing, CicadaTheme.scaled(4))
             .padding(.vertical, CicadaTheme.scaled(6))
             .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-                .fill(hovering ? CicadaTheme.bgHover : Color.clear))
+            .rowHoverFill(hovering: hovering)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)

@@ -389,7 +389,9 @@ before the flip — see *Ask why* below.
 **Calendars, contacts & feeds** offers Calendar on this Mac and
 Contacts (G154), both app-owned rows.
 
-**Messages (G179, 2026-10-15).** Integrations → Messaging carries an app-owned **Messages** row (`MessagesRow`: the
+**Messages (G179, 2026-10-15).** Its panel's **Read again** (2026-10-20, shown while a chat is ticked) re-reads every
+ticked chat from its first message so sittings saved before reactions, replies, edits and attachments were kept get
+them (`MessagesWatcher.readAgain`; capture-and-sleep.md). Integrations → Messaging carries an app-owned **Messages** row (`MessagesRow`: the
 Messages app's own icon, "Pick the conversations Cicada should remember" / "Remembering N conversations", *Sync now*
 once one is ticked, *Choose…*, the browsers' `FullDiskAccessHint` when the read was refused, and *What came in*). *Choose…*
 is a `SettingsSheet` (`MessagesPanel`): one sentence on what Cicada reads and why it needs Full Disk Access, one on
@@ -830,8 +832,13 @@ Mac: tick to turn the skill on for it, untick to turn it off; an agent that read
 and "through Claude Code"; agents not installed are hidden. Status is one quiet word from the backend's `status`:
 "Up to date" with a dot, "Local", "⚠ Refresh" (a tool skill's text older than its tool), or an **Update** chip whose
 popover (`SkillChangesPopover`) lists what changed ("0.1.13 → 0.2.0", each commit or release) and holds the one Update.
-Selecting a row opens the side column (`SkillDetailColumn`: the repo link, versions, the Mac permissions in words
-labelled "Checked for Cicada" with a line that an agent in another app may differ, an instructions excerpt, Remove…). The header has the add field ("Add from GitHub, or paste npx skills add…", ⌘N), which
+Selecting a row opens the skill on the shared progressive columns (round 2 of the consistency pass, 2026-10-20, like
+Sources and Projects): the table narrows to the triage list (`SkillListRow`, two-line rows; titles only beside the
+Reader) and `SkillDetailColumn` takes the rest, its words held to the focus card's measure; the Reader is the third
+column (`AppTab.hostsOwnReader`), DR-27 hides the list first ("‹ N skills"), ↑/↓ move the open skill, ⏎ steps in, Esc
+closes the rightmost. The detail is headed by the shared `DetailHeader` (2026-10-20): the repo link, versions, the install day in words, the Mac permissions in words
+labelled "Checked for Cicada" with a line that an agent in another app may differ, an instructions excerpt, Remove…).
+A first read shows `ListSkeleton`; a failed one `ListErrorCard` with Retry. The header has the add field ("Add from GitHub, or paste npx skills add…", ⌘N), which
 opens `AddSkillSheet` (the SKILL.md, the files with scripts called out, the commit; Install installs exactly that); an
 agent's request is one line above the table; tabs Installed · Discover (the catalog) · Drafts (agents' drafts and what
 Sleep noticed). The page opening re-checks for updates only past an hour.
@@ -889,9 +896,21 @@ the website's logo … Clicking again on Sources takes me back to the main Sourc
   Saved, `CapturedItemRoute`). A bookmark that left the browser keeps its dimmed row and `bookmark.slash` mark.
 - **The site's own mark (owner ruling 2026-10-19).** `SiteIcon(site:savedItem:)`: the row asks
   `GET /sources/saved/{id}/site-icon` (`SiteIconStore`, one answer per site and bank, misses too), and the backend asks
-  the link's own site — never an icon service (`storage.md`, "A saved link's own site icon"). Until it arrives, or for a
+  the link's own site, the way a browser finds its icon (declared in its homepage first, 2026-10-20) — never an icon service (`storage.md`, "A saved link's own site icon"). Until it arrives, or for a
   site with none: the bundled mark of a known family (LinkedIn, X, Instagram, TikTok, Reddit), else a ring monogram of
   the site. Never the browser's mark. With `CICADA_ALLOW_LOGO_FETCH=off` every row is its monogram.
+- **One mark for a saved link (owner 2026-10-20).** *"Instead of the Chrome logo make this an app-wide change."* Every
+  surface that draws a saved link draws `SavedLinkMark` (`Views/Common/SavedLinkMark.swift`), from one pure rule,
+  `SavedLinkMarkModel`: the site the backend named (`siteKey` / `site`, `reading_hosts.mark_key`) → `SiteIcon`, asked by
+  the item's media id or, before Sleep made its page, its episode id; else the family's bundled mark; else the site's
+  monogram. Drawn by Sources' saved rows, Sleep › Saved and Videos rows, Sleep › Waiting rows of a saved link (a
+  conversation, note or file keeps its source's mark), an open saved item's eyebrow, and the Reader's header for a
+  saved link. Where it was saved from stays in words: the open item's "Saved from" line keeps the browser's mark beside
+  its name (that line answers that question), and a source's group row, spine and pile plate keep the source's mark
+  (the group *is* the source). Entity pictures (Find's saved rows, Ask's citations, the entity card, the graph) keep
+  the picture precedence — a page's own thumbnail outranks a site icon there. `SiteIconStore` keeps an icon per
+  site and bank whichever id asked but a miss per id (one refused id never hides the site's icon), and puts at most four requests on the wire (`maxConcurrent`); a row that scrolled
+  away before its turn asks nothing.
 - **Watch history is never a save.** YouTube and TikTok history days are their own captured rows (*YouTube history*,
   *TikTok history*), headlined by their days ("30 watched days", `SourceOverview.isWatchHistory`), and their detail
   lists those days by title under the row's own id (`GET /sources/channels/youtube-history/items`, each opening in the
@@ -1165,13 +1184,19 @@ moves; the placement is the owner's call). A board of the looks the person likes
 `LooksCache` (in the page, in memory) revalidates by ETag when the page appears, after a write, when an SSE version moves
 `design` or `bank` (`LooksRefresh`), and is emptied on a bank switch. `LooksBoardView` is pure over its inputs (the page
 feeds it the cache; the offscreen renders feed it fixtures): the eyebrow (`Looks · 5 saved`, `… · 3 matches`), a search
-field (⏎ searches by words through `POST /design/search`; the board re-ranks), `+` (an image file), and, when this Mac
+field (⏎ searches by words through `POST /design/search`; the board re-ranks), *Add a look* (`PageAddButton`, DR-75;
+an image file), and, when this Mac
 supports it but images aren't understood here yet, one row (DR-37) saying what it is for and its download size with
 *Turn on* (`POST /embeddings/install` with `part: vision`; the page polls while it installs). This is the in-context
 shortcut to Settings → Search & files → *Understand images* and keeps its one click: on a Mac without the meaning part
 it fetches both, and `vision.includesText` makes the row state the combined size ("…which also sets up Understand what
 you mean") before the click. Tiles: the screenshot through
-`StoredPreview` (`PictureURL` accepts `/design/…` as Cicada's own API), its colours as one strip, the site and the day.
+`StoredPreview` (`PictureURL` accepts `/design/…` as Cicada's own API), its colours as one strip, the site and the day
+(`LooksDay`, the app's one day grammar — never the stored stamp). A look opens on the shared progressive columns (round
+2, 2026-10-20): the board narrows to the triage column (one tile across) and the detail, headed by the shared
+`DetailHeader`, takes the rest with its words at the focus card's measure; the Reader is the third column, DR-27 hides
+the board first ("‹ N looks"), ↑/↓ move the open look, Esc closes the rightmost (the enlarged picture first). A first
+read shows `ListSkeleton`, a failed one `ListErrorCard` with Retry.
 **Looks v2 (2026-10-15):** the strip gives the ground half and the colours after it equal shares in their salience
 order (`LooksPaletteStrip.widths`) — by area a thin ink that *is* the look drew as a hairline. The screenshot was never
 drawn before v2: `APIClient.fetchPictureBytes` accepted `/entities/…` only, answered nil for `/design/…`, and
@@ -1711,7 +1736,30 @@ band, the Welcome hero, onboarding's panes and the empty states' grass and cloud
 `MeadowPlacementLintTests` fails on any painted component or a bundled painting. **The study room is the app's one
 illustration** — pixel art on the Sleep page and in onboarding (`OnboardingRoom`), never behind data or text. Empty
 states (`EmptyStateView`) are plain, well-set text: a 22 pt display title, the line, at most one action, centred in the
-space the page gives them, with no card. Pixel sprites carry their provenance in
+space the page gives them, with no card. **One component per thing (consistency pass, 2026-10-20; DR-39, DR-40,
+DR-43, DR-53, DR-58, DR-74):** a section that folds is `DisclosureHeader` and any other fold draws `DisclosureChevron`
+(`Views/Common/Disclosure.swift`: `chevron.right` turned a quarter when open, `icon(.disclosure)` 10 pt semibold);
+a side column that shows one thing opens on `DetailHeader` (the focus-card head line of a project or a saved item is
+the one other head); a list page's first read is `ListSkeleton` and its failure `ListErrorCard` with Retry; a page's
+buttons are the four kinds, the native bordered styles only in Settings and setup sheets; a column's edge is
+`columnEdge()`; a stored day is shown through `RelativeDay`. **Round 2 (2026-10-20; DR-48, DR-53, DR-75, DR-76):** a
+list row's fill is `rowHover` / `rowHoverFill` (`Views/Common/RowHover.swift`: `bgSelected` over `bgHover`, only the
+pointer's hover eased, so a key never animates); a page adds through `PageAddButton` in its eyebrow (Sleep's tab-row
+`+` the one exception); a field on a page, a column or a page's own sheet is `cicadaField` (`bgBase`, the input ring,
+the accent ring while focused — the field tracks its own focus unless its caller passes `isFocused:`; the field draws its
+own prompt in `textTertiary`); a fold whose only control is its glyph is `DisclosureButton`; Skills and Looks sit on
+`ProgressiveColumns`; Sources' lists read in words over `ListSkeleton`, no spinner. `DesignConsistencyLintTests` holds
+all of these. **Round 3 (2026-10-20; DR-12, DR-16, DR-43, DR-44, DR-45, DR-48, DR-53, DR-58, DR-70):** the menu-bar
+menu's words, hover text and the bookworm's moods live in `Copy.MenuBar` / `Copy.Mood` (`Theme/Copy+MenuBar.swift`), its
+next run in `RelativeDay`'s day words with the viewer's clock ("Next sleep: Today, 3:00 AM"; AppKit draws the rows
+themselves); onboarding's "still coming in" is words alone and the export walkthrough's vendor switch is `TextTabs`
+with each vendor's mark (`TextTab.mark`); the ⌘K palette waits in words — the footer's "Searching conversations…"
+with no bar over the divider, Ask's "Asking your memory…" over `ListSkeleton` (above the dimmed answer when it asks
+again) with no spinner in the field — its row type is a `Tag`, its recent questions are rows on `rowHover`; the
+Reader's "Noted from this conversation" row is on `rowHover` (the current row a selection; the cited span's wash is
+`CitedSpan`'s, unchanged). Every rounded rectangle draws through `CicadaTheme.shape` (continuous), a `Text` at a ladder
+size uses its type token and a glyph at 14/12/10 its icon role, and a padding or spacing equal to a step is the
+spacing token. `DesignConsistency3LintTests` and `ContinuousCornerLintTests` hold these. Pixel sprites carry their provenance in
 `Resources/sprites/sprites.manifest.json` (script, source, sha256), checked by `SpriteAssetTests`. **Type:** SF only. `displayFont(size:italic:)` is SF Pro Display
 semibold (tracking −0.3 at 20 pt, −0.4 above, floor 20, paired and counted by `FontLiteralLintTests`), `quoteFont` SF
 15 regular, one `SectionLabel` (11 medium, sentence case, never mono or tracked — `SectionLabelLintTests`), monospace
@@ -1805,7 +1853,16 @@ the one landed on and any holding a cited or found span. A chat with no quote to
 (scrolled twice, so the lazy stack's estimate settles) and pins its banners above the scroll; ↑/↓, ⇞/⇟, ⌘↑/⌘↓ and
 Home/End move from the row at the column's top as the scroll view reports it (`scrollTargetLayout` +
 `scrollPosition(id:)`, so a trackpad scroll moves the start too; `ReaderChatKeys`), top-aligned, in one frame. The
-built layout is memoised per document, target, unfolded set, jump and citations (`LayoutMemo`). Everything else keeps the document view. A turn is
+built layout is memoised per document, target, unfolded set, jump and citations (`LayoutMemo`). Everything else keeps the document view. **What made it a conversation (2026-10-20, `turn_extras`; DR-11, DR-38, DR-40, DR-44, DR-60):** a turn's
+`extras` ride its message (`ReaderChat.Extras`, `Piece.part`): a reply's line above the first piece — "Replying to Sam:
+“…”", a `TextButton` that scrolls its target to the top in one frame, or "Replying to an earlier message" in words when
+the target is not in this sitting; "Forwarded from …" there too; under the last piece, attachments as `Tag`s ("Image ·
+stove.jpg · 1.3 MB", "Generated image", "Ran code 2 times") and reactions as `Tag`s, one per emoji with a count, who
+reacted on hover (`.help`, "You and Sam reacted 😂") and in VoiceOver; "Edited" in words. A Messages turn's
+"[image: …]" words leave the bubble when its chips say them (`ReaderChat.withoutAttachmentNames`; an attachment-only
+message is its chips alone). An unsent message is a centred line where it was ("You unsent a message"). Thumbnails are
+not drawn yet: every attachment is a chip with its kind and name. An episode saved before extras has none and reads as
+it always did. A turn is
 selectable **and** washed through `CitedPassage` (2026-10-16): a selectable `Text` never reaches a `TextRenderer`, and
 a renderer-drawn copy behind the words breaks lines differently from them (the wash on the wrong words at some widths),
 so the passage is one selectable `Text` whose wash and underline are attributes of its own string (`CitedSpan.fallback`:

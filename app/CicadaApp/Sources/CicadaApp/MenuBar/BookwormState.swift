@@ -38,28 +38,28 @@ enum BookwormState: Equatable {
 
     var title: String {
         switch self {
-        case .awake: "Awake"
-        case .sleeping: "Sleeping"
-        case .digesting: "Digesting"
-        case .happy: "Happy"
-        case .curious: "Curious"
-        case .hungry: "Hungry"
-        case .reading: "Reading"
-        case .error: "Error"
+        case .awake: Copy.Mood.awake
+        case .sleeping: Copy.Mood.sleeping
+        case .digesting: Copy.Mood.digesting
+        case .happy: Copy.Mood.happy
+        case .curious: Copy.Mood.curious
+        case .hungry: Copy.Mood.hungry
+        case .reading: Copy.Mood.reading
+        case .error: Copy.Mood.error
         }
     }
 
-    /// One-line detail string shown under the title in the dropdown header.
+    /// One-line detail string shown under the title in the dropdown header (words in `Copy.Mood`, round 3).
     var detail: String {
         switch self {
-        case .awake: "idle — listening for episodes"
-        case .sleeping(let stage): "stage \(stage)/5"
-        case .digesting: "chewing on new memories…"
+        case .awake: Copy.Mood.awakeDetail
+        case .sleeping(let stage): Copy.Mood.sleepingDetail(stage: stage)
+        case .digesting: Copy.Mood.digestingDetail
         case .curious(let n): Copy.waitingForSleep(n)
-        case .hungry: "no episodes in 48h"
-        case .reading: "reading what's waiting"
-        case .error: "last sleep cycle failed"
-        case .happy: "nothing waiting for Sleep"
+        case .hungry: Copy.Mood.hungryDetail
+        case .reading: Copy.Mood.readingDetail
+        case .error: Copy.Mood.errorDetail
+        case .happy: Copy.Mood.happyDetail
         }
     }
 

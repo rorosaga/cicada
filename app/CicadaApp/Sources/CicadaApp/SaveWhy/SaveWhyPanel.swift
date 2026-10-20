@@ -294,7 +294,7 @@ struct SaveWhyPanelView: View {
         HStack(spacing: CicadaTheme.spacingSM) {
             TextField(Copy.SaveWhy.placeholder, text: $draft)
                 .textFieldStyle(.plain)
-                .font(CicadaTheme.font(size: 12))
+                .font(CicadaTheme.metaFont)
                 .foregroundStyle(CicadaTheme.Notch.textPrimary)
                 .focused($textFocused)
                 .padding(.horizontal, CicadaTheme.scaled(10))
@@ -364,7 +364,7 @@ struct SaveWhyReasonChips: View {
                     .font(CicadaTheme.font(size: 11))
                     .foregroundStyle(selected ? CicadaTheme.Notch.textPrimary : CicadaTheme.Notch.textTertiary)
                 Text(title)
-                    .font(CicadaTheme.font(size: 12))
+                    .font(CicadaTheme.metaFont)
                     .foregroundStyle(CicadaTheme.Notch.textPrimary)
                     .lineLimit(1)
                     .fixedSize()

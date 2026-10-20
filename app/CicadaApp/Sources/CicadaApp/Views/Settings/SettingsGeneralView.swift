@@ -72,7 +72,7 @@ struct SettingsGeneralView: View {
                         Slider(value: scale, in: ThemeStore.scaleRange, step: ThemeStore.scaleStep)
                             .frame(width: CicadaTheme.scaled(160))
                         Text("\(Int((CicadaTheme.uiScale * 100).rounded()))%")
-                            .font(CicadaTheme.font(size: 12).monospacedDigit())
+                            .font(CicadaTheme.metaFont.monospacedDigit())
                             .foregroundStyle(CicadaTheme.textSecondary)
                             .frame(width: CicadaTheme.scaled(44), alignment: .trailing)
                         Button(Copy.actualSize) { CicadaTheme.resetZoom() }

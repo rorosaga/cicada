@@ -1005,7 +1005,7 @@ struct SleepView: View {
     /// one loses work the reader can still use, and an undated one lies by
     /// omission.
     private func stalenessChip(_ asOf: Date) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: CicadaTheme.spacingXS) {
             Image(systemName: "wifi.slash")
                 .font(CicadaTheme.font(size: 9, weight: .semibold))
             Text(Copy.asOf(asOf))

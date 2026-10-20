@@ -18,7 +18,7 @@ struct MessagesRow: View {
                                        systemFallback: OriginIconography.symbol(for: "imessage"))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(Copy.Messages.title)
-                        .font(CicadaTheme.font(size: 13, weight: .medium))
+                        .font(CicadaTheme.rowFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                     Text(MessagesRowText.line(ticked: watcher.tickedIds.count, status: watcher.status, note: note))
                         .font(CicadaTheme.captionFont)
@@ -107,6 +107,22 @@ struct MessagesPanel: View {
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
+            if !watcher.tickedIds.isEmpty {
+                HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
+                    Text(Copy.Messages.readAgainHelp)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: CicadaTheme.spacingSM)
+                    Button(Copy.Messages.readAgain) {
+                        Task {
+                            do { _ = try await watcher.readAgain() } catch { self.error = MessagesWatcher.failureMessage(error) }
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
             if let error {
                 Text(error).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
             }
@@ -182,7 +198,7 @@ struct MessagesConversationRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: CicadaTheme.spacingSM) {
                     Text(name)
-                        .font(CicadaTheme.font(size: 13, weight: .medium))
+                        .font(CicadaTheme.rowFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(1)
                     if let tag = MessagesConversationText.tag(state) { Tag(text: tag) }

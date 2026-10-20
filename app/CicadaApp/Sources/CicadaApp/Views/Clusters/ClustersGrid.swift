@@ -203,7 +203,7 @@ struct ClusterShortCard: View {
                     HStack(spacing: CicadaTheme.spacingSM) {
                         EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 20)
                         Text(entity.name)
-                            .font(CicadaTheme.font(size: 13))
+                            .font(CicadaTheme.bodyFont)
                             .foregroundStyle(CicadaTheme.textPrimary)
                             .lineLimit(1)
                         if let line = ClustersModel.line(entity) {
@@ -241,7 +241,7 @@ struct ClusterTile: View {
             Button(action: open) {
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                     Text(entity.name)
-                        .font(CicadaTheme.font(size: 13, weight: .medium))
+                        .font(CicadaTheme.rowFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(1)
                     if let line = ClustersModel.line(entity) {
@@ -257,8 +257,7 @@ struct ClusterTile: View {
         .padding(.horizontal, CicadaTheme.scaled(8))
         .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.twoLine),
                maxHeight: CicadaTheme.scaled(RowMetrics.twoLine), alignment: .leading)
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering ? CicadaTheme.bgHover : Color.clear))
+        .rowHover($hovering)
         .contentShape(Rectangle())
-        .onHover { hovering = $0 }
     }
 }

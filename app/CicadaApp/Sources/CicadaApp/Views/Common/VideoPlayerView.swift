@@ -185,7 +185,7 @@ struct VideoPlayerView: View {
                     NSWorkspace.shared.activateFileViewerSelecting([url])
                 } label: {
                     Label("Reveal in Finder", systemImage: "folder")
-                        .font(CicadaTheme.font(size: 12, weight: .medium))
+                        .font(CicadaTheme.metaMediumFont)
                         .foregroundStyle(CicadaTheme.accent)
                 }
                 .buttonStyle(.cicadaPlain)
@@ -195,7 +195,7 @@ struct VideoPlayerView: View {
                     NSWorkspace.shared.open(url)
                 } label: {
                     Label("Open externally", systemImage: "arrow.up.right.square")
-                        .font(CicadaTheme.font(size: 12))
+                        .font(CicadaTheme.metaFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
                 }
                 .buttonStyle(.cicadaPlain)
@@ -205,9 +205,9 @@ struct VideoPlayerView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(CicadaTheme.spacingMD)
         .background(CicadaTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+        .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
         .overlay(
-            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+            CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                 .stroke(CicadaTheme.border, lineWidth: 1)
         )
     }

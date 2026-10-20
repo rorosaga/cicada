@@ -41,7 +41,7 @@ struct LargerSearchModelSheet: View {
             }
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 Text(Copy.SearchModel.stepPaste)
-                    .font(CicadaTheme.font(size: 13, weight: .medium))
+                    .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                 SecureField(Copy.SearchModel.tokenPlaceholder, text: $token)
                     .textFieldStyle(.roundedBorder)
@@ -70,7 +70,7 @@ struct LargerSearchModelSheet: View {
     private func step(_ text: String, @ViewBuilder link: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
             Text(text)
-                .font(CicadaTheme.font(size: 13, weight: .medium))
+                .font(CicadaTheme.rowFont)
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
             link()

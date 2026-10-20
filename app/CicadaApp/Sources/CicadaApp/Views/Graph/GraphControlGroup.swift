@@ -71,9 +71,7 @@ struct GraphLegendButton: View {
                     .accessibilityHidden(true)
                 }
                 Text(GraphChrome.legendLabel(graphVM.filter))
-                Image(systemName: isOpen ? "chevron.down" : "chevron.up")
-                    .font(CicadaTheme.font(size: 9, weight: .semibold))
-                    .accessibilityHidden(true)
+                DisclosureChevron(isOpen: isOpen, color: nil, opensUpward: true)
             }
             .font(CicadaTheme.metaMediumFont)
             .foregroundStyle(isOpen || hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
@@ -150,7 +148,7 @@ struct GraphLegendPanel: View {
             ForEach(GraphChrome.statusRows(graphVM.filter)) { row in
                 Toggle(isOn: Binding(get: { row.isOn }, set: { _ in graphVM.filter.toggleStatus(row.status) })) {
                     HStack {
-                        Text(row.label).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textPrimary)
+                        Text(row.label).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
                         Spacer(minLength: 0)
                         if let hint = row.hint {
                             Text(hint).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
@@ -271,7 +269,7 @@ private struct LegendRow<Swatch: View, Label: View, Trailing: View>: View {
             }
             .padding(.horizontal, CicadaTheme.spacingSM)
             .frame(height: CicadaTheme.scaled(GraphLegendPanel.rowHeight))
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering ? CicadaTheme.bgHover : Color.clear))
+            .rowHoverFill(hovering: hovering)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)

@@ -8,6 +8,18 @@
 
 ## Current state and evidence
 
+- **2026-10-20 — the owner's answer eval runs each question several times and judges a change on majorities (G148;
+  branch `feat/eval-repeats`).** Four runs of the owner's 60 questions on near-identical code scored 46, 44, 42, 42 with
+  13 questions flipping, so one run cannot judge an Ask change (#365 read −2; its revert did not restore the number).
+  `benchmarks/answer_eval.py --repeats N` (default 3) answers and judges every question N times into one `--out`,
+  resumable per (question, run), failed pairs re-asked; the summary gives each measure's mean and min–max across runs,
+  overall and per tag, and always right / always wrong / flips (ids only). `--compare A.jsonl B.jsonl` (no calls) is
+  the accept rule: B differs only when the exact sign test on questions whose majority verdict changed gives p < 0.05,
+  Δ mean correct exceeds the wider min–max of either file, **and** both move the same way; a file is never resumed
+  under other run settings, and `--fresh` starts it over. `claude -p` has no temperature/top-p/seed; the model
+  the plan reported, the CLI version and `--effort` (opt-in pin; drops an inherited `CLAUDE_CODE_EFFORT_LEVEL`) are
+  recorded and compare flags any mismatch. Tests: `test_answer_eval_repeats.py`, `test_public_benchmark.py`. Pick up:
+  the coordinator re-runs the owner's eval with `--repeats 3` on dev as the baseline file every Ask change compares to.
 - **2026-10-19 — plan-first engines; the inbox stops asking what a web search can answer (rulings 4c, 27b, 31; branch
   `feat/plan-first-inbox`).** Scheduled runs use the plan unless the person turned it off; Auto (the new default) never
   falls to a metered key; the web lookup runs on every plan run and the backlog gets a one-off sweep

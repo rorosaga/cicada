@@ -140,12 +140,12 @@ struct ValidityBarStrip: View {
         let to = claim.validTo.map(dayValue) ?? dayValue(todayString)
         let x = total > 0 ? CGFloat((from - span.start) / total) * width : 0
         let w = total > 0 ? max(4, CGFloat((to - from) / total) * width) : width
-        RoundedRectangle(cornerRadius: 3)
+        CicadaTheme.shape(3)
             .fill(CicadaTheme.contextColor(claim.context).opacity(claim.isValid ? 0.95 : 0.5))
             .frame(width: w, height: 10)
             .overlay(alignment: .leading) {
                 if claim.isValid {
-                    RoundedRectangle(cornerRadius: 3)
+                    CicadaTheme.shape(3)
                         .stroke(CicadaTheme.contextColor(claim.context), lineWidth: 1)
                         .frame(width: w, height: 10)
                 }
@@ -209,7 +209,7 @@ struct SupersededRow: View {
                 if !isCurrent, claim.supersededBy != nil {
                     // DR-54 — words on the row; the replacing claim's id only in `.help`.
                     let words = BeliefTimelineWords.superseded(by: claim.supersededBy)
-                    HStack(spacing: 4) {
+                    HStack(spacing: CicadaTheme.spacingXS) {
                         Image(systemName: "arrow.down")
                             .font(CicadaTheme.font(size: 9, weight: .semibold))
                         Text(words.text)

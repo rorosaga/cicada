@@ -71,6 +71,7 @@ struct ReaderColumn: View {
                 canGoBack: router.canGoBack,
                 onBack: { router.back() },
                 page: loadedDoc.flatMap { $0.isPage ? $0 : nil },
+                site: loadedDoc.flatMap(ReaderHeader.siteMark),
                 markOrigin: ReaderHeader.markOrigin(harness: loadedDoc?.harness ?? router.current?.knownHarness,
                                                     origin: loadedDoc?.origin),
                 episode: loadedDoc?.episode ?? router.current?.episode ?? "",
@@ -321,6 +322,11 @@ struct ReaderColumn: View {
                                            revealed: washVisible, messagesChat: ReaderChat.messagesChat(doc),
                                            onToggle: { turn in
                                                if unfolded.contains(turn) { unfolded.remove(turn) } else { unfolded.insert(turn) }
+                                           },
+                                           onJump: { key in
+                                               // A reply's target: one frame, never animated (DR-60).
+                                               keyScroll = KeyScroll(id: AnyHashable(key), alignsTop: true,
+                                                                     token: (keyScroll?.token ?? 0) &+ 1)
                                            })
                         } else {
                             ReaderTurnRows(blocks: blocks, landingTurn: landingBlock?.turn, revealed: washVisible)
@@ -505,6 +511,9 @@ struct ReaderColumnHeader: View {
     let onBack: () -> Void
     /// The loaded document when it is a page, else nil.
     let page: EpisodeText?
+    /// Owner 2026-10-20 — a saved link's own site mark (`ReaderHeader.siteMark`); the browser it came from is the meta
+    /// line's words.
+    var site: SavedLinkMarkModel.Mark? = nil
     let markOrigin: String
     let episode: String
     let title: String
@@ -558,6 +567,9 @@ struct ReaderColumnHeader: View {
     private var mark: some View {
         if let page {
             LogoImage(entityId: page.episode, name: page.title, type: .media, size: CicadaTheme.scaled(20))
+        } else if let site {
+            SavedLinkMark(mark: site, size: .row)
+                .help(Copy.Provenance.episodeHelp(episode))
         } else {
             OriginMark(origin: markOrigin, size: CicadaTheme.scaled(20))
                 .markHover()
@@ -618,7 +630,7 @@ struct ReaderTurnView: View {
                         OriginMark(origin: mark, size: CicadaTheme.scaled(12))
                     }
                     Text(block.speaker)
-                        .font(CicadaTheme.font(size: 12, weight: .medium))
+                        .font(CicadaTheme.metaMediumFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
                     Text("· " + Copy.Provenance.turn(block.index))
                         .font(CicadaTheme.metaFont)
@@ -697,7 +709,6 @@ private struct ReaderNotedRow: View {
     let onShowOnGraph: () -> Void
 
     @State private var hovering = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let name = row.subjectName.isEmpty ? row.subjectId : row.subjectName
@@ -706,7 +717,7 @@ private struct ReaderNotedRow: View {
             Button(action: onJump) {
                 VStack(alignment: .leading, spacing: RowMetrics.twoLineGap) {
                     Text(renderWikilinks(row.text.isEmpty ? name : row.text))
-                        .font(CicadaTheme.font(size: 13))
+                        .font(CicadaTheme.bodyFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .strikethrough(!row.current)
                         .lineLimit(2)
@@ -723,10 +734,9 @@ private struct ReaderNotedRow: View {
         }
         .padding(.horizontal, CicadaTheme.spacingSM)
         .frame(minHeight: CicadaTheme.scaled(RowMetrics.twoLine))
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-            .fill(isCurrent ? CicadaTheme.bgSelected : hovering ? CicadaTheme.bgHover : Color.clear))
-        .onHover { hovering = $0 }
-        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+        // DR-48 (round 3, 2026-10-20): the shared row fill — the row whose words are on screen is `isCurrent`, a
+        // selection, not the cited span's wash (that is `CitedSpan`'s dandelion, DR-13/G118, drawn in the text).
+        .rowHover($hovering, selected: isCurrent)
     }
 }
 

@@ -184,7 +184,7 @@ private struct BackedFactRow: View {
         Button(action: open) {
             HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
                 Text(renderWikilinks(fact.text))
-                    .font(CicadaTheme.font(size: 12))
+                    .font(CicadaTheme.metaFont)
                     .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -197,7 +197,7 @@ private struct BackedFactRow: View {
             .padding(.leading, Self.indent)
             .padding(.trailing, CicadaTheme.spacingSM)
             .padding(.vertical, CicadaTheme.scaled(3))
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering ? CicadaTheme.bgHover : .clear))
+            .rowHoverFill(hovering: hovering)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
@@ -300,7 +300,7 @@ struct PageLinkRow: View {
         .padding(.leading, CicadaTheme.scaled(10))
         .padding(.trailing, CicadaTheme.spacingXS)
         .padding(.vertical, CicadaTheme.scaled(6))
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering ? CicadaTheme.bgHover : Color.clear))
+        .rowHoverFill(hovering: hovering)
         .onHover { hover($0) }
         .onDisappear { hoverTask?.cancel() }
         .popover(isPresented: $previewing, arrowEdge: .leading) {
@@ -341,7 +341,7 @@ struct LookUpChip: View {
 
     var body: some View {
         Button(action: open) {
-            HStack(spacing: 4) {
+            HStack(spacing: CicadaTheme.spacingXS) {
                 if let site = source.site, !site.isEmpty {
                     SiteIcon(site: site, size: .inline, entity: entityId)
                 } else {

@@ -878,13 +878,15 @@ def _gap_response(query: str) -> dict:
     }
 
 
-def _default_llm_fn(settings: Settings | None = None) -> LlmFn:
+def _default_llm_fn(settings: Settings | None = None, *, extra_body: dict | None = None) -> LlmFn:
     """Production LLM call: litellm JSON-mode per Settings, via the provider
     seam. ``settings`` (R-E23): the router passes the copy
     ``engine_select.resolve_settings`` returned, so Ask runs on the engine
     chosen in Settings → Engines; ``None`` keeps the env resolution MCP's
     ``cicada_ask`` still uses this round (Track R adopts this seam when it
-    moves the tool bodies into ``mcp_tools``)."""
+    moves the tool bodies into ``mcp_tools``). ``extra_body`` rides every
+    call unchanged — the answer eval pins the plan's ``--effort`` through it
+    (``benchmarks/answer_eval.py --effort``); production passes none."""
     import litellm
 
     from api.config import get_settings
@@ -900,6 +902,7 @@ def _default_llm_fn(settings: Settings | None = None) -> LlmFn:
                 {"role": "user", "content": prompt},
             ],
             response_format={"type": "json_object"},
+            **({"extra_body": extra_body} if extra_body is not None else {}),
         )
         return response.choices[0].message.content or ""
 

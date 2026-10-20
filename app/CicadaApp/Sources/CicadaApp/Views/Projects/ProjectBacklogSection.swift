@@ -121,15 +121,15 @@ struct ProjectBacklogSection: View {
     private var addRow: some View {
         if adding {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                TextField(Copy.Projects.Backlog.titlePlaceholder, text: $newTitle)
-                    .textFieldStyle(.roundedBorder)
+                TextField("", text: $newTitle)
                     .focused($titleFocused)
+                    .cicadaField(isFocused: titleFocused, prompt: Copy.Projects.Backlog.titlePlaceholder, isEmpty: newTitle.isEmpty)
                     .onSubmit(submit)
                     .onExitCommand { cancel() }
                     .accessibilityLabel(Copy.Projects.Backlog.titleLabel)
-                TextField(Copy.Projects.Backlog.descriptionPlaceholder, text: $newWhy, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
+                TextField("", text: $newWhy, axis: .vertical)
                     .lineLimit(2...6)
+                    .cicadaField(prompt: Copy.Projects.Backlog.descriptionPlaceholder, isEmpty: newWhy.isEmpty)
                     .onExitCommand { cancel() }
                     .accessibilityLabel(Copy.Projects.Backlog.descriptionLabel)
                 HStack(spacing: CicadaTheme.spacingSM) {

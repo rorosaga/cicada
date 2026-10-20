@@ -1107,6 +1107,50 @@ class EpisodeTurn(CamelModel):
     # `approximate` (a model's reading of the link, or a record that never said);
     # only on a `media` turn.
     fidelity: Optional[str] = None
+    #: 2026-10-20 (`turn_extras`): what made this turn part of a conversation beside its words; null when nothing.
+    extras: Optional["EpisodeTurnExtras"] = None
+
+
+class EpisodeReaction(CamelModel):
+    """One reaction on a turn: ``by`` is a turn marker (``user`` = the person, ``assistant``, ``speaker:<label>``),
+    ``kind`` one of ``turn_extras.REACTION_KINDS``, ``emoji`` what it shows as."""
+
+    by: str
+    kind: str
+    emoji: Optional[str] = None
+
+
+class EpisodeAttachment(CamelModel):
+    """A file a turn carried — its kind (``image`` | ``video`` | ``audio`` | ``file`` | ``sticker``), name, size and
+    type. Never a path, never the file."""
+
+    kind: str = "file"
+    name: str = ""
+    size: Optional[int] = None
+    mime: Optional[str] = None
+    generated: bool = False
+
+
+class EpisodeTurnExtras(CamelModel):
+    """A turn's extras (`turn_extras`): ``reply_to`` is the target turn's ``index`` in this document;
+    ``reply_elsewhere`` a reply to a message this document does not hold."""
+
+    reactions: list[EpisodeReaction] = []
+    reply_to: Optional[int] = None
+    reply_elsewhere: bool = False
+    attachments: list[EpisodeAttachment] = []
+    edited: bool = False
+    forwarded_from: Optional[str] = None
+    code_runs: Optional[int] = None
+
+
+class EpisodeUnsent(CamelModel):
+    """A message its sender unsent: ``before`` is the ``index`` of the turn it preceded (one past the last turn's when
+    it came last); ``speaker`` a turn marker. Never its words."""
+
+    before: int
+    speaker: str
+    ts: Optional[str] = None
 
 
 class EpisodeFocus(CamelModel):
@@ -1188,12 +1232,20 @@ class EpisodeText(CamelModel):
     #: G181 phase 3: the id of the person's device whose token posted this episode; null for a page and for what the
     #: server's own machine wrote.
     device: Optional[str] = None
+    #: Owner 2026-10-20: a saved link's site key (``channel_items.saved_episode_url`` → ``reading_hosts.mark_key``), so
+    #: the Reader's header wears the link's own site mark; null for every other episode and for a page.
+    site: Optional[str] = None
     turns: list[EpisodeTurn] = []
     focus: Optional[EpisodeFocus] = None
     agent: Optional[EpisodeAgent] = None
     watch: Optional[EpisodeWatch] = None
     #: Ruling 32: set while the episode is a relay not yet upgraded by an export; null for everything else.
     relay: Optional[EpisodeRelay] = None
+    #: 2026-10-20: messages their senders unsent, by position (`turn_extras`).
+    unsent: list[EpisodeUnsent] = []
+
+
+EpisodeTurn.model_rebuild()
 
 
 class ProvenanceSpan(CamelModel):
@@ -3054,6 +3106,10 @@ class EpisodeQueueItem(CamelModel):
     copy_kind: Optional[str] = None
     copy_value: Optional[str] = None
     changed_at: Optional[str] = None
+    # Owner 2026-10-20 — a saved link's site key (`reading_hosts.mark_key` over the url of a live saved-source episode,
+    # `channel_items.saved_episode_url`), the name its row's site mark is drawn under; None for every other episode. The icon itself is asked by the episode's id
+    # (`GET /sources/saved/episodes/{id}/site-icon`), never by this name.
+    site: Optional[str] = None
 
 
 SCHEDULE_MODES = ("manual", "daily", "interval", "after_import")
@@ -3801,6 +3857,10 @@ class MediaSourceItem(CamelModel):
     title: str
     media_type: str
     site: Optional[str] = None
+    # Owner 2026-10-20 — the key the item's own site mark is drawn under (`reading_hosts.site_of` over the link's URL:
+    # a walled family's name, else the registrable domain), so every surface asks the same site and the same cache.
+    # A name, never a URL; None when the URL names no valid site. Additive.
+    site_key: Optional[str] = None
     channel: Optional[str] = None
     thumbnail: Optional[str] = None
     # `EntityMedia.preview`'s twin: the stored copy of the page's own picture, from the page alone. Additive.
@@ -4507,6 +4567,8 @@ class MessagesAttachmentIn(CamelModel):
     mime_type: Optional[str] = None
     uti: Optional[str] = None
     total_bytes: int = 0
+    #: A sticker placed on a message, not a file sent (``attachment.is_sticker``).
+    is_sticker: bool = False
 
 
 class MessagesRowIn(CamelModel):
@@ -4525,6 +4587,11 @@ class MessagesRowIn(CamelModel):
     date_edited: int = 0
     date_retracted: int = 0
     attachments: list[MessagesAttachmentIn] = []
+    #: A tapback row's target (``p:<part>/<guid>`` or ``bp:<guid>``) and, for an emoji tapback, its emoji.
+    associated_message_guid: Optional[str] = None
+    associated_message_emoji: Optional[str] = None
+    #: An inline reply's target message (``thread_originator_guid``).
+    thread_originator_guid: Optional[str] = None
 
 
 class MessagesSyncRequest(CamelModel):
@@ -4546,6 +4613,10 @@ class MessagesSyncResponse(CamelModel):
     edited: int = 0
     attachments: int = 0
     decoded: int = 0
+    #: Tapbacks placed on a stored message, and those whose message is not stored (never kept).
+    reactions_kept: int = 0
+    reactions_orphaned: int = 0
+    replies: int = 0
     sittings: int = 0
     created: int = 0
     updated: int = 0

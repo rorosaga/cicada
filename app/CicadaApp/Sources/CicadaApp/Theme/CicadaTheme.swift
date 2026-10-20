@@ -176,7 +176,7 @@ enum CicadaTheme {
     static var textPrimary: Color { mode == .dark ? Dark.textPrimary : Light.textPrimary }
     static var textSecondary: Color { mode == .dark ? Dark.textSecondary : Light.textSecondary }
     static var textTertiary: Color { mode == .dark ? Dark.textTertiary : Light.textTertiary }
-    /// Tertiary text ON a selected or hovered fill: light `textTertiary` is 4.33:1 on
+    /// Tertiary text ON a selected or hovered fill: light `textTertiary` is 4.06:1 on
     /// `bgSelected`, under the 4.5:1 bar (DR-2). Dark's tertiary already clears it.
     static var textTertiaryOnFill: Color { mode == .dark ? Dark.textTertiary : Light.textTertiaryOnFill }
     /// Disabled states only (DR-3) — never the only cue, never text a reader needs.
@@ -503,7 +503,8 @@ enum CicadaTheme {
 
     // MARK: - Icons (DR-53)
     enum IconRole {
-        case rail, railFoot, titlebar, sidebar, list, commandBar, inline, badge
+        /// `disclosure` — every fold's chevron (DR-39/DR-53, 2026-10-20): 10 pt, semibold so it holds at that size.
+        case rail, railFoot, titlebar, sidebar, list, commandBar, inline, badge, disclosure
         var points: CGFloat {
             switch self {
             case .rail: 18
@@ -512,11 +513,13 @@ enum CicadaTheme {
             case .list: 14
             case .commandBar: 13
             case .inline: 12
-            case .badge: 10
+            case .badge, .disclosure: 10
             }
         }
     }
-    static func icon(_ role: IconRole) -> Font { font(size: role.points) }
+    static func icon(_ role: IconRole) -> Font {
+        role == .disclosure ? font(size: role.points, weight: .semibold) : font(size: role.points)
+    }
     static func iconPoints(_ role: IconRole) -> CGFloat { scaled(role.points) }
 
     // MARK: - Spacing (G130: derived from `uiScale` — the 551 call sites are untouched, R2)
@@ -604,7 +607,9 @@ private extension CicadaTheme {
         static let bgOption = Color(hex: 0x1D1E21)
         static let bgButton = Color(hex: 0x232427)
         static let bgButtonHover = Color(hex: 0x2C2D30)
-        static let bgSelected = Color(hex: 0x222326)
+        // Round 2 (2026-10-20): one step further from bgHover (was #222326, 1.09:1 against it; now 1.13:1) so the
+        // selected row and the pointer's row never read alike. Tertiary on it stays 4.68:1.
+        static let bgSelected = Color(hex: 0x252629)
         static let bgMenu = Color(hex: 0x1B1C1E)
         static let bgKey = Color(hex: 0x26272A)
         static let keyGlyph = Color(hex: 0x9A9CA1)
@@ -758,7 +763,9 @@ private extension CicadaTheme {
         static let bgOption = Color(hex: 0xF7F7F5)
         static let bgButton = Color(hex: 0xF2F2F0)
         static let bgButtonHover = Color(hex: 0xE3E3E0)
-        static let bgSelected = Color(hex: 0xE8E8E5)
+        // Round 2 (2026-10-20): one step further from bgHover (was #E8E8E5, 1.07:1 against it; now 1.14:1) — the
+        // palette's selected and hovered rows read alike. textTertiaryOnFill on it stays 4.86:1.
+        static let bgSelected = Color(hex: 0xE1E1DE)
         static let bgMenu = Color(hex: 0xFFFFFF)
         static let bgKey = Color(hex: 0xEAEAE7)
         static let keyGlyph = Color(hex: 0x5A5B60)
@@ -766,8 +773,8 @@ private extension CicadaTheme {
         static let border = Color(hex: 0xE3E3E1)        // black 8 % over bgBase (R-DS2)
         static let borderLight = Color(hex: 0xCFCFCE)   // black 16 % over bgBase
 
-        // Measured on #F7F7F5: primary 17.2:1, secondary 10.8:1, tertiary 5.0:1 (4.33:1 on
-        // bgSelected — hence textTertiaryOnFill, 5.2:1), quaternary 3.2:1 (disabled only).
+        // Measured on #F7F7F5: primary 17.2:1, secondary 10.8:1, tertiary 5.0:1 (4.06:1 on
+        // bgSelected — hence textTertiaryOnFill, 4.86:1), quaternary 3.2:1 (disabled only).
         static let textPrimary = Color(hex: 0x141415)
         static let textSecondary = Color(hex: 0x38393C)
         static let textTertiary = Color(hex: 0x6A6B70)

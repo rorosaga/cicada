@@ -10,7 +10,7 @@ struct FeedSubscriptionRow: View {
     var body: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
             Image(systemName: "dot.radiowaves.up.forward")
-                .font(CicadaTheme.font(size: 12))
+                .font(CicadaTheme.icon(.inline))
                 .foregroundStyle(CicadaTheme.textTertiary)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -31,7 +31,7 @@ struct FeedSubscriptionRow: View {
             } else {
                 Button(action: onRemove) {
                     Image(systemName: "trash")
-                        .font(CicadaTheme.font(size: 12))
+                        .font(CicadaTheme.icon(.inline))
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
                 .buttonStyle(.cicadaPlain)
@@ -41,7 +41,7 @@ struct FeedSubscriptionRow: View {
         .padding(.horizontal, CicadaTheme.spacingMD)
         .padding(.vertical, CicadaTheme.spacingSM)
         .background(CicadaTheme.surfaceHover.opacity(0.4))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+        .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
     }
 
     private var subtitle: String {
@@ -68,7 +68,7 @@ struct CalendarSubscriptionRow: View {
     var body: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
             Image(systemName: "calendar")
-                .font(CicadaTheme.font(size: 12))
+                .font(CicadaTheme.icon(.inline))
                 .foregroundStyle(CicadaTheme.textTertiary)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -89,7 +89,7 @@ struct CalendarSubscriptionRow: View {
             } else {
                 Button(action: onRemove) {
                     Image(systemName: "trash")
-                        .font(CicadaTheme.font(size: 12))
+                        .font(CicadaTheme.icon(.inline))
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
                 .buttonStyle(.cicadaPlain)
@@ -99,7 +99,7 @@ struct CalendarSubscriptionRow: View {
         .padding(.horizontal, CicadaTheme.spacingMD)
         .padding(.vertical, CicadaTheme.spacingSM)
         .background(CicadaTheme.surfaceHover.opacity(0.4))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+        .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
     }
 
     private var subtitle: String {

@@ -406,15 +406,8 @@ struct InboxTextField: View {
     let isFocused: Bool
 
     var body: some View {
-        TextField(prompt, text: $text)
-            .textFieldStyle(.plain)
-            .font(CicadaTheme.detailBodyFont)
-            .foregroundStyle(CicadaTheme.textPrimary)
-            .padding(.horizontal, CicadaTheme.scaled(10))
-            .frame(height: CicadaTheme.scaled(32))
+        TextField("", text: $text)
             .frame(maxWidth: .infinity)
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgBase))
-            .overlay(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-                .strokeBorder(isFocused ? CicadaTheme.accent.opacity(0.7) : CicadaTheme.ring(.input), lineWidth: 1))
+            .cicadaField(isFocused: isFocused, prompt: prompt, isEmpty: text.isEmpty)   // DR-76 — the app's one field, which this one first drew
     }
 }

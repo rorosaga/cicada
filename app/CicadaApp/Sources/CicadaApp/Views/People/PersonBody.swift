@@ -197,7 +197,7 @@ private struct HappeningRow: View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                 Text(row.mark == .ongoing ? Copy.People.ongoing : RelativeDay.absolute(row.day, today: today))
-                    .font(CicadaTheme.font(size: 12, weight: .medium))
+                    .font(CicadaTheme.metaMediumFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .help(RelativeDay.full(row.day))
                 switch row.mark {
@@ -215,7 +215,7 @@ private struct HappeningRow: View {
             HappeningMark(mark: row.mark).padding(.top, CicadaTheme.scaled(4))
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                 Text(row.text)
-                    .font(CicadaTheme.font(size: 13))
+                    .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(2)
                 if let origin = row.origin {
@@ -239,7 +239,7 @@ private struct HappeningMark: View {
         Group {
             switch mark {
             case .planned:
-                Image(systemName: "diamond").font(CicadaTheme.font(size: 10)).foregroundStyle(CicadaTheme.textSecondary)
+                Image(systemName: "diamond").font(CicadaTheme.icon(.badge)).foregroundStyle(CicadaTheme.textSecondary)
             case .ongoing:
                 Capsule().fill(CicadaTheme.progressFill)
                     .frame(width: CicadaTheme.scaled(12), height: CicadaTheme.scaled(3))

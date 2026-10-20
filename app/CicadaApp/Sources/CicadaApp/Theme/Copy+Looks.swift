@@ -6,6 +6,8 @@ import Foundation
 extension Copy {
     enum Looks {
         static let page = "Looks"
+        /// DR-27 — the board hid beside a look and the Reader: "‹ 12 looks" brings it back.
+        static func looksBack(_ n: Int) -> String { n == 1 ? "‹ 1 look" : "‹ \(UsageFormat.count(n)) looks" }
         static let untitled = "A look"
         static let find = "Search by words, or drop a picture"
         static let searchHelp = "Find looks by what they're like: \"dark dashboard\", \"serif headlines\"…"

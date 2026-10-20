@@ -26,8 +26,6 @@ struct CapturedItemsList: View {
     @Environment(AppRouter.self) private var router: AppRouter?
     @Environment(Store.self) private var store: Store?
     @AppStorage private var remembered: Bool
-    @State private var hovering = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(channel: String, interactive: Bool = true, style: Style = .disclosure) {
         self.channel = channel
@@ -72,26 +70,9 @@ struct CapturedItemsList: View {
     // MARK: The disclosure
 
     private var disclosure: some View {
-        Button { remembered.toggle() } label: {
-            HStack(spacing: CicadaTheme.scaled(6)) {
-                Image(systemName: remembered ? "chevron.down" : "chevron.right")
-                    .font(CicadaTheme.icon(.inline))
-                    .frame(width: CicadaTheme.scaled(12))
-                    .iconHover(hovering: hovering)
-                Text(Copy.capturedTitle)
-                Spacer(minLength: 0)
-            }
-            .font(CicadaTheme.metaMediumFont)
-            .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
-            .frame(height: CicadaTheme.scaled(28))
-            .contentShape(Rectangle())
-            .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+        DisclosureHeader(title: Copy.capturedTitle, isOpen: remembered, help: Copy.capturedHelp, fillsWidth: true) {
+            remembered.toggle()
         }
-        .buttonStyle(.cicadaPlain)
-        .onHover { hovering = $0 }
-        .help(Copy.capturedHelp)
-        .accessibilityLabel(Copy.capturedTitle)
-        .accessibilityValue(remembered ? Copy.Lists.expanded : Copy.Lists.collapsed)
     }
 
     // MARK: The rows
@@ -137,10 +118,9 @@ struct CapturedItemsList: View {
             case .failed(let why): line(why)
             case .gone: line(Copy.capturedNone)
             case .idle, .loading, .loaded:
-                HStack(spacing: CicadaTheme.spacingXS) {
-                    ProgressView().controlSize(.small)
-                    line(Copy.capturedLoading)
-                }
+                // DR-43 — the first read is the list pages' own state: words over a still skeleton, no spinner.
+                ListSkeleton(message: Copy.capturedLoading, rows: 3)
+                    .padding(.vertical, CicadaTheme.spacingSM)
             }
         }
     }
@@ -156,9 +136,11 @@ struct CapturedItemsList: View {
 
     private func showMore(_ list: ChannelItemsList, loading: Bool, cache: ChannelItemsCache) -> some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            TextButton(title: Copy.capturedShowMore) { Task { await cache.loadMore(channel) } }
-                .disabled(loading)
-            if loading { ProgressView().controlSize(.small) }
+            // The next page says so in words on its own button (DR-43: words, no spinner).
+            TextButton(title: loading ? Copy.capturedLoadingMore : Copy.capturedShowMore) {
+                Task { await cache.loadMore(channel) }
+            }
+            .disabled(loading)
             Spacer(minLength: CicadaTheme.spacingSM)
             Text(Copy.capturedShown(list.items.count, of: list.total, noun: noun))
                 .font(CicadaTheme.metaFont)
@@ -243,8 +225,7 @@ private struct CapturedItemRow: View {
         }
         .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
         .padding(.horizontal, CicadaTheme.scaled(10))
-        .background(hovering && route != nil ? CicadaTheme.bgHover : Color.clear,
-                    in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+        .rowHoverFill(hovering: hovering && route != nil)
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
         .contentShape(Rectangle())
     }
@@ -283,18 +264,9 @@ struct SavedItemRow: View {
         }
     }
 
-    @ViewBuilder
-    private var mark: some View {
-        switch SavedItemText.mark(item) {
-        case .site(let key, let label):
-            // Owner ruling 2026-10-19: the site's own icon, asked of that site only (never an icon service), now that
-            // the person opened this list; a bundled family mark or a monogram until — or unless — it arrives.
-            SiteIcon(site: key, label: label, savedItem: item.kind == .media ? item.id : nil)
-        case .monogram(let letter):
-            SiteMonogram(letter: letter, side: CicadaTheme.scaled(SiteIconLayout.Size.row.points))
-                .accessibilityHidden(true)
-        }
-    }
+    /// Owner ruling 2026-10-19: the site's own icon, asked of that site only (never an icon service), now that the
+    /// person opened this list; a bundled family mark or a monogram until — or unless — it arrives (`SavedLinkMark`).
+    private var mark: some View { SavedLinkMark(mark: SavedItemText.mark(item)) }
 
     private func label(_ day: (text: String, help: String)?) -> some View {
         HStack(alignment: .center, spacing: CicadaTheme.scaled(10)) {
@@ -337,8 +309,7 @@ struct SavedItemRow: View {
         .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.twoLine),
                maxHeight: CicadaTheme.scaled(RowMetrics.twoLine), alignment: .leading)
         .padding(.horizontal, CicadaTheme.scaled(10))
-        .background(hovering && route != nil ? CicadaTheme.bgHover : Color.clear,
-                    in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+        .rowHoverFill(hovering: hovering && route != nil)
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
         .contentShape(Rectangle())
     }

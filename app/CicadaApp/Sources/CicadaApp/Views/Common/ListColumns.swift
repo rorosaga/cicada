@@ -74,10 +74,8 @@ struct ListRowSurface: ViewModifier {
             .padding(.horizontal, CicadaTheme.scaled(10))
             .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(height), maxHeight: CicadaTheme.scaled(height),
                    alignment: .leading)
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-                .fill(selected ? CicadaTheme.bgSelected : (hovering ? CicadaTheme.bgHover : Color.clear)))
+            .rowHover($hovering, selected: selected)
             .contentShape(Rectangle())
-            .onHover { hovering = $0 }
     }
 }
 
@@ -110,6 +108,8 @@ extension View {
 /// DR-43 — a first fetch says so in words over a still skeleton (no shimmer), as the Inbox's does.
 struct ListSkeleton: View {
     let message: String
+    /// A list inside a detail column (a source's conversations or what came in) draws fewer bars (round 2, 2026-10-20).
+    var rows: Int = 6
     private static let bars: [CGFloat] = [0.38, 0.52, 0.31, 0.46, 0.58, 0.35]
 
     var body: some View {
@@ -117,7 +117,7 @@ struct ListSkeleton: View {
             Text(message)
                 .font(CicadaTheme.detailBodyFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
-            ForEach(Array(Self.bars.enumerated()), id: \.offset) { _, fraction in
+            ForEach(Array(Self.bars.prefix(max(rows, 1)).enumerated()), id: \.offset) { _, fraction in
                 CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                     .fill(CicadaTheme.bgSelected)
                     .frame(width: CicadaTheme.scaled(520 * fraction), height: CicadaTheme.scaled(12))

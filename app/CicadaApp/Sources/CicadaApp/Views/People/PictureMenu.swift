@@ -153,7 +153,7 @@ struct EntityPictureVeil: View {
                 Image(systemName: "camera")
                     .font(CicadaTheme.font(size: max(10, units * 0.24), weight: .medium))
                 if showsWord {
-                    Text(Copy.People.change).font(CicadaTheme.font(size: 12, weight: .medium))
+                    Text(Copy.People.change).font(CicadaTheme.metaMediumFont)
                 }
             }
             .foregroundStyle(CicadaTheme.onFill)

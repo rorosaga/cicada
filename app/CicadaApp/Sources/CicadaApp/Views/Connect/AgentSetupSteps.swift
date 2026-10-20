@@ -96,7 +96,7 @@ struct AgentSetupSteps: View {
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                     HStack(spacing: CicadaTheme.spacingXS) {
                         Text(step.title)
-                            .font(CicadaTheme.font(size: 13, weight: .medium))
+                            .font(CicadaTheme.rowFont)
                             .foregroundStyle(CicadaTheme.textPrimary)
                         if step.advanced { Tag(text: Copy.agentStepAdvanced) }
                     }

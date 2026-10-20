@@ -483,7 +483,7 @@ struct EngineOptionCard: View {
                 mark
                 HStack(spacing: CicadaTheme.spacingXS) {
                     Text(candidate.label)
-                        .font(CicadaTheme.font(size: 13, weight: .medium))
+                        .font(CicadaTheme.rowFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(1)
                     if let tag { Tag(text: tag) }
@@ -509,11 +509,11 @@ struct EngineOptionCard: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(CicadaTheme.spacingSM)
             .background(
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                     .fill(isHovered && isSelectable ? CicadaTheme.surfaceHover : CicadaTheme.surface)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                     .stroke(isSelected ? CicadaTheme.accent : CicadaTheme.border, lineWidth: isSelected ? 2 : 1)
             )
         }
@@ -535,7 +535,7 @@ struct EngineOptionCard: View {
                 .font(CicadaTheme.font(size: 14, weight: .medium))
                 .foregroundStyle(CicadaTheme.accent)
                 .frame(width: markSize, height: markSize)
-                .background(RoundedRectangle(cornerRadius: markSize * 0.2).fill(CicadaTheme.surfaceElevated))
+                .background(CicadaTheme.shape(markSize * 0.2).fill(CicadaTheme.surfaceElevated))
         }
     }
 }

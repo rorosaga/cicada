@@ -975,7 +975,7 @@ async def ensure_site_icon(
 
 
 
-# --- a saved link's own site (owner ruling 2026-10-19) ---------------------------------------------------------------
+# --- a saved link's own site (owner ruling 2026-10-19; discovery amended 2026-10-20) ---------------------------------
 #
 # The owner, 2026-10-19: a saved link's row shows the site's own icon, asked of the site itself — never through a
 # third-party service (the icon service is never told what the person saved) — only when the app asks for a list the
@@ -983,19 +983,39 @@ async def ensure_site_icon(
 # the SSRF guard and the ToS rail, behind `CICADA_ALLOW_LOGO_FETCH`, cached outside every bank with misses cached too;
 # a failure is a monogram, never an error.
 #
-# Two fixed paths, never the homepage's HTML: `/apple-touch-icon.png` (big enough for a 20 pt row at 2×) then
-# `/favicon.ico`. Reading the homepage for a `<link rel=icon>` would fetch a whole page of the site's HTML — the most
-# bytes, the most likely to meet a consent wall or a login redirect — to learn a path these two conventions already
-# cover for most sites; a site with neither keeps its monogram. At most two requests per site, each with its own
-# redirects checked hop by hop.
+# Amended (owner 2026-10-20: "when I open the website I can clearly see a favicon in the Chrome tab"): the two fixed
+# paths alone missed every site that declares its icon in its HTML at another path, on a CDN, or behind a same-site
+# redirect. Discovery now goes the way a browser does: the homepage (same-registrable-domain redirects only, e.g. → www),
+# its `<link rel>` icon declarations (icon, shortcut icon, apple-touch-icon; sizes; light/dark `media`), relative hrefs
+# resolved against the page's final URL (or its `<base href>`), the best raster first, then the two fixed paths. A URL
+# the page itself declares may live on another host (a CDN) — https only, through the SSRF guard, its redirects kept on
+# that host's or the site's registrable domain, and accepted only when the content-type says image AND the bytes sniff
+# as a raster. The whole discovery has one 4 s budget per site; every response is cut at 512 KB.
+#
+# SVG stays a miss: there is no in-process rasteriser here (Pillow is deliberately not a dependency, and a hand-rolled
+# SVG renderer is the opposite of safe), and serving SVG to the app as-is would put a scriptable document on the
+# backend's origin. A `data:` icon is decoded only when it is base64 raster (PNG/ICO/GIF/JPEG/WebP), its decoded size
+# capped and its bytes sniffed like any download; a `data:image/svg+xml` icon is a miss.
 
 #: The cache namespace: `logos/<bank>/sites/own/` — beside, never mixed with, the icon-service icons in `sites/`, so a miss
 #: on one path never hides the other.
 OWN_SITE_DIR = "own"
 OWN_SITE_PATHS = ("/apple-touch-icon.png", "/favicon.ico")
+#: The discovery's version, stamped on every own-site cache entry. A miss recorded by an older discovery (the two fixed
+#: paths of 2026-10-19) is asked once more with this one; hits stay.
+OWN_SITE_DISCOVERY = 2
+#: The whole discovery for one site — homepage, declared icons, fixed paths — fits in this many seconds (the ToS rail).
+OWN_SITE_BUDGET_SECONDS = TIMEOUT_SECONDS
+#: At most this many declared icons are asked, best first, before the fixed paths.
+MAX_DECLARED_ICONS = 3
+_ICON_RELS = {"icon", "apple-touch-icon", "apple-touch-icon-precomposed"}
 #: A site that says no: a miss at once, the next path never tried, nothing retried with other headers (the ToS rail).
 _BLOCK_STATUSES = {401, 403, 407, 451}
 _MAGIC_EXT = ((b"\x89PNG\r\n\x1a\n", "png"), (b"\x00\x00\x01\x00", "ico"), (b"GIF8", "gif"), (b"\xff\xd8\xff", "jpg"))
+#: A response that says it is a document is never an icon, whatever its bytes say.
+_DOCUMENT_TYPES = ("text/html", "application/xhtml", "image/svg", "text/xml", "application/xml")
+_RASTER_DATA_TYPES = {"image/png", "image/x-icon", "image/vnd.microsoft.icon", "image/ico", "image/gif", "image/jpeg",
+                      "image/jpg", "image/webp"}
 
 
 def own_site_bank(bank: str) -> str:
@@ -1016,28 +1036,183 @@ def own_site_domain(url: str) -> str | None:
     return site
 
 
-def _sniffed(result: FetchResult) -> tuple[bytes, str, str | None] | None:
-    """A favicon served as `application/octet-stream` or `text/plain` is still an icon when its bytes say so; the same
-    size, SVG and pixel rules as `_accept`."""
-    if result.status != 200 or not result.body or len(result.body) > MAX_BYTES or looks_like_svg(result.body):
+def _sniff_ext(body: bytes) -> str | None:
+    if body[:4] == b"RIFF" and body[8:12] == b"WEBP":
+        return "webp"
+    return next((e for magic, e in _MAGIC_EXT if body.startswith(magic)), None)
+
+
+def _raster(body: bytes, content_type: str, etag: str | None, *, image_type: bool) -> tuple[bytes, str, str | None] | None:
+    """An icon only when its BYTES are a raster (PNG/ICO/GIF/JPEG/WebP magic) — never SVG, never over 512 KB, never
+    below `MIN_PIXELS`. The content-type may never claim a document (an SPA answering `/favicon.ico` with its HTML);
+    with `image_type` it must also say `image/*` (an icon declared on another host). The extension comes from the
+    bytes, not the header."""
+    if not body or len(body) > MAX_BYTES or looks_like_svg(body):
         return None
-    ext = next((e for magic, e in _MAGIC_EXT if result.body.startswith(magic)), None)
+    ctype = (content_type or "").split(";", 1)[0].strip().lower()
+    if ctype.startswith(_DOCUMENT_TYPES) or (image_type and not ctype.startswith("image/")):
+        return None
+    ext = _sniff_ext(body)
     if ext is None:
         return None
-    smallest = min_dimension(result.body)
+    smallest = min_dimension(body)
     if smallest is not None and smallest < MIN_PIXELS:
         return None
-    return result.body, ext, result.etag
+    return body, ext, etag
 
 
-async def _get_on_site(url: str, site: str, *, fetcher: Fetcher, resolver: Resolver | None) -> FetchResult | None:
-    """One GET that never leaves `site`: every hop (≤ `MAX_REDIRECTS`) must pass the SSRF check, stay on the same
-    registrable domain and not be a login-walled host — a redirect anywhere else is a miss, never followed."""
+def _sniffed(result: FetchResult) -> tuple[bytes, str, str | None] | None:
+    """A response from the site itself: a favicon served as `application/octet-stream` or `text/plain` is still an
+    icon when its bytes say so; one that says HTML is not."""
+    if result.status != 200:
+        return None
+    return _raster(result.body, result.content_type, result.etag, image_type=False)
+
+
+@dataclass
+class _IconLink:
+    url: str
+    rel: frozenset
+    size: int | None
+    dark: bool
+    light: bool
+    order: int
+
+    def rank(self) -> tuple:
+        # The light-scheme (or scheme-less) icon before a dark one; then the largest raster of at least 32 px; then
+        # one of unknown size; then a small one; ties in the page's own order.
+        size = self.size
+        bucket = 0 if size is not None and size >= 32 else (1 if size is None else 2)
+        return (self.dark and not self.light, bucket, -(size or 0), self.order)
+
+
+#: Only `<link …>` and `<base …>` tags are ever looked at, found by one linear scan: a tag runs to the next `>` and may
+#: not contain `<`, so a hostile page ("<a" × 256k, unclosed quotes, "<?" × n) costs one pass. The standard library's
+#: `HTMLParser` is deliberately NOT used on the page — it is quadratic on such markup (security review of #371: 512 KB
+#: of it held the event loop for minutes).
+_TAG_RE = re.compile(rb"<(link|base)\b([^<>]*)>", re.IGNORECASE)
+_ATTR_RE = re.compile(r"""([^\s=/>"']+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?""")
+MAX_LINK_TAGS = 64
+
+
+def _tag_attrs(raw: bytes) -> dict[str, str]:
+    """A tag's attributes, first occurrence wins, names lowercased, values HTML-unescaped — one linear regex pass."""
+    import html as _html
+
+    attrs: dict[str, str] = {}
+    for match in _ATTR_RE.finditer(raw.decode("utf-8", "replace")):
+        name = match.group(1).lower()
+        if name in attrs:
+            continue
+        value = next((g for g in match.group(2, 3, 4) if g is not None), "")
+        attrs[name] = _html.unescape(value)
+    return attrs
+
+
+def _icon_tags(html: bytes) -> tuple[str | None, list[dict[str, str]]]:
+    """The first `<base href>` and the first `MAX_LINK_TAGS` `<link>` tags' attributes, in page order."""
+    base: str | None = None
+    links: list[dict[str, str]] = []
+    for match in _TAG_RE.finditer(html[:MAX_BYTES]):
+        if match.group(1).lower() == b"base":
+            if base is None:
+                href = _tag_attrs(match.group(2)).get("href", "").strip()
+                base = href or None
+            continue
+        links.append(_tag_attrs(match.group(2)))
+        if len(links) >= MAX_LINK_TAGS:
+            break
+    return base, links
+
+
+def _declared_size(sizes: str) -> int | None:
+    best = None
+    for token in (sizes or "").lower().split()[:16]:
+        match = re.fullmatch(r"(\d{1,4})x(\d{1,4})", token)
+        if match:
+            side = min(int(match.group(1)), int(match.group(2)))
+            best = side if best is None else max(best, side)
+    return best
+
+
+def declared_icons(html: bytes, page_url: str) -> list[_IconLink]:
+    """The raster icons a homepage declares, best first. Skips `mask-icon` and anything typed or named SVG (a miss
+    here, see above), a `data:` icon that is not base64 raster, and any href that resolves to something but https."""
+    base_href, links = _icon_tags(html)
+    try:
+        base = urljoin(page_url, base_href) if base_href else page_url
+    except ValueError:
+        base = page_url
+    found: dict[str, _IconLink] = {}
+    for order, attrs in enumerate(links):
+        rel = frozenset(attrs.get("rel", "").lower().split())
+        href = attrs.get("href", "").strip()
+        if not href or not rel & _ICON_RELS or "mask-icon" in rel:
+            continue
+        kind = attrs.get("type", "").strip().lower()
+        if "svg" in kind:
+            continue
+        if href.lower().startswith("data:"):
+            if _data_icon_type(href) is None:
+                continue
+            url = href
+        else:
+            try:
+                url = urljoin(base, href)
+            except ValueError:
+                continue
+            if not _plain_https(url) or urlparse(url).path.lower().endswith(".svg"):
+                continue
+        media = attrs.get("media", "").lower().replace(" ", "")
+        size = _declared_size(attrs.get("sizes", ""))
+        if size is None and rel & {"apple-touch-icon", "apple-touch-icon-precomposed"}:
+            size = 180  # Apple's documented size when none is declared
+        link = _IconLink(url=url, rel=rel, size=size, dark="prefers-color-scheme:dark" in media,
+                         light="prefers-color-scheme:light" in media, order=order)
+        if url not in found or link.rank() < found[url].rank():
+            found[url] = link
+    return sorted(found.values(), key=_IconLink.rank)
+
+
+def _data_icon_type(uri: str) -> str | None:
+    """The media type of a base64 raster `data:` URI, else None (SVG, percent-encoded, unknown)."""
+    head, sep, _ = uri.partition(",")
+    if not sep:
+        return None
+    parts = [p.strip().lower() for p in head[5:].split(";")]
+    if "base64" not in parts[1:] or parts[0] not in _RASTER_DATA_TYPES:
+        return None
+    return parts[0]
+
+
+def _decode_data_icon(uri: str) -> tuple[bytes, str, str | None] | None:
+    """A `data:` icon's bytes, the decoded size capped at 512 KB BEFORE decoding (from the encoded length), then the same
+    raster rules as a download — the declared type must agree that it is an image and the bytes must sniff as one."""
+    import base64
+    import binascii
+
+    kind = _data_icon_type(uri)
+    if kind is None:
+        return None
+    payload = "".join(uri.partition(",")[2].split())
+    if len(payload) > (MAX_BYTES * 4) // 3 + 4:
+        return None
+    try:
+        body = base64.b64decode(payload, validate=False)
+    except (binascii.Error, ValueError):
+        return None
+    return _raster(body, kind, None, image_type=True)
+
+
+async def _follow(url: str, allowed: Callable[[str], bool], *, fetcher: Fetcher,
+                  resolver: Resolver | None) -> tuple[FetchResult, str] | None:
+    """One GET whose every hop (≤ `MAX_REDIRECTS`) passes `allowed`, is no login-walled host and passes the SSRF check
+    — a hop anywhere else is a miss, never followed. Returns the response and the URL that answered it."""
     from api.services import reading_hosts
 
     current = url
     for _ in range(MAX_REDIRECTS + 1):
-        if reading_hosts.site_of(current) != site or reading_hosts.is_walled(current):
+        if not allowed(current) or reading_hosts.is_walled(current):
             return None
         # The route runs per visible row, so DNS never blocks the event loop: net_guard's async check (off-loop), or
         # an injected resolver (tests).
@@ -1053,45 +1228,141 @@ async def _get_on_site(url: str, site: str, *, fetcher: Fetcher, resolver: Resol
         if result.status in _REDIRECT_STATUSES and result.location:
             current = urljoin(current, result.location)
             continue
-        return result
+        return result, current
+    return None
+
+
+def _plain_https(url: str) -> bool:
+    """https on its default port, with no userinfo: every hop of an own-site icon fetch, same-site redirects included,
+    and every icon URL a page declares (security review of #371) — an explicit port or a `user@` is never asked."""
+    try:
+        parsed = urlparse(url)
+        port = parsed.port
+    except ValueError:
+        return False
+    return (parsed.scheme == "https" and bool(parsed.hostname) and port is None and "@" not in parsed.netloc)
+
+
+def _on_site(site: str) -> Callable[[str], bool]:
+    from api.services import reading_hosts
+
+    return lambda url: _plain_https(url) and reading_hosts.site_of(url) == site
+
+
+async def _get_on_site(url: str, site: str, *, fetcher: Fetcher, resolver: Resolver | None) -> FetchResult | None:
+    """One GET that never leaves `site` (same registrable domain on every hop)."""
+    got = await _follow(url, _on_site(site), fetcher=fetcher, resolver=resolver)
+    return got[0] if got else None
+
+
+class _Blocked(Exception):
+    """The site said no (401/403/407/451): the whole discovery stops, nothing else is asked."""
+
+
+async def _discover(site: str, *, fetcher: Fetcher, resolver: Resolver | None) -> tuple[bytes, str, str | None] | None:
+    from api.services import reading_hosts
+
+    tried: set[str] = set()
+    asked: list[str] = []
+
+    async def counted(url: str) -> FetchResult:
+        asked.append(url)
+        return await fetcher(url)
+
+    host = site
+    page = await _follow(f"https://{site}/", _on_site(site), fetcher=counted, resolver=resolver)
+    if page is None and not asked and not site.startswith("www."):
+        # Nothing was asked: the bare registrable domain has no public address of its own (some sites answer only on
+        # their www. host). Ask www. once — the same site, its own SSRF check.
+        page = await _follow(f"https://www.{site}/", _on_site(site), fetcher=counted, resolver=resolver)
+        if asked:  # the www. host answered (even with a redirect off the site): the fixed paths are asked there
+            host = f"www.{site}"
+    if page is not None:
+        result, final_url = page
+        host = urlparse(final_url).hostname or host  # on the site: `_follow` checked every hop
+        if result.status in _BLOCK_STATUSES:
+            raise _Blocked
+        ctype = (result.content_type or "").lower()
+        if result.status == 200 and result.body and ("html" in ctype or not ctype):
+            # Off the event loop: the scan is linear, but 512 KB of it should never hold every other request.
+            declared = await asyncio.to_thread(declared_icons, result.body, final_url)
+            for link in declared[:MAX_DECLARED_ICONS]:
+                if link.url.startswith("data:"):
+                    got = _decode_data_icon(link.url)
+                    if got:
+                        return got
+                    continue
+                tried.add(link.url)
+                declared_site = reading_hosts.site_of(link.url)
+                own = declared_site == site
+                allowed = (lambda u, d=declared_site: _plain_https(u) and reading_hosts.site_of(u) in (d, site))
+                got = await _follow(link.url, allowed, fetcher=fetcher, resolver=resolver)
+                if got is None:
+                    continue
+                answer = got[0]
+                if answer.status in _BLOCK_STATUSES and own:
+                    raise _Blocked
+                if answer.status == 200:
+                    icon = _raster(answer.body, answer.content_type, answer.etag, image_type=not own)
+                    if icon:
+                        return icon
+    for path in OWN_SITE_PATHS:
+        url = f"https://{host}{path}"
+        if url in tried:
+            continue
+        result = await _get_on_site(url, site, fetcher=fetcher, resolver=resolver)
+        if result is None:
+            continue
+        if result.status in _BLOCK_STATUSES:
+            raise _Blocked
+        accepted = _sniffed(result)
+        if accepted:
+            return accepted
     return None
 
 
 async def fetch_own_site_icon(
     site: str, *, fetcher: Fetcher | None = None, resolver: Resolver | None = None
 ) -> tuple[bytes, str, str | None] | None:
-    """The site's own icon, asked of `https://<site>` only: `OWN_SITE_PATHS` in order, the first acceptable raster
-    wins; a block (401/403/407/451) stops at once. Never the icon service."""
+    """The site's own icon, found the way a browser finds it (see the section note): the homepage's declared icons,
+    best first, then `OWN_SITE_PATHS`; the first acceptable raster wins; a block (401/403/407/451) from the site stops
+    at once; the whole discovery fits `OWN_SITE_BUDGET_SECONDS`. Never the icon service."""
     if fetcher is None:
         if not fetch_allowed():
             return None
         fetcher = _http_get
-    for path in OWN_SITE_PATHS:
-        result = await _get_on_site(f"https://{site}{path}", site, fetcher=fetcher, resolver=resolver)
-        if result is None:
-            continue
-        if result.status in _BLOCK_STATUSES:
-            return None
-        accepted = _accept(result) or _sniffed(result)
-        if accepted:
-            return accepted
-    return None
+    try:
+        return await asyncio.wait_for(_discover(site, fetcher=fetcher, resolver=resolver), OWN_SITE_BUDGET_SECONDS)
+    except _Blocked:
+        return None
+    except asyncio.TimeoutError:
+        logger.debug("own-site icon discovery ran out of its time budget")
+        return None
+
+
+def _own_entry_current(entry: dict) -> bool:
+    """A fresh entry, unless it is a miss an older discovery recorded — that one is asked once more."""
+    if not entry or not is_fresh(entry):
+        return False
+    return not (entry.get("miss") and int(entry.get("v") or 1) < OWN_SITE_DISCOVERY)
 
 
 async def ensure_own_site_icon(memory_path: Path, site: str, *, fetcher: Fetcher | None = None) -> Path | None:
     """Cache-check -> at most one `fetch_own_site_icon` -> store, under `logos/<bank>/sites/own/`. A hit lasts 30 days,
-    a miss 7; with the gate off (and no injected fetcher) nothing is asked and nothing is recorded."""
+    a miss 7 (a miss from before `OWN_SITE_DISCOVERY` is retried once); with the gate off (and no injected fetcher)
+    nothing is asked and nothing is recorded."""
     bank = own_site_bank(bank_name(Path(memory_path)))
     async with _lock(f"own:{bank}/{site}"):
         entry = read_meta(bank).get(site)
-        if entry and is_fresh(entry):
+        if _own_entry_current(entry):
             return cached_path(bank, site)
         if fetcher is None and not fetch_allowed():
             return None
         result = await fetch_own_site_icon(site, fetcher=fetcher)
         now = datetime.now(timezone.utc).isoformat()
         if result is None:
-            await _record_meta(bank, site, {"fetched_at": now, "miss": True, "etag": None, "ext": None})
+            await _record_meta(bank, site, {"fetched_at": now, "miss": True, "etag": None, "ext": None,
+                                            "v": OWN_SITE_DISCOVERY})
             return None
         body, ext, etag = result
         path = logos_dir(bank) / f"{site}.{ext}"
@@ -1100,5 +1371,6 @@ async def ensure_own_site_icon(memory_path: Path, site: str, *, fetcher: Fetcher
         except OSError as exc:
             logger.warning(f"Could not cache a site icon: {type(exc).__name__}: {exc}")
             return None
-        await _record_meta(bank, site, {"fetched_at": now, "miss": False, "etag": etag, "ext": ext})
+        await _record_meta(bank, site, {"fetched_at": now, "miss": False, "etag": etag, "ext": ext,
+                                        "v": OWN_SITE_DISCOVERY})
         return path

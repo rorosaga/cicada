@@ -84,7 +84,7 @@ struct IntakeDropVeil: View {
     var body: some View {
         ZStack {
             CicadaTheme.scrim.ignoresSafeArea()
-            RoundedRectangle(cornerRadius: CicadaTheme.radiusLarge, style: .continuous)
+            CicadaTheme.shape(CicadaTheme.radiusLarge)
                 .strokeBorder(CicadaTheme.accent, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
                 .padding(CicadaTheme.scaled(12))
             VStack(spacing: CicadaTheme.spacingSM) {
@@ -94,7 +94,7 @@ struct IntakeDropVeil: View {
                 Text(Copy.intakeVeil).font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
             }
             .padding(CicadaTheme.spacingLG)
-            .background(CicadaTheme.surface, in: RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius, style: .continuous))
+            .background(CicadaTheme.surface, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
         }
         .allowsHitTesting(false)
         .accessibilityElement(children: .ignore)
@@ -118,8 +118,8 @@ struct IntakeOverlay: View {
             .scrollBounceBehavior(.basedOnSize)
             .frame(maxWidth: CicadaTheme.scaled(600), maxHeight: CicadaTheme.scaled(640))
             .fixedSize(horizontal: false, vertical: true)
-            .background(CicadaTheme.surface, in: RoundedRectangle(cornerRadius: CicadaTheme.radiusLarge, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: CicadaTheme.radiusLarge, style: .continuous)
+            .background(CicadaTheme.surface, in: CicadaTheme.shape(CicadaTheme.radiusLarge))
+            .overlay(CicadaTheme.shape(CicadaTheme.radiusLarge)
                 .stroke(CicadaTheme.border, lineWidth: 1))
             .padding(CicadaTheme.spacingXL)
         }

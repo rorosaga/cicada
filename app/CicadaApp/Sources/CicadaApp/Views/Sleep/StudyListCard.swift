@@ -255,10 +255,7 @@ struct StudyListCard: View {
             // R-HS15 — one 36 pt row (DR-34): the chevron, the source's real mark (DR-52), its
             // name, the oldest age inline, and the trailing state.
             HStack(spacing: CicadaTheme.spacingSM) {
-                Image(systemName: expandedOrigins.contains(row.origin) ? "chevron.down" : "chevron.right")
-                    .font(CicadaTheme.icon(.inline))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .frame(width: CicadaTheme.scaled(12))
+                DisclosureChevron(isOpen: expandedOrigins.contains(row.origin))
 
                 OriginMark(origin: row.origin, size: CicadaTheme.scaled(14))
 
@@ -287,8 +284,7 @@ struct StudyListCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
-        .background(room?.hoveredOrigin == row.origin ? CicadaTheme.bgHover : Color.clear,
-                    in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+        .rowHoverFill(hovering: room?.hoveredOrigin == row.origin)
         .onHover { inside in room?.hover(origin: row.origin, inside: inside) }
         .help(chatsLine(row) ?? "")
         .accessibilityLabel([Self.rowAccessibilityLabel(row), chatsLine(row)].compactMap { $0 }.joined(separator: ", "))

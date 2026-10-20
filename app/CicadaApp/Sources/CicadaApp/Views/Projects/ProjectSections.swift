@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// R-PP13 — a section's head: its label (DR-20's `SectionLabel`) with a disclosure chevron, and — collapsed — what it
-/// holds in words, so a closed section still says so (DR-39).
+/// R-PP13 — a section's head: a `DisclosureHeader` (the one folding-section head, 2026-10-20), and — collapsed — what
+/// it holds in words, so a closed section still says so (DR-39).
 struct ProjectSectionHeader: View {
     let title: String
     let meta: String
@@ -9,23 +9,8 @@ struct ProjectSectionHeader: View {
     let toggle: () -> Void
 
     var body: some View {
-        Button(action: toggle) {
-            HStack(spacing: CicadaTheme.scaled(6)) {
-                Image(systemName: "chevron.right")
-                    .font(CicadaTheme.font(size: 9, weight: .medium))
-                    .rotationEffect(.degrees(isOpen ? 90 : 0))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                SectionLabel(title)
-                if !isOpen, !meta.isEmpty {
-                    Text(meta).font(CicadaTheme.captionFont).monospacedDigit().foregroundStyle(CicadaTheme.textTertiary)
-                }
-            }
-            .frame(height: CicadaTheme.scaled(24))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.cicadaPlain)
-        .help(isOpen ? Copy.Projects.collapse : Copy.Projects.expand)
-        .accessibilityAddTraits(.isHeader)
+        DisclosureHeader(title: title, summary: meta, isOpen: isOpen,
+                         help: isOpen ? Copy.Projects.collapse : Copy.Projects.expand, toggle: toggle)
     }
 }
 
@@ -315,9 +300,9 @@ struct ProjectPlanSection: View {
             HStack(spacing: CicadaTheme.spacingMD) {
                 PlanDiamond(style: ProjectPlan.diamond(row))
                 if renaming == m.slug, let rename {
-                    TextField(Copy.Projects.milestoneName, text: $renameText)
-                        .textFieldStyle(.roundedBorder)
+                    TextField("", text: $renameText)
                         .focused($renameFocused)
+                        .cicadaField(isFocused: renameFocused, prompt: Copy.Projects.milestoneName, isEmpty: renameText.isEmpty)
                         .onSubmit {
                             let name = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
                             if !name.isEmpty, name != m.name { rename(m.slug, name) }
@@ -338,8 +323,7 @@ struct ProjectPlanSection: View {
                     } label: {
                         HStack(spacing: CicadaTheme.scaled(3)) {
                             Text(Copy.Projects.moved(chain.count - 1))
-                            Image(systemName: "chevron.right")
-                                .rotationEffect(.degrees(chainOpen.contains(m.slug) ? 90 : 0))
+                            DisclosureChevron(isOpen: chainOpen.contains(m.slug), color: nil)
                         }
                         .font(CicadaTheme.metaFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
@@ -398,9 +382,9 @@ struct ProjectPlanSection: View {
     private var addRow: some View {
         if adding {
             HStack(spacing: CicadaTheme.spacingSM) {
-                TextField(Copy.Projects.milestonePlaceholder, text: $newName)
-                    .textFieldStyle(.roundedBorder)
+                TextField("", text: $newName)
                     .focused($addFocused)
+                    .cicadaField(isFocused: addFocused, prompt: Copy.Projects.milestonePlaceholder, isEmpty: newName.isEmpty)
                     .onSubmit(submitAdd)
                     .onExitCommand { adding = false }
                     .accessibilityLabel(Copy.Projects.milestoneName)
@@ -512,8 +496,9 @@ struct ProjectAroundSection: View {
                             .foregroundStyle(CicadaTheme.textTertiary).help(last.help)
                     }
                     if ProjectAround.expands(m) {
-                        IconButton(systemName: expanded.contains(id) ? "chevron.down" : "chevron.right",
-                                   help: expanded.contains(id) ? Copy.Projects.hideSpecs(m.name) : Copy.Projects.showSpecs(m.name)) {
+                        DisclosureButton(isOpen: expanded.contains(id),
+                                         help: expanded.contains(id) ? Copy.Projects.hideSpecs(m.name)
+                                                                     : Copy.Projects.showSpecs(m.name)) {
                             toggle(id)
                         }
                     }

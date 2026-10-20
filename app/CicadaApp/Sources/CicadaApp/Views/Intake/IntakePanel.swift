@@ -84,8 +84,8 @@ struct IntakePanel: View {
         .frame(maxWidth: .infinity)
         .padding(CicadaTheme.spacingLG)
         .background(dropTargeted ? CicadaTheme.meadowWash.opacity(0.4) : CicadaTheme.surface,
-                    in: RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius, style: .continuous)
+                    in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+        .overlay(CicadaTheme.shape(CicadaTheme.cornerRadius)
             .strokeBorder(dropTargeted ? CicadaTheme.meadow : CicadaTheme.border,
                           style: StrokeStyle(lineWidth: dropTargeted ? 2 : 1, dash: [6, 4])))
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: dropTargeted)

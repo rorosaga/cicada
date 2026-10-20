@@ -215,7 +215,7 @@ final class SourcesV2Tests: XCTestCase {
     /// the `rows.isEmpty` branch", so this reads the source.
     func testAddASourceLivesInTheHeaderAndIsPresentedExactlyOnce() throws {
         let page = try sourceFile("Views/Sources/SourcesPageView.swift")
-        XCTAssertTrue(page.contains("Add a source"),
+        XCTAssertTrue(page.contains("Copy.addASource"),
                       "the header lost its affordance — F2 all over again")
         XCTAssertEqual(page.components(separatedBy: "AddSourceSheet(").count - 1, 1,
                        "exactly one presenter of the sheet on this page")

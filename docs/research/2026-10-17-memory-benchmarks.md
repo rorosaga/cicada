@@ -159,6 +159,34 @@ fact recall, contradictions, stale facts asserted, declined-but-should-know, ans
 Both calls on the plan by default (`--engine configured` answers with the bank's configured engine). Results are
 written 0600 under `benchmark_results/` (gitignored); the terminal shows ids and scores unless `--show`.
 
+**Repeats and the accept rule (2026-10-20).** Four runs of the owner's 60 questions on near-identical code scored 46,
+44, 42 and 42 correct: 37 questions always right, 10 always wrong, 13 flipping — even between two runs of the same
+code. One run therefore cannot judge a change, so every question is answered and judged `--repeats` times (default 3,
+run-major, resumable per (question, run); a failed pair is asked again). The summary reports each measure (correct,
+fact recall, contradicted, stale asserted, declined-but-should-know, answered-but-should-decline) as mean and min–max
+across runs, overall and per tag, plus per question always right / always wrong / flips, flipping ids listed.
+`--compare A.jsonl B.jsonl` takes each question's majority verdict over its runs and calls B better or worse than A
+only when (1) the exact two-sided sign test on the questions whose majority changed gives p < 0.05 and (2) the change
+in mean correct is wider than the wider min–max of either file, and (3) the two move the same way (more majorities
+gained than lost and the mean up, or both down; when they disagree the verdict is "within noise (directions
+disagree)"); otherwise "within noise". Why this rule: pairing by
+question removes the between-question spread, which dwarfs any change; the majority over runs damps the flippers; the
+sign test assumes nothing about distributions and stays valid however noisy the flippers are (under no change a moved
+majority is equally likely to move either way — noise costs power, never false alarms); and the spread guard stops a
+handful of borderline majority moves from passing while the totals sit inside run-to-run noise. Ties (an even number
+of runs split evenly) have no majority and are left out. A results file holds runs of one set of settings: `--fresh` starts it over (with
+`--only`, re-asks just those questions), and the eval refuses to resume into a file whose runs recorded another
+model, effort, CLI version, engine or top-k. With 60 questions a real change needs about six or more
+majority moves, all or nearly all in one direction (6–0 gives p = 0.031; 5–0 gives 0.0625).
+
+**What can be pinned.** `claude -p` (2.1.304) has no temperature, top-p or seed flag, so the plan's sampling cannot be
+fixed. Its other inputs are: the model (`--answer-model`/`--judge-model` take a full id such as `claude-sonnet-5-5`
+as well as an alias, and every row records the model the plan reported), the effort (`--effort` pins `--effort` on
+both calls through the seam's one effort channel and drops an inherited `CLAUDE_CODE_EFFORT_LEVEL`, which the CLI lets
+override the flag; off by default so numbers stay comparable with earlier runs), and the CLI version (each run's header
+row). User settings are already excluded by the seam (`--setting-sources ""`). `--compare` names any of these that
+differ between the two files.
+
 ---
 
 ## First slice: results (2026-10-17)

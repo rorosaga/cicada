@@ -9,6 +9,11 @@ import SwiftUI
 /// rule (DR-11); the face or mark, the name and a time are said once per run (DR-38, DR-52, DR-57); a long message
 /// folds behind a text button (DR-39, DR-40). Every passage is a `CitedPassage`, so the wash and the underline are
 /// exactly the document view's.
+///
+/// What made it a conversation (2026-10-20, `turn_extras`): a reply's line sits above the bubble and is a text button
+/// to its target (DR-40); reactions and attachments are `Tag`s under it (DR-44, the one pill), who reacted said on
+/// hover (`.help`); "Edited" and "You unsent a message" are words (DR-11 for the centred one, DR-38: nothing repeats
+/// the bubble). A jump never animates (DR-60).
 struct ReaderChatRows: View {
     let rows: [ReaderChat.Row]
     /// The landing turn: it reads in the primary colour and the rest secondary, as in the document view. Nil when the
@@ -18,13 +23,15 @@ struct ReaderChatRows: View {
     /// The Messages chat this sitting belongs to, for its picture.
     var messagesChat: String? = nil
     var onToggle: (Int) -> Void = { _ in }
+    /// A reply's line was clicked: bring its target into view.
+    var onJump: (ReaderBlock.Key) -> Void = { _ in }
 
     var body: some View {
         // Identified by the id landing, the rotors and `scrollPosition(id:)` read, so the column can say which row is
         // at its top.
         ForEach(rows, id: \.scrollID) { row in
             ReaderChatRowView(row: row, landingTurn: landingTurn, revealed: revealed, messagesChat: messagesChat,
-                              onToggle: onToggle)
+                              onToggle: onToggle, onJump: onJump)
                 .padding(.top, Self.space(row.gap))
                 .id(row.scrollID)
         }
@@ -60,18 +67,21 @@ private struct ReaderChatRowView: View {
     let revealed: Bool
     let messagesChat: String?
     let onToggle: (Int) -> Void
+    let onJump: (ReaderBlock.Key) -> Void
 
     var body: some View {
         switch row.kind {
         case let .day(label):
             centred(label)
                 .accessibilityAddTraits(.isHeader)
+        case let .unsent(words):
+            centred(words)
         case let .gap(_, words):
             centred(words)
                 .accessibilityLabel("\(Copy.Provenance.notCaptured): \(words)")
         case let .message(message):
             ReaderChatMessageView(message: message, emphasis: emphasis(for: message.block), revealed: revealed,
-                                  messagesChat: messagesChat)
+                                  messagesChat: messagesChat, onJump: onJump)
         case let .toggle(turn, side, expanded):
             HStack(spacing: 0) {
                 if side == .person { Spacer(minLength: 0) }
@@ -108,6 +118,7 @@ private struct ReaderChatMessageView: View {
     let emphasis: Color
     let revealed: Bool
     let messagesChat: String?
+    let onJump: (ReaderBlock.Key) -> Void
 
     /// The room a person's bubble always leaves on its left, so the two sides never meet.
     static let otherSideRoom: CGFloat = 48
@@ -118,15 +129,81 @@ private struct ReaderChatMessageView: View {
             if let header = message.header {
                 ReaderChatHeader(header: header, side: message.side, messagesChat: messagesChat)
             }
-            switch message.side {
-            case .person: bubble
-            case .other: passage(fills: true)
+            if let extras = message.extras {
+                above(extras)
+            }
+            if !message.block.text.isEmpty {
+                switch message.side {
+                case .person: bubble
+                case .other: passage(fills: true)
+                }
+            }
+            if let extras = message.extras {
+                below(extras)
             }
         }
         .frame(maxWidth: .infinity, alignment: message.side == .person ? .trailing : .leading)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(Copy.Provenance.chatLabel(speaker: message.speaker, time: message.time,
-                                                       text: message.block.text))
+        .accessibilityLabel(accessibilityWords)
+    }
+
+    private var accessibilityWords: String {
+        var words = Copy.Provenance.chatLabel(speaker: message.speaker, time: message.time, text: message.block.text)
+        if let extras = message.extras {
+            let more = [extras.reply?.words, extras.forwardedFrom] + extras.attachments.map(Optional.some)
+                + extras.reactions.map { Optional.some($0.help) } + [extras.edited ? Copy.Provenance.edited : nil]
+            words += more.compactMap { $0 }.map { ". " + $0 }.joined()
+        }
+        return words
+    }
+
+    /// The reply's line (a text button to its target) and "Forwarded from …", above the words.
+    @ViewBuilder
+    private func above(_ extras: ReaderChat.Extras) -> some View {
+        if let reply = extras.reply {
+            if let target = reply.target {
+                TextButton(title: reply.words, help: Copy.Provenance.replyHelp, inline: true) { onJump(target) }
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    // The text button's own inset, pulled back so its words align with the message's edge.
+                    .padding(message.side == .person ? .trailing : .leading, -CicadaTheme.scaled(6))
+            } else {
+                meta(reply.words)
+            }
+        }
+        if let forwarded = extras.forwardedFrom {
+            meta(forwarded)
+        }
+    }
+
+    /// Attachments, then reactions and "Edited", under the words — `Tag`s, the one pill (DR-44).
+    @ViewBuilder
+    private func below(_ extras: ReaderChat.Extras) -> some View {
+        ForEach(Array(extras.attachments.enumerated()), id: \.offset) { _, words in
+            Tag(text: words)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        if !extras.reactions.isEmpty || extras.edited {
+            HStack(spacing: CicadaTheme.spacingXS) {
+                ForEach(extras.reactions, id: \.self) { chip in
+                    Tag(text: chip.count > 1 ? "\(chip.emoji) \(chip.count)" : chip.emoji)
+                        .help(chip.help)
+                        .accessibilityLabel(chip.help)
+                }
+                if extras.edited {
+                    meta(Copy.Provenance.edited)
+                }
+            }
+        }
+    }
+
+    private func meta(_ words: String) -> some View {
+        Text(words)
+            .font(CicadaTheme.metaFont)
+            .foregroundStyle(CicadaTheme.textTertiary)
+            .lineLimit(1)
+            .truncationMode(.tail)
     }
 
     private func passage(fills: Bool) -> some View {
@@ -165,7 +242,7 @@ private struct ReaderChatHeader: View {
             avatar
             if let name = header.name {
                 Text(name)
-                    .font(CicadaTheme.font(size: 12, weight: .medium))
+                    .font(CicadaTheme.metaMediumFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .lineLimit(1)
             }

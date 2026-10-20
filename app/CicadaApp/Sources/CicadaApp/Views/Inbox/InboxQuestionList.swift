@@ -141,9 +141,7 @@ struct InboxRow: View {
         }
         .padding(.horizontal, CicadaTheme.scaled(10))
         .frame(height: CicadaTheme.scaled(height))
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-            .fill(selected ? CicadaTheme.bgSelected : (hovering ? CicadaTheme.bgHover : Color.clear)))
-        .onHover { hovering = $0 }
+        .rowHover($hovering, selected: selected)
     }
 
     @ViewBuilder
@@ -264,7 +262,7 @@ struct InboxUndoRow: View {
 
     private var label: some View {
         Text(style == .titles || style == .hidden ? held.shortLabel : held.label)
-            .font(CicadaTheme.font(size: 13, weight: .medium))
+            .font(CicadaTheme.rowFont)
             .foregroundStyle(CicadaTheme.textSecondary)
             .lineLimit(1)
     }
@@ -279,7 +277,7 @@ struct InboxUndoRow: View {
     var body: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             Image(systemName: "checkmark.circle")
-                .font(CicadaTheme.font(size: 14))
+                .font(CicadaTheme.icon(.list))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .accessibilityHidden(true)
             switch style {

@@ -105,7 +105,7 @@ struct TranscludingMarkdownView: View {
     private func cyclicStub(_ ref: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "arrow.triangle.2.circlepath")
-                .font(CicadaTheme.font(size: 10))
+                .font(CicadaTheme.icon(.badge))
             Text("cyclic embed · \(ref)")
                 .font(CicadaTheme.captionFont)
         }
@@ -113,7 +113,7 @@ struct TranscludingMarkdownView: View {
         .padding(.horizontal, CicadaTheme.spacingSM)
         .padding(.vertical, CicadaTheme.spacingXS)
         .background(CicadaTheme.surfaceHover.opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .clipShape(CicadaTheme.shape(CicadaTheme.radiusXS))
     }
 }
 
@@ -155,9 +155,9 @@ struct TransclusionCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(CicadaTheme.surface.opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+        .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
         .overlay(
-            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+            CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                 .stroke(CicadaTheme.border, lineWidth: 1)
         )
         .task { await load() }
@@ -166,14 +166,15 @@ struct TransclusionCard: View {
     private var header: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             Button { collapsed.toggle() } label: {
-                Image(systemName: collapsed ? "chevron.right" : "chevron.down")
-                    .font(CicadaTheme.font(size: 10, weight: .semibold))
-                    .foregroundStyle(CicadaTheme.textTertiary)
+                DisclosureChevron(isOpen: !collapsed)
             }
             .buttonStyle(.cicadaPlain)
+            // The glyph is hidden from VoiceOver, so the button carries the name and the state itself.
+            .accessibilityLabel(Copy.Lists.embeddedPage(payload?.title ?? ref))
+            .accessibilityValue(collapsed ? Copy.Lists.collapsed : Copy.Lists.expanded)
 
             Image(systemName: "rectangle.on.rectangle.angled")
-                .font(CicadaTheme.font(size: 10))
+                .font(CicadaTheme.icon(.badge))
                 .foregroundStyle(CicadaTheme.accent)
 
             // Tap the title → click-through to the embedded entity, via the
@@ -187,7 +188,7 @@ struct TransclusionCard: View {
                 }
             } label: {
                 Text(payload?.title ?? ref)
-                    .font(CicadaTheme.font(size: 12, weight: .medium))
+                    .font(CicadaTheme.metaMediumFont)
                     .foregroundStyle(CicadaTheme.accent)
                     .lineLimit(1)
             }
@@ -214,7 +215,7 @@ struct TransclusionCard: View {
                 // image inline (tap → lightbox) instead of a text summary.
                 // Degrades to the summary branches below when no image url is
                 // present (the common case until the backend emits it).
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                     ImageThumbnail(path: media, width: 300, height: 170)
                     if !p.summary.isEmpty {
                         Text(p.summary)
@@ -249,7 +250,7 @@ struct TransclusionCard: View {
     private var missingStub: some View {
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle")
-                .font(CicadaTheme.font(size: 10))
+                .font(CicadaTheme.icon(.badge))
             Text("![[\(ref)]] not found")
                 .font(CicadaTheme.captionFont)
         }

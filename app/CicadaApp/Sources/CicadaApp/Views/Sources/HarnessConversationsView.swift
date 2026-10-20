@@ -40,15 +40,16 @@ struct HarnessConversationsView: View {
             if let err = viewModel.errorMessage {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                     Text(err).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
-                    Button("Retry") { Task { await load() } }
-                        .buttonStyle(.bordered)
-                        .accessibilityLabel("Retry loading conversations")
+                    // DR-40 — one of the four buttons, never the native bordered one.
+                    NeutralButton(title: "Retry", size: .compact, help: "Retry loading conversations") {
+                        Task { await load() }
+                    }
+                    .accessibilityLabel("Retry loading conversations")
                 }
             } else if !viewModel.hasLoaded {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    ProgressView().controlSize(.small)
-                    Text("Loading conversations…").font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
-                }
+                // DR-43 — the first read is the list pages' own state: words over a still skeleton, no spinner.
+                ListSkeleton(message: "Loading conversations…", rows: 3)
+                    .padding(.leading, -CicadaTheme.scaled(10))
             } else if visible.isEmpty {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                     Text(query.isEmpty ? "No conversations from this source yet." : "No titles match “\(query)”.")

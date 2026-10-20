@@ -12,7 +12,7 @@ struct VideosStrip: View {
     var body: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             Text(Copy.Videos.savedVideos)
-                .font(CicadaTheme.font(size: 13, weight: .medium))
+                .font(CicadaTheme.rowFont)
                 .foregroundStyle(CicadaTheme.textPrimary)
             if let line = VideosStripText.line(summary) {
                 Text(line)
@@ -64,7 +64,7 @@ struct VideoPickRow: View {
                     VideoThumb(preview: row.item.preview, durationS: row.item.durationS, width: 88, height: 50)
                     VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                         Text(title)
-                            .font(CicadaTheme.font(size: 13))
+                            .font(CicadaTheme.bodyFont)
                             .foregroundStyle(CicadaTheme.textPrimary)
                             .lineLimit(1)
                         VideoChannelLine(item: row.item)
@@ -95,7 +95,7 @@ struct VideoRunListRow: View {
             VideoThumb(preview: member.row.item.preview, durationS: member.row.item.durationS, width: 88, height: 50)
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                 Text(title)
-                    .font(CicadaTheme.font(size: 13))
+                    .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(1)
                 VideoChannelLine(item: member.row.item)

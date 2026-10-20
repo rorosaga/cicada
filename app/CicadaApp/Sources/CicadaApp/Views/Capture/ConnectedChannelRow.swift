@@ -106,7 +106,7 @@ struct ConnectedChannelRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: CicadaTheme.spacingXS) {
                     Text(channel.label)
-                        .font(CicadaTheme.font(size: 13, weight: .medium))
+                        .font(CicadaTheme.rowFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                     // G129: a watched browser wears its light here
                     // too, so "is this live" is answerable from the
@@ -182,12 +182,8 @@ struct ConnectedChannelRow: View {
         }
         .padding(.horizontal, CicadaTheme.spacingMD)
         .padding(.vertical, CicadaTheme.spacingSM)
-        .background(
-            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                .fill(isHovered ? CicadaTheme.surfaceHover : .clear)
-        )
-        .onHover { isHovered = $0 }
-        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isHovered)
+        .rowHover($isHovered)   // DR-48 — the shared row fill
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isHovered)   // the actions' fade
     }
 
     /// The backend lists what a channel supports; "Manage…" is appended

@@ -271,8 +271,7 @@ def _site(url) -> dict:
     if not host:
         return {}
     out = {"host": host}
-    site = reading_hosts.site_of(raw)
-    if reading_hosts.valid_site_key(site):
+    if site := reading_hosts.mark_key(raw):
         out["site"] = site
     return out
 
@@ -609,6 +608,43 @@ def items(memory_path: Path, channel_id: str, *, offset: int = 0, limit: int = L
     return {"channel": channel_id, "total": len(rows), "offset": offset, "limit": limit, "items": page}
 
 
+def saved_episode_site(memory_path: Path, episode_id: str) -> str | None:
+    """The one site a saved link's own icon may be asked of BEFORE Sleep made its page (owner 2026-10-20): a Waiting
+    row of a bookmark or a saved post is an episode, with no media id yet. Same rule as :func:`saved_link_site`, read
+    from the episode's own record: a live episode of a saved source (``intent_of`` its source key is ``saved``) whose
+    frontmatter names the link (``url``) — the registrable domain of THAT URL (``logo_service.own_site_domain``), else
+    None and nothing is asked. A conversation, a captured page, a tab group or a watched day never qualifies; the
+    caller never supplies the site."""
+    from api.services import episode_ids, logo_service
+
+    if not episode_ids.EPISODE_ID_RE.fullmatch(episode_id or ""):
+        return None
+    f = bank_index.file(Path(memory_path), "episodes", f"{episode_id}.md")
+    url = saved_episode_url((f.frontmatter or {}) if f is not None else {})
+    return logo_service.own_site_domain(url) if url else None
+
+
+def saved_episode_url(fm: dict) -> str | None:
+    """The link a saved-source episode names (its frontmatter ``url``), for a live episode of a saved source that is
+    not a conversation — else None. One predicate for the Waiting row's site key and its icon door."""
+    if not fm or not _live(fm) or fm.get("session_id"):
+        return None
+    if source_overview.intent_of(source_overview.source_key(fm)) != "saved":
+        return None
+    return str(fm.get("url") or "").strip() or None
+
+
+def is_saved_link_page(fm: dict) -> bool:
+    """A live media page a `saved` source owns (an origin a `saved` row owns, or none, as Files & links takes) — the one
+    predicate behind the media icon route and every row's ``siteKey`` (review of #372: a key on a page the route refuses
+    would record a miss for the whole site)."""
+    if not fm or fm.get("type") != "media" or source_overview.is_hidden(fm):
+        return False
+    origin = str(fm.get("origin") or "").strip()
+    owner = source_overview.source_key({"origin": origin}) if origin else "files"
+    return source_overview.intent_of(owner) == "saved"
+
+
 def saved_link_site(memory_path: Path, media_entity_id: str) -> str | None:
     """The one site a saved link's own icon may be asked of (owner ruling 2026-10-19): the registrable domain of THIS
     link's own URL (`logo_service.own_site_domain`), only for a live media page a saved source lists (a bookmark, a
@@ -618,13 +654,9 @@ def saved_link_site(memory_path: Path, media_entity_id: str) -> str | None:
 
     memory_path = Path(memory_path)
     f = bank_index.file(memory_path, "entities", f"{media_entity_id}.md")
-    fm = (f.frontmatter or {}) if f is not None else {}
-    if fm.get("type") != "media" or source_overview.is_hidden(fm):
+    if not is_saved_link_page((f.frontmatter or {}) if f is not None else {}):
         return None
-    origin = str(fm.get("origin") or "").strip()
-    owner = source_overview.source_key({"origin": origin}) if origin else "files"
-    if source_overview.intent_of(owner) != "saved":
-        return None
+    fm = f.frontmatter
     try:
         index = media_ingestor.load_url_index(memory_path)
     except Exception:

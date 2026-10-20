@@ -50,7 +50,7 @@ struct CicadaSearchField: View {
                 .accessibilityHidden(true)
             TextField(prompt, text: $text)
                 .textFieldStyle(.plain)
-                .font(CicadaTheme.font(size: 12))
+                .font(CicadaTheme.metaFont)
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .focused($focused)
                 .onSubmit(onSubmit)
