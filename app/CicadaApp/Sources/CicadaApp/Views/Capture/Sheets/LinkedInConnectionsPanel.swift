@@ -49,8 +49,11 @@ struct LinkedInConnectionsPanel: View {
     private var stageView: some View {
         switch stage {
         case .idle:
-            Button(LinkedInConnectionsWords.pick) { pick() }
-                .accessibilityLabel("Choose your LinkedIn Connections file")
+            HStack(spacing: CicadaTheme.spacingSM) {
+                Button(LinkedInConnectionsWords.pick) { pick() }
+                    .accessibilityLabel("Choose your LinkedIn Connections file")
+                Button(LinkedInConnectionsWords.forget) { forget() }
+            }
         case .reading(let name):
             HStack(spacing: CicadaTheme.spacingSM) {
                 ProgressView().controlSize(.small)
@@ -76,7 +79,10 @@ struct LinkedInConnectionsPanel: View {
         case .done(let words):
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 Text(words).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
-                Button("Choose another file…") { pick() }
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Button("Choose another file…") { pick() }
+                    Button(LinkedInConnectionsWords.forget) { forget() }
+                }
             }
         case .failed(let words):
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
@@ -117,6 +123,21 @@ struct LinkedInConnectionsPanel: View {
             } catch let error as LinkedInConnectionsFileError {
                 guard !Task.isCancelled else { return }
                 stage = .failed(error.errorDescription ?? "")
+            } catch {
+                guard !Task.isCancelled else { return }
+                stage = .failed(AddSourceSheet.friendlyError(error))
+            }
+        }
+    }
+
+    /// Review of #391: delete this memory's kept export, so Sleep's rematch never reads it again.
+    private func forget() {
+        task?.cancel()
+        task = Task {
+            do {
+                let n = try await APIClient.shared.forgetLinkedInConnections()
+                guard !Task.isCancelled else { return }
+                stage = .done(LinkedInConnectionsWords.forgotten(n))
             } catch {
                 guard !Task.isCancelled else { return }
                 stage = .failed(AddSourceSheet.friendlyError(error))

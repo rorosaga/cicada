@@ -238,11 +238,12 @@ struct ClusterTile: View {
         HStack(spacing: CicadaTheme.spacingMD) {
             EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 32, heldInputs: entity.pictureInputs,
                           editing: .tile)
+                .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
             Button(action: open) {
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                     Text(entity.name)
                         .font(CicadaTheme.rowFont)
-                        .foregroundStyle(CicadaTheme.textPrimary)
+                        .foregroundStyle(entity.quiet ? CicadaTheme.quietName : CicadaTheme.textPrimary)
                         .lineLimit(1)
                     if let line = ClustersModel.line(entity) {
                         Text(line).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
@@ -253,6 +254,7 @@ struct ClusterTile: View {
             }
             .buttonStyle(.cicadaPlain)
             .accessibilityLabel(Copy.Lists.entityRow(type: entity.type.label, name: entity.name, open: false))
+            .accessibilityValue(entity.quiet ? Copy.Lists.quiet : "")
         }
         .padding(.horizontal, CicadaTheme.scaled(8))
         .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.twoLine),

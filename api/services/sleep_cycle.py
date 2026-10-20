@@ -1092,6 +1092,40 @@ async def _rematch_linkedin_safely(memory_path: Path) -> None:
         await asyncio.to_thread(linkedin_people.restore, memory_path, report)
 
 
+async def _rematch_contacts_safely(memory_path: Path) -> None:
+    """Owner ruling 2026-10-20 (the LinkedIn pattern) — the address-book cards waiting outside the bank against
+    tonight's pages: a person who got a page since the last Contacts sync gains their card's sources and photo
+    (`contacts_local.rematch`), and the card stops waiting. Engine-free, no fetch, in its own `cicada` commit; pages
+    dirty before it ran are skipped, a failed commit undoes what it wrote. Writes nothing when no card waits. Never
+    raises."""
+    from api.services import contacts_local, people_directory
+
+    if not people_directory.path(memory_path.name, contacts_local.WAITING_FILE).exists():
+        return
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Contacts rematch skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    try:
+        report = await asyncio.to_thread(contacts_local.rematch, memory_path, skip=skip)
+    except Exception as exc:
+        logger.warning(f"Contacts rematch failed: {type(exc).__name__}")
+        return
+    if not report.paths or not (memory_path / ".git").exists():
+        return
+    try:
+        async with _lock:
+            await git_service.commit_paths(memory_path, contacts_local.commit_message(report, date.today()),
+                                           report.paths)
+        logger.info(f"Contacts rematch: {len(report.paths)} page(s) enriched")   # counts only — never a name
+    except Exception as exc:
+        logger.warning(f"Contacts rematch commit failed — undoing: {type(exc).__name__}")
+        await asyncio.to_thread(contacts_local.restore, memory_path, report)
+
+
 async def _site_sources_safely(memory_path: Path) -> None:
     """G61 S3-b — propose an official site from what a page already says (its `website` claim, a `## Links` host that
     is its own name) and confirm proposed sites on Cicada's OWN rail (`link_enrichment.fetch_identity`): at most
@@ -1325,6 +1359,8 @@ async def _run_engine_independent_tail(
         await _link_sources_safely(memory_path)
         # LinkedIn connections kept outside the bank, matched against tonight's pages — before any poll's `git add -A`.
         await _rematch_linkedin_safely(memory_path)
+        # Contacts cards waiting outside the bank, matched against tonight's pages (owner ruling 2026-10-20) — the same slot.
+        await _rematch_contacts_safely(memory_path)
         from api.services import demo_guard
 
         if demo_guard.is_demo(memory_path):

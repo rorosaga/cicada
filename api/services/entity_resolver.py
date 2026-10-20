@@ -12,8 +12,9 @@ from loguru import logger
 from thefuzz import fuzz
 
 from api.config import Settings
-from api.services import (agent_engine, correspondents, engine_errors, entity_body, fact_policy, json_parse,
-                          owner_identity, promotion, role_people, section_provenance)
+from api.services import (agent_engine, contacts_local, correspondents, engine_errors, entity_body, entity_types,
+                          fact_policy, json_parse, owner_identity, people_directory, promotion, quiet_pages,
+                          role_people, section_provenance)
 from api.services.clarification_manager import (
     CONFIDENCE_THRESHOLD,
     ClarificationManager,
@@ -223,6 +224,14 @@ async def resolve(
     pending_actions: list[tuple[Callable, tuple, dict]] = []
     promoted_pending: list[str] = []
     cancelled = False
+    # Owner ruling 2026-10-20: the address-book cards that matched no page wait outside the bank; a first mention that
+    # names exactly one of them in full is enough to promote, and the page is born under the card's name.
+    waiting_cards = _waiting_cards(settings)
+    existing_ids = {str(e.get("id")) for e in existing}
+    person_keys = _person_page_keys(existing) if waiting_cards.cards else set()
+    episode_kind = (quiet_pages.episode_lookup(Path(settings.memory_path)) if waiting_cards.cards
+                    else (lambda _episode: None))
+    card_creates: dict[str, str] = {}   # card id -> the page this batch is creating for it
 
     # A self-reference's facts are the owner's: they land on the owner page, under
     # its own name and type (a "User" concept must not retype or rename it). With
@@ -367,6 +376,20 @@ async def resolve(
                 or linked_to_existing
                 or any(promotion.substantive(e) for e in (entity, *siblings))
             )
+            card = None if ambiguous_match else _card_for(entity, siblings, waiting_cards, person_keys, episode_kind,
+                                                          memory_path=Path(settings.memory_path))
+            if card is not None and str(card["id"]) in card_creates:
+                # A second spelling of a name this batch already gave a card's page to ("Example Bob"): the same page.
+                card_page = card_creates[str(card["id"])]
+                name_to_id[name_lower] = card_page
+                for incoming in (entity, *siblings):
+                    _merge_into_create(resolved_creates[card_page], incoming)
+                continue
+            if card is not None:
+                card_page = sanitize_id(contacts_local.card_name(card))
+                if card_page in existing_ids or card_page in resolved_creates:
+                    card = None   # the card's name is already another page's id: an ordinary name, by the usual rule
+            should_promote = should_promote or card is not None
 
             if ambiguous_match:
                 pending_actions.append((
@@ -376,7 +399,9 @@ async def resolve(
                 ))
 
             if should_promote and not ambiguous_match:
-                entity_id = sanitize_id(name)
+                if card is not None:
+                    entity = _card_entity(entity, card)
+                entity_id = sanitize_id(entity["name"] if card is not None else name)
                 name_to_id[name_lower] = entity_id
                 resolved_creates[entity_id] = {
                     "id": entity_id,
@@ -391,6 +416,11 @@ async def resolve(
                     "untimed": bool(entity.get("untimed")),
                     "trigger": "sleep/promotion",
                 }
+                if card is not None:
+                    # Stage 5 writes the card's sources and photo on the page it creates (`contacts_local.seed_page`).
+                    resolved_creates[entity_id]["contacts_card"] = card
+                    card_creates[str(card["id"])] = entity_id
+                    name_to_id[entity["name"].lower()] = entity_id
                 for sibling in siblings:
                     _merge_into_create(resolved_creates[entity_id], sibling)
                 if pending_entry is not None:
@@ -450,6 +480,12 @@ async def resolve(
 
     if progress_callback is not None and not cancelled:
         progress_callback(total_names, total_names)
+    for change in resolved_creates.values():
+        if change.get("contacts_card"):
+            # A merged spelling never renames it: a page born from a card carries the card's name.
+            change["entity"]["name"] = contacts_local.card_name(change["contacts_card"])
+    if card_creates:
+        logger.info(f"Stage 2: {len(card_creates)} page(s) promoted on a waiting card's first mention")  # never a name
     resolved = list(resolved_updates.values()) + list(resolved_creates.values())
 
     # Resolve relationships — only keep edges where both endpoints survived promotion
@@ -718,6 +754,110 @@ async def match_existing(
     if match is not None and match["decision"] == "same" and match["candidate"].get("source") == "existing":
         return match["candidate"]["id"]
     return None
+
+
+def _waiting_cards(settings: Settings) -> "contacts_local.WaitingIndex":
+    """This bank's waiting address-book cards (`contacts_local.waiting_index`): empty with no bank path, on a demo bank,
+    or when nothing waits — and never an error, a read failure only means no card promotes tonight."""
+    memory_path = getattr(settings, "memory_path", None)
+    if memory_path is None:
+        return contacts_local.WaitingIndex()
+    try:
+        return contacts_local.waiting_index(Path(memory_path))
+    except Exception as exc:  # noqa: BLE001 — the directory is outside the bank and disposable
+        logger.warning(f"Stage 2: waiting cards unreadable ({type(exc).__name__})")
+        return contacts_local.WaitingIndex()
+
+
+def _person_page_keys(existing: list[dict]) -> set[str]:
+    """Every folded name and alias an existing person page holds: a card whose name one of them already carries is that
+    page's (the sync or the tail's rematch matches it), never the seed of a second one."""
+    keys: set[str] = set()
+    for e in existing:
+        fm = e.get("frontmatter") or {}
+        if fm.get("type") != "person" or fm.get("status") == "dropped":
+            continue
+        for label in [fm.get("name") or str(e.get("id") or "").replace("-", " "), *(fm.get("aliases") or [])]:
+            if key := people_directory.fold(label):
+                keys.add(key)
+    return keys
+
+
+#: Episodes whose text is a title or an item list, never a turn the person typed — a tab group's tab titles, a
+#: calendar's event titles. A body with no turn markers is never a person's turn here anyway (`_said_in_person_turn`);
+#: these are refused by name too, so a marker-shaped title can never pass.
+CARD_REFUSED_SOURCES = frozenset({"tab-group", "calendar", "calendar-local"})
+
+
+def _said_in_person_turn(memory_path: Path | None, episode_id: str, card: dict) -> bool:
+    """Did the person themselves say this card's full name — in a MARKED turn of theirs (``user:`` or a meeting's
+    ``speaker:``)? Not a reply of the agent's, not a relayed turn (``evidence_kind: assistant``, ruling 32), and not a
+    document with no turn markers, which `promotion.exchanges` reads as the person's own writing (a tab group, a
+    calendar, a feed item, a note): a card promotes only on the person's own words (owner ruling 2026-10-20)."""
+    from api.services import bank_index, evidence
+
+    if memory_path is None or not str(episode_id or "").startswith("ep_"):
+        return False
+    entry = bank_index.file(memory_path, "episodes", f"{episode_id}.md")
+    if entry is None:
+        return False
+    fm = entry.frontmatter or {}
+    if str(fm.get("source") or "") in CARD_REFUSED_SOURCES or str(fm.get("origin") or "") in CARD_REFUSED_SOURCES:
+        return False
+    try:
+        text = entry.body()
+    except Exception:
+        return False
+    keys = contacts_local.name_keys(card.get("given_name"), card.get("family_name"))
+    for turn in evidence.turns(text, override=fm.get("evidence_kind")):
+        if turn.marker is None or turn.role not in promotion.PERSON_KINDS:
+            continue
+        said = f" {people_directory.fold(text[turn.content_start:turn.end])} "
+        if any(f" {key} " in said for key in keys):
+            return True
+    return False
+
+
+def _card_for(entity: dict, siblings: list[dict], waiting: "contacts_local.WaitingIndex",
+              person_keys: set[str], episode_kind: Callable[[str], str | None], *,
+              memory_path: Path | None = None) -> dict | None:
+    """The ONE waiting card this person mention names in full (owner ruling 2026-10-20), or None.
+
+    Only a ``person`` mention the person made in their own words: Stage 1 measured it named by a person
+    (``named_by_person``), in a conversation (not a save, a watch or a check: `quiet_pages.episode_kind`), and the
+    card's full name stands in one of the person's own marked turns (:func:`_said_in_person_turn` — never an agent's
+    reply, a relayed turn, a tab title or a calendar entry). Never one titled by a relation to the owner
+    (`role_people` — a person known only as "my partner" is never named from a card without the person's words); the
+    mention's own name or an alias must be a card's given + family name in either order (`WaitingIndex.match`: never a
+    one-part name, never a name two cards share); and no existing person page may hold that name already (two pages,
+    or a card that is some page's)."""
+    if not waiting.cards:
+        return None
+    group = (entity, *siblings)
+    if any(entity_types.in_set(e.get("type")) != "person" or e.get(role_people.UNNAMED_KEY) for e in group):
+        return None
+    labels = [label for e in group for label in [e.get("name"), *(e.get("aliases") or [])] if label]
+    card = waiting.match(labels)
+    if card is None:
+        return None
+    if contacts_local.name_keys(card.get("given_name"), card.get("family_name")) & person_keys:
+        return None
+    spoken = [e for e in group if e.get("named_by_person")
+              and episode_kind(str(e.get("source_episode") or "")) == quiet_pages.CONVERSATION]
+    if not any(_said_in_person_turn(memory_path, str(e.get("source_episode") or ""), card) for e in spoken):
+        return None
+    return card
+
+
+def _card_entity(entity: dict, card: dict) -> dict:
+    """The mention, renamed to the card's name; the name the conversation used is kept as an alias when it differs."""
+    name = contacts_local.card_name(card)
+    aliases = [a for a in entity.get("aliases") or [] if a]
+    said = str(entity.get("name") or "")
+    if said and people_directory.fold(said) != people_directory.fold(name) and said not in aliases:
+        aliases.append(said)
+    aliases = [a for a in aliases if people_directory.fold(a) != people_directory.fold(name)]
+    return {**entity, "name": name, "aliases": aliases}
 
 
 def _specificity_key(entity: dict) -> tuple[int, int, float]:

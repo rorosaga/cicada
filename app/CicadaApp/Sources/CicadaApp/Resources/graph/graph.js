@@ -164,6 +164,11 @@ const ZOOM_EDGE_LABELS = 2.2;
 const LABEL_BUDGET = 200;           // max node labels rendered per frame
 
 const STATUS_ALPHA = { active: 0.92, decaying: 0.5, archived: 0.28, dropped: 0.0 };
+// Owner ruling 2026-10-20: a page only an import made, not yet mentioned (`quiet` on the node). Its fill fades to
+// QUIET_FILL_ALPHA and a hairline ring in its own type hue keeps the dot findable — depth is a ring (DR-9), never the
+// accent (DR-5), and the type hues do not move (DR-8). A hover still lights it fully.
+const QUIET_FILL_ALPHA = 0.28;
+const QUIET_RING_ALPHA = 0.8;
 const LINK_ALPHA = 0.55;            // a neutral link at rest (the theme's edge colour)
 const LINK_ALPHA_CONTEXT = 0.22;    // a link in its context's hue at rest
 // Link width (G109 proportion pass, owner 2026-10-15: "the lines connecting nodes are too big compared to the size of
@@ -416,6 +421,10 @@ function nodeIsHub(n) {
 
 function nodeHasPending(n) {
     return Boolean(n.hasPending ?? n.has_pending);
+}
+
+function nodeIsQuiet(n) {
+    return Boolean(n.quiet);
 }
 
 function nodeMemberCount(n) {
@@ -1951,6 +1960,8 @@ function draw() {
         // Status drives base opacity. Focus dimming and hover dimming stack on
         // top: a node outside the focus neighborhood fades to context.
         let alpha = STATUS_ALPHA[n.status] ?? 0.92;
+        const quiet = nodeIsQuiet(n);
+        if (quiet) alpha = Math.min(alpha, QUIET_FILL_ALPHA);
         // §3a: observer filter DIMS (not deletes) non-matching nodes so the
         // contrast reads as "this is the slice X asserts." Reuses focus-alpha.
         if (!nodeMatchesObservers(n)) alpha = Math.min(alpha, 0.1);
@@ -2025,6 +2036,17 @@ function draw() {
         }
 
         ctx.shadowBlur = 0;
+
+        // A quiet node: the faint fill above, ringed in its own hue at a steadier alpha so it still reads as a dot.
+        if (quiet && alpha < 1 && alpha > 0.05) {
+            ctx.globalAlpha = Math.min(1, alpha / QUIET_FILL_ALPHA * QUIET_RING_ALPHA);
+            ctx.lineWidth = 1 / transform.k;
+            ctx.strokeStyle = color;
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.globalAlpha = alpha;
+        }
 
         // (2026-10-15: hubs no longer carry a ring — 37 thick gold rings read as "rings everywhere". A hub reads by
         // its size and its fan of links, as in Obsidian.)

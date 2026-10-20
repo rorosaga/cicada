@@ -25,6 +25,13 @@ enum LinkedInConnectionsWords {
     /// The one sentence under "Connections" (the brief: what it does, in one sentence).
     static let what = "Adds each connection's profile link, company and role to the people already in your memory — it never adds anyone new."
     static let pick = "Choose Connections.csv…"
+    /// Review of #391: the kept export can be forgotten — Sleep then matches nobody from it again.
+    static let forget = "Forget kept connections"
+
+    static func forgotten(_ n: Int) -> String {
+        n == 0 ? "No connections were kept for this memory."
+            : "Forgot \(n) kept connection\(n == 1 ? "" : "s"). People already updated keep what they gained."
+    }
     static let where_ = "In LinkedIn's data export (Settings → Data privacy → Get a copy of your data), tick Connections; drop the .zip or its Connections.csv."
 
     static func preview(_ p: LinkedInConnectionsPreview) -> String {

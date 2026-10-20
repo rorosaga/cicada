@@ -218,7 +218,10 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   as Sleep's commit (`inbox/<kind>/settled:`), each undoable; never a person's identity without their words (`features.md`).
 - **Entity promotion:** a first mention stays in the index; a page needs 2+ conversations, >3 exchanges with the person's
   own words, or a link the person made to a high-confidence page other than the owner's — counted on the conversation,
-  never guessed (`promotion`). What is said about a name with no page yet is held (`pending_store`), never lost.
+  never guessed (`promotion`) — or the person's own words naming in full exactly one waiting Contacts card, never the "me"
+  card or a relation-only person (owner 2026-10-20; cards wait outside every bank until Contacts stops, `capture-and-sleep.md`). What is said about a
+  name with no page yet is held (`pending_store`), never lost. A page only an import made is quiet — dimmed, never
+  asked about — until the person mentions it, derived on read (`quiet_pages`).
   A Stage-4 skill needs 2+ conversations too; one is held in its own store, `skill_hold` (G112, owner 2026-10-09).
   A speaker's self-reference ("the user", "me", "yo"…) is the owner's page, never a page of its own (G169).
   A person known only by a relation to the owner is titled by the relation, never the owner's name, and asked their

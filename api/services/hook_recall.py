@@ -324,7 +324,7 @@ def _open_question(reader: search_index.Reader, pages: list[PageNote], today: st
 
     names = {p.id: p.name for p in pages}
     items = [d for d in reader.inbox_docs()
-             if mcp_tools.nudge_visible(d.meta, wanted=frozenset(names), today=today)]
+             if mcp_tools.nudge_visible(d.meta, wanted=frozenset(names), today=today, memory_path=memory_path)]
     if not items:
         return None, None
     items.sort(key=lambda d: (-float(d.meta.get("priority") or 0.0), d.ref))

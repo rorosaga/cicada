@@ -30,6 +30,7 @@ from api.services import (
     inbox_review,
     markdown_parser,
     predicates,
+    quiet_pages,
     source_check,
     telemetry,
 )
@@ -341,7 +342,17 @@ def _hidden(
         {"remind_after": remind_after}, today
     ):
         return True
-    return _subject_gone(memory_path, entity_id, kind)
+    return _subject_gone(memory_path, entity_id, kind) or _subject_quiet(memory_path, entity_id)
+
+
+def _subject_quiet(memory_path: Path, entity_id: str) -> bool:
+    """Owner ruling 2026-10-20: a quiet page — one only an import made, not yet mentioned (`quiet_pages`) — is never
+    asked about. Derived at read, so the question is held on disk, unserved, and comes back the day the person's
+    first mention lights the page; nothing is deleted. A subject with no page is never quiet."""
+    if not entity_id:
+        return False
+    filepath = resolve_entity_file(memory_path, entity_id)
+    return filepath is not None and quiet_pages.page_is_quiet(memory_path, filepath.stem)
 
 
 def _fold_anchor(memory_path: Path, fm: dict) -> str:
