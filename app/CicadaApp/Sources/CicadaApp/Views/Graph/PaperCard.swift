@@ -88,10 +88,10 @@ struct PaperCard: View {
             }
             HStack(spacing: CicadaTheme.spacingSM) {
                 if let abs = detail.absUrl, let url = URL(string: abs) {
-                    Button("Open on arXiv") { NSWorkspace.shared.open(url) }.buttonStyle(.bordered)
+                    NeutralButton(title: "Open on arXiv", size: .compact) { NSWorkspace.shared.open(url) }   // DR-40
                 }
                 if let doi = detail.doiUrl, let url = URL(string: doi) {
-                    Button("Open DOI") { NSWorkspace.shared.open(url) }.buttonStyle(.bordered)
+                    NeutralButton(title: "Open DOI", size: .compact) { NSWorkspace.shared.open(url) }
                 }
             }
 

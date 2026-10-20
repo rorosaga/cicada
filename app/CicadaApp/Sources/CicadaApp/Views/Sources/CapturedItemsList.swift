@@ -26,8 +26,6 @@ struct CapturedItemsList: View {
     @Environment(AppRouter.self) private var router: AppRouter?
     @Environment(Store.self) private var store: Store?
     @AppStorage private var remembered: Bool
-    @State private var hovering = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(channel: String, interactive: Bool = true, style: Style = .disclosure) {
         self.channel = channel
@@ -72,26 +70,9 @@ struct CapturedItemsList: View {
     // MARK: The disclosure
 
     private var disclosure: some View {
-        Button { remembered.toggle() } label: {
-            HStack(spacing: CicadaTheme.scaled(6)) {
-                Image(systemName: remembered ? "chevron.down" : "chevron.right")
-                    .font(CicadaTheme.icon(.inline))
-                    .frame(width: CicadaTheme.scaled(12))
-                    .iconHover(hovering: hovering)
-                Text(Copy.capturedTitle)
-                Spacer(minLength: 0)
-            }
-            .font(CicadaTheme.metaMediumFont)
-            .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
-            .frame(height: CicadaTheme.scaled(28))
-            .contentShape(Rectangle())
-            .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+        DisclosureHeader(title: Copy.capturedTitle, isOpen: remembered, help: Copy.capturedHelp, fillsWidth: true) {
+            remembered.toggle()
         }
-        .buttonStyle(.cicadaPlain)
-        .onHover { hovering = $0 }
-        .help(Copy.capturedHelp)
-        .accessibilityLabel(Copy.capturedTitle)
-        .accessibilityValue(remembered ? Copy.Lists.expanded : Copy.Lists.collapsed)
     }
 
     // MARK: The rows

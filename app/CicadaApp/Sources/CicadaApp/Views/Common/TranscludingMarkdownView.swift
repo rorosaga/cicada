@@ -166,9 +166,7 @@ struct TransclusionCard: View {
     private var header: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             Button { collapsed.toggle() } label: {
-                Image(systemName: collapsed ? "chevron.right" : "chevron.down")
-                    .font(CicadaTheme.font(size: 10, weight: .semibold))
-                    .foregroundStyle(CicadaTheme.textTertiary)
+                DisclosureChevron(isOpen: !collapsed)
             }
             .buttonStyle(.cicadaPlain)
 

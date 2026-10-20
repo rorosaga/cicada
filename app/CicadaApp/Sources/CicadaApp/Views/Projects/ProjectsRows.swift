@@ -130,22 +130,9 @@ struct ProjectsDisclosure: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: CicadaTheme.scaled(6)) {
-                Image(systemName: "chevron.right")
-                    .font(CicadaTheme.font(size: 9, weight: .medium))
-                    .rotationEffect(.degrees(isOpen ? 90 : 0))
-                SectionLabel(title)
-                Text(UsageFormat.count(count)).font(CicadaTheme.captionFont).monospacedDigit()
-            }
-            .foregroundStyle(CicadaTheme.textTertiary)
+        DisclosureHeader(title: title, summary: UsageFormat.count(count), summaryWhenOpen: true, isOpen: isOpen,
+                         help: help, toggle: action)
             .padding(.horizontal, CicadaTheme.scaled(10))
-            .frame(height: CicadaTheme.scaled(28))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.cicadaPlain)
-        .help(help)
-        .accessibilityValue(isOpen ? Copy.Lists.expanded : Copy.Lists.collapsed)
     }
 }
 
@@ -183,10 +170,7 @@ struct ProjectRowView: View {
         let side = CicadaTheme.scaled(16)
         if line.children > 0 {
             Button(action: toggle) {
-                Image(systemName: "chevron.right")
-                    .font(CicadaTheme.font(size: 9, weight: .semibold))
-                    .rotationEffect(.degrees(line.expanded ? 90 : 0))
-                    .foregroundStyle(tertiary)
+                DisclosureChevron(isOpen: line.expanded, color: tertiary)
                     .frame(width: side, height: side)
                     .contentShape(Rectangle())
             }

@@ -166,10 +166,7 @@ struct InPlaceDisclosureRow<Leading: View, Content: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             Button { Instant.run { open.toggle() } } label: {
                 HStack(spacing: CicadaTheme.spacingSM) {
-                    Image(systemName: open ? "chevron.down" : "chevron.right")
-                        .font(CicadaTheme.icon(.inline))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                        .frame(width: CicadaTheme.scaled(12))
+                    DisclosureChevron(isOpen: open)
                     leading()
                     Text(title)
                         .font(CicadaTheme.bodyFont)

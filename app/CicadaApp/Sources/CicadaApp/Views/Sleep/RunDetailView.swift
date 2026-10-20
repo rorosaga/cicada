@@ -147,9 +147,7 @@ struct PastRunRow: View {
                     }
                     .frame(maxWidth: CicadaTheme.scaled(250), alignment: .trailing)
                 }
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(CicadaTheme.icon(.inline))
-                    .foregroundStyle(CicadaTheme.textTertiary)
+                DisclosureChevron(isOpen: isExpanded)
                     .frame(width: CicadaTheme.scaled(28))
             }
             .padding(.leading, CicadaTheme.scaled(10))

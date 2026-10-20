@@ -137,7 +137,7 @@ final class LooksPolishTests: XCTestCase {
                               encoding: .utf8)
         XCTAssertTrue(page.contains("case .instant, .zoom: Instant.run { zoom.present("))
         XCTAssertTrue(page.contains("case .instant: Instant.run { zoom.dismiss() }"))
-        XCTAssertTrue(page.contains(".keyboardShortcut(escapeCloses ? .cancelAction : nil)"))
+        XCTAssertTrue(page.contains("closeShortcut: escapeCloses ? .cancelAction : nil"))   // through DetailHeader (2026-10-20)
         XCTAssertTrue(page.contains("escapeCloses: !zoom.isPresented"))
         let overlay = try String(contentsOf: XCTUnwrap(files.first { $0.path.hasSuffix("Views/Looks/LooksZoom.swift") }),
                                  encoding: .utf8)
