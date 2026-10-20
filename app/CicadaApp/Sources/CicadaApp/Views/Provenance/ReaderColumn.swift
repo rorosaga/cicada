@@ -321,6 +321,11 @@ struct ReaderColumn: View {
                                            revealed: washVisible, messagesChat: ReaderChat.messagesChat(doc),
                                            onToggle: { turn in
                                                if unfolded.contains(turn) { unfolded.remove(turn) } else { unfolded.insert(turn) }
+                                           },
+                                           onJump: { key in
+                                               // A reply's target: one frame, never animated (DR-60).
+                                               keyScroll = KeyScroll(id: AnyHashable(key), alignsTop: true,
+                                                                     token: (keyScroll?.token ?? 0) &+ 1)
                                            })
                         } else {
                             ReaderTurnRows(blocks: blocks, landingTurn: landingBlock?.turn, revealed: washVisible)
