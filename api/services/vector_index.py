@@ -856,6 +856,20 @@ class SqliteVecIndexer:
         )
         return episodes_added
 
+    def similarity(self, query: str, texts: list[str], *, kind: str = "episodes") -> list[float]:
+        """How near each of ``texts`` is to ``query`` (cosine), both embedded by the model ``kind``'s table was
+        built with — the query as a query, the texts as passages, as that table's rows were. Computed now, never
+        stored. Raises on a failed embed (the caller degrades)."""
+        if not texts:
+            return []
+        info = self.index_info(kind)
+        embed_fn, _model = self._query_embed_fn(kind, info)
+        qvec = self._query_vector(query, kind)
+        docs = self._checked(embed_fn(list(texts), is_query=False), len(texts))
+        norms = np.linalg.norm(docs, axis=1) * (float(np.linalg.norm(qvec)) or 1.0)
+        norms[norms == 0] = 1.0
+        return [float(x) for x in (docs @ qvec) / norms]
+
     def search_episodes(self, query: str, top_k: int = 3) -> list[dict]:
         return self._search_kind("episodes", query, top_k)
 

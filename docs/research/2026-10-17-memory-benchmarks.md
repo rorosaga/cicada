@@ -640,3 +640,62 @@ and two ends may share a session resumed days later. The same 20 public question
 more repeat of them with the reviewed code: LongMemEval_S temporal 19/23, LoCoMo's two right. Plan calls: 40 (162 in
 all).
 
+
+## Lists and counts (2026-10-20, branch `feat/ask-lists`)
+
+**The problem** (the broad sample above): LoCoMo multi-hop 65 J against the control's 96, its answer turns in the
+prompt for 147 of 322; LongMemEval_S multi-session 11.7 %, 28 of 71 — answers counted what they saw, one or two short
+(conv-26:q015, 0a995998). Reading the misses: on LongMemEval the evidence conversations were mostly found (fused rank
+0–6) but the line shown from them was the agent's reply repeating the question's words, not the person's line that
+told the event; on LoCoMo the subject's page held the items (the camping and swimming lines on the page of the person
+asked about) but the page leg showed only the 7 of its 119 items sharing the question's words, and the turns that told
+them share none ("what activities …" vs "went camping at the beach"); and 15 of the 100 multi-hop list questions were
+read as one fact ("where has <name> camped?", "what are <name>'s hobbies?").
+
+**Design** (`docs/architecture/mcp.md`, "Lists and counts"; no model in retrieval): (1) whose turn tells it — a count
+or a list prefers the turns of whoever the question is about (the person, the agent, a named speaker), another
+speaker's turn at half its words' weight less the asked speaker's name; (2) more list forms read as `enumerate`
+(plain-question lists, Spanish counts; a superlative never); a list of only common words keeps them at low weight;
+the search leg's breadth 10 → 16 conversations; (3) a page the list names is filled with its items nearest the
+question by the search model (one batch of ≤ 120 items, computed now, never stored), and each leads to the turn that
+told it by the item's own words, WHAT WAS SAID read breadth first. Tried and dropped: one line from each window
+conversation before a second from any (lost a knowledge-update answer turn: "how many stars do I need" — 0f05491a);
+embedding conversation turns (≈ 2.5 ms a turn and the asked person's name dominated the ranking); a computed list of
+occurrences (without a model a retold event can't be told from a new one).
+
+**Retrieval, no model** (the broad sample's banks, EmbeddingGemma 2; answer turns shown, of the dataset's answer turns):
+
+| | before (dev) | after |
+|---|---|---|
+| LoCoMo multi-hop (100) — answer turns · questions with ≥ 1 · with all | 147 / 322 · 76 · 26 | **187** / 322 · 86 · 36 |
+| LoCoMo multi-hop — gold list items whose words all reach the prompt (any form) | 179 / 242 | **199** / 242 |
+| LongMemEval_S multi-session (25 incl. abstention) — answer turns · ≥ 1 · all | 28 / 72 · 15 · 3 | **45** / 72 · 19 · 9 |
+| other categories whose prompt changed (count-shaped questions in them) | | LME knowledge-update 12, temporal 11, ss-assistant 1; LoCoMo single-hop 14, open-domain 3, temporal 1 |
+| — their answer turns | KU 29, temporal 35, single-hop 97, open-domain 52 | 30, 42, 99, 54 — no question lost one |
+
+Every other prompt is byte-identical. Prompt size on the changed questions: LoCoMo p50 16.2k → 23.7k characters, the
+largest prompt of the sample 25.1k → 31.6k; LongMemEval_S max 7.6k → 8.7k. Context build: LoCoMo changed questions
++220 ms p50, +650–710 ms p95 (≤ 953 ms) — the page items' one embedding batch, warm ~1.7 ms an item; LongMemEval_S
+(no pages) +0 ms p50.
+
+**Answers** (sonnet answers and judge on the plan; the broad run's own answers on dev as "before"; only the changed
+multi-hop and multi-session questions re-answered; repeat 2 on LongMemEval and on the three LoCoMo conversations the
+broad run repeated):
+
+| | before | after |
+|---|---|---|
+| LoCoMo multi-hop, 100 questions (59 changed; one repeat) | 65 | **73** |
+| — the 17 changed in conv-26 / 43 / 49, two repeats each | 8, 9 | **11, 11** |
+| LongMemEval_S multi-session, 20 (r1 / r2 / r3 · r1 / r2) | 3 / 2 / 2 (11.7 %) | **7 / 7 (35 %)** |
+| LongMemEval_S multi-session abstention (5) | 15 of 15 | 9 of 10 — 88432d0a_abs's honest decline phrased "the count is 0" was judged wrong once (right in r2), the judge strictness noted 2026-10-19 |
+
+Changed LoCoMo questions: 32 → 40 of 59 (10 right that were wrong, 2 the other way, both on near-identical
+answers: conv-30:q024 now lists one more event than before and is still judged short; conv-42:q019 gives the same "3,
+or 2 confirmed" in both). Plan calls: **258** (129 answers, 129 judgments). The owner's two sets are measured by the
+coordinator with `--compare`.
+
+**Still open.** LongMemEval's remaining misses count items whose turns hold none of the question's words ("citrus
+fruits" told as "lime", "doctors" told as "my dermatologist"): only a turn-level semantic pick would reach them, and
+measured here it cost more than it ranked. A question that names no page and asks in the first person ("how many
+weddings have I attended") gets the search leg's breadth only: the person's own page holds a whole life and is never
+item-ranked.

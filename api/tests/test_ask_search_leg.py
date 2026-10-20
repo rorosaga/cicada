@@ -127,10 +127,25 @@ def test_nothing_found_by_pages_or_words_is_still_the_honest_gap(bank):
 
 def test_a_turn_holding_only_common_words_is_never_shown(bank):
     # "errands" and "plan" are in most of the bank's conversations: they rank nothing.
-    found = ask_sources.search(bank, "What errands did I plan?")
+    question = "When did I plan the errands?"
+    assert ask_sources.question_shape(question) != ask_sources.SHAPE_ENUMERATE
+    found = ask_sources.search(bank, question)
     assert "errand" not in found.weights and "plan" not in found.weights
-    _, model = _ask(bank, "What errands did I plan?")
+    _, model = _ask(bank, question)
     assert "OTHER CONVERSATIONS" not in model.prompts[0]
+
+
+def test_a_list_made_only_of_common_words_still_reads_them_at_their_low_weight(bank):
+    # 2026-10-20: "what books has <name> read" in a chat about books — the thing is everywhere, so its word is common;
+    # for a list that is the point, not noise. Only when no word of the question is rare.
+    question = "What errands did I plan?"
+    assert ask_sources.question_shape(question) == ask_sources.SHAPE_ENUMERATE
+    found = ask_sources.search(bank, question)
+    assert 0 < found.weights["errand"] < 0.5, "kept, at the weight its rarity gives"
+    shown = ask_sources.gather_search(bank, question, found)
+    assert len({e.episode for e in shown}) >= 6, "a line from each conversation that holds them"
+    rare = ask_sources.search(bank, "What errands did I plan for alpha-project?")
+    assert "errand" not in rare.weights, "a rare word in the question: the common ones still rank nothing"
 
 
 def test_index_only_episodes_are_never_shown(bank):

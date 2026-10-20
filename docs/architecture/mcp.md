@@ -820,7 +820,8 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   provenance (the episode). At most 8 episodes, ranked by how many question words the pointing claim or item shares;
   inside them, a turn is kept when it holds a pointed span or shares the question's words (minus scaffolding such as
   "how long"), at most 10 excerpts and 6,000 characters, each turn clipped around the span or first match, a short
-  reply with the turn it answers and a question with its reply, then sorted oldest first. Every line names its day and
+  reply with the turn it answers and a question with its reply, then sorted oldest first (a count or a list reads
+  breadth first, wider — "Lists and counts" below). Every line names its day and
   who spoke from the episode's own turn markers — the person (by the owner page's name), the assistant, or another
   person in a message conversation; an unmarked episode an agent saved through a tool door (`source` mcp/cli) is "an
   agent's saved note", never the person — and Cicada's gap line is never one. Read at answer time from bank files only
@@ -868,11 +869,11 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   when several conversations on one subject match, the later one carries what happened (the outcome after the plan,
   the agreed price after the listing) — and a kept conversation shows its best turn before the rest of the budget
   fills by score. `anchored` keeps the conversations of the named day (at most 2) and never adds a later one; the
-  best-ranked conversation is never pushed out. `enumerate` reads the 4 exactly as any question does, then adds one
-  line (≤ 300 characters, no context turns) from each further on-subject conversation and each of the 4 the budget
-  left without a line, up to 10 conversations and 1,800 more characters; its header tells the model to count each
-  distinct event once and say the count covers what memory shows. A value question the gate takes for a count ("how
-  many stars do I need") so loses nothing. Lines stay oldest first. Rule 11 adds: lines on one subject on different
+  best-ranked conversation is never pushed out. `enumerate` reads the 4 as any question does (but for whose turn
+  counts — "Lists and counts" below), then adds one line (≤ 300 characters, no context turns) from each further
+  on-subject conversation and each of the 4 the budget left without a line, up to 16 conversations and 3,600 more
+  characters; its header tells the model to count each distinct event once and say the count covers what memory
+  shows. A value question the gate takes for a count ("how many stars do I need") so keeps its own turns. Lines stay oldest first. Rule 11 adds: lines on one subject on different
   days — the later is what happened after (answer with it, the earlier as history, never "the outcome is not
   recorded" when a later line states it); a question about one past occasion is answered from that occasion, and a
   later line about something else never replaces it or what the entities and WHAT WAS SAID show. The page leg's WHAT
@@ -917,6 +918,45 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   the temporal categories stayed byte-identical — a measurement on those sets, not a guarantee for every question.
   Measured:
   `docs/research/2026-10-17-memory-benchmarks.md`, "Two ends".
+- **Lists and counts (2026-10-20).** A count or a list needs every conversation that told the thing, with the line
+  that tells it. The broad sample (#380): LoCoMo multi-hop 65 J against the whole-conversation control's 96, its
+  answer turns in the prompt for 147 of 322; LongMemEval_S multi-session 11.7 %, 28 of 71 — answers counted what
+  they saw, one or two short. Three causes, three changes, no model in retrieval:
+  1. *Whose turn tells it.* The other side of a chat repeats the question's words ("weddings are such fun to attend")
+     and its turn beat the person's own line that told the event. `ask_sources.asked_about` reads who the question
+     is about from its own words — the person (first person, or their name: all of it or its first word, never a
+     shared surname alone), the agent ("you"), another speaker named by their label or the conversation's
+     correspondent. In a conversation where it asks about some speakers and not all, another speaker's turn counts
+     `OTHER_SPEAKER_SHARE` (0.5) of its words' weight, less the weight of the asked speakers' names it holds (said by
+     someone else a name only addresses them); a turn holding nothing more is dropped (`_about_first`). Window and
+     breadth both. The window is otherwise read as before: a version that also gave each window conversation one
+     line before a second from any lost a knowledge-update answer turn ("how many stars do I need": the correction
+     in the newest conversation) and was dropped.
+  2. *Lists asked as plain questions.* `question_shape` now also reads as `enumerate`, only when nothing else in
+     the question says what it is (no named day, no outcome word): "where has <name> camped", "what are <name>'s
+     hobbies", "what are the names of …", "which of my …", "what kind of indoor activities has …" (`_LIST`), and
+     Spanish counts and lists ("¿cuántas veces…?", "¿cuántos libros…?", "en total", "¿qué libros he leído?",
+     "¿cuáles son…?"). A superlative ("the most", "favorite", "best") asks for one thing and is never a list — also
+     for the older "which … have I" form. `two_ends` reads exactly the forms it read before. A list made only of
+     words common across the bank ("what books has <name> read" in a chat about books) keeps them at the low
+     weight their rarity gives instead of showing nothing (`_lexical(common_share=1.0)`, only when no word of the
+     question is rare).
+  3. *A page's whole inventory.* "What activities does <name> partake in" shares no word with "went camping at the
+     beach", and the page leg showed only the items sharing the question's words (Sleep's page held the camping
+     lines; the prompt held 7 of its 119 items). For an `enumerate` question that names a page (its name or an
+     alias, as words — never the person's own page because the question says "I"), among the first three pages the
+     items the question's words leave unchosen are ranked by the search model the conversations' table was built
+     with (`SqliteVecIndexer.similarity`: the question as a query, the items as passages, cosine; computed now, never
+     stored, nothing logged; at most `SIMILAR_TEXTS` = 120 items, one batch, ~1.7 ms an item warm on the Neural
+     Engine; no table → nothing embedded) and fill the page's existing prose budget (4,800 characters) nearest first.
+     Each such item's conversation leads to WHAT WAS SAID like any chosen item's, and there a turn qualifies by the
+     item's own words (two of them, or its only one) — the line that told it. WHAT WAS SAID for a count or a list is
+     read breadth first: each pointed conversation's best turn (≤ 300 characters), in rank order, up to 16
+     conversations, then second turns, within 24 excerpts and 7,200 characters (`BREADTH_*`; was 8 / 10 / 6,000).
+  No computed list of distinct occurrences is added: without a model, an event retold in a second conversation
+  can't be told from a second event, and a conversation count stated as a number would anchor the model on it.
+  Bounds: the search leg's breadth +1,800 characters, WHAT WAS SAID +1,200; the page fill uses the budget the page
+  already had. Measured: `docs/research/2026-10-17-memory-benchmarks.md`, "Lists and counts".
 - **The `sources` scope.** `answer_query(source_words=...)`, `POST /ask` `sourceWords` (default true): `cicada_ask`
   passes `ctx.raw_excerpts`, so a remote connector without `sources` gets no conversation words in the prompt (R-R22)
   — neither leg runs for it.

@@ -464,12 +464,17 @@ def _said_days(rows) -> str:
     return ("said " + ", ".join(days[-2:])) if days else ""
 
 
-def _page_lines(ent: dict, terms: set[str], budget: int) -> tuple[str, list]:
+def _page_lines(ent: dict, terms: set[str], budget: int, similar=None) -> tuple[str, list]:
     """What of a page's prose fits ``budget``, item by item (``section_provenance.scan``): the article's lead, then
     the items sharing the most of the question's words, in page order under their section, each with the days it
     was said. Returns ``(text, pointers)`` — the pointers (``ask_sources.Pointer``) are where the chosen items came
     from, weighted by the question's words each shares (0 for none), for :mod:`ask_sources` and the citation. A page
-    with no canonical section falls back to its paragraphs."""
+    with no canonical section falls back to its paragraphs.
+
+    ``similar`` (a count or a list about this page's subject, :attr:`ask_sources.Searched.similar`): the budget the
+    question's words leave is filled with the items nearest the question by the search model — "what activities
+    does <name> do" shares no word with "went camping at the beach", and a list is the page's whole inventory, not
+    the lines that repeat the question. Their conversations lead to WHAT WAS SAID like any chosen item's."""
     if budget <= 0:
         return "", []
     body = ent.get("body", "") or ""
@@ -510,6 +515,16 @@ def _page_lines(ent: dict, terms: set[str], budget: int) -> tuple[str, list]:
             continue
         chosen.add(i)
         used += min(len(rows[i]["text"]), _PARAGRAPH_CHARS) + 24
+    near: set[int] = set()
+    if similar is not None and used < budget:
+        rest = [i for i in range(len(rows)) if i not in chosen and rows[i]["section"] != "links"]
+        scores = similar([rows[i]["text"] for i in rest])
+        for score, i in sorted(zip(scores, rest), key=lambda x: (-x[0], x[1])):
+            if used >= budget or score <= 0:
+                break
+            chosen.add(i)
+            near.add(i)
+            used += min(len(rows[i]["text"]), _PARAGRAPH_CHARS) + 24
     lines: list[str] = []
     found: list = []
     section = None
@@ -523,11 +538,26 @@ def _page_lines(ent: dict, terms: set[str], budget: int) -> tuple[str, list]:
         lines.append(f"- {'[' + said + '] ' if said else ''}{_clip(row['text'], limit)}")
         # Every chosen item's conversations ground the page's citation; only the ones sharing the question's words
         # (weight > 0) lead to WHAT WAS SAID (``ask_sources.gather`` skips weight 0).
-        found += ask_sources.pointers(row["evidence"], row["score"], text_fold.subject_terms(row["text"]))
+        found += ask_sources.pointers(row["evidence"], row["score"] or (1 if i in near else 0),
+                                      text_fold.subject_terms(row["text"]))
     return "\n".join(lines), found
 
 
 _ENVELOPE = frozenset({"id", "current", "validity", "valid_from", "valid_to", "text"})
+
+
+def _asked_page(ent: dict, query: str, asked) -> bool:
+    """Whether a count or a list is about this page's subject: the question names it (its name or an alias, as
+    words). A first-person question does not make the person's own page its subject — that page holds a whole life,
+    and the pages and conversations the question's words find are where its list is."""
+    if asked is None:
+        return False
+    words = set(text_fold.words(query))
+    for name in (ent.get("entity_name"), *(ent.get("aliases") or [])):
+        own = set(text_fold.words(str(name or ""))) - text_fold.SUBJECT_STOPWORDS
+        if own and own <= words:
+            return True
+    return False
 
 
 def _ground(grounds: dict[str, int], pointed: list) -> None:
@@ -649,6 +679,8 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
     CONVERSATIONS: the turns of the conversations the question's own words find, past what the pages point at;
     ``shown`` receives ``{"conversations": {episode_id: {title, day}}}`` for them."""
     terms = _focus(text_fold.subject_terms(query), [e for e in entities if not e.get("linked_from")])
+    enumerate_ = getattr(searched, "shape", None) == ask_sources.SHAPE_ENUMERATE
+    asked = ask_sources.asked_about(query, owner_name) if enumerate_ else None
     blocks: list[str] = []
     people: list[dict] = []
     found: list = []
@@ -677,7 +709,9 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
                 _ground(grounds, pointed)
                 if weight:
                     found += pointed
-        prose, pointed = _page_lines(ent, terms, int(_PROSE_CHARS * scale))
+        similar = (searched.similar if searched is not None and rank < _FULL_BUDGET_PAGES
+                   and _asked_page(ent, query, asked) else None)
+        prose, pointed = _page_lines(ent, terms, int(_PROSE_CHARS * scale), similar)
         _ground(grounds, pointed)
         found += [p for p in pointed if p.weight > 0]
         ent["grounding"] = grounds
@@ -695,7 +729,10 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
     excerpts: list = []
     if source_words and memory_path is not None and found:
         try:
-            excerpts = ask_sources.gather(memory_path, query, found, owner_name=owner_name, terms=terms)
+            excerpts = ask_sources.gather(memory_path, query, found, owner_name=owner_name, terms=terms,
+                                          **({"breadth": True, "max_episodes": ask_sources.ENUM_EPISODES,
+                                              "max_excerpts": ask_sources.BREADTH_EXCERPTS,
+                                              "total_chars": ask_sources.BREADTH_CHARS} if enumerate_ else {}))
             said = ask_sources.render(excerpts)
         except Exception as exc:  # noqa: BLE001 — the words are context; their absence never fails an answer
             logger.debug(f"ask source words skipped ({type(exc).__name__})")
