@@ -18,6 +18,15 @@
   Detail: `capture-and-sleep.md`, *Fewer calls per conversation*. Tests: `test_sleep_call_batching.py`,
   `test_entity_resolver_concurrency.py`, `test_conflict_resolver_concurrency.py`. Pick up: the coordinator reads the
   next scheduled night's `llm_call` counts by stage and the inbox's new "Possible duplicate" count.
+- **2026-10-20 — Ask infers implied facts and reads Spanish conversations for an English question (G148; branch
+  `feat/ask-gaps`).** A fact-worded question the record only implies (a state or country from a city, a holiday, a
+  described thing's name, a yes or no about someone, an age, a preference) gets a stricter note: a stated line wins,
+  else "probably …, because …", a loose link still declines. An English question whose nearest conversations are in
+  Spanish goes by meaning (the record's language decides, never missing words). The meaning leg ranks turns without
+  the speakers' names, from two passages a conversation. On haiku, 3 runs: implied facts 4.67 → 12 of 15 (better,
+  p = 0.016; adversarial 2/3 both sides); English over Spanish 3 → 8 of 10 (5 gained, 0 lost, p = 0.063). Fixture
+  `benchmarks/public/fixtures/locomo-es-turns.json` (`--turns`). Pick up: the coordinator's `--compare` on the
+  owner's two sets — every Spanish prompt changed. Detail: `docs/research/2026-10-17-memory-benchmarks.md`.
 - **2026-10-20 — Ask reasons a judgement from the record and answers Spanish by meaning (G148; branch
   `feat/ask-infer-es`).** A judgement question ("would <name> likely …", "¿es probable que …?") gets a note to answer
   "probably …, because …" from the record; a recorded fact still declines. A Spanish question goes by meaning: the

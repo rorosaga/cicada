@@ -698,7 +698,7 @@ _INFERENCE_NOTE = (
     "inference.")
 
 #: 2026-10-20 (G148, gap 1): a question worded as a fact whose answer the record only implies ("does <name> live in
-#: <state>?", "which US state …", "what is the card game <name> was talking about?") was declined as missing — 33 of
+#: <state>?", "which US state …", "what is the card game <name> was talking about?") was declined as missing — 31 of
 #: the 48 LoCoMo open-domain questions the judgement note leaves out are of these shapes (ask_sources.asks_implied).
 #: Stricter than the judgement note: a stated fact still wins, and a loose link is still a decline.
 _IMPLIED_NOTE = (
