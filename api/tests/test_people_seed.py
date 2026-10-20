@@ -465,3 +465,26 @@ def test_stage2_and_stage5_never_use_a_card_read_before_the_forget(stage2, monke
     assert contacts_local.save_waiting(stage2.name, [{"id": "C9", "given_name": "Hal", "family_name": "Sample"}],
                                        read_at=card[contacts_local.READ_AT]) == 0
     assert contacts_local.load_waiting(stage2.name) == []
+
+
+def test_a_sync_from_a_connection_the_person_ended_is_dropped_whole(client):
+    """Review of #393: a sync sent before Disconnect but handled after the forget never saves its cards back, and
+    writes no page. The app mints a connection id at each Connect and sends it with every sync and with the forget."""
+    c, memory = client
+    ended, fresh = "conn-1111aaaa", "conn-2222bbbb"
+    r = c.post("/sources/contacts-local/sync", json={"contacts": [_card("C1", "Hal", "Sample")], "connection": ended})
+    assert r.status_code == 200 and _waiting_file(memory).exists()
+    assert c.delete(f"/sources/contacts-local/waiting?connection={ended}").json() == {"forgotten": 1}
+    head = subprocess.run(["git", "-C", str(memory), "rev-parse", "HEAD"], capture_output=True, text=True).stdout
+    late = c.post("/sources/contacts-local/sync",
+                  json={"contacts": [_card("C1", "Hal", "Sample"), _card("C2", "Bob", "Example", email=True)],
+                        "connection": ended})
+    assert late.status_code == 409
+    assert not _waiting_file(memory).exists(), "the late sync brought no card back"
+    assert subprocess.run(["git", "-C", str(memory), "rev-parse", "HEAD"], capture_output=True,
+                          text=True).stdout == head, "and wrote no page"
+    assert fact_sources.list_sources(memory, "bob-example") == []
+    again = c.post("/sources/contacts-local/sync", json={"contacts": [_card("C1", "Hal", "Sample")],
+                                                         "connection": fresh})
+    assert again.status_code == 200 and _waiting_file(memory).exists(), "a new Connect syncs as ever"
+    assert _post(c, [_card("C1", "Hal", "Sample")])["waiting"] == 1, "an older app (no connection id) as before"

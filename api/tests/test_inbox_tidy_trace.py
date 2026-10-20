@@ -391,3 +391,74 @@ def test_the_apply_command_sends_only_the_kept_rows_to_the_backend_route(tmp_pat
     assert printed["skipped"] == 1 and "Gadget" not in json.dumps(printed)
     assert inbox_tidy_trace.main(["apply", "--vetted", str(vetted), "--bank", "other"]) == 1   # asserts, never selects
     assert len(sent) == 1
+
+
+def _person_turn(memory: Path, eid: str, line: str) -> None:
+    markdown_parser.write(memory / "episodes" / f"{eid}.md",
+                          {"id": eid, "timestamp": f"{eid[3:13]}T09:00:00+00:00", "processed": True, "title": "chat"},
+                          f"user: {line}\n\nassistant: Noted.")
+
+
+def test_apply_refuses_the_persons_words_that_do_not_say_the_name(memory):
+    """Review of #393 (re-review): a located quote that says nothing about who the person is — a run in the morning —
+    never names a relation-titled page, and the engine's own reading (`_answer_decision`) agrees."""
+    from api.services import role_people
+
+    _entity(memory, "sister", type="person", name="Sister", status="active", **{role_people.UNNAMED_KEY: True})
+    _entity(memory, "carol-example", type="person", name="Carol Example", status="active")
+    _item(memory, "inbox-011", kind="clarification", asks="name", entity_id="sister", entity_name="Sister",
+          question="What's the name of your sister?", options=[{"key": "decline", "label": "Rather not say"}])
+    _person_turn(memory, "ep_2026-10-02_001", "I went running this morning and then made coffee")
+    _person_turn(memory, "ep_2026-10-03_001", "my sister is Carol Example, she visits next week")
+    _commit(memory)
+    assert inbox_tend.persons_span(memory, "ep_2026-10-02_001", "I went running this morning") is not None
+
+    def row(quote_episode, quote):
+        return _forged(memory, "inbox-011", "clarification", rule="said_on_record",
+                       request={"action": "answer", "answer": "Carol Example"}, guard=inbox_tend._guard(memory, "sister"),
+                       quote={"episode": quote_episode, "quote": quote})
+
+    pages = sorted(p.name for p in (memory / "entities").iterdir())
+    result = run(inbox_tend.apply_vetted(memory, _Settings(memory), [row("ep_2026-10-02_001",
+                                                                         "I went running this morning")]))
+    assert result["results"] == [{"id": "inbox-011", "outcome": "refused", "why": "quote_says_otherwise"}]
+    assert sorted(p.name for p in (memory / "entities").iterdir()) == pages and (memory / "inbox/inbox-011.md").exists()
+    d, _engine = inbox_tend.vetted_decision(memory, row("ep_2026-10-03_001", "my sister is Carol Example"))
+    assert d.request == {"action": "answer", "answer": "Carol Example"}, "words that say the name still settle"
+
+    path = memory / "inbox" / "inbox-011.md"
+    fm = markdown_parser.parse(path).frontmatter
+    reply = {"answered": True, "answer": "Carol Example", "quote": "I went running this morning"}
+    assert inbox_tend._answer_decision(memory, path, fm, reply, {}, "ep_2026-10-02_001", "m", "said_on_record") == (
+        None, "quote_says_otherwise")
+
+
+def test_apply_refuses_a_conflict_side_the_quoted_words_do_not_state(memory):
+    from api.services.claims import Claim, write_claims
+
+    claims = [Claim(id="clm_h", text="Tool A is an agent harness", subject="tool-a", predicate="description",
+                    object="agent harness", valid_from="2026-05-01"),
+              Claim(id="clm_g", text="Tool A is an AI agent", subject="tool-a", predicate="description",
+                    object="AI agent", valid_from="2026-05-01")]
+    _entity(memory, "tool-a", type="tool", name="Tool A", status="active")
+    page = memory / "entities" / "tool-a.md"
+    parsed = markdown_parser.parse(page)
+    markdown_parser.write(page, parsed.frontmatter, write_claims(parsed.body, claims))
+    _item(memory, "inbox-012", kind="conflict", entity_id="tool-a", entity_name="Tool A", predicate="description",
+          options=[{"key": "a", "label": "agent harness", "claim_id": "clm_h"},
+                   {"key": "b", "label": "AI agent", "claim_id": "clm_g"}])
+    _person_turn(memory, "ep_2026-06-01_001", "I went running this morning and then made coffee")
+    _person_turn(memory, "ep_2026-06-02_001", "these days Tool A is really an agent harness for me")
+    _commit(memory)
+
+    def row(episode, quote):
+        return _forged(memory, "inbox-012", "conflict", rule="said_on_record",
+                       request={"action": "resolve", "option_key": "a"}, guard=inbox_tend._guard(memory, "tool-a"),
+                       quote={"episode": episode, "quote": quote})
+
+    result = run(inbox_tend.apply_vetted(memory, _Settings(memory), [row("ep_2026-06-01_001",
+                                                                         "I went running this morning")]))
+    assert result["results"] == [{"id": "inbox-012", "outcome": "refused", "why": "quote_says_otherwise"}]
+    assert (memory / "inbox" / "inbox-012.md").exists()
+    d, _engine = inbox_tend.vetted_decision(memory, row("ep_2026-06-02_001", "Tool A is really an agent harness"))
+    assert d.request == {"action": "resolve", "option_key": "a"}

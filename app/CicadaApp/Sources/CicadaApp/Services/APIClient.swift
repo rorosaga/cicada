@@ -2535,8 +2535,10 @@ actor APIClient {
 
     /// Owner ruling 2026-10-20 (review of #391): `DELETE /sources/contacts-local/waiting` — Contacts was stopped, so the
     /// cards waiting outside every bank for a first mention are deleted, app-wide.
-    func forgetWaitingContacts() async throws {
-        try await delete("/sources/contacts-local/waiting")
+    func forgetWaitingContacts(connection: String?) async throws {
+        let query = connection.flatMap { $0.addingPercentEncoding(withAllowedCharacters: .alphanumerics) }
+            .map { "?connection=\($0)" } ?? ""
+        try await delete("/sources/contacts-local/waiting" + query)
     }
 
     /// `DELETE /sources/linkedin-connections` — forget this memory's kept LinkedIn export; returns how many were kept.

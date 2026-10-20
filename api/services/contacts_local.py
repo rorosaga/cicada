@@ -32,7 +32,9 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import json
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -65,6 +67,11 @@ FACT_PREDICATES = (
     ("has_birthday", "birthday"),
 )
 SLEEP_REFUSAL = "Cicada is tidying up your memory right now — Contacts will sync again in a minute."
+
+
+class Disconnected(ValueError):
+    """A sync from a Contacts connection the person has since ended (review of #393): its request was sent before
+    Disconnect and handled after the forget. Nothing is read from it and nothing is written."""
 
 
 class PayloadError(ValueError):
@@ -296,6 +303,8 @@ def sync(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict:
     rewritten whole by every sync, so an edited or deleted card is gone from it at once — and the bank gets nothing
     for it. The person's own card (``is_me``) belongs to the owner's page (G169), never to a namesake, and never waits."""
     read_at = time.time_ns()   # a forget after this moment wins over this sync's waiting set (`forgotten_since`)
+    if connection_ended(payload.get("connection")):
+        raise Disconnected("Contacts was disconnected; this sync was sent before that and is dropped.")
     memory_path = Path(memory_path)
     bank = bank or memory_path.name
     contacts = [c for c in (payload.get("contacts") or []) if 0 < len(str(c.get("id") or "").strip()) <= ID_CAP]
@@ -369,6 +378,25 @@ FORGOTTEN_MARKER = ".contacts-forgotten"
 READ_AT = "_read_at"
 #: A forget and a save of the waiting set never interleave (the backend is the directory's one writer).
 _WAITING_LOCK = threading.Lock()
+#: The app's Contacts connections the person ended (a random id minted at each Connect, sent with every sync and with
+#: the forget): a sync still carrying one is dropped. The newest few are kept — an id is never reused.
+ENDED_KEEP = 32
+_CONNECTION_ID = re.compile(r"[A-Za-z0-9-]{8,64}")
+
+
+def _marker_body() -> dict:
+    try:
+        body = json.loads(_marker().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+def connection_ended(connection) -> bool:
+    """Did the person end this Contacts connection (Disconnect, or access taken away)? ``None`` (an older app): no."""
+    if not isinstance(connection, str) or not _CONNECTION_ID.fullmatch(connection):
+        return False
+    return connection in (_marker_body().get("ended") or [])
 
 
 def _marker() -> Path:
@@ -378,8 +406,8 @@ def _marker() -> Path:
 def forgotten_at() -> int:
     """When the person last stopped Contacts (ns), 0 if never."""
     try:
-        return int(_marker().read_text(encoding="utf-8").strip() or 0)
-    except (OSError, ValueError):
+        return int(_marker_body().get("at") or 0)
+    except (TypeError, ValueError):
         return 0
 
 
@@ -467,7 +495,7 @@ def waiting_photo(bank: str, card: dict) -> tuple[bytes, str] | None:
     return _photo(base64.b64encode(data).decode("ascii"))
 
 
-def forget_waiting() -> int:
+def forget_waiting(connection: str | None = None) -> int:
     """The person stopped Contacts (Disconnect, or access taken away in System Settings): every bank's waiting cards
     and their thumbnails are deleted — Contacts is connected app-wide, so its kept cards go app-wide too (review of
     #391). Returns how many cards were forgotten. What a sync already wrote on matched pages stays (git holds it; the
@@ -482,9 +510,12 @@ def forget_waiting() -> int:
         if root.is_dir():
             forgotten = _forget_files(root)
         root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        ended = [c for c in (_marker_body().get("ended") or []) if isinstance(c, str)]
+        if isinstance(connection, str) and _CONNECTION_ID.fullmatch(connection) and connection not in ended:
+            ended = (ended + [connection])[-ENDED_KEEP:]
         marker = _marker()
         tmp = marker.with_name(f"{FORGOTTEN_MARKER}.tmp")
-        tmp.write_text(str(time.time_ns()), encoding="utf-8")
+        tmp.write_text(json.dumps({"at": time.time_ns(), "ended": ended}), encoding="utf-8")
         os.chmod(tmp, 0o600)
         os.replace(tmp, marker)
     return forgotten

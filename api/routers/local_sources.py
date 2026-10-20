@@ -381,6 +381,8 @@ async def sync_contacts_local(req: ContactsLocalSyncRequest, settings: Settings 
                                       bank=memory_path.name)
     except contacts_local.PayloadError as exc:
         raise HTTPException(422, str(exc))
+    except contacts_local.Disconnected as exc:
+        raise HTTPException(409, str(exc))
     sync_state.record_sync(memory_path, contacts_local.CHANNEL_ID, count=out["contacts"], extra={"people": out["people"]})
     await folder_source.commit_paths_for(memory_path, out.pop("paths"), subject="Contacts sync",
                                          trigger="capture/contacts", channel=contacts_local.CHANNEL_ID)
@@ -388,15 +390,16 @@ async def sync_contacts_local(req: ContactsLocalSyncRequest, settings: Settings 
 
 
 @router.delete("/sources/contacts-local/waiting")
-async def forget_contacts_waiting():
+async def forget_contacts_waiting(connection: str | None = Query(None, max_length=64)):
     """Review of #391: the app stopped Contacts (Disconnect, or access found taken away) — every bank's waiting cards
     and thumbnails are deleted (Contacts is app-wide), so no first mention and no tail rematch uses a card again.
     Writes nothing in a bank and is accepted even while Sleep runs (review of #393): the app calls it once and never
     asks again, so a 409 would leave the cards of an address book the person disconnected. It deletes the set at once
     and stamps a forget marker outside every bank (``contacts_local.forgotten_since``); every Sleep read of the set —
     Stage 2's first-mention index, Stage 5's seed, the tail's rematch and its save back — treats what it read before
-    the marker as empty. Counts only, never a name."""
-    return {"forgotten": await run_in_threadpool(contacts_local.forget_waiting)}
+    the marker as empty. ``connection`` (the app's id for the connection it ends) drops any sync still in flight from
+    it. Counts only, never a name."""
+    return {"forgotten": await run_in_threadpool(contacts_local.forget_waiting, connection)}
 
 
 # --- LinkedIn connections (2026-10-16; G154's pattern) ---------------------------------------------------------------

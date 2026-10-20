@@ -1464,6 +1464,71 @@ def persons_span(memory_path: Path, episode_id: str, quote: str):
     return None
 
 
+#: Words an answer may carry that its quote need not ("a soldering station" ← "the soldering station on the desk").
+_ANSWER_FILLER = frozenset("""a an the is are was were it its my our your his her their of to in on at
+un una unos unas el la los las lo es son era fue mi mis su sus de del al en""".split())
+#: A follow-up's answers are states, not values: the person's words must say the state, in one of these words (folded,
+#: English and Spanish — the languages the bank is read in), or the option's own label.
+_FOLLOWUP_WORDS = {
+    "done": frozenset("""done finished finish completed complete shipped launched submitted delivered published passed
+                      happened went terminado terminada termine hecho hecha listo lista acabe complete entregue""".split()),
+    "still": frozenset("""still ongoing continuing continue keep keeping going sigo seguimos todavia aun
+                       continuo continua""".split()),
+    "stopped": frozenset("""stopped stop quit dropped abandoned paused ended deje dejamos pare paramos
+                         abandone""".split()),
+    "missed": frozenset("""missed late overdue slipped postponed delayed perdi tarde retrasado atrasado""".split()),
+    "dropped": frozenset("""dropped cancelled canceled abandoned scrapped cancele cancelado cancelada
+                         abandonado""".split()),
+}
+
+
+def answer_supported(memory_path: Path, fm: dict, request: dict, quote: str, *, label: str = "") -> bool:
+    """Do the person's own words SAY the answer taken from them? Located words that say something else never settle
+    a question (review of #393: a run in the morning never named anyone's sister). No model — folded whole words:
+
+    * a free ``answer``: every word of it but fillers is in the quote; a name question's (``asks: name``) answer as
+      one whole phrase;
+    * a conflict's option: its label's words are in the quote, or the object of the claim it stands for is;
+    * a follow-up's option: the quote says that state (:data:`_FOLLOWUP_WORDS`) or the option's label.
+    A merge or keep-apart answer from the person's words is left to its own rules (move 1 only)."""
+    from api.services.claims import parse_claims
+
+    said = _fold_name(quote)
+    if not said:
+        return False
+    words = set(said.split())
+    action = str((request or {}).get("action") or "")
+    if action == "answer":
+        answer = _fold_name(request.get("answer"))
+        if not answer:
+            return False
+        if str(fm.get("asks") or "") == "name":
+            return _phrase_in(answer, said)
+        wanted = [w for w in answer.split() if w not in _ANSWER_FILLER] or answer.split()
+        return all(w in words for w in wanted)
+    if action != "resolve":
+        return True
+    kind, key = str(fm.get("kind") or ""), str(request.get("option_key") or "")
+    lab = _fold_name(label)
+    lab_words = [w for w in lab.split() if w not in _ANSWER_FILLER]
+    if lab_words and all(w in words for w in lab_words):
+        return True
+    if kind == "followup":
+        return bool(words & _FOLLOWUP_WORDS.get(key, frozenset()))
+    if kind == "conflict":
+        option = next((o for o in inbox_questions.normalize_options(fm.get("options")) if str(o.get("key")) == key), {})
+        claim_id = str(option.get("claim_id") or "")
+        page = _page(memory_path, str(fm.get("entity_id") or "")) if claim_id else None
+        if page is not None:
+            try:
+                claim = next((c for c in parse_claims(page[2]) if c.id == claim_id), None)
+            except Exception:  # noqa: BLE001
+                claim = None
+            obj = _fold_name(getattr(claim, "object", "")) if claim is not None else ""
+            return bool(obj) and _phrase_in(obj, said)
+    return False
+
+
 def _answer_decision(memory_path: Path, path: Path, fm: dict, reply: dict, choices: dict[str, str],
                      episode_id: str, model: str | None, rule: str) -> tuple[Decision | None, str]:
     """The engine's reply → a decision, only on the person's own words located exactly in ``episode_id``."""
@@ -1480,8 +1545,10 @@ def _answer_decision(memory_path: Path, path: Path, fm: dict, reply: dict, choic
         key = str(reply.get("option") or "").strip()
         if key not in choices:
             return None, "no_option"
-        return Decision(path.stem, kind, rule, {"action": "resolve", "option_key": key},
-                        answer=choices[key], quote=words, model=model), ""
+        request = {"action": "resolve", "option_key": key}
+        if not answer_supported(memory_path, fm, request, quote, label=choices[key]):
+            return None, "quote_says_otherwise"
+        return Decision(path.stem, kind, rule, request, answer=choices[key], quote=words, model=model), ""
     if kind == "merge_suggestion":
         key = str(reply.get("option") or "").strip()
         target = str(fm.get("merge_target_hint") or "")
@@ -1493,6 +1560,8 @@ def _answer_decision(memory_path: Path, path: Path, fm: dict, reply: dict, choic
     answer = " ".join(str(reply.get("answer") or "").split())[:MAX_ANSWER_CHARS]
     if not answer:
         return None, "no_answer"
+    if not answer_supported(memory_path, fm, {"action": "answer", "answer": answer}, quote):
+        return None, "quote_says_otherwise"   # the person's words, but not saying this answer
     return Decision(path.stem, kind, rule, {"action": "answer", "answer": answer},
                     answer=answer, quote=words, model=model), ""
 
@@ -1656,7 +1725,7 @@ def record_lines(memory_path: Path, fm: dict) -> list[tuple[str, str, str]]:
 #: engine twice, so a drain's few reads move on to questions with something new on the record. In this process only
 #: (ids and a hash; a restart reads each once more).
 _RECORD_READ: dict[tuple[str, str], str] = {}
-_NOT_ANSWERED = frozenset({"not_answered", "quote_not_found", "no_option", "no_answer"})
+_NOT_ANSWERED = frozenset({"not_answered", "quote_not_found", "no_option", "no_answer", "quote_says_otherwise"})
 
 
 def _record_key(memory_path: Path, path: Path) -> tuple[str, str]:
@@ -2440,6 +2509,15 @@ def vetted_decision(memory_path: Path, row: dict) -> tuple[Decision, str | None]
             raise Unvetted("not_after_the_question")
         if quote["episode"] in _record_cited(memory_path, fm):
             raise Unvetted("not_after_the_question")   # the conversation a question rests on never answers it
+        request = _vetted_request(memory_path, kind, fm, rule, request)
+        label = ""
+        if request.get("action") == "resolve":
+            labels = (_followup_choices(memory_path, fm)[0] if kind == "followup" else
+                      {str(o.get("key")): str(o.get("label") or "")
+                       for o in inbox_questions.normalize_options(fm.get("options"))})
+            label = labels.get(request["option_key"], "")
+        if not answer_supported(memory_path, fm, request, quote["quote"], label=label):
+            raise Unvetted("quote_says_otherwise")   # the person's words, but not saying this answer
         required = _guard(memory_path, entity_id)
     else:   # a judge's rule
         if fresh is not None or why != "needs_judge" or kind not in JUDGED_KINDS:

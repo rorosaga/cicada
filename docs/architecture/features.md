@@ -368,7 +368,9 @@ taken back or a proposed edit; the rule is in `VETTED_RULES` for that kind with 
 and that fresh decision is applied; a judged rule needs `policy()` to still answer `needs_judge` (so the person,
 type-mismatch and same-page refusals hold) and a guard over at least every page the judge reads, unchanged; a name
 question (`asks: name`) and any free `answer` settle only as `said_on_record`, on the person's words located again
-(`persons_span`) in a conversation that does not raise it, said after every side of it; the model and engine become
+(`persons_span`) in a conversation that does not raise it, said after every side of it, and only when those words
+SAY the answer (`answer_supported`, no model: a free answer's words, a name as one phrase, a conflict side's label
+or claim object, a follow-up's state word — the same check Sleep's own reading applies in `_answer_decision`); the model and engine become
 the author only for a rule an engine read and only as an id that engine uses — any other settle is Sleep's own
 (`cicada`). Per-id outcomes: `settled`, `changed`, `refused` (a code),
 `not_reached`. Busy for an updater while it runs, like the tidy; 409 while Sleep, a tidy or a sweep runs.

@@ -315,7 +315,10 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   set is stamped with its read time (`load_waiting` → `READ_AT`) and treats a set read before the marker as empty
   (`forgotten_since`): Stage 2's index matches nothing, Stage 5's `seed_page` seeds nothing, the tail's rematch writes
   no further page and never saves the set back, and a sync that read the book before the forget never saves its
-  waiting cards. Its admission class is `MARKED` (`test_write_admission_sites.py`). The LinkedIn forget is admitted
+  waiting cards. A sync sent before Disconnect but handled after the forget is dropped whole (409, nothing written):
+  the app mints a connection id at each Connect, sends it with every sync and names it in the forget, and the
+  marker keeps the last 32 ended ids (`connection_ended`; an older app sends none). Its admission class is
+  `MARKED` (`test_write_admission_sites.py`). The LinkedIn forget is admitted
   (409 while Sleep holds the pages; its panel says so in words). The notes field is still never read. A bank's trash takes its people directory with
   it and a rename moves it (`people_directory.forget` / `rename`).
   LinkedIn connections (owner 2026-10-16: "extracting people profiles from my LinkedIn connections … would be nice";
