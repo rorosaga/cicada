@@ -118,7 +118,6 @@ extension DesignConsistencyLintTests {
             "ScenerySettings.swift": "a Settings picker tile resting on bgFocus",
             "LinkCards.swift": "a link card resting on bgFocus",
             "ProjectSentence.swift": "a story row: bgFocus and the strong ring while selected, grows in place (Projects v2)",
-            "ReaderColumn.swift": "the Reader, out of this pass (#362/#375)",
             "EngineChooser.swift": "a Settings engine card resting on surface",
             "SleepRunDetails.swift": "a parked item's resting emphasis, not a hover",
         ]

@@ -63,7 +63,7 @@ struct WhereThisCameFromSection: View {
         case .loading:
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(0..<2, id: \.self) { i in
-                    RoundedRectangle(cornerRadius: CicadaTheme.radiusXS)
+                    CicadaTheme.shape(CicadaTheme.radiusXS)
                         .fill(CicadaTheme.surfaceHover)
                         .frame(width: CicadaTheme.scaled(i == 1 ? 180 : 300), height: CicadaTheme.scaled(9))
                 }
@@ -153,9 +153,9 @@ struct WhereThisCameFromSection: View {
                 }
             }
         }
-        .padding(.leading, 4)
+        .padding(.leading, CicadaTheme.spacingXS)
         .padding(.trailing, 10)
-        .padding(.vertical, 4)
+        .padding(.vertical, CicadaTheme.spacingXS)
         .background(CicadaTheme.surfaceHover)
         .clipShape(Capsule())
         // What the two numbers count (§4.5 item 2), in plain words — never
@@ -186,7 +186,7 @@ struct WhereThisCameFromSection: View {
                                size: CicadaTheme.scaled(16))
                         .iconHover()
                     Text(title)
-                        .font(CicadaTheme.font(size: 13, weight: .medium))
+                        .font(CicadaTheme.rowFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(1)
                     Spacer(minLength: CicadaTheme.spacingSM)

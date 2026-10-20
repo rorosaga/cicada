@@ -439,8 +439,8 @@ private struct OnboardingTopbar: View {
             }
             Text(Copy.onboardingStepOf(page.step)).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
             if comingIn > 0 {
+                // DR-43 (round 3, 2026-10-20): what is still arriving is said in words alone, never a spinner beside them.
                 Text("·").font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-                ProgressView().controlSize(.mini)
                 Text(Copy.onboardingComingIn(comingIn)).font(CicadaTheme.metaFont)
                     .foregroundStyle(CicadaTheme.textSecondary).monospacedDigit()
             }

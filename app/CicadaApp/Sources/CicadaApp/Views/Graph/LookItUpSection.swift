@@ -235,7 +235,7 @@ private struct SourceFactEditor: View {
         HStack(spacing: CicadaTheme.spacingSM) {
             TextField(Copy.Graph.factPrompt, text: $text)
                 .textFieldStyle(.plain)
-                .font(CicadaTheme.font(size: 13))
+                .font(CicadaTheme.bodyFont)
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .padding(.horizontal, CicadaTheme.spacingMD)
                 .frame(height: CicadaTheme.scaled(30))

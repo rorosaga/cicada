@@ -197,12 +197,12 @@ struct DevicesSettingsView: View {
                 ForEach(model.devices) { device in
                     HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
                         Image(systemName: "laptopcomputer")
-                            .font(CicadaTheme.font(size: 12))
+                            .font(CicadaTheme.icon(.inline))
                             .foregroundStyle(CicadaTheme.textTertiary)
                         VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                             HStack(spacing: CicadaTheme.spacingXS) {
                                 Text(device.name)
-                                    .font(CicadaTheme.font(size: 13, weight: .medium))
+                                    .font(CicadaTheme.rowFont)
                                     .foregroundStyle(CicadaTheme.textPrimary)
                                 if device.current {
                                     Text(Copy.Devices.thisDevice)

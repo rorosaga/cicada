@@ -36,8 +36,8 @@ struct ImageThumbnail: View {
                 }
             }
             .frame(width: width, height: height)
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-            .ringed(.resting, in: RoundedRectangle(cornerRadius: cornerRadius))
+            .clipShape(CicadaTheme.shape(cornerRadius))
+            .ringed(.resting, in: CicadaTheme.shape(cornerRadius))
             .overlay(alignment: .bottomTrailing) {
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
                     .font(CicadaTheme.font(size: 10, weight: .semibold))

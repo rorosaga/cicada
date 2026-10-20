@@ -41,13 +41,13 @@ final class MenuBarManager: NSObject {
     }
 
     nonisolated static func accessibilityLabel(for state: BookwormState) -> String {
-        "Cicada — \(state.title), \(state.detail)"
+        Copy.MenuBar.itemLabel(state.title, state.detail)
     }
 
     /// The status item's hover text: what the badge counts when there is one, else the mood.
     nonisolated static func toolTip(for state: BookwormState) -> String {
-        if case .curious(let n) = state { return "Cicada — \(Copy.waitingForSleep(n))" }
-        return "Cicada — \(state.title), \(state.detail)"
+        if case .curious(let n) = state { return Copy.MenuBar.itemWaiting(n) }
+        return Copy.MenuBar.itemLabel(state.title, state.detail)
     }
 
     private var reduceMotion: Bool {
@@ -260,7 +260,7 @@ final class MenuBarManager: NSObject {
 
         // Status header (disabled): "<icon> <title> — <detail>".
         let door = sleepDoor?()
-        let header = NSMenuItem(title: door?.menuHeader ?? "\(state.title) — \(state.detail)", action: nil,
+        let header = NSMenuItem(title: door?.menuHeader ?? Copy.MenuBar.header(state.title, state.detail), action: nil,
                                 keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
@@ -275,11 +275,11 @@ final class MenuBarManager: NSObject {
         menu.addItem(inboxItem)
 
         // Last / next sleep.
-        let lastItem = NSMenuItem(title: "Last sleep: \(relativeLastSleep())", action: nil, keyEquivalent: "")
+        let lastItem = NSMenuItem(title: Copy.MenuBar.lastSleep(relativeLastSleep()), action: nil, keyEquivalent: "")
         lastItem.isEnabled = false
         menu.addItem(lastItem)
 
-        let nextItem = NSMenuItem(title: "Next sleep: \(nextSleepDescription())", action: nil, keyEquivalent: "")
+        let nextItem = NSMenuItem(title: nextSleepLine(), action: nil, keyEquivalent: "")
         nextItem.isEnabled = false
         menu.addItem(nextItem)
         // R-IB22 — the text twin of an export reminder, permission or not.
@@ -295,7 +295,7 @@ final class MenuBarManager: NSObject {
         runItem.isEnabled = !isRunning || door?.isPaused == true
         menu.addItem(runItem)
 
-        let saveItem = NSMenuItem(title: "Save clipboard URL", action: #selector(saveClipboardAction), keyEquivalent: "s")
+        let saveItem = NSMenuItem(title: Copy.MenuBar.saveClipboardURL, action: #selector(saveClipboardAction), keyEquivalent: "s")
         saveItem.target = self
         menu.addItem(saveItem)
 
@@ -313,7 +313,7 @@ final class MenuBarManager: NSObject {
             menu.addItem(bookmarksItem)
         }
 
-        let openItem = NSMenuItem(title: "Open Cicada", action: #selector(openApp), keyEquivalent: "o")
+        let openItem = NSMenuItem(title: Copy.MenuBar.openCicada, action: #selector(openApp), keyEquivalent: "o")
         openItem.target = self
         menu.addItem(openItem)
 
@@ -330,7 +330,7 @@ final class MenuBarManager: NSObject {
 
         menu.addItem(NSMenuItem.separator())
 
-        let quitItem = NSMenuItem(title: "Quit Cicada", action: #selector(quitApp), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: Copy.MenuBar.quitCicada, action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
 
@@ -341,7 +341,7 @@ final class MenuBarManager: NSObject {
     /// Swaps the tagged reminder lines for the current ones, right after "Next sleep".
     fileprivate func refreshExportWaitItems(in menu: NSMenu) {
         for item in menu.items where item.tag == Self.exportWaitTag { menu.removeItem(item) }
-        let anchor = menu.items.firstIndex { $0.title.hasPrefix("Next sleep:") }
+        let anchor = menu.items.firstIndex { $0.title.hasPrefix(Copy.MenuBar.nextSleepPrefix) }
         insertExportWaitItems(in: menu, at: anchor.map { $0 + 1 } ?? 0)
     }
 
@@ -354,24 +354,28 @@ final class MenuBarManager: NSObject {
         }
     }
 
-    private func relativeLastSleep() -> String {
-        guard let date = StatusSnapshot.parseDate(currentSnapshot?.lastSleepAt) else { return "never" }
+    /// "2 hours ago", or nil before the first Sleep (the line then says "never").
+    private func relativeLastSleep() -> String? {
+        guard let date = StatusSnapshot.parseDate(currentSnapshot?.lastSleepAt) else { return nil }
         let fmt = RelativeDateTimeFormatter()
         fmt.unitsStyle = .full
         return fmt.localizedString(for: date, relativeTo: Date())
     }
 
-    private func nextSleepDescription() -> String {
-        guard let date = StatusSnapshot.parseDate(currentSnapshot?.nextSleepAt) else { return "not scheduled" }
-        let cal = Calendar.current
-        let timeFmt = DateFormatter()
-        timeFmt.dateFormat = "h:mm a"
-        let time = timeFmt.string(from: date)
-        if cal.isDateInToday(date) { return "today \(time)" }
-        if cal.isDateInTomorrow(date) { return "tomorrow \(time)" }
-        let dayFmt = DateFormatter()
-        dayFmt.dateFormat = "EEE h:mm a"
-        return dayFmt.string(from: date)
+    private func nextSleepLine() -> String {
+        Self.nextSleepLine(StatusSnapshot.parseDate(currentSnapshot?.nextSleepAt))
+    }
+
+    /// "Next sleep: Today, 3:00 AM": the day in the app's one day grammar (`RelativeDay`, DR-58) and the time in the
+    /// viewer's own clock style (it was a hand-spelled "today 3:00 AM" / "EEE h:mm a" until round 3).
+    nonisolated static func nextSleepLine(_ date: Date?, now: Date = Date(), calendar: Calendar = .autoupdatingCurrent,
+                                          locale: Locale = .autoupdatingCurrent) -> String {
+        guard let date else { return Copy.MenuBar.nextSleep(day: nil, time: nil) }
+        let day = RelativeDay.phrase(ISODay.today(now: date, calendar: calendar),
+                                     today: ISODay.today(now: now, calendar: calendar), locale: locale)
+        var style = Date.FormatStyle(date: .omitted, time: .shortened, locale: locale, calendar: calendar)
+        style.timeZone = calendar.timeZone
+        return Copy.MenuBar.nextSleep(day: day, time: date.formatted(style))
     }
 
     // MARK: - Actions
@@ -416,17 +420,17 @@ final class MenuBarManager: NSObject {
     func saveClipboardURL() async {
         guard let raw = AppPasteboard.board.string(forType: .string),
               let url = Self.firstURL(in: raw) else {
-            flashHeader("Clipboard has no URL")
+            flashHeader(Copy.MenuBar.clipboardHasNoURL)
             return
         }
         do {
             try await APIClient.shared.saveSource(url: url)
-            flashHeader("Saved \(url)")
+            flashHeader(Copy.MenuBar.saved(url))
             await refreshAfterAction()
         } catch let APIError.httpError(code, _) where code == 404 {
-            flashHeader("Save URL — coming soon")
+            flashHeader(Copy.MenuBar.saveComingSoon)
         } catch {
-            flashHeader("Save failed")
+            flashHeader(Copy.MenuBar.saveFailed)
         }
     }
 
@@ -442,7 +446,7 @@ final class MenuBarManager: NSObject {
     /// restore the real header on the next rebuild.
     private func flashHeader(_ message: String) {
         guard let menu = statusItem?.menu, let header = menu.items.first else { return }
-        header.title = "Cicada: \(message)"
+        header.title = Copy.MenuBar.flash(message)
     }
 
     private static func firstURL(in text: String) -> String? {

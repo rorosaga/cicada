@@ -73,21 +73,16 @@ struct ExportWalkthroughSheet: View {
                 IconButton(systemName: "xmark", help: Copy.seeHowDone, action: onClose)
             }
             HStack {
-                ForEach(ChatVendor.allCases) { v in
-                    Button { vendor = v } label: {
-                        HStack(spacing: CicadaTheme.spacingXS) {
-                            VendorMark(vendor: v, size: CicadaTheme.scaled(14))
-                            Text(v.title).font(CicadaTheme.font(size: 13, weight: v == vendor ? .medium : .regular))
-                        }
-                        .padding(.horizontal, CicadaTheme.scaled(9))
-                        .frame(height: CicadaTheme.scaled(TextTabs<ChatVendor>.height))
-                        .background(v == vendor ? CicadaTheme.bgSelected : Color.clear,
-                                    in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
-                    }
-                    .buttonStyle(.cicadaPlain)
-                    .foregroundStyle(v == vendor ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
-                    .accessibilityAddTraits(v == vendor ? .isSelected : [])
-                }
+                // DR-45 — the shared text tabs, each with its vendor's real mark (DR-52); one vendor is always on, so
+                // tapping the active tab keeps it (the palette's Find · Ask does the same). Round 3 (2026-10-20): this
+                // row drew its own selected pill — 13 pt, `textSecondary` at rest, no hover — until then.
+                TextTabs(tabs: ChatVendor.allCases.map { v in
+                            TextTab(id: v, label: v.title,
+                                    mark: AnyView(VendorMark(vendor: v, size: CicadaTheme.scaled(14))))
+                         },
+                         selection: Binding(get: { vendor }, set: { if let v = $0 { vendor = v } }),
+                         showsCounts: false)
+                    .fixedSize()
                 Spacer()
                 Text(Copy.seeHowSteps(scene.steps.count)).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
             }

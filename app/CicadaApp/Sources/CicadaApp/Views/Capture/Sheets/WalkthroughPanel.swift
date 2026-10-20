@@ -188,11 +188,11 @@ struct WalkthroughPanel: View {
     @ViewBuilder
     private var stage: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+            CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                 .fill(CicadaTheme.surfaceElevated)
             if let url = Self.videoURL(for: vendor) {
                 LoopingVideo(url: url)
-                    .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+                    .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
             } else {
                 VStack(spacing: CicadaTheme.spacingXS) {
                     Image(systemName: "play.rectangle")

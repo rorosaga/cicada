@@ -76,7 +76,7 @@ struct AgentSelector: View {
     /// The ✓ bubble: `success` on a `bgFocus` circle so it reads over the selected fill and the card alike.
     private var check: some View {
         Image(systemName: "checkmark.circle.fill")
-            .font(CicadaTheme.font(size: 12))
+            .font(CicadaTheme.icon(.inline))
             .foregroundStyle(CicadaTheme.success)
             .background(Circle().fill(CicadaTheme.bgFocus))
             .padding(CicadaTheme.scaled(3))

@@ -104,7 +104,7 @@ struct ContextPill: View {
     init(_ context: String) { self.context = context }
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: CicadaTheme.spacingXS) {
             Circle()
                 .fill(CicadaTheme.contextColor(context))
                 .frame(width: 7, height: 7)
@@ -126,7 +126,7 @@ struct TrustPill: View {
     init(_ trust: SourceTrust) { self.trust = trust }
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: CicadaTheme.spacingXS) {
             Image(systemName: filled ? "checkmark.seal.fill" : "checkmark.seal")
                 .font(CicadaTheme.font(size: 9, weight: .medium))
             Text(trust.label)
@@ -203,7 +203,7 @@ struct AuthorPill: View {
     private var name: String { ContributorIdentity.displayName(author: author, kind: kind) }
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: CicadaTheme.spacingXS) {
             ContributorAvatar(author: author, kind: kind, provider: provider, size: CicadaTheme.scaled(14))
             Text(name)
                 .font(CicadaTheme.font(size: 10, weight: .regular))

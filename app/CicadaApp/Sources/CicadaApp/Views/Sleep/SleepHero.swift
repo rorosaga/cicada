@@ -560,7 +560,7 @@ struct SleepControlRow: View {
         Button {
             Task { await sleepVM.pause() }
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: CicadaTheme.spacingXS) {
                 if sleepVM.isCancelling {
                     ProgressView().controlSize(.small).frame(width: 10, height: 10)
                 } else {
@@ -590,7 +590,7 @@ struct SleepControlRow: View {
         Button {
             Task { await sleepVM.cancel() }
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: CicadaTheme.spacingXS) {
                 if sleepVM.isCancelling {
                     ProgressView().controlSize(.small).frame(width: 10, height: 10)
                 } else {

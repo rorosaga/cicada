@@ -81,7 +81,7 @@ struct FolderChannelRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: CicadaTheme.spacingSM) {
                         Text(channel.label)
-                            .font(CicadaTheme.font(size: 13, weight: .medium))
+                            .font(CicadaTheme.rowFont)
                             .foregroundStyle(CicadaTheme.textPrimary)
                         Tag(text: Copy.SearchFiles.depthMemory)
                             .help(Copy.SearchFiles.depthMemoryHelp)
@@ -188,7 +188,7 @@ struct AddFolderRow: View {
             LogoImage.platformTile(name: "", bundleId: bundleId, size: CicadaTheme.scaled(28), systemFallback: symbol)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(CicadaTheme.font(size: 13, weight: .medium))
+                    .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                 Text(blurb)
                     .font(CicadaTheme.captionFont)
@@ -524,7 +524,7 @@ struct WisprFlowRow: View {
                                        systemFallback: OriginIconography.symbol(for: "wispr-flow"))
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Wispr Flow")
-                        .font(CicadaTheme.font(size: 13, weight: .medium))
+                        .font(CicadaTheme.rowFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                     Text(LocalSourceRowText.wisprLine(channel, settings: localSources.wisprSettings))
                         .font(CicadaTheme.captionFont)

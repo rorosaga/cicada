@@ -242,7 +242,7 @@ private struct ReaderChatHeader: View {
             avatar
             if let name = header.name {
                 Text(name)
-                    .font(CicadaTheme.font(size: 12, weight: .medium))
+                    .font(CicadaTheme.metaMediumFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .lineLimit(1)
             }

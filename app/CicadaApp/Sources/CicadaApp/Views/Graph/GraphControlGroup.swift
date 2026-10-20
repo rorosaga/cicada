@@ -148,7 +148,7 @@ struct GraphLegendPanel: View {
             ForEach(GraphChrome.statusRows(graphVM.filter)) { row in
                 Toggle(isOn: Binding(get: { row.isOn }, set: { _ in graphVM.filter.toggleStatus(row.status) })) {
                     HStack {
-                        Text(row.label).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textPrimary)
+                        Text(row.label).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
                         Spacer(minLength: 0)
                         if let hint = row.hint {
                             Text(hint).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)

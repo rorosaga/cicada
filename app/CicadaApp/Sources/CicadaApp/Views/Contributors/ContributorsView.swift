@@ -198,16 +198,16 @@ struct ContributorDrillDown: View {
         }
         .padding(CicadaTheme.spacingSM)
         .background(CicadaTheme.surface.opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+        .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
     }
 
     /// "+N more" — a non-interactive sibling of `entityChip`, styled as muted
     /// so it doesn't read as a tappable entity.
     private func moreEntitiesCapsule(_ hidden: Int) -> some View {
         Text("+\(UsageFormat.count(hidden)) more")
-            .font(CicadaTheme.font(size: 11))
+            .font(CicadaTheme.captionFont)
             .lineLimit(1)
-            .padding(.horizontal, 8)
+            .padding(.horizontal, CicadaTheme.spacingSM)
             .padding(.vertical, 3)
             .background(CicadaTheme.surfaceHover)
             .foregroundStyle(CicadaTheme.textTertiary)
@@ -223,9 +223,9 @@ struct ContributorDrillDown: View {
             toggleEntityDiff(key)
         } label: {
             Text(entityId)
-                .font(CicadaTheme.font(size: 11))
+                .font(CicadaTheme.captionFont)
                 .lineLimit(1)
-                .padding(.horizontal, 8)
+                .padding(.horizontal, CicadaTheme.spacingSM)
                 .padding(.vertical, 3)
                 .background(isOpen ? CicadaTheme.accent.opacity(0.22)
                                    : CicadaTheme.accent.opacity(0.10))

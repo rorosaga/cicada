@@ -95,9 +95,9 @@ private struct SceneryTile: View {
             .padding(CicadaTheme.spacingSM)
             .frame(maxWidth: .infinity)
             .background(selected ? CicadaTheme.bgSelected : (hovering ? CicadaTheme.bgHover : CicadaTheme.bgFocus),
-                        in: RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+                        in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
             .overlay {
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                     .strokeBorder(selected ? CicadaTheme.textPrimary : CicadaTheme.border, lineWidth: 1)
             }
             .contentShape(Rectangle())

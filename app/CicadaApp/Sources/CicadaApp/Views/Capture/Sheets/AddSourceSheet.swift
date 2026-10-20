@@ -400,7 +400,7 @@ struct AddSourceSheet: View {
             Button(action: back) {
                 HStack(spacing: CicadaTheme.spacingXS) {
                     Image(systemName: "chevron.left").font(CicadaTheme.font(size: 11, weight: .semibold))
-                    Text(parent).font(CicadaTheme.font(size: 12, weight: .medium))
+                    Text(parent).font(CicadaTheme.metaMediumFont)
                 }
                 .foregroundStyle(CicadaTheme.textSecondary)
             }
@@ -525,11 +525,11 @@ struct AddSourceSheet: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(CicadaTheme.spacingMD)
             .background(
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                     .fill(CicadaTheme.surfaceElevated)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                     .stroke(focused ? CicadaTheme.accent : CicadaTheme.border, lineWidth: focused ? 2 : 1)
             )
     }

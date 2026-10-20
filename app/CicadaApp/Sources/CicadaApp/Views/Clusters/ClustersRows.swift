@@ -89,7 +89,7 @@ struct ClustersListColumn: View {
                     .foregroundStyle(CicadaTheme.entityColor(for: type))
                     .accessibilityHidden(true)
                 Text(type.groupLabel)
-                    .font(CicadaTheme.font(size: 13, weight: .medium))
+                    .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                 // Say it once — outside find the type's tab already counts it; under find the count is the matches'.
                 if findOpen && !query.isEmpty {

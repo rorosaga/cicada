@@ -375,7 +375,7 @@ struct ReadingWebView: View {
                         VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                             HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
                                 Text(option.title)
-                                    .font(CicadaTheme.font(size: 13, weight: .medium))
+                                    .font(CicadaTheme.rowFont)
                                     .foregroundStyle(CicadaTheme.textPrimary)
                                 if option.isSkill { Tag(text: Copy.Reading.skillTag) }
                             }
@@ -543,7 +543,7 @@ struct ReadingWebView: View {
                     SiteIcon(site: site.site, label: site.label)
                     VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                         Text(site.label)
-                            .font(CicadaTheme.font(size: 13, weight: .medium))
+                            .font(CicadaTheme.rowFont)
                             .foregroundStyle(CicadaTheme.textPrimary)
                         Text(ReadingSiteWords.line(site))
                             .font(CicadaTheme.captionFont)
@@ -653,7 +653,7 @@ struct ReadingFirstUseSheet: View {
             }
             if let label {
                 Text(Copy.Reading.sheetAlsoAllows(label))
-                    .font(CicadaTheme.font(size: 13, weight: .medium))
+                    .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
             }
             Toggle(Copy.Reading.sheetUnderstand, isOn: $understood)

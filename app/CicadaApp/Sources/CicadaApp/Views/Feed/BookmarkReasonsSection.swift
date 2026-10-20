@@ -170,7 +170,7 @@ struct BookmarkReasonsSection: View {
                 Image(systemName: on ? "checkmark.circle.fill" : "circle")
                     .font(CicadaTheme.font(size: 11))
                     .foregroundStyle(on ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
-                Text(title).font(CicadaTheme.font(size: 12)).foregroundStyle(CicadaTheme.textPrimary)
+                Text(title).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textPrimary)
             }
             .padding(.leading, CicadaTheme.scaled(8))
             .padding(.trailing, CicadaTheme.scaled(10))

@@ -92,7 +92,7 @@ struct ReadyPage: View {
                     HStack(spacing: CicadaTheme.scaled(3)) {
                         ForEach(summary.keepingUp.prefix(7)) { OriginMark(origin: $0.model.origin, size: CicadaTheme.scaled(14)) }
                     }
-                    Text(Copy.readyKeepUp(summary.keepingUp.count)).font(CicadaTheme.font(size: 13, weight: .medium))
+                    Text(Copy.readyKeepUp(summary.keepingUp.count)).font(CicadaTheme.rowFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                     Spacer()
                     if let newest = summary.newestSync {
@@ -108,7 +108,7 @@ struct ReadyPage: View {
                     HStack(spacing: CicadaTheme.scaled(3)) {
                         ForEach(agentMarks) { AgentMark(entry: $0, size: 14).accessibilityHidden(true) }
                     }
-                    Text(row.lead).font(CicadaTheme.font(size: 13, weight: .medium)).foregroundStyle(CicadaTheme.textPrimary)
+                    Text(row.lead).font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.textPrimary)
                     Spacer()
                     if let trail = row.trail { Text(trail).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary) }
                 }

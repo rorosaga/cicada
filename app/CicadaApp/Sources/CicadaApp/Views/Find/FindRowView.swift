@@ -43,16 +43,12 @@ struct FindRowView: View {
                 Text("Was").font(CicadaTheme.font(size: 10, weight: .semibold)).foregroundStyle(CicadaTheme.textTertiary)
             }
             Text(ExcerptText.attributed(row.title, bold: row.titleRanges))
-                .font(CicadaTheme.font(size: 13, weight: .medium))
+                .font(CicadaTheme.rowFont)
                 .foregroundStyle(row.history == nil ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
                 .lineLimit(1)
-            if let badge = row.badge {
-                Text(badge)
-                    .font(CicadaTheme.font(size: 10))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .padding(.horizontal, CicadaTheme.spacingXS)
-                    .background(Capsule().fill(CicadaTheme.surfaceHover))
-            }
+            // DR-44 — the row's type is the one pill, `Tag` (round 3, 2026-10-20: it was a 10 pt capsule of its own in
+            // the hover fill, so on a hovered row it vanished into the row).
+            if let badge = row.badge { Tag(text: badge) }
             if let history = row.history {
                 Text(history).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
             }

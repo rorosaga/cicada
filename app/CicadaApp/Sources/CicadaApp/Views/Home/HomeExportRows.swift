@@ -18,7 +18,7 @@ struct ExportVendorRow: View {
             HStack(spacing: CicadaTheme.spacingSM) {
                 VendorMark(vendor: vendor, size: CicadaTheme.scaled(16)).markHover(hovering: hovering)
                 Text(vendor.title)
-                    .font(CicadaTheme.font(size: 13, weight: .medium))
+                    .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                 Text(Copy.importWait(vendor))
                     .font(CicadaTheme.metaFont)
@@ -27,7 +27,7 @@ struct ExportVendorRow: View {
                 Spacer(minLength: CicadaTheme.spacingSM)
                 // The row's visible affordance, drawn as a text button's label (DR-40): the row itself is the button.
                 Text(Copy.importSeeHow)
-                    .font(CicadaTheme.font(size: 13))
+                    .font(CicadaTheme.bodyFont)
                     .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
             }
             .padding(.horizontal, CicadaTheme.scaled(10))

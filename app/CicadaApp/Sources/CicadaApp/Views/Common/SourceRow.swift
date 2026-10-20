@@ -23,7 +23,7 @@ struct SourceRow<Accessory: View>: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
                     Text(model.title)
-                        .font(CicadaTheme.font(size: 13, weight: .medium))
+                        .font(CicadaTheme.rowFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(1)
                     if let meta = model.meta {

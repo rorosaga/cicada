@@ -349,7 +349,7 @@ struct GettingStartedCard: View {
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(Copy.gsChatHistory)
-                    .font(CicadaTheme.font(size: 13, weight: .medium))   // DR-16 reserves semibold
+                    .font(CicadaTheme.rowFont)   // DR-16 reserves semibold
                     .foregroundStyle(CicadaTheme.textPrimary)
                 Text(Copy.gsChatDrop)
                     .font(CicadaTheme.captionFont)
@@ -462,7 +462,7 @@ struct GettingStartedCard: View {
                                                   (.daily, Copy.gsNightly)]
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             Text(Copy.gsScheduleQuestion)
-                .font(CicadaTheme.font(size: 13, weight: .medium))   // DR-16 reserves semibold
+                .font(CicadaTheme.rowFont)   // DR-16 reserves semibold
                 .foregroundStyle(CicadaTheme.textPrimary)
             // Review #5/#7 — three 28 pt neutral buttons (DR-40), the current one ticked; never 11 pt hand-rolled radios.
             HStack(spacing: CicadaTheme.spacingSM) {

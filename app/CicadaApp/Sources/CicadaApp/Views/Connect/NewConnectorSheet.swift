@@ -121,9 +121,9 @@ struct NewConnectorSheet: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, CicadaTheme.spacingSM)
-            .background(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                 .fill(app == candidate ? CicadaTheme.surfaceElevated : CicadaTheme.surface))
-            .overlay(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+            .overlay(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                 .stroke(app == candidate ? CicadaTheme.accent : CicadaTheme.border, lineWidth: 1))
         }
         .buttonStyle(.cicadaPlain)

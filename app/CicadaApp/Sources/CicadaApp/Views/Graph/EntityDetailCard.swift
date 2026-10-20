@@ -438,7 +438,7 @@ struct EntityDetailCard: View {
                     if !claimsLoaded {
                         SectionLoading(text: Copy.Graph.readingBeliefs)
                     } else if validClaims.isEmpty {
-                        Text(Copy.Graph.noBeliefsYet).font(CicadaTheme.font(size: 13))
+                        Text(Copy.Graph.noBeliefsYet).font(CicadaTheme.bodyFont)
                             .foregroundStyle(CicadaTheme.textTertiary)
                     } else if entity.type == .person {
                         PersonBeliefsSection(ordered: digest.newestFirst, showsLabel: false,
@@ -622,7 +622,7 @@ struct EntityDetailCard: View {
                                                  : CicadaTheme.textTertiary)
                                 .frame(width: 16)
                             Text(entry.name)
-                                .font(CicadaTheme.font(size: 12))
+                                .font(CicadaTheme.metaFont)
                                 .foregroundStyle(CicadaTheme.textSecondary)
                                 .lineLimit(1)
                             Spacer()
@@ -909,7 +909,7 @@ struct EntityDetailCard: View {
     }
 
     private func detailValue(_ text: String) -> some View {
-        Text(text).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textSecondary)
+        Text(text).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
     }
 
     /// The page's own `## Related` section, when its article has one: where "and K more" leads.
@@ -1189,7 +1189,7 @@ struct EntityDetailCard: View {
                 ProgressView().controlSize(.small).frame(maxWidth: .infinity, alignment: .center)
             } else if validClaims.isEmpty {
                 Text(Copy.Graph.noBeliefsYet)
-                    .font(CicadaTheme.font(size: 13))
+                    .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
             } else {
                 ForEach(digest.divergences) { d in divergenceBlock(d) }
@@ -1248,7 +1248,7 @@ struct EntityDetailCard: View {
                 let keys = TimelineKeys.rows(contested: digest.contested, requested: requestedKey)
                 if keys.isEmpty {
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                        Text(Copy.Graph.noContested).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textSecondary)
+                        Text(Copy.Graph.noContested).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
                         Text(Copy.Graph.noContestedDetail).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                     }
                 } else {
@@ -1552,11 +1552,11 @@ struct RelatedLinksRow: View {
     private func link(_ rel: String) -> some View {
         if let id = DetailsWords.relatedTarget(rel, in: entities) {
             Button { onOpen(id) } label: {
-                Text(rel).font(CicadaTheme.font(size: 13, weight: .medium)).foregroundStyle(CicadaTheme.accentText)
+                Text(rel).font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.accentText)
             }
             .buttonStyle(.cicadaPlain)
         } else {
-            Text(rel).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textSecondary)
+            Text(rel).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
         }
     }
 
@@ -1564,13 +1564,13 @@ struct RelatedLinksRow: View {
     private func more(_ n: Int) -> some View {
         if let onMore {
             Button(action: onMore) {
-                Text(Copy.Graph.relatedMore(n)).font(CicadaTheme.font(size: 13, weight: .medium))
+                Text(Copy.Graph.relatedMore(n)).font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.accentText)
             }
             .buttonStyle(.cicadaPlain)
             .help(Copy.Graph.relatedMoreHelp)
         } else {
-            Text(Copy.Graph.relatedMore(n)).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textTertiary)
+            Text(Copy.Graph.relatedMore(n)).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
         }
     }
 }

@@ -68,7 +68,7 @@ struct GraphFindOverlay: View {
             Circle().fill(CicadaTheme.entityColor(for: hit.node.type))
                 .frame(width: CicadaTheme.scaled(7), height: CicadaTheme.scaled(7))
             Text(ExcerptText.attributed(hit.node.name, bold: hit.ranges))
-                .font(CicadaTheme.font(size: 13))
+                .font(CicadaTheme.bodyFont)
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .lineLimit(1)
             Spacer(minLength: 0)

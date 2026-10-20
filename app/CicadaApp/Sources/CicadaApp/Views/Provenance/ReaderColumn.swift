@@ -630,7 +630,7 @@ struct ReaderTurnView: View {
                         OriginMark(origin: mark, size: CicadaTheme.scaled(12))
                     }
                     Text(block.speaker)
-                        .font(CicadaTheme.font(size: 12, weight: .medium))
+                        .font(CicadaTheme.metaMediumFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
                     Text("· " + Copy.Provenance.turn(block.index))
                         .font(CicadaTheme.metaFont)
@@ -709,7 +709,6 @@ private struct ReaderNotedRow: View {
     let onShowOnGraph: () -> Void
 
     @State private var hovering = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let name = row.subjectName.isEmpty ? row.subjectId : row.subjectName
@@ -718,7 +717,7 @@ private struct ReaderNotedRow: View {
             Button(action: onJump) {
                 VStack(alignment: .leading, spacing: RowMetrics.twoLineGap) {
                     Text(renderWikilinks(row.text.isEmpty ? name : row.text))
-                        .font(CicadaTheme.font(size: 13))
+                        .font(CicadaTheme.bodyFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .strikethrough(!row.current)
                         .lineLimit(2)
@@ -735,10 +734,9 @@ private struct ReaderNotedRow: View {
         }
         .padding(.horizontal, CicadaTheme.spacingSM)
         .frame(minHeight: CicadaTheme.scaled(RowMetrics.twoLine))
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-            .fill(isCurrent ? CicadaTheme.bgSelected : hovering ? CicadaTheme.bgHover : Color.clear))
-        .onHover { hovering = $0 }
-        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+        // DR-48 (round 3, 2026-10-20): the shared row fill — the row whose words are on screen is `isCurrent`, a
+        // selection, not the cited span's wash (that is `CitedSpan`'s dandelion, DR-13/G118, drawn in the text).
+        .rowHover($hovering, selected: isCurrent)
     }
 }
 

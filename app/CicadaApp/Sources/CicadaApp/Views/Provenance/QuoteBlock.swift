@@ -26,14 +26,14 @@ struct QuoteBlock: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-            RoundedRectangle(cornerRadius: 1)
+            CicadaTheme.shape(1)
                 .fill(EvidenceLabel.ruleColor(kind))
                 .frame(width: 2)
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 // R-DL2 — the one door: a quote reads without markup or role labels, the span kept exact.
                 let clean = ExcerptText.quoteParts(before: before, span: span, after: after)
                 Text(Self.attributed(before: clean.before, span: clean.span, after: clean.after, style: style))
-                    .font(CicadaTheme.font(size: 12))
+                    .font(CicadaTheme.metaFont)
                     .lineLimit(lineLimit)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)

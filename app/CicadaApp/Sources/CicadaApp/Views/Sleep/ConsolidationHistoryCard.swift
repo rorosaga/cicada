@@ -301,7 +301,7 @@ struct ConsolidationHistoryCard: View {
                 if !d.episodesByOrigin.isEmpty {
                     FlowLayout(spacing: 6) {
                         ForEach(d.episodesByOrigin.sorted(by: { $0.key < $1.key }), id: \.key) { origin, count in
-                            HStack(spacing: 4) {
+                            HStack(spacing: CicadaTheme.spacingXS) {
                                 OriginMark(origin: origin, size: CicadaTheme.scaled(12))
                                 Text(UsageFormat.count(count))
                                     .font(CicadaTheme.metaFont)

@@ -18,7 +18,7 @@ struct MessagesRow: View {
                                        systemFallback: OriginIconography.symbol(for: "imessage"))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(Copy.Messages.title)
-                        .font(CicadaTheme.font(size: 13, weight: .medium))
+                        .font(CicadaTheme.rowFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                     Text(MessagesRowText.line(ticked: watcher.tickedIds.count, status: watcher.status, note: note))
                         .font(CicadaTheme.captionFont)
@@ -198,7 +198,7 @@ struct MessagesConversationRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: CicadaTheme.spacingSM) {
                     Text(name)
-                        .font(CicadaTheme.font(size: 13, weight: .medium))
+                        .font(CicadaTheme.rowFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(1)
                     if let tag = MessagesConversationText.tag(state) { Tag(text: tag) }

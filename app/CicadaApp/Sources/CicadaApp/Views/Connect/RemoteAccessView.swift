@@ -556,13 +556,13 @@ struct RemoteAppMark: View {
         Group {
             if let logo = app.logoName, LogoImage.exists(name: logo) {
                 LogoImage(name: logo, size: size)
-                    .clipShape(RoundedRectangle(cornerRadius: size * 0.22))
+                    .clipShape(CicadaTheme.shape(size * 0.22))
             } else {
                 Image(systemName: app.symbol)
                     .font(CicadaTheme.font(size: size * 0.5))
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .frame(width: size, height: size)
-                    .background(RoundedRectangle(cornerRadius: size * 0.22).fill(CicadaTheme.surfaceElevated))
+                    .background(CicadaTheme.shape(size * 0.22).fill(CicadaTheme.surfaceElevated))
             }
         }
         .frame(width: size, height: size)

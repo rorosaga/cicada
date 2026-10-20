@@ -37,18 +37,10 @@ struct FindPanelBody: View {
         VStack(spacing: 0) {
             field
             if Self.showsBody(placement: placement, query: model.query, mode: model.mode) {
-                // Design §3.6: a hairline while the server tier is out, drawn as an
-                // overlay on the divider so it takes no layout — as a VStack child it
-                // pushed every shown row down on each pause and pulled them back when
-                // the server answered, breaking §3.2's "nothing shown moves" (S-ui
-                // final review). Under Reduce Motion there is no indeterminate bar —
-                // the footer's "Searching conversations…" is its text twin.
+                // Design §3.6 / DR-43 (round 3, 2026-10-20): while the server tier is out the footer says so in words
+                // ("Searching conversations…", the live region) — no indeterminate bar over the divider, which was the
+                // palette's own spinner. Nothing shown moves (§3.2): the rows already standing stay put.
                 Divider().background(CicadaTheme.border)
-                    .overlay(alignment: .top) {
-                        if model.mode == .find, model.serverPhase == .searching, !reduceMotion {
-                            ProgressView().progressViewStyle(.linear).controlSize(.mini).accessibilityHidden(true)
-                        }
-                    }
                 Group {
                     if model.mode == .ask {
                         AskPanel(onSelectEntity: { run(.entity(id: $0)) }, hostedViewModel: model.ask)
@@ -88,7 +80,6 @@ struct FindPanelBody: View {
                     handle(FindKeymap.action(key: press.key, modifiers: press.modifiers, mode: model.mode))
                 }
                 .accessibilityLabel(model.mode == .find ? "Search your memory" : "Ask your memory")
-            if model.mode == .ask, model.ask.isAsking { ProgressView().controlSize(.small) }
             // Home review #10 — DR-45 text tabs inside the field (26 pt, `bgSelected` when active), never the native
             // segmented control, whose selected segment paints the accent (DR-5). One mode is always on: tapping the
             // active tab keeps it. The switch is instant (DR-60/61): ⌘⏎ and a click share this path.
@@ -100,7 +91,7 @@ struct FindPanelBody: View {
             if placement == .palette {
                 Button(action: close) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(CicadaTheme.font(size: 14))
+                        .font(CicadaTheme.icon(.list))
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
                 .buttonStyle(.cicadaPlain)

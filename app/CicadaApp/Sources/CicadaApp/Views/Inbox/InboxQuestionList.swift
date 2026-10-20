@@ -262,7 +262,7 @@ struct InboxUndoRow: View {
 
     private var label: some View {
         Text(style == .titles || style == .hidden ? held.shortLabel : held.label)
-            .font(CicadaTheme.font(size: 13, weight: .medium))
+            .font(CicadaTheme.rowFont)
             .foregroundStyle(CicadaTheme.textSecondary)
             .lineLimit(1)
     }
@@ -277,7 +277,7 @@ struct InboxUndoRow: View {
     var body: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             Image(systemName: "checkmark.circle")
-                .font(CicadaTheme.font(size: 14))
+                .font(CicadaTheme.icon(.list))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .accessibilityHidden(true)
             switch style {

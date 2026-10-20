@@ -29,8 +29,7 @@ struct SiteIcon: View {
                 // Only a fetched favicon is clipped: a bundled brand mark stands bare (DR-52).
                 if let image {
                     Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
-                        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.scaled(SiteIconLayout.cornerRadius),
-                                                    style: .continuous))
+                        .clipShape(CicadaTheme.shape(CicadaTheme.scaled(SiteIconLayout.cornerRadius)))
                 }
             case .bundled(let name):
                 LogoImage(name: name, size: side)
@@ -91,7 +90,7 @@ struct SiteMonogram: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: CicadaTheme.scaled(SiteIconLayout.cornerRadius), style: .continuous)
+            CicadaTheme.shape(CicadaTheme.scaled(SiteIconLayout.cornerRadius))
                 .strokeBorder(CicadaTheme.border, lineWidth: 1)
             Text(letter)
                 .font(CicadaTheme.font(size: side * 0.55, weight: .medium))

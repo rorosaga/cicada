@@ -73,7 +73,7 @@ struct WindowLegend: View {
                     }
                     .padding(CicadaTheme.spacingXS)
                     .background(weather == current.base ? CicadaTheme.bgSelected : Color.clear,
-                                in: RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+                                in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
                     .accessibilityElement(children: .combine)
                     .accessibilityAddTraits(weather == current.base ? .isSelected : [])
                 }

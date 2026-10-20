@@ -135,7 +135,7 @@ struct ChannelSourceView: View {
                 ForEach(groups, id: \.folder) { g in
                     // R-SR13: Safari's internal keys in Safari's words ("Favorites/AI", not `BookmarksBar/AI`).
                     Text("\(SafariSections.displayFolder(g.folder)) · \(UsageFormat.count(g.count))")
-                        .font(CicadaTheme.font(size: 11)).padding(.horizontal, 8).padding(.vertical, 3)
+                        .font(CicadaTheme.captionFont).padding(.horizontal, CicadaTheme.spacingSM).padding(.vertical, 3)
                         .background(CicadaTheme.surfaceHover).clipShape(Capsule())
                 }
             }

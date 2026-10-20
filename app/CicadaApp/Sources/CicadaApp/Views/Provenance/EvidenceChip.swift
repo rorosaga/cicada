@@ -49,7 +49,7 @@ struct EvidenceChip: View {
     }
 
     private var label: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: CicadaTheme.spacingXS) {
             mark
             Text(EvidenceLabel.chipText(model, meta: meta))
                 .font(CicadaTheme.font(size: 10, weight: .regular))
@@ -156,7 +156,7 @@ struct EvidencePreview: View {
             case .loading:
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(0..<3, id: \.self) { i in
-                        RoundedRectangle(cornerRadius: CicadaTheme.radiusXS)
+                        CicadaTheme.shape(CicadaTheme.radiusXS)
                             .fill(CicadaTheme.surfaceHover)
                             .frame(width: CicadaTheme.scaled(i == 2 ? 160 : 300), height: CicadaTheme.scaled(8))
                     }

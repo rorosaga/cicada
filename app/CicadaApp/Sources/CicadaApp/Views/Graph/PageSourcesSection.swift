@@ -184,7 +184,7 @@ private struct BackedFactRow: View {
         Button(action: open) {
             HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
                 Text(renderWikilinks(fact.text))
-                    .font(CicadaTheme.font(size: 12))
+                    .font(CicadaTheme.metaFont)
                     .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -341,7 +341,7 @@ struct LookUpChip: View {
 
     var body: some View {
         Button(action: open) {
-            HStack(spacing: 4) {
+            HStack(spacing: CicadaTheme.spacingXS) {
                 if let site = source.site, !site.isEmpty {
                     SiteIcon(site: site, size: .inline, entity: entityId)
                 } else {

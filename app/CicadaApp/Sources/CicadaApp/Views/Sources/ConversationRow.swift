@@ -37,7 +37,7 @@ struct ConversationRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 Text(conversation.displayTitle)
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
@@ -83,7 +83,7 @@ struct ConversationRow: View {
         }
         .padding(CicadaTheme.spacingSM)
         .background(
-            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+            CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                 .fill(isSelected ? CicadaTheme.surfaceElevated : CicadaTheme.surfaceHover.opacity(0.4))
         )
         .accessibilityElement(children: .contain)
@@ -105,9 +105,9 @@ struct ConversationRow: View {
                 // Deliberately NOT a button: there is no id behind it to open.
                 if plan.hidden > 0 {
                     Text("+\(UsageFormat.count(plan.hidden)) more")
-                        .font(CicadaTheme.font(size: 11))
+                        .font(CicadaTheme.captionFont)
                         .lineLimit(1)
-                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .padding(.horizontal, CicadaTheme.spacingSM).padding(.vertical, 3)
                         .background(CicadaTheme.surfaceHover)
                         .foregroundStyle(CicadaTheme.textTertiary)
                         .clipShape(Capsule())
@@ -120,9 +120,9 @@ struct ConversationRow: View {
     @ViewBuilder
     private func entityChip(_ entityId: String) -> some View {
         let label = Text(entityId)
-            .font(CicadaTheme.font(size: 11))
+            .font(CicadaTheme.captionFont)
             .lineLimit(1)
-            .padding(.horizontal, 8).padding(.vertical, 3)
+            .padding(.horizontal, CicadaTheme.spacingSM).padding(.vertical, 3)
             .background(CicadaTheme.accent.opacity(0.10))
             .foregroundStyle(CicadaTheme.accent)
             .clipShape(Capsule())
