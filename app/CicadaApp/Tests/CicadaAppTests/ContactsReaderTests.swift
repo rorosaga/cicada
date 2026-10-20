@@ -27,15 +27,7 @@ final class FakeContactsAPI: ContactsSyncAPI {
     /// The bank each post named (`BankScope.origin`, G183(d)).
     private(set) var banks: [String?] = []
     private(set) var forgets = 0
-    /// How many forgets answer 409 first (Sleep holding the pages) before one goes through.
-    var refuseForgets = 0
-    func forgetWaitingContacts() async throws {
-        forgets += 1
-        if refuseForgets > 0 {
-            refuseForgets -= 1
-            throw APIError.httpError(409, "")
-        }
-    }
+    func forgetWaitingContacts() async throws { forgets += 1 }
     func syncLocalContacts(_ payload: ContactsSyncPayload) async throws -> ContactsSyncResult {
         payloads.append(payload)
         banks.append(BankScope.origin)
@@ -122,28 +114,6 @@ final class ContactsReaderTests: XCTestCase {
         await r.forgetTask?.value
         XCTAssertEqual(r.status, .denied)
         XCTAssertEqual(api.forgets, 2)
-    }
-
-    /// G183: the forget is refused while Sleep holds the pages; the app asks again until it goes through, and a
-    /// Connect in between cancels the waiting forget so it never deletes the cards that Connect posts.
-    func testARefusedForgetIsAskedAgainAndAConnectCancelsIt() async {
-        let store = FakeContactStore()
-        let api = FakeContactsAPI()
-        let r = reader(store, api, defaults(), retryAfter: .milliseconds(5))
-        await r.connect()
-        api.refuseForgets = 2
-        r.disconnect()
-        await r.forgetTask?.value
-        XCTAssertEqual(api.forgets, 3, "two refusals, then the forget that went through")
-
-        let slow = reader(store, api, defaults(), retryAfter: .seconds(30))
-        await slow.connect()
-        api.refuseForgets = 1
-        slow.disconnect()
-        try? await Task.sleep(for: .milliseconds(50))
-        await slow.connect()
-        await slow.forgetTask?.value
-        XCTAssertEqual(api.forgets, 4, "the reconnect cancelled the retry: no second forget")
     }
 
     func testSyncNowAfterAccessWasTakenAwaySaysSoInWords() async {

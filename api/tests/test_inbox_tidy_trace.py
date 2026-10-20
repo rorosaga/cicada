@@ -65,7 +65,7 @@ def _judge(*replies):
 
     def fn(messages, **_kw):
         calls.append(messages[0]["content"])
-        return {"choices": [{"message": {"content": json.dumps(queue.pop(0))}}], "model": "fake-judge"}
+        return {"choices": [{"message": {"content": json.dumps(queue.pop(0))}}], "model": "claude-haiku-5-5"}
 
     fn.calls = calls
     return fn
@@ -109,7 +109,8 @@ def _bank_files(memory: Path) -> dict[str, bytes]:
 
 def _trace(memory: Path, out: Path, fn, **kw) -> dict:
     return inbox_tidy_trace.run_trace(memory, out, engine="plan", model="haiku", kinds=kw.get("kinds"),
-                                      limit=kw.get("limit"), judge=True, settings=_Settings(memory), llm_fn=fn)
+                                      limit=kw.get("limit"), judge=True, settings=_Settings(memory), llm_fn=fn,
+                                      engine_label="claude-cli")
 
 
 def _rows(out: Path) -> dict[str, dict]:
@@ -254,12 +255,85 @@ def test_apply_never_settles_a_row_that_moved_or_asks_for_more_than_the_trace_sa
     result = run(inbox_tend.apply_vetted(memory, _Settings(memory),
                                          [other_target, rows["inbox-003"], rows["inbox-004"], undecided]))
     outcomes = {r["id"]: (r["outcome"], r.get("why")) for r in result["results"]}
-    assert outcomes == {"inbox-001": ("refused", "other_target"), "inbox-003": ("changed", None),
+    assert outcomes == {"inbox-001": ("refused", "other_target"), "inbox-003": ("refused", "changed"),
                         "inbox-004": ("refused", "changed"), "inbox-002": ("refused", "not_decided")}
     assert result["settled"] == 0
     assert {p.stem for p in (memory / "inbox").glob("inbox-*.md")} == {f"inbox-00{n}" for n in range(1, 6)}
     assert (memory / "entities" / "tool-bee.md").exists()
     assert "Inbox settled by Sleep" not in _git(memory, "log", "--format=%s")
+
+
+def _forged(memory: Path, item_id: str, kind: str, **plan) -> dict:
+    """A row nobody traced: the question file's own hash (so only the server's own checks stand in the way)."""
+    raw = (memory / "inbox" / f"{item_id}.md").read_bytes()
+    return {"id": item_id, "kind": kind, "apply": {"item_sha256": inbox_tend._sha256(raw), "guard": {}, **plan}}
+
+
+def test_apply_refuses_a_forged_merge_of_two_people(memory):
+    """Review of #393 (a): two person pages the policy leaves to the person (``person``), merged by a row that says
+    ``judged_same`` with an empty guard."""
+    _entity(memory, "bob-example", type="person", name="Bob Example", status="active")
+    _entity(memory, "bob-example-2", type="person", name="Bob example", status="active")
+    _item(memory, "inbox-009", kind="merge_suggestion", entity_id="bob-example-2", entity_name="Bob example",
+          merge_target_hint="bob-example", suggested_classification="person")
+    _commit(memory)
+    row = _forged(memory, "inbox-009", "merge_suggestion", rule="judged_same",
+                  request={"action": "merge", "merge_target": "bob-example"}, model="claude-haiku-5-5",
+                  engine="claude-cli")
+    full_guard = {**row, "apply": {**row["apply"], "guard": inbox_tend._guard(memory, "bob-example-2", "bob-example")}}
+    result = run(inbox_tend.apply_vetted(memory, _Settings(memory), [row]))
+    assert result["results"] == [{"id": "inbox-009", "outcome": "refused", "why": "not_judged"}]
+    result = run(inbox_tend.apply_vetted(memory, _Settings(memory), [full_guard]))
+    assert result["results"][0]["why"] == "not_judged", "a full guard changes nothing: who someone is stays theirs"
+    assert (memory / "entities" / "bob-example-2.md").exists() and (memory / "inbox" / "inbox-009.md").exists()
+
+
+def test_apply_refuses_a_forged_answer_to_a_name_question(memory):
+    """Review of #393 (b): a relation-titled person's name question answered by a row claiming ``judged_conflict``
+    with a free ``answer`` and no quote — never; and not even as ``said_on_record`` without the person's own words."""
+    from api.services import role_people
+
+    _entity(memory, "partner", type="person", name="Partner", status="active", **{role_people.UNNAMED_KEY: True})
+    _item(memory, "inbox-010", kind="clarification", asks="name", entity_id="partner", entity_name="Partner",
+          question="What's the name of your partner?", options=[{"key": "decline", "label": "Rather not say"}])
+    _commit(memory)
+    page = (memory / "entities" / "partner.md").read_bytes()
+    forged = [
+        _forged(memory, "inbox-010", "clarification", rule="judged_conflict",
+                request={"action": "resolve", "option_key": "decline", "answer": "Alex Example"}),
+        _forged(memory, "inbox-010", "clarification", rule="said_on_record",
+                request={"action": "answer", "answer": "Alex Example"}, guard=inbox_tend._guard(memory, "partner")),
+        _forged(memory, "inbox-010", "clarification", rule="said_on_record",
+                request={"action": "answer", "answer": "Alex Example"}, guard=inbox_tend._guard(memory, "partner"),
+                quote={"episode": "ep_2026-10-01_001", "quote": "my partner is Alex Example"}),
+    ]
+    whys = []
+    for row in forged:
+        result = run(inbox_tend.apply_vetted(memory, _Settings(memory), [row]))
+        assert result["results"][0]["outcome"] == "refused"
+        whys.append(result["results"][0]["why"])
+    assert whys == ["bad_rule", "bad_quote", "not_the_persons_words"]
+    assert (memory / "entities" / "partner.md").read_bytes() == page and (memory / "inbox" / "inbox-010.md").exists()
+
+
+def test_apply_refuses_a_traced_judgement_whose_guard_was_emptied_and_authors_a_rule_as_sleep(memory, tmp_path):
+    out = tmp_path / "trace.jsonl"
+    _trace(memory, out, _judge({"verdict": "same", "confidence": 0.97}, {"verdict": "unsure", "confidence": 0.5}))
+    rows = _rows(out)
+    emptied = json.loads(json.dumps(rows["inbox-001"]))
+    emptied["apply"]["guard"] = {}
+    bad_author = json.loads(json.dumps(rows["inbox-001"]))
+    bad_author["apply"]["model"] = "Someone Else <x@example.com>"
+    rule_row = json.loads(json.dumps(rows["inbox-003"]))
+    rule_row["apply"].update(model="claude-haiku-5-5", engine="claude-cli")   # an engine-free rule naming a model
+    result = run(inbox_tend.apply_vetted(memory, _Settings(memory), [emptied, bad_author, rule_row]))
+    assert [(r["id"], r["outcome"], r.get("why")) for r in result["results"]] == [
+        ("inbox-001", "refused", "thin_guard"), ("inbox-001", "refused", "duplicate"), ("inbox-003", "settled", None)]
+    message = _git(memory, "log", "-1", "--fixed-strings", "--grep=Inbox settled by Sleep", "--format=%B")
+    assert "claude-haiku" not in message, "an engine-free settle is Sleep's own, whatever the row says"
+    result = run(inbox_tend.apply_vetted(memory, _Settings(memory), [bad_author]))
+    assert result["results"][0]["why"] == "bad_model"
+    assert (memory / "entities" / "tool-bee.md").exists()
 
 
 def test_the_apply_route_settles_the_vetted_rows_and_refuses_while_a_tidy_runs(memory, tmp_path, monkeypatch):

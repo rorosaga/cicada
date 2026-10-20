@@ -413,28 +413,55 @@ def test_forgetting_linkedin_connections_stops_the_rematch(tmp_path, monkeypatch
     config.get_settings.cache_clear()
 
 
-def test_a_forget_while_sleep_holds_the_pages_is_refused_and_keeps_both_stores(tmp_path, monkeypatch):
-    """G183: both forgets write only outside every bank, yet Sleep reads the waiting cards and the kept export inside
-    its window and its Contacts rematch rewrites the waiting set — so a forget mid-run is a 409 the app asks again
-    after, never a 200 that Sleep then undoes."""
+def test_the_contacts_forget_lands_at_once_while_sleep_runs_and_linkedins_waits(stage2, monkeypatch):
+    """Review of #393: the app sends the Contacts forget once — a 409 would keep a disconnected address book's cards —
+    so it is accepted while Sleep holds the pages and deletes at once. LinkedIn's forget (a click in a panel that says
+    a refusal in words) is still admitted."""
     from api.services import linkedin_people, sleep_cycle
 
-    memory = _bank(tmp_path, git=False)
-    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
     config.get_settings.cache_clear()
-    contacts_local.save_waiting(memory.name, [{"id": "C9", "given_name": "Hal", "family_name": "Sample"}])
-    linkedin_people.save_directory(memory.name, [linkedin_people.Connection(
+    linkedin_people.save_directory(stage2.name, [linkedin_people.Connection(
         "Ivy", "Example", "https://www.linkedin.com/in/ivy-example", "Acme Example", "Engineer", "2024-01-02")],
         "2026-10-01")
     c = TestClient(main.app)
     monkeypatch.setattr(sleep_cycle, "is_writing", lambda: True)
-    for route in ("/sources/contacts-local/waiting", "/sources/linkedin-connections"):
-        assert c.delete(route).status_code == 409, route
-    assert contacts_local.load_waiting(memory.name) and linkedin_people.directory_path(memory.name).exists()
-    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: False)
-    assert c.delete("/sources/contacts-local/waiting").json() == {"forgotten": 1}
-    assert c.delete("/sources/linkedin-connections").json()["forgotten"] == 1
-    assert not contacts_local.load_waiting(memory.name)
-    assert not linkedin_people.directory_path(memory.name).exists()
+    assert c.delete("/sources/contacts-local/waiting").json() == {"forgotten": 3}
+    assert not people_directory.path(stage2.name, contacts_local.WAITING_FILE).exists()
+    assert c.delete("/sources/linkedin-connections").status_code == 409
+    assert linkedin_people.directory_path(stage2.name).exists()
     config.get_settings.cache_clear()
+
+
+def test_a_tail_rematch_that_read_the_cards_before_the_forget_neither_writes_nor_brings_them_back(stage2, monkeypatch):
+    _entity(stage2, "erin-example", type="person", name="Erin Example")
+    real_index = contacts_local._index
+
+    def forget_mid_run(*a, **k):   # the person stops Contacts after the tail read the cards, before it writes
+        contacts_local.forget_waiting()
+        return real_index(*a, **k)
+
+    monkeypatch.setattr(contacts_local, "_index", forget_mid_run)
+    assert contacts_local.rematch(stage2).paths == []
+    assert fact_sources.list_sources(stage2, "erin-example") == [], "no page takes a card read before the forget"
+    assert not people_directory.path(stage2.name, contacts_local.WAITING_FILE).exists(), "nothing saved back"
+    assert contacts_local.load_waiting(stage2.name) == []
+    monkeypatch.setattr(contacts_local, "_index", real_index)
+    assert contacts_local.rematch(stage2).paths == [], "and the next tail has nothing to match"
+
+
+def test_stage2_and_stage5_never_use_a_card_read_before_the_forget(stage2, monkeypatch):
+    before = contacts_local.waiting_index(stage2)          # Stage 2 read the set at the start of its batch
+    card = before.match(["Erin Example"])
+    assert card is not None and card["id"] == "C1"
+    contacts_local.forget_waiting()
+    assert before.match(["Erin Example"]) is None, "the index read earlier now matches nothing"
+    monkeypatch.setattr(contacts_local, "waiting_index", lambda *a, **k: before)
+    out = _resolve(stage2, _mention("Erin Example"))
+    assert not [ch for ch in out["changes"] if ch.get("contacts_card")]
+    frontmatter: dict = {"name": "Erin Example", "type": "person"}
+    contacts_local.seed_page(stage2, frontmatter, "erin-example", card)   # a change made before the forget
+    assert frontmatter == {"name": "Erin Example", "type": "person"}, "seeds nothing"
+    # A sync that read the address book before the forget never saves its waiting set after it.
+    assert contacts_local.save_waiting(stage2.name, [{"id": "C9", "given_name": "Hal", "family_name": "Sample"}],
+                                       read_at=card[contacts_local.READ_AT]) == 0
+    assert contacts_local.load_waiting(stage2.name) == []

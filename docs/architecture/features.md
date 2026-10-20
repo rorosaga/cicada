@@ -360,11 +360,17 @@ an engine-free rule), a one-line `reason`, and for a decided question an `apply`
 hashes of the question file and every page it read. stdout gets counts only. `--engine plan` pins the judge to the
 Claude plan with that model (`llm_mode=agent` on a copy): the bank's configured engine is never resolved or called.
 `… apply --vetted <file>` sends the rows still carrying `apply` to `POST /inbox/tidy/apply` (ruling 21a: token, pinned
-bank, `/healthz` root check), which settles each exactly as decided through `inbox_tend.apply` — the person's own
-resolver, Sleep's undoable commit, one at a time under the bank's write admission — only while the question file
-and every page it read are unchanged (an engine-free rule is also decided again and must agree); a row that names
-another merge target, a retire under any rule but `subject_gone`/`own_settings`, a free answer without the person's
-words, or any request key the rules never send is refused. Per-id outcomes: `settled`, `changed`, `refused` (a code),
+bank, `/healthz` root check), which settles each through `inbox_tend.apply` — the person's own resolver, Sleep's undoable
+commit, one at a time under the bank's write admission. **The row only chooses a question; the server decides
+(`vetted_decision`, review of #393), whatever the body says:** the question file is the traced bytes and not put off,
+taken back or a proposed edit; the rule is in `VETTED_RULES` for that kind with exactly the request shape it produces
+(a merge only into the question's own target, an option only among its keys); an engine-free rule is decided again
+and that fresh decision is applied; a judged rule needs `policy()` to still answer `needs_judge` (so the person,
+type-mismatch and same-page refusals hold) and a guard over at least every page the judge reads, unchanged; a name
+question (`asks: name`) and any free `answer` settle only as `said_on_record`, on the person's words located again
+(`persons_span`) in a conversation that does not raise it, said after every side of it; the model and engine become
+the author only for a rule an engine read and only as an id that engine uses — any other settle is Sleep's own
+(`cicada`). Per-id outcomes: `settled`, `changed`, `refused` (a code),
 `not_reached`. Busy for an updater while it runs, like the tidy; 409 while Sleep, a tidy or a sweep runs.
 
 **Decay is no longer the special case.** Served as `Still tracking {name}?` with `archive` / `keep`,

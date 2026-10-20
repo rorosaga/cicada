@@ -2180,15 +2180,40 @@ async def tidy(memory_path: Path, settings, *, dry_run: bool = True, limit: int 
 
 #: The words a trace row says its decision in.
 TRACE_DECISIONS = ("merge", "keep_apart", "settle", "leave")
-#: What a vetted decision may ask a resolver for: the requests the rules and judges above make, nothing else.
-VETTED_ACTIONS = frozenset({"merge", "reject", "resolve", "archive", "keep_active", "dismiss", "answer"})
-_VETTED_REQUEST_KEYS = frozenset({"action", "option_key", "merge_target", "answer"})
-#: Only these rules retire a question with no resolver (``request`` is ``None``).
-_RETIRE_RULES = frozenset({"subject_gone", "own_settings"})
+#: What a vetted row may settle, rule by rule: ``(kinds, actions)`` — exactly what the rules and judges above produce
+#: (``None`` as an action: the question retired with no resolver). ``said_in_conversation`` is move 1's, made inside a
+#: Sleep batch and never in a trace, so it is never vetted. An ``answer`` is never vetted outside ``said_on_record``.
+VETTED_RULES: dict[str, tuple[frozenset[str] | None, frozenset]] = {
+    "subject_gone": (None, frozenset({None})),            # any kind but a proposed edit (``NEVER``)
+    "own_settings": (frozenset({"conflict", "clarification"}), frozenset({None})),
+    "same_spelling": (frozenset({"merge_suggestion"}), frozenset({"merge"})),
+    "spelling_fold": (frozenset({"normalization"}), frozenset({"resolve"})),
+    "one_off": (frozenset({"decay"}), frozenset({"archive"})),
+    "newest_evidence": (frozenset({"conflict"}), frozenset({"resolve"})),
+    "multi_valued": (frozenset({"conflict"}), frozenset({"dismiss"})),
+    "in_passing": (frozenset({"clarification"}), frozenset({"dismiss"})),
+    "newest_words": (frozenset({"conflict"}), frozenset({"resolve"})),
+    "judged_same": (frozenset({"merge_suggestion"}), frozenset({"merge"})),
+    "judged_different": (frozenset({"merge_suggestion"}), frozenset({"reject"})),
+    "judged_fold": (frozenset({"normalization"}), frozenset({"resolve"})),
+    "judged_conflict": (frozenset({"conflict"}), frozenset({"resolve"})),
+    "judged_archive": (frozenset({"decay"}), frozenset({"archive"})),
+    "judged_keep": (frozenset({"decay"}), frozenset({"keep_active"})),
+    "said_on_record": (RECORD_KINDS, frozenset({"resolve", "answer"})),
+}
+#: The rules an engine read: only these may carry the judging model and its engine as the commit's author.
+VETTED_ENGINE_RULES = frozenset({"judged_same", "judged_different", "judged_fold", "judged_conflict",
+                                 "judged_archive", "judged_keep", "said_on_record"})
+#: The model ids each engine may name as author (the CLI aliases, or a provider's own id shape).
+_ENGINE_MODELS = {
+    "claude-cli": re.compile(r"(?:haiku|sonnet|opus|claude-[a-z0-9.-]{1,60}(?:\[1m\])?)"),
+    "codex-cli": re.compile(r"(?:gpt-[a-z0-9.-]{1,40}|o[0-9][a-z0-9-]{0,30}|codex-[a-z0-9.-]{1,40})"),
+    "litellm": re.compile(r"(?:(?:openrouter|anthropic|openai|gemini|groq|mistral)/)?[a-z0-9][a-z0-9._:/-]{1,100}"),
+    "ollama": re.compile(r"(?:ollama/)?[a-z0-9][a-z0-9._:-]{0,60}"),
+}
 MAX_VETTED = 500
 _VETTED_ID = re.compile(r"inbox-[A-Za-z0-9_-]{1,96}")
 _EPISODE_ID = re.compile(r"ep_[A-Za-z0-9_-]{1,96}")
-_MODEL_LABEL = re.compile(r"[A-Za-z0-9._:/@\[\]-]{1,120}")
 
 
 def _sha256(data: bytes) -> str:
@@ -2261,35 +2286,105 @@ class Unvetted(ValueError):
     """A vetted row that cannot be applied as written; the message is a short code, never the row's text."""
 
 
-def _vetted_request(memory_path: Path, kind: str, fm: dict, rule: str, request) -> dict | None:
-    if request is None:
-        if rule not in _RETIRE_RULES:
-            raise Unvetted("no_request")
-        return None
-    if not isinstance(request, dict) or not set(request) <= _VETTED_REQUEST_KEYS:
+def _strict(request, shape: dict) -> dict:
+    """The request, only when it is exactly ``shape``'s keys, each a non-empty string the shape allows."""
+    if not isinstance(request, dict) or set(request) != set(shape):
         raise Unvetted("bad_request")
-    if any(v is not None and not isinstance(v, str) for v in request.values()):
-        raise Unvetted("bad_request")
-    action = str(request.get("action") or "")
-    if action not in VETTED_ACTIONS:
+    for key, allowed in shape.items():
+        value = request.get(key)
+        if not isinstance(value, str) or not value.strip() or (allowed is not None and value not in allowed):
+            raise Unvetted("bad_request")
+    return dict(request)
+
+
+def _option_keys(fm: dict) -> frozenset[str]:
+    return frozenset(str(o.get("key")) for o in inbox_questions.normalize_options(fm.get("options"))
+                     if str(o.get("key") or "") and str(o.get("key")) not in _GENERIC_KEYS)
+
+
+def _vetted_request(memory_path: Path, kind: str, fm: dict, rule: str, request) -> dict:
+    """A judged or record rule's request, held to the one shape that rule produces for this question."""
+    action = str(request.get("action") or "") if isinstance(request, dict) else ""
+    if action not in VETTED_RULES[rule][1]:
         raise Unvetted("bad_action")
     if action in ("merge", "reject"):
         from api.services.id_utils import resolve_entity_file
 
-        if kind != "merge_suggestion":
-            raise Unvetted("bad_action")
-        wanted = resolve_entity_file(Path(memory_path), str(request.get("merge_target") or ""))
+        out = _strict(request, {"action": {action}, "merge_target": None})
+        wanted = resolve_entity_file(Path(memory_path), out["merge_target"])
         hinted = resolve_entity_file(Path(memory_path), str(fm.get("merge_target_hint") or ""))
         if wanted is None or hinted is None or wanted != hinted:
             raise Unvetted("other_target")   # only the page the question itself names
-    return {k: v for k, v in request.items() if v is not None}
+        return out
+    if action == "resolve":
+        if kind == "normalization":
+            return _strict(request, {"action": {"resolve"}, "option_key": {"0"}})
+        if kind == "followup":
+            return _strict(request, {"action": {"resolve"}, "option_key": set(_followup_choices(memory_path, fm)[0])})
+        return _strict(request, {"action": {"resolve"}, "option_key": set(_option_keys(fm))})
+    if action == "answer":
+        out = _strict(request, {"action": {"answer"}, "answer": None})
+        if len(out["answer"]) > MAX_ANSWER_CHARS:
+            raise Unvetted("bad_request")
+        return out
+    return _strict(request, {"action": {action}})
+
+
+def _vetted_quote(memory_path: Path, quote) -> dict:
+    """The person's own words, located again in their own turn (``persons_span``) — or refused."""
+    if (not isinstance(quote, dict) or not _EPISODE_ID.fullmatch(str(quote.get("episode") or ""))
+            or not isinstance(quote.get("quote"), str) or not quote["quote"].strip()):
+        raise Unvetted("bad_quote")
+    if persons_span(memory_path, quote["episode"], quote["quote"]) is None:
+        raise Unvetted("not_the_persons_words")
+    return {"episode": quote["episode"], "quote": quote["quote"]}
+
+
+def _vetted_guard(memory_path: Path, guard, required: dict) -> dict:
+    """The row's page hashes: at least every page the decision reads (``required``, as :func:`_guard` names them), each
+    still as the trace read it."""
+    if not isinstance(guard, dict) or any(not isinstance(k, str) or (v is not None and not isinstance(v, str))
+                                          for k, v in guard.items()):
+        raise Unvetted("bad_guard")
+    if not set(required) <= set(guard):
+        raise Unvetted("thin_guard")
+    for rel, digest in guard.items():
+        if not rel.startswith("entities/") or ".." in rel.split("/"):
+            raise Unvetted("bad_guard")
+        if _hash(Path(memory_path) / rel) != digest:
+            raise Unvetted("changed")
+    return dict(guard)
+
+
+def _vetted_author(rule: str, plan: dict) -> tuple[str | None, str | None]:
+    """``(model, engine)`` for the commit's author: only a rule an engine read may name them, and only a model id the
+    named engine uses; any other rule is authored as Sleep's own (``cicada``)."""
+    if rule not in VETTED_ENGINE_RULES:
+        return None, None
+    model, engine = plan.get("model"), plan.get("engine")
+    if model is None and engine is None:
+        return None, None
+    pattern = _ENGINE_MODELS.get(engine) if isinstance(engine, str) else None
+    if pattern is None or not isinstance(model, str) or not pattern.fullmatch(model):
+        raise Unvetted("bad_model")
+    return model, engine
 
 
 def vetted_decision(memory_path: Path, row: dict) -> tuple[Decision, str | None]:
-    """A trace row the coordinator kept → ``(decision, engine label)``, exactly as the dry run made it. Refused
-    (:class:`Unvetted`) when the question is gone, changed since the trace, put off or taken back by the person, or
-    the row asks for anything the rules and judges never ask. Every page it read is checked again inside the settle
-    (``still_holds``), where an engine-free rule is also decided again and must agree."""
+    """A trace row the coordinator kept → ``(decision, engine label)``. The row only CHOOSES a question; the server
+    decides whether that answer may still be given, against the bank as it is now, whatever the body says:
+
+    * the question file is byte-for-byte what was traced, its kind is the row's, and the person has not put it off,
+      taken a settle back or kept it as theirs; a name question (``asks: name``) settles only on the person's words;
+    * the rule is one :data:`VETTED_RULES` knows, for this kind, with exactly the request shape it produces;
+    * an engine-free rule is decided again now and must give the same answer (that decision is the one applied);
+    * a judged rule needs ``policy()`` to still say ``needs_judge`` — so the person, type-mismatch and same-page
+      refusals hold again — and a guard over at least every page the judge reads, each unchanged;
+    * ``said_on_record`` needs the person's own words, located again in their own turn of a conversation that does not
+      raise the question, said after every side of it; it alone may carry an ``answer``;
+    * the model and engine name the author only for a rule an engine read, and only as an id that engine uses.
+
+    Refused (:class:`Unvetted`, a short code) otherwise. The settle checks the pages again under admission."""
     memory_path = Path(memory_path)
     if not isinstance(row, dict):
         raise Unvetted("bad_row")
@@ -2310,38 +2405,57 @@ def vetted_decision(memory_path: Path, row: dict) -> tuple[Decision, str | None]
     kind = str(fm.get("kind") or "")
     if str(row.get("kind") or "") != kind:
         raise Unvetted("changed")
-    if _blocked(fm, date.today().isoformat()):
+    today = date.today().isoformat()
+    if _blocked(fm, today):
         raise Unvetted("the_persons")
     rule = str(plan.get("rule") or "")
-    if rule not in RULES:
+    if rule not in VETTED_RULES:
         raise Unvetted("bad_rule")
-    request = _vetted_request(memory_path, kind, fm, rule, plan.get("request"))
-    quote = plan.get("quote")
-    if quote is not None:
-        if (not isinstance(quote, dict) or not _EPISODE_ID.fullmatch(str(quote.get("episode") or ""))
-                or not isinstance(quote.get("quote"), str) or not quote["quote"].strip()):
-            raise Unvetted("bad_quote")
-        quote = {"episode": quote["episode"], "quote": quote["quote"]}
-    elif request is not None and request.get("action") == "answer":
-        raise Unvetted("bad_quote")   # a free answer rests only on the person's own located words
-    guard = plan.get("guard") or {}
-    if not isinstance(guard, dict) or any(
-            not isinstance(k, str) or not k.startswith("entities/") or ".." in k.split("/")
-            or (v is not None and not isinstance(v, str)) for k, v in guard.items()):
-        raise Unvetted("bad_guard")
-    model = plan.get("model")
-    if model is not None and not (isinstance(model, str) and _MODEL_LABEL.fullmatch(model)):
-        raise Unvetted("bad_model")
-    engine = plan.get("engine")
-    if engine is not None:
-        from api.services import engine_select
+    kinds, _actions = VETTED_RULES[rule]
+    if (kinds is not None and kind not in kinds) or kind in NEVER:
+        raise Unvetted("bad_rule")
+    if str(fm.get("asks") or "") == "name" and rule != "said_on_record":
+        raise Unvetted("the_persons")   # who someone is: only the person's own words (ruling 29, role_people)
+    request = plan.get("request")
+    if request is not None and not isinstance(request, dict):
+        raise Unvetted("bad_request")
+    fresh, why = policy(memory_path, path, fm, today=today)
+    entity_id = str(fm.get("entity_id") or "")
 
-        if engine not in set(engine_select.ENGINE_LABELS.values()):
-            raise Unvetted("bad_engine")
+    if rule in ENGINE_FREE:
+        if fresh is None or fresh.rule != rule or fresh.request != request:
+            raise Unvetted("changed")
+        _vetted_guard(memory_path, plan.get("guard") or {}, fresh.guard)
+        fresh.fingerprint = raw
+        return fresh, None
+
+    if rule == "said_on_record":
+        if fresh is not None or why in _RECORD_SKIP:
+            raise Unvetted("changed")
+        if plan.get("quote") is None:
+            raise Unvetted("bad_quote")
+        quote = _vetted_quote(memory_path, plan.get("quote"))
+        floor = _record_floor(memory_path, fm)
+        if floor is None or (floor and _day(quote["episode"]) <= floor):
+            raise Unvetted("not_after_the_question")
+        if quote["episode"] in _record_cited(memory_path, fm):
+            raise Unvetted("not_after_the_question")   # the conversation a question rests on never answers it
+        required = _guard(memory_path, entity_id)
+    else:   # a judge's rule
+        if fresh is not None or why != "needs_judge" or kind not in JUDGED_KINDS:
+            raise Unvetted("not_judged")
+        quote = _vetted_quote(memory_path, plan["quote"]) if plan.get("quote") is not None else None
+        if quote is not None and rule != "judged_conflict":
+            raise Unvetted("bad_quote")
+        required = _guard(memory_path, entity_id, *([str(fm.get("merge_target_hint") or "")]
+                                                     if kind == "merge_suggestion" else []))
+    request = _vetted_request(memory_path, kind, fm, rule, request)
+    guard = _vetted_guard(memory_path, plan.get("guard") or {}, required)
+    model, engine = _vetted_author(rule, plan)
     reason = _reason({"reason": plan.get("reason")}) if isinstance(plan.get("reason"), str) else ""
     answer = " ".join(str(plan.get("answer") or "").split())[:MAX_REASON_CHARS]
     return Decision(item_id, kind, rule, request, answer=answer, quote=quote, model=model, fingerprint=raw,
-                    guard=dict(guard), reason=reason), engine
+                    guard=guard, reason=reason), engine
 
 
 async def apply_vetted(memory_path: Path, settings, rows: list[dict]) -> dict:

@@ -388,14 +388,14 @@ async def sync_contacts_local(req: ContactsLocalSyncRequest, settings: Settings 
 
 
 @router.delete("/sources/contacts-local/waiting")
-@write_admission.route(refuse=lambda: SleepWriting(contacts_local.FORGET_SLEEP_REFUSAL))
-async def forget_contacts_waiting(settings: Settings = Depends(get_settings)):
+async def forget_contacts_waiting():
     """Review of #391: the app stopped Contacts (Disconnect, or access found taken away) — every bank's waiting cards
     and thumbnails are deleted (Contacts is app-wide), so no first mention and no tail rematch uses a card again.
-    Writes nothing in a bank, but it is admitted all the same (G183): Sleep reads the waiting set inside its window
-    (Stage 2's first-mention index, Stage 5's seed) and its tail REWRITES it (``contacts_local.rematch`` saves the cards
-    it did not match) — a forget landing mid-run would be undone by that save, or a card read before it would still
-    seed a page. 409 while Sleep holds the pages (the app asks again); counts only, never a name."""
+    Writes nothing in a bank and is accepted even while Sleep runs (review of #393): the app calls it once and never
+    asks again, so a 409 would leave the cards of an address book the person disconnected. It deletes the set at once
+    and stamps a forget marker outside every bank (``contacts_local.forgotten_since``); every Sleep read of the set —
+    Stage 2's first-mention index, Stage 5's seed, the tail's rematch and its save back — treats what it read before
+    the marker as empty. Counts only, never a name."""
     return {"forgotten": await run_in_threadpool(contacts_local.forget_waiting)}
 
 

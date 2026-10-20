@@ -352,6 +352,8 @@ INTAKE = ("intake: creates NEW media pages and episodes in a batch with fetches 
 CAPTURE = "capture: episodes and capture sidecars only (Awake, ungated by rail) — never an entity page"
 REGISTRY = "registry: one bank file Sleep never reads or rewrites, committed alone"
 OUTSIDE = "outside: writes nothing in the bank (settings, credentials, ledger, caches, the video queue)"
+MARKED = ("marked: writes only outside every bank, at once even while Sleep runs — what Sleep reads of it in its "
+          "window it re-checks against a marker the write stamps, so no hold is needed")
 SLEEP = "sleep: Sleep's own controls"
 BANKS = "banks: bank lifecycle — refused while a run is pinned to its bank"
 NONE = "none: reads or computes; writes nothing"
@@ -441,9 +443,12 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/contacts-local/sync": (ADMITTED, None),
     "POST /sources/linkedin-connections/preview": (NONE, None),   # reads pages, writes nothing, keeps nothing
     "POST /sources/linkedin-connections/import": (ADMITTED, None),
-    # Review of #391's forgets write only `$CICADA_HOME/people/*`, never a bank — admitted all the same: Sleep reads
-    # both stores inside its window and its Contacts rematch rewrites the waiting set, so a forget mid-run is undone.
-    "DELETE /sources/contacts-local/waiting": (ADMITTED, None),
+    # Review of #391/#393: the Contacts forget writes only `$CICADA_HOME/people/*`, at once, even while Sleep runs —
+    # the app sends it once and a 409 would keep a disconnected address book's cards. It stamps a forget marker that
+    # every Sleep read of the waiting set honours (Stage 2's index, Stage 5's seed, the rematch and its save back).
+    "DELETE /sources/contacts-local/waiting": (MARKED, None),
+    # The LinkedIn forget is the person's click in a panel that shows a refusal in words: admitted, 409 while Sleep's
+    # tail may be reading the kept export.
     "DELETE /sources/linkedin-connections": (ADMITTED, None),
     "POST /sources/messages/sync": (CAPTURE, None),            # G179: one ticked conversation's sittings
     "PUT /sources/messages/settings": (CAPTURE, None),         # G179: the registry file + a re-attributed sitting

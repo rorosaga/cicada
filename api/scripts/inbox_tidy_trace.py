@@ -88,13 +88,14 @@ def plan_llm_fn(settings, model: str):
 
 
 def run_trace(bank: Path, out: Path, *, engine: str, model: str, kinds: frozenset[str] | None, limit: int | None,
-              judge: bool, settings=None, llm_fn=None) -> dict:
-    """The trace, in this process. ``llm_fn`` is a test's fake engine; otherwise ``engine`` picks it."""
+              judge: bool, settings=None, llm_fn=None, engine_label: str | None = None) -> dict:
+    """The trace, in this process. ``llm_fn`` (with its ``engine_label``) is a test's fake engine; otherwise
+    ``engine`` picks it."""
     from api.config import Settings
     from api.services import inbox_tend
 
     settings = settings if settings is not None else Settings().model_copy(update={"memory_path": bank})
-    label = None
+    label = engine_label
     if judge and llm_fn is None and engine == PLAN_ENGINE:
         llm_fn, label = plan_llm_fn(settings, model)
     sink = TraceFile(out)
