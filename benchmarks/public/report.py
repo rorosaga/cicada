@@ -95,6 +95,8 @@ def summarize(run_dir: Path) -> dict:
         block["ungraded"] = sum(1 for k in want if k in answered and k not in graded_keys)
         block["accuracy_all"] = _pct(sum(r["correct"] for r in head), len(want)) if want else None
         block["abstained"] = sum(1 for a in ans if not a.get("cited") and path == "ask")
+        if path == "ask":
+            block["retrieval"] = retrieval_stats(ans, by_cat={r["key"]: c for c, rs in cats.items() for r in rs})
         secs = sorted(a["seconds"] for a in ans if a.get("seconds") is not None)
         block["answer_seconds_p50"] = secs[len(secs) // 2] if secs else None
         block["answer_seconds_p95"] = secs[min(len(secs) - 1, int(0.95 * len(secs)))] if secs else None
@@ -112,6 +114,32 @@ def summarize(run_dir: Path) -> dict:
     return {"config": cfg, "units": units, "paths": paths, "calls_by_stage": dict(cost),
             "calls_by_phase": dict(by_phase), "calls_total": len(calls),
             "sleep_wall_seconds": round(sum(u["sleep_seconds"] or 0 for u in units), 1)}
+
+
+def _quantile(values: list[float], q: float) -> float | None:
+    vals = sorted(values)
+    return vals[min(len(vals) - 1, int(q * len(vals)))] if vals else None
+
+
+def retrieval_stats(ans: list[dict], *, by_cat: dict[str, str]) -> dict:
+    """What reached Ask's prompt: questions with at least one of the dataset's answer turns shown verbatim (over the
+    questions whose answer turns the dataset marks), prompt size, and the time spent before the model call."""
+    rows = [a for a in ans if not a.get("error") and "evidence_turns" in a]
+    out: dict = {"n": len(rows), "model_called": sum(1 for a in rows if a.get("model_called"))}
+    marked = [a for a in rows if a["evidence_turns"]]
+    out["answer_turn_shown"] = sum(1 for a in marked if a["evidence_shown"])
+    out["answer_turn_marked"] = len(marked)
+    out["answer_turn_shown_pct"] = _pct(out["answer_turn_shown"], len(marked))
+    per: dict[str, list] = defaultdict(list)
+    for a in marked:
+        per[by_cat.get(a["key"], "?")].append(a)
+    out["by_category"] = {c: f"{sum(1 for a in rs if a['evidence_shown'])}/{len(rs)}" for c, rs in sorted(per.items())}
+    chars = [a["prompt_chars"] for a in rows if a.get("model_called")]
+    ms = [a["context_ms"] for a in rows if a.get("context_ms") is not None]
+    out["prompt_chars_p50"], out["prompt_chars_p95"] = _quantile(chars, 0.5), _quantile(chars, 0.95)
+    out["prompt_chars_max"] = max(chars) if chars else None
+    out["context_ms_p50"], out["context_ms_p95"] = _quantile(ms, 0.5), _quantile(ms, 0.95)
+    return out
 
 
 def render(s: dict) -> str:
@@ -132,6 +160,12 @@ def render(s: dict) -> str:
                          f"counting them as not correct: {b['accuracy_all']}% (--resume retries them)")
         if b.get("wrong_with_gap") or b.get("wrong_confident"):
             lines.append(f"    wrong: {b['wrong_with_gap']} named a gap, {b['wrong_confident']} confidently wrong")
+        rv = b.get("retrieval")
+        if rv and rv.get("n"):
+            lines.append(f"    answer turn in the prompt: {rv['answer_turn_shown']}/{rv['answer_turn_marked']} "
+                         f"({rv['answer_turn_shown_pct']}%) · model called {rv['model_called']}/{rv['n']} · prompt "
+                         f"chars p50 {rv['prompt_chars_p50']} p95 {rv['prompt_chars_p95']} · context build ms p50 "
+                         f"{rv['context_ms_p50']} p95 {rv['context_ms_p95']}")
         for cat, c in b["categories"].items():
             f1 = f"  F1 {c['f1']}" if locomo and c.get("f1") is not None else ""
             lines.append(f"    {cat:28} {str(c['accuracy']):>6}%  (n={c['n']}){f1}"

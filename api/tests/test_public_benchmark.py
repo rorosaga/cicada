@@ -166,6 +166,9 @@ def test_offline_unit_runs_intake_sleep_ask_and_judge(tmp_path):
     assert ask["n"] == 2 and ask["categories"]["single-hop"]["accuracy"] == 100.0, summary
     assert summary["paths"]["full-context"]["n"] == 2
     assert summary["calls_by_phase"]["sleep"]["calls"] > 0 and summary["calls_by_phase"]["judge"]["calls"] == 4
+    rv = ask["retrieval"]
+    assert rv["n"] == 2 and rv["answer_turn_marked"] == 2 and rv["context_ms_p50"] is not None
+    assert (run_dir / "units" / "conv-x" / "prompts.jsonl").is_file()
     # Resume: nothing is redone.
     calls_before = summary["calls_total"]
     proc = subprocess.run([sys.executable, "-m", "benchmarks.public.run", "run", "--cache", str(cache),
@@ -295,3 +298,48 @@ def test_drain_stops_are_told_apart_and_failed_answers_retried():
     qs = [{"qid": "a"}, {"qid": "b"}, {"qid": "c"}]
     rows = {"a|ask": {"error": None}, "b|ask": {"error": "EngineUnavailable"}}
     assert [(q["qid"], p) for q, p in unit.answers_to_do(qs, ["ask"], rows)] == [("b", "ask"), ("c", "ask")]
+
+
+def test_evidence_turns_reach_the_prompt_check(tmp_path):
+    path = tmp_path / "locomo.json"
+    path.write_text(json.dumps([_locomo_sample()]))
+    [unit] = datasets.locomo_units(path)
+    from benchmarks.public.unit import evidence_shown, evidence_turns
+
+    q = next(q for q in unit["questions"] if q["evidence"] == ["D2:2"])
+    assert evidence_turns(unit, q) == ["alpha-project status planning."]
+    assert evidence_shown(unit, q, "WHAT WAS SAID\n bob:  Alpha-project   status planning.") == \
+        {"evidence_turns": 1, "evidence_shown": 1}
+    assert evidence_shown(unit, q, "alpha-project is in planning")["evidence_shown"] == 0   # a paraphrase never counts
+    long_turn = "word " * 40
+    lme = {"dataset": "longmemeval-s", "sessions": [
+        {"source_id": "bench:q1:s1", "turns": [{"text": long_turn + "the answer is ten", "has_answer": True},
+                                                 {"text": "unrelated", "has_answer": False}]},
+        {"source_id": "bench:q1:s2", "turns": [{"text": "decoy has_answer", "has_answer": True}]}]}
+    lq = {"evidence": ["s1"]}
+    assert evidence_turns(lme, lq) == [long_turn + "the answer is ten"]
+    # A clipped turn still counts: one 40-character stretch is enough.
+    assert evidence_shown(lme, lq, "… word word word word word word word word the answer is ten")["evidence_shown"] == 1
+
+
+def test_offline_unit_without_sleep_indexes_and_answers(tmp_path):
+    """--sleep-schedule none: staged and indexed, no Sleep call, Ask answers from the conversations' search leg."""
+    cache = tmp_path / "cache"
+    home = cache / "home"
+    home.mkdir(parents=True)
+    (home / "_bench_home.yaml").write_text(json.dumps({"kind": "cicada-system-benchmark-v1"}) + "\n")
+    data = tmp_path / "locomo.json"
+    data.write_text(json.dumps([_locomo_sample()]))
+    cmd = [sys.executable, "-m", "benchmarks.public.run", "run", "--cache", str(cache), "--dataset", "locomo",
+           "--fake-engine", "--dataset-file", str(data), "--paths", "ask", "--concurrency", "1",
+           "--sleep-schedule", "none", "--gate", "true", "--claude-home", str(tmp_path / "no-claude")]
+    proc = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, timeout=300)
+    [run_dir] = list((cache / "runs").iterdir())
+    log = (run_dir / "units" / "conv-x" / "child.log").read_text() if (run_dir / "units" / "conv-x" / "child.log").exists() else ""
+    assert proc.returncode == 0, proc.stdout[-4000:] + proc.stderr[-4000:] + log[-8000:]
+    state = json.loads((run_dir / "units" / "conv-x" / "state.json").read_text())
+    assert state["done"] and state["sleep"]["skipped"] and state["bank"]["pages"] <= 1   # the owner page only
+    bank = run_dir / "banks" / "conv-x"
+    assert (bank / "search_index.db").is_file() and (bank / "vector_index.db").is_file()
+    summary = json.loads((run_dir / "report.json").read_text())
+    assert "sleep" not in summary["calls_by_phase"] and summary["paths"]["ask"]["n"] == 2
