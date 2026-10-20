@@ -223,8 +223,11 @@ def test_remote_record_watch_refused_only_in_write_windows(rig):
 
 
 def test_the_writes_bank_rule():
-    assert _writes_bank("cicada_video_claim", {}) is False
-    assert all(_writes_bank(t, {}) for t in catalog.WRITE_TOOLS - {"cicada_video_claim"})
+    # Ruling 32 (owner, 2026-10-19): a relayed turn (`cicada_capture_turns`) is capture — the hook's writer, no
+    # commit and no Sleep gate, like a Stop hook — so it joins the video queue outside the bank's write gate.
+    exempt = {"cicada_video_claim", "cicada_capture_turns"}
+    assert all(_writes_bank(t, {}) is False for t in exempt)
+    assert all(_writes_bank(t, {}) for t in catalog.WRITE_TOOLS - exempt)
 
 
 def test_remote_claim_reply_fences_only_the_video_lines(tmp_path):
@@ -398,4 +401,6 @@ def test_the_primer_stays_inside_its_budget(tmp_path, monkeypatch):
         assert len(text) // 4 <= handshake.MAX_TOKENS, (variant, len(text))
     remote = handshake.build_remote(None, tools=catalog.tool_names_for(catalog.SCOPES), bank="memory")
     assert len(remote) // 4 <= handshake.MAX_TOKENS
-    assert handshake.CONTRACT_VERSION == 17 and handshake.REMOTE_CONTRACT_VERSION == 11  # 17: G198 + natural questions
+    # 17: G198 + natural questions; remote 12: ruling 32 (owner, 2026-10-19), a connection that can capture is asked
+    # to relay every turn. The budget above and R12 (test_handshake_read_r12) still hold at 12.
+    assert handshake.CONTRACT_VERSION == 17 and handshake.REMOTE_CONTRACT_VERSION == 12

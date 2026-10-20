@@ -141,7 +141,7 @@
   ],
   "services/contacts_local.py": [
     {
-      "function": "sync",
+      "function": "_write_page",
       "method": "write",
       "frontmatter": "fm",
       "disposition": "uninstrumented_guarded"
