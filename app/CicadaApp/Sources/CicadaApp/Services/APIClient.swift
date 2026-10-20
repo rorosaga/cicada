@@ -286,6 +286,9 @@ struct MediaFeedItem: Codable, Identifiable {
     /// G181 phase 3 — the id of the person's device whose token posted the save; nil for what the server's own machine
     /// saved (`DeviceOrigin` names it on the "Saved from" line).
     var device: String? = nil
+    /// Owner 2026-10-20 — the key the item's own site mark is drawn under (the backend's `reading_hosts.mark_key`: a
+    /// walled family's name, else the registrable domain). Nil from an older backend: the row keeps its old mark.
+    var siteKey: String? = nil
 
     /// Every answer, oldest first (the history when there are several, else the one answer).
     var savedWhyAnswers: [SavedWhyRecord] {
@@ -343,6 +346,7 @@ struct MediaFeedItem: Codable, Identifiable {
         case savedWhy, savedWhyHistory, lastSavedAt, captureThumb
         case leftBrowser
         case device
+        case siteKey
     }
 
     init(from decoder: Decoder) throws {
@@ -377,6 +381,7 @@ struct MediaFeedItem: Codable, Identifiable {
         captureThumb = try? c.decodeIfPresent(String.self, forKey: .captureThumb)
         leftBrowser = (try? c.decodeIfPresent([BookmarkLeft].self, forKey: .leftBrowser)) ?? []
         device = (try? c.decodeIfPresent(String.self, forKey: .device)) ?? nil
+        siteKey = (try? c.decodeIfPresent(String.self, forKey: .siteKey)) ?? nil
     }
 
     var isPaper: Bool { kind == "paper" }
@@ -1293,9 +1298,12 @@ struct EpisodeQueueItem: Codable, Identifiable {
     let copyValue: String?
     /// The day the row ends with: a captured conversation's last capture, else when it was added.
     let changedAt: String?
+    /// Owner 2026-10-20 — a saved link's site key (a bookmark or saved post Sleep has not read yet): the row draws that
+    /// site's own mark (`SavedLinkMark`), never the browser's. Nil for every other episode and from an older backend.
+    let site: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, timestamp, source, origin, title, preview, chars, processed, copyKind, copyValue, changedAt
+        case id, timestamp, source, origin, title, preview, chars, processed, copyKind, copyValue, changedAt, site
     }
 
     init(from decoder: Decoder) throws {
@@ -1311,6 +1319,7 @@ struct EpisodeQueueItem: Codable, Identifiable {
         copyKind = try c.decodeIfPresent(String.self, forKey: .copyKind)
         copyValue = try c.decodeIfPresent(String.self, forKey: .copyValue)
         changedAt = try c.decodeIfPresent(String.self, forKey: .changedAt)
+        site = try c.decodeIfPresent(String.self, forKey: .site)
     }
 }
 
@@ -3108,7 +3117,17 @@ actor APIClient {
     /// Owner ruling 2026-10-19 — a saved link's own site icon, asked of that site by the backend (never an icon
     /// service) for a row of a list the person opened. 404 is "draw the monogram".
     func fetchSavedLinkSiteIcon(mediaEntityId: String) async throws -> Data? {
-        var request = makeRequest("/sources/saved/\(encodedID(mediaEntityId))/site-icon", method: "GET", json: false)
+        try await fetchOwnSiteIcon(path: "/sources/saved/\(encodedID(mediaEntityId))/site-icon")
+    }
+
+    /// Owner 2026-10-20 — the same icon for a saved link Sleep has not made a page of yet, asked by its episode's id
+    /// (`GET /sources/saved/episodes/{id}/site-icon`; the backend reads the site from that episode's own link).
+    func fetchSavedEpisodeSiteIcon(episodeId: String) async throws -> Data? {
+        try await fetchOwnSiteIcon(path: "/sources/saved/episodes/\(encodedID(episodeId))/site-icon")
+    }
+
+    private func fetchOwnSiteIcon(path: String) async throws -> Data? {
+        var request = makeRequest(path, method: "GET", json: false)
         request.timeoutInterval = Self.refreshTimeout
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }

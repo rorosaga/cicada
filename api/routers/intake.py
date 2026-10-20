@@ -375,6 +375,9 @@ class ImportResult:
     #: ``(episodes to write, episodes dir)`` when ``defer`` handed a large write
     #: to the job runner instead of staging it here (R-IA12).
     pending: tuple[list[dict], Path] | None = None
+    #: Unchanged conversations whose export carries extras (`turn_extras`): the job writes them beside their words,
+    #: frontmatter only, after its own writes — counted in ``skipped`` already, never in the job's total.
+    extras_only: list[dict] = field(default_factory=list)
 
 
 def resolve_target(settings: Settings, bank: str | None, *, scaffold: bool = True) -> tuple[str, Path, bool]:
@@ -422,13 +425,12 @@ def import_bytes(content: bytes, filename: str, settings: Settings, *, bank: str
         writes = {id(e) for e in staging.create + staging.update}
         pending = [e for e in parsed.episodes if id(e) in writes]
         # An unchanged conversation whose export carries extras (attachments, generated images, code runs —
-        # `turn_extras`) gets them now, frontmatter only: its words did not move, so it stays out of the job's count.
-        extras_only = [e for e in staging.skip
-                       if e.get("unsent") or any(m.get("extras") for m in e.get("messages") or [])]
-        if extras_only:
-            conv._stage_episodes(extras_only, target / "episodes")
+        # `turn_extras`) gets them in the job, after its writes, frontmatter only: its words did not move, so it
+        # stays out of the job's count and the request returns as fast as before.
+        extras_only = [e for e in staging.skip if id(e) not in legacy
+                       and (e.get("unsent") or any(m.get("extras") for m in e.get("messages") or []))]
         return ImportResult(name, active, parsed, 0, 0, len(staging.skip), date_from, date_to,
-                            pending=(pending, target / "episodes"))
+                            pending=(pending, target / "episodes"), extras_only=extras_only)
     # `episode_staging.stage` holds its own process-wide lock (G114 ids).
     created, updated, skipped = conv._stage_episodes(todo, target / "episodes")
     if not active and created + updated:
@@ -558,7 +560,7 @@ async def import_file(
         return _import_response(result)
     todo, episodes_dir = result.pending
     job = intake_jobs.start(len(todo), already_skipped=result.skipped)
-    background_tasks.add_task(intake_jobs.run, job.id, todo, episodes_dir)
+    background_tasks.add_task(intake_jobs.run, job.id, todo, episodes_dir, extras_only=result.extras_only)
     response.status_code = 202
     return _import_response(result, job=job)
 

@@ -585,13 +585,26 @@ def apply_reactions(by_key: dict[str, Message], reactions: list[Reaction], count
             counts.reactions_kept += 1
 
 
+def _nearest_run(runs: list[list[Message]], message: Message) -> list[Message]:
+    """The run whose span holds ``message``'s time, else the one whose nearest edge is closest (the earlier on a tie)."""
+    at = _instant(message.ts)
+
+    def distance(run: list[Message]) -> float:
+        said = [m for m in run if not m.unsent]
+        lo, hi = _instant(said[0].ts), _instant(said[-1].ts)
+        return 0.0 if lo <= at <= hi else min(abs((at - lo).total_seconds()), abs((at - hi).total_seconds()))
+
+    return min(runs, key=distance)
+
+
 def plan_sittings(cid: str, stored: list[Sitting], incoming: list[Message], reactions: list[Reaction] = (),
                   gap: timedelta = SITTING_GAP, reserved: frozenset[str] = frozenset(), counts: Counts | None = None
                   ) -> tuple[list[tuple[str, list[Message]]], list[str]]:
     """``([(source_id, messages)], tombstoned source ids)`` for the stored sittings an update touches.
 
     Incoming messages replace stored ones with the same key (an edit keeps its reactions; an unsend becomes a
-    placeholder with no words), the reactions land on their messages, and the union is split again. A resulting
+    placeholder with no words), the reactions land on their messages, and what was said is split again — each unsent
+    placeholder then joins the sitting nearest it in time, so it never bridges two. A resulting
     sitting keeps the key of the earliest stored sitting it holds messages of — so a sitting whose first message was
     unsent, or that a late message bridged to the next, keeps its episode; a stored sitting left with nothing said,
     or absorbed into another, is tombstoned."""
@@ -612,11 +625,16 @@ def plan_sittings(cid: str, stored: list[Sitting], incoming: list[Message], reac
     planned: list[tuple[str, list[Message]]] = []
     used: set[str] = set()
     stored_order = [s.source_id for s in stored]
-    for run in split_sittings(list(by_key.values()), gap):
+    # Sittings split on what was SAID; an unsent message then joins its neighbour's, so a placeholder in a silence
+    # never bridges two sittings (a "Read again" re-posting an old unsend must not merge two stored episodes).
+    said = split_sittings([m for m in by_key.values() if not m.unsent], gap)
+    for gone in (m for m in by_key.values() if m.unsent):
+        if said:
+            _nearest_run(said, gone).append(gone)
+    for run in said:
+        run.sort(key=lambda m: (_instant(m.ts), m.order))
         spoken = [m for m in run if not m.unsent]
-        if not spoken:
-            continue
-        mine = [sid for sid in stored_order if sid not in used and any(owner.get(m.key) == sid for m in run)]
+        mine = [sid for sid in stored_order if sid not in used and any(owner.get(m.key) == sid for m in spoken)]
         sid = mine[0] if mine else f"{SOURCE_PREFIX}{cid}:{spoken[0].key}"
         # A fresh key never lands on a sitting this pass could not rebuild (``reserved``): that episode is left as it
         # is rather than overwritten with only the new messages.

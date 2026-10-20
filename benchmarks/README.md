@@ -9,9 +9,66 @@
   `python -m benchmarks.public.run prepare|run|report --help`.
 - `benchmarks/answer_eval.py` — **your own questions on your own bank**, graded against facts you write down
   (expected / forbidden / should abstain); the question file is gitignored (`benchmarks/*.local.*`), start from
-  `benchmarks/answer_eval.example.yaml`.
+  `benchmarks/answer_eval.example.yaml`. Each question is answered and judged `--repeats` times (default 3; one run
+  moves by ±4 of 60 questions by chance); `--summary FILE` prints mean and min–max per measure and the questions that
+  flip, and `--compare BEFORE.jsonl AFTER.jsonl` is how an Ask change is accepted or rejected (no calls):
+  ```sh
+  api/.venv/bin/python -m benchmarks.answer_eval --bank <bank> --questions benchmarks/answer_eval.local.yaml \
+      --repeats 3 --out benchmark_results/answer_eval/after.jsonl
+  api/.venv/bin/python -m benchmarks.answer_eval --summary benchmark_results/answer_eval/after.jsonl
+  api/.venv/bin/python -m benchmarks.answer_eval --compare benchmark_results/answer_eval/before.jsonl \
+      benchmark_results/answer_eval/after.jsonl
+  ```
+- `benchmarks/hard_questions.py` — **hard questions drafted from your own bank** for `answer_eval`: seeded samples
+  of the shapes hand-written questions miss (knowledge updates with the stale value forbidden, one subject months
+  apart, multi-hop across two conversations, counting/listing across 3+ conversations, dated-event order, abstention
+  traps, a Spanish share), one plan call per question, then a review sheet you accept or reject before use. See
+  *Hard questions* below.
 - `benchmarks/system/` — the whole-system integrity benchmark (synthetic, offline fake engine).
 - `benchmarks/recall_ab.py` — page-ranking A/B (finds the right page; does not grade the answer).
+
+## Hard questions (G148)
+
+The coordinator command, on the owner's bank (outputs are gitignored `benchmarks/*.local.*`, written 0600; the
+terminal shows ids and counts only; the bank is only read):
+
+```sh
+# 1. look first: samples and the review sheet, no plan call
+api/.venv/bin/python -m benchmarks.hard_questions --bank <bank dir> --limit 40 --seed 1 --dry-run
+# 2. draft: one `claude -p` (sonnet) call per sample, ≤ --limit calls
+api/.venv/bin/python -m benchmarks.hard_questions --bank <bank dir> --limit 40 --seed 1
+# 3. read benchmarks/answer_eval.hard.review.local.md; tick "- [x] accept <id>" on each fair question
+api/.venv/bin/python -m benchmarks.hard_questions --accept
+# 4. grade Cicada on the accepted ones — repeated like any answer_eval run (3 is the default; say it so the
+#    before/after files match), then summarise or compare as above
+api/.venv/bin/python -m benchmarks.answer_eval --bank <bank dir> \
+    --questions benchmarks/answer_eval.hard.accepted.local.yaml \
+    --repeats 3 --out benchmark_results/answer_eval/hard-after.jsonl
+api/.venv/bin/python -m benchmarks.answer_eval --summary benchmark_results/answer_eval/hard-after.jsonl
+```
+
+Each accepted question costs `--repeats` answer calls plus `--repeats` judge calls (6 at the default), on top of
+the one call that drafted it.
+
+**Sampling** (`--seed` fixes it; one sample per page; the owner page and saved links are never a subject; a
+conversation is a dated episode that is not a memory-export entry or an indexed watch record):
+
+| Kind | Drawn from | The draft |
+|---|---|---|
+| `update` | a claim whose `superseded_by` names a claim on the same page that is still current | asks for the current value; `forbid` holds the stale one (the old claim's text if the drafter gives none) |
+| `temporal` | a page whose first and last conversations are ≥ 14 days apart | needs both moments: what changed, what came first, how long between |
+| `multi-hop` | a current claim linking a page to another page, plus a current claim on that page evidenced in a *different* conversation | asks about the first page; the answer needs the second hop |
+| `count` | a page in ≥ 3 conversations (up to 6 shown) | lists or counts what those conversations state |
+| `event` | a page with `happened`/`milestone` claims on ≥ 2 days | order, or time between |
+| `abstention` | a page in ≥ 2 conversations with claims | a plausible question none of the shown evidence answers; `abstain: true` and a `why` |
+
+The default mix is 4 update · 4 temporal · 4 multi-hop · 3 count · 2 event · 3 abstention per 20 slots (a kind with
+no candidates gives its slot to the next), and about a quarter of samples (seeded) are drafted in Spanish (`es`).
+Each sample shows the drafter the page's claims and evidence snippets (a claim's own evidence span, else the first
+mention of the page's name) — the same snippets the review sheet lists under each question. The drafter may decline
+(`skip`); a skipped or unusable draft is listed in the sheet with its reason and never reaches the YAML. Items carry
+`sources` (episode ids), `why` and `sample` beside the eval's own fields; `answer_eval` ignores the extras. A rerun
+keeps every draft already in `--out` for the same sample (`--fresh` redrafts); `--kinds` narrows the mix.
 
 The rest of this file documents the older thesis scripts.
 

@@ -71,9 +71,7 @@ struct GraphLegendButton: View {
                     .accessibilityHidden(true)
                 }
                 Text(GraphChrome.legendLabel(graphVM.filter))
-                Image(systemName: isOpen ? "chevron.down" : "chevron.up")
-                    .font(CicadaTheme.font(size: 9, weight: .semibold))
-                    .accessibilityHidden(true)
+                DisclosureChevron(isOpen: isOpen, color: nil, opensUpward: true)
             }
             .font(CicadaTheme.metaMediumFont)
             .foregroundStyle(isOpen || hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)

@@ -367,8 +367,10 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   a code run (a `tool` message — never a turn — noted on the reply it fed) and each reply's `model_slug` (the sidecar's
   `model`); Claude's attached files (`attachments` / `files`: name, size, kind) on the person's turn, beside the
   `attachment [<name>]` turns that hold their text. Re-importing an export a person imported before adds the extras the
-  same frontmatter-only way (a large deferred import writes them before handing the job its new and grown
-  conversations). Telegram has no conversation import (its bot saves links), so it has nothing to carry. **Who is who:** the person's lines are `user:`; the other side's are `assistant:` when the
+  same frontmatter-only way (a large deferred import writes them in its background job, after its new and grown
+  conversations, never in the request). Sittings split on what was **said**; an unsent placeholder then joins the
+  sitting nearest it in time, so it never bridges two (a Read again re-posting an old unsend cannot merge two stored
+  episodes). Telegram has no conversation import (its bot saves links), so it has nothing to carry. **Who is who:** the person's lines are `user:`; the other side's are `assistant:` when the
   conversation is with an AI agent — the person's mark, or an `identified` detection (`agent_detectors`, G188) — else
   `speaker:<label>:`; the frontmatter `correspondent: {name, kind, decided_by, detector?, detection?, signal?}` names
   it, with `conversation`, `service`, `message_count`, `from_person`, `sitting_first_at`/`sitting_last_at` and

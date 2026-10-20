@@ -47,20 +47,9 @@ private struct SettledGroup: View {
     var body: some View {
         if !rows.isEmpty {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                Button { Instant.run { open.toggle() } } label: {
-                    HStack(spacing: CicadaTheme.spacingXS) {
-                        Image(systemName: open ? "chevron.down" : "chevron.right")
-                            .font(CicadaTheme.captionFont)
-                        Text(header)
-                            .font(CicadaTheme.metaMediumFont)
-                    }
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .contentShape(Rectangle())
+                DisclosureHeader(title: header, isOpen: open, help: help, spokenTitle: title) {
+                    Instant.run { open.toggle() }
                 }
-                .buttonStyle(.cicadaPlain)
-                .help(help)
-                .accessibilityLabel(title)
-                .accessibilityValue(open ? "expanded" : "collapsed")
 
                 if open {
                     ForEach(rows) { row in

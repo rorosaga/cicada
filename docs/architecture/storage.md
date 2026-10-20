@@ -733,15 +733,40 @@ Round 4 (C2–C4):
   **A saved link's own site icon (owner ruling 2026-10-19).** A saved link's row (Sources › a saved source) shows its
   site's own icon, asked of **that site only** — never an icon service, so no one learns what the person saved:
   `GET /sources/saved/{media_entity_id}/site-icon`, asked by the app for a row of a list the person opened (never from
-  Sleep, never a whole bank; listing items fetches nothing). The site is the registrable domain of THIS link's own URL
+  the Sleep cycle, never a whole bank; listing items fetches nothing). The site is the registrable domain of THIS link's own URL
   from the url index (`channel_items.saved_link_site` → `logo_service.own_site_domain`), for a live media page a `saved`
   source owns; a walled family, a private or reserved name is never asked (the row keeps its bundled mark or monogram).
-  Two fixed paths, `https://<site>/apple-touch-icon.png` then `/favicon.ico`, never the homepage's HTML (a page of the
-  site's HTML is the most bytes and the likeliest consent wall or login redirect, for a path the two conventions
-  cover); each hop through the SSRF guard (`net_guard`'s rule), on the same registrable domain and never a login host,
-  4 s, the body streamed with `Accept-Encoding: identity` and cut at 512 KB of raw bytes (no compressed body inflates first), DNS checked off the event loop, no cookies, raster only; 401/403/407/451 stops at once and nothing is retried
+  **Everywhere (owner 2026-10-20):** every surface that draws a saved link draws this mark (`app.md`, "One mark for a
+  saved link"), and a saved link Sleep has not made a page of yet — a Waiting row — asks
+  `GET /sources/saved/episodes/{episode_id}/site-icon`: the site is read from THAT episode's own `url`, only for a live,
+  non-conversation episode of a `saved` source (`channel_items.saved_episode_url` / `saved_episode_site`), with the same
+  gate, fetch and per-site cache. Rows name the key the mark is drawn under — `siteKey` on `GET /sources` items (shape
+  `site-key-1`; only on a page the media route serves, `channel_items.is_saved_link_page`), `site` on `GET /sleep/episodes` rows (`episodes-2`) and on `GET /episodes/{id}/text` (`site1`) — from
+  one function, `reading_hosts.mark_key` (a walled family's name, else the registrable domain); the icon is always asked
+  by an id, never by that name.
+  **Discovery, amended (owner 2026-10-20: "a lot of them don't show any logo … when I open the website I can clearly
+  see a favicon in the Chrome tab").** The 2026-10-19 rule asked two fixed paths and never the HTML; it missed every
+  site that declares its icon at another path, on a CDN, or only behind a redirect to www. Now, like a browser
+  (`logo_service.fetch_own_site_icon`): the homepage `https://<site>/` (or `https://www.<site>/` when the bare domain has
+  no public address), following only https redirects on the same registrable domain and default port; its `<link rel>` declarations — `icon`,
+  `shortcut icon`, `apple-touch-icon` — found by one linear scan of `<link>`/`<base>` tags only, off the event loop (`declared_icons`; never the
+  stdlib HTML tokenizer, which is quadratic on hostile markup — security review of #371; the first 64 tags; `mask-icon` and
+  anything typed or named SVG skipped; an href with an explicit port or userinfo skipped), resolved against the page's final URL or its `<base href>`, ranked light-scheme
+  (or scheme-less) before dark, then the largest declared raster of at least 32 px (an apple-touch icon with no `sizes`
+  counts as 180), then unknown sizes, then small ones; at most three asked; then `/apple-touch-icon.png` and
+  `/favicon.ico` on the host that answered. A declared URL on another host (a CDN the page names) is asked: https only,
+  through the SSRF guard on every hop, its redirects kept on its own or the site's registrable domain, and kept only
+  when the content-type says `image/*` **and** the bytes sniff as PNG/ICO/GIF/JPEG/WebP; on the site itself a favicon
+  served as `application/octet-stream` still counts by its bytes, but anything that says HTML/XML/SVG never does (an SPA
+  answering `/favicon.ico` with its page). **SVG stays a miss** — no rasteriser in the backend can be trusted with
+  attacker-chosen SVG (Pillow is deliberately absent, and a hand-rolled renderer is no sanitizer), and SVG is never
+  served to the app as-is; a `data:` icon is decoded only when it is base64 raster, its size capped at 512 KB before
+  decoding and its bytes sniffed like a download (`data:image/svg+xml` is a miss). A homepage that redirects to another
+  registrable domain is not followed (the fixed paths are still asked). One 4 s budget covers the whole discovery
+  (`OWN_SITE_BUDGET_SECONDS`); each hop never a login host, the body streamed with `Accept-Encoding: identity` and cut at 512 KB of raw bytes (no compressed body inflates first), DNS checked off the event loop, no cookies, raster only; 401/403/407/451 stops at once and nothing is retried
   with other headers. Behind `CICADA_ALLOW_LOGO_FETCH` (off: nothing asked, nothing recorded, the monogram). Cached in
-  `$CICADA_HOME/logos/<bank>/sites/own/` — hits 30 days, misses 7 — never in a bank; any failure is a 404 the row draws
+  `$CICADA_HOME/logos/<bank>/sites/own/` — hits 30 days, misses 7, each entry stamped with the discovery's version
+  `v` (`OWN_SITE_DISCOVERY` = 2): a miss recorded by the 2026-10-19 discovery is asked once more, hits stay — never in a bank; any failure is a 404 the row draws
   as its monogram. This is a row's mark only: it never becomes a page's picture, and `domain_for` still takes no saved
   link's site.
   **A watched or saved YouTube video's still (owner direction 2026-10-19, Sources v4).** *"For YouTube … why don't you

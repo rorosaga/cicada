@@ -340,3 +340,37 @@ def test_re_importing_an_older_export_adds_extras_without_requeueing(bank):
     (again,) = _docs(bank)
     assert again.body == doc.body and again.frontmatter["processed"] is True
     assert turn_extras.by_offset(again.frontmatter)
+
+
+def test_an_unsent_message_in_a_silence_never_merges_two_sittings(bank, db):
+    """Coordinator review of #375: sittings split on what was said; a placeholder joins its neighbour's, so a
+    "Read again" that re-posts an old unsend cannot bridge two stored sittings."""
+    _tick(bank, db)
+    db.message(db.agent, utc(2026, 9, 3, 10, 0), from_me=True, text="Morning question about alpha-project.")
+    gone = db.message(db.agent, utc(2026, 9, 3, 12, 30), from_me=True, text="never mind")
+    db.message(db.agent, utc(2026, 9, 3, 15, 0), from_me=True, text="Afternoon question about beta-tool.")
+    db.unsend(gone, utc(2026, 9, 3, 12, 31))
+    _sync(bank, db)
+    first, second = _docs(bank)
+    assert first.frontmatter["message_count"] == 1 and second.frontmatter["message_count"] == 1
+    # Nearest in time: 12:30 is 2.5 h after the morning message and 2.5 h before the afternoon one — the earlier wins.
+    assert len(turn_extras.unsent(first.frontmatter)) == 1 and not turn_extras.unsent(second.frontmatter)
+    # Reading everything again from the start keeps both episodes as they are.
+    _sync(bank, db)
+    again = _docs(bank)
+    assert [d.frontmatter["id"] for d in again] == [first.frontmatter["id"], second.frontmatter["id"]]
+    assert [d.body for d in again] == [first.body, second.body]
+
+
+def test_a_large_import_writes_unchanged_conversations_extras_in_its_job_not_the_request(bank):
+    from api.services import intake_jobs
+
+    (ep,) = conv.parse_chatgpt_json(_chatgpt_export())
+    bare = {**ep, "messages": [{k: v for k, v in m.items() if k != "extras"} for m in ep["messages"]]}
+    conv._stage_episodes([bare], bank / "episodes")
+    job = intake_jobs.start(0, already_skipped=1)
+    intake_jobs.run(job.id, [], bank / "episodes", extras_only=[ep])
+    done = intake_jobs.get(job.id)
+    assert done.done and not done.error and (done.created, done.updated, done.skipped) == (0, 0, 1)
+    (doc,) = _docs(bank)
+    assert turn_extras.by_offset(doc.frontmatter) and doc.frontmatter["processed"] is False

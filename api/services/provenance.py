@@ -213,6 +213,7 @@ def episode_document(
         correspondent=_opt(_correspondent(fm).get("name")) if is_episode else None,
         correspondent_kind=_opt(_correspondent(fm).get("kind")) if is_episode else None,
         device=_opt(fm.get("device")) if is_episode else None,
+        site=_saved_site(fm) if is_episode else None,
         turns=turn_models,
         focus=focus_model,
         agent=agent,
@@ -220,6 +221,14 @@ def episode_document(
         relay=_relay(fm) if is_episode else None,
         unsent=_unsent(fm, spans) if is_episode else [],
     )
+
+
+def _saved_site(fm: dict) -> str | None:
+    """Owner 2026-10-20: the site key a saved link's Reader header is marked with (the Waiting row's own rule)."""
+    from api.services import channel_items, reading_hosts
+
+    url = channel_items.saved_episode_url(fm)
+    return reading_hosts.mark_key(url) if url else None
 
 
 def _extras(stored: dict | None, index_at: dict[int, int]) -> EpisodeTurnExtras | None:

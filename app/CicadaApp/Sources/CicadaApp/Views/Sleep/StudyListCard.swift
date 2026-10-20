@@ -255,10 +255,7 @@ struct StudyListCard: View {
             // R-HS15 — one 36 pt row (DR-34): the chevron, the source's real mark (DR-52), its
             // name, the oldest age inline, and the trailing state.
             HStack(spacing: CicadaTheme.spacingSM) {
-                Image(systemName: expandedOrigins.contains(row.origin) ? "chevron.down" : "chevron.right")
-                    .font(CicadaTheme.icon(.inline))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .frame(width: CicadaTheme.scaled(12))
+                DisclosureChevron(isOpen: expandedOrigins.contains(row.origin))
 
                 OriginMark(origin: row.origin, size: CicadaTheme.scaled(14))
 

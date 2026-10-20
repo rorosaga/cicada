@@ -138,7 +138,6 @@ struct SkillsPageView: View {
             HStack(alignment: .top, spacing: 0) {
                 content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 if let skill = selectedSkill {
-                    Rectangle().fill(CicadaTheme.border).frame(width: 1)
                     SkillDetailColumn(skill: skill, busy: model.busy.contains(skill.name),
                                       onClose: { Instant.run { selected = nil } },
                                       onUpdate: { Task { await model.update(skill.name) } },
@@ -148,6 +147,7 @@ struct SkillsPageView: View {
                                           Task { await model.remove(skill.name) }
                                       })
                         .frame(width: CicadaTheme.scaled(Self.detailWidth))
+                        .columnEdge()   // DR-11: the one permitted rule, from the theme
                 }
             }
         }
@@ -161,11 +161,12 @@ struct SkillsPageView: View {
     @ViewBuilder
     private var content: some View {
         switch (model.phase, data) {
+        // DR-43 — the list pages' one first-read pair: words over a still skeleton, then why it failed and Retry.
         case (.failed(let why), nil):
-            EmptyStateView(title: Copy.Skills.loadFailedTitle, message: why)
+            ListErrorCard(title: Copy.Skills.loadFailedTitle, message: why) { Task { await model.load() } }
         case (_, nil):
-            Text(Copy.Skills.loading).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-                .padding(.horizontal, CicadaTheme.spacingGutter)
+            ListSkeleton(message: Copy.Skills.loading)
+                .padding(.horizontal, CicadaTheme.scaled(30))
         case (_, let data?):
             ScrollView {
                 Group {
@@ -432,11 +433,7 @@ struct SkillDetailColumn: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(skill.name).font(CicadaTheme.headingFont)
-                    Spacer()
-                    IconButton(systemName: "xmark", help: Copy.Skills.closeHelp, action: onClose)
-                }
+                DetailHeader(title: skill.name, closeHelp: Copy.Skills.closeHelp, onClose: onClose)
                 source
                 if let tool = skill.tool, tool.text == "older" {
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
@@ -462,7 +459,10 @@ struct SkillDetailColumn: View {
                         Text(Copy.Skills.otherAppsDiffer).font(CicadaTheme.captionFont)
                             .foregroundStyle(CicadaTheme.textTertiary).fixedSize(horizontal: false, vertical: true)
                     }
-                    if let when = skill.details.installedAt { fact(Copy.Skills.installedLabel, String(when.prefix(10))) }
+                    // DR-58 — a day in the app's one day grammar ("Yesterday", "Oct 3"), never a raw ISO stamp.
+                    if let day = ISODay(skill.details.installedAt) {
+                        fact(Copy.Skills.installedLabel, RelativeDay.phrase(day, today: .today()))
+                    }
                     if let licence = skill.details.licence { fact(Copy.Skills.licenceLabel, licence) }
                     ForEach(skill.details.folders, id: \.path) { folder in
                         fact(Copy.Skills.foldersLabel,
@@ -484,7 +484,8 @@ struct SkillDetailColumn: View {
                         Text(Copy.Skills.removeHelp)
                     }
             }
-            .padding(CicadaTheme.spacingLG)
+            .padding(.horizontal, CicadaTheme.spacingXL)
+            .padding(.bottom, CicadaTheme.spacingXL)
         }
     }
 

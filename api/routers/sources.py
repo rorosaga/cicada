@@ -55,6 +55,7 @@ from api.services import (
     media_ingestor,
     notes_sync,
     reading_asks,
+    reading_hosts,
     reading_queue,
     reading_service,
     reading_settings,
@@ -869,8 +870,9 @@ def _capture_thumbs(memory_path: Path) -> dict[str, str]:
 
 #: The `/sources` payload's shape version, folded into its ETag: `saved-why-2` added `savedWhyHistory`,
 #: `lastSavedAt` and `captureThumb` (G191 v3); `saved-why-3` added `leftBrowser` (G191 v4) and the four reason labels;
-#: `device-1` added `device` (G181 phase 3: which of the person's devices posted the save).
-SHAPE = "device-1"
+#: `device-1` added `device` (G181 phase 3: which of the person's devices posted the save); `site-key-1` added
+#: `siteKey` (owner 2026-10-20: the key every surface draws the item's own site mark under).
+SHAPE = "site-key-1"
 
 
 def _device_of(fm: dict) -> str | None:
@@ -943,6 +945,7 @@ async def list_sources(
         preview: str | None = None
         fm_read = None
         wall_page = None
+        saved_page = False
         entity_path = Path(memory_path) / "entities" / f"{entity_id}.md"
         if entity_path.exists():
             try:
@@ -950,6 +953,8 @@ async def list_sources(
 
                 parsed = markdown_parser.parse(entity_path)
                 fm = parsed.frontmatter or {}
+                # Review of #372: a site key only where the media icon route would answer (one predicate).
+                saved_page = channel_items.is_saved_link_page(fm)
                 # G102 R12 — read the excerpt + `about` ids straight after the
                 # parse, before any later field: this block is one `try` whose
                 # `except: pass` would otherwise drop them if relevance or
@@ -1036,6 +1041,7 @@ async def list_sources(
                 title=entry.get("title", ""),
                 media_type=entry.get("media_type", "url"),
                 site=site,
+                site_key=reading_hosts.mark_key(str(entry.get("url") or "")) if saved_page else None,
                 channel=channel,
                 thumbnail=entry.get("thumbnail"),
                 preview=preview,
@@ -1235,18 +1241,34 @@ _OWN_ICON_SEMAPHORE = asyncio.Semaphore(4)
 @router.get("/sources/saved/{media_entity_id}/site-icon")
 async def get_saved_link_site_icon(media_entity_id: str, request: Request, settings: Settings = Depends(get_settings)):
     """A saved link's own site icon (owner ruling 2026-10-19), for its row in a list the person opened. Asked of that
-    site only — `https://<registrable domain>/apple-touch-icon.png`, then `/favicon.ico` — never of an icon service,
-    so no one else learns what was saved; behind `CICADA_ALLOW_LOGO_FETCH`; cached under `logos/<bank>/sites/own/`
+    site only — its homepage's declared icons (or a CDN URL that page names), then `/apple-touch-icon.png` and
+    `/favicon.ico` (discovery amended 2026-10-20) — never of an icon service, so no one else learns what was saved; behind `CICADA_ALLOW_LOGO_FETCH`; cached under `logos/<bank>/sites/own/`
     with misses. 404 means "draw the monogram": a page that is not a live saved link, a walled or private host, the
     gate off, a miss. Nothing calls this but the app's row; Sleep never does."""
+    memory_path = settings.memory_path
+    site = await run_in_threadpool(channel_items.saved_link_site, memory_path, media_entity_id)
+    return await _serve_own_site_icon(request, memory_path, site)
+
+
+@router.get("/sources/saved/episodes/{episode_id}/site-icon")
+async def get_saved_episode_site_icon(episode_id: str, request: Request, settings: Settings = Depends(get_settings)):
+    """The same icon for a saved link Sleep has not made a page of yet (owner 2026-10-20): a Waiting row of a bookmark
+    or a saved post is an episode, so it is asked by the episode's id. The site is read from THAT episode's own `url`,
+    only for a live episode of a saved source (`channel_items.saved_episode_site`); the same gate, the same per-site
+    cache and the same fetch as the saved-link route. 404 means "draw the monogram"."""
+    memory_path = settings.memory_path
+    site = await run_in_threadpool(channel_items.saved_episode_site, memory_path, episode_id)
+    return await _serve_own_site_icon(request, memory_path, site)
+
+
+async def _serve_own_site_icon(request: Request, memory_path, site: str | None):
+    """Serve `site`'s own icon from the cache, asking the site at most once (`ensure_own_site_icon`, ≤ 4 at a time)."""
     import hashlib
 
     from fastapi.responses import FileResponse
 
     from api.services import logo_service
 
-    memory_path = settings.memory_path
-    site = await run_in_threadpool(channel_items.saved_link_site, memory_path, media_entity_id)
     if not site:
         raise HTTPException(404, "no icon for this site")
     bank = logo_service.own_site_bank(logo_service.bank_name(memory_path))

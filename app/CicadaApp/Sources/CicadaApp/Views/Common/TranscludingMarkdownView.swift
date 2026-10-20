@@ -166,11 +166,12 @@ struct TransclusionCard: View {
     private var header: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             Button { collapsed.toggle() } label: {
-                Image(systemName: collapsed ? "chevron.right" : "chevron.down")
-                    .font(CicadaTheme.font(size: 10, weight: .semibold))
-                    .foregroundStyle(CicadaTheme.textTertiary)
+                DisclosureChevron(isOpen: !collapsed)
             }
             .buttonStyle(.cicadaPlain)
+            // The glyph is hidden from VoiceOver, so the button carries the name and the state itself.
+            .accessibilityLabel(Copy.Lists.embeddedPage(payload?.title ?? ref))
+            .accessibilityValue(collapsed ? Copy.Lists.collapsed : Copy.Lists.expanded)
 
             Image(systemName: "rectangle.on.rectangle.angled")
                 .font(CicadaTheme.font(size: 10))
