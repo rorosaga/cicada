@@ -601,8 +601,11 @@ def _time_block(query: str, searched, shown: list) -> str:
 
     def spell(n: int) -> str:
         weeks, rest = divmod(abs(n), 7)
-        return (f"{n} days (= {weeks} weeks {rest} days, about {abs(n) / 30.44:.1f} months)" if abs(n) >= 7
-                else f"{n} days")
+        def unit(k: int, word: str) -> str:
+            return f"{k} {word}" + ("" if k == 1 else "s")
+
+        return (f"{unit(n, 'day')} (= {unit(weeks, 'week')} {unit(rest, 'day')}, about {abs(n) / 30.44:.1f} months)"
+                if abs(n) >= 7 else unit(n, "day"))
 
     lines = ["TIME BETWEEN THE CONVERSATIONS (computed from the dates of the conversations shown above, not by a "
              "model — use these numbers, never estimate a gap they give):"]
@@ -716,7 +719,7 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
                        "and say the count covers what memory shows")
             if getattr(searched, "ends", None):
                 how += ("; the question asks about more than one moment, so each was searched for on its own words "
-                        "and its best conversation leads (see TIME BETWEEN THE CONVERSATIONS)")
+                        "and its best conversation leads; TIME BETWEEN THE CONVERSATIONS below dates them")
             context += ("\n\nOTHER CONVERSATIONS (word for word, found by searching every conversation for the "
                         "question's words; no page above cites these lines, so they may be about something else; "
                         f"{how}):\n" + ask_sources.render(more, with_episode=True))

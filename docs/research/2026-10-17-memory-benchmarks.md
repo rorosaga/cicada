@@ -456,3 +456,34 @@ Gemma re-answers 156).
 **Still open.** The newest conversation's *answer* turn is not guaranteed — only its best-matching turn (one
 knowledge-update question lost its answer turn to that); counts whose evidence turns share no rare word with the
 question; the judge's strictness on abstentions phrased as "zero".
+
+## Two ends: questions about two moments (2026-10-20, branch `feat/ask-two-ends`)
+
+**The problem** (the owner's new hard set, measured by the coordinator, real values redacted): temporal 0 of 7. Ask
+found one end of "when I first … and by the time I later …", "between <month> and <month>", "how many days between A
+and B" and not the other (or an adjacent day's conversation for it), and estimated the gap (a "178–208 day" range; 16
+for 17). One search over the whole question ranks first the conversation holding most of its words — one end.
+
+**What changed** (`docs/architecture/mcp.md`, "Two ends"): `ask_sources.two_ends` reads the moments from the
+question's words (no model); each end is searched on its own words through the same two legs and its best
+conversation is kept in the window, on its own named month or day; each end leads with its own best turns; for
+two-ends and elapsed-time questions the prompt carries TIME BETWEEN THE CONVERSATIONS — the shown days numbered from
+the earliest, today, and the exact gap between the ends. Spanish dates and a month named alone count as named days.
+#365/#367's single-sentence clip is not reintroduced; #349's search leg is unchanged for every other shape.
+
+**Measured** on the broad sample's banks (EmbeddingGemma 2; sonnet answers and judge; the broad run's own answers on
+dev as "before" — its r1–r3 repeats; only the questions whose prompt changed re-answered, 3 repeats):
+
+| | prompts changed | before (r1 / r2 / r3) | after (3 repeats) |
+|---|---|---|---|
+| LongMemEval_S temporal-reasoning (23) | 18 | 17 / 18 / 18 | **19 / 19 / 19** |
+| LoCoMo temporal (100, 10 conversations) | 2 | 90 | 90 (both changed ones right 3/3) |
+| every other category (LME 77, LoCoMo 282) | 0 — byte-identical | — | — |
+
+Gains: the order of three quoted events (0/3 → 3/3: all three conversations now reach the prompt, 2 → 3 answer turns
+shown) and "how many days between MoMA and the Met" (2/3 → 3/3). No changed question got worse; the one abstention
+among them stayed right 3/3. Answer turns shown for the 18 changed: 28 → 30 of 35. Prompt p50 5.2k → 6.5k
+characters on the changed questions; context build p50 +27 ms (one more embed and word search per end). The two
+LongMemEval misses left are one-moment "how many days ago … when I …" questions whose event is dated relative to its
+session; out of scope here. Plan calls: 122.
+

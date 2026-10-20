@@ -903,8 +903,8 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   each end its best-matching conversation, its day and the exact gap from the end above (days, weeks, about months)
   — computed from the dates, never left to the model to estimate; it says a kept conversation is a best match, not
   proof (rule 11), and that an event told as "yesterday" or "last week" moves by that much. The system prompt is
-  unchanged; every other question's prompt is byte-identical. Measured: the PR (#<n>) and
-  `docs/research/2026-10-17-memory-benchmarks.md`.
+  unchanged; on the public benchmarks every non-temporal prompt stayed byte-identical. Measured:
+  `docs/research/2026-10-17-memory-benchmarks.md`, "Two ends".
 - **The `sources` scope.** `answer_query(source_words=...)`, `POST /ask` `sourceWords` (default true): `cicada_ask`
   passes `ctx.raw_excerpts`, so a remote connector without `sources` gets no conversation words in the prompt (R-R22)
   — neither leg runs for it.
