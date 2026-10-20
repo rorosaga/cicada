@@ -138,7 +138,9 @@ api/.venv/bin/python -m benchmarks.public.run report --run <run folder>
   only on exit 0 (a run waits out another Sleep sharing the plan). Every `ask` row keeps the prompt's size, the
   context-build time before the model call and whether the dataset's own answer turns reached the prompt verbatim (any
   40-character stretch; `prompts.jsonl` beside it), and the report prints them (2026-10-20). The report counts unanswered and ungraded questions and gives the score with them as not correct. Slices are
-  deterministic (first N per category / per unit).
+  deterministic (first N per category / per unit). `--questions <fixture>` asks only a fixture's questions, in its
+  wording, every category it lists (`benchmarks/public/fixtures/locomo-es.json`: 50 LoCoMo questions in Spanish,
+  10 of them adversarial; `--questions-lang en` asks the same questions in English) — pinned like the other settings.
 - **Cost, measured:** every plan call is counted by phase (sleep / answer / judge) and stage with its wall seconds;
   `report.json` and the printed table carry them beside the scores. No dollar figure — a plan call has no price.
 - **Tested offline:** `api/tests/test_public_benchmark.py` runs a synthetic LoCoMo-shaped conversation through the
@@ -709,3 +711,58 @@ lost an answer turn against dev. Context build on the changed LoCoMo questions +
 most +717 ms (the first question in a process loads the packed function); the largest prompt 29.9k characters. The
 15 multi-hop questions whose prompt changed again were re-answered once: 9 → 10 right, so LoCoMo multi-hop is **74**
 of 100 (one repeat; dev 65). Plan calls: 30 (288 in all).
+
+## Judgements and Spanish (2026-10-20, branch `feat/ask-infer-es`)
+
+**Why.** The broad sample: LoCoMo open-domain 48.8 J against 75 for the whole-conversation control, 37 of 42 misses
+saying memory doesn't state what was a reasonable inference from what it found. The owner's hard set: Spanish 5 of 10,
+the English counterparts much higher.
+
+**Causes found.**
+1. *Judgements declined as missing facts.* Rule 1 ("never guess") read every "would <name> likely …" as a fact to look
+   up. Nothing told the model a judgement may be reasoned from the record.
+2. *A Spanish question over English conversations reached none of their words.* Every word leg matches the question's
+   words: claims and page items by shared words, WHAT WAS SAID through those, the search leg's turns by weighted words.
+   With 40 LoCoMo questions translated to Spanish (fixture `benchmarks/public/fixtures/locomo-es.json`), the dataset's
+   answer turns reached the prompt **8 of 74** times; the same 40 in English, **38 of 74**. The entities were found
+   (the vector leg is multilingual), their conversations' words were not. Also: Spanish function words were subject
+   words, the shape detectors and `_wants_history` read only English time phrasing, "ayer"/"hace tres días" named no day.
+
+**Fixes.** See `docs/architecture/mcp.md`, "Judgements and Spanish": a judgement detector and a prompt note for those
+questions only (the system prompt is unchanged); Spanish questions go *by meaning* — the vector leg's nearest passages
+lead the search leg, ranked turn by turn by the search model, and the full-budget pages' claims and items are ranked by
+it; Spanish stopwords, time phrasing and relative days. Tried and dropped: going by meaning also for an English question
+whose words the record lacks — that is how an abstention looks ("what is the name of my hamster?" turned into a
+lookup).
+
+**Retrieval, no model:** Spanish answer turns **8 → 33 of 74** (English 38). Every English prompt of the broad
+sample's banks (300 LoCoMo, 100 LongMemEval_S) is byte-identical to dev except the 42 open-domain judgement questions'.
+The judgement detector fires on 49 of LoCoMo's 96 open-domain questions and on none of its other 1,890 (446
+adversarial), nor on the 100 LongMemEval_S questions. Context build: Spanish 35 → 420 ms p50 (the search model ranks
+up to 160 page texts and 48 turns); judgement questions +210 ms p50 (their named pages' items ranked). Prompt p50:
+Spanish 9.0k → 19.4k characters (English 15.6k), max 26.1k.
+
+**Answers on haiku** (answers and judge `haiku`, broad sample banks, EmbeddingGemma 2, one repeat):
+
+| | dev | this branch |
+|---|---|---|
+| LoCoMo open-domain judgement questions (42 whose prompt changed) | 17 / 42 (40.5) | **26 / 42 (61.9)** |
+| LoCoMo in Spanish, 40 answerable (fixture) | 20 / 40 (50.0) | **27 / 40 (67.5)** |
+| — by category: single-hop / multi-hop / temporal / open-domain | 9/10 · 5/10 · 4/11 · 2/9 | 9/10 · 9/10 · 6/11 · 3/9 |
+| LoCoMo adversarial in Spanish (10) | 10 / 10 | 9 / 10 |
+| English adversarial, LongMemEval abstention, every other English question | — | prompt byte-identical: unchanged |
+
+- **Open-domain:** 12 right that were wrong, 3 the other way: two "would Caroline …" answers inferred the wrong way
+  from the right evidence, and a yes/no "did they meet" was answered "probably yes" from a plan to meet. Every
+  inference was marked as one (confidence 0.3–0.6). The other 40 open-domain questions' prompts are unchanged and were
+  not re-answered.
+- **Spanish:** 10 right that were wrong, 3 the other way: one answer gave the right day (2023-05-07) and was judged
+  wrong; two ask about a film by its Spanish title, which the record never uses. The adversarial miss is an honest
+  decline ("memory holds no favourite DJ of Dave") that went on to name a related favourite.
+- **Plan calls: 370** (2 translations, 184 answers, 184 judgments). The owner's two sets are measured by the
+  coordinator with `--compare`.
+
+**Still open.** Open-domain questions asked as plain facts ("does <name> live in <state>?", "how old is <name>?",
+"what nickname does …") are not read as judgements and still decline. A Spanish question about something named only
+in English (a film title translated) misses it. An English question over Spanish conversations is not helped: going
+by meaning on missing words breaks abstention, so it would need the bank's own language, not the question's words.

@@ -220,6 +220,27 @@ def load_units(name: str, cache: Path) -> list[dict]:
     raise ValueError(f"unknown dataset {name}")
 
 
+def apply_questions(units: list[dict], fixture: dict, lang: str = "") -> list[dict]:
+    """A question fixture (``benchmarks/public/fixtures/*.json``: ``{"lang", "questions": {qid: {lang: text, …}}}``):
+    each unit keeps only the fixture's questions, worded in ``lang`` (default: the fixture's own), every category
+    included. A unit with none is dropped. Gold answers and evidence stay the dataset's own."""
+    lang = lang or str(fixture.get("lang") or "en")
+    wanted = fixture.get("questions") or {}
+    out = []
+    for unit in units:
+        qs = []
+        for q in unit["questions"]:
+            entry = wanted.get(q["qid"])
+            if entry is None:
+                continue
+            if lang not in entry:
+                raise ValueError(f"question fixture has no {lang!r} wording for {q['qid']}")
+            qs.append({**q, "question": str(entry[lang]), "lang": lang})
+        if qs:
+            out.append({**unit, "questions": qs})
+    return out
+
+
 def select(units: list[dict], *, units_limit: int | None = None, only: list[str] | None = None,
            per_category: int | None = None, limit: int | None = None,
            skip_categories: tuple[str, ...] = ()) -> list[dict]:

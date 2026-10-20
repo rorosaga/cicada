@@ -118,6 +118,11 @@ such than that the their them then there these they this those to too true under
 where which while who whom whose why will with would yes yet you your
 tracking track keep kept same different value values answer option options
 el la los las un una unos unas de del al y o que en es son por para con sin su sus lo se mi mis tu ya
+cual cuales quien quienes cuando donde adonde como cuanto cuanta cuantos cuantas porque pero mas menos muy tambien
+aun todavia este esta estos estas ese esa esos esas aquel aquella le les nos te tus nuestro nuestra nuestros
+nuestras fue fueron ser sido estar estan estaba estaban estuvo ha han hemos habia hubo tiene tienen tenia tuvo hizo
+hace hacer hacia sobre entre hasta desde durante segun tras otro otra otros otras alguna alguno algun cada mismo
+misma vez veces ni ella ellos ellas usted ustedes algo
 """.split())
 
 
