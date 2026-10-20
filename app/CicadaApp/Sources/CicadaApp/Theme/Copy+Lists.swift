@@ -51,6 +51,9 @@ extension Copy {
         static func entityRow(type: String, name: String, open: Bool) -> String {
             open ? "Open: \(type), \(name)" : "\(type), \(name)"
         }
+        /// Owner ruling 2026-10-20 — a page only an import made, not mentioned yet: said to VoiceOver,
+        /// since the row's dimming alone is a look.
+        static let quiet = "Saved, not talked about yet"
 
         // The Feed
         static let kind = "Kind"

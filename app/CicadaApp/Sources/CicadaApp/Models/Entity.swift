@@ -806,6 +806,10 @@ struct Entity: Identifiable, Codable {
     var pictureURL: String? = nil
     var pictureSource: String? = nil
     var pictureInputs: PictureInputs? = nil
+    /// Owner ruling 2026-10-20 — a page only an import made (a saved link, video or playlist item) that the person has
+    /// not mentioned yet (`quiet_pages`): drawn dimmed in lists and the graph. Derived by the backend on every read,
+    /// never stored; false from an older backend.
+    var quiet: Bool = false
 
     var pictureRef: EntityPictureRef? { EntityPictureRef.wire(url: pictureURL, source: pictureSource) }
 
@@ -815,7 +819,7 @@ struct Entity: Identifiable, Codable {
         decayRate: Double, sourceEpisodes: [String], tags: [String],
         related: [String], version: Int, markdownContent: String,
         history: [EntityHistoryEntry], decayClass: DecayClass = .active,
-        isOwner: Bool = false, pictureURL: String? = nil, pictureSource: String? = nil
+        isOwner: Bool = false, pictureURL: String? = nil, pictureSource: String? = nil, quiet: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -835,13 +839,14 @@ struct Entity: Identifiable, Codable {
         self.isOwner = isOwner
         self.pictureURL = pictureURL
         self.pictureSource = pictureSource
+        self.quiet = quiet
     }
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, created, lastReferenced
         case decayRate, decayClass, decay, sourceEpisodes, tags, related, version
         case markdownContent, rawMarkdown, rawOmitted, path, media, history, historyTruncated, isOwner
-        case pictureURL = "picture", pictureSource, pictureInputs
+        case pictureURL = "picture", pictureSource, pictureInputs, quiet
     }
 
     init(from decoder: Decoder) throws {
@@ -882,6 +887,7 @@ struct Entity: Identifiable, Codable {
         pictureURL = (try? c.decodeIfPresent(String.self, forKey: .pictureURL)) ?? nil
         pictureSource = (try? c.decodeIfPresent(String.self, forKey: .pictureSource)) ?? nil
         pictureInputs = (try? c.decodeIfPresent(PictureInputs.self, forKey: .pictureInputs)) ?? nil
+        quiet = (try? c.decodeIfPresent(Bool.self, forKey: .quiet)) ?? false
     }
 
     /// Fallback parser for the nested `media:` block when the backend hasn't
@@ -1077,6 +1083,9 @@ struct GraphNode: Codable, Sendable {
     let pictureSource: String?
     /// C11 — the day the page was last mentioned: Clusters' recency order and F-12's row ages (R-PE13).
     let lastReferenced: String?
+    /// Owner ruling 2026-10-20 — `Entity.quiet`'s twin: an imported page not mentioned yet, drawn dimmed. The server
+    /// omits it when false; decode-tolerant.
+    let quiet: Bool
 
     var pictureRef: EntityPictureRef? { EntityPictureRef.wire(url: picture, source: pictureSource) }
 
@@ -1085,7 +1094,7 @@ struct GraphNode: Codable, Sendable {
         case degree, isHub, hasPending, memberCount, hubId
         case observers, contexts, isFacet, parentId, context
         case summary, contentHash, hasLogo, decayClass, isOwner, aliases
-        case picture, pictureSource, lastReferenced
+        case picture, pictureSource, lastReferenced, quiet
     }
 
     init(
@@ -1097,7 +1106,7 @@ struct GraphNode: Codable, Sendable {
         summary: String? = nil, contentHash: String = "", hasLogo: Bool = false,
         decayClass: DecayClass = .active, isOwner: Bool = false,
         aliases: [String] = [], picture: String? = nil,
-        pictureSource: String? = nil, lastReferenced: String? = nil
+        pictureSource: String? = nil, lastReferenced: String? = nil, quiet: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -1124,6 +1133,7 @@ struct GraphNode: Codable, Sendable {
         self.picture = picture
         self.pictureSource = pictureSource
         self.lastReferenced = lastReferenced
+        self.quiet = quiet
     }
 
     init(from decoder: Decoder) throws {
@@ -1158,5 +1168,6 @@ struct GraphNode: Codable, Sendable {
         picture = (try? c.decodeIfPresent(String.self, forKey: .picture)) ?? nil
         pictureSource = (try? c.decodeIfPresent(String.self, forKey: .pictureSource)) ?? nil
         lastReferenced = (try? c.decodeIfPresent(String.self, forKey: .lastReferenced)) ?? nil
+        quiet = (try? c.decodeIfPresent(Bool.self, forKey: .quiet)) ?? false
     }
 }

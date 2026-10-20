@@ -769,6 +769,15 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             # (the commit's `Cicada-Author` still names it).
             if entity.get("website") and str(entity_type).lower() in ("company", "tool", "project"):
                 fact_sources.propose_site(frontmatter, str(entity["website"]), added_by="agent")
+            if change.get("contacts_card") and entity_type == "person":
+                # Owner ruling 2026-10-20: a page promoted on a waiting card's first mention is born with the card's
+                # sources and photo — what a Contacts sync writes on a matched page (`contacts_local.seed_page`).
+                from api.services import contacts_local
+
+                try:
+                    contacts_local.seed_page(memory_path, frontmatter, entity_id, change["contacts_card"])
+                except Exception as exc:  # noqa: BLE001 — the page is still born; the tail's rematch retries
+                    logger.warning(f"Stage 5: a card's sources were not seeded ({type(exc).__name__})")
             article = change.get("article")
             if article:
                 # A new page with enough to say is written as an article from the start (`_create_job`): the record

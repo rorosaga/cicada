@@ -11,6 +11,12 @@ fading in with zoom; `app.md`), edge labels, cluster detection, decay/clarificat
 one per tag shared by 5+ active pages — never provenance: a playlist, board, collection or bookmark folder is the
 saved page's `folder:` / `collections:`, and a media type or capture door is its `media.media_type` / `origin:`
 (`storage.md`), so none draws a node or `member of` edges (owner 2026-10-19).
+**Quiet nodes (owner ruling 2026-10-20).** A node with `quiet` (a page only an import made, not mentioned yet;
+`quiet_pages`) is drawn with a faint fill (`QUIET_FILL_ALPHA`) and a hairline ring in its own type hue — depth is a ring
+(DR-9), never the accent (DR-5), the hues unmoved (DR-8); a hover lights it fully. Clusters' rows and tiles dim it the
+same way: the name a step down the text ladder (`CicadaTheme.quietName` = `textTertiaryOnFill`, readable on every fill,
+DR-2/DR-3), the picture at `quietPictureOpacity`, "Saved, not talked about yet" to VoiceOver; a selected
+row is fully lit.
 Open ideas live in the backlog.
 
 **The page (Direction D, DS-3a).** The canvas fills the content area under the command bar. Its chrome is one
@@ -159,7 +165,10 @@ drain's batches it commits alone.
 
 **A count is what the inbox serves, never a count of files.** `load_inbox` skips a deferred item and
 one whose subject is archived, dropped or (for every kind but `clarification`) gone; those files stay
-on disk. `inbox_service.served_counts` applies the same `_hidden` predicate over `bank_index`
+on disk. **A quiet subject is never asked about either (owner ruling 2026-10-20):** a page only an import made — a
+saved link, video or playlist item the person has not mentioned (`quiet_pages`, derived on read) — hides its items
+from `/inbox`, the counts, the palette (`search_service`) and every MCP reader (`mcp_tools.nudge_visible` with the
+bank's path, the recall hook); the files stay, and the person's first mention brings them back. `inbox_service.served_counts` applies the same `_hidden` predicate over `bank_index`
 frontmatter, and it is the only source of `/status`'s `inbox.total`/`byKind` (the menu bar) and the
 hub's pending count — on 2026-10-06 the raw file count said 49 while the inbox served 35.
 **The read is one listing, not one per item (inbox lag, 2026-10-17).** Most hidden items name a subject with no page

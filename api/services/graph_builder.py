@@ -9,7 +9,7 @@ import yaml
 from loguru import logger
 
 from api.models.schemas import GraphLink, GraphNode, GraphResponse
-from api.services import bank_index, claim_contexts, decay_policy, entity_picture, logo_service, predicates
+from api.services import bank_index, claim_contexts, decay_policy, entity_picture, logo_service, predicates, quiet_pages
 from api.services.claims import is_current, parse_claims, strip_claims_block
 from api.services.id_utils import sanitize_id
 from api.services.markdown_parser import load_yaml, load_yaml_file, parse, write_yaml
@@ -207,6 +207,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
         chat_photos = messages_photos.links(memory_path)
     except Exception:
         chat_photos = {}
+    episode_kind = quiet_pages.episode_lookup(memory_path)
     for f in bank_index.files(memory_path, "entities"):
         fm = f.frontmatter
         eid = f.stem
@@ -216,7 +217,13 @@ def _build_full(memory_path: Path) -> GraphResponse:
             continue
         entity_ids.add(eid)
         try:
-            for claim in parse_claims(body):
+            page_claims = parse_claims(body)
+        except Exception:
+            page_claims = []
+        # Owner ruling 2026-10-20: a page only an import made, until the person mentions it — derived here, never stored.
+        quiet = quiet_pages.is_quiet(fm, page_claims, episode_kind)
+        try:
+            for claim in page_claims:
                 if not is_current(claim):
                     continue  # overlay reflects currently-valid beliefs only
                 if claim.observer:
@@ -261,6 +268,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 picture=picture.url,
                 picture_source=picture.source,
                 last_referenced=entity_picture.day(fm.get("last_referenced")),
+                quiet=quiet,
             )
         )
         raw_sources = fm.get("sources")
@@ -374,6 +382,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 node.has_logo, node.decay_class.value,
                 "\x1e".join(node.contexts), node.summary,
                 node.picture, node.picture_source, node.last_referenced,
+                *(("quiet",) if node.quiet else ()),
             )
 
     # Filter canonical edges to endpoints that exist (drops legacy dangling slugs).

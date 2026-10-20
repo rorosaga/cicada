@@ -147,7 +147,10 @@ live bank is ~1.8 MB. **Ship the ETag and its client mapping together** — `GET
 `.inbox`; change one half, change both. `/graph`'s `extra` carries a node-shape tag
 (`graph.NODE_SHAPE`), bumped when a node gains a field a client must see or the body changes for
 the same files (F1's context filter and fence strip; `+previews` when a media node's `picture` became the stored
-preview path); `/sources` carries `sources.SHAPE` in its `extra` the same way (`preview-1`: items gained `preview`;
+preview path; `+quiet`, owner ruling 2026-10-20, when a node gained `quiet` — omitted when false, derived from the
+entity files the ETag already covers and from episodes whose kind never changes, so no component moved; folded into
+the node's `contentHash` only when true, so a lit node's hash is unchanged; `GET /entities/{id}` carries the same
+`quiet`, no ETag); `/sources` carries `sources.SHAPE` in its `extra` the same way (`preview-1`: items gained `preview`;
 `saved-why-2`, G191 v3: items gained `savedWhyHistory`, `lastSavedAt` and `captureThumb`). Neither moved a component,
 so `VersionVector` was unchanged by those — but G191 v3 also folds the `captures` component into `/sources`' ETag (a
 new site capture gives a bookmark's row its thumbnail), so `VersionVector` maps `captures` → `.sources`.

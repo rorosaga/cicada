@@ -11,8 +11,16 @@ one of its aliases — exactly one page, and no other contact on that page. For 
 gains a G61 source `{ref: addressbook://<contact id>, kind: app, predicate, added_by: cicada}`: where to look it up,
 not a copy. A sync owns exactly the entries whose ref is `addressbook://…` and whose `added_by` is `cicada` — it adds,
 keeps and removes those in place, never touches one the person or an agent added, and never re-adds one the person
-removed (`_contacts_rejected.yaml`, final review finding 1). Unmatched contacts are counted, never
-stored. The contact's thumbnail (≤ 64 KB, JPEG or PNG) is cached at `$CICADA_HOME/pictures/<bank>/contacts/<id>.<ext>`
+removed (`_contacts_rejected.yaml`, final review finding 1). **Owner ruling 2026-10-20: unmatched cards wait, and a card is
+matched on mention** — never one page per card. A card that matches no page is kept outside every bank, in the people
+directory (`people_directory`, `$CICADA_HOME/people/<bank>/contacts.json` and its thumbnails, 0600), with exactly what
+the app posted; every sync rewrites it whole, deletions included, and the bank gets nothing for it. The first time a
+conversation names that person in full (or by an alias) and exactly one card carries the name, Stage 2 promotes the
+mention on that alone (`entity_resolver`, :class:`WaitingIndex`); the page is born under the card's name, with its
+sources and photo (:func:`seed_page`), and Sleep's tail matches the cards still waiting against any page born later
+(:func:`rematch`). Never a one-part name, a name two cards or two pages share, a person known only by a relation
+(`role_people`), or the person's own card: the app marks the "me" card (``is_me``) and it belongs to the owner's
+page (G169), never to a namesake. The contact's thumbnail (≤ 64 KB, JPEG or PNG) is cached at `$CICADA_HOME/pictures/<bank>/contacts/<id>.<ext>`
 — never in a bank (the logo rule, G59/G146) — and the page carries `contacts_photo: {sha, ext}` so the graph's ETag
 moves; `photo_path(bank, entity_id, ext)` builds that one path, the rung C11's `entity_picture.resolve` reads with the
 page's `ext` (R-SR9 as amended). No episode is written: nothing is hashed, so the scrub
@@ -25,12 +33,13 @@ import base64
 import binascii
 import hashlib
 import os
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
 import yaml
 
-from api.services import bank_index, fact_sources, markdown_parser, text_fold
+from api.services import bank_index, fact_sources, markdown_parser, people_directory
 from api.services.auth import cicada_home
 
 CHANNEL_ID = "contacts-local"
@@ -94,13 +103,8 @@ def _cached(bank: str, entity_id: str) -> Path | None:
     return None
 
 
-def name_keys(given, family) -> set[str]:
-    """Both orders of a two-part name, folded like search (`text_fold.words`); nothing for a one-part name."""
-    first = " ".join(text_fold.words(given))
-    last = " ".join(text_fold.words(family))
-    if not first or not last:
-        return set()
-    return {f"{first} {last}", f"{last} {first}"}
+#: Both orders of a two-part name, folded like search; nothing for a one-part name (`people_directory.name_keys`).
+name_keys = people_directory.name_keys
 
 
 def _is_mine(source: dict) -> bool:
@@ -123,22 +127,39 @@ def _photo(raw) -> tuple[bytes, str] | None:
     return None
 
 
-def _index(memory_path: Path) -> tuple[dict[str, set[str]], set[str]]:
-    """Folded name and alias keys → person page ids, and every page that already carries one of this sync's
-    entries (so a contact that disappeared is cleaned up wherever its entries were)."""
+def _owner_ids(memory_path: Path) -> set[str]:
+    """The owner's page: its ``owner: true`` flag, else ``resolve_observer``'s id (the ``linkedin_people`` rule)."""
+    from api.services import owner_identity
+
+    try:
+        return {owner_identity.resolve_observer(memory_path)}
+    except Exception:  # noqa: BLE001 - an unreadable owner.json names no page; the flag still applies
+        return set()
+
+
+def _index(memory_path: Path) -> tuple[dict[str, set[str]], set[str], str | None]:
+    """Folded name and alias keys → person page ids, every page that already carries one of this sync's entries (so
+    a contact that disappeared is cleaned up wherever its entries were), and the owner's page (G169)."""
     keys: dict[str, set[str]] = {}
     carrying: set[str] = set()
+    flagged: list[str] = []
+    persons: set[str] = set()
     for f in bank_index.files(memory_path, "entities"):
         fm = f.frontmatter or {}
         if any(_is_mine(s) for s in fact_sources.as_sources(fm.get("sources"))) or fm.get(FRONTMATTER_KEY):
             carrying.add(f.stem)
         if fm.get("type") != "person" or fm.get("status") == "dropped":
             continue
+        persons.add(f.stem)
+        if fm.get("owner") is True:
+            flagged.append(f.stem)
         for label in [fm.get("name") or f.stem.replace("-", " "), *(fm.get("aliases") or [])]:
-            key = " ".join(text_fold.words(str(label)))
+            key = people_directory.fold(label)
             if key:
                 keys.setdefault(key, set()).add(f.stem)
-    return keys, carrying
+    by_id = sorted(_owner_ids(memory_path) & persons)
+    owner = sorted(flagged)[0] if flagged else (by_id[0] if by_id else None)
+    return keys, carrying, owner
 
 
 def _remove_photo(bank: str, entity_id: str) -> None:
@@ -206,75 +227,324 @@ def remember_removal(memory_path: Path, entity_id: str, source: dict) -> str | N
     return REFUSED_FILE
 
 
+def _desired(eid: str, contact: dict, mine: dict, refused: set, today: str) -> dict[tuple, dict]:
+    """The entries this card owns on page ``eid``: one per fact it holds, minus what the person removed."""
+    ref = f"{REF_SCHEME}{str(contact['id']).strip()}"
+    desired: dict[tuple, dict] = {}
+    for fact, predicate in FACT_PREDICATES:
+        if contact.get(fact) and (eid, ref, predicate) not in refused:
+            kept = mine.get((ref, predicate))
+            desired[(ref, predicate)] = {"ref": ref, "kind": fact_sources.KIND_APP, "predicate": predicate,
+                                         "added_by": ADDED_BY, "added_at": (kept or {}).get("added_at") or today}
+    return desired
+
+
+def _apply_card(fm: dict, eid: str, contact: dict | None, photo: tuple[bytes, str] | None, *, bank: str,
+                refused: set, today: str, counts: dict) -> None:
+    """One page's frontmatter brought in line with its card (or with no card): this sync's sources reconciled in
+    place, the thumbnail written to (or removed from) the picture cache and marked. Mutates ``fm``."""
+    current = [s for s in (fm.get("sources") or []) if isinstance(s, dict)]
+    mine = {(s.get("ref"), s.get("predicate")): s for s in current if _is_mine(s)}
+    desired = _desired(eid, contact, mine, refused, today) if contact is not None else {}
+    counts["sources_added"] += len(set(desired) - set(mine))
+    counts["sources_removed"] += len(set(mine) - set(desired))
+    sources = _rebuilt(current, desired)
+    if sources:
+        fm["sources"] = sources
+    else:
+        fm.pop("sources", None)
+    target = photo_path(bank, eid, photo[1]) if photo is not None else None
+    if photo is not None and target is not None:
+        data, ext = photo
+        mark = {"sha": hashlib.sha256(data).hexdigest()[:12], "ext": ext}
+        if fm.get(FRONTMATTER_KEY) != mark or not target.exists():
+            _remove_photo(bank, eid)
+            photos_dir(bank)   # the write side creates the folder; `photo_path` never does
+            target.write_bytes(data)
+        fm[FRONTMATTER_KEY] = mark
+        counts["photos"] += 1
+    elif fm.get(FRONTMATTER_KEY) or _cached(bank, eid) is not None:
+        _remove_photo(bank, eid)
+        fm.pop(FRONTMATTER_KEY, None)
+
+
+def _write_page(memory_path: Path, eid: str, contact: dict | None, photo, *, bank: str, refused: set, today: str,
+                counts: dict) -> bool:
+    path = memory_path / "entities" / f"{eid}.md"
+    if not path.exists():
+        return False
+    parsed = markdown_parser.parse(path)
+    fm = dict(parsed.frontmatter)
+    _apply_card(fm, eid, contact, photo, bank=bank, refused=refused, today=today, counts=counts)
+    if fm != parsed.frontmatter:
+        markdown_parser.write(path, fm, parsed.body)
+        return True
+    return False
+
+
+def _counts() -> dict:
+    return {"sources_added": 0, "sources_removed": 0, "photos": 0}
+
+
 def sync(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict:
     """One whole address book (R-SR8). `payload` has snake_case keys. Returns the counts and the bank-relative
-    paths to commit."""
+    paths to commit.
+
+    Owner ruling 2026-10-20: a card that matches no page is kept waiting outside the bank (:func:`save_waiting`) —
+    rewritten whole by every sync, so an edited or deleted card is gone from it at once — and the bank gets nothing
+    for it. The person's own card (``is_me``) belongs to the owner's page (G169), never to a namesake, and never waits."""
     memory_path = Path(memory_path)
     bank = bank or memory_path.name
     contacts = [c for c in (payload.get("contacts") or []) if 0 < len(str(c.get("id") or "").strip()) <= ID_CAP]
     if len(contacts) > MAX_CONTACTS:
         raise PayloadError(f"at most {MAX_CONTACTS} contacts per sync")
-    keys, carrying = _index(memory_path)
+    keys, carrying, owner = _index(memory_path)
     refused = load_refused(memory_path)
+    me = any(c.get("is_me") for c in contacts)
     claims: dict[str, list[dict]] = {}
     unmatched = ambiguous = 0
+    waiting: list[dict] = []
     for contact in contacts:
+        if contact.get("is_me"):
+            if owner:
+                claims.setdefault(owner, []).append(contact)
+            continue
+        card_keys = name_keys(contact.get("given_name"), contact.get("family_name"))
         hits: set[str] = set()
-        for key in name_keys(contact.get("given_name"), contact.get("family_name")):
+        for key in card_keys:
             hits |= keys.get(key, set())
+        if me and owner in hits:
+            # The owner's page is the person's own card's alone (G169): a namesake card neither lands on it beside
+            # theirs nor waits to seed a second page of the owner's name.
+            ambiguous += 1
+            continue
         if len(hits) == 1:
             claims.setdefault(next(iter(hits)), []).append(contact)
         elif hits:
             ambiguous += 1
         else:
             unmatched += 1
+            if card_keys:   # a one-part name can never be matched to anybody: nothing of it is kept
+                waiting.append(contact)
     matched = {eid: found[0] for eid, found in claims.items() if len(found) == 1}
     ambiguous += sum(len(found) for found in claims.values() if len(found) > 1)
     today = str(date.today())
     paths: list[str] = []
-    added = removed = photos = 0
+    counts = _counts()
     for eid in sorted(set(matched) | carrying):
-        path = memory_path / "entities" / f"{eid}.md"
-        if not path.exists():
-            continue
-        parsed = markdown_parser.parse(path)
-        fm = dict(parsed.frontmatter)
-        current = [s for s in (fm.get("sources") or []) if isinstance(s, dict)]
-        mine = {(s.get("ref"), s.get("predicate")): s for s in current if _is_mine(s)}
         contact = matched.get(eid)
-        desired: dict[tuple, dict] = {}
-        if contact is not None:
-            ref = f"{REF_SCHEME}{str(contact['id']).strip()}"
-            for fact, predicate in FACT_PREDICATES:
-                if contact.get(fact) and (eid, ref, predicate) not in refused:
-                    kept = mine.get((ref, predicate))
-                    desired[(ref, predicate)] = {"ref": ref, "kind": fact_sources.KIND_APP, "predicate": predicate,
-                                                 "added_by": ADDED_BY,
-                                                 "added_at": (kept or {}).get("added_at") or today}
-        added += len(set(desired) - set(mine))
-        removed += len(set(mine) - set(desired))
-        sources = _rebuilt(current, desired)
-        if sources:
-            fm["sources"] = sources
-        else:
-            fm.pop("sources", None)
         photo = _photo(contact.get("photo_b64")) if contact is not None else None
-        target = photo_path(bank, eid, photo[1]) if photo is not None else None
-        if photo is not None and target is not None:
-            data, ext = photo
-            mark = {"sha": hashlib.sha256(data).hexdigest()[:12], "ext": ext}
-            if fm.get(FRONTMATTER_KEY) != mark or not target.exists():
-                _remove_photo(bank, eid)
-                photos_dir(bank)   # the write side creates the folder; `photo_path` never does
-                target.write_bytes(data)
-            fm[FRONTMATTER_KEY] = mark
-            photos += 1
-        elif fm.get(FRONTMATTER_KEY) or _cached(bank, eid) is not None:
-            _remove_photo(bank, eid)
-            fm.pop(FRONTMATTER_KEY, None)
-        if fm != parsed.frontmatter:
-            markdown_parser.write(path, fm, parsed.body)
+        if _write_page(memory_path, eid, contact, photo, bank=bank, refused=refused, today=today, counts=counts):
             paths.append(f"entities/{eid}.md")
+    kept = save_waiting(bank, waiting)
     return {"contacts": len(contacts), "matched": len(matched), "people": len(matched), "ambiguous": ambiguous,
-            "unmatched": unmatched, "sources_added": added, "sources_removed": removed, "photos": photos,
-            "paths": paths}
+            "unmatched": unmatched, "waiting": kept, **counts, "paths": paths}
+
+
+# --------------------------------------------------------------------------- the waiting cards (outside every bank)
+
+#: ``$CICADA_HOME/people/<bank>/contacts.json`` (`people_directory`) and the waiting thumbnails beside it.
+WAITING_FILE = "contacts.json"
+WAITING_PHOTOS = "contacts"
+#: What a waiting card keeps — exactly what the app posted (R-SR8), its thumbnail as a file beside it.
+_CARD_FIELDS = ("id", "given_name", "family_name", *(fact for fact, _ in FACT_PREDICATES))
+
+
+def _card_key(card_id: str) -> str:
+    """A waiting thumbnail's file name: the card id hashed, never the id itself in a path."""
+    return hashlib.sha256(str(card_id).encode("utf-8")).hexdigest()[:16]
+
+
+def _waiting_photos(bank: str) -> Path:
+    return people_directory.path(bank, WAITING_PHOTOS)
+
+
+def save_waiting(bank: str, contacts: list[dict]) -> int:
+    """Keep the cards that matched no page — the whole set, replacing the last one, so a card edited away or deleted
+    in the address book leaves with the next sync, thumbnail included. Returns how many wait. A bank with nothing
+    waiting keeps no file."""
+    rows: list[dict] = []
+    photos: dict[str, bytes] = {}
+    for contact in contacts:
+        row = {k: contact[k] for k in _CARD_FIELDS if contact.get(k)}
+        row["id"] = str(contact["id"]).strip()
+        photo = _photo(contact.get("photo_b64"))
+        if photo is not None:
+            name = f"{_card_key(row['id'])}.{photo[1]}"
+            row["photo"] = name
+            photos[name] = photo[0]
+        rows.append(row)
+    folder = _waiting_photos(bank)
+    if not rows:
+        people_directory.path(bank, WAITING_FILE).unlink(missing_ok=True)
+    else:
+        for name, data in photos.items():
+            target = folder / name
+            try:
+                if target.read_bytes() == data:
+                    continue
+            except OSError:
+                pass
+            people_directory.ensure(bank)
+            people_directory.write_bytes(target, data)
+        people_directory.save_json(bank, WAITING_FILE, {"v": 1, "synced_at": str(date.today()), "cards": rows})
+    if folder.is_dir():
+        for stale in folder.iterdir():
+            if stale.is_file() and stale.name not in photos:
+                stale.unlink(missing_ok=True)
+    return len(rows)
+
+
+def load_waiting(bank: str) -> list[dict]:
+    rows = people_directory.load_json(bank, WAITING_FILE).get("cards")
+    return [r for r in rows if isinstance(r, dict) and str(r.get("id") or "").strip()] if isinstance(rows, list) else []
+
+
+def waiting_photo(bank: str, card: dict) -> tuple[bytes, str] | None:
+    """A waiting card's thumbnail, read back and re-checked by its magic bytes (`_photo`'s rule)."""
+    name = str(card.get("photo") or "")
+    if not name or "/" in name or name.startswith("."):
+        return None
+    try:
+        data = (_waiting_photos(bank) / name).read_bytes()
+    except OSError:
+        return None
+    return _photo(base64.b64encode(data).decode("ascii"))
+
+
+def waiting_status(bank: str) -> dict:
+    """What the app may show: how many cards wait — never a name."""
+    return {"waiting": len(load_waiting(bank))}
+
+
+@dataclass
+class WaitingIndex:
+    """Folded name keys → the waiting cards that carry them — what Stage 2 asks on a first mention."""
+    cards: dict[str, list[dict]] = field(default_factory=dict)
+
+    def match(self, labels) -> dict | None:
+        """The ONE waiting card a mention's labels (its name and aliases) name in full — a two-part name, either order,
+        folded like search — or None: no card, two cards sharing the name, or a one-part label."""
+        found: dict[str, dict] = {}
+        for label in labels or []:
+            key = people_directory.fold(label)
+            if " " not in key:
+                continue
+            for card in self.cards.get(key, []):
+                found[str(card["id"])] = card
+        return next(iter(found.values())) if len(found) == 1 else None
+
+
+def waiting_index(memory_path: Path, *, bank: str | None = None) -> WaitingIndex:
+    """The waiting cards of this bank, keyed for :meth:`WaitingIndex.match`. Empty on a demo bank (a demo never takes
+    in the person's real address book, R-CS16) and when nothing waits."""
+    from api.services import demo_guard
+
+    memory_path = Path(memory_path)
+    if demo_guard.is_demo(memory_path):
+        return WaitingIndex()
+    index = WaitingIndex()
+    for card in load_waiting(bank or memory_path.name):
+        for key in name_keys(card.get("given_name"), card.get("family_name")):
+            index.cards.setdefault(key, []).append(card)
+    return index
+
+
+def card_name(card: dict) -> str:
+    """The name a page born from a card carries: the card's own, given then family."""
+    return " ".join(p for p in (str(card.get("given_name") or "").strip(), str(card.get("family_name") or "").strip())
+                    if p)
+
+
+def seed_page(memory_path: Path, frontmatter: dict, entity_id: str, card: dict, *, bank: str | None = None) -> None:
+    """A page born from a card's first mention (Stage 5's create): the card's G61 sources and its thumbnail, exactly
+    what a sync writes on a matched page. Mutates ``frontmatter``; the page is written by its caller."""
+    memory_path = Path(memory_path)
+    bank = bank or memory_path.name
+    _apply_card(frontmatter, entity_id, card, waiting_photo(bank, card), bank=bank,
+                refused=load_refused(memory_path), today=str(date.today()), counts=_counts())
+
+
+@dataclass
+class Report:
+    matched: int = 0
+    paths: list[str] = field(default_factory=list)
+
+
+def rematch(memory_path: Path, *, bank: str | None = None, skip: frozenset[str] = frozenset()) -> Report:
+    """Sleep's tail (the ``linkedin_people.rematch`` pattern): the waiting cards against tonight's pages, so a person
+    who got a page since the last sync — promoted on a card's first mention, or any other way — gains their card's
+    sources and photo now, not at the next sync. A matched card leaves the waiting set. Pages in ``skip`` (dirty
+    before the tail ran) are left alone and their cards keep waiting. Writes nothing on a demo bank."""
+    from api.services import demo_guard
+
+    memory_path = Path(memory_path)
+    bank = bank or memory_path.name
+    report = Report()
+    if demo_guard.is_demo(memory_path):
+        return report
+    cards = load_waiting(bank)
+    if not cards:
+        return report
+    keys, _carrying, owner = _index(memory_path)
+    # The owner's page takes only the person's own card, and only from a sync (G169): never a waiting namesake.
+    keys = {k: ids - {owner} for k, ids in keys.items()} if owner else keys
+    claims: dict[str, list[dict]] = {}
+    for card in cards:
+        hits: set[str] = set()
+        for key in name_keys(card.get("given_name"), card.get("family_name")):
+            hits |= keys.get(key, set())
+        if len(hits) == 1:
+            claims.setdefault(next(iter(hits)), []).append(card)
+    refused = load_refused(memory_path)
+    today = str(date.today())
+    done: set[str] = set()
+    for eid in sorted(claims):
+        found = claims[eid]
+        rel = f"entities/{eid}.md"
+        if len(found) != 1 or rel in skip:
+            continue
+        card = found[0]
+        changed = _write_page(memory_path, eid, card, waiting_photo(bank, card), bank=bank, refused=refused,
+                              today=today, counts=_counts())
+        done.add(str(card["id"]))
+        report.matched += 1
+        if changed:
+            report.paths.append(rel)
+    if done:
+        save_waiting(bank, [{**c, "photo_b64": _b64(waiting_photo(bank, c))} for c in cards
+                            if str(c["id"]) not in done])   # the rest, thumbnails kept
+    if report.paths:
+        bank_index.invalidate(memory_path)
+    return report
+
+
+def _b64(photo: tuple[bytes, str] | None) -> str | None:
+    return base64.b64encode(photo[0]).decode("ascii") if photo is not None else None
+
+
+TRIGGER_REMATCH = "sleep/contacts"
+
+
+def commit_message(report: Report, today: date) -> str:
+    from api.services import git_service
+
+    return git_service.build_commit_message(
+        f"Contacts {today.isoformat()}",
+        [f"{p}: updated (source: n/a, trigger: {TRIGGER_REMATCH})" for p in report.paths], authors=[ADDED_BY])
+
+
+def restore(memory_path: Path, report: Report) -> None:
+    """Undo a tail run whose commit failed, so no later ``git add -A`` sweeps it under another author. The cards it
+    matched stay out of the waiting set; the next sync puts them back if their page is gone."""
+    from api.services import git_service
+
+    memory_path = Path(memory_path)
+    if report.paths and (memory_path / ".git").exists():
+        try:
+            git_service.run_git_write_sync(memory_path, "checkout", "--", *report.paths)
+        except git_service.GitError as exc:
+            from loguru import logger
+
+            logger.warning(f"Contacts rematch restore failed: {type(exc).__name__}")
+    bank_index.invalidate(memory_path)

@@ -31,13 +31,18 @@ final class SystemContactStore: ContactStore, @unchecked Sendable {
                         CNContactBirthdayKey, CNContactThumbnailImageDataKey] as [CNKeyDescriptor]
             final class Box { var records: [ContactRecord] = [] }
             let box = Box()
+            // Owner ruling 2026-10-20 — the person's own "me" card, by its identifier alone (no other key is read for
+            // it): it belongs to the owner's page and never waits. No "me" card set is simply none.
+            let meId = (try? store.unifiedMeContactWithKeys(toFetch: [CNContactIdentifierKey as CNKeyDescriptor]))?
+                .identifier
             do {
                 try store.enumerateContacts(with: CNContactFetchRequest(keysToFetch: keys)) { contact, _ in
                     box.records.append(ContactMapper.record(
                         id: contact.identifier, given: contact.givenName, family: contact.familyName,
                         organization: contact.organizationName, jobTitle: contact.jobTitle,
                         emails: contact.emailAddresses.count, phones: contact.phoneNumbers.count,
-                        hasBirthday: contact.birthday != nil, thumbnail: contact.thumbnailImageData))
+                        hasBirthday: contact.birthday != nil, thumbnail: contact.thumbnailImageData,
+                        isMe: contact.identifier == meId))
                 }
             } catch {
                 return []   // never posted (R-SR10)

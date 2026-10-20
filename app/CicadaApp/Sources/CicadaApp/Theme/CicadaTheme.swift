@@ -325,6 +325,15 @@ enum CicadaTheme {
     /// against the page) that keeps text ≥ 7:1 over it, for every sky.
     static let skyBandOpacity: Double = 0.12
 
+    /// Owner ruling 2026-10-20 — a quiet page's picture in a list (an imported page the person has not mentioned yet).
+    /// Its name steps down the text ladder instead (`quietName`, DR-2); the picture, which has no ladder, fades. Never
+    /// the accent (DR-5); a selected row is fully lit.
+    static let quietPictureOpacity: Double = 0.5
+
+    /// A quiet row's name, a step down the ladder: `textTertiaryOnFill` holds ≥ 4.5:1 on `bgBase`, hover and selection
+    /// alike (DR-2/DR-3), so the dimmed name stays readable under any fill.
+    static var quietName: Color { textTertiaryOnFill }
+
     /// The window's AppKit background for `mode` — the one place `NSWindow`
     /// gets a theme colour (R-M10). Takes the mode explicitly because
     /// `syncWindowChrome` runs for the mode being switched TO.

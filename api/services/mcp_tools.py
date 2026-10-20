@@ -4097,7 +4097,7 @@ def _relevant_inbox(memory_path: Path, query: str, *, raw_excerpts: bool = True,
         # A deferred item is hidden everywhere it could be surfaced, the
         # proactive recall block included — the user asked to be reminded
         # later, not on the next unrelated question.
-        if not nudge_visible(fm, wanted=frozenset(), today=today):
+        if not nudge_visible(fm, wanted=frozenset(), today=today, memory_path=memory_path):
             continue
         named = inbox_ask_gate.with_page_names(memory_path, fm)
         if str(fm.get("kind") or "") in inbox_ask_gate.NEVER_ASKED or not inbox_ask_gate.named_in(named, query):
@@ -4219,13 +4219,15 @@ def _save_new_episode(ctx: ToolContext, episodes_dir: Path, today: str, content:
     return episode_ids.create_episode(episodes_dir, frontmatter, content)
 
 
-def nudge_visible(fm: dict, *, wanted, today: str, skipped=frozenset(), stem: str = "") -> bool:
+def nudge_visible(fm: dict, *, wanted, today: str, skipped=frozenset(), stem: str = "",
+                  memory_path: Path | None = None) -> bool:
     """``check_nudges``' item filter, shared with the recall hook (G149) so an
     item the hook points at is exactly an item ``cicada_check_nudges`` lists:
     not an id this session skipped, never ``normalization`` (app-only audit
     rows), the subject in ``wanted`` when ids were given (G75 R12's exact
     match), and not deferred. ``fm`` may be a frontmatter dict or the search
-    index's inbox ``meta``; both carry ``kind``, ``entity_id``, ``remind_after``."""
+    index's inbox ``meta``; both carry ``kind``, ``entity_id``, ``remind_after``.
+    With ``memory_path``, never about a quiet page either (owner ruling 2026-10-20, ``GET /inbox``'s own rule)."""
     from api.services import inbox_questions
 
     if stem and stem in skipped:
@@ -4234,7 +4236,13 @@ def nudge_visible(fm: dict, *, wanted, today: str, skipped=frozenset(), stem: st
         return False
     if wanted and str(fm.get("entity_id") or "") not in wanted:
         return False
-    return not inbox_questions.is_deferred(fm, today)
+    if inbox_questions.is_deferred(fm, today):
+        return False
+    if memory_path is not None:
+        from api.services import inbox_service
+
+        return not inbox_service._subject_quiet(Path(memory_path), str(fm.get("entity_id") or ""))
+    return True
 
 
 #: At most this many questions come back in ``mode="ask"`` — the agent asks at most one per turn; the second is a
@@ -4282,7 +4290,7 @@ def check_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = 
             continue
         fm, body = read_inbox_item(filepath)
 
-        if not nudge_visible(fm, wanted=wanted, today=today):
+        if not nudge_visible(fm, wanted=wanted, today=today, memory_path=memory_path):
             continue
 
         if topic:
@@ -4363,7 +4371,7 @@ def ask_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = No
         if filepath.stem in ctx.skipped_inbox_ids:
             continue
         fm, _body = read_inbox_item(filepath)
-        if not nudge_visible(fm, wanted=frozenset(), today=today):
+        if not nudge_visible(fm, wanted=frozenset(), today=today, memory_path=memory_path):
             continue
         kind = str(fm.get("kind") or fm.get("type") or "")
         # Cheap refusals first: a kind never asked, or a page the conversation is not on, costs no cause lookup.

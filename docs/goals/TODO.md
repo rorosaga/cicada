@@ -8,6 +8,15 @@
 
 ## Current state and evidence
 
+- **2026-10-20 — Contacts as a seed; imported-only pages stay quiet (ruling 33, G154; branch `feat/people-seed`).**
+  Unmatched address-book cards wait in `$CICADA_HOME/people/<bank>/contacts.json` (`people_directory`, shared with
+  LinkedIn; 0600); a person's first conversation mention naming exactly one waiting card promotes on its own and the
+  page is born with the card's name, sources and photo (`entity_resolver._card_for`, `contacts_local.seed_page`);
+  Sleep's tail rematches the rest (`_rematch_contacts_safely`). The app marks the "me" card (`isMe`, that card only),
+  which goes to the owner's page. `quiet_pages` derives *quiet* (an imported page not mentioned yet): `GraphNode.quiet`
+  (`NODE_SHAPE` `+quiet`), `GET /entities/{id}`'s `quiet`, hidden from every inbox reader; the app dims quiet nodes
+  (faint fill, type-hue ring) and Clusters rows. Tests: `test_people_seed.py`, `QuietPagesTests`. Pick up: the owner
+  connects Contacts on his bank (0 of 273 people matched today) and reads one night's Sleep log for the promoted count.
 - **2026-10-20 — Sleep asks about half the model calls per conversation (branch `perf/sleep-calls`).** A
   14-conversation haiku night made 574 calls (disambiguation 268, merge 116, conflict 110, extraction 48). Stage 2's
   judge now weighs up to 6 of a name's candidates in one call and Stage 3 checks up to 5 pages for contradictions in
@@ -1201,3 +1210,22 @@ A whole row moves to DONE only after its remaining implementation and required a
     later export import of the same conversation de-duplicates against it and upgrades it in place. **Revisit** when
     the owner rules on whether relayed words may count as his (trigger: a measured paraphrase rate on real relays), or
     when an app ships a hook or a conversation id Cicada can key on instead of the first message.
+33. **Contacts as a seed, and imported-only pages that stay quiet (owner, 2026-10-20; G154, amends the promotion rail).**
+    **1 — Cards wait, and a card is matched on mention.** Never one page per card. Every card that matches no page waits
+    outside every bank, in the people directory LinkedIn connections already use (`$CICADA_HOME/people/<bank>/`,
+    `people_directory`), with only what G154 posts (names, which facts the card holds, a thumbnail); every sync
+    rewrites the set, deletions included, and the bank gets nothing for a waiting card. The first time a conversation
+    names that person in full (given + family, either order, folded) or by an alias, and exactly one card carries the
+    name, that alone promotes the mention, and the page is born with the card's name, photo and G61 sources. Never a
+    one-part name, a name two cards or two pages share, a relation-only person (`role_people`), or the person's own
+    card: the "me" card belongs to the owner's page (G169) and never waits. Sleep's tail matches the cards still
+    waiting against pages born later, as LinkedIn does. **2 — Pages that exist only because of an import (saved
+    videos, playlists, saved links) are dimmed until the person mentions them.** The first mention lights the page; a
+    quiet page is never asked about in the inbox. The rule chosen (`quiet_pages`): import evidence on the page itself
+    (its `media:` block, or a save or watch among its own episodes) and no conversation evidence (no other episode
+    among its own or its claims', no claim citing a person's own words); Cicada's own checks count for neither; the
+    owner's page never. Derived on every read, never stored, so the first mention ends it with nothing to write. Demo
+    bank: 74 pages, 7 with import evidence, 6 quiet (the seventh is the saved guide the demo person talked about).
+    Decay is unchanged (classes, rulings 1 and 30). **3 — The notes field: not now.** Nothing new is read from a card
+    beyond what G154 reads. **Revisit** the quiet rule if a measured bank shows imported pages the person did talk
+    about staying quiet (the trigger: a page whose conversation Sleep read but did not credit to the page).

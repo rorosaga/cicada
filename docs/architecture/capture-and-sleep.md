@@ -292,6 +292,20 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   `$CICADA_HOME/pictures/<bank>/contacts/<id>.<jpg|png>` — `contacts_local.photo_path(bank, id, ext)`, the one path
   T-People's picture ladder reads — and marked `contacts_photo: {sha, ext}`; 409 while Sleep runs; one `user` commit
   per sync (`capture/contacts`).
+  **Cards wait, and a card is matched on mention (owner ruling 2026-10-20).** A card that matches no page — and has a
+  two-part name, so it ever could — is kept outside every bank in the people directory (`people_directory`, shared
+  with the LinkedIn connections: `$CICADA_HOME/people/<bank>/contacts.json`, its thumbnails beside it in `contacts/`
+  named by a hash of the card id; folder 0700, files 0600, written by a rename) with exactly what the app posted —
+  names, which facts the card holds, the thumbnail — and nothing more; the bank gets nothing for it. Every sync
+  rewrites the set whole, so an edited or deleted card leaves at once, thumbnail included; the response counts
+  `waiting`. The address book's own "me" card (`CNContactStore.unifiedMeContact`, sent as `isMe` on that card only)
+  goes to the owner's page whatever its name and never waits; with it present, a namesake card of the owner's page
+  neither lands there nor waits. A waiting card promotes a person's first conversation mention on its own (*Entity
+  promotion*); Sleep's engine-free tail matches the cards still waiting against the night's pages
+  (`_rematch_contacts_safely` → `contacts_local.rematch`, right after the LinkedIn rematch; its own `cicada` commit,
+  `sleep/contacts`; dirty pages skipped; undone on a failed commit; never the owner's page, never a demo bank), and a
+  matched card stops waiting. The notes field is still never read. A bank's trash takes its people directory with
+  it and a rename moves it (`people_directory.forget` / `rename`).
   LinkedIn connections (owner 2026-10-16: "extracting people profiles from my LinkedIn connections … would be nice";
   G154's pattern): the export's `Connections.csv` — or the export `.zip` carrying it — comes in only through its own
   door, the LinkedIn tile's **Connections** (`POST /sources/linkedin-connections/preview`, then `/import`; the app reads
@@ -317,7 +331,7 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   not them. Everything text-shaped is scrubbed (writer `linkedin-connections`). One `user` commit per import
   (`capture/linkedin-connections`), 409 while Sleep runs and into a demo bank (the preview too), 413 past 32 MB.
   **The directory:** every connection (names, link, company, position, day connected — no email) is kept outside every
-  bank at `$CICADA_HOME/people/<bank>/linkedin-connections.json` (0600; an older export never replaces a newer one;
+  bank at `$CICADA_HOME/people/<bank>/linkedin-connections.json` (`people_directory`, beside Contacts' waiting cards; 0600; an older export never replaces a newer one;
   the folder goes when its bank is moved to the trash and follows a rename, so a new bank of the same name inherits
   nothing;
   `GET /sources/linkedin-connections` gives its day and size, never a name), and Sleep's engine-free tail matches it
@@ -1128,6 +1142,16 @@ summary and for every relationship); "an explicit link" was any relationship the
   one it inferred.
 - **2+ conversations** counts the batch's and the pending line's conversations together, so a resumed conversation
   read again (G104) is not a second one.
+- **A waiting Contacts card (owner ruling 2026-10-20)** is a fourth rung, on its own: a `person` mention in a
+  conversation (an episode that is not a save, a watch or Cicada's own check — `quiet_pages.episode_kind`) whose name
+  or an alias is exactly one waiting card's given + family name, either order, folded as `contacts_local` folds
+  (`contacts_local.WaitingIndex.match`). Never a one-part name, a name two cards share, a name an existing person page
+  already holds (that card is the page's: the sync or the tail's rematch matches it), a relation-only person
+  (`role_people`'s `unnamed`), a mention from a saved link's text, a demo bank, or the person's own card (the app marks
+  the "me" card and it is the owner's page's alone, G169). The page is born under the card's name (`sanitize_id` of
+  it; the name the conversation used becomes an alias; a merged spelling never renames it), Stage 5 writes the card's
+  G61 sources and thumbnail on it as it creates it (`contacts_local.seed_page`), and a second spelling in the same
+  batch joins that page (`entity_resolver._card_for` / `_card_entity`). Stage 2 logs a count, never a name.
 Below the bar nothing is lost: the pending line now carries what was said — summary, key facts, links, open questions,
 aliases, their G118 item records and every conversation that named it (`heard_in`) — and a re-park unions instead of
 replacing. When a later conversation promotes the name, the line is folded into the create through the same seam a

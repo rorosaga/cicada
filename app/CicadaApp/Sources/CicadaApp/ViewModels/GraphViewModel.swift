@@ -243,7 +243,8 @@ final class GraphViewModel {
                 history: [],
                 decayClass: node.decayClass,
                 pictureURL: node.picture,
-                pictureSource: node.pictureSource
+                pictureSource: node.pictureSource,
+                quiet: node.quiet
             )
         }
         edges = response.links
@@ -409,6 +410,8 @@ final class GraphViewModel {
         }
         if let context = node.context { d["context"] = context }
         if node.hasLogo { d["hasLogo"] = true }
+        // Owner ruling 2026-10-20: an imported page not mentioned yet — graph.js dims it and rings it (`drawQuiet`).
+        if node.quiet { d["quiet"] = true }
         return d
     }
 

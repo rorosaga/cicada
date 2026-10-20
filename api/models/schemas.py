@@ -573,6 +573,8 @@ class EntityResponse(CamelModel):
     picture: Optional[str] = None
     picture_source: Optional[str] = None
     picture_inputs: Optional[PictureInputsModel] = None
+    # Owner ruling 2026-10-20 — `GraphNode.quiet`'s twin from the same rule (`quiet_pages`), derived at read.
+    quiet: bool = False
 
 
 class PaperSummary(CamelModel):
@@ -1936,6 +1938,10 @@ class GraphNode(CamelModel):
     picture: Optional[str] = None
     picture_source: Optional[str] = None
     last_referenced: Optional[str] = None
+    # Owner ruling 2026-10-20 — a page only an import made (a saved link, video or playlist item) that the person has
+    # not mentioned yet (`quiet_pages`): drawn dimmed, never asked about. Derived on every read, never stored; OMITTED
+    # when false, like an absent picture, so the largest snapshot pays only for the quiet few.
+    quiet: bool = False
 
     @model_serializer(mode="wrap")
     def _omit_absent_picture(self, handler) -> dict[str, Any]:
@@ -1944,6 +1950,8 @@ class GraphNode(CamelModel):
             for key in ("picture", "pictureSource", "picture_source"):
                 if key in data and data[key] is None:
                     del data[key]
+            if data.get("quiet") is False:
+                del data["quiet"]
         return data
 
 
@@ -4731,6 +4739,9 @@ class ContactRecord(CamelModel):
     has_phone: bool = False
     has_birthday: bool = False
     photo_b64: Optional[str] = None
+    #: Owner ruling 2026-10-20 — the address book's own "me" card (`CNContactStore.unifiedMeContact`): it belongs to
+    #: the owner's page (G169), is never matched to a namesake and never waits. A flag about the owner, not a card fact.
+    is_me: bool = False
 
 
 class ContactsLocalSyncRequest(CamelModel):
@@ -4748,6 +4759,8 @@ class ContactsLocalSyncResponse(CamelModel):
     sources_added: int = 0
     sources_removed: int = 0
     photos: int = 0
+    #: Owner ruling 2026-10-20 — cards that matched no page and wait outside the bank for a first mention.
+    waiting: int = 0
     bank: str = ""
 
 

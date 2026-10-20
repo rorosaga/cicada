@@ -371,7 +371,8 @@ async def sync_contacts_local(req: ContactsLocalSyncRequest, settings: Settings 
     """G154 (round 4): enrich the person pages Cicada already has from the address book the app read. 409 while Sleep
     runs (this writes entity pages Stage 5 rewrites); 413 above ``contacts_local.MAX_CONTACTS``; 422 for a payload the
     backend cannot trust. One ``user`` commit per sync (trigger ``capture/contacts``), scoped to the pages it changed —
-    an unchanged address book commits nothing."""
+    an unchanged address book commits nothing. Cards that match no page wait outside the bank for a first mention
+    (owner ruling 2026-10-20; ``waiting`` counts them)."""
     memory_path = settings.memory_path
     if len(req.contacts) > contacts_local.MAX_CONTACTS:
         raise HTTPException(413, f"at most {contacts_local.MAX_CONTACTS} contacts per sync")

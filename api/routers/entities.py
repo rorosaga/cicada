@@ -61,6 +61,7 @@ from api.services import (
     media_preview,
     page_lock,
     person_photo,
+    quiet_pages,
     repo_context,
     repo_observations,
     source_refresh,
@@ -174,6 +175,7 @@ async def get_entity(
         picture=picture.url,
         picture_source=picture.source,
         picture_inputs=PictureInputsModel(**picture_inputs.to_fields()),
+        quiet=quiet_pages.page_is_quiet(settings.memory_path, entity_id),
     )
 
 
