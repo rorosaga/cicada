@@ -208,8 +208,14 @@ struct PageLookSheet: View {
     let onClose: () -> Void
     let onOpenPage: (String) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(GraphViewModel.self) private var graphVM: GraphViewModel?
+    @Environment(Store.self) private var store: Store?
     @State private var zoom = LooksZoom()
+    @State private var saving = false
     private var cache: LooksCache { .shared }
+
+    /// The look as the board has it now (a move or an edit in this sheet shows at once), else as it was opened.
+    private var live: DesignRefSummary { cache.board?.refs.first { $0.id == summary.id } ?? summary }
 
     private var similar: [DesignRefSummary] {
         let byId = Dictionary((cache.board?.refs ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
@@ -217,7 +223,7 @@ struct PageLookSheet: View {
     }
 
     var body: some View {
-        LooksDetailColumn(summary: summary, detail: cache.refs[summary.id], image: AnyView(LooksStoredImage(ref: summary)),
+        LooksDetailColumn(summary: live, detail: cache.refs[summary.id], image: AnyView(LooksStoredImage(ref: live)),
                           onClose: onClose,
                           onRemove: { Task { await cache.remove(summary.id); onClose() } },
                           escapeCloses: !zoom.isPresented,
@@ -227,7 +233,7 @@ struct PageLookSheet: View {
             .coordinateSpace(.named(LooksZoom.space))
             .overlay {
                 if zoom.isPresented {
-                    LooksZoomOverlay(zoom: zoom, summary: summary, onClose: shrink, onAppear: grow)
+                    LooksZoomOverlay(zoom: zoom, summary: live, onClose: shrink, onAppear: grow)
                         .transition(.opacity)
                 }
             }
@@ -238,8 +244,30 @@ struct PageLookSheet: View {
     }
 
     private var extra: some View {
-        PageLookExtra(similar: similar, names: names, onPage: summary.entity != nil, onOpenPage: onOpenPage,
-                      onTakeOff: { Task { if await cache.attach(summary.id, to: nil) { onClose() } } })
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+            PageLookEdit(summary: live, detail: cache.refs[summary.id], saving: saving) { title, url, note in
+                saving = true
+                Task {
+                    if await cache.edit(summary.id, title: title, url: url, note: note) {
+                        store?.toast = Copy.Looks.savedWords
+                    } else {
+                        store?.toast = cache.writeError
+                    }
+                    saving = false
+                }
+            }
+            PageLookPlace(onPage: live.entity != nil, rank: { query in
+                (graphVM?.clusterSearchIndex().rank(query) ?? []).filter { $0.id != live.entity }
+                    .map { (id: $0.id, name: $0.name) }
+            }, onPlace: { id in
+                Task {
+                    if await cache.attach(summary.id, to: id) { store?.toast = Copy.Looks.placed }
+                    else { store?.toast = cache.writeError }
+                }
+            })
+            PageLookExtra(similar: similar, names: names, onPage: live.entity != nil, onOpenPage: onOpenPage,
+                          onTakeOff: { Task { if await cache.attach(summary.id, to: nil) { onClose() } } })
+        }
     }
 
     // The board's zoom rules (looks polish; DR-60, DR-61, DR-66): a key is instant, Reduce Motion fades, a pointer zooms.
@@ -307,6 +335,155 @@ struct PageLookExtra: View {
             if onPage {
                 NeutralButton(title: Copy.Looks.takeOff, size: .compact, help: Copy.Looks.takeOffHelp, action: onTakeOff)
                     .padding(.top, CicadaTheme.spacingSM)
+            }
+        }
+    }
+}
+
+// MARK: - Clusters' Looks tab and the sheet's own edits (review of #384)
+
+/// Every look the person saved, on a page or not, as tiles — Clusters' Looks tab (owner 2026-10-20: "we can filter
+/// looks inside the entities page"). Pure over its inputs. Words search on ⏎ (`LooksCache.search`); a picture dropped
+/// or pasted here finds the looks like it. Each tile says the page it is on; a click opens the look (`PageLookSheet`).
+/// DR-25 (the field in its row), DR-32/DR-43 (words for empty and first reads), DR-37 (tiles), DR-46 (the find field).
+struct LooksGallery: View {
+    let refs: [DesignRefSummary]
+    let total: Int
+    let phase: LooksCache.Phase
+    let names: [String: String]
+    let searching: Bool
+    let note: String?
+    @Binding var query: String
+    var gutter: CGFloat = CicadaTheme.spacingGutter
+    var tile: (DesignRefSummary) -> AnyView = { AnyView(LooksStoredImage(ref: $0)) }
+    var onSubmit: () -> Void = {}
+    var onOpen: (DesignRefSummary) -> Void = { _ in }
+    var onImage: (NSImage) -> Void = { _ in }
+    var onRetry: () -> Void = {}
+    @State private var dropTargeted = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                // ⌘F stays the page's own find.
+                CicadaSearchField(text: $query, prompt: Copy.Looks.galleryFind, findEnabled: false,
+                                  width: CicadaTheme.scaled(320), onSubmit: onSubmit)
+                Text(searching ? Copy.Looks.matches(refs.count) : Copy.Looks.galleryCount(total))
+                    .font(CicadaTheme.metaFont).monospacedDigit().foregroundStyle(CicadaTheme.textTertiary)
+                Spacer(minLength: 0)
+            }
+            if let note {
+                Text(note).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+            }
+            content
+        }
+        .padding(.horizontal, gutter)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlay {
+            if dropTargeted {
+                CicadaTheme.shape(CicadaTheme.radiusLarge)
+                    .strokeBorder(CicadaTheme.borderLight, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                    .padding(CicadaTheme.spacingMD)
+                    .allowsHitTesting(false)
+            }
+        }
+        .onDrop(of: [.image, .fileURL], isTargeted: $dropTargeted) { providers in
+            LooksIntake.load(providers) { onImage($0) }
+            return true
+        }
+        .onPasteCommand(of: [.png, .tiff, .jpeg, .image]) { providers in LooksIntake.load(providers) { onImage($0) } }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if refs.isEmpty {
+            switch phase {
+            case .idle, .loading:
+                ListSkeleton(message: Copy.Looks.loading)
+            case .failed(let why):
+                ListErrorCard(title: Copy.Looks.loadFailedTitle, message: why, retry: onRetry)
+            case .loaded:
+                Text(searching ? Copy.Looks.galleryNoMatch : Copy.Looks.galleryEmpty)
+                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
+            }
+        } else {
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: CicadaTheme.scaled(220)), spacing: CicadaTheme.spacingLG)],
+                          alignment: .leading, spacing: CicadaTheme.spacingLG) {
+                    ForEach(refs) { ref in
+                        VStack(alignment: .leading, spacing: 0) {
+                            LooksTile(ref: ref, selected: false, image: tile(ref), onEnlarge: { _ in onOpen(ref) }) {
+                                onOpen(ref)
+                            }
+                            Text(PageLooks.place(ref, names: names))
+                                .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                                .lineLimit(1)
+                                .padding(.horizontal, CicadaTheme.spacingSM)
+                        }
+                    }
+                }
+                .padding(.bottom, CicadaTheme.scaled(72))
+            }
+        }
+    }
+}
+
+/// The person's own words on a look: its name, its link and what they liked — the note is theirs once saved here
+/// ("What you liked"); an agent's note is never put in their mouth, so the field starts empty over one.
+struct PageLookEdit: View {
+    let summary: DesignRefSummary
+    let detail: DesignRef?
+    var saving = false
+    let onSave: (_ title: String, _ url: String, _ note: String) -> Void
+    @State private var title = ""
+    @State private var url = ""
+    @State private var note = ""
+    @State private var filled = false
+
+    private var theirNote: String { summary.noteIsTheirs ? (detail?.note ?? summary.notePreview) : "" }
+    private var changed: Bool {
+        title != summary.title || url != (summary.url ?? "") || note != theirNote
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            SectionLabel(Copy.Looks.yourWords)
+            TextField("", text: $title).cicadaField(prompt: Copy.Looks.titleField, isEmpty: title.isEmpty)
+            TextField("", text: $url).cicadaField(prompt: Copy.Looks.linkField, isEmpty: url.isEmpty)
+            TextField("", text: $note, axis: .vertical)
+                .lineLimit(3...6)
+                .cicadaField(prompt: Copy.Looks.noteField, isEmpty: note.isEmpty)
+            NeutralButton(title: saving ? Copy.Looks.saving : Copy.Looks.saveWords, size: .compact,
+                          isDisabled: saving || !changed) { onSave(title, url, note) }
+        }
+        .onAppear { fill() }
+        .onChange(of: detail?.note) { _, _ in if !changed || !filled { filled = false; fill() } }
+    }
+
+    private func fill() {
+        guard !filled else { return }
+        title = summary.title
+        url = summary.url ?? ""
+        note = theirNote
+        filled = detail != nil || !summary.noteIsTheirs
+    }
+}
+
+/// Put a look on a page, or move it to another: a find field over the graph's own names (`clusterSearchIndex`).
+struct PageLookPlace: View {
+    let onPage: Bool
+    let rank: (String) -> [(id: String, name: String)]
+    let onPlace: (String) -> Void
+    @State private var query = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            SectionLabel(onPage ? Copy.Looks.moveTo : Copy.Looks.placeOn)
+            TextField("", text: $query).cicadaField(prompt: Copy.Looks.findPage, isEmpty: query.isEmpty)
+                .frame(maxWidth: CicadaTheme.scaled(340))
+            let hits = query.trimmingCharacters(in: .whitespaces).isEmpty ? [] : Array(rank(query).prefix(6))
+            ForEach(hits, id: \.id) { hit in
+                TextButton(title: hit.name, inline: true) { onPlace(hit.id); query = "" }
             }
         }
     }

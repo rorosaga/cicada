@@ -3948,9 +3948,14 @@ protocol DesignAPI: Sendable {
     /// A website link pasted on a page: the link is saved (`POST /sources/save`), then its look is asked of the
     /// person's own agent for that page (`POST /explore/look` with `subject`) — the site-capture path (G166).
     func lookFromLink(url: String, subject: String) async throws -> ExploreLookResponse
+    /// The person's own words on a look — its name, its link, what they liked (`PATCH /design/{id}`).
+    func editDesignRef(id: String, title: String, url: String, note: String) async throws -> DesignRef
 }
 
 extension DesignAPI {
+    func editDesignRef(id: String, title: String, url: String, note: String) async throws -> DesignRef {
+        throw APIError.serverUnreachable
+    }
     func attachDesignRef(id: String, entity: String?) async throws -> DesignRef { throw APIError.serverUnreachable }
     func similarDesign(id: String) async throws -> DesignSearchResult {
         DesignSearchResult(results: [], mode: "none", missing: [])
@@ -4040,6 +4045,10 @@ extension APIClient: DesignAPI {
 
     func similarDesign(id: String) async throws -> DesignSearchResult {
         try await get(Self.designPath(id, "similar"))
+    }
+
+    func editDesignRef(id: String, title: String, url: String, note: String) async throws -> DesignRef {
+        try await patch(Self.designPath(id), body: ["title": title, "url": url, "note": note])
     }
 
     func lookFromLink(url: String, subject: String) async throws -> ExploreLookResponse {

@@ -122,6 +122,15 @@ final class LooksTests: XCTestCase {
             etag = "\"e4-\(attached.count)\""
             return DesignRef(summary: board.refs[i], note: "")
         }
+        var edits: [(String, String, String, String)] = []
+        func editDesignRef(id: String, title: String, url: String, note: String) async throws -> DesignRef {
+            guard let i = board.refs.firstIndex(where: { $0.id == id }) else { throw APIError.httpError(404, "{}") }
+            edits.append((id, title, url, note))
+            board.refs[i].title = title
+            board.refs[i].noteBy = "user"
+            etag = "\"e5-\(edits.count)\""
+            return DesignRef(summary: board.refs[i], note: note)
+        }
         func similarDesign(id: String) async throws -> DesignSearchResult {
             DesignSearchResult(results: board.refs.map { DesignHit(id: $0.id, score: 1, legs: ["picture"]) },
                                mode: "picture", missing: [])
@@ -195,6 +204,20 @@ final class LooksTests: XCTestCase {
         XCTAssertEqual(cache.similar["2026-10-10-look"], ["2026-10-13-dashboard-example-com"], "never itself")
         cache.reset()
         XCTAssertTrue(cache.pagesWithLooks.isEmpty && cache.similar.isEmpty, "a bank switch empties it")
+    }
+
+    /// Review of #384 — the person's own words on a look, from its sheet: what they liked becomes theirs.
+    func testThePersonsOwnWordsOnALook() async throws {
+        let api = FakeAPI(board: try board())
+        let cache = LooksCache(api: api)
+        await cache.refresh()
+        let saved = await cache.edit("2026-10-10-look", title: "Calm panels", url: "", note: "Mine.")
+        XCTAssertTrue(saved)
+        XCTAssertEqual(cache.refs["2026-10-10-look"]?.note, "Mine.")
+        XCTAssertEqual(cache.board?.refs.first { $0.id == "2026-10-10-look" }?.title, "Calm panels",
+                       "the board is read again, so every surface shows the new name")
+        let refused = await cache.edit("2026-01-01-none", title: "", url: "", note: "")
+        XCTAssertFalse(refused)
     }
 
     func testAPastedLinkMustBeAWebsite() {
@@ -410,6 +433,20 @@ final class LooksTests: XCTestCase {
             let enlarged = LooksZoomOverlay(zoom: zoom, summary: open, onClose: { _ in })
             try snapshot(enlarged, size: CGSize(width: 1180, height: 760), mode: mode,
                          to: URL(fileURLWithPath: dir).appendingPathComponent("looks-enlarged-\(name).png"))
+            // Clusters' Looks tab: every look, each saying the page it is on (one on none).
+            let gallery = LooksGallery(refs: refs, total: refs.count, phase: .loaded, names: names, searching: false,
+                                       note: nil, query: .constant(""), tile: tile)
+                .padding(.top, 24).background(CicadaTheme.bgBase)
+            try snapshot(gallery, size: CGSize(width: 1180, height: 760), mode: mode,
+                         to: URL(fileURLWithPath: dir).appendingPathComponent("clusters-looks-\(name).png"))
+            // The sheet's own part: the person's words, put it on a page, the similar looks.
+            let words = VStack(alignment: .leading, spacing: 24) {
+                PageLookEdit(summary: open, detail: detail, onSave: { _, _, _ in })
+                PageLookPlace(onPage: true, rank: { _ in [] }, onPlace: { _ in })
+            }
+            .padding(32).frame(width: 760, alignment: .topLeading).background(CicadaTheme.bgPane)
+            try snapshot(words, size: CGSize(width: 760, height: 420), mode: mode,
+                         to: URL(fileURLWithPath: dir).appendingPathComponent("page-look-words-\(name).png"))
             // Clusters' View menu with the new filter on.
             let menu = ClustersViewMenu(types: .constant(Set(EntityType.selectableCases)), labels: .constant([]),
                                         labelCounts: [("design", 3), ("work", 2)], typeCounts: [.project: 4, .tool: 2],

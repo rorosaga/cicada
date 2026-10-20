@@ -323,6 +323,24 @@
       "method": "write_new",
       "frontmatter": "_frontmatter(ref)",
       "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "update_ref",
+      "method": "write",
+      "frontmatter": "_frontmatter(ref)",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "sync_page",
+      "method": "write",
+      "frontmatter": "dict(parsed.frontmatter or {})",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_set_entity",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
     }
   ],
   "services/entity_merge.py": [
@@ -381,6 +399,12 @@
       "disposition": "uninstrumented_guarded"
     },
     {
+      "function": "upgrade_relay",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
       "function": "_refresh",
       "method": "write",
       "frontmatter": "fm",
@@ -400,6 +424,12 @@
     },
     {
       "function": "_restamp",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_set_extras",
       "method": "write",
       "frontmatter": "fm",
       "disposition": "uninstrumented_guarded"

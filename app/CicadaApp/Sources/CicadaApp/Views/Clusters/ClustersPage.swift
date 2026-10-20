@@ -20,6 +20,10 @@ struct ClustersPage: View {
     @State private var labels: Set<String> = []
     /// Owner 2026-10-20 — "we can filter looks inside the entities page": only the pages that show a look.
     @State private var onlyWithLooks = false
+    /// The Looks tab (review of #384): every look the person saved, as tiles, searchable by words and by picture.
+    @State private var showLooks = false
+    @State private var looksQuery = ""
+    @State private var openLook: DesignRefSummary?
     @State private var viewMenuOpen = false
     @State private var landingToken = 0
     @FocusState private var focus: ListFocus?
@@ -41,8 +45,31 @@ struct ClustersPage: View {
     }
 
     private var open: Entity? {
-        columns.openId.flatMap { id in graphVM.entities.first { $0.id == id } }
+        guard !showLooks else { return nil }
+        return columns.openId.flatMap { id in graphVM.entities.first { $0.id == id } }
     }
+
+    /// The type tabs, then Looks (owner 2026-10-20): a tab like the others, so it reads where every filter does (DR-45).
+    private var pageTabs: Binding<ClustersTab?> {
+        Binding(get: { showLooks ? .looks : tab.map(ClustersTab.type) }, set: { picked in
+            Instant.run {
+                switch picked {
+                case .looks?:
+                    showLooks = true
+                    findOpen = false
+                    if provenance.isPresented { provenance.close() }
+                case .type(let type)?:
+                    showLooks = false
+                    tabSelection.wrappedValue = type
+                case nil:
+                    showLooks = false
+                    tabSelection.wrappedValue = nil
+                }
+            }
+        })
+    }
+
+    private var looksCache: LooksCache { .shared }
 
     private var isFiltered: Bool {
         !labels.isEmpty || onlyWithLooks || graphVM.filter.types.count < EntityType.selectableCases.count
@@ -60,8 +87,11 @@ struct ClustersPage: View {
             EyebrowRow(eyebrow: ClustersModel.eyebrow(groups: groups, tab: tab, matches: found, openId: columns.openId),
                        horizontalPadding: open == nil && !provenance.isPresented ? plan.gutter : CicadaTheme.spacingXL) {
                 HStack(spacing: CicadaTheme.spacingXS) {
-                    AdaptiveTextTabs(tabs: ClustersModel.tabs(groups), selection: tabSelection,
-                                     menuTitle: Copy.Lists.type)
+                    AdaptiveTextTabs(tabs: ClustersModel.tabs(groups).map { TextTab(id: $0.id.map(ClustersTab.type),
+                                                                                       label: $0.label, count: $0.count) }
+                                         + [TextTab(id: .looks, label: Copy.Looks.tab,
+                                                    count: looksCache.board?.refs.count)],
+                                     selection: pageTabs, menuTitle: Copy.Lists.type)
                     PageFindButton(isOpen: $findOpen).padding(.leading, CicadaTheme.spacingSM)
                     TextButton(title: isFiltered ? Copy.Lists.viewFiltered : Copy.Lists.view,
                                help: Copy.Lists.viewHelp) { viewMenuOpen.toggle() }
@@ -78,7 +108,21 @@ struct ClustersPage: View {
         } list: { plan in
             let state = ClustersListState.of(hasEntities: !graphVM.entities.hasNoContentBeyondOwner, isLoading: graphVM.isLoading,
                                              groupsEmpty: groups.isEmpty, matches: found)
-            if plan.listStyle == .wide, !findOpen, state == .list {
+            if showLooks {
+                LooksGallery(refs: looksCache.visible, total: looksCache.board?.refs.count ?? 0, phase: looksCache.phase,
+                             names: Dictionary(graphVM.entities.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a }),
+                             searching: looksCache.ranking != nil, note: looksCache.searchNote ?? looksCache.writeError,
+                             query: $looksQuery, gutter: plan.gutter,
+                             onSubmit: { Task { await looksCache.search(query: looksQuery) } },
+                             onOpen: { openLook = $0 },
+                             onImage: { image in
+                                 guard let prepared = DesignImageShrink.prepare(image) else { return }
+                                 looksQuery = ""
+                                 Task { await looksCache.search(query: "", image: prepared.data, ext: prepared.ext) }
+                             },
+                             onRetry: { Task { await looksCache.refresh() } })
+                    .onChange(of: looksQuery) { _, text in if text.isEmpty { looksCache.clearSearch() } }
+            } else if plan.listStyle == .wide, !findOpen, state == .list {
                 // F-11 (R-PE12) — nothing open and find closed: A's icon-led cards. ⌘F shows the list column (its
                 // find row and ranked rows) from the moment it opens, so typing never swaps the view under the field.
                 ClustersGridView(groups: groups, tab: tab, expandAll: expandAll, gutter: plan.gutter,
@@ -127,6 +171,17 @@ struct ClustersPage: View {
         // The looks' pages, for the View menu's "Only pages with looks": read on appear and again when the menu opens
         // (an ETag makes an unchanged answer a 304; owner 2026-10-20).
         .task(id: viewMenuOpen) { await LooksCache.shared.refresh() }
+        .sheet(item: $openLook) { look in
+            PageLookSheet(summary: look,
+                          names: Dictionary(graphVM.entities.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a }),
+                          onClose: { openLook = nil },
+                          onOpenPage: { id in
+                              openLook = nil
+                              guard let entity = graphVM.entities.first(where: { $0.id == id }) else { return }
+                              Instant.run { showLooks = false }
+                              openEntity(entity)
+                          })
+        }
         // DR-46 — the page opens its find row on ⌘F; once open, the field takes ⌘F itself (one publisher, R-SU10).
         // Published from a leaf, never the page: `PageFindPublisher` is an if/else, so on the page it rebuilt the whole
         // column tree on every flip of `findOpen` — the open card's trail and body, the Reader, the scroll position and
@@ -174,6 +229,8 @@ struct ClustersPage: View {
             query = ""
             tab = nil
             viewMenuOpen = false
+            showLooks = false
+            openLook = nil
         }
         focus = .list
     }
@@ -225,4 +282,10 @@ struct ClustersPage: View {
     private func arrive() {
         DispatchQueue.main.async { focus = .list }
     }
+}
+
+/// Clusters' tabs: each type, then Looks (review of #384).
+enum ClustersTab: Hashable {
+    case type(EntityType)
+    case looks
 }

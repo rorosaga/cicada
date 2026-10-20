@@ -184,20 +184,22 @@ def test_the_migration_places_what_it_can_lists_the_rest_and_runs_once(tmp_path)
     subprocess.run(["git", "-C", str(bank), "add", "-A"], check=True)
     subprocess.run(["git", "-C", str(bank), "commit", "-qm", "looks"], check=True)
     dry = looks_attach.survey(bank)
-    assert dry.counts() | {} == {"looks": 3, "on_page": 1, "by_site": 1, "by_link": 0, "unattached": 1,
-                                 "ambiguous": 0, "page_gone": 1, "pages_to_write": 2, "written": 0,
-                                 "committed": False}
+    assert dry.counts() == {"looks": 3, "on_page": 1, "by_site": 1, "by_link": 0, "unattached": 1,
+                            "ambiguous": 0, "page_gone": 1, "pages_to_write": 2, "adopted": 0, "dirty": 0,
+                            "written": 0, "committed": False}
     assert dry.listing()["unattached"] == [{"id": gone.id, "site": "studio.example.org", "why": "none"}]
     assert design_refs.get_ref(bank, on_site.id).entity is None, "a dry run writes nothing"
     result = looks_attach.apply(bank, sleep_running=lambda: False)
-    assert result.committed and result.written == 3
+    assert result.committed and result.written == 4, "two pages, the placed look, the stale look cleared"
     head = _git(bank, "log", "-1", "--format=%B")
     assert head.startswith("Looks attached to their pages") and "Cicada-Author: cicada" in head
     assert sorted(_git(bank, "show", "--name-only", "--format=", "HEAD").split()) == sorted(
-        [on_site.path, "entities/alpha-project.md", "entities/dash-tool.md"])
+        [on_site.path, gone.path, "entities/alpha-project.md", "entities/dash-tool.md"])
+    assert design_refs.get_ref(bank, gone.id).entity is None, "a look whose page went is unattached, said so"
+    assert _git(bank, "status", "--porcelain").strip() == ""
     assert named.id in _body(bank, "alpha-project") and on_site.id in _body(bank, "dash-tool")
     again = looks_attach.survey(bank)
-    assert again.pages_to_write == 0 and not again._moves
+    assert again.pages_to_write == 0 and not again._moves and again.adopted == 0
     assert looks_attach.apply(bank, sleep_running=lambda: False).written == 0
     assert attach_looks.main(["--bank", str(bank)]) == 0
     with pytest.raises(looks_attach.SleepRunning):
@@ -313,3 +315,139 @@ def test_a_save_its_look_ask_keeps_the_page_it_came_from(tmp_path, monkeypatch):
     row = next(r for r in explore_queue.view(bank)["items"] if r["key"] == "b" * 12)
     assert "subject" not in row, "only a page id is kept, never a path"
     assert json.dumps(row)
+
+
+# --------------------------------------------------------------------------- review of #384
+
+
+def test_a_hand_written_section_whose_title_starts_with_looks_is_never_touched(bank):
+    page = bank / "entities" / "alpha-project.md"
+    fm = markdown_parser.parse(page).frontmatter
+    markdown_parser.write(page, fm, _body(bank, "alpha-project") + "\n## Looks and feel\nMy own words about the look.\n")
+    ref = _add(bank, entity="alpha-project")["ref"]
+    assert "My own words about the look." in _body(bank, "alpha-project")
+    design_refs.attach(bank, ref.id, None)
+    body = _body(bank, "alpha-project")
+    assert "## Looks and feel\nMy own words about the look." in body and "\n## Looks\n" not in body
+
+
+def test_an_edit_inside_the_looks_section_is_refused_in_words(bank):
+    from api.services import page_edits
+
+    _add(bank, entity="alpha-project")
+    page = bank / "entities" / "alpha-project.md"
+    parsed = markdown_parser.parse(page, ledger=False)
+    req = page_edits.parse_request(edits=[{"old": "· dashboard.example.com · 2026-10-20", "new": "· mine", "pin": True}])
+    with pytest.raises(page_edits.EditError, match="written from the look records"):
+        page_edits.plan(dict(parsed.frontmatter), parsed.body, req, author="user")
+    # A pinned fix elsewhere never reaches into the section either.
+    fm = {**parsed.frontmatter, "corrections": [{"old": "dashboard", "new": "DASH", "by": "user", "on": "2026-10-20"}]}
+    fixed, _ = page_edits.apply_corrections(fm, parsed.body)
+    assert entity_body.parse_sections(fixed)["Looks"] == entity_body.parse_sections(parsed.body)["Looks"]
+
+
+@pytest.mark.parametrize("mode", ["plain", "synthesis", "article"])
+def test_sleep_updates_carry_the_section(bank, mode):
+    from api.services import conflict_resolver
+
+    _add(bank, entity="alpha-project")
+    before = entity_body.parse_sections(_body(bank, "alpha-project"))["Looks"]
+    change = {"id": "alpha-project", "action": "update",
+              "entity": {"name": "alpha-project", "type": "project", "confidence": 0.8, "key_facts": ["A new fact."]}}
+    if mode == "synthesis":
+        change["synthesized_body"] = "## Summary\nRewritten.\n\n## Key Facts\n- New.\n"
+    if mode == "article":
+        change["article"] = {"lead": "Alpha is a project.", "markdown": "### Origins\nIt began.", "retain": []}
+    conflict_resolver.apply_changes([change], bank)
+    assert entity_body.parse_sections(_body(bank, "alpha-project")).get("Looks") == before
+
+
+def _seeded(tmp_path):
+    bank = _bank(tmp_path)
+    _entity(bank, "dash-tool", type="tool", sources=SITE, body="## Summary\nDash.\n")
+    ref = _legacy(bank, DARK, "https://dashboard.example.com/a")
+    subprocess.run(["git", "-C", str(bank), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(bank), "commit", "-qm", "seed"], check=True)
+    return bank, ref
+
+
+def test_the_migration_never_commits_someone_elses_uncommitted_edit(tmp_path):
+    bank, ref = _seeded(tmp_path)
+    page = bank / "entities" / "dash-tool.md"
+    page.write_text(page.read_text().replace("Dash.", "Dash, edited by hand, not committed."))
+    result = looks_attach.apply(bank, sleep_running=lambda: False)
+    assert result.dirty == 1
+    assert "edited by hand" not in _git(bank, "show", "HEAD", "--", "entities/dash-tool.md")
+    assert "edited by hand" in page.read_text() and "## Looks" not in page.read_text(), "left exactly as it was"
+    assert design_refs.get_ref(bank, ref.id).entity == "dash-tool", "the look itself still moves, committed alone"
+    assert _git(bank, "status", "--porcelain").strip() == "M entities/dash-tool.md"
+
+
+def test_an_interrupted_migration_is_finished_by_the_next_run(tmp_path, monkeypatch):
+    from api.services import git_service
+
+    bank, ref = _seeded(tmp_path)
+
+    def stop(*a, **k):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(git_service, "commit_paths_sync", stop)
+    with pytest.raises(KeyboardInterrupt):
+        looks_attach.apply(bank, sleep_running=lambda: False)
+    monkeypatch.undo()
+    assert _git(bank, "status", "--porcelain").strip(), "the stop left the step uncommitted"
+    again = looks_attach.apply(bank, sleep_running=lambda: False)
+    assert again.adopted == 2 and again.committed
+    assert _git(bank, "status", "--porcelain").strip() == ""
+    assert "Cicada-Author: cicada" in _git(bank, "log", "-1", "--format=%B")
+
+
+def test_the_migration_refuses_when_git_cannot_say_what_is_dirty(tmp_path, monkeypatch):
+    from api.services import git_service
+
+    bank, _ = _seeded(tmp_path)
+
+    def broken(*a, **k):
+        raise git_service.GitError("status failed")
+
+    monkeypatch.setattr(git_service, "dirty_paths_sync", broken)
+    with pytest.raises(looks_attach.Refused):
+        looks_attach.apply(bank, sleep_running=lambda: False)
+    assert all(r.entity is None for r in design_refs.list_refs(bank)), "nothing written"
+
+
+def test_commits_come_in_steps(tmp_path, monkeypatch):
+    bank, _ = _seeded(tmp_path)
+    _legacy(bank, LIGHT, "https://dashboard.example.com/b")
+    _entity(bank, "other-tool", type="tool",
+            sources=[{"ref": "https://other.example.net", "kind": "url", "predicate": "website", "added_by": "user"}])
+    _legacy(bank, WARM, "https://other.example.net/")
+    subprocess.run(["git", "-C", str(bank), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(bank), "commit", "-qm", "more"], check=True)
+    monkeypatch.setattr(looks_attach, "COMMIT_STEP", 3)
+    looks_attach.apply(bank, sleep_running=lambda: False)
+    subjects = _git(bank, "log", "-2", "--format=%s").splitlines()
+    assert all("(part " in s for s in subjects), subjects
+    assert _git(bank, "status", "--porcelain").strip() == ""
+
+
+def test_the_person_writes_their_own_words_on_a_look(client):
+    c, bank = client
+    ref = c.post("/design", files={"image": ("shot.png", DARK, "image/png")},
+                 data={"url": "https://dashboard.example.com/", "via": "agent", "author": "claude-code",
+                       "note": "The agent thinks they like it."}).json()
+    assert ref["noteBy"] == "claude-code" and ref["entity"] == "dash-tool"
+    r = c.patch(f"/design/{ref['id']}", json={"title": "Calm [panels]", "note": "The calm panels, mine."})
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["note"] == "The calm panels, mine." and out["noteBy"] == "user" and out["title"] == "Calm [panels]"
+    assert out["url"] == "https://dashboard.example.com/", "a field left out stays as it was"
+    record = (bank / "design" / f"{ref['id']}.md").read_text()
+    assert "## What I liked\n\nThe calm panels, mine." in record and "Noted by" not in record
+    assert "[Calm panels](../design/" in _body(bank, "dash-tool"), "the page's line carries the new name"
+    head = _git(bank, "log", "-1", "--format=%B")
+    assert "Cicada-Author: user" in head and "entities/dash-tool.md: updated" in head
+    assert c.patch(f"/design/{ref['id']}", json={"url": "ftp://x"}).status_code == 422
+    assert c.patch("/design/2026-01-01-none", json={"note": "x"}).status_code == 404
+    assert c.patch(f"/design/{ref['id']}", json={"note": "The calm panels, mine."}).json()["note"] == \
+        "The calm panels, mine.", "the same words write nothing"

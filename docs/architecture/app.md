@@ -1194,7 +1194,13 @@ link (`PageLooks.link`, http/https only, else said) → `POST /sources/save` the
 prompt copied, "Queued for your agent…"); a picture dropped anywhere on the card's Content tab → `DesignImageShrink` →
 `POST /design` with `entity` (`PageLooks.drop`; a dashed ring while held); *Put a saved look here* lists the looks on no
 page (`LooksCache.unplaced`) and moves one with `PUT /design/{id}/entity`. Clusters' View menu gains "Only pages with
-looks" (`ClustersModel.filtered(withLooks:)` over `LooksCache.pagesWithLooks`). Renders: `LooksTests.
+looks" (`ClustersModel.filtered(withLooks:)` over `LooksCache.pagesWithLooks`). **Clusters' Looks tab** (review of #384,
+the owner's "filter looks inside the entities page"): after the type tabs (`ClustersTab.looks`), `LooksGallery` — every
+look, on a page or not, as tiles each saying "On <page>" or "Not on a page"; words search on ⏎ (`LooksCache.search`), a
+picture dropped or pasted there finds the looks like it; a tile opens `PageLookSheet`. The sheet also holds the
+person's own words (`PageLookEdit`: name, link, what they liked → `PATCH /design/{id}`; an agent's note is never
+prefilled as theirs) and *Put it on a page* / *Move it to another page* (`PageLookPlace`, a find over the graph's names
+→ `PUT /design/{id}/entity`). Renders: `LooksTests.
 testRenderThePageLooksForReview` with `LOOKS_RENDER_DIR`. What follows describes the board as it was; its tile, palette
 strip, detail column, specimens, zoom and intake are the views the card uses (`Views/Looks/LooksViews.swift`).
 

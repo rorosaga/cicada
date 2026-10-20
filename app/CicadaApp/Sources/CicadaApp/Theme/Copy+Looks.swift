@@ -160,6 +160,18 @@ extension Copy {
         static func onPage(_ name: String) -> String { "On \(name)" }
         static let notOnAPage = "Not on a page"
         static let notALink = "That isn't a website link. Paste one that starts with http:// or https://."
+        // MARK: Clusters' Looks tab (review of #384, owner intent 2026-10-20: "filter looks inside the entities page")
+        static let tab = "Looks"
+        static let galleryFind = "Search looks by words, or drop a picture"
+        static let galleryEmpty = "No looks yet. Paste a website link on a page, or drop a picture on it, to keep one."
+        static let galleryNoMatch = "None of your looks matches that."
+        static func galleryCount(_ n: Int) -> String { n == 1 ? "1 look" : "\(n) looks" }
+        static let yourWords = "Your words"
+        static let saveWords = "Save"
+        static let savedWords = "Saved."
+        static let placeOn = "Put it on a page"
+        static let moveTo = "Move it to another page"
+        static let findPage = "Find a page"
         static let withLooks = "Only pages with looks"
         static let withLooksHelp = "Pages that show a look you saved"
     }

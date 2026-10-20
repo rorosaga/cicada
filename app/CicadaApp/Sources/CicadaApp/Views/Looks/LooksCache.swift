@@ -173,6 +173,20 @@ final class LooksCache {
         }
     }
 
+    /// The person's own words on a look; the board is read again (a new name shows on every surface).
+    @discardableResult
+    func edit(_ id: String, title: String, url: String, note: String) async -> Bool {
+        writeError = nil
+        do {
+            refs[id] = try await api.editDesignRef(id: id, title: title, url: url, note: note)
+            await refresh()
+            return true
+        } catch {
+            writeError = LooksErrors.sentence(error)
+            return false
+        }
+    }
+
     /// The looks most like `id`, kept for the sheet that asked (a failure keeps what was there, DR-43).
     func loadSimilar(_ id: String) async {
         let started = epoch

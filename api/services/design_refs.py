@@ -632,6 +632,45 @@ def add_ref(memory_path, *, image: bytes, url: str | None = None, title: str | N
     return {"action": "added", "ref": ref, "paths": paths, "attached": how if ref.entity else None}
 
 
+_UNSET = object()
+
+
+def update_ref(memory_path, ref_id: str, *, title=_UNSET, url=_UNSET, note=_UNSET) -> dict:
+    """The person's own words on a look (owner 2026-10-20: the look's sheet edits what they liked, its name and its
+    link): ``{"action": "updated" | "unchanged", "ref", "paths"}`` or a refusal that wrote nothing. Every text is
+    scrubbed; a note written here is the person's (``note_by: user``, under "What I liked"); the record's body is
+    rendered again from the record, and the page it is on gets its ``## Looks`` line again (a new name). The person's
+    door only — an agent's words go through a new save. The caller holds the admission and the page lock and commits."""
+    ref = get_ref(memory_path, ref_id)
+    if ref is None:
+        return {"action": "not_found", "error": "No such look."}
+    bank = Path(memory_path).name
+    changed = False
+    if title is not _UNSET:
+        kept = _clean_line(_scrub(str(title or ""), bank), TITLE_CHARS)
+        changed |= kept != ref.title
+        ref.title = kept
+    if url is not _UNSET:
+        raw = str(url or "").strip()
+        kept_url = clean_url(raw) if raw else None
+        if raw and kept_url is None:
+            return _error("That link isn't one Cicada keeps — an http or https address without a password.")
+        changed |= kept_url != ref.url
+        ref.url, ref.site = kept_url, site_of(kept_url)
+    if note is not _UNSET:
+        kept_note = _scrub(str(note or ""), bank).strip()[:NOTE_CHARS]
+        changed |= kept_note != ref.note or ref.note_by != USER
+        ref.note, ref.note_by = kept_note, USER
+    if not changed:
+        return {"action": "unchanged", "ref": ref, "paths": []}
+    path = _root(memory_path) / f"{ref.id}.md"
+    markdown_parser.write(path, _frontmatter(ref), _body(ref))   # every other key rides in `ref.extra`
+    paths = [ref.path]
+    if ref.entity and (page := sync_page(memory_path, ref.entity)) is not None:
+        paths.append(page)
+    return {"action": "updated", "ref": ref, "paths": paths}
+
+
 def remove_ref(memory_path, ref_id: str, *, author: str = USER) -> dict:
     """Remove a reference and its screenshot: ``{"action": "removed", "paths"}``. An agent removes only what it
     added (the rail for every agent write); the person removes anything."""
@@ -703,7 +742,8 @@ def describe_for_embedding(ref: Reference) -> str:
 # record section (``entity_body.CANONICAL_SECTIONS``) and never write one (the article writer's titles refuse it).
 
 LOOKS_SECTION = "Looks"
-_LOOKS_HEAD = re.compile(r"(?m)^## Looks[ \t]*\n?")
+#: Anchored to the whole line: a hand-written "## Looks and feel" is the person's section, never this one.
+_LOOKS_HEAD = re.compile(r"(?m)^## Looks[ \t]*$\n?")
 _H1_H2 = re.compile(r"(?m)^#{1,2}[ \t]")
 _BRACKETS = re.compile(r"[\[\]]")
 #: A subject is a real page id, never a path (the same shape ``fact_sources`` and the routes accept).

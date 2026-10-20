@@ -974,10 +974,19 @@ look's site — two claimants attach nothing; else the saved link's own page for
 nowhere — never a page invented. Moves: `PUT /design/{id}/entity` (`design_refs.attach`; an agent moves only its own),
 a removal re-renders the page, and a page merge moves the loser's looks to the winner (`entity_merge` →
 `design_refs.repoint`, in the merge's footprint). A look whose page went reads as unattached (`GET /design` serves
-`entity` only for a page that is there). **The one-time move** for looks saved before: `api/scripts/attach_looks.py
---bank <path>` (dry run, counts), `--list` (the looks left unattached and why, plus the moves — for the person's
-terminal only), `--apply` (one `cicada` commit, `Looks attached to their pages: …`, refused while Sleep runs);
-idempotent (`looks_attach`).
+`entity` only for a page that is there). The person's own words on a look (`PATCH /design/{id}`, `design_refs.update_ref`): name, link and note, scrubbed; a
+note written there is theirs (`note_by` dropped, under `## What I liked`); the record's body is rendered again and the
+page's line follows the new name, committed together. A page edit inside `## Looks` is refused in words
+(`page_edits.REBUILT_SECTIONS`, beside `## Related`), and a pinned correction never reaches into it. The section heading
+is matched as a whole line (`## Looks and feel` is the person's own section). **The one-time move** for looks saved
+before: `api/scripts/attach_looks.py --bank <path>` (dry run, counts), `--list` (the looks left unattached and why, plus
+the moves — for the person's terminal only), `--apply` (`cicada` commits, `Looks attached to their pages: …`, refused
+while Sleep runs or when git cannot list the dirty files); idempotent (`looks_attach`). It follows `list_hub_repair`'s
+rules: a record, page or claims ledger dirty in git is skipped unless its only change from HEAD is this move's own (a
+record's `entity:`, a page's `## Looks` section) — what an interrupted run leaves, adopted and committed by the next;
+every file is re-read before it is written and dropped if it changed since the survey; commits come
+`COMMIT_STEP` paths at a time (a page with the looks moving onto it in one step). A look whose page is gone and that no
+rule places has its stale `entity:` cleared there (the board already reads it as unattached).
 
 **What is read locally, with no model:** the palette and its words, and the CSS tokens of the snippets (regular
 expressions over the text as given; nothing is fetched or run). **The palette (looks v2, `design_palette`)** reads

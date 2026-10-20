@@ -7,7 +7,7 @@ component, plus the image model's state) — no ``VersionVector`` mapping, so no
 
 Writes: ``POST /design`` (a screenshot the app captured, or one dropped or pasted, with the page's link, their note
 and any snippets they selected; ``entity`` the page it was dropped on), ``PUT /design/{id}/entity`` (put a look on the
-page of the thing it shows, or take it off — owner 2026-10-20) and ``DELETE /design/{id}``. A look on a page writes that
+page of the thing it shows, or take it off — owner 2026-10-20), ``PATCH /design/{id}`` (the person's own words on it) and ``DELETE /design/{id}``. A look on a page writes that
 page's ``## Looks`` section in the same page-lock section as the record, and the two commit together. Each is committed alone, trigger ``user/companion_app``,
 answers 409 while Sleep holds the pages (the write admission, G183) and 409 in a demo bank (a screenshot is capture:
 ``demo_guard``). The palette is read from the pixels **before** the admission is taken, so Sleep never waits on a
@@ -426,6 +426,43 @@ async def remove_design_ref(ref_id: str, settings: Settings = Depends(get_settin
         if result["action"] != "removed":
             raise HTTPException(400, result.get("error") or "That couldn't be removed.")
     return {"removed": ref_id}
+
+
+class EditBody(CamelModel):
+    """The person's own words on a look: any of the three; a field left out is left as it is."""
+    title: str | None = None
+    url: str | None = None
+    note: str | None = None
+
+
+@router.patch("/design/{ref_id}", response_model=DesignRefModel)
+@write_admission.route(refuse=lambda: SleepWriting(BUSY))
+async def edit_design_ref(ref_id: str, body: EditBody, settings: Settings = Depends(get_settings)):
+    """What the person liked, the look's name and its link (owner 2026-10-20) — committed alone, as the person, with
+    the page the look is on when its ``## Looks`` line changes."""
+    from api.services import page_lock
+
+    mp = settings.memory_path
+    if demo_guard.is_demo(mp):
+        raise HTTPException(409, demo_guard.REFUSAL)
+    given = body.model_dump(exclude_unset=True, by_alias=False)
+
+    def run() -> dict:
+        with page_lock.page_lock(mp):
+            result = design_refs.update_ref(mp, ref_id, **given)
+            if result.get("paths"):
+                _commit_sync(mp, result["paths"], "updated")
+            return result
+
+    async with _write_lock:
+        result = await asyncio.to_thread(run)
+    if result["action"] == "not_found":
+        raise HTTPException(404, result["error"])
+    if result["action"] == "error":
+        raise HTTPException(422, result["error"])
+    if result["action"] == "updated":
+        design_index.refresh_in_background(mp)
+    return _full(result["ref"], mp)
 
 
 class AttachBody(CamelModel):
