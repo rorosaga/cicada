@@ -36,11 +36,15 @@ Save it: take a screenshot of what they are looking at (your browser tool, or a
 file they gave you), then
 `cicada_save_design(image_path="/abs/path/shot.png", url="https://…", note="<what they liked, in their words>", snippets=[{"lang": "css", "code": "…"}])`.
 Ask what they like about it if they didn't say — the note is what makes the
-reference useful later. Never save a page behind a login without them asking,
+reference useful later. A look lives on the page of the thing it shows: when
+recall gave you that page (the site's product, project or company), pass its id
+as `subject`; without it Cicada places the look on the page whose own site it is,
+or leaves it for the person to place. Never save a page behind a login without them asking,
 and never anything that shows other people's private data.
 
 ## Searching by picture
 
 `cicada_design_search(image_path="/abs/path/example.png")` finds the saved looks
 most like a picture. It needs the image model on their Mac; if the answer says
-it isn't on, tell them they can turn it on from Cicada's Looks page.
+it isn't on, tell them they can turn it on in Cicada's Settings → Search & files
+(Understand images).

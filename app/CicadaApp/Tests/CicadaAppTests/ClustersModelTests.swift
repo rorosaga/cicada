@@ -11,6 +11,18 @@ final class ClustersModelTests: XCTestCase {
                markdownContent: summary, history: [])
     }
 
+    /// Owner 2026-10-20 — "we can filter looks inside the entities page": only the pages that show a look.
+    func testTheViewMenuNarrowsToThePagesWithLooks() {
+        let types = Set(EntityType.selectableCases)
+        XCTAssertEqual(ClustersModel.filtered(all, types: types, labels: []).count, 4)
+        XCTAssertEqual(ClustersModel.filtered(all, types: types, labels: [], withLooks: ["alpha-project"]).map(\.id),
+                       ["alpha-project"])
+        XCTAssertTrue(ClustersModel.filtered(all, types: types, labels: [], withLooks: []).isEmpty)
+        XCTAssertEqual(ClustersModel.filtered(all, types: [.project], labels: [],
+                                              withLooks: ["alpha-project", "tool-example-a"]).map(\.id),
+                       ["alpha-project"], "the looks filter and the type filter both hold")
+    }
+
     private lazy var all: [Entity] = [
         e("alpha-project", "Alpha Project", .project, tags: ["side-project"]),
         e("beta-project", "beta project", .project),

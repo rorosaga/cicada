@@ -1047,7 +1047,7 @@ TOOLS = [
         # Design taste (2026-10-14): a write as the harness; stdio only in this slice (it can read a file the agent
         # saved). The palette is read from the pixels; nothing is fetched.
         "name": "cicada_save_design",
-        "description": "Save a look the person likes to their design board when they say they like how a site or screen looks ('save this style', 'I love this layout'). Send the screenshot you took (`image_path`: a PNG or JPEG you saved, or `image_base64`), the page's link, and a note on what they liked; add any HTML/CSS they pointed at as `snippets`, and the page's computed type and colours as `tokens` when you can read them in the page. Your note shows as yours (\"Noted by\" you), never as the person's own words. Cicada reads the colours itself.",
+        "description": "Save a look the person likes to their design board when they say they like how a site or screen looks ('save this style', 'I love this layout'). Send the screenshot you took (`image_path`: a PNG or JPEG you saved, or `image_base64`), the page's link, and a note on what they liked; add any HTML/CSS they pointed at as `snippets`, and the page's computed type and colours as `tokens` when you can read them in the page. A look lives on the page of the thing it shows: name that page as `subject` (its id, from recall) when you know it; without one Cicada puts it on the page whose own site it is, or leaves it for the person to place. Your note shows as yours (\"Noted by\" you), never as the person's own words. Cicada reads the colours itself.",
         "inputSchema": {"type": "object", "required": ["note"], "properties": {
             "url": {"type": "string", "description": "The page the screenshot shows (http or https)."},
             "note": {"type": "string", "description": "What the person liked about it, as you understood it (shown as your note)."},
@@ -1059,6 +1059,7 @@ TOOLS = [
                     "lang": {"type": "string", "enum": ["html", "css", "js", "jsx", "tsx", "svg", "swift", "text"]},
                     "code": {"type": "string"}}}},
             "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional: a few words to file it under."},
+            "subject": {"type": "string", "description": "Optional: the id of the page this look shows (a website, product or project page already in memory); never creates one."},
             "tokens": design_tokens.JSON_SCHEMA,
             "region": {"type": "object", "description": "Optional: the visible region the screenshot covers, in page pixels.",
                        "properties": {"x": {"type": "integer"}, "y": {"type": "integer"},
@@ -1357,7 +1358,8 @@ def _handle_local_tool(name: str, arguments: dict) -> str:
     elif name == "cicada_save_design":
         return mcp_tools.save_design(_ctx(), arguments.get("url"), arguments.get("note"), arguments.get("image_path"),
                                      arguments.get("image_base64"), arguments.get("title"), arguments.get("snippets"),
-                                     arguments.get("tags"), arguments.get("region"), arguments.get("tokens"))
+                                     arguments.get("tags"), arguments.get("region"), arguments.get("tokens"),
+                                     arguments.get("subject"))
     elif name == "cicada_design_search":
         return mcp_tools.design_search(_ctx(), arguments.get("query"), arguments.get("image_path"),
                                        arguments.get("image_base64"), arguments.get("limit", 8))

@@ -69,7 +69,7 @@ final class DesignConsistencyLintTests: XCTestCase {
             }
         }
         XCTAssertEqual(bars, [], "a first read's skeleton is ListSkeleton")
-        for page in ["SkillsPage.swift", "LooksPage.swift", "InboxPage.swift"] {
+        for page in ["SkillsPage.swift", "InboxPage.swift"] {
             let file = try XCTUnwrap(try viewSources().first { $0.lastPathComponent == page })
             let text = try String(contentsOf: file, encoding: .utf8)
             XCTAssertTrue(text.contains("ListErrorCard("), "\(page): a failed first read offers Retry (ListErrorCard)")
@@ -149,16 +149,17 @@ extension DesignConsistencyLintTests {
             }
         }
         XCTAssertEqual(bare, [], "DR-75: add with PageAddButton")
-        for page in ["SourcesPageView.swift", "LooksPage.swift"] {
+        // Skills joined on 2026-10-20 (owner: "align the top row with every other page"); Looks went to its pages.
+        for page in ["SourcesPageView.swift", "SkillsPage.swift"] {
             let file = try XCTUnwrap(try viewSources().first { $0.lastPathComponent == page })
             XCTAssertTrue(try String(contentsOf: file, encoding: .utf8).contains("PageAddButton("), page)
         }
     }
 
-    /// §5.3 — Skills and Looks sit on the shared progressive columns (list → detail → Reader), with no fixed side
-    /// column of their own, and host their own Reader.
-    func testSkillsAndLooksUseTheProgressiveColumns() throws {
-        for page in ["SkillsPage.swift", "LooksPage.swift"] {
+    /// §5.3 — Skills sits on the shared progressive columns (list → detail → Reader), with no fixed side column of its
+    /// own, and hosts its own Reader (Looks did too until it went to its pages, 2026-10-20).
+    func testSkillsUsesTheProgressiveColumns() throws {
+        for page in ["SkillsPage.swift"] {
             let file = try XCTUnwrap(try viewSources().first { $0.lastPathComponent == page })
             let text = try String(contentsOf: file, encoding: .utf8)
             XCTAssertTrue(text.contains("ProgressiveColumns("), "\(page): the shared columns")
@@ -166,7 +167,6 @@ extension DesignConsistencyLintTests {
             XCTAssertFalse(text.contains("detailWidth"), "\(page): no fixed-width side column")
         }
         XCTAssertTrue(AppTab.skills.hostsOwnReader)
-        XCTAssertTrue(AppTab.looks.hostsOwnReader)
     }
 
     /// DR-76 — a field on a page, a column or a page's own sheet is `cicadaField`; the native rounded field stays in
@@ -174,7 +174,7 @@ extension DesignConsistencyLintTests {
     func testAPageFieldIsTheAppsOwn() throws {
         let nativeDirs = ["/Views/Settings/", "/Views/Capture/Sheets/", "/Views/Intake/", "/Views/Connections/",
                           "/Views/Connect/", "/Views/Onboarding/"]
-        let owners: Set<String> = ["SkillsPage.swift"]
+        let owners: Set<String> = []   // Skills' header field went on 2026-10-20 (its top row is every page's now)
         var offenders: [String] = []
         for file in try viewSources()
         where !nativeDirs.contains(where: { file.path.contains($0) }) && !owners.contains(file.lastPathComponent) {
@@ -235,7 +235,7 @@ extension DesignConsistencyLintTests {
     /// DR-68 — after ⏎ steps into a skill or a look, its detail holds the list's keys (↑/↓ swap in place, Esc closes
     /// the rightmost): review of #377 found Looks' ⏎ moved focus to a detail that could not take it, so every key died.
     func testTheDetailTakesTheKeysAfterReturn() throws {
-        for page in ["SkillsPage.swift", "LooksPage.swift"] {
+        for page in ["SkillsPage.swift"] {
             let file = try XCTUnwrap(try viewSources().first { $0.lastPathComponent == page })
             let text = try String(contentsOf: file, encoding: .utf8)
             let start = try XCTUnwrap(text.range(of: "} detail: { plan in"), page)

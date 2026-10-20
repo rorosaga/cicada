@@ -942,7 +942,7 @@ idea, later findings are notes. Both reads ETag over the `backlog` sync componen
 is a Store domain (`BacklogCache` in the app, like `ProjectsCache`). A note's model and effort are joined to its turn at
 read once round 4's per-turn join lands; until then a note names its harness.
 
-### Design references — the Looks board (design taste, owner 2026-10-14)
+### Design references — looks, on the pages of the things they show (design taste, owner 2026-10-14; 2026-10-20)
 
 A look the person likes is memory: **one markdown file per reference** at `<bank>/design/<id>.md` plus its screenshot
 at `<bank>/assets/design/<id>.<png|jpg>`, both **in the bank and committed together** — the screenshot is the person's
@@ -953,8 +953,8 @@ create (`markdown_parser.write_new`). Frontmatter: `id`, `title`, `url` (http/ht
 explore | demo`), `image: {file, sha256, width, height, bytes}`, `region` (optional), `palette: [{hex, share, role,
 declared?}]`, `look` (the palette's words: dark/light, muted/vivid, hue names), `tokens: {fonts, generic, colors,
 font_sizes, spacing, radii}` (from the snippets), `computed` (the page's computed type and colour roles, below),
-`note_by` (who wrote the note, written when it is not the person), `tags`, `entity` (optional; a page it is about, never
-created). Body: the title, the screenshot embedded as `![Screenshot](../assets/design/<id>.png)`, the link, the note —
+`note_by` (who wrote the note, written when it is not the person), `tags`, `entity` (optional; the page the look shows, never
+created — below). Body: the title, the screenshot embedded as `![Screenshot](../assets/design/<id>.png)`, the link, the note —
 under `## What I liked` only when it is the person's own words, under `## Noted by <agent>` ("Noted by Claude Code")
 when an agent wrote it (looks v2, 2026-10-15; any heading in it demoted) — and `## Snippets` (fenced code).
 
@@ -967,11 +967,45 @@ the person; `added_by` an agent → that agent; `added_by: user` with `via: agen
 agents as the person until then). **One writer**, `api/services/design_refs.py`, behind every door: REST (`routers/design.py`),
 MCP (`mcp_tools.save_design`) and the demo. Every text is scrubbed (writer `design`); one screenshot (by sha256) is one
 reference; PNG or JPEG only, 32–8192 px, ≤ 4 MB (the app shrinks to ≤ 2560 px first). **Never an entity page** (the 10
-types stay closed): Stage 1 never reads `design/`, nothing here writes `entities/`, and a reference never decays. The
+types stay closed): Stage 1 never reads `design/`, and a reference never decays; the one thing written under `entities/`
+is a page's `## Looks` section (below). The
 person's writes commit alone as `Design reference <day>` / `Cicada-Author: user` / `user/companion_app` and are refused
 in a demo bank and while Sleep holds the pages; an agent's as `Agent write` with its harness and session. An agent
 removes only what it added. `sync_service`'s `design` component (a stat walk of `design/`) is the board's ETag; it is
 not a Store domain.
+
+**A look lives on the page of the thing it shows (owner rulings 2026-10-20).** *"This should be ingrained in the
+markdown of a specific thing."* The record stays one file in `design/` — its palette, tokens, specimens, note and
+vectors are the look's, and a page's prose rewrite can never lose them — and its `entity:` is the attachment. The page's
+markdown renders it: a canonical `## Looks` section (`entity_body.CANONICAL_SECTIONS`, after `## Links`), one bullet
+per look, newest first — `- [<title>](../design/<id>.md) · <site> · <day>` with the screenshot embedded on the
+indented line below (`![<title>](../assets/design/<id>.png)`) — so git, GitHub, Obsidian and an agent's
+`cicada_recall_detail` read the page whole. **Why the record stays separate, not moved into the page:** the page is
+rewritten by Sleep's writers and capped by its article budget, the 10 types stay closed, a look never decays while its
+page may archive, the screenshot's hash, palette and vectors key on the record id, and moving a look between pages is
+one frontmatter field. **One writer:** `design_refs.sync_page` writes the section surgically (the prose before the claims
+fence edited, the fence and ledger untouched, nothing else moved) under the page lock, from the records; an empty
+section is removed. Being canonical, Sleep's merges carry it as it is and it never reads as a hand edit
+(`has_human_prose`); the article writer's titles refuse "Looks". **Where a look goes** (`design_refs.subject_for`,
+deterministic, no model): the page a door names (`entity` on `POST /design`, `subject` on `cicada_save_design`, the
+explore ask's `subject`); else exactly one page whose trusted `website` source (the one its mark is drawn from) is the
+look's site — two claimants attach nothing; else the saved link's own page for exactly that URL (`url_index`); else
+nowhere — never a page invented. Moves: `PUT /design/{id}/entity` (`design_refs.attach`; an agent moves only its own),
+a removal re-renders the page, and a page merge moves the loser's looks to the winner (`entity_merge` →
+`design_refs.repoint`, in the merge's footprint). A look whose page went reads as unattached (`GET /design` serves
+`entity` only for a page that is there). The person's own words on a look (`PATCH /design/{id}`, `design_refs.update_ref`): name, link and note, scrubbed; a
+note written there is theirs (`note_by` dropped, under `## What I liked`); the record's body is rendered again and the
+page's line follows the new name, committed together. A page edit inside `## Looks` is refused in words
+(`page_edits.REBUILT_SECTIONS`, beside `## Related`), and a pinned correction never reaches into it. The section heading
+is matched as a whole line (`## Looks and feel` is the person's own section). **The one-time move** for looks saved
+before: `api/scripts/attach_looks.py --bank <path>` (dry run, counts), `--list` (the looks left unattached and why, plus
+the moves — for the person's terminal only), `--apply` (`cicada` commits, `Looks attached to their pages: …`, refused
+while Sleep runs or when git cannot list the dirty files); idempotent (`looks_attach`). It follows `list_hub_repair`'s
+rules: a record, page or claims ledger dirty in git is skipped unless its only change from HEAD is this move's own (a
+record's `entity:`, a page's `## Looks` section) — what an interrupted run leaves, adopted and committed by the next;
+every file is re-read before it is written and dropped if it changed since the survey; commits come
+`COMMIT_STEP` paths at a time (a page with the looks moving onto it in one step). A look whose page is gone and that no
+rule places has its stale `entity:` cleared there (the board already reads it as unattached).
 
 **What is read locally, with no model:** the palette and its words, and the CSS tokens of the snippets (regular
 expressions over the text as given; nothing is fetched or run). **The palette (looks v2, `design_palette`)** reads

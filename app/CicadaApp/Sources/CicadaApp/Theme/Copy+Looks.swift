@@ -1,6 +1,6 @@
 import Foundation
 
-/// Design taste (owner, 2026-10-14) — the Looks page's words (DR-59: sentence case, plain verbs, no "!"). Provider-
+/// Design taste (owner, 2026-10-14) — the looks' words, on the pages of the things they show since 2026-10-20 (DR-59: sentence case, plain verbs, no "!"). Provider-
 /// neutral (owner 2026-09-30) and plain (Search & files, owner 2026-10-14): "understand images", the same words as
 /// Settings → Search & files, never a model; a download says its size before the click.
 extension Copy {
@@ -27,7 +27,7 @@ extension Copy {
         static let snippets = "Snippets"
         static let savedFrom = "Saved"
         static let openPage = "Open the page"
-        static let remove = "Remove from Looks"
+        static let remove = "Remove this look"
         static let removeHelp = "Removes the screenshot and its note from this memory"
         static let findSimilar = "Find similar"
         static let save = "Save to Looks"
@@ -136,8 +136,43 @@ extension Copy {
 
         static let saveLook = "Save its look"
         static let saveLookHelp = "Asks your agent to capture this page's look — a screenshot, its type and colours — "
-            + "and keep it in Looks"
+            + "and keep it with the page"
         static let saveLookQueued = "Queued for your agent. The prompt to hand it is copied."
         static let saveLookFailed = "Couldn't queue that look."
+
+        // MARK: Looks on pages (owner 2026-10-20) — a look lives on the page of the thing it shows
+        /// The card's section, and Clusters' filter.
+        static let section = "Looks"
+        static let noneYet = "None yet"
+        static func sectionCount(_ n: Int) -> String { n == 1 ? "1 look" : "\(n) looks" }
+        static let linkPrompt = "Paste a website link"
+        static let capture = "Capture its look"
+        static let captureHelp = "Saves the link and asks your agent to capture the site's look for this page"
+        static let dropHint = "Or drop a picture anywhere on this page."
+        static let placeSaved = "Put a saved look here"
+        static let placeSavedHelp = "Looks you saved that aren't on a page yet"
+        static let dropped = "Added to this page's looks."
+        static let placed = "Moved to this page."
+        static let takeOff = "Take it off this page"
+        static let takeOffHelp = "Keeps the look, on no page, until you put it on one"
+        static let similar = "Similar looks"
+        static let noSimilar = "Nothing else you saved looks like this yet."
+        static func onPage(_ name: String) -> String { "On \(name)" }
+        static let notOnAPage = "Not on a page"
+        static let notALink = "That isn't a website link. Paste one that starts with http:// or https://."
+        // MARK: Clusters' Looks tab (review of #384, owner intent 2026-10-20: "filter looks inside the entities page")
+        static let tab = "Looks"
+        static let galleryFind = "Search looks by words, or drop a picture"
+        static let galleryEmpty = "No looks yet. Paste a website link on a page, or drop a picture on it, to keep one."
+        static let galleryNoMatch = "None of your looks matches that."
+        static func galleryCount(_ n: Int) -> String { n == 1 ? "1 look" : "\(n) looks" }
+        static let yourWords = "Your words"
+        static let saveWords = "Save"
+        static let savedWords = "Saved."
+        static let placeOn = "Put it on a page"
+        static let moveTo = "Move it to another page"
+        static let findPage = "Find a page"
+        static let withLooks = "Only pages with looks"
+        static let withLooksHelp = "Pages that show a look you saved"
     }
 }

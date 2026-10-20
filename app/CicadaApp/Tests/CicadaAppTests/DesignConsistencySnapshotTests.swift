@@ -33,35 +33,24 @@ final class DesignConsistencySnapshotTests: XCTestCase {
         let tile: (DesignRefSummary) -> AnyView = { ref in
             AnyView(Image(nsImage: images[ref.id]!).resizable().scaledToFill())
         }
-        let open = refs[min(4, refs.count - 1)]
 
         for mode in [AppColorScheme.light, .dark] {
             CicadaTheme.mode = mode
             let name = mode == .dark ? "dark" : "light"
-            let skills = SkillsPageView(model: loaded, tab: .constant(nil), selected: .constant(skillName),
-                                        addText: .constant(""), addFocused: FocusState<Bool>().projectedValue)
+            let skills = SkillsPageView(model: loaded, tab: .constant(nil), selected: .constant(skillName))
                 .background(CicadaTheme.bgBase)
             try snapshot(skills, size: CGSize(width: 1180, height: 640), mode: mode,
                          to: out.appendingPathComponent("skills-open-\(name).png"))
-            let skillsFailed = SkillsPageView(model: failed, tab: .constant(nil), selected: .constant(nil),
-                                              addText: .constant(""), addFocused: FocusState<Bool>().projectedValue)
+            let skillsFailed = SkillsPageView(model: failed, tab: .constant(nil), selected: .constant(nil))
                 .background(CicadaTheme.bgBase)
             try snapshot(skillsFailed, size: CGSize(width: 1000, height: 460), mode: mode,
                          to: out.appendingPathComponent("skills-failed-\(name).png"))
 
-            let looks = LooksBoardView(refs: refs, total: refs.count, phase: .loaded,
-                                       vision: DesignVision(supported: true, installed: true), searching: false,
-                                       searchNote: nil, query: .constant(""), open: open, detail: nil, writeError: nil,
-                                       tile: tile)
-                .background(CicadaTheme.bgBase)
-            try snapshot(looks, size: CGSize(width: 1180, height: 760), mode: mode,
-                         to: out.appendingPathComponent("looks-open-\(name).png"))
-            let looksFailed = LooksBoardView(refs: [], total: 0, phase: .failed("The server didn't answer."),
-                                             vision: nil, searching: false, searchNote: nil, query: .constant(""),
-                                             open: nil, detail: nil, writeError: nil, tile: tile)
-                .background(CicadaTheme.bgBase)
-            try snapshot(looksFailed, size: CGSize(width: 1000, height: 460), mode: mode,
-                         to: out.appendingPathComponent("looks-failed-\(name).png"))
+            let looks = PageLooksBlock(refs: refs, unplaced: [], entityId: "alpha-project", tile: tile,
+                                       emptyOpen: .constant(false), onOpen: { _ in })
+                .padding(24).frame(width: 720, alignment: .topLeading).background(CicadaTheme.bgBase)
+            try snapshot(looks, size: CGSize(width: 720, height: 640), mode: mode,
+                         to: out.appendingPathComponent("page-looks-\(name).png"))
 
             // Every folding section, side by side: Projects' detail and list, the entity card.
             let disclosures = VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {

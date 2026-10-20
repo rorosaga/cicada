@@ -29,9 +29,6 @@ final class DesignConsistency2SnapshotTests: XCTestCase {
         let tile: (DesignRefSummary) -> AnyView = { ref in
             AnyView(Image(nsImage: images[ref.id]!).resizable().scaledToFill())
         }
-        let open = refs[min(4, refs.count - 1)]
-        let composerImage = LooksTests.fixtures[0].1
-        let composerInput = LooksComposerInput(image: composerImage, data: Data(), ext: "png", via: "drop")
 
         let cluster = try JSONDecoder().decode(ProjectCluster.self, from: Data(Self.cluster.utf8))
         let channels = ChannelItemsCache(api: Snapshot2HangingItemsAPI())
@@ -41,28 +38,17 @@ final class DesignConsistency2SnapshotTests: XCTestCase {
             let name = mode == .dark ? "dark" : "light"
             let page = CGSize(width: 1376, height: 800)
 
-            let skillsRoot = SkillsPageView(model: skills, tab: .constant(nil), selected: .constant(nil),
-                                            addText: .constant(""), addFocused: FocusState<Bool>().projectedValue)
+            let skillsRoot = SkillsPageView(model: skills, tab: .constant(nil), selected: .constant(nil))
             try snapshot(skillsRoot, size: page, mode: mode, to: out.appendingPathComponent("skills-root-\(name).png"))
-            let skillsOpen = SkillsPageView(model: skills, tab: .constant(nil), selected: .constant(skillName),
-                                            addText: .constant(""), addFocused: FocusState<Bool>().projectedValue)
+            let skillsOpen = SkillsPageView(model: skills, tab: .constant(nil), selected: .constant(skillName))
             try snapshot(skillsOpen, size: page, mode: mode, to: out.appendingPathComponent("skills-open-\(name).png"))
 
-            let looksRoot = LooksBoardView(refs: refs, total: refs.count, phase: .loaded,
-                                           vision: DesignVision(supported: true, installed: true), searching: false,
-                                           searchNote: nil, query: .constant(""), open: nil, detail: nil,
-                                           writeError: nil, tile: tile)
-            try snapshot(looksRoot, size: page, mode: mode, to: out.appendingPathComponent("looks-root-\(name).png"))
-            let looksOpen = LooksBoardView(refs: refs, total: refs.count, phase: .loaded,
-                                           vision: DesignVision(supported: true, installed: true), searching: false,
-                                           searchNote: nil, query: .constant(""), open: open, detail: nil,
-                                           writeError: nil, tile: tile)
-            try snapshot(looksOpen, size: page, mode: mode, to: out.appendingPathComponent("looks-open-\(name).png"))
-
-            let composer = LooksComposer(input: composerInput, saving: false, error: nil, onCancel: {},
-                                         onFindSimilar: { _ in }, onSave: { _ in })
-            try snapshot(composer, size: CGSize(width: 460, height: 560), mode: mode,
-                         to: out.appendingPathComponent("looks-composer-\(name).png"))
+            // Owner 2026-10-20 — the Looks page went; a page's looks sit on its card.
+            let pageLooks = PageLooksBlock(refs: Array(refs.prefix(3)), unplaced: [], entityId: "alpha-project",
+                                           tile: tile, emptyOpen: .constant(false), onOpen: { _ in })
+                .padding(24).frame(width: 720, alignment: .topLeading)
+            try snapshot(pageLooks, size: CGSize(width: 720, height: 420), mode: mode,
+                         to: out.appendingPathComponent("page-looks-\(name).png"))
 
             let around = ProjectAroundSection(cluster: cluster, today: ISODay(year: 2026, month: 10, day: 20),
                                               partial: false, openCard: nil, openEntity: { _ in },

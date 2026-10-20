@@ -99,7 +99,7 @@ DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
                                                                        a.get("status")),
     "cicada_save_design": lambda c, a: mcp_tools.save_design(
         c, a.get("url"), a.get("note"), a.get("image_path"), a.get("image_base64"), a.get("title"),
-        a.get("snippets"), a.get("tags"), a.get("region"), a.get("tokens")),
+        a.get("snippets"), a.get("tags"), a.get("region"), a.get("tokens"), a.get("subject")),
     "cicada_design_search": lambda c, a: mcp_tools.design_search(c, a.get("query"), a.get("image_path"),
                                                                  a.get("image_base64"), a.get("limit", 8)),
     "cicada_skills": lambda c, a: mcp_tools.skills(c),

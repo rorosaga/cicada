@@ -20,7 +20,7 @@ from api import config, main
 from api.hooks import capture as hook
 from api.remote import catalog
 from api.remote.runtime import RemoteRuntime
-from api.services import (bank_registry, demo_guard, mcp_tools, telegram_capture, telemetry,
+from api.services import (bank_registry, demo_guard, mcp_tools, relay_capture, telegram_capture, telemetry,
                           transcript_capture as tc)
 
 SID = "44444444-2222-4333-8444-555555555555"
@@ -260,6 +260,9 @@ WRITES = {
     # G162: writes only the person's queue file (outside every bank), yet a demo bank's queue is a
     # picture of the flow — no agent can work it.
     "cicada_video_claim": lambda ctx: mcp_tools.video_claim(ctx),
+    # Ruling 32 (#359): an app with no hook relays each turn — capture, so a demo bank refuses it like every other.
+    "cicada_capture_turns": lambda ctx: relay_capture.capture_turns(ctx, "Decided alpha-project ships Friday.",
+                                                                     app="claude"),
 }
 
 

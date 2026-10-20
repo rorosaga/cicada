@@ -360,3 +360,51 @@ def search(memory_path, *, query: str | None = None, image: bytes | None = None,
         order = sorted(fused, key=lambda rid: (rid not in worded, -fused[rid], rid))[:limit]
         results = [{"id": rid, "score": round(fused[rid], 6), "legs": hits[rid]} for rid in order]
     return {"results": results, "mode": "+".join(sorted(legs)) or "none", "missing": missing}
+
+
+def similar(memory_path, ref_id: str, *, limit: int = 8, emb: Embedders | None | str = "default",
+            embed: bool = True) -> dict:
+    """Looks like one already saved (owner 2026-10-20: a page's look shows its similar looks) — same answer shape as
+    :func:`search`, the look itself left out. The look's own stored picture vector is the query (nothing is embedded
+    for it again); without one, its look words, fonts and site are, through the word leg — so a Mac with no search
+    model still answers, said in ``missing``."""
+    refs = design_refs.list_refs(memory_path)
+    me = next((r for r in refs if r.id == ref_id), None)
+    if me is None:
+        return {"results": [], "mode": "none", "missing": []}
+    if emb == "default":
+        emb = default_embedders()
+    legs: dict[str, list[tuple[str, float]]] = {}
+    missing: list[str] = []
+    if emb is not None:
+        if embed:
+            refresh(memory_path, emb, refs=refs)
+        conn = _connect(index_path(memory_path))
+        try:
+            have = _rows(conn)
+        finally:
+            conn.close()
+        images = {r: v for (r, k), (_, m, v) in have.items() if k == "image" and m == emb.model}
+        mine = images.pop(ref_id, None)
+        if mine is not None and images:
+            legs["picture"] = _close(_ranked(images, mine))
+        if emb.image is None:
+            missing.append("image_model")
+    else:
+        missing.append("model")
+    if not legs:
+        words = " ".join([*me.look, *design_refs.fonts(me)])
+        scores = {rid: s for rid, s in word_scores([r for r in refs if r.id != ref_id], words).items()} if words else {}
+        if scores:
+            legs["words"] = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
+    fused: dict[str, float] = {}
+    hits: dict[str, list[str]] = {}
+    for leg, ranking in legs.items():
+        for rank, (rid, _score) in enumerate(ranking):
+            if rid == ref_id:
+                continue
+            fused[rid] = fused.get(rid, 0.0) + 1.0 / (RRF_K + rank + 1)
+            hits.setdefault(rid, []).append(leg)
+    order = sorted(fused, key=lambda rid: (-fused[rid], rid))[:max(1, int(limit))]
+    return {"results": [{"id": rid, "score": round(fused[rid], 6), "legs": hits[rid]} for rid in order],
+            "mode": "+".join(sorted(legs)) or "none", "missing": missing}

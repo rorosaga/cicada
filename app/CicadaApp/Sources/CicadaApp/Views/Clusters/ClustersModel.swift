@@ -42,8 +42,12 @@ enum ClustersModel {
     /// The View menu's filter: a type the Graph hides is hidden here too (one filter, two surfaces); a label narrows to
     /// pages carrying any chosen label. Recency first (R-PE13 — F-12's "recently mentioned first"), A→Z to break a tie.
     /// `lastReferenced` is an ISO day, so a string compare is a date compare; a page with none sorts last.
-    static func filtered(_ all: [Entity], types: Set<EntityType>, labels: Set<String>) -> [Entity] {
-        all.filter { types.contains($0.type) && (labels.isEmpty || !labels.isDisjoint(with: Set($0.tags))) }
+    /// `withLooks` (owner 2026-10-20: "we can filter looks inside the entities page") keeps only the pages that show
+    /// a look; nil leaves every page in.
+    static func filtered(_ all: [Entity], types: Set<EntityType>, labels: Set<String>,
+                         withLooks: Set<String>? = nil) -> [Entity] {
+        all.filter { types.contains($0.type) && (labels.isEmpty || !labels.isDisjoint(with: Set($0.tags)))
+                     && (withLooks?.contains($0.id) ?? true) }
             .sorted { a, b in
                 if a.lastReferenced != b.lastReferenced { return a.lastReferenced > b.lastReferenced }
                 return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending

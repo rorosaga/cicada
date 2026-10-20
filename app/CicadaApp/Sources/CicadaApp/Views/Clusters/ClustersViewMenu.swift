@@ -2,13 +2,17 @@ import SwiftUI
 
 /// R-DL9 — the page's ONE filter (§10: "11/11" and "Labels" fold into one View menu). Types are the Graph's own filter
 /// (`graphVM.filter.types`: one filter, two surfaces, as before); labels narrow to pages carrying any chosen label (the
-/// retired label popover's search and cap); "Expand all" shows every row of every group in All (DR-39, remembered).
+/// retired label popover's search and cap); "Only pages with looks" narrows to the pages that show a look (owner
+/// 2026-10-20); "Expand all" shows every row of every group in All (DR-39, remembered).
 struct ClustersViewMenu: View {
     @Binding var types: Set<EntityType>
     @Binding var labels: Set<String>
     let labelCounts: [(label: String, count: Int)]
     let typeCounts: [EntityType: Int]
     @Binding var expandAll: Bool
+    /// Owner 2026-10-20 — only the pages that show a look the person saved (`LooksCache.pagesWithLooks`).
+    var onlyWithLooks: Binding<Bool>? = nil
+    var looksCount = 0
     @State private var labelQuery = ""
 
     /// The retired popover built up to 100 rows and froze on open; eight and a search is the mock's answer.
@@ -47,6 +51,13 @@ struct ClustersViewMenu: View {
                 note(Copy.Lists.moreLabels(matchingLabels.count - Self.labelCap))
             }
             if !labels.isEmpty { menuRow(Copy.Lists.clearLabels) { labels = [] } }
+            if let onlyWithLooks {
+                header(Copy.Looks.section, trailing: nil).padding(.top, CicadaTheme.spacingSM)
+                checkRow(on: onlyWithLooks.wrappedValue, dot: nil, label: Copy.Looks.withLooks, count: looksCount) {
+                    onlyWithLooks.wrappedValue.toggle()
+                }
+                .help(Copy.Looks.withLooksHelp)
+            }
             header(Copy.Lists.groupsInAll, trailing: nil).padding(.top, CicadaTheme.spacingSM)
             menuRow(expandAll ? Copy.Lists.collapseAll : Copy.Lists.expandAll) { expandAll.toggle() }
         }

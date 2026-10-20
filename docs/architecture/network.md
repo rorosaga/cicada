@@ -157,8 +157,9 @@ check and `scripts/fetch-embedding-model.sh`.
 
 **The image encoder is its own click (design taste, 2026-10-14).** The same pinned revision's `vision_files` — the
 vision `.mlpackage` and `position_embeddings.f16`, about 309 MB — are fetched only when the person presses *Turn on*
-beside *Understand images* in Settings → Search & files (dimmed until the text encoder is here, so it is a second click)
-or on the Looks page (`POST /embeddings/install` with `model` and `part: "vision"`), or runs `make
+beside *Understand images* in Settings → Search & files (dimmed until the text encoder is here, so it is a second click;
+the Looks page's own shortcut went with the page on 2026-10-20) (`POST /embeddings/install` with `model` and
+`part: "vision"`), or runs `make
 embedding-model-vision`; the text encoder is fetched first when it isn't here — the Looks shortcut's one click, whose
 row states the combined size first (`vision.includesText`). Same transport, same checks (size and sha256 while streaming,
 one mismatch installs nothing), staged in `.embeddinggemma-2.vision.partial` and grafted beside the text encoder, a

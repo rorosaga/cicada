@@ -3930,9 +3930,9 @@ extension APIClient {
     }
 }
 
-// MARK: - Design taste (2026-10-14) — the Looks page's board
+// MARK: - Design taste (2026-10-14) — looks, on the pages of the things they show (2026-10-20)
 
-/// The board's reads and the person's two writes (`api/routers/design.py`). A protocol so `LooksCache` is tested
+/// The looks' reads and the person's writes (`api/routers/design.py`). A protocol so `LooksCache` is tested
 /// against a fake, the `BacklogAPI` way.
 protocol DesignAPI: Sendable {
     func fetchDesignBoard(etag: String?) async throws -> Conditional<DesignBoard>
@@ -3941,6 +3941,28 @@ protocol DesignAPI: Sendable {
     func deleteDesignRef(id: String) async throws
     func searchDesign(query: String?, image: Data?, ext: String?) async throws -> DesignSearchResult
     func installImageModel() async throws
+    /// Put a look on a page, or take it off one (`entity` nil): `PUT /design/{id}/entity`.
+    func attachDesignRef(id: String, entity: String?) async throws -> DesignRef
+    /// The looks most like one (`GET /design/{id}/similar`), itself left out.
+    func similarDesign(id: String) async throws -> DesignSearchResult
+    /// A website link pasted on a page: the link is saved (`POST /sources/save`), then its look is asked of the
+    /// person's own agent for that page (`POST /explore/look` with `subject`) — the site-capture path (G166).
+    func lookFromLink(url: String, subject: String) async throws -> ExploreLookResponse
+    /// The person's own words on a look — its name, its link, what they liked (`PATCH /design/{id}`).
+    func editDesignRef(id: String, title: String, url: String, note: String) async throws -> DesignRef
+}
+
+extension DesignAPI {
+    func editDesignRef(id: String, title: String, url: String, note: String) async throws -> DesignRef {
+        throw APIError.serverUnreachable
+    }
+    func attachDesignRef(id: String, entity: String?) async throws -> DesignRef { throw APIError.serverUnreachable }
+    func similarDesign(id: String) async throws -> DesignSearchResult {
+        DesignSearchResult(results: [], mode: "none", missing: [])
+    }
+    func lookFromLink(url: String, subject: String) async throws -> ExploreLookResponse {
+        throw APIError.serverUnreachable
+    }
 }
 
 extension APIClient: DesignAPI {
@@ -3994,6 +4016,7 @@ extension APIClient: DesignAPI {
         if let url = upload.url, !url.isEmpty { fields.append(("url", url)) }
         if let title = upload.title, !title.isEmpty { fields.append(("title", title)) }
         if let note = upload.note, !note.isEmpty { fields.append(("note", note)) }
+        if let entity = upload.entity, !entity.isEmpty { fields.append(("entity", entity)) }
         let reply = try await designMultipart("/design", fields: fields, image: upload.image, ext: upload.ext)
         do { return try decoder.decode(DesignRef.self, from: reply) } catch { throw APIError.decodingError("\(error)") }
     }
@@ -4014,6 +4037,23 @@ extension APIClient: DesignAPI {
     /// The image model's own click (`POST /embeddings/install` with `part: vision`, 202).
     func installImageModel() async throws {
         _ = try await post("/embeddings/install", body: ["model": "google/embeddinggemma-2:768", "part": "vision"]) as Data
+    }
+
+    func attachDesignRef(id: String, entity: String?) async throws -> DesignRef {
+        try await put(Self.designPath(id, "entity"), body: ["entity": entity.map { $0 as Any } ?? NSNull()])
+    }
+
+    func similarDesign(id: String) async throws -> DesignSearchResult {
+        try await get(Self.designPath(id, "similar"))
+    }
+
+    func editDesignRef(id: String, title: String, url: String, note: String) async throws -> DesignRef {
+        try await patch(Self.designPath(id), body: ["title": title, "url": url, "note": note])
+    }
+
+    func lookFromLink(url: String, subject: String) async throws -> ExploreLookResponse {
+        try await saveSource(url: url)   // already saved is a quiet duplicate; a refusal says why
+        return try await post("/explore/look", body: ["url": url, "subject": subject])
     }
 }
 
