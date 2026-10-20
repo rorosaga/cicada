@@ -1,0 +1,257 @@
+{
+ "about": "Spanish versions of 50 LoCoMo questions (snap-research/locomo, CC BY-NC 4.0, the pinned locomo10.json): the first question of each answerable category in each conversation of the broad sample's slice (a conversation with no open-domain question in it gives its next question), plus each conversation's first adversarial question. Translated once by claude-haiku-5-5 (2026-10-20), names and titles kept; two translations fixed by hand: conv-50:q004 dropped 'meet in', conv-26:q152 was ungrammatical.",
+ "lang": "es",
+ "dataset": "locomo",
+ "questions": {
+  "conv-26:q000": {
+   "category": "temporal",
+   "en": "When did Caroline go to the LGBTQ support group?",
+   "es": "¿Cuándo fue Caroline al grupo de apoyo LGBTQ?"
+  },
+  "conv-26:q002": {
+   "category": "open-domain",
+   "en": "What fields would Caroline be likely to pursue in her educaton?",
+   "es": "¿Qué campos de estudio es probable que Caroline quiera seguir en su educación?"
+  },
+  "conv-26:q003": {
+   "category": "multi-hop",
+   "en": "What did Caroline research?",
+   "es": "¿Qué investigó Caroline?"
+  },
+  "conv-26:q082": {
+   "category": "single-hop",
+   "en": "What did the charity race raise awareness for?",
+   "es": "¿Para qué concienciaba la carrera benéfica?"
+  },
+  "conv-30:q000": {
+   "category": "temporal",
+   "en": "When Jon has lost his job as a banker?",
+   "es": "¿Cuándo perdió Jon su trabajo como banquero?"
+  },
+  "conv-30:q002": {
+   "category": "single-hop",
+   "en": "How do Jon and Gina both like to destress?",
+   "es": "¿Cómo les gusta a Jon y a Gina relajarse tras el estrés?"
+  },
+  "conv-30:q003": {
+   "category": "multi-hop",
+   "en": "What do Jon and Gina both have in common?",
+   "es": "¿Qué tienen en común Jon y Gina?"
+  },
+  "conv-30:q001": {
+   "category": "temporal",
+   "en": "When Gina has lost her job at Door Dash?",
+   "es": "¿Cuándo perdió Gina su trabajo en Door Dash?"
+  },
+  "conv-41:q000": {
+   "category": "temporal",
+   "en": "Who did Maria have dinner with on May 3, 2023?",
+   "es": "¿Con quién cenó Maria el 3 de mayo de 2023?"
+  },
+  "conv-41:q002": {
+   "category": "multi-hop",
+   "en": "What martial arts has John done?",
+   "es": "¿Qué artes marciales ha practicado John?"
+  },
+  "conv-41:q008": {
+   "category": "open-domain",
+   "en": "What might John's financial status be?",
+   "es": "¿Cuál podría ser la situación financiera de John?"
+  },
+  "conv-41:q065": {
+   "category": "single-hop",
+   "en": "What is John's main focus in local politics?",
+   "es": "¿En qué se centra principalmente John en la política local?"
+  },
+  "conv-42:q000": {
+   "category": "open-domain",
+   "en": "Is it likely that Nate has friends besides Joanna?",
+   "es": "¿Es probable que Nate tenga amigos aparte de Joanna?"
+  },
+  "conv-42:q001": {
+   "category": "multi-hop",
+   "en": "What kind of interests do Joanna and Nate share?",
+   "es": "¿Qué tipo de intereses comparten Joanna y Nate?"
+  },
+  "conv-42:q002": {
+   "category": "temporal",
+   "en": "When did Joanna first watch \"Eternal Sunshine of the Spotless Mind?",
+   "es": "¿Cuándo vio Joanna por primera vez \"Eterno resplandor de una mente sin recuerdos\"?"
+  },
+  "conv-42:q088": {
+   "category": "single-hop",
+   "en": "What is one of Joanna's favorite movies?",
+   "es": "¿Cuál es una de las películas favoritas de Joanna?"
+  },
+  "conv-43:q000": {
+   "category": "multi-hop",
+   "en": "what are John's goals with regards to his basketball career?",
+   "es": "¿Cuáles son los objetivos de John en su carrera de baloncesto?"
+  },
+  "conv-43:q003": {
+   "category": "open-domain",
+   "en": "Would Tim enjoy reading books by C. S. Lewis or John Greene?",
+   "es": "¿Le gustaría a Tim leer libros de C. S. Lewis o de John Greene?"
+  },
+  "conv-43:q006": {
+   "category": "temporal",
+   "en": "In which month's game did John achieve a career-high score in points?",
+   "es": "¿En el partido de qué mes consiguió John su mejor marca personal de puntos?"
+  },
+  "conv-43:q071": {
+   "category": "single-hop",
+   "en": "Which team did John sign with on 21 May, 2023?",
+   "es": "¿Con qué equipo firmó John el 21 de mayo de 2023?"
+  },
+  "conv-44:q000": {
+   "category": "temporal",
+   "en": "Which year did Audrey adopt the first three of her dogs?",
+   "es": "¿En qué año adoptó Audrey a los tres primeros de sus perros?"
+  },
+  "conv-44:q002": {
+   "category": "multi-hop",
+   "en": "What kind of indoor activities has Andrew pursued with his girlfriend?",
+   "es": "¿Qué actividades de interior ha realizado Andrew con su novia?"
+  },
+  "conv-44:q019": {
+   "category": "open-domain",
+   "en": "What is an indoor activity that Andrew would enjoy doing while make his dog happy?",
+   "es": "¿Qué actividad de interior disfrutaría Andrew haciendo mientras hace feliz a su perro?"
+  },
+  "conv-44:q061": {
+   "category": "single-hop",
+   "en": "Which specific type of bird mesmerizes Andrew?",
+   "es": "¿Qué tipo específico de ave fascina a Andrew?"
+  },
+  "conv-47:q000": {
+   "category": "open-domain",
+   "en": "What are John's suspected health problems?",
+   "es": "¿Qué problemas de salud se sospecha que tiene John?"
+  },
+  "conv-47:q001": {
+   "category": "temporal",
+   "en": "Which recreational activity was James pursuing on March 16, 2022?",
+   "es": "¿Qué actividad recreativa practicaba James el 16 de marzo de 2022?"
+  },
+  "conv-47:q002": {
+   "category": "multi-hop",
+   "en": "Which places or events have John and James planned to meet at?",
+   "es": "¿En qué lugares o eventos han planeado John y James encontrarse?"
+  },
+  "conv-47:q067": {
+   "category": "single-hop",
+   "en": "What programming languages has James worked with?",
+   "es": "¿Con qué lenguajes de programación ha trabajado James?"
+  },
+  "conv-48:q000": {
+   "category": "temporal",
+   "en": "What kind of project was Jolene working on in the beginning of January 2023?",
+   "es": "¿En qué tipo de proyecto estaba trabajando Jolene a principios de enero de 2023?"
+  },
+  "conv-48:q001": {
+   "category": "multi-hop",
+   "en": "Which of Deborah`s family and friends have passed away?",
+   "es": "¿Quiénes de la familia y los amigos de Deborah han fallecido?"
+  },
+  "conv-48:q005": {
+   "category": "open-domain",
+   "en": "In what country did Jolene's mother buy her the pendant?",
+   "es": "¿En qué país le compró la madre de Jolene el colgante?"
+  },
+  "conv-48:q015": {
+   "category": "single-hop",
+   "en": "What pets does Jolene have?",
+   "es": "¿Qué mascotas tiene Jolene?"
+  },
+  "conv-49:q000": {
+   "category": "multi-hop",
+   "en": "What kind of car does Evan drive?",
+   "es": "¿Qué tipo de coche conduce Evan?"
+  },
+  "conv-49:q004": {
+   "category": "temporal",
+   "en": "Which hobby did Sam take up in May 2023?",
+   "es": "¿Qué afición empezó Sam en mayo de 2023?"
+  },
+  "conv-49:q005": {
+   "category": "open-domain",
+   "en": "Which country was Evan visiting in May 2023?",
+   "es": "¿Qué país estaba visitando Evan en mayo de 2023?"
+  },
+  "conv-49:q083": {
+   "category": "single-hop",
+   "en": "What type of car did Evan get after his old Prius broke down?",
+   "es": "¿Qué tipo de coche se compró Evan después de que su antiguo Prius se averiara?"
+  },
+  "conv-50:q000": {
+   "category": "temporal",
+   "en": "When did Calvin first travel to Tokyo?",
+   "es": "¿Cuándo viajó Calvin a Tokio por primera vez?"
+  },
+  "conv-50:q001": {
+   "category": "multi-hop",
+   "en": "What items did Calvin buy in March 2023?",
+   "es": "¿Qué artículos compró Calvin en marzo de 2023?"
+  },
+  "conv-50:q004": {
+   "category": "open-domain",
+   "en": "Which country do Calvin and Dave want to meet in?",
+   "es": "¿En qué país quieren encontrarse Calvin y Dave?"
+  },
+  "conv-50:q071": {
+   "category": "single-hop",
+   "en": "How long did Calvin plan to stay in Japan?",
+   "es": "¿Cuánto tiempo planeaba quedarse Calvin en Japón?"
+  },
+  "conv-26:q152": {
+   "category": "adversarial",
+   "en": "What did Caroline realize after her charity race?",
+   "es": "¿De qué se dio cuenta Caroline después de su carrera benéfica?"
+  },
+  "conv-30:q079": {
+   "category": "adversarial",
+   "en": "What temporary job did Jon take to cover expenses?",
+   "es": "¿Qué trabajo temporal aceptó Jon para cubrir sus gastos?"
+  },
+  "conv-41:q152": {
+   "category": "adversarial",
+   "en": "What is John's main focus in international politics?",
+   "es": "¿Cuál es el principal enfoque de John en la política internacional?"
+  },
+  "conv-42:q199": {
+   "category": "adversarial",
+   "en": "What color did Joanna choose for her hair?",
+   "es": "¿De qué color decidió teñirse el pelo Joanna?"
+  },
+  "conv-43:q178": {
+   "category": "adversarial",
+   "en": "Which team did Tim sign with on 21 May, 2023?",
+   "es": "¿Con qué equipo firmó Tim el 21 de mayo de 2023?"
+  },
+  "conv-44:q123": {
+   "category": "adversarial",
+   "en": "Which specific type of bird mesmerizes Audrey?",
+   "es": "¿Qué tipo específico de ave fascina a Audrey?"
+  },
+  "conv-47:q150": {
+   "category": "adversarial",
+   "en": "What did John adopt in April 2022?",
+   "es": "¿Qué adoptó John en abril de 2022?"
+  },
+  "conv-48:q191": {
+   "category": "adversarial",
+   "en": "What are the names of Deborah's snakes?",
+   "es": "¿Cuáles son los nombres de las serpientes de Deborah?"
+  },
+  "conv-49:q156": {
+   "category": "adversarial",
+   "en": "What type of car did Sam get after his old Prius broke down?",
+   "es": "¿Qué tipo de coche compró Sam después de que su viejo Prius se averiara?"
+  },
+  "conv-50:q158": {
+   "category": "adversarial",
+   "en": "Which DJ was Dave's favorite at the music festival in April 2023?",
+   "es": "¿Quién era el DJ favorito de Dave en el festival de música de abril de 2023?"
+  }
+ }
+}
