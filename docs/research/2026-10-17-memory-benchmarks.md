@@ -133,7 +133,11 @@ api/.venv/bin/python -m benchmarks.public.run report --run <run folder>
 - **Resumable:** per-unit `state.json` (Sleep legs), `answers.jsonl`, `judgments.jsonl`; a plan limit pauses Sleep
   (exit 3), any other resumable stop (engine signed out, bank busy) exits 4 with its reason, a Sleep failure exits 1;
   `--resume` continues the paused drain and retries exactly the answers and judgments that failed (finished ones are
-  never redone). The report counts unanswered and ungraded questions and gives the score with them as not correct. Slices are
+  never redone). `--sleep-schedule none` stages and indexes a unit without Sleep (Ask over the conversations'
+  search leg alone — how LongMemEval_S fits a plan); `--gate <command>` runs a command before each unit and starts it
+  only on exit 0 (a run waits out another Sleep sharing the plan). Every `ask` row keeps the prompt's size, the
+  context-build time before the model call and whether the dataset's own answer turns reached the prompt verbatim (any
+  40-character stretch; `prompts.jsonl` beside it), and the report prints them (2026-10-20). The report counts unanswered and ungraded questions and gives the score with them as not correct. Slices are
   deterministic (first N per category / per unit).
 - **Cost, measured:** every plan call is counted by phase (sleep / answer / judge) and stage with its wall seconds;
   `report.json` and the printed table carry them beside the scores. No dollar figure — a plan call has no price.
@@ -428,3 +432,144 @@ Gemma re-answers 156).
 **Still open.** The newest conversation's *answer* turn is not guaranteed — only its best-matching turn (one
 knowledge-update question lost its answer turn to that); counts whose evidence turns share no rare word with the
 question; the judge's strictness on abstentions phrased as "zero".
+
+## Broad sample 2026-10-20
+
+**Why.** Rodrigo 2026-10-20: *"using my plan and Gemma embeddings and all of the perfect setup we're using, run the
+best benchmark to see how good the memory is."* The chosen size: all 10 LoCoMo conversations (40 questions each,
+10 per category 1–4) and 100 LongMemEval_S questions, answers repeated where cheap.
+
+**Setup (the production one, measured as run).** Branch `bench/broad-2026-10-20` (dev `966213be` + the harness
+changes above, `5ba897f3`); `claude` CLI 2.1.304 on the owner's Claude plan; Sleep `haiku` with `haiku`
+disambiguation (the owner's production Sleep model), batch 25, one drain per conversation on the dataset's clock;
+answers and the judge `sonnet` (as every earlier run); search model **EmbeddingGemma 2** (`google/embeddinggemma-2:768`,
+Core ML, recorded in every bank's index, episode passages 1,600/200); concurrency 3; embedding threads capped at 4.
+Web lookups (the `sonnet` lookup tier) do not run in a benchmark — every fetch gate is off in the unit's environment —
+so that setting is inert here. Every unit ran only while the owner's own backend reported Sleep not running and
+never between 02:40 and 03:20 local (the gate waited out the nightly run).
+
+**What "LongMemEval_S" means here.** Each question ships its own ~50-session haystack; Sleep over it costs ~50
+extraction calls a question (≈ 5,000 for 100), past any plan budget. These banks are **staged and indexed, never
+consolidated** (`--sleep-schedule none`): Ask answers from the search leg over the raw conversations (no pages). That
+is the path the owner's own un-slept backlog takes, not the full system. 100 questions, stratified: temporal 20,
+multi-session 20, knowledge-update 16, single-session-user 12, single-session-assistant 10, preference 8, abstention
+14 (the first N of each in file order; ids in the run's `config.json`).
+
+### Results
+
+**LoCoMo, 10 conversations, 382 questions (categories 1–4; three conversations have fewer than 10 of a category)** —
+J, Mem0's judge:
+
+| Path | J | single-hop | multi-hop | temporal | open-domain | token F1 |
+|---|---|---|---|---|---|---|
+| `ask`, all 10 (n = 382) | **74.9** | 91.0 (100) | 65.0 (100) | 90.0 (100) | 48.8 (82) | 11.1 |
+| `ask`, the 5 control conversations (n = 198) | 77.8 | 100 | 66.0 | 86.0 | 58.3 | 10.4 |
+| `full-context` control, same 5 (n = 198) | **88.9** | 98.0 | 96.0 | 86.0 | 75.0 | 12.4 |
+| `ask` repeat on conv-26/43/49 (n = 120): run 1 / run 2 | 79.2 / 79.2 (range 79.2–79.2) | 100 / 96.7 | 63.3 / 66.7 | 80 / 80 | 73.3 / 73.3 | — |
+
+Per conversation (`ask` J): conv-26 85.0, conv-30 86.7, conv-41 81.6, conv-42 62.5, conv-43 67.5, conv-44 62.2,
+conv-47 70.0, conv-48 70.0, conv-49 85.0, conv-50 81.1 — the spread (62–87) is wider than the repeat noise (4 of 120
+answers flipped between repeats, the total unchanged). Control per conversation: 95.0 / 97.4 / 80.0 / 80.0 / 92.5
+(conv-26/41/43/47/49). Published, for orientation only (gpt-4o-mini readers, other judges): Mem0 66.9, full-context
+72.9, Zep 75.1, Letta 74.0.
+
+**LongMemEval_S, 100 questions, no Sleep, three answer repeats** (the prompt is the same each time — retrieval is
+deterministic — so the spread is the answer model and the judge):
+
+| Type | n | mean | min–max |
+|---|---|---|---|
+| single-session-user | 12 | 97.2 | 91.7–100 |
+| knowledge-update | 16 | 87.5 | 87.5–87.5 |
+| temporal-reasoning | 20 | 73.3 | 70.0–75.0 |
+| single-session-preference | 8 | 62.5 | 62.5–62.5 |
+| single-session-assistant | 10 | 60.0 | 60.0–60.0 |
+| multi-session | 20 | **11.7** | 10.0–15.0 |
+| abstention | 14 | 92.9 | 92.9–92.9 |
+| **all 100** | 100 | **66.7** | 66.0–67.0 |
+| answerable 86 / task-averaged | 86 | 62.4 / 65.3 | 61.6–62.8 / 64.4–65.8 |
+
+65 questions right in all three repeats, 32 wrong in all three, 3 flipped. Published, indicative only: the paper's
+GPT-4o full-context on S 60.6; Zep 71.2 on S (both with GPT-4o judges and full systems; this row has no consolidation).
+
+**Honesty.**
+
+| | LoCoMo `ask` (382) | LoCoMo control (198) | LongMemEval_S run 1 (86 answerable + 14 abstention) |
+|---|---|---|---|
+| wrong answers | 96 | 22 | 32 |
+| of them, the answer names the gap ("memory does not say …") | 70 | 15 | 21 |
+| asserted something the judge rejected | 26 — 14 lists with items missing, 3 counts one off ("at least two" for "two" among them), 3 relative dates a day/week from the gold, 3 inferences unlike the gold's, 2 wrong details, 1 hedged "does not clearly show" | 7 | 11 — 8 counts or totals (7 one or two short, phrased "memory shows N"), 2 stale values on knowledge-update questions, 1 date arithmetic |
+| contradicted outright (a definite wrong fact) | ≈ 7 (1.8 %): 3 dates, 2 counts, 2 details (one a "yes" where the gold is "no", conv-50:q042) | — | 3 (3.5 %): two stale values (9ea5eabc, 89941a93), one date (9a707b81) |
+| answered but should have declined | — (category 5 not run) | — | **1 of 14** (031748ae_abs, the same in all three repeats) |
+
+(The gap/assert split comes from the answer's own wording, read by hand for the asserted rows.) One LongMemEval answer
+in 300 was Ask's degrade path: the model's reply was not JSON and Ask returned "could not synthesize" (gpt4_59149c77,
+run 1); the control had one such reply in 199, retried on resume.
+
+**Retrieval — did the dataset's own answer turn reach Ask's prompt?** (verbatim, any 40-character stretch)
+
+| | questions with ≥ 1 answer turn shown | answer turns shown | J when shown / when not |
+|---|---|---|---|
+| LoCoMo all | 290 / 375 (77 %) | — | **83.8** (290) / **43.5** (85) |
+| — single-hop / temporal | 87 / 100, 87 / 100 | 97 / 117, 91 / 112 | |
+| — multi-hop | 76 / 100 | **147 / 322** | |
+| — open-domain | 40 / 75 | 52 / 169 | |
+| LongMemEval_S all | 76 / 89 (85 %) | — | 70.3 (74) / 16.7 (12) |
+| — knowledge-update / ss-user / ss-assistant / temporal | 16/16, 12/12, 9/10, 19/20 | 29/33, 13/13, 9/10, 31/45 | |
+| — multi-session | 15 / 20 | **28 / 71** | |
+| — preference | 3 / 8 | 4 / 14 | |
+
+**Timing and size** (answer = Ask's whole call including the model; context build = everything before the model call):
+
+| | answer p50 / p95 s | context build p50 / p95 ms | prompt chars p50 / p95 / max |
+|---|---|---|---|
+| LoCoMo `ask` | 3.96 / 5.63 | 49 / 580 (warm, past each process's first three questions: 47.5 / 72.1; the first ones pay the search model's ~0.6 s load) | 15.2k / 22.5k / 25.1k |
+| LoCoMo control | 4.52 / 7.09 | — | the whole conversation (~45–90k characters) |
+| LongMemEval_S `ask` | 5.0 / 6.5 | 1,106 / 1,168 — every unit is a fresh process, so each is a cold search-model load (~1 s); the leg itself measured 15–26 ms warm on 2026-10-19 | 4.5k / 6.8k / 6.9k |
+
+**Sleep** (haiku): 272 sessions in 10 drains, 1,405 s wall (86–176 s a conversation); 348 calls — 272 extraction,
+26 merge, 17 skills, 16 conflict, 12 inbox tending, 5 disambiguation; no failed call. Banks: 7–23 pages, 40–123 claims
+(838 in all), 13–56 lines held in the pending store. LongMemEval_S intake + index (no model): p50 14.0 s a question
+(~50 sessions on Gemma 2).
+
+**Plan calls: 2,349** (≤ 2,500 budget) — Sleep 348 (`haiku`); answers 1,001 and judge 1,000 (`sonnet`): LoCoMo
+`ask` 382 + control 199 + repeat 120, LongMemEval 3 × 100, each judged once. No plan limit was hit and no call failed.
+
+### The five most common failure shapes
+
+1. **Open-domain inference declined** (37 of 42 open-domain misses named a gap). The question asks for a likely
+   reading ("does he live near a beach or the mountains?", "which state…?"); the evidence is there in pieces and Ask's
+   rules make the model say memory does not state it. The control is weakest here too (75.0). Example: conv-41:q041.
+   A sub-shape is naming a thing from its description (a card game described by its rules, a composer by a film
+   theme) with the turn shown: conv-47:q016.
+2. **Lists and counts across sessions come up short.** LoCoMo multi-hop: 35 misses, only 147 of 322 answer turns
+   reached the prompt; LongMemEval multi-session: 17–18 of 20 wrong in every repeat, 28 of 71 answer turns shown, the
+   answer counts what it sees ("memory shows 2") one or two short. The control gets multi-hop to 96.0. Examples:
+   conv-26:q015, LongMemEval 0a995998.
+3. **A detail on no page and in no shown turn → an honest decline.** When no answer turn reached the prompt, J is
+   43.5 against 83.8 when one did (LoCoMo). Example: conv-48:q018.
+4. **The assistant's own long answer, clipped** (LongMemEval single-session-assistant, 4 of 10 wrong in every repeat
+   with the answer turn shown for 9 of 10): the shown excerpt holds the start of a long assistant list, not the item
+   asked for ("the 7th job"). Example: 1903aded.
+5. **Relative dates a day or a week from the gold** ("last Saturday" / "last week" resolved against the session day,
+   where the gold names another day or a different week): conv-26:q005, conv-44:q005, conv-43:q006; LongMemEval
+   9a707b81. Some of these golds are themselves loose (the Penfield audit's point).
+
+Smaller: preference questions declined for want of a stated taste (0edc2aef, 3 of 8 every repeat); two stale values on
+knowledge-update without Sleep (9ea5eabc).
+
+### Reading it
+
+- **On a consolidated life (LoCoMo) Cicada answers 74.9 J over 382 questions, 11 points under the same reader with the
+  whole conversation in context** (77.8 vs 88.9 on the five shared conversations). Single-hop (91) and temporal (90)
+  are at the control; the gap is multi-hop (65 vs 96) and open-domain (49 vs 75).
+- **The gap is retrieval breadth, not honesty.** 73 % of misses name the gap; outright contradictions are ≈ 2 %
+  (LoCoMo) and 3.5 % (LongMemEval); one abstention question in 14 was answered. When an answer turn reached the prompt
+  J was 84; when none did, 44.
+- **Raw conversations alone (LongMemEval_S, no Sleep) reach 66.7 overall** — single-session and knowledge-update are
+  strong (97 / 88), multi-session counting is near zero (12). Counting across sessions is the one category every run
+  of this harness has missed (2026-10-17 oracle 0/2, control included).
+- **Sleep model:** these banks were built by `haiku`; the 2026-10-17 conv-26 / conv-49 runs used `sonnet` Sleep (75.0
+  / 92.5 full runs, 40 questions each) against 85.0 / 85.0 here — inside the ±15-point noise of 40 questions, so this
+  sample shows no measurable cost from the cheaper Sleep model.
+- Not run: LoCoMo category 5 (adversarial), a LongMemEval_S full-context control (~115k tokens a question), LongMemEval
+  with Sleep (budget), the judge validation on hand grades (still open from 2026-10-17).
