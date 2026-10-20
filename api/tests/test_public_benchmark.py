@@ -214,9 +214,11 @@ def test_answer_eval_grades_facts_stale_values_and_abstention():
     rows = [{"tags": ["t"], "abstain": False, "seconds": 1.0, "grade": full},
             {"tags": ["t"], "abstain": False, "seconds": 3.0, "grade": stale},
             {"tags": [], "abstain": True, "seconds": 2.0, "grade": answer_eval.grade(a, {"declined": False})}]
+    for i, r in enumerate(rows):
+        r["id"] = f"q{i}"
     s = answer_eval.summarize(rows)
-    assert s["overall"]["correct_pct"] == 33.3 and s["overall"]["answered_when_should_decline"] == 1
-    assert s["tags"]["t"]["n"] == 2 and s["tags"]["(untagged)"]["n"] == 1
+    assert s["overall"]["correct_pct"]["mean"] == 33.3 and s["overall"]["answered_when_should_decline"]["mean"] == 1
+    assert s["tags"]["t"]["questions"] == 2 and s["tags"]["(untagged)"]["questions"] == 1
 
 
 def test_unit_child_reads_no_settings_file(tmp_path):
