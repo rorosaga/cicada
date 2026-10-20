@@ -1040,11 +1040,18 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
      person page); on none of the broad sample's 100 LongMemEval questions.
   2. *An English question over conversations held in Spanish.* `ask_sources.record_language`: when the nearest
      passage of one of the vector leg's first `MEANING_EPISODES` conversations is in another language than the
-     question (`text_language`), the question goes by meaning too (`Searched.record_lang`) — decided by the record's
-     language, never by the question's missing words (an abstention looks like that). It **leads** when most of the
+     question (`text_language`) **and scores at least the search model's floor** (`RECORD_FLOORS`: EmbeddingGemma 2
+     0.72; a model with no measured floor never takes this path), the question goes by meaning too
+     (`Searched.record_lang`) — decided by the record's language and evidence that a passage speaks of the question,
+     never by the question's missing words (an abstention looks like that). Review of #390: on a record in both
+     languages the nearest passages always exist, so without the floor "what is the name of my hamster?" went by
+     meaning onto unrelated Spanish turns. On `locomo-es-turns.json` the nearest Spanish passage of 24 never-said
+     questions scored 0.635–0.717 and of answerable ones 0.625–0.821 (70 % at or above 0.72): no floor separates them
+     cleanly, so it sits above every never-said one and the rest read as on dev. It **leads** when most of the
      three nearest passages are in the other language; otherwise it **adds** at most two lines beside the words, from
      the other-language passages only (the words read the question's own). The prompt adds `_RECORD_LANGUAGE_NOTE`
-     (a translated name is the same thing; answer in the question's language). Over a record all in the question's
+     (a translated name is the same thing, a line that does not mean what is asked is no answer; answer in the
+     question's language). Over a record all in the question's
      language nothing changes: every English prompt of the broad sample's banks (382 LoCoMo, 100 LongMemEval_S) is
      byte-identical to dev but the implied-fact questions'.
   3. *A name in one language, the conversation in the other.* The claims vector leg already finds the page by its

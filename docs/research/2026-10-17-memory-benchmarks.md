@@ -810,8 +810,8 @@ the search leg is the whole context; the English originals the same way, as the 
 
 | | dev | this branch | English originals |
 |---|---|---|---|
-| conv-30 held in Spanish, English questions (106 turns) | 19 | **56** | 59 |
-| conv-26 half in Spanish, English questions (203 turns) | 70 | **105** | 114 |
+| conv-30 held in Spanish, English questions (106 turns) | 19 | **46** (56 before the floor) | 59 |
+| conv-26 half in Spanish, English questions (203 turns) | 70 | **94** (105 before the floor) | 114 |
 | #385's Spanish questions over English banks (74 turns) | 33 | **39** | 38 |
 | LoCoMo implied-fact questions (the evidence turns of the questions with the note) | 53 of 99 | 52 of 96 | — |
 
@@ -842,6 +842,24 @@ byte-identical to dev except the implied-fact questions' (at most 33 of the 382)
   category in conv-30, and in conv-26 the first of each category whose evidence is all in Spanish sessions.
 - **Plan calls: 296** (9 translations, 287 answers and judgments — a dev answer with nothing to ground on makes no
   call).
+
+*Review of #390 (same day):* on a record in both languages the nearest passages always exist, so an English question
+about something never said ("what is the name of my hamster?") went by meaning onto unrelated Spanish turns with the
+record-language note. The path now needs the nearest other-language passage to score at least a per-model floor
+(`RECORD_FLOORS`, EmbeddingGemma 2: 0.72). Set on this fixture: the nearest Spanish passage of 24 never-said questions
+(12 a bank) scored 0.635–0.717; answerable questions 0.625–0.821, p50 0.74, 70 % at or above 0.72 (adversarial 72 %).
+No floor separates them cleanly, so it sits above every never-said one: all 24 now read exactly as on dev, and the
+answerable ones below it lose the path (retrieval above: 56 → 46 and 105 → 94). The note now also says a line that
+does not mean what is asked is no answer. Re-measured (3 runs a side, 99 plan calls), the 10 questions above plus two
+never-said questions and two more adversarial ones:
+
+| | dev | after the floor | compare |
+|---|---|---|---|
+| English over Spanish, 14 questions (7 adversarial or never said) | 7 (7–7) | **11 (11–11)** | 4 gained, 0 lost, p = 0.125 (within noise: too few) |
+| — answerable (7) | 0 | **4** | conv-26:q082 fell below the floor and reads as on dev |
+| — adversarial and never said (7) | 7 / 7 | 7 / 7 | answered when it should decline: 0 → 0 |
+
+**Plan calls in all: 395** (296 above, 99 for the review).
 
 **Still open.** The owner's sets (coordinator, `--compare`): every Spanish question's prompt changed (the turn
 ranking), and his conversations are largely Spanish. The Spanish-record sets are small; a larger run would settle

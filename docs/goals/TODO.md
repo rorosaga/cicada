@@ -24,7 +24,8 @@
   else "probably …, because …", a loose link still declines. An English question whose nearest conversations are in
   Spanish goes by meaning (the record's language decides, never missing words). The meaning leg ranks turns without
   the speakers' names, from two passages a conversation. On haiku, 3 runs: implied facts 4.67 → 12 of 15 (better,
-  p = 0.016; adversarial 2/3 both sides); English over Spanish 3 → 8 of 10 (5 gained, 0 lost, p = 0.063). Fixture
+  p = 0.016; adversarial 2/3 both sides); English over Spanish, behind a per-model score floor so a never-said
+  question reads as on dev (review): 7 → 11 of 14, abstentions 7/7 both sides (p = 0.125, small set). Fixture
   `benchmarks/public/fixtures/locomo-es-turns.json` (`--turns`). Pick up: the coordinator's `--compare` on the
   owner's two sets — every Spanish prompt changed. Detail: `docs/research/2026-10-17-memory-benchmarks.md`.
 - **2026-10-20 — Ask reasons a judgement from the record and answers Spanish by meaning (G148; branch
