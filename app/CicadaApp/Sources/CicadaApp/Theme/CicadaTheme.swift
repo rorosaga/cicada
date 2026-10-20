@@ -503,7 +503,8 @@ enum CicadaTheme {
 
     // MARK: - Icons (DR-53)
     enum IconRole {
-        case rail, railFoot, titlebar, sidebar, list, commandBar, inline, badge
+        /// `disclosure` — every fold's chevron (DR-39/DR-53, 2026-10-20): 10 pt, semibold so it holds at that size.
+        case rail, railFoot, titlebar, sidebar, list, commandBar, inline, badge, disclosure
         var points: CGFloat {
             switch self {
             case .rail: 18
@@ -512,11 +513,13 @@ enum CicadaTheme {
             case .list: 14
             case .commandBar: 13
             case .inline: 12
-            case .badge: 10
+            case .badge, .disclosure: 10
             }
         }
     }
-    static func icon(_ role: IconRole) -> Font { font(size: role.points) }
+    static func icon(_ role: IconRole) -> Font {
+        role == .disclosure ? font(size: role.points, weight: .semibold) : font(size: role.points)
+    }
     static func iconPoints(_ role: IconRole) -> CGFloat { scaled(role.points) }
 
     // MARK: - Spacing (G130: derived from `uiScale` — the 551 call sites are untouched, R2)

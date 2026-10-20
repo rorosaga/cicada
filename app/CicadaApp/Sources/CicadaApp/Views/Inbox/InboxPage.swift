@@ -288,48 +288,20 @@ struct InboxPage: View {
         return lines.joined(separator: "\n")
     }
 
-    /// Six skeleton bars, no shimmer (DR-43): a first fetch is short, and motion here would only
-    /// say "busy" louder than the sentence does.
-    private static let skeleton: [CGFloat] = [0.62, 0.48, 0.71, 0.39, 0.55, 0.66]
-
+    /// DR-43 — the list pages' one first-read state (`ListSkeleton`): the sentence over still bars, no shimmer.
     private var loadingState: some View {
         VStack(alignment: .leading, spacing: 0) {
             EyebrowRow(eyebrow: Copy.Inbox.title)
-            VStack(alignment: .leading, spacing: CicadaTheme.scaled(24)) {
-                Text(Copy.Inbox.checking)
-                    .font(CicadaTheme.detailBodyFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                ForEach(Array(Self.skeleton.enumerated()), id: \.offset) { _, fraction in
-                    CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-                        .fill(CicadaTheme.bgSelected)
-                        .frame(width: CicadaTheme.scaled(520 * fraction), height: CicadaTheme.scaled(12))
-                }
-            }
-            .padding(.horizontal, CicadaTheme.spacingGutter)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Copy.Inbox.checking)
+            ListSkeleton(message: Copy.Inbox.checking)
+                .padding(.horizontal, CicadaTheme.scaled(30))
             Spacer(minLength: 0)
         }
     }
 
-    /// DR-40 — the Inbox has no primary action, so Retry is neutral: the old `.borderedProminent`
-    /// and its accent tint went with it.
+    /// DR-40 / DR-43 — the list pages' one failed-first-read card (`ListErrorCard`): Retry is neutral, the Inbox has
+    /// no primary action.
     private func errorState(_ message: String) -> some View {
-        VStack(spacing: CicadaTheme.spacingMD) {
-            Text(Copy.Inbox.loadFailed)
-                .font(CicadaTheme.headingFont)
-                .foregroundStyle(CicadaTheme.textPrimary)
-            Text(message)
-                .font(CicadaTheme.detailBodyFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            NeutralButton(title: Copy.Inbox.retry) { Task { await viewModel.loadInbox() } }
-        }
-        .padding(CicadaTheme.spacingXL)
-        .frame(maxWidth: CicadaTheme.scaled(420))
-        .background(CicadaTheme.shape(CicadaTheme.radiusLarge).fill(CicadaTheme.bgFocus))
-        .ringed(in: CicadaTheme.shape(CicadaTheme.radiusLarge))
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        ListErrorCard(title: Copy.Inbox.loadFailed, message: message) { Task { await viewModel.loadInbox() } }
+            .frame(maxHeight: .infinity, alignment: .top)
     }
 }

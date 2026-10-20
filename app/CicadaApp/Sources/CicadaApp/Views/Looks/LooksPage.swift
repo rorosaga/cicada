@@ -32,7 +32,8 @@ struct LooksPage: View {
             onOpen: { ref in open(ref.id) }, onClose: { openId = nil },
             onRemove: { id in Task { await cache.remove(id); if openId == id { openId = nil } } },
             onTurnOn: { Task { await cache.turnOnPictureSearch() } },
-            onAdd: { chooseFile() }, onImage: { image, via in present(image, via: via) })
+            onAdd: { chooseFile() }, onImage: { image, via in present(image, via: via) },
+            onRetry: { Task { await cache.refresh() } })
         .background(CicadaTheme.bgBase)
         .sheet(item: $composer) { input in
             LooksComposer(input: input, saving: cache.saving, error: cache.writeError,
@@ -141,6 +142,8 @@ struct LooksBoardView: View {
     var onTurnOn: () -> Void = {}
     var onAdd: () -> Void = {}
     var onImage: (NSImage, String) -> Void = { _, _ in }
+    /// DR-43 — a first read that failed says why and offers Retry, as every list page does (`ListErrorCard`).
+    var onRetry: () -> Void = {}
 
     static let detailWidth: CGFloat = 380
     @State private var dropTargeted = false
@@ -212,12 +215,12 @@ struct LooksBoardView: View {
             HStack(alignment: .top, spacing: 0) {
                 content
                 if let open {
-                    Rectangle().fill(CicadaTheme.border).frame(width: 1)
                     LooksDetailColumn(summary: open, detail: detail, image: tile(open), onClose: onClose,
                                       onRemove: { onRemove(open.id) }, escapeCloses: !zoom.isPresented,
                                       onEnlarge: { frame in enlarge(open, from: frame) },
                                       onImageFrame: { frame in frames.detail = (open.id, frame) })
                         .frame(width: CicadaTheme.scaled(Self.detailWidth))
+                        .columnEdge()   // DR-11: the one permitted rule, from the theme, never a hand-drawn line
                 }
             }
         }
@@ -251,9 +254,13 @@ struct LooksBoardView: View {
             Group {
                 switch phase {
                 case .loading, .idle where total == 0:
-                    Text(Copy.Looks.loading).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                    // DR-43 — the list pages' one first-read state: words over a still skeleton.
+                    ListSkeleton(message: Copy.Looks.loading)
+                        .padding(.horizontal, CicadaTheme.scaled(30))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 case .failed(let why):
-                    EmptyStateView(title: Copy.Looks.loadFailedTitle, message: why)
+                    ListErrorCard(title: Copy.Looks.loadFailedTitle, message: why, retry: onRetry)
+                        .frame(maxHeight: .infinity, alignment: .top)
                 default:
                     if searching {
                         Text(Copy.Looks.noMatch).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
@@ -354,7 +361,7 @@ struct LooksTile: View {
                 HStack(spacing: CicadaTheme.spacingSM) {
                     LooksPaletteStrip(colours: ref.palette)
                         .frame(width: CicadaTheme.scaled(64), height: CicadaTheme.scaled(6))
-                    Text([ref.site ?? "", ref.day].filter { !$0.isEmpty }.joined(separator: " · "))
+                    Text([ref.site ?? "", LooksDay.words(ref.day)].filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(CicadaTheme.metaFont)
                         .foregroundStyle(CicadaTheme.textTertiary)
                         .lineLimit(1)
@@ -432,15 +439,8 @@ struct LooksDetailColumn: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(summary.displayName)
-                        .font(CicadaTheme.headingFont)
-                        .foregroundStyle(CicadaTheme.textPrimary)
-                        .lineLimit(2)
-                    Spacer()
-                    IconButton(systemName: "xmark", help: Copy.Looks.closeHelp, action: onClose)
-                        .keyboardShortcut(escapeCloses ? .cancelAction : nil)
-                }
+                DetailHeader(title: summary.displayName, closeHelp: Copy.Looks.closeHelp,
+                             closeShortcut: escapeCloses ? .cancelAction : nil, onClose: onClose)
                 Button { onEnlarge(imageFrame) } label: {
                     image
                         .frame(maxWidth: .infinity)
@@ -550,7 +550,7 @@ struct LooksDetailColumn: View {
                     }
                 }
                 section(Copy.Looks.savedFrom) {
-                    Text(Copy.Looks.savedLine(day: summary.day,
+                    Text(Copy.Looks.savedLine(day: LooksDay.words(summary.day),
                                               by: summary.addedBy == "user" ? Copy.Looks.byYou
                                                   : OriginIconography.label(for: summary.addedBy),
                                               via: Copy.Looks.via(summary.via)))
@@ -559,7 +559,8 @@ struct LooksDetailColumn: View {
                 }
                 NeutralButton(title: Copy.Looks.remove, size: .compact, help: Copy.Looks.removeHelp, action: onRemove)
             }
-            .padding(CicadaTheme.spacingXL)
+            .padding(.horizontal, CicadaTheme.spacingXL)
+            .padding(.bottom, CicadaTheme.spacingXL)
         }
         .background(CicadaTheme.bgPane)
     }
@@ -669,5 +670,15 @@ enum LooksIntake {
                 Task { @MainActor in deliver(image) }
             }
         }
+    }
+}
+
+/// DR-58 (consistency pass, 2026-10-20) — a look's day in the app's one day grammar ("Yesterday", "Sep 23", the year
+/// only when it is not this one), computed when read; the stored `YYYY-MM-DD` was printed raw before. Anything that is
+/// not a day stays as it came.
+enum LooksDay {
+    static func words(_ raw: String, today: ISODay = .today()) -> String {
+        guard let day = ISODay(raw) else { return raw }
+        return RelativeDay.phrase(day, today: today)
     }
 }

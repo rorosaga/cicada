@@ -99,6 +99,8 @@ extension Copy {
         static func savedCount(_ n: Int) -> String { "\(UsageFormat.count(n)) saved" }
         static let expanded = "Expanded"
         static let collapsed = "Collapsed"
+        /// VoiceOver's name for a transclusion's fold: the chevron alone names nothing.
+        static func embeddedPage(_ name: String) -> String { "Embedded page, \(name)" }
         static let shareOfEntities = "share of entities written"
         static func connected(_ n: Int) -> String { "\(UsageFormat.count(n)) connected" }
         static func sourcesBack(_ n: Int) -> String { "‹ \(UsageFormat.count(n)) \(n == 1 ? "source" : "sources")" }

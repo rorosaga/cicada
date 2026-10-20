@@ -1124,9 +1124,7 @@ struct EntityDetailCard: View {
     private func whatChangedToggle(_ entry: EntityHistoryEntry) -> some View {
         Button { toggleCommit(entry.commitHash) } label: {
             HStack(spacing: CicadaTheme.scaled(5)) {
-                Image(systemName: isExpanded(entry) ? "chevron.down" : "chevron.right")
-                    .font(CicadaTheme.font(size: 9, weight: .semibold))
-                    .accessibilityHidden(true)
+                DisclosureChevron(isOpen: isExpanded(entry), color: nil)
                 Text(Copy.Graph.whatChanged)
             }
             .font(CicadaTheme.metaFont)
@@ -1370,10 +1368,7 @@ private struct TimelineKeyRow: View {
                 Tag(text: ClaimContext.displayName(key.context), dot: CicadaTheme.contextColor(key.context))
                 Spacer(minLength: 0)
                 Text(summary).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
-                Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                    .font(CicadaTheme.font(size: 10, weight: .semibold))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .accessibilityHidden(true)
+                DisclosureChevron(isOpen: expanded)
             }
             .padding(.horizontal, CicadaTheme.scaled(10))
             .frame(height: CicadaTheme.scaled(RowMetrics.oneLine))

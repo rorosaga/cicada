@@ -158,19 +158,9 @@ struct SourcesOverviewColumn: View {
     private var statistics: some View {
         let isOpen = usageVM.mode == .advanced
         return VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            Button { usageVM.mode = isOpen ? .minimal : .advanced } label: {
-                HStack(spacing: CicadaTheme.scaled(6)) {
-                    Image(systemName: isOpen ? "chevron.down" : "chevron.right").font(CicadaTheme.icon(.inline))
-                    Text(Copy.Lists.advancedStatistics)
-                }
-                .font(CicadaTheme.metaMediumFont)
-                .foregroundStyle(CicadaTheme.textSecondary)
-                .frame(height: CicadaTheme.scaled(28))
-                .contentShape(Rectangle())
+            DisclosureHeader(title: Copy.Lists.advancedStatistics, isOpen: isOpen, help: Copy.Lists.advancedHelp) {
+                usageVM.mode = isOpen ? .minimal : .advanced
             }
-            .buttonStyle(.cicadaPlain)
-            .help(Copy.Lists.advancedHelp)
-            .accessibilityValue(isOpen ? Copy.Lists.expanded : Copy.Lists.collapsed)
             .padding(.horizontal, CicadaTheme.scaled(10))
             if isOpen {
                 ContributorsStrip { onOpen(.contributor($0.author)) }

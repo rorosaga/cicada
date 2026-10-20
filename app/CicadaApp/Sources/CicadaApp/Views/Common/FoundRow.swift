@@ -87,7 +87,7 @@ struct FoundRow: View {
                 trailing
                 if !disclosure.isEmpty {
                     Button { expanded.toggle() } label: {
-                        Image(systemName: "chevron.right").rotationEffect(.degrees(expanded ? 90 : 0))
+                        DisclosureChevron(isOpen: expanded)
                     }
                     .buttonStyle(.cicadaPlain)
                     .foregroundStyle(CicadaTheme.textTertiary)
@@ -144,7 +144,7 @@ struct FoundRow: View {
             if let settingsLink {
                 SettingsSectionLink(section: settingsLink, label: actionTitle ?? Copy.foundClaudeDesktopDetail)
             } else if let title = actionTitle ?? Self.defaultActionTitle(state), let action {
-                Button(title, action: action).buttonStyle(.bordered)
+                NeutralButton(title: title, size: .compact, action: action)   // DR-40
             }
         }
     }

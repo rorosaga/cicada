@@ -40,9 +40,11 @@ struct HarnessConversationsView: View {
             if let err = viewModel.errorMessage {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                     Text(err).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
-                    Button("Retry") { Task { await load() } }
-                        .buttonStyle(.bordered)
-                        .accessibilityLabel("Retry loading conversations")
+                    // DR-40 — one of the four buttons, never the native bordered one.
+                    NeutralButton(title: "Retry", size: .compact, help: "Retry loading conversations") {
+                        Task { await load() }
+                    }
+                    .accessibilityLabel("Retry loading conversations")
                 }
             } else if !viewModel.hasLoaded {
                 HStack(spacing: CicadaTheme.spacingSM) {
