@@ -66,6 +66,13 @@ def present(base: Path | None = None) -> list[Agent]:
     return [a for a in AGENTS if (base / a.home).is_dir()]
 
 
+def has_skill(agent_id: str, name: str, base: Path | None = None) -> bool:
+    """Whether ``agent_id``'s own skills folder holds the skill ``name`` (its ``SKILL.md`` is a file). One ``isfile``,
+    never a write: the handshake asks it which `cicada` skill line to show, so the folder's path stays in this table."""
+    agent = BY_ID.get(agent_id)
+    return bool(agent) and ((base or home()) / agent.own / name / SKILL_FILE).is_file()
+
+
 def folder_label(rel: str) -> str:
     """A skills folder in words, for "through …"."""
     if rel == SHARED:

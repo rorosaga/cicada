@@ -238,7 +238,8 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
 def _writes_bank(tool: str, arguments=None) -> bool:
     """Whether a write tool's call touches a bank file — what the Sleep gate guards.
 
-    Every write tool does, except two. ``cicada_video_claim`` (G162) writes only the
+    Every write tool does, except three. ``cicada_capture_turns`` (ruling 32) is capture,
+    the hook's writer: no commit and no Sleep gate. ``cicada_video_claim`` (G162) writes only the
     person's video queue (``$CICADA_HOME``, outside every bank), so a long drain does
     not stall an agent working the queue (a lapsed lease is judged only when Sleep is
     not holding the pages, ``ToolContext.pages_held``). And ``cicada_record_read`` with

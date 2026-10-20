@@ -271,6 +271,7 @@ def claude_skill(home: Path | None = None) -> str:
     installed and able to run a Cicada — ``registry.plugin_state``, the test install.sh uses), since install.sh then
     leaves the skill to it. Reads Claude Code's settings and plugin list (never a transcript) and one ``isfile``."""
     from api.hooks import registry as hook_registry
+    from api.services import skill_folders
 
     home = Path(home) if home is not None else skill_catalog.agent_home()
     try:
@@ -279,7 +280,7 @@ def claude_skill(home: Path | None = None) -> str:
     except Exception as exc:  # noqa: BLE001 — an unreadable settings file is no plugin, never a failed handshake
         logger.debug(f"handshake: plugin state unread ({type(exc).__name__})")
     try:
-        return "file" if (home / ".claude" / "skills" / "cicada" / "SKILL.md").is_file() else "none"
+        return "file" if skill_folders.has_skill("claude-code", "cicada", home) else "none"
     except OSError as exc:  # a skills folder it may not read is no skill, never a failed handshake or SessionStart note
         logger.debug(f"handshake: skill folder unread ({type(exc).__name__})")
         return "none"

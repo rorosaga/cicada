@@ -8,6 +8,16 @@
 
 ## Current state and evidence
 
+- **2026-10-21 — the seven backend failures on dev before 0.6.0 (branch `fix/suite-0.6`).** The full suite on
+  `24a419a7` gave 7 failed, 10,864 passed. Two were code: the entity card opened the claims ledger through
+  `quiet_pages.page_is_quiet` (#391) because `bank_index.file` parsed with the ledger fold — it now reads the header
+  exactly as `bank_index.files` does, so no `bank_index.file` caller opens a ledger or carries the fold's read mark;
+  and `handshake.claude_skill` (#364) named Claude Code's skills folder itself — the path now comes from
+  `skill_folders.has_skill` (read-only), so `skill_store` stays the only module that names that folder and writes. The
+  plugin got `.claude-plugin/icon.png` (the app icon), since the installed `claude plugin validate` now warns
+  `ICON_MISSING`. Four tests were stale: the scheduled billing preview follows ruling 4c (a plan unless the person's
+  switch is off, #360), the writer inventory names #391's `_write_page`, and the video tests take ruling 32's remote
+  contract 12 and `cicada_capture_turns`' exemption from the bank write gate (#359).
 - **2026-10-21 — The inbox tidy as a trace the coordinator reads, then a vetted apply (owner rule 2026-10-20;
   branch `feat/tidy-trace`).** A counts-only dry run once let 8 wrong conflict settles through. `api/scripts/
   inbox_tidy_trace.py trace --bank <path> --out <file> --engine plan --model haiku [--kind merge_suggestion]` runs the

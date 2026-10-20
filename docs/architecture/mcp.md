@@ -526,7 +526,9 @@ wiring stay `install.sh`'s and the app's).
 
 - **Layout.** This repo is its own marketplace: `.claude-plugin/marketplace.json` (name `cicada`) lists one plugin,
   `./plugins/cicada`, so its id is `cicada@cicada`. The plugin holds `.claude-plugin/plugin.json` (its `version` is a
-  `VERSION` stamp: `release.sh bump` moves it and `check_version.py agree` holds it), `skills/cicada/SKILL.md` (a
+  `VERSION` stamp: `release.sh bump` moves it and `check_version.py agree` holds it), `.claude-plugin/icon.png` (a copy
+  of the app icon's 1024 px PNG, `app/CicadaApp/Art/AppIcon/Cicada-1024.png`; `claude plugin validate` warns
+  `ICON_MISSING` without it), `skills/cicada/SKILL.md` (a
   byte-for-byte copy of the root `SKILL.md`, which stays the source; a test fails on drift), `.mcp.json` (the stdio
   server `cicada`, which Claude Code lists as `plugin:cicada:cicada`), `hooks/hooks.json` and two POSIX scripts in
   `scripts/` — never a top-level `bin/`, which makes claude.ai and Cowork refuse a plugin.
