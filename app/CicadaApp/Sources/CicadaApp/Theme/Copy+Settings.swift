@@ -117,12 +117,10 @@ extension Copy {
     /// tries the plan first, so the switch only ever changes the API key card
     /// (`engine_select.resolve_llm_mode`; G139 final review).
     static let useClaudePlanWhenIStart = "Use my Claude plan when I start a cycle"
-    static let askGroup = "Ask"
     static let askTitle = "Ask"
     static let askFollowsEngine = "Answers your questions with the same engine as a cycle you start."
 
     // MARK: Sleep (R-O10)
-    static let runsGroup = "Runs"
     static let runsTitle = "Runs"
     static let runsAt = "At"
     static let runsEvery = "Every"

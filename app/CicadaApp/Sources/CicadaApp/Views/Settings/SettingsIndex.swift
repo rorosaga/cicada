@@ -70,8 +70,8 @@ enum SettingsIndex {
     /// in the same commit (R-O1).
     static let staticIDs: [SettingsRowID] = [
         .appearance, .textSize, .runSetup, .appVersion, .autoUpdate, .openAtLogin, .showInMenuBar,
-        .backgroundService, .memoryHome, .commandLineTool,
-        .devicesConnection, .devicesList,
+        .backgroundService, .commandLineTool,
+        .memoryHome, .devicesConnection, .devicesList,
         .guidedTour, .demoMemory,
         .ownerName, .ownerHandle, .ownerEmail, .ownerPage,
         .memoryLocation, .banks, .bankExport, .bankDelete, .telemetry,
@@ -113,10 +113,10 @@ enum SettingsIndex {
         SettingsEntry(.openAtLogin, .general, Copy.openAtLogin, keywords: ["login", "startup", "start", "launch", "boot"]),
         SettingsEntry(.showInMenuBar, .general, Copy.showInMenuBar, keywords: ["menu bar", "status", "bookworm", "icon", "tray", "hide"], detail: Copy.showInMenuBarDetail),
         SettingsEntry(.backgroundService, .general, Copy.keepMemoryWorking, keywords: ["background", "launchd", "service", "closed", "always on", "sync"]),
-        SettingsEntry(.memoryHome, .general, Copy.Devices.modeTitle,
+        // Devices (G181 phase 3)
+        SettingsEntry(.memoryHome, .devices, Copy.Devices.modeTitle,
                       keywords: ["server", "this mac", "headless", "remote", "address", "device token", "home server",
                                  "sync", "where", "memory lives"]),
-        // Devices (G181 phase 3)
         SettingsEntry(.devicesConnection, .devices, Copy.Devices.connectionGroup,
                       keywords: ["server", "connection", "reachable", "offline", "waiting", "queue"]),
         SettingsEntry(.devicesList, .devices, Copy.Devices.devicesGroup,

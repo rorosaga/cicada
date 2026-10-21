@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// G181 phase 3 — Settings → General's *Where your memory lives*: This Mac or A server (address + this device's token).
+/// G181 phase 3 — Settings → Devices' *Where your memory lives* (on General until the settings audit, 2026-10-22): This Mac or A server (address + this device's token).
 ///
 /// A change is checked against the server before anything is written (`ServerProbe`: `/healthz` says it is Cicada,
 /// `/devices` with the token says the token is good and names this device), then saved to `$CICADA_HOME/api_base` and
@@ -123,6 +123,10 @@ struct DevicesSettingsView: View {
 
     var body: some View {
         SettingsPage(section: .devices) {
+            // This Mac or a server; the choice is used when Cicada opens again.
+            SettingsGroupCard(header: Copy.Devices.whereGroup) {
+                MemoryHomeSetting()
+            }
             SettingsGroupCard(header: Copy.Devices.connectionGroup) {
                 SettingsRow(.devicesConnection, title: model.connectionLine,
                             detail: model.connection.invalidReason) {

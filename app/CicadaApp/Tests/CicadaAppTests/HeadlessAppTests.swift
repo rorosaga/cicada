@@ -467,7 +467,7 @@ final class HeadlessAppTests: XCTestCase {
         XCTAssertEqual(directory.label(for: nil), Copy.Devices.thisServer)
     }
 
-    // MARK: Settings → General
+    // MARK: Settings → Devices (where your memory lives)
 
     @MainActor
     func testChoosingAServerIsCheckedBeforeAnythingIsWritten() async {

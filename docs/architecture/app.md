@@ -186,7 +186,8 @@ window — the bookworm waits in the menu bar, and the Dock icon brings the wind
 `LaunchState`, R-OB18) and Keep memory working when
 Cicada is closed (`BackendAgentService`: a read-only `launchctl print`, and Install runs
 `scripts/install-backend-agent.sh` from the app's own checkout after the click, `CICADA_CAPTURE=off`, then hands
-launchd the port). **Where your memory lives** (G181 phase 3, its own card before *When Cicada is closed*;
+launchd the port). **Where your memory lives** (G181 phase 3; the first card of Settings → Devices since the settings
+audit of 2026-10-22, `docs/research/2026-10-22-settings-audit.md`, before that on General;
 `MemoryHomeSetting`, `ConnectionSettingsModel`): *This Mac* or *A server* — an address (https, or http to a loopback
 tunnel) and this device's token from `cicada device add`. *Check and use* writes nothing until `ServerProbe` hears the
 server (`/healthz` open, then `/devices` with the token, which names this device); then `device_token` and
@@ -202,7 +203,7 @@ post the server did not take waits in `ReaderOutbox` (`$CICADA_HOME/spool/app/`;
 behind it, never overtakes it) and is flushed when the event stream connects, lane by lane (route + memory: another
 memory's refused post waits without blocking the active memory's — owner decision 6, 2026-10-16; no answer or a
 refused token still stops the flush; `headless.md`, "The Mac app as a client"). **Settings → Devices** (`DevicesSettingsView`,
-`DevicesPageModel`; not a Store domain): *This app* — where the memory lives, reachable or not as of when (DR-58),
+`DevicesPageModel`; not a Store domain): *Where your memory lives* (above), then *This app* — where the memory lives, reachable or not as of when (DR-58),
 captures waiting with *Send now* — and *Your devices* (name, added, last seen, *this Mac*; Add a device with its
 token shown once and Revoke on This Mac only, the server's two commands named on a client). Where memory came from is
 one quiet word (`DeviceOrigin`, names from `DeviceDirectory`, read on demand): *from laptop* last on a Saved item's
@@ -317,7 +318,9 @@ The first-read failure row uses the same calm “Reading stopped” / “See wha
 copy as Sleep (DR-7/59), never a raw server sentence. Its one *Past reads* action (DR-40) stages Sleep's Last cycle
 section through `AppRouter`; Sleep consumes it once on appear/change, selects Past reads and brings its tab row to the top.
 
-**Settings → Engines: the engine picker (G122, Track E; moved by G139 A3).** A row of cards with real marks — Auto,
+**Settings → Engines: the engine picker (G122, Track E; moved by G139 A3).** The Engine card ends with one *Ask* row,
+"Answers your questions with the same engine as a cycle you start" (its own card until the 2026-10-22 settings audit,
+DR-37/DR-38). A row of cards with real marks — Auto,
 Claude plan, ChatGPT plan, OpenRouter, Ollama (tagged *Local*), API key — over the connections registry's candidates writes
 `PUT /sleep/engine`, which lands in the same bank-independent `~/.cicada/connections.json` prefs
 `use_for_sleep` already uses, never `api/.env`. A plan card is selectable once that plan is signed
@@ -1434,6 +1437,9 @@ Normal ticks start on whole seconds; Reduce Motion removes the second hand and t
 in the system's short format, after the window and before the lamp; it is not a button. The 15 × 15 clock at
 `(94,34)`, z1, follows the verified art plan and clears every worm frame/beat/transition, the window, lamp and pile column; art acceptance
 also checks every new night frame. The preview includes the same clock leaf. Motion sidecars exclude its state angles.
+
+**Settings → Sleep, in order (settings audit 2026-10-22):** the Runs card (no header repeating its one row's title,
+DR-38), Scheduled runs, Engine, then the study room's The scenery and Mascot.
 
 **Settings → Sleep → Scheduled runs (TODO ruling 4b, owner 2026-10-16).** One switch, *Scheduled runs may use my
 plan* (`SettingsRowID.sleepUsePlan`, in the find index), **on unless the person turned it off** (ruling 4c, 2026-10-19;
