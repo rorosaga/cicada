@@ -57,9 +57,9 @@ code and docs but not yet driven: drive it before trusting it, and fix the file 
 
 | Feature | Covers | Driven |
 |---|---|---|
-| [Capture conversations](./capture-conversations.md) | `/capture/turn`, one episode per session, agent saves, the demo guard | 2026-10-22: `/capture/turn`, two sessions, the episode files |
-| [Sleep](./sleep-cycle.md) | trigger, status, commits and trailers, promotion, history | 2026-10-22: `cv sleep` on the plan at haiku, commit trailers, page made |
-| [Sleep engine and schedule](./sleep-engine-and-schedule.md) | engine readiness and choice, schedule, run options | 2026-10-22: `GET /sleep/engine` only |
+| [Capture conversations](./capture-conversations.md) | `/capture/turn`, one episode per session, agent saves, the demo guard | 2026-10-22: `/capture/turn`, `verify-s1` (two turns) and `verify-s2`, the episode files |
+| [Sleep](./sleep-cycle.md) | trigger, status, commits and trailers, promotion, history | 2026-10-22: `cv sleep` on the plan at haiku (2 processed, 0 requeued, 0 left), commit trailers, page made |
+| [Sleep engine and schedule](./sleep-engine-and-schedule.md) | engine readiness and choice, schedule, run options | 2026-10-22: `GET /sleep/engine`; Plans & keys read in the app, email masked |
 | [Recall and search](./recall-and-search.md) | `cicada_recall`, detail, `cicada recall/get/find`, the app's find | 2026-10-22: MCP recall (meaning query), CLI recall, Home find in the app |
 | [Ask](./ask.md) | `POST /ask`, `cicada_ask`, Home's Ask | |
 | [Home](./home.md) | the field, needs-you, today, last read | 2026-10-22: app, read and screenshot |
@@ -67,7 +67,7 @@ code and docs but not yet driven: drive it before trusting it, and fix the file 
 | [Entity pages and the Reader](./entity-pages.md) | read, history, blame, edit, picture, decay, evidence span | |
 | [Claims and provenance](./claims-and-provenance.md) | write, retract, claims and spans | |
 | [Clusters](./clusters.md) | the Clusters grid | |
-| [Projects](./projects.md) | list, detail, progress, milestones, `cicada_project` | 2026-10-22: app list and detail |
+| [Projects](./projects.md) | list, detail, progress, milestones, `cicada_project` | 2026-10-22: app list and detail, `cicada_project` |
 | [Project backlog](./backlog.md) | add, note, list | |
 | [Inbox](./inbox.md) | list, ask gate, answer, undo a settle | |
 | [Sources](./sources.md) | overview, channels, a page's sources | |
@@ -79,9 +79,9 @@ code and docs but not yet driven: drive it before trusting it, and fix the file 
 | [Timeline, handshake and continuity](./timeline-and-continuity.md) | `initialize` handshake, timeline, continue | 2026-10-22: `cv mcp init` handshake only |
 | [Memory banks and the demo](./memory-banks.md) | list, create, switch, the demo bank's capture guard | |
 | [Imports and intake](./imports-and-intake.md) | drop, File → Import, `cicada import` | |
-| [Settings](./settings.md) | the Settings panel's sections (read only where they write the real home) | |
+| [Settings](./settings.md) | the Settings panel's sections (read only where they write the real home) | 2026-10-22: `cicada settings owner`; Plans & keys opened, read only |
 | [Local integrations](./integrations.md) | browsers, Calendar, Contacts, Messages, folders (read only) | |
 | [Connect agents](./agents-connect.md) | Settings → Agents (read only) | |
 | [From anywhere: remote connector and devices](./remote-and-devices.md) | the remote listener, OAuth, device tokens | |
-| [The `cicada` command](./cli-status.md) | status, commands, JSON envelope | 2026-10-22: `cicada status`, `cicada recall` |
+| [The `cicada` command](./cli-status.md) | status, commands, JSON envelope | 2026-10-22: `cicada status`, `cicada recall`, `sleep start` refused `person_only` |
 | [Usage, prices and contributors](./usage-and-contributors.md) | run detail, consumption, contributors | |

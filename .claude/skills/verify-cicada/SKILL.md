@@ -116,8 +116,8 @@ $CV app windows        # our pid's windows as JSON
 
 The person's app may be running with the same executable name. Everything here goes by our pid and our copy's path,
 never by name. The app finds its backend through `CICADA_PORT` and its token through `CICADA_HOME`; it spawns no
-backend because ours already holds the port. A fresh run opens on the welcome screen (`Hello, Verify.`); click
-`button Set up later`, never `Get started`.
+backend because ours already holds the port. A run whose bank has had no Sleep may open on the welcome screen
+(`Hello, Verify.`); click `button Set up later`, never `Get started`.
 
 Drive it with macos-harness through the functions in `bin/harness.sh`. Source the file in the same Bash call as the
 `vh` and `vclick` calls: macos-harness keeps its element numbers per calling shell.
@@ -125,7 +125,6 @@ Drive it with macos-harness through the functions in `bin/harness.sh`. Source th
 ```sh
 CV="$(git rev-parse --show-toplevel)/.claude/skills/verify-cicada/bin/cv"; export CICADA_VERIFY_RUN=<run dir>
 . "$(dirname "$CV")/harness.sh"
-vclick 'button Set up later'
 vclick 'button.*Description: Projects,'           # read, find the first matching line, click its number
 vh get_app_state --disableDiff | grep -i alpha
 $CV app shot projects
@@ -175,8 +174,9 @@ deletes them.
   fails: `rm -rf app/CicadaApp/.build` in that checkout only, then `cv app build` again.
 - A first launch can raise a macOS privacy prompt that blocks the window; `cv app launch` then times out with no
   window. Screenshot the whole screen, tell the person, and do not click the prompt for them.
-- Never press a Connect, Sign in, Install, Set up or Turn on button in the app in a verify run: Settings → Engines,
-  Plans & keys, Integrations, Agents, Skills and General. They reach the real keychain, browsers, Contacts or Calendar,
+- Never press a Connect, Disconnect, Sign in, Sign out, Install, Set up or Turn on button in the app in a verify
+  run: Settings → Engines, Plans & keys, Integrations, Agents, Skills and General. The Claude plan's Disconnect signs
+  the real `claude` out. They reach the real keychain, browsers, Contacts or Calendar,
   launchd or the harness configs, and an OAuth sign-in's callback defaults to `localhost:8000`, the person's own
   backend. The feature files mark these.
 - ⌘-number shortcuts do not reach the app from the harness; click the sidebar button.

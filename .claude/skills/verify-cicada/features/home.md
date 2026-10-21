@@ -11,7 +11,7 @@ The front page: one field to search, paste a link or drop a file, what needs the
 
 ## How to get to it (user POV)
 
-- Sidebar `Home` (the first button). A fresh run opens on the welcome screen first; `vclick 'button Set up later'` leaves it for Home (never `Get started`).
+- Sidebar `Home` (the first button). A run whose bank has had no Sleep may open on the welcome screen first; `vclick 'button Set up later'` leaves it for Home (never `Get started`).
 
 ## Driving it with verify-cicada
 
