@@ -23,4 +23,4 @@ Preconditions:
 
 ## Gotchas
 
-- Installing writes into the harnesses' skill folders under the real home (the app and backend resolve them there); never install from a verify run.
+- Forbidden in a verify run: Install and Add a skill. Installing writes into the harnesses' skill folders and fetches the skill's repository.

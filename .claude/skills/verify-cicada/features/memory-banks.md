@@ -19,7 +19,7 @@ Preconditions:
 - A run is up and `$CV doctor` is all `ok` (backend, scratch root, plan).
 
 - **List.** Run `$CV api GET /banks`. One bank, `default`, at the scratch root.
-- **Demo guard.** Run `$CV api POST /banks/demo`, then `$CV capture --session d1 --user hi`. The capture lands in `default` (`redirectedFrom` set) or answers 409; then `$CV api POST /banks/leave-demo`.
+- **Demo guard.** Run `$CV api POST /banks/demo`, then `$CV capture --session verify-demo1 --user hi`. The capture lands in `default` (`redirectedFrom` set) or answers 409; then `$CV api POST /banks/leave-demo`.
 - **App.** `vclick 'menu button Memory banks'`, `$CV app shot banks`.
 
 ## Gotchas

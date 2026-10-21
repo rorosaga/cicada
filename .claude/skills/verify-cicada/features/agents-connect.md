@@ -22,4 +22,4 @@ Preconditions:
 
 ## Gotchas
 
-- Connect writes the real `~/.claude`, `~/.cursor/hooks.json` and friends, pointing them at the run's code path. Never click it in a verify run.
+- Forbidden in a verify run: every Connect, Set up and Install button on this page. They write harness configs (`~/.claude`, `~/.cursor/hooks.json` and friends) and point them at the run's code path; `CFFIXED_USER_HOME` may redirect some of those writes to the scratch home, but that is not proven, so treat them as the real ones.

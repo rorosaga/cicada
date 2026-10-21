@@ -1,17 +1,26 @@
 # Cicada verification map
 
 This directory is the maintained source for verifying Cicada's user-facing behavior. Read the index, then use the
-matching feature file as the recipe. `$CV` is `.claude/skills/verify-cicada/bin/cv`; `vh`, `vidx` and `vclick` come from
-sourcing `bin/harness.sh` (see `../SKILL.md`).
+matching feature file as the recipe. `$CV` is the absolute path
+`"$(git rev-parse --show-toplevel)/.claude/skills/verify-cicada/bin/cv"`, set at the start of every Bash call together
+with `export CICADA_VERIFY_RUN=<run dir>`; `vh`, `vidx` and `vclick` come from sourcing `bin/harness.sh` in that same
+call (see `../SKILL.md`).
 
 ## Baseline preconditions
 
-- A run started with `$CV launch` (add `--search-model` when a journey needs search by meaning), and
-  `CICADA_VERIFY_RUN` exported.
+- A run started with `$CV launch` (add `--search-model` when a journey needs search by meaning; `--checkout <path>`
+  to verify another worktree), and its run dir passed on every call.
 - `$CV doctor` is all `ok`: our pids, our port, the scratch root and bank, this worktree's version, the plan reachable.
 - For app journeys, `$CV app build && $CV app launch`, and `$CV doctor` again (it adds the app checks).
-- The seed is what the journey captures. A fresh bank holds only the owner page; the standard seed is the three
-  turns in two sessions about `alpha-project` that `../SKILL.md` and `capture-conversations.md` use, then `$CV sleep`.
+- The seed is what the journey captures. A fresh bank holds only the owner page (`Verify Person`). The standard
+  seed is three turns in two sessions about `alpha-project`, then `$CV sleep`:
+
+  ```sh
+  $CV capture --session verify-s1 --turn t1 --user "I am starting alpha-project, a birdsong classifier in Rust." --assistant "Noted."
+  $CV capture --session verify-s1 --turn t2 --user "alpha-project will use rustfft."
+  $CV capture --session verify-s2 --turn t1 --user "Back on alpha-project: it turns birdsong recordings into spectrograms before classifying them." --assistant "Got it."
+  $CV sleep
+  ```
 - Never drive an instance this run did not start, and never the person's own app, backend or bank.
 
 ## Driving conventions

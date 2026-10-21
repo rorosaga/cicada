@@ -24,5 +24,5 @@ Preconditions:
 
 ## Gotchas
 
-- The verify run never fetches a linked page (`CICADA_ALLOW_CONNECTOR_FETCH=off`); the save itself still lands.
+- A save is the person's own act, so no gate stops it: the backend fetches the link once (its title and metadata, through `net_guard`, 4 s / 512 KB, no cookies). Save `https://example.com/...` links only. What Sleep would fetch on its own stays off (`CICADA_ALLOW_CONNECTOR_FETCH=off`).
 - Never record a login-walled page from a verify run.

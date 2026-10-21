@@ -12,7 +12,7 @@ Beliefs are typed claims with evidence spans into the conversation they came fro
 ## How to get to it (user POV)
 
 - MCP `cicada_write_claim`, `cicada_retract_claim`, `cicada_refresh_claim`.
-- `GET /entities/{id}/claims`, `/timeline`, `/provenance`, `GET /episodes/{id}/span`.
+- `GET /entities/{entity_id}/claims`, `GET /entities/{entity_id}/timeline`, `GET /entities/{entity_id}/provenance`, `GET /episodes/{episode_id}/span`.
 - The Reader in the app.
 
 ## Driving it with verify-cicada

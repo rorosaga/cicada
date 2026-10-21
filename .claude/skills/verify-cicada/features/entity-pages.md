@@ -14,7 +14,7 @@ Every page reads as an article with its claims, sources, history and blame; the 
 ## How to get to it (user POV)
 
 - Clicking a page anywhere (Home chip, Projects row, graph node, search result).
-- `GET /entities/{id}`, `/entities/{id}/history`, `/blame`, `/claims`, `/provenance`; `GET /episodes/{id}/span`.
+- `GET /entities/{entity_id}`, `GET /entities/{entity_id}/history`, `GET /entities/{entity_id}/history/{commit_hash}/diff`, `GET /entities/{entity_id}/blame`, `GET /entities/{entity_id}/claims`, `GET /entities/{entity_id}/provenance`; `GET /episodes/{episode_id}/span`.
 - MCP `cicada_recall_detail`, `cicada_edit_page`; `cicada page list | history | decay`, `cicada picture set | initials | clear`.
 
 ## Driving it with verify-cicada

@@ -9,7 +9,7 @@ Off by default: an MCP listener on its own port for apps with no hook (claude.ai
 ## How to get to it (user POV)
 
 - Settings → From anywhere; Settings → Devices.
-- `/remote/status`, `/remote/connectors`, `/remote/oauth/*`; `GET/POST/DELETE /devices`.
+- `GET /remote/status`, `/remote/connectors`, `/remote/oauth/*`; `GET /devices`, `POST /devices`, `DELETE /devices/{device_id}`.
 - `cicada device add | list | revoke`.
 
 ## Driving it with verify-cicada
@@ -23,4 +23,5 @@ Preconditions:
 
 ## Gotchas
 
-- Turning the listener on opens another port; do not, unless the journey is about it and the port is recorded in the run. Never expose it.
+- Turning the listener on opens `CICADA_REMOTE_PORT`, a free port `launch` recorded as `remote_port` in run.json. Do not, unless the journey is about it. Never expose it or start a tunnel.
+- Forbidden in a verify run: the app's Sign in and Connect buttons for an app's OAuth sign-in. Its callback defaults to `localhost:8000`, the person's own backend.

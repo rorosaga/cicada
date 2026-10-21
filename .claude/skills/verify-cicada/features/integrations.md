@@ -22,4 +22,4 @@ Preconditions:
 
 ## Gotchas
 
-- These readers open the person's real browsers, Calendar, Contacts and Messages, because the app reads the real home. Never turn one on in a verify run; that would put the person's data into a scratch bank and raise permission prompts.
+- Forbidden in a verify run: every Connect, Turn on and Sign in button here. Calendar, Contacts and Messages are the real account's whatever the home, browsers may be too, and turning one on puts the person's data into a scratch bank and raises permission prompts.

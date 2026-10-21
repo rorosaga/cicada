@@ -1,28 +1,117 @@
-#!/bin/sh
-# The Sleep engine's `claude` for a verify run (CICADA_CLAUDE_CLI points here).
-# The backend runs on a scratch HOME, which hides the Claude plan's sign-in (it lives in the login
-# keychain under the default config dir). This gives back the real HOME to this one child only, and
-# only for the shapes Cicada's engine spawns: `auth status`, or `-p` under every lock agent_engine pins.
-set -eu
-real_claude="${CICADA_VERIFY_REAL_CLAUDE:-}"
-[ -n "$real_claude" ] && [ -x "$real_claude" ] || { echo "plan-claude: CICADA_VERIFY_REAL_CLAUDE is not an executable" >&2; exit 127; }
-real_home="$(eval echo "~$(id -un)")"
+#!/usr/bin/env python3
+"""The Sleep engine's `claude` for a verify run (CICADA_CLAUDE_CLI points here).
 
-if [ "$#" -ge 2 ] && [ "$1" = "auth" ] && [ "$2" = "status" ]; then
-  exec env -u CLAUDE_CONFIG_DIR HOME="$real_home" "$real_claude" "$@"
-fi
+The backend runs on a scratch HOME, which hides the Claude plan's sign-in (login keychain, default config dir). This
+gives the real HOME back to this one child, only for the exact argv shapes api/services/agent_engine.py builds:
 
-has() { needle="$1"; shift; for a in "$@"; do [ "$a" = "$needle" ] && return 0; done; return 1; }
-for flag in -p --safe-mode --strict-mcp-config --setting-sources --no-session-persistence; do
-  has "$flag" "$@" || { echo "plan-claude: refused, $flag missing (only Cicada's locked engine call may run)" >&2; exit 126; }
-done
-want="${CICADA_VERIFY_MODEL:-haiku}"
-prev=""
-model=""
-for a in "$@"; do
-  [ "$prev" = "--model" ] && model="$a"
-  prev="$a"
-done
-[ "$model" = "$want" ] || { echo "plan-claude: refused model '$model' (this run allows only $want)" >&2; exit 126; }
-[ "${CICADA_CAPTURE:-}" = "off" ] || { echo "plan-claude: refused, CICADA_CAPTURE is not off" >&2; exit 126; }
-exec env -u CLAUDE_CONFIG_DIR HOME="$real_home" "$real_claude" "$@"
+  auth status [--json]                       answered with the account fields masked
+  -p <PINNED_FLAGS> [--allowedTools WebSearch] --model <haiku> [--system-prompt=...] [--effort w] [--json-schema {}]
+
+Anything else exits 126 before the real binary runs. `cv selftest` checks these copies against agent_engine.
+"""
+import json
+import os
+import pwd
+import re
+import sys
+
+PINNED_FLAGS = (
+    "-p", "--output-format", "stream-json", "--verbose", "--safe-mode",
+    "--strict-mcp-config", "--tools", "", "--setting-sources", "",
+    "--no-session-persistence",
+)
+TOOLS_AT = PINNED_FLAGS.index("--tools") + 1
+ALLOWED_TOOLS = ("", "WebSearch")
+STRIPPED_ENV = (
+    "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "GEMINI_API_KEY", "XAI_API_KEY", "GROQ_API_KEY",
+    "MISTRAL_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_FOUNDRY_API_KEY", "ANTHROPIC_FOUNDRY_AUTH_TOKEN",
+    "ANTHROPIC_AWS_API_KEY", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY",
+    "CLAUDE_CODE_USE_MANTLE", "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+    "CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "OPENAI_BASE_URL",
+    "CLAUDE_CODE_RETRY_WATCHDOG", "CODEX_HOME",
+    "CLAUDE_CONFIG_DIR",
+)
+AUTH_FIELDS_KEPT = ("loggedIn", "authMethod", "apiProvider", "subscriptionType")
+MASKED_EMAIL = "verify@example.invalid"
+WORD = re.compile(r"^[a-z]+$")
+
+
+def refuse(why: str) -> None:
+    print(f"plan-claude: refused, {why} (only Cicada's locked engine call may run)", file=sys.stderr)
+    sys.exit(126)
+
+
+def check_print_call(argv: list[str], want_model: str) -> None:
+    head = argv[:len(PINNED_FLAGS)]
+    if len(head) < len(PINNED_FLAGS):
+        refuse("argv shorter than the pinned flags")
+    tools = head[TOOLS_AT]
+    if tools not in ALLOWED_TOOLS:
+        refuse(f"--tools {tools!r}")
+    expected = list(PINNED_FLAGS)
+    expected[TOOLS_AT] = tools
+    if head != expected:
+        refuse(f"the pinned flags differ: {head!r}")
+    rest = argv[len(PINNED_FLAGS):]
+    if tools:
+        if rest[:2] != ["--allowedTools", tools]:
+            refuse("--tools WebSearch without its matching --allowedTools")
+        rest = rest[2:]
+    model = None
+    i = 0
+    while i < len(rest):
+        tok = rest[i]
+        if tok.startswith("--system-prompt="):
+            i += 1
+            continue
+        if tok in ("--model", "--effort", "--json-schema"):
+            if i + 1 >= len(rest):
+                refuse(f"{tok} with no value")
+            value = rest[i + 1]
+            if tok == "--model":
+                if model is not None:
+                    refuse("--model given twice")
+                model = value
+            elif tok == "--effort" and not WORD.match(value):
+                refuse(f"--effort {value!r}")
+            elif tok == "--json-schema" and not value.startswith("{"):
+                refuse("--json-schema that is not an object")
+            i += 2
+            continue
+        refuse(f"unexpected argument {tok!r}")
+    if model != want_model:
+        refuse(f"model {model!r} (this run allows only {want_model})")
+
+
+def main() -> None:
+    real = os.environ.get("CICADA_VERIFY_REAL_CLAUDE", "")
+    if not (real and os.access(real, os.X_OK)):
+        print("plan-claude: CICADA_VERIFY_REAL_CLAUDE is not an executable", file=sys.stderr)
+        sys.exit(127)
+    argv = sys.argv[1:]
+    env = {k: v for k, v in os.environ.items() if k not in STRIPPED_ENV}
+    env["HOME"] = pwd.getpwuid(os.getuid()).pw_dir
+    if argv in (["auth", "status"], ["auth", "status", "--json"]):
+        import subprocess
+
+        out = subprocess.run([real, "auth", "status", "--json"], env=env, capture_output=True, text=True)
+        try:
+            info = json.loads(out.stdout or "{}")
+        except ValueError:
+            info = {}
+        masked = {k: info[k] for k in AUTH_FIELDS_KEPT if k in info}
+        if info.get("loggedIn"):
+            masked["email"] = MASKED_EMAIL
+        print(json.dumps(masked))
+        sys.exit(out.returncode)
+    if not argv or argv[0] != "-p":
+        refuse("the first argument is not -p")
+    check_print_call(argv, os.environ.get("CICADA_VERIFY_MODEL") or "haiku")
+    if os.environ.get("CICADA_CAPTURE") != "off":
+        refuse("CICADA_CAPTURE is not off")
+    os.execve(real, [real, *argv], env)
+
+
+if __name__ == "__main__":
+    main()

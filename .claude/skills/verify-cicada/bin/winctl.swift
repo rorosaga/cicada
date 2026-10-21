@@ -1,8 +1,9 @@
 // Window lookup and real clicks for ONE process id, so a verify run never touches another Cicada.
-// Built once per run by `cv app launch` (swiftc -O -o <run>/bin/winctl winctl.swift).
+// Built once per run by `cv app build` (swiftc -O -o <run>/bin/winctl winctl.swift).
 //   winctl windows <pid>             JSON list of on-screen windows owned by <pid>
 //   winctl activate <pid>            bring that process frontmost
-//   winctl click <pid> <x> <y>       activate, then a real left click at window-relative points (top-left origin)
+//   winctl click <pid> <x> <y>       activate, then a real left click at window-relative points (top-left origin),
+//                                    refused outside the window or when another process's window is topmost there
 import AppKit
 import CoreGraphics
 import Foundation
@@ -23,6 +24,18 @@ func windows(of pid: pid_t) -> [[String: Any]] {
         return ["id": id, "title": w[kCGWindowName as String] as? String ?? "",
                 "x": b["X"] ?? 0, "y": b["Y"] ?? 0, "width": b["Width"] ?? 0, "height": b["Height"] ?? 0]
     }
+}
+
+func topmostOwner(at point: CGPoint) -> pid_t? {
+    let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+        as? [[String: Any]] ?? []
+    for w in info {
+        guard let b = w[kCGWindowBounds as String] as? [String: Double],
+              (w[kCGWindowAlpha as String] as? Double ?? 1) > 0 else { continue }
+        let rect = CGRect(x: b["X"] ?? 0, y: b["Y"] ?? 0, width: b["Width"] ?? 0, height: b["Height"] ?? 0)
+        if rect.contains(point) { return (w[kCGWindowOwnerPID as String] as? Int).map { pid_t($0) } }
+    }
+    return nil
 }
 
 func activate(_ pid: pid_t) {
@@ -47,8 +60,13 @@ case "click":
     guard args.count == 5, let x = Double(args[3]), let y = Double(args[4]) else { fail("usage: winctl click <pid> <x> <y>") }
     guard let w = windows(of: pid).max(by: { ($0["width"] as! Double) * ($0["height"] as! Double)
         < ($1["width"] as! Double) * ($1["height"] as! Double) }) else { fail("pid \(pid) has no on-screen window") }
+    let width = w["width"] as! Double, height = w["height"] as! Double
+    guard x >= 0, y >= 0, x < width, y < height else { fail("(\(x), \(y)) is outside the window (\(width) x \(height))") }
     activate(pid)
     let point = CGPoint(x: (w["x"] as! Double) + x, y: (w["y"] as! Double) + y)
+    guard let top = topmostOwner(at: point), top == pid else {
+        fail("another process's window is topmost at (\(x), \(y)); nothing was clicked")
+    }
     let source = CGEventSource(stateID: .hidSystemState)
     for type in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
         let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: .left)!

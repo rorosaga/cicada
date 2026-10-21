@@ -13,7 +13,7 @@ Each project page shows where it stands, what happened, what is planned and its 
 ## How to get to it (user POV)
 
 - Sidebar `Projects`.
-- `GET /projects`, `/projects/{id}/timeline`, `POST /projects/{id}/milestones`, `/happenings`.
+- `GET /projects`, `GET /projects/{project_id}/timeline`, `POST /projects/{project_id}/milestones`, `POST /projects/{project_id}/happenings`.
 - MCP `cicada_project`, `cicada_note_progress`; `cicada project`.
 
 ## Driving it with verify-cicada

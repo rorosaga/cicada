@@ -17,7 +17,7 @@ Saved videos form a queue an agent works through; after watching, it records a s
 Preconditions:
 
 - A run is up and `$CV doctor` is all `ok` (backend, scratch root, plan).
-- A saved YouTube link (save one with `cicada_save_url`).
+- A saved video link (save one with `cicada_save_url`; that save fetches the page's title from this Mac, see saved-links-and-reading).
 
 - **Queue.** Run `$CV mcp call cicada_video_queue '{}'`. The saved video.
 - **Claim.** Run `$CV mcp call cicada_video_claim '{}'` until empty; release one with `{"release": [{"url": ..., "code": ..., "reason": "verify"}]}`.
@@ -26,3 +26,4 @@ Preconditions:
 ## Gotchas
 
 - `cicada_record_youtube_list` reads the person's signed-in YouTube pages through their own agent; never drive it in a verify run.
+- `cicada_record_watch` on a link that is not saved yet saves it first, and that save fetches the page. Record watches only on links the journey already saved.

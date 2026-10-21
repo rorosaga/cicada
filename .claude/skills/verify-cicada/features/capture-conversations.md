@@ -23,13 +23,14 @@ A conversation with an agent becomes one episode in the bank, with no model invo
 Preconditions:
 
 - A run is up and `$CV doctor` is all `ok` (backend, scratch root, plan).
-- No episode exists for session `s1`.
+- No episode exists for session `verify-s1`.
 
-- **Turn.** Post one exchange. Run `$CV capture --session s1 --turn t1 --user "I am starting alpha-project, a birdsong classifier in Rust." --assistant "Noted."`. The answer is `status: created`, an `episodeId`, `turnsUser: 1`.
-- **Extend.** Post the next turn of the same session. Run `$CV capture --session s1 --turn t2 --user "alpha-project will use rustfft."`. The answer names the same `episodeId` with status `updated`.
-- **Stored.** Read the file. Run `$CV bank ls` and `$CV bank cat episodes/<episodeId>.md`. Frontmatter has `processed: false`, `session_id: s1`, `harness: cursor`, and the body has both `user:` turns.
+- **Turn.** Post one exchange. Run `$CV capture --session verify-s1 --turn t1 --user "I am starting alpha-project, a birdsong classifier in Rust." --assistant "Noted."`. The answer is `status: created`, an `episodeId`, `turnsUser: 1`.
+- **Extend.** Post the next turn of the same session. Run `$CV capture --session verify-s1 --turn t2 --user "alpha-project will use rustfft."`. The answer names the same `episodeId` with status `updated`.
+- **Second session.** The standard seed's other conversation, so Sleep can promote `alpha-project`. Run `$CV capture --session verify-s2 --turn t1 --user "Back on alpha-project: it turns birdsong recordings into spectrograms before classifying them." --assistant "Got it."`. A second `episodeId`, status `created`.
+- **Stored.** Read the file. Run `$CV bank ls` and `$CV bank cat episodes/<episodeId>.md`. Frontmatter has `processed: false`, `session_id: verify-s1`, `harness: cursor`, and the body has both `user:` turns.
 - **Agent save.** Run `$CV mcp call cicada_save_episode '{"content": "Decided to ship alpha-project v0 on Friday.", "title": "alpha-project ship date"}'`. The reply names a new episode; `$CV bank ls` lists it.
-- **Proof.** `evidence/capture/s1-t1.json` and `s1-t2.json` hold request and answer; the episode file is the second view.
+- **Proof.** `evidence/capture/verify-s1-t1.json` and `verify-s1-t2.json` hold request and answer; the episode file is the second view.
 
 ## Gotchas
 

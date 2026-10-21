@@ -29,4 +29,5 @@ Preconditions:
 ## Gotchas
 
 - The run pins `CICADA_LLM_MODE=agent` in the environment, so the app's engine chooser cannot move it; a PUT that changes the engine is answered but the environment wins. Do not choose a metered key or the ChatGPT plan in a verify run.
-- Answers name the plan's account email. Keep that evidence local.
+- `plan-claude` masks the plan's account email as `verify@example.invalid` in every answer. Any other email in an answer or a screenshot is the person's: delete it.
+- Forbidden in a verify run: the Connect and Sign in buttons in Settings → Engines and Plans & keys (a terminal login, a ChatGPT device code, a key). They act on the real account.
