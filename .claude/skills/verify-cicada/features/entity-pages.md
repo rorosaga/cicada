@@ -1,0 +1,35 @@
+# Entity pages and the Reader
+
+Every page reads as an article with its claims, sources, history and blame; the Reader shows the conversation span a claim came from.
+
+## Sub-features
+
+- `page-read` shows a page's prose and claims.
+- `page-history` lists its commits and diffs; `page-blame` who wrote each line.
+- `page-edit` changes words or aliases with a reason (`cicada_edit_page`).
+- `page-picture` sets, initials or clears its picture.
+- `page-decay` changes its decay class.
+- `reader-span` opens the evidence span behind a claim.
+
+## How to get to it (user POV)
+
+- Clicking a page anywhere (Home chip, Projects row, graph node, search result).
+- `GET /entities/{id}`, `/entities/{id}/history`, `/blame`, `/claims`, `/provenance`; `GET /episodes/{id}/span`.
+- MCP `cicada_recall_detail`, `cicada_edit_page`; `cicada page list | history | decay`, `cicada picture set | initials | clear`.
+
+## Driving it with verify-cicada
+
+Preconditions:
+
+- A run is up and `$CV doctor` is all `ok` (backend, scratch root, plan).
+- `alpha-project` exists.
+
+- **Read.** Run `$CV api GET /entities/alpha-project --save api/entity.json`. Title, summary, claims.
+- **History.** Run `$CV cli -- page history alpha-project`. The Sleep commit that made it.
+- **Edit.** Run `$CV mcp call cicada_edit_page '{"subject": "alpha-project", "reason": "verify", "edits": [{"old": "<exact text>", "new": "<replacement>"}]}'` (full shape: `$CV mcp schema cicada_edit_page`). A trusted harness writes at once; an untrusted one proposes in the inbox. Check `$CV bank log` for the commit and its `Cicada-Author`.
+- **App.** Open the page from Projects or Home and `$CV app shot page`.
+
+## Gotchas
+
+- The verify MCP session reports harness `verify`, which is not on the trust list, so `cicada_edit_page` proposes rather than writes. That is the rail working.
+- Picture fetches are gated off in a verify run (`CICADA_ALLOW_LOGO_FETCH=off`).
