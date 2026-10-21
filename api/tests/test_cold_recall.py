@@ -56,15 +56,18 @@ def _refs(memory, q):
 
 @pytest.fixture
 def parses(monkeypatch):
-    """Every markdown parse, by file name."""
+    """Every markdown read, by file name: a whole parse, or a header read (``markdown_parser.header``, how
+    ``bank_index`` reads a page's frontmatter without its body or claims ledger)."""
     seen: list[str] = []
-    real = markdown_parser.parse
 
-    def counting(path, *a, **k):
-        seen.append(os.path.basename(str(path)))
-        return real(path, *a, **k)
+    def counting(real):
+        def read(path, *a, **k):
+            seen.append(os.path.basename(str(path)))
+            return real(path, *a, **k)
+        return read
 
-    monkeypatch.setattr(markdown_parser, "parse", counting)
+    monkeypatch.setattr(markdown_parser, "parse", counting(markdown_parser.parse))
+    monkeypatch.setattr(markdown_parser, "header", counting(markdown_parser.header))
     return seen
 
 
