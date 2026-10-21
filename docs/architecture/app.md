@@ -187,7 +187,7 @@ window — the bookworm waits in the menu bar, and the Dock icon brings the wind
 Cicada is closed (`BackendAgentService`: a read-only `launchctl print`, and Install runs
 `scripts/install-backend-agent.sh` from the app's own checkout after the click, `CICADA_CAPTURE=off`, then hands
 launchd the port). **Where your memory lives** (G181 phase 3; the first card of Settings → Devices since the settings
-audit of 2026-10-22, `docs/research/2026-10-22-settings-audit.md`, before that on General;
+audit of 2026-10-22, `docs/research/2026-10-22-hyrum-audit.md`, before that on General;
 `MemoryHomeSetting`, `ConnectionSettingsModel`): *This Mac* or *A server* — an address (https, or http to a loopback
 tunnel) and this device's token from `cicada device add`. *Check and use* writes nothing until `ServerProbe` hears the
 server (`/healthz` open, then `/devices` with the token, which names this device); then `device_token` and
