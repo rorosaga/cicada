@@ -1,0 +1,28 @@
+#!/bin/sh
+# The Sleep engine's `claude` for a verify run (CICADA_CLAUDE_CLI points here).
+# The backend runs on a scratch HOME, which hides the Claude plan's sign-in (it lives in the login
+# keychain under the default config dir). This gives back the real HOME to this one child only, and
+# only for the shapes Cicada's engine spawns: `auth status`, or `-p` under every lock agent_engine pins.
+set -eu
+real_claude="${CICADA_VERIFY_REAL_CLAUDE:-}"
+[ -n "$real_claude" ] && [ -x "$real_claude" ] || { echo "plan-claude: CICADA_VERIFY_REAL_CLAUDE is not an executable" >&2; exit 127; }
+real_home="$(eval echo "~$(id -un)")"
+
+if [ "$#" -ge 2 ] && [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+  exec env -u CLAUDE_CONFIG_DIR HOME="$real_home" "$real_claude" "$@"
+fi
+
+has() { needle="$1"; shift; for a in "$@"; do [ "$a" = "$needle" ] && return 0; done; return 1; }
+for flag in -p --safe-mode --strict-mcp-config --setting-sources --no-session-persistence; do
+  has "$flag" "$@" || { echo "plan-claude: refused, $flag missing (only Cicada's locked engine call may run)" >&2; exit 126; }
+done
+want="${CICADA_VERIFY_MODEL:-haiku}"
+prev=""
+model=""
+for a in "$@"; do
+  [ "$prev" = "--model" ] && model="$a"
+  prev="$a"
+done
+[ "$model" = "$want" ] || { echo "plan-claude: refused model '$model' (this run allows only $want)" >&2; exit 126; }
+[ "${CICADA_CAPTURE:-}" = "off" ] || { echo "plan-claude: refused, CICADA_CAPTURE is not off" >&2; exit 126; }
+exec env -u CLAUDE_CONFIG_DIR HOME="$real_home" "$real_claude" "$@"
