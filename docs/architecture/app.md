@@ -203,8 +203,9 @@ post the server did not take waits in `ReaderOutbox` (`$CICADA_HOME/spool/app/`;
 behind it, never overtakes it) and is flushed when the event stream connects, lane by lane (route + memory: another
 memory's refused post waits without blocking the active memory's — owner decision 6, 2026-10-16; no answer or a
 refused token still stops the flush; `headless.md`, "The Mac app as a client"). **Settings → Devices** (`DevicesSettingsView`,
-`DevicesPageModel`; not a Store domain): *Where your memory lives* (above), then *This app* — where the memory lives, reachable or not as of when (DR-58),
-captures waiting with *Send now* — and *Your devices* (name, added, last seen, *this Mac*; Add a device with its
+`DevicesPageModel`; not a Store domain): *Where your memory lives* (above; only while this app runs on a server, the
+same card adds which server it is using, reachable or not as of when (DR-58), and captures waiting with *Send now*;
+on This Mac the choice already says it, DR-38) — and *Your devices* (name, added, last seen, *this Mac*; Add a device with its
 token shown once and Revoke on This Mac only, the server's two commands named on a client). Where memory came from is
 one quiet word (`DeviceOrigin`, names from `DeviceDirectory`, read on demand): *from laptop* last on a Saved item's
 "Saved from" line (`FeedSourceLine.text(_:device:)`), in the Reader's meta line (`ReaderHeader.meta(_:device:)`) and on

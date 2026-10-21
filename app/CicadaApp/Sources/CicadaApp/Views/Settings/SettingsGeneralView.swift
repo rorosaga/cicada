@@ -109,7 +109,11 @@ struct SettingsGeneralView: View {
                 let onServer = ServerConnection.current.isServer
                 SettingsRow(.backgroundService, title: Copy.keepMemoryWorking,
                             detail: onServer ? Copy.Devices.backgroundNotNeeded : Copy.backgroundDetail(backendAgent.state)) {
-                    if !onServer { BackgroundServiceButton() }
+                    if onServer {
+                        SettingsInlineLink(section: .devices, row: .memoryHome, label: Copy.Devices.whereGroup)
+                    } else {
+                        BackgroundServiceButton()
+                    }
                 } below: {
                     if !onServer && BackgroundServiceButton.showsCommand(backendAgent.state) {
                         CommandBox(command: backendAgent.display)

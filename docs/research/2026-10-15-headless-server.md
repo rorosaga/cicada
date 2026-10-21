@@ -122,7 +122,7 @@ so a device's agent keeps the trust a local one has. What ships is in [`headless
   (G198 writes at once only for local harnesses today; remote is never on it).
 
 **Phase 3: the Mac app as a client (Swift, on the Mac).**
-- Settings → General: *This Mac* or *A server* (address + device token). The Store, ETags and SSE already run over
+- Settings → General (Settings → Devices since 2026-10-22): *This Mac* or *A server* (address + device token). The Store, ETags and SSE already run over
   HTTP; only `APIClient`'s base URL constant changes.
 - The readers (browsers, Notes, Calendar, Contacts, folders, Messages) post bytes to the server; an offline queue
   flushes on reconnect. The app's backend agent is not installed in server mode.

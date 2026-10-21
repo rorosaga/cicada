@@ -58,11 +58,10 @@ extension Copy {
 
         // MARK: Settings → Devices
         static let sidebar = "Devices"
-        static let subtitle = "Which of your devices reach your memory, and where it lives"
-        static let connectionGroup = "This app"
+        static let subtitle = "Which of your devices reach your memory"
         static let devicesGroup = "Your devices"
-        static let connectionThisMac = "Your memory lives on this Mac."
-        static func connectionServer(_ host: String) -> String { "Your memory lives on \(host)." }
+        static let connectionIndexTitle = "Server connection"
+        static func connectionServer(_ host: String) -> String { "This app is using \(host) now." }
         static let connectionInvalid = "The server address isn't valid, so nothing is sent anywhere."
         static func reachable(_ checked: String) -> String { "Reachable · checked \(checked)" }
         static func unreachable(_ since: String?) -> String {

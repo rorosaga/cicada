@@ -98,7 +98,8 @@ struct SettingsSleepView: View {
                         .foregroundStyle(CicadaTheme.textSecondary)
                 }
             }
-            SettingsGroupCard(header: Copy.sleepEngineGroup) {
+            // DR-38: the card's one row is already titled Engine, as Runs is.
+            SettingsGroupCard {
                 SettingsRow(.sleepEngine, title: Copy.sleepEngineRowTitle,
                             control: { SettingsInlineLink(section: .engines, label: Copy.changeInEngines) },
                             below: {

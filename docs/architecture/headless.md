@@ -288,8 +288,9 @@ On a server the app:
   path and the server's dedup makes a resend harmless;
 - refuses the demo (`ServerLinkError.demoStaysLocal`, before any request): a demo is a This Mac thing.
 
-**Settings → Devices** (Customize, after From anywhere): *This app* — "Your memory lives on <host>", reachable or not
-and as of when (`/healthz`, every 30 s while open), and how many captures wait on this Mac — and *Your devices*: each
+**Settings → Devices** (Customize, after From anywhere): *Where your memory lives* — the choice above and, only while
+this app runs on a server, "This app is using <host> now.", reachable or not and as of when (`/healthz`, every 30 s
+while open), and how many captures wait on this Mac — and *Your devices*: each
 device's name, when it was added and last seen, and *this Mac* on its own row. On This Mac (the master token) the page
 adds a device (its token shown once, with where it goes) and revokes one; on a server's client it reads the list and
 names the two commands to run on the server (ruling 28.1). Not a Store domain: `/devices` is outside every bank.

@@ -124,7 +124,6 @@ extension Copy {
     static let runsTitle = "Runs"
     static let runsAt = "At"
     static let runsEvery = "Every"
-    static let sleepEngineGroup = "Engine"
     static let sleepEngineRowTitle = "Engine"
     static let changeInEngines = "Change in Engines"
 

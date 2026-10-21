@@ -9,7 +9,8 @@ applies four presentation-only changes from Mode B. Everything else here is a pr
 
 **How it was observed.** Every run used the verify-cicada skill on scratch state: a scratch HOME, `CICADA_HOME`,
 bank and port, the owner page named "Verify Person", and the plan account masked. Nothing from a real bank was read.
-Every example below is synthetic (`alpha-project`, `bob-example`).
+Every example below is synthetic (`alpha-project`, `bob-example`, `alpha-&-beta-(notes)`); none is a value from a
+bank.
 
 - Mode A ran one backend at VERSION 0.5.0. It seeded two conversations through `/capture/turn`, ran one Sleep on the
   plan at haiku, then made about 120 stdio calls across all 46 tools, deliberately bad ones included. A driver kept
@@ -30,7 +31,7 @@ the Mode B table.
 | # | Item | Harm basis | Status |
 |---|---|---|---|
 | 1 | **A3. The tool schema is advertised, never enforced** | Done now. Invalid data is already written: an `observer` outside the pattern is recorded, and an empty episode is saved and counted | Proposal |
-| 2 | **A5. An episode id's date is the UTC day, read as the person's day** | Done now, to the record. Sleep dated a fix "the 21st" for words said on the local 22nd. Three readers take the day from the id | Proposal, needs the owner's intent first |
+| 2 | **A5. An episode id's day is UTC for hook captures and local for everything else** | Done now, to the record. Hook captures are every agent conversation, so the UTC day covers most of what Sleep reads. Sleep dated a fix "the 21st" for words said on the local 22nd, and two readers take the day from the id. Narrower than one UTC rule, but two rules also make same-night ids disagree | Proposal, needs the owner's intent first |
 | 3 | **A2. A refusal comes back as an answer (`isError: false`); a crash carries the raw Python message** | Done now, to every agent. Telling "not found" from a real answer means parsing English | Proposal |
 | 4 | **A4. Tool and argument names** | Careless-change harm, highest. Names sit in user allowlists, installed skills and other harnesses' configs, none searchable. The lean-MCP rename is planned | Proposal (freeze, then unlisted aliases) |
 | 5 | **A1. The recall reply's `cicada-hints` fence and block layout** | Careless-change harm. Six tests, the CLI, a verify feature file and the benchmarks read it | Proposal (document; fix two misleading keys) |
@@ -39,10 +40,10 @@ the Mode B table.
 | 8 | **A7. The handshake misleads** | Done now, to agents. Any client named like "claude" is told to run `claude --resume`. Two HTTP routes are named that no MCP agent can call | Proposal |
 | 9 | **B-paths. Settings copy names `~/.cicada/…` whatever `CICADA_HOME` is** | Done now, to the person and to agents that read the screen. Observed on a scratch home: Privacy says `~/.cicada/secrets.env` while Plans & keys, on the same app, names the real path | Proposal |
 | 10 | **A8. SKILL.md has drifted from the tools** | Done now, to agents. It forbids page edits that the primer now teaches | Proposal (docs only) |
-| 11 | **B4. "Where your memory lives" moved General → Devices** | Careless-change harm, now spent. Every consumer in the repo was migrated in #398. People's own notes that quote "Settings → General → A server" were not searchable | **Done** |
+| 11 | **B4. "Where your memory lives" moved General → Devices** | Careless-change harm, now spent. Every live reference in the repo names Devices after #398, and dated history entries say where it was. People's own notes that quote "Settings → General → A server" were not searchable | **Done** |
 | 12 | **A6. `cicada_recall_detail` returns raw internals** | Low. Only the golden fixture and one benchmark parser read them | Proposal |
 | 13 | **A9. Untrusted text is marked on one door and not the other** | Safety. Saved-link titles a third party wrote reach a stdio agent unmarked | Proposal |
-| 14 | **B6, B7, B2. Repeated headers and order** | Cosmetic. Incidental, no consumer | **Done** |
+| 14 | **B6, B7, B8, B2. Repeated headers and order** | Cosmetic. Incidental, no consumer | **Done** |
 | 15 | **A10. JSON-RPC gaps (no `ping`, no `-32700`)** | Client-compatibility risk, no harm seen | Proposal |
 | 16 | **A12, A13, remaining B proposals** | Cosmetic, or a cost to context budget | Proposal |
 
@@ -61,8 +62,8 @@ the display name (`Bob-example`), not the id.
 
 - Consumers: `api/tests/fixtures/mcp_stdio_golden.json` (`recall`, `recall_again`, byte for byte), and
   `test_mcp_recall_legs.py:65`, `test_cli_reads.py:15,56`, `test_cli_unit2.py:421`, `test_mcp_handshake.py:77,87`.
-  The CLI's `--json` `data` carries the payload (`mcp.md:1253`). The verify skill's `recall-and-search.md:25` tells
-  verifiers to read `suggested_entities`. The benchmarks feed this text to a model as context
+  The CLI's `--json` `data` carries the payload (`mcp.md:1253`). The verify skill (PR #397) tells verifiers to read
+  `suggested_entities`. The benchmarks feed this text to a model as context
   (`benchmarks/retrieval.py:57-59`, `run_table1.py`, `run_table3.py`), so a layout change moves their numbers.
 - Misleading now: `next_tool` appears twice with different values (`mcp_tools.py:1933,1957`). `state.pending` is the
   `_state.md` cursor, stale by design; it said 0 while `cicada_pending` listed 5. One confidence shows three ways:
@@ -136,21 +137,30 @@ the lean-MCP grouping "with the old names kept as aliases".
 
 - Entity ids are `sanitize_id(name)` (`id_utils.py:21`): lowercased, with only `/\:*?"<>|.` and spaces replaced.
   `&`, `(`, `)`, `'`, `,`, `#`, `%`, `!` and accented letters survive (observed
-  `rust-&-systems-programming-a-primer`). Media ids are `media-<title slug>` with a hash suffix only on truncation or
+  on a synthetic page shaped like `alpha-&-beta-(notes)`). Media ids are `media-<title slug>` with a hash suffix only on truncation or
   collision (`media_ingestor.py:2029-2057`). Lookup tolerates legacy stems by case-insensitive and sanitized matches
-  (`mcp_tools.py:3630`); `entity_id: "Bob-Example"` resolves.
+  (`_entity_id_for_name`, `mcp_tools.py:3642`); `entity_id: "Bob-Example"` resolves.
 - Claim ids come in at least eight shapes: Sleep `clm_<date>_<8hex>`, agent `clm_<entity>_<predicate>_<8hex>`,
   progress `clm_<entity>_happened_<8hex>_<date>`, retraction, link reconciliation, seeder, inbox and connections
   import each their own. No consumer parses the inner shape.
-- Episode ids are `ep_YYYY-MM-DD_NNN` by the **UTC** day (`episode_ids.py:49`). Everything a reader sees uses the
-  local day. One conversation saved at 00:27 local is `ep_2026-10-21_001 · 2026-10-21` in `cicada_ask` and
-  `today (2026-10-22)` in `cicada_project`. Readers that take the day from the id: `ask_sources.py:49`,
-  `benchmarks/hard_questions.py:95`, `skill_alias_repair.py:77`.
+- Episode ids are `ep_YYYY-MM-DD_NNN`. `episode_ids.py:49` is only the shape (`EPISODE_ID_RE`); each caller of
+  `next_episode_id` picks the day. The hook captures pick the **UTC** day: `transcript_capture.py:665-666` (Claude
+  Code, Codex, and `/capture/turn`) and `telegram_capture.py:538-539`, each from a UTC timestamp's first ten
+  characters. Everything else picks the **local** day with `datetime.now()` or `date.today()`: `cicada_save_episode`
+  (`mcp_tools.py:4123`), `notes_sync.py:155`, `media_ingestor.py:1926,2226`, `calendar_registry.py:350`,
+  `page_read.py:106`, `check_record.py:90`, `linkedin_people.py:752`, `web_settle.py:865`, and `episode_staging.py`'s
+  own minting (`:402`, `:865`, the source's date when it has one). So the id's day is UTC for hook captures and local
+  for everything else. One hook-captured conversation at 00:27 local is `ep_2026-10-21_001 · 2026-10-21` in
+  `cicada_ask` and `today (2026-10-22)` in `cicada_project`, and an episode saved through `cicada_save_episode` a
+  minute later is `ep_2026-10-22_…`. Readers that take the day from the id: `ask_sources.py:49`,
+  `benchmarks/hard_questions.py:95`.
 - **PROPOSAL.** Document entity ids as opaque, case-insensitive on lookup, possibly holding `&()',#%` and non-ASCII,
   URL-encoded in paths; changing the slug rule would orphan wikilinks and history. Document claim ids as opaque.
-  For episode ids, first confirm intent against the "read on time" rule (owner 2026-10-16): Sleep's dating may be
-  wrong around midnight for every owner outside UTC. Then have the three readers use the episode's `timestamp` in the
-  person's zone. *Migration:* none for the id itself; the readers change behind it.
+  For episode ids, first confirm intent against the "read on time" rule (owner 2026-10-16): around midnight, Sleep's
+  dating of hook-captured conversations may be wrong for every owner outside UTC. Then pick one rule for the writers
+  (most likely the local day, which all but the two hook writers already use), and have the two readers use the
+  episode's `timestamp` in the person's zone. *Migration:* existing ids stay as written (an id is never renamed);
+  only new ids and the readers change.
 
 **A6. `cicada_recall_detail` returns the raw page.** De facto (golden), else incidental.
 The full frontmatter comes back, plumbing included (`section_provenance`, `layout_version`, `decayed_through`,
@@ -222,9 +232,9 @@ stdio-only workflows. Where a client caps the tool count (not checked here), arr
 | Tool and argument names | Contract | primer, SKILL.md and copy, librarian skill, cli_map, remote catalog, tool_client, benchmark prompt, user allowlists | Freeze; unlisted aliases with a dated removal (A4) |
 | `id`/`item_id`, four names for a page id, `AP1` vs `alpha-project/AP1` | Incidental inconsistency | test regexes only | Accept `item_id`; document (A4) |
 | Bare vs backticked ids | De facto | test_video_save_defects:43, test_watch_record:59 | Backticks everywhere (A4) |
-| Entity id charset | Contract (passed back) | lookup tolerance, mcp_tools:3642 | Keep; document as opaque (A5) |
+| Entity id charset | Contract (passed back) | lookup tolerance, mcp_tools.py:3642 | Keep; document as opaque (A5) |
 | Claim id shapes | Incidental | opaque regexes | Document as opaque (A5) |
-| Episode id date is the UTC day | De facto | ask_sources:49, hard_questions:95, skill_alias_repair:77 | Confirm intent; readers use timestamp + zone (A5) |
+| Episode id day: UTC for hook captures, local for the rest | De facto | ask_sources:49, hard_questions:95 | Confirm intent; one rule for writers; readers use timestamp + zone (A5) |
 | recall_detail internals, raw claims fence | De facto (golden) | golden; benchmarks/system/engine.py:47 | Strip; one claim renderer (A6) |
 | Primer HTTP routes, substring variant, stale Now | Contract (R12) / incidental | handshake tests, hook note, CLI | Drop routes; exact-name variants (A7) |
 | SKILL.md layout and "never edit" advice | De facto (teaching) | agents | Fix the text (A8) |
@@ -239,8 +249,9 @@ stdio-only workflows. Where a client caps the tool count (not checked here), arr
 2. "Nothing there" is an answer (`isError: false`) while the same misuse can be an exception (`isError: true`),
    depending on whether Python raised.
 3. The inbox id is `id` in one tool and `item_id` in its sibling; the page id goes under four names.
-4. The day of a conversation differs by one between `cicada_ask` (from the id) and `cicada_project` or
-   `cicada_timeline` (local) around midnight.
+4. Around midnight, a hook-captured conversation's day differs by one between `cicada_ask` (from the id) and
+   `cicada_project` or `cicada_timeline` (local), and between two episodes written the same minute by different
+   writers.
 5. `state.pending` and "Sleep queue" say 0 while `cicada_pending` lists work.
 6. The primer names two HTTP routes that are not tools, and SKILL.md forbids the page edits the primer teaches.
 7. The schema gives `observer` a pattern, and the server records any string.
@@ -261,7 +272,9 @@ stdio-only workflows. Where a client caps the tool count (not checked here), arr
 
 - Decide the error contract (A2) before the lean-MCP slice, so renamed tools ship with it instead of migrating twice.
 - After the rename lands, put the alias removal date in TODO.md, and test it.
-- Ask the owner whether episode-id days are meant to be UTC (A5). It is a memory-correctness question first.
+- Ask the owner which day an episode id should carry: the conversation's local day, as every writer but the two hook
+  writers does, or the UTC day, as those two do (A5). Then make all writers follow it. It is a memory-correctness
+  question first.
 - A1, A2, A4, A6 and A9 all re-record `api/tests/fixtures/mcp_stdio_golden.json`. Group them in one themed PR, as
   the fixture's header asks.
 - Git identity: with no `user.name`, bank commits fall back to the account's full name and `user@hostname`, so a
@@ -295,11 +308,11 @@ exist, and the telemetry ledger was not read.
 | B1 | The sidebar: 15 sections | Everyone, every visit | **Merge** (proposal) to about 10. Memory joins Search & files; Plans & keys joins Engines; From anywhere joins Devices | Unchanged | Changes `cicada.settingsSection` raw values, `SettingsIndex` sections, `router.openSettings(.remote / .plansAndKeys / .memory)` deep links and docs. `SettingsSection.restored(from:)` already falls back for a retired raw value; map each to its new home, as `legacyAgentsMode` did. Needs the owner's word |
 | B2 | Sleep → *The scenery* | Rare, once. Decoration | **Move** (done: after Engine). Further proposal: move it to the study room on the Sleep page | Local weather | Order only. Its Source row carries the G176 weather consent, so it stays visible, never folded |
 | B3 | Sleep → *Mascot* | Nobody yet: one choice | **Infer** (proposal): hide the card until a second mascot exists | `bookworm` | `cicada.mascot` keeps its value. `MascotSettingsTests` pins search landing on this row, so hiding it changes that contract |
-| B4 | General → *Where your memory lives* | Someone setting up a home server (G181) | **Move to Devices** (done) | This Mac | Same view and files (`api_base.next`, `device_token`), same `memoryHome` id. Search entry, token sheet, api.md, headless.md and a `runtime_layout.py` comment now name Devices |
+| B4 | General → *Where your memory lives* | Someone setting up a home server (G181) | **Move to Devices** (done), merged with the old *This app* card | This Mac | Same view and files (`api_base.next`, `device_token`), same `memoryHome` id. DR-38: on This Mac the page said where the memory lives three times, so *This app* is gone and its status lines (which server, reachable, captures waiting) join the card only while this app runs on a server; `devicesConnection` is anchored on `memoryHome`. On a server, General's *Keep memory working* links to the choice. Search entry, token sheet, `ServerConnection`'s write rule, api.md, app.md, headless.md, TODO.md, the headless research note and a `runtime_layout.py` comment now name Devices |
 | B5 | Agents (install, grid, walkthrough, auto recall, page editors, links) | Once per agent | **Move to advanced** (proposal): fold a connected agent's walkthrough to one line; connected state first | Unchanged | `ConnectView` has its own probes, so its own change. The install card already hides in a release build (G182). The G198 trust list stays open |
 | B6 | Engines → *Ask* (header Ask over a row Ask, no control) | Read-only | **Merge** into the Engine card (done) | Ask follows the engine | DR-37, DR-38. Row id `engineAsk` unchanged. `Copy.askGroup` deleted, no other caller |
 | B7 | Sleep → *Runs* (header Runs over a row Runs) | Everyone who schedules | **Keep**; header **cut** (done) | Manual | DR-38. `sleepRuns`, the route and its values unchanged. `Copy.runsGroup` deleted |
-| B8 | Sleep → *Engine* (header Engine over a row Engine) | Everyone who schedules | **Keep**; proposal: drop the header, as B7 did | Whatever Engines resolves | DR-38. Found in this run's after shots. It is the one link to Engines and what the plan switch acts on (ruling 4), so the row stays |
+| B8 | Sleep → *Engine* (header Engine over a row Engine) | Everyone who schedules | **Keep**; header **cut** (done) | Whatever Engines resolves | DR-38, as B7. It is the one link to Engines and what the plan switch acts on (ruling 4), so the row and its link stay. `Copy.sleepEngineGroup` deleted, no other caller |
 | B9 | Memory → *Fetch link previews* (manual) | Rare. Maintenance | **Infer** (proposal): Sleep's tail runs it behind the connector gate | Not run unless clicked | UX principle 1. It changes backend fetch timing, so it needs its own backlog row and the ToS rail's limits |
 | B10 | Plans & keys → seven key cards open, each with its path | Few. Ruling 31 makes plans the default | **Move to advanced** (proposal): fold unconnected key cards under "Use an API key instead" | Unchanged | Credentials are trust; one click away, connected ones stay open |
 | B-paths | Privacy → API keys, Advanced → API token, Devices → token help | Anyone who follows the path | **Fix** (proposal): name the resolved `CICADA_HOME`, as Plans & keys already does | n/a | Observed: on a scratch home, Privacy said `~/.cicada/secrets.env` while Plans & keys named the real file. Static strings in `Copy+Settings.swift:285,340` and `Copy+Devices.swift:23,25,97`. Agents read these off the screen, so the copy and the token sheet change together |
@@ -319,7 +332,7 @@ exist, and the telemetry ledger was not read.
 | B22 | Integrations → exports, browsers, tab groups, YouTube history, Calendar, Contacts, Messages, Ask why I saved it | Once per source | **Keep** | Off until turned on | Every row is a read consent (G179, G191) |
 | B23 | Reading the web → the switch, how it reads, how it watches, sites, never-explore | Few | **Keep**; proposal: fold "how it reads / watches" while the switch is off | Off | Consent (G166, ruling 25) |
 | B24 | From anywhere | Few | **Keep** | Off (G135) | Trust |
-| B25 | Devices → this app, your devices, Add, Revoke | Few | **Keep** | As set | Trust (ruling 28) |
+| B25 | Devices → where your memory lives, your devices, Add, Revoke | Few | **Keep** | As set | Trust (ruling 28) |
 | B26 | Skills | Few | **Keep** | As set | Install only on consent, pinned |
 | B27 | Advanced | Debugging | **Keep**; already the advanced section | Read-only | Names env switches, never values (R-O22) |
 
@@ -329,7 +342,7 @@ About ten sections in three groups. *Cicada:* General (Look, Startup, When Cicad
 and updates), You, Privacy & data, Search & memory (folders, understanding, how things fade, link previews; search
 version and rebuild folded), Sleep (Runs, Scheduled runs, Engine, then the study room). *Customize:* Integrations,
 Reading the web, Agents (connected agents first, each walkthrough folded once connected, the trust list open, the
-command-line tool), Devices & access (where your memory lives, this app, your devices, from anywhere), Skills.
+command-line tool), Devices & access (where your memory lives, your devices, from anywhere), Skills.
 *Engines & keys:* Engines (choice, model, plan switches, Ask, then sign-ins with unconnected keys folded), Advanced.
 
 Behind a fold: a connected agent's walkthrough, the search version, unconnected API key cards, and Reading's method
@@ -346,9 +359,10 @@ and You.
 
 ### What PR #398 changed (presentation only)
 
-1. *Where your memory lives* moved from General to the top of Devices (B4). DR-38: one decision in one place.
-2. Sleep reads Runs, Scheduled runs, Engine, then *The scenery* and *Mascot* (B2). The Runs card lost its repeated
-   header (B7, DR-38).
+1. *Where your memory lives* moved from General to the top of Devices (B4), and the *This app* card folded into it.
+   DR-38: one decision in one place, said once. On a server, General's *Keep memory working* links to it.
+2. Sleep reads Runs, Scheduled runs, Engine, then *The scenery* and *Mascot* (B2). The Runs and Engine cards lost
+   their repeated headers (B7, B8, DR-38).
 3. Engines' *Ask* line joined the Engine card (B6, DR-37, DR-38).
 
 No stored key, default, route or backend read changed. `cicada.settingsSection` raw values are untouched, so a saved
@@ -358,11 +372,12 @@ section still restores.
 
 | Observable behavior | Class | Consumers found | Action |
 |---|---|---|---|
-| `memoryHome`'s Settings section (General → Devices) | Contract (search landing) | `SettingsIndex.staticEntries`, `SettingsRowLintTests`, the token sheet's copy, api.md, headless.md, a `runtime_layout.py` comment, a `HeadlessAppTests` MARK | All updated in #398. No deep link opened General at that row. Verified: searching "server" lands on Devices › Memory on |
+| `memoryHome`'s Settings section (General → Devices) | Contract (search landing) | `SettingsIndex.staticEntries`, `SettingsRowLintTests`, the token sheet's copy, `ServerConnection`'s doc and write rule, `SettingsRowID`, api.md, app.md, headless.md, TODO.md, the headless research note, a `runtime_layout.py` comment, a `HeadlessAppTests` MARK | All updated in #398; `SettingsAuditMovesTests` pins the section. No deep link opened General at that row. Verified: searching "server" lands on Devices › Memory on |
+| `devicesConnection` (the old *This app* card) | Contract (search landing) | `SettingsIndex.staticEntries`, `SettingsRowLintTests` | Drawn only on a server, so its entry anchors on `memoryHome`, as `autoUpdate` anchors on `appVersion`. Header copy `Copy.Devices.connectionGroup` and `connectionThisMac` deleted |
 | Files the server choice writes (`api_base.next`, `api_base`, `device_token`) | Contract (hooks, MCP, CLI read them) | `ServerConnection`, hooks, CLI | Unchanged. Verified: picking *A server* without *Check and use* wrote neither file |
-| Sleep's card order and the Runs header | Incidental | `SettingsSleepView` only | Changed |
+| Sleep's card order, the Runs and Engine headers | Incidental | `SettingsSleepView` only | Changed; `SettingsAuditMovesTests` pins the order |
 | Engines' Ask card header (`Copy.askGroup`) | Incidental | none outside `EnginesView` | Removed. Verified: searching "ask" lands on Engines › Ask |
-| `Copy.runsGroup` | Incidental | none outside `SettingsSleepView` | Removed |
+| `Copy.runsGroup`, `Copy.sleepEngineGroup` | Incidental | none outside `SettingsSleepView` | Removed |
 
 Not searched: other people's scripts, notes or agent instructions that quote "Settings → General → A server". An
 installed older app keeps its own copy until it updates.

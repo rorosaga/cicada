@@ -117,8 +117,10 @@ enum SettingsIndex {
         SettingsEntry(.memoryHome, .devices, Copy.Devices.modeTitle,
                       keywords: ["server", "this mac", "headless", "remote", "address", "device token", "home server",
                                  "sync", "where", "memory lives"]),
-        SettingsEntry(.devicesConnection, .devices, Copy.Devices.connectionGroup,
-                      keywords: ["server", "connection", "reachable", "offline", "waiting", "queue"]),
+        // Anchored on Memory on, its card-mate, because the row is drawn only while this app runs on a server.
+        SettingsEntry(.devicesConnection, .devices, Copy.Devices.connectionIndexTitle,
+                      keywords: ["server", "connection", "reachable", "offline", "waiting", "queue"],
+                      anchor: .memoryHome),
         SettingsEntry(.devicesList, .devices, Copy.Devices.devicesGroup,
                       keywords: ["devices", "synced", "laptop", "token", "revoke", "add a device", "last seen"]),
         SettingsEntry(.commandLineTool, .general, Copy.cliToolTitle, keywords: ["command line", "terminal", "shell", "cli", "path", "agent", "install"]),
