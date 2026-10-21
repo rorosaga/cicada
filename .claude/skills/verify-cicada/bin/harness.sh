@@ -8,8 +8,12 @@ vh() {
   macos-harness "$1" --app "$app" "${@:2}"
 }
 vidx() { vh get_app_state --disableDiff | grep -E "$1" | head -1 | awk '{print $1}'; }
+# Refuses an element that reads like Connect, Disconnect, Sign in/out, Install, Set up, Turn on or Get started
+# (`cv deny`): those write the real account. --allow-forbidden skips the check; nothing makes such a press safe.
 vclick() {
-  local i; i="$(vidx "$1")"
-  [ -n "$i" ] || { echo "vclick: no element matches $1" >&2; return 1; }
-  vh click --element_index "$i"
+  local allow=""; [ "$1" = "--allow-forbidden" ] && { allow=1; shift; }
+  local line; line="$(vh get_app_state --disableDiff | grep -E "$1" | head -1)"
+  [ -n "$line" ] || { echo "vclick: no element matches $1" >&2; return 1; }
+  [ -n "$allow" ] || "$CV" deny "$line" || return 1
+  vh click --element_index "$(echo "$line" | awk '{print $1}')"
 }

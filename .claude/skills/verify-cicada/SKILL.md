@@ -21,9 +21,10 @@ export CICADA_VERIFY_RUN=<the run dir launch printed>       # or --run <dir> on 
 $CV doctor
 ```
 
-Every verb but `launch`, `residue` and `selftest` refuses without the run, and refuses a directory `launch` did not
-create under the run root (`$CICADA_VERIFY_ROOT`, else `$TMPDIR/cicada-verify`). Run ids are letters, digits, `.`,
-`_` and `-`. Evidence defaults to `$CICADA_VERIFY_EVIDENCE`, else `~/cicada-verify-evidence/<id>`.
+Every verb but `launch`, `residue`, `deny` and `selftest` refuses without the run, and refuses a directory `launch`
+did not create under the run root (`$CICADA_VERIFY_ROOT`, else `$TMPDIR/cicada-verify`). Run ids are letters, digits,
+`.` and `-`, so the app's bundle id is the run id itself. Evidence defaults to `$CICADA_VERIFY_EVIDENCE`, else
+`~/cicada-verify-evidence/<id>`, never inside the run dir; every `--save` and evidence name stays inside it.
 
 ## What isolation means here
 
@@ -40,7 +41,7 @@ kills only pids it recorded whose command line still carries the marker it recor
 | Sleep engine | `CICADA_LLM_MODE=agent`, every model `haiku`, `CICADA_CLAUDE_CLI=bin/plan-claude` | `plan-claude` gives the `claude` child the real HOME so it finds the plan sign-in. It runs only `auth status [--json]` (answered with the email masked to `verify@example.invalid`) and the exact argv `api/services/agent_engine.py` builds: `-p` first, the pinned flags with their values (`--tools ""` or `WebSearch` plus its `--allowedTools`, `--setting-sources ""`), `--model haiku`, and only `--system-prompt=`, `--effort`, `--json-schema` after. It strips every key the engine strips and refuses `CICADA_CAPTURE` not `off`. `cv selftest` proves both against the engine module |
 | MCP server | spawned per call with the run's env; session `verify-<run id>`, harness `verify` | nothing |
 | CLI | `python -P -m api.cli` with the run's env and the harness marker set, so person-only commands refuse as from any agent's shell | nothing |
-| App | a copy in the run dir stamped `com.rorosaga.cicada.verify.<run id>` / "Cicada Verify", started with `CFFIXED_USER_HOME=<run>/home`. Observed 2026-10-22: Application Support/Cicada (its snapshot cache; pictures, logos and folder state use the same lookup), Caches, HTTPStorages and WebKit all land under the scratch home, and `lsof` showed nothing open under the real `~/Library`. `cv app launch` refuses, and stops the app, if it opens anything under the real Application Support/Cicada or its cache never appears in the scratch home | `~/Library/Preferences/<run's id>.plist` (cfprefsd ignores the redirect), removed by `cv cleanup`. The login keychain, Contacts, Calendar, Messages and `NSFullUserName` are the real account's. Treat every Connect, Sign in and Install button as writing the real account (see Gotchas) |
+| App | a copy in the run dir stamped `com.rorosaga.cicada.verify.<run id>` / "Cicada Verify", started with `CFFIXED_USER_HOME=<run>/home`. Observed 2026-10-22: Application Support/Cicada (its snapshot cache; pictures, logos and folder state use the same lookup), Caches, HTTPStorages and WebKit all land under the scratch home, and `lsof` showed nothing open under the real `~/Library`. `cv app launch` refuses, and stops the app, if it opens anything under the real `~/.cicada`, `~/cicada`, Application Support/Cicada or Application Support/com.rorosaga.cicada*, or its cache never appears in the scratch home | `~/Library/Preferences/<run's id>.plist` (cfprefsd ignores the redirect), removed by `cv cleanup`. The login keychain, Contacts, Calendar, Messages and `NSFullUserName` are the real account's. Treat every Connect, Sign in and Install button as writing the real account (see Gotchas) |
 
 Observed 2026-10-22: a scratch `HOME` (or `CLAUDE_CONFIG_DIR`) makes `claude auth status` report `loggedIn: false`,
 which is why `plan-claude` exists. The backend's documented headless path, `CLAUDE_CODE_OAUTH_TOKEN` from
@@ -75,7 +76,7 @@ Read only. Checks that the backend pid is alive and ours, owns the port, runs fr
 token; that `/healthz` names the scratch root and a bank inside the run, at the checkout's `VERSION`; that the
 checkout's HEAD and files are what launch recorded; that the plan answers through `plan-claude`; and, once the app is
 built, that its bundle id is this run's, it was stamped from the run's checkout at the current HEAD and files, its pid
-is ours and it holds nothing open under the real Application Support/Cicada. Exit 1 on any `FAIL`. Run it first
+is ours and it holds nothing open under the person's real Cicada state (the four roots `app launch` checks). Exit 1 on any `FAIL`. Run it first
 whenever anything looks off, and again after editing the checkout (then rebuild the app).
 
 ## Drive
@@ -110,7 +111,8 @@ $CV app build          # ./bundle.sh in the run's checkout, copy into the run, r
 $CV app launch         # needs the run's backend up; waits for a window and the scratch-home cache, checks lsof
 $CV app containment    # lsof sample, the scratch home's Application Support, real-folder changes since launch
 $CV app shot home      # screencapture -x -o -l <our window id> -> evidence/app/home.png
-$CV app click 300 200  # a real click at window-relative points; refused outside the window or under another window
+$CV app click 300 200  # a real click at window-relative points; refused outside the window, under another window,
+                       # or on an element whose accessibility text reads like a forbidden button (Gotchas)
 $CV app windows        # our pid's windows as JSON
 ```
 
@@ -130,7 +132,9 @@ vh get_app_state --disableDiff | grep -i alpha
 $CV app shot projects
 ```
 
-`vh` fails unless this run's app is running, so the harness never starts a copy outside the run. Sidebar pages are
+`vh` fails unless this run's app is running, so the harness never starts a copy outside the run. `vclick` refuses a
+line that reads Connect, Disconnect, Sign in, Sign out, Install, Set up (not `Set up later`), Turn on or Get started
+(`cv deny`, case-insensitive). Sidebar pages are
 buttons with `Description: <Page>,` (Home, Graph, Clusters, Skills, Sleep, Inbox, Sources, Projects, Settings).
 Numbers change with every page; `vclick` reads fresh each time. When an element ignores an AX press, use the
 screenshot and `$CV app click X Y` (points from the top-left of our window; a `cv app shot` PNG on a Retina screen is
@@ -165,8 +169,8 @@ Refuses a directory without launch's marker. Snapshots run.json, logs and the ba
 `evidence/state-at-cleanup/`, stops the app's and then the backend's process group, refuses to go on if either is
 still ours and alive, unregisters the copy from LaunchServices, removes the run's `~/Library/Preferences` file, and
 deletes the run dir unless `--keep-state`. Evidence is never removed. After a failed iteration, run cleanup too.
-`cv residue` lists verify-id files left under the real `~/Library` by an interrupted run; `cv residue --remove`
-deletes them.
+`cv residue` lists verify-id files left under the real `~/Library` by an interrupted run; `cv residue --remove --run
+<dir>` deletes one stopped run's files and refuses without a run, so it never removes a concurrent run's.
 
 ## Gotchas
 
@@ -176,7 +180,8 @@ deletes them.
   window. Screenshot the whole screen, tell the person, and do not click the prompt for them.
 - Never press a Connect, Disconnect, Sign in, Sign out, Install, Set up or Turn on button in the app in a verify
   run: Settings → Engines, Plans & keys, Integrations, Agents, Skills and General. The Claude plan's Disconnect signs
-  the real `claude` out. They reach the real keychain, browsers, Contacts or Calendar,
+  the real `claude` out. `vclick` and `cv app click` refuse them; their `--allow-forbidden` only skips the check and
+  never makes the press safe. They reach the real keychain, browsers, Contacts or Calendar,
   launchd or the harness configs, and an OAuth sign-in's callback defaults to `localhost:8000`, the person's own
   backend. The feature files mark these.
 - ⌘-number shortcuts do not reach the app from the harness; click the sidebar button.

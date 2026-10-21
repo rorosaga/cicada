@@ -22,4 +22,4 @@ Preconditions:
 
 ## Gotchas
 
-- Forbidden in a verify run: every Connect, Turn on and Sign in button here. Calendar, Contacts and Messages are the real account's whatever the home, browsers may be too, and turning one on puts the person's data into a scratch bank and raises permission prompts.
+- Forbidden in a verify run: every Connect, Disconnect, Turn on, Sign in and Sign out button here. Calendar, Contacts and Messages are the real account's whatever the home, browsers may be too, and turning one on puts the person's data into a scratch bank and raises permission prompts.

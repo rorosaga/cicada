@@ -7,18 +7,20 @@ Every verb but `launch`, `residue` and `selftest` acts on one run, named on ever
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import hashlib
 import json
 import os
 import pwd
 import re
-import selectors
+import queue
 import shutil
 import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -30,10 +32,16 @@ OWNER_BUNDLE_ID = "com.rorosaga.cicada"
 VERIFY_BUNDLE_PREFIX = "com.rorosaga.cicada.verify"
 VERIFY_APP_NAME = "Cicada Verify"
 RUN_ROOT = Path(os.environ.get("CICADA_VERIFY_ROOT") or Path(os.environ.get("TMPDIR", "/tmp")) / "cicada-verify")
-RUN_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+RUN_ID_RE = re.compile(r"[A-Za-z0-9.-]+")
 RUN_MARKER = ".cv-run"
 REAL_HOME = Path(pwd.getpwuid(os.getuid()).pw_dir)
 REAL_APP_SUPPORT = REAL_HOME / "Library/Application Support/Cicada"
+# The person's own state: a verify app holding a file open under any of these has escaped the scratch home.
+REAL_STATE_ROOTS = (REAL_HOME / ".cicada", REAL_HOME / "cicada", REAL_APP_SUPPORT)
+REAL_BUNDLE_SUPPORT_PREFIX = str(REAL_HOME / "Library/Application Support" / OWNER_BUNDLE_ID)
+# Buttons that write the real account (Gotchas in ../SKILL.md). "Set up later" only dismisses the welcome screen.
+FORBIDDEN_RE = re.compile(r"\b(dis)?connect\b|\bsign\s+(in|out)\b|\binstall\b|\bset\s+up\b(?!\s+later)|"
+                          r"\bturn\s+on\b|\bget\s+started\b", re.I)
 LSREGISTER = ("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/"
               "lsregister")
 PLACEHOLDER_OWNER = "Verify Person"
@@ -44,6 +52,16 @@ GIT_IDENTITY = {"GIT_AUTHOR_NAME": "Verify Run", "GIT_AUTHOR_EMAIL": "verify@exa
 def die(message: str, code: int = 1) -> None:
     print(f"cv: {message}", file=sys.stderr)
     sys.exit(code)
+
+
+def valid_run_id(run_id: str) -> bool:
+    """Exactly the characters a bundle id component allows, so the verify bundle id is the run id itself."""
+    return bool(RUN_ID_RE.fullmatch(run_id)) and run_id not in (".", "..")
+
+
+def forbidden(text: str) -> str | None:
+    m = FORBIDDEN_RE.search(text)
+    return m.group(0) if m else None
 
 
 def now_id() -> str:
@@ -169,7 +187,10 @@ def http(run: dict, method: str, path: str, body=None, *, auth: bool = True, tim
 
 
 def evidence(run: dict, name: str) -> Path:
-    path = Path(run["evidence_dir"]) / name
+    root = Path(run["evidence_dir"]).resolve()
+    path = (root / name).resolve()
+    if path == root or not path.is_relative_to(root):
+        die(f"{name!r} leaves the evidence dir {root}")
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -213,6 +234,10 @@ def stop_pid(pid: int, label: str) -> None:
         except ProcessLookupError:
             return
         for _ in range(50):
+            try:
+                os.waitpid(pid, os.WNOHANG)  # our own child stays a zombie, alive to kill(0), until reaped
+            except ChildProcessError:
+                pass
             if not alive(pid):
                 print(f"stopped {label} ({pid})")
                 return
@@ -230,8 +255,8 @@ def stop_role(run: dict, role: str) -> None:
 
 def cmd_launch(args) -> None:
     run_id = args.run_id or now_id()
-    if not RUN_ID_RE.match(run_id) or run_id in (".", ".."):
-        die(f"--run-id {run_id!r}: use letters, digits, '.', '_' and '-' only")
+    if not valid_run_id(run_id):
+        die(f"--run-id {run_id!r}: use letters, digits, '.' and '-' only")
     checkout = toplevel(Path(args.checkout).expanduser()) if args.checkout else toplevel(Path.cwd())
     for needed in ("api/main.py", "mcp/server.py", "app/CicadaApp/bundle.sh", "VERSION"):
         if not (checkout / needed).exists():
@@ -250,6 +275,10 @@ def cmd_launch(args) -> None:
     remote_port = free_port({port})
     RUN_ROOT.mkdir(parents=True, exist_ok=True)
     rdir = RUN_ROOT.resolve() / run_id
+    evid = Path(args.evidence or os.environ.get("CICADA_VERIFY_EVIDENCE")
+                or REAL_HOME / "cicada-verify-evidence" / run_id).expanduser().resolve()
+    if evid.is_relative_to(rdir):
+        die(f"--evidence {evid} is inside the run dir, which cleanup deletes")
     try:
         rdir.mkdir(exist_ok=False)
     except FileExistsError:
@@ -257,8 +286,6 @@ def cmd_launch(args) -> None:
     if rdir.parent != RUN_ROOT.resolve():
         die(f"{rdir} is not directly under {RUN_ROOT.resolve()}")
     (rdir / RUN_MARKER).write_text(run_id + "\n")
-    evid = Path(args.evidence or os.environ.get("CICADA_VERIFY_EVIDENCE")
-                or REAL_HOME / "cicada-verify-evidence" / run_id).expanduser().resolve()
     for sub in ("home", "cicada-home", "memory", "logs", "bin"):
         (rdir / sub).mkdir()
     evid.mkdir(parents=True, exist_ok=True)
@@ -269,7 +296,7 @@ def cmd_launch(args) -> None:
         "skill": str(SKILL), "head": state["head"], "tree": state["tree"],
         "version": (checkout / "VERSION").read_text().strip(), "python": str(py), "port": port,
         "remote_port": remote_port, "search_model": bool(args.search_model),
-        "bundle_id": f"{VERIFY_BUNDLE_PREFIX}.{run_id.replace('_', '-')}",
+        "bundle_id": f"{VERIFY_BUNDLE_PREFIX}.{run_id}",
         "started_at": dt.datetime.now().isoformat(timespec="seconds"), "pids": {},
         "env": {
             "HOME": str(rdir / "home"), "CICADA_HOME": str(rdir / "cicada-home"),
@@ -396,8 +423,8 @@ def cmd_doctor(args) -> None:
             apid = ours(run, "app")
             check(rows, apid is not None, "app pid alive and ours", str(run["pids"]["app"]["pid"]))
             if apid:
-                leaks = real_support_paths(apid)
-                check(rows, not leaks, "app holds nothing open under the real Application Support/Cicada",
+                leaks = real_state_paths(apid)
+                check(rows, not leaks, "app holds nothing open under the person's real Cicada state",
                       "; ".join(leaks[:3]))
     width = max(len(r[1]) for r in rows)
     for ok, what, detail in rows:
@@ -429,14 +456,21 @@ def remove_residue(bundle_id: str | None = None) -> None:
 
 def cmd_residue(args) -> None:
     if args.remove:
-        remove_residue()
+        if not (getattr(args, "run", None) or os.environ.get("CICADA_VERIFY_RUN")):
+            die("--remove takes one run's files only: name it with --run <dir>; without a run, residue only lists")
+        run = load(args)
+        if ours(run, "app"):
+            die("that run's app is still running; `cv cleanup` it instead")
+        remove_residue(run["bundle_id"])
     for path in residue_paths():
         print(path)
 
 
 def cmd_cleanup(args) -> None:
-    run = load(args)
-    rdir = Path(run["run_dir"])
+    rdir = run_dir(args)
+    run = json.loads((rdir / "run.json").read_text())
+    if not args.keep_state and Path(run["evidence_dir"]).resolve().is_relative_to(rdir):
+        die(f"the evidence dir {run['evidence_dir']} is inside the run dir; rerun with --keep-state")
     snap = Path(run["evidence_dir"]) / "state-at-cleanup"
     snap.mkdir(parents=True, exist_ok=True)
     bank = Path(run["env"]["CICADA_MEMORY_PATH"])
@@ -492,9 +526,10 @@ def cmd_capture(args) -> None:
             "messages": messages}
     code, payload = http(run, "POST", "/capture/turn", body)
     out = {"request": body, "status": code, "response": payload}
-    record(run, f"capture/{args.session}-{body['turn_id']}.json", out)
-    print(json.dumps(out, indent=2))
     landed = code == 200 and isinstance(payload, dict) and payload.get("status") in ("created", "updated", "unchanged")
+    if landed:
+        record(run, f"capture/{args.session}-{body['turn_id']}.json", out)
+    print(json.dumps(out, indent=2))
     sys.exit(0 if landed else 1)
 
 
@@ -569,20 +604,25 @@ def mcp_session(run: dict, requests: list[dict], *, transcript: Path, timeout: f
         proc = subprocess.Popen([run["python"], str(Path(run["worktree"]) / "mcp/server.py")], cwd=run["run_dir"],
                                 env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err, text=True,
                                 start_new_session=True)
-    sel = selectors.DefaultSelector()
-    sel.register(proc.stdout, selectors.EVENT_READ)
+    replies: queue.Queue = queue.Queue()
+
+    def pump() -> None:
+        for out in proc.stdout:
+            replies.put(out)
+        replies.put(None)
+
+    threading.Thread(target=pump, daemon=True).start()
     lines: list[str] = []
     answers: list[dict] = []
 
     def read_line(deadline: float) -> str:
-        while True:
-            left = deadline - time.time()
-            if left <= 0 or not sel.select(timeout=left):
-                raise TimeoutError(f"no MCP answer within {timeout}s; stderr: {stderr_path}")
-            out = proc.stdout.readline()
-            if not out:
-                raise RuntimeError(f"MCP server closed stdout; stderr: {stderr_path}")
-            return out
+        try:
+            out = replies.get(timeout=max(deadline - time.time(), 0))
+        except queue.Empty:
+            raise TimeoutError(f"no MCP answer within {timeout}s; stderr: {stderr_path}") from None
+        if out is None:
+            raise RuntimeError(f"MCP server closed stdout; stderr: {stderr_path}")
+        return out
 
     def send(msg: dict, expect: bool) -> dict | None:
         raw = json.dumps(msg)
@@ -595,8 +635,11 @@ def mcp_session(run: dict, requests: list[dict], *, transcript: Path, timeout: f
         while True:
             out = read_line(deadline)
             lines.append(f"<<< {out.rstrip()}")
-            reply = json.loads(out)
-            if reply.get("id") == msg["id"]:
+            try:
+                reply = json.loads(out)
+            except ValueError:
+                continue
+            if isinstance(reply, dict) and reply.get("id") == msg["id"]:
                 return reply
 
     try:
@@ -699,11 +742,16 @@ def app_home(run: dict) -> Path:
     return Path(run["env"]["HOME"])
 
 
-def real_support_paths(pid: int) -> list[str]:
-    """Paths the process holds open under the person's real ~/Library/Application Support/Cicada."""
+def is_real_state(path: str) -> bool:
+    return (path.startswith(REAL_BUNDLE_SUPPORT_PREFIX)
+            or any(path == str(root) or path.startswith(f"{root}/") for root in REAL_STATE_ROOTS))
+
+
+def real_state_paths(pid: int) -> list[str]:
+    """Paths the process holds open under the person's real ~/.cicada, ~/cicada, Application Support/Cicada or
+    Application Support/com.rorosaga.cicada*."""
     out = subprocess.run(["lsof", "-n", "-p", str(pid), "-Fn"], capture_output=True, text=True).stdout
-    prefix = str(REAL_APP_SUPPORT)
-    return sorted({line[1:] for line in out.splitlines() if line.startswith("n") and line[1:].startswith(prefix)})
+    return sorted({line[1:] for line in out.splitlines() if line.startswith("n") and is_real_state(line[1:])})
 
 
 def cmd_app(args) -> None:
@@ -768,13 +816,13 @@ def main_window(run: dict) -> dict | None:
 
 
 def containment_sample(run: dict, pid: int, label: str) -> list[str]:
-    leaks = real_support_paths(pid)
+    leaks = real_state_paths(pid)
     lsof = subprocess.run(["lsof", "-n", "-p", str(pid), "-Fn"], capture_output=True, text=True).stdout
     library = sorted({ln[1:] for ln in lsof.splitlines() if ln.startswith("n") and
                       ln[1:].startswith(str(REAL_HOME / "Library"))})
     record(run, f"app/containment/lsof-{label}.txt",
            f"pid {pid}\nopen under the real ~/Library:\n" + "\n".join(library) +
-           f"\n\nopen under the real Application Support/Cicada ({len(leaks)}):\n" + "\n".join(leaks) + "\n")
+           f"\n\nopen under the person's real Cicada state ({len(leaks)}):\n" + "\n".join(leaks) + "\n")
     return leaks
 
 
@@ -805,9 +853,9 @@ def app_launch(run: dict, args) -> None:
     while time.time() < deadline:
         if proc.poll() is not None:
             die(f"app exited with {proc.returncode}; see {run['run_dir']}/logs/app.log")
-        if real_support_paths(proc.pid):
+        if real_state_paths(proc.pid):
             containment_sample(run, proc.pid, "launch-leak")
-            refuse("it opened a file under the real ~/Library/Application Support/Cicada")
+            refuse("it opened a file under the person's real Cicada state (~/.cicada, ~/cicada or Application Support)")
         win = win or ((w := main_window(run)) and w["width"] > 400 and w)
         if win and (scratch_support / "cache").is_dir():
             break
@@ -818,7 +866,7 @@ def app_launch(run: dict, args) -> None:
         refuse(f"its cache never appeared under the scratch home ({scratch_support}/cache), so CFFIXED_USER_HOME "
                "did not redirect Application Support; the app half of a verify run is unavailable on this Mac")
     if containment_sample(run, proc.pid, "launch"):
-        refuse("it holds a file under the real ~/Library/Application Support/Cicada")
+        refuse("it holds a file under the person's real Cicada state (~/.cicada, ~/cicada or Application Support)")
     print(json.dumps({"app_pid": proc.pid, "window": win, "scratch_support": str(scratch_support)}, indent=2))
 
 
@@ -869,6 +917,14 @@ def app_click(run: dict, args) -> None:
     win = main_window(run)
     if not win or not (0 <= args.x < win["width"] and 0 <= args.y < win["height"]):
         die(f"({args.x}, {args.y}) is outside the verify app's window {win and (win['width'], win['height'])}")
+    if not args.allow_forbidden:
+        label = subprocess.run([run["app"]["winctl"], "label", str(pid), str(args.x), str(args.y)],
+                               capture_output=True, text=True)
+        if label.returncode != 0:
+            die(f"could not read the element at ({args.x}, {args.y}), so nothing was clicked: {label.stderr.strip()}")
+        if hit := forbidden(label.stdout):
+            die(f"refused: the element at ({args.x}, {args.y}) reads {label.stdout.strip()!r}, a {hit!r} button "
+                "writes the real account (SKILL.md, Gotchas)")
     subprocess.run([run["app"]["winctl"], "click", str(pid), str(args.x), str(args.y)], check=True)
 
 
@@ -880,11 +936,67 @@ def app_path(run: dict, args) -> None:
     print(run["app"]["path"])
 
 
+def cmd_deny(args) -> None:
+    if hit := forbidden(args.text):
+        die(f"refused: {args.text.strip()[:160]!r} reads {hit!r}, a button that writes the real account "
+            "(SKILL.md, Gotchas)")
+
+
 # --- selftest -----------------------------------------------------------------------------------------------------
+
+def selftest_guards() -> list[tuple]:
+    """The guards that need no server: the forbidden-button check (cv deny and harness.sh's vclick against a stubbed
+    harness), evidence names confined to the evidence dir, and run ids that are exactly a bundle id component."""
+    rows = []
+    for label, want in (("7 button Description: Disconnect, Help: Signs out", True), ("button Connect", True),
+                        ("button Sign in", True), ("button Sign Out", True), ("button Install", True),
+                        ("button Set up", True), ("button Turn on", True), ("button Get started", True),
+                        ("12 button Description: Projects,", False), ("button Set up later", False),
+                        ("text Connected", False), ("button Description: Integrations,", False)):
+        rows.append((bool(forbidden(label)) == want, f"deny {label!r}", "refused" if want else "allowed", ""))
+    stub_vh = ('. "$HARNESS"; vh() { if [ "$1" = get_app_state ]; then printf "%s\\n" "$LINE"; '
+               'else echo CLICKED "$@"; fi; }; vclick "$@"')
+    for shell in ("bash", "zsh"):
+        if not shutil.which(shell):
+            continue
+        for line, argv, want in (("7 button Description: Disconnect,", ["Disconnect"], False),
+                                 ("7 button Description: Disconnect,", ["--allow-forbidden", "Disconnect"], True),
+                                 ("9 button Set up later", ["Set up later"], True),
+                                 ("12 button Description: Projects,", ["Projects"], True)):
+            cmd = [shell, "-f", "-c", stub_vh, "vclick", *argv] if shell == "zsh" else [shell, "-c", stub_vh, "vclick", *argv]
+            res = subprocess.run(cmd, capture_output=True, text=True,
+                                 env={"PATH": os.environ["PATH"], "HARNESS": str(SKILL / "bin/harness.sh"),
+                                      "CV": str(Path(__file__).resolve()), "LINE": line})
+            clicked = "CLICKED click --element_index" in res.stdout
+            rows.append((clicked == want and (want or "refused" in res.stderr), f"{shell} vclick {' '.join(argv)}",
+                         "clicked" if want else "refused", (res.stderr.strip() or res.stdout.strip())[:110]))
+    evid = Path(os.environ.get("TMPDIR", "/tmp")) / f"cv-selftest-evidence-{os.getpid()}"
+    for name, want in (("api/graph.json", True), ("/tmp/x.json", False), ("../x.json", False),
+                       ("app/../../x.png", False), ("capture/../../../etc/x", False), (".", False)):
+        try:
+            with open(os.devnull, "w") as quiet, contextlib.redirect_stderr(quiet):
+                evidence({"evidence_dir": str(evid)}, name)
+            ok = want
+        except SystemExit:
+            ok = not want
+        rows.append((ok, f"evidence name {name!r}", "kept" if want else "refused", ""))
+    shutil.rmtree(evid, ignore_errors=True)
+    for run_id, want in (("my-check.2", True), ("a_b", False), ("a\n", False), ("..", False), ("a/b", False),
+                         ("", False)):
+        rows.append((valid_run_id(run_id) == want, f"run id {run_id!r}", "accepted" if want else "refused", ""))
+    for rel, want in ((".cicada/api_token", True), ("cicada/memory/x.md", True),
+                      ("Library/Application Support/Cicada/cache/x.json", True),
+                      ("Library/Application Support/com.rorosaga.cicada.app/x", True),
+                      ("cicada-harness-run-2026-10-22/x.png", False), ("cicada-verify-evidence/x", False),
+                      ("Library/Application Support/CicadaOther/x", False)):
+        rows.append((is_real_state(str(REAL_HOME / rel)) == want, f"leak check ~/{rel}", "flagged" if want else "ignored",
+                     ""))
+    return rows
+
 
 def cmd_selftest(args) -> None:
     """plan-claude against the engine's real argv: every forbidden shape refused, the engine's shapes accepted. The
-    'real claude' here is a stub that prints its argv, so no model is called."""
+    'real claude' here is a stub that prints its argv, so no model is called. Then the guards no server needs."""
     checkout = toplevel(Path(args.checkout).expanduser()) if args.checkout else toplevel(Path.cwd())
     py = python_for(checkout)
     probe = subprocess.run([str(py), "-c", (
@@ -962,6 +1074,7 @@ def cmd_selftest(args) -> None:
     rows.append((shim_list == eng["pinned"], "shim PINNED_FLAGS equals agent_engine.PINNED_FLAGS", "",
                  "" if shim_list == eng["pinned"] else pinned_src))
     stub.unlink()
+    rows += selftest_guards()
     width = max(len(r[1]) for r in rows)
     for ok, name, want, detail in rows:
         print(f"{'ok  ' if ok else 'FAIL'}  {name.ljust(width)}  {want:8}  {detail}")
@@ -996,9 +1109,14 @@ def main() -> None:
     s.add_argument("--keep-state", action="store_true")
     s.set_defaults(fn=cmd_cleanup)
 
-    s = sub.add_parser("residue", help="verify app files left under the real ~/Library (verify bundle ids only)")
-    s.add_argument("--remove", action="store_true")
+    s = sub.add_parser("residue", parents=[run_opt],
+                       help="verify app files left under the real ~/Library (verify bundle ids only)")
+    s.add_argument("--remove", action="store_true", help="remove the named run's files (needs --run)")
     s.set_defaults(fn=cmd_residue)
+
+    s = sub.add_parser("deny", help="exit 1 when an element line reads like a button that writes the real account")
+    s.add_argument("text")
+    s.set_defaults(fn=cmd_deny)
 
     s = sub.add_parser("selftest", help="prove plan-claude refuses every shape but the engine's")
     s.add_argument("--checkout")
@@ -1056,6 +1174,7 @@ def main() -> None:
     a = appsub.add_parser("click", parents=[run_opt], help="a real click at window-relative points, verify app only")
     a.add_argument("x", type=float)
     a.add_argument("y", type=float)
+    a.add_argument("--allow-forbidden", action="store_true", help=argparse.SUPPRESS)
     appsub.add_parser("path", parents=[run_opt], help="the verify copy's path for macos-harness --app (only while it runs)")
     s.set_defaults(fn=cmd_app)
 
