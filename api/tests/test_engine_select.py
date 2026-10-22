@@ -155,11 +155,11 @@ def test_a_chosen_key_reads_with_the_key_without_probing():
     assert not engine_select.no_engine(resolved)
 
 
-def test_auto_prefers_the_plan_then_ollama_then_no_engine():
+def test_auto_prefers_the_plan_then_no_engine_never_a_local_model():
     assert _resolve(Settings(llm_mode="auto"),
                     _FakeRegistry(connected={"claude-plan", "ollama-local"}))[0] == "agent"
     assert _resolve(Settings(llm_mode="auto"),
-                    _FakeRegistry(connected={"ollama-local"}))[0] == "local"
+                    _FakeRegistry(connected={"ollama-local"})) == ("auto", engine_select.NO_ENGINE)
     assert _resolve(Settings(llm_mode="auto"), _FakeRegistry()) == ("auto", engine_select.NO_ENGINE)
 
 
@@ -216,9 +216,58 @@ def test_with_the_switch_off_a_scheduled_auto_cycle_probes_no_plan_and_has_no_en
         engine_select.resolve_llm_mode(Settings(llm_mode="auto"), reg, user_triggered=False)
     )
     assert (mode, why) == ("auto", engine_select.SCHEDULE_DEGRADED)
-    assert reg.asked == ["ollama-local"]
+    assert reg.asked == [], "ruling 36 D1: Auto has no local rung, so a closed plan probes nothing"
     local = _Probes(prefs=PLAN_OFF, connected={"claude-plan", "ollama-local"})
-    assert asyncio.run(engine_select.resolve_llm_mode(Settings(), local, user_triggered=False))[0] == "local"
+    assert asyncio.run(engine_select.resolve_llm_mode(Settings(), local, user_triggered=False))[0] == "auto"
+
+
+def test_auto_never_reaches_a_running_local_model():
+    """Ruling 36 D1: "stop pushing Ollama" — Auto is the Claude plan, then the ChatGPT plan, and nothing else."""
+    reg = _FakeRegistry(connected={"ollama-local"})
+    mode, why = asyncio.run(engine_select.resolve_llm_mode(Settings(llm_mode="auto"), reg, user_triggered=True))
+    assert (mode, why) == ("auto", engine_select.NO_ENGINE)
+    assert "ollama-local" not in engine_select._AUTO_LADDER
+    chosen = _FakeRegistry(prefs={"sleep-engine": {"mode": "local"}}, connected={"ollama-local"})
+    assert asyncio.run(engine_select.resolve_llm_mode(Settings(), chosen, user_triggered=True))[0] == "local"
+
+
+class _Prefs(_FakeRegistry):
+    """A registry whose prefs can be written (the one-time step records itself)."""
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self._store = {k: dict(v) for k, v in (kw.get("prefs") or {}).items()}
+
+    def prefs(self):
+        return self._store
+
+    def set_pref(self, cid, key, value):
+        entry = self._store.setdefault(cid, {})
+        if value is None:
+            entry.pop(key, None)
+        else:
+            entry[key] = value
+
+
+def test_a_person_reading_through_a_local_model_under_auto_keeps_it_as_a_recorded_choice():
+    reg = _Prefs(connected={"ollama-local"})
+    assert asyncio.run(engine_select.retire_auto_local_rung(Settings(), reg)) == "kept_local"
+    entry = reg.prefs()["sleep-engine"]
+    assert entry["mode"] == "local" and entry[engine_select.AUTO_LOCAL_RECORD_KEY]["outcome"] == "kept_local"
+    assert asyncio.run(engine_select.resolve_llm_mode(Settings(), reg, user_triggered=True))[0] == "local"
+    assert asyncio.run(engine_select.retire_auto_local_rung(Settings(), reg)) is None, "once"
+
+
+def test_the_one_time_step_never_adopts_a_local_model_beside_a_plan_or_later():
+    with_plan = _Prefs(connected={"ollama-local", "claude-plan"})
+    assert asyncio.run(engine_select.retire_auto_local_rung(Settings(), with_plan)) == "checked"
+    assert "mode" not in with_plan.prefs()["sleep-engine"]
+    without = _Prefs(connected=set())
+    assert asyncio.run(engine_select.retire_auto_local_rung(Settings(), without)) == "checked"
+    without._connected = {"ollama-local"}
+    assert asyncio.run(engine_select.retire_auto_local_rung(Settings(), without)) is None, "a later install is not adopted"
+    pinned = _Prefs(connected={"ollama-local"})
+    assert asyncio.run(engine_select.retire_auto_local_rung(Settings(llm_mode="auto"), pinned)) is None
 
 
 def test_by_default_a_scheduled_cycle_reads_with_the_plan():
@@ -470,22 +519,22 @@ def test_a_settings_chosen_codex_runs_when_you_start_it():
     assert _resolve(Settings(), _FakeRegistry(prefs={"sleep-engine": {"mode": "codex"}}))[0] == "codex"
 
 
-def test_auto_prefers_claude_then_chatgpt_then_ollama_then_never_a_key():
+def test_auto_prefers_claude_then_chatgpt_then_never_a_key_or_a_local_model():
     auto = Settings(llm_mode="auto")
     assert _resolve(auto, _FakeRegistry(connected={"claude-plan", "chatgpt-plan", "ollama-local"}))[0] == "agent"
     assert _resolve(auto, _FakeRegistry(connected={"chatgpt-plan", "ollama-local"}))[0] == "codex"
-    assert _resolve(auto, _FakeRegistry(connected={"ollama-local"}))[0] == "local"
+    assert _resolve(auto, _FakeRegistry(connected={"ollama-local"}))[0] == "auto"
     assert _resolve(auto, _FakeRegistry(connected={"byok-openrouter", "byok-openai"}))[0] == "auto"
 
 
-def test_a_failed_chatgpt_probe_falls_through_to_ollama():
+def test_a_failed_chatgpt_probe_falls_through_to_no_engine():
     class _CodexProbeFails(_FakeRegistry):
         async def status(self, connection_id, fresh=False):
             if connection_id == "chatgpt-plan":
                 raise RuntimeError("codex probe blew up")
             return await super().status(connection_id, fresh)
 
-    assert _resolve(Settings(llm_mode="auto"), _CodexProbeFails(connected={"ollama-local"}))[0] == "local"
+    assert _resolve(Settings(llm_mode="auto"), _CodexProbeFails(connected={"ollama-local"}))[0] == "auto"
 
 
 def test_the_use_for_sleep_toggle_never_reaches_for_chatgpt():

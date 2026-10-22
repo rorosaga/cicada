@@ -3398,6 +3398,9 @@ class SleepEngineResponse(CamelModel):
     # A run of this bank is reading on the engine it resolved at its start or Continue, and that is not
     # what the choice above resolves to now: the change applies from the next start or Continue.
     run_keeps_engine: bool = False
+    # Ruling 36 D1: the day the one-time step kept this person's local model as their explicit choice (Auto no longer
+    # reaches one), while it still is; the app says so in one line. ``None`` for everyone else.
+    auto_local_kept_on: Optional[str] = None
 
 
 class SleepReserveStatus(CamelModel):

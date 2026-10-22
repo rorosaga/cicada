@@ -82,8 +82,8 @@ enum OnboardingLayout {
     static let cardMaxWidth: CGFloat = 640
     static let cardBottom: CGFloat = 48
     static let gutter: CGFloat = 16
-    /// The Sources grid's tile: wide enough for "Instagram" and its status word at 1×, so a 620 pt column holds 4.
-    static let sourceTile: CGFloat = 124
+    /// The Sources grid's tile: wide enough for its two-line consent caption at 1×, so a 532 pt column holds 3.
+    static let sourceTile: CGFloat = 150
 
     /// The room's pane gives way before the column does, and goes rather than become a sliver: it is art only
     /// (DR-13), so losing it loses no word.

@@ -208,3 +208,34 @@ def test_the_plain_name_still_resolves_in_stage_2_and_the_owner_words_reach_the_
     assert owner_id == "bob-example"
     resolve = claim_pipeline.subject_resolver(name_to_id, owner_id)
     assert resolve("the user") == "bob-example" and resolve("Bob Example") == "bob-example"
+
+
+# --- the nightly default for a new memory (owner 2026-10-22) ---------------------------------------------------------
+
+
+def test_a_new_memory_consolidates_nightly_and_an_existing_one_keeps_its_setting(tmp_path):
+    from api.services import sleep_scheduler
+
+    slug = bank_registry.create_bank(tmp_path, "Research")
+    cfg = sleep_scheduler.load_schedule(tmp_path / "banks" / slug)
+    assert (cfg.mode, cfg.hour, cfg.minute) == ("daily", 3, 0)
+
+    # An existing bank with no schedule file is still manual: nothing rewrites it.
+    old = tmp_path / "old-bank"
+    bank_registry.scaffold_bank(old)
+    (old / "entities").mkdir(exist_ok=True)
+    (old / "entities" / "someone.md").write_text("---\nname: Someone\ntype: person\n---\n", encoding="utf-8")
+    assert owner_identity.seed_owner_if_brand_new(old) is None
+    assert sleep_scheduler.load_schedule(old).mode == "manual"
+
+    # A schedule the person chose is never overwritten by the seed.
+    sleep_scheduler.save_schedule(old, sleep_scheduler.ScheduleConfig(mode="interval", hour=3, minute=0))
+    assert sleep_scheduler.seed_new_bank_schedule(old) is False
+    assert sleep_scheduler.load_schedule(old).mode == "interval"
+
+
+def test_the_demo_bank_gets_no_schedule(tmp_path):
+    from api.services import sleep_scheduler
+
+    slug = bank_registry.create_bank(tmp_path, "Demo", seed_owner=False)
+    assert not (tmp_path / "banks" / slug / sleep_scheduler.SCHEDULE_FILE).exists()

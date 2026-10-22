@@ -38,6 +38,21 @@ AFTER_IMPORT_PROBE_MINUTES = 5
 _DEFAULT = ScheduleConfig(mode="manual", hour=3, minute=0)
 
 
+#: Owner 2026-10-22: a NEW bank consolidates nightly. Written once into a bank that was just created (the first-boot
+#: default bank or `create_bank`), never into one that exists — so an existing bank with no schedule file keeps reading
+#: as `_DEFAULT` (`manual`), exactly as before. A scheduled run uses the person's plan per ruling 4c.
+NEW_BANK_SCHEDULE = ScheduleConfig(mode="daily", enabled=True, hour=3, minute=0)
+
+
+def seed_new_bank_schedule(memory_path: Path) -> bool:
+    """Write the nightly default into a brand-new bank. Never overwrites a schedule file that is already there; returns
+    whether it wrote one."""
+    if _schedule_path(Path(memory_path)).exists():
+        return False
+    save_schedule(Path(memory_path), NEW_BANK_SCHEDULE)
+    return True
+
+
 def _schedule_path(memory_path: Path) -> Path:
     return memory_path / SCHEDULE_FILE
 

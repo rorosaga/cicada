@@ -186,7 +186,9 @@ struct OnboardingView: View {
         case .agents: AgentsStep(live: live)
         case .sources:
             SourcesStep(imports: entries, snapshots: Dictionary(uniqueKeysWithValues: s.map { ($0.id, $0) }),
-                        dropTargeted: dropTargeted, onTick: tick, onSeeHow: { seeHow = $0 })
+                        dropTargeted: dropTargeted,
+                        needsAccess: Set(inventory.items.filter { $0.readiness == .needsPermission }.map(\.id)),
+                        onTick: tick, onSeeHow: { seeHow = $0 })
         case .welcome, .done: EmptyView()
         }
     }
@@ -210,7 +212,7 @@ struct OnboardingView: View {
     private func doneLine(_ snapshots: [SetupRowSnapshot]) -> String {
         let honesty = HonestyInputs.from(schedule: sleepVM.schedule, response: engineVM.response,
                                          connections: store.connections.value ?? [])
-        return DoneLine.line(importsComingIn: SetupProgress.stillComingIn(snapshots) > 0,
+        return DoneLine.line(brought: DoneLine.brought(snapshots), canReadNow: DoneLine.canReadNow(engineVM.response),
                              scheduleLoaded: sleepVM.scheduleLoaded, honesty: honesty)
     }
 
@@ -335,6 +337,11 @@ struct OnboardingView: View {
 
     /// R-OB15 — mark, record the agents Cicada saw connect, offer the tour (seam 3), Home.
     private func openCicada() {
+        // Owner 2026-10-22: once right after onboarding when the person brought something in — a run they started.
+        if DoneLine.readsNow(brought: DoneLine.brought(snapshots), canReadNow: DoneLine.canReadNow(engineVM.response)) {
+            let vm = sleepVM
+            Task { await vm.triggerManually() }
+        }
         run(OnboardingFlow.finishSteps(recorded: OnboardingFlow.recordedAgents(connected: live.connected)))
     }
 

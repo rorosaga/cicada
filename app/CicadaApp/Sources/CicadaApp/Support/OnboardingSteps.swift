@@ -70,11 +70,41 @@ enum AgentRowAction: Equatable {
     case preparing
 }
 
+/// One product found on this Mac (Claude Code, the Claude app, Codex …): what Settings would offer it.
 struct AgentStepRow: Identifiable, Equatable {
     let entry: AgentCatalogEntry
     let connected: Bool
     let action: AgentRowAction
+    /// The product's name as its umbrella lists it ("Claude Code", "Claude app"), else the catalog's.
+    var name: String
     var id: String { entry.id }
+
+    init(entry: AgentCatalogEntry, connected: Bool, action: AgentRowAction, name: String? = nil) {
+        self.entry = entry; self.connected = connected; self.action = action; self.name = name ?? entry.name
+    }
+
+    /// Whether this product still has something to do here (`.none` is connected; `.preparing` waits for its setup).
+    var actionable: Bool {
+        switch action {
+        case .none, .preparing: false
+        default: true
+        }
+    }
+}
+
+/// One row of the Agents step (owner fix round, 2026-10-22): a provider umbrella (`GET /providers`, as the Agents page
+/// lists them) with the products of it found on this Mac. The umbrella's own mark (`LogoTile`), never a product badge;
+/// one Connect that offers each found product's own action.
+struct AgentUmbrellaRow: Identifiable, Equatable {
+    let id: String
+    let label: String
+    let logo: String?
+    let products: [AgentStepRow]
+
+    var connected: Bool { products.contains(where: \.connected) }
+    /// "Claude Code · Claude app" — the products found, in the umbrella's order.
+    var detail: String { products.map(\.name).joined(separator: " · ") }
+    var actionable: [AgentStepRow] { products.filter(\.actionable) }
 }
 
 enum AgentStepRows {
@@ -97,6 +127,49 @@ enum AgentStepRows {
                                     action: connected ? .none : action(for: entry, wiring: row, setups: setups))
             }
         }
+    }
+
+    /// The found products grouped under their provider umbrellas, in the providers table's order. A product no
+    /// umbrella claims (an older backend's table, or none loaded yet) gets an umbrella of its own under its vendor's
+    /// mark (`umbrellaLogo`), so a product badge never stands in for the umbrella.
+    static func umbrellas(_ providers: [ProviderUmbrella], products: [AgentStepRow]) -> [AgentUmbrellaRow] {
+        var left = products
+        var out: [AgentUmbrellaRow] = []
+        for umbrella in providers {
+            var mine: [AgentStepRow] = []
+            for way in umbrella.ways {
+                guard let i = left.firstIndex(where: { $0.id == way.id || way.setup.contains($0.id)
+                    || $0.entry.setupHarnesses.contains(way.id) }) else { continue }
+                var product = left.remove(at: i)
+                product.name = way.label
+                mine.append(product)
+            }
+            if !mine.isEmpty {
+                out.append(AgentUmbrellaRow(id: umbrella.id, label: umbrella.label, logo: umbrella.logo, products: mine))
+            }
+        }
+        for product in left {
+            out.append(AgentUmbrellaRow(id: product.id, label: product.name, logo: umbrellaLogo(product.entry.id),
+                                        products: [product]))
+        }
+        return out
+    }
+
+    /// The vendor's mark for a product: Claude Code and the Claude app draw Anthropic's, Codex and ChatGPT OpenAI's,
+    /// Gemini CLI Gemini's; everything else is its own vendor already.
+    static func umbrellaLogo(_ id: String) -> String? {
+        switch id {
+        case "claude-code", "claude": "claude"
+        case "codex", "chatgpt": "openai"
+        case "gemini-cli": "gemini"
+        default: AgentCatalog.entry(for: id)?.mark
+        }
+    }
+
+    /// An umbrella's dot and word: green once any of its products called; Waiting after this step started one.
+    static func status(_ row: AgentUmbrellaRow, started: Set<String>) -> (word: String, on: Bool) {
+        if row.connected { return (Copy.Status.connected, true) }
+        return (row.products.contains { started.contains($0.id) } ? Copy.Status.waiting : Copy.agentsFound, false)
     }
 
     static func action(for entry: AgentCatalogEntry, wiring: AgentWiring?,
@@ -192,6 +265,15 @@ enum SourceTiles {
         return (Copy.sourcesDropFile, .off)
     }
 
+    /// The words a tick tile shows before anyone clicks it (owner fix round, 2026-10-22): what it reads and the
+    /// consent it leads to, in the Import catalog's own words — "Asks macOS once for your calendars", a browser's
+    /// "Bookmarks · History" — and, for a browser macOS hides, that it needs Full Disk Access. Never only a tooltip.
+    static func caption(_ entry: ImportEntry, needsAccess: Bool) -> String? {
+        if needsAccess { return Copy.sourcesNeedsAccess }
+        if let idle = entry.idleLine, idle != Copy.importTickToBringIn { return idle }
+        return entry.meta ?? entry.idleLine
+    }
+
     /// Whether a tick tile reads as ticked: running or keeping up (`ImportRows.control`).
     static func isTicked(_ entry: ImportEntry, phase: SetupRowPhase?) -> Bool {
         switch ImportRows.control(entry, phase: phase) {
@@ -203,21 +285,40 @@ enum SourceTiles {
 
 // MARK: Done
 
-/// Step 5's one line: "Talk to your agent; Cicada remembers." and what happens next, from real state — imports coming
-/// in now, the schedule's own time, or Read now on Home. Never "tonight" on a manual schedule (`OnboardingScheduleLine`'s
-/// lesson: a first run is told only what is true).
+/// Step 5's one line (owner 2026-10-22: a new install consolidates nightly, and once right after onboarding when the
+/// person brought something in): "Talk to your agent; Cicada remembers." and what happens next, from real state — the
+/// schedule's own time when a schedule can read, "now" only when something came in and an engine can read it, else
+/// Read now on Home. Never a promise the schedule does not keep (`OnboardingScheduleLine`'s old lesson).
 enum DoneLine {
-    static func line(importsComingIn: Bool, scheduleLoaded: Bool, honesty: HonestyInputs) -> String {
-        Copy.doneLead + (tail(importsComingIn: importsComingIn, scheduleLoaded: scheduleLoaded, honesty: honesty)
-            .map { " " + $0 } ?? "")
+    static func line(brought: Bool, canReadNow: Bool, scheduleLoaded: Bool, honesty: HonestyInputs) -> String {
+        Copy.doneLead + (tail(brought: brought, canReadNow: canReadNow, scheduleLoaded: scheduleLoaded,
+                              honesty: honesty).map { " " + $0 } ?? "")
     }
 
-    static func tail(importsComingIn: Bool, scheduleLoaded: Bool, honesty: HonestyInputs) -> String? {
-        if importsComingIn { return Copy.doneImportsNow }
-        guard scheduleLoaded else { return nil }
-        if ScheduleHonesty.scheduledCanRead(honesty), let when = ScheduleHonesty.whenPhrase(honesty.schedule) {
-            return Copy.doneScheduled(when)
+    static func tail(brought: Bool, canReadNow: Bool, scheduleLoaded: Bool, honesty: HonestyInputs) -> String? {
+        let now = brought && canReadNow
+        guard scheduleLoaded else { return now ? Copy.doneImportsNow : nil }
+        let when = ScheduleHonesty.scheduledCanRead(honesty) ? ScheduleHonesty.whenPhrase(honesty.schedule) : nil
+        switch (when, now) {
+        case let (when?, true): return Copy.doneScheduledAndNow(when)
+        case let (when?, false): return Copy.doneScheduled(when)
+        case (nil, true): return Copy.doneImportsNow
+        case (nil, false): return Copy.doneReadNow
         }
-        return Copy.doneReadNow
+    }
+
+    /// Open Cicada reads once now when the person brought something in and an engine can read it (owner 2026-10-22) —
+    /// a run they started, so ruling 4's scheduled gate does not apply.
+    static func readsNow(brought: Bool, canReadNow: Bool) -> Bool { brought && canReadNow }
+
+    /// Something came in during setup: a ticked source or a dropped export that is arriving or arrived.
+    static func brought(_ snapshots: [SetupRowSnapshot]) -> Bool {
+        snapshots.contains { $0.phase == .comingIn || $0.phase == .done }
+    }
+
+    /// An engine a run the person starts can read with (the manual preview names one).
+    static func canReadNow(_ response: SleepEngineResponse?) -> Bool {
+        guard let engine = response?.preview?.manual.engine else { return false }
+        return !["none", "auto", ""].contains(engine)
     }
 }

@@ -4,7 +4,7 @@ import XCTest
 @testable import CicadaApp
 
 /// The Skills page (owner 2026-10-15): the wire decodes leniently, the model sends the person's clicks and follows a
-/// job, onboarding's defaults tick the two harnesses and never the video skill, and no Swift file writes into an
+/// job, and no Swift file writes into an
 /// agent's skill folder (the backend's `skill_store` is the one writer).
 @MainActor
 final class SkillsPageTests: XCTestCase {
@@ -205,8 +205,6 @@ final class SkillsPageTests: XCTestCase {
 
 private final class FakeSkillsAPI: SkillsAPI, @unchecked Sendable {
     var page = SkillsPageData()
-    var offer = SkillsOnboardingOffer()
-    var answers: [[String]] = []
     var toggles: [(name: String, agent: String, on: Bool)] = []
     var jobStates: [String] = []
     var kinds: [(key: String, kind: String?)] = []
@@ -232,11 +230,6 @@ private final class FakeSkillsAPI: SkillsAPI, @unchecked Sendable {
         let state = jobStates.isEmpty ? "done" : jobStates.removeFirst()
         return SkillJob(id: id, kind: "update", label: "x", state: state,
                         message: state == "failed" ? "uv couldn't install it." : nil)
-    }
-    func skillsOnboarding() async throws -> SkillsOnboardingOffer { offer }
-    func answerSkillsOnboarding(install: [String], agents: [String]) async throws -> SkillJob? {
-        answers.append(install)
-        return nil
     }
     func setSkillKind(key: String, kind: String?) async throws { kinds.append((key, kind)) }
 }

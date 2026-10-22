@@ -1,12 +1,14 @@
 import AppKit
 import SwiftUI
 
-/// Onboarding v2, step 3 (G217, ruling 36 D3): the agents found on this machine, one `LogoTile` row each
-/// (`AgentStepRows`: the backend's wiring says it is installed, the Claude app is here, or `/agents/live` saw it).
-/// Each row's one verb is Settings' own: *Connect* runs Connect for me plus Remembers automatically (R-OB12) — its
-/// commands shown before the click that runs them (spec decision 14), through `AgentConnect.run` with the one wiring
-/// answer's binaries (R-FA15); the Claude app's *Connect* is *Set up Claude*'s config merge; Cursor's opens its own
-/// catalog link; everything else is *Copy setup prompt*. A Claude Code wired through the plugin answers no argv, so
+/// Onboarding v2, step 3 (G217, ruling 36 D3): one row per provider umbrella (`GET /providers`, as the Agents page
+/// lists them) holding the products of it found on this machine (`AgentStepRows`: the backend's wiring says it is
+/// installed, the Claude app is here, or `/agents/live` saw it) — Anthropic: Claude Code · Claude app; OpenAI: Codex …
+/// The umbrella's own mark in a `LogoTile`, never a product badge. Its one *Connect* opens each found product's own
+/// action, Settings' own: Connect for me plus Remembers automatically (R-OB12) through `AgentConnect.run` with the one
+/// wiring answer's binaries (R-FA15) — "Cicada runs exactly these commands…" with *Run these*, the commands behind a
+/// collapsed *Show commands*, readable before the click (spec decision 14); the Claude app's *Set up Claude* merge;
+/// Cursor's catalog link; else *Copy setup prompt*. A Claude Code wired through the plugin answers no argv, so
 /// it is offered nothing to run (the plugin is the canonical door). The row turns green when the agent first calls
 /// Cicada (`AgentLiveProbe`, polled every 3 s while the step shows, R-AG15). Below: any other agent's prompt, and
 /// *Add an agent token* for personal agents (G213). DR-40, DR-48, DR-52.
@@ -26,9 +28,12 @@ struct AgentsStep: View {
         NSWorkspace.shared.urlForApplication(withBundleIdentifier: LocalInventory.claudeDesktopBundleId) != nil
     }
 
-    private var rows: [AgentStepRow] {
-        AgentStepRows.rows(wiring: model.wiring, live: live.rows, setups: model.setups,
-                           claudeAppInstalled: claudeAppInstalled)
+    @State private var directory = ProviderDirectory.shared
+
+    private var rows: [AgentUmbrellaRow] {
+        AgentStepRows.umbrellas(directory.agents,
+                                products: AgentStepRows.rows(wiring: model.wiring, live: live.rows, setups: model.setups,
+                                                             claudeAppInstalled: claudeAppInstalled))
     }
 
     var body: some View {
@@ -42,7 +47,7 @@ struct AgentsStep: View {
                 }
                 ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                     if index > 0 { SettingsDivider() }
-                    agentRow(row)
+                    umbrellaRow(row)
                 }
             }
             .settingsCardSurface()
@@ -57,6 +62,7 @@ struct AgentsStep: View {
             .settingsCardSurface()
         }
         .task { await live.run() }
+        .task { await directory.load() }
         .task {
             await model.load()
             for entry in AgentCatalog.all { await model.select(entry) }
@@ -64,15 +70,42 @@ struct AgentsStep: View {
         .sheet(isPresented: $addingToken) { AddAgentTokenSheet { addingToken = false } }
     }
 
-    // MARK: A row
+    // MARK: An umbrella
 
-    private func agentRow(_ row: AgentStepRow) -> some View {
-        let status = AgentStepRows.status(row, started: started.contains(row.id))
-        return ConnectionLine(logo: row.entry.mark, name: row.entry.name, systemFallback: row.entry.symbol,
-                              detail: outcome[row.id], status: status, detailLines: 2) {
-            action(row)
+    private func umbrellaRow(_ row: AgentUmbrellaRow) -> some View {
+        let status = AgentStepRows.status(row, started: started)
+        return ConnectionLine(logo: row.logo, name: row.label, systemFallback: "sparkles", detail: row.detail,
+                              status: status, detailLines: 1) {
+            if !row.actionable.isEmpty, expanded != row.id {
+                NeutralButton(title: Copy.agentsConnect, size: .compact) { expanded = row.id }
+            }
         } below: {
-            if expanded == row.id, case .connect(let steps) = row.action { commands(row, steps) }
+            if expanded == row.id {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                    ForEach(row.actionable) { product in productLine(product) }
+                    HStack {
+                        Spacer()
+                        TextButton(title: Copy.agentsDone, inline: true) { expanded = nil }
+                    }
+                }
+                .padding(.leading, LogoTile.tileSide(.regular) + CicadaTheme.spacingMD)
+            }
+        }
+    }
+
+    /// One found product under its umbrella: its name, then its own action (Settings' path).
+    private func productLine(_ product: AgentStepRow) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                Text(product.name).font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.textPrimary)
+                Spacer(minLength: CicadaTheme.spacingSM)
+                action(product)
+            }
+            if case .connect(let steps) = product.action { commands(product, steps) }
+            if let outcome = outcome[product.id] {
+                Text(outcome).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -81,14 +114,13 @@ struct AgentsStep: View {
         switch row.action {
         case .none, .preparing:
             EmptyView()
-        case .connect:
-            if expanded != row.id {
-                NeutralButton(title: Copy.agentsConnect, size: .compact) { expanded = row.id }
-            }
+        case .connect(let steps):
+            NeutralButton(title: running == row.id ? Copy.agentConnecting : Copy.agentsRun, size: .compact,
+                          isDisabled: running != nil) { run(row, steps) }
         case .setUpClaude:
-            NeutralButton(title: Copy.agentsConnect, size: .compact) { setUpClaude(row) }
+            NeutralButton(title: Copy.agentSetUpClaude, size: .compact) { setUpClaude(row) }
         case .openCursor:
-            NeutralButton(title: Copy.agentsConnect, size: .compact) { openCursor(row) }
+            NeutralButton(title: Copy.agentOpenInCursor, size: .compact) { openCursor(row) }
         case .copy(let text):
             NeutralButton(title: copied == row.id ? Copy.agentCopied : Copy.agentCopyPrompt,
                           systemImage: copied == row.id ? "checkmark" : "doc.on.doc", size: .compact) {
@@ -97,26 +129,23 @@ struct AgentsStep: View {
         }
     }
 
-    /// The one click that runs them, then the exact commands it runs (spec decision 14) — in a short scroll, so a
-    /// stranger sees the button first and every command is still there to read before the click.
+    /// "Cicada runs exactly these commands…" beside *Run these*; the commands themselves behind a collapsed *Show
+    /// commands* (DR-39), one click from being read before the run (spec decision 14).
     private func commands(_ row: AgentStepRow, _ steps: [AgentWiringStep]) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                Text(Copy.agentConnectHow).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: CicadaTheme.spacingSM)
-                TextButton(title: Copy.Intelligence.cancel, inline: true) { expanded = nil }
-                NeutralButton(title: running == row.id ? Copy.agentConnecting : Copy.agentsRun, size: .compact,
-                              isDisabled: running != nil) { run(row, steps) }
-            }
-            ScrollView {
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                    ForEach(steps, id: \.self) { CommandBox(command: $0.display) }
+            Text(Copy.agentConnectHow).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            DisclosureGroup(Copy.agentsShowCommands) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                        ForEach(steps, id: \.self) { CommandBox(command: $0.display) }
+                    }
                 }
+                .frame(maxHeight: CicadaTheme.scaled(AgentsStepLayout.commandsHeight))
             }
-            .frame(maxHeight: CicadaTheme.scaled(AgentsStepLayout.commandsHeight))
+            .font(CicadaTheme.captionFont)
+            .foregroundStyle(CicadaTheme.textSecondary)
         }
-        .padding(.leading, LogoTile.tileSide(.regular) + CicadaTheme.spacingMD)
         .privacySensitive()
     }
 
@@ -143,7 +172,7 @@ struct AgentsStep: View {
             running = nil
             switch result {
             case .done:
-                expanded = nil
+                // The umbrella stays open: its other products may still have a step.
                 started.insert(row.id)
                 outcome[row.id] = nil
                 await model.refreshWiring()

@@ -463,6 +463,8 @@ never forks across writers.
 everything, TODO ruling 13); `POST /sleep/cancel` says so ("Batches already filed stay filed"), and while a drain runs the
 bank-switching routes answer 409. `POST /sleep/trigger` takes an optional `{"continue": true}` (Sleep page v5).
 
+**A new memory reads nightly (owner 2026-10-22).** A bank this install just created — the first-boot default bank (`seed_owner_if_brand_new` wrote its owner page) or `create_bank` with its owner page (never the demo) — gets `sleep_schedule.yaml` written once as `daily` 03:00 (`sleep_scheduler.seed_new_bank_schedule`, never over an existing file); a bank that already existed with no file still reads as `manual`. A scheduled run uses the plan per ruling 4c. Onboarding's Done says so ("It reads tonight at 3:00, and now for what you brought in.") and Open Cicada starts one run when something came in during setup.
+
 **Schedule modes (G125 R6/R7).** Settings → Schedule offers four modes on `ScheduleConfig.mode`:
 `manual`, `daily` (hour/minute), `interval` (`interval_hours`, 1–168, default 6), and `after_import`
 — no writer hooks an import; `sleep_scheduler` installs a 5-minute `IntervalTrigger` probe that

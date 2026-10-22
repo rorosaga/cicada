@@ -183,8 +183,7 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
     cards = [
         SleepEngineCandidate(
             id="auto", label="Auto", available=True,
-            detail=("Your Claude plan if it's signed in, else your ChatGPT plan, else Ollama if "
-                    "it's running. Never an API key unless you choose it."),
+            detail="Your Claude plan if you're signed in, else your ChatGPT plan. Never an API key unless you choose it.",
         ),
         SleepEngineCandidate(
             id="agent", label="Claude plan",
@@ -376,7 +375,18 @@ async def build_response(settings: Settings, reg) -> SleepEngineResponse:
         selected=selected_card(mode, model), provider=provider, providers=providers,
         reserve=_reserve_status(settings, reg, preview.manual.engine),
         run_keeps_engine=run_keeps_engine(settings, preview),
+        auto_local_kept_on=_auto_local_kept_on(reg),
     )
+
+
+def _auto_local_kept_on(reg) -> str | None:
+    """The day ruling 36 D1's one-time step kept this person's local model as their explicit choice, while it still is
+    (`engine_select.retire_auto_local_rung`) — the app says so in one line; ``None`` otherwise."""
+    entry = reg.prefs().get(PREF_KEY) or {}
+    record = entry.get(engine_select.AUTO_LOCAL_RECORD_KEY) or {}
+    if isinstance(record, dict) and record.get("outcome") == "kept_local" and entry.get("mode") == "local":
+        return record.get("on")
+    return None
 
 
 def validate_and_write(body: SleepEngineChoice, reg) -> None:

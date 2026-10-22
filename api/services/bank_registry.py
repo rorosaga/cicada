@@ -671,6 +671,10 @@ def create_bank(root: Path, name: str, description: str = "", *, seed_owner: boo
         from api.services import owner_identity
 
         owner_identity.seed_owner_page(path)
+        # Owner 2026-10-22: a new memory consolidates nightly by default (the demo, seed_owner=False, does not).
+        from api.services import sleep_scheduler
+
+        sleep_scheduler.seed_new_bank_schedule(path)
     return slug
 
 

@@ -405,11 +405,16 @@ extension Copy {
         static func usingLocal(_ label: String) -> String { "Using \(label) on this Mac — no plan is signed in." }
         static let usingKey = "Using your API key."
         static let nothingYet = "Nothing to read with yet. Sign in to a plan and Auto uses it."
-        static let rule = "Auto uses a plan you're signed in to first, then a model running on this Mac. "
+        /// Ruling 36 D1 (2026-10-22): Auto has no local rung.
+        static let rule = "Auto uses your Claude plan if you're signed in, else your ChatGPT plan. "
             + "It never uses an API key you didn't choose."
         static let chosen = "You chose this engine instead of Auto."
         static let backToAuto = "Back to Auto"
-        static let backToAutoHelp = "Let Cicada pick: your plan first, then a model on this Mac"
+        static let backToAutoHelp = "Let Cicada pick your signed-in plan"
+        /// Ruling 36 D1's one-time step, said once it kept a local model as the person's choice.
+        static func keptLocal(_ day: String) -> String {
+            "Auto no longer uses a model on this Mac, so on \(day) Cicada kept yours as your choice."
+        }
         static let differentEngine = "Use a different engine"
     }
 

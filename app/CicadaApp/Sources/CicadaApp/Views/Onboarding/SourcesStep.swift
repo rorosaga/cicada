@@ -15,6 +15,8 @@ struct SourcesStep: View {
     let imports: [ImportEntry]
     let snapshots: [FoundItemID: SetupRowSnapshot]
     let dropTargeted: Bool
+    /// The browsers macOS hides until Full Disk Access is granted (`LocalInventory`, R-OB7).
+    var needsAccess: Set<FoundItemID> = []
     let onTick: (ImportEntry, Bool) -> Void
     let onSeeHow: (ChatVendor) -> Void
 
@@ -64,6 +66,13 @@ struct SourcesStep: View {
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                     Text(tile.title).font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(1)
+                    // What a tick reads and the consent it leads to, visible before the click (fix round 2026-10-22).
+                    if case .tick(let entry) = tile.kind,
+                       let caption = SourceTiles.caption(entry, needsAccess: needsAccess.contains(entry.id)) {
+                        Text(caption).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     // The ring already says Off (DR-38): the word shows only when it says more, and keeps its
                     // line either way so every tile in a row stays one height.
                     StatusWord(word: state.word, tone: state.tone)
@@ -72,7 +81,7 @@ struct SourcesStep: View {
                 }
             }
             .padding(CicadaTheme.spacingSM)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(state.ticked ? CicadaTheme.bgSelected : CicadaTheme.bgFocus,
                         in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
             .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))

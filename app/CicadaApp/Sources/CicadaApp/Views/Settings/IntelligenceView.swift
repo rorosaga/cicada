@@ -85,9 +85,11 @@ struct IntelligenceView: View {
             ?? response.flatMap { Self.connection(forCard: $0.selected, provider: $0.provider) }
                 .flatMap { ConnectionMark.logoName(connectionId: $0) }
         let isAuto = response?.selected == "auto"
+        // Ruling 36 D1's one-time step, recorded rather than silent: one line while the kept choice stands.
+        let kept = response?.autoLocalKeptOn.map(Copy.EngineHeadline.keptLocal)
         return ConnectionLine(logo: mark, name: name, systemFallback: "cpu",
                               detail: response?.isPinnedByEnvironment == true ? Copy.Intelligence.pinned
-                                  : (isAuto ? Copy.Intelligence.auto : nil)) {
+                                  : (kept ?? (isAuto ? Copy.Intelligence.auto : nil))) {
             if let choice = modelChoice, let response {
                 Menu(response.model.isEmpty ? Copy.Intelligence.inUse : response.model) {
                     ForEach(choice.models, id: \.self) { model in

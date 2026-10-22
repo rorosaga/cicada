@@ -389,34 +389,43 @@ plan."), *Use an API key* opens Settings → Intelligence's own `IntelligenceRow
 paste → Verify, the 422/503 sentences) with "More keys in Settings → Intelligence"; with nothing that can read, the plans
 and those keys show side by side. A local model is never offered. The step writes only from a row's click (Sign in,
 Verify, *Use* through `IntelligenceView.write(using:)`); Continue and Skip change nothing.
-*Agents* (`AgentsStep`): `AgentStepRows` — the harnesses found on this machine (`/agents/wiring` says installed, the Claude
-app is present, or `/agents/live` saw it), a `ConnectionLine` each with a dot and one word (Found → Waiting → Connected,
-green when the agent first calls, polled every 3 s). *Connect* runs Settings' own paths: Connect for me plus Remembers
-automatically (R-OB12) through `AgentConnect.run` with the wiring answer's binaries, its commands shown in a short scroll
-under *Run these* before the click (spec decision 14); the Claude app's config merge; Cursor's catalog link; otherwise
-*Copy setup prompt*. A plugin-wired Claude Code is offered nothing to run. Below: *Another agent* (the generic prompt)
-and *Personal agents* → *Add an agent token* (G213, `AddAgentTokenSheet`).
+*Agents* (`AgentsStep`, fix round 2026-10-22): one row per provider umbrella (`ProviderDirectory`, `GET /providers`,
+as the Agents page lists them) holding the products of it found on this machine (`AgentStepRows.rows`: `/agents/wiring`
+says installed, the Claude app is present, or `/agents/live` saw it; `umbrellas` groups them) — Anthropic: Claude Code ·
+Claude app; OpenAI: Codex. The umbrella's own mark in a `LogoTile`, never a product badge (a product no umbrella claims
+wears its vendor's mark, `umbrellaLogo`); a dot and one word (Found → Waiting → Connected, green when any product first
+calls, polled every 3 s). One *Connect* opens each found product's own action, Settings' paths: Connect for me plus
+Remembers automatically (R-OB12) through `AgentConnect.run` with the wiring answer's binaries — "Cicada runs exactly these
+commands…" and *Run these*, the commands behind a collapsed *Show commands* (spec decision 14); *Set up Claude*'s merge;
+*Open in Cursor*; else *Copy setup prompt*. A plugin-wired Claude Code is offered nothing to run. Below: *Another agent*
+(the generic prompt) and *Personal agents* → *Add an agent token* (G213, `AddAgentTokenSheet`).
 *Sources* (`SourcesStep`): `SourceTiles` — a grid of `SourceLogoTile`s: Calendar, Contacts and each supported browser
 tick through the one turn-on (`SetupRunner.start`, `FoundTurnOn`; untick stops keeping up), Messages, YouTube, X and
-Instagram open the Sources page's own `SourceCatalogDetail` over onboarding (its consents, chat picker and per-site switch),
+Instagram open the Sources page's own `SourceCatalogDetail` over onboarding (its consents, chat picker and per-site switch);
+each tick tile shows what it reads and the consent it leads to before the click (`SourceTiles.caption`: the catalog's own
+idle line or a browser's reads, "Needs Full Disk Access" for a browser macOS hides),
 chat history takes a drop or the file panel, *How to get an export* opens `ExportWalkthroughSheet`. Nothing is pre-ticked
 or read before a tick (R-OB6, R-IB12).
-*Done* (`DonePage`): "You're set.", `DoneLine` — "Talk to your agent; Cicada remembers." plus imports coming in now, the
-schedule's own time when a schedule can read, else "Read now on Home builds your first pages." (never "tonight" on a
-manual schedule) — one `MemoryQuotes` line (G153), Open Cicada (mark the bank, record connected agents, offer the tour,
-Home). **Persisted values (Hyrum mode B):** `cicada.hasOnboarded.<bank>` unchanged; new `cicada.onboarding.step.<bank>`
+*Done* (`DonePage`): "You're set.", `DoneLine` — "Talk to your agent; Cicada remembers." plus the schedule's own time
+when a schedule can read (a new memory reads nightly, `features.md`) and "and now for what you brought in" when something
+came in during setup and an engine can read it, else "Read now on Home builds your first pages." — one `MemoryQuotes` line
+(G153), Open Cicada (one run now when something came in, a run the person started; mark the bank, record connected
+agents, offer the tour, Home). **Persisted values (Hyrum mode B):** `cicada.hasOnboarded.<bank>` unchanged; new `cicada.onboarding.step.<bank>`
 holds the step reached as a word, so a person who quits mid-way resumes there once their name is saved; finishing,
 *Set up later* and *Run setup again* clear it; `OnboardingPage(stored:)` maps the seven-step names (`import` → Sources,
 `whoReads` → Intelligence, `skills` → Sources, `keepRunning`/`ready` → Done). The old Skills step (`POST
 /skills/onboarding`) and Keep it running are gone from onboarding: skills install from the Skills page, and the login-item
 and menu-bar switches stay in Settings → General (Keep it running turned none on). The first-run empty states (Graph,
-Inbox, Home's all-empty block) lead with one SF Symbol (DR-50 amendment, 2026-10-22). Getting started continues on Home
-as before.
+Inbox, Home's all-empty block) lead with one SF Symbol (DR-50 amendment, 2026-10-22). Getting started continues on Home,
+and once `OnboardingState.isOnboarded` it never asks again what onboarding covered (`GettingStartedFold`): rows already on
+or coming in fold into one line ("N things already set up"), only open rows stay, and the past-chats and *Also on this
+Mac* offers go. Settings → Intelligence's In use row says in one line when ruling 36 D1's one-time step kept a local model
+as the person's choice (`autoLocalKeptOn`).
 
 **Engine choice in onboarding: Auto first (settings defaults pass 2, owner 2026-10-22; ruling 31).** Until D6 Settings drew
 `EngineChooser(foldsOtherEngines: true)` (the engine card): the card opens on `EngineHeadline` — *Auto* and what it uses now from
 `preview.manual` ("Using your Claude plan — you're signed in.", the ChatGPT plan, the model on this Mac, or "Nothing to
-read with yet" with a Plans & keys link), the rule in one line (a plan first, then a model on this Mac, never a key
+read with yet" with a Plans & keys link), the rule in one line (the Claude plan, then the ChatGPT plan — ruling 36 D1 removed the local rung — never a key
 nobody chose), or, for a stored choice that isn't Auto, that card's name, its cost model and state, and *Back to Auto*
 (`EngineWrite(mode: "auto", model: nil)`; hidden while the environment fixes the engine). Every other card waits
 under *Use a different engine* (`DisclosureGroup`, DR-39, per viewer `cicada.engines.othersOpen`; landing on
@@ -432,7 +441,7 @@ Claude plan, ChatGPT plan, OpenRouter, Ollama (tagged *Local*), API key — over
 `PUT /sleep/engine`, which lands in the same bank-independent `~/.cicada/connections.json` prefs
 `use_for_sleep` already uses, never `api/.env`. A plan card is selectable once that plan is signed
 in. **Auto is the default (ruling 31, 2026-10-19):** an untouched install selects the Auto card, whose caption says it
-reads with the Claude plan, else the ChatGPT plan, else Ollama — never an API key unless the person chooses it; with
+reads with the Claude plan, else the ChatGPT plan (never a local model since ruling 36 D1; a person who read through one under Auto was kept on it as an explicit choice, once, recorded) — never an API key unless the person chooses it; with
 none of them a preview's engine is `none` ("No engine yet", `Copy.engineLabel`), the chooser asks for a choice before a
 read (`EngineReadiness.needsChoice`) and the onboarding caption says nothing can read yet. OpenRouter and the API key
 stay cards the person may pick. The card shows both `preview.manual` and `preview.scheduled` lines rather than hiding
