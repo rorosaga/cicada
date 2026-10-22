@@ -117,6 +117,7 @@ work, update both.
   clears (plan → critic → per-task implement+review → two-lens final review → verify yourself → PR
   to `dev`), the test baselines that are *not* failures, the rails that override convenience, and
   the paused queue with the reasoning for its order.
+- **[`feature-status.md`](docs/goals/feature-status.md) — one line per feature, its status and PR; every PR updates its line.**
 
 **Privacy rule (standing, 2026-09-02).** Nothing personal about the owner or anyone in their life
 goes into `docs/goals/`, this file, a plan, a commit message, or a PR body: no names of other
@@ -162,7 +163,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 
 ### Capture (Awake)
 
-- **No LLM at capture time** — capture is file I/O into `episodes/`; the pipeline is source-agnostic.
+- **No LLM at capture time** — capture is file I/O into `episodes/`; the pipeline is source-agnostic. **Amended (ruling
+  36 D2, 2026-10-22):** a separate quick read after a conversation ends may write provisional claims Sleep confirms or
+  drops — never on the capture path, on by default only if measured better, no setting (G207).
 - **The app reads `~/Library`, the backend parses bytes.** The launchd backend has no Full Disk Access and never opens
   those paths, never stats a path a request names, never runs git in a declared repo; the app reads (browsers, Notes via
   its own `osascript`, Calendar, Contacts, Chrome tab groups, watched folders, Wispr Flow) and posts bytes. A browser is
@@ -206,8 +209,10 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   page reads run once per drain. A plan limit is a pause, not a failure. **Ruling 4: a scheduled run uses a Claude or ChatGPT plan only
   through the person's "Scheduled runs may use my plan" switch, on unless they turned it off** (4b 2026-10-16, 4c
   2026-10-19; `SUBSCRIPTION_MODES` the one guard); on a metered engine it spends with no limit Cicada sets, said in words.
-  **Plan-first engines (ruling 31, 2026-10-19):** the default is Auto — Claude plan, ChatGPT plan, local model — and never
-  a metered key nobody chose: no engine is said in words, and a key (OpenRouter included) reads only when chosen. Continue-after-reset is opt-in,
+  **Plan-first engines (ruling 31, 2026-10-19):** the default is Auto — Claude plan, ChatGPT plan — and never
+  a metered key nobody chose: no engine is said in words, and a key (OpenRouter included) reads only when chosen.
+  **Ruling 36 D1 (2026-10-22):** a key secured properly or the person's own Claude Code / Codex, their choice; a local
+  model runs only when chosen, never as Auto's rung. Continue-after-reset is opt-in,
   off (ruling 15). A scheduled time the Mac slept or was off through runs once, after a short settle, as a scheduled
   run — never over a pause or a running cycle (`sleep_catch_up`, owner 2026-10-19, `features.md`).
 - **The write window (G177):** `sleep_cycle.is_writing()` is the one predicate behind every "Sleep is running" refusal,
@@ -377,7 +382,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **The ToS rail — not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never behind auth. Consent
   interstitials and login walls are classified and retired **without a byte fetched**. **A block is never retried with
   different headers.** No scraping behind authentication, ever. **One dated exception (owner, 2026-10-09):** a person's
-  photo through unavatar.io from an X or LinkedIn link already on their page, behind its own gate, off by default.
+  photo through unavatar.io from an X or LinkedIn link already on their page, behind its own gate — **on by default
+  since ruling 36 D5 (2026-10-22)**, shipped with sources on people (G61); the person can turn it off.
 - **Credentials** live in `~/.cicada/secrets.env` (0600) — never in a bank, never logged.
 - **Headless (G181):** a server is its bank's one writer and binds 127.0.0.1 only; reach from another machine is an
   overlay the person runs (never a public port, never funnel — only the G135 listener may be, by the person, ruling 32), and no installer creates or copies a credential (`headless.md`).
