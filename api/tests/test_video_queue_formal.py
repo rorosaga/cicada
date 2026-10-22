@@ -1,8 +1,9 @@
 """The video queue's model-checking findings, reproduced against the real code (`.claude/skills/verify-video-queue`).
 
-Each finding's test drives the real entry points in the order the TLC counterexample gives and fails today on its
-assertion. They are `xfail(strict=True, raises=AssertionError)`, so a fix flips them to an unexpected pass (the marker
-comes off with it), and a hang or a crash in the test's own threads fails the run instead of passing as the finding.
+Each finding's test drives the real entry points in the order the TLC counterexample gives. Ruling 34 (2026-10-22)
+fixed F1, F2, F4 and F5, so their tests now pass and guard the fix. F3 was accepted: its two tests stay
+`xfail(strict=True, raises=AssertionError)`, so a change that closes it flips them to an unexpected pass, and a hang
+or a crash in the test's own threads fails the run instead of passing as the finding.
 Synthetic banks only; the queue file lives under the conftest-isolated CICADA_HOME."""
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from _video_fixtures import add_video, bank_with_videos, url_of
+from _video_fixtures import add_video, bank_with_videos, held, url_of
 from api.services import episode_ids, mcp_tools, video_queue, video_state
 
 T0 = datetime(2026, 9, 29, 14, 0, 0, tzinfo=timezone.utc)
@@ -74,9 +75,8 @@ def _record_with_a_gap(monkeypatch, ctx, url, basis, *, episode_at, between):
     return reply
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="F1: video_queue.release:661 fails any claimed row, whoever asks")
 def test_f1_a_session_cannot_hand_back_another_sessions_lease(two_sessions):
+    """F1, fixed by ruling 34: only the claim's own lease token hands a video back."""
     memory, keys, a, b = two_sessions
     video_queue.put(memory, keys[0], "watch")
     assert "Leased 1 video" in mcp_tools.video_claim(a, limit=1)
@@ -84,6 +84,7 @@ def test_f1_a_session_cannot_hand_back_another_sessions_lease(two_sessions):
     row = _row(memory, keys[0])
     assert row["state"] == "claimed" and row["session"] == "ses_a", (
         f"session b ended session a's lease; b was told: {reply!r}")
+    assert "Nothing was handed back" in reply and "pass the lease_token" in reply
 
 
 def test_p13_a_claimer_with_no_session_id_can_hand_back_its_own_lease(two_sessions):
@@ -94,16 +95,15 @@ def test_p13_a_claimer_with_no_session_id_can_hand_back_its_own_lease(two_sessio
     video_queue.put(memory, keys[0], "watch")
     leased = mcp_tools.video_claim(cli, limit=1)
     assert "Leased 1 video" in leased
-    item = {"url": url_of("00"), "code": "no_captions", "reason": "none"}
-    if token := re.search(r"lease_token[\"'`]?\s*[:=]\s*[\"'`]?([0-9a-f]{16,})", leased):
-        item["lease_token"] = token.group(1)
+    token = re.search(r"lease_token[\"'`]?\s*[:=]\s*[\"'`]?([0-9a-f]{16,})", leased)
+    assert token, "the claim reply carries the lease token (ruling 34)"
+    item = {"url": url_of("00"), "code": "no_captions", "reason": "none", "lease_token": token.group(1)}
     assert "Handed back 1 video" in mcp_tools.video_claim(cli, release=[item])
     assert _row(memory, keys[0])["state"] == "failed"
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="F2: mcp_tools.video_claim:1204 reads the saved videos before video_queue.claim:624 locks")
 def test_f2_a_stale_saved_snapshot_never_drops_a_queued_video(two_sessions, monkeypatch):
+    """F2, fixed by ruling 34: every writer reads the saved videos under the queue lock."""
     memory, keys, a, _ = two_sessions
     video_queue.put(memory, keys[0], "watch")
     real = video_state.saved_videos
@@ -127,7 +127,7 @@ def test_f2_a_stale_saved_snapshot_never_drops_a_queued_video(two_sessions, monk
         if not snapshot_taken.wait(THREAD_LIMIT_S):
             raise RuntimeError("the agent never read the saved videos")
         new_key["k"] = add_video(memory, "09")
-        video_queue.put(memory, new_key["k"], "watch", saved=real(memory))
+        video_queue.put(memory, new_key["k"], "watch")
         person_done.set()
 
     monkeypatch.setattr(video_state, "saved_videos", saved_videos)
@@ -138,7 +138,8 @@ def test_f2_a_stale_saved_snapshot_never_drops_a_queued_video(two_sessions, monk
 
 
 @pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="F3: video_queue.complete:694 closes a row on a stated basis whatever the record's age")
+                   reason="F3, accepted by ruling 34: a stated basis closes the row whatever the record's age "
+                          "(video_queue.complete). Revisit if a lease is seen ending on an older record.")
 def test_f3_a_record_older_than_the_request_never_closes_it(two_sessions, monkeypatch):
     memory, keys, a, b = two_sessions
     soon = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(seconds=30)
@@ -154,8 +155,9 @@ def test_f3_a_record_older_than_the_request_never_closes_it(two_sessions, monkey
 
 
 @pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="F3: requested_at is cut to the second (video_queue._iso:132); a record from earlier in "
-                          "the same second counts as newer (video_state.newer_than:239)")
+                   reason="F3, accepted by ruling 34: requested_at is cut to the second (video_queue._iso) and a "
+                          "record from earlier in the same second counts as newer (video_state.newer_than). Revisit "
+                          "if a lease is seen ending on an older record.")
 def test_f3_a_record_from_earlier_in_the_requests_second_never_closes_it(two_sessions, monkeypatch):
     memory, keys, a, b = two_sessions
     second = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(seconds=30)
@@ -172,9 +174,8 @@ def test_f3_a_record_from_earlier_in_the_requests_second_never_closes_it(two_ses
         "a record written 0.4 s before the request, in the same second, closed it")
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="F5: video_queue.complete:696 trusts a session id that conversations can share")
 def test_f5_a_shared_session_id_never_lets_one_conversation_close_anothers_lease(tmp_path, monkeypatch):
+    """F5, fixed by ruling 34: a record with no basis closes a leased row only with its lease token."""
     memory, keys = bank_with_videos(tmp_path, 1)
     monkeypatch.setattr(mcp_tools, "_backend_sleep_running", lambda *a, **k: False)
     bucket = "rc_ab12cd34_2026-10-22"
@@ -185,6 +186,23 @@ def test_f5_a_shared_session_id_never_lets_one_conversation_close_anothers_lease
     row = _row(memory, keys[0])
     assert row is not None and row["state"] == "claimed", (
         "a record with no basis from a second conversation on the same id closed the first one's lease")
+    token = row["lease_token"]
+    mcp_tools.record_watch(a, url_of("00"), "The leaseholder's own summary.", lease_token=token)
+    assert _row(memory, keys[0]) is None, "the leaseholder's own record, with its token, closes the row"
+
+
+def test_f4_a_session_that_keeps_calling_holds_a_lease_at_most_three_periods(tmp_path):
+    """F4, fixed by ruling 34: a refresh never carries a lease past MAX_LEASE_PERIODS lease periods from its claim."""
+    memory, keys = bank_with_videos(tmp_path, 1)
+    video_queue.put(memory, keys[0], "watch", now=_at())
+    video_queue.claim(memory, session="ses_a", harness="h", now=_at(0))
+    cap = video_queue.LEASE_MINUTES * video_queue.MAX_LEASE_PERIODS
+    for minute in range(10, cap, 10):   # the session keeps using the queue; each call refreshes its leases
+        video_queue.claim(memory, session="ses_a", harness="h", now=_at(minute), holding=lambda: False)
+    row = _row(memory, keys[0], _at(cap - 1))
+    assert row["state"] == "claimed" and row["lease_until"] == video_queue._iso(_at(cap))
+    row = _row(memory, keys[0], _at(cap))
+    assert row["state"] == "queued" and row["attempts"] == 1, "the lease outlived its cap"
 
 
 def test_p1_two_claimers_that_read_at_once_never_share_a_video(tmp_path, monkeypatch):
@@ -221,7 +239,7 @@ def test_p6_releasing_or_recording_twice_leaves_the_queue_as_once(tmp_path):
         video_queue.put(memory, k, "watch", now=_at())
     video_queue.claim(memory, session="ses_a", harness="h", limit=2, now=_at(1))
     path = video_queue.path_for(memory)
-    release = [{"url": url_of("00"), "code": "no_captions", "reason": "none"}]
+    release = held(memory, [{"url": url_of("00"), "code": "no_captions", "reason": "none"}])
     video_queue.release(memory, release, session="ses_a", now=_at(2))
     once = path.read_text()
     assert video_queue.release(memory, release, session="ses_a", now=_at(2)) == [(url_of("00"), "not_claimed")]
@@ -236,7 +254,7 @@ def test_p11_a_failed_video_waits_for_the_person(tmp_path):
     memory, keys = bank_with_videos(tmp_path, 1)
     video_queue.put(memory, keys[0], "watch", now=_at())
     video_queue.claim(memory, session="ses_a", harness="h", now=_at(1))
-    video_queue.release(memory, [{"url": url_of("00"), "code": "needs_login", "reason": "sign-in"}],
+    video_queue.release(memory, held(memory, [{"url": url_of("00"), "code": "needs_login", "reason": "sign-in"}]),
                         session="ses_a", now=_at(2))
     assert video_queue.claim(memory, session="ses_b", harness="h", now=_at(3)) == [], "a failed video was leased"
     video_queue.retry(memory, keys[0], now=_at(4))

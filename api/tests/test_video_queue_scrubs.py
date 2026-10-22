@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from _video_fixtures import bank_with_videos, url_of
+from _video_fixtures import bank_with_videos, held, url_of
 from api.services import episode_scrub, video_queue
 
 SECRETS = [
@@ -34,8 +34,8 @@ def test_a_secret_shaped_reason_is_redacted_one_line_and_capped(tmp_path, secret
     memory, keys = bank_with_videos(tmp_path, 1)
     video_queue.put(memory, keys[0], "watch")
     video_queue.claim(memory, session="s", harness="h")
-    video_queue.release(memory, [{"url": url_of("00"), "code": "blocked",
-                                  "reason": f"first line\nsecond {secret}\t" + "z" * 500}], session="s")
+    video_queue.release(memory, held(memory, [{"url": url_of("00"), "code": "blocked",
+                                               "reason": f"first line\nsecond {secret}\t" + "z" * 500}]), session="s")
     raw = video_queue.path_for(memory).read_text()
     assert secret not in raw
     reason = json.loads(raw)["items"][0]["failed"]["reason"]

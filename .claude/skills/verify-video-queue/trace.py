@@ -144,18 +144,18 @@ def recs_words(rs) -> str:
 
 
 STEP = {
-    "ClaimBegin": "{a} calls cicada_video_claim; mcp_tools.video_claim:1204 reads the saved videos{snap}",
+    "ClaimBegin": "{a} calls cicada_video_claim; video_queue.claim:668 reads the saved videos{snap}",
     "ClaimLocked": "{a}: video_queue.claim runs under the lock",
     "ClaimWrite": "{a}: the lock-free claim writes the file it read earlier (scratch break)",
-    "ReleaseBegin": "{a} calls cicada_video_claim(release=[{key}]); mcp_tools.video_claim:1204 reads the saved videos{snap}",
+    "ReleaseBegin": "{a} calls cicada_video_claim(release=[{key}]); video_queue.release:698 reads the saved videos{snap}",
     "ReleaseLocked": "{a}: video_queue.release({key}) runs under the lock",
     "RecordEpisode": "{a} calls cicada_record_watch({key}, basis={arg}); watch_record.record writes the episode "
-                     "(mcp_tools.record_watch:613); the queue credit has not run yet",
-    "CreditBegin": "{a}: _credit_video_queue starts; video_queue.complete:682 reads the saved videos{snap}",
+                     "(mcp_tools.record_watch:635); the queue credit has not run yet",
+    "CreditBegin": "{a}: _credit_video_queue starts; video_queue.complete:739 reads the saved videos{snap}",
     "CompleteLocked": "{a}: video_queue.complete({key}, basis={arg}) runs under the lock",
-    "PutBegin": "the person queues {key} ({arg}); video_queue.put:514 reads the saved videos{snap}",
-    "RemoveBegin": "the person removes {key}; video_queue.remove:529 reads the saved videos{snap}",
-    "RetryBegin": "the person presses Try again on {key}; video_queue.retry:549 reads the saved videos{snap}",
+    "PutBegin": "the person queues {key} ({arg}); video_queue.put:539 reads the saved videos{snap}",
+    "RemoveBegin": "the person removes {key}; video_queue.remove:555 reads the saved videos{snap}",
+    "RetryBegin": "the person presses Try again on {key}; video_queue.retry:575 reads the saved videos{snap}",
     "PersonLocked": "the person's video_queue.{op}({key}) runs under the lock",
     "SaveVideo": "{key} is saved (its url-index row and page appear)",
     "HideVideo": "{key}'s page is hidden (archived, dropped or junk), so saved_videos no longer lists it",

@@ -7,7 +7,7 @@ from datetime import date
 
 import pytest
 
-from _video_fixtures import bank_with_videos, url_of
+from _video_fixtures import bank_with_videos, held, url_of
 from api.services import consumption_stats, mcp_tools, sync_service, telemetry, video_queue
 
 
@@ -34,8 +34,8 @@ def test_telemetry_video_queue_ids_only(rig):
     video_queue.put(memory, keys[0], "watch")
     video_queue.put(memory, keys[1], "watch")
     mcp_tools.video_claim(ctx)
-    mcp_tools.video_claim(ctx, release=[{"url": url_of("00"), "code": "needs_login",
-                                         "reason": "a reason the ledger must not keep"}])
+    mcp_tools.video_claim(ctx, release=held(memory, [{"url": url_of("00"), "code": "needs_login",
+                                                      "reason": "a reason the ledger must not keep"}]))
     mcp_tools.record_watch(ctx, url_of("01"), "A summary the ledger must not keep.", None, None, "frames")
     rows = [r for r in _rows() if r["kind"] == "video_queue"]
     assert [r["refs"]["action"] for r in rows] == ["claim", "release", "complete"]
@@ -71,7 +71,7 @@ def test_a_scrubbed_reason_leaves_a_capture_row_naming_the_writer_not_other(rig)
     video_queue.put(memory, keys[0], "watch")
     mcp_tools.video_claim(ctx)
     secret = "sk-" + "a1b2c3d4e5f6a7b8c9d0e1f2"
-    mcp_tools.video_claim(ctx, release=[{"url": url_of("00"), "reason": f"token {secret}"}])
+    mcp_tools.video_claim(ctx, release=held(memory, [{"url": url_of("00"), "reason": f"token {secret}"}]))
     path = telemetry.ledger_file(f"{date.today():%Y-%m}")
     rows = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
     capture = [r for r in rows if r["kind"] == "capture"]

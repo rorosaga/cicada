@@ -228,7 +228,9 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
                       "enum": ["captions", "video_link", "local_frames", "speech_to_text", "browser", "other"],
                       "description": "Optional: which route you took."},
            "duration": {"type": "string",
-                        "description": "Optional: the video's length (m:ss, h:mm:ss or seconds); kept only if the page has none."}},
+                        "description": "Optional: the video's length (m:ss, h:mm:ss or seconds); kept only if the page has none."},
+           "lease_token": {"type": "string",
+                           "description": "Optional: the lease_token cicada_video_claim gave you for this video."}},
           ("url", "summary"), read_only=False, idempotent=True, open_world=True),
     _tool("cicada_video_queue",
           "The person's video queue, read-only: the saved videos they asked an agent to read or watch, and "
@@ -239,13 +241,16 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
     _tool("cicada_video_claim",
           "Take the videos the person asked to have read or watched: with no `release`, leases the oldest "
           "queued ones to this conversation (up to `limit`, default 5, at most 10 a call) and returns each "
-          "link with what is wanted. Call it again until it returns nothing. With `release`, hands videos back "
-          "that you could not do, with a code and a short reason. It changes only the person's queue, not "
-          "their memory.",
+          "link with what is wanted and its `lease_token`. Call it again until it returns nothing. With "
+          "`release`, hands videos back that you could not do, each with its `lease_token`, a code and a short "
+          "reason; without the token it is not yours to hand back and the lease ends on its own. It changes only "
+          "the person's queue, not their memory.",
           {"limit": {"type": "integer", "description": "Optional: how many to take (default 5, at most 10)."},
            "release": {"type": "array", "description": "Optional: videos to hand back instead of taking more.",
                        "items": {"type": "object", "required": ["url"], "properties": {
                            "url": {"type": "string", "description": "The video's link as leased."},
+                           "lease_token": {"type": "string",
+                                           "description": "The lease_token cicada_video_claim gave you for this video."},
                            "code": {"type": "string",
                                     "enum": ["needs_login", "no_captions", "not_found", "blocked", "failed"],
                                     "description": "Why it could not be done; needs_login when a sign-in stops you."},

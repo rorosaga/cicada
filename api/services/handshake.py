@@ -70,7 +70,8 @@ from api.services.auth import cicada_home
 # 16: owner 2026-10-14 — item 2: questions come up naturally (`mode="ask"`), answers already given are recorded
 #     with the person's words (`quote`), the inbox is listed on request (`mode="list"`).
 # 17: G198 — item 4 names cicada_edit_page (a page's words and aliases); one past both 16s (it and natural questions).
-CONTRACT_VERSION = 17
+# 18: ruling 34 (G162 F1) — a video hand-back carries its lease_token.
+CONTRACT_VERSION = 18
 MAX_TOKENS = 1800
 VARIANTS = ("claude-code", "codex", "generic")
 
@@ -94,7 +95,8 @@ REMOTE_VARIANT = "remote"
 # 10: G61 S3 — the same sentence, only where the connection holds the queue and cicada_record_check.
 # 11: owner 2026-10-14 — the inbox item says mode="ask"/"list" (questions come up naturally).
 # 12: ruling 32 (owner 2026-10-19) — a connection that can capture is asked to relay every turn.
-REMOTE_CONTRACT_VERSION = 12
+# 13: ruling 34 (G162 F1) — a video hand-back carries its lease_token.
+REMOTE_CONTRACT_VERSION = 13
 # The runtime replaces this with a freshly minted handle AFTER the cache read,
 # so one cached primer serves every conversation of a tool set.
 CONVERSATION_SLOT = "{{conversation}}"
@@ -127,7 +129,7 @@ def _remote_video_queue(tools: frozenset[str]) -> str:
         return (" When the person asks you to work their video queue (or hands you a Cicada prompt for it), "
                 "`cicada_video_claim` takes the videos they asked you to read or watch; repeat it until it "
                 "returns nothing, record each one, and hand one back with "
-                "`cicada_video_claim(release=[{url, code, reason}])`."
+                "`cicada_video_claim(release=[{url, lease_token, code, reason}])`."
                 + (" `cicada_video_queue` lists them without taking any." if "cicada_video_queue" in tools else ""))
     if "cicada_video_queue" in tools:
         return " `cicada_video_queue` lists the videos the person asked an agent to read or watch."
@@ -324,7 +326,7 @@ _CONTRACT = (
     "`cicada_save_url` for a link; after watching a video the person saved, `cicada_record_watch(url, summary, "
     "excerpts=[{t, quote}], basis)` — short timestamped quotes, never the transcript, `basis` being "
     "`transcript`, `frames` or `both`. For the person's video queue, `cicada_video_claim` takes videos to "
-    "watch (repeat until empty; hand one back with `cicada_video_claim(release=[{url, code, reason}])`). "
+    "watch (repeat until empty; hand one back with `cicada_video_claim(release=[{url, lease_token, code, reason}])`). "
     "When the person says what they "
     "did, got, started or finished in a project, record it with `cicada_note_progress(project, kind, summary, "
     "status, evidence)`. When the person asks to put something in the backlog (or to keep it for later), file it "

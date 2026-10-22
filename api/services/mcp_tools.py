@@ -584,7 +584,7 @@ def _write_saved_url(ctx: ToolContext, memory_path: Path, item, prepared) -> str
 
 def record_watch(ctx: ToolContext, url: str, summary: str, excerpts: list | None = None,
                  chapters: list | None = None, basis: str | None = None, engine: str | None = None,
-                 duration=None) -> str:
+                 duration=None, lease_token: str | None = None) -> str:
     """``cicada_record_watch`` (G140 Q-R8, R5 §5.7): record what the caller's
     own tools saw in a saved video — a summary, ≤ 12 timestamped quotes, and
     optional chapters — as one episode and one ``describes`` claim, committed
@@ -596,7 +596,9 @@ def record_watch(ctx: ToolContext, url: str, summary: str, excerpts: list | None
     ``duration`` are the caller's own account of how it read the video — never
     verified, so the app says "an agent recorded that it watched". The record is
     also credited to the person's video queue, **whether or not the bank commit
-    ran** (the queue file lives outside the bank)."""
+    ran** (the queue file lives outside the bank). ``lease_token`` is the one
+    ``cicada_video_claim`` gave for this video: without a basis, only it closes the
+    leased row (ruling 34, F5)."""
     from api.services import watch_record
 
     url = (url or "").strip()
@@ -646,7 +648,7 @@ def record_watch(ctx: ToolContext, url: str, summary: str, excerpts: list | None
                 )
     if r.get("error"):
         return f"Could not record the watch: {r['error']}"
-    queue_outcome = _credit_video_queue(ctx, memory_path, target.url, r.get("basis"))
+    queue_outcome = _credit_video_queue(ctx, memory_path, target.url, r.get("basis"), lease_token)
 
     from api.services import telemetry
 
@@ -1115,14 +1117,15 @@ def _video_ledger(ctx: ToolContext, memory_path: Path, action: str, *, count: in
     ))
 
 
-def _credit_video_queue(ctx: ToolContext, memory_path: Path, url: str, basis: str | None) -> str | None:
+def _credit_video_queue(ctx: ToolContext, memory_path: Path, url: str, basis: str | None,
+                        lease_token: str | None = None) -> str | None:
     """Apply a landed record to the person's queue row for it (§4.3). Never raises:
     the queue is outside the bank and a queue fault must not fail a record."""
     from api.services import media_ingestor, video_queue
 
     try:
         outcome = video_queue.complete(memory_path, media_ingestor.url_hash(url), basis,
-                                       session=ctx.session_id, holding=ctx.pages_held)
+                                       session=ctx.session_id, lease_token=lease_token, holding=ctx.pages_held)
         if outcome == "done":
             _video_ledger(ctx, memory_path, "complete")
         return outcome
@@ -1151,7 +1154,7 @@ def _untrusted_block(ctx: ToolContext, lines: list[str]) -> list[str]:
     return [REFERENCE_HEADER, FENCE_OPEN, *safe, FENCE_CLOSE]
 
 
-def _video_lines(rows: list[dict], saved: dict, *, state_words: bool = False) -> list[str]:
+def _video_lines(rows: list[dict], saved: dict, *, state_words: bool = False, tokens: bool = False) -> list[str]:
     from api.services import video_chapters
 
     lines = []
@@ -1168,7 +1171,9 @@ def _video_lines(rows: list[dict], saved: dict, *, state_words: bool = False) ->
         if state_words:
             bits.append("picked up by " + (row.get("claimed_by") or "an agent") if row["state"] == "claimed"
                         else "waiting")
-        lines.append(f"{i}. {video.url} — " + " · ".join(bits))
+        # The token goes before the provider's title, so no title can put a look-alike ahead of it.
+        token = f"lease_token: {row['lease_token']} · " if tokens and row.get("lease_token") else ""
+        lines.append(f"{i}. {video.url} — {token}" + " · ".join(bits))
     return lines
 
 
@@ -1221,10 +1226,8 @@ def video_claim(ctx: ToolContext, limit=None, release: list | None = None) -> st
     if (refusal := _demo_refusal(memory_path)) is not None:
         return refusal
     try:
-        saved = video_state.saved_videos(memory_path)
         if release:
-            results = video_queue.release(memory_path, release, session=ctx.session_id, saved=saved,
-                                          holding=ctx.pages_held)
+            results = video_queue.release(memory_path, release, session=ctx.session_id, holding=ctx.pages_held)
             handed = [u for u, o in results if o in ("released", "needs_login")]
             if handed:
                 first = next((o for _, o in results if o == "needs_login"), "released")
@@ -1234,15 +1237,22 @@ def video_claim(ctx: ToolContext, limit=None, release: list | None = None) -> st
             for url, outcome in results:
                 if outcome == "not_claimed":
                     lines.append(f"Not yours to hand back (it isn't leased to anyone): {_one_line(url, 200)}")
+                elif outcome == "not_yours":
+                    lines.append(f"Not handed back: pass the lease_token cicada_video_claim gave you for it. Without "
+                                 f"it the lease ends on its own within {video_queue.LEASE_MINUTES} minutes: "
+                                 f"{_one_line(url, 200)}")
                 elif outcome == "unknown":
                     lines.append(f"Not in the person's video queue: {_one_line(url, 200)}")
             if any(o == "needs_login" for _, o in results):
                 lines.append(_NEEDS_LOGIN_TEXT)
             return "\n".join(lines)
         rows = video_queue.claim(memory_path, session=ctx.session_id, harness=ctx.harness, limit=limit,
-                                 saved=saved, holding=ctx.pages_held)
+                                 holding=ctx.pages_held)
         if not rows:
             return "Nothing is waiting in the person's video queue."
+        # Read after the claim, for the reply lines only: the queue read its own saved set under its lock (F2), and a
+        # video saved while this call waited is then named here too.
+        saved = video_state.saved_videos(memory_path)
         _video_ledger(ctx, memory_path, "claim", count=len(rows))
         from api.services import handshake
 
@@ -1250,14 +1260,14 @@ def video_claim(ctx: ToolContext, limit=None, release: list | None = None) -> st
                                             remote=ctx.is_remote)
         head = (f"Leased {len(rows)} video(s) for about {video_queue.LEASE_MINUTES} minutes. Read or watch each with "
                 f"{video_prompt.tools_phrase(clause, reply=True)}, then record it with cicada_record_watch(url, summary, excerpts, basis, engine, "
-                "duration); hand one back with cicada_video_claim(release=[{url, code, reason}]). Call "
-                "cicada_video_claim again until it returns nothing.")
+                "duration, lease_token); hand one back with cicada_video_claim(release=[{url, lease_token, code, reason}]). "
+                "Each video's lease_token is on its line. Call cicada_video_claim again until it returns nothing.")
         _, batches = video_queue.view(memory_path)
         method = None
         if batches:
             method = video_prompt.method_line(batches[max(batches, key=lambda b: (batches[b]["created_at"], b))]["method"])
         extra = [x for x in (method, clause) if x]
-        return "\n".join([head, *_untrusted_block(ctx, _video_lines(rows, saved)), *extra])
+        return "\n".join([head, *_untrusted_block(ctx, _video_lines(rows, saved, tokens=True)), *extra])
     except video_queue.QueueError as exc:
         return f"Error: {exc}"
     except (OSError, ValueError):

@@ -172,7 +172,7 @@ ROWS: tuple[Row, ...] = (
         (_p("url"), _f("note")), mutates=True),
     Row(("video", "record"), "cicada_record_watch", "Record a watched video: summary and short quotes.",
         (_p("url"), _p("summary"), _f("excerpts", "json"), _f("chapters", "json"), _f("basis"), _f("engine"),
-         _f("duration")), mutates=True),
+         _f("duration"), _f("lease_token")), mutates=True),
     Row(("video", "queue"), "cicada_video_queue", "Videos the person asked to have watched.", (_f("limit", "int"),)),
     Row(("video", "claim"), "cicada_video_claim", "Take videos from the queue to watch.",
         (_f("limit", "int"), _f("release", "json")), mutates=True),

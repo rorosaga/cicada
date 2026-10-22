@@ -11,7 +11,7 @@ import pytest
 
 from _stdio_server import stdio_server
 from _synthetic_bank import _bank, _ok_repo, _settings
-from _video_fixtures import add_video, bank_with_videos, url_of
+from _video_fixtures import add_video, bank_with_videos, held, url_of
 from api import config
 from api.remote import catalog
 from api.remote import tools as remote_tools
@@ -67,7 +67,12 @@ def test_claim_returns_the_queue_and_then_nothing(rig):
     out = mcp_tools.video_claim(ctx)
     assert out.startswith("Leased 2 video(s)") and mcp_tools.REFERENCE_HEADER in out
     assert url_of("00") in out and "a watch job" in out and "a transcript job" in out
-    assert "cicada_record_watch(url, summary, excerpts, basis, engine, duration)" in out
+    assert "cicada_record_watch(url, summary, excerpts, basis, engine, duration, lease_token)" in out
+    assert "cicada_video_claim(release=[{url, lease_token, code, reason}])" in out
+    # Ruling 34: each line carries its row's own lease token, ahead of the provider's title.
+    for slug, key in (("00", keys[0]), ("01", keys[1])):
+        line = next(l for l in out.splitlines() if url_of(slug) in l)
+        assert line.split(" — ", 1)[1].startswith(f"lease_token: {_raw_row(memory, key)['lease_token']} · ")
     assert mcp_tools.video_claim(ctx) == "Nothing is waiting in the person's video queue."
 
 
@@ -80,7 +85,7 @@ def test_the_stdio_server_dispatches_all_three(rig, monkeypatch):
     assert "1 waiting" in server.handle_tool("cicada_video_queue", {})
     assert "Leased 1 video(s)" in server.handle_tool("cicada_video_claim", {"limit": 1})
     assert "Handed back 1 video(s)." in server.handle_tool(
-        "cicada_video_claim", {"release": [{"url": url_of("00"), "code": "blocked", "reason": "blocked"}]})
+        "cicada_video_claim", {"release": held(memory, [{"url": url_of("00"), "code": "blocked", "reason": "blocked"}])})
     out = server.handle_tool("cicada_record_watch", {"url": URL, "summary": "S.", "basis": "transcript",
                                                      "engine": "captions", "duration": "3:00"})
     assert "Recorded the watch" in out
@@ -110,7 +115,8 @@ def test_release_with_needs_login_says_not_to_sign_in(rig):
     ctx, memory, keys, runtime, state = rig
     video_queue.put(memory, keys[0], "watch")
     mcp_tools.video_claim(ctx)
-    out = mcp_tools.video_claim(ctx, release=[{"url": url_of("00"), "code": "needs_login", "reason": "login wall"}])
+    out = mcp_tools.video_claim(ctx, release=held(memory, [{"url": url_of("00"), "code": "needs_login",
+                                                            "reason": "login wall"}]))
     assert "the person needs to sign in" in out and "Do not sign in, type credentials or try another route" in out
     assert _raw_row(memory, keys[0])["failed"]["code"] == "needs_login"
     again = mcp_tools.video_claim(ctx, release=[{"url": url_of("00")}])
@@ -128,7 +134,7 @@ def test_claim_reply_titles_one_line_capped(tmp_path, monkeypatch):
     (line,) = [l for l in out.splitlines() if l.startswith("1. ")]
     title = re.search(r'"(.*?)"', line).group(1)
     assert len(title) <= 120 and "\n" not in line
-    channel = line.split(" · ")[1]
+    channel = line.split(" · ")[2]   # after the lease token and the title
     assert len(channel) <= 120
 
 
@@ -346,13 +352,13 @@ def test_r12_all_sites(rig):
             assert "cicada_video_claim" not in text and "basis" not in text
         else:
             assert "`cicada_record_watch(url, summary, excerpts=[{t, quote}], basis)`" in text
-            assert "cicada_video_claim(release=[{url, code, reason}])" in text
+            assert "cicada_video_claim(release=[{url, lease_token, code, reason}])" in text
         assert ("cicada_video_queue" in text) == (("cicada_video_queue" in tools) and "record" in scopes)
     ctx, memory, keys, runtime, state = rig
     calls = {}
 
-    def spy(c, url, summary, excerpts=None, chapters=None, basis=None, engine=None, duration=None):
-        calls.update(basis=basis, engine=engine, duration=duration)
+    def spy(c, url, summary, excerpts=None, chapters=None, basis=None, engine=None, duration=None, lease_token=None):
+        calls.update(basis=basis, engine=engine, duration=duration, lease_token=lease_token)
         return "ok"
 
     import api.remote.runtime as rt
@@ -361,10 +367,11 @@ def test_r12_all_sites(rig):
     mcp_tools.record_watch = spy
     try:
         runtime.call(_connector(), "cicada_record_watch",
-                     {"url": URL, "summary": "S.", "basis": "both", "engine": "captions", "duration": "1:00"})
+                     {"url": URL, "summary": "S.", "basis": "both", "engine": "captions", "duration": "1:00",
+                      "lease_token": "a" * 32})
     finally:
         mcp_tools.record_watch = original
-    assert calls == {"basis": "both", "engine": "captions", "duration": "1:00"}
+    assert calls == {"basis": "both", "engine": "captions", "duration": "1:00", "lease_token": "a" * 32}
     stdio = {t["name"]: set(t["inputSchema"].get("properties", {})) for t in stdio_server().TOOLS}
     assert {"basis", "engine", "duration"} <= stdio["cicada_record_watch"]
     assert stdio["cicada_video_claim"] == {"limit", "release"} and stdio["cicada_video_queue"] == {"limit"}
@@ -376,7 +383,7 @@ def test_the_local_primer_and_the_prompt_name_only_real_arguments(tmp_path, monk
     state_dictionary.refresh(memory, _settings(memory), force=True, repo_resolver=_ok_repo)
     schemas = {t["name"]: set(t["inputSchema"].get("properties", {})) for t in stdio_server().TOOLS}
     text = handshake.build(state_dictionary.read_state(memory), variant="generic", bank="memory", tz="Europe/Madrid")
-    assert "cicada_video_claim(release=[{url, code, reason}])" in text and "`basis`" in text
+    assert "cicada_video_claim(release=[{url, lease_token, code, reason}])" in text and "`basis`" in text
     _check(text, schemas)
     # The prompt is not backticked: check every call in it the same way.
     prompt = video_prompt.build(3, "captions", browser_clause=video_prompt.BROWSER_CLAUSE)
@@ -402,5 +409,6 @@ def test_the_primer_stays_inside_its_budget(tmp_path, monkeypatch):
     remote = handshake.build_remote(None, tools=catalog.tool_names_for(catalog.SCOPES), bank="memory")
     assert len(remote) // 4 <= handshake.MAX_TOKENS
     # 17: G198 + natural questions; remote 12: ruling 32 (owner, 2026-10-19), a connection that can capture is asked
-    # to relay every turn. The budget above and R12 (test_handshake_read_r12) still hold at 12.
-    assert handshake.CONTRACT_VERSION == 17 and handshake.REMOTE_CONTRACT_VERSION == 12
+    # to relay every turn. 18 / 13: ruling 34, a video hand-back names its lease_token. The budget above and R12
+    # (test_handshake_read_r12) still hold at 13.
+    assert handshake.CONTRACT_VERSION == 18 and handshake.REMOTE_CONTRACT_VERSION == 13
