@@ -13,13 +13,16 @@ module is the inferred path that never writes the person's trust:
   conversation the page rests on, that also names the page. A **project** or **tool** page's GitHub repository when the
   repository's name is the page's own name. Never a URL guessed from a name, never a handle read off a saved post.
 - :func:`propose` — Sleep's tail step: each candidate lands as an untrusted entry (``proposed: true`` plus where it was
-  found, ``evidence``), respecting ``sources_removed`` and the caps, then :func:`sync_question` keeps ONE question per
-  page (``kind: clarification``, ``asks: sources``) listing every proposal still waiting — an agent's too
-  (``cicada_add_source(inferred=true)``). Idempotent: a second run writes nothing.
-- :func:`settle_rule` — ruling 29: Sleep may answer the question only when every link it lists was found in the
-  person's own located words naming the page (``named_account``); anything else waits for the person.
-- :func:`answer` — the inbox resolver's body: ``yes`` takes each listed proposal (``accepted``, which is what makes it
-  their own account for a picture and a tracked source for ruling 26), ``no`` removes it and remembers the removal.
+  found, ``evidence``), respecting ``sources_removed`` and the caps, then :func:`sync_items` keeps every link still
+  waiting — an agent's too (``cicada_add_source(inferred=true)``) — as a row of ONE grouped review
+  (``kind: clarification``, ``asks: sources``, ``review: true``, owner 2026-10-22), or, for a link Sleep may settle
+  (:func:`strict_quote`), a one-row item of its own. Idempotent: a second run writes nothing.
+- :func:`settle_rule` — ruling 29: Sleep may answer only a one-row item whose link the person's own located line gives
+  as THIS page's account — the line names exactly this one page and the link's account name is the page's name or an
+  alias (``named_account``); anything else waits for the person.
+- :func:`answer` / :func:`answer_rows` — the inbox resolver's body: ``yes`` takes each answered row's proposal
+  (``accepted``, which is what makes it their own account for a picture and a tracked source for ruling 26), ``no``
+  removes it and remembers the removal.
 - :func:`link_kind` — what the entity card's chips draw for any source.
 
 A proposal is never trusted (``fact_sources.trusted``), never the person's own account (``person_photo``), never
@@ -265,82 +268,192 @@ def pending(fm: dict) -> list[dict]:
     return [s for s in fact_sources.as_sources(fm.get("sources")) if fact_sources.is_proposed(s)]
 
 
-# ---- the one question per page -------------------------------------------------------------------------------------
+# ---- the review: one grouped item, plus one item per link Sleep may settle --------------------------------------
+#
+# Owner 2026-10-22 (review of #422): the dry run on the real bank would have added 36 questions to an inbox of 218, so
+# every waiting link is ONE row of ONE grouped review ("Confirm N links", ``review: true``), answered row by row or all
+# at once. The only exception is a link Sleep may settle itself under ruling 29 (:func:`strict_quote`): it waits in a
+# one-row item of its own, which Sleep's tend settles through the person's resolver — so it is undoable like every
+# other settle, and an undone one stays a one-row question for the person.
+
+REVIEW = "review"
 
 
-def open_question(memory_path: Path, page_id: str) -> Path | None:
+def row_id(page_id: str, ref: str) -> str:
+    """A row's stable key: the same page and link are the same row on every run."""
+    import hashlib
+
+    return "r" + hashlib.sha256(f"{page_id}\n{ref}".encode("utf-8")).hexdigest()[:10]
+
+
+def make_row(page_id: str, page_fm: dict, source: dict) -> dict:
+    """One row as the item stores it and the app draws it: the page, the link, its kind and label, its evidence."""
+    kind, label = link_kind(source)
+    row = {"id": row_id(page_id, str(source["ref"])), "page": page_id,
+           "page_name": str(page_fm.get("name") or page_id), "page_type": str(page_fm.get("type") or ""),
+           "ref": str(source["ref"]), "predicate": str(source.get("predicate") or ""), "link_kind": kind,
+           "label": label, "added_by": str(source.get("added_by") or "")}
+    if isinstance(source.get("evidence"), dict):
+        row["evidence"] = dict(source["evidence"])
+    return row
+
+
+def _items(memory_path: Path) -> list[tuple[Path, dict]]:
     inbox = Path(memory_path) / "inbox"
+    out = []
     if not inbox.is_dir():
-        return None
+        return out
     for path in sorted(inbox.glob("inbox-*.md")):
         try:
             fm = markdown_parser.parse(path).frontmatter
         except Exception:  # noqa: BLE001 — an unreadable item is no question
             continue
-        if str(fm.get("asks") or "") == ASKS and str(fm.get("entity_id") or "") == page_id:
+        if str(fm.get("asks") or "") == ASKS:
+            out.append((path, dict(fm)))
+    return out
+
+
+def open_question(memory_path: Path, page_id: str) -> Path | None:
+    """An open where-to-check item with a row about ``page_id`` (the grouped review included), if any."""
+    for path, fm in _items(memory_path):
+        if any(isinstance(r, dict) and r.get("page") == page_id for r in fm.get("rows") or []):
             return path
     return None
 
 
-def _question_words(fm: dict, n: int) -> tuple[str, list[dict]]:
-    name = str(fm.get("name") or "this page").strip()
-    if str(fm.get("type") or "").strip().lower() in PERSON_TYPES:
-        question = f"Is this {name}'s own account?" if n == 1 else f"Are these {name}'s own accounts?"
-        no = "No, not theirs"
-    else:
-        question = f"Is this where to check for {name}?" if n == 1 else f"Are these where to check for {name}?"
-        no = "No, remove"
-    return question, [{"key": YES, "label": "Yes, keep them" if n > 1 else "Yes, keep it"}, {"key": NO, "label": no}]
+def _review_words(rows: list[dict]) -> tuple[str, list[dict]]:
+    n = len(rows)
+    title = "Confirm 1 link" if n == 1 else f"Confirm {n} links"
+    return title, [{"key": YES, "label": "Yes, keep them all" if n > 1 else "Yes, keep it"},
+                   {"key": NO, "label": "No, remove them all" if n > 1 else "No, remove it"}]
 
 
-def _question_body(waiting: list[dict]) -> str:
+def _single_words(row: dict) -> tuple[str, list[dict]]:
+    name = row["page_name"]
+    if row.get("page_type") == "person":
+        return f"Is this {name}'s own account?", [{"key": YES, "label": "Yes, keep it"},
+                                                  {"key": NO, "label": "No, not theirs"}]
+    return f"Is this where to check for {name}?", [{"key": YES, "label": "Yes, keep it"},
+                                                   {"key": NO, "label": "No, remove"}]
+
+
+def _body(rows: list[dict]) -> str:
     lines = ["Where to check — links already on the record, waiting for you:", ""]
-    for s in waiting:
-        kind, label = link_kind(s)
-        ev = s.get("evidence") if isinstance(s.get("evidence"), dict) else {}
-        where = (f"in your own words, {ev['episode']}" if ev.get("episode") else
-                 "in this page's own text" if ev.get("page") else f"added by {s.get('added_by') or 'an agent'}")
-        lines.append(f"- {label} ({kind}): {s.get('ref')} — {where}")
+    for r in rows:
+        ev = r.get("evidence") or {}
+        where = (f"in your own words, {ev['episode']}" if ev.get("episode") and ev.get("kind", "user") == "user"
+                 else f"in {ev['episode']}" if ev.get("episode")
+                 else "in the page's own text" if ev.get("page") else f"added by {r.get('added_by') or 'an agent'}")
+        lines.append(f"- {r['page_name']}: {r['label']} ({r['link_kind']}) {r['ref']} — {where}")
     return "\n".join(lines) + "\n"
 
 
-def sync_question(memory_path: Path, page_id: str, fm: dict, *, today: str | None = None) -> str | None:
-    """Keep ONE question about ``page_id``'s waiting proposals: written when the first appears, its list rewritten when
-    it changes, removed when none is left. Returns the memory-relative path it wrote or removed, or None."""
+def _write_item(path: Path, item: dict, rows: list[dict], *, review: bool) -> None:
+    title, options = _review_words(rows) if review else _single_words(rows[0])
+    item.update({"title": title, "question": title, "options": options, "rows": rows})
+    if review:
+        item[REVIEW] = True
+        item.pop("entity_id", None)
+        item.pop("entity_name", None)
+    else:
+        item.pop(REVIEW, None)
+        item["entity_id"] = rows[0]["page"]
+        item["entity_name"] = rows[0]["page_name"]
+        ev = rows[0].get("evidence") or {}
+        if ev.get("episode"):
+            item["source_episode"] = ev["episode"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_parser.write(path, item, _body(rows))
+
+
+def _new_item(memory_path: Path, today: str | None) -> tuple[Path, dict]:
     from api.services import inbox_service
 
+    inbox = Path(memory_path) / "inbox"
+    inbox.mkdir(parents=True, exist_ok=True)
+    path = inbox / f"inbox-{inbox_service.next_inbox_num(inbox):03d}.md"
+    return path, {"kind": "clarification", "asks": ASKS, "required_input": "choice", "status": "pending",
+                  "priority": 0.5, "allow_other": False, "allow_defer": True, "uncertainty_type": UNCERTAINTY,
+                  "created_date": today or str(date.today())}
+
+
+def sync_items(memory_path: Path, waiting: list[tuple[str, dict, dict]], report: "Report", skip: frozenset[str],
+               *, today: str | None = None) -> None:
+    """Keep the where-to-check items in step with every link still waiting (``(page id, page frontmatter, source)``):
+    a strict link (:func:`strict_quote`) in a one-row item of its own; every other one a row of the ONE grouped review.
+    Rows are added and removed, an item with nothing left is removed, and an item the person took a settle back on
+    (``sleep_settle: undone``) stays theirs, as it is. Idempotent; an item dirty before the run is left alone."""
+    from api.services import inbox_tend
+
     memory_path = Path(memory_path)
-    waiting = pending(fm)
-    refs = [str(s["ref"]) for s in waiting]
-    path = open_question(memory_path, page_id)
-    if path is None and not waiting:
-        return None
-    if path is not None:
+    rows = {}
+    strict = set()
+    for page_id, page_fm, source in waiting:
+        row = make_row(page_id, page_fm, source)
+        rows[row["id"]] = row
+        if strict_quote(memory_path, page_fm, source) is not None:
+            strict.add(row["id"])
+    items = _items(memory_path)
+    held: set[str] = set()   # rows an item the person owns (undone, or dirty) already carries
+    for path, fm in items:
         rel = path.relative_to(memory_path).as_posix()
-        if not waiting:
-            path.unlink()
-            return rel
-        parsed = markdown_parser.parse(path)
-        if list(parsed.frontmatter.get("refs") or []) == refs:
-            return None
-        item = dict(parsed.frontmatter)
-    else:
-        inbox = memory_path / "inbox"
-        path = inbox / f"inbox-{inbox_service.next_inbox_num(inbox):03d}.md"
+        mine = [r.get("id") for r in fm.get("rows") or [] if isinstance(r, dict)]
+        if rel in skip or str(fm.get(inbox_tend.UNDONE_KEY) or "") == "undone":
+            held |= set(mine)
+    review_path: Path | None = None
+    review_dirty = any(fm.get(REVIEW) and path.relative_to(memory_path).as_posix() in skip for path, fm in items)
+    for path, fm in items:
         rel = path.relative_to(memory_path).as_posix()
-        item = {"kind": "clarification", "asks": ASKS, "required_input": "choice", "status": "pending",
-                "priority": 0.5, "entity_id": page_id, "entity_name": str(fm.get("name") or page_id),
-                "allow_other": False, "allow_defer": True, "uncertainty_type": UNCERTAINTY,
-                "created_date": today or str(date.today())}
-    question, options = _question_words(fm, len(refs))
-    item.update({"title": question, "question": question, "options": options, "refs": refs})
-    episode = next((s["evidence"]["episode"] for s in waiting
-                    if isinstance(s.get("evidence"), dict) and s["evidence"].get("episode")), None)
-    if episode:
-        item["source_episode"] = episode
-    path.parent.mkdir(parents=True, exist_ok=True)
-    markdown_parser.write(path, item, _question_body(waiting))
-    return rel
+        if rel in skip:
+            continue
+        undone = str(fm.get(inbox_tend.UNDONE_KEY) or "") == "undone"
+        old = [r for r in fm.get("rows") or [] if isinstance(r, dict)]
+        if fm.get(REVIEW):
+            if review_path is not None:   # a second review (two runs racing) folds into the first
+                report.touch(memory_path, rel)
+                path.unlink()
+                continue
+            review_path = path
+            continue
+        # A one-row item: kept while its row still waits — and, unless the person took Sleep's settle back, still
+        # strict. Anything else goes; its row (if it still waits) joins the review below.
+        keep = [r for r in old if r.get("id") in rows and (undone or r.get("id") in strict)]
+        if keep and keep == old and not undone:
+            continue
+        if keep and undone:
+            new = [rows[r["id"]] for r in keep]
+            if new != old:
+                report.touch(memory_path, rel)
+                _write_item(path, dict(fm), new, review=False)
+            continue
+        report.touch(memory_path, rel)
+        path.unlink()
+        held -= {r.get("id") for r in old}
+    singles = {r.get("id") for path, fm in _items(memory_path) if not fm.get(REVIEW)
+               for r in fm.get("rows") or [] if isinstance(r, dict)}
+    for rid in sorted(strict - singles - held):
+        path, item = _new_item(memory_path, today)
+        report.before.setdefault(path.relative_to(memory_path).as_posix(), None)
+        report.touch(memory_path, path.relative_to(memory_path).as_posix())
+        _write_item(path, item, [rows[rid]], review=False)
+        report.questions += 1
+    review_rows = [rows[rid] for rid in rows if rid not in strict and rid not in held]
+    if review_path is not None:
+        rel = review_path.relative_to(memory_path).as_posix()
+        fm = markdown_parser.parse(review_path).frontmatter
+        if not review_rows:
+            report.touch(memory_path, rel)
+            review_path.unlink()
+        elif list(fm.get("rows") or []) != review_rows:
+            report.touch(memory_path, rel)
+            _write_item(review_path, dict(fm), review_rows, review=True)
+            report.questions += 1
+    elif review_rows and not review_dirty:
+        path, item = _new_item(memory_path, today)
+        report.before.setdefault(path.relative_to(memory_path).as_posix(), None)
+        report.touch(memory_path, path.relative_to(memory_path).as_posix())
+        _write_item(path, item, review_rows, review=True)
+        report.questions += 1
 
 
 # ---- the Sleep step ------------------------------------------------------------------------------------------------
@@ -389,17 +502,21 @@ def plan(memory_path: Path) -> list[tuple[str, list[Candidate]]]:
 
 def propose(memory_path: Path, skip: frozenset[str] = frozenset(), report: Report | None = None,
             *, today: str | None = None) -> Report:
-    """Sleep's tail step (engine-free, no fetch): write each page's new proposals and keep its one question in step.
-    Pages (and questions) dirty before the run (``skip``) are left alone. The caller commits ``report.paths``."""
+    """Sleep's tail step (engine-free, no fetch): write each page's new proposals, then keep the review in step
+    (:func:`sync_items`). Pages and items dirty before the run (``skip``) are not written. The caller commits
+    ``report.paths``."""
     memory_path = Path(memory_path)
     report = report or Report()
     report.root = str(memory_path)
+    waiting: list[tuple[str, dict, dict]] = []
     for path, parsed in _pages(memory_path):
         rel = f"entities/{path.name}"
-        if rel in skip:
-            continue
         fm = parsed.frontmatter
         if str(fm.get("status") or "") in ("archived", "dropped"):
+            continue
+        if rel in skip:
+            # A page dirty before the run is not written — but what already waits on it keeps its row.
+            waiting += [(path.stem, dict(fm), w) for w in pending(fm)]
             continue
         cands = candidates(memory_path, fm, parsed.body)
         if cands:
@@ -412,18 +529,8 @@ def propose(memory_path: Path, skip: frozenset[str] = frozenset(), report: Repor
             else:
                 report.paths.remove(rel)
                 report.before.pop(rel, None)
-        question = open_question(memory_path, path.stem)
-        if question is not None and question.relative_to(memory_path).as_posix() in skip:
-            continue
-        if pending(fm) or question is not None:
-            if question is not None:
-                report.touch(memory_path, question.relative_to(memory_path).as_posix())
-            wrote = sync_question(memory_path, path.stem, fm, today=today)
-            if wrote:
-                report.before.setdefault(wrote, None)   # a new question did not exist before this step
-                if wrote not in report.paths:
-                    report.paths.append(wrote)
-                report.questions += 1
+        waiting += [(path.stem, dict(fm), w) for w in pending(fm)]
+    sync_items(memory_path, waiting, report, skip, today=today)
     # A touch whose file ended byte-identical (a question already in step) is no change.
     for rel in list(report.paths):
         p = memory_path / rel
@@ -459,41 +566,96 @@ def commit_message(report: Report, day: date) -> str:
 # ---- answering it --------------------------------------------------------------------------------------------------
 
 
-def settle_rule(memory_path: Path, item_id: str, fm: dict):
-    """Ruling 29 for a ``asks: sources`` question: ``(Decision, "")`` — ``named_account``, "yes" — only when every
-    link it lists waits on the page with the person's own located words that name the page and carry that very link;
-    else ``(None, "person_only")``, so no engine and no other rule ever reads it."""
+def _norm(text: str) -> str:
+    """Folded words, single-spaced: what a whole-word name test compares."""
+    return " ".join(re.findall(r"[a-z0-9]+", text_fold.fold(text or "")))
+
+
+def handle_of(ref: str) -> str | None:
+    """The account name a profile link carries (GitHub, X, Instagram, LinkedIn) — None for an id-only profile
+    (Scholar, ORCID) or anything else."""
+    for parse in (person_photo.github_username, person_photo.x_handle, person_photo.instagram_handle,
+                  person_photo.linkedin_slug):
+        if (name := parse(ref)) is not None:
+            return name
+    return None
+
+
+def strict_quote(memory_path: Path, page_fm: dict, source: dict) -> dict | None:
+    """Ruling 29, as strict as the review of #422 asked: may Sleep take this waiting link as the person's own word that
+    it is THIS page's account? Only when ALL hold — else None, and the person decides:
+
+    * its evidence is a located line of the person's own turn (``persons_span``, never an agent's words);
+    * that line carries this very link;
+    * the line names exactly ONE page — this one (no other page's name or alias appears in it);
+    * the link's account name matches the page's name or one of its aliases, normalised ("Bob Example" ↔
+      ``bob-example``, ``bob_example``, ``bob.example``) — co-occurrence is never proof ("Bob told me to follow
+      <carol's link>" names Bob and carries Carol's account).
+
+    Returns ``{"episode", "quote"}`` — the person's words, located again at settle time — when it holds."""
     from api.services import evidence, inbox_tend
 
-    page_id = str(fm.get("entity_id") or "")
-    page = Path(memory_path) / "entities" / f"{page_id}.md"
+    ev = source.get("evidence")
+    ref = str(source.get("ref") or "")
+    if not isinstance(ev, dict) or not ev.get("episode") or not ref:
+        return None
+    handle = handle_of(ref)
+    own = {_squash(n) for n in _names(page_fm)} - {""}
+    if handle is None or _squash(handle) not in own:
+        return None
+    doc = evidence.source_document(Path(memory_path), str(ev["episode"]))
+    if doc is None:
+        return None
+    try:
+        words = doc[1][int(ev["start"]):int(ev["end"])]
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not words or not names_page(words, page_fm):
+        return None
+    if not any((p := profile_of(u)) is not None and p[1] == ref for u in fact_sources.urls_in(words)):
+        return None
+    line = f" {_norm(fact_sources._URL_RE.sub(' ', words))} "
+    mine = {_norm(n) for n in _names(page_fm)} | {_norm(str(page_fm.get("name") or ""))}
+    for name in inbox_tend._page_names(Path(memory_path)):
+        folded = _norm(name)
+        if folded and folded not in mine and f" {folded} " in line and not any(
+                f" {folded} " in f" {m} " for m in mine):
+            return None   # another page is named in the same line: whose account it is, only the person says
+    if inbox_tend.persons_span(Path(memory_path), str(ev["episode"]), words) is None:
+        return None
+    return {"episode": str(ev["episode"]), "quote": words}
+
+
+def settle_rule(memory_path: Path, item_id: str, fm: dict):
+    """Ruling 29 for a where-to-check item: ``(Decision, "")`` — ``named_account``, "yes" — only for a one-row item
+    whose link still waits and still passes :func:`strict_quote`; the grouped review, and anything else, is
+    ``(None, "person_only")``, so no engine and no other rule ever reads it."""
+    from api.services import inbox_tend
+
+    rows = [r for r in fm.get("rows") or [] if isinstance(r, dict)]
+    if fm.get(REVIEW) or len(rows) != 1:
+        return None, "person_only"
+    row = rows[0]
+    page = Path(memory_path) / "entities" / f"{row.get('page')}.md"
     if not page.is_file():
         return None, "person_only"
     page_fm = markdown_parser.parse(page).frontmatter
-    waiting = {str(s["ref"]): s for s in pending(page_fm)}
-    refs = [str(r) for r in fm.get("refs") or []]
-    if not refs or any(r not in waiting for r in refs):
+    source = next((s for s in pending(page_fm) if str(s["ref"]) == str(row.get("ref"))), None)
+    quote = strict_quote(memory_path, page_fm, source) if source is not None else None
+    if quote is None:
         return None, "person_only"
-    quote = None
-    for ref in refs:
-        ev = waiting[ref].get("evidence")
-        if not isinstance(ev, dict) or not ev.get("episode"):
-            return None, "person_only"
-        doc = evidence.source_document(Path(memory_path), str(ev["episode"]))
-        if doc is None:
-            return None, "person_only"
-        try:
-            words = doc[1][int(ev["start"]):int(ev["end"])]
-        except (KeyError, TypeError, ValueError):
-            return None, "person_only"
-        if not words or not names_page(words, page_fm) or not any(
-                (p := profile_of(u)) is not None and p[1] == ref for u in fact_sources.urls_in(words)):
-            return None, "person_only"
-        if inbox_tend.persons_span(Path(memory_path), str(ev["episode"]), words) is None:
-            return None, "person_only"
-        quote = quote or {"episode": str(ev["episode"]), "quote": words}
     return inbox_tend.Decision(item_id, "clarification", "named_account", {"action": "resolve", "option_key": YES},
-                               answer="Yes", quote=quote, guard=inbox_tend._guard(memory_path, page_id)), ""
+                               answer="Yes", quote=quote, guard=inbox_tend._guard(memory_path, str(row["page"]))), ""
+
+
+def answer_rows(memory_path: Path, rows: list[dict], take: bool) -> list[str]:
+    """Answer each row on its own page (:func:`answer`); returns the pages that changed, in order."""
+    pages: list[str] = []
+    for page_id in dict.fromkeys(str(r.get("page") or "") for r in rows):
+        refs = [str(r.get("ref") or "") for r in rows if r.get("page") == page_id]
+        if page_id and answer(memory_path, page_id, refs, take):
+            pages.append(page_id)
+    return pages
 
 
 @page_lock.locked

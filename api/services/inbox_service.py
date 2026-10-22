@@ -222,6 +222,9 @@ def _item_from_file(
         suggested_confidence=fm.get("suggested_confidence"),
         merge_target_hint=fm.get("merge_target_hint"),
         asks=_opt_str(fm.get("asks")),
+        rows=([r for r in fm.get("rows") if isinstance(r, dict) and r.get("id") and r.get("page") and r.get("ref")]
+              if str(fm.get("asks") or "") == "sources" and isinstance(fm.get("rows"), list) else None),
+        review=bool(fm.get("review")) if str(fm.get("asks") or "") == "sources" else False,
         source_episode=_opt_str(fm.get("source_episode")),
         source_episode_timestamp=_opt_str(fm.get("source_episode_timestamp")),
         claim_id=_opt_str(fm.get("claim_id")),
@@ -2314,32 +2317,40 @@ async def _resolve_name(path, parsed, request, settings) -> tuple[str, bool, lis
 
 
 async def _resolve_where_to_check(path, parsed, request, settings) -> tuple[str, bool, list[str]]:
-    """G61 "Where to check" (ruling 36 D5): "Are these <name>'s own accounts?" (``asks: sources``). ``yes`` takes
-    every link the question lists that still waits on the page (``accepted`` — their own account for a picture, a
-    tracked source for ruling 26); ``no`` or a dismiss removes them, remembered as the person's removal, so no writer
-    proposes them again. A link the person already took or removed on the page is left as it is. ``skip`` writes
-    nothing. Returns ``(page id, skipped, manifest lines)``."""
+    """G61 "Where to check" (ruling 36 D5; owner 2026-10-22: one grouped review). The item lists waiting links as
+    ``rows`` (each its page, link, kind and evidence). ``row`` names the one answered; without it, every row is.
+    ``yes`` takes each answered row's link on its page (``accepted`` — their own account for a picture, a tracked
+    source for ruling 26); ``no`` or a dismiss removes it, remembered as the person's removal, so nothing proposes it
+    again. A link already taken or removed on its page is left as it is. The item keeps the rows not answered (and is
+    removed when none is left). ``skip`` writes nothing. Returns ``(first page id, skipped, manifest lines)``."""
     from api.services import source_proposals
 
     fm = parsed.frontmatter
-    page_id = str(fm.get("entity_id", "") or "")
+    rows = [r for r in fm.get("rows") or [] if isinstance(r, dict)]
     action = (request.action or "").strip().lower()
     key = (request.option_key or "").strip()
     if action == "skip":
-        return page_id, True, []
+        return str(rows[0].get("page") or "") if rows else "", True, []
     if key == source_proposals.YES and action in ("resolve", "answer", ""):
         take = True
     elif key == source_proposals.NO or action == "dismiss":
         take = False
     else:
         raise HTTPException(400, "Choose yes or no.")
-    if not (settings.memory_path / "entities" / f"{page_id}.md").is_file():
-        raise HTTPException(404, f"The page this question was about is gone ({page_id})")
-    refs = [str(r) for r in fm.get("refs") or []]
+    wanted = (request.row or "").strip()
+    target = [r for r in rows if r.get("id") == wanted] if wanted else rows
+    if not target:
+        raise HTTPException(404, "That link is no longer waiting in this question.")
     # In this thread, holding the page lock (re-entrant within a thread: Sleep's settle already holds it here).
-    source_proposals.answer(settings.memory_path, page_id, refs, take)
-    path.unlink()
-    return page_id, False, []
+    pages = source_proposals.answer_rows(settings.memory_path, target, take)
+    left = [r for r in rows if r not in target]
+    if left:
+        source_proposals._write_item(path, dict(fm), left, review=bool(fm.get(source_proposals.REVIEW)))
+    else:
+        path.unlink()
+    trigger = f"inbox/clarification/resolved:{'yes' if take else 'no'}"
+    first = pages[0] if pages else str(target[0].get("page") or "")
+    return first, False, [f"entities/{p}.md: updated (trigger: {trigger})" for p in pages[1:]]
 
 
 # ---------- G198: an agent's proposed page edit ----------

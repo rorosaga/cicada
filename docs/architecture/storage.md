@@ -719,15 +719,25 @@ Round 4 (C2–C4):
   names the page; a **project/tool** page's GitHub repository whose name is the page's own. Never a URL from a name,
   never a handle off a saved post's path. Skipped when the ref (in any spelling of the same profile) is already a source
   or in `sources_removed` under any fact, or past a cap; ≤ 4 a page a run; pages dirty before the run are skipped; one
-  `cicada` commit `Where to check <date>` (trigger `sleep/where-to-check`), restored on a failed commit. **One question
-  per page:** `kind: clarification`, `asks: sources`, `refs: [...]` (every waiting proposal, an agent's too), options
-  `yes` / `no`, `required_input: choice`; the step rewrites `refs` when they change and removes the question when none
-  waits, so it is idempotent. **The answer** (`inbox_service._resolve_where_to_check`): `yes` takes each listed proposal
-  still waiting; `no` (or a dismiss) removes each with a `user` tombstone, so nothing proposes it again; `skip` writes
-  nothing; committed as the person's answer. **Sleep settles it only by ruling 29** (`inbox_tend` rule `named_account`,
-  engine-free): every listed link waits on the page with evidence that is the person's own located line, naming the
-  page and carrying that very link; anything else is `person_only` (no engine, no record read, no trace row may settle
-  it). **Wire:** `GET /entities/{id}/sources` adds `proposed`, `evidence`, and — derived for the card's chip row —
+  `cicada` commit `Where to check <date>` (trigger `sleep/where-to-check`), restored on a failed commit. **One grouped
+  review (owner 2026-10-22, review of #422 — the dry run would have added 36 questions to an inbox of 218):** every
+  waiting proposal, an agent's too, is a row of ONE item — `kind: clarification`, `asks: sources`, `review: true`,
+  title "Confirm N links", `rows: [{id, page, page_name, page_type, ref, predicate, link_kind, label, added_by,
+  evidence?}]` (`id` a stable hash of page + link), options `yes` / `no` (all rows), `required_input: choice`; the step
+  adds and removes rows every run and removes the item when none waits, so it is idempotent. The one exception is a
+  link Sleep may settle (`source_proposals.strict_quote`, below): it waits in a one-row item of its own (no `review`,
+  `entity_id` its page), which Sleep's tend settles through the resolver — undoable like every settle; an undone one
+  (`sleep_settle: undone`) stays the person's one-row question and is never folded into the review. **The answer**
+  (`inbox_service._resolve_where_to_check`): `row: <id>` on resolve answers that row, none answers every row; `yes`
+  takes the row's proposal on its page, `no` (or a dismiss) removes it with a `user` tombstone, so nothing proposes it
+  again; the item keeps the rows not answered; `skip` writes nothing; committed as the person's answer (trigger
+  `inbox/clarification/resolved:yes|no`). `GET /inbox` serves `rows` (camelCase) and `review` on these items.
+  **Sleep settles only by ruling 29, strictly** (`inbox_tend` rule `named_account`, engine-free, `strict_quote`): the
+  evidence is a located line of the person's own turn; it carries that very link; it names exactly ONE page, this one
+  (no other page's name or alias is in it); and the link's account name (GitHub, X, Instagram, LinkedIn) is the page's
+  name or an alias, normalised — co-occurrence is never proof ("<page-a> told me to follow <someone else's link>" goes
+  to the person; so does an id-only profile such as Scholar or ORCID). Anything else is `person_only` (no engine, no
+  record read, no trace row may settle it). **Wire:** `GET /entities/{id}/sources` adds `proposed`, `evidence`, and — derived for the card's chip row —
   `linkKind` (`github | x | instagram | linkedin | scholar | orcid | repo | contacts | website | app | path | note`,
   `source_proposals.link_kind`), `label` and `iconSite` (the site key `…/sources/icon/{site}` serves, null wherever that
   route 404s — always on a person's page, G159). A dry run (`scripts/where_to_check_dry_run.py --memory <bank>

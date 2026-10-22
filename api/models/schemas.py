@@ -2338,6 +2338,22 @@ class InboxFold(CamelModel):
     example: Optional[str] = None      # the anchor claim's sentence, clipped
 
 
+class WhereToCheckRow(CamelModel):
+    """One waiting link of a where-to-check item (G61, owner 2026-10-22)."""
+
+    id: str
+    page: str
+    page_name: str = ""
+    page_type: str = ""
+    ref: str
+    predicate: str = ""
+    link_kind: str = "website"
+    label: str = ""
+    added_by: str = ""
+    # `{episode, start, end, kind?}` (a span into the person's or an agent's words) or `{page: true}`.
+    evidence: Optional[dict] = None
+
+
 class InboxItem(CamelModel):
     # G61 S3 (shadow): what agents reported from a source for this item, newest first. Additive; nothing reads it to act.
     checks: list[InboxCheckFinding] = []
@@ -2374,6 +2390,12 @@ class InboxItem(CamelModel):
     # A clarification that asks for a person's name (``"name"``, `role_people`): the app draws a name field and
     # "I'd rather not say"; an older build sees its option and Other… and still answers it. Null otherwise.
     asks: Optional[str] = None
+    # G61 "Where to check" (`asks: "sources"`, owner 2026-10-22): the links waiting, one row each — `{id, page,
+    # pageName, pageType, ref, predicate, linkKind, label, addedBy, evidence?}` — answered one by one with
+    # `row: <id>` on resolve, or all at once without it; `review` marks the ONE grouped review (a one-row item without
+    # it is one Sleep may settle on the person's own words). Additive: an older build draws the yes/no options.
+    rows: Optional[list[WhereToCheckRow]] = None
+    review: bool = False
     # G115 Phase 1 — all additive so an older app build still decodes.
     entity_type: Optional[str] = None
     source_episode: Optional[str] = None
@@ -2423,6 +2445,9 @@ class InboxResolveRequest(CamelModel):
     # The backend refuses such a caller an answer only the person gives (a proposed page edit). Defense in depth: the
     # tool refuses first; a process that skips the tool can write the bank's files anyway.
     via: Optional[str] = None
+    # G61 "Where to check" (owner 2026-10-22): the one row of a where-to-check review this answer is about (its `id`);
+    # absent, `yes`/`no` answers every row of the item.
+    row: Optional[str] = None
 
 
 class SettledCheck(CamelModel):

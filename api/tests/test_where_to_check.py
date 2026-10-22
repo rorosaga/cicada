@@ -56,6 +56,10 @@ def _questions(memory) -> list[Path]:
     return out
 
 
+async def _load(memory):
+    return inbox_service.load_inbox(memory)
+
+
 def _resolve(memory, item: str, **request) -> dict:
     return asyncio.run(inbox_service.resolve(item, InboxResolveRequest(**request),
                                              SimpleNamespace(memory_path=memory)))
@@ -117,7 +121,8 @@ def test_a_profile_in_the_pages_own_text_is_proposed_untrusted_with_one_question
     assert person_photo.candidates(_fm(memory), owner={}, proxy=True) == [], "never a face from a proposal"
     [q] = _questions(memory)
     qfm = markdown_parser.parse(q).frontmatter
-    assert qfm["kind"] == "clarification" and qfm["refs"] == [GH] and qfm["entity_id"] == "bob-example"
+    assert qfm["kind"] == "clarification" and qfm["review"] is True and "entity_id" not in qfm
+    assert [(r["page"], r["ref"], r["link_kind"]) for r in qfm["rows"]] == [("bob-example", GH, "github")]
     assert [o["key"] for o in qfm["options"]] == ["yes", "no"] and qfm["required_input"] == "choice"
     again = source_proposals.propose(memory, today="2026-09-10")
     assert (again.paths, again.proposed) == ([], 0), "idempotent"
@@ -153,8 +158,43 @@ def test_the_persons_own_line_naming_the_page_carries_a_span_and_settles_by_rule
     ev = entry["evidence"]
     assert ev["episode"] == EP and "start" in ev and "quote" not in ev, "a span, never a copy"
     [q] = _questions(memory)
-    d, why = inbox_tend.policy(memory, q, markdown_parser.parse(q).frontmatter)
+    qfm = markdown_parser.parse(q).frontmatter
+    assert not qfm.get("review") and qfm["entity_id"] == "bob-example" and len(qfm["rows"]) == 1, \
+        "a link Sleep may settle waits in a one-row item of its own, never in the review"
+    d, why = inbox_tend.policy(memory, q, qfm)
     assert why == "" and d.rule == "named_account" and d.request == {"action": "resolve", "option_key": "yes"}
+
+
+@pytest.mark.parametrize("line", [
+    # The review of #422's repro: the person's own line names Bob and carries Carol's account.
+    "Bob Example told me to follow https://github.com/carol-example for the new release",
+    # One line naming two pages: whose account it is, only the person says.
+    f"Bob Example and Carl Example share {GH} for the demo",
+    # The handle is not the page's name (a LinkedIn slug with a suffix, an id-only profile).
+    "Bob Example is https://www.linkedin.com/in/bob-example-4a1b2c on LinkedIn",
+    "Bob Example's papers: https://orcid.org/0000-0002-1825-0097",
+], ids=["someone-elses-account", "two-pages-one-line", "handle-not-the-name", "id-only-profile"])
+def test_co_occurrence_is_never_proof_the_person_decides(memory, line):
+    _person(memory, "## Summary\nA builder.\n", source_episodes=[EP])
+    _entity(memory, "carl-example", type="person", name="Carl Example")
+    _episode(memory, EP, f"user: {line}\n\nassistant: Noted.")
+    source_proposals.propose(memory)
+    [q] = _questions(memory)
+    qfm = markdown_parser.parse(q).frontmatter
+    assert qfm["review"] is True, "it waits in the review"
+    d, why = inbox_tend.policy(memory, q, qfm)
+    assert d is None and why == "person_only", "never a person's identity from co-occurrence (ruling 29)"
+    page = _fm(memory)
+    assert all(not person_photo.is_own_account(s) for s in fact_sources.as_sources(page.get("sources")))
+
+
+def test_an_alias_handle_settles_and_a_name_the_line_shares_with_the_page_is_no_second_page(memory):
+    _person(memory, "## Summary\nA builder.\n", source_episodes=[EP], aliases=["bobex"])
+    _episode(memory, EP, "user: Bob Example posts as https://x.com/bobex these days\n\nassistant: ok")
+    source_proposals.propose(memory)
+    [q] = _questions(memory)
+    d, why = inbox_tend.policy(memory, q, markdown_parser.parse(q).frontmatter)
+    assert d is not None and d.rule == "named_account", why
 
 
 @pytest.mark.parametrize("body", [
@@ -207,6 +247,55 @@ def test_yes_takes_them_draws_the_face_and_makes_them_due_for_the_recheck(memory
     msg = _git(memory, "log", "-5", "--format=%B", "--grep", "inbox/clarification/resolved")
     assert "Cicada-Author: user" in msg and "entities/bob-example.md" in msg
     assert source_proposals.propose(memory).paths == [], "nothing asked again"
+
+
+def test_one_review_for_every_page_answered_row_by_row(memory):
+    _person(memory, f"## Links\n- {GH}\n- {X}\n")
+    _entity(memory, "carl-example", type="person", name="Carl Example", body=f"## Links\n- {IG}\n")
+    _commit_all(memory)
+    source_proposals.propose(memory)
+    _commit_all(memory)
+    [q] = _questions(memory)
+    rows = markdown_parser.parse(q).frontmatter["rows"]
+    assert sorted((r["page"], r["ref"]) for r in rows) == [("bob-example", GH), ("bob-example", X),
+                                                           ("carl-example", IG)]
+    item = next(i for i in asyncio.run(_load(memory)) if i.id == q.stem)
+    assert item.review and [r.link_kind for r in item.rows] == [r["link_kind"] for r in rows], "the app's wire"
+    gh_row = next(r["id"] for r in rows if r["ref"] == GH)
+    _resolve(memory, q.stem, action="resolve", option_key="yes", row=gh_row)
+    left = markdown_parser.parse(q).frontmatter
+    assert len(left["rows"]) == 2 and left["title"] == "Confirm 2 links", "the other rows still wait"
+    bob = {e["ref"]: e for e in fact_sources.list_sources(memory, "bob-example")}
+    assert bob[GH]["accepted"] and bob[X]["proposed"], "exactly the answered row"
+    ig_row = next(r["id"] for r in left["rows"] if r["ref"] == IG)
+    _resolve(memory, q.stem, action="resolve", option_key="no", row=ig_row)
+    assert _fm(memory, "carl-example")["sources_removed"][0]["ref"] == IG
+    _resolve(memory, q.stem, action="resolve", option_key="yes")
+    assert not q.exists() and fact_sources.list_sources(memory, "bob-example")[1]["accepted"]
+    with pytest.raises(Exception):
+        _resolve(memory, q.stem, action="resolve", option_key="yes", row=gh_row)
+    assert source_proposals.propose(memory).paths == [], "nothing asked again"
+
+
+def test_an_undone_settle_stays_the_persons_one_row_question(memory):
+    _person(memory, "## Summary\nA builder.\n", source_episodes=[EP])
+    _episode(memory, EP, f"user: Bob Example's github is {GH} by the way\n\nassistant: Noted.")
+    _commit_all(memory)
+    source_proposals.propose(memory)
+    _commit_all(memory)
+    report = inbox_tend.Report()
+    asyncio.run(inbox_tend.policy_pass(memory, SimpleNamespace(memory_path=memory), report, record_cap=0))
+    assert report.settled == 1 and fact_sources.list_sources(memory, "bob-example")[0]["accepted"]
+    [settled] = list((memory / "inbox" / "settled").glob("inbox-*.md"))
+    restored, paths, _lines, _rec = inbox_tend.undo(memory, settled.stem)
+    _commit_all(memory)
+    assert fact_sources.list_sources(memory, "bob-example")[0]["proposed"] is True, "the link waits again"
+    source_proposals.propose(memory)
+    [q] = _questions(memory)
+    qfm = markdown_parser.parse(q).frontmatter
+    assert q.stem == restored and qfm["sleep_settle"] == "undone" and not qfm.get("review"), \
+        "it stays the person's own question: never re-settled, never folded into the review"
+    assert inbox_tend.policy(memory, q, qfm)[0] is None
 
 
 def test_no_removes_them_and_they_are_never_proposed_again(memory):

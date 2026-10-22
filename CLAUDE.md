@@ -262,7 +262,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   day or undated asks once; dead = two failed visits a week apart; walled pages only by the person's agent (`storage.md`).
   **Where to check (ruling 36 D5, 2026-10-22):** an agent (`inferred`) or Sleep's engine-free step may PROPOSE a link
   already on the record — never one guessed from a name; a proposal is never trusted, drawn or re-checked until the
-  person takes it, one question per page, settled by Sleep only on the person's own located words (`storage.md`).
+  person takes it, one grouped review ("Confirm N links"); Sleep settles one only when the person's own located line
+  names that one page and the link's account is its name or alias — co-occurrence is never proof (`storage.md`).
 - **Pictures:** one precedence (the person's choice → Contacts photo → the photo a ticked Messages chat shares → a
   person's public-profile photo → a brand's logo → a media thumbnail → a monogram). **A logo comes only from a trusted
   `website` source — never a domain guessed from a name; a person never gets a logo and no service is sent a person's name (G146/G159).** A saved link's own site may show its own icon, asked of that site only (or the icon host its homepage declares, 2026-10-20; an SVG icon only sanitised and drawn to a PNG out of process, never served as SVG, 2026-10-20), on the person's view (owner 2026-10-19; `storage.md`); a watched or saved YouTube video its still, from YouTube's own host for that id only, on the same terms (2026-10-19). A person's photo is asked only
