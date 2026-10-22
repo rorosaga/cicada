@@ -374,8 +374,10 @@ def test_cicada_write_claim_registered_in_tools():
     # person's name. Read from the constant so no test types the name.
     assert "observer='owner'" in desc
     assert owner_identity.LEGACY_OBSERVER not in desc
-    assert re.fullmatch(tool["inputSchema"]["properties"]["observer"]["pattern"],
-                        owner_identity.LEGACY_OBSERVER), "still accepted (Q-R11), never advertised"
+    # Hyrum audit A11: no longer in the advertised pattern either; the tool body still accepts it.
+    assert not re.fullmatch(tool["inputSchema"]["properties"]["observer"]["pattern"],
+                            owner_identity.LEGACY_OBSERVER), "never advertised (A11)"
+    assert server.mcp_tools.observer_accepted(owner_identity.LEGACY_OBSERVER), "still accepted (Q-R11)"
     assert "agent" in desc
     assert set(tool["inputSchema"]["required"]) == {"subject", "predicate", "object"}
 

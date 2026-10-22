@@ -210,7 +210,14 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   per request and never persisted.
 - **Every writer mints ids through one rule** (G114, `api/services/episode_ids.py`):
   `next_episode_id` is max-suffix+1 per date (a count-based rule collides after any gap), and timestamps are aware UTC from
-  `episode_ids.utc_now_iso` — never a naive local time with a `Z` appended. Legacy files are not
+  `episode_ids.utc_now_iso` — never a naive local time with a `Z` appended. **The date in an id is the conversation's
+  local day** (ruling 34, 2026-10-22): the person's zone at its first turn, never the UTC day. Every writer already
+  took the local day except the two hook writers, which sliced the UTC stamp; `transcript_capture.write_session` (Claude
+  Code, Codex, `/capture/turn`, relayed turns) and `telegram_capture` now mint through `episode_ids.id_day`, in this
+  machine's zone or, for a client of a server elsewhere, the `utc_offset_minutes` its hook posts (below). An id is never
+  renamed, so a hook capture minted before 2026-10-22 between local midnight and the UTC one keeps the UTC day; the readers
+  that took the day from the id (`ask_sources.said_day`, `benchmarks/hard_questions`) read the episode's `timestamp` in the
+  person's zone instead, and `ask` dates each line by the local day its turn was said. Legacy files are not
   migrated: readers accept both shapes and the queue sorts by `timestamp_sort_key`. A processed
   episode carries `processed_by` (`sleep` vs `agent`) so a flipped flag is distinguishable from a
   consolidation. `processed_by` also takes `user` — a companion note the person wrote in the app
@@ -645,7 +652,7 @@ too far apart upgrade nothing (a second episode, as before). A later relay into 
 "already in Cicada from the export" and writes nothing; the next export brings its later turns.
 
 **Per-turn capture (`api/services/turn_capture.py`, `POST /capture/turn`).** The hook posts `{harness, session_id,
-messages: [{speaker, text}], turn_id?, retry?, model?, cwd?, hook_event}` — one turn (Cursor) or one exchange (Gemini
+messages: [{speaker, text}], turn_id?, retry?, model?, cwd?, hook_event, utc_offset_minutes?}` — one turn (Cursor) or one exchange (Gemini
 CLI), each text trimmed by the hook to 256k characters, never `transcript_path`, attachments, an email or a thought.
 The writer is the Stop hook's (`transcript_capture.write_session`): one episode per session (G104), the same body,
 `content_hash`, `turns` sidecar, G110 metadata and `capture_kind: transcript`, so continuity, titles and the Reader
@@ -685,7 +692,10 @@ extractor keeps crosses the wire:
   file, `<session_id>.jsonl` for Claude Code, within the size cap — a stray path is refused unread, `refused:
   outside_root` in the log), the same `transcript_extract.extract` (scrub, fences, 16k/2k caps, the session cap's head,
   tail and marker; the agent's replies always kept here), then `POST /capture/session` with `{conversation,
-  transcript_bytes, transcript_size, cwd, hook_event, effort, workspace}` and the device's token — never the path.
+  transcript_bytes, transcript_size, cwd, hook_event, effort, workspace, utc_offset_minutes}` and the device's token —
+  never the path. `utc_offset_minutes` (ruling 34, additive: an older server ignores it, an older hook omits it and the
+  server's zone decides) is this machine's UTC offset at the session's first turn (`hook_client.utc_offset_minutes`), so
+  the id the server mints carries the person's day; a client's per-turn post (Cursor, Gemini CLI) carries it too.
   This is the hooks' one exception to "stdlib only": it imports Cicada's extractor from its own checkout, lazily,
   only in client mode. The extractor reads about 11 MB/s (a synthetic 27 MB transcript: 2.4 s for the whole firing),
   so a transcript over 16 MB is handed to a detached child of the same hook (`start_new_session`, its own 120 s

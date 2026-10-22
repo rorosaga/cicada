@@ -249,6 +249,10 @@ class SessionCaptureRequest(BaseModel):
     hook_event: str | None = Field(None, max_length=64)
     effort: str | None = Field(default=None, max_length=32)
     workspace: Any = None
+    #: Ruling 34 (2026-10-22), additive: the client's UTC offset in minutes at the conversation's first turn (east
+    #: positive), so a new episode's id carries the person's day, not this server's. Absent: this server's zone.
+    utc_offset_minutes: int | None = Field(None, ge=-episode_ids.MAX_UTC_OFFSET_MINUTES,
+                                           le=episode_ids.MAX_UTC_OFFSET_MINUTES)
 
 
 @router.post("/capture/session")
@@ -270,7 +274,7 @@ async def capture_session_endpoint(req: SessionCaptureRequest, request: Request,
             keep_assistant=settings.capture_assistant_replies, bank=memory_path.name, effort=req.effort,
             hook_event=req.hook_event, workspace=req.workspace,
             bank_paths=continuity_sessions.bank_paths_for(settings.memory_root),
-            device=device.id if device is not None else None)
+            device=device.id if device is not None else None, utc_offset_minutes=req.utc_offset_minutes)
 
     result = await asyncio.to_thread(_capture)
     if target is None or result.status == "refused":
@@ -304,6 +308,10 @@ class TurnCaptureRequest(BaseModel):
     model: str | None = Field(None, max_length=200)
     cwd: str | None = Field(None, max_length=4096)
     hook_event: str | None = Field(None, max_length=64)
+    #: Ruling 34 (2026-10-22), additive: the client's UTC offset in minutes at the conversation's first turn (east
+    #: positive), so a new episode's id carries the person's day, not this server's. Absent: this server's zone.
+    utc_offset_minutes: int | None = Field(None, ge=-episode_ids.MAX_UTC_OFFSET_MINUTES,
+                                           le=episode_ids.MAX_UTC_OFFSET_MINUTES)
 
 
 @router.post("/capture/turn")
@@ -323,7 +331,8 @@ async def capture_turn_endpoint(req: TurnCaptureRequest, settings: Settings = De
             turns=[turn_capture_mod.Posted(t.speaker, t.text) for t in req.messages],
             turn_id=req.turn_id, retry=req.retry, model=req.model, cwd=req.cwd,
             keep_assistant=settings.capture_assistant_replies, bank=memory_path.name,
-            bank_paths=continuity_sessions.bank_paths_for(settings.memory_root), hook_event=req.hook_event)
+            bank_paths=continuity_sessions.bank_paths_for(settings.memory_root), hook_event=req.hook_event,
+            utc_offset_minutes=req.utc_offset_minutes)
 
     result = await asyncio.to_thread(_capture)
     if target is None or result.status == "refused":

@@ -517,8 +517,8 @@ def _default_save_episode(
     dedup) with ``source``/``origin`` stamped ``"telegram"`` instead of ``"mcp"``.
 
     ``captured_at`` (R3) is BOTH the episode ``timestamp`` and the date half
-    of its id, so a message sent yesterday and delivered today files under
-    yesterday; without one (Telegram omitted ``date``, or it failed to parse)
+    of its id (that moment's day in the person's zone, ruling 34), so a message
+    sent yesterday and delivered today files under yesterday; without one (Telegram omitted ``date``, or it failed to parse)
     the stamp is receipt time from the one clock. ``capture_kind`` is written
     only when given — a plain note carries no such key, so nothing downstream
     has to learn a new default.
@@ -536,7 +536,8 @@ def _default_save_episode(
             continue
 
     timestamp = _resolve_captured_at(captured_at) or episode_ids.utc_now_iso()
-    episode_id = episode_ids.next_episode_id(episodes_dir, timestamp[:10])
+    # Ruling 34: the id carries the day the message was sent in the person's zone, not the UTC day.
+    episode_id = episode_ids.next_episode_id(episodes_dir, episode_ids.id_day(timestamp))
 
     frontmatter = {
         "id": episode_id,

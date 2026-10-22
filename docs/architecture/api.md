@@ -135,7 +135,8 @@ unauthenticated; `GET /banks` carries each bank's `id`. A mutating request may n
 beside `X-Cicada-Bank`; either mismatch is 409 `bank_mismatch` before anything runs.
 
 **`POST /capture/session` and `POST /tools/call` (G181 phase 2).** The first takes a Claude Code or Codex session read
-on the client by Cicada's own extractor (`capture-and-sleep.md`, "A session from another machine"); the second is the
+on the client by Cicada's own extractor (`capture-and-sleep.md`, "A session from another machine"), with an optional
+`utc_offset_minutes` (−840…840; ruling 34, also on `/capture/turn`) so the id it mints carries the client's local day; the second is the
 tool door (`mcp.md`, "A client of a server on another machine"). Both run their work off the event loop; the door
 answers `{text, code, data, error, state, bank}` with 200 for anything a body said (a body's exception is `error`, the
 stdio server's `Error: …`), 404 for an unknown tool and 403 for a tool the command-line surface does not hold.

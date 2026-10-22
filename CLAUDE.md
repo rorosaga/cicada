@@ -186,7 +186,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   never the person's own words until that app's export upgrades it in place (`capture-and-sleep.md`).
 - **Transcripts under `~/.claude/` are never read anywhere else** — the MCP seam and resume only `isfile()` them.
   A client of a server elsewhere reads its session there with Cicada's own extractor and posts the capped turns (ruling 28).
-- **One id rule** (`episode_ids`): max-suffix+1 per date, aware UTC timestamps; `processed_by` says who flipped it.
+- **One id rule** (`episode_ids`): max-suffix+1 per date — the conversation's local day, never renamed (ruling 34) —
+  aware UTC timestamps; `processed_by` says who flipped it.
   A new episode never replaces a file (`create_episode`); dedup, edits and Sleep's revision-checked retirement share
   `episode_lock`, and every page write is atomic (audit K01/A01/A02, `capture-and-sleep.md`).
 - **Every writer scrubs, every source-keyed writer stages through one module** (`episode_scrub`, `episode_staging`:

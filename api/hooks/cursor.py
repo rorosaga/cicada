@@ -99,6 +99,9 @@ def _capture(payload, event, *, environ, home, post):
     if client:
         # G181 phase 2: the server is elsewhere; a turn it does not take now waits in the spool, in order. Only the
         # reply hook flushes: the prompt hook holds the person's message.
+        offset = remote_client.utc_offset_minutes()
+        if offset is not None:
+            body["utc_offset_minutes"] = offset   # ruling 34: the id's day is this machine's, not the server's
         return sid, remote_client.deliver_turn(
             home, "/capture/turn", body, environ=environ, post=None if post is _default_post else post,
             timeout=CAPTURE_TIMEOUT_S[event], flush_budget=3.5 if event == "afterAgentResponse" else 0.0)

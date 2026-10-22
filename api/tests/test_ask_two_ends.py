@@ -350,9 +350,12 @@ def test_days_are_local_days_never_the_utc_slice(bank, monkeypatch):
                         {"offset": len(body[0]) + 1, "ts": "2026-10-19T23:30:05+00:00", "speaker": None}])
         _index(bank)
         monkeypatch.setattr(ask_service, "current_day", lambda: date(2026, 10, 20))
-        timing = _prompt(bank, "How many days ago did I book the pottery workshop?").split(
-            "TIME BETWEEN THE CONVERSATIONS", 1)[1]
-        assert "- 2026-10-20 = day 0 (lines dated 2026-10-19 above: their stored UTC date)" in timing
+        prompt = _prompt(bank, "How many days ago did I book the pottery workshop?")
+        lines, timing = prompt.split("TIME BETWEEN THE CONVERSATIONS", 1)
+        # Ruling 34 (2026-10-22): a line is dated the local day it was said, never its UTC stamp's first ten
+        # characters, so no "stored UTC date" note is needed to reconcile the two.
+        assert "- 2026-10-20 [ep_2026-10-19_001]" in lines, "the old id stays; the line carries the day said"
+        assert "- 2026-10-20 = day 0" in timing and "stored UTC date" not in timing
         assert "- 2026-10-19 = day" not in timing, "never numbered as the day before"
         assert "- 2026-10-20 (the current local day) = day 0" in timing
     finally:

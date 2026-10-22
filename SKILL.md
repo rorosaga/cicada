@@ -121,24 +121,36 @@ start at the index, pick a hub, then drill into entities. Use hubs to answer
 - A link worth keeping (article, repo, video) -> `cicada_save_url(url, note?)`.
   Cicada fetches and indexes it as a media source.
 
-## Never hand-edit entity files
-The Sleep cycle owns all writes to `entities/`, `hubs/`, and `_index.md` — it
-handles dedup, provenance (git), and decay. Do NOT edit those files directly.
-If the user wants a correction, route it through the inbox (resolve the relevant
-nudge/clarification) or capture it with `cicada_save_episode` and let the next
-Sleep cycle consolidate it. Direct edits bypass provenance and break dedup.
+## Fixing what memory says
+Never edit files under `entities/`, `hubs/`, `backlog/` or `_index.md` directly:
+every write goes through a tool, so provenance (git, the author and session
+trailers) and dedup hold.
+- A page's words or aliases are wrong (a misspelled name, a stale sentence) ->
+  `cicada_edit_page(subject, reason, edits)`. Your `reason` becomes the commit
+  message; the claims on the page are never touched. If the person has not
+  listed your app as one that may edit pages, the change waits in their inbox
+  for one tap, and the reply says so.
+- A fact is wrong or new -> `cicada_write_claim` (quote the evidence);
+  withdraw a claim you wrote with `cicada_retract_claim`.
+- An open question the person just answered -> `cicada_resolve_inbox`.
 
 ## Memory directory layout (read-only orientation)
-    ~/cicada/memory/
-      _index.md       top-level hub-tier entry point (start traversal here)
-      _state.md       the live now-view (cursor: ids + one-liners; GET /state for the object)
-      hubs/           topic / type hub pages, each listing member entities
-      entities/       one markdown page per entity (YAML frontmatter + body)
-      episodes/       raw captured snippets (re-consolidation source of truth)
-      sources/        saved media (links, videos) ingested via cicada_save_url
-      inbox/          pending items the user resolves (nudges + clarifications)
-      leann/          vector indexes — never edit by hand
+    <memory root>/            ~/cicada/memory unless CICADA_MEMORY_PATH names another
+      banks.yaml              which bank is active
+      banks/<bank>/           one bank: everything below is its own
+        _index.md             top-level hub-tier entry point (start traversal here)
+        _state.md             the live now-view (a cursor: ids + one-liners)
+        hubs/                 topic / type hub pages, each listing member entities
+        entities/             one page per entity (YAML frontmatter + body)
+        episodes/             raw captured conversations and saves (the source of truth)
+        inbox/                questions waiting for the person
+        backlog/              one file per backlog item, per project
+        design/, captures/, assets/   saved looks, site captures and their pictures
+        vector_index.db, search_index.db   derived indexes, rebuilt freely, never edit
+A remote or client agent has no such folder: the tools are the way in.
 
 ## If the tools are missing
-The MCP server isn't registered. Tell the user to run `./install.sh` (or
-`make install`) from the Cicada repo, which registers the `cicada` MCP server.
+The MCP server isn't connected. In Claude Code, the `cicada` plugin is the door:
+`/plugin marketplace add rorosaga/cicada`, then `/plugin install cicada@cicada`.
+Other agents get it from the Cicada app (Settings) or from `./install.sh` in
+the Cicada repo, which registers the `cicada` MCP server.
