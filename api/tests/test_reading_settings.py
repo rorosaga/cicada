@@ -21,7 +21,8 @@ def test_the_default_is_off_and_empty():
     snap = reading_settings.snapshot()
     assert snap == {"agentEnabled": False, "allowedSites": {}, "ackedAt": None, "ackCurrent": False,
                     "exploreSignedIn": True, "neverExplore": {},
-                    "youtubeLists": {"watchLater": False, "history": False}}   # G71: both lists off by default
+                    "youtubeLists": {"watchLater": False, "history": False},   # G71: both lists off by default
+                    "savedLists": {"x": False, "instagram": False, "linkedin": False}}   # G206: all three off
     assert not reading_settings.path().exists(), "reading never creates the file"
 
 

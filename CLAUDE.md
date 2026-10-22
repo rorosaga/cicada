@@ -331,7 +331,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   hashed and mapped to connector rows; a self-registered app is never named by its claim (`network.md`).
 - **Reading with the person's own agent (G166):** Cicada never spawns a browser and never signs in; it only asks. Only a
   link the person asked about, or a wall page of a site they allowed, can be recorded — and (owner 2026-10-16, G71) the
-  person's YouTube Watch later or history page, a standing ask once they turn that list on, stdio only; one person's
+  person's YouTube Watch later or history page, a standing ask once they turn that list on, stdio only; their saved list on X, Instagram or LinkedIn the same way, one site at a time, ≤ 10 reads a day, each item an
+  indexed save (G206, 2026-10-22, `mcp.md`); one person's
   LinkedIn profile only through the link their page lists, on the person's ask, ≤ 10 a day, stdio only (2026-10-16,
   `mcp.md`). Imported LinkedIn connections enrich existing people only, never mint a page. The backend never fetches a
   login-walled page. **Exploring saved sites (ruling 25):** only the person's click or a trusted local agent they asked

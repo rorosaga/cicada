@@ -1032,6 +1032,19 @@ the website's logo … Clicking again on Sources takes me back to the main Sourc
   row of a link Sleep has not made a page of yet asks by its episode (`SavedItemText.door`; the list names its site,
   `channel_items` `g161-6`). **A saved YouTube video's row draws its still** (`VideoStill`, the watched day's view, at
   64 × 36; `GET /sources/saved/{id}/still`, `SourcePictures.savedStillPath`), not the site's mark (owner 2026-10-20).
+- **Saved lists in your browser (G206, spec 2026-10-22 — not built; the backend is).** On a saved source's detail
+  column for X, Instagram and LinkedIn, one row under the sync row: label "Read my <Bookmarks|Saved|Saved posts> in my
+  browser" (`SectionLabel` above it reads *In your browser*, DR-20/47) with a `Toggle` bound to
+  `GET /reading/settings` `savedLists.<site>` and written by `PUT /reading/settings {"savedLists": {"<site>": bool}}`
+  (optimistic with rollback; the reading settings are not a Store domain, so the row says so and caches in memory). The
+  second line, in `textTertiary`: off — "Your own agent reads this list in your signed-in browser. Saved posts are
+  kept for lookup, never read."; on — the last read from `saved.lists.<site>` ("Read today · 24 posts", relative day
+  computed when read, DR-58; counts `monospacedDigit`, DR-21), or "Paused until Oct 29 — your agent needed you to sign
+  in" with a neutral *Try again* button (DR-40) that PUTs the switch on again. When agent reading is off or its sheet
+  is not acknowledged, turning the switch on first opens the Reading-the-web sheet (the same acknowledgement; the
+  PUT answers 422 with that sentence otherwise). The accent is not used here beyond the toggle's own tint (DR-5); no
+  new mark (the family's bundled mark already heads the column, DR-52). A `needs_login` lands as the G205 agent
+  request in the Inbox, not on this row.
 - **Watch history is never a save.** YouTube and TikTok history days are their own captured rows (*YouTube history*,
   *TikTok history*), headlined by their days ("30 watched days", `SourceOverview.isWatchHistory`), and their detail
   lists those days by title under the row's own id (`GET /sources/channels/youtube-history/items`, each opening in the
