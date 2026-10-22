@@ -229,14 +229,18 @@ def test_the_dry_run_lists_each_pair_and_writes_nothing(bank, capsys):
     for name, extra in (("Bob Example", "aliases:\n- bexample\n"), ("bexample", ""), ("Ann Sample", "")):
         slug = name.lower().replace(" ", "-")
         (bank / "entities" / f"{slug}.md").write_text(f"---\nname: {name}\ntype: person\n{extra}---\n## Summary\nx\n")
-    pending_store.upsert(bank, PendingEntity(name="asample (Ann Sample)", type="person", description="",
-                                             source_episode="ep_2026-09-30_001", confidence=0.4, tags=[],
-                                             history_entries=[]))
+    for parked in ("asample (Ann Sample)", "bex"):
+        pending_store.upsert(bank, PendingEntity(name=parked, type="person", description="",
+                                                 source_episode="ep_2026-09-30_001", confidence=0.4, tags=[],
+                                                 history_entries=[]))
+    (bank / "entities" / "bob-example.md").write_text(
+        "---\nname: Bob Example\ntype: person\naliases:\n- bexample\n---\n## Links\n- [X](https://x.com/bex)\n")
     before = sorted((p.name, p.stat().st_mtime_ns) for p in bank.rglob("*") if p.is_file())
     assert person_leads_dry_run.main(["--bank", str(bank), "--json"]) == 0
     rows = __import__("json").loads(capsys.readouterr().out)["leads"]
     assert {(r["page"], r["holder"], r["kind"]) for r in rows} == {
-        ("bexample", "bob-example", "alias"), ("pending:asample (Ann Sample)", "ann-sample", "named_handle")}
+        ("bexample", "bob-example", "alias"), ("pending:asample (Ann Sample)", "ann-sample", "named_handle"),
+        ("pending:bex", "bob-example", "profile:x")}
     assert sorted((p.name, p.stat().st_mtime_ns) for p in bank.rglob("*") if p.is_file()) == before
 
 

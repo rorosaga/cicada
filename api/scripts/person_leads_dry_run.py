@@ -3,7 +3,8 @@
     api/.venv/bin/python -m api.scripts.person_leads_dry_run --bank <path> [--json]
 
 Prints one line per lead, each a pair of page ids and why they met: ``alias`` (the holder lists the other page's name
-among its aliases), ``profile:<site>`` (the holder links that account), ``named_handle`` (a pending line parked as
+among its aliases), ``profile:<site>`` (the holder links that account; the other side may be a page or a name still
+parked below the promotion bar, ``pending:<name>``), ``named_handle`` (a pending line parked as
 "handle (Full Name)" whose full name has a page, which the next Sleep that hears the name folds in). Each lead also
 says whether a "Possible duplicate" question is already open for the pair, or the person already said they are
 different. Sleep raises the question for a lead the next time either page is mentioned; nothing here asks, merges or
@@ -19,6 +20,7 @@ from pathlib import Path
 
 def survey(bank: Path) -> list[dict]:
     from api.services import markdown_parser, merge_rejections, pending_store, person_leads
+    from api.services.id_utils import sanitize_id
     from api.services.inbox_generator import find_open
 
     pages = []
@@ -40,8 +42,17 @@ def survey(bank: Path) -> list[dict]:
         })
     by_name = {person_leads.handle_key(n): ids for n, ids in index.by_name.items()}
     for line in pending_store.load(bank):
-        split = person_leads.split_named_handle(line.name) if str(line.type).lower() == "person" else None
+        if str(line.type).lower() != "person":
+            continue
+        split = person_leads.split_named_handle(line.name)
         if split is None:
+            # A parked name another person page carries as an alias or a linked account.
+            for holder, kind in index.holders_of(line.name):
+                rows.append({"page": f"pending:{line.name}", "holder": holder, "kind": kind,
+                             "page_name": line.name, "holder_name": person_leads.page_name(index.by_id[holder]),
+                             "question_open": find_open(bank, "merge_suggestion", sanitize_id(line.name), holder)
+                             is not None,
+                             "said_different": merge_rejections.is_rejected(bank, sanitize_id(line.name), holder)})
             continue
         for holder in by_name.get(person_leads.handle_key(split[0]), ()):
             rows.append({"page": f"pending:{line.name}", "holder": holder, "kind": "named_handle",
