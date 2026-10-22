@@ -327,7 +327,7 @@ struct EngineQuickMenu: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if model.showsPlansAndKeysLink {
-                    InlineLink(title: Copy.EngineMenu.plansAndKeys) { openSettings(.plansAndKeys, nil) }
+                    InlineLink(title: Copy.EngineMenu.plansAndKeys) { openSettings(.engines, .plansAndKeys) }
                 }
                 if let command = model.command {
                     CommandBox(command: command)

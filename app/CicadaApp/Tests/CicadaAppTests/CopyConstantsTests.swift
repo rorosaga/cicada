@@ -7,7 +7,8 @@ import XCTest
 final class CopyConstantsTests: XCTestCase {
 
     func testPointerNamesItsDestinationExactly() {
-        XCTAssertEqual(Copy.settingsPlansAndKeys, "\(Copy.settings) → \(Copy.plansAndKeys)")
+        XCTAssertEqual(Copy.settingsPlansAndKeys, "\(Copy.settings) → \(Copy.engines) → \(Copy.plansAndKeys)",
+                       "Hyrum audit B1: Plans & keys is a group on Engines")
         XCTAssertTrue(Copy.noConnections.contains(Copy.settingsPlansAndKeys),
                       "the empty-connections line must point somewhere real")
         XCTAssertEqual(Copy.settingsPrivacy, "\(Copy.settings) → \(Copy.privacyAndData)")

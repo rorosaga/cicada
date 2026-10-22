@@ -142,7 +142,7 @@ the old copy goes to the Trash, the background service is restarted on the new c
 app and says why. With the switch off, Cicada never checks on its own; Cicada → Check for Updates… still does.
 Developer builds never update themselves.
 
-**Search model.** A fresh install searches by meaning with the small model built into the app. Settings → Memory →
+**Search model.** A fresh install searches by meaning with the small model built into the app. Settings → Search & memory →
 Search model offers the larger one (EmbeddingGemma): about 2 GB, installed into `~/.cicada`, downloaded once with the
 tester's own Hugging Face token (they accept the model's license there first). Each memory keeps the model it was
 built with.

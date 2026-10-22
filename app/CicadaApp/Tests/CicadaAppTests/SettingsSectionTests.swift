@@ -23,12 +23,10 @@ final class SettingsSectionTests: XCTestCase {
         XCTAssertEqual(SettingsSection.sleep.title, Copy.sleepSettings)
         XCTAssertEqual(SettingsSection.integrations.title, Copy.integrations)
         XCTAssertEqual(SettingsSection.agents.title, Copy.agents)
-        XCTAssertEqual(SettingsSection.remote.title, Copy.fromAnywhere)
         XCTAssertEqual(SettingsSection.engines.title, Copy.engines)
-        XCTAssertEqual(SettingsSection.plansAndKeys.title, Copy.plansAndKeys)
         XCTAssertEqual(SettingsSection.you.title, Copy.youSection)
         XCTAssertEqual(SettingsSection.privacy.title, Copy.privacyAndData)
-        XCTAssertEqual(SettingsSection.memory.title, Copy.memorySection)
+        XCTAssertEqual(SettingsSection.devices.title, Copy.Devices.sidebar)
         XCTAssertEqual(SettingsSection.searchFiles.title, Copy.SearchFiles.sidebar)
         XCTAssertEqual(SettingsSection.skills.title, Copy.skills)
     }
@@ -39,12 +37,14 @@ final class SettingsSectionTests: XCTestCase {
         XCTAssertEqual(SettingsSection.sleep.rawValue, "sleep")
         XCTAssertEqual(SettingsSection.integrations.rawValue, "integrations")
         XCTAssertEqual(SettingsSection.agents.rawValue, "agents")
-        XCTAssertEqual(SettingsSection.plansAndKeys.rawValue, "plansAndKeys")
+        XCTAssertEqual(SettingsSection.searchFiles.rawValue, "searchFiles")
+        XCTAssertEqual(SettingsSection.devices.rawValue, "devices")
+        XCTAssertEqual(SettingsSection.engines.rawValue, "engines")
     }
 
-    func testEverySubtitleComesFromCopyAndPlansAndKeysNoLongerImpliesAPrice() {
+    func testEverySubtitleComesFromCopyAndNoIconImpliesAPrice() {
         XCTAssertEqual(SettingsSection.general.subtitle, Copy.generalSubtitle)
-        XCTAssertEqual(SettingsSection.plansAndKeys.subtitle, Copy.plansAndKeysSubtitle)
-        XCTAssertEqual(SettingsSection.plansAndKeys.icon, "key.horizontal", "K4 — creditcard implies a price")
+        XCTAssertEqual(SettingsSection.engines.subtitle, Copy.enginesSubtitle)
+        XCTAssertFalse(SettingsSection.allCases.map(\.icon).contains("creditcard"), "K4 — creditcard implies a price")
     }
 }

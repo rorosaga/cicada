@@ -1071,7 +1071,7 @@ def _run_sign_in(plan: PlanSignIn, binary: str) -> int:
 def cmd_engine_connect(boot, args) -> Result:
     """Ruling 4b (owner, 2026-10-16): "Just have to set them up somehow" — a plan on a server, signed in by its own
     CLI in the person's own terminal ("Yeah chat too": the ChatGPT plan as well). Only plans are connected here; a key
-    goes in Settings → Plans & keys or `~/.cicada/secrets.env`."""
+    goes in Settings → Engines → Plans & keys or `~/.cicada/secrets.env`."""
     import sys
 
     plan = PLAN_SIGN_INS.get(args.connection)

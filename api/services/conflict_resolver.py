@@ -218,7 +218,7 @@ async def resolve_and_prune(
     now = now or datetime.now()
     alpha, floor = decay_policy.spacing_params(settings)
     if tuning is None:
-        # G147: the per-type pace the person approved in Settings → Memory. One
+        # G147: the per-type pace the person approved in Settings → Search & memory. One
         # small file read per cycle; a demo or test settings object without a
         # bank path has none.
         memory_path = getattr(settings, "memory_path", None)

@@ -13,10 +13,13 @@ import Foundation
 extension Copy {
     enum SearchFiles {
         // MARK: The page
-        static let sidebar = "Search & files"
+        /// Hyrum audit B1 (2026-10-22): Memory's card joined this page, so the name says both.
+        static let sidebar = "Search & memory"
+        /// The name until B1; Settings search still finds the page by it.
+        static let formerSidebar = "Search & files"
         static let pageTitle = "What Cicada can look through"
-        static let subtitle = "Folders it reads, and how well search understands them."
-        /// "Settings → Search & files" — the pointer every other surface uses (`CopyConstantsTests`).
+        static let subtitle = "Folders it reads, how search understands, how things fade."
+        /// "Settings → Search & memory" — the pointer every other surface uses (`CopyConstantsTests`).
         static let pointer = "\(Copy.settings) → \(sidebar)"
 
         // MARK: Folders

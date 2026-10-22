@@ -60,7 +60,7 @@ struct PickedFolder: Identifiable {
     var id: String { url.path }
 }
 
-/// G133 — one watched folder on Settings → Search & files (owner, 2026-10-14; it was Integrations → Notes & files).
+/// G133 — one watched folder on Settings → Search & memory (owner, 2026-10-14; it was Integrations → Notes & files).
 /// The row says its depth in words — a `Tag` (DR-44), *Kept in memory* — and one state line (its notes and when it was
 /// last read). The full path is the row's `.help` (DR-19, DR-54: monospace only in a path row). *Manage* is the one
 /// control; *Read now* lives in the sheet. A failure's first clause carries one `warning` glyph; the text is never

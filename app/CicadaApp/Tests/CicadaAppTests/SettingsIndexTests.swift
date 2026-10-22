@@ -32,9 +32,9 @@ final class SettingsIndexTests: XCTestCase {
         XCTAssertEqual(hits.first?.entry.id, .page(.sleep), "the section itself outranks its rows")
     }
 
-    func testFromAnywhereRowsLandOnItsHeader() {
+    func testFromAnywhereRowsLandOnItsGroup() {
         let entry = SettingsIndex.staticEntries.first { $0.id == .remoteSwitch }
-        XCTAssertEqual(entry?.anchor, .page(.remote), "R-O12 — Track R's view carries no anchors")
+        XCTAssertEqual(entry?.anchor, .fromAnywhere, "R-O12 — Track R's view carries no anchors; B1 — its group does")
     }
 
     func testDynamicEntriesComeFromSnapshotsAndCarryNoSecret() {
@@ -45,7 +45,7 @@ final class SettingsIndexTests: XCTestCase {
         let agents = AgentCatalog.all
         let entries = SettingsIndex.dynamicEntries(channels: [], harnessRows: [], exportOnly: [.youtube],
                                                    connections: [connection], agents: agents)
-        XCTAssertTrue(entries.contains { $0.id == .connection("byok-openai") && $0.section == .plansAndKeys })
+        XCTAssertTrue(entries.contains { $0.id == .connection("byok-openai") && $0.section == .engines })
         XCTAssertTrue(entries.contains { $0.id == .agent("claude-code") && $0.section == .agents })
         XCTAssertTrue(entries.contains { $0.id == .exportOnly("youtube") && $0.section == .integrations })
         let text = entries.map { ([$0.title, $0.detail ?? ""] + $0.keywords).joined(separator: " ") }.joined()

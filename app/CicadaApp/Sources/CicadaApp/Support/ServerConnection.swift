@@ -3,7 +3,7 @@ import Foundation
 
 /// G181 phase 3 — where this app's memory lives: *This Mac* (its own backend on loopback, as always) or *A server* the
 /// person runs elsewhere and reaches over an overlay of their own (a tailnet name, an SSH tunnel). Decided once at
-/// launch, like `CicadaRuntime`; a change in Settings → Devices is written to disk and takes effect when Cicada opens
+/// launch, like `CicadaRuntime`; a change in Settings → Devices & access is written to disk and takes effect when Cicada opens
 /// again, so the Store, its disk cache, the event stream and every reader switch together, never half-way.
 ///
 /// One setting for the whole Mac, shared with the hooks, the stdio MCP server and the `cicada` command
@@ -194,7 +194,7 @@ struct ServerConnection: Equatable, Sendable {
     // MARK: Saving the person's choice
 
     /// Saves the address for the next launch (`pendingFile`) and the token, when the person pasted one — each 0600,
-    /// the folder 0700. Only on the person's click in Settings → Devices, after the server answered; nothing else in
+    /// the folder 0700. Only on the person's click in Settings → Devices & access, after the server answered; nothing else in
     /// the app writes either file. The token alone changes nothing: it is read only once an address is in place.
     static func save(base: URL, token: String?, cicadaHome: URL = CicadaRuntime.current.cicadaHome) throws {
         let fm = FileManager.default

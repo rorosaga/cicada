@@ -4,6 +4,9 @@ import SwiftUI
 /// *Explore the demo* runs seam 2's `SetupRunner.demoPlan` (the Welcome's own plan; the server re-opens a demo that
 /// exists), and inside the demo the row says so and offers the banner's way back. Its own view so the General page
 /// gains one line (the onboarding track edits that page in parallel). Text buttons (DR-40): Settings has no primary.
+///
+/// Hyrum audit B12 (2026-10-22): *Run setup again* and *Show setup checklist* joined it from General's Setup card, under
+/// one header, *Getting started* (DR-37: one job, one card).
 struct SettingsDemoTourGroup: View {
     @Environment(AppRouter.self) private var router
     @Environment(Store.self) private var store
@@ -19,6 +22,25 @@ struct SettingsDemoTourGroup: View {
 
     var body: some View {
         SettingsGroupCard(header: Copy.Demo.settingsGroup) {
+            SettingsRow(.runSetup, title: Copy.setup, detail: Copy.runSetupDetail) {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    // DR-40 — F-10's text buttons.
+                    TextButton(title: Copy.runSetupAgain) {
+                        OnboardingState.reset(bank: store.bank)
+                        router.requestFirstRun()
+                    }
+                    // R-IB17 — the checklist is re-openable, beside Run setup again so G139's index lands on both.
+                    TextButton(title: Copy.gsShowChecklist) {
+                        GettingStartedState.showChecklist(bank: store.bank)
+                        // A card already seen done this session would otherwise reopen as "You're set up."
+                        runner.sawDoneThisSession = false
+                        runner.checklistChanged()
+                        router.pendingTab = .home
+                        router.activateMainWindow()
+                    }
+                }
+            }
+            SettingsDivider()
             SettingsRow(.guidedTour, title: Copy.Tour.settingsTitle, detail: Copy.Tour.settingsDetail) {
                 TextButton(title: Copy.Tour.offerTake) {
                     router.closeSettings()

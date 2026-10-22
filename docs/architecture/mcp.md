@@ -23,6 +23,17 @@ history — stays reachable through the tool under the default scopes (a 3,500-c
 past any client's limit; eliding its fence instead lost the ids an agent needs to withdraw its own claim, review
 round 1). `cicada get --start N` is the same; `--from`/`--count`/`--line-numbers` slice the whole page.
 
+**Recall's size (2026-10-22).** A `cicada_recall` reply stays under `RECALL_BUDGET` (40,000 characters, about
+10,000 tokens, well under Claude Code's default 25,000-token MCP cap; `REMOTE_RECALL_BUDGET` 20,000 on the remote
+connector) whatever the bank holds — a recall that named the owner's page was 221,719 characters and reached the agent
+only as an error. Each hit's `Related:` line shows at most `RECALL_RELATED_SHOWN` (12) names, those this recall also
+returned first, then `… and N more — <page read, start=1> lists them all`; `summarize_for_recall` keeps Summary and Key
+Facts first but cuts them at whole lines within the hit's budget (Key Facts keep at least a third), ending a cut list
+with `- … and N more on the full page`; a hit's body is backstopped at 6,000 characters; the inbox block shows at most
+5 questions, the cold-start hub list 8,000 characters. A reply still over the budget leaves out its lowest-ranked page
+blocks first (never the top one) and says which in one line (`_fit_recall`); under the budget it is unchanged byte
+for byte. Headings and line shapes are the same; only lengths change.
+
 **Recall (G140).** Three legs fused by one RRF (`search_service.rrf_fuse`): the stored vectors, the
 FTS lexical leg (names, aliases and prose, word by word), and current claims mapped to their
 subject — so an alias or a relationship label reaches its page. Each leg is filtered against the pages as their
@@ -1378,7 +1389,7 @@ the CLI.
     `runtime_layout.LAUNCHERS` and `CicadaRuntime.launcherNames` list it.
   - A developer checkout has `scripts/cicada`. `make cli` / `./install.sh --cli` (`scripts/install-cli.sh`) link
     `~/.local/bin/cicada` to it.
-  - The app's Settings → General *Install the command-line tool* links `~/.local/bin/cicada` to the runtime's own
+  - The app's Settings → Agents *Install the command-line tool* (General until the Hyrum audit's B11) links `~/.local/bin/cicada` to the runtime's own
     launcher (`app.md`). The script and the button share the never-replace rules.
   - A Swift end-to-end test runs outer shim → inner launcher → CLI in a synthetic bundle: caller's folder kept, a
     moved app exits 127 with the repair sentence, and the next rewrite works.
@@ -1474,7 +1485,7 @@ OWN advertised table (stdio `TOOLS` in `mcp/server.py`, remote `REMOTE_TOOLS`), 
   rotating `cic_rt_` refresh token; the gate verifies an access token against the connector row it maps to, so tool
   lists, scopes, the Sleep gate, the ledger and every write's provenance (`Cicada-Author: <app harness>`,
   `Cicada-Session: rc_…`) are the link connector's, unchanged. The secret link (`/c/<token>/mcp`) still works; the docs
-  and the From anywhere page steer Claude and ChatGPT to sign-in, which puts no secret in a URL.
+  and the From anywhere group steer Claude and ChatGPT to sign-in, which puts no secret in a URL.
 - **`cicada_capture_turns(message, previous_reply?, conversation)`** (`record` scope, remote only —
   `catalog.REMOTE_ONLY`, so `test_remote_tools.py` classifies every stdio tool plus it). Not read-only, idempotent, not
   destructive and not open-world: an app that confirms writes (ChatGPT) asks the person, who can allow it always.

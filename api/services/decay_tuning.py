@@ -35,7 +35,7 @@ MAX_MULTIPLIER = 3.0
 _TYPES = frozenset(t.value for t in EntityType)
 _HEADER = (
     "# How fast each kind of page fades, as a multiple of its usual pace (G147).\n"
-    "# Written by Settings → Memory when you apply a suggestion; 0.5 = half as fast.\n"
+    "# Written by Settings → Search & memory when you apply a suggestion; 0.5 = half as fast.\n"
 )
 
 

@@ -25,6 +25,27 @@
   `VERSION` moves past 0.6.0. Tool and argument names are unchanged (G180 names no rename yet); `cicada_resolve_inbox`
   also takes `item_id`, unlisted. Left out: the claims fence rendered through the one wire builder (A6), and fencing
   the command line's text.
+- **2026-10-22 — Settings in eleven sections (Hyrum audit B1, with B11, B12, B23; G139; branch `settings-regroup`).**
+  Memory's one card joined Search & files (now *Search & memory*), From anywhere joined Devices (now *Devices &
+  access*), Plans & keys closes Engines. Each moved page is a group under its old header anchor (`page:memory`,
+  `page:remote`, `page:plansAndKeys`); `SettingsSection.retired` opens a saved selection, the old `agentsMode` and a ⌘K
+  recent on the new home, never General. General has one *Getting started* card; the command-line tool is on Agents;
+  Reading folds its method pickers while off. Every "Settings → <old section>" in app copy, backend sentences and docs
+  says the new path; `SettingsAnchorsTests` fails if an entry, deep link, retired value or pointer stops resolving.
+  Found on the way: a query with a bare "&" ("Plans & keys", "Privacy & data") matched nothing (`QuickMatch.tokens`
+  drops a punctuation-only word beside a real one; alone, or an emoji, it stays a token), and a landing below
+  late-loading cards stopped short (the row lands again on each move inside a 3 s window, never animated, until the
+  person scrolls). Review round: a saved old section lands on its group; folds open on a landing without storing it. Presentation only. Not done: B5 (shared step renderer). Pass 2's "B1 is the owner's
+  call" stands as the merge gate. Detail: `app.md` (Settings), the audit's *B1 as built*.
+- **2026-10-22 — a recall stays under the harness's result cap whatever the bank holds (branch `fix/recall-size`).**
+  On the live install a recall for a person's handle returned 221,719 characters (1,782 lines); Claude Code refuses an
+  MCP result over its cap, so the agent got only an error. Cause: the owner page's ~2,300 `related` ids printed on one
+  `Related:` line and Key Facts always kept whole. Now: `RECALL_BUDGET` 40,000 characters (20,000 remote, under its
+  24,000 cap), the `Related:` line at 12 names plus "… and N more" with the page-read call, Summary and Key Facts
+  cut at whole lines within the per-entity budget ("- … and N more on the full page"), the inbox block at 5 questions,
+  the cold-start hub list at 8,000, and a whole-result guard that leaves out the lowest-ranked pages first and names
+  them. Line shapes and headings unchanged; under the budget a reply is byte for byte what it was (golden passes).
+  Synthetic bank over MCP stdio: 149,058 characters before, 14,087 after (`cv mcp call cicada_recall`).
 - **2026-10-22 — the 0.6.0 release build type-checks on the runner (branch `fix/release-typecheck`).** Release run
   39714438472 failed: `SaveWhyPanel.swift:394` "unable to type-check this expression in reasonable time" on the
   macos-26 runner (it built on the dev Mac). A release build with `-warn-long-expression-type-checking=150` and

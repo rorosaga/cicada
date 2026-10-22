@@ -124,4 +124,32 @@ final class QuickMatchTests: XCTestCase {
                                  fields: [QuickMatch.Field("Text size", weight: QuickMatch.Weight.name)])
         XCTAssertEqual(m?.ranges(inField: 0), [[5, 9]])
     }
+
+    // MARK: Punctuation and emoji (Hyrum audit B1 review)
+
+    private func fields(_ text: String) -> [QuickMatch.Field] { [QuickMatch.Field(text, weight: QuickMatch.Weight.name)] }
+
+    /// A name typed in full, ampersand and all, finds itself: the "&" beside real words is a separator.
+    func testAnAmpersandBesideWordsIsASeparator() {
+        XCTAssertEqual(QuickMatch.tokens("Plans & keys").count, 2)
+        XCTAssertNotNil(QuickMatch.match(QuickMatch.tokens("Plans & keys"), fields: fields("Plans & keys")))
+        XCTAssertNotNil(QuickMatch.match(QuickMatch.tokens("privacy & data"), fields: fields("Privacy & data")))
+    }
+
+    /// A query of symbols alone is still a query: every list that keeps everything for "no tokens" must not show its
+    /// whole contents for "&".
+    func testASymbolOnlyQueryIsNeverEmpty() {
+        for query in ["&", "-", "?", "—"] {
+            XCTAssertFalse(QuickMatch.tokens(query).isEmpty, query)
+            XCTAssertFalse(QuickMatch.matches(query, fields: fields("Plans and keys")), "\(query) matched a field without it")
+        }
+    }
+
+    /// An emoji is a symbol, not punctuation: it stays a token, and one of several scalars still matches inside a field.
+    func testEmojiStayTokensAndMatchBySubstring() {
+        XCTAssertEqual(QuickMatch.tokens("rust 🦀").count, 2)
+        XCTAssertFalse(QuickMatch.matches("rust 🦀", fields: fields("Rust notes")), "the crab still has to be there")
+        XCTAssertTrue(QuickMatch.matches("❤️", fields: fields("Notes I ❤️ most")))
+        XCTAssertFalse(QuickMatch.matches("❤️", fields: fields("Notes I keep")))
+    }
 }

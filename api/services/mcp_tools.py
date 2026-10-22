@@ -1675,6 +1675,10 @@ def _recall(ctx: ToolContext, query: str) -> str:
                                    can_answer=ctx.is_remote or ctx.can("cicada_resolve_inbox"),
                                    skipped=frozenset(ctx.skipped_inbox_ids))
     if inbox_blurbs:
+        more_questions = len(inbox_blurbs) - RECALL_INBOX_SHOWN
+        if more_questions > 0:   # bounded (2026-10-22); the rest stay in the inbox, said in words
+            inbox_blurbs = inbox_blurbs[:RECALL_INBOX_SHOWN] + [
+                f"- … and {more_questions:,} more open question(s) about this in the inbox"]
         output_parts.append(
             "**Open question about this (ask only if it fits the turn, in your own words; if their words already "
             "answer it, record that instead of asking):**\n"
@@ -1730,18 +1734,25 @@ def _recall(ctx: ToolContext, query: str) -> str:
     if relevant_hub and not merged:
         hub_body = _read_hub_body(memory_path, relevant_hub)
         if hub_body:
+            hub_body = _clip_lines(hub_body, RECALL_HUB_BODY_MAX, "… (more members on the hub page)")
             output_parts.append(
                 f"**Relevant hub — `{relevant_hub}`:**\n{hub_body}"
             )
 
     # === Render type-aware entity summaries ===
+    more_call = _recall_detail_spell(ctx)
+    ranked_ids = frozenset(i for i in seen_ids if i)
     entity_blocks: list[str] = []
+    entity_block_ids: list[str] = []
     for hit in merged[:7]:
-        block = _render_entity_summary(entities_dir, hit)
+        block = _render_entity_summary(entities_dir, hit, ranked_ids=ranked_ids, more_call=more_call)
         if block:
             entity_blocks.append(block)
+            entity_block_ids.append(hit.get("entity_id"))
 
+    entity_at = None
     if entity_blocks:
+        entity_at = len(output_parts)
         output_parts.append("\n\n".join(entity_blocks))
 
     # === G140 Q-R2 (R3 P4c): what changed recently on the top pages ===
@@ -1796,8 +1807,47 @@ def _recall(ctx: ToolContext, query: str) -> str:
     # G180: a graph with no page at all is an empty graph whether or not `entities/` was
     # scaffolded; the text is unchanged, the refusal is typed (never matched on the sentence).
     empty = not any(entities_dir.glob("*.md"))
-    return Reply("\n\n".join(output_parts).strip() or f"No entities found matching '{query}'.",
+    text = _fit_recall(output_parts, entity_at, entity_blocks, entity_block_ids,
+                       REMOTE_RECALL_BUDGET if ctx.is_remote else RECALL_BUDGET, more_call)
+    return Reply(text or f"No entities found matching '{query}'.",
                  code="empty_graph" if empty else None, data=hints)
+
+
+def _recall_detail_spell(ctx: ToolContext):
+    """How this caller spells a page read — ``fn(entity_id, **args)`` — or ``None`` when it cannot make one."""
+    if ctx.is_cli:
+        return lambda eid, **kw: _cli_spell("cicada_recall_detail", entity_id=eid, **kw)
+    if not ctx.can("cicada_recall_detail"):
+        return None
+    return lambda eid, **kw: "cicada_recall_detail(" + ", ".join(
+        [f'entity_id="{eid}"'] + [f"{k}={v}" for k, v in kw.items()]) + ")"
+
+
+def _fit_recall(parts: list[str], at: int | None, blocks: list[str], ids: list[str], budget: int,
+                more_call) -> str:
+    """Recall's whole-result guard (2026-10-22): the reply joined as before, and — only when it is over ``budget``
+    characters — the lowest-ranked page blocks left out one at a time (never the top one), with a line naming each
+    page left out and how to read it. A reply still over after that is cut at whole lines with the cut said in
+    words. Never a silent cut; under the budget the text is byte for byte what it was."""
+    def joined(shown: list[str], note: str) -> str:
+        out = list(parts)
+        if at is not None:
+            out[at] = "\n\n".join(shown + ([note] if note else []))
+        return "\n\n".join(out).strip()
+
+    text = joined(blocks, "")
+    n = len(blocks)
+    while len(text) > budget and n > 1:
+        n -= 1
+        left = ids[n:]
+        how = f" — read one with {more_call(left[0])}" if more_call else ""
+        note = (f"_{len(left)} lower-ranked page(s) left out to keep this recall under {budget:,} characters: "
+                + ", ".join(f"`{i}`" for i in left) + f"{how}._")
+        text = joined(blocks[:n], note)
+    if len(text) > budget:
+        text = _clip_lines(text, budget, f"… (this recall was cut at {budget:,} characters to stay under the "
+                                         "result size limit; the pages it names read whole one at a time)")
+    return text
 
 
 def _hub_files(memory_path: Path):
@@ -3507,7 +3557,54 @@ def _claim_subject_search(memory_path: Path, query: str, top_k: int) -> list[dic
         return []
 
 
-def _render_entity_summary(entities_dir: Path, hit: dict) -> str:
+# Recall's size bounds (2026-10-22). A recall for a person's handle returned 221,719 characters — the owner page's
+# 2,307 related ids on one line and its key facts kept whole — and Claude Code refuses an MCP result over its cap
+# (25,000 tokens by default), so the agent received only an error. A recall now stays under RECALL_BUDGET whatever
+# the bank holds: 40,000 characters is about 10,000 tokens at ~4 characters a token and under 14,000 at a dense
+# ~3 (ids, hyphens), so it clears the default cap with headroom and stays below RECALL_DETAIL_BUDGET, the page read
+# it points to. The remote connector's result cap is 24,000 characters, so its recall keeps under 20,000.
+RECALL_BUDGET = 40_000
+REMOTE_RECALL_BUDGET = 20_000
+RECALL_RELATED_SHOWN = 12        # related names on a hit's `Related:` line before "… and N more"
+RECALL_ENTITY_BODY_MAX = 6_000   # one hit's quoted body, after the type-aware truncation (a backstop)
+RECALL_INBOX_SHOWN = 5           # open questions in recall's inbox block before "… and N more"
+RECALL_HUB_BODY_MAX = 8_000      # the cold-start hub member list
+
+
+def _clip_lines(text: str, limit: int, marker: str) -> str:
+    """``text`` cut to whole lines within ``limit`` characters, then ``marker`` on its own line; unchanged when it
+    fits. A single over-long first line is cut at a word boundary."""
+    if len(text) <= limit:
+        return text
+    room = max(limit - len(marker) - 1, 80)
+    kept, size = [], 0
+    for line in text.splitlines():
+        if size + len(line) + 1 > room:
+            break
+        kept.append(line)
+        size += len(line) + 1
+    if not kept:
+        kept = [text[:room].rsplit(" ", 1)[0] + " …"]
+    return "\n".join(kept) + "\n" + marker
+
+
+def _related_line(related: list, ranked_ids: frozenset, more_call: str | None) -> str:
+    """A hit's ``Related:`` line, bounded: names this recall also returned first, then the page's own order, at most
+    ``RECALL_RELATED_SHOWN``, then ``… and N more`` with the call that lists them all."""
+    names = [str(r) for r in related]
+    if len(names) <= RECALL_RELATED_SHOWN:
+        return f"Related: {', '.join(names)}"
+    first = [n for n in names if n in ranked_ids or _mcp_sanitize_id(n) in ranked_ids]
+    rest = [n for n in names if n not in set(first)]
+    shown = (first + rest)[:RECALL_RELATED_SHOWN]
+    where = f" — {more_call} lists them all" if more_call else ""
+    return f"Related: {', '.join(shown)} … and {len(names) - len(shown):,} more{where}"
+
+
+def _render_entity_summary(entities_dir: Path, hit: dict, *, ranked_ids: frozenset = frozenset(),
+                           more_call=None) -> str:
+    """One hit's block: heading, ``Related:`` line, quoted body — each bounded (2026-10-22). ``more_call(eid)``
+    spells the call that reads the whole page (``None`` for a caller that cannot make it)."""
     eid = hit.get("entity_id")
     if not eid:
         return ""
@@ -3530,9 +3627,12 @@ def _render_entity_summary(entities_dir: Path, hit: dict) -> str:
     lines = [
         f"### {name} ({etype}, confidence: {confidence}, status: {status})",
     ]
+    call = more_call(eid) if more_call else None
     if related:
-        lines.append(f"Related: {', '.join(str(r) for r in related)}")
+        lines.append(_related_line(list(related), ranked_ids, more_call(eid, start=1) if more_call else None))
     if truncated:
+        where = f" — {call} reads it whole" if call else ""
+        truncated = _clip_lines(truncated, RECALL_ENTITY_BODY_MAX, f"… (the rest of this page is not shown here{where})")
         lines.append("")
         lines.append(truncated)
     return "\n".join(lines)
@@ -4862,7 +4962,7 @@ def design_search(ctx: ToolContext, query=None, image_path=None, image_base64=No
             lines.append(_design_line(ref, memory_path=None if ctx.is_remote else memory_path, legs=hit["legs"]))
     notes = []
     if "image_model" in out["missing"]:
-        notes.append("Searching by picture isn't set up on this Mac (the person can turn it on in Settings, Search & files), "
+        notes.append("Searching by picture isn't set up on this Mac (the person can turn it on in Settings, Search & memory), "
                      "so pictures were compared by their words only.")
     if "model" in out["missing"]:
         notes.append("Only words were compared: the on-device search model isn't installed.")

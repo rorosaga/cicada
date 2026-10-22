@@ -345,8 +345,11 @@ struct ConnectView: View {
             AutoRecallGroup()
             PageEditorsGroup()
             SettingsGroupCard {
+                // Hyrum audit B11 (2026-10-22): the `cicada` command for agents with a shell, moved from General.
+                CommandLineToolSetting()
+                SettingsDivider()
                 SettingsRow(.agentsCloud, title: Copy.agentsCloudTitle, detail: Copy.agentsCloudDetail) {
-                    SettingsInlineLink(section: .remote, label: Copy.fromAnywhere)
+                    SettingsInlineLink(section: .devices, row: .fromAnywhere, label: Copy.fromAnywhere)
                 }
                 SettingsDivider()
                 // G166 — reading pages with an agent has its own page; this is the way there from Agents.
@@ -424,7 +427,7 @@ struct ConnectView: View {
 
     /// In the panel, the in-place door `SettingsInlineLink` itself uses; hosted outside it, the one door in.
     private func openFromAnywhere() {
-        if let focus { focus.go(.remote) } else { _ = router.openSettings(.remote) }
+        if let focus { focus.go(.devices, row: .fromAnywhere) } else { _ = router.openSettings(.devices, row: .fromAnywhere) }
     }
 
     /// `GET /agents/wiring` (Track I T3). Kept on failure: a page that had an answer never goes blank.

@@ -19,7 +19,7 @@ extension Copy {
         static func leaveRefused(_ why: String) -> String { "Couldn't leave the demo yet. \(why)" }
 
         // Settings → General.
-        static let settingsGroup = "Getting to know Cicada"
+        static let settingsGroup = "Getting started"
         static let demoTitle = "Demo memory"
         static let demoDetail = "Made-up memories with pictures, a video and a project, to try things safely. "
             + "Your own memory stays exactly as it is."

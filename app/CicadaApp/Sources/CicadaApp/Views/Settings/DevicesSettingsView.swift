@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// G181 phase 3 — Settings → Devices' *Where your memory lives* (on General until the settings audit, 2026-10-22):
+/// G181 phase 3 — Settings → Devices & access' *Where your memory lives* (on General until the settings audit, 2026-10-22):
 /// This Mac or A server (address + this device's token).
 ///
 /// A change is checked against the server before anything is written (`ServerProbe`: `/healthz` says it is Cicada,
@@ -111,7 +111,7 @@ struct MemoryHomeSetting: View {
     }
 }
 
-/// G181 phase 3 — Settings → Devices (owner 2026-10-16: "a page in settings … where I can see the synced devices").
+/// G181 phase 3 — Settings → Devices & access (owner 2026-10-16: "a page in settings … where I can see the synced devices").
 ///
 /// Two cards: *Where your memory lives* — the choice (`MemoryHomeSetting`) and, only while this app runs on a server,
 /// which server it uses, whether it answers and as of when, and how many captures wait on this Mac for it — and
@@ -159,6 +159,13 @@ struct DevicesSettingsView: View {
                     deviceList
                 }
             }
+            // Hyrum audit B1: From anywhere's page, unchanged, as this page's last group with the old page's anchor.
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                SettingsGroupHeader(Copy.fromAnywhere)
+                    .padding(.horizontal, CicadaTheme.spacingXS)
+                RemoteAccessView()
+            }
+            .settingsRow(.fromAnywhere)
         }
         .task {
             await model.refresh()

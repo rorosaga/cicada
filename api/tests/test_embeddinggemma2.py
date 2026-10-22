@@ -601,7 +601,7 @@ def test_a_missing_pin_file_is_a_sentence_not_a_traceback(tmp_path, monkeypatch)
     monkeypatch.setattr(model_fetch, "PINS", tmp_path / "embeddinggemma-2.lock.json")
     with pytest.raises(model_fetch.FetchError, match="can't find what it needs to download this") as caught:
         model_fetch.install(tmp_path / "models", compile_fn=_fake_compile)
-    # The person reads it (Settings → Search & files): never a repo path or the pins file's name.
+    # The person reads it (Settings → Search & memory): never a repo path or the pins file's name.
     assert "api/data" not in str(caught.value) and ".lock.json" not in str(caught.value)
     assert not (tmp_path / "models").exists(), "nothing is staged before the pins are read"
 
