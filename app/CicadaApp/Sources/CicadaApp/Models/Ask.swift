@@ -145,11 +145,13 @@ enum AskConversationRow {
     }
 
     /// "Oct 3", with the year only when it is not this year; empty for a day that does not parse, so the row never
-    /// ends with a raw string.
-    static func day(_ raw: String, now: Date = Date(), calendar: Calendar = .current) -> String {
+    /// ends with a raw string. In the reader's locale ("3 Oct" in Spain); the parameter lets a test pin one.
+    static func day(_ raw: String, now: Date = Date(), calendar: Calendar = .current,
+                    locale: Locale = .autoupdatingCurrent) -> String {
         guard let date = parse(raw, calendar: calendar) else { return "" }
         let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
         let format = DateFormatter()
+        format.locale = locale
         format.calendar = calendar
         format.timeZone = calendar.timeZone
         format.setLocalizedDateFormatFromTemplate(sameYear ? "MMM d" : "MMM d yyyy")

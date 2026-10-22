@@ -119,14 +119,16 @@ extension Copy {
 
         // G191 v4 — a bookmark that left the browser: Cicada keeps it and says so.
         /// "No longer in Chrome since Oct 15" — one browser; several are named together, newest day first.
-        static func noLongerIn(_ left: [BookmarkLeft], calendar: Calendar = .current) -> String? {
+        static func noLongerIn(_ left: [BookmarkLeft], calendar: Calendar = .current,
+                               locale: Locale = .autoupdatingCurrent) -> String? {
             guard !left.isEmpty else { return nil }
             let sorted = left.sorted { $0.since > $1.since }
             let names = SaveWhy.list(sorted.map(\.browser))
-            guard let day = shortDay(sorted[0].since, calendar: calendar) else { return "No longer in \(names)" }
+            guard let day = shortDay(sorted[0].since, calendar: calendar, locale: locale) else { return "No longer in \(names)" }
             return "No longer in \(names) since \(day)"
         }
-        static func shortDay(_ iso: String, calendar: Calendar = .current) -> String? {
+        /// "Oct 15" in the reader's locale ("15 Oct" in Spain); the parameter lets a test pin one.
+        static func shortDay(_ iso: String, calendar: Calendar = .current, locale: Locale = .autoupdatingCurrent) -> String? {
             let parser = ISO8601DateFormatter()
             parser.formatOptions = [.withInternetDateTime]
             var text = iso
@@ -135,6 +137,7 @@ extension Copy {
             }
             guard let date = parser.date(from: text) else { return nil }
             var style = Date.FormatStyle.dateTime.month(.abbreviated).day()
+            style.locale = locale
             style.calendar = calendar
             style.timeZone = calendar.timeZone
             return date.formatted(style)

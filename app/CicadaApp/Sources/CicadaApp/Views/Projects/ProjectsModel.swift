@@ -277,8 +277,8 @@ enum ProjectsModel {
         return text.isEmpty ? nil : text
     }
 
-    static func accessibilityLabel(_ line: ProjectLine, today: ISODay) -> String {
-        let standing = standing(line, today: today)
+    static func accessibilityLabel(_ line: ProjectLine, today: ISODay, locale: Locale = .autoupdatingCurrent) -> String {
+        let standing = standing(line, today: today, locale: locale)
         return Copy.Projects.rowLabel(line.row.name, standing: standing.isEmpty ? Copy.Projects.nothingHeard : standing,
                                       parts: line.children, expanded: line.expanded)
     }

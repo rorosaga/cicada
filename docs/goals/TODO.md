@@ -8,6 +8,15 @@
 
 ## Current state and evidence
 
+- **2026-10-22 — four Swift test classes no longer depend on the machine (branch `fix/tests-environment`).**
+  `AskConversationsTests`, `BookmarksV4Tests` and `ProjectsListTests` asserted US dates through formatters that read
+  the runner's locale; `AskConversationRow.day`, `Copy.Bookmarks.noLongerIn`/`shortDay` and
+  `ProjectsModel.accessibilityLabel` now take `locale:` (default `.autoupdatingCurrent`, so a Mac in Spain still reads
+  "2 Oct"), and each test pins `en_US` and asserts `en_GB` too. `PileRenderTests` compared exact pixels from an
+  `ImageRenderer.cgImage` that turned 16-bit PQ when an installed app's icon was in the scene (one red step off on the
+  chat spine); it now draws into a pinned 8-bit sRGB context. Sweep of the other Swift date, time, number and pixel
+  assertions: all already pass a locale or format with `en_US_POSIX`, and no other exact-pixel test draws an installed
+  app's icon. Rule in `working-method.md` (test baselines).
 - **2026-10-22 — Sleep dates a conversation by its local day; relayed turns take ChatGPT's zone (ruling 34 follow-up;
   branch `fix/sleep-local-day`).** One reading rule, `episode_ids.local_day` (any stored stamp → the day it was said in
   this machine's zone; `ask_sources.local_day` and `change_timeline` now call it). Sleep's day attribution goes through
