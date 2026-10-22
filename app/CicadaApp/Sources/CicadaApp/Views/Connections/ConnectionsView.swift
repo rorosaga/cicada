@@ -7,14 +7,20 @@ import SwiftUI
 /// Credentials only (G139, R-O9): the plan, its sign-in and the keys. Engine
 /// choice lives on Engines — the Max tier picker (a cost-estimate control, K4)
 /// is gone and "Use for Sleep" moved there as "Auto may use my Claude plan".
+///
+/// Hyrum audit B1 (2026-10-22): no longer a page of its own. It is the *Plans & keys* group at the end of Settings →
+/// Engines, under the anchor the page's header had (`SettingsRowID.plansAndKeys`, `page:plansAndKeys`).
 struct ConnectionsView: View {
     @Environment(ConnectionsViewModel.self) private var viewModel
     @State private var keyDrafts: [String: String] = [:]
     @State private var confirmDisconnect: ConnectionStatus?
     @State private var terminalFallback = false
     @Environment(SettingsFocus.self) private var focus: SettingsFocus?
-    /// DR-39 — per viewer, never synced: a person who opened the key cards finds them open next time.
-    @AppStorage(Self.keysOpenKey) private var keysOpen = false
+    /// DR-39 — per viewer, never synced: a person who opened the key cards finds them open next time. A landing on a
+    /// folded card opens it for this view only (`keysLanded`), never rewriting the person's choice.
+    @AppStorage(Self.keysOpenKey) private var keysStored = false
+    @State private var keysLanded = false
+    private var keysOpen: Bool { keysStored || keysLanded }
 
     static let keysOpenKey = "cicada.plansAndKeys.keysOpen"
 
@@ -27,11 +33,18 @@ struct ConnectionsView: View {
     // `body` is split into `refreshButton`, `pageContent`, `cards` and the dialog's words: as one expression it sat
     // near what the type checker solves in reasonable time on a slower release runner.
     var body: some View {
-        SettingsPage(section: .plansAndKeys, trailing: refreshButton) {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            HStack(alignment: .firstTextBaseline) {
+                SettingsGroupHeader(Copy.plansAndKeys)
+                Spacer(minLength: CicadaTheme.spacingSM)
+                refreshButton
+            }
+            .padding(.horizontal, CicadaTheme.spacingXS)
             pageContent
         }
-        .onAppear { openKeysIfLanded() }
-        .onChange(of: focus?.landedNonce ?? 0) { _, _ in openKeysIfLanded() }
+        .settingsRow(.plansAndKeys)
+        .onAppear { openKeysIfLanded(focus?.highlighted) }
+        .onChange(of: focus?.landedNonce ?? 0) { _, _ in openKeysIfLanded(focus?.landed) }
         // No `.task { load() }`: `ConnectionsViewModel` is a thin projection
         // over `Store.connections`, already hydrated + kept live by the
         // Store — this section renders instantly from the snapshot on revisit.
@@ -50,11 +63,11 @@ struct ConnectionsView: View {
         }
     }
 
-    private var refreshButton: AnyView {
-        AnyView(
-            Button { Task { await viewModel.load(fresh: true) } } label: { Image(systemName: "arrow.clockwise") }
-                .help("Check again")
-        )
+    /// A group header's one icon control (DR-40), where the page header's bordered button sat before B1.
+    private var refreshButton: some View {
+        IconButton(systemName: "arrow.clockwise", help: Copy.checkAgain, accessibilityLabel: Copy.checkPlansAndKeysAgain) {
+            Task { await viewModel.load(fresh: true) }
+        }
     }
 
     @ViewBuilder private var pageContent: some View {
@@ -72,16 +85,17 @@ struct ConnectionsView: View {
         VStack(spacing: CicadaTheme.spacingMD) {
             ForEach(groups.open) { c in card(c) }
             if !groups.folded.isEmpty {
-                DisclosureGroup(isExpanded: $keysOpen) {
-                    VStack(spacing: CicadaTheme.spacingMD) {
-                        ForEach(groups.folded) { c in card(c) }
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                    DisclosureHeader(title: Copy.useAnAPIKeyInstead, isOpen: keysOpen) {
+                        if keysOpen { keysStored = false; keysLanded = false } else { keysStored = true }
                     }
-                    .padding(.top, CicadaTheme.spacingSM)
-                } label: {
-                    Text(Copy.useAnAPIKeyInstead)
-                        .font(CicadaTheme.rowFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
+                    if keysOpen {
+                        VStack(spacing: CicadaTheme.spacingMD) {
+                            ForEach(groups.folded) { c in card(c) }
+                        }
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -121,10 +135,11 @@ struct ConnectionsView: View {
         .settingsRow(.connection(c.id))
     }
 
-    /// A search hit on a folded key card opens the fold, so the row it names is on screen (R-O6).
-    private func openKeysIfLanded() {
-        guard let id = focus?.landed?.item(of: "connection") else { return }
-        if Self.split(viewModel.connections).folded.contains(where: { $0.id == id }) { keysOpen = true }
+    /// A search hit on a folded key card opens the fold, so the row it names is on screen (R-O6). On appear only the
+    /// row still washed counts (`highlighted`); `landed` outlives the landing.
+    private func openKeysIfLanded(_ row: SettingsRowID?) {
+        guard let id = row?.item(of: "connection") else { return }
+        if Self.split(viewModel.connections).folded.contains(where: { $0.id == id }) { keysLanded = true }
     }
 
     private func connect(_ c: ConnectionStatus) async {

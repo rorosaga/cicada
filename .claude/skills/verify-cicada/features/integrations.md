@@ -18,7 +18,7 @@ Preconditions:
 - A run is up and `$CV doctor` is all `ok` (backend, scratch root, plan).
 
 - **Folders.** Create `<run>/fixtures/notes/note.md`, then `$CV api POST /sources/folders '{"label": "verify notes", "path": "<run>/fixtures/notes"}'` (`label` is required). `GET /sources/folders` lists it. The backend never reads it: the app's reader posts the bytes.
-- **App.** Settings → `vclick 'button Integrations$'`: chat exports, browsers, Calendar and the rest, each with its state. Folders live in Settings → Search & files (`vclick 'button Search & files ›'`); `$CV app shot settings-integrations`.
+- **App.** Settings → `vclick 'button Integrations$'`: chat exports, browsers, Calendar and the rest, each with its state. Folders live in Settings → Search & memory (`vclick 'button Search & memory ›'`, the pointer under Integrations); `$CV app shot settings-integrations`.
 - **Read only.** For every other integration, read its row's state in the app and stop.
 
 ## Gotchas

@@ -34,7 +34,7 @@ final class SettingsDefaultsTests: XCTestCase {
     func testAdvancedIsGoneAndASavedSelectionStillOpens() {
         XCTAssertFalse(SettingsSection.allCases.map(\.rawValue).contains("advanced"))
         XCTAssertEqual(SettingsSection.restored(from: "advanced"), .general)
-        XCTAssertEqual(SettingsGroup.enginesAndKeys.sections, [.engines, .plansAndKeys])
+        XCTAssertEqual(SettingsGroup.enginesAndKeys.sections, [.engines])
     }
 
     func testTheRemovedRowsAreNeitherIndexedNorDrawn() throws {
@@ -132,7 +132,7 @@ final class SettingsDefaultsTests: XCTestCase {
             (.transcripts, .privacy, "agent conversations"),
             (.memoryHome, .devices, "server"),                                  // This Mac or a server
             (.devicesList, .devices, "revoke"),                                 // ruling 28
-            (.remoteSwitch, .remote, "connector"),                              // G135
+            (.remoteSwitch, .devices, "connector"),                             // G135
             (.agentsEditors, .agents, "edit pages"),                            // G198
             (.agentsAutoRecall, .agents, "add what cicada knows"),
             (.readingAgent, .reading, "reading"),                               // G166

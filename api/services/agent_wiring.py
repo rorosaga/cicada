@@ -415,9 +415,9 @@ def generic_prompt(spec: dict) -> str:
 
 
 # Round 4 C8 (R-AG19): cloud agents reach this Mac only through the G135 connector.
-# From anywhere is its own Settings row (Customize: Integrations · Agents · From anywhere, G139), not a part of
-# Agents — the step names the row the person will actually find.
-REACH_STEP = ("In Cicada's Settings, open From anywhere and turn it on. It needs a tunnel you run, like "
+# From anywhere is a group on Settings → Devices & access (G139; its own row until the Hyrum audit's B1), not a part
+# of Agents — the step names the page and the group the person will actually find.
+REACH_STEP = ("In Cicada's Settings, open Devices & access, then From anywhere, and turn it on. It needs a tunnel you run, like "
               "Tailscale Funnel or ngrok.")
 REMOTE_SETUPS: dict[str, tuple[str, str, str]] = {
     # id: (title, product, the link step)

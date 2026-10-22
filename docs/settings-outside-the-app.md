@@ -28,9 +28,9 @@ running on this Mac — never an API key you didn't choose (ruling 31 in [TODO.m
 
 ## Where your memory lives is fixed
 
-Settings → Devices says *"Cicada's setup on this Mac fixes the server, so it can't be changed here."* when
+Settings → Devices & access says *"Cicada's setup on this Mac fixes the server, so it can't be changed here."* when
 `CICADA_API_BASE` is in the app's environment. It points this Mac at a Cicada server elsewhere and wins over the choice
-in Settings → Devices.
+in Settings → Devices & access.
 
 To choose in the app again (*This Mac* or *A server*), remove `CICADA_API_BASE` from the environment the app starts
 with and open Cicada again. The address and device token the app saved itself are kept in `$CICADA_HOME/api_base` and

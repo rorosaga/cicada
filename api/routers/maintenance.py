@@ -253,7 +253,7 @@ async def verify_sites(
             "budget": budget}
 
 
-# --- Search index (G139, Settings → Memory) ----------------------------------
+# --- Search index (G139, Settings → Search & memory) ----------------------------------
 
 # One rebuild per process, for the reason `_enrich_lock` exists: two
 # overlapping rebuilds would each drop and refill the same tables.
@@ -269,7 +269,7 @@ def _built_at(memory_path: Path) -> str | None:
 
 @router.get("/maintenance/search-index", response_model=SearchIndexStatus)
 async def search_index_status(settings: Settings = Depends(get_settings)):
-    """Settings → Memory (G139): how fresh the derived FTS5 index is. Deleting
+    """Settings → Search & memory (G139): how fresh the derived FTS5 index is. Deleting
     or rebuilding it costs CPU, never a fact (TODO ruling 3). The same
     `ensure_fresh` every read path calls, so asking may start the catch-up."""
     memory_path = settings.memory_path

@@ -230,7 +230,7 @@ final class HomeFrontDoorTests: XCTestCase {
         GettingStartedState.showChecklist(bank: "alpha", defaults: defaults)
         XCTAssertEqual(GettingStartedState.load(bank: "alpha", defaults: defaults)?.expanded, true,
                        "Settings' Show setup checklist opens it again")
-        let settings = try source("Views/Settings/SettingsGeneralView.swift")
+        let settings = try source("Views/Settings/SettingsDemoTourGroup.swift")   // General's Getting started (B12)
         XCTAssertTrue(settings.contains("GettingStartedState.showChecklist(bank: store.bank)"))
     }
 

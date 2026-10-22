@@ -110,7 +110,7 @@ private struct CompactEngineChooser: View {
         if let hint = EngineOption.signInHint(response.candidates) {
             HStack(spacing: CicadaTheme.spacingXS) {
                 Text(hint).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
-                SettingsInlineLink(section: .plansAndKeys, label: Copy.plansAndKeys)
+                SettingsInlineLink(section: .engines, row: .plansAndKeys, label: Copy.plansAndKeys)
                     .font(CicadaTheme.captionFont)
             }
         }

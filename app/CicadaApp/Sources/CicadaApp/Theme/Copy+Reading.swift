@@ -37,6 +37,8 @@ extension Copy {
 
         // MARK: How your agent reads
         static let methodsGroup = "How your agent reads"
+        /// The fold both method groups wait under while the switch is off (Hyrum audit B23).
+        static let methodsFold = "How your agent reads and watches"
         static let methodsDetail = "Cicada tells your agent which you chose. It can’t see or limit what your agent does in your browser."
         static let skillTag = "Skill"
         static let addToGraph = "Add to your graph"

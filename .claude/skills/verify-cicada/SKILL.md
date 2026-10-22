@@ -189,7 +189,7 @@ deletes the run dir unless `--keep-state`. Evidence is never removed. After a fa
 - Never press a Connect, Disconnect, Sign in, Sign out, Install, Set up, Turn on/off or Update button in the app in a
   verify run, nor Open Cicada at login (it registers this copy as the person's login item), Restart Cicada (`open -n`
   drops the scratch home), Open in Cursor, Remove bookmark (drives Chrome) or Allow Contacts / Allow… (TCC prompts):
-  Settings → Engines, Plans & keys, Integrations, Agents, Skills and General. The Claude plan's Disconnect signs
+  Settings → Engines (with its Plans & keys group), Integrations, Agents, Skills and General. The Claude plan's Disconnect signs
   the real `claude` out. `vclick` and `cv app click` refuse them; their `--allow-forbidden` only skips the check and
   never makes the press safe. They reach the real keychain, browsers, Contacts or Calendar,
   launchd or the harness configs, and an OAuth sign-in's callback defaults to `localhost:8000`, the person's own

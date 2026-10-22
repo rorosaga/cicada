@@ -226,8 +226,16 @@ final class ReadingAgentModel {
 /// Cicada detects) and "Sites that need your browser" (every site Cicada's reader could not read, each with its favicon,
 /// a measured count and a switch). Turning on raises the first-use sheet and nothing changes until its button is pressed.
 /// Direction D: group cards of Settings rows, neutral controls, the sheet's one prominent action.
+///
+/// Hyrum audit B23 (2026-10-22): while the switch is off, how the agent reads and watches waits under one fold (DR-39);
+/// the choices are still the person's to make ahead, and a search hit or link on one opens the fold.
 struct ReadingWebView: View {
     @State private var model = ReadingAgentModel()
+    /// DR-39 — the person's own open or closed, per viewer, never synced. A landing opens it for this view only
+    /// (`methodsLanded`), so following a link never rewrites what the person chose.
+    @AppStorage("cicada.reading.methodsOpen") private var methodsStored = false
+    @State private var methodsLanded = false
+    private var methodsOpen: Bool { methodsStored || methodsLanded }
     @State private var showSheet = false
     /// The site whose switch raised the sheet: it rides the "Turn on" call.
     @State private var pendingSite: String?
@@ -252,7 +260,13 @@ struct ReadingWebView: View {
         .onChange(of: openSkill?.id, initial: true) { _, open in
             focus?.escapeBack = escapeBack(skillOpen: open != nil)
         }
-        .onChange(of: focus?.landedNonce ?? 0) { _, _ in openSkill = nil }
+        .onChange(of: focus?.landedNonce ?? 0) { _, _ in
+            openSkill = nil
+            if let row = focus?.landed, ReadingMethodsFold.holds(row) { methodsLanded = true }
+        }
+        // A landing from another page selects this one and lands in the same pass, before this view exists, so only the
+        // row still washed (`highlighted`, the hold) counts here; a landing long past never reopens the fold.
+        .onAppear { if let row = focus?.highlighted, ReadingMethodsFold.holds(row) { methodsLanded = true } }
         .onDisappear { focus?.escapeBack = nil }
     }
 
@@ -311,8 +325,22 @@ struct ReadingWebView: View {
                 }
             }
             youtubeGroup
-            methodsGroup
-            watchMethodsGroup
+            if model.enabled {
+                methodsGroup
+                watchMethodsGroup
+            } else if model.methods != nil || model.watchMethods != nil {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                    DisclosureHeader(title: Copy.Reading.methodsFold, isOpen: methodsOpen) {
+                        if methodsOpen { methodsStored = false; methodsLanded = false } else { methodsStored = true }
+                    }
+                    if methodsOpen {
+                        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+                            methodsGroup
+                            watchMethodsGroup
+                        }
+                    }
+                }
+            }
             sitesGroup
             neverExploreGroup
         }
@@ -695,5 +723,13 @@ enum ReadingSwitchHelp {
         guard let settings else { return Copy.Reading.loadFailed }
         if settings.ackedAt != nil, !settings.ackCurrent { return Copy.Reading.reAskHelp }
         return ""
+    }
+}
+
+/// Which landings open Reading's method fold (Hyrum audit B23): the two groups and any one choice in them.
+enum ReadingMethodsFold {
+    static func holds(_ row: SettingsRowID) -> Bool {
+        row == .readingMethods || row == .watchingMethods
+            || row.item(of: "readingMethod") != nil || row.item(of: "watchingMethod") != nil
     }
 }

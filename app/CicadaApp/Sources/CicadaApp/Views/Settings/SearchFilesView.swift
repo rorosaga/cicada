@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings → Search & files (owner, 2026-10-14): *What Cicada can look through*. One place for the folders Cicada
+/// Settings → Search & memory (owner, 2026-10-14): *What Cicada can look through*. One place for the folders Cicada
 /// keeps (G133, moved from Integrations → Notes & files) and for how well search understands what it finds (moved from
 /// Memory → Search model and the Looks page), in plain words — the owner: "without mentioning embeddings".
 ///
@@ -45,6 +45,9 @@ struct SearchFilesView: View {
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, CicadaTheme.spacingXS)
+            // Hyrum audit B1: Memory's one card, with the old page's anchor.
+            FadePaceCard()
+                .settingsRow(.memoryGroup)
         }
         .task { await loadEmbeddings() }
         // Polls only while a download or the background re-read runs; the id flips when it ends, which cancels it.

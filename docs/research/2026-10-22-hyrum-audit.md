@@ -38,7 +38,7 @@ the Mode B table.
 | 3 | **A2. A refusal comes back as an answer (`isError: false`); a crash carries the raw Python message** | Done now, to every agent. Telling "not found" from a real answer means parsing English | Proposal |
 | 4 | **A4. Tool and argument names** | Careless-change harm, highest. Names sit in user allowlists, installed skills and other harnesses' configs, none searchable. The lean-MCP rename is planned | Proposal (freeze, then unlisted aliases) |
 | 5 | **A1. The recall reply's `cicada-hints` fence and block layout** | Careless-change harm. Six tests, the CLI, a verify feature file and the benchmarks read it | Proposal (document; fix two misleading keys) |
-| 6 | **B1. Merging the 15 Settings sections** | Careless-change harm. `cicada.settingsSection` raw values, deep links and search sections would move | Proposal |
+| 6 | **B1. Merging the 15 Settings sections** | Careless-change harm. `cicada.settingsSection` raw values, deep links and search sections would move | **Done** (2026-10-22, *B1 as built* below): eleven sections, every old anchor and raw value lands |
 | 7 | **A11. The legacy observer value (the owner's first name) is in the public schema** | Done now. A hardcoded owner name ships to every client and writes a trust-protected claim | Proposal |
 | 8 | **A7. The handshake misleads** | Done now, to agents. Any client named like "claude" is told to run `claude --resume`. Two HTTP routes are named that no MCP agent can call | Proposal |
 | 9 | **B-paths. Settings copy names `~/.cicada/…` whatever `CICADA_HOME` is** | Done now, to the person and to agents that read the screen. Observed on a scratch home: Privacy says `~/.cicada/secrets.env` while Plans & keys, on the same app, names the real path | **Done** (settings defaults: no page names a path) |
@@ -48,7 +48,7 @@ the Mode B table.
 | 13 | **A9. Untrusted text is marked on one door and not the other** | Safety. Saved-link titles a third party wrote reach a stdio agent unmarked | Proposal |
 | 14 | **B6, B7, B8, B2. Repeated headers and order** | Cosmetic. Incidental, no consumer | **Done** |
 | 15 | **A10. JSON-RPC gaps (no `ping`, no `-32700`)** | Client-compatibility risk, no harm seen | Proposal |
-| 16 | **A12, A13, remaining B proposals** | Cosmetic, or a cost to context budget | Proposal; B9, B10, B-env, B-model and the technical cuts **Done** (settings defaults) |
+| 16 | **A12, A13, remaining B proposals** | Cosmetic, or a cost to context budget | Proposal; B9, B10, B-env, B-model and the technical cuts **Done** (settings defaults); B11, B12, B23 **Done** with B1; B3, B5, B13 open |
 
 ---
 
@@ -308,7 +308,7 @@ exist, and the telemetry ledger was not read.
 
 | # | Setting | Who uses it | Verdict | Default or inferred value | Migration note |
 |---|---|---|---|---|---|
-| B1 | The sidebar: 15 sections | Everyone, every visit | **Merge** (proposal) to about 10. Memory joins Search & files; Plans & keys joins Engines; From anywhere joins Devices | Unchanged | Changes `cicada.settingsSection` raw values, `SettingsIndex` sections, `router.openSettings(.remote / .plansAndKeys / .memory)` deep links and docs. `SettingsSection.restored(from:)` already falls back for a retired raw value; map each to its new home, as `legacyAgentsMode` did. Needs the owner's word |
+| B1 | The sidebar: 15 sections | Everyone, every visit | **Merge** (done 2026-10-22: 11; see *B1 as built*) to about 10. Memory joins Search & files; Plans & keys joins Engines; From anywhere joins Devices | Unchanged | Changes `cicada.settingsSection` raw values, `SettingsIndex` sections, `router.openSettings(.remote / .plansAndKeys / .memory)` deep links and docs. `SettingsSection.restored(from:)` already falls back for a retired raw value; map each to its new home, as `legacyAgentsMode` did. Needs the owner's word |
 | B2 | Sleep → *The scenery* | Rare, once. Decoration | **Move** (done: after Engine). Further proposal: move it to the study room on the Sleep page | Local weather | Order only. Its Source row carries the G176 weather consent, so it stays visible, never folded |
 | B3 | Sleep → *Mascot* | Nobody yet: one choice | **Infer** (proposal): hide the card until a second mascot exists | `bookworm` | `cicada.mascot` keeps its value. `MascotSettingsTests` pins search landing on this row, so hiding it changes that contract |
 | B4 | General → *Where your memory lives* | Someone setting up a home server (G181) | **Move to Devices** (done), merged with the old *This app* card | This Mac | Same view and files (`api_base.next`, `device_token`), same `memoryHome` id. DR-38: on This Mac the page said where the memory lives three times, so *This app* is gone and its status lines (which server, reachable, captures waiting) join the card only while this app runs on a server; `devicesConnection` is anchored on `memoryHome`. On a server, General's *Keep memory working* links to the choice. Search entry, token sheet, `ServerConnection`'s write rule, api.md, app.md, headless.md, TODO.md, the headless research note and a `runtime_layout.py` comment now name Devices |
@@ -321,8 +321,8 @@ exist, and the telemetry ledger was not read.
 | B-paths | Privacy → API keys, Advanced → API token, Devices → token help | Anyone who follows the path | **Fix** (done, settings defaults): said in words, never a path; Advanced is gone | n/a | Observed: on a scratch home, Privacy said `~/.cicada/secrets.env` while Plans & keys named the real file. Static strings in `Copy+Settings.swift:285,340` and `Copy+Devices.swift:23,25,97`. Agents read these off the screen, so the copy and the token sheet change together |
 | B-env | Engines banner "…in Cicada's environment (api/.env) sets the engine" | Anyone with an engine pinned | **Fix** (done, settings defaults): "Cicada's setup on this Mac fixes the engine…", no variable or file | n/a | `Copy+HomeSleep.swift:15` always says `api/.env`. In the verify run the pin came from the process environment, and no `api/.env` existed |
 | B-model | Search & files → "set up for the larger version on another Mac" | A new memory | **Fix** (partly done, settings defaults): the line now offers *Turn on* for the sharper version, so it is never a dead end; why a fresh bank infers "built elsewhere" is still open | n/a | Shown on a fresh scratch bank that was never on another Mac. `EmbeddingsWire.swift:335-337` infers "built elsewhere" from `needsDownload && !available && needsToken` |
-| B11 | General → *Command-line tool* | Agent users with a shell (G180) | **Move** (proposal) to Agents | Not installed | Writes `~/.local/bin/cicada` only on click. mcp.md names General, so a move updates it |
-| B12 | General → *Setup* and *Getting to know Cicada* | New people, once | **Merge** (proposal) into one "Getting started" group | Unchanged | Two cards, one job |
+| B11 | General → *Command-line tool* | Agent users with a shell (G180) | **Move** (done with B1) to Agents' last card, anchor `commandLineTool` unchanged | Not installed | Writes `~/.local/bin/cicada` only on click. mcp.md names General, so a move updates it |
+| B12 | General → *Setup* and *Getting to know Cicada* | New people, once | **Merge** (done with B1) into one "Getting started" group | Unchanged | Two cards, one job |
 | B13 | Memory → *How things fade* | Shows a choice only after decay answers | **Keep**; proposal: hide the explainer while there is no suggestion | Unchanged | Suggestions apply only on Apply (G147) |
 | B14 | General → *Text size* | People who need larger text | **Keep** | 100 % | Accessibility; its doc comment says removal needs the owner's word |
 | B15 | General → Appearance, Open at login, Show in menu bar, Keep memory working | Everyone, once | **Keep** | Dark / off / on / offered | `cicada.colorScheme`, `cicada.loginItem.requested`, `cicada.menuBar.visible`, the LaunchAgent |
@@ -333,7 +333,7 @@ exist, and the telemetry ledger was not read.
 | B20 | You → name, handle, email, owner page | Everyone, once | **Keep** | As set | The person's own data (G117) |
 | B21 | Search & files → folders, understanding, Advanced | Once | **Keep** folders and understanding; Advanced **cut** (settings defaults) | Words only until the click; the version already chosen; the index rebuilds itself | Each download is the person's click. `cicada index use / install / rebuild` |
 | B22 | Integrations → exports, browsers, tab groups, YouTube history, Calendar, Contacts, Messages, Ask why I saved it | Once per source | **Keep** | Off until turned on | Every row is a read consent (G179, G191) |
-| B23 | Reading the web → the switch, how it reads, how it watches, sites, never-explore | Few | **Keep**; proposal: fold "how it reads / watches" while the switch is off | Off | Consent (G166, ruling 25) |
+| B23 | Reading the web → the switch, how it reads, how it watches, sites, never-explore | Few | **Keep**; fold "how it reads / watches" while the switch is off (done with B1; a landing opens it) | Off | Consent (G166, ruling 25) |
 | B24 | From anywhere | Few | **Keep** | Off (G135) | Trust |
 | B25 | Devices → where your memory lives, your devices, Add, Revoke | Few | **Keep** | As set | Trust (ruling 28) |
 | B26 | Skills | Few | **Keep** | As set | Install only on consent, pinned |
@@ -350,6 +350,37 @@ command-line tool), Devices & access (where your memory lives, your devices, fro
 
 Behind a fold: a connected agent's walkthrough, the search version, unconnected API key cards, and Reading's method
 pickers while its switch is off.
+
+### B1 as built (2026-10-22)
+
+The settings-defaults passes had already done part of the proposal: Advanced is gone, the search version and *Rebuild
+search* are cut (not folded), link previews are Sleep's tail, the model picker is cut, and unconnected key cards are
+folded (B10). What was left:
+
+| Before (14 sections) | After (11) |
+|---|---|
+| Cicada: General, You, Privacy & data, Search & files, Memory, Sleep | Cicada: General, You, Privacy & data, **Search & memory**, Sleep |
+| Customize: Integrations, Reading the web, Agents, From anywhere, Devices, Skills | Customize: Integrations, Reading the web, Agents, **Devices & access**, Skills |
+| Engines & keys: Engines, Plans & keys | Engines & keys: **Engines** (Plans & keys its last group) |
+
+General reads Look, Startup, When Cicada is closed, *Getting started* (setup, the tour, the demo; B12), then Version and
+updates. Agents ends with the command-line tool (B11). Reading folds both method groups while its switch is off (B23).
+The audit's "Engines & keys: Engines, Advanced" is one section because Advanced is gone. Not done: B5 (fold a connected
+agent's walkthrough), because the steps are one renderer shared with onboarding and want their own change; B3 and B13
+were never part of B1. The Engines merge answers pass 2's objection (sign-ins below an open chooser): the other engines
+are folded, so the Plans & keys group starts on the first screen of the 880 × 620 panel.
+
+| Observable behavior | Class | Consumers found | Action |
+|---|---|---|---|
+| `cicada.settingsSection` = `memory`, `remote`, `plansAndKeys` | Contract (a saved selection) | `SettingsPanel` | `SettingsSection.retired` opens Search & memory, Devices & access, Engines on the moved group. Verified live: a saved `memory` and a saved `remote` opened there |
+| `cicada.agentsMode` = `anywhere` (R-O11) | Contract | `SettingsPanel` | Opens Devices & access |
+| Page anchors `page:memory`, `page:remote`, `page:plansAndKeys` (AX `settings.row.page:<raw>`) | De facto (harness scripts) | verify-cicada, macos-harness runs | Kept as the moved groups' anchors |
+| `SettingsSection.memory/.remote/.plansAndKeys` in code (`openSettings`, inline links, onboarding, the engine menu) | Contract (deep links) | `PrivacyView`, `ConnectView`, `AgentsPage`, `EngineChooser`, `EngineCard`, `EngineQuickMenu` | Each now names the new section and the group's row |
+| ⌘K recents of the three pages | De facto | `QuickIndex` | The group keeps its page's palette key |
+| Section names in search | De facto | Settings search, ⌘K | Old names stay as hidden keywords (`formerNames`, the groups' own entries) |
+| "Settings → Memory / From anywhere / Plans & keys / Search & files" | De facto (people, agents reading copy) | app copy, backend sentences (`engine_cause`, `codex_engine`, `engine_readiness`, `sleep_cycle`, `embedding_health`, `mcp_tools`, `agent_wiring`'s reach step), docs, doctor | All say the new path; `SettingsAnchorsTests` fails if one comes back |
+
+Not searched: notes, scripts or agent instructions outside this repo that name the old sections.
 
 ### Kept on purpose
 
@@ -406,8 +437,8 @@ installed older app keeps its own copy until it updates.
 ### Migration
 
 - #398: none. Every value is stored where it was, under the same key, with the same default.
-- B1 (merging sections): map each retired raw value onto its new section in `SettingsSection.restored`, the R-O11
-  pattern for `cicada.agentsMode`, and keep the old search keywords on the merged entries.
+- B1 (merging sections), done: each retired raw value maps onto its new section in `SettingsSection.restored`, the R-O11
+  pattern for `cicada.agentsMode`, and the old search keywords stay on the merged entries.
 - B3 (hiding Mascot): `cicada.mascot` keeps working, and the card returns when `MascotRegistry.all` grows.
 - B9 (link previews by Sleep): it changes when the backend fetches, so it needs its own backlog row, the connector
   gate and the ToS rail's limits.

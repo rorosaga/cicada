@@ -71,7 +71,7 @@ def local_backend_url(environ=os.environ) -> str:
 API_BASE_ENV = "CICADA_API_BASE"
 TOKEN_ENV = "CICADA_API_TOKEN"
 DEVICE_TOKEN_FILE = "device_token"
-#: G181 phase 3: the address the person chose in the app (Settings → Devices → *A server*), one line, 0600. The app
+#: G181 phase 3: the address the person chose in the app (Settings → Devices & access → *A server*), one line, 0600. The app
 #: writes it on their click and removes it when they choose *This Mac*; ``CICADA_API_BASE`` in the environment wins.
 #: Read only from the real environment or one that names its own ``CICADA_HOME`` — a bare dict a test builds never
 #: reaches the person's home.

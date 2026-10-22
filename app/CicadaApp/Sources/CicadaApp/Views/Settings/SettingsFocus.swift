@@ -43,12 +43,21 @@ final class SettingsFocus {
     private var requests = 0
     private var fade: Task<Void, Never>?
 
+    /// The row a landing keeps on screen while the page's late cards arrive (`CicadaMotion.settingsLandingWindow`).
+    /// `settleNonce` asks `SettingsScroll` to land on it again; nil once the person takes over or the window ends.
+    private(set) var settling: SettingsRowID?
+    private(set) var settleNonce = 0
+    private var settleUntil = Date.distantPast
+    private var settledY: CGFloat?
+    private var personMonitor: Any?
+
     func go(_ section: SettingsSection, row: SettingsRowID? = nil) {
         requests &+= 1
         request = Request(section: section, row: row, nonce: requests)
     }
 
-    func land(on row: SettingsRowID, announcing name: String, reduceMotion: Bool) {
+    func land(on row: SettingsRowID, announcing name: String, reduceMotion: Bool, now: Date = Date()) {
+        beginSettle(row, now: now)
         scrollTarget = row
         scrollNonce &+= 1
         landed = row
@@ -70,6 +79,39 @@ final class SettingsFocus {
 
     /// Called by the page's `SettingsScroll` once it has scrolled.
     func consumeScroll() { scrollTarget = nil }
+
+    // MARK: Keeping a landed row on screen
+
+    /// The settling row's top in its scroll content's own space: only layout moves it there, never a scroll. Its first
+    /// report (the row may not have existed at the first scroll) and every change inside the window land again.
+    func settlingRowMoved(_ row: SettingsRowID, contentY: CGFloat, now: Date = Date()) {
+        guard row == settling else { return }
+        guard now < settleUntil else { endSettle(); return }
+        guard contentY != settledY else { return }
+        settledY = contentY
+        settleNonce &+= 1
+    }
+
+    /// The person scrolled, typed a search or picked another page: the landing is theirs to leave.
+    func endSettle() {
+        settling = nil
+        settledY = nil
+        if let monitor = personMonitor { NSEvent.removeMonitor(monitor) }
+        personMonitor = nil
+    }
+
+    private func beginSettle(_ row: SettingsRowID, now: Date) {
+        endSettle()
+        settling = row
+        settleUntil = now.addingTimeInterval(CicadaMotion.settingsLandingWindow)
+        // A scroll wheel, trackpad or key is the person's: a programmatic `scrollTo` sends none of these. `NSApp` is
+        // read as a global so a headless `swift test` never creates the app (the same rule as the announcement).
+        guard NSApp != nil else { return }
+        personMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .keyDown]) { [weak self] event in
+            self?.endSettle()
+            return event
+        }
+    }
 }
 
 /// What makes a view a landing place (R-O6): an id for `ScrollViewReader`, an
@@ -103,6 +145,10 @@ struct SettingsRowAnchor: ViewModifier {
             .id(id)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("settings.row.\(id.rawValue)")
+            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(SettingsScrollSpace.content)).minY } action: { y in
+                guard let focus, focus.settling == id else { return }
+                focus.settlingRowMoved(id, contentY: y)
+            }
     }
 }
 
@@ -110,17 +156,31 @@ extension View {
     func settingsRow(_ id: SettingsRowID) -> some View { modifier(SettingsRowAnchor(id: id)) }
 }
 
+/// The scroll content's own space (rows report their place in it while a landing settles) and the visible one.
+enum SettingsScrollSpace {
+    static let content = "settings.scroll.content"
+    static let viewport = "settings.scroll.viewport"
+}
+
 /// A Settings page's one scroll view: scrolls to the focus's target after
 /// layout, then consumes it.
 struct SettingsScroll<Content: View>: View {
     @Environment(SettingsFocus.self) private var focus: SettingsFocus?
+    @State private var viewportHeight: CGFloat = 0
     @ViewBuilder var content: () -> Content
 
     var body: some View {
         ScrollViewReader { proxy in
-            ScrollView { content() }
+            ScrollView { content().coordinateSpace(name: SettingsScrollSpace.content) }
+                .coordinateSpace(name: SettingsScrollSpace.viewport)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
+                .environment(\.settingsViewportHeight, viewportHeight)
                 .onAppear { scroll(proxy) }
                 .onChange(of: focus?.scrollNonce ?? 0) { _, _ in scroll(proxy) }
+                // Never animated: a landing is often a keyboard action (DR-60).
+                .onChange(of: focus?.settleNonce ?? 0) { _, _ in
+                    if let row = focus?.settling { proxy.scrollTo(row, anchor: .center) }
+                }
         }
     }
 
@@ -131,5 +191,15 @@ struct SettingsScroll<Content: View>: View {
             proxy.scrollTo(target, anchor: .center)
             focus.consumeScroll()
         }
+    }
+}
+
+/// The visible height of the page's scroll view, for a group that acts only once it is on screen (From anywhere's
+/// reachability probe). Zero outside a `SettingsScroll`.
+private struct SettingsViewportHeightKey: EnvironmentKey { static let defaultValue: CGFloat = 0 }
+extension EnvironmentValues {
+    var settingsViewportHeight: CGFloat {
+        get { self[SettingsViewportHeightKey.self] }
+        set { self[SettingsViewportHeightKey.self] = newValue }
     }
 }

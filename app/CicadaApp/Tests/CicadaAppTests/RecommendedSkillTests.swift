@@ -39,7 +39,7 @@ final class RecommendedSkillTests: XCTestCase {
     }
 
     func testSkillsIsACustomizeRow() {
-        XCTAssertEqual(SettingsGroup.customize.sections, [.integrations, .reading, .agents, .remote, .devices, .skills])
+        XCTAssertEqual(SettingsGroup.customize.sections, [.integrations, .reading, .agents, .devices, .skills])
         XCTAssertEqual(SettingsSection.skills.icon, "sparkles")
     }
 }

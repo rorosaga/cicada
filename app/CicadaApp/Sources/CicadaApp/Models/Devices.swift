@@ -298,7 +298,7 @@ enum DevicesText {
     }
 }
 
-// MARK: - Settings → Devices: choosing a server
+// MARK: - Settings → Devices & access: choosing a server
 
 /// What a candidate server said before anything is saved.
 enum ServerCheck: Equatable {

@@ -14,9 +14,12 @@ final class SettingsGeneralF10Tests: XCTestCase {
         let text = try source("Views/Settings/SettingsGeneralView.swift")
         let marks = ["header: Copy.lookGroup", "SettingsRow(.textSize,", "header: Copy.startupGroup",
                      "SettingsRow(.openAtLogin,", "SettingsRow(.showInMenuBar,", "header: Copy.whenClosedGroup",
-                     "SettingsRow(.backgroundService,", "SettingsRow(.runSetup,"]
+                     "SettingsRow(.backgroundService,", "SettingsDemoTourGroup()", "SettingsRow(.appVersion,"]
         let positions = try marks.map { try XCTUnwrap(text.range(of: $0), $0).lowerBound }
-        XCTAssertEqual(positions, positions.sorted(), "F-10: Look · Startup · When Cicada is closed · Setup")
+        XCTAssertEqual(positions, positions.sorted(),
+                       "F-10: Look · Startup · When Cicada is closed, then Getting started and the version (Hyrum B12)")
+        XCTAssertTrue(try source("Views/Settings/SettingsDemoTourGroup.swift").contains("SettingsRow(.runSetup,"),
+                      "Setup is in Getting started")
         XCTAssertEqual(Copy.lookGroup, "Look")
         XCTAssertEqual(Copy.startupGroup, "Startup")
         XCTAssertEqual(Copy.whenClosedGroup, "When Cicada is closed")

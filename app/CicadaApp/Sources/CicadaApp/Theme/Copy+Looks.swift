@@ -2,7 +2,7 @@ import Foundation
 
 /// Design taste (owner, 2026-10-14) — the looks' words, on the pages of the things they show since 2026-10-20 (DR-59: sentence case, plain verbs, no "!"). Provider-
 /// neutral (owner 2026-09-30) and plain (Search & files, owner 2026-10-14): "understand images", the same words as
-/// Settings → Search & files, never a model; a download says its size before the click.
+/// Settings → Search & memory, never a model; a download says its size before the click.
 extension Copy {
     enum Looks {
         static let page = "Looks"

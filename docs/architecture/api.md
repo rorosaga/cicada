@@ -110,7 +110,7 @@ stdio MCP server and the CLI; the base URL is `CICADA_API_BASE` (`runtime_layout
 loopback tunnel only). No installer creates, copies or logs either.
 
 **Phase 3 (G181, 2026-10-16): the app as a client, and where memory came from.**
-- `GET /devices` is open to a device token too (read-only: `auth._DEVICE_READABLE`), so the app's Settings → Devices
+- `GET /devices` is open to a device token too (read-only: `auth._DEVICE_READABLE`), so the app's Settings → Devices & access
   can show the person their devices from any of them; each row adds `current` (the device whose token asked). Issuing
   and revoking stay the master token's (403). Ids, names and times only; `lastUsedAt` is "last seen" (stamped at most
   once a minute by `device_tokens.touch`).
@@ -123,7 +123,7 @@ loopback tunnel only). No installer creates, copies or logs either.
   the save's episode; `SHAPE` `device-1` moves the ETag once, and the app's `SnapshotCache.schema` is 3 in the same
   change), `GET /entities/{id}/provenance` conversations (`device`, the newest one in the group) and
   `GET /episodes/{id}/text` (`device`). The last two are not Store domains.
-- `CICADA_API_BASE`, else the app's `$CICADA_HOME/api_base` (written only on the person's click in Settings → Devices,
+- `CICADA_API_BASE`, else the app's `$CICADA_HOME/api_base` (written only on the person's click in Settings → Devices & access,
   0600): `runtime_layout._raw_base` and its stdlib twin `hook_client.raw_base` read the file only from the real
   environment or one that names its own `CICADA_HOME`, so a test's bare dict never reaches a home.
 
