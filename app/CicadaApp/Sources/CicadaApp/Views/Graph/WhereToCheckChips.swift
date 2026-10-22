@@ -27,7 +27,7 @@ struct WhereToCheckChips: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: CicadaTheme.spacingXS) {
                     ForEach(Self.chips(sources)) { chip($0) }
-                    IconButton(systemName: "plus", help: Copy.WhereChips.add) { adding = true }
+                    TextButton(title: Copy.WhereChips.addShort, help: Copy.WhereChips.add) { adding = true }
                         .popover(isPresented: $adding, arrowEdge: .bottom) { addField }
                 }
             }

@@ -5,6 +5,7 @@ extension Copy {
     enum WhereChips {
         static let label = "Where to check"
         static let add = "Add a place to check"
+        static let addShort = "Add"
         static let addPrompt = "Paste a link"
         static let remove = "Remove"
         static func open(_ label: String) -> String { "Open \(label)" }

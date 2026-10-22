@@ -55,9 +55,16 @@ struct SourcesPageView: View {
                        horizontalPadding: !detailOpen && !provenance.isPresented ? plan.gutter : CicadaTheme.spacingXL) {
                 // G217 — the page IS the catalogue, so it no longer adds through a second one (the "Add a source" sheet's
                 // grid); Explore saved sites keeps its door (DR-40).
-                if !exploreCache.isGone {
-                    NeutralButton(title: Copy.Explore.button, systemImage: "safari", size: .compact,
-                                  help: Copy.Explore.buttonHelp) { showExploreSheet = true }
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    if !exploreCache.isGone {
+                        NeutralButton(title: Copy.Explore.button, systemImage: "safari", size: .compact,
+                                      help: Copy.Explore.buttonHelp) { showExploreSheet = true }
+                    }
+                    // DR-75 — the page's one labelled add: a file or an export (Files and links); every other way in is
+                    // a row of the catalogue below.
+                    PageAddButton(title: Copy.Catalog.importFile, help: Copy.Catalog.dropHint) {
+                        select(.entry("files"))
+                    }
                 }
             }
         } list: { plan in
