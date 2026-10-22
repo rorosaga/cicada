@@ -43,6 +43,22 @@ branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
 [ "$branch" = "dev" ] || exit 0
 git diff --quiet && git diff --cached --quiet || { log "skip: tracked changes on dev"; exit 0; }
 
+# On Linux the backend's port and home are the unit's own (install-backend-service.sh writes
+# `--port N` and CICADA_HOME into it): ask that backend, not a default, so a server on
+# another port is never restarted under a running Sleep. The job's environment still wins.
+if [ "$OS_NAME" = "Linux" ]; then
+  unit="${CICADA_BACKEND_UNIT:-cicada-backend.service}"
+  unit_text="$(systemctl --user cat "$unit" 2>/dev/null || true)"
+  if [ -z "${CICADA_PORT:-}" ]; then
+    unit_port="$(printf '%s\n' "$unit_text" | sed -n 's/^ExecStart=.* --port \([0-9][0-9]*\).*/\1/p' | head -n1)"
+    [ -n "$unit_port" ] && CICADA_PORT="$unit_port"
+  fi
+  if [ -z "${CICADA_HOME:-}" ]; then
+    unit_home="$(printf '%s\n' "$unit_text" | sed -n 's/^Environment="\{0,1\}CICADA_HOME=\([^"]*\)"\{0,1\}$/\1/p' | head -n1)"
+    [ -n "$unit_home" ] && CICADA_HOME="$unit_home"
+  fi
+fi
+
 # Ask the backend before anything moves: the running process lazily imports modules
 # from this checkout, so a fast-forward under it mixes versions, and a restart kills
 # the batch in progress. Only "nothing is listening" (curl exit 7) or no token means
@@ -96,18 +112,24 @@ moved() { [ "$known" = 0 ] || ! git diff --quiet "$installed" "$target" -- "$@";
 if [ "$OS_NAME" = "Linux" ]; then
   # A venv without the larger search model's runtime was made by sync-server-env.sh
   # (install-server.sh, Homebrew); a full `uv sync` would pull torch and CUDA into it.
+  # The stamp moves only when the sync and the restart both worked: a failure keeps it, so
+  # the next tick (the code already fast-forwarded) tries both again.
+  ok=1
   if moved api/pyproject.toml api/uv.lock; then
     if compgen -G "api/.venv/lib/python*/site-packages/sentence_transformers" >/dev/null; then
       log "python deps may have changed: uv sync"
-      (cd api && uv sync -q) >> "$LOG_DIR/auto-update.log" 2>&1 || log "fail: uv sync"
+      (cd api && uv sync -q) >> "$LOG_DIR/auto-update.log" 2>&1 || { log "fail: uv sync"; ok=0; }
     else
       log "python deps may have changed: sync-server-env.sh"
-      bash scripts/sync-server-env.sh -q >> "$LOG_DIR/auto-update.log" 2>&1 || log "fail: sync-server-env.sh"
+      bash scripts/sync-server-env.sh -q >> "$LOG_DIR/auto-update.log" 2>&1 || { log "fail: sync-server-env.sh"; ok=0; }
     fi
   fi
-  unit="${CICADA_BACKEND_UNIT:-cicada-backend.service}"
-  if moved api ":(exclude)api/tests" mcp && systemctl --user cat "$unit" >/dev/null 2>&1; then
-    systemctl --user restart "$unit" && log "backend restarted"
+  if [ "$ok" = 1 ] && moved api ":(exclude)api/tests" mcp && [ -n "$unit_text" ]; then
+    if systemctl --user restart "$unit"; then log "backend restarted"; else log "fail: restart $unit"; ok=0; fi
+  fi
+  if [ "$ok" = 0 ]; then
+    log "installed stamp kept at ${installed:0:7}; the next tick retries"
+    exit 1
   fi
   echo "$target" > "$STAMP"
   log "no app on Linux; installed stamp moved to ${target:0:7}"

@@ -57,7 +57,8 @@ class Rig:
         (self.repo / "logs").mkdir()
         (self.repo / "logs/.gitignore").write_text("*\n")
         _stub(self.repo / "app/CicadaApp/install_app.sh", 'echo "install_app $*" >> "$CALLS"\n')
-        _stub(self.repo / "scripts/sync-server-env.sh", 'echo "sync-server-env $*" >> "$CALLS"\n')
+        _stub(self.repo / "scripts/sync-server-env.sh",
+              'echo "sync-server-env $*" >> "$CALLS"\n[ -z "$SYNC_FAILS" ] || exit 1\n')
         _git(self.repo, "add", "-A")
         _git(self.repo, "commit", "-q", "-m", "base")
         _git(self.repo, "push", "-q", "origin", "dev")
@@ -70,8 +71,14 @@ class Rig:
         self.os_name = "Darwin"
         _stub(self.bin / "uname", UNAME_STUB)
         self.unit_loaded = True
+        # `systemctl --user cat` prints the unit install-backend-service.sh writes (its port and home); a
+        # restart fails when RESTART_FAILS is set; a sync stub fails when SYNC_FAILS is set.
         _stub(self.bin / "systemctl", 'echo "systemctl $*" >> "$CALLS"\n'
-                                      'case " $* " in *" cat "*) [ -n "$UNIT_LOADED" ] || exit 1 ;; esac\n'
+                                      'case " $* " in *" cat "*) [ -n "$UNIT_LOADED" ] || exit 1\n'
+                                      '  printf \'# unit\\nExecStart="/v/python" -m uvicorn api.main:app'
+                                      ' --host 127.0.0.1 --port %s\\nEnvironment="CICADA_HOME=%s"\\n\' '
+                                      '"$UNIT_PORT" "$UNIT_HOME" ;;\n'
+                                      '*" restart "*) [ -z "$RESTART_FAILS" ] || exit 1 ;; esac\n'
                                       'exit 0\n')
         _stub(self.bin / "curl", '''
             echo "curl $*" >> "$CALLS"
@@ -111,8 +118,11 @@ class Rig:
                "CALLS": str(self.calls), "STATUS_FILE": str(self.status_file), "CICADA_HOME": str(self.home),
                "CICADA_PORT": "49177", "CURL_EXIT": self.curl_exit,
                "HTTP_500": "1" if self.http_500 else "", "UNAME_S": self.os_name,
-               "UNIT_LOADED": "1" if self.unit_loaded else "", **extra_env}
+               "UNIT_LOADED": "1" if self.unit_loaded else "", "UNIT_PORT": "49177",
+               "UNIT_HOME": str(self.home), **extra_env}
         env.pop("CICADA_AUTOUPDATE_FORCE", None) if "CICADA_AUTOUPDATE_FORCE" not in extra_env else None
+        for k in [k for k, v in env.items() if v is None]:   # run(CICADA_PORT=None) unsets it
+            del env[k]
         return subprocess.run(["bash", str(self.repo / "scripts/dev/auto-update.sh")], cwd=self.repo, env=env,
                               capture_output=True, text=True, timeout=60)
 
@@ -382,14 +392,70 @@ def test_linux_still_waits_out_sleep(linux):
     linux.push_change("api/app.py")
     linux.sleep_status(status="running")
     _assert_deferred(linux)
-    assert "systemctl" not in linux.called()
+    assert "systemctl --user restart" not in linux.called()
 
 
 def test_linux_non_runtime_merge_never_restarts(linux):
     new = linux.push_change("docs/b.md")
     linux.sleep_status()
     assert linux.run().returncode == 0
-    assert "systemctl" not in linux.called()
+    assert "systemctl --user restart" not in linux.called()
+    assert linux.stamp() == new
+
+
+def _curl_line(rig: Rig) -> str:
+    return [ln for ln in rig.called().splitlines() if ln.startswith("curl")][0]
+
+
+def test_linux_asks_the_port_and_home_the_backend_unit_names(linux, tmp_path):
+    """A server on another port must be asked on that port, or a running Sleep reads as 'nothing listening'."""
+    other_home = tmp_path / "unit-home"
+    other_home.mkdir()
+    (other_home / "api_token").write_text("unit-tok\n")
+    linux.sleep_status(status="running")
+    linux.push_change("api/app.py")
+    linux.run(CICADA_PORT=None, CICADA_HOME=None, UNIT_PORT="18123", UNIT_HOME=str(other_home))
+    curl = _curl_line(linux)
+    assert "127.0.0.1:18123/sleep/status" in curl and "Bearer unit-tok" in curl
+    assert "deferred: Sleep is running" in linux.log()
+    assert linux.head() == linux.base
+
+
+def test_linux_environment_port_wins_over_the_unit(linux):
+    linux.sleep_status()
+    linux.run(UNIT_PORT="18123")
+    assert "127.0.0.1:49177/sleep/status" in _curl_line(linux)
+
+
+def test_a_mac_never_reads_a_unit(rig):
+    rig.sleep_status()
+    rig.run(CICADA_PORT=None)
+    assert "systemctl" not in rig.called()
+    assert "127.0.0.1:8000/sleep/status" in _curl_line(rig)
+
+
+def test_linux_failed_sync_keeps_the_stamp_and_the_next_tick_retries(linux):
+    new = linux.push_change("api/uv.lock")
+    linux.sleep_status()
+    out = linux.run(SYNC_FAILS="1")
+    assert out.returncode == 1
+    assert linux.head() == new, "the code still fast-forwards"
+    assert linux.stamp() == linux.base
+    assert "systemctl --user restart" not in linux.called(), "new code on old dependencies is not started"
+    assert "fail: sync-server-env.sh" in linux.log() and "the next tick retries" in linux.log()
+    assert linux.run().returncode == 0
+    assert linux.called().count("sync-server-env -q") == 2
+    assert "systemctl --user restart cicada-backend.service" in linux.called()
+    assert linux.stamp() == new
+
+
+def test_linux_failed_restart_keeps_the_stamp(linux):
+    new = linux.push_change("api/app.py")
+    linux.sleep_status()
+    assert linux.run(RESTART_FAILS="1").returncode == 1
+    assert linux.stamp() == linux.base
+    assert "fail: restart cicada-backend.service" in linux.log()
+    assert linux.run().returncode == 0
     assert linux.stamp() == new
 
 
