@@ -2595,6 +2595,16 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
         path.unlink()
 
     elif action == "dismiss":
+        other = _opt_str(parsed.frontmatter.get("merge_target_hint"))
+        if str(parsed.frontmatter.get("kind") or "") == "merge_suggestion" and other:
+            # Dismissing "Is A the same as B?" is "stop asking": the pair is remembered like a reject, or the next
+            # Sleep raises the same question again (G209 W1, a held name re-read from the pending store).
+            from api.services import merge_rejections
+
+            merge_rejections.add_rejected(settings.memory_path, entity_id, other)
+            path.unlink()
+            return entity_id, False, [f"{merge_rejections.FILE}: updated (source: {path.stem}, "
+                                      "trigger: inbox/merge_suggestion/dismissed)"]
         path.unlink()
 
     elif action == "merge" and request.merge_target:

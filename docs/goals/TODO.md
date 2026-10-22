@@ -13,7 +13,7 @@
 - **2026-10-22 — the new user, second pass (G148, G209, G141; ruling 37; branch `fix/new-user-memory-2`).** Ruling 37
   (owner): a fold from the shipped seed settles by rule and a follow-up names its thread; a new save is dated when it
   was saved. Also from the newuser write-ups: a held full name whose alias is exactly one person page asks "same
-  person?" (W1, never a merge); a project mention whose alias names one project page updates it (W2); "New project
+  person?" (W1, never a merge); a project mention whose alias names one project page brings it to the judge (W2); "New project
   with X: name" counts as the person's words (W3); the D4 gate reads the type a create writes (W4). Numbers on the
   G148 row and in the PR.
 - **2026-10-22 — the new-user benchmark and what it fixed (G148; branch `fix/new-user-memory`).** `benchmarks/newuser`

@@ -1989,6 +1989,18 @@ def _saved_moment(day: str | None, instant: str | None) -> datetime | None:
     return None
 
 
+def _saved_day(day: str | None, instant: str | None, moment: datetime | None) -> str:
+    """The day the episode id carries: a recorded instant's local day (ruling 34), else the recorded day itself — noon
+    UTC is the next calendar day above UTC+12, so a day-only save never goes through the moment — never after today;
+    with neither, today."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    if moment is None:
+        return today
+    if day and _saved_moment(None, instant) is None:  # the moment came from the day alone
+        return min(day, today)
+    return episode_ids.id_day(moment)
+
+
 def write_media_episode(
     episodes_dir: Path, item: RawItem, meta: MediaMeta, media_entity_id: str
 ) -> str:
@@ -2005,7 +2017,7 @@ def write_media_episode(
     # UTC (G114 R2). An existing episode is never renamed (ruling 34): this runs only for a new file.
     saved_moment = _saved_moment(validated_added, validated_instant)
     timestamp = saved_moment.isoformat() if saved_moment else episode_ids.utc_now_iso()
-    ep_date = episode_ids.id_day(saved_moment) if saved_moment else datetime.now().strftime("%Y-%m-%d")
+    ep_date = _saved_day(validated_added, validated_instant, saved_moment)
     episode_id = episode_ids.next_episode_id(episodes_dir, ep_date)
     saved_date = ep_date
 

@@ -247,15 +247,53 @@ def _resolve_with(memory, extracted, pages, monkeypatch, verdict="different"):
     return asyncio.run(entity_resolver.resolve(extracted, pages, _settings(memory)))
 
 
-def test_w2_a_project_mention_whose_alias_names_a_project_page_updates_it(tmp_path, monkeypatch):
-    """A later conversation named the canoe "Hull build" (alias "Cedar canoe"): with no birth of its own it was held,
-    and its news never reached the page the person already had."""
+def test_w2_an_alias_brings_the_project_page_to_the_judge_who_decides(tmp_path, monkeypatch):
+    """A later conversation named the canoe "Hull build" (alias "Cedar canoe"): it shares no word with the page, so
+    the judge never saw it, and the mention was held. The alias now brings the page to the judge (owner 2026-10-08:
+    "an alias brings its page to the judge, never a decision")."""
     memory = _bank(tmp_path)
     mention = _project("Hull build", EP_B, TS_B, aliases=["Cedar canoe"])
     out = _resolve_with(memory, [{"episode_id": EP_B, "entities": [mention], "relationships": []}],
-                        [_project_page("cedar-canoe", "Cedar canoe")], monkeypatch)
+                        [_project_page("cedar-canoe", "Cedar canoe")], monkeypatch, verdict="same")
     assert [(c["action"], c["id"]) for c in out["changes"]] == [("update", "cedar-canoe")]
     assert out["name_to_id"]["hull build"] == "cedar-canoe"
+
+
+def test_w2_an_alias_never_overrides_the_judges_different(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    mention = _project("Hull build", EP_B, TS_B, aliases=["Cedar canoe"])
+    out = _resolve_with(memory, [{"episode_id": EP_B, "entities": [mention], "relationships": []}],
+                        [_project_page("cedar-canoe", "Cedar canoe")], monkeypatch, verdict="different")
+    assert not any(c["id"] == "cedar-canoe" for c in out["changes"])
+    assert "hull build" not in out["name_to_id"]
+
+
+def test_w2_an_unsure_judge_asks_the_person(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    mention = _project("Hull build", EP_B, TS_B, aliases=["Cedar canoe"])
+    out = _resolve_with(memory, [{"episode_id": EP_B, "entities": [mention], "relationships": []}],
+                        [_project_page("cedar-canoe", "Cedar canoe")], monkeypatch, verdict="unsure")
+    assert out["changes"] == []
+    asked = [markdown_parser.parse(p).frontmatter for p in (memory / "inbox").glob("inbox-*.md")]
+    assert [(fm["kind"], fm["merge_target_hint"]) for fm in asked] == [("merge_suggestion", "cedar-canoe")]
+
+
+def test_w2_a_pair_the_person_said_were_different_is_not_brought(tmp_path, monkeypatch):
+    from api.services import merge_rejections
+
+    memory = _bank(tmp_path)
+    merge_rejections.add_rejected(memory, "hull-build", "cedar-canoe")
+    judged = []
+
+    async def judge(*_a, **k):
+        judged.append(k.get("existing_name"))
+        return "same"
+    monkeypatch.setattr(entity_resolver, "_llm_judge_same_entity", judge)
+    mention = _project("Hull build", EP_B, TS_B, aliases=["Cedar canoe"])
+    monkeypatch.setattr(entity_resolver.SqliteVecIndexer, "_rebuild_pending_index", lambda self, entries: None)
+    out = asyncio.run(entity_resolver.resolve([{"episode_id": EP_B, "entities": [mention], "relationships": []}],
+                                              [_project_page("cedar-canoe", "Cedar canoe")], _settings(memory)))
+    assert judged == [] and not any(c["id"] == "cedar-canoe" for c in out["changes"])
 
 
 def test_w2_a_project_mention_judged_the_same_as_a_project_page_updates_it(tmp_path, monkeypatch):
@@ -302,3 +340,19 @@ def test_w4_a_page_written_as_a_project_needs_a_birth_whatever_type_the_chosen_m
     for change in out["changes"]:
         if change["action"] == "create" and (change["entity"].get("type") or "") == "project":
             assert change.get("project_birth"), "a project page is never written without its birth"
+
+
+def test_w4_a_birth_on_the_project_sibling_reaches_the_page_the_concept_mention_starts(tmp_path, monkeypatch):
+    """The chosen mention is a concept, its project-typed sibling carries the birth: the page is written as a
+    project and must carry that `born` (review of #436: the birth was attached only when the chosen mention was)."""
+    memory = _bank(tmp_path)
+    concept = _project("Delta Plan", EP_A, TS_A)
+    concept["type"] = "concept"
+    project = _project("Delta Plan", EP_B, TS_B)
+    project["confidence"] = 0.6
+    project["project_birth"] = {**_BORN, "episode": EP_B, "day": "2026-10-21"}
+    out = _resolve_with(memory, [{"episode_id": EP_A, "entities": [concept], "relationships": []},
+                                 {"episode_id": EP_B, "entities": [project], "relationships": []}], [], monkeypatch)
+    [change] = [c for c in out["changes"] if c["action"] == "create"]
+    assert change["entity"]["type"] == "project"
+    assert change["project_birth"]["episode"] == EP_B

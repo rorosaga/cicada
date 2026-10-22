@@ -41,3 +41,18 @@ def test_a_save_dated_in_the_future_is_never_trusted_for_the_id(tmp_path):
     later = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(timespec="seconds")
     ep, fm = _write(tmp_path, added_at=later)
     assert not ep.startswith(f"ep_{later[:10]}") or later[:10] == datetime.now().strftime("%Y-%m-%d")
+
+
+def test_a_day_only_save_keeps_its_day_in_a_zone_past_plus_twelve(tmp_path, monkeypatch):
+    """Review of #436: noon UTC is the next calendar day at UTC+14, so the id read through the moment moved the save a
+    day later. The id day is the recorded day itself."""
+    import time
+
+    monkeypatch.setenv("TZ", "Pacific/Kiritimati")
+    time.tzset()
+    try:
+        ep, fm = _write(tmp_path, added="2026-09-08")
+    finally:
+        monkeypatch.undo()
+        time.tzset()
+    assert ep.startswith("ep_2026-09-08_") and fm["saved_at"] == "2026-09-08"

@@ -399,3 +399,47 @@ def test_a_held_name_is_never_merged_on_its_alias_alone(bank, monkeypatch):
     assert "teodor brandt" not in result["name_to_id"]
     assert all(c["id"] != "teo" or c["action"] != "update" or c["entity"].get("name") != "Teodor Brandt"
                for c in result["changes"])
+
+
+def _w1_bank(bank):
+    markdown_parser.write(bank / "entities" / "teo.md", {"name": "Teo", "type": "person", "status": "active",
+                                                         "confidence": 0.8}, "## Summary\nA synthetic person.\n")
+    pending_store.upsert(bank, PendingEntity(
+        name="Teodor Brandt", type="person", description="", source_episode="ep_2026-09-30_001", confidence=0.5,
+        tags=[], history_entries=[], aliases=["Teo"],
+        heard_in=[{"episode": "ep_2026-09-30_001", "timestamp": "2026-09-30T12:00:00Z", "day": "2026-09-30"}]))
+    for args in (["init", "-q"], ["config", "user.email", "t@example.com"], ["config", "user.name", "t"]):
+        _git(bank, *args)
+    return bank
+
+
+def test_a_dismissed_duplicate_question_is_not_asked_by_the_next_sleep(bank, monkeypatch):
+    """Review of #436: the held line is re-read from the pending store every run, so a dismiss that only deleted the
+    card was answered by the same question the next night."""
+    bank = _w1_bank(bank)
+    _resolve(bank, monkeypatch, _pages_on_disk(bank), [_mention("Ann Sample", 1)], _Judge("different"))
+    [item] = sorted((bank / "inbox").glob("inbox-*.md"))
+    _git(bank, "add", "-A")
+    _git(bank, "commit", "-q", "-m", "seed")
+    _answer(bank, item.stem, action="dismiss")
+    assert _questions(bank) == []
+
+    _resolve(bank, monkeypatch, _pages_on_disk(bank), [_mention("Ann Sample", 2)], _Judge("different"))
+    assert _questions(bank) == []
+
+
+def test_one_sleep_raises_at_most_three_held_duplicate_questions(bank, monkeypatch):
+    """The first run over a real bank reads every held line it has ever parked: three questions open at once, the
+    rest wait for the person to answer one."""
+    pages = []
+    for n in range(5):
+        pages.append(_page(f"Short{n}"))
+        pending_store.upsert(bank, PendingEntity(
+            name=f"Full Name{n}", type="person", description="", source_episode="ep_2026-09-30_001", confidence=0.5,
+            tags=[], history_entries=[], aliases=[f"Short{n}"],
+            heard_in=[{"episode": "ep_2026-09-30_001", "timestamp": "2026-09-30T12:00:00Z", "day": "2026-09-30"}]))
+    _resolve(bank, monkeypatch, pages, [_mention("Ann Sample", 1)], _Judge("different"))
+    assert len(_questions(bank)) == er.MAX_HELD_ALIAS_QUESTIONS == 3
+
+    _resolve(bank, monkeypatch, pages, [_mention("Ann Sample", 2)], _Judge("different"))
+    assert len(_questions(bank)) == 3                           # nothing more until one is answered
