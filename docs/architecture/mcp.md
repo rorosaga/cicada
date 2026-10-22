@@ -34,6 +34,18 @@ with `- … and N more on the full page`; a hit's body is backstopped at 6,000 c
 blocks first (never the top one) and says which in one line (`_fit_recall`); under the budget it is unchanged byte
 for byte. Headings and line shapes are the same; only lengths change.
 
+**Before Sleep (G207, 2026-10-22).** Recall's "Related conversation excerpts" (under the `sources` scope, R-R22)
+rank-fuse two legs, keeping 3: the vector leg (`_leann_search_episodes`), which step 0 fills right after capture
+(`capture-and-sleep.md`, "After capture"), and a word leg over the FTS passages (`_lexical_search_episodes`:
+`search_service.search(kinds=("episode",), vectors=False)`, bm25, ~400 characters of the stored body around the
+matched line, the dropped-middle marker blanked). An excerpt from a conversation still `processed: false` reads
+`- [<episode>] (<day>, not yet read by Sleep) …`; a read one is unchanged. When a quick read ran, a block **"Not yet
+read by Sleep (provisional …)"** follows the page summaries. It holds up to 12 provisional claim lines
+(`- [[Page]] <claim text> — \`<claim id>\`, from <episode>`): the top hits' pages first, then claims sharing a word
+with the query. Then one line names up to 5 held names that match a query word. It is shown only while the episode
+is unread, it is an ordinary block under `_fit_recall`'s budget, and it is Cicada's reading, not the person's
+verbatim words, so it follows the claim leg's scope.
+
 **Recall (G140).** Three legs fused by one RRF (`search_service.rrf_fuse`): the stored vectors, the
 FTS lexical leg (names, aliases and prose, word by word), and current claims mapped to their
 subject — so an alias or a relationship label reaches its page. Each leg is filtered against the pages as their

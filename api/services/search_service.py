@@ -828,10 +828,13 @@ def search(
     per_kind: int = 8,
     freshness_ttl_s: float | None = None,
     embed_fn=None,
+    vectors: bool = True,
 ) -> SearchResponse:
     """Search one bank. ``memory_path`` is the caller's ACTIVE bank (the
     router passes ``settings.memory_path``; MCP will pass its own resolved
-    path) — this function never resolves a bank (the split-brain rule)."""
+    path) — this function never resolves a bank (the split-brain rule).
+    ``vectors=False`` ranks by words alone (bm25 in hybrid mode): recall's
+    excerpt leg fuses its own vector leg (G207)."""
     wanted = set(kinds)
     ctx = _Ctx(
         memory_path=Path(memory_path),
@@ -842,7 +845,7 @@ def search(
         per_kind=max(1, min(int(per_kind or 1), MAX_PER_KIND)),
         mode=mode if mode in MODES else "hybrid",
     )
-    semantic = ctx.mode == "hybrid" and len(ctx.q.strip()) >= text_fold.MIN_TOKEN_CHARS
+    semantic = vectors and ctx.mode == "hybrid" and len(ctx.q.strip()) >= text_fold.MIN_TOKEN_CHARS
     if not ctx.tokens and not semantic:
         return SearchResponse(results=[], totals={}, mode=ctx.mode, index_state="ready")
     state = search_index.ensure_fresh(ctx.memory_path, max_age_s=freshness_ttl_s)

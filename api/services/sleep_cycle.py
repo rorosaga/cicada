@@ -3047,6 +3047,12 @@ async def _run_stages(
     requeued = len(episodes) - len(processed_episodes)
     _state.episodes_processed = await asyncio.to_thread(_mark_episodes_processed, processed_episodes)
     _state.episodes_requeued = requeued
+    # G207: Sleep's reading is the one that counts — what a quick read held provisionally for these is settled.
+    try:
+        from api.services import awake_read
+        await asyncio.to_thread(awake_read.settle, memory_path, [ep["id"] for ep in processed_episodes])
+    except Exception as e:  # noqa: BLE001 - a derived record never fails a cycle
+        logger.warning(f"awake_read settle skipped: {type(e).__name__}")
     if requeued:
         logger.warning(
             f"Marked {_state.episodes_processed} episodes processed; {requeued} "

@@ -147,7 +147,7 @@ class CallPolicy:
 
 def schema_for_stage(stage: str | None, policy: CallPolicy) -> dict | None:
     """R-E14: Stage 1's schema only behind its flag; disambiguation's V1b one always."""
-    if (stage or "") == "extraction" and policy.extraction_schema:
+    if (stage or "") in ("extraction", "quick_read") and policy.extraction_schema:
         return engine_schemas.extraction_schema(strict=False)
     return SCHEMA_BY_STAGE.get(stage or "")
 
