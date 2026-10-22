@@ -141,7 +141,8 @@ final class SleepQueueCardV3Tests: XCTestCase {
         XCTAssertEqual(sectionWriters.map(\.lastPathComponent), [])
         let rowSeed = try sources.filter { try String(contentsOf: $0, encoding: .utf8).contains("cicada.settingsRowFocus") }
         XCTAssertEqual(rowSeed.map(\.lastPathComponent), [], "the cross-window row seed retired with the scene")
-        XCTAssertTrue(try source("Views/Common/SettingsSectionLink.swift").contains("router?.openSettings(section, row: row)"))
+        XCTAssertTrue(try source("Views/Common/SettingsSectionLink.swift").contains("router?.open(home)"),
+                      "one door: `AppRouter.open(_:)`, which opens Settings through `openSettings`")
     }
 
     /// `EmptyStateView` adopted `SettingsSectionLink`, so the key must be gone

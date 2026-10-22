@@ -66,7 +66,7 @@ struct AgentsSidebarPage: View {
                             ConnectionLine(logo: umbrella.logo, name: umbrella.label, systemFallback: "sparkles",
                                            detail: summary.line(now: Date()),
                                            status: (summary.connected ? Copy.Status.connected : Copy.Status.off,
-                                                    summary.connected)) { EmptyView() }
+                                                    summary.connected), detailLines: 1) { EmptyView() }
                                 .background(selected == umbrella.id ? CicadaTheme.bgSelected : Color.clear)
                                 .contentShape(Rectangle())
                         }
@@ -159,6 +159,9 @@ struct AgentSummary: Equatable {
         return parts.joined(separator: " · ")
     }
 
+    /// A product's own mark when the set has one under its logical name (`claude-code`, `codex` → OpenAI's), else none.
+    static func mark(_ id: String) -> String? { LogoImage.exists(name: id) ? id : nil }
+
     static func tokenLine(_ token: AgentToken) -> String {
         var parts: [String] = [token.scopes.joined(separator: ", ")]
         if let used = token.lastUsedAt.flatMap(ISODate.parse) { parts.append(Copy.AgentsPage.seen(used)) }
@@ -203,7 +206,7 @@ private struct AgentDetailColumn: View {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(Array(umbrella.ways.enumerated()), id: \.element.id) { index, way in
                             if index > 0 { SettingsDivider() }
-                            ConnectionLine(logo: nil, name: way.label, systemFallback: "app.connected.to.app.below.fill",
+                            ConnectionLine(logo: AgentSummary.mark(way.id), name: way.label, systemFallback: "terminal",
                                            detail: way.connects.compactMap(Copy.AgentsPage.connectsWord)
                                                .joined(separator: " · ")) { EmptyView() }
                         }
@@ -215,7 +218,8 @@ private struct AgentDetailColumn: View {
                         SectionLabel(Copy.AgentsPage.trust)
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(editorRows) { agent in
-                                ConnectionLine(logo: nil, name: agent.label, systemFallback: "pencil") {
+                                ConnectionLine(logo: AgentSummary.mark(agent.harness), name: agent.label,
+                                               systemFallback: "terminal") {
                                     Picker(Copy.AgentsPage.trust, selection: Binding(
                                         get: { response.isTrusted(agent.harness) },
                                         set: { on in Task { await editors.set(agent.harness, on: on) } })) {

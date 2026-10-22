@@ -39,6 +39,7 @@ struct PairDeviceSheet: View {
                         Text(Copy.DevicesPage.noAddress)
                             .font(CicadaTheme.captionFont)
                             .foregroundStyle(CicadaTheme.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
                         if state == "waiting", let expires = created.pairing.expiresAt.flatMap(ISODate.parse) {
                             Text(Copy.DevicesPage.expires(expires))
                                 .font(CicadaTheme.captionFont.monospacedDigit())

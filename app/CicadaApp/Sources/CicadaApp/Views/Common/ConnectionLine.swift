@@ -7,10 +7,11 @@ struct ConnectionLine<Trailing: View, Below: View>: View {
     var logo: String?
     var name: String
     var bundleId: String? = nil
-    var systemFallback: String = "app"
+    var systemFallback: String = LogoTile.monogramFallback
     var detail: String? = nil
     var status: (word: String, on: Bool)? = nil
     var quiet = false
+    var detailLines = 3
     @ViewBuilder var trailing: () -> Trailing
     @ViewBuilder var below: () -> Below
 
@@ -28,7 +29,7 @@ struct ConnectionLine<Trailing: View, Below: View>: View {
                         Text(detail)
                             .font(CicadaTheme.captionFont.monospacedDigit())
                             .foregroundStyle(CicadaTheme.textTertiary)
-                            .lineLimit(2)
+                            .lineLimit(detailLines)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -45,10 +46,11 @@ struct ConnectionLine<Trailing: View, Below: View>: View {
 }
 
 extension ConnectionLine where Below == EmptyView {
-    init(logo: String?, name: String, bundleId: String? = nil, systemFallback: String = "app", detail: String? = nil,
-         status: (word: String, on: Bool)? = nil, quiet: Bool = false, @ViewBuilder trailing: @escaping () -> Trailing) {
+    init(logo: String?, name: String, bundleId: String? = nil, systemFallback: String = LogoTile.monogramFallback, detail: String? = nil,
+         status: (word: String, on: Bool)? = nil, quiet: Bool = false, detailLines: Int = 3,
+         @ViewBuilder trailing: @escaping () -> Trailing) {
         self.init(logo: logo, name: name, bundleId: bundleId, systemFallback: systemFallback, detail: detail,
-                  status: status, quiet: quiet, trailing: trailing, below: { EmptyView() })
+                  status: status, quiet: quiet, detailLines: detailLines, trailing: trailing, below: { EmptyView() })
     }
 }
 
@@ -76,5 +78,5 @@ final class ProviderDirectory {
     var agents: [ProviderUmbrella] { providers.filter { !$0.ways.isEmpty } }
 
     /// `/providers` names the local engine `ollama`; `/connections` calls it `ollama-local`.
-    static func connectionId(_ id: String) -> String { id == "ollama" ? "ollama-local" : id }
+    nonisolated static func connectionId(_ id: String) -> String { id == "ollama" ? "ollama-local" : id }
 }

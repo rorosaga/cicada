@@ -18,6 +18,51 @@ app's commands"), and a browser front end would be a third. What the app still h
 post bytes, per-viewer UserDefaults, and the Swift-only presentation logic listed in the G180 parity map — is the
 web door's remaining work; the entity card's bands are the first piece moved (`entity_bands`, `features.md`).
 
+**The connection model in the app (ruling 36 D6, G217, G212, G213, G50; 2026-10-22).** Three nouns: **Sources** feed
+Cicada (the Sources page), **Intelligence** consolidates it (Settings → Intelligence), **Agents** read and write it (the
+Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
+
+- **Settings in six:** General · You · Intelligence · Sleep · Devices · Privacy & data (`SettingsSection`), one
+  unlabelled sidebar group, no page subtitles, under 400 words (measured 295 on the demo bank with the inventory's AX
+  counter, from ~2,030 across eleven sections). Every retired raw value has a home in `SettingsSection.retired` — a row on
+  a surviving page (`engines`/`plansAndKeys` → Intelligence, `memory`/`searchFiles` → Privacy's search row, `remote` →
+  Devices) or a sidebar page (`integrations`/`reading` → Sources, `agents` → Agents, `skills` → Skills) — and every
+  retired row id one in `SettingsIndex.retiredRows`; `AppRouter.open(_:)` and `SettingsSectionLink(home:)` follow either
+  kind. A saved `cicada.settingsSection` naming a page opens General. `SettingsAnchorsTests` holds all of it.
+- **Intelligence** (`IntelligenceView`): one *In use* row (the engine's mark and name from `preview.manual`, a model menu
+  when the chosen card offers several, *Use Auto*), then *Plans* and *API keys* from `GET /providers` `intelligence[]`
+  joined to `/connections` (`ProviderDirectory` caches the static table in memory; `/providers` names the local engine
+  `ollama`, `/connections` `ollama-local`). A local model is the quiet last key row, never pitched. A key is pasted,
+  checked (`PUT /connections/{id}/key` with `check`; 422 refused — nothing saved; 503 — *Save without checking*), then
+  shown as its last four, where it lives and when it was checked, with the provider's terms note. Below: *Scheduled runs
+  may use my plan* (ruling 4c), *Keep going on extra usage* (R-E13, only under a plan) and *Use my Claude plan when I
+  start* (only under a key). The Sleep page's engine menu is a label that opens this page (`EngineLabelButton`); the
+  full menu stays in Sleep → Options, which keeps the plan reserve and the model prices (ruling 12).
+- **You:** the name and photo (`EntityPicture`, editable), the email the photo ladder hashes, and *Your profiles* — any
+  profile link pasted as-is, stored as the owner page's sources (`/entities/{owner}/sources`, G61); a pre-D6 GitHub
+  handle shows as its profile link. *Connect* only for a service read through a connection (X, Reddit, Pinterest),
+  which opens the Sources page.
+- **Devices:** `GET /devices/status` rows — the server by its Computer Name, never "this Mac" — each a dot and one word,
+  how it connects, last seen and its waiting count, Revoke; *Pair a device* (`PairDeviceSheet`) draws the
+  `POST /devices/pairing` code as a CoreImage QR (level M) with the code beside it, polls every 2 s, cancels on close.
+  The QR carries no address yet: `/pair` is served on the backend's own port, not the G135 listener's public one.
+  *Memory on* and the folded *Apps outside this machine* (the remote connector, `page:remote`) follow.
+- **Privacy & data** gains Search & memory's one row (*Search runs on this Mac* and the sharper-model download); the
+  fade card shows only while it holds a suggestion or a chosen pace. Watched folders are sources (`WatchedFoldersGroup`
+  is kept whole for the Sources page).
+- **Sleep:** the study room's preview first, the hours, then the scenery's source (the weather sentence in one line) and
+  the mascot.
+- **Agents page** (`AgentsSidebarPage`): one row per umbrella from `/providers` — `LogoTile` · name · where · last seen
+  · conversations · a dot and one word (`/agents/live`, polled every 3 s while shown; conversations summed from
+  `sourcesOverview` by harness). A row opens its detail (DR-74): products and how each connects, page edits as *Writes
+  at once* / *Proposes* (G198's list), *Copy setup prompt* (`/agents/setup`), *Import its chat export*, and *Remembers
+  automatically* for a harness with hooks. *Add an agent token* (DR-75) makes a G213 token and shows its paragraph once;
+  active tokens list with Revoke; the command-line tool closes the page.
+- **Marks:** one per provider umbrella from the curated set (`app/assets/logo-set/`, `scripts/build-logo-set.py`, origin
+  `set` in `logos.manifest.json`); `codex`/`chatgpt` draw OpenAI's mark and `gemini-cli` Gemini's through `BrandMark`.
+  A listed connection's mark sits in `LogoTile` (26 pt in a 36 pt ring tile; `.dense` 18 in 24); a status is
+  `StatusDot`; a row is `ConnectionLine` (DESIGN_RULES §9, 2026-10-22).
+
 **Ruling (G109, 2026-09-02) — d3-force stays.** Evaluated against sigma.js/ForceAtlas2, Pixi,
 cosmos, ngraph and d3-force-3d at ~1,900 nodes: the two G109 symptoms were three local bugs in how
 `graph.js` drove d3-force, not a library problem. The only flip trigger is an in-app p95 frame time
@@ -359,8 +404,8 @@ The first-read failure row uses the same calm “Reading stopped” / “See wha
 copy as Sleep (DR-7/59), never a raw server sentence. Its one *Past reads* action (DR-40) stages Sleep's Last cycle
 section through `AppRouter`; Sleep consumes it once on appear/change, selects Past reads and brings its tab row to the top.
 
-**Settings → Intelligence: Auto first (settings defaults pass 2, owner 2026-10-22; ruling 31).** `EnginesView` draws
-`EngineChooser(foldsOtherEngines: true)`: the card opens on `EngineHeadline` — *Auto* and what it uses now from
+**Engine choice in onboarding: Auto first (settings defaults pass 2, owner 2026-10-22; ruling 31).** Until D6 Settings drew
+`EngineChooser(foldsOtherEngines: true)` (now onboarding's *Who reads* and the engine card): the card opens on `EngineHeadline` — *Auto* and what it uses now from
 `preview.manual` ("Using your Claude plan — you're signed in.", the ChatGPT plan, the model on this Mac, or "Nothing to
 read with yet" with a Plans & keys link), the rule in one line (a plan first, then a model on this Mac, never a key
 nobody chose), or, for a stored choice that isn't Auto, that card's name, its cost model and state, and *Back to Auto*
@@ -1548,10 +1593,10 @@ in the system's short format, after the window and before the lamp; it is not a 
 `(94,34)`, z1, follows the verified art plan and clears every worm frame/beat/transition, the window, lamp and pile column; art acceptance
 also checks every new night frame. The preview includes the same clock leaf. Motion sidecars exclude its state angles.
 
-**Settings → Sleep, in order (settings audit 2026-10-22):** the Runs card (no header repeating its one row's title,
-DR-38), Scheduled runs, Engine, then the study room's The scenery and Mascot.
+**Settings → Sleep, in order (D6, 2026-10-22):** the study room's preview, the Runs card (no header repeating its one
+row's title, DR-38), the scenery's source and Mascot. Scheduled runs and the engine moved to Intelligence.
 
-**Settings → Sleep → Scheduled runs (TODO ruling 4b, owner 2026-10-16).** One switch, *Scheduled runs may use my
+**Settings → Intelligence → Scheduled runs (TODO ruling 4b, owner 2026-10-16; on Sleep until D6).** One switch, *Scheduled runs may use my
 plan* (`SettingsRowID.sleepUsePlan`, in the find index), **on unless the person turned it off** (ruling 4c, 2026-10-19;
 an older server that sends no value reads as off): the machine's `scheduledUsePlan` on
 `/sleep/run-options` (`SleepRunOptionsChange.scheduledUsePlan`). Its detail says what it costs while on
