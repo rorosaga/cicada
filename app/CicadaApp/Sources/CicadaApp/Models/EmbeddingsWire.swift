@@ -1,6 +1,6 @@
 import Foundation
 
-// G182 phase 3 — Settings → Search & files (was Memory → Search model). The wire of `GET /embeddings` (and the
+// G182 phase 3 — Settings → Search & memory (was Memory → Search model). The wire of `GET /embeddings` (and the
 // same shape back from `POST /embeddings/choice` and `/embeddings/install`), plus the pure
 // pieces the row says out loud. Every field optional-with-default so an older or newer
 // backend decodes. Not a Store domain and no ETag: the page reads it when it opens and

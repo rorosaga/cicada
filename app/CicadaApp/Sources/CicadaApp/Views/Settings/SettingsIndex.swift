@@ -70,26 +70,26 @@ enum SettingsIndex {
     /// in the same commit (R-O1).
     static let staticIDs: [SettingsRowID] = [
         .appearance, .textSize, .runSetup, .appVersion, .autoUpdate, .openAtLogin, .showInMenuBar,
-        .backgroundService, .commandLineTool,
-        .memoryHome, .devicesConnection, .devicesList,
+        .backgroundService,
+        .memoryHome, .devicesConnection, .devicesList, .fromAnywhere,
         .guidedTour, .demoMemory,
         .ownerName, .ownerHandle, .ownerEmail, .ownerPage,
         .memoryLocation, .banks, .bankExport, .bankDelete, .telemetry,
         .outboundConnectors, .outboundFeeds, .outboundLogos, .credentials, .remoteAccess, .transcripts,
         .searchFolders, .searchMeaning, .searchImages,
-        .fadePace,
+        .memoryGroup, .fadePace,
         .sleepRuns, .sleepTime, .sleepInterval, .sleepEngine, .sleepUsePlan,
         .scenerySource, .sceneryTime, .sceneryWeather, .sceneryPreview,
         .mascot,
         .calendarApp, .contactsApp, .saveWhy,
-        .agentsCloud, .agentsSkill, .agentsAutoRecall, .agentsEditors, .agentsReading,
+        .agentsCloud, .agentsSkill, .agentsAutoRecall, .agentsEditors, .agentsReading, .commandLineTool,
         .readingAgent, .readingExploreSignedIn, .readingNeverExplore, .readingMethods, .watchingMethods, .readingSites,
         .readingYouTube,
         // Cicada's own skills — per-item ids (a `:`), so outside the bare-name lint
         .skill(CicadaSkillBundle.cicada.rawValue), .skill(CicadaSkillBundle.cicadaLibrarian.rawValue),
         .skill(CicadaSkillBundle.linkedinPeople.rawValue),
         .remoteSwitch, .remoteReach, .remoteNew,
-        .engineChoice, .engineOverage, .enginePreview, .engineAsk, .engineAutoClaude,
+        .engineChoice, .engineOverage, .enginePreview, .engineAsk, .engineAutoClaude, .plansAndKeys,
     ]
 
     static let staticEntries: [SettingsEntry] = [
@@ -122,7 +122,6 @@ enum SettingsIndex {
                       anchor: .memoryHome),
         SettingsEntry(.devicesList, .devices, Copy.Devices.devicesGroup,
                       keywords: ["devices", "synced", "laptop", "token", "revoke", "add a device", "last seen"]),
-        SettingsEntry(.commandLineTool, .general, Copy.cliToolTitle, keywords: ["command line", "terminal", "shell", "cli", "path", "agent", "install"]),
         SettingsEntry(.guidedTour, .general, Copy.Tour.settingsTitle, keywords: ["tour", "walkthrough", "tutorial", "guide", "help", "learn"], detail: Copy.Tour.settingsDetail),
         SettingsEntry(.demoMemory, .general, Copy.Demo.demoTitle, keywords: ["demo", "example", "sample", "try", "made-up"], detail: Copy.Demo.demoDetail),
         // You
@@ -156,8 +155,10 @@ enum SettingsIndex {
         SettingsEntry(.searchImages, .searchFiles, Copy.SearchFiles.imagesTitle,
                       keywords: ["image", "images", "picture", "pictures", "photos", "screenshots", "vision", "looks",
                                  "image model", "embedding"]),
-        // Memory
-        SettingsEntry(.fadePace, .memory, Copy.fadePaceTitle,
+        // Memory's card, on Search & memory since the Hyrum audit's B1: the old page's name still finds it.
+        SettingsEntry(.memoryGroup, .searchFiles, Copy.memorySection,
+                      keywords: [Copy.fadeHeader, "memory", "tidy"], detail: Copy.memorySubtitle),
+        SettingsEntry(.fadePace, .searchFiles, Copy.fadePaceTitle,
                       keywords: ["fade", "decay", "forget", "archive", "pace", "still tracking", "slower", "faster"],
                       detail: Copy.fadePaceDetail),
         // Sleep
@@ -188,6 +189,8 @@ enum SettingsIndex {
                       detail: Copy.PageEdits.rowDetail),
         SettingsEntry(.agentsReading, .agents, Copy.Reading.agentsRowTitle,
                       keywords: ["read", "pages", "browser", "sites"], detail: Copy.Reading.agentsRowDetail),
+        // Hyrum audit B11: the `cicada` command is for agents with a shell, so it sits with them.
+        SettingsEntry(.commandLineTool, .agents, Copy.cliToolTitle, keywords: ["command line", "terminal", "shell", "cli", "path", "agent", "install"]),
         // Reading the web (G166)
         SettingsEntry(.readingAgent, .reading, Copy.Reading.switchTitle,
                       keywords: ["read", "pages", "links", "browser", "linkedin", "sign in", "login", "ask an agent",
@@ -222,13 +225,17 @@ enum SettingsIndex {
         SettingsEntry(.skill(CicadaSkillBundle.linkedinPeople.rawValue), .skills, CicadaSkillBundle.linkedinPeople.title,
                       keywords: ["linkedin", "people", "profile", "connections"],
                       detail: CicadaSkillBundle.linkedinPeople.summary),
-        // From anywhere — landing on its header (R-O12)
-        SettingsEntry(.remoteSwitch, .remote, Copy.remoteSwitchTitle,
-                      keywords: ["phone", "claude.ai", "chatgpt", "perplexity", "connector", "remote", "mobile"], anchor: .page(.remote)),
-        SettingsEntry(.remoteReach, .remote, Copy.remoteReachTitle,
-                      keywords: ["tailscale", "funnel", "ngrok", "tunnel", "public address", "https"], anchor: .page(.remote)),
-        SettingsEntry(.remoteNew, .remote, Copy.remoteNewConnectorTitle,
-                      keywords: ["token", "link", "connect an app", "revoke"], anchor: .page(.remote)),
+        // From anywhere, a group on Devices & access since the Hyrum audit's B1 — its rows land on the group (R-O12).
+        SettingsEntry(.fromAnywhere, .devices, Copy.fromAnywhere,
+                      keywords: ["remote", "connector", "outside this mac"], detail: Copy.remoteSubtitle),
+        SettingsEntry(.remoteSwitch, .devices, Copy.remoteSwitchTitle,
+                      keywords: ["phone", "claude.ai", "chatgpt", "perplexity", "connector", "remote", "mobile", Copy.fromAnywhere],
+                      anchor: .fromAnywhere),
+        SettingsEntry(.remoteReach, .devices, Copy.remoteReachTitle,
+                      keywords: ["tailscale", "funnel", "ngrok", "tunnel", "public address", "https", Copy.fromAnywhere],
+                      anchor: .fromAnywhere),
+        SettingsEntry(.remoteNew, .devices, Copy.remoteNewConnectorTitle,
+                      keywords: ["token", "link", "connect an app", "revoke", Copy.fromAnywhere], anchor: .fromAnywhere),
         // Engines
         SettingsEntry(.engineChoice, .engines, Copy.enginesChooseGroup,
                       keywords: ["model", "llm", "claude", "chatgpt", "codex", "ollama", "openrouter", "api key", "plan", "auto",
@@ -240,12 +247,24 @@ enum SettingsIndex {
         // renamed it to what it does (shown only under the API key card).
         SettingsEntry(.engineAutoClaude, .engines, Copy.useClaudePlanWhenIStart,
                       keywords: ["claude plan", "subscription", "use for sleep", "api key"]),
+        // Plans & keys, a group on Engines since the Hyrum audit's B1.
+        SettingsEntry(.plansAndKeys, .engines, Copy.plansAndKeys,
+                      keywords: ["sign in", "keys", "api key", "plan", "subscription", "credentials"],
+                      detail: Copy.plansAndKeysSubtitle),
     ]
 
-    /// A page whose header asks its own question (Search & files) is also found by it.
+    /// A page whose header asks its own question (Search & memory) is also found by it, and a page renamed by the
+    /// Hyrum audit's B1 by its old name (the audit's Migration: keep the old search keywords on the merged entries).
     static let pageEntries: [SettingsEntry] = SettingsSection.allCases.map {
-        SettingsEntry(.page($0), $0, $0.title, keywords: $0.pageTitle == $0.title ? [] : [$0.pageTitle], detail: $0.subtitle)
+        SettingsEntry(.page($0), $0, $0.title,
+                      keywords: ($0.pageTitle == $0.title ? [] : [$0.pageTitle]) + formerNames[$0, default: []],
+                      detail: $0.subtitle)
     }
+
+    static let formerNames: [SettingsSection: [String]] = [
+        .searchFiles: [Copy.SearchFiles.formerSidebar],
+        .devices: [Copy.Devices.formerSidebar],
+    ]
 
     /// Names and ids only: a connection's account line, an agent's install
     /// command (which carries this machine's paths) and any token stay out,
@@ -266,7 +285,7 @@ enum SettingsIndex {
         out += harnessRows.map { SettingsEntry(.harness($0.harness ?? $0.id), .integrations, $0.label,
                                                keywords: ["agent", "conversations"]) }
         out += exportOnly.map { SettingsEntry(.exportOnly($0.id), .integrations, $0.title, keywords: ["import", "export"]) }
-        out += connections.map { SettingsEntry(.connection($0.id), .plansAndKeys, $0.label,
+        out += connections.map { SettingsEntry(.connection($0.id), .engines, $0.label,
                                                keywords: [$0.planLabel ?? "", "sign in", "key", "plan"].filter { !$0.isEmpty }) }
         out += agents.map { SettingsEntry(.agent($0.id), .agents, $0.name, keywords: ["mcp", "connect", "register"] + $0.searchTerms) }
         // G138 — the recommended and installed skills the window already

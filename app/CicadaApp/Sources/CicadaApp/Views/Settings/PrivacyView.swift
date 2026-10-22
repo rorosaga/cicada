@@ -106,7 +106,7 @@ struct PrivacyView: View {
                 }
                 SettingsDivider()
                 SettingsRow(.remoteAccess, title: Copy.remoteAccessTitle, detail: remoteLine) {
-                    SettingsInlineLink(section: .remote, label: Copy.fromAnywhere)
+                    SettingsInlineLink(section: .devices, row: .fromAnywhere, label: Copy.fromAnywhere)
                 }
                 SettingsDivider()
                 SettingsRow(.transcripts, title: Copy.transcriptsTitle, detail: Copy.transcriptsFact)

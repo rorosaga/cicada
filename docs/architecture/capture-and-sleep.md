@@ -1083,7 +1083,7 @@ an unclassified extraction rejection retains its legacy call retry. Calls outsid
 is sorted (`engine_cause`, text first, then litellm's class names) into a spending or credit limit reached, a refused
 key, an unknown model, or a rate limit, and the stop's sentence — the drain's, the paused record's and `error` — says
 that cause and its fix in provider-neutral words: raise the key's limit or add credit with the provider; check the key
-in Settings → Plans & keys; choose another engine in Settings → Engines, or change the model where it was set (Settings no longer edits a model id, 2026-10-22); continue later. A scheduled run that ruling 4
+in Settings → Engines → Plans & keys; choose another engine in Settings → Engines, or change the model where it was set (Settings no longer edits a model id, 2026-10-22); continue later. A scheduled run that ruling 4
 kept off the plan (`engine_select.SCHEDULE_DEGRADED`) also names *Scheduled runs may use my plan* in Settings → Sleep
 as a fix — named, never flipped (ruling 4b). The provider's raw text never reaches the wire. A cause outranks G117's
 "no engine chosen" guess (a refused key on such an install names both doors); no recognised cause keeps the generic
@@ -1730,7 +1730,7 @@ dates plus the weeks the person answered *keep* to a decay question (`kept_on`; 
 together counts once); `f(w) = max(0.25, 1 / (1 + 0.6·ln w))` (`decay_spacing_alpha` /
 `decay_spacing_floor`) — fifty mentions in one afternoon are one week, and a page that came up across
 twelve weeks fades about 2.5× slower. The per-type pace comes from `<bank>/_decay_tuning.yaml`,
-written only when the person applies a suggestion in Settings → Memory; suggestions are derived from
+written only when the person applies a suggestion in Settings → Search & memory; suggestions are derived from
 the bank's own decay answers in git history (`GET /memory/decay-suggestions`) and never applied on
 their own. One function, `decay_policy.effective`, serves the pass and the entity wire's derived
 `decay` block. Claims fade the same way (`claim_reconciler._decay_claims`: weeks from the claim's

@@ -52,7 +52,7 @@ enum FadeWords {
         }
     }
 
-    // MARK: Settings → Memory (G147, plan R-FD6)
+    // MARK: Settings → Search & memory (G147, plan R-FD6)
 
     /// The plain noun for a kind of page — "people", not "persons"; "ideas" for concepts.
     static func noun(_ type: String, count: Int) -> String {

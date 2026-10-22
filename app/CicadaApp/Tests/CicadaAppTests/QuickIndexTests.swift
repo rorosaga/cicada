@@ -107,7 +107,7 @@ final class QuickIndexTests: XCTestCase {
         XCTAssertEqual(index.query("extra usage").rows.first { $0.group == .settings }?.destination,
                        .settings(.engines, row: .engineOverage))
         XCTAssertEqual(index.query("tailscale").rows.first { $0.group == .settings }?.destination,
-                       .settings(.remote, row: .page(.remote)))
+                       .settings(.devices, row: .fromAnywhere), "Hyrum audit B1: From anywhere's group on Devices & access")
         XCTAssertEqual(index.query("integrations").rows.first { $0.group == .settings }?.destination,
                        .settings(.integrations, row: nil), "a page lands on the page")
     }

@@ -8,6 +8,18 @@
 
 ## Current state and evidence
 
+- **2026-10-22 — Settings in eleven sections (Hyrum audit B1, with B11, B12, B23; G139; branch `settings-regroup`).**
+  Memory's one card joined Search & files (now *Search & memory*), From anywhere joined Devices (now *Devices &
+  access*), Plans & keys closes Engines. Each moved page is a group under its old header anchor (`page:memory`,
+  `page:remote`, `page:plansAndKeys`); `SettingsSection.retired` opens a saved selection, the old `agentsMode` and a ⌘K
+  recent on the new home, never General. General has one *Getting started* card; the command-line tool is on Agents;
+  Reading folds its method pickers while off. Every "Settings → <old section>" in app copy, backend sentences and docs
+  says the new path; `SettingsAnchorsTests` fails if an entry, deep link, retired value or pointer stops resolving.
+  Found on the way: a query with a bare "&" ("Plans & keys", "Privacy & data") matched nothing (`QuickMatch.tokens`
+  drops a punctuation-only word beside a real one; alone, or an emoji, it stays a token), and a landing below
+  late-loading cards stopped short (the row lands again on each move inside a 3 s window, never animated, until the
+  person scrolls). Review round: a saved old section lands on its group; folds open on a landing without storing it. Presentation only. Not done: B5 (shared step renderer). Pass 2's "B1 is the owner's
+  call" stands as the merge gate. Detail: `app.md` (Settings), the audit's *B1 as built*.
 - **2026-10-22 — a recall stays under the harness's result cap whatever the bank holds (branch `fix/recall-size`).**
   On the live install a recall for a person's handle returned 221,719 characters (1,782 lines); Claude Code refuses an
   MCP result over its cap, so the agent got only an error. Cause: the owner page's ~2,300 `related` ids printed on one

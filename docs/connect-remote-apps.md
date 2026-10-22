@@ -8,7 +8,7 @@ that app is kept as it happens (ruling 32). How it works and what it checks: `do
 
 ## 1. Turn it on
 
-Cicada → Settings → Agents → **From anywhere** → *Let AI apps outside this Mac use your memory*.
+Cicada → Settings → Devices & access → **From anywhere** → *Let AI apps outside this Mac use your memory*.
 
 ## 2. Give it a stable public address (you run this, Cicada never does)
 

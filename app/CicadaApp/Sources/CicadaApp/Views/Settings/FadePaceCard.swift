@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// G147 — Settings → Memory's "How things fade": what Cicada suggests from your own
+/// G147 — Settings → Search & memory's "How things fade": what Cicada suggests from your own
 /// "Still tracking…?" answers, and the pace you chose per kind of page. Agent proposes, person
 /// disposes (UX principle 3): nothing changes how anything fades until Apply. Direction D: one
 /// group card of Settings rows (DR-37, DR-33), Apply and Reset neutral and Not now a text button —

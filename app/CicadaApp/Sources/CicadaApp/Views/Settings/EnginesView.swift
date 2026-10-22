@@ -13,6 +13,9 @@ import SwiftUI
 /// switch that did nothing under Auto and quietly moved API-key cycles onto
 /// the plan — the opposite of what its words said.
 ///
+/// Hyrum audit B1 (2026-10-22): Plans & keys closes this page as a group (`ConnectionsView`), so the engine and the
+/// sign-ins it uses are read together; it was its own section until then.
+///
 /// The plan-window percentage stays hidden (spec decision 17): nothing on
 /// this page reads it.
 struct EnginesView: View {
@@ -68,6 +71,7 @@ struct EnginesView: View {
                     }
                 }
             }
+            ConnectionsView()
         }
     }
 }

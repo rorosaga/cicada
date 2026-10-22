@@ -298,11 +298,15 @@ final class ReadingSurfacesTests: XCTestCase {
     func testSettingsSectionRawValuesDidNotMove() {
         // Search & files (owner, 2026-10-14) is a new case between privacy and memory; Devices (G181 phase 3) one after
         // From anywhere; no existing value moved. Advanced retired (settings defaults, owner 2026-10-22): its saved value
-        // reopens on General.
-        let raw = ["general", "you", "privacy", "searchFiles", "memory", "sleep", "integrations", "reading", "agents",
-                   "remote", "devices", "skills", "engines", "plansAndKeys"]
+        // reopens on General. Hyrum audit B1 (2026-10-22): memory, remote and plansAndKeys merged into another page, and
+        // each saved value reopens there (`SettingsSection.retired`); no surviving value moved.
+        let raw = ["general", "you", "privacy", "searchFiles", "sleep", "integrations", "reading", "agents",
+                   "devices", "skills", "engines"]
         XCTAssertEqual(SettingsSection.allCases.map(\.rawValue), raw)
-        for value in raw { XCTAssertNotNil(SettingsSection(rawValue: value), value) }
+        for value in raw { XCTAssertEqual(SettingsSection.restored(from: value).rawValue, value) }
+        for value in ["memory", "remote", "plansAndKeys"] {
+            XCTAssertNotEqual(SettingsSection.restored(from: value), .general, value)
+        }
     }
 
     func testTheFirstUseSheetHasNoSitePickerAndCarriesTheInstruction() throws {

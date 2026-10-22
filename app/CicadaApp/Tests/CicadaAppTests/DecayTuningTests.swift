@@ -1,7 +1,7 @@
 import XCTest
 @testable import CicadaApp
 
-/// G147 (plan R-FD6 … R-FD8) — Settings → Memory's pace rows. The wire decodes leniently,
+/// G147 (plan R-FD6 … R-FD8) — Settings → Search & memory's pace rows. The wire decodes leniently,
 /// the rows are a pure function of the response and the viewer's "Not now"s, and the copy
 /// says each number once, in plain words.
 final class DecayTuningTests: XCTestCase {
@@ -151,8 +151,9 @@ final class DecayTuningTests: XCTestCase {
 
     // MARK: The page
 
-    func testMemoryHostsHowThingsFade() throws {
-        let view = try ThemeTokenTests.swiftSources().first { $0.lastPathComponent == "MemoryView.swift" }
+    /// Hyrum audit B1: Memory's card is on Search & memory now.
+    func testSearchAndMemoryHostsHowThingsFade() throws {
+        let view = try ThemeTokenTests.swiftSources().first { $0.lastPathComponent == "SearchFilesView.swift" }
         XCTAssertTrue(try String(contentsOf: XCTUnwrap(view), encoding: .utf8).contains("FadePaceCard()"))
     }
 }

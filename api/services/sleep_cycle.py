@@ -846,7 +846,7 @@ def _stage1_failure_message(engine: str, engine_detail: str | None = None, *,
     if engine == "codex-cli":
         return (
             "Stage 1 extracted nothing — every episode failed on the ChatGPT plan engine. "
-            "Check ChatGPT is still signed in on Settings → Plans & keys. "
+            "Check ChatGPT is still signed in on Settings → Engines → Plans & keys. "
             "The queue is intact; trigger Sleep again once it is."
         )
     if engine == "ollama":

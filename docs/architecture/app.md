@@ -162,14 +162,32 @@ on the rail's surface (owner 2026-10-07): `CicadaTheme.titlebarBackground(for:)`
 `RailCornerSnapshotTests` writes it offscreen on request. **Settings is a panel inside this window (DR-33)**: ⌘,
 (`ShellCommands`, which opens the window first if none is) and the gear open it over a scrim — 880 × 620 at 1×,
 inset ≥ 40 pt — with a `bgPane` sidebar that starts with a `CicadaSearchField` and groups its rows as Cicada ·
-Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General · You · Privacy & data · Search & files · Memory · Sleep;
-Customize: Integrations · Reading the web · Agents · From anywhere · Devices · Skills; Engines & keys: Engines · Plans & keys — and each
+Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General · You · Privacy & data · Search & memory · Sleep;
+Customize: Integrations · Reading the web · Agents · Devices & access · Skills; Engines & keys: Engines — and each
 page's own header with an `esc` keycap and a close ×. It is modal: the shell under it is inert, ⌘K waits, Esc and a
 scrim click close it. `AppRouter.openSettings(_:row:)` is the one door (`SettingsSectionLink`, the gear, ⌘,), every
 hand-off to a page closes it, and `cicada.settingsSection` is only its remembered selection — the `Settings{}` scene
 and its cross-window seeds are gone. Privacy & data exports a bank and moves one to `<root>/.trash/`, but never
-switches banks (that is the command bar's); Memory has no "Look for duplicates" yet (R-O17) — the dedup endpoint
-now runs off the event loop and commits what it merges (G183(e)), so the button is the remaining half. Memory also holds
+switches banks (that is the command bar's). **Eleven sections, not fourteen (Hyrum audit B1, 2026-10-22,
+`docs/research/2026-10-22-hyrum-audit.md`):** Memory's one card joined Search & files, now *Search & memory*; From
+anywhere joined Devices, now *Devices & access*; Plans & keys closes Engines. Each moved page is a group on its new page
+under the anchor its header had (`SettingsRowID.memoryGroup` = `page:memory`, `.fromAnywhere` = `page:remote`,
+`.plansAndKeys` = `page:plansAndKeys`), so `settings.row.page:<old>` still names it. `SettingsSection.retired` maps the
+three old raw values onto their new section and group: a saved `cicada.settingsSection`, the R-O11 `agentsMode`
+hand-off (now Devices & access) and a ⌘K recent (the group keeps its page's palette key) all open there, never
+General. Search still finds each by its old name (`SettingsIndex.formerNames`, the groups' own entries). General's
+Setup row joined the tour and the demo in one *Getting started* card (B12); the command-line tool moved to Agents' last
+card (B11); Reading's two method groups wait under *How your agent reads and watches* while its switch is off, and a
+landing on any of them opens the fold for that view only, never stored (B23, `ReadingMethodsFold`; Plans & keys' key
+fold the same; both draw through `DisclosureHeader`, DR-39). A saved retired value lands on its group
+(`SettingsSection.restoredLanding`). A landing keeps its row on screen while late cards arrive (Agents' setup steps,
+the devices list): the row reports its place in the scroll content's own space, and each move inside
+`CicadaMotion.settingsLandingWindow` (3 s) lands again, never animated; the person's scroll wheel or a key, a new
+search, a sidebar pick or a newer landing ends it (`SettingsFocus.settlingRowMoved`, `endSettle`). From anywhere's
+public-address check runs once its group is on screen and switched on, not on every visit to Devices & access. `SettingsAnchorsTests` fails when a search entry, an in-app deep link, a retired value or a
+"Settings → <old section>" pointer in copy or docs stops resolving. No stored key, default, route, wire field or
+`cicada` command changed. Search & memory has no "Look for duplicates" yet (R-O17) — the dedup endpoint
+now runs off the event loop and commits what it merges (G183(e)), so the button is the remaining half. It also holds
 G147's *How things fade*: pace suggestions from the person's own "Still tracking…?" answers
 (Apply · Not now — the latter per viewer) and each chosen per-type pace (Reset). **Settings defaults (owner
 2026-10-22: "Remove all those environment variables and stuff in the settings page. Let's just work towards the good
@@ -178,9 +196,9 @@ maintenance button; `SettingsDefaultsTests` holds that and holds every data, pri
 and found by search. Advanced is gone (its backend status, MCP command, token path, environment switches and
 *Settings file*); a saved `"advanced"` selection reopens on General. Engines has no model picker or model-id field
 (each engine runs its own default, a model already chosen keeps being used, and the Sleep page's engine menu is where a
-model is switched); its preview lines say who reads, never the model. Search & files has no Advanced (version picker,
-larger-version account sheet, *Rebuild search*); Memory has no *Fetch link previews* (Sleep's tail describes saved
-links every run); Agents has no `make install` card; Plans & keys folds the key cards nobody has saved a key in under
+model is switched); its preview lines say who reads, never the model. Search & memory has no Advanced (version picker,
+larger-version account sheet, *Rebuild search*) and no *Fetch link previews* (Sleep's tail describes saved
+links every run); Agents has no `make install` card; Engines' Plans & keys group folds the key cards nobody has saved a key in under
 *Use an API key instead* (DR-39, per viewer `cicada.plansAndKeys.keysOpen`). Privacy names the memory folder in words
 (Show in Finder opens it), and keys, tokens and the pinned engine are said in words, never a path or a variable. Every
 value already set (`api/.env`, the environment, the bank's prefs, `~/.cicada`, UserDefaults) is still honoured; the
@@ -208,7 +226,7 @@ window — the bookworm waits in the menu bar, and the Dock icon brings the wind
 `LaunchState`, R-OB18) and Keep memory working when
 Cicada is closed (`BackendAgentService`: a read-only `launchctl print`, and Install runs
 `scripts/install-backend-agent.sh` from the app's own checkout after the click, `CICADA_CAPTURE=off`, then hands
-launchd the port). **Where your memory lives** (G181 phase 3; the first card of Settings → Devices since the settings
+launchd the port). **Where your memory lives** (G181 phase 3; the first card of Settings → Devices & access since the settings
 audit of 2026-10-22, `docs/research/2026-10-22-hyrum-audit.md`, before that on General;
 `MemoryHomeSetting`, `ConnectionSettingsModel`): *This Mac* or *A server* — an address (https, or http to a loopback
 tunnel) and this device's token from `cicada device add`. *Check and use* writes nothing until `ServerProbe` hears the
@@ -224,7 +242,7 @@ refused before any request (`ServerLinkError.demoStaysLocal`); a reader's
 post the server did not take waits in `ReaderOutbox` (`$CICADA_HOME/spool/app/`; a newer post on its route waits
 behind it, never overtakes it) and is flushed when the event stream connects, lane by lane (route + memory: another
 memory's refused post waits without blocking the active memory's — owner decision 6, 2026-10-16; no answer or a
-refused token still stops the flush; `headless.md`, "The Mac app as a client"). **Settings → Devices** (`DevicesSettingsView`,
+refused token still stops the flush; `headless.md`, "The Mac app as a client"). **Settings → Devices & access** (`DevicesSettingsView`,
 `DevicesPageModel`; not a Store domain): *Where your memory lives* (above; only while this app runs on a server, the
 same card adds which server it is using, reachable or not as of when (DR-58), and captures waiting with *Send now*;
 on This Mac the choice already says it, DR-38) — and *Your devices* (name, added, last seen, *this Mac*; Add a device with its
@@ -233,7 +251,7 @@ one quiet word (`DeviceOrigin`, names from `DeviceDirectory`, read on demand): *
 "Saved from" line (`FeedSourceLine.text(_:device:)`), in the Reader's meta line (`ReaderHeader.meta(_:device:)`) and on
 each conversation under *Where this came from*; on a server's client, the server's own writes read *from this server*;
 on This Mac, this Mac's own say nothing. The bank picker's menu leads with *on <host>* on a server.
-Setup's card also holds *Command-line tool* (G180, ruling 21; `CommandLineTool`,
+Agents' last card holds *Command-line tool* (G180, ruling 21; on General's Setup card until B11; `CommandLineTool`,
 `CommandLineToolRow`): one neutral *Install the command-line tool* button (DR-40) that links `~/.local/bin/cicada`
 with no admin.
   - The target follows `CicadaRuntime`: a release links its `~/.cicada/bin/cicada` launcher, and only once that
@@ -349,8 +367,9 @@ nobody chose), or, for a stored choice that isn't Auto, that card's name, its co
 (`EngineWrite(mode: "auto", model: nil)`; hidden while the environment fixes the engine). Every other card waits
 under *Use a different engine* (`DisclosureGroup`, DR-39, per viewer `cicada.engines.othersOpen`; landing on
 `.engineChoice` opens it). The extra-usage switch, `LeavesMacNote`, the chosen card's one step and both previews stay
-outside the fold. Onboarding's Who reads keeps `EngineChooser()`, the full row. Engines and Plans & keys stay two
-sections (B1 is the owner's): merged, sign-in, sign-out and key removal would sit below an open chooser. Auto that
+outside the fold. Onboarding's Who reads keeps `EngineChooser()`, the full row. Engines and Plans & keys were kept two
+sections in pass 2 because sign-in, sign-out and key removal would sit below an open chooser; B1 merged them once the
+chooser folds: with *Use a different engine* closed, the Plans & keys group starts on the panel's first screen at 1×. Auto that
 resolved to no engine says nothing leaves the Mac (`LeavesMacNote` returned the key's sentence before).
 **The engine picker (G122, Track E; moved by G139 A3).** The Engine card ends with one *Ask* row,
 "Answers your questions with the same engine as a cycle you start" (its own card until the 2026-10-22 settings audit,
@@ -402,7 +421,7 @@ A preview line or the Sleep page's button that runs on an `openrouter/` model na
 Integrations; a *one-shot* import (drop an export, sync a folder once) stays where it already was,
 behind the `+` on the Sleep page's tab row (the Feed's, until 2026-10-16). Both read the same `channel_registry`, so a channel never drifts between the
 two surfaces. Round 3 added **Notes & files** (Apple Notes and, when Obsidian is installed, *Obsidian vault*; the
-watched folders and *Add a folder* moved to Settings → Search & files on 2026-10-14, and Notes & files keeps one
+watched folders and *Add a folder* moved to Settings → Search & memory on 2026-10-14, and Notes & files keeps one
 pointer, "Folders are in Search & files ›") and **Voice & meetings** (Wispr Flow once it is on this
 Mac) — both standing connections, so both live here; their marks are the installed apps' own icons.
 Harness rows wear their app's real mark ("Other agents" a neutral glyph); a folder's Manage, Wispr
@@ -1269,7 +1288,7 @@ field (⏎ searches by words through `POST /design/search`; the board re-ranks),
 an image file), and, when this Mac
 supports it but images aren't understood here yet, one row (DR-37) saying what it is for and its download size with
 *Turn on* (`POST /embeddings/install` with `part: vision`; the page polls while it installs). This is the in-context
-shortcut to Settings → Search & files → *Understand images* and keeps its one click: on a Mac without the meaning part
+shortcut to Settings → Search & memory → *Understand images* and keeps its one click: on a Mac without the meaning part
 it fetches both, and `vision.includesText` makes the row state the combined size ("…which also sets up Understand what
 you mean") before the click. Tiles: the screenshot through
 `StoredPreview` (`PictureURL` accepts `/design/…` as Cicada's own API), its colours as one strip, the site and the day
@@ -2083,9 +2102,9 @@ shows once in the Version row ("couldn't be installed … You're still on 0.3.0"
 reinstalled once on that launch. The zip must be one of the same release's own assets, over https. The new copy rewrites the
 `~/.cicada/bin` launchers when it opens. Log: `~/.cicada/logs/update.log`.
 
-**Settings → Search & files (owner, 2026-10-14; G182 phase 3, EmbeddingGemma 2 owner 2026-10-09, G133, G195 frame).**
-A section in the Cicada group between Privacy & data and Memory (`SettingsSection.searchFiles`, a new case): sidebar
-*Search & files*, page title *What Cicada can look through* (`SettingsSection.pageTitle`; the header shows it, the
+**Settings → Search & memory (owner, 2026-10-14; G182 phase 3, EmbeddingGemma 2 owner 2026-10-09, G133, G195 frame).**
+A section in the Cicada group between Privacy & data and Sleep (`SettingsSection.searchFiles`, a new case in 2026-10-14): sidebar
+*Search & memory* (*Search & files* until B1), page title *What Cicada can look through* (`SettingsSection.pageTitle`; the header shows it, the
 sidebar and search show the short name). One place for what Cicada can look through, in plain words — the owner: "without
 mentioning embeddings". `SearchFilesView`, top to bottom:
 - **Folders** — one row per watched folder (`FolderChannelRow`, moved from Integrations → Notes & files): name, its depth
@@ -2124,8 +2143,7 @@ defaultVisible` and every state the two rows can render) free of model, embeddin
 checksum; the hidden Settings-search keywords keep the technical words so "embeddings", "index" or "search version"
 still land on *Understand what you mean* (`SettingsIndex`). The backend
 writes its catalog labels, steps and errors in the same words (`api/tests/test_search_words_are_plain.py`). Folder
-channels index on this page, and a saved folder row opens it (`ChannelActions.settingsSection`). **Memory** keeps *How things
-fade*. Not yet (G195): the search-only depth, kinds per folder, reading N of M files and
+channels index on this page, and a saved folder row opens it (`ChannelActions.settingsSection`). *How things fade* (Memory's card until B1) closes the page under the `page:memory` anchor. Not yet (G195): the search-only depth, kinds per folder, reading N of M files and
 the idle/on-power pause — none is rendered until something computes it.
 
 ---

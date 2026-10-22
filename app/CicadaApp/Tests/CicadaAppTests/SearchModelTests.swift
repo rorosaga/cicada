@@ -1,7 +1,7 @@
 import XCTest
 @testable import CicadaApp
 
-/// G182 phase 3 — Settings → Search & files → Advanced → Search version (was Memory → Search model): the wire, the
+/// G182 phase 3 — Settings → Search & memory → Advanced → Search version (was Memory → Search model): the wire, the
 /// key's one road out, the detail line in words and the pick routing.
 final class SearchModelTests: XCTestCase {
     static let small = "intfloat/multilingual-e5-small"

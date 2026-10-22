@@ -1389,7 +1389,7 @@ the CLI.
     `runtime_layout.LAUNCHERS` and `CicadaRuntime.launcherNames` list it.
   - A developer checkout has `scripts/cicada`. `make cli` / `./install.sh --cli` (`scripts/install-cli.sh`) link
     `~/.local/bin/cicada` to it.
-  - The app's Settings → General *Install the command-line tool* links `~/.local/bin/cicada` to the runtime's own
+  - The app's Settings → Agents *Install the command-line tool* (General until the Hyrum audit's B11) links `~/.local/bin/cicada` to the runtime's own
     launcher (`app.md`). The script and the button share the never-replace rules.
   - A Swift end-to-end test runs outer shim → inner launcher → CLI in a synthetic bundle: caller's folder kept, a
     moved app exits 127 with the repair sentence, and the next rewrite works.
@@ -1435,7 +1435,7 @@ the CLI.
   rotating `cic_rt_` refresh token; the gate verifies an access token against the connector row it maps to, so tool
   lists, scopes, the Sleep gate, the ledger and every write's provenance (`Cicada-Author: <app harness>`,
   `Cicada-Session: rc_…`) are the link connector's, unchanged. The secret link (`/c/<token>/mcp`) still works; the docs
-  and the From anywhere page steer Claude and ChatGPT to sign-in, which puts no secret in a URL.
+  and the From anywhere group steer Claude and ChatGPT to sign-in, which puts no secret in a URL.
 - **`cicada_capture_turns(message, previous_reply?, conversation)`** (`record` scope, remote only —
   `catalog.REMOTE_ONLY`, so `test_remote_tools.py` classifies every stdio tool plus it). Not read-only, idempotent, not
   destructive and not open-world: an app that confirms writes (ChatGPT) asks the person, who can allow it always.
