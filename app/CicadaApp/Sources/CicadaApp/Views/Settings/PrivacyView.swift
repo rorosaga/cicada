@@ -5,7 +5,9 @@ import UniformTypeIdentifiers   // `UTType.zip` for the save panel
 /// Settings → Privacy & data (G139, design §2.2): where the memory lives, its
 /// banks and how to take one away or put one in the trash (R-O18…R-O20), what
 /// reaches the internet (the three gates, R-O21), the usage ledger, keys,
-/// access from other apps, and the transcript rail stated as a fact.
+/// access from other apps, and the transcript rail stated as a fact. Every line is in words: no file path and no
+/// environment variable is shown (settings defaults, owner 2026-10-22) — the gates and the ledger are facts read from
+/// `/status`, and how to change them lives in the docs, for whoever set them.
 ///
 /// It exports and deletes; it never switches (R-O18). Switch, new, copy and
 /// rename stay in the command bar's `BankSwitcher`, whose switch reloads the
@@ -32,13 +34,13 @@ struct PrivacyView: View {
     var body: some View {
         SettingsPage(section: .privacy) {
             SettingsGroupCard {
-                SettingsRow(.memoryLocation, title: Copy.memoryLocationTitle, detail: memoryRoot) {
+                // Settings defaults (owner 2026-10-22): the folder in words; Show in Finder is the way to it, never a path.
+                SettingsRow(.memoryLocation, title: Copy.memoryLocationTitle, detail: Copy.memoryLocationDetail) {
                     Button(Copy.showInFinder) {
                         if let root = memoryRoot { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: root)]) }
                     }
                     .disabled(memoryRoot == nil)
                 }
-                .privacySensitive()
             }
             SettingsGroupCard(header: Copy.banksTitle) {
                 SettingsRow(.banks, title: Copy.banksTitle, detail: Copy.banksDetail) { EmptyView() } below: {
@@ -91,7 +93,7 @@ struct PrivacyView: View {
             }
             SettingsGroupCard {
                 SettingsRow(.telemetry, title: Copy.telemetryTitle,
-                            detail: status?.telemetry.map { $0 == "off" ? Copy.telemetryOff : "\(Copy.telemetryOn) \(Copy.telemetryHow)" })
+                            detail: status?.telemetry.map { $0 == "off" ? Copy.telemetryOff : Copy.telemetryOn })
                 SettingsDivider()
                 SettingsRow(.credentials, title: Copy.credentialsTitle, detail: Copy.credentialsDetail) {
                     Button(Copy.removeAllKeys, role: .destructive) { confirmRemoveKeys = true }

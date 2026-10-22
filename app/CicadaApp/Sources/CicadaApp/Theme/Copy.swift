@@ -230,6 +230,9 @@ enum Copy {
         "If ChatGPT says code sign-in is turned off, turn on device code sign-in in your "
         + "ChatGPT account's security settings, then try again."
     static let chatgptSignOutTitle = "Sign out of ChatGPT in Cicada?"
+    /// The command it runs is not named (settings defaults, owner 2026-10-22); what it does to Claude Code is.
+    static let claudeSignOutExplainer =
+        "This signs Claude Code out on this Mac too. It will ask you to sign in again next time you open it."
     static let chatgptSignOutExplainer =
         "Cicada's ChatGPT sign-in is its own. Codex in your terminal stays signed in."
     static let keepGoingOnExtraUsage = "Keep going on extra usage"

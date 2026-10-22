@@ -139,9 +139,9 @@ final class SearchModelTests: XCTestCase {
     /// The sheet and the wire never store or log anything (code lines only; a doc comment may say so).
     func testTheSheetAndTheWireNeverPersistOrLog() throws {
         let files = try ThemeTokenTests.swiftSources().filter {
-            $0.lastPathComponent == "LargerSearchModelSheet.swift" || $0.lastPathComponent == "EmbeddingsWire.swift"
+            $0.lastPathComponent == "EmbeddingsWire.swift"
         }
-        XCTAssertEqual(files.count, 2)
+        XCTAssertEqual(files.count, 1)
         for file in files {
             let code = try String(contentsOf: file, encoding: .utf8).components(separatedBy: .newlines)
                 .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
@@ -234,30 +234,13 @@ final class SearchModelTests: XCTestCase {
 
     // MARK: The Settings index
 
-    func testTheRowIsIndexedOnSearchAndFilesBehindAdvanced() {
-        let entry = SettingsIndex.staticEntries.first { $0.id == .searchModel }
-        XCTAssertEqual(entry?.section, .searchFiles)
-        XCTAssertEqual(entry?.title, Copy.SearchModel.title)
-        XCTAssertEqual(entry?.anchor, .searchAdvanced)
-        XCTAssertTrue(SettingsIndex.staticIDs.contains(.searchModel))
+    /// Settings defaults (owner 2026-10-22): the version picker left the app, so a technical search lands on the
+    /// default-visible row that turns sharper search on — never on a row that is no longer drawn.
+    func testATechnicalSearchLandsOnTheMeaningRow() {
+        XCTAssertFalse(SettingsIndex.staticIDs.contains(SettingsRowID("searchModel")))
         let all = SettingsIndex.staticEntries + SettingsIndex.pageEntries
-        // A technical search lands on the default-visible row that turns it on (Search & files).
-        for query in ["embedding", "semantic", "meaning"] {
+        for query in ["embedding", "semantic", "meaning", "search version"] {
             XCTAssertEqual(SettingsIndex.search(query, in: all).first?.entry.id, .searchMeaning, query)
-        }
-        for query in ["embedding", "larger", "model"] {
-            XCTAssertTrue(SettingsIndex.search(query, in: all).contains { $0.entry.id == .searchModel }, query)
-        }
-    }
-
-    func testTheSheetCopyExplainsTheKeyAndNamesOnlyTheAccountsHost() {
-        XCTAssertTrue(Copy.SearchModel.sheetWhy.contains("terms you accept with your own account"))
-        XCTAssertTrue(Copy.SearchModel.sheetWhy.contains("a key from that account"))
-        XCTAssertTrue(Copy.SearchModel.sheetTokenUse.contains("isn't saved"))
-        XCTAssertTrue(Copy.SearchModel.sheetTokenUse.contains("2 GB"))
-        for text in [Copy.SearchModel.sheetWhy, Copy.SearchModel.sheetTokenUse, Copy.SearchModel.title,
-                     Copy.SearchModel.pickerHelp, Copy.SearchModel.sheetTitle] {
-            for name in ["Google", "Gemma", "BAAI", "bge"] { XCTAssertFalse(text.contains(name), text) }
         }
     }
 }

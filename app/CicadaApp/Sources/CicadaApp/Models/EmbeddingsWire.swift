@@ -192,6 +192,9 @@ enum SearchModelRoute: Equatable {
     case choose(String)
 }
 
+/// The version picker's rules. Settings defaults (owner 2026-10-22) took the picker and the account sheet out of the
+/// app, so only `pollInterval` is read there now; the rest stays pure and tested as the record of how a version choice
+/// is made safely (a pick is never the consent, the size is said first), for the day a picker returns.
 enum SearchModelLogic {
     /// How often the row re-reads `GET /embeddings` while an install runs.
     static let pollInterval: Duration = .seconds(2)
@@ -216,9 +219,8 @@ enum SearchModelLogic {
     static func modelPage(_ id: String) -> URL? { URL(string: "https://huggingface.co/\(id)") }
     static let tokensPage = URL(string: "https://huggingface.co/settings/tokens")!
 
-    /// Advanced → Search version's detail line, in words, for every state (DR-37: it shares the card with Rebuild
-    /// search). An install in progress outranks everything; a failure outranks a pending switch only while the
-    /// version it was for is still missing; a pending switch outranks what the bank uses now. The image part's
+    /// The (retired) Search version row's detail line, in words, for every state. An install in progress outranks
+    /// everything; a failure outranks a pending switch only while the version it was for is still missing; a pending switch outranks what the bank uses now. The image part's
     /// download belongs to *Understand images*, never to this line.
     static func detail(_ status: EmbeddingsStatus?) -> String? {
         guard let status else { return nil }
@@ -324,7 +326,7 @@ enum SearchUnderstanding {
         }
         if reindex.state == "waiting" { return UnderstandRow(detail: Copy.SearchFiles.waitsForSleep) }
         // Review B2 — the backend's sentence here can be a health diagnostic (a hosted service, a dev command); the
-        // default view says it in its own words. Advanced's line keeps the backend's detail.
+        // page says it in its own words.
         if reindex.state == "failed", status.nextModel != status.model {
             return UnderstandRow(detail: Copy.SearchFiles.rereadFailed, failed: true)
         }
@@ -334,7 +336,16 @@ enum SearchUnderstanding {
         guard let current = status.option(status.model) else { return UnderstandRow(detail: Copy.SearchFiles.meaningOther) }
         if current.needsDownload, !current.available {
             // Built elsewhere with a downloaded version: its vectors are kept, search reads words until it's here.
-            if current.needsToken { return UnderstandRow(detail: Copy.SearchFiles.meaningMissingLarger) }
+            // The larger version needs the person's own account key, which the app no longer asks for (settings
+            // defaults, owner 2026-10-22; `cicada index install` still does): the way out here is the sharper one.
+            if current.needsToken {
+                guard let sharper else { return UnderstandRow(detail: Copy.SearchFiles.meaningMissingLarger) }
+                return gated(UnderstandRow(detail: Copy.SearchFiles.meaningMissingLarger, button: Copy.SearchFiles.turnOn,
+                                           action: sharper.available ? .chooseMeaning(sharper.id) : .fetchMeaning(sharper.id),
+                                           help: sharper.available ? Copy.SearchFiles.meaningUseHelp
+                                               : Copy.SearchFiles.meaningTurnOnHelp),
+                             sleeping: sleeping, downloading: install.isInstalling)
+            }
             return gated(UnderstandRow(detail: Copy.SearchFiles.meaningMissing(bytes: current.downloadBytes),
                                        button: Copy.SearchFiles.download, action: .fetchMeaning(current.id),
                                        help: Copy.SearchFiles.meaningTurnOnHelp), sleeping: sleeping, downloading: install.isInstalling)

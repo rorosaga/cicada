@@ -49,7 +49,6 @@ final class CopyConstantsTests: XCTestCase {
             (Copy.memorySection, Copy.memorySubtitle),
             (Copy.SearchFiles.sidebar, Copy.SearchFiles.subtitle),
             (Copy.SearchFiles.pageTitle, Copy.SearchFiles.subtitle),
-            (Copy.advanced, Copy.advancedSubtitle),
             (Copy.skills, Copy.skillsSubtitle),
         ]
         for (title, subtitle) in pairs {

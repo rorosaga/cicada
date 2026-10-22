@@ -133,7 +133,7 @@ struct BanksResponse: Codable {
 /// follow-up).
 struct HealthSnapshot: Codable {
     let memoryRoot: String?
-    /// G139 — Settings → Advanced's backend line. `/healthz` has always sent
+    /// G139 — General's version line (Advanced's backend line until 2026-10-22). `/healthz` has always sent
     /// these; each is still `try?` so a probe that answers oddly never costs
     /// the `memoryRoot` read `ConnectView` depends on.
     let version: String?
@@ -3029,10 +3029,6 @@ actor APIClient {
         return kept
     }
 
-    /// `GET /maintenance/search-index` — asking may start the catch-up (it is
-    /// the same `ensure_fresh` every read path calls).
-    func fetchSearchIndexStatus() async throws -> SearchIndexStatus { try await get("/maintenance/search-index") }
-
     // MARK: Search model (G182 phase 3)
 
     /// `GET /embeddings` — which model the active bank's vectors use, what the next index sync
@@ -3220,12 +3216,6 @@ actor APIClient {
         return try await put("/memory/decay-tuning", body: body)
     }
 
-    /// 409 while Sleep or another rebuild runs; 503 with a plain sentence if
-    /// the rebuild fails. The rebuild itself is CPU on the backend's side,
-    /// which can outlast the default 60 s on a large bank — a timeout here
-    /// only means the app stopped waiting.
-    func rebuildSearchIndex() async throws -> SearchIndexStatus { try await post("/maintenance/search-index/rebuild") }
-
     /// `GET /skills/recommended` (G138) — the reviewed catalog with install
     /// state derived per request. No ETag and no Store domain (R-O23).
     func fetchRecommendedSkills() async throws -> RecommendedSkillsResponse { try await get("/skills/recommended") }
@@ -3245,14 +3235,6 @@ actor APIClient {
         }
         return data
     }
-
-    /// `POST /maintenance/enrich-links` — the on-demand twin of the Sleep-tail
-    /// backfill (G102); 409 while Sleep or another run is going. `limit=10`,
-    /// not the backend's per-cycle 20: each link is a ≤ 4 s fetch plus a
-    /// summary, and `post` keeps URLSession's 60 s default, so a bigger batch
-    /// would time out on the app's side while the backend kept going. The
-    /// report's `remaining` tells the person whether another click is worth it.
-    func enrichLinksNow() async throws -> EnrichLinksReport { try await post("/maintenance/enrich-links?limit=10") }
 
     // MARK: - Remote connector (G135)
 

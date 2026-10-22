@@ -208,7 +208,6 @@ struct SettingsPanel: View {
         case .skills: SkillsView()
         case .engines: EnginesView()
         case .plansAndKeys: ConnectionsView()
-        case .advanced: AdvancedView()
         }
     }
 

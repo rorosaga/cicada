@@ -76,21 +76,20 @@ enum SettingsIndex {
         .ownerName, .ownerHandle, .ownerEmail, .ownerPage,
         .memoryLocation, .banks, .bankExport, .bankDelete, .telemetry,
         .outboundConnectors, .outboundFeeds, .outboundLogos, .credentials, .remoteAccess, .transcripts,
-        .searchFolders, .searchMeaning, .searchImages, .searchAdvanced, .searchModel, .searchIndex,
-        .enrichLinks, .fadePace,
+        .searchFolders, .searchMeaning, .searchImages,
+        .fadePace,
         .sleepRuns, .sleepTime, .sleepInterval, .sleepEngine, .sleepUsePlan,
         .scenerySource, .sceneryTime, .sceneryWeather, .sceneryPreview,
         .mascot,
         .calendarApp, .contactsApp, .saveWhy,
-        .agentsInstall, .agentsCloud, .agentsSkill, .agentsAutoRecall, .agentsEditors, .agentsReading,
+        .agentsCloud, .agentsSkill, .agentsAutoRecall, .agentsEditors, .agentsReading,
         .readingAgent, .readingExploreSignedIn, .readingNeverExplore, .readingMethods, .watchingMethods, .readingSites,
         .readingYouTube,
         // Cicada's own skills — per-item ids (a `:`), so outside the bare-name lint
         .skill(CicadaSkillBundle.cicada.rawValue), .skill(CicadaSkillBundle.cicadaLibrarian.rawValue),
         .skill(CicadaSkillBundle.linkedinPeople.rawValue),
         .remoteSwitch, .remoteReach, .remoteNew,
-        .engineChoice, .engineModel, .engineOverage, .enginePreview, .engineAsk, .engineAutoClaude,
-        .backendStatus, .mcpCommand, .apiToken, .envOverrides, .settingsFile,
+        .engineChoice, .engineOverage, .enginePreview, .engineAsk, .engineAutoClaude,
     ]
 
     static let staticEntries: [SettingsEntry] = [
@@ -132,15 +131,15 @@ enum SettingsIndex {
         SettingsEntry(.ownerEmail, .you, Copy.ownerEmailTitle, keywords: ["email", "mail", "address"]),
         SettingsEntry(.ownerPage, .you, Copy.ownerPageTitle, keywords: ["my page", "profile", "graph"]),
         // Privacy & data
-        SettingsEntry(.memoryLocation, .privacy, Copy.memoryLocationTitle, keywords: ["folder", "path", "where", "finder", "CICADA_MEMORY_PATH"]),
+        SettingsEntry(.memoryLocation, .privacy, Copy.memoryLocationTitle, keywords: ["folder", "path", "where", "finder", "files", "memory folder"], detail: Copy.memoryLocationDetail),
         SettingsEntry(.banks, .privacy, Copy.banksTitle, keywords: ["bank", "memories", "workspaces"]),
         SettingsEntry(.bankExport, .privacy, Copy.bankExportTitle, keywords: ["backup", "download", "zip", "take out", "copy"]),
         SettingsEntry(.bankDelete, .privacy, Copy.bankDeleteTitle, keywords: ["remove", "erase", "trash"]),
-        SettingsEntry(.telemetry, .privacy, Copy.telemetryTitle, keywords: ["telemetry", "analytics", "tracking", "ledger", "CICADA_TELEMETRY"]),
-        SettingsEntry(.outboundConnectors, .privacy, Copy.outboundConnectorsTitle, keywords: ["network", "internet", "fetch", "CICADA_ALLOW_CONNECTOR_FETCH"]),
-        SettingsEntry(.outboundFeeds, .privacy, Copy.outboundFeedsTitle, keywords: ["rss", "calendar", "network", "CICADA_ALLOW_FEED_FETCH"]),
-        SettingsEntry(.outboundLogos, .privacy, Copy.outboundLogosTitle, keywords: ["logos", "icons", "network", "CICADA_ALLOW_LOGO_FETCH"]),
-        SettingsEntry(.credentials, .privacy, Copy.credentialsTitle, keywords: ["api keys", "secrets", "remove keys", "secrets.env"]),
+        SettingsEntry(.telemetry, .privacy, Copy.telemetryTitle, keywords: ["telemetry", "analytics", "tracking", "ledger"]),
+        SettingsEntry(.outboundConnectors, .privacy, Copy.outboundConnectorsTitle, keywords: ["network", "internet", "fetch"]),
+        SettingsEntry(.outboundFeeds, .privacy, Copy.outboundFeedsTitle, keywords: ["rss", "calendar", "network"]),
+        SettingsEntry(.outboundLogos, .privacy, Copy.outboundLogosTitle, keywords: ["logos", "icons", "network"]),
+        SettingsEntry(.credentials, .privacy, Copy.credentialsTitle, keywords: ["api keys", "secrets", "remove keys"]),
         SettingsEntry(.remoteAccess, .privacy, Copy.remoteAccessTitle, keywords: ["remote", "outside", "from anywhere"]),
         SettingsEntry(.transcripts, .privacy, Copy.transcriptsTitle, keywords: ["transcripts", "conversations", "claude code"], detail: Copy.transcriptsFact),
         // Search & files (owner, 2026-10-14). The page never shows a technical word; these hidden keywords keep every
@@ -152,21 +151,12 @@ enum SettingsIndex {
                       detail: Copy.SearchFiles.addFolderDetail),
         SettingsEntry(.searchMeaning, .searchFiles, Copy.SearchFiles.meaningTitle,
                       keywords: ["meaning", "semantic", "embedding", "embeddings", "model", "vectors", "sharper",
-                                 "search model", "download", "neural engine", "languages", "smarter search"]),
+                                 "search model", "download", "neural engine", "languages", "smarter search",
+                                 "search version", "larger", "index", "search index", "search", "find"]),
         SettingsEntry(.searchImages, .searchFiles, Copy.SearchFiles.imagesTitle,
                       keywords: ["image", "images", "picture", "pictures", "photos", "screenshots", "vision", "looks",
                                  "image model", "embedding"]),
-        SettingsEntry(.searchAdvanced, .searchFiles, Copy.SearchFiles.advanced,
-                      keywords: ["advanced", "search version", "rebuild"]),
-        // Advanced's two rows land on the disclosure, which opens on landing (R-O6: the row a hit names is on screen).
-        SettingsEntry(.searchModel, .searchFiles, Copy.SearchModel.title,
-                      keywords: ["model", "embedding", "embeddings", "semantic", "larger", "smaller", "built in",
-                                 "download", "vectors", "hugging face"],
-                      anchor: .searchAdvanced),
-        SettingsEntry(.searchIndex, .searchFiles, Copy.SearchFiles.rebuildTitle,
-                      keywords: ["search", "index", "rebuild", "find", "search index"], anchor: .searchAdvanced),
         // Memory
-        SettingsEntry(.enrichLinks, .memory, Copy.enrichLinksTitle, keywords: ["links", "previews", "descriptions", "bookmarks"], detail: Copy.enrichLinksDetail),
         SettingsEntry(.fadePace, .memory, Copy.fadePaceTitle,
                       keywords: ["fade", "decay", "forget", "archive", "pace", "still tracking", "slower", "faster"],
                       detail: Copy.fadePaceDetail),
@@ -188,7 +178,6 @@ enum SettingsIndex {
                       keywords: ["bookmark", "why", "intent", "reason", "notch", "prompt", "ask"],
                       detail: Copy.SaveWhy.switchDetail),
         // Agents
-        SettingsEntry(.agentsInstall, .agents, Copy.agentsInstallTitle, keywords: ["make install", "setup", "python", "service"]),
         SettingsEntry(.agentsCloud, .agents, Copy.agentsCloudTitle, keywords: ["web", "cloud", "mobile", "claude.ai", "chatgpt"]),
         SettingsEntry(.agentsSkill, .agents, Copy.agentsSkillTitle, keywords: ["skill", "SKILL.md", "claude code"]),
         SettingsEntry(.agentsAutoRecall, .agents, Copy.autoRecallTitle,
@@ -243,7 +232,6 @@ enum SettingsIndex {
         // Engines
         SettingsEntry(.engineChoice, .engines, Copy.enginesChooseGroup,
                       keywords: ["model", "llm", "claude", "chatgpt", "codex", "ollama", "api key", "plan", "auto"]),
-        SettingsEntry(.engineModel, .engines, Copy.engineModelTitle, keywords: ["sonnet", "haiku", "opus", "gpt", "llama", "model id"]),
         SettingsEntry(.engineOverage, .engines, Copy.keepGoingOnExtraUsage, keywords: ["extra usage", "overage", "limit"]),
         SettingsEntry(.enginePreview, .engines, Copy.enginePreviewTitle, keywords: ["schedule", "nightly", "which engine"]),
         SettingsEntry(.engineAsk, .engines, Copy.askTitle, keywords: ["questions", "answers"], detail: Copy.askFollowsEngine),
@@ -251,12 +239,6 @@ enum SettingsIndex {
         // renamed it to what it does (shown only under the API key card).
         SettingsEntry(.engineAutoClaude, .engines, Copy.useClaudePlanWhenIStart,
                       keywords: ["claude plan", "subscription", "use for sleep", "api key"]),
-        // Advanced
-        SettingsEntry(.backendStatus, .advanced, Copy.backendTitle, keywords: ["server", "version", "status"]),
-        SettingsEntry(.mcpCommand, .advanced, Copy.mcpCommandTitle, keywords: ["mcp", "command", "python"]),
-        SettingsEntry(.apiToken, .advanced, Copy.apiTokenTitle, keywords: ["token", "bearer", "CICADA_API_TOKEN"]),
-        SettingsEntry(.envOverrides, .advanced, Copy.envOverridesTitle, keywords: ["env", ".env", "environment", "variables", "CICADA_LLM_MODE"]),
-        SettingsEntry(.settingsFile, .advanced, Copy.settingsFileTitle, keywords: ["api/.env", ".env", "settings", "concurrency", "in effect"]),
     ]
 
     /// A page whose header asks its own question (Search & files) is also found by it.
