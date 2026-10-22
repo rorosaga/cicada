@@ -106,6 +106,16 @@ def test_the_chip_says_what_every_kind_of_source_is():
     assert kind({"ref": "~/src/alpha", "kind": "path"}) == ("path", "alpha")
 
 
+def test_an_x_link_the_strict_parser_refuses_is_still_x_on_the_chip_but_never_asked_for_a_face():
+    for ref, label in (("https://x.com/bob-example", "@bob-example"),
+                       ("https://twitter.com/bob-example/status/1", "@bob-example"), ("https://x.com/", "X")):
+        assert source_proposals.link_kind({"ref": ref, "kind": "url"}) == ("x", label), ref
+    assert person_photo.x_handle("https://x.com/bob-example") is None
+    fm = {"type": "person", "sources": [{"ref": "https://x.com/bob-example", "kind": "url", "predicate": "x",
+                                         "added_by": "user"}]}
+    assert person_photo.candidates(fm, owner={}, proxy=True) == [], "the proxy only ever gets a valid handle"
+
+
 # ---------- Sleep's proposal ----------
 
 

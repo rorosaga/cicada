@@ -141,6 +141,15 @@ def link_kind(source: dict) -> tuple[str, str]:
         site = reading_hosts.site_of(ref)
     except Exception:  # noqa: BLE001 — an odd ref is still a chip
         site = ""
+    if site == "x":
+        # UI review of #422: an X link the strict parser refuses (a hyphen, a post) is still X on the chip — `@` and
+        # its first path segment, display only. Anything that asks for a picture keeps `person_photo.x_handle`, so the
+        # avatar proxy is only ever handed a valid handle.
+        try:
+            first = next((p for p in urlparse(ref).path.split("/") if p), "")
+        except ValueError:
+            first = ""
+        return "x", f"@{first}" if first else "X"
     return "website", site or ref
 
 
