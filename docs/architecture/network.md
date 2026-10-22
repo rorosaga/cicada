@@ -33,7 +33,7 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   LaunchAgent plist sets it; `install.sh` never rewrites a plist behind a running backend, so an
   older plist needs the key added by hand.
 - **`CICADA_ALLOW_LOGO_FETCH=off`** disables logo fetching entirely, and media previews with it (below). The test suite runs that way
-  and injects fetchers instead. It also gates the icons of the sites Settings, Reading the web, lists (G166): those
+  and injects fetchers instead. It also gates the icons of the sites Reading in your browser (the Sources page) lists (G166): those
   come from the icon service only and the login-walled site is never contacted for its favicon (nor, since
   `fetch_logo` skips its first two rungs for a walled host, is a company or tool page's logo domain when it is one).
   It also gates a saved link's own site icon (owner ruling 2026-10-19; everywhere a saved link is drawn, 2026-10-20):
@@ -147,7 +147,7 @@ a litellm upgrade. A model the table does not list still runs; on OpenRouter its
 and the Usage aggregates, never `$0` (ruling 12).
 
 **The Neural Engine search model's download (owner 2026-10-09).** EmbeddingGemma 2 (`api/services/model_fetch.py`) is
-fetched only when the person asks: *Turn on* beside *Understand what you mean* in Settings → Search & memory (the version picker and its confirm left the
+fetched only when the person asks: *Turn on* beside *Understand what you mean* in Settings → Privacy & data (the version picker and its confirm left the
 app on 2026-10-22; `cicada index install` is the other door) — a selection alone never downloads
 (`POST /embeddings/install` with `model`; the size is stated before the click from
 the pins, `downloadBytes`), `make embedding-model-gemma2`, or `install.sh` on macOS 15+ — never on a schedule, never by Sleep,
@@ -163,7 +163,7 @@ check and `scripts/fetch-embedding-model.sh`.
 
 **The image encoder is its own click (design taste, 2026-10-14).** The same pinned revision's `vision_files` — the
 vision `.mlpackage` and `position_embeddings.f16`, about 309 MB — are fetched only when the person presses *Turn on*
-beside *Understand images* in Settings → Search & memory (dimmed until the text encoder is here, so it is a second click;
+beside *Understand images* in Settings → Privacy & data (dimmed until the text encoder is here, so it is a second click;
 the Looks page's own shortcut went with the page on 2026-10-20) (`POST /embeddings/install` with `model` and
 `part: "vision"`), or runs `make
 embedding-model-vision`; the text encoder is fetched first when it isn't here — the Looks shortcut's one click, whose
@@ -212,7 +212,7 @@ IDN, a host two parsers read apart — is refused before any fetch, so the host 
 checks the client and the redirect URI first (exact match; an `http` loopback URI matches on any port, RFC 8252 — Claude
 Code's), and a mismatch is an error page, never a redirect (no open redirect); then it shows an eight-character code
 and waits (meta refresh, no script, no form, a strict CSP, framing denied; it names no app). **The person approves by
-typing that code** into the app — Settings → Devices & access → From anywhere, "A sign-in is waiting" — and only then sees who it
+typing that code** into the app — Settings → Devices → From anywhere, "A sign-in is waiting" — and only then sees who it
 is and where it returns, choosing the scopes (what the app asked, else the defaults) and the expiry (7/30/90 days). The
 app never lists codes and never offers a request to approve with a click (security review of #359: whoever starts a
 sign-in collects its result from `/authorize/wait`'s redirect, PKCE included, so a stranger who registers an app called
@@ -308,7 +308,7 @@ added: the backend and the MCP server never open a site (`test_explore_tools.py`
 through the whole flow), so none of the three gates applies to it, and the connector gate is untouched. The person's own
 agent visits each saved site **in their everyday signed-in Chrome session by default** (owner D2, amended): every
 capture is marked `signed_in: true`, and the person's accounts carry the terms-of-service risk (the v3 acknowledgement
-says so, D3). A switch in Settings, Reading the web, turns that off: the agent then explores in a private, cookie-less
+says so, D3). A switch in Reading in your browser (the Sources page) turns that off: the agent then explores in a private, cookie-less
 `Target.createBrowserContext` the script creates and disposes of (verified drivable through browser-harness in a test
 Chrome; an agent that cannot open one hands the site back as `skipped`, never falling back to the signed-in session).
 The ToS rail's spirit binds the script: a wall or captcha is recorded `needs_login`/`blocked` with no screenshot and

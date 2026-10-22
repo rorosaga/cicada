@@ -30,8 +30,8 @@ final class QuickIndexTests: XCTestCase {
     }
 
     func testSettingsActionsAndBanksReflectTheirState() {
-        // The page first; round-4 D2's "Calendar on this Mac" is Integrations' first static row, so it may follow.
-        XCTAssertEqual(ids(index.query("integrations"), .settings).first, SettingsSection.integrations.rawValue)
+        // The page first (D6: Intelligence).
+        XCTAssertEqual(ids(index.query("intelligence"), .settings).first, SettingsSection.intelligence.rawValue)
         XCTAssertEqual(index.query("consolidate").rows.first { $0.key.kind == .action }?.title, "Consolidate now")
         XCTAssertEqual(index.query("beta").rows.first { $0.key.kind == .bank }?.destination, .bank(name: "beta-bank"))
         XCTAssertTrue(index.query("switch to default").rows.filter { $0.key.kind == .bank }.isEmpty,
@@ -105,11 +105,11 @@ final class QuickIndexTests: XCTestCase {
         XCTAssertEqual(size?.destination, .settings(.general, row: .textSize))
         XCTAssertEqual(size?.detail, Copy.PaletteSettings.detail(SettingsSection.general.title))
         XCTAssertEqual(index.query("extra usage").rows.first { $0.group == .settings }?.destination,
-                       .settings(.engines, row: .engineOverage))
+                       .settings(.intelligence, row: .sleepUsePlan))
         XCTAssertEqual(index.query("tailscale").rows.first { $0.group == .settings }?.destination,
-                       .settings(.devices, row: .fromAnywhere), "Hyrum audit B1: From anywhere's group on Devices & access")
-        XCTAssertEqual(index.query("integrations").rows.first { $0.group == .settings }?.destination,
-                       .settings(.integrations, row: nil), "a page lands on the page")
+                       .settings(.devices, row: .fromAnywhere), "Hyrum audit B1: From anywhere's group on Devices")
+        XCTAssertEqual(index.query("intelligence").rows.first { $0.group == .settings }?.destination,
+                       .settings(.intelligence, row: nil), "a page lands on the page")
     }
 
     /// R-HS21 — a page keeps its old key (a recent survives); rows are keyed by row id; none collide.
@@ -120,7 +120,8 @@ final class QuickIndexTests: XCTestCase {
         let sections = Set(SettingsSection.allCases.map(\.rawValue))
         XCTAssertTrue(SettingsIndex.staticIDs.allSatisfy { !sections.contains($0.rawValue) },
                       "a row id equal to a section's raw value would shadow its page")
-        XCTAssertTrue(docs.allSatisfy { !$0.row.key.id.contains(":") || $0.row.key.id.hasPrefix("skill:") },
+        XCTAssertTrue(docs.allSatisfy { !$0.row.key.id.contains(":") || $0.row.key.id.hasPrefix("skill:")
+                || $0.row.key.id.hasPrefix("page:") },
                       "no per-item row (channel:, connection:, agent:) — R-HS19")
     }
 }

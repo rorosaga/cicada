@@ -83,15 +83,15 @@ DEFAULT_INSTRUCTIONS = (
     "Answer the request directly and completely. Do not run commands, read files or change anything."
 )
 INSTALL_HINT = (
-    "Install Codex CLI (npm i -g @openai/codex), then sign in with ChatGPT on Settings → Engines → Plans & keys."
+    "Install Codex CLI (npm i -g @openai/codex), then sign in with ChatGPT on Settings → Intelligence → Plans & keys."
 )
 SIGNED_OUT = (
-    "ChatGPT isn't signed in for Cicada — sign in with ChatGPT on Settings → Engines → Plans & keys, "
+    "ChatGPT isn't signed in for Cicada — sign in with ChatGPT on Settings → Intelligence → Plans & keys, "
     "then run Sleep again."
 )
 API_KEY_ACCOUNT = (
     "Codex is signed in to Cicada with an API key, not a ChatGPT plan — that bills per token. "
-    "Sign out and sign in with ChatGPT on Settings → Engines → Plans & keys."
+    "Sign out and sign in with ChatGPT on Settings → Intelligence → Plans & keys."
 )
 #: R-E15: strict schemas for the two stages whose shape is fully specifiable.
 SCHEMA_BY_STAGE: dict[str, dict] = {

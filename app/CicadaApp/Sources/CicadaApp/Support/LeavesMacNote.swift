@@ -2,7 +2,7 @@ import Foundation
 
 /// Decision 5 / R-AG14 — "this is where information leaves your Mac", shown only for an engine that sends what
 /// it reads to someone else, naming who. Ollama has no note (and the words never mention it), and Auto has none
-/// when it would run on Ollama. Pure, so Settings → Engines and phase B's Who reads say the same thing.
+/// when it would run on Ollama. Pure, so Settings → Intelligence and phase B's Who reads say the same thing.
 enum LeavesMacNote {
     static func text(selected: String, provider: String?, manualEngine: String?,
                      providers: [SleepEngineProvider]) -> String? {

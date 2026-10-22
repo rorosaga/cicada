@@ -49,7 +49,7 @@ final class SettingsPanelTests: XCTestCase {
         let detail = try source("Views/Settings/SkillDetailView.swift")
         XCTAssertFalse(detail.contains(".onExitCommand"),
                        "the ×'s .cancelAction pre-empts it; Esc goes back through SettingsFocus.escapeBack")
-        XCTAssertTrue(try source("Views/Settings/SkillsView.swift").contains("focus?.escapeBack ="))
+        XCTAssertTrue(try source("Views/Settings/ReadingWebView.swift").contains("focus?.escapeBack ="))
     }
 
     /// G139 survives the move: the search field, the groups, the index, the results, the hover.
@@ -84,17 +84,17 @@ final class SettingsPanelTests: XCTestCase {
     /// clears it — so at most one row is lit by hover, and only the selected row has the selection fill.
     func testTheSidebarLightsOneHoveredRowAtMostAndOnlyTheSelectedOneAsSelected() {
         var hovered: SettingsSection?
-        hovered = SettingsSidebarHover.next(hovered, row: .skills, inside: true)
-        XCTAssertEqual(hovered, .skills)
-        // The pointer moves to Agents; Skills' exit is lost (or arrives late).
-        hovered = SettingsSidebarHover.next(hovered, row: .agents, inside: true)
-        XCTAssertEqual(hovered, .agents, "entering a row replaces a hover whose exit never came")
-        hovered = SettingsSidebarHover.next(hovered, row: .skills, inside: false)
-        XCTAssertEqual(hovered, .agents, "a late exit never unlights the row the pointer is on")
+        hovered = SettingsSidebarHover.next(hovered, row: .sleep, inside: true)
+        XCTAssertEqual(hovered, .sleep)
+        // The pointer moves to Devices; Sleep's exit is lost (or arrives late).
+        hovered = SettingsSidebarHover.next(hovered, row: .devices, inside: true)
+        XCTAssertEqual(hovered, .devices, "entering a row replaces a hover whose exit never came")
+        hovered = SettingsSidebarHover.next(hovered, row: .sleep, inside: false)
+        XCTAssertEqual(hovered, .devices, "a late exit never unlights the row the pointer is on")
         hovered = SettingsSidebarHover.afterPick   // Agents clicked
         XCTAssertNil(hovered)
 
-        let selection = SettingsSection.searchFiles
+        let selection = SettingsSection.privacy
         let fills = SettingsSection.allCases.map {
             SettingsSidebarHover.fill(isSelected: $0 == selection, hovering: $0 == hovered)
         }

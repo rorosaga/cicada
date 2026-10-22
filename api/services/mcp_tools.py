@@ -1456,7 +1456,7 @@ def record_youtube_list(ctx: ToolContext, list_name: str, outcome: str, videos=N
     label = youtube_lists.LISTS[name]["label"]
     if not youtube_lists.allowed(name):
         return Reply(f"Not recorded: the person has not asked their agent to keep their YouTube {label} current "
-                "(Settings, Reading the web). Nothing was read into memory.", code="refused")
+                "(Reading in your browser, on the Sources page). Nothing was read into memory.", code="refused")
     if outcome in youtube_lists.PAUSING:
         youtube_lists.note(memory_path, name, outcome)
         return ("Recorded: YouTube needs the person to sign in (or blocked the page). Stop: do not sign in, type "
@@ -5225,7 +5225,7 @@ def design_search(ctx: ToolContext, query=None, image_path=None, image_base64=No
             lines.append(_design_line(ref, memory_path=None if ctx.is_remote else memory_path, legs=hit["legs"]))
     notes = []
     if "image_model" in out["missing"]:
-        notes.append("Searching by picture isn't set up on this Mac (the person can turn it on in Settings, Search & memory), "
+        notes.append("Searching by picture isn't set up on this Mac (the person can turn it on in Settings, Privacy & data), "
                      "so pictures were compared by their words only.")
     if "model" in out["missing"]:
         notes.append("Only words were compared: the on-device search model isn't installed.")
@@ -5242,7 +5242,7 @@ def design_search(ctx: ToolContext, query=None, image_path=None, image_base64=No
 # start is the person's spoken request in a local conversation.
 
 _EXPLORE_OFF = ("Exploring is off: the person has not turned on \"Let an agent read pages for you\" in Cicada "
-                "(Settings, Reading the web). Nothing was leased or recorded.")
+                "(Reading in your browser, on the Sources page). Nothing was leased or recorded.")
 EXPLORE_SLEEPING = ("Not recorded: Cicada is consolidating memory right now. Keep the screenshots and record the "
                     "capture again with cicada_record_capture in a minute; your lease is still yours.")
 _EXPLORE_WALL = ("Recorded: {host} {what}. The whole site is paused and no screenshot of it was kept. Do not sign in, "
@@ -5750,7 +5750,7 @@ def explore_start(ctx: ToolContext, scope=None, origins=None, look=None) -> str:
     if (refusal := _demo_refusal(memory_path)) is not None:
         return refusal
     if not page_editors.is_trusted(ctx.author):
-        return Reply("Not started: this agent is not on the person's trusted list (Settings, Agents). Ask them to click "
+        return Reply("Not started: this agent is not on the person's trusted list (on the Agents page, under Page edits). Ask them to click "
                 "Explore saved sites in Cicada's Sources instead.", code="refused")
     if not reading_settings.agent_enabled():
         return _EXPLORE_OFF
@@ -5800,7 +5800,7 @@ def _explore_look(ctx: ToolContext, memory_path: Path, links) -> str:
 # ---- G61, ruling 26: tracked sources the person's agent re-checks ------------------------------------------------
 
 _REFRESH_OFF = ("Agent reading is off: the person has not turned on \"Let an agent read pages for you\" in Cicada "
-                "(Settings, Reading the web), so no tracked source is listed for you and nothing can be recorded.")
+                "(Reading in your browser, on the Sources page), so no tracked source is listed for you and nothing can be recorded.")
 REFRESH_SLEEPING = ("Not recorded: Cicada is consolidating memory right now, and a re-check is written into it. Nothing "
                     "was saved; your lease is still yours. Record it again with cicada_record_refresh in a minute.")
 
@@ -5858,7 +5858,7 @@ def refresh_claim(ctx: ToolContext, limit=None, release=None) -> str:
     leased = source_refresh.claim(memory_path, session=ctx.session_id, harness=ctx.author, limit=n)
     if not leased:
         return ("No tracked source is due for you to check right now. (Public pages are re-checked by Cicada itself; "
-                "a login-walled page is listed only on a site the person turned on in Reading the web.)")
+                "a login-walled page is listed only on a site the person turned on in Reading in your browser.)")
     lines = [REFERENCE_HEADER, "",
              f"{len(leased)} tracked source(s) leased to you for 15 minutes. Open each in the person's own browser "
              "session, read what it says NOW about the fact named, and record it with cicada_record_refresh (the "

@@ -1,4 +1,4 @@
-"""R-E23 — Ask follows the engine chosen in Settings → Engines."""
+"""R-E23 — Ask follows the engine chosen in Settings → Intelligence."""
 from __future__ import annotations
 
 import json

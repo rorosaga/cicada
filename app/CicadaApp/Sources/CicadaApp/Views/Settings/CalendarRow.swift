@@ -31,7 +31,7 @@ enum CalendarRowText {
     }
 }
 
-/// Round-4 D2 (R-FA11 … R-FA13) — "Calendar on this Mac" in Settings → Integrations → Feeds & calendars: every
+/// Round-4 D2 (R-FA11 … R-FA13) — "Calendar on this Mac" on the Sources page → Feeds & calendars: every
 /// calendar account the Calendar app holds, read by the APP through EventKit (`CalendarReader`) only after Connect.
 /// The backend's `calendar-local` channel is rendered here and never as a second `IntegrationChannelRow`.
 ///

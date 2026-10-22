@@ -118,7 +118,7 @@ class Settings(BaseSettings):
     # signed in, else Ollama when it is running — and NEVER to a metered API key by itself: with none of them there is
     # no engine, said in words (``engine_select.NO_ENGINE``). ``"byok"`` is the person's choice of an API key —
     # whatever ``litellm_model`` (or ``effective_consolidation_model``) resolves to, routed through litellm's provider
-    # prefixes (openai/anthropic/openrouter/...) with the matching *_API_KEY — set here or by the Settings → Engines
+    # prefixes (openai/anthropic/openrouter/...) with the matching *_API_KEY — set here or by the Settings → Intelligence
     # picker. "local" routes to an on-device Ollama server — no API key required, fully offline — by binding the
     # model to ``ollama/<ollama_model>`` and pointing litellm's api_base at ``ollama_base_url``. ``"agent"`` runs
     # every call through the user's own ``claude`` CLI on their subscription (G74(a)); ``"codex"`` runs every
@@ -161,7 +161,7 @@ class Settings(BaseSettings):
     # fraction, leaving the person room to work (R-E12).
     agent_stop_utilization: float = 0.9             # CICADA_AGENT_STOP_UTILIZATION
     # Let Sleep keep going on Claude extra usage (Anthropic bills it
-    # separately). Off unless chosen (G117); Settings → Engines's pref
+    # separately). Off unless chosen (G117); Settings → Intelligence's pref
     # promotes it when CICADA_LLM_MODE is not pinned (R-E13).
     agent_allow_overage: bool = False               # CICADA_AGENT_ALLOW_OVERAGE
     # Stage 1 through `--json-schema`. OFF until the demo-bank comparison is

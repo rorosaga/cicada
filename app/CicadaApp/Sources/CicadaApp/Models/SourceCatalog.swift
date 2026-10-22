@@ -1,7 +1,7 @@
 import Foundation
 
 /// G217 (ruling 36 D6) — the Sources page's one catalogue: every way information comes into Cicada, grouped by how it
-/// comes in, each with one status word. It replaces Settings → Integrations' list and the "Add a source" sheet's grid
+/// comes in, each with one status word. It replaces the old Integrations page's list and the "Add a source" sheet's grid
 /// (two catalogues of the same things, app-inventory duplicate 12). Pure: the page passes in what it already holds
 /// (`/sources/channels`, `/sources/overview`, the browsers on this Mac, the sites an agent may read), so the words and
 /// the order are tested without a view.

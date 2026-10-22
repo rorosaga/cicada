@@ -4,7 +4,7 @@ import AppKit
 /// Round 4 C8 — the selected agent's numbered steps: a header ("Connect <name>", found on this Mac or in the
 /// cloud, "● Connected" once Cicada has seen it), one row per `AgentStep`, then the autosave honesty line and an
 /// optional footer. A renderer only: what each step says and offers is `AgentSteps.steps`, a pure table
-/// (`AgentStepsTests`), so Settings → Agents and phase B's onboarding read one source of words.
+/// (`AgentStepsTests`), so the Agents page and phase B's onboarding read one source of words.
 ///
 /// R-AG17 — the four one-click actions that lived in `AgentQuickSetupView` live here, unchanged in behaviour:
 /// Connect for me shows its exact commands before the click that runs them (spec decision 14, D-1) and runs only

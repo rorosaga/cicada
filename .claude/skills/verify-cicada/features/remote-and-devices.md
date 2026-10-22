@@ -8,7 +8,7 @@ Off by default: an MCP listener on its own port for apps with no hook (claude.ai
 
 ## How to get to it (user POV)
 
-- Settings → Devices & access (its From anywhere group, and the devices list).
+- Settings → Devices (its From anywhere group, and the devices list).
 - `GET /remote/status`, `/remote/connectors`, `/remote/oauth/*`; `GET /devices`, `POST /devices`, `DELETE /devices/{device_id}`.
 - `cicada device add | list | revoke`.
 
@@ -36,7 +36,7 @@ Preconditions:
   `cv api POST /devices` answers 201 (`cv` saves no file without `--save`); the capture lands an episode whose
   frontmatter says `device: <id>`. `$CV api DELETE /devices/<id>` revokes it, and
   `curl -s -o /dev/null -w '%{http_code}' -H @"$RUN/device.header" "http://127.0.0.1:$PORT/status"` then prints 401.
-  Settings → Devices & access lists it as revoked.
+  Settings → Devices lists it as revoked.
 - **App.** Settings → `vclick 'button Devices & access$'`: the From anywhere group (its switch, off) and Your devices; read and stop.
 
 **Not driven in a verify run: the remote listener and an app's OAuth sign-in.** Both need a tunnel the person runs and a

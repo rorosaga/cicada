@@ -1,28 +1,22 @@
 import XCTest
 @testable import CicadaApp
 
-/// Hyrum audit B1 (2026-10-22): fourteen Settings sections became eleven. Every place that names a spot in Settings
-/// must still land on the row it named: a search entry, a deep link in the app's own code (Home, onboarding, the
-/// engine menu, an inline pointer), a saved `cicada.settingsSection`, and the old page anchors docs and harness scripts
-/// name (`settings.row.page:<raw>`). A row is "drawn on a section" when one of that section's view files draws it.
+/// Hyrum audit B1 and ruling 36 D6 (2026-10-22): fourteen Settings sections became eleven, then six. Every place that
+/// names a spot in Settings must still land on the row it named — or, for a page that became a sidebar page, on that
+/// page: a search entry, a deep link in the app's own code, a saved `cicada.settingsSection`, and the old page anchors
+/// docs and harness scripts name (`settings.row.page:<raw>`). A row is "drawn on a section" when one of that section's
+/// view files draws it.
 final class SettingsAnchorsTests: XCTestCase {
     /// Which files draw each section's page, from the panel's `detailView` down. A new row file joins its section here.
     static let pageFiles: [SettingsSection: [String]] = [
         .general: ["Views/Settings/SettingsGeneralView.swift", "Views/Settings/SettingsDemoTourGroup.swift"],
         .you: ["Views/Settings/YouView.swift"],
-        .privacy: ["Views/Settings/PrivacyView.swift"],
-        .searchFiles: ["Views/Settings/SearchFilesView.swift", "Views/Settings/FadePaceCard.swift"],
+        .intelligence: ["Views/Settings/IntelligenceView.swift"],
         .sleep: ["Views/Settings/SettingsSleepView.swift", "Views/Settings/ScenerySettings.swift",
                  "Views/Settings/MascotSettings.swift"],
-        .integrations: ["Views/Settings/IntegrationsView.swift", "Views/Settings/BrowsersSection.swift",
-                        "Views/Settings/CalendarRow.swift", "Views/Settings/ContactsRow.swift"],
-        .reading: ["Views/Settings/ReadingWebView.swift"],
-        .agents: ["Views/Connect/ConnectView.swift", "Views/Connect/AutoRecallGroup.swift",
-                  "Views/Connect/PageEditorsGroup.swift", "Views/Settings/CommandLineToolRow.swift"],
         .devices: ["Views/Settings/DevicesSettingsView.swift"],
-        .skills: ["Views/Settings/SkillsView.swift"],
-        .engines: ["Views/Settings/EnginesView.swift", "Views/Settings/EngineChooser.swift",
-                   "Views/Connections/ConnectionsView.swift"],
+        .privacy: ["Views/Settings/PrivacyView.swift", "Views/Settings/SearchFilesView.swift",
+                   "Views/Settings/FadePaceCard.swift"],
     ]
 
     /// The anchors whose raw value is not their Swift name.
@@ -58,6 +52,8 @@ final class SettingsAnchorsTests: XCTestCase {
 
     func testEveryPageMapsToItsFiles() {
         XCTAssertEqual(Set(Self.pageFiles.keys), Set(SettingsSection.allCases))
+        XCTAssertEqual(SettingsSection.allCases, [.general, .you, .intelligence, .sleep, .devices, .privacy],
+                       "ruling 36 D6: six sections, in this order")
     }
 
     /// Every search entry and every page lands on a row its section draws.
@@ -69,28 +65,68 @@ final class SettingsAnchorsTests: XCTestCase {
         }
     }
 
-    /// A saved selection, a deep link or a harness script that names a retired page opens its new home on the group
-    /// that inherited it, never General.
+    /// A saved selection, a deep link or a harness script that names a retired page opens its new home: the row that
+    /// inherited it, or the sidebar page it became — never blank.
     func testEveryRetiredSectionOpensWhereItMoved() throws {
-        XCTAssertEqual(Set(SettingsSection.retired.keys), ["memory", "remote", "plansAndKeys"])
+        XCTAssertEqual(Set(SettingsSection.retired.keys),
+                       ["memory", "remote", "plansAndKeys", "engines", "searchFiles", "integrations", "reading",
+                        "agents", "skills"])
         for (raw, home) in SettingsSection.retired {
             XCTAssertNil(SettingsSection(rawValue: raw), "\(raw) is retired")
-            XCTAssertEqual(SettingsSection.restored(from: raw), home.section, raw)
-            XCTAssertEqual(home.row.rawValue, "page:\(raw)", "the group keeps the old header's anchor")
-            XCTAssertTrue(try isDrawn(home.row, on: home.section), "\(raw)'s group is not drawn on \(home.section)")
-            let found = SettingsIndex.staticEntries.first { $0.id == home.row }
-            XCTAssertEqual(found?.section, home.section, "searching the old page's name finds its group")
             let landing = SettingsSection.restoredLanding(from: raw, legacyAgentsMode: nil)
-            XCTAssertEqual(landing.section, home.section, raw)
-            XCTAssertEqual(landing.row, home.row, "a saved \(raw) lands on its group, not the page's top")
+            switch home {
+            case let .settings(section, row):
+                let row = try XCTUnwrap(row)
+                XCTAssertEqual(SettingsSection.restored(from: raw), section, raw)
+                XCTAssertTrue(try isDrawn(row, on: section), "\(raw)'s row is not drawn on \(section)")
+                XCTAssertEqual(landing.section, section, raw)
+                XCTAssertEqual(landing.row, row, "a saved \(raw) lands on its row, not the page's top")
+            case let .page(tab):
+                XCTAssertTrue([AppTab.sources, .agents, .skills].contains(tab), raw)
+                XCTAssertEqual(landing.section, .general, "the panel cannot show a page; it opens General")
+                XCTAssertNil(landing.row)
+            case .readingInBrowser:
+                XCTAssertEqual(raw, "reading", "Reading the web's switches, in the Sources page's sheet")
+                XCTAssertEqual(landing.section, .general)
+            }
+        }
+        // B1's three keep the old header's anchor.
+        for raw in ["memory", "remote", "plansAndKeys"] where raw != "memory" {
+            XCTAssertEqual(SettingsSection.retired[raw]?.row?.rawValue, "page:\(raw)")
         }
         let anywhere = SettingsSection.restoredLanding(from: "agents", legacyAgentsMode: "anywhere")
         XCTAssertEqual(anywhere.section, .devices)
         XCTAssertEqual(anywhere.row, .fromAnywhere)
         XCTAssertNil(SettingsSection.restoredLanding(from: "sleep", legacyAgentsMode: nil).row, "a living page opens at its top")
-        XCTAssertNil(SettingsSection.restoredLanding(from: "agents", legacyAgentsMode: "thisMac").row)
         XCTAssertEqual(SettingsSection.restored(from: "advanced"), .general)
         XCTAssertEqual(SettingsSection.restored(from: "bogus"), .general)
+    }
+
+    /// D6: a row that left with its page keeps a home — drawn on a surviving section, or the page it went to.
+    func testEveryRetiredRowHasAHome() throws {
+        for (row, home) in SettingsIndex.retiredRows {
+            XCTAssertFalse(SettingsIndex.staticIDs.contains(row), "\(row.rawValue) is both live and retired")
+            if case let .settings(section, target) = home {
+                XCTAssertTrue(try isDrawn(try XCTUnwrap(target), on: section), "\(row.rawValue) → \(section)")
+            }
+        }
+    }
+
+    /// `AppRouter.open(_:)` sends a page home to its tab, Settings closed; a Settings home opens the panel on its row.
+    @MainActor
+    func testTheRouterOpensEachKindOfHome() {
+        let router = AppRouter()
+        router.openSettings(.general)
+        router.open(.page(.agents))
+        XCTAssertFalse(router.settingsOpen)
+        XCTAssertEqual(router.pendingTab, .agents)
+        router.open(.readingInBrowser)
+        XCTAssertEqual(router.pendingTab, .sources)
+        XCTAssertTrue(router.pendingReadingSheet, "the Sources page opens Reading in your browser")
+        router.open(.settings(.intelligence, .plansAndKeys))
+        XCTAssertTrue(router.settingsOpen)
+        XCTAssertEqual(router.pendingSettings?.section, .intelligence)
+        XCTAssertEqual(router.pendingSettings?.row, .plansAndKeys)
     }
 
     /// Every link the app's own code makes into Settings (`openSettings`, `SettingsInlineLink`, `SettingsSectionLink`,
@@ -123,15 +159,17 @@ final class SettingsAnchorsTests: XCTestCase {
         let gap = #"[\s/#*]+"#
         let retired = [
             "Memory\\b", "From\(gap)anywhere", "Plans\(gap)&\(gap)keys", "Search\(gap)&\(gap)files",
-            "Devices(?!\(gap)&\(gap)access)", "Agents\(gap)→\(gap)From", "General\(gap)→\(gap)Command",
+            "Search\(gap)&\(gap)memory", "Devices\(gap)&\(gap)access", "Agents\\b", "General\(gap)→\(gap)Command",
+            "Engines\\b", "Integrations\\b", "Reading\(gap)the\(gap)web", "Skills\\b",
         ].map { try! NSRegularExpression(pattern: "Settings\(gap)→\(gap)" + $0) }
         func caught(_ text: String) -> Bool {
             retired.contains { $0.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil }
         }
-        XCTAssertTrue(caught("devices (Settings →\n/// Devices). DR-59"), "a phrase broken by a comment line")
+        XCTAssertTrue(caught("devices (Settings →\n/// Engines). DR-59"), "a phrase broken by a comment line")
         XCTAssertTrue(caught("open Settings → Plans & keys"))
-        XCTAssertFalse(caught("open Settings → Devices & access → From anywhere"))
-        XCTAssertFalse(caught("Settings → Search & memory"))
+        XCTAssertFalse(caught("open Settings → Devices → Apps outside this machine"))
+        XCTAssertTrue(caught("Settings → Search & memory"))
+        XCTAssertFalse(caught("Settings → Intelligence"))
         let roots = ["app/CicadaApp/Sources", "api", "mcp", "skills", "plugins", "scripts", "Makefile", "CLAUDE.md",
                      "install.md", "docs/architecture", "docs/design", "docs/connect-remote-apps.md",
                      "docs/settings-outside-the-app.md", "docs/RELEASING.md", ".claude/skills/verify-cicada"]
@@ -148,7 +186,12 @@ final class SettingsAnchorsTests: XCTestCase {
                 files = [url]
             }
             for file in files {
-                guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
+                guard var text = try? String(contentsOf: file, encoding: .utf8) else { continue }
+                // DESIGN_RULES' rulings log is dated history: its lines are never edited, and keep their day's names.
+                if file.lastPathComponent == "DESIGN_RULES.md", let log = text.range(of: "## 9. Rulings log"),
+                   let next = text.range(of: "## 10.", range: log.upperBound..<text.endIndex) {
+                    text.removeSubrange(log.lowerBound..<next.lowerBound)
+                }
                 scanned += 1
                 let range = NSRange(text.startIndex..., in: text)
                 for regex in retired {

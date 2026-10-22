@@ -304,15 +304,15 @@ class Consent:
 
 def agent_refusal(due_item: Due, consent: Consent | None = None) -> str | None:
     """Why the person's agent may not check this source now, in words — None when it may. The same switches that
-    govern exploring (owner ruling 25, D2/D3): agent reading on and acknowledged, the site turned on in Reading the web,
+    govern exploring (owner ruling 25, D2/D3): agent reading on and acknowledged, the site turned on in Reading in your browser,
     not marked Never explore, and — for a login-walled page — the signed-in session allowed."""
     consent = consent or Consent.load()
     if not consent.enabled:
-        return "agent reading is off (Settings, Reading the web)"
+        return "agent reading is off (Reading in your browser, on the Sources page)"
     if due_item.site in consent.never:
         return f"the person marked {due_item.site} Never explore"
     if due_item.site not in consent.allowed:
-        return f"{due_item.site} is not turned on in Reading the web"
+        return f"{due_item.site} is not turned on in Reading in your browser"
     if walled(due_item.ref) and not consent.signed_in:
         return "the person turned off using their signed-in browser session"
     return None

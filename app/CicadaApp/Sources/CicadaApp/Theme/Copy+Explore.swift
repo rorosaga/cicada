@@ -14,11 +14,11 @@ extension Copy {
         static let scopeAll = "Every saved site"
         static let browsersLabel = "From"
         static let start = "Explore"
-        static let startHelpOff = "Turn on “Let an agent read pages for you” in Settings, Reading the web, first."
+        static let startHelpOff = "Turn on “Let an agent read pages for you” in Reading in your browser (the Sources page) first."
         static let startHelpNone = "No saved site to explore."
         static let startHelpDemo = "The demo memory holds made-up sites; exploring works in your own memory."
         static let startHelpSkill = "This copy of Cicada’s capture script doesn’t match the reviewed one. Update Cicada first."
-        static let signedInNote = "Your agent uses your signed-in browser session, so a site sees you as you. You can turn that off in Settings, Reading the web."
+        static let signedInNote = "Your agent uses your signed-in browser session, so a site sees you as you. You can turn that off in Reading in your browser, on the Sources page."
         static let privateNote = "Your agent uses a private browser context with no cookies, so no site sees your accounts."
         static let copyPrompt = "Copy for an agent"
         static let copied = "Copied. Paste it into your agent."
@@ -71,7 +71,7 @@ extension Copy {
         }
         static let saveFailed = "Couldn’t do that just now. Try again."
 
-        // MARK: Settings → Reading the web
+        // MARK: the Sources page
         static let signedInTitle = "Explore in your signed-in browser"
         static let signedInDetail = "When your agent explores your saved sites it uses your everyday browser session, so a site shows what it shows you. Turn this off to explore in a private context with no cookies instead."
         static let signedInLabel = "Explore in your signed-in browser"

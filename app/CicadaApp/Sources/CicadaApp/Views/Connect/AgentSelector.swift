@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Round 4 C8 — the row of agents, each a real mark over its name, one selected, a ✓ on every agent Cicada has
-/// seen connect. Self-contained on purpose: Settings → Agents hosts it today and phase B's onboarding reuses it,
+/// seen connect. Self-contained on purpose: the Agents page hosts it today and phase B's onboarding reuses it,
 /// so it takes plain values (the entries, a selection binding, two id sets) and fetches nothing.
 ///
 /// R-AG16 (DR-5, DR-7): selection is neutral — `bgSelected` with the strong ring, sliding from pill to pill by
@@ -19,7 +19,7 @@ struct AgentSelector: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        // 80, not 68: at 68 the live Settings → Agents read "Claude C…" (orchestrator live check, 2026-09-24).
+        // 80, not 68: at 68 the live the Agents page read "Claude C…" (orchestrator live check, 2026-09-24).
         LazyVGrid(columns: [GridItem(.adaptive(minimum: CicadaTheme.scaled(80)), spacing: CicadaTheme.scaled(4))],
                   spacing: CicadaTheme.scaled(4)) {
             ForEach(entries) { entry in pill(entry) }

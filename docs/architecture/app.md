@@ -18,6 +18,61 @@ app's commands"), and a browser front end would be a third. What the app still h
 post bytes, per-viewer UserDefaults, and the Swift-only presentation logic listed in the G180 parity map — is the
 web door's remaining work; the entity card's bands are the first piece moved (`entity_bands`, `features.md`).
 
+**The connection model in the app (ruling 36 D6, G217, G212, G213, G50; 2026-10-22).** Three nouns: **Sources** feed
+Cicada (the Sources page), **Intelligence** consolidates it (Settings → Intelligence), **Agents** read and write it (the
+Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
+
+- **Settings in six:** General · You · Intelligence · Sleep · Devices · Privacy & data (`SettingsSection`), one
+  unlabelled sidebar group, no page subtitles, under 400 words (measured 295 on the demo bank with the inventory's AX
+  counter, from ~2,030 across eleven sections). Every retired raw value has a home in `SettingsSection.retired` — a row on
+  a surviving page (`engines`/`plansAndKeys` → Intelligence, `memory`/`searchFiles` → Privacy's search row, `remote` →
+  Devices) or a sidebar page (`integrations`/`reading` → Sources, `agents` → Agents, `skills` → Skills) — and every
+  retired row id one in `SettingsIndex.retiredRows`; `AppRouter.open(_:)` and `SettingsSectionLink(home:)` follow either
+  kind. A saved `cicada.settingsSection` naming a page opens General. `SettingsAnchorsTests` holds all of it.
+- **Intelligence** (`IntelligenceView`): one *In use* row (the engine's mark and name from `preview.manual`, a model menu
+  when the chosen card offers several, *Use Auto*), then *Plans* and *API keys* from `GET /providers` `intelligence[]`
+  joined to `/connections` (`ProviderDirectory` caches the static table in memory; `/providers` names the local engine
+  `ollama`, `/connections` `ollama-local`). A local model is the quiet last key row, never pitched. A key is pasted,
+  checked (`PUT /connections/{id}/key` with `check`; 422 refused — nothing saved; 503 — *Save without checking*), then
+  shown as its last four, where it lives and when it was checked, with the provider's terms note. Below: *Scheduled runs
+  may use my plan* (ruling 4c), *Keep going on extra usage* (R-E13, only under a plan) and *Use my Claude plan when I
+  start* (only under a key). The Sleep page's engine menu is a label that opens this page (`EngineLabelButton`); the
+  full menu stays in Sleep → Options, which keeps the plan reserve and the model prices (ruling 12).
+- **You:** the name and photo (`EntityPicture`, editable), the email the photo ladder hashes, and *Your profiles* — any
+  profile link pasted as-is, stored as the owner page's sources (`/entities/{owner}/sources`, G61); a pre-D6 GitHub
+  handle shows as its profile link. *Connect* only for a service read through a connection (X, Reddit, Pinterest),
+  which opens the Sources page.
+- **Devices:** `GET /devices/status` rows — the server by its Computer Name, never "this Mac" — each a dot and one word,
+  how it connects, last seen and its waiting count, Revoke; *Pair a device* (`PairDeviceSheet`) draws the
+  `POST /devices/pairing` code as a CoreImage QR (level M) with the code beside it, polls every 2 s, cancels on close.
+  The QR's `url` is the backend's to fill (this machine's Tailscale name for the backend port, when it can tell); the
+  app sends none. With it the sheet says the address and "Scan with Cicada on your phone"; without it, one line says
+  which address to type.
+  *Memory on* and the folded *Apps outside this machine* (the remote connector, `page:remote`) follow.
+- **Privacy & data** gains Search & memory's one row (*Search runs on this Mac* and the sharper-model download); the
+  fade card shows only while it holds a suggestion or a chosen pace. Watched folders are sources (`WatchedFoldersGroup`
+  is kept whole for the Sources page).
+- **Reading in your browser** (fix round 2026-10-22): Reading the web's switches — the master switch (on by default
+  behind the versioned first-use sheet), the signed-in session (ruling 25), the YouTube lists, Never explore, how the
+  agent reads and watches, the sites — in one sheet from the Sources page's header (`ReadingInBrowserSheet`); the
+  retired `reading` section and its rows open it (`SettingsHome.readingInBrowser`, `AppRouter.routeToReadingInBrowser`).
+- **Status words** (fix round): *Connected* (green) when seen within the backend's window, *Set up* (grey) when
+  configured, with conversations or seen before — the line then says "last seen <day>" — else *Not set up*
+  (`Copy.Presence`), for agents and paired devices alike. An agent's detail draws the connect steps (`AgentSetupSteps`:
+  Connect for me, Open in Cursor, the copied prompt) for the product picked among its umbrella's.
+- **Sleep:** the study room's preview first, the hours, then the scenery's source (the weather sentence in one line) and
+  the mascot.
+- **Agents page** (`AgentsSidebarPage`): one row per umbrella from `/providers` — `LogoTile` · name · where · last seen
+  · conversations · a dot and one word (`/agents/live`, polled every 3 s while shown; conversations summed from
+  `sourcesOverview` by harness). A row opens its detail (DR-74): products and how each connects, page edits as *Writes
+  at once* / *Proposes* (G198's list), *Copy setup prompt* (`/agents/setup`), *Import its chat export*, and *Remembers
+  automatically* for a harness with hooks. *Add an agent token* (DR-75) makes a G213 token and shows its paragraph once;
+  active tokens list with Revoke; the command-line tool closes the page.
+- **Marks:** one per provider umbrella from the curated set (`app/assets/logo-set/`, `scripts/build-logo-set.py`, origin
+  `set` in `logos.manifest.json`); `codex`/`chatgpt` draw OpenAI's mark and `gemini-cli` Gemini's through `BrandMark`.
+  A listed connection's mark sits in `LogoTile` (26 pt in a 36 pt ring tile; `.dense` 18 in 24); a status is
+  `StatusDot`; a row is `ConnectionLine` (DESIGN_RULES §9, 2026-10-22).
+
 **Ruling (G109, 2026-09-02) — d3-force stays.** Evaluated against sigma.js/ForceAtlas2, Pixi,
 cosmos, ngraph and d3-force-3d at ~1,900 nodes: the two G109 symptoms were three local bugs in how
 `graph.js` drove d3-force, not a library problem. The only flip trigger is an in-app p95 frame time
@@ -204,7 +259,7 @@ links every run); Agents has no `make install` card; Engines' Plans & keys group
 value already set (`api/.env`, the environment, the bank's prefs, `~/.cicada`, UserDefaults) is still honoured; the
 routes, `GET /status`'s `envOverrides` and `settings` blocks (`api.md`) and the `cicada` commands (`cicada sleep engine
 --model`, `cicada index use|install|rebuild`) stay for developers. The full control table is in PR #405 and
-`docs/research/2026-10-22-hyrum-audit.md`. **Pass 2 (same day):** Engines opens on Auto (below, "Settings → Engines");
+`docs/research/2026-10-22-hyrum-audit.md`. **Pass 2 (same day):** Engines opens on Auto (below, "Settings → Intelligence");
 Plans & keys says each card's state in words (`ConnectionsView.howLine` and `unconnectedDetail` map the plans', the
 local model's and the keys' backend sentences — a CLI, `localhost:…`, a key file's path, the variables Cicada strips —
 to `Copy.ConnectionLine`; an install hint keeps the backend's sentence, and `cicada engine list` prints them all
@@ -226,7 +281,7 @@ window — the bookworm waits in the menu bar, and the Dock icon brings the wind
 `LaunchState`, R-OB18) and Keep memory working when
 Cicada is closed (`BackendAgentService`: a read-only `launchctl print`, and Install runs
 `scripts/install-backend-agent.sh` from the app's own checkout after the click, `CICADA_CAPTURE=off`, then hands
-launchd the port). **Where your memory lives** (G181 phase 3; the first card of Settings → Devices & access since the settings
+launchd the port). **Where your memory lives** (G181 phase 3; the first card of Settings → Devices since the settings
 audit of 2026-10-22, `docs/research/2026-10-22-hyrum-audit.md`, before that on General;
 `MemoryHomeSetting`, `ConnectionSettingsModel`): *This Mac* or *A server* — an address (https, or http to a loopback
 tunnel) and this device's token from `cicada device add`. *Check and use* writes nothing until `ServerProbe` hears the
@@ -242,7 +297,7 @@ refused before any request (`ServerLinkError.demoStaysLocal`); a reader's
 post the server did not take waits in `ReaderOutbox` (`$CICADA_HOME/spool/app/`; a newer post on its route waits
 behind it, never overtakes it) and is flushed when the event stream connects, lane by lane (route + memory: another
 memory's refused post waits without blocking the active memory's — owner decision 6, 2026-10-16; no answer or a
-refused token still stops the flush; `headless.md`, "The Mac app as a client"). **Settings → Devices & access** (`DevicesSettingsView`,
+refused token still stops the flush; `headless.md`, "The Mac app as a client"). **Settings → Devices** (`DevicesSettingsView`,
 `DevicesPageModel`; not a Store domain): *Where your memory lives* (above; only while this app runs on a server, the
 same card adds which server it is using, reachable or not as of when (DR-58), and captures waiting with *Send now*;
 on This Mac the choice already says it, DR-38) — and *Your devices* (name, added, last seen, *this Mac*; Add a device with its
@@ -342,7 +397,7 @@ Chrome's open tab groups as a sub-row under Chrome (only where Chrome is), each 
 its own reader (`ContactsReader.connect`, `TabGroupWatcher.enable`), which Home's Getting started registers too. Every row, the topbar's count, You're set and Home's Getting started read one projection,
 `SetupProgress`, over `SetupRunner`, `SyncActivity` and the channels. Agents reuse `AgentSelector` /
 `AgentSetupSteps` with a live ✓; Claude Code's and Codex's *Connect for me* here also turns on *Remembers
-automatically* (its commands shown first; Settings → Agents keeps it its own click). **Skills** (owner 2026-10-15,
+automatically* (its commands shown first; the Agents page keeps it its own click). **Skills** (owner 2026-10-15,
 `SkillsStepPage` over `SkillsStepModel`, the Agents step's happy worm) is three switch tiles: Websites (browser-harness) and Mac
 apps (macos-harness; macOS asks once) on, Videos (the video skill) off; *Skip* beside Continue. Nothing installs on the
 page: **Continue is the consent** — `POST /skills/onboarding` records the answer (Skip too, never asked again) and
@@ -359,8 +414,8 @@ The first-read failure row uses the same calm “Reading stopped” / “See wha
 copy as Sleep (DR-7/59), never a raw server sentence. Its one *Past reads* action (DR-40) stages Sleep's Last cycle
 section through `AppRouter`; Sleep consumes it once on appear/change, selects Past reads and brings its tab row to the top.
 
-**Settings → Engines: Auto first (settings defaults pass 2, owner 2026-10-22; ruling 31).** `EnginesView` draws
-`EngineChooser(foldsOtherEngines: true)`: the card opens on `EngineHeadline` — *Auto* and what it uses now from
+**Engine choice in onboarding: Auto first (settings defaults pass 2, owner 2026-10-22; ruling 31).** Until D6 Settings drew
+`EngineChooser(foldsOtherEngines: true)` (now onboarding's *Who reads* and the engine card): the card opens on `EngineHeadline` — *Auto* and what it uses now from
 `preview.manual` ("Using your Claude plan — you're signed in.", the ChatGPT plan, the model on this Mac, or "Nothing to
 read with yet" with a Plans & keys link), the rule in one line (a plan first, then a model on this Mac, never a key
 nobody chose), or, for a stored choice that isn't Auto, that card's name, its cost model and state, and *Back to Auto*
@@ -415,13 +470,13 @@ Ollama wears a *Local* tag and no card says "slower". Under the cards, `LeavesMa
 where reads leave the Mac and to whom, only for engines that send data out (never Ollama, nor Auto resolving to it).
 A preview line or the Sleep page's button that runs on an `openrouter/` model names and marks OpenRouter.
 
-**Settings → Integrations (G126).** A categorized, logo-first page over the existing
+**the Sources page (G126).** A categorized, logo-first page over the existing
 `GET /sources/channels` registry — no new adapters, just a frame. The rule this page draws: a
 *standing* connection (sign in once, polled on the Sleep tail, disconnect here) lives in
 Integrations; a *one-shot* import (drop an export, sync a folder once) stays where it already was,
 behind the `+` on the Sleep page's tab row (the Feed's, until 2026-10-16). Both read the same `channel_registry`, so a channel never drifts between the
 two surfaces. Round 3 added **Notes & files** (Apple Notes and, when Obsidian is installed, *Obsidian vault*; the
-watched folders and *Add a folder* moved to Settings → Search & memory on 2026-10-14, and Notes & files keeps one
+watched folders and *Add a folder* moved to Settings → Privacy & data on 2026-10-14, and Notes & files keeps one
 pointer, "Folders are in Search & files ›") and **Voice & meetings** (Wispr Flow once it is on this
 Mac) — both standing connections, so both live here; their marks are the installed apps' own icons.
 Harness rows wear their app's real mark ("Other agents" a neutral glyph); a folder's Manage, Wispr
@@ -796,7 +851,7 @@ time'), a timeout is `unknown`) and *auto-save* (the G105 Stop hook, via `api/ho
 unparseable settings file is `invalid`, never `off`), *auto-recall* (G149: `autorecall`
 = `on|off|stale|invalid|n/a` for the recall hooks, with `autorecallOn` / `autorecallOff` argv kept apart from
 `connect`: onboarding's *Connect for me* for Claude Code and Codex runs `connect` and then `autorecallOn` (every command
-shown before the click), and Settings → Agents → *Remembers automatically* keeps its own click), *the capture
+shown before the click), and the Agents page → *Remembers automatically* keeps its own click), *the capture
 flush* (G110 gate A: `autosaveFlush` = `on|off|stale|invalid|n/a` for the capture command under `PreCompact` and
 `SessionEnd`, with `flushOn` argv kept apart from `connect` — the setup prompt runs exactly `connect` and four commands
 do not fit it; `autosave` stays the Stop hook alone, so an install from before the flush still reads on; the app
@@ -818,7 +873,7 @@ what to hand an agent instead of running anything (for Claude Code with the plug
   `display == shlex.join(argv)`);
 - for Cursor, its MCP install link and the startup-hook and capture-hook merge argv, plus (2026-10-14) a `prompt` for
   Cursor's own agent that adds the MCP server to `~/.cursor/mcp.json` and nothing else — both hooks stay their own
-  clicks (R-H11); Remembers automatically offers the startup action independently, and Settings → Agents' Cursor
+  clicks (R-H11); Remembers automatically offers the startup action independently, and the Agents page' Cursor
   steps add *Save chats on their own* (the wiring's `connect`, the capture hooks) while capture is off;
 - for OpenCode, Hermes and OpenClaw, a prompt with no commands naming the server and where it lives in the agent's own
   settings;
@@ -846,7 +901,7 @@ user's `~/.cursor/hooks.json`, and the hook group to `--hook startup | capture` 
 timing/tool choice and visual rendering are unverified; `mcp.md` and `capture-and-sleep.md` specify the capture,
 CLI/cloud/remote boundaries. No app launch is needed to configure or test this seam.
 
-Settings → Agents → **Editing pages** (G198, `PageEditorsGroup`, its own file plus one line in `ConnectView`, row id
+the Agents page → **Editing pages** (G198, `PageEditorsGroup`, its own file plus one line in `ConnectView`, row id
 `agentsEditors` in the index): one row per local agent `GET /settings/editors` lists as a candidate (plus any already
 allowed that it no longer lists), its Track L mark (DR-52), "Allowed since <day>", "On by default" (a default with no
 day) or "Asks in your inbox first", and a system switch with its label spoken (DR-40/41). While the response says
@@ -856,11 +911,11 @@ reachability flip), writes one switch at a time with `PUT /settings/editors` (`{
 change at once and puts it back with the server's sentence on a refusal. Machine-wide, outside every bank, not a Store
 domain (no ETag). Copy names only the agent's app (provider-neutral).
 
-Settings → Agents (round-4 D5) adds, per harness, Connect for me (the same `AgentConnect.run`), Copy
+the Agents page (round-4 D5) adds, per harness, Connect for me (the same `AgentConnect.run`), Copy
 setup prompt (`GET /agents/setup`'s prompt shown verbatim, then copied — the agent runs the install itself), Open in
 Cursor (the catalog's own deeplink) and Set up Claude (`ClaudeDesktopConfig` merges `mcpServers.cicada` into Claude
 desktop's config: backup first, merge never replace, an unreadable file left untouched; the app computes the path and
-the value itself). Round 4 C8: Settings → Agents is one selector of eleven agents (`AgentCatalog`, pinned to
+the value itself). Round 4 C8: the Agents page is one selector of eleven agents (`AgentCatalog`, pinned to
 `agent_live.LIVE_AGENTS` by `api/tests/fixtures/agent_catalog.json`) with numbered steps below (`AgentSetupSteps`),
 reused by onboarding. OpenCode, Hermes and OpenClaw register by editing their own config from a pasted prompt — Cicada
 runs nothing for them and only reads that file (`agent_wiring.config_state`, ≤ 256 KB, parse-only); Claude, ChatGPT and
@@ -916,7 +971,7 @@ the weight ("Loaded every session: Claude Code 14 skills, about 1,200 tokens · 
 basis on hover — DR-59's dated exception for an estimated token count (ruling 35 §6). Plugin rows are not selectable and
 show only in the full-width table. Tests: `SkillsPageTests` (decode, words, a kind flip sends the row's key).
 
-**Settings → Skills (G138).** A reviewed catalog (`api/data/recommended_skills.json`: source,
+**the Skills page (G138).** A reviewed catalog (`api/data/recommended_skills.json`: source,
 licence, the reviewed commit and SKILL.md hash, needs, agents, a terms note, the Cicada tool it
 bridges, and for the two harnesses a `tool` block and for them and the video skill an `onboarding` line;
 `scripts/verify-skills.sh` re-checks it) served by `GET /skills/recommended` — at most
@@ -942,7 +997,7 @@ agent reads (`agent_methods`), not an install.
 - **Sources is the one catalogue** (`SourceCatalog`, pure; `SourceCatalogViews`). Every way in, on or off, grouped
   *Accounts and browser* (X, YouTube, Instagram, LinkedIn, Reddit, Pinterest, TikTok) · *This Mac* (Calendar, Contacts,
   Messages, each browser on this Mac, Apple Notes, Folders, Wispr Flow once present) · *Exports* (Files and links; Chat
-  exports, which point at their agent — `AppRouter.routeToAgents`, Settings → Agents until UI-A's Agents page lands) ·
+  exports, which point at their agent — `AppRouter.routeToAgents`, the Agents page) ·
   *Feeds* (RSS, Calendar feeds, Telegram), then *Agents' conversations* for an overview harness row no entry speaks for.
   A row is a `LogoTile` (through the `SourceLogoTile` adapter: an origin key or an umbrella logo slug in), the name, the
   last sync only while on, and a dot with one word: **Connected · Needs sign-in · Off** (`SourceCatalog.status`: a
@@ -1126,12 +1181,12 @@ exists, `ExploreRunCard` sits atop the grid: one line ("Exploring 212 of 534 · 
 add a worker) and **Stop** (one tap). `ExploreCache` (owned by `CicadaApp`, in memory, never a Store domain) reads
 `GET /explore/state` and `/explore/candidates` by ETag, revalidates when `exploreQueue`, `captures`, `sources`, `reading`
 or `bank` moves (`ExploreRefresh`), and is emptied on a bank switch. Per-row chips and the capture gallery are the
-link-render branch's (it reads `GET /explore/captures/{entity_id}`, `storage.md`). Settings → Reading the web gains
+link-render branch's (it reads `GET /explore/captures/{entity_id}`, `storage.md`). the Sources page gains
 **Explore in your signed-in browser** (on by default, D2 amended; `ReadingAgentModel.setExploreSignedIn`, row
 `readingExploreSignedIn`) and the first-use sheet's exploring paragraph (ack v3, D3). Copy: `Theme/Copy+Explore.swift`.
 Tests: `ExploreTests`.
 
-**Your YouTube lists (G71, owner 2026-10-16).** Settings → Reading the web shows, while agent reading is on, a group of
+**Your YouTube lists (G71, owner 2026-10-16).** the Sources page shows, while agent reading is on, a group of
 two switches — *Keep Watch later current* and *Keep watch history current* (off by default; `ReadingAgentModel.
 setYouTubeList`, one `PUT /reading/settings` `youtubeLists` patch, rows `readingYouTube` and `reading:youtube:<list>`) —
 each with one line from `YouTubeListWords`: off, "Waiting for your agent", "Last read by your agent · <day>", or "Your
@@ -1199,7 +1254,7 @@ the start or end of a longer name — "Claude" is not named by "Claude Code"; in
   folder and day, or `[ no source recorded ]`). The palette's saved-item row, ⌘B's bookmark rows and a source page's
   items land there through `AppRouter.routeToSavedItem` / `routeToBookmark` (Sleep, the Saved tab, the item open), and
   the preview sheet is gone. The one-shot import's `+` (with ⌘N) is an icon on the tab row (`SleepTabRow`) and opens the
-  unchanged `AddSourceSheet`, whose root hosts the one `IntakePanel`; Settings → Integrations' "Import in Sleep →"
+  unchanged `AddSourceSheet`, whose root hosts the one `IntakePanel`; the Sources page' "Import in Sleep →"
   stages a tile there (`AppRouter.routeToAddSource`). **Include watch history (G71, 2026-10-16):** a drop whose sniff
   reports history (`historyExcluded`, or `historyVideos`/`historyDays` once asked) shows the switch in the preview
   (`IntakeRouter.includeHistory`, off for every new drop); flipping it sniffs again with `?include_history=true`, the
@@ -1217,7 +1272,7 @@ the start or end of a longer name — "Claude" is not named by "Claude Code"; in
   `?exported_on=`) and shows counts only — "12 of your 420 connections are people Cicada
   already knows. 2 share a name with more than one person and are left out. As of <day>." — then *Add to 12 people*
   (or *Keep for later* when none match: the backend keeps the directory for later matches) posts `/import` and
-  refreshes the graph. Words in `LinkedInConnectionsWords`, tested in `LinkedInConnectionsTests`. Settings → Skills
+  refreshes the graph. Words in `LinkedInConnectionsWords`, tested in `LinkedInConnectionsTests`. the Skills page
   lists Cicada's third own skill, *What people do now* (`CicadaSkillBundle.linkedinPeople`, `mcp.md`).
 - **Videos (G162, the approved boards, 2026-09-30).** The app reads `GET /videos/state` and `/videos/summary` through
   `VideoStateCache` (app-level, in memory, ETag-revalidated, never a Store domain; `VideoRefresh` follows the
@@ -1371,7 +1426,7 @@ field (⏎ searches by words through `POST /design/search`; the board re-ranks),
 an image file), and, when this Mac
 supports it but images aren't understood here yet, one row (DR-37) saying what it is for and its download size with
 *Turn on* (`POST /embeddings/install` with `part: vision`; the page polls while it installs). This is the in-context
-shortcut to Settings → Search & memory → *Understand images* and keeps its one click: on a Mac without the meaning part
+shortcut to Settings → Privacy & data → *Understand images* and keeps its one click: on a Mac without the meaning part
 it fetches both, and `vision.includesText` makes the row state the combined size ("…which also sets up Understand what
 you mean") before the click. Tiles: the screenshot through
 `StoredPreview` (`PictureURL` accepts `/design/…` as Cicada's own API), its colours as one strip, the site and the day
@@ -1584,10 +1639,10 @@ in the system's short format, after the window and before the lamp; it is not a 
 `(94,34)`, z1, follows the verified art plan and clears every worm frame/beat/transition, the window, lamp and pile column; art acceptance
 also checks every new night frame. The preview includes the same clock leaf. Motion sidecars exclude its state angles.
 
-**Settings → Sleep, in order (settings audit 2026-10-22):** the Runs card (no header repeating its one row's title,
-DR-38), Scheduled runs, Engine, then the study room's The scenery and Mascot.
+**Settings → Sleep, in order (D6, 2026-10-22):** the study room's preview, the Runs card (no header repeating its one
+row's title, DR-38), the scenery's source and Mascot. Scheduled runs and the engine moved to Intelligence.
 
-**Settings → Sleep → Scheduled runs (TODO ruling 4b, owner 2026-10-16).** One switch, *Scheduled runs may use my
+**Settings → Intelligence → Scheduled runs (TODO ruling 4b, owner 2026-10-16; on Sleep until D6).** One switch, *Scheduled runs may use my
 plan* (`SettingsRowID.sleepUsePlan`, in the find index), **on unless the person turned it off** (ruling 4c, 2026-10-19;
 an older server that sends no value reads as off): the machine's `scheduledUsePlan` on
 `/sleep/run-options` (`SleepRunOptionsChange.scheduledUsePlan`). Its detail says what it costs while on
@@ -2185,7 +2240,7 @@ shows once in the Version row ("couldn't be installed … You're still on 0.3.0"
 reinstalled once on that launch. The zip must be one of the same release's own assets, over https. The new copy rewrites the
 `~/.cicada/bin` launchers when it opens. Log: `~/.cicada/logs/update.log`.
 
-**Settings → Search & memory (owner, 2026-10-14; G182 phase 3, EmbeddingGemma 2 owner 2026-10-09, G133, G195 frame).**
+**Settings → Privacy & data (owner, 2026-10-14; G182 phase 3, EmbeddingGemma 2 owner 2026-10-09, G133, G195 frame).**
 A section in the Cicada group between Privacy & data and Sleep (`SettingsSection.searchFiles`, a new case in 2026-10-14): sidebar
 *Search & memory* (*Search & files* until B1), page title *What Cicada can look through* (`SettingsSection.pageTitle`; the header shows it, the
 sidebar and search show the short name). One place for what Cicada can look through, in plain words — the owner: "without

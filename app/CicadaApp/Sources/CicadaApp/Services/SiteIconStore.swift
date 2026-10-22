@@ -1,6 +1,6 @@
 import AppKit
 
-/// G166 — the favicons of the sites Settings → Reading the web lists — and, since 2026-10-19/20, every saved link's
+/// G166 — the favicons of the sites the Sources page lists — and, since 2026-10-19/20, every saved link's
 /// own site icon, at most `maxConcurrent` requests at a time. They come from `GET /reading/sites/{site}/icon`
 /// (the icon service, told the site's name; the site itself is never contacted) and are kept in memory per bank, so a
 /// list that redraws never asks again. A 404 is "no icon": the row draws its own mark. Nothing is written to disk.

@@ -36,8 +36,8 @@ final class EmptyStateViewTests: XCTestCase {
     /// default, and the quiet branch keeps the accent-text recipe it always
     /// had. The prominent branch reaches glass only through the one style.
     func testTheSettingsLinkIsQuietUnlessAskedToBeProminent() throws {
-        XCTAssertFalse(SettingsSectionLink(section: .integrations, label: "Open").prominent)
-        XCTAssertTrue(SettingsSectionLink(section: .integrations, label: "Open", prominent: true).prominent)
+        XCTAssertFalse(SettingsSectionLink(home: .page(.sources), label: "Open").prominent)
+        XCTAssertTrue(SettingsSectionLink(home: .page(.sources), label: "Open", prominent: true).prominent)
         let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first {
             $0.path.hasSuffix("Views/Common/SettingsSectionLink.swift")
         })

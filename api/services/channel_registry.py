@@ -262,7 +262,7 @@ def _local_channel(channel_id: str, label: str, state: dict, noun: str) -> dict:
     """A source the APP reads and posts (G133 folders, G134 note-takers).
 
     `_sync_channel`'s shape with two differences: the row can be managed
-    (`manage` opens its settings in Settings → Integrations), and a recorded
+    (`manage` opens its settings on the Sources page), and a recorded
     failure wins the detail line (`_connector_channel`'s rule —
     `record_sync` replaces the entry, so an error present is newer than the
     last success). Appended after `CHANNEL_IDS` rather than listed in it
@@ -378,7 +378,7 @@ def build_channels(
     rows = [channels[cid] for cid in CHANNEL_IDS]
     # G142 (round 4 D2, C6): Apple Calendar through EventKit — a standing
     # connection the APP reads and posts, so `_local_channel`'s shape. Always
-    # listed, so Settings → Integrations and the Welcome can offer it before the
+    # listed, so the Sources page and the Welcome can offer it before the
     # first sync; appended after the fixed ids like every local source (R-LS25:
     # the fixed list and its mirrors stay what they are).
     rows.append(_local_channel(calendar_local.CHANNEL_ID, calendar_local.LABEL, state, "event"))

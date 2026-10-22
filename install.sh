@@ -508,7 +508,7 @@ if [ "$(printf '%s' "${CICADA_RECALL:-}" | tr '[:upper:]' '[:lower:]')" = "off" 
   if [ "$PLUGIN_ON" -eq 1 ]; then
     ok "CICADA_RECALL=off — Claude Code's plugin recall is off (its Remember automatically setting)"
   else
-    ok "CICADA_RECALL=off — recall hooks not registered (Settings → Agents turns them on)"
+    ok "CICADA_RECALL=off — recall hooks not registered (the Agents page turns them on)"
   fi
 else
   if [ "$PLUGIN_ON" -eq 1 ]; then
@@ -535,12 +535,12 @@ else
 fi
 
 # Cursor user-level startup delivery only; MCP and chat capture are separate switches. Capture stays the person's
-# click in Settings → Agents until it is checked in an installed Cursor (its prompt hook holds each message).
+# click on the Agents page until it is checked in an installed Cursor (its prompt hook holds each message).
 if [ -d "$HOME/.cursor" ] && [ "$(printf '%s' "${CICADA_RECALL:-}" | tr '[:upper:]' '[:lower:]')" != "off" ]; then
   if run "$VENV_PY" "$CURSOR_REGISTRY" install --settings "$CURSOR_HOOKS"; then
-    ok "Cursor sessionStart context registered (MCP setup and saving chats are separate, in Settings → Agents)"
+    ok "Cursor sessionStart context registered (MCP setup and saving chats are separate, on the Agents page)"
   else
-    warn "Cursor hooks config needs repair — unchanged; use Settings → Agents or fix $CURSOR_HOOKS"
+    warn "Cursor hooks config needs repair — unchanged; use the Agents page or fix $CURSOR_HOOKS"
   fi
 fi
 

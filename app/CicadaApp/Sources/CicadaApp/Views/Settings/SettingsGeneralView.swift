@@ -57,13 +57,13 @@ struct SettingsGeneralView: View {
     var body: some View {
         SettingsPage(section: .general) {
             // F-10 — Look: the window's light and the chrome's size.
-            SettingsGroupCard(header: Copy.lookGroup) {
-                SettingsRow(.appearance, title: Copy.appearance, detail: Copy.appearanceDetail) {
+            SettingsGroupCard {
+                SettingsRow(.appearance, title: Copy.appearance) {
                     PillPicker(title: Copy.appearance, selection: appearance,
                                options: AppearancePreference.allCases.map { PillOption(value: $0, label: $0.label) })
                 }
                 SettingsDivider()
-                SettingsRow(.textSize, title: Copy.textSize, detail: Copy.textSizeDetail) {
+                SettingsRow(.textSize, title: Copy.textSize) {
                     HStack(spacing: CicadaTheme.spacingSM) {
                         Slider(value: scale, in: ThemeStore.scaleRange, step: ThemeStore.scaleStep)
                             .frame(width: CicadaTheme.scaled(160))
@@ -80,9 +80,10 @@ struct SettingsGeneralView: View {
                 }
             }
             // F-10 — Startup: onboarding's F-06 switches, reversible here (decision 6).
-            SettingsGroupCard(header: Copy.startupGroup) {
-                SettingsRow(.openAtLogin, title: Copy.openAtLogin, detail: loginItems.state.detail(
-                    menuBarVisible: showsMenuBar)) {
+            SettingsGroupCard {
+                // D6 word budget: the state's sentence only when macOS needs the person's approval.
+                SettingsRow(.openAtLogin, title: Copy.openAtLogin, detail: loginItems.state.offersSettings
+                    ? loginItems.state.detail(menuBarVisible: showsMenuBar) : nil) {
                     Toggle(Copy.openAtLogin, isOn: Binding(get: { loginItems.requested },
                                                            set: { loginItems.setEnabled($0) }))
                         .toggleStyle(.switch)
@@ -93,17 +94,18 @@ struct SettingsGeneralView: View {
                     }
                 }
                 SettingsDivider()
-                SettingsRow(.showInMenuBar, title: Copy.showInMenuBar, detail: Copy.showInMenuBarDetail) {
+                SettingsRow(.showInMenuBar, title: Copy.showInMenuBar) {
                     Toggle(Copy.showInMenuBar, isOn: $showsMenuBar)
                         .toggleStyle(.switch)
                         .labelsHidden()
                 }
             }
-            SettingsGroupCard(header: Copy.whenClosedGroup) {
+            SettingsGroupCard {
                 // G181 phase 3 — on a server nothing runs on this Mac for the memory, so nothing is offered.
                 let onServer = ServerConnection.current.isServer
                 SettingsRow(.backgroundService, title: Copy.keepMemoryWorking,
-                            detail: onServer ? Copy.Devices.backgroundNotNeeded : Copy.backgroundDetail(backendAgent.state)) {
+                            detail: onServer ? Copy.Devices.backgroundNotNeeded
+                                : (backendAgent.state == .running ? nil : Copy.backgroundDetail(backendAgent.state))) {
                     if onServer {
                         SettingsInlineLink(section: .devices, row: .memoryHome, label: Copy.Devices.whereGroup)
                     } else {
@@ -129,7 +131,8 @@ struct SettingsGeneralView: View {
                 // that couldn't be installed while Cicada was closed is said here, once, for this session (phase 5).
                 SettingsRow(.appVersion, title: Copy.versionTitle,
                             detail: updates.lastInstallFailure.map { Copy.Updates.installFailed($0, current: appVersion.short) }
-                                ?? Copy.versionDetail(appVersion, backend: backendVersion)) {
+                                ?? (appVersion.differs(fromBackend: backendVersion)
+                                    ? Copy.versionDetail(appVersion, backend: backendVersion) : nil)) {
                     Text(Copy.versionLine(appVersion))
                         .font(CicadaTheme.captionFont.monospacedDigit())
                         .foregroundStyle(CicadaTheme.textSecondary)
@@ -142,8 +145,7 @@ struct SettingsGeneralView: View {
                 // gets a card of its own). Hidden entirely where the updater is inert (a developer build).
                 if updates.isActive {
                     SettingsDivider()
-                    SettingsRow(.autoUpdate, title: Copy.Updates.autoTitle,
-                                detail: Copy.Updates.autoDetail(automatic: updates.automatic)) {
+                    SettingsRow(.autoUpdate, title: Copy.Updates.autoTitle) {
                         Toggle(Copy.Updates.autoTitle, isOn: Binding(get: { updates.automatic },
                                                                      set: { updates.automatic = $0 }))
                             .toggleStyle(.switch)

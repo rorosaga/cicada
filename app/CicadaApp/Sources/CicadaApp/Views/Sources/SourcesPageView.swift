@@ -24,6 +24,9 @@ struct SourcesPageView: View {
     @Environment(LocalSourceWatcher.self) private var localSources
     /// G166 exploring — the Explore sheet; the run card sits atop the grid.
     @State private var showExploreSheet = false
+    /// Reading the web's switches (the master switch, the signed-in session, YouTube lists, Never explore, how the
+    /// agent reads), in one sheet since D6 retired the Settings page (2026-10-22 fix round).
+    @State private var showReadingSheet = false
     @Environment(ExploreCache.self) private var exploreCache
     @FocusState private var focus: ListFocus?
 
@@ -56,6 +59,9 @@ struct SourcesPageView: View {
                 // G217 — the page IS the catalogue, so it no longer adds through a second one (the "Add a source" sheet's
                 // grid); Explore saved sites keeps its door (DR-40).
                 HStack(spacing: CicadaTheme.spacingSM) {
+                    TextButton(title: Copy.Reading.inBrowserTitle, help: Copy.Reading.inBrowserHelp) {
+                        showReadingSheet = true
+                    }
                     if !exploreCache.isGone {
                         NeutralButton(title: Copy.Explore.button, systemImage: "safari", size: .compact,
                                       help: Copy.Explore.buttonHelp) { showExploreSheet = true }
@@ -87,6 +93,13 @@ struct SourcesPageView: View {
         // Presented in place (R-S9): the header means the catalog root, not one staged tile, so no bounce to the Feed.
         .sheet(isPresented: $showExploreSheet) {
             ExploreSheet { showExploreSheet = false }
+        }
+        .sheet(isPresented: $showReadingSheet, onDismiss: { Task { await reading.load() } }) {
+            ReadingInBrowserSheet { showReadingSheet = false }
+        }
+        .onAppear { if router.pendingReadingSheet { router.pendingReadingSheet = false; showReadingSheet = true } }
+        .onChange(of: router.pendingReadingSheet) { _, wants in
+            if wants { router.pendingReadingSheet = false; showReadingSheet = true }
         }
         .environment(reading)
         .task { await exploreCache.refresh() }

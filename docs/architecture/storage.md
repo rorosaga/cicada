@@ -1317,7 +1317,7 @@ every model. `GET /embeddings` carries `recommended` (the better model this Mac 
 index writer is the backend's); a full table rebuild runs in one transaction from its `DROP` to its commit.
 A fresh bank is built with the small model unless `CICADA_EMBEDDING_MODEL_LOCAL` names another; a bank built with it is
 queried with it (the recorded model, as for every bank). **Each bank's vectors are built with its own model**
-(`embedding_models.build_model`, G182 phase 3): the person's choice for that bank (Settings → Search & memory,
+(`embedding_models.build_model`, G182 phase 3): the person's choice for that bank (Settings → Privacy & data,
 kept in `$CICADA_HOME/embedding-models.json`, outside every bank), else the model its index already records when this
 Mac can run it and no `CICADA_EMBEDDING_*` was set explicitly (unless it is a former default and EmbeddingGemma 2 runs
 here — above), else the configured default — so a change of default never re-embeds a bank unannounced (the one

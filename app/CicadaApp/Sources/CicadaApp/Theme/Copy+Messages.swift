@@ -1,6 +1,6 @@
 import Foundation
 
-/// G179 — Messages in Settings → Integrations, and the waiting bubbles on the Sleep page and Home. Provider-neutral:
+/// G179 — Messages on the Sources page, and the waiting bubbles on the Sleep page and Home. Provider-neutral:
 /// an agent is named only by the person's own contact name for it.
 extension Copy {
     enum Messages {

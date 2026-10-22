@@ -21,30 +21,24 @@ final class SettingsSectionTests: XCTestCase {
     func testEveryTitleComesFromCopy() {
         XCTAssertEqual(SettingsSection.general.title, Copy.general)
         XCTAssertEqual(SettingsSection.sleep.title, Copy.sleepSettings)
-        XCTAssertEqual(SettingsSection.integrations.title, Copy.integrations)
-        XCTAssertEqual(SettingsSection.agents.title, Copy.agents)
-        XCTAssertEqual(SettingsSection.engines.title, Copy.engines)
+        XCTAssertEqual(SettingsSection.intelligence.title, Copy.Intelligence.title)
         XCTAssertEqual(SettingsSection.you.title, Copy.youSection)
         XCTAssertEqual(SettingsSection.privacy.title, Copy.privacyAndData)
         XCTAssertEqual(SettingsSection.devices.title, Copy.Devices.sidebar)
-        XCTAssertEqual(SettingsSection.searchFiles.title, Copy.SearchFiles.sidebar)
-        XCTAssertEqual(SettingsSection.skills.title, Copy.skills)
     }
 
     /// R7 / K1 — a persisted selection must survive Settings v3.
     func testExistingRawValuesAreStable() {
         XCTAssertEqual(SettingsSection.general.rawValue, "general")
         XCTAssertEqual(SettingsSection.sleep.rawValue, "sleep")
-        XCTAssertEqual(SettingsSection.integrations.rawValue, "integrations")
-        XCTAssertEqual(SettingsSection.agents.rawValue, "agents")
-        XCTAssertEqual(SettingsSection.searchFiles.rawValue, "searchFiles")
         XCTAssertEqual(SettingsSection.devices.rawValue, "devices")
-        XCTAssertEqual(SettingsSection.engines.rawValue, "engines")
+        XCTAssertEqual(SettingsSection.privacy.rawValue, "privacy")
+        XCTAssertEqual(SettingsSection.intelligence.rawValue, "intelligence")
     }
 
     func testEverySubtitleComesFromCopyAndNoIconImpliesAPrice() {
-        XCTAssertEqual(SettingsSection.general.subtitle, Copy.generalSubtitle)
-        XCTAssertEqual(SettingsSection.engines.subtitle, Copy.enginesSubtitle)
+        // D6's word budget: no section carries a subtitle.
+        XCTAssertEqual(SettingsSection.general.subtitle, "")
         XCTAssertFalse(SettingsSection.allCases.map(\.icon).contains("creditcard"), "K4 — creditcard implies a price")
     }
 }

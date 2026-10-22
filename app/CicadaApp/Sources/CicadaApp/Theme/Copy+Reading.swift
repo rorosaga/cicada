@@ -1,13 +1,17 @@
 import Foundation
 
-/// G166 — reading pages with the person's own agent: Settings → Reading the web, the first-use sheet and the
+/// G166 — reading pages with the person's own agent: the Sources page, the first-use sheet and the
 /// Feed's Read section. Its own file for the reason `Copy+Lists.swift` gives. These are instructions and choices, never
 /// promises: Cicada cannot enforce what an agent does in its own browser, so no line here says an agent never posts
 /// or is read-only (TODO ruling 14, R-RW8). No price, no count of tokens (DR-59).
 extension Copy {
     enum Reading {
-        // MARK: Settings → Reading the web
+        // MARK: the Sources page
         static let pageTitle = "Reading the web"
+        /// 2026-10-22 fix round: the Sources page's one row that opens Reading the web's switches in a sheet.
+        static let inBrowserTitle = "Reading in your browser"
+        static let inBrowserHelp = "Whether your agent may read pages in your browser for you, and which"
+        static let done = "Done"
         static let pageSubtitle = "Which sites your own agent may read for you, and how it reads them."
         static let withAgentGroup = "With an agent"
         // G71 (2026-10-16): the YouTube lists the person's own agent keeps current from their signed-in browser.
@@ -121,7 +125,7 @@ extension Copy {
         }
         static let homeOpenReading = "Reading the web"
 
-        // MARK: Settings → Agents
+        // MARK: the Agents page
         static let agentsRowTitle = "Reading pages"
         static let agentsRowDetail = "Which sites your agent may read for you in your browser, and how it reads them."
 

@@ -10,14 +10,14 @@ struct SkillDetailView: View {
     let skill: RecommendedSkill
     /// The section whose header this sub-page wears: Skills, or Reading the web when a reading skill's "Install…"
     /// opened it there (the Skills list shows only five, so a lower-ranked skill has no card to open there).
-    var section: SettingsSection = .skills
+    var section: SettingsHeading = .skills
     let back: () -> Void
     @State private var copiedPrompt = false
     @Environment(AppRouter.self) private var router
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SettingsDetailHeader(section: section, subpage: .init(title: skill.title, back: back))
+            SettingsDetailHeader(heading: section, subpage: .init(title: skill.title, back: back))
                 .padding(.horizontal, CicadaTheme.spacingXL)
             ScrollView {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {

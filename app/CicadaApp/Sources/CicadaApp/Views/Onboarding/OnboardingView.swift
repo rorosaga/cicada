@@ -211,10 +211,10 @@ struct OnboardingView: View {
     private var footLine: some View {
         switch page {
         case .import:
-            OnboardingPointerLine(lead: Copy.importMoreSources, section: .integrations,
+            OnboardingPointerLine(lead: Copy.importMoreSources, home: .page(.sources),
                                   label: Copy.onboardingSettingsIntegrations)
         case .agents:
-            OnboardingPointerLine(lead: Copy.agentsFoot, section: .agents, label: Copy.onboardingSettingsAgents)
+            OnboardingPointerLine(lead: Copy.agentsFoot, home: .page(.agents), label: Copy.onboardingSettingsAgents)
         case .skills:
             // Skip: nothing installs, and the answer is kept so nothing asks again.
             TextButton(title: Copy.Skills.skip) {

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// G179 — Settings → Integrations → Messaging → Messages: the row, and the sheet where the person ticks the
+/// G179 — the Sources page → Messaging → Messages: the row, and the sheet where the person ticks the
 /// conversations Cicada reads and says which one is an AI agent. Nothing is read from a conversation before its tick;
 /// the list itself shows only names, last activity and counts.
 struct MessagesRow: View {

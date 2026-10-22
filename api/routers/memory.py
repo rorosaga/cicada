@@ -1,4 +1,4 @@
-"""G147 — Settings → Search & memory's pace controls.
+"""G147 — Settings → Privacy & data's pace controls.
 
 ``GET /memory/decay-suggestions`` derives, from the bank's own decay answers,
 which kinds of page the person keeps (or lets go of) far more often than

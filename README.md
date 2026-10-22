@@ -192,7 +192,7 @@ starts in, after a restart. A variable set in the backend's environment, such as
 file. `GET /status` (its `settings` block) and the backend's startup log list which settings came from the file and
 which the environment replaced with another value; the app's Settings never shows them.
 
-The engine is Auto unless you choose another (Settings → Engines, or pin it in `api/.env`):
+The engine is Auto unless you choose another (Settings → Intelligence, or pin it in `api/.env`):
 
 ```sh
 CICADA_LLM_MODE=auto    # the default: your Claude plan if connected, else your ChatGPT plan, else Ollama if

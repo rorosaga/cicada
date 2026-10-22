@@ -1,6 +1,6 @@
 import Foundation
 
-/// Settings → Integrations (G126) groups every `GET /sources/channels` row
+/// the Sources page (G126) groups every `GET /sources/channels` row
 /// into one of six sections — a different cut than the Sources grid's
 /// `SourceKind` (which groups by *what the backend counts*, harness vs.
 /// browser vs. social), because Integrations is about *where you go to

@@ -3074,7 +3074,7 @@ actor APIClient {
 
     /// `GET /embeddings` — which model the active bank's vectors use, what the next index sync
     /// builds with, the models this Mac can run and the larger model's install. Not a Store
-    /// domain, no ETag; Settings → Search & memory polls it only while an install runs.
+    /// domain, no ETag; Settings → Privacy & data polls it only while an install runs.
     func fetchEmbeddings() async throws -> EmbeddingsStatus { try await get("/embeddings") }
 
     /// `POST /embeddings/choice` — `nil` goes back to the default. 400 for a model Cicada does not
@@ -3363,6 +3363,55 @@ actor APIClient {
         struct Answer: Decodable { let device: DeviceRecord }
         let data = try await delete("/devices/\(encodedID(id))")
         return try decoder.decode(Answer.self, from: data).device
+    }
+
+    // MARK: - The connection model (G217, G212, G213)
+
+    /// `GET /providers` — static per release, so no ETag and no Store domain: fetched once per launch, kept in memory.
+    func fetchProviders() async throws -> ProvidersResponse {
+        try await get("/providers", timeout: Self.refreshTimeout)
+    }
+
+    /// `GET /devices/status` — not a Store domain (it changes by the minute); polled while a view shows it.
+    func fetchDeviceStatus() async throws -> DeviceStatusResponse {
+        try await get("/devices/status", timeout: Self.refreshTimeout)
+    }
+
+    /// `POST /devices/pairing` — the master token's alone; `url` is where the new device will reach this server.
+    func createPairing(url: String?, kind: PairingKind = .capture) async throws -> PairingCreated {
+        // `kind` is #432's (an older backend ignores it): a phone's capture-only token, or a computer's full one.
+        var body: [String: Any] = ["kind": kind.rawValue]
+        if let url { body["url"] = url }
+        return try await post("/devices/pairing", body: body)
+    }
+
+    func pairingState(_ id: String) async throws -> PairingAnswer {
+        try await get("/devices/pairing/\(encodedID(id))", timeout: Self.refreshTimeout)
+    }
+
+    func cancelPairing(_ id: String) async throws {
+        _ = try await delete("/devices/pairing/\(encodedID(id))")
+    }
+
+    /// `PUT /connections/{id}/key` with the check flag (G50): 422 = refused (nothing saved), 503 = unreachable — the
+    /// caller then offers "Save without checking", which resends with `check: false`.
+    func saveKey(_ id: String, key: String, check: Bool) async throws -> ConnectionStatus {
+        try await put("/connections/\(encodedID(id))/key", body: ["key": key, "check": check])
+    }
+
+    /// `GET /agent-api/tokens` (G213) — machine-global, outside every bank; not a Store domain.
+    func fetchAgentTokens() async throws -> [AgentToken] {
+        struct Answer: Decodable { var tokens: [AgentToken] }
+        let answer: Answer = try await get("/agent-api/tokens", timeout: Self.refreshTimeout)
+        return answer.tokens
+    }
+
+    func createAgentToken(name: String) async throws -> AgentTokenCreated {
+        try await post("/agent-api/tokens", body: ["name": name])
+    }
+
+    func revokeAgentToken(_ id: String) async throws {
+        _ = try await delete("/agent-api/tokens/\(encodedID(id))")
     }
 
     // MARK: - Generic Helpers

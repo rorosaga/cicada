@@ -207,7 +207,7 @@ enum Copy {
     /// quota is a real budget, just not a dollar one.
     static let sleepEngineExplainer =
         "Sleep runs on your Claude plan through Claude Code: it spends plan quota, not money. "
-        + "When you start a cycle yourself, and on the schedule unless you turn that off in Settings → Sleep; if the "
+        + "When you start a cycle yourself, and on the schedule unless you turn that off in Settings → Intelligence; if the "
         + "plan throttles it stops cleanly with the queue intact."
 
     // MARK: Engines (Track E — R-E4, R-E13, R-E24, R-E28)
@@ -336,7 +336,7 @@ enum Copy {
     /// above this is now literally "Sleep", and `CopyConstantsTests`'s
     /// `testSubtitlesAreShortAndDoNotRepeatTheirTitle` bans a subtitle that
     /// repeats its own title.
-    /// G139 (A3): the engine moved to Settings → Engines, so "Who runs…"
+    /// G139 (A3): the engine moved to Settings → Intelligence, so "Who runs…"
     /// stopped being true of this section.
     static let sleepSettingsSubtitle = "When Cicada consolidates what it captured."
     static let generalSubtitle = "Appearance, text size and setup."
@@ -432,7 +432,7 @@ enum Copy {
     static let emptyInboxMessage = "Questions appear here after a Sleep cycle."
     static let emptySourcesMessage = "Nothing has fed this memory yet."
 
-    /// Settings → Integrations with BOTH domains loaded and both empty —
+    /// the Sources page with BOTH domains loaded and both empty —
     /// which on a working install means the backend is not answering, since
     /// `channel_registry` always yields thirteen rows. Never shown while a
     /// fetch is in flight or an error is latched (`IntegrationsView.

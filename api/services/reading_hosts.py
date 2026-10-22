@@ -286,7 +286,7 @@ def agent_may_read(url: str, *, enabled: bool) -> Verdict:
         return verdict
     if not enabled:
         return Verdict(False, "off", verdict.host, verdict.site, verdict.walled,
-                       "Agent reading is off. Turn it on in Settings, Reading the web.")
+                       "Agent reading is off. Turn it on in Reading in your browser, on the Sources page.")
     return verdict
 
 

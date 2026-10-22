@@ -2,7 +2,7 @@ import SwiftUI
 
 // G217 (ruling 36 D6) — the Sources page as the one catalogue: rows grouped by way in, each a logo tile, a name and a
 // dot with one word (DR-34 row heights, DR-38 nothing said twice, DR-52 via the one tile adapter, DR-74 the detail's
-// head). Settings → Integrations' rows and the "Add a source" grid both land here.
+// head). The old Integrations page's rows and the "Add a source" grid both land here.
 
 /// G217 — the Sources page reads and writes the per-site reading switch through Settings' own model
 /// (`ReadingAgentModel`, in memory, not a Store domain), so the first-use consent is the same: a site turns on in one

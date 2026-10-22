@@ -4,7 +4,7 @@ There is no pre-picked list of sites. A page is a **wall page** when Cicada's
 reader (save-time enrichment, the in-cycle pass, the tail backfill) failed to
 open it because of a wall, or because the backend never requests its host at
 all (R-RW4). Wall pages are grouped by site (``reading_hosts.site_of``); the
-sites they belong to are what Settings, Reading the web, lists for the person to
+sites they belong to are what Reading in your browser (the Sources page) lists for the person to
 allow an agent to read with their own browser.
 
 Pure over a page's frontmatter and URL: no network, no DNS, no file written.

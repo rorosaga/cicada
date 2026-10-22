@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// G154 (round 4) — "Contacts" in Settings → Integrations → Calendars, contacts & feeds: the Mac's address book, read
+/// G154 (round 4) — "Contacts" on the Sources page → Calendars, contacts & feeds: the Mac's address book, read
 /// by the app (`ContactsReader`) only after Connect, enriching the people Cicada already knows. Laid out like
 /// `CalendarRow`'s actions (DR-40 `NeutralButton`s, Disconnect behind a confirmation) on a `SourceRow`, so it says
 /// "Last synced …" and shows an × while it runs. The mark is the installed Contacts app's own icon (DR-52).

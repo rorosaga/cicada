@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Round 4 (C9; decisions 2 and 3) — Settings → Integrations → Browsers: every browser on this Mac that Cicada can
+/// Round 4 (C9; decisions 2 and 3) — the Sources page → Browsers: every browser on this Mac that Cicada can
 /// really sync, with its own icon, what it reads and when it last synced. A browser Cicada cannot sync is named once
 /// in the section's header (`BrowserInventory.unsupportedLine`), never as a row with a button.
 struct BrowsersSection: View {
@@ -116,7 +116,7 @@ private struct BrowserSourceRow: View {
     }
 }
 
-/// G191 — Settings → Integrations → Browsers: "Ask why when I bookmark something". Off by default (G191 (7)); per Mac,
+/// G191 — the Sources page → Browsers: "Ask why when I bookmark something". Off by default (G191 (7)); per Mac,
 /// beside the bookmark watch's own consent flags (`SaveWhyPrefs`). v2 (2026-10-14): one switch that works — turning
 /// it on turns on the bookmark watch of every browser here (`SaveWhySetup`), named before the flip; once on, the row
 /// says what is watched, names a missing permission with its one click, and says the next bookmark is the first asked.

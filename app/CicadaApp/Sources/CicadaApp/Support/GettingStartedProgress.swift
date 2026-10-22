@@ -9,7 +9,7 @@ struct GettingStartedRow: Equatable, Identifiable {
     let state: FoundRowState
     /// The one thing left to do lives in Settings (Claude Desktop, an app) —
     /// the row shows a link instead of a button (`FoundRow.settingsLink`).
-    var settingsLink: SettingsSection? = nil
+    var settingsLink: SettingsHome? = nil
 }
 
 /// Everything the card's rows depend on, gathered by the view so the rules
@@ -71,11 +71,11 @@ enum GettingStartedProgress {
     /// Claude Desktop is On only when its config names Cicada; Cursor owns its
     /// own config, so its opened confirm (a settle) is all Cicada can know.
     static func derivedState(_ id: FoundItemID, item: FoundItem?,
-                             _ i: GettingStartedInputs) -> (state: FoundRowState, link: SettingsSection?) {
+                             _ i: GettingStartedInputs) -> (state: FoundRowState, link: SettingsHome?) {
         if i.record.settled.contains(id) { return (.on, nil) }
         switch id {
         case .agent("claude-desktop"):
-            return item?.readiness == .alreadyOn ? (.on, nil) : (.needsAction(Copy.foundClaudeDesktopDetail), .agents)
+            return item?.readiness == .alreadyOn ? (.on, nil) : (.needsAction(Copy.foundClaudeDesktopDetail), .page(.agents))
         case .agent("cursor"):
             return (.off, nil)
         case .agent:
@@ -94,7 +94,7 @@ enum GettingStartedProgress {
             // R-OB9 — a registered source says its real state; anything else still finishes in Integrations.
             if i.appsOn.contains(app) { return (.on, nil) }
             if i.appsKnown.contains(app) { return (.off, nil) }
-            return (.needsAction(Copy.gsFinishInIntegrations), .integrations)
+            return (.needsAction(Copy.gsFinishInIntegrations), .page(.sources))
         }
     }
 

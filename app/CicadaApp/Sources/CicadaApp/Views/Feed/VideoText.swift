@@ -233,7 +233,7 @@ struct VideoActionSet: Equatable {
     /// permission yet) shows none — no sentence points at a setting that is not there. Only a needs-login video has one.
     var browserLine: VideoBrowserPermission?
     var showsBrowserLine = false
-    /// The link to Settings → Agents; only while the permission is known to be off.
+    /// The link to the Agents page; only while the permission is known to be off.
     var showsAllowBrowser = false
 }
 

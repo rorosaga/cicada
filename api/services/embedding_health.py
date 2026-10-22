@@ -31,7 +31,7 @@ KINDS = ("credits", "rate_limited", "auth", "unreachable", "unavailable", "model
 
 _LEAD = "Search by meaning wasn't updated"
 _TAIL = "Search still finds exact words."
-#: The person reads these (the Sleep page, Settings → Search & memory's Advanced line, doctor), so they say what happened
+#: The person reads these (the Sleep page, Settings → Privacy & data's Advanced line, doctor), so they say what happened
 #: in the same plain words as Search & files: no model, embedding, index or vector (``test_search_words_are_plain``).
 _SENTENCES = {
     "credits": f"{_LEAD}: the search service says the account is out of credits. {_TAIL} "
@@ -44,7 +44,7 @@ _SENTENCES = {
                    "The next Sleep tries again.",
     "unavailable": f"{_LEAD}: the search service is down for now. {_TAIL} The next Sleep tries again.",
     "model_missing": f"{_LEAD}: what this memory searches with isn't on this Mac. {_TAIL} "
-                     "Download it or choose another in Settings → Search & memory.",
+                     "Download it or choose another in Settings → Privacy & data.",
 }
 #: A developer checkout can also fetch it from the terminal — a hint that never reaches a release app's copy.
 _CHECKOUT_HINTS = {

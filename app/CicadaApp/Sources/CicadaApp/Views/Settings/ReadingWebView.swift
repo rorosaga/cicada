@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// The state of Settings → Reading the web (G166). Last-known-good: a fetch that fails keeps the previous answer (the
+/// The state of the Sources page (G166). Last-known-good: a fetch that fails keeps the previous answer (the
 /// never-blank rule). Collaborators are injected so a test drives it with no network, like `AutoRecallModel`. Not a Store
 /// domain: fetched when the page opens and refreshed after every write.
 @MainActor
@@ -221,7 +221,7 @@ final class ReadingAgentModel {
     }
 }
 
-/// Settings → Reading the web (G166): "With an agent" (the person's own agent reads pages Cicada's reader could not, in
+/// the Sources page (G166): "With an agent" (the person's own agent reads pages Cicada's reader could not, in
 /// their own signed-in browser; off by default), "How your agent reads" (a choice the person makes — never something
 /// Cicada detects) and "Sites that need your browser" (every site Cicada's reader could not read, each with its favicon,
 /// a measured count and a switch). Turning on raises the first-use sheet and nothing changes until its button is pressed.
@@ -287,7 +287,7 @@ struct ReadingWebView: View {
     }
 
     private var page: some View {
-        SettingsPage(section: .reading) {
+        SettingsPage(heading: .reading) {
             SettingsGroupCard(header: Copy.Reading.withAgentGroup) {
                 SettingsRow(.readingAgent, title: Copy.Reading.switchTitle,
                             detail: model.note ?? Copy.Reading.switchDetail) {
@@ -731,5 +731,29 @@ enum ReadingMethodsFold {
     static func holds(_ row: SettingsRowID) -> Bool {
         row == .readingMethods || row == .watchingMethods
             || row.item(of: "readingMethod") != nil || row.item(of: "watchingMethod") != nil
+    }
+}
+
+/// Reading the web's switches as a sheet on the Sources page (D6 retired the Settings page; 2026-10-22 fix round):
+/// the master switch behind the one-time versioned consent sheet (on by default once accepted), the signed-in session
+/// (ruling 25), the YouTube lists, Never explore, how the agent reads and watches, and the sites that need the browser.
+/// `ReadingWebView` itself, unchanged, with the Skills data it reads and a Done.
+struct ReadingInBrowserSheet: View {
+    var onClose: () -> Void
+    @State private var skillsVM = SkillsViewModel()
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ReadingWebView()
+                .environment(skillsVM)
+                .task { await skillsVM.load() }
+            HStack {
+                Spacer()
+                NeutralButton(title: Copy.Reading.done, size: .compact, shortcut: .cancelAction) { onClose() }
+            }
+            .padding(CicadaTheme.spacingMD)
+        }
+        .frame(width: CicadaTheme.scaled(680), height: CicadaTheme.scaled(620))
+        .background(CicadaTheme.bgBase)
     }
 }

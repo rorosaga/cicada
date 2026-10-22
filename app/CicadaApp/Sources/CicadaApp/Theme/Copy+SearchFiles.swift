@@ -19,8 +19,9 @@ extension Copy {
         static let formerSidebar = "Search & files"
         static let pageTitle = "What Cicada can look through"
         static let subtitle = "Folders it reads, how search understands, how things fade."
-        /// "Settings → Search & memory" — the pointer every other surface uses (`CopyConstantsTests`).
-        static let pointer = "\(Copy.settings) → \(sidebar)"
+        /// Where folders are managed — the pointer every other surface uses (`CopyConstantsTests`). D6: folders are a
+        /// source, on the Sources page.
+        static let pointer = "the Sources page"
 
         // MARK: Folders
         static let foldersGroup = "Folders"
@@ -60,6 +61,8 @@ extension Copy {
         // MARK: How search understands
         static let understandGroup = "How search understands"
         static let meaningTitle = "Understand what you mean"
+        /// D6 (owner brief, 2026-10-22): the one search row on Privacy & data.
+        static let runsHere = "Search runs on this Mac"
         static let imagesTitle = "Understand images"
         static let turnOn = "Turn on"
         static let tryAgain = "Try again"
@@ -116,8 +119,8 @@ extension Copy {
                 : "Find looks by what they show, not only by your notes. A one-time download that stays on this Mac."
         }
         static let imagesTurnOnHelp = "Downloads image understanding once. It stays on this Mac; your screenshots never leave it."
-        static let imagesWaitsForMeaning = "Find looks by what they show, not only by your notes. Builds on Understand what you mean."
-        static let imagesWaitsHelp = "Turn on Understand what you mean first — images build on it."
+        static let imagesWaitsForMeaning = "Find looks by what they show. Needs the sharper search above first."
+        static let imagesWaitsHelp = "Turn on the sharper search above first — images build on it."
         static let imagesWaitsForDownload = "Waits for the download above."
         static let imagesWaitsForDownloadHelp = "One download at a time — this one starts when the one above finishes."
         static let imagesOn = "Looks are found by what they show."

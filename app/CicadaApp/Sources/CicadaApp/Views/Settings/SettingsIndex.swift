@@ -69,50 +69,86 @@ enum SettingsIndex {
     /// holds the entries to the pages — a task that adds a row adds it here
     /// in the same commit (R-O1).
     static let staticIDs: [SettingsRowID] = [
-        .appearance, .textSize, .runSetup, .appVersion, .autoUpdate, .openAtLogin, .showInMenuBar,
-        .backgroundService,
-        .memoryHome, .devicesConnection, .devicesList, .fromAnywhere,
-        .guidedTour, .demoMemory,
-        .ownerName, .ownerHandle, .ownerEmail, .ownerPage,
-        .memoryLocation, .banks, .bankExport, .bankDelete, .telemetry,
-        .outboundConnectors, .outboundFeeds, .outboundLogos, .credentials, .remoteAccess, .transcripts,
-        .searchFolders, .searchMeaning, .searchImages,
-        .memoryGroup, .fadePace,
-        .sleepRuns, .sleepTime, .sleepInterval, .sleepEngine, .sleepUsePlan,
-        .scenerySource, .sceneryTime, .sceneryWeather, .sceneryPreview,
-        .mascot,
-        .calendarApp, .contactsApp, .saveWhy,
-        .agentsCloud, .agentsSkill, .agentsAutoRecall, .agentsEditors, .agentsReading, .commandLineTool,
-        .readingAgent, .readingExploreSignedIn, .readingNeverExplore, .readingMethods, .watchingMethods, .readingSites,
-        .readingYouTube,
-        // Cicada's own skills — per-item ids (a `:`), so outside the bare-name lint
-        .skill(CicadaSkillBundle.cicada.rawValue), .skill(CicadaSkillBundle.cicadaLibrarian.rawValue),
-        .skill(CicadaSkillBundle.linkedinPeople.rawValue),
-        .remoteSwitch, .remoteReach, .remoteNew,
-        .engineChoice, .engineOverage, .enginePreview, .engineAsk, .engineAutoClaude, .plansAndKeys,
+        .appearance, .textSize, .openAtLogin, .showInMenuBar, .backgroundService,
+        .runSetup, .guidedTour, .demoMemory, .appVersion, .autoUpdate,
+        .ownerName, .ownerPhoto, .ownerEmail, .ownerProfiles, .ownerHandle, .ownerPage,
+        .engineChoice, .plansAndKeys, .sleepUsePlan, .engineOverage, .engineAutoClaude,
+        .sceneryPreview, .sleepRuns, .sleepTime, .sleepInterval, .scenerySource, .sceneryTime, .sceneryWeather, .mascot,
+        .devicesList, .memoryHome, .devicesConnection, .fromAnywhere, .remoteSwitch, .remoteReach, .remoteNew,
+        .memoryLocation, .banks, .bankExport, .bankDelete, .searchMeaning, .searchImages, .memoryGroup, .fadePace,
+        .outboundConnectors, .outboundFeeds, .outboundLogos, .telemetry, .credentials, .remoteAccess, .transcripts,
+    ]
+
+    /// D6 (2026-10-22): rows that left Settings with their page, by id, with their new home — a palette recent, a
+    /// harness script or a doc that names one still lands (`AppRouter.open(_:)`). `SettingsAnchorsTests` holds it.
+    static let retiredRows: [SettingsRowID: SettingsHome] = [
+        .sleepEngine: .settings(.intelligence, .engineChoice),
+        .enginePreview: .settings(.intelligence, .engineChoice),
+        .engineAsk: .settings(.intelligence, .engineChoice),
+        .searchFolders: .page(.sources),
+        .calendarApp: .page(.sources), .contactsApp: .page(.sources), .saveWhy: .page(.sources),
+        .readingAgent: .readingInBrowser, .readingExploreSignedIn: .readingInBrowser, .readingNeverExplore: .readingInBrowser,
+        .readingMethods: .readingInBrowser, .watchingMethods: .readingInBrowser, .readingSites: .readingInBrowser,
+        .readingYouTube: .readingInBrowser,
+        .agentsCloud: .settings(.devices, .fromAnywhere), .agentsSkill: .page(.skills),
+        .agentsAutoRecall: .page(.agents), .agentsEditors: .page(.agents), .agentsReading: .readingInBrowser,
+        .commandLineTool: .page(.agents),
     ]
 
     static let staticEntries: [SettingsEntry] = [
+        // Sleep's look first: equal matches ("bookworm", "scenery") land on the study room's own rows.
         SettingsEntry(.mascot, .sleep, Copy.Mascot.title,
                       keywords: ["character", "avatar"] + MascotRegistry.all.map(\.displayName)),
-        SettingsEntry(.scenerySource, .sleep, Copy.Scenery.source, keywords: ["scenery", "weather", "local weather", "How Sleep is doing", "choose"], detail: Copy.Scenery.disclosure),
+        SettingsEntry(.scenerySource, .sleep, Copy.Scenery.source, keywords: ["scenery", "weather", "local weather", "How Sleep is doing", "choose"]),
         SettingsEntry(.sceneryTime, .sleep, Copy.Scenery.time, keywords: ["scenery", "day", "dusk", "night"], anchor: .scenerySource),
         SettingsEntry(.sceneryWeather, .sleep, Copy.Scenery.weather, keywords: ["scenery", "sunny", "cloudy", "windy", "rainy", "curtains"], anchor: .scenerySource),
         SettingsEntry(.sceneryPreview, .sleep, Copy.Scenery.preview, keywords: ["scenery", "study room"]),
         // General
         SettingsEntry(.appearance, .general, Copy.appearance, keywords: ["dark", "light", "theme", "mode", "system", "night"]),
-        SettingsEntry(.textSize, .general, Copy.textSize, keywords: ["zoom", "font", "bigger", "smaller", "larger", "scale"], detail: Copy.textSizeDetail),
-        SettingsEntry(.runSetup, .general, Copy.setup, keywords: ["onboarding", "first run", "welcome", "start over"], detail: Copy.runSetupDetail),
+        SettingsEntry(.textSize, .general, Copy.textSize, keywords: ["zoom", "font", "bigger", "smaller", "larger", "scale"]),
+        SettingsEntry(.openAtLogin, .general, Copy.openAtLogin, keywords: ["login", "startup", "start", "launch", "boot"]),
+        SettingsEntry(.showInMenuBar, .general, Copy.showInMenuBar, keywords: ["menu bar", "status", "bookworm", "icon", "tray", "hide"]),
+        SettingsEntry(.backgroundService, .general, Copy.keepMemoryWorking, keywords: ["background", "launchd", "service", "closed", "always on", "sync"]),
+        SettingsEntry(.runSetup, .general, Copy.setup, keywords: ["onboarding", "first run", "welcome", "start over", "checklist"]),
+        SettingsEntry(.guidedTour, .general, Copy.Tour.settingsTitle, keywords: ["tour", "walkthrough", "tutorial", "guide", "help", "learn"]),
+        SettingsEntry(.demoMemory, .general, Copy.Demo.demoTitle, keywords: ["demo", "example", "sample", "try", "made-up"]),
         SettingsEntry(.appVersion, .general, Copy.versionTitle, keywords: ["version", "build", "about", "update", "release"]),
-        // G182 phase 5 — anchored on Version, its card-mate, because a developer build hides this row: a search for
-        // "update" lands on a row that is always there.
+        // G182 phase 5 — anchored on Version, its card-mate, because a developer build hides this row.
         SettingsEntry(.autoUpdate, .general, Copy.Updates.autoTitle,
                       keywords: ["update", "updates", "automatic", "upgrade", "new version", "check for updates", "install"],
                       anchor: .appVersion),
-        SettingsEntry(.openAtLogin, .general, Copy.openAtLogin, keywords: ["login", "startup", "start", "launch", "boot"]),
-        SettingsEntry(.showInMenuBar, .general, Copy.showInMenuBar, keywords: ["menu bar", "status", "bookworm", "icon", "tray", "hide"], detail: Copy.showInMenuBarDetail),
-        SettingsEntry(.backgroundService, .general, Copy.keepMemoryWorking, keywords: ["background", "launchd", "service", "closed", "always on", "sync"]),
-        // Devices (G181 phase 3)
+        // You
+        SettingsEntry(.ownerName, .you, Copy.ownerNameTitle, keywords: ["name", "me", "owner", "who"]),
+        SettingsEntry(.ownerPhoto, .you, Copy.Profiles.photo, keywords: ["photo", "picture", "face"],
+                      anchor: .ownerName),
+        SettingsEntry(.ownerEmail, .you, Copy.ownerEmailTitle, keywords: ["email", "mail", "address", "gravatar"]),
+        SettingsEntry(.ownerProfiles, .you, Copy.Profiles.title,
+                      keywords: ["profile", "profiles", "links", "linkedin", "x", "twitter", "github", "website",
+                                 "scholar", "instagram", "social", "where to check"]),
+        // The pre-D6 GitHub handle shows as a profile link.
+        SettingsEntry(.ownerHandle, .you, Copy.ownerHandleTitle, keywords: ["github", "username"], anchor: .ownerProfiles),
+        SettingsEntry(.ownerPage, .you, Copy.ownerPageTitle, keywords: ["my page", "graph"], anchor: .ownerName),
+        // Intelligence (D6) — Engines and Plans & keys, merged; their old names still find it.
+        SettingsEntry(.engineChoice, .intelligence, Copy.Intelligence.inUse,
+                      keywords: ["engine", "engines", "model", "llm", "claude", "chatgpt", "codex", "auto", "back to auto",
+                                 "who reads", "different engine", "ask"]),
+        SettingsEntry(.plansAndKeys, .intelligence, Copy.plansAndKeys,
+                      keywords: ["sign in", "keys", "api key", "plan", "subscription", "credentials", "openrouter",
+                                 "gemini", "xai", "grok", "groq", "mistral", "together", "fireworks", "deepinfra", "ollama",
+                                 "local model"]),
+        SettingsEntry(.sleepUsePlan, .intelligence, Copy.ServerPlan.usePlanTitle,
+                      keywords: ["plan", "subscription", "scheduled", "nightly", "server", "limits"]),
+        SettingsEntry(.engineOverage, .intelligence, Copy.keepGoingOnExtraUsage, keywords: ["extra usage", "overage", "limit"],
+                      anchor: .sleepUsePlan),
+        SettingsEntry(.engineAutoClaude, .intelligence, Copy.useClaudePlanWhenIStart,
+                      keywords: ["claude plan", "subscription", "use for sleep", "api key"], anchor: .sleepUsePlan),
+        // Sleep's hours
+        SettingsEntry(.sleepRuns, .sleep, Copy.runsTitle, keywords: ["schedule", "nightly", "daily", "interval", "automatic", "consolidate", "when", "hours"]),
+        SettingsEntry(.sleepTime, .sleep, Copy.runsAt, keywords: ["time", "hour", "clock"]),
+        SettingsEntry(.sleepInterval, .sleep, Copy.runsEvery, keywords: ["hours", "how often", "interval"]),
+        // Devices (G181, G212)
+        SettingsEntry(.devicesList, .devices, Copy.Devices.devicesGroup,
+                      keywords: ["devices", "pair", "qr", "code", "laptop", "server", "connected", "ssh", "revoke", "last seen", "add a device"]),
         SettingsEntry(.memoryHome, .devices, Copy.Devices.modeTitle,
                       keywords: ["server", "this mac", "headless", "remote", "address", "device token", "home server",
                                  "sync", "where", "memory lives"]),
@@ -120,114 +156,8 @@ enum SettingsIndex {
         SettingsEntry(.devicesConnection, .devices, Copy.Devices.connectionIndexTitle,
                       keywords: ["server", "connection", "reachable", "offline", "waiting", "queue"],
                       anchor: .memoryHome),
-        SettingsEntry(.devicesList, .devices, Copy.Devices.devicesGroup,
-                      keywords: ["devices", "synced", "laptop", "token", "revoke", "add a device", "last seen"]),
-        SettingsEntry(.guidedTour, .general, Copy.Tour.settingsTitle, keywords: ["tour", "walkthrough", "tutorial", "guide", "help", "learn"], detail: Copy.Tour.settingsDetail),
-        SettingsEntry(.demoMemory, .general, Copy.Demo.demoTitle, keywords: ["demo", "example", "sample", "try", "made-up"], detail: Copy.Demo.demoDetail),
-        // You
-        SettingsEntry(.ownerName, .you, Copy.ownerNameTitle, keywords: ["name", "me", "owner", "who"]),
-        SettingsEntry(.ownerHandle, .you, Copy.ownerHandleTitle, keywords: ["github", "avatar", "picture", "username"], detail: Copy.ownerHandleDetail),
-        SettingsEntry(.ownerEmail, .you, Copy.ownerEmailTitle, keywords: ["email", "mail", "address"]),
-        SettingsEntry(.ownerPage, .you, Copy.ownerPageTitle, keywords: ["my page", "profile", "graph"]),
-        // Privacy & data
-        SettingsEntry(.memoryLocation, .privacy, Copy.memoryLocationTitle, keywords: ["folder", "path", "where", "finder", "files", "memory folder"], detail: Copy.memoryLocationDetail),
-        SettingsEntry(.banks, .privacy, Copy.banksTitle, keywords: ["bank", "memories", "workspaces"]),
-        SettingsEntry(.bankExport, .privacy, Copy.bankExportTitle, keywords: ["backup", "download", "zip", "take out", "copy"]),
-        SettingsEntry(.bankDelete, .privacy, Copy.bankDeleteTitle, keywords: ["remove", "erase", "trash"]),
-        SettingsEntry(.telemetry, .privacy, Copy.telemetryTitle, keywords: ["telemetry", "analytics", "tracking", "ledger"]),
-        SettingsEntry(.outboundConnectors, .privacy, Copy.outboundConnectorsTitle, keywords: ["network", "internet", "fetch"]),
-        SettingsEntry(.outboundFeeds, .privacy, Copy.outboundFeedsTitle, keywords: ["rss", "calendar", "network"]),
-        SettingsEntry(.outboundLogos, .privacy, Copy.outboundLogosTitle, keywords: ["logos", "icons", "network"]),
-        SettingsEntry(.credentials, .privacy, Copy.credentialsTitle, keywords: ["api keys", "secrets", "remove keys"]),
-        SettingsEntry(.remoteAccess, .privacy, Copy.remoteAccessTitle, keywords: ["remote", "outside", "from anywhere"]),
-        SettingsEntry(.transcripts, .privacy, Copy.transcriptsTitle, keywords: ["transcripts", "conversations", "claude code"], detail: Copy.transcriptsFact),
-        // Search & files (owner, 2026-10-14). The page never shows a technical word; these hidden keywords keep every
-        // one the old Memory rows carried ("index", "model", "embedding", "embeddings", "semantic", "vectors"), so a
-        // technical search still lands on the right row (REVIEW §1e).
-        SettingsEntry(.searchFolders, .searchFiles, Copy.SearchFiles.foldersGroup,
-                      keywords: ["folder", "folders", "add a folder", "notes", "markdown", "files", "directory", "watch",
-                                 "watched folders", "vault", "notes & files", "documents"],
-                      detail: Copy.SearchFiles.addFolderDetail),
-        SettingsEntry(.searchMeaning, .searchFiles, Copy.SearchFiles.meaningTitle,
-                      keywords: ["meaning", "semantic", "embedding", "embeddings", "model", "vectors", "sharper",
-                                 "search model", "download", "neural engine", "languages", "smarter search",
-                                 "search version", "larger", "index", "search index", "search", "find"]),
-        SettingsEntry(.searchImages, .searchFiles, Copy.SearchFiles.imagesTitle,
-                      keywords: ["image", "images", "picture", "pictures", "photos", "screenshots", "vision", "looks",
-                                 "image model", "embedding"]),
-        // Memory's card, on Search & memory since the Hyrum audit's B1: the old page's name still finds it.
-        SettingsEntry(.memoryGroup, .searchFiles, Copy.memorySection,
-                      keywords: [Copy.fadeHeader, "memory", "tidy"], detail: Copy.memorySubtitle),
-        SettingsEntry(.fadePace, .searchFiles, Copy.fadePaceTitle,
-                      keywords: ["fade", "decay", "forget", "archive", "pace", "still tracking", "slower", "faster"],
-                      detail: Copy.fadePaceDetail),
-        // Sleep
-        SettingsEntry(.sleepRuns, .sleep, Copy.runsTitle, keywords: ["schedule", "nightly", "daily", "interval", "automatic", "consolidate", "when"]),
-        SettingsEntry(.sleepTime, .sleep, Copy.runsAt, keywords: ["time", "hour", "clock"]),
-        SettingsEntry(.sleepInterval, .sleep, Copy.runsEvery, keywords: ["hours", "how often", "interval"]),
-        SettingsEntry(.sleepEngine, .sleep, Copy.sleepEngineRowTitle, keywords: ["model", "who runs"]),
-        SettingsEntry(.sleepUsePlan, .sleep, Copy.ServerPlan.usePlanTitle,
-                      keywords: ["plan", "subscription", "scheduled", "nightly", "server", "limits"]),
-        // Integrations — round-4 D2: the one row the app owns there (R-FA13); every other row is a channel.
-        SettingsEntry(.calendarApp, .integrations, Copy.calendarAppTitle,
-                      keywords: ["calendar", "events", "meetings", "icloud", "google calendar", "exchange", "schedule"]),
-        // Round 4 (G154): Contacts, the second row the app owns there.
-        SettingsEntry(.contactsApp, .integrations, Copy.contactsTitle,
-                      keywords: ["contacts", "address book", "people", "photos", "birthday"]),
-        // G191: the save-why question, under the browsers it listens to.
-        SettingsEntry(.saveWhy, .integrations, Copy.SaveWhy.switchTitle,
-                      keywords: ["bookmark", "why", "intent", "reason", "notch", "prompt", "ask"],
-                      detail: Copy.SaveWhy.switchDetail),
-        // Agents
-        SettingsEntry(.agentsCloud, .agents, Copy.agentsCloudTitle, keywords: ["web", "cloud", "mobile", "claude.ai", "chatgpt"]),
-        SettingsEntry(.agentsSkill, .agents, Copy.agentsSkillTitle, keywords: ["skill", "SKILL.md", "claude code"]),
-        SettingsEntry(.agentsAutoRecall, .agents, Copy.autoRecallTitle,
-                      keywords: ["remember", "recall", "automatic", "hooks", "context", "claude code", "codex"],
-                      detail: Copy.autoRecallDetail),
-        SettingsEntry(.agentsEditors, .agents, Copy.PageEdits.rowTitle,
-                      keywords: ["edit", "edits", "pages", "trust", "trusted", "permission", "fix", "aliases", "write"],
-                      detail: Copy.PageEdits.rowDetail),
-        SettingsEntry(.agentsReading, .agents, Copy.Reading.agentsRowTitle,
-                      keywords: ["read", "pages", "browser", "sites"], detail: Copy.Reading.agentsRowDetail),
-        // Hyrum audit B11: the `cicada` command is for agents with a shell, so it sits with them.
-        SettingsEntry(.commandLineTool, .agents, Copy.cliToolTitle, keywords: ["command line", "terminal", "shell", "cli", "path", "agent", "install"]),
-        // Reading the web (G166)
-        SettingsEntry(.readingAgent, .reading, Copy.Reading.switchTitle,
-                      keywords: ["read", "pages", "links", "browser", "linkedin", "sign in", "login", "ask an agent",
-                                 "reading", "web"],
-                      detail: Copy.Reading.switchDetail),
-        SettingsEntry(.readingExploreSignedIn, .reading, Copy.Explore.signedInTitle,
-                      keywords: ["explore", "exploring", "bookmarks", "saved sites", "signed in", "private", "cookies",
-                                 "incognito", "screenshots"],
-                      detail: Copy.Explore.signedInDetail),
-        SettingsEntry(.readingYouTube, .reading, Copy.Reading.youtubeGroup,
-                      keywords: ["youtube", "watch later", "watch history", "history", "videos", "agent", "browser"],
-                      detail: Copy.Reading.youtubeIntro),
-        SettingsEntry(.readingNeverExplore, .reading, Copy.Explore.neverTitle,
-                      keywords: ["never explore", "explore", "exclude", "block", "skip", "site", "bookmarks"],
-                      detail: Copy.Explore.neverDetail),
-        SettingsEntry(.readingMethods, .reading, Copy.Reading.methodsGroup,
-                      keywords: ["skill", "tool", "browser", "computer", "how", "reads", "own tools", "let my agent choose",
-                                 "agent"],
-                      detail: Copy.Reading.methodsDetail),
-        SettingsEntry(.watchingMethods, .reading, Copy.Reading.watchMethodsGroup,
-                      keywords: ["skill", "tool", "video", "videos", "watch", "watches", "watching", "browser",
-                                 "computer", "mac", "own tools", "let my agent choose", "agent"],
-                      detail: Copy.Reading.watchMethodsDetail),
-        SettingsEntry(.readingSites, .reading, Copy.Reading.sitesGroup,
-                      keywords: ["sites", "wall", "sign in", "login", "consent", "favicon", "icon", "allow"],
-                      detail: Copy.Reading.sitesIntro),
-        // Cicada's own skills (G138) — per-item ids, so outside the bare-name lint
-        SettingsEntry(.skill(CicadaSkillBundle.cicada.rawValue), .skills, CicadaSkillBundle.cicada.title,
-                      keywords: ["cicada skill", "recall", "save"], detail: CicadaSkillBundle.cicada.summary),
-        SettingsEntry(.skill(CicadaSkillBundle.cicadaLibrarian.rawValue), .skills, CicadaSkillBundle.cicadaLibrarian.title,
-                      keywords: ["librarian", "consolidate"], detail: CicadaSkillBundle.cicadaLibrarian.summary),
-        SettingsEntry(.skill(CicadaSkillBundle.linkedinPeople.rawValue), .skills, CicadaSkillBundle.linkedinPeople.title,
-                      keywords: ["linkedin", "people", "profile", "connections"],
-                      detail: CicadaSkillBundle.linkedinPeople.summary),
-        // From anywhere, a group on Devices & access since the Hyrum audit's B1 — its rows land on the group (R-O12).
-        SettingsEntry(.fromAnywhere, .devices, Copy.fromAnywhere,
-                      keywords: ["remote", "connector", "outside this mac"], detail: Copy.remoteSubtitle),
+        SettingsEntry(.fromAnywhere, .devices, Copy.DevicesPage.apps,
+                      keywords: ["remote", "connector", "outside this mac", Copy.fromAnywhere]),
         SettingsEntry(.remoteSwitch, .devices, Copy.remoteSwitchTitle,
                       keywords: ["phone", "claude.ai", "chatgpt", "perplexity", "connector", "remote", "mobile", Copy.fromAnywhere],
                       anchor: .fromAnywhere),
@@ -236,63 +166,51 @@ enum SettingsIndex {
                       anchor: .fromAnywhere),
         SettingsEntry(.remoteNew, .devices, Copy.remoteNewConnectorTitle,
                       keywords: ["token", "link", "connect an app", "revoke", Copy.fromAnywhere], anchor: .fromAnywhere),
-        // Engines
-        SettingsEntry(.engineChoice, .engines, Copy.enginesChooseGroup,
-                      keywords: ["model", "llm", "claude", "chatgpt", "codex", "ollama", "openrouter", "api key", "plan", "auto",
-                                 "back to auto", "different engine"]),
-        SettingsEntry(.engineOverage, .engines, Copy.keepGoingOnExtraUsage, keywords: ["extra usage", "overage", "limit"]),
-        SettingsEntry(.enginePreview, .engines, Copy.enginePreviewTitle, keywords: ["schedule", "nightly", "which engine"]),
-        SettingsEntry(.engineAsk, .engines, Copy.askTitle, keywords: ["questions", "answers"], detail: Copy.askFollowsEngine),
-        // The switch was A3's "Auto may use my Claude plan"; the final review
-        // renamed it to what it does (shown only under the API key card).
-        SettingsEntry(.engineAutoClaude, .engines, Copy.useClaudePlanWhenIStart,
-                      keywords: ["claude plan", "subscription", "use for sleep", "api key"]),
-        // Plans & keys, a group on Engines since the Hyrum audit's B1.
-        SettingsEntry(.plansAndKeys, .engines, Copy.plansAndKeys,
-                      keywords: ["sign in", "keys", "api key", "plan", "subscription", "credentials"],
-                      detail: Copy.plansAndKeysSubtitle),
+        // Privacy & data
+        SettingsEntry(.memoryLocation, .privacy, Copy.memoryLocationTitle, keywords: ["folder", "path", "where", "finder", "files", "memory folder"]),
+        SettingsEntry(.banks, .privacy, Copy.banksTitle, keywords: ["bank", "memories", "workspaces"]),
+        SettingsEntry(.bankExport, .privacy, Copy.bankExportTitle, keywords: ["backup", "download", "zip", "take out", "copy"]),
+        SettingsEntry(.bankDelete, .privacy, Copy.bankDeleteTitle, keywords: ["remove", "erase", "trash"]),
+        // Search & memory's row (D6). Hidden keywords keep every technical word the old rows carried.
+        SettingsEntry(.searchMeaning, .privacy, Copy.SearchFiles.runsHere,
+                      keywords: ["meaning", "semantic", "embedding", "embeddings", "model", "vectors", "sharper",
+                                 "search model", "download", "neural engine", "languages", "smarter search",
+                                 "search version", "larger", "index", "search index", "search", "find",
+                                 Copy.SearchFiles.meaningTitle, Copy.SearchFiles.formerSidebar]),
+        SettingsEntry(.searchImages, .privacy, Copy.SearchFiles.imagesTitle,
+                      keywords: ["image", "images", "picture", "pictures", "photos", "screenshots", "vision", "looks",
+                                 "image model", "embedding"], anchor: .searchMeaning),
+        SettingsEntry(.memoryGroup, .privacy, Copy.memorySection, keywords: [Copy.fadeHeader, "memory", "tidy"],
+                      anchor: .searchMeaning),
+        SettingsEntry(.fadePace, .privacy, Copy.fadePaceTitle,
+                      keywords: ["fade", "decay", "forget", "archive", "pace", "still tracking", "slower", "faster"],
+                      anchor: .searchMeaning),
+        SettingsEntry(.outboundConnectors, .privacy, Copy.outboundConnectorsTitle, keywords: ["network", "internet", "fetch"]),
+        SettingsEntry(.outboundFeeds, .privacy, Copy.outboundFeedsTitle, keywords: ["rss", "calendar", "network"]),
+        SettingsEntry(.outboundLogos, .privacy, Copy.outboundLogosTitle, keywords: ["logos", "icons", "network"]),
+        SettingsEntry(.telemetry, .privacy, Copy.telemetryTitle, keywords: ["telemetry", "analytics", "tracking", "ledger"]),
+        SettingsEntry(.credentials, .privacy, Copy.credentialsTitle, keywords: ["api keys", "secrets", "remove keys"]),
+        SettingsEntry(.remoteAccess, .privacy, Copy.remoteAccessTitle, keywords: ["remote", "outside", "from anywhere"]),
+        SettingsEntry(.transcripts, .privacy, Copy.transcriptsTitle, keywords: ["transcripts", "conversations", "claude code"]),
     ]
 
-    /// A page whose header asks its own question (Search & memory) is also found by it, and a page renamed by the
-    /// Hyrum audit's B1 by its old name (the audit's Migration: keep the old search keywords on the merged entries).
+    /// Each section is a hit by its title, and by the names of the pages folded into it (D6, B1: keep the old search
+    /// keywords on the merged entries).
     static let pageEntries: [SettingsEntry] = SettingsSection.allCases.map {
-        SettingsEntry(.page($0), $0, $0.title,
-                      keywords: ($0.pageTitle == $0.title ? [] : [$0.pageTitle]) + formerNames[$0, default: []],
-                      detail: $0.subtitle)
+        SettingsEntry(.page($0), $0, $0.title, keywords: formerNames[$0, default: []])
     }
 
     static let formerNames: [SettingsSection: [String]] = [
-        .searchFiles: [Copy.SearchFiles.formerSidebar],
-        .devices: [Copy.Devices.formerSidebar],
+        .intelligence: [Copy.engines, Copy.plansAndKeys],
+        .privacy: [Copy.SearchFiles.formerSidebar, Copy.SearchFiles.sidebar],
+        .devices: [Copy.Devices.formerSidebar, Copy.fromAnywhere],
     ]
 
-    /// Names and ids only: a connection's account line, an agent's install
-    /// command (which carries this machine's paths) and any token stay out,
-    /// so typing in Settings never matches — or displays — a secret.
-    static func dynamicEntries(channels: [SourceChannel], harnessRows: [SourceOverview],
-                               exportOnly: [AddSourceTile], connections: [ConnectionStatus],
-                               agents: [AgentCatalogEntry], skills: [RecommendedSkill] = []) -> [SettingsEntry] {
-        var out: [SettingsEntry] = []
-        // R-FA13 — `calendar-local` is `.calendarApp`'s row, never a second search entry; `contacts-local` is
-        // `.contactsApp`'s (G154).
-        // A watched folder lists on Search & files (owner, 2026-10-14), every other channel on Integrations.
-        out += channels.filter { $0.id != CalendarRow.channelId && $0.id != ContactsReader.channel }.map {
-            $0.id.hasPrefix("folder:")
-                ? SettingsEntry(.channel($0.id), .searchFiles, $0.label, keywords: [$0.id, "folder", Copy.SearchFiles.foldersGroup])
-                : SettingsEntry(.channel($0.id), .integrations, $0.label,
-                                keywords: [$0.id, IntegrationCategory.of(channelId: $0.id).title])
-        }
-        out += harnessRows.map { SettingsEntry(.harness($0.harness ?? $0.id), .integrations, $0.label,
-                                               keywords: ["agent", "conversations"]) }
-        out += exportOnly.map { SettingsEntry(.exportOnly($0.id), .integrations, $0.title, keywords: ["import", "export"]) }
-        out += connections.map { SettingsEntry(.connection($0.id), .engines, $0.label,
-                                               keywords: [$0.planLabel ?? "", "sign in", "key", "plan"].filter { !$0.isEmpty }) }
-        out += agents.map { SettingsEntry(.agent($0.id), .agents, $0.name, keywords: ["mcp", "connect", "register"] + $0.searchTerms) }
-        // G138 — the recommended and installed skills the window already
-        // fetched; a title, a publisher and an id, never an install command.
-        out += skills.map { SettingsEntry(.skill($0.id), .skills, $0.title,
-                                          keywords: [$0.publisher, $0.id].filter { !$0.isEmpty }, detail: $0.summary) }
-        return out
+    /// Names and ids only: a connection's account line and any token stay out, so typing in Settings never matches —
+    /// or displays — a secret. D6: channels, harnesses, agents and skills left with their pages.
+    static func dynamicEntries(connections: [ConnectionStatus]) -> [SettingsEntry] {
+        connections.map { SettingsEntry(.connection($0.id), .intelligence, $0.label,
+                                        keywords: [$0.planLabel ?? "", "sign in", "key", "plan"].filter { !$0.isEmpty }) }
     }
 
     /// Best score first; a tie keeps index order (pages, then rows in page

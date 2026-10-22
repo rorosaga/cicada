@@ -108,7 +108,7 @@ enum AgentSetupCatalog {
                         command: "claude mcp add cicada --scope user --env CICADA_MEMORY_PATH=\(SnippetEscape.shell(memory)) -- \(SnippetEscape.shell(python))\(shellArgs)",
                         note: "Verify with `claude mcp list` or `/mcp` inside a session. New sessions pick it up automatically."
                     ),
-                    // G138 — the skill step lives on Settings → Skills now,
+                    // G138 — the skill step lives on the Skills page now,
                     // which writes Cicada's own skill with a marker (R-O26)
                     // instead of asking the person to paste a `cp`.
                 ]
@@ -260,7 +260,7 @@ enum AgentSetupCatalog {
 
 // MARK: - Agents page
 
-/// Settings → Agents — the one-time install, then "Your agents" (Round 4 C8): one selector of eleven agents with a
+/// the Agents page — the one-time install, then "Your agents" (Round 4 C8): one selector of eleven agents with a
 /// live ✓ (`AgentSelector`), the selected agent's numbered steps below it (`AgentSetupSteps`), and — for an
 /// agent with manual steps — "Do it by hand" under a disclosure (R-AG17). Then the skill row, the automatic
 /// recall group and the From anywhere pointer. The two components are self-contained so phase B's onboarding
@@ -311,7 +311,7 @@ struct ConnectView: View {
     private var remoteReady: Bool { remote?.enabled == true && remote?.effectiveUrl != nil }
 
     var body: some View {
-        SettingsPage(section: .agents) {
+        SettingsPage(heading: .agents) {
             // Settings defaults (owner 2026-10-22): no `make install` card. Installing is the installer's job
             // (`install.sh`, or a release app that carries its own backend, G182); Settings never shows a shell step.
             SettingsGroupCard(header: Copy.agentsYourAgents, trailingHeader: Copy.agentsConnectedSummary(live.connectedCount)) {
@@ -339,7 +339,7 @@ struct ConnectView: View {
                 .padding(CicadaTheme.spacingMD)
                 SettingsDivider()
                 SettingsRow(.agentsSkill, title: Copy.agentsSkillTitle, detail: Copy.agentsSkillDetail) {
-                    SettingsInlineLink(section: .skills, row: .skill(CicadaSkillBundle.cicada.rawValue), label: Copy.openSkills)
+                    SettingsInlineLink(home: .page(.skills), label: Copy.openSkills)
                 }
             }
             AutoRecallGroup()
@@ -354,7 +354,7 @@ struct ConnectView: View {
                 SettingsDivider()
                 // G166 — reading pages with an agent has its own page; this is the way there from Agents.
                 SettingsRow(.agentsReading, title: Copy.Reading.agentsRowTitle, detail: Copy.Reading.agentsRowDetail) {
-                    SettingsInlineLink(section: .reading, row: .readingAgent, label: Copy.Reading.pageTitle)
+                    SettingsInlineLink(home: .readingInBrowser, label: Copy.Reading.pageTitle)
                 }
             }
         }

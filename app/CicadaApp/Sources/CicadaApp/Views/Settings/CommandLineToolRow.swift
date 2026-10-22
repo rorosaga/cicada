@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// G180 unit 3 — Settings → Agents' *Command-line tool* row (TODO ruling 21; on General's Setup card until the Hyrum
+/// G180 unit 3 — the Agents page' *Command-line tool* row (TODO ruling 21; on General's Setup card until the Hyrum
 /// audit's B11, 2026-10-22). One neutral button (DR-40), shown
 /// only while there is something to link; the state in words beside it, never a promise the link can't keep; the one
 /// PATH line a person would copy in a `CommandBox` (DR-19); no card of its own — it sits in Agents' last card (DR-37).

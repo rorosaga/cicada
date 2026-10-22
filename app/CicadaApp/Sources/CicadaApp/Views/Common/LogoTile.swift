@@ -13,7 +13,7 @@ import SwiftUI
 /// The lookup order is DR-52's: the app installed on this Mac (`bundleId` — Apple's apps are never bundled, R-L3),
 /// then the bundled mark (`logo`, a slug in the shared set, resolved through `BrandMark` so `codex` draws OpenAI's
 /// mark), then a monogram of `name` for an agent the set has no mark for (CLAUDE.md's picture precedence ends there),
-/// then `systemFallback` when there is no name either.
+/// or `systemFallback` when the caller named a glyph.
 struct LogoTile: View {
     enum Density { case regular, dense }
 
@@ -21,7 +21,10 @@ struct LogoTile: View {
     var name: String = ""
     var bundleId: String? = nil
     var density: Density = .regular
-    var systemFallback: String = "app"
+    /// The glyph when there is no mark. Left at its default, a named row draws its monogram instead; a caller that
+    /// names a glyph (a device's laptop, a key, a link) gets the glyph.
+    var systemFallback: String = LogoTile.monogramFallback
+    static let monogramFallback = "app"
 
     static func tileSide(_ density: Density) -> CGFloat {
         CicadaTheme.scaled(density == .regular ? 36 : 24)
@@ -53,7 +56,7 @@ struct LogoTile: View {
         } else if let logo, LogoImage.exists(name: logo) {
             LogoImage(name: logo, size: mark)
                 .clipShape(CicadaTheme.shape(radius * (mark / tile)))
-        } else if !name.isEmpty {
+        } else if !name.isEmpty, systemFallback == Self.monogramFallback {
             Text(LogoImage.monogram(for: name))
                 .font(CicadaTheme.font(size: mark * 0.5, weight: .semibold))
                 .foregroundStyle(CicadaTheme.textSecondary)

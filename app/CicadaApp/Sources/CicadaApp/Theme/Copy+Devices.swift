@@ -1,12 +1,12 @@
 import Foundation
 
 /// G181 phase 3 — the words for where memory lives and for the person's devices (Settings →
-/// Devices & access). DR-59: sentence case, plain verbs. Provider-neutral (owner 2026-09-30): an overlay is "your own private
+/// Devices). DR-59: sentence case, plain verbs. Provider-neutral (owner 2026-09-30): an overlay is "your own private
 /// network", never a product's name — the person's own address is the only name shown. No file path or environment
 /// variable is shown (settings defaults, owner 2026-10-22); a device without the app is set up from headless.md.
 extension Copy {
     enum Devices {
-        // MARK: Settings → Devices & access — where your memory lives
+        // MARK: Settings → Devices — where your memory lives
         static let whereGroup = "Where your memory lives"
         static let modeTitle = "Memory on"
         static let thisMac = "This Mac"
@@ -56,11 +56,11 @@ extension Copy {
         static let queuedOffline = "The server isn't answering, so this waits on this Mac and is sent when it is back."
         static let demoStaysLocal = "The demo runs only when your memory lives on this Mac."
 
-        // MARK: Settings → Devices & access
-        /// Hyrum audit B1 (2026-10-22): From anywhere joined this page, so the name says both.
-        static let sidebar = "Devices & access"
-        /// The name until B1; Settings search still finds the page by it.
-        static let formerSidebar = "Devices"
+        // MARK: Settings → Devices
+        /// Ruling 36 D6 (2026-10-22): the page is "Devices" again; From anywhere is its folded last group.
+        static let sidebar = "Devices"
+        /// The name between B1 and D6; Settings search still finds the page by it.
+        static let formerSidebar = "Devices & access"
         static let subtitle = "Which of your devices and apps reach your memory"
         static let devicesGroup = "Your devices"
         static let connectionIndexTitle = "Server connection"
@@ -100,7 +100,7 @@ extension Copy {
         static let cancel = "Cancel"
         static let done = "Done"
         static let shownOnceTitle = "Copy this token now"
-        static let shownOnceDetail = "It is shown once. On that device, open Cicada → Settings → Devices & access → A server, and "
+        static let shownOnceDetail = "It is shown once. On that device, open Cicada → Settings → Devices → A server, and "
             + "paste this address and token."
         static let copy = "Copy"
         static let copied = "Copied"

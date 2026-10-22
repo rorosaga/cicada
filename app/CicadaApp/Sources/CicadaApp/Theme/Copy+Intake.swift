@@ -81,7 +81,7 @@ extension Copy {
     static let foundAgentDetail = "New sessions are remembered. Past ones stay."
     static let foundBrowserDetail = "Your bookmarks, and new ones as you save them"
     static let foundCursorDetail = "Opens Cursor to add Cicada"
-    static let foundClaudeDesktopDetail = "Finish in Settings → Agents"
+    static let foundClaudeDesktopDetail = "Finish on the Agents page"
     static let foundNeedsDiskAccess = "Needs Full Disk Access to read"
     static let foundCheckingApps = "Checking your AI apps…"
     static let foundCouldNotCheck = "Couldn't check this app in time. Try again."
@@ -96,13 +96,13 @@ extension Copy {
 
     // MARK: Honesty (Task 6, design §5.3) — ruling 4, said out loud
     static let afterImportWhenYouAsk = "Cicada reads these when you ask."
-    static let afterImportPlanWaits = "Scheduled reads never use a plan, so these wait until you read them. Read now, or choose another engine in Settings → Engines."
+    static let afterImportPlanWaits = "Scheduled reads never use a plan, so these wait until you read them. Read now, or choose another engine in Settings → Intelligence."
     static let afterImportWaits = "Nothing can read these on a schedule yet, so they wait until you read them."
     static func afterImportScheduled(when: String, engine: String) -> String { "Cicada reads these \(when), using \(engine)." }
     static let honestyPlanThenKey = "Your plan reads when you ask. Scheduled reads use your API key."
     static let honestyPlanThenOllama = "Your plan reads when you ask. Scheduled reads run on this Mac."
     static let honestyPlanBoth = "Your plan reads, when you ask and on a schedule."
-    static let honestyPlanOnly = "Plans read when you ask. Choose another engine in Settings → Engines to read on a schedule."
+    static let honestyPlanOnly = "Plans read when you ask. Choose another engine in Settings → Intelligence to read on a schedule."
     static let honestyOllama = "Reads on this Mac, whenever it runs. Nothing leaves this Mac."
     static let honestyKey = "Your key reads, when you ask and on a schedule. Your provider bills per use."
     static let honestyNothingYet = "Nothing can read yet. Choose who reads before the first read."

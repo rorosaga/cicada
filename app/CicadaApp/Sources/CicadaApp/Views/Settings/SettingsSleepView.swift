@@ -18,13 +18,12 @@ import SwiftUI
 /// picker's date (R-O10), and a schedule write refreshes `.status` so it
 /// follows at once.
 ///
-/// The engine moved to Settings → Engines (G139, A3); this page shows it
+/// The engine moved to Settings → Intelligence (G139, A3); this page shows it
 /// read-only — both ruling-4 previews, each wearing its engine's mark through
 /// `EngineChooser.previewRow` (a named service shows its real mark), and a
 /// pointer to where it changes.
 struct SettingsSleepView: View {
     @Environment(SleepViewModel.self) private var sleepVM
-    @Environment(SleepEngineViewModel.self) private var engineVM
     @Environment(Store.self) private var store
     @State private var mode: String = "manual"
     @State private var scheduleDate: Date = Self.defaultDate()
@@ -38,8 +37,16 @@ struct SettingsSleepView: View {
         return Calendar.current.date(from: comps) ?? Date()
     }
 
+    private var mood: BookwormState {
+        deriveSleepPageMood(status: sleepVM.status, debt: resolveSleepDebt(sse: nil, status: sleepVM.status),
+                            justFinishedAt: nil)
+    }
+
     var body: some View {
         SettingsPage(section: .sleep) {
+            // D6 (owner brief, 2026-10-22): the study room's preview at the top, the hours below. The engine and the
+            // scheduled-plan switch moved to Intelligence (ruling 4c's words unchanged there).
+            ScenerySettings(mood: mood, lampLit: sleepVM.schedule.enabled, part: .preview)
             // DR-38: the card's one row is already titled Runs, so the card carries no header repeating it.
             SettingsGroupCard {
                 // The four pills sit in the row's below slot, not beside the
@@ -84,37 +91,8 @@ struct SettingsSleepView: View {
                         .accessibilityIdentifier("sleep.scheduleWarning")
                 }
             }
-            // TODO ruling 4b (owner, 2026-10-16): the machine's switch, off by default; what it costs is said here.
-            SettingsGroupCard(header: Copy.ServerPlan.groupTitle) {
-                SettingsRow(.sleepUsePlan, title: Copy.ServerPlan.usePlanTitle,
-                            detail: usePlan ? Copy.ServerPlan.usePlanOnDetail : Copy.ServerPlan.usePlanOffDetail) {
-                    Toggle(Copy.ServerPlan.usePlanTitle, isOn: Binding(get: { usePlan }, set: { setUsePlan($0) }))
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                }
-                if sleepVM.runOptionsWriteFailed {
-                    Text(Copy.ServerPlan.writeFailed)
-                        .font(CicadaTheme.metaFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                }
-            }
-            // DR-38: the card's one row is already titled Engine, as Runs is.
-            SettingsGroupCard {
-                SettingsRow(.sleepEngine, title: Copy.sleepEngineRowTitle,
-                            control: { SettingsInlineLink(section: .engines, label: Copy.changeInEngines) },
-                            below: {
-                    if let preview = engineVM.response?.preview {
-                        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                            EngineChooser.previewRow(preview.manual, label: Copy.EngineMenu.whenYouStart)
-                            EngineChooser.previewRow(preview.scheduled, label: Copy.EngineMenu.scheduledCycles)
-                        }
-                    }
-                })
-            }
-            // The study room's look comes after what Sleep does (settings audit 2026-10-22).
-            ScenerySettings(mood: deriveSleepPageMood(status: sleepVM.status,
-                                                    debt: resolveSleepDebt(sse: nil, status: sleepVM.status),
-                                                    justFinishedAt: nil), lampLit: sleepVM.schedule.enabled)
+            // D6: where the scenery comes from follows the hours; the preview leads the page (above).
+            ScenerySettings(mood: mood, lampLit: sleepVM.schedule.enabled, part: .source)
             MascotSettings()
         }
         .task {
@@ -122,8 +100,6 @@ struct SettingsSleepView: View {
             loadedOnce = true
             await sleepVM.load()
             syncScheduleState()
-            if sleepVM.runOptions == nil { await sleepVM.loadRunOptions() }
-            if engineVM.response == nil { await engineVM.load() }
         }
         .onChange(of: sleepVM.schedule) { _, _ in syncScheduleState() }
     }
@@ -136,18 +112,6 @@ struct SettingsSleepView: View {
         comps.minute = sleepVM.schedule.minute
         if let d = Calendar.current.date(from: comps) {
             scheduleDate = d
-        }
-    }
-
-    private var usePlan: Bool { sleepVM.runOptions?.scheduledUsePlan ?? SleepRunOptions().scheduledUsePlan }
-
-    /// Ruling 4b: the switch is the machine's (`sleep_run_prefs`); the schedule's warning and the scheduled preview
-    /// both read it, so both are asked again once it is written.
-    private func setUsePlan(_ on: Bool) {
-        store.bankTask {
-            guard await sleepVM.updateRunOptions(.scheduledUsePlan(on)) else { return }
-            await sleepVM.load()
-            await engineVM.load()
         }
     }
 

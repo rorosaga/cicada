@@ -20,12 +20,12 @@ extension Copy {
         static func buttonAccessibility(_ label: String) -> String { "\(title): \(label)" }
         static let model = "Model"
         static let howAutoPicks = "How Auto picks"
-        /// R-HS11 — the one pair of preview labels, app-wide (the menu, Settings → Engines,
+        /// R-HS11 — the one pair of preview labels, app-wide (the menu, Settings → Intelligence,
         /// Settings → Sleep). Three places said it two ways before.
         static let whenYouStart = "When you start a cycle"
         static let scheduledCycles = "Scheduled cycles"
         static let writeFailed = "Couldn't change the engine — nothing changed."
-        static let moreInSettings = "More in Settings → Engines ›"
+        static let moreInSettings = "More in Settings → Intelligence ›"
         static let plansAndKeys = "Plans & keys ›"
         static let autoPrefix = "Auto"
         static func signInFirst(_ label: String) -> String { "Sign in on Plans & keys to use your \(label)" }

@@ -38,7 +38,7 @@ struct ClustersListColumn: View {
                             ListSkeleton(message: Copy.Lists.readingMemory)
                         case .empty:
                             EmptyStateView(title: "Nothing here yet", message: Copy.emptyGraphMessage,
-                                           actionLabel: "Open Integrations", settingsSection: .integrations)
+                                           actionLabel: "Open Sources", settingsSection: .page(.sources))
                         case .nothingInView:
                             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                                 Text(Copy.Lists.nothingInView)

@@ -8,7 +8,7 @@ Third-party skills installed on the person's consent, pinned to what they saw, a
 
 ## How to get to it (user POV)
 
-- Sidebar `Skills` (Installed, Discover, Drafts, Add a skill); Settings → Skills.
+- Sidebar `Skills` (Installed, Discover, Drafts, Add a skill); the Skills page.
 - MCP `cicada_skills`, `cicada_propose_skill`, `cicada_create_skill`.
 - `GET /skills`, `/skills/recommended`, `POST /skills/install`; `cicada skills list | propose | create | check | install ...`.
 

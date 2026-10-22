@@ -34,7 +34,6 @@ final class SettingsDefaultsTests: XCTestCase {
     func testAdvancedIsGoneAndASavedSelectionStillOpens() {
         XCTAssertFalse(SettingsSection.allCases.map(\.rawValue).contains("advanced"))
         XCTAssertEqual(SettingsSection.restored(from: "advanced"), .general)
-        XCTAssertEqual(SettingsGroup.enginesAndKeys.sections, [.engines])
     }
 
     func testTheRemovedRowsAreNeitherIndexedNorDrawn() throws {
@@ -116,10 +115,10 @@ final class SettingsDefaultsTests: XCTestCase {
     /// Each kept control: drawn on its page, and a plain search lands on it.
     func testEveryTrustControlIsStillDrawnAndFound() throws {
         let kept: [(id: SettingsRowID, section: SettingsSection, query: String)] = [
-            (.sleepUsePlan, .sleep, "scheduled runs may use my plan"),         // ruling 4c
-            (.engineChoice, .engines, "engine"),                                // ruling 31
-            (.engineOverage, .engines, "extra usage"),                          // ruling 15
-            (.engineAutoClaude, .engines, "claude plan"),
+            (.sleepUsePlan, .intelligence, "scheduled runs may use my plan"),  // ruling 4c
+            (.engineChoice, .intelligence, "engine"),                           // ruling 31
+            (.engineOverage, .intelligence, "extra usage"),                     // ruling 15
+            (.engineAutoClaude, .intelligence, "claude plan"),
             (.autoUpdate, .general, "install updates automatically"),           // G182
             (.bankExport, .privacy, "export"),
             (.bankDelete, .privacy, "delete a bank"),
@@ -133,16 +132,9 @@ final class SettingsDefaultsTests: XCTestCase {
             (.memoryHome, .devices, "server"),                                  // This Mac or a server
             (.devicesList, .devices, "revoke"),                                 // ruling 28
             (.remoteSwitch, .devices, "connector"),                             // G135
-            (.agentsEditors, .agents, "edit pages"),                            // G198
-            (.agentsAutoRecall, .agents, "add what cicada knows"),
-            (.readingAgent, .reading, "reading"),                               // G166
-            (.readingExploreSignedIn, .reading, "signed in"),
-            (.saveWhy, .integrations, "bookmark"),                              // G191
-            (.calendarApp, .integrations, "calendar"),
-            (.contactsApp, .integrations, "contacts"),
             (.scenerySource, .sleep, "weather"),                                // G176's consent
-            (.searchMeaning, .searchFiles, "understand what you mean"),         // a download is the person's click
-            (.searchImages, .searchFiles, "understand images"),
+            (.searchMeaning, .privacy, "understand what you mean"),             // a download is the person's click
+            (.searchImages, .privacy, "understand images"),
         ]
         let ids = Set(SettingsIndex.staticIDs)
         for row in kept {
@@ -152,6 +144,18 @@ final class SettingsDefaultsTests: XCTestCase {
             XCTAssertTrue(hits.contains(row.id) || hits.contains(SettingsIndex.entry(for: row.id, in: all)?.anchor ?? row.id),
                           "\"\(row.query)\" no longer finds \(row.id.rawValue)")
         }
+    }
+
+    /// D6 (2026-10-22): the trust controls that left Settings with their page keep a home there — the Agents page
+    /// (page edits, remembers automatically), the Sources page (reading, bookmarks' why, Calendar, Contacts).
+    func testEveryTrustControlThatLeftSettingsHasAHome() {
+        let moved: [(SettingsRowID, SettingsHome)] = [
+            (.agentsEditors, .page(.agents)), (.agentsAutoRecall, .page(.agents)), (.commandLineTool, .page(.agents)),
+            (.readingAgent, .readingInBrowser), (.readingExploreSignedIn, .readingInBrowser),
+            (.readingYouTube, .readingInBrowser), (.readingNeverExplore, .readingInBrowser),
+            (.saveWhy, .page(.sources)), (.calendarApp, .page(.sources)), (.contactsApp, .page(.sources)),
+        ]
+        for (row, home) in moved { XCTAssertEqual(SettingsIndex.retiredRows[row], home, row.rawValue) }
     }
 
     func testPrivacyStillExportsDeletesAndRemovesKeys() throws {

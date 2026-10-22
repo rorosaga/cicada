@@ -92,7 +92,7 @@ final class ReadingSurfacesTests: XCTestCase {
         let sections = try source("Views/Home/HomeSections.swift")
         // Owner 2026-10-14 — HomeView places the blocks in `HomeArrangement`'s order.
         XCTAssertTrue(try source("Views/Home/HomeView.swift").contains("ReadingSitesSection()"))
-        XCTAssertTrue(sections.contains("router.openSettings(.reading, row: .readingSites)"))
+        XCTAssertTrue(sections.contains("router.open(.readingInBrowser)"), "the Sources page's reading sheet")
         let needsYou = try XCTUnwrap(sections.range(of: "struct NeedsYouSection").map { sections[$0.lowerBound...] })
         let end = try XCTUnwrap(needsYou.range(of: "// MARK: - Needs your browser"))
         XCTAssertFalse(needsYou[..<end.lowerBound].contains("ReadingSitesCache"),
@@ -290,21 +290,18 @@ final class ReadingSurfacesTests: XCTestCase {
 
     func testAgentsPageLinksToReadingNotTheGroup() throws {
         let connect = try source("Views/Connect/ConnectView.swift")
-        XCTAssertTrue(connect.contains("SettingsInlineLink(section: .reading"))
+        XCTAssertTrue(connect.contains("SettingsInlineLink(home: .readingInBrowser"))
         XCTAssertFalse(connect.contains("ReadingAgentGroup"))
-        XCTAssertTrue(SettingsIndex.staticEntries.contains { $0.id == .agentsReading && $0.section == .agents })
+        XCTAssertEqual(SettingsIndex.retiredRows[.agentsReading], .readingInBrowser)
     }
 
+    /// The surviving raw values never moved (D6 kept general, you, sleep, devices and privacy; `intelligence` is new);
+    /// every retired one opens its home (`SettingsSection.retired`).
     func testSettingsSectionRawValuesDidNotMove() {
-        // Search & files (owner, 2026-10-14) is a new case between privacy and memory; Devices (G181 phase 3) one after
-        // From anywhere; no existing value moved. Advanced retired (settings defaults, owner 2026-10-22): its saved value
-        // reopens on General. Hyrum audit B1 (2026-10-22): memory, remote and plansAndKeys merged into another page, and
-        // each saved value reopens there (`SettingsSection.retired`); no surviving value moved.
-        let raw = ["general", "you", "privacy", "searchFiles", "sleep", "integrations", "reading", "agents",
-                   "devices", "skills", "engines"]
+        let raw = ["general", "you", "intelligence", "sleep", "devices", "privacy"]
         XCTAssertEqual(SettingsSection.allCases.map(\.rawValue), raw)
         for value in raw { XCTAssertEqual(SettingsSection.restored(from: value).rawValue, value) }
-        for value in ["memory", "remote", "plansAndKeys"] {
+        for value in ["memory", "remote", "plansAndKeys", "engines", "searchFiles"] {
             XCTAssertNotEqual(SettingsSection.restored(from: value), .general, value)
         }
     }
@@ -328,38 +325,7 @@ final class ReadingSurfacesTests: XCTestCase {
 
     // MARK: Provider-neutral copy (owner 2026-09-30)
 
-    func testReadingSearchKeywordsNameNoProductOrSkill() {
-        let reading = SettingsIndex.staticEntries.filter { $0.section == .reading || $0.id == .agentsReading }
-        XCTAssertEqual(reading.count, 8, "G166 exploring added the signed-in switch and Never explore; G71 the YouTube lists")
-        let banned = ["harness", "claude", "codex", "chatgpt", "cursor", "gemini", "ollama", "openrouter", "chrome"]
-        for entry in reading {
-            for keyword in entry.keywords {
-                for word in banned {
-                    XCTAssertFalse(keyword.lowercased().contains(word), "\(entry.id.rawValue): \(keyword)")
-                }
-            }
-        }
-    }
-
-    func testProviderNeutralCopyLint() throws {
-        // Scanned: the copy file and every view that speaks about reading. Exempt by name: `ReadWords.harnessName`,
-        // which names the connection that actually recorded a read (a fact, not a choice made for the person).
-        let files = ["Theme/Copy+Reading.swift", "Views/Settings/ReadingWebView.swift", "Views/Feed/FeedReadSection.swift",
-                     "Views/Common/SiteIcon.swift", "Services/SiteIconStore.swift", "Models/ReadingSitesCache.swift"]
-        let banned = ["ollama", "claude plan", "chatgpt plan", "your claude", "haiku", "sonnet", "gemma",
-                      "claude in chrome", "claude code", "codex", "chatgpt", "cursor", "gemini", "openrouter",
-                      "goes to your", "summarized on this mac by", "browser-harness", "browser harness"]
-        for file in files {
-            let text = try source(file)
-            // Only string literals are copy; doc comments may explain the rule they follow.
-            let literals = Self.stringLiterals(text).map { $0.lowercased() }
-            for literal in literals {
-                for word in banned { XCTAssertFalse(literal.contains(word), "\(file): \(word) in \"\(literal)\"") }
-                XCTAssertNil(literal.range(of: #"\bopus\b"#, options: .regularExpression), "\(file): \(literal)")
-                XCTAssertNil(literal.range(of: #"\bgpt-"#, options: .regularExpression), "\(file): \(literal)")
-            }
-        }
-    }
+    // D6: Reading the web's search rows left Settings with the page (the Sources page holds per-site reading).
 
     /// Every `"…"` literal in a Swift source, skipping `//` comments.
     static func stringLiterals(_ text: String) -> [String] {

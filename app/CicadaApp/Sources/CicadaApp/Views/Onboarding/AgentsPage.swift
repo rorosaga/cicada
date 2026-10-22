@@ -3,7 +3,7 @@ import SwiftUI
 /// F-04 (G145; owner: "the higgsfield … pattern … a checkmark next to the agent that was connected … multiple agents
 /// connected at the same time") — the selector of `AgentCatalog.featured` with a live ✓ (`AgentLiveProbe`, polled
 /// while this page shows, R-AG15), the chosen agent's numbered steps (`AgentSetupSteps`), and the pointer to
-/// Settings → Agents. Claude Code's and Codex's Connect for me also turns on Remembers automatically (R-OB12). The
+/// the Agents page. Claude Code's and Codex's Connect for me also turns on Remembers automatically (R-OB12). The
 /// probe belongs to the frame, so You're set reads its last answer. No made-up beliefs (R-OB13). DR-5, DR-7, DR-40,
 /// DR-44, DR-52.
 struct AgentsPage: View {
@@ -49,7 +49,7 @@ struct AgentsPage: View {
                     onOpenFromAnywhere: { _ = router.openSettings(.devices, row: .fromAnywhere) },
                     onCreateLink: { linkFor = $0 })
             }
-            // The pointer to Settings → Agents is the frame's foot line (`OnboardingView.footLine`), pinned under
+            // The pointer to the Agents page is the frame's foot line (`OnboardingView.footLine`), pinned under
             // the scroll; a second copy here said it twice on one screen (DR-38, QA 2026-10-16).
         }
         // R-AG15 — cancelled by SwiftUI when the page leaves, so nothing polls behind another page.

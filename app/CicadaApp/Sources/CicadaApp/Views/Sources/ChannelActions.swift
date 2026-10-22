@@ -17,8 +17,8 @@ enum ChannelActions {
     /// Which implementation a channel's "Sync now" runs.
     ///
     /// L final review (finding 1): the backend gives `folder:<id>` and
-    /// `wispr-flow` the action `sync`, but every surface outside Settings →
-    /// Integrations sent it to `BrowserImportActions.syncChannel`, whose
+    /// `wispr-flow` the action `sync`, but every surface outside the old
+    /// Integrations page sent it to `BrowserImportActions.syncChannel`, whose
     /// `default:` threw "Unknown channel folder:…" — an internal id in the
     /// person's face on the source page and the Feed strip, and a silent no-op
     /// on the card. `notes` and the three connectors fell through the same
@@ -68,7 +68,7 @@ enum ChannelActions {
         return nil
     }
 
-    /// Whether this row's settings live in Settings → Integrations rather than
+    /// Whether this row's settings live on the Sources page rather than
     /// behind a Feed `+` tile — a folder or Wispr Flow has no `AddSourceTile`,
     /// so "Manage…" on the Feed strip used to open the generic add-source
     /// sheet (L final review, finding 1).
@@ -79,11 +79,10 @@ enum ChannelActions {
         }
     }
 
-    /// Which Settings section manages it: a watched folder lives on Search & files (owner, 2026-10-14), every other
-    /// app-read source on Integrations.
-    static func settingsSection(for channelId: String) -> SettingsSection {
-        if case .folder = syncRoute(for: channelId) { return .searchFiles }
-        return .integrations
+    /// Where it is managed. D6 (2026-10-22): every app-read source, watched folders included, on the Sources page —
+    /// Integrations and Search & files left Settings.
+    static func settingsSection(for channelId: String) -> SettingsHome {
+        .page(.sources)
     }
 
     /// Track I T1 (R-IA2): a Sync now on a watched browser IS the consent, so it

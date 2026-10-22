@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Cicada implicit-recall hook (G149): the read side of G105's Stop hook.
 
-Registered by ``install.sh`` (and by the app's Settings → Agents → Remembers
+Registered by ``install.sh`` (and by the app's the Agents page → Remembers
 automatically) under ``hooks.SessionStart`` AND ``hooks.UserPromptSubmit`` in
 ``~/.claude/settings.json`` and ``~/.codex/hooks.json`` as::
 

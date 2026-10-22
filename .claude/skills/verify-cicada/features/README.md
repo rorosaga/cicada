@@ -81,7 +81,7 @@ code and docs but not yet driven: drive it before trusting it, and fix the file 
 | [Imports and intake](./imports-and-intake.md) | drop, File → Import, `cicada import` | 2026-10-22: preview, sniff and import over the app's route; fixed (CLI import is person-only) |
 | [Settings](./settings.md) | the Settings panel's sections (read only where they write the real home) | 2026-10-22: `cicada settings owner`; Plans & keys opened, read only |
 | [Local integrations](./integrations.md) | browsers, Calendar, Contacts, Messages, folders (read only) | 2026-10-22: a watched folder, Integrations and Search & memory read; fixed |
-| [Connect agents](./agents-connect.md) | Settings → Agents (read only) | 2026-10-22: `/agents/wiring`, Settings → Agents read; as written |
+| [Connect agents](./agents-connect.md) | the Agents page (read only) | 2026-10-22: `/agents/wiring`, the Agents page read; as written |
 | [From anywhere: remote connector and devices](./remote-and-devices.md) | the remote listener, OAuth, device tokens | 2026-10-22: status, a device token issued, used and revoked; the listener and OAuth cannot be driven |
 | [The `cicada` command](./cli-status.md) | status, commands, JSON envelope | 2026-10-22: `cicada status`, `cicada recall`, `sleep start` refused `person_only` |
 | [Usage, prices and contributors](./usage-and-contributors.md) | run detail, consumption, contributors | 2026-10-22: run detail, contributors, Past reads; as written |
