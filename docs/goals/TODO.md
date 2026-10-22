@@ -16,10 +16,19 @@
   exploration, the remote listener and OAuth, the bank menu without focus). One product defect found: G204 (`cicada_write_claim` names an
   id that is not on the page when it folds into Sleep's claim). `cv` no longer puts `CLAUDE_CODE_OAUTH_TOKEN` in the
   scratch backend's env: a 0600 file in the run dir, read into the engine's `claude` child by `plan-claude`, deleted and
-  masked at cleanup (`cv selftest` 85/85). `.github/workflows/dev-ci.yml` runs the backend crucial tier on pushes and
-  PRs to `dev` (258 passed on `ubuntu-latest`). A bank with no configured git identity commits as
-  `Cicada <cicada@localhost>` instead of the account's guessed name and host. Evidence:
+  masked at cleanup (`cv selftest` 87/87; `cv` also drops it from its own env, so no child of `cv` inherits it). `.github/workflows/dev-ci.yml` runs the backend crucial tier on pushes and
+  PRs to `dev` (260 passed on `ubuntu-latest`). A bank fills only the half of its git identity nobody configured with
+  `Cicada` / `cicada@localhost`, at startup and at every runtime switch, instead of the account's guessed name and host. Evidence:
   `~/cicada-harness-run-2026-10-22/round2-agents/`.
+- **2026-10-22 — a recall stays under the harness's result cap whatever the bank holds (branch `fix/recall-size`).**
+  On the live install a recall for a person's handle returned 221,719 characters (1,782 lines); Claude Code refuses an
+  MCP result over its cap, so the agent got only an error. Cause: the owner page's ~2,300 `related` ids printed on one
+  `Related:` line and Key Facts always kept whole. Now: `RECALL_BUDGET` 40,000 characters (20,000 remote, under its
+  24,000 cap), the `Related:` line at 12 names plus "… and N more" with the page-read call, Summary and Key Facts
+  cut at whole lines within the per-entity budget ("- … and N more on the full page"), the inbox block at 5 questions,
+  the cold-start hub list at 8,000, and a whole-result guard that leaves out the lowest-ranked pages first and names
+  them. Line shapes and headings unchanged; under the budget a reply is byte for byte what it was (golden passes).
+  Synthetic bank over MCP stdio: 149,058 characters before, 14,087 after (`cv mcp call cicada_recall`).
 - **2026-10-22 — the 0.6.0 release build type-checks on the runner (branch `fix/release-typecheck`).** Release run
   39714438472 failed: `SaveWhyPanel.swift:394` "unable to type-check this expression in reasonable time" on the
   macos-26 runner (it built on the dev Mac). A release build with `-warn-long-expression-type-checking=150` and
