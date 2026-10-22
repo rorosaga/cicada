@@ -769,6 +769,16 @@ or `updated` write queues anything. A job held back by Sleep, a re-embed or the 
 - **`CICADA_AWAKE_READ`** = `off` | `index` (step 0) | `on` (steps 0 and 1). When unset: step 0, plus step 1 when
   `awake_read.QUICK_READ_DEFAULT` says so. There is no Settings switch (owner D2). The suite's conftest sets `off`.
   The default was decided by `benchmarks/awake_bench.py` (the numbers are in the PR and below).
+- **Measured (2026-10-22, saga-01, Claude plan, haiku for answer, judge and quick read, 3 repeats, 12 questions;
+  11 answerable only from a new conversation, 1 control):** easy set (6 new conversations): (a) today **1/12** every
+  run (only the control), (b) step 0 **12/12** every run, (c) step 0 + 1 **12/12** every run. Hard variant (the same
+  plus 30 unslept distractors): (a) 1, 1, 1; (b) 12, 12, 12; (c) 12, 12, 12, and 12, 12, 12 again on the final ranking of the provisional block. Today's recall states the stale fact on
+  9–11 of 36 answers (contradicted); (b) and (c) on none. The quick read costs **1 call per conversation** (1.01 with one retry in 108), about
+  10.8k input tokens (mostly Stage 1's own prompt) and 1.0–1.6k output, 6–8 s. In the verify run, Sleep's settle
+  of one quick read was 3 confirmed, 1 corrected, 1 dropped. **(c) does not beat (b), so step 1 is built but off**
+  (`QUICK_READ_DEFAULT = False`): step 0 alone closes the measured gap. Revisit when a set where (b) is below its
+  ceiling exists (more new conversations than recall's 3 excerpt slots can hold on one topic, or questions that need
+  a fact joined across conversations).
 
 ### Sleep — 5-stage nightly batch
 1. **Entity & relationship extraction** — LLM over episode chunks, structured output.
