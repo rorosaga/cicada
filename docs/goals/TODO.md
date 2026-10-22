@@ -1301,3 +1301,54 @@ A whole row moves to DONE only after its remaining implementation and required a
     Decay is unchanged (classes, rulings 1 and 30). **3 — The notes field: not now.** Nothing new is read from a card
     beyond what G154 reads. **Revisit** the quiet rule if a measured bank shows imported pages the person did talk
     about staying quiet (the trigger: a page whose conversation Sleep read but did not credit to the page).
+34. **The video queue's lease findings, and which day an episode id carries (acting owner under the owner's standing
+    go, 2026-10-22; G162, the 2026-10-22 Hyrum audit A5).** #399 model-checked the lease lifecycle and left four
+    findings with strict-xfail repros (`api/tests/test_video_queue_formal.py`) and the decisions to the owner. Taken
+    as recommended: **F1 — a per-claim lease token.** `cicada_video_claim` hands each leased row a token; a release or
+    record ends a lease only with that row's token. Comparing session ids was model-checked and rejected (`F1s-*`): a
+    shared id lets one conversation release another's lease, and a caller with no stable id (the CLI, remote
+    connectors, other stdio harnesses) or a new id after a restart could never hand back its own (P13). A tokenless
+    release answers `not_yours` and the lease lapses on its own clock. This also closes **F5** (two remote
+    conversations sharing one session id). It changes the release contract, so the tool description and `mcp.md` say
+    it in the same PR. **F2 — a bug; fix it.** A stale saved snapshot must never drop a queued row (it is data loss,
+    however narrow the window). **F3 — accept.** A record written in the 0.1–3 s before the person queued the same
+    video does meet the request; take the microsecond `requested_at` only if a lease is ever seen ending because of it.
+    **F4 — cap a lease at three lease periods from its first claim.** A session that keeps calling no longer holds a
+    video forever; the cap is a constant beside `LEASE_MINUTES`. **A5 — an episode id carries the conversation's
+    local day** (the person's zone at the conversation's first turn), the rule every writer but the two hook writers
+    (`transcript_capture`, `telegram_capture`) already follows. Why: ruling "read on time" (2026-10-16) counts a
+    conversation as read the day it was said, and the person says days in their own zone; a UTC id dated words said on
+    the local 22nd as the 21st. Existing ids are never renamed; the two readers that take the day from the id
+    (`ask_sources`, `benchmarks/hard_questions`) read the episode's `timestamp` in the person's zone instead.
+    **Revisit** F3 if a lease is seen ending on an older record; A5 if a person who travels across zones finds a day
+    split wrong (the trigger for storing the zone on the episode).
+35. **The skill lifecycle: candidates in Cicada, a small proven set in the harness, retired when the model catches up
+    (owner question 2026-10-22, decided by the acting owner under the standing go; G112, G201).** The owner's worry:
+    "as Claude Code and the models improve, a skill that once patched a gap starts pulling agents back to outdated
+    behavior … the model absorbs what the harness used to patch, and the patch should then be deleted." The proposed
+    shape is adopted with five amendments. **1 — Three stages.** *Candidate*: lives only in Cicada (`skill_hold`, skill
+    pages, agent drafts) with the conversations it came from; never in a harness folder. *Promoted*: in the owner's
+    skills repo with an `evals/` folder (skill-creator's layout, runnable with `claude plugin eval`), installed through
+    the Skills page pinned to a commit (the existing consent rail). *Retired*: uninstalled from every harness; it stays
+    in the repo's history and in Cicada with the evidence that retired it, never deleted. **2 — The promotion gate**
+    is the skill's evals beating the no-skill baseline on the model the harness runs today, by more than the
+    run-to-run spread over at least three runs each — the owner eval moved ±4 of 60 between identical runs (#370), so
+    one run proves nothing. **3 — Proven-on.** Each promoted skill records the model id and Claude Code version it was
+    proven on in a sidecar beside its evals (`evals/proven.json`), not in `SKILL.md`, which stays portable. When
+    either changes, Cicada reruns that skill's evals with and without it (scheduled, on the plan per ruling 4c, one
+    batch per change); if the baseline is now within the spread of the skill, the inbox asks to retire it, one tap,
+    undoable. Never retired without the person. **4 — The usage signal** comes from the harness, not the model: the
+    Stop hook already keeps each agent turn's model and effort (ruling 11); it also keeps the names of skills that
+    turn invoked — names only, no arguments or output — and the telemetry ledger counts fires (ids and enums only). A
+    promoted skill unfired for 8 weeks gets a retire suggestion; a "keep" answer counts like a decay keep (`kept_on`),
+    so a rarely needed but critical skill (a release procedure) is asked once, not every week. **5 — Two kinds.**
+    Sleep tags a candidate `about-you` (the person's preferences, people, projects, their own workflows — what Cicada
+    is uniquely placed to know) or `generic` (how-to-code corrections, which models absorb fastest); the person can flip
+    it. A generic skill expires by default: it must re-pass its gate at each model change, and is proposed for
+    retirement 90 days after its last proof. About-you skills never expire by age; only usage or the person retires
+    them. **6 — A small installed set.** The Skills page shows the installed set's weight (descriptions' tokens loaded
+    every session) and asks before a promotion that takes the set past 12 per harness; by Hyrum's Law every installed
+    skill becomes behaviour agents lean on. **Also:** Cicada's skills inventory must see Claude Code plugins (their
+    skills and versions, read-only from the plugins' own manifests) before it can reason about the real harness —
+    the first slice of G201. **Revisit** the 8-week and 90-day figures after the first two model changes with the
+    sidecar in place; the cap of 12 if the owner's proven set outgrows it with evals still winning.
