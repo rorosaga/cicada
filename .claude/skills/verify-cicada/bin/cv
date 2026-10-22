@@ -1,0 +1,1233 @@
+#!/usr/bin/env python3
+"""verify-cicada: run Cicada end to end on scratch state, isolated from any live install.
+
+Every verb but `launch`, `residue` and `selftest` acts on one run, named on every call with `--run <dir>` or
+`CICADA_VERIFY_RUN=<dir>`; there is no fallback to a newest run. See ../SKILL.md for the verbs and what each proves.
+"""
+from __future__ import annotations
+
+import argparse
+import contextlib
+import datetime as dt
+import hashlib
+import json
+import os
+import pwd
+import re
+import queue
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import threading
+import time
+import unittest.mock
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+SKILL = Path(__file__).resolve().parent.parent
+RESERVED_PORTS = {8000, 8765}
+OWNER_BUNDLE_ID = "com.rorosaga.cicada"
+VERIFY_BUNDLE_PREFIX = "com.rorosaga.cicada.verify"
+VERIFY_APP_NAME = "Cicada Verify"
+RUN_ROOT = Path(os.environ.get("CICADA_VERIFY_ROOT") or Path(os.environ.get("TMPDIR", "/tmp")) / "cicada-verify")
+RUN_ID_RE = re.compile(r"[A-Za-z0-9.-]+")
+RUN_MARKER = ".cv-run"
+REAL_HOME = Path(pwd.getpwuid(os.getuid()).pw_dir)
+REAL_APP_SUPPORT = REAL_HOME / "Library/Application Support/Cicada"
+# The person's own state: a verify app holding a file open under any of these has escaped the scratch home.
+REAL_STATE_ROOTS = (REAL_HOME / ".cicada", REAL_HOME / "cicada", REAL_APP_SUPPORT)
+REAL_BUNDLE_SUPPORT_PREFIX = str(REAL_HOME / "Library/Application Support" / OWNER_BUNDLE_ID)
+# Buttons whose effect leaves the run (Gotchas in ../SKILL.md): the real account, login items, launchd, the harness
+# configs, TCC and Automation prompts, the person's browser. "Set up later" only dismisses the welcome screen.
+# "Restart Cicada" reopens the bundle with `open -n`, which drops the scratch home; "Update" runs an installer or
+# rewrites a harness hook; "Open in Cursor" writes Cursor's own config; "Remove bookmark" drives Chrome.
+FORBIDDEN_RE = re.compile(r"\b(dis)?connect\b|\bsign\s+(in|out)\b|\binstall\b|\bset\s+up\b(?!\s+later)|"
+                          r"\bturn\s+(on|off)\b|\bget\s+started\b|\bat\s+login\b|\bupdate\b|"
+                          r"\brestart\s+cicada\b|\bopen\s+in\s+cursor\b|\bsave\s+chats\s+on\s+their\s+own\b|"
+                          r"\bremove\s+bookmark\b|\ballow\s+contacts\b|\ballow\s*(\u2026|\.\.\.)", re.I)
+LSREGISTER = ("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/"
+              "lsregister")
+PLACEHOLDER_OWNER = "Verify Person"
+GIT_IDENTITY = {"GIT_AUTHOR_NAME": "Verify Run", "GIT_AUTHOR_EMAIL": "verify@example.invalid",
+                "GIT_COMMITTER_NAME": "Verify Run", "GIT_COMMITTER_EMAIL": "verify@example.invalid"}
+
+
+def die(message: str, code: int = 1) -> None:
+    print(f"cv: {message}", file=sys.stderr)
+    sys.exit(code)
+
+
+def valid_run_id(run_id: str) -> bool:
+    """Exactly the characters a bundle id component allows, so the verify bundle id is the run id itself."""
+    return bool(RUN_ID_RE.fullmatch(run_id)) and run_id not in (".", "..")
+
+
+def forbidden(text: str) -> str | None:
+    m = FORBIDDEN_RE.search(text)
+    return m.group(0) if m else None
+
+
+def now_id() -> str:
+    return dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
+def git(checkout: Path | str, *args: str) -> str:
+    return subprocess.run(["git", "-C", str(checkout), *args], capture_output=True, text=True).stdout
+
+
+def toplevel(path: Path) -> Path:
+    out = subprocess.run(["git", "-C", str(path), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    if out.returncode != 0:
+        die(f"{path} is not inside a git checkout")
+    return Path(out.stdout.strip()).resolve()
+
+
+def tree_state(checkout: Path | str) -> dict:
+    """HEAD plus one hash over what `git status`, `git diff HEAD` and the untracked files say, so an edit made after
+    launch or build shows up even when HEAD did not move."""
+    h = hashlib.sha256()
+    h.update(git(checkout, "status", "--porcelain").encode())
+    h.update(git(checkout, "diff", "HEAD", "--binary").encode())
+    for rel in git(checkout, "ls-files", "-z", "-o", "--exclude-standard").split("\0"):
+        if rel:
+            p = Path(checkout) / rel
+            h.update(rel.encode())
+            if p.is_file():
+                h.update(hashlib.sha256(p.read_bytes()).digest())
+    return {"head": git(checkout, "rev-parse", "HEAD").strip(), "tree": h.hexdigest()[:16]}
+
+
+def python_for(checkout: Path) -> Path:
+    """The checkout's venv, else its main checkout's (worktrees share one venv), else CICADA_VERIFY_PYTHON."""
+    override = os.environ.get("CICADA_VERIFY_PYTHON")
+    if override:
+        return Path(override)
+    own = checkout / "api/.venv/bin/python"
+    if own.exists():
+        return own
+    common = Path(git(checkout, "rev-parse", "--path-format=absolute", "--git-common-dir").strip())
+    shared = common.parent / "api/.venv/bin/python"
+    if shared.exists():
+        return shared
+    die("no Python venv: run ./install.sh in the main checkout, or set CICADA_VERIFY_PYTHON")
+    raise AssertionError
+
+
+def free_port(avoid: set[int] = frozenset()) -> int:
+    while True:
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        if port not in RESERVED_PORTS and port not in avoid:
+            return port
+
+
+def port_busy(port: int) -> bool:
+    with socket.socket() as s:
+        return s.connect_ex(("127.0.0.1", port)) == 0
+
+
+# --- the run record -----------------------------------------------------------------------------------------------
+
+def run_dir(args) -> Path:
+    explicit = getattr(args, "run", None) or os.environ.get("CICADA_VERIFY_RUN")
+    if not explicit:
+        die("name the run: --run <dir> or CICADA_VERIFY_RUN=<dir> (the path `cv launch` printed). Shell state does "
+            "not carry between an agent's Bash calls, so pass it on every call.")
+    path = Path(explicit).expanduser().resolve()
+    if path.parent != RUN_ROOT.resolve():
+        die(f"{path} is not a run directory directly under {RUN_ROOT.resolve()}")
+    if not (path / RUN_MARKER).is_file() or not (path / "run.json").is_file():
+        die(f"{path} has no {RUN_MARKER} and run.json written by `cv launch`")
+    if (path / RUN_MARKER).read_text().strip() != path.name:
+        die(f"{path}/{RUN_MARKER} names another run")
+    return path
+
+
+def load(args) -> dict:
+    return json.loads((run_dir(args) / "run.json").read_text())
+
+
+def save(run: dict) -> None:
+    path = Path(run["run_dir"]) / "run.json"
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(run, indent=2, sort_keys=True))
+    tmp.replace(path)
+
+
+# Passed through only when the caller's shell has it, and never written to run.json, evidence or a log: the plan's
+# headless sign-in (`claude setup-token`), the one way Sleep reaches the plan on a Linux box with no keychain.
+PASSTHROUGH_SECRETS = ("CLAUDE_CODE_OAUTH_TOKEN",)
+
+
+def env_for(run: dict, *, extra: dict | None = None) -> dict:
+    """The one environment every process of a run gets. Nothing from the caller's shell leaks through except PATH,
+    the temp dir, the locale, the user name and PASSTHROUGH_SECRETS."""
+    base = {k: os.environ[k] for k in ("PATH", "TMPDIR", "LANG", "LC_ALL", "TERM", "USER", "LOGNAME")
+            if k in os.environ}
+    base.update({k: os.environ[k] for k in PASSTHROUGH_SECRETS if os.environ.get(k)})
+    base.update(run["env"])
+    if extra:
+        base.update(extra)
+    return base
+
+
+def token(run: dict) -> str:
+    return (Path(run["env"]["CICADA_HOME"]) / "api_token").read_text().strip()
+
+
+def http(run: dict, method: str, path: str, body=None, *, auth: bool = True, timeout: float = 30.0):
+    url = f"http://127.0.0.1:{run['port']}{path}"
+    data = None if body is None else json.dumps(body).encode()
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("Content-Type", "application/json")
+    if auth:
+        req.add_header("Authorization", f"Bearer {token(run)}")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode()
+            return resp.status, (json.loads(raw) if raw.strip().startswith(("{", "[")) else raw)
+    except urllib.error.HTTPError as err:
+        raw = err.read().decode()
+        try:
+            return err.code, json.loads(raw)
+        except ValueError:
+            return err.code, raw
+
+
+def evidence(run: dict, name: str) -> Path:
+    root = Path(run["evidence_dir"]).resolve()
+    path = (root / name).resolve()
+    if path == root or not path.is_relative_to(root):
+        die(f"{name!r} leaves the evidence dir {root}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def record(run: dict, name: str, payload) -> Path:
+    path = evidence(run, name)
+    path.write_text(payload if isinstance(payload, str) else json.dumps(payload, indent=2, sort_keys=True))
+    return path
+
+
+def proc_command(pid: int) -> str:
+    return subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+
+
+def alive(pid: int | None) -> bool:
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def ours(run: dict, role: str) -> int | None:
+    """The recorded pid for ``role``, only while it is alive AND its command line still carries the marker recorded at
+    spawn, so a recycled pid is never treated as ours."""
+    entry = run.get("pids", {}).get(role)
+    if not entry or not alive(entry["pid"]):
+        return None
+    return entry["pid"] if entry["marker"] in proc_command(entry["pid"]) else None
+
+
+def stop_pid(pid: int, label: str) -> None:
+    """Every process cv starts leads its own session, so its group id is its pid."""
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(pid, sig)
+        except ProcessLookupError:
+            return
+        for _ in range(50):
+            try:
+                os.waitpid(pid, os.WNOHANG)  # our own child stays a zombie, alive to kill(0), until reaped
+            except ChildProcessError:
+                pass
+            if not alive(pid):
+                print(f"stopped {label} ({pid})")
+                return
+            time.sleep(0.2)
+    print(f"{label} ({pid}) survived SIGKILL", file=sys.stderr)
+
+
+def stop_role(run: dict, role: str) -> None:
+    pid = ours(run, role)
+    if pid:
+        stop_pid(pid, role)
+
+
+# --- launch / doctor / cleanup ------------------------------------------------------------------------------------
+
+def cmd_launch(args) -> None:
+    run_id = args.run_id or now_id()
+    if not valid_run_id(run_id):
+        die(f"--run-id {run_id!r}: use letters, digits, '.' and '-' only")
+    checkout = toplevel(Path(args.checkout).expanduser()) if args.checkout else toplevel(Path.cwd())
+    for needed in ("api/main.py", "mcp/server.py", "app/CicadaApp/bundle.sh", "VERSION"):
+        if not (checkout / needed).exists():
+            die(f"{checkout} is not a Cicada checkout (no {needed})")
+    if (checkout / "api/.env").exists():
+        die(f"{checkout}/api/.env exists: the backend would read it (api/settings_file.py). Run from a checkout "
+            "without one (a fresh worktree has none).")
+    real_claude = shutil.which("claude")
+    if not real_claude:
+        die("`claude` is not on PATH: the Sleep engine runs the Claude plan through it")
+    port = args.port or free_port()
+    if port in RESERVED_PORTS:
+        die(f"port {port} is reserved for the person's own install")
+    if port_busy(port):
+        die(f"port {port} is already taken")
+    remote_port = free_port({port})
+    RUN_ROOT.mkdir(parents=True, exist_ok=True)
+    rdir = RUN_ROOT.resolve() / run_id
+    evid = Path(args.evidence or os.environ.get("CICADA_VERIFY_EVIDENCE")
+                or REAL_HOME / "cicada-verify-evidence" / run_id).expanduser().resolve()
+    if evid.is_relative_to(rdir):
+        die(f"--evidence {evid} is inside the run dir, which cleanup deletes")
+    try:
+        rdir.mkdir(exist_ok=False)
+    except FileExistsError:
+        die(f"{rdir} already exists; pick another --run-id")
+    if rdir.parent != RUN_ROOT.resolve():
+        die(f"{rdir} is not directly under {RUN_ROOT.resolve()}")
+    (rdir / RUN_MARKER).write_text(run_id + "\n")
+    for sub in ("home", "cicada-home", "memory", "logs", "bin"):
+        (rdir / sub).mkdir()
+    evid.mkdir(parents=True, exist_ok=True)
+    py = python_for(checkout)
+    state = tree_state(checkout)
+    run = {
+        "run_id": run_id, "run_dir": str(rdir), "evidence_dir": str(evid), "worktree": str(checkout),
+        "skill": str(SKILL), "head": state["head"], "tree": state["tree"],
+        "version": (checkout / "VERSION").read_text().strip(), "python": str(py), "port": port,
+        "remote_port": remote_port, "search_model": bool(args.search_model),
+        "bundle_id": f"{VERIFY_BUNDLE_PREFIX}.{run_id}",
+        "started_at": dt.datetime.now().isoformat(timespec="seconds"), "pids": {},
+        "env": {
+            "HOME": str(rdir / "home"), "CICADA_HOME": str(rdir / "cicada-home"),
+            "CICADA_MEMORY_PATH": str(rdir / "memory"), "CICADA_PORT": str(port), "PYTHONPATH": str(checkout),
+            "CICADA_REMOTE_PORT": str(remote_port), "CLAUDE_CONFIG_DIR": str(rdir / "home/.claude"),
+            "LITELLM_MODE": "PRODUCTION",
+            "CICADA_LLM_MODE": "agent", "CICADA_AGENT_MODEL": "haiku", "CICADA_AGENT_DISAMBIGUATION_MODEL": "haiku",
+            "CICADA_WEB_CHECK_AGENT_MODEL": "haiku", "CICADA_CLAUDE_CLI": str(SKILL / "bin/plan-claude"),
+            "CICADA_VERIFY_REAL_CLAUDE": real_claude, "CICADA_VERIFY_MODEL": "haiku",
+            "CICADA_ALLOW_CONNECTOR_FETCH": "off", "CICADA_ALLOW_LOGO_FETCH": "off", "CICADA_ALLOW_FEED_FETCH": "off",
+            "OMP_NUM_THREADS": "4", "TOKENIZERS_PARALLELISM": "false", "HF_HUB_OFFLINE": "1",
+            **GIT_IDENTITY,
+        },
+    }
+    save(run)
+    if args.search_model:
+        cache = RUN_ROOT / "_cache/release"
+        cache.mkdir(parents=True, exist_ok=True)
+        fetch = subprocess.run([str(checkout / "scripts/fetch-embedding-model.sh"), str(rdir / "cicada-home/models")],
+                               env=env_for(run, extra={"CICADA_RELEASE_CACHE": str(cache), "HF_HUB_OFFLINE": "0"}),
+                               capture_output=True, text=True)
+        (rdir / "logs/search-model.log").write_text(fetch.stdout + fetch.stderr)
+        if fetch.returncode != 0:
+            die(f"search model fetch failed; see {rdir}/logs/search-model.log")
+    log = open(rdir / "logs/backend.log", "ab")
+    argv = [str(py), "-m", "uvicorn", "api.main:app", "--host", "127.0.0.1", "--port", str(port)]
+    proc = subprocess.Popen(argv, cwd=checkout, env=env_for(run), stdout=log, stderr=subprocess.STDOUT,
+                            stdin=subprocess.DEVNULL, start_new_session=True)
+    run["pids"]["backend"] = {"pid": proc.pid, "marker": f"--port {port}", "argv": argv}
+    save(run)
+
+    def fail(message: str) -> None:
+        stop_role(run, "backend")
+        die(f"{message}; the backend was stopped. The run dir stays for `cv cleanup --run {rdir}`.")
+
+    deadline = time.time() + args.timeout
+    health = None
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            fail(f"backend exited with {proc.returncode}; see {rdir}/logs/backend.log")
+        try:
+            code, health = http(run, "GET", "/healthz", timeout=3)
+        except (urllib.error.URLError, ConnectionError, FileNotFoundError, socket.timeout):
+            time.sleep(0.5)
+            continue
+        if (code == 200 and isinstance(health, dict) and health.get("memoryRoot") == run["env"]["CICADA_MEMORY_PATH"]
+                and health.get("bankId") and (health.get("entityCount") or 0) >= 1):
+            break
+        time.sleep(0.5)
+    else:
+        fail(f"backend not usable after {args.timeout}s (last /healthz: {health})")
+    code, _ = http(run, "GET", "/status")
+    if code != 200:
+        fail(f"/status answered {code}")
+    if not args.no_owner:
+        code, owner = http(run, "PUT", "/settings/owner", {"name": PLACEHOLDER_OWNER})
+        if code != 200:
+            fail(f"PUT /settings/owner answered {code}: {owner}")
+        record(run, "launch/owner.json", owner)
+    if subprocess.run(["git", "-C", run["env"]["CICADA_MEMORY_PATH"], "rev-parse", "HEAD"],
+                      capture_output=True).returncode != 0:
+        fail("the scratch bank has no first commit")
+    record(run, "launch/healthz.json", health)
+    print(json.dumps({"run": str(rdir), "evidence": str(evid), "checkout": str(checkout), "port": port,
+                      "backend_pid": proc.pid, "bank_id": health["bankId"], "memory_root": health["memoryRoot"],
+                      "version": health.get("version")}, indent=2))
+    print(f"\nexport CICADA_VERIFY_RUN={rdir}")
+
+
+def check(rows: list, ok: bool, what: str, detail: str = "") -> None:
+    rows.append((ok, what, detail))
+
+
+def cmd_doctor(args) -> None:
+    run = load(args)
+    rows: list = []
+    port = run["port"]
+    pid = ours(run, "backend")
+    check(rows, pid is not None, "backend pid alive and ours", str(run["pids"].get("backend", {}).get("pid")))
+    listener = subprocess.run(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"], capture_output=True,
+                              text=True).stdout.split()
+    check(rows, pid is not None and str(pid) in listener, f"port {port} owned by our backend", ",".join(listener))
+    check(rows, port not in RESERVED_PORTS, "port is not 8000/8765", str(port))
+    if pid:
+        cwd = subprocess.run(["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"], capture_output=True,
+                             text=True).stdout.splitlines()
+        cwd = next((line[1:] for line in cwd if line.startswith("n")), "")
+        check(rows, Path(cwd).resolve() == Path(run["worktree"]).resolve(), "backend runs from the run's checkout", cwd)
+    try:
+        code, health = http(run, "GET", "/healthz", timeout=5)
+    except Exception as exc:  # noqa: BLE001
+        code, health = None, {"error": str(exc)}
+    full = isinstance(health, dict) and "memoryRoot" in health
+    check(rows, code == 200 and full, "token admitted (full /healthz)", str(code))
+    if full:
+        check(rows, health["memoryRoot"] == run["env"]["CICADA_MEMORY_PATH"], "root is the scratch root",
+              health["memoryRoot"])
+        check(rows, Path(health["memoryPath"]).resolve().is_relative_to(Path(run["run_dir"]).resolve()),
+              "active bank is inside the run", health["memoryPath"])
+        check(rows, health.get("version") == (Path(run["worktree"]) / "VERSION").read_text().strip(),
+              "version is the checkout's", str(health.get("version")))
+    state = tree_state(run["worktree"])
+    check(rows, state["head"] == run["head"], "checkout HEAD unchanged since launch", state["head"][:12])
+    check(rows, state["tree"] == run["tree"], "checkout files unchanged since launch (status + diff hash)",
+          f"{state['tree']} vs {run['tree']}")
+    plan = subprocess.run([run["env"]["CICADA_CLAUDE_CLI"], "auth", "status", "--json"], capture_output=True, text=True,
+                          env=env_for(run))
+    try:
+        info = json.loads(plan.stdout or "{}")
+    except ValueError:
+        info = {}
+    check(rows, bool(info.get("loggedIn")) and info.get("authMethod") in ("claude.ai", "oauth_token"),
+          "Sleep engine: Claude plan reachable through plan-claude", str(info.get("authMethod")))
+    app = run.get("app")
+    if app:
+        bid = plist_get(app["path"], "CFBundleIdentifier")
+        check(rows, bid == run["bundle_id"] and bid != OWNER_BUNDLE_ID, "app bundle id is this run's verify id", bid)
+        stamped = plist_get(app["path"], "CicadaRepoRoot")
+        check(rows, bool(stamped) and Path(stamped).resolve() == Path(run["worktree"]).resolve(),
+              "app built from the run's checkout", stamped)
+        check(rows, app.get("head") == state["head"] and app.get("tree") == state["tree"],
+              "app build matches the checkout now (HEAD + files)", f"{app.get('head', '')[:12]} {app.get('tree')}")
+        if run["pids"].get("app"):
+            apid = ours(run, "app")
+            check(rows, apid is not None, "app pid alive and ours", str(run["pids"]["app"]["pid"]))
+            if apid:
+                leaks = real_state_paths(apid)
+                check(rows, not leaks, "app holds nothing open under the person's real Cicada state",
+                      "; ".join(leaks[:3]))
+    width = max(len(r[1]) for r in rows)
+    for ok, what, detail in rows:
+        print(f"{'ok  ' if ok else 'FAIL'}  {what.ljust(width)}  {detail}")
+    record(run, f"doctor/{now_id()}.txt", "\n".join(f"{'ok' if ok else 'FAIL'}\t{w}\t{d}" for ok, w, d in rows))
+    sys.exit(0 if all(r[0] for r in rows) else 1)
+
+
+def residue_paths(bundle_id: str | None = None) -> list[Path]:
+    """What macOS may keep per bundle id under the real ~/Library for a verify copy. Matched on the verify prefix (or
+    one run's id), which the person's own id can never equal."""
+    lib = REAL_HOME / "Library"
+    pattern = bundle_id or f"{VERIFY_BUNDLE_PREFIX}*"
+    globs = [f"Caches/{pattern}", f"HTTPStorages/{pattern}", f"HTTPStorages/{pattern}.binarycookies",
+             f"WebKit/{pattern}", f"Preferences/{pattern}.plist", f"Saved Application State/{pattern}.savedState",
+             f"Containers/{pattern}"]
+    found = {p for g in globs for p in lib.glob(g)}
+    return sorted(p for p in found if p.name.startswith(VERIFY_BUNDLE_PREFIX))
+
+
+def remove_residue(bundle_id: str | None = None) -> None:
+    for path in residue_paths(bundle_id):
+        if path.suffix == ".plist" and path.parent.name == "Preferences":
+            subprocess.run(["defaults", "delete", path.stem], capture_output=True)
+        assert path.name.startswith(VERIFY_BUNDLE_PREFIX)
+        shutil.rmtree(path) if path.is_dir() else path.unlink()
+        print(f"removed {path}")
+
+
+def cmd_residue(args) -> None:
+    if args.remove:
+        if not (getattr(args, "run", None) or os.environ.get("CICADA_VERIFY_RUN")):
+            die("--remove takes one run's files only: name it with --run <dir>; without a run, residue only lists")
+        run = load(args)
+        if ours(run, "app"):
+            die("that run's app is still running; `cv cleanup` it instead")
+        remove_residue(run["bundle_id"])
+    for path in residue_paths():
+        print(path)
+
+
+def cmd_cleanup(args) -> None:
+    rdir = run_dir(args)
+    run = json.loads((rdir / "run.json").read_text())
+    if not args.keep_state and Path(run["evidence_dir"]).resolve().is_relative_to(rdir):
+        die(f"the evidence dir {run['evidence_dir']} is inside the run dir; rerun with --keep-state")
+    snap = Path(run["evidence_dir"]) / "state-at-cleanup"
+    snap.mkdir(parents=True, exist_ok=True)
+    bank = Path(run["env"]["CICADA_MEMORY_PATH"])
+    if (bank / ".git").exists():
+        (snap / "bank-git-log.txt").write_text(git(bank, "log", "--format=%H%n%an <%ae>%n%s%n%b%n----"))
+    for src in ("run.json", "logs"):
+        target = rdir / src
+        if target.is_dir():
+            shutil.copytree(target, snap / src, dirs_exist_ok=True)
+        elif target.exists():
+            shutil.copy2(target, snap / src)
+    for role in ("app", "backend"):
+        entry = run["pids"].get(role)
+        if ours(run, role):
+            stop_role(run, role)
+        elif entry:
+            print(f"{role} ({entry['pid']}) not running or no longer ours; left alone")
+    leftovers = [r for r in run["pids"] if ours(run, r)]
+    if leftovers:
+        die(f"still running: {leftovers}")
+    if "app" in run:
+        subprocess.run([LSREGISTER, "-u", run["app"]["path"]], capture_output=True)
+        remove_residue(run["bundle_id"])
+    if args.keep_state:
+        print(f"state kept at {rdir}")
+    else:
+        shutil.rmtree(rdir)
+        print(f"removed {rdir}")
+    print(f"evidence kept at {run['evidence_dir']}")
+
+
+# --- drive: API, capture, Sleep, MCP, CLI -------------------------------------------------------------------------
+
+def cmd_api(args) -> None:
+    if not args.path.startswith("/"):
+        die(f"the path must start with '/': {args.path!r}")
+    run = load(args)
+    body = json.loads(args.body) if args.body else None
+    code, payload = http(run, args.method.upper(), args.path, body, timeout=args.timeout)
+    out = {"method": args.method.upper(), "path": args.path, "status": code, "body": payload}
+    if args.save:
+        record(run, args.save, out)
+    print(json.dumps(out, indent=2, sort_keys=True))
+    sys.exit(0 if code and code < 400 else 1)
+
+
+def cmd_capture(args) -> None:
+    run = load(args)
+    messages = [{"speaker": "user", "text": args.user}]
+    if args.assistant:
+        messages.append({"speaker": "assistant", "text": args.assistant})
+    body = {"harness": args.harness, "session_id": args.session, "turn_id": args.turn or f"t{int(time.time() * 1000)}",
+            "messages": messages}
+    code, payload = http(run, "POST", "/capture/turn", body)
+    out = {"request": body, "status": code, "response": payload}
+    landed = code == 200 and isinstance(payload, dict) and payload.get("status") in ("created", "updated", "unchanged")
+    if landed:
+        record(run, f"capture/{args.session}-{body['turn_id']}.json", out)
+    print(json.dumps(out, indent=2))
+    sys.exit(0 if landed else 1)
+
+
+def _field(d: dict, snake: str):
+    camel = re.sub(r"_([a-z])", lambda m: m.group(1).upper(), snake)
+    return d.get(snake, d.get(camel))
+
+
+def cmd_sleep(args) -> None:
+    run = load(args)
+    _, before = http(run, "GET", "/sleep/status")
+    waiting = (_field(before.get("debt") or {}, "unprocessed_count") or 0) if isinstance(before, dict) else 0
+    code, started = http(run, "POST", "/sleep/trigger", {})
+    if code != 200 or started.get("status") not in ("started", "already_running"):
+        die(f"trigger answered {code}: {started}")
+    print(f"sleep {started.get('status')}: {waiting} episode(s) waiting")
+    deadline = time.time() + args.timeout
+    status: dict = {}
+    last = None
+    while time.time() < deadline:
+        time.sleep(3)
+        _, status = http(run, "GET", "/sleep/status")
+        line = (status.get("status"), status.get("stage"), status.get("progress"))
+        if line != last:
+            print("  ", status.get("status"), status.get("stage"), (status.get("progress") or "")[:200])
+            last = line
+        if status.get("status") != "running":
+            break
+    else:
+        die(f"Sleep still running after {args.timeout}s")
+    record(run, "sleep/status.json", status)
+    bank = run["env"]["CICADA_MEMORY_PATH"]
+    log = git(bank, "log", "--format=%h %an%n  %s%n%(trailers:only,unfold)", "-n", "30")
+    record(run, "sleep/bank-git-log.txt", log)
+    pages = sorted(p.name for p in Path(bank, "entities").glob("*.md"))
+    record(run, "sleep/entities.txt", "\n".join(pages))
+    print(log)
+    print("entities:", ", ".join(pages))
+    processed = _field(status, "episodes_processed") or 0
+    requeued = _field(status, "episodes_requeued") or 0
+    left = _field(status.get("debt") or {}, "unprocessed_count")
+    warning = _field(status, "index_warning")
+    expected_warning = bool(warning) and not run.get("search_model") and "meaning" in warning.lower()
+    problems = []
+    if status.get("status") not in ("idle", "completed", "done"):
+        problems.append(f"ended {status.get('status')}")
+    if status.get("error"):
+        problems.append(f"error: {status['error']}")
+    if status.get("paused"):
+        problems.append(f"paused: {status['paused']}")
+    if _field(status, "cancelled"):
+        problems.append("cancelled")
+    if processed < waiting:
+        problems.append(f"processed {processed} of {waiting} waiting")
+    if requeued:
+        problems.append(f"{requeued} requeued")
+    if left:
+        problems.append(f"{left} still unprocessed")
+    if warning and not expected_warning:
+        problems.append(f"warning: {warning}")
+    print(f"processed {processed}, requeued {requeued}, left {left}, warning: "
+          f"{warning or 'none'}{' (expected without --search-model)' if expected_warning else ''}")
+    if problems:
+        die("Sleep did not complete cleanly: " + "; ".join(problems))
+
+
+def mcp_session(run: dict, requests: list[dict], *, transcript: Path, timeout: float) -> list[dict]:
+    """The real stdio path: spawn mcp/server.py, `initialize`, `notifications/initialized`, then each request."""
+    env = env_for(run, extra={"CICADA_SESSION_ID": f"verify-{run['run_id']}", "CICADA_SESSION_HARNESS": "verify"})
+    stderr_path = transcript.with_suffix(".stderr.txt")
+    with open(stderr_path, "w") as err:
+        proc = subprocess.Popen([run["python"], str(Path(run["worktree"]) / "mcp/server.py")], cwd=run["run_dir"],
+                                env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err, text=True,
+                                start_new_session=True)
+    replies: queue.Queue = queue.Queue()
+
+    def pump() -> None:
+        for out in proc.stdout:
+            replies.put(out)
+        replies.put(None)
+
+    threading.Thread(target=pump, daemon=True).start()
+    lines: list[str] = []
+    answers: list[dict] = []
+
+    def read_line(deadline: float) -> str:
+        try:
+            out = replies.get(timeout=max(deadline - time.time(), 0))
+        except queue.Empty:
+            raise TimeoutError(f"no MCP answer within {timeout}s; stderr: {stderr_path}") from None
+        if out is None:
+            raise RuntimeError(f"MCP server closed stdout; stderr: {stderr_path}")
+        return out
+
+    def send(msg: dict, expect: bool) -> dict | None:
+        raw = json.dumps(msg)
+        lines.append(f">>> {raw}")
+        proc.stdin.write(raw + "\n")
+        proc.stdin.flush()
+        if not expect:
+            return None
+        deadline = time.time() + timeout
+        while True:
+            out = read_line(deadline)
+            lines.append(f"<<< {out.rstrip()}")
+            try:
+                reply = json.loads(out)
+            except ValueError:
+                continue
+            if isinstance(reply, dict) and reply.get("id") == msg["id"]:
+                return reply
+
+    try:
+        answers.append(send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                             "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                                        "clientInfo": {"name": "verify-cicada", "version": "1"}}}, True))
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"}, False)
+        for i, req in enumerate(requests, start=2):
+            answers.append(send({"jsonrpc": "2.0", "id": i, **req}, True))
+    except (TimeoutError, RuntimeError) as exc:
+        lines.append(f"!!! {exc}")
+        transcript.write_text("\n".join(lines) + "\n")
+        stop_pid(proc.pid, "mcp server")
+        die(str(exc))
+    finally:
+        try:
+            proc.stdin.close()
+        except BrokenPipeError:
+            pass
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            stop_pid(proc.pid, "mcp server")
+        transcript.write_text("\n".join(lines) + "\n")
+    return answers
+
+
+def cmd_mcp(args) -> None:
+    run = load(args)
+    if args.verb in ("list", "schema"):
+        reqs = [{"method": "tools/list", "params": {}}]
+    elif args.verb == "call":
+        if not args.tool:
+            die("mcp call needs a tool name")
+        reqs = [{"method": "tools/call", "params": {"name": args.tool, "arguments": json.loads(args.arguments or "{}")}}]
+    else:
+        reqs = []
+    name = args.save or f"mcp/{now_id()}-{args.tool or args.verb}.jsonl"
+    answers = mcp_session(run, reqs, transcript=evidence(run, name), timeout=args.timeout)
+    last = answers[-1]
+    if args.verb == "list":
+        print("\n".join(t["name"] for t in last["result"]["tools"]))
+    elif args.verb == "schema":
+        tool = next((t for t in last["result"]["tools"] if t["name"] == args.tool), None)
+        if tool is None:
+            die(f"no tool {args.tool}")
+        print(json.dumps(tool["inputSchema"], indent=2))
+    elif args.verb == "call":
+        for block in last.get("result", {}).get("content", []):
+            print(block.get("text", block))
+        if "error" in last:
+            print(json.dumps(last["error"]))
+    else:
+        print(json.dumps(last["result"].get("serverInfo")), "\n", (last["result"].get("instructions") or "")[:4000])
+    print(f"\ntranscript: {evidence(run, name)}", file=sys.stderr)
+    sys.exit(1 if "error" in last or last.get("result", {}).get("isError") else 0)
+
+
+def cmd_cli(args) -> None:
+    """The `cicada` command as an agent's shell runs it: the harness marker `require_person` reads is set, so
+    commands that act as the person refuse here exactly as they do from any agent."""
+    run = load(args)
+    argv = [run["python"], "-P", "-m", "api.cli", *args.rest]
+    env = env_for(run, extra={"CICADA_SESSION_HARNESS": "verify", "CICADA_SESSION_ID": f"verify-{run['run_id']}"})
+    proc = subprocess.run(argv, cwd=run["run_dir"], env=env, capture_output=True, text=True, timeout=args.timeout)
+    out = {"argv": ["cicada", *args.rest], "exit": proc.returncode, "stdout": proc.stdout, "stderr": proc.stderr}
+    record(run, args.save or f"cli/{now_id()}-{'_'.join(args.rest[:2]) or 'help'}.json", out)
+    sys.stdout.write(proc.stdout)
+    sys.stderr.write(proc.stderr)
+    sys.exit(proc.returncode)
+
+
+def cmd_bank(args) -> None:
+    run = load(args)
+    bank = run["env"]["CICADA_MEMORY_PATH"]
+    if args.verb == "log":
+        out = git(bank, "log", "--format=%h %an <%ae>%n  %s%n%(trailers:only,unfold)")
+    elif args.verb == "ls":
+        out = "\n".join(str(p.relative_to(bank)) for p in sorted(Path(bank).rglob("*.md")) if ".git" not in p.parts)
+    else:
+        if not args.path:
+            die("bank cat needs a path inside the bank")
+        target = (Path(bank) / args.path).resolve()
+        if not target.is_relative_to(Path(bank).resolve()):
+            die("path leaves the bank")
+        out = target.read_text()
+    if args.save:
+        record(run, args.save, out)
+    print(out)
+
+
+# --- the app ------------------------------------------------------------------------------------------------------
+
+def plist_get(app_path: str, key: str) -> str:
+    return subprocess.run(["plutil", "-extract", key, "raw", f"{app_path}/Contents/Info.plist"], capture_output=True,
+                          text=True).stdout.strip()
+
+
+def app_home(run: dict) -> Path:
+    return Path(run["env"]["HOME"])
+
+
+def is_real_state(path: str) -> bool:
+    return (path.startswith(REAL_BUNDLE_SUPPORT_PREFIX)
+            or any(path == str(root) or path.startswith(f"{root}/") for root in REAL_STATE_ROOTS))
+
+
+def real_state_paths(pid: int) -> list[str]:
+    """Paths the process holds open under the person's real ~/.cicada, ~/cicada, Application Support/Cicada or
+    Application Support/com.rorosaga.cicada*."""
+    out = subprocess.run(["lsof", "-n", "-p", str(pid), "-Fn"], capture_output=True, text=True).stdout
+    return sorted({line[1:] for line in out.splitlines() if line.startswith("n") and is_real_state(line[1:])})
+
+
+def cmd_app(args) -> None:
+    run = load(args)
+    {"build": app_build, "launch": app_launch, "windows": app_windows, "shot": app_shot, "click": app_click,
+     "path": app_path, "containment": app_containment}[args.verb](run, args)
+
+
+def app_build(run: dict, args) -> None:
+    src_dir = Path(run["worktree"]) / "app/CicadaApp"
+    log = Path(run["run_dir"]) / "logs/app-build.log"
+    state = tree_state(run["worktree"])
+    with open(log, "w") as fh:
+        res = subprocess.run(["./bundle.sh"], cwd=src_dir, stdout=fh, stderr=subprocess.STDOUT)
+    bin_dir = subprocess.run(["swift", "build", "--show-bin-path"], cwd=src_dir, capture_output=True,
+                             text=True).stdout.strip()
+    built = Path(bin_dir) / "Cicada.app"
+    dest = Path(run["run_dir"]) / "app" / f"{VERIFY_APP_NAME}.app"
+    try:
+        if res.returncode != 0:
+            die(f"bundle.sh failed ({res.returncode}); see {log}. A stale .build with old paths: rm -rf "
+                f"{src_dir}/.build in that checkout only and rebuild.")
+        if dest.exists():
+            shutil.rmtree(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(built, dest, symlinks=True)
+    finally:
+        # bundle.sh's own output carries the person's bundle id; never leave it registered or lying around.
+        if built.exists():
+            subprocess.run([LSREGISTER, "-u", str(built)], capture_output=True)
+            shutil.rmtree(built)
+    plist = dest / "Contents/Info.plist"
+    for key, value in (("CFBundleIdentifier", run["bundle_id"]), ("CFBundleName", VERIFY_APP_NAME),
+                       ("CFBundleDisplayName", VERIFY_APP_NAME)):
+        subprocess.run(["plutil", "-replace", key, "-string", value, str(plist)], check=True)
+    lsenv = {k: run["env"][k] for k in ("CICADA_HOME", "CICADA_PORT", "CICADA_MEMORY_PATH", "HOME")}
+    lsenv["CFFIXED_USER_HOME"] = run["env"]["HOME"]
+    subprocess.run(["plutil", "-replace", "LSEnvironment", "-json", json.dumps(lsenv), str(plist)], check=True)
+    bid = plist_get(str(dest), "CFBundleIdentifier")
+    if bid != run["bundle_id"] or bid == OWNER_BUNDLE_ID:
+        die(f"refusing: the copy carries bundle id {bid}")
+    winctl = Path(run["run_dir"]) / "bin/winctl"
+    subprocess.run(["swiftc", "-O", "-o", str(winctl), str(SKILL / "bin/winctl.swift")], check=True,
+                   capture_output=True)
+    run["app"] = {"path": str(dest), "bundle_id": bid, "head": state["head"], "tree": state["tree"],
+                  "built_at": dt.datetime.now().isoformat(timespec="seconds"), "winctl": str(winctl)}
+    save(run)
+    print(json.dumps(run["app"], indent=2))
+
+
+def app_windows_json(run: dict) -> list[dict]:
+    pid = ours(run, "app")
+    if not pid:
+        return []
+    out = subprocess.run([run["app"]["winctl"], "windows", str(pid)], capture_output=True, text=True)
+    return json.loads(out.stdout or "[]")
+
+
+def main_window(run: dict) -> dict | None:
+    wins = app_windows_json(run)
+    return max(wins, key=lambda w: w["width"] * w["height"]) if wins else None
+
+
+def containment_sample(run: dict, pid: int, label: str) -> list[str]:
+    leaks = real_state_paths(pid)
+    lsof = subprocess.run(["lsof", "-n", "-p", str(pid), "-Fn"], capture_output=True, text=True).stdout
+    library = sorted({ln[1:] for ln in lsof.splitlines() if ln.startswith("n") and
+                      ln[1:].startswith(str(REAL_HOME / "Library"))})
+    record(run, f"app/containment/lsof-{label}.txt",
+           f"pid {pid}\nopen under the real ~/Library:\n" + "\n".join(library) +
+           f"\n\nopen under the person's real Cicada state ({len(leaks)}):\n" + "\n".join(leaks) + "\n")
+    return leaks
+
+
+def app_launch(run: dict, args) -> None:
+    if "app" not in run:
+        die("build first: cv app build")
+    if ours(run, "app"):
+        die(f"the verify app is already running ({run['pids']['app']['pid']})")
+    if not ours(run, "backend"):
+        die("the run's backend is not running; the app would find no backend on its port")
+    exe = Path(run["app"]["path"]) / "Contents/MacOS/CicadaApp"
+    scratch_support = app_home(run) / "Library/Application Support/Cicada"
+    marker = Path(run["run_dir"]) / "logs/app-launch.marker"
+    marker.write_text(dt.datetime.now().isoformat())
+    log = open(Path(run["run_dir"]) / "logs/app.log", "ab")
+    env = env_for(run, extra={"CFFIXED_USER_HOME": run["env"]["HOME"]})
+    proc = subprocess.Popen([str(exe)], cwd=run["run_dir"], env=env, stdout=log, stderr=subprocess.STDOUT,
+                            stdin=subprocess.DEVNULL, start_new_session=True)
+    run["pids"]["app"] = {"pid": proc.pid, "marker": str(exe), "argv": [str(exe)]}
+    save(run)
+
+    def refuse(why: str) -> None:
+        stop_role(run, "app")
+        die(f"app launch refused and the app stopped: {why}")
+
+    deadline = time.time() + args.timeout
+    win = None
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            die(f"app exited with {proc.returncode}; see {run['run_dir']}/logs/app.log")
+        if real_state_paths(proc.pid):
+            containment_sample(run, proc.pid, "launch-leak")
+            refuse("it opened a file under the person's real Cicada state (~/.cicada, ~/cicada or Application Support)")
+        win = win or ((w := main_window(run)) and w["width"] > 400 and w)
+        if win and (scratch_support / "cache").is_dir():
+            break
+        time.sleep(0.5)
+    else:
+        if not win:
+            refuse(f"no window after {args.timeout}s (a TCC prompt may be blocking it; screenshot the screen)")
+        refuse(f"its cache never appeared under the scratch home ({scratch_support}/cache), so CFFIXED_USER_HOME "
+               "did not redirect Application Support; the app half of a verify run is unavailable on this Mac")
+    if containment_sample(run, proc.pid, "launch"):
+        refuse("it holds a file under the person's real Cicada state (~/.cicada, ~/cicada or Application Support)")
+    print(json.dumps({"app_pid": proc.pid, "window": win, "scratch_support": str(scratch_support)}, indent=2))
+
+
+def app_containment(run: dict, args) -> None:
+    """Evidence that the verify app stays inside the run: an lsof sample, the scratch home's Application Support, and
+    what changed under the real Application Support/Cicada since launch (names and times only, never contents)."""
+    pid = ours(run, "app")
+    leaks = containment_sample(run, pid, now_id()) if pid else []
+    scratch = app_home(run) / "Library/Application Support/Cicada"
+    listing = sorted(str(p.relative_to(scratch)) for p in scratch.rglob("*")) if scratch.exists() else []
+    record(run, f"app/containment/scratch-home-{now_id()}.txt", "\n".join(listing) + "\n")
+    marker = Path(run["run_dir"]) / "logs/app-launch.marker"
+    changed = []
+    if marker.exists() and REAL_APP_SUPPORT.exists():
+        changed = subprocess.run(["find", str(REAL_APP_SUPPORT), "-newer", str(marker)], capture_output=True,
+                                 text=True).stdout.split("\n")
+        changed = [c for c in changed if c]
+    _, health = http(run, "GET", "/healthz")
+    bank = health.get("bankId") if isinstance(health, dict) else None
+    ours_bank = [c for c in changed if bank and f"/cache/{bank}" in c]
+    record(run, f"app/containment/real-newer-{now_id()}.txt",
+           f"changed under the real Application Support/Cicada since app launch ({len(changed)}); the person's own "
+           f"app may write its own bank's cache in this window:\n" + "\n".join(changed) +
+           f"\n\nof which under cache/{bank} (this run's bank id): {len(ours_bank)}\n" + "\n".join(ours_bank) + "\n")
+    print(json.dumps({"app_pid": pid, "open_under_real": leaks, "scratch_files": len(listing),
+                      "real_changed_since_launch": len(changed), "real_changed_under_run_bank_id": ours_bank},
+                     indent=2))
+    sys.exit(1 if leaks or ours_bank or not listing else 0)
+
+
+def app_windows(run: dict, args) -> None:
+    print(json.dumps(app_windows_json(run), indent=2))
+
+
+def app_shot(run: dict, args) -> None:
+    win = main_window(run)
+    if not win:
+        die("the verify app has no on-screen window")
+    path = evidence(run, f"app/{args.name}.png")
+    subprocess.run(["screencapture", "-x", "-o", "-l", str(win["id"]), str(path)], check=True)
+    print(path)
+
+
+def app_click(run: dict, args) -> None:
+    pid = ours(run, "app")
+    if not pid:
+        die("the verify app is not running")
+    win = main_window(run)
+    if not win or not (0 <= args.x < win["width"] and 0 <= args.y < win["height"]):
+        die(f"({args.x}, {args.y}) is outside the verify app's window {win and (win['width'], win['height'])}")
+    if not args.allow_forbidden:
+        label = subprocess.run([run["app"]["winctl"], "label", str(pid), str(args.x), str(args.y)],
+                               capture_output=True, text=True)
+        if label.returncode != 0:
+            die(f"could not read the element at ({args.x}, {args.y}), so nothing was clicked: {label.stderr.strip()}")
+        if hit := forbidden(label.stdout):
+            die(f"refused: the element at ({args.x}, {args.y}) reads {label.stdout.strip()!r}, a {hit!r} button "
+                "writes the real account (SKILL.md, Gotchas)")
+    subprocess.run([run["app"]["winctl"], "click", str(pid), str(args.x), str(args.y)], check=True)
+
+
+def app_path(run: dict, args) -> None:
+    """The verify copy's path for `macos-harness --app`, printed only while OUR instance runs: the harness starts an
+    app that is not running, and that start would be outside this run."""
+    if "app" not in run or not ours(run, "app"):
+        die("the verify app is not running; launch it with `cv app launch` first")
+    print(run["app"]["path"])
+
+
+def cmd_deny(args) -> None:
+    if hit := forbidden(args.text):
+        die(f"refused: {args.text.strip()[:160]!r} reads {hit!r}, a button whose effect leaves the run "
+            "(SKILL.md, Gotchas)")
+
+
+# --- selftest -----------------------------------------------------------------------------------------------------
+
+def selftest_guards() -> list[tuple]:
+    """The guards that need no server: the forbidden-button check (cv deny and harness.sh's vclick against a stubbed
+    harness), evidence names confined to the evidence dir, and run ids that are exactly a bundle id component."""
+    rows = []
+    for label, want in (("7 button Description: Disconnect, Help: Signs out", True), ("button Connect", True),
+                        ("button Sign in", True), ("button Sign Out", True), ("button Install", True),
+                        ("button Set up", True), ("button Turn on", True), ("button Get started", True),
+                        ("toggle Open Cicada at login", True), ("button Turn off", True), ("button Update", True),
+                        ("button Update all", True), ("button Restart to update", True),
+                        ("button Restart Cicada", True), ("button Open in Cursor", True),
+                        ("button Save chats on their own", True), ("button Remove bookmark\u2026", True),
+                        ("button Allow Contacts", True), ("button Allow\u2026", True),
+                        ("12 button Description: Projects,", False), ("button Set up later", False),
+                        ("text Connected", False), ("button Description: Integrations,", False),
+                        ("button Restart tour", False), ("button Check for Updates\u2026", False),
+                        ("button Allow your agent to use your browser", False)):
+        rows.append((bool(forbidden(label)) == want, f"deny {label!r}", "refused" if want else "allowed", ""))
+    stub_vh = ('. "$HARNESS"; vh() { if [ "$1" = get_app_state ]; then printf "%s\\n" "$LINE"; '
+               'else echo CLICKED "$@"; fi; }; vclick "$@"')
+    for shell in ("bash", "zsh"):
+        if not shutil.which(shell):
+            continue
+        for line, argv, want in (("7 button Description: Disconnect,", ["Disconnect"], False),
+                                 ("7 button Description: Disconnect,", ["--allow-forbidden", "Disconnect"], True),
+                                 ("9 button Set up later", ["Set up later"], True),
+                                 ("12 button Description: Projects,", ["Projects"], True)):
+            cmd = [shell, "-f", "-c", stub_vh, "vclick", *argv] if shell == "zsh" else [shell, "-c", stub_vh, "vclick", *argv]
+            res = subprocess.run(cmd, capture_output=True, text=True,
+                                 env={"PATH": os.environ["PATH"], "HARNESS": str(SKILL / "bin/harness.sh"),
+                                      "CV": str(Path(__file__).resolve()), "LINE": line})
+            clicked = "CLICKED click --element_index" in res.stdout
+            rows.append((clicked == want and (want or "refused" in res.stderr), f"{shell} vclick {' '.join(argv)}",
+                         "clicked" if want else "refused", (res.stderr.strip() or res.stdout.strip())[:110]))
+    evid = Path(os.environ.get("TMPDIR", "/tmp")) / f"cv-selftest-evidence-{os.getpid()}"
+    for name, want in (("api/graph.json", True), ("/tmp/x.json", False), ("../x.json", False),
+                       ("app/../../x.png", False), ("capture/../../../etc/x", False), (".", False)):
+        try:
+            with open(os.devnull, "w") as quiet, contextlib.redirect_stderr(quiet):
+                evidence({"evidence_dir": str(evid)}, name)
+            ok = want
+        except SystemExit:
+            ok = not want
+        rows.append((ok, f"evidence name {name!r}", "kept" if want else "refused", ""))
+    shutil.rmtree(evid, ignore_errors=True)
+    fake = {"env": {"HOME": "/scratch"}}
+    with unittest.mock.patch.dict(os.environ, {"CLAUDE_CODE_OAUTH_TOKEN": "cv-selftest-not-a-token"}):
+        passed = env_for(fake).get("CLAUDE_CODE_OAUTH_TOKEN") == "cv-selftest-not-a-token"
+    rows.append((passed and "CLAUDE_CODE_OAUTH_TOKEN" not in fake["env"], "env passes CLAUDE_CODE_OAUTH_TOKEN",
+                 "passed, not in run.json", ""))
+    with unittest.mock.patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+        absent = "CLAUDE_CODE_OAUTH_TOKEN" not in env_for(fake)
+    rows.append((absent, "env without CLAUDE_CODE_OAUTH_TOKEN", "absent", ""))
+    for run_id, want in (("my-check.2", True), ("a_b", False), ("a\n", False), ("..", False), ("a/b", False),
+                         ("", False)):
+        rows.append((valid_run_id(run_id) == want, f"run id {run_id!r}", "accepted" if want else "refused", ""))
+    for rel, want in ((".cicada/api_token", True), ("cicada/memory/x.md", True),
+                      ("Library/Application Support/Cicada/cache/x.json", True),
+                      ("Library/Application Support/com.rorosaga.cicada.app/x", True),
+                      ("cicada-harness-run-2026-10-22/x.png", False), ("cicada-verify-evidence/x", False),
+                      ("Library/Application Support/CicadaOther/x", False)):
+        rows.append((is_real_state(str(REAL_HOME / rel)) == want, f"leak check ~/{rel}", "flagged" if want else "ignored",
+                     ""))
+    return rows
+
+
+def cmd_selftest(args) -> None:
+    """plan-claude against the engine's real argv: every forbidden shape refused, the engine's shapes accepted. The
+    'real claude' here is a stub that prints its argv, so no model is called. Then the guards no server needs."""
+    checkout = toplevel(Path(args.checkout).expanduser()) if args.checkout else toplevel(Path.cwd())
+    py = python_for(checkout)
+    probe = subprocess.run([str(py), "-c", (
+        "import json; from api.services import agent_engine as e; from api.services.connections import base as b\n"
+        "print(json.dumps({'pinned': list(e.PINNED_FLAGS), 'scrub': list(b.SCRUBBED_ENV_KEYS),\n"
+        " 'plain': e.build_argv(model='haiku', system_prompt='sys', binary='X'),\n"
+        " 'full': e.build_argv(model='haiku', system_prompt='-sys', binary='X', effort='low',"
+        " json_schema={'type': 'object'}),\n"
+        " 'web': e.build_argv(model='haiku', system_prompt='sys', binary='X', tools=('WebSearch',))}))")],
+        cwd=checkout, env={"PATH": os.environ["PATH"], "PYTHONPATH": str(checkout), "LITELLM_MODE": "PRODUCTION",
+                           "HOME": os.environ.get("TMPDIR", "/tmp")}, capture_output=True, text=True)
+    if probe.returncode != 0:
+        die(f"could not import agent_engine: {probe.stderr[-800:]}")
+    eng = json.loads(probe.stdout)
+    shim = SKILL / "bin/plan-claude"
+    src = shim.read_text()
+    stub = Path(os.environ.get("TMPDIR", "/tmp")) / f"cv-selftest-stub-{os.getpid()}"
+    stub.write_text("#!/bin/sh\necho STUB-RAN \"$@\"\necho \"HOME=$HOME CFG=${CLAUDE_CONFIG_DIR:-unset} "
+                    "KEY=${ANTHROPIC_API_KEY:-unset}\"\n")
+    stub.chmod(0o755)
+    env = {"PATH": os.environ["PATH"], "CICADA_VERIFY_REAL_CLAUDE": str(stub), "CICADA_VERIFY_MODEL": "haiku",
+           "CICADA_CAPTURE": "off", "ANTHROPIC_API_KEY": "sk-test", "CLAUDE_CONFIG_DIR": "/nowhere"}
+    plain = eng["plain"][1:]
+    web = eng["web"][1:]
+    n = len(eng["pinned"])
+
+    def swap(argv: list[str], flag: str, value: str) -> list[str]:
+        at = argv.index(flag) + 1
+        return argv[:at] + [value] + argv[at + 1:]
+
+    cases = [
+        ("engine: plain call", plain, True),
+        ("engine: effort + json schema + dash prompt", eng["full"][1:], True),
+        ("engine: web search call", web, True),
+        ("auth status --json", ["auth", "status", "--json"], True),
+        ("auth status with extra args", ["auth", "status", "--json", "--verbose"], False),
+        ("auth login", ["auth", "login"], False),
+        ("no -p first", plain[1:] + ["-p"], False),
+        ("--setting-sources user", swap(plain, "--setting-sources", "user"), False),
+        ("--tools Bash", swap(plain, "--tools", "Bash"), False),
+        ("--tools WebSearch without --allowedTools", swap(plain, "--tools", "WebSearch"), False),
+        ("--allowedTools Bash", web[:n] + ["--allowedTools", "Bash"] + web[n + 2:], False),
+        ("--allowedTools on a no-tools call", plain[:n] + ["--allowedTools", "WebSearch"] + plain[n:], False),
+        ("--mcp-config", plain + ["--mcp-config", "x.json"], False),
+        ("--settings", plain + ["--settings", "{}"], False),
+        ("--plugin-dir", plain + ["--plugin-dir", "/x"], False),
+        ("--permission-mode", plain + ["--permission-mode", "bypassPermissions"], False),
+        ("--add-dir", plain + ["--add-dir", "/"], False),
+        ("--dangerously-skip-permissions", plain + ["--dangerously-skip-permissions"], False),
+        ("--system-prompt as two tokens", plain + ["--system-prompt", "x"], False),
+        ("model sonnet", swap(plain, "--model", "sonnet"), False),
+        ("no model", [a for a in plain if a not in ("--model", "haiku")], False),
+        ("missing --safe-mode", [a for a in plain if a != "--safe-mode"], False),
+        ("--effort with a flag", plain + ["--effort", "--bare"], False),
+        ("CICADA_CAPTURE not off", plain, "capture-on"),
+    ]
+    rows = []
+    for name, argv, want in cases:
+        case_env = {**env, "CICADA_CAPTURE": "on"} if want == "capture-on" else env
+        want = want is True
+        res = subprocess.run([str(shim), *argv], env=case_env, capture_output=True, text=True)
+        ran = res.returncode == 0 and ("STUB-RAN" in res.stdout or name.startswith("auth status"))
+        refused = res.returncode == 126
+        ok = ran if want else (refused and "STUB-RAN" not in res.stdout)
+        extra = ""
+        if want and "STUB-RAN" in res.stdout:
+            extra = res.stdout.strip().splitlines()[-1]
+            ok = ok and "CFG=unset" in extra and "KEY=unset" in extra and f"HOME={REAL_HOME}" in extra
+        rows.append((ok, name, "accepted" if want else "refused", (res.stderr.strip() or extra)[:110]))
+    missing_scrub = [k for k in eng["scrub"] if f'"{k}"' not in src]
+    rows.append((not missing_scrub, "shim strips every SCRUBBED_ENV_KEYS name", "", ",".join(missing_scrub)))
+    pinned_src = "PINNED_FLAGS = (" + ", ".join(json.dumps(a) for a in eng["pinned"]) + ",)"
+    shim_pinned = re.search(r"PINNED_FLAGS = \((.*?)\)\n", src, re.S)
+    shim_list = [json.loads(t) for t in re.findall(r'"[^"]*"', shim_pinned.group(1))] if shim_pinned else []
+    rows.append((shim_list == eng["pinned"], "shim PINNED_FLAGS equals agent_engine.PINNED_FLAGS", "",
+                 "" if shim_list == eng["pinned"] else pinned_src))
+    stub.unlink()
+    rows += selftest_guards()
+    width = max(len(r[1]) for r in rows)
+    for ok, name, want, detail in rows:
+        print(f"{'ok  ' if ok else 'FAIL'}  {name.ljust(width)}  {want:8}  {detail}")
+    sys.exit(0 if all(r[0] for r in rows) else 1)
+
+
+# --- entry --------------------------------------------------------------------------------------------------------
+
+def main() -> None:
+    run_opt = argparse.ArgumentParser(add_help=False)
+    run_opt.add_argument("--run", default=argparse.SUPPRESS,
+                         help="the run directory `cv launch` printed (or set CICADA_VERIFY_RUN)")
+    p = argparse.ArgumentParser(prog="cv", description=__doc__.splitlines()[0], parents=[run_opt])
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    s = sub.add_parser("launch", help="start a backend on scratch state and wait until it is usable")
+    s.add_argument("--run-id")
+    s.add_argument("--checkout", help="the Cicada checkout to run (default: the one holding the current directory)")
+    s.add_argument("--evidence", help="evidence dir (default: $CICADA_VERIFY_EVIDENCE, else ~/cicada-verify-evidence/<id>)")
+    s.add_argument("--port", type=int)
+    s.add_argument("--timeout", type=float, default=120)
+    s.add_argument("--search-model", action="store_true",
+                   help="fetch the pinned on-device search model into the run (cached under the run root)")
+    s.add_argument("--no-owner", action="store_true",
+                   help=f"leave the owner unnamed (default: named {PLACEHOLDER_OWNER!r})")
+    s.set_defaults(fn=cmd_launch)
+
+    s = sub.add_parser("doctor", parents=[run_opt], help="read-only: is this run worth driving?")
+    s.set_defaults(fn=cmd_doctor)
+
+    s = sub.add_parser("cleanup", parents=[run_opt], help="stop what this run started; evidence stays")
+    s.add_argument("--keep-state", action="store_true")
+    s.set_defaults(fn=cmd_cleanup)
+
+    s = sub.add_parser("residue", parents=[run_opt],
+                       help="verify app files left under the real ~/Library (verify bundle ids only)")
+    s.add_argument("--remove", action="store_true", help="remove the named run's files (needs --run)")
+    s.set_defaults(fn=cmd_residue)
+
+    s = sub.add_parser("deny", help="exit 1 when an element line reads like a button that writes the real account")
+    s.add_argument("text")
+    s.set_defaults(fn=cmd_deny)
+
+    s = sub.add_parser("selftest", help="prove plan-claude refuses every shape but the engine's")
+    s.add_argument("--checkout")
+    s.set_defaults(fn=cmd_selftest)
+
+    s = sub.add_parser("api", parents=[run_opt], help="one authenticated request to the run's backend")
+    s.add_argument("method")
+    s.add_argument("path")
+    s.add_argument("body", nargs="?")
+    s.add_argument("--save")
+    s.add_argument("--timeout", type=float, default=60)
+    s.set_defaults(fn=cmd_api)
+
+    s = sub.add_parser("capture", parents=[run_opt], help="one conversation turn through POST /capture/turn")
+    s.add_argument("--session", required=True, help="8 to 128 characters: letters, digits, '.', '_', '-'")
+    s.add_argument("--user", required=True)
+    s.add_argument("--assistant")
+    s.add_argument("--turn")
+    s.add_argument("--harness", default="cursor", choices=["cursor", "gemini-cli"])
+    s.set_defaults(fn=cmd_capture)
+
+    s = sub.add_parser("sleep", parents=[run_opt], help="trigger Sleep, wait for it, check it read everything")
+    s.add_argument("--timeout", type=float, default=900)
+    s.set_defaults(fn=cmd_sleep)
+
+    s = sub.add_parser("mcp", parents=[run_opt], help="the MCP server over stdio: initialize, then list or call")
+    s.add_argument("verb", choices=["init", "list", "schema", "call"])
+    s.add_argument("tool", nargs="?")
+    s.add_argument("arguments", nargs="?")
+    s.add_argument("--save")
+    s.add_argument("--timeout", type=float, default=120, help="seconds to wait for each answer")
+    s.set_defaults(fn=cmd_mcp)
+
+    s = sub.add_parser("cli", parents=[run_opt],
+                       help="the `cicada` command on this run: cv cli [--save NAME] [--timeout S] -- <cicada args>")
+    s.add_argument("--save")
+    s.add_argument("--timeout", type=float, default=300)
+    s.set_defaults(fn=cmd_cli)
+
+    s = sub.add_parser("bank", parents=[run_opt], help="read the scratch bank: log | ls | cat <path>")
+    s.add_argument("verb", choices=["log", "ls", "cat"])
+    s.add_argument("path", nargs="?")
+    s.add_argument("--save")
+    s.set_defaults(fn=cmd_bank)
+
+    s = sub.add_parser("app", help="the macOS app as a second, isolated instance")
+    appsub = s.add_subparsers(dest="verb", required=True)
+    appsub.add_parser("build", parents=[run_opt], help="bundle.sh, then a copy in the run stamped with its verify id")
+    a = appsub.add_parser("launch", parents=[run_opt], help="start the verify copy; refuses unless it stays contained")
+    a.add_argument("--timeout", type=float, default=60)
+    appsub.add_parser("containment", parents=[run_opt], help="lsof sample, scratch-home listing, real-folder changes")
+    appsub.add_parser("windows", parents=[run_opt], help="the verify app's on-screen windows (by pid)")
+    a = appsub.add_parser("shot", parents=[run_opt], help="screencapture -l of the verify app's main window")
+    a.add_argument("name")
+    a = appsub.add_parser("click", parents=[run_opt], help="a real click at window-relative points, verify app only")
+    a.add_argument("x", type=float)
+    a.add_argument("y", type=float)
+    a.add_argument("--allow-forbidden", action="store_true", help=argparse.SUPPRESS)
+    appsub.add_parser("path", parents=[run_opt], help="the verify copy's path for macos-harness --app (only while it runs)")
+    s.set_defaults(fn=cmd_app)
+
+    argv = sys.argv[1:]
+    cmd_at = None
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--run":
+            i += 2
+            continue
+        if not argv[i].startswith("-"):
+            cmd_at = i
+            break
+        i += 1
+    if cmd_at is not None and argv[cmd_at] == "cli":
+        rest = argv[cmd_at + 1:]
+        if "--" not in rest:
+            die("cv cli needs `--` before the cicada arguments: cv cli [--save NAME] -- <args>")
+        split = rest.index("--")
+        args = p.parse_args(argv[:cmd_at + 1] + rest[:split])
+        args.rest = rest[split + 1:]
+    else:
+        args = p.parse_args(argv)
+    args.fn(args)
+
+
+if __name__ == "__main__":
+    main()

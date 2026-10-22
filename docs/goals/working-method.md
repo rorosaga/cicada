@@ -99,7 +99,13 @@ with the rail. Speed is a tiebreak, never the reason.
 Do not trust a remembered count. Compare the same command on a clean baseline in an isolated checkout when attribution is needed; preserve shared staged/unstaged work.
 
 Any additional failure needs attribution against the current baseline. Never `swift run` the app (bundle-less binary, window never becomes key);
-`make dev` is the only correct launch.
+`make dev` is the only correct launch of the person's own app.
+
+**Verifying a change end to end (2026-10-22).** `.claude/skills/verify-cicada/` runs the backend, the MCP server, a
+Sleep cycle (Claude plan, haiku), the CLI and a second copy of the app (a per-run bundle id, on a scratch home through
+`CFFIXED_USER_HOME`) on scratch state, never touching the live install, and keeps a feature map of every user-facing
+feature with its recipe. `--checkout <path>` runs another worktree's branch. Use it instead of driving the person's
+app or backend.
 
 **A Swift test that hangs inside an AppKit render is the machine, not the test (2026-10-20).** The first layer-backed
 `NSView` in an `xctest` process runs `+[NSApplication initialize]`, which opens the general pasteboard over a
