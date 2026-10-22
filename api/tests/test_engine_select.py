@@ -665,3 +665,16 @@ def test_powered_connection_reads_the_byok_pref_model_before_the_env_model():
     # A model slot written for another mode never leaks into the byok answer.
     stale = {"sleep-engine": {"mode": "local", "model": "openrouter/x"}}
     assert pick(Settings(llm_mode="byok"), _FakeRegistry(prefs=stale), {"byok-openai", "byok-openrouter"}) == "byok-openai"
+
+
+def test_a_new_install_never_adopts_a_local_model_started_later():
+    """Re-review 2026-10-22: a new install of this build never had a local rung. Its first start records `checked`, so
+    on a later start with a local model running and both plans signed out, the mode stays Auto."""
+    reg = _Prefs(connected=set())
+    assert asyncio.run(engine_select.retire_auto_local_rung(Settings(), reg, runner=_Cli(), new_install=True)) == "checked"
+    assert reg.prefs()["sleep-engine"][engine_select.AUTO_LOCAL_RECORD_KEY]["outcome"] == "checked"
+    reg._connected = {"ollama-local"}
+    assert _retire(Settings(), reg, _Cli()) is None
+    assert "mode" not in reg.prefs()["sleep-engine"]
+    assert engine_select.configured_mode(Settings(), reg) == "auto"
+    assert asyncio.run(engine_select.resolve_llm_mode(Settings(), reg, user_triggered=True))[0] == "auto"

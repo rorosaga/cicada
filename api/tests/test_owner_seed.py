@@ -239,3 +239,26 @@ def test_the_demo_bank_gets_no_schedule(tmp_path):
 
     slug = bank_registry.create_bank(tmp_path, "Demo", seed_owner=False)
     assert not (tmp_path / "banks" / slug / sleep_scheduler.SCHEDULE_FILE).exists()
+
+
+def test_a_first_boot_records_the_new_install_so_auto_never_adopts_a_local_model(tmp_path, monkeypatch):
+    """Re-review 2026-10-22 (ruling 36 D1): the boot that seeds a brand-new bank also records Auto's local-rung step as
+    `checked`, the same signal that writes the nightly schedule."""
+    import json
+
+    from api.services import engine_select
+    from api.services.connections import registry as connection_registry
+
+    root = tmp_path / "root"
+    root.mkdir()
+    monkeypatch.setenv("CICADA_MEMORY_ROOT", str(root))
+    monkeypatch.setenv("CICADA_API_AUTH", "off")
+    config.get_settings.cache_clear()
+    bank_index.invalidate()
+    with TestClient(main.app):
+        pass
+    prefs = json.loads((tmp_path / "home" / connection_registry.PREFS_FILE_NAME).read_text())
+    record = prefs[engine_select.SLEEP_ENGINE_PREF_KEY][engine_select.AUTO_LOCAL_RECORD_KEY]
+    assert record["outcome"] == "checked" and record["new_install"] is True
+    assert "mode" not in prefs[engine_select.SLEEP_ENGINE_PREF_KEY]
+

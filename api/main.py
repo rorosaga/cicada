@@ -200,7 +200,9 @@ async def lifespan(app: FastAPI):
     from api.services import engine_select
     from api.services.connections.registry import get_registry
 
-    asyncio.get_running_loop().create_task(engine_select.retire_auto_local_rung(settings, get_registry(settings)))
+    # A bank seeded this boot is a new install of this build: it never had a local rung, so it is only recorded.
+    asyncio.get_running_loop().create_task(engine_select.retire_auto_local_rung(
+        settings, get_registry(settings), new_install=seeded is not None))
 
     # G136: build or catch up the derived search index in the background, so
     # the first keystroke after launch finds it warm. Never blocks startup,

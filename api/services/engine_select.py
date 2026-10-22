@@ -603,7 +603,8 @@ def _codex_signed_in_definitely(runner, timeout: float) -> bool | None:
     return result.rc == 0
 
 
-async def retire_auto_local_rung(settings, registry, *, runner=None, timeout: float = 20.0) -> str | None:
+async def retire_auto_local_rung(settings, registry, *, runner=None, timeout: float = 20.0,
+                                 new_install: bool = False) -> str | None:
     """Ruling 36 D1, once per install: Auto no longer reaches a local model. A person whose Auto read through one —
     nothing chosen, no plan signed in, a local model running — keeps reading with it: their choice becomes an explicit
     ``local``, recorded (``AUTO_LOCAL_RECORD_KEY``, ``kept_local``) so Settings → Intelligence says so in one line,
@@ -614,11 +615,19 @@ async def retire_auto_local_rung(settings, registry, *, runner=None, timeout: fl
     background task). A cold-cache plan probe that times out or cannot be read must never pin a signed-in person to
     `local` for good, so any unsure answer returns without a record and the next start asks again. Returns
     ``"kept_local"``, ``"checked"``, or ``None`` (already done, pinned by the environment, or not sure yet). Never
-    raises."""
+    raises.
+
+    ``new_install`` (the lifespan's signal that this boot seeded a brand-new bank, the same one that writes the nightly
+    schedule): a new install of this build never had a local rung to keep, so it is recorded ``checked`` at once —
+    a local model started days later is never adopted as its default (ruling 36 D1)."""
     try:
         entry = registry.prefs().get(SLEEP_ENGINE_PREF_KEY) or {}
         if entry.get(AUTO_LOCAL_RECORD_KEY):
             return None
+        if new_install:
+            registry.set_pref(SLEEP_ENGINE_PREF_KEY, AUTO_LOCAL_RECORD_KEY,
+                              {"outcome": "checked", "on": datetime.now().date().isoformat(), "new_install": True})
+            return "checked"
         if hasattr(settings, "model_fields_set") and "llm_mode" in settings.model_fields_set:
             return None
         outcome = "checked"
