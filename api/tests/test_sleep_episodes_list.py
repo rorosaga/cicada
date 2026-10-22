@@ -156,3 +156,13 @@ def test_list_all_episodes_skips_a_file_gone_before_its_body_read(bank, monkeypa
     monkeypatch.setattr(sleep_cycle, "episode_headers", listing_then_delete)
     ids = [e["id"] for e in sleep_cycle.list_all_episodes(bank)]
     assert "ep_read_0" not in ids and len(ids) == 7
+
+
+def test_a_waiting_row_names_the_device_that_posted_it(bank):
+    """G212 — the Sleep page's machines strip opens each machine's own queue: a row carries its `device` id (None for
+    this server's own)."""
+    _episode(bank, "ep_wait_c", hours_ago=1, device="dev_laptop")
+    bank_index.invalidate()
+    rows = {row["id"]: row for row in TestClient(main.app).get("/sleep/episodes?processed=false").json()}
+    assert rows["ep_wait_c"]["device"] == "dev_laptop"
+    assert rows["ep_wait_a"]["device"] is None

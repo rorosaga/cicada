@@ -250,6 +250,9 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
 struct AddSourceSheet: View {
     var initialTile: AddSourceTile?
     let onClose: () -> Void
+    /// G217 — the catalogue is the Sources page now (one catalogue, ruling 36 D6): opened on a tile, the sheet is that
+    /// tile's flow alone, and leaving the flow closes it rather than showing the old families grid.
+    var flowOnly = false
 
     @Environment(Store.self) private var store
 
@@ -352,7 +355,7 @@ struct AddSourceSheet: View {
                             }
                         }
                     case .flow(let tile):
-                        backControl(parent: ImportFamily.forTile(tile).title, title: tile.title)
+                        if !flowOnly { backControl(parent: ImportFamily.forTile(tile).title, title: tile.title) }
                         flow(for: tile)
                     }
                     statusLine
@@ -449,6 +452,10 @@ struct AddSourceSheet: View {
     private func back() {
         error = nil
         result = nil
+        if flowOnly, case .flow = level {
+            onClose()
+            return
+        }
         switch level {
         case .families:
             return
@@ -499,7 +506,7 @@ struct AddSourceSheet: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                Text("Add a source")
+                Text(flowOnly ? (initialTile?.title ?? "Add a source") : "Add a source")
                     .font(CicadaTheme.titleFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                 Text("Anything you add lands in the queue for the next Sleep cycle.")
@@ -682,7 +689,7 @@ struct AddSourceSheet: View {
                 Text("One-way import from Notes.app. The first sync asks macOS for automation access — allow it once.")
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
-                Button("Sync now") { Task { await syncNotes() } }
+                Button("Refresh") { Task { await syncNotes() } }
                     .buttonStyle(.borderedProminent)
                     .disabled(busy)
                     .accessibilityLabel("Sync Apple Notes now")

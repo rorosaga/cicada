@@ -50,13 +50,15 @@ final class LogoImageTests: XCTestCase {
         defer { CicadaTheme.mode = saved }
 
         CicadaTheme.mode = .dark
-        XCTAssertEqual(LogoImage.resolvedName(for: "chatgpt"), "chatgpt-dark")
-        XCTAssertEqual(LogoImage.resolvedName(for: "x"), "x-dark")
+        XCTAssertEqual(LogoImage.resolvedName(for: "chatgpt"), "openai-dark")  // G217: OpenAI's one mark
+        XCTAssertEqual(LogoImage.resolvedName(for: "github"), "github-dark")
+        // G217: the set's X mark is its own black tile, legible in both themes — no sibling.
+        XCTAssertEqual(LogoImage.resolvedName(for: "x"), "x")
         // A colour mark has no sibling and must not be rewritten.
         XCTAssertEqual(LogoImage.resolvedName(for: "chrome"), "chrome")
 
         CicadaTheme.mode = .light
-        XCTAssertEqual(LogoImage.resolvedName(for: "chatgpt"), "chatgpt")
+        XCTAssertEqual(LogoImage.resolvedName(for: "chatgpt"), "openai")
         XCTAssertEqual(LogoImage.resolvedName(for: "chrome"), "chrome")
     }
 
@@ -96,6 +98,6 @@ final class LogoImageTests: XCTestCase {
         let saved = CicadaTheme.mode
         defer { CicadaTheme.mode = saved }
         CicadaTheme.mode = .dark
-        XCTAssertEqual(LogoImage.resolvedName(for: "chatgpt-dark"), "chatgpt-dark")
+        XCTAssertEqual(LogoImage.resolvedName(for: "openai-dark"), "openai-dark")
     }
 }

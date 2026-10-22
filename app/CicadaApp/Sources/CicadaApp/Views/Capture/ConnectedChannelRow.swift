@@ -203,8 +203,8 @@ struct ConnectedChannelRow: View {
 
     static func actionTitle(_ action: String, channel: SourceChannel) -> String {
         switch action {
-        case "poll": "Poll now"
-        case "sync": "Sync now"
+        case "poll": "Refresh"
+        case "sync": "Refresh"
         case "manage": "Manage…"
         case "import": "Import another file…"
         default: action.capitalized

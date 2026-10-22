@@ -84,15 +84,15 @@ struct BrowserStatusLight: View {
         case .syncing:
             "Reading what changed."
         case .stale:
-            "This browser's bookmarks changed and Cicada hasn't caught up. Sync now."
+            "This browser's bookmarks changed and Cicada hasn't caught up. Refresh."
         case .blocked:
             "Cicada isn't allowed to read this browser's file."
         case .failed:
-            "The last sync didn't finish. Try Sync now — the details are below."
+            "The last sync didn't finish. Try Refresh — the details are below."
         case .absent:
             "This browser isn't installed on this Mac, or has no bookmarks yet."
         case .off:
-            "Cicada reads this browser only after you turn it on. Sync now brings its bookmarks in and keeps watching."
+            "Cicada reads this browser only after you turn it on. Refresh brings its bookmarks in and keeps watching."
         }
     }
 
@@ -103,9 +103,9 @@ struct BrowserStatusLight: View {
             switch state {
             case .watching: return "Edits in this folder reach the Sleep queue within a few seconds."
             case .syncing: return "Reading what changed."
-            case .stale: return "This folder changed and Cicada hasn't caught up. Sync now."
+            case .stale: return "This folder changed and Cicada hasn't caught up. Refresh."
             case .blocked: return "Cicada isn't allowed to read this folder."
-            case .failed: return "The last sync didn't finish. Try Sync now."
+            case .failed: return "The last sync didn't finish. Try Refresh."
             case .absent: return "This folder isn't on this Mac."
             case .off: return "Cicada reads this folder only after you turn it on."
             }
@@ -116,7 +116,7 @@ struct BrowserStatusLight: View {
             case .syncing: return "Reading what's new in Wispr Flow."
             case .stale: return "Wispr Flow has something new that Cicada hasn't read yet."
             case .blocked: return "Cicada isn't allowed to read Wispr Flow's data."
-            case .failed: return "The last sync didn't finish. Try Sync now."
+            case .failed: return "The last sync didn't finish. Try Refresh."
             case .absent: return "Wispr Flow isn't on this Mac."
             case .off: return "Cicada reads Wispr Flow only after you turn it on."
             }

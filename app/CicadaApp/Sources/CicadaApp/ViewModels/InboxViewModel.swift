@@ -57,8 +57,14 @@ final class InboxViewModel {
         }
     }
 
-    var visible: [InboxItem] { InboxColumns.visible(items, filter: columns.kindFilter) }
-    var openItem: InboxItem? { columns.openId.flatMap { id in items.first { $0.id == id } } }
+    /// G205 / G61 — agent requests and the grouped Where-to-check review are small cards above the questions; the
+    /// list, its tabs and its walk read the questions only.
+    var questions: [InboxItem] { items.filter { !$0.isTopCard } }
+    var agentRequests: [InboxItem] { items.filter { $0.kind == .agentRequest } }
+    var whereToCheckReviews: [InboxItem] { items.filter(\.isWhereToCheckReview) }
+
+    var visible: [InboxItem] { InboxColumns.visible(questions, filter: columns.kindFilter) }
+    var openItem: InboxItem? { columns.openId.flatMap { id in questions.first { $0.id == id } } }
     var held: ResolveGrace? { store.currentHeld }
     /// The held answer's question, from the snapshot (`visibleInbox` hides it) — the Undo row's words.
     var heldQuestion: InboxItem? { held.flatMap { h in store.inbox.value?.first { $0.id == h.id } } }
@@ -67,12 +73,12 @@ final class InboxViewModel {
     }
     var eyebrow: String { InboxEyebrow.text(visible: visible, openId: columns.openId) }
     /// DR-45 — the tabs replace the kind chips and their `countByKind`, their one reader.
-    var tabs: [TextTab<InboxKind>] { InboxTabs.tabs(items) }
+    var tabs: [TextTab<InboxKind>] { InboxTabs.tabs(questions) }
 
     func setFilter(_ kind: InboxKind?) {
-        columns.filter(kind, visibleAfter: InboxColumns.visible(items, filter: kind))
+        columns.filter(kind, visibleAfter: InboxColumns.visible(questions, filter: kind))
     }
-    func reconcile() { columns.reconcile(visible: visible, kinds: Set(items.map(\.kind))) }
+    func reconcile() { columns.reconcile(visible: visible, kinds: Set(questions.map(\.kind))) }
     func resetColumns() {
         columns = InboxColumns()
         review = nil   // ids repeat across banks: a review never crosses a switch
@@ -147,13 +153,13 @@ final class InboxViewModel {
     var review: InboxReview?
 
     /// The entry points: "Fading pages · 49", one per kind with something to review.
-    var reviewEntries: [ReviewEntries.Entry] { ReviewEntries.of(items) }
+    var reviewEntries: [ReviewEntries.Entry] { ReviewEntries.of(questions) }
 
     /// The card on screen. `items` already hides a held answer, so the current card is never the one just answered.
     var reviewItem: InboxItem? { review?.currentId.flatMap { id in items.first { $0.id == id } } }
 
     func startReview(_ kind: ReviewKind) {
-        review = InboxReview(kind: kind, items: items)
+        review = InboxReview(kind: kind, items: questions)
     }
 
     func endReview() { review = nil }

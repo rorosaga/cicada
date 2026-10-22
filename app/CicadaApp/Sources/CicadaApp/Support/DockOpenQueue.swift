@@ -67,7 +67,16 @@ final class CicadaAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificati
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                             didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
-        let vendor = response.notification.request.content.userInfo[LiveReminderScheduler.userInfoVendor] as? String
+        let info = response.notification.request.content.userInfo
+        // G205 — an agent's request: its two buttons answer it, a tap opens the page it needs.
+        if let requestId = info[AgentRequestNotifier.userInfoId] as? String {
+            let action = response.actionIdentifier
+            let openUrl = info[AgentRequestNotifier.userInfoURL] as? String
+            Task { @MainActor in await AgentRequestNotifier.handle(id: requestId, action: action, openUrl: openUrl) }
+            completionHandler()
+            return
+        }
+        let vendor = info[LiveReminderScheduler.userInfoVendor] as? String
         Task { @MainActor in
             if let vendor, let v = ChatVendor(rawValue: vendor) { self.reminderTaps.receive(v) }
         }

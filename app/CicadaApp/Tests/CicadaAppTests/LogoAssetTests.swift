@@ -22,9 +22,10 @@ final class LogoAssetTests: XCTestCase {
     /// Commons at 256 px — so if that fetch is the one R10 rejects, put
     /// `"telegram"` back and say so in task 2's "left out" note. `codex` was
     /// never on it: batch 1 shipped at 256.
-    static let legacy128: Set<String> = [
-        "instagram", "linkedin", "pinterest", "reddit", "tiktok", "youtube", "x", "x-dark",
-    ]
+    /// G217 (2026-10-22): the set replaced those favicon rasters with vendor marks at 256 px. What stays under the
+    /// floor is two PNG sources the vendor serves no larger (shipped as served — upscaling is fake resolution).
+    static let legacy128: Set<String> = []
+    static let servedSmall: [String: Int] = ["instinct": 64, "warp": 196]
 
     /// Marks that are a single flat colour and therefore invisible in one of
     /// the two themes without a sibling (R4). `codex` and `x` are the two
@@ -38,7 +39,8 @@ final class LogoAssetTests: XCTestCase {
     /// `tools/monoflip.swift` reads every pixel and exits 3 on any hue, and it
     /// accepted the rasterized llama. Membership here is therefore always
     /// decided by the tool; nothing is added to this set by eye.
-    static let needsDarkVariant: Set<String> = ["chatgpt", "codex", "ollama", "openrouter", "x"]
+    /// G217: the set flags its black-on-transparent marks (`dark_variant` in its manifest).
+    static let needsDarkVariant: Set<String> = ["openai", "ollama", "zed", "devin", "cline", "github"]
 
     private func logoURLs() throws -> [URL] {
         let urls = Bundle.cicadaResources.cicadaResources(ext: "png", in: "logos")
@@ -63,7 +65,13 @@ final class LogoAssetTests: XCTestCase {
     /// its outermost pixel to 0.02 (0.91 one pixel in), so it never needed the
     /// exemption; that 0.02 is also why the threshold below is 0.5 and not an
     /// exact zero.
-    static let opaquePlate: Set<String> = []
+    ///
+    /// G217 (2026-10-22): the set ships eleven vendors' own tiled app icons as published (its README: they publish no
+    /// bare glyph at the top rung); `LogoTile` and `PlatformTile` clip every mark to their curvature.
+    static let opaquePlate: Set<String> = [
+        "amp", "goose", "grok", "hermes", "instinct", "notion", "opencode", "openrouter", "poke", "tailscale", "warp",
+        "wispr", "x", "readwise", "devin", "devin-dark",
+    ]
 
     func testEveryMarkIsSquareBigEnoughAndKeepsItsCornersTransparent() throws {
         for url in try logoURLs() {
@@ -73,7 +81,7 @@ final class LogoAssetTests: XCTestCase {
                 continue  // keep checking the rest rather than returning out of the loop
             }
             XCTAssertEqual(rep.pixelsWide, rep.pixelsHigh, "\(name).png is not square")
-            let floor = Self.legacy128.contains(name) ? 128 : 256
+            let floor = Self.servedSmall[name] ?? (Self.legacy128.contains(name) ? 128 : 256)
             XCTAssertGreaterThanOrEqual(rep.pixelsWide, floor, "\(name).png is \(rep.pixelsWide) px")
 
             // NOT `rep.hasAlpha`. That reports the channel EXISTS, which is
@@ -119,13 +127,16 @@ final class LogoAssetTests: XCTestCase {
         // expression the type-checker gave up on ("unable to type-check this
         // expression in reasonable time").
         var claimed = Set<String>(providerMarks)
+        // G217: the set's umbrella and source marks (`LogoSet`), drawn by `LogoTile` from `GET /providers` slugs.
+        claimed.formUnion(LogoSet.all)
         claimed.formUnion(agentTileMarks)
         claimed.formUnion(OriginIconography.allKnownOrigins.compactMap(OriginIconography.logoName(for:)))
         claimed.formUnion(AddSourceTile.allCases.compactMap(\.logoName))
         claimed.formUnion(ChannelMarks.allChannelIds.compactMap(ConnectedChannelRow.logoName(for:)))
         for name in try names() {
             let base = name.hasSuffix("-dark") ? String(name.dropLast(5)) : name
-            XCTAssertTrue(claimed.contains(base) || reservedForG119.contains(base),
+            let files = Set(claimed.map { BrandMark.composition(for: $0).file })
+            XCTAssertTrue(files.contains(base) || reservedForG119.contains(base),
                           "\(name).png is bundled but nothing maps to it")
         }
     }

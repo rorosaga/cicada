@@ -49,7 +49,7 @@ extension Copy {
     /// Not "main profile": a Safari that looks empty is usually one macOS is hiding until Full Disk Access is on.
     static let safariNothingYet = "Nothing from Safari yet — turn it on to bring your bookmarks in"
     static let browserTryAgain = "Try again"
-    static let browserSyncNow = "Sync now"
+    static let browserSyncNow = "Refresh"
     static func browsersUnsupported(_ names: [String]) -> String {
         switch names.count {
         case 0: ""
@@ -130,7 +130,7 @@ extension Copy {
         "\(UsageFormat.count(contacts, locale: locale)) \(contacts == 1 ? "contact" : "contacts") · " + matchedPeople(people, locale: locale)
     }
     static let contactsConnect = "Connect"
-    static let contactsSyncNow = "Sync now"
+    static let contactsSyncNow = "Refresh"
     static let contactsDisconnect = "Disconnect"
     static let contactsStopTitle = "Stop reading your contacts?"
     static let contactsStopDetail = "What Cicada already learned about people stays."
