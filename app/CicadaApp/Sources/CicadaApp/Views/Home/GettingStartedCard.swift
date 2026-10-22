@@ -113,7 +113,9 @@ struct GettingStartedCard: View {
         let alsoFound = GettingStartedProgress.alsoFound(inputs(record))
         let done = GettingStartedProgress.isDone(rows: rows, hasRunBefore: hasRunBefore,
                                                  scheduleAnswered: scheduleAnswered,
-                                                 alsoFoundIsEmpty: alsoFound.isEmpty,
+                                                 // After onboarding its Agents/Sources offers are not asked again.
+                                                 alsoFoundIsEmpty: alsoFound.isEmpty
+                                                     || OnboardingState.isOnboarded(bank: store.bank),
                                                  inventoryLoaded: inventory.hasChecked)
         let hasDrop = rows.contains { if case .dropped = $0.id { return true }; return false }
         let waiting = waits.active(bank: store.bank)
@@ -129,8 +131,21 @@ struct GettingStartedCard: View {
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .transition(.opacity)
             } else {
-                if !rows.isEmpty { group(Copy.gsConnected) { rowList(rows) } }
-                if showsPastChats {
+                // After onboarding (owner fix round, 2026-10-22): what it covered folds into one line, only open
+                // rows stay, and its Sources/Agents offers are not asked again (`GettingStartedFold`).
+                let fold = GettingStartedFold.of(rows: rows, onboarded: OnboardingState.isOnboarded(bank: store.bank),
+                                                 showsPastChats: showsPastChats, showsAlsoFound: !alsoFound.isEmpty)
+                if fold.covered > 0 || !fold.openRows.isEmpty {
+                    group(Copy.gsConnected) {
+                        if fold.covered > 0 {
+                            Text(Copy.gsCoveredInSetup(fold.covered))
+                                .font(CicadaTheme.bodyFont).monospacedDigit()
+                                .foregroundStyle(CicadaTheme.textSecondary)
+                        }
+                        if !fold.openRows.isEmpty { rowList(fold.openRows) }
+                    }
+                }
+                if fold.showsPastChats {
                     group(Copy.gsPastChats) { chatHistory(waiting: waiting, toAsk: toAsk) }.transition(.opacity)
                 }
                 // Review #2 — "Your memory has N pages now" is the first week's payoff; on a graduated card Last read and
@@ -144,7 +159,7 @@ struct GettingStartedCard: View {
                         if asksSchedule { scheduleQuestion(honesty).transition(.opacity) }
                     }
                 }
-                if !alsoFound.isEmpty { group(Copy.gsAlsoFound) { alsoFoundList(alsoFound) }.transition(.opacity) }
+                if fold.showsAlsoFound { group(Copy.gsAlsoFound) { alsoFoundList(alsoFound) }.transition(.opacity) }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

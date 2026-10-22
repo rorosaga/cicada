@@ -81,9 +81,9 @@ final class SettingsDefaultsPassTwoTests: XCTestCase {
                        ["agent", "codex", "openrouter", "local", "byok"])
     }
 
-    func testSettingsFoldsAndOnboardingKeepsTheFullRow() throws {
-        XCTAssertTrue(try source("Sources/CicadaApp/Views/Onboarding/WhoReadsPage.swift").contains("EngineChooser()"),
-                      "onboarding's Who reads is the choice itself (F-05): every card stays on show")
+    /// Onboarding v2 (2026-10-22) replaced Who reads' full chooser with Intelligence's own rows (ruling 36 D1).
+    func testSettingsFoldsAndOnboardingUsesIntelligencesRows() throws {
+        XCTAssertTrue(try source("Sources/CicadaApp/Views/Onboarding/IntelligenceStep.swift").contains("IntelligenceRow("))
         let chooser = try source("Sources/CicadaApp/Views/Settings/EngineChooser.swift")
         XCTAssertTrue(chooser.contains("@AppStorage(EngineChooser.othersOpenKey)"), "DR-39: remembered per viewer")
         XCTAssertEqual(EngineChooser.othersOpenKey, "cicada.engines.othersOpen")

@@ -373,56 +373,64 @@ all three empty is one `HomeEmptyBlock` (*Choose a file…*), or nothing while G
 *Make it yours* (Appearance; `AppearanceTipPolicy`, per viewer) is a row after
 Needs you for that one session; once hidden or seen it lives only in Settings.
 
-**Onboarding (G145, round 4 phase B).** Seven pages in one full-window layer, raised by `FirstRunGate`
-(unknown is never empty; never over the demo, which its plan marks onboarded one step after the switch — QA
-2026-10-16) or by the one door, `OnboardingState.reset` + `AppRouter.requestFirstRun` (Settings →
-General's *Run setup again*, the demo's *Finish setting up*). **The illustration is the study room** (owner
-2026-10-16, replacing the paintings): `OnboardingRoom` draws the Sleep page's room art (`SceneryRoomArt` with the worm,
-its floor faded into the ground, no hotspot, no pile, no word on it — DR-13) at a whole number of points per lattice
-cell (`OnboardingRoomLayout`: up to 4 over the card, up to 3 in the pane), in the person's own scenery from what is
-already known (no fetch), the worm's mood set per step (`OnboardingPage.roomMood`: awake, reading, happy, asleep for
-Keep it running). Welcome and You're set are the room over the card (a short window drops the room first, then scrolls
-the card); Import, Agents, Skills, Who reads and Keep it running are a split frame — the room centred in a `bgPane`
-pane (540 pt, which gives way before the column does), the column with "Step n of 7 · k still
-coming in", Back and one primary (⏎ never animates). Get started is the owner PUT, alone and first; after it **a
-tick starts that source at once** through the one turn-on (`FoundTurnOn`; app-side sources register an
-`AppSourceDriver`), an untick stops it keeping up and keeps what came in, and × shows only where a run can stop
-(a browser's; a chat export shows its progress and never an ×). Nothing is pre-ticked and nothing is read before a
-tick. The Import rows are one table (`ImportCatalog`: supported installed browsers, Calendar, Apple Notes — a
-one-time read — Wispr Flow when present, the chat drop zone and *See how* per provider, a drawn walkthrough over
-`ExportWalkthrough`'s data opening `WalkthroughVendor.exportURL`; its clock is `ExportWalkthrough.cadence` — paused
-while the window is hidden, one frame per step under Reduce Motion, `SceneRunPolicy`'s cadence halved under Low Power,
-audit A11); Contacts sits under *Calendar & contacts* and
-Chrome's open tab groups as a sub-row under Chrome (only where Chrome is), each one `ImportEntry` and one driver over
-its own reader (`ContactsReader.connect`, `TabGroupWatcher.enable`), which Home's Getting started registers too. Every row, the topbar's count, You're set and Home's Getting started read one projection,
-`SetupProgress`, over `SetupRunner`, `SyncActivity` and the channels. Agents reuse `AgentSelector` /
-`AgentSetupSteps` with a live ✓; Claude Code's and Codex's *Connect for me* here also turns on *Remembers
-automatically* (its commands shown first; the Agents page keeps it its own click). **Skills** (owner 2026-10-15,
-`SkillsStepPage` over `SkillsStepModel`, the Agents step's happy worm) is three switch tiles: Websites (browser-harness) and Mac
-apps (macos-harness; macOS asks once) on, Videos (the video skill) off; *Skip* beside Continue. Nothing installs on the
-page: **Continue is the consent** — `POST /skills/onboarding` records the answer (Skip too, never asked again) and
-installs what is on in the background. A saved answer is where a later run starts (rerun or a new bank): what the
-person declined starts off. Without uv it says so, shows the official install command and link, and the two can't be ticked until
-*Check again* finds it. Who reads is `EngineChooser`,
-writing only on a click; Keep it running holds the same switches as Settings → General and turns none on. You're
-set shows one public-domain quote (`MemoryQuotes`, G153, kept per install) and Open Cicada marks the bank, records
-the connected agents, asks `TourOffer` and lands on Home. *Set up later* and *Try the demo* (`SetupRunner.demoPlan`)
-remain; export reminders (`ExportWaits`) ask for notification permission only when a delay is chosen. Getting started
-continues on Home — the first read (*Read now*, G125 R10's second narrow amendment, only inside the card) and "Read
-new conversations automatically?" asked once of a person still on `manual`, its options gated by ruling 4.
-The first-read failure row uses the same calm “Reading stopped” / “See what needs a fix in Past reads, then try again”
-copy as Sleep (DR-7/59), never a raw server sentence. Its one *Past reads* action (DR-40) stages Sleep's Last cycle
-section through `AppRouter`; Sleep consumes it once on appear/change, selects Past reads and brings its tab row to the top.
+**Onboarding v2 (G92, G217, ruling 36; 2026-10-22; replaces G145's seven pages).** Five steps of one verb each in
+one full-window layer, raised by `FirstRunGate` (unknown is never empty; never over the demo) or by the one door,
+`OnboardingState.reset` + `AppRouter.requestFirstRun` (Settings → General's *Run setup again*, the demo's *Finish setting
+up*): **Welcome · Intelligence · Agents · Sources · Done** (`OnboardingPage`). Welcome and Done are the study room over a
+card (`OnboardingRoom`, the one illustration, DR-13; the worm's mood per step); the three working steps are the split
+frame — the room in its `bgPane` pane, the column with "Step n of 5 · k still coming in", *Set up later*, and a foot of
+Back, a visible **Skip** and the one primary Continue (⏎ never animates). What each step shows is pure data in
+`Support/OnboardingSteps.swift` (`OnboardingStepsTests`), each step's fixed words under 40.
+*Welcome*: the greeting (saved name, else the Mac account's, *Not you?* corrects it), one sentence, Continue — the owner
+PUT alone and first (G117 R1; a file dropped here waits for it) — *Try the demo* and *Set up later*.
+*Intelligence* (`IntelligenceStep`, ruling 36 D1): `IntelligenceStepState` — a signed-in plan (Auto resolving to it, or
+chosen) is pre-selected in words ("Using your Claude plan — you're signed in." / "Cicada runs your own Claude Code on your
+plan."), *Use an API key* opens Settings → Intelligence's own `IntelligenceRow`s for four keys (`featuredKeys`;
+paste → Verify, the 422/503 sentences) with "More keys in Settings → Intelligence"; with nothing that can read, the plans
+and those keys show side by side. A local model is never offered. The step writes only from a row's click (Sign in,
+Verify, *Use* through `IntelligenceView.write(using:)`); Continue and Skip change nothing.
+*Agents* (`AgentsStep`, fix round 2026-10-22): one row per provider umbrella (`ProviderDirectory`, `GET /providers`,
+as the Agents page lists them) holding the products of it found on this machine (`AgentStepRows.rows`: `/agents/wiring`
+says installed, the Claude app is present, or `/agents/live` saw it; `umbrellas` groups them) — Anthropic: Claude Code ·
+Claude app; OpenAI: Codex. The umbrella's own mark in a `LogoTile`, never a product badge (a product no umbrella claims
+wears its vendor's mark, `umbrellaLogo`); a dot and one word (Found → Waiting → Connected, green when any product first
+calls, polled every 3 s). One *Connect* opens each found product's own action, Settings' paths: Connect for me plus
+Remembers automatically (R-OB12) through `AgentConnect.run` with the wiring answer's binaries — "Cicada runs exactly these
+commands…" and *Run these*, the commands behind a collapsed *Show commands* (spec decision 14); *Set up Claude*'s merge;
+*Open in Cursor*; else *Copy setup prompt*. A plugin-wired Claude Code is offered nothing to run. Below: *Another agent*
+(the generic prompt) and *Personal agents* → *Add an agent token* (G213, `AddAgentTokenSheet`).
+*Sources* (`SourcesStep`): `SourceTiles` — a grid of `SourceLogoTile`s: Calendar, Contacts and each supported browser
+tick through the one turn-on (`SetupRunner.start`, `FoundTurnOn`; untick stops keeping up), Messages, YouTube, X and
+Instagram open the Sources page's own `SourceCatalogDetail` over onboarding (its consents, chat picker and per-site switch);
+each tick tile shows what it reads and the consent it leads to before the click (`SourceTiles.caption`: the catalog's own
+idle line or a browser's reads, "Needs Full Disk Access" for a browser macOS hides),
+chat history takes a drop or the file panel, *How to get an export* opens `ExportWalkthroughSheet`. Nothing is pre-ticked
+or read before a tick (R-OB6, R-IB12).
+*Done* (`DonePage`): "You're set.", `DoneLine` — "Talk to your agent; Cicada remembers." plus the schedule's own time
+when a schedule can read (a new memory reads nightly, `features.md`) and "and now for what you brought in" when something
+came in during setup and an engine can read it, else "Read now on Home builds your first pages." — one `MemoryQuotes` line
+(G153), Open Cicada (one run now when something came in, a run the person started; mark the bank, record connected
+agents, offer the tour, Home). **Persisted values (Hyrum mode B):** `cicada.hasOnboarded.<bank>` unchanged; new `cicada.onboarding.step.<bank>`
+holds the step reached as a word, so a person who quits mid-way resumes there once their name is saved; finishing,
+*Set up later* and *Run setup again* clear it; `OnboardingPage(stored:)` maps the seven-step names (`import` → Sources,
+`whoReads` → Intelligence, `skills` → Sources, `keepRunning`/`ready` → Done). The old Skills step (`POST
+/skills/onboarding`) and Keep it running are gone from onboarding: skills install from the Skills page, and the login-item
+and menu-bar switches stay in Settings → General (Keep it running turned none on). The first-run empty states (Graph,
+Inbox, Home's all-empty block) lead with one SF Symbol (DR-50 amendment, 2026-10-22). Getting started continues on Home,
+and once `OnboardingState.isOnboarded` it never asks again what onboarding covered (`GettingStartedFold`): rows already on
+or coming in fold into one line ("N things already set up"), only open rows stay, and the past-chats and *Also on this
+Mac* offers go. Settings → Intelligence's In use row says in one line when ruling 36 D1's one-time step kept a local model
+as the person's choice (`autoLocalKeptOn`).
 
 **Engine choice in onboarding: Auto first (settings defaults pass 2, owner 2026-10-22; ruling 31).** Until D6 Settings drew
-`EngineChooser(foldsOtherEngines: true)` (now onboarding's *Who reads* and the engine card): the card opens on `EngineHeadline` — *Auto* and what it uses now from
+`EngineChooser(foldsOtherEngines: true)` (the engine card): the card opens on `EngineHeadline` — *Auto* and what it uses now from
 `preview.manual` ("Using your Claude plan — you're signed in.", the ChatGPT plan, the model on this Mac, or "Nothing to
-read with yet" with a Plans & keys link), the rule in one line (a plan first, then a model on this Mac, never a key
+read with yet" with a Plans & keys link), the rule in one line (the Claude plan, then the ChatGPT plan — ruling 36 D1 removed the local rung — never a key
 nobody chose), or, for a stored choice that isn't Auto, that card's name, its cost model and state, and *Back to Auto*
 (`EngineWrite(mode: "auto", model: nil)`; hidden while the environment fixes the engine). Every other card waits
 under *Use a different engine* (`DisclosureGroup`, DR-39, per viewer `cicada.engines.othersOpen`; landing on
 `.engineChoice` opens it). The extra-usage switch, `LeavesMacNote`, the chosen card's one step and both previews stay
-outside the fold. Onboarding's Who reads keeps `EngineChooser()`, the full row. Engines and Plans & keys were kept two
+outside the fold. Engines and Plans & keys were kept two
 sections in pass 2 because sign-in, sign-out and key removal would sit below an open chooser; B1 merged them once the
 chooser folds: with *Use a different engine* closed, the Plans & keys group starts on the panel's first screen at 1×. Auto that
 resolved to no engine says nothing leaves the Mac (`LeavesMacNote` returned the key's sentence before).
@@ -433,7 +441,7 @@ Claude plan, ChatGPT plan, OpenRouter, Ollama (tagged *Local*), API key — over
 `PUT /sleep/engine`, which lands in the same bank-independent `~/.cicada/connections.json` prefs
 `use_for_sleep` already uses, never `api/.env`. A plan card is selectable once that plan is signed
 in. **Auto is the default (ruling 31, 2026-10-19):** an untouched install selects the Auto card, whose caption says it
-reads with the Claude plan, else the ChatGPT plan, else Ollama — never an API key unless the person chooses it; with
+reads with the Claude plan, else the ChatGPT plan (never a local model since ruling 36 D1; a person who read through one under Auto was kept on it as an explicit choice, once, recorded) — never an API key unless the person chooses it; with
 none of them a preview's engine is `none` ("No engine yet", `Copy.engineLabel`), the chooser asks for a choice before a
 read (`EngineReadiness.needsChoice`) and the onboarding caption says nothing can read yet. OpenRouter and the API key
 stay cards the person may pick. The card shows both `preview.manual` and `preview.scheduled` lines rather than hiding

@@ -273,7 +273,7 @@ struct InboxPage: View {
             EyebrowRow(eyebrow: viewModel.eyebrow)
             // G117 — "Nothing pending" is a GOOD state, not a deficiency to fix, so it carries no
             // action; `emptyStateDetail` is the R12-honest "what Sleep actually did".
-            EmptyStateView(title: Copy.Inbox.nothingPending, message: emptyStateDetail)
+            EmptyStateView(systemImage: "tray", title: Copy.Inbox.nothingPending, message: emptyStateDetail)
             settledSection
                 .padding(.horizontal, CicadaTheme.spacingGutter)
         }

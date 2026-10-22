@@ -17,8 +17,6 @@ protocol SkillsAPI: Sendable {
     func discardDraft(_ name: String) async throws
     func dismissSkillRequest(_ id: String) async throws
     func skillJob(_ id: String) async throws -> SkillJob
-    func skillsOnboarding() async throws -> SkillsOnboardingOffer
-    func answerSkillsOnboarding(install: [String], agents: [String]) async throws -> SkillJob?
     /// The person flips a skill's kind (TODO ruling 35 §5); `nil` hands it back to Cicada's rule.
     func setSkillKind(key: String, kind: String?) async throws
 }
@@ -103,15 +101,6 @@ extension APIClient: SkillsAPI {
 
     func skillJob(_ id: String) async throws -> SkillJob {
         try decode(SkillJob.self, try await skillsRequest("GET", Self.skillPath("jobs", id)))
-    }
-
-    func skillsOnboarding() async throws -> SkillsOnboardingOffer {
-        try decode(SkillsOnboardingOffer.self, try await skillsRequest("GET", "/skills/onboarding"))
-    }
-
-    func answerSkillsOnboarding(install: [String], agents: [String]) async throws -> SkillJob? {
-        let data = try await skillsRequest("POST", "/skills/onboarding", body: ["install": install, "agents": agents])
-        return try decode(JobEnvelope.self, data).job
     }
 
     func setSkillKind(key: String, kind: String?) async throws {

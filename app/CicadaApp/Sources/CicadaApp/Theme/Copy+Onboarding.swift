@@ -43,11 +43,6 @@ extension Copy {
 
     // MARK: F-02 (Task 4)
     static let importTitle = "Bring in what you have"
-    static let importSubline = "A tick starts that source right away, and it keeps going while you continue. What comes in stays."
-    /// R-OB17 — "kept", not "everything stays": a reader may send what it reads (F-05 says where), so the banner
-    /// promises only what is true of storage.
-    static let importPrivateLead = "Private by design: what comes in is kept on this Mac."
-    static let importPrivateTail = "Plain files you own. Bringing things in uploads nothing."
     static let importTickHelp = "Tick to bring it in now"
     static let importUntickHelp = "Untick to stop keeping up. What came in stays."
     static let importDoneOnce = "Brought in. Sync again any time in \(settings) → \(integrations)."
@@ -57,9 +52,6 @@ extension Copy {
     static let importDropLead = "Drop an export, or"
     static let importDropDetail = "A .zip, a folder or one file, read on this Mac."
     static let importSeeHow = "See how ›"
-    static let importMoreSources = "More sources any time in"
-    /// D6: Sources is a sidebar page now.
-    static let onboardingSettingsIntegrations = "Sources"
     static func importWait(_ vendor: ChatVendor) -> String {
         switch vendor {
         case .claude: "Ready in minutes to hours"
@@ -84,42 +76,16 @@ extension Copy {
     static func seeHowWhere(host: String, path: String) -> String { "\(host) · \(path)" }
 
     // MARK: F-04 (Task 5)
-    static let agentsPageTitle = "Work with your agents"
-    static let agentsPageSubline = "Pick an agent and follow its steps. Connected agents read your memory, add to it, and sign what they write."
-    static let agentsFoot = "Connect or disconnect agents any time in"
-    /// D6: Agents is a sidebar page now.
-    static let onboardingSettingsAgents = "Agents"
     /// R-OB12 — said on the step whose click also turns it on.
     static let agentStepAlsoRecalls = "It also turns on Remembers automatically; undo that in \(settings) → \(agents)."
     static let agentStepRecallHow = "Before your agent answers, Cicada adds a short note about who and what you mention. Undo it in \(settings) → \(agents)."
     static let agentStepStartupHow = "Cicada offers context when a new local chat starts. Saving chats is its own step. Undo it in \(settings) → \(agents)."
 
     // MARK: F-05 (Task 5)
-    static let whoReadsSubline = "A reader turns what came in into pages about people, projects and ideas. Change it any time on the Sleep page."
-    static let whoReadsNothingYet = "Nothing is read until you say so. Whether it keeps reading on its own is asked after your first read."
-    static let privacyEverything = "Everything stays on this Mac, in plain files you own."
-    static let privacyEverythingElse = "Everything else stays on this Mac, in plain files you own."
 
     // MARK: F-06 (Task 5)
-    static let keepRunningTitle = "Keep Cicada running"
-    static let keepRunningSubline = "The sources you connected are read by the app itself, so it needs to stay open. Let it start at login and wait in the menu bar."
-    static let keepRunningBothInSettings = "Both switch on or off any time in"
-    static let onboardingSettingsGeneral = "\(settings) → \(general)"
-    static let keepRunningBackgroundItems = "macOS shows “Background Items Added” once, naming Cicada. You don’t need to click it."
-    static let keepRunningWhere = "macOS keeps this switch in System Settings → General → Login Items."
-    static let keepRunningWhileOpen = "With Cicada in the menu bar"
-    static let keepRunningAfterQuit = "If you quit Cicada"
-    static let keepOpenBrowsers = "Browsers and folders keep up as you save"
-    static let keepOpenCalendar = "Calendar events and Wispr Flow meetings arrive"
-    static let keepOpenAgents = "Your agents save their conversations"
-    static let keepOpenSleep = "Sleep reads when you ask, or on your schedule"
-    static let keepQuitWaits = "What Cicada reads on this Mac waits, then catches up when it opens"
-    static let keepQuitAgentsSave = "Your agents still save their conversations"
-    static let keepQuitSleep = "Sleep still runs on the schedule you choose"
-    static let keepQuitAgentsWait = "Your agents’ conversations are saved only while Cicada is open"
 
     // MARK: The frame, F-01, F-07 (Task 6)
-    static let onboardingGetStarted = "Get started"
     static let onboardingContinue = "Continue"
     static let onboardingBack = "Back"
     static let onboardingOpenCicada = "Open Cicada"
@@ -129,59 +95,101 @@ extension Copy {
     }
     /// A page's opening line: the source that just finished and what came in (its count line is already localised).
     static func onboardingArrival(title: String, line: String?) -> String { line.map { "\(title) · \($0)" } ?? title }
-    static let welcomeEyebrow = "Welcome to Cicada"
-    static let welcomeTagline = "Memory made easy — and local."
-    /// R-OB17 — "kept on this Mac", never "never uploaded": a reader may send what it reads (F-05 says where).
-    static let welcomePromise = "One memory for every AI you use, kept on this Mac in plain files you own. Your agents read it, add to it, and sign what they write."
-    static let welcomeWorksWith = "Works with the agents you already use"
-    static let welcomeJustLooking = "Just looking?"
-    static let welcomeDemoBlurb = "The demo is a made-up memory with pictures, a video and a project to open. Finish setting up from it any time."
     static let welcomeTryTheDemo = "Try the demo"
     /// R-OB2 — a drop on Welcome is held until Get started; the card says so.
     static func welcomeDropsWaiting(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
-        n == 1 ? "1 export is waiting. It comes in after Get started."
-               : "\(UsageFormat.count(n, locale: locale)) exports are waiting. They come in after Get started."
+        n == 1 ? "1 export is waiting. It comes in after Continue."
+               : "\(UsageFormat.count(n, locale: locale)) exports are waiting. They come in after Continue."
     }
     static let readyTitle = "You’re set."
-    static let readyNothingRead = "Nothing is read until you say so: press Read now in Getting started on Home. This list continues there."
-    static let readyOpensAtLoginMenuBar = "Opens at login · menu bar"
-    static let readyOpensAtLogin = "Opens at login"
-    static let readyMenuBar = "Waits in the menu bar"
-    static func readyAgentsConnected(_ names: String) -> String { "\(names) · connected" }
     static func readyQuoteLine(_ text: String) -> String { "“\(text)”" }
     static func readyQuoteAuthor(_ author: String) -> String { "\(author), " }
     /// A year is a name, not a count: never grouped.
     static func readyQuoteYear(_ year: Int) -> String { " (\(String(year)))" }
-    static func readyKeepUp(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
-        n == 1 ? "1 source keeps up on its own"
-               : "\(UsageFormat.count(n, locale: locale)) sources keep up on their own"
+
+    // MARK: Onboarding v2 (G217, G92, ruling 36; 2026-10-22) — five steps, under 40 words each
+
+    /// Welcome: what Cicada is, in one sentence.
+    static let welcomeLine = "One memory on this Mac that every agent you use reads and adds to."
+    static let onboardingSkip = "Skip"
+
+    /// Intelligence (ruling 36 D1): a signed-in plan is pre-selected and said in words, with what will run; a key is
+    /// an equal option one click away; a local model is never pitched.
+    static let intelTitle = "Who reads your memory"
+    static let intelSubline = "Pages are built while you sleep."
+    /// D1 — "that step says in words what will run": the person's own harness, on their own plan's limits. The name is
+    /// the person's own current choice (provider-neutral copy's one exception).
+    static func intelRuns(_ harness: String) -> String { "Cicada runs your own \(harness) on your plan." }
+    static let intelUseKey = "Use an API key"
+    static let intelUsePlan = "Use my plan"
+    static let intelMoreKeys = "More keys in"
+    static let intelMoreKeysWhere = "\(settings) → Intelligence"
+    static let intelNothing = "Nothing can read yet. Sign in to a plan or add a key."
+
+    /// Agents.
+    static let agentsTitle = "Connect your agents"
+    static let agentsSubline = "They read your memory and add to it."
+    static let agentsFound = "Found"
+    static let agentsConnect = "Connect"
+    static let agentsRun = "Run these"
+    static let agentsShowCommands = "Show commands"
+    static let agentsDone = "Done"
+    static let agentsNoneFound = "No agents found on this Mac."
+    static let agentsAnother = "Another agent"
+    static let agentsPersonal = "Personal agents"
+    static let agentsPersonalNames = "Grok Bot, Muse, Instinct, Dots, Poke"
+
+    /// Sources.
+    static let sourcesSubline = "Tick what Cicada may read. Nothing is read before you tick."
+    static let sourcesChats = "Chat history"
+    static let sourcesDropFile = "Drop a file"
+    static let sourcesHowToExport = "How to get an export"
+    static let sourcesOn = "On"
+    static let sourcesComingIn = "Coming in"
+    static let sourcesNeedsYou = "Needs you"
+    static let sourcesOff = "Off"
+    /// R-OB7's consent, on the tile itself: the tick opens the setting and the source starts once it is allowed.
+    static let sourcesNeedsAccess = "Needs Full Disk Access. A tick opens the setting"
+
+    /// Home's Getting started after onboarding: what onboarding covered, as one line (`GettingStartedFold`).
+    static func gsCoveredInSetup(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        n == 1 ? "1 thing already set up" : "\(UsageFormat.count(n, locale: locale)) things already set up"
     }
+
+    /// Done: what happens next, in one line (`DoneLine`).
+    static let doneLead = "Talk to your agent; Cicada remembers."
+    static func doneScheduled(_ when: String) -> String { "It reads \(when)." }
+    /// The owner's words (2026-10-22): "Cicada reads tonight, and now for what you brought in".
+    static func doneScheduledAndNow(_ when: String) -> String { "It reads \(when), and now for what you brought in." }
+    static let doneImportsNow = "It reads what you brought in now."
+    /// The same "now", when it runs on a key the person chose — named, never left unsaid (re-review 2026-10-22).
+    static func doneImportsNowOnKey(_ provider: String) -> String { "It reads what you brought in now, on your \(provider) key." }
+    static func doneScheduledAndNowOnKey(_ when: String, _ provider: String) -> String {
+        "It reads \(when), and now, on your \(provider) key, for what you brought in."
+    }
+    static let doneReadNow = "Read now on Home builds your first pages."
 
     /// Buttons, titles and one-line captions — ≤ 60 characters (CopyConstantsTests).
     static var onboardingLabels: [String] {
         [importReading(9, of: 17, noun: "conversations"), importBrowsers, importCalendar, importCalendarAndContacts,
          importNotesAndFiles, importVoice, importNotes, importWispr, importTickToBringIn, importCalendarMeta,
          importCalendarIdle, importNotesMeta, importNotesIdle, importWisprMeta, importWisprMetaDictation,
-         importContactsMeta, importContactsIdle, importTabGroupsMeta, importTabGroupsIdle, importTitle, importPrivateLead,
-         importPrivateTail, importTickHelp, importUntickHelp, importDropLead, importDropDetail, importSeeHow,
-         importMoreSources, onboardingSettingsIntegrations, seeHowTitle, seeHowReplay, seeHowDone, seeHowClaudePath,
+         importContactsMeta, importContactsIdle, importTabGroupsMeta, importTabGroupsIdle, importTitle, importTickHelp, importUntickHelp, importDropLead, importDropDetail, importSeeHow,
+         seeHowTitle, seeHowReplay, seeHowDone, seeHowClaudePath,
          seeHowChatGPTPath, seeHowGeminiPath, seeHowOpenPage("ChatGPT"), seeHowSteps(11), seeHowStepOf(11, 11),
-         seeHowWhere(host: "takeout.google.com", path: seeHowGeminiPath), agentsPageTitle, agentsFoot,
-         onboardingSettingsAgents, keepRunningTitle, keepRunningBothInSettings, onboardingSettingsGeneral,
-         keepRunningWhileOpen, keepRunningAfterQuit, keepOpenBrowsers, keepOpenCalendar, keepOpenAgents, keepOpenSleep,
-         keepQuitAgentsSave, keepQuitSleep, onboardingGetStarted, onboardingContinue, onboardingBack,
-         onboardingOpenCicada, onboardingStepOf(6), onboardingComingIn(4), welcomeEyebrow, welcomeTagline, welcomeWorksWith,
-         welcomeJustLooking, welcomeTryTheDemo, readyTitle, readyOpensAtLoginMenuBar, readyOpensAtLogin, readyMenuBar,
-         readyAgentsConnected("Claude Code and Codex"), readyKeepUp(7)]
+         seeHowWhere(host: "takeout.google.com", path: seeHowGeminiPath), onboardingContinue, onboardingBack,
+         onboardingOpenCicada, onboardingStepOf(6), onboardingComingIn(4), welcomeTryTheDemo, readyTitle, onboardingSkip, intelTitle,
+         intelSubline, intelRuns("Claude Code"), intelUseKey, intelUsePlan, intelMoreKeys, intelMoreKeysWhere, intelNothing, agentsTitle, agentsSubline,
+         agentsFound, agentsConnect, agentsRun, agentsShowCommands, agentsDone, agentsNoneFound, agentsAnother, agentsPersonal,
+         agentsPersonalNames, sourcesSubline, sourcesChats, sourcesDropFile, sourcesHowToExport, sourcesOn,
+         sourcesComingIn, sourcesNeedsYou, sourcesOff, sourcesNeedsAccess, doneLead, doneScheduled("tonight at 3:00"), doneImportsNow,
+         doneReadNow, gsCoveredInSetup(1), gsCoveredInSetup(4)]
             + ChatVendor.allCases.map(importWait)
     }
 
     /// Longer sentences — the vocabulary rule only.
     static var onboardingSentences: [String] {
-        [importSubline, importDoneOnce, importLockedHelp, importNeedsAccess, seeHowClaudeHonest, seeHowChatGPTHonest,
-         seeHowGeminiHonest, agentsPageSubline, agentStepAlsoRecalls, agentStepRecallHow, whoReadsSubline,
-         whoReadsNothingYet, privacyEverything, privacyEverythingElse, keepRunningSubline, keepRunningBackgroundItems,
-         keepRunningWhere, keepQuitWaits, keepQuitAgentsWait, welcomePromise, welcomeDemoBlurb, readyNothingRead,
-         welcomeDropsWaiting(1), welcomeDropsWaiting(3)]
+        [importDoneOnce, importLockedHelp, importNeedsAccess, seeHowClaudeHonest, seeHowChatGPTHonest,
+         seeHowGeminiHonest, agentStepAlsoRecalls, agentStepRecallHow, welcomeDropsWaiting(1), welcomeDropsWaiting(3), welcomeLine, doneScheduledAndNow("tonight at 3:00"), doneImportsNowOnKey("OpenAI"), doneScheduledAndNowOnKey("tonight at 3:00", "OpenAI")]
     }
 }

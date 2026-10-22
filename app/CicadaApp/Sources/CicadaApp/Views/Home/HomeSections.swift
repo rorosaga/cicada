@@ -99,7 +99,10 @@ struct HomeEmptyBlock: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
-            BookwormView(state: .awake, pointSize: 24)
+            // One icon (2026-10-22): the worm stays in the study room (DR-13), never on Home's working surface.
+            Image(systemName: "tray.and.arrow.down")
+                .font(CicadaTheme.font(size: 20))
+                .foregroundStyle(CicadaTheme.textTertiary)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(Copy.homeNothingYetTitle)

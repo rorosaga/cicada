@@ -2,17 +2,31 @@ import SwiftUI
 import XCTest
 @testable import CicadaApp
 
-/// R-OB1, R-OB3 — seven steps (the skills step joined after Agents, 2026-10-15), one frame, and the keyboard never
+/// Onboarding v2 (2026-10-22) — five steps, one frame, a visible Skip on the working steps, and the keyboard never
 /// animates.
 final class OnboardingPagesTests: XCTestCase {
-    func testSevenStepsInTheFlowsOrderWithTheSplitFrameOnTheWorkingPages() {
-        XCTAssertEqual(OnboardingPage.allCases.map(\.step), [1, 2, 3, 4, 5, 6, 7])
+    func testFiveStepsInTheFlowsOrderWithTheSplitFrameAndSkipOnTheWorkingSteps() {
+        XCTAssertEqual(OnboardingPage.allCases, [.welcome, .intelligence, .agents, .sources, .done])
+        XCTAssertEqual(OnboardingPage.allCases.map(\.step), [1, 2, 3, 4, 5])
         XCTAssertEqual(OnboardingPage.stepCount, OnboardingPage.allCases.count)
-        XCTAssertEqual(OnboardingPage.welcome.next, .import)
-        XCTAssertEqual(OnboardingPage.agents.next, .skills)
-        XCTAssertEqual(OnboardingPage.skills.next, .whoReads)
-        XCTAssertNil(OnboardingPage.ready.next)
-        XCTAssertEqual(OnboardingPage.allCases.filter(\.isSplit), [.import, .agents, .skills, .whoReads, .keepRunning])
+        XCTAssertEqual(OnboardingPage.welcome.next, .intelligence)
+        XCTAssertEqual(OnboardingPage.sources.next, .done)
+        XCTAssertNil(OnboardingPage.done.next)
+        XCTAssertEqual(OnboardingPage.allCases.filter(\.isSplit), [.intelligence, .agents, .sources])
+        XCTAssertEqual(OnboardingPage.allCases.filter(\.skippable), [.intelligence, .agents, .sources])
+    }
+
+    /// Hyrum mode B — every step name either flow could have stored maps to a step that exists, and each new step
+    /// round-trips through its stored word.
+    func testEveryStoredStepNameMapsToAStepThatExists() {
+        for page in OnboardingPage.allCases { XCTAssertEqual(OnboardingPage(stored: page.storedName), page) }
+        XCTAssertEqual(OnboardingPage(stored: "import"), .sources)
+        XCTAssertEqual(OnboardingPage(stored: "whoReads"), .intelligence)
+        XCTAssertEqual(OnboardingPage(stored: "skills"), .sources)
+        XCTAssertEqual(OnboardingPage(stored: "keepRunning"), .done)
+        XCTAssertEqual(OnboardingPage(stored: "ready"), .done)
+        XCTAssertNil(OnboardingPage(stored: "3"), "a raw number is never a step")
+        XCTAssertNil(OnboardingPage(stored: ""))
     }
 
     /// Owner 2026-10-16 — the study room is onboarding's one illustration: the worm's mood says what each step is about,
@@ -20,10 +34,10 @@ final class OnboardingPagesTests: XCTestCase {
     /// Welcome's card.
     func testTheRoomIsOnboardingsIllustrationAtWholePoints() {
         XCTAssertEqual(OnboardingPage.welcome.roomMood, .awake)
-        XCTAssertEqual(OnboardingPage.import.roomMood, .reading)
-        XCTAssertEqual(OnboardingPage.agents.roomMood, OnboardingPage.skills.roomMood, "the skills are the agents'")
-        XCTAssertEqual(OnboardingPage.keepRunning.roomMood, .sleeping(stage: 1))
-        XCTAssertEqual(OnboardingPage.ready.roomMood, .happy)
+        XCTAssertEqual(OnboardingPage.intelligence.roomMood, .reading)
+        XCTAssertEqual(OnboardingPage.sources.roomMood, .reading)
+        XCTAssertEqual(OnboardingPage.agents.roomMood, .happy)
+        XCTAssertEqual(OnboardingPage.done.roomMood, .happy)
         XCTAssertEqual(OnboardingRoomLayout.paneCell(paneWidth: 540), 3, "480 × 192 in the full pane")
         XCTAssertEqual(OnboardingRoomLayout.paneCell(paneWidth: 380), 2)
         XCTAssertEqual(OnboardingRoomLayout.paneCell(paneWidth: 240), 1)
@@ -54,10 +68,10 @@ final class OnboardingPagesTests: XCTestCase {
     }
 
     func testASegmentJumpsOnlyToAPageReachedAndNeverPastGetStarted() {
-        XCTAssertTrue(OnboardingNav.canJump(to: .import, furthest: .whoReads, ownerSaved: true))
-        XCTAssertFalse(OnboardingNav.canJump(to: .keepRunning, furthest: .whoReads, ownerSaved: true))
-        XCTAssertFalse(OnboardingNav.canJump(to: .import, furthest: .import, ownerSaved: false), "R-OB2")
-        XCTAssertTrue(OnboardingNav.canJump(to: .welcome, furthest: .import, ownerSaved: false))
+        XCTAssertTrue(OnboardingNav.canJump(to: .intelligence, furthest: .sources, ownerSaved: true))
+        XCTAssertFalse(OnboardingNav.canJump(to: .done, furthest: .sources, ownerSaved: true))
+        XCTAssertFalse(OnboardingNav.canJump(to: .intelligence, furthest: .intelligence, ownerSaved: false), "R-OB2")
+        XCTAssertTrue(OnboardingNav.canJump(to: .welcome, furthest: .agents, ownerSaved: false))
     }
 
     /// R-OB1 — the painting gives way before the column does, and goes rather than become a sliver.
@@ -74,41 +88,5 @@ final class OnboardingPagesTests: XCTestCase {
             }
         }
         XCTAssertEqual(OnboardingLayout.paneWidth(windowWidth: 0, scale: 0), 0, "a zero width never traps")
-    }
-
-    func testImportShowsTwoColumnsOnlyWhenTheyFit() {
-        XCTAssertEqual(OnboardingLayout.importColumns(columnWidth: 772, scale: 1), 2, "1440 × 900, F-02")
-        XCTAssertEqual(OnboardingLayout.importColumns(columnWidth: 532, scale: 1), 1, "1200 × 800")
-        XCTAssertEqual(OnboardingLayout.importColumns(columnWidth: 772, scale: 1.4), 1)
-    }
-
-    /// F-02 live pass — the privacy banner is never wider than the flow's column and never cuts its sentence: at the
-    /// 1200 × 800 column, at every zoom, it fits; squeezed to a sliver it grows taller (it wraps) instead of staying
-    /// one clipped line.
-    @MainActor
-    func testThePrivacyBannerFitsTheColumnAndWrapsRatherThanTruncates() throws {
-        let saved = CicadaTheme.uiScale
-        defer { CicadaTheme.uiScale = saved }
-        for scale in [1.0, 1.2, 1.4] {
-            CicadaTheme.uiScale = scale
-            let s = CGFloat(scale)
-            let column = 1200 - OnboardingLayout.paneWidth(windowWidth: 1200, scale: s)
-                - 2 * OnboardingLayout.columnPadding * s
-            func rendered(_ width: CGFloat) throws -> CGSize {
-                let renderer = ImageRenderer(content: ImportPrivacyBanner(memoryRoot: "/tmp"))
-                renderer.proposedSize = ProposedViewSize(width: width, height: nil)
-                return try XCTUnwrap(renderer.nsImage).size
-            }
-            let atColumn = try rendered(column)
-            let squeezed = try rendered(260 * s)
-            XCTAssertLessThanOrEqual(atColumn.width, column + 0.5, "\(scale): \(atColumn.width) > \(column)")
-            XCTAssertLessThanOrEqual(squeezed.width, 260 * s + 0.5, "\(scale)")
-            XCTAssertGreaterThan(squeezed.height, atColumn.height, "\(scale): a narrow banner wraps, never truncates")
-            if scale == 1.0 {
-                // The live pass's column: title and sentence one line each, Show in Finder trailing — one row, as
-                // tall as the button and the banner's padding (the old layout wrapped the title to three lines).
-                XCTAssertLessThanOrEqual(atColumn.height, TextButton.height + 2 * 12 + 0.5, "\(atColumn.height)")
-            }
-        }
     }
 }

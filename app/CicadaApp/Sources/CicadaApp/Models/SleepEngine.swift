@@ -111,10 +111,13 @@ struct SleepEngineResponse: Codable, Hashable {
     /// choice above resolves to now — the change applies from the next start or Continue. Absent on an older
     /// backend → false.
     var runKeepsEngine: Bool = false
+    /// Ruling 36 D1: the day the one-time step kept this person's local model as their choice (Auto no longer reaches
+    /// one), while it still is. Settings → Intelligence says so in one line. Absent on an older backend → nil.
+    var autoLocalKeptOn: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case mode, model, disambiguationModel, source, candidates, preview, allowOverage
-        case selected, provider, providers, reserve, runKeepsEngine
+        case selected, provider, providers, reserve, runKeepsEngine, autoLocalKeptOn
     }
 
     init(
@@ -152,6 +155,7 @@ struct SleepEngineResponse: Codable, Hashable {
         providers = ((try? c.decodeIfPresent([SleepEngineProvider].self, forKey: .providers)) ?? nil) ?? []
         reserve = (try? c.decodeIfPresent(SleepReserveStatus.self, forKey: .reserve)) ?? nil
         runKeepsEngine = ((try? c.decodeIfPresent(Bool.self, forKey: .runKeepsEngine)) ?? nil) ?? false
+        autoLocalKeptOn = (try? c.decodeIfPresent(String.self, forKey: .autoLocalKeptOn)) ?? nil
     }
 }
 

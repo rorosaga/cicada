@@ -4,7 +4,7 @@ import XCTest
 @testable import CicadaApp
 
 /// The Skills page (owner 2026-10-15): the wire decodes leniently, the model sends the person's clicks and follows a
-/// job, onboarding's defaults tick the two harnesses and never the video skill, and no Swift file writes into an
+/// job, and no Swift file writes into an
 /// agent's skill folder (the backend's `skill_store` is the one writer).
 @MainActor
 final class SkillsPageTests: XCTestCase {
@@ -54,36 +54,6 @@ final class SkillsPageTests: XCTestCase {
         let page = try JSONDecoder().decode(SkillsPageData.self,
                                             from: Data(#"{"installed": "not a list", "agents": []}"#.utf8))
         XCTAssertEqual(page.installed, [])
-    }
-
-    func testOnboardingTicksTheTwoHarnessesNeverTheVideoSkillAndNothingNeedingUvWithoutIt() {
-        typealias S = SkillsOnboardingOffer.Suggestion
-        let offer = [S(id: "browser-harness", default: true, needsUv: true, installed: false),
-                     S(id: "macos-harness", default: true, needsUv: true, installed: false),
-                     S(id: "watch", default: false, needsUv: false, installed: false)]
-        XCTAssertEqual(SkillsStepModel.defaults(offer, uvPresent: true), ["browser-harness", "macos-harness"])
-        XCTAssertEqual(SkillsStepModel.defaults(offer, uvPresent: false), [])
-        var installed = offer
-        installed[1].installed = true
-        XCTAssertEqual(SkillsStepModel.defaults(installed, uvPresent: true), ["browser-harness"])
-        // A saved "No thanks" is where a later run starts: declined starts off even if the catalog says on.
-        var declined = offer
-        declined[0].declined = true
-        XCTAssertEqual(SkillsStepModel.defaults(declined, uvPresent: true), ["macos-harness"])
-    }
-
-    func testNoThanksPostsAnEmptyAnswer() async {
-        let api = FakeSkillsAPI()
-        api.offer = SkillsOnboardingOffer(suggestions: [.init(id: "macos-harness", default: true, needsUv: true,
-                                                              installed: false)],
-                                          uv: { var u = UvInfo(); u.present = true; return u }(), agents: [])
-        let step = SkillsStepModel(api: api)
-        await step.load()
-        XCTAssertEqual(step.ticked, ["macos-harness"])
-        step.noThanks()
-        await step.submit()
-        XCTAssertEqual(api.answers, [[]])
-        XCTAssertTrue(step.answered)
     }
 
     func testAToggleSendsTheOppositeOfWhatIsShownAndAJobIsFollowedToTheEnd() async throws {
@@ -235,8 +205,6 @@ final class SkillsPageTests: XCTestCase {
 
 private final class FakeSkillsAPI: SkillsAPI, @unchecked Sendable {
     var page = SkillsPageData()
-    var offer = SkillsOnboardingOffer()
-    var answers: [[String]] = []
     var toggles: [(name: String, agent: String, on: Bool)] = []
     var jobStates: [String] = []
     var kinds: [(key: String, kind: String?)] = []
@@ -262,11 +230,6 @@ private final class FakeSkillsAPI: SkillsAPI, @unchecked Sendable {
         let state = jobStates.isEmpty ? "done" : jobStates.removeFirst()
         return SkillJob(id: id, kind: "update", label: "x", state: state,
                         message: state == "failed" ? "uv couldn't install it." : nil)
-    }
-    func skillsOnboarding() async throws -> SkillsOnboardingOffer { offer }
-    func answerSkillsOnboarding(install: [String], agents: [String]) async throws -> SkillJob? {
-        answers.append(install)
-        return nil
     }
     func setSkillKind(key: String, kind: String?) async throws { kinds.append((key, kind)) }
 }

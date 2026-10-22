@@ -120,18 +120,6 @@ final class ChannelItemsTests: XCTestCase {
         XCTAssertEqual(Copy.capturedShown(20, of: 1_035, noun: ("note", "notes"), locale: us), "20 of 1,035 notes")
         XCTAssertEqual(Copy.capturedShown(1, of: 1, noun: ("person", "people"), locale: us), "1 of 1 person")
     }
-
-    func testAnImportRowListsOnlyAChannelThatBroughtSomethingIn() {
-        let notes = SourceChannel(id: "notes", label: "Apple Notes", connected: true, count: 229)
-        let empty = SourceChannel(id: "calendar-local", label: "Apple Calendar")
-        let entry = { (id: FoundItemID) in
-            ImportEntry(id: id, category: .notesAndFiles, title: "T", origin: "o", meta: "m", idleLine: "i")
-        }
-        XCTAssertEqual(ImportRows.capturedChannel(entry(.app("notes")), channels: [notes, empty]), "notes")
-        XCTAssertNil(ImportRows.capturedChannel(entry(.app("calendar-local")), channels: [notes, empty]))
-        XCTAssertNil(ImportRows.capturedChannel(entry(.agent("codex")), channels: [notes, empty]))
-    }
-
     // MARK: The cache
 
     func testTheFirstPageLoadsThenRevalidatesWithItsETag() async {

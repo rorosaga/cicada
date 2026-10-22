@@ -191,7 +191,18 @@ async def lifespan(app: FastAPI):
     # Welcome. Never raises.
     from api.services import owner_identity
 
-    owner_identity.seed_owner_if_brand_new(settings.memory_path)
+    seeded = owner_identity.seed_owner_if_brand_new(settings.memory_path)
+    # Owner 2026-10-22: a new install consolidates nightly by default; an existing bank keeps whatever it had (a bank
+    # with no schedule file still reads as `manual`). Only a bank this boot just seeded is new.
+    if seeded is not None:
+        sleep_scheduler.seed_new_bank_schedule(settings.memory_path)
+    # Ruling 36 D1, once per install: Auto loses its local rung; a person reading through one keeps it as a choice.
+    from api.services import engine_select
+    from api.services.connections.registry import get_registry
+
+    # A bank seeded this boot is a new install of this build: it never had a local rung, so it is only recorded.
+    asyncio.get_running_loop().create_task(engine_select.retire_auto_local_rung(
+        settings, get_registry(settings), new_install=seeded is not None))
 
     # G136: build or catch up the derived search index in the background, so
     # the first keystroke after launch finds it warm. Never blocks startup,

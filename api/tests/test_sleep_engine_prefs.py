@@ -438,3 +438,22 @@ def test_run_keeps_engine_while_a_run_reads_on_another_engine(client, idle_sleep
 
     ds.engine_label = None   # reserved, not yet resolved
     assert client.get("/sleep/engine").json()["runKeepsEngine"] is False
+
+
+def test_the_auto_local_record_is_said_only_while_the_kept_choice_stands():
+    """Ruling 36 D1: the one-time step's line shows while the person still reads with the local model it kept."""
+    from api.services import engine_select, sleep_engine_prefs
+
+    class _Reg:
+        def __init__(self, entry):
+            self._entry = entry
+
+        def prefs(self):
+            return {"sleep-engine": self._entry}
+
+    record = {engine_select.AUTO_LOCAL_RECORD_KEY: {"outcome": "kept_local", "on": "2026-10-22"}}
+    assert sleep_engine_prefs._auto_local_kept_on(_Reg({"mode": "local", **record})) == "2026-10-22"
+    assert sleep_engine_prefs._auto_local_kept_on(_Reg({"mode": "agent", **record})) is None
+    checked = {engine_select.AUTO_LOCAL_RECORD_KEY: {"outcome": "checked", "on": "2026-10-22"}}
+    assert sleep_engine_prefs._auto_local_kept_on(_Reg({"mode": "local", **checked})) is None
+    assert sleep_engine_prefs._auto_local_kept_on(_Reg({})) is None

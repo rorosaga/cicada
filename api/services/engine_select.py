@@ -17,7 +17,7 @@ Precedence, and the reason for each rung:
      independent registry read anywhere else in this module.
   3. ``"auto"`` — the shipped default since 2026-10-19 (owner: "OpenRouter, eliminate it as the default … the
      defaults now are either the Claude plan or the Codex/ChatGPT plan"): the Claude plan if it probes connected,
-     else the ChatGPT plan if it is signed in (R-E20), else Ollama if it is running — else NO engine
+     else the ChatGPT plan if it is signed in (R-E20) — else NO engine (ruling 36 D1 removed the local rung)
      (``NO_ENGINE``), never a metered API key by itself. A resolved copy then carries ``no_engine_reason`` and every
      call built from it refuses before it is made (``providers.resolve_llm_fn``).
   4. ``"byok"`` — the person CHOSE an API key (``CICADA_LLM_MODE=byok`` or the picker): it defers to the
@@ -44,6 +44,8 @@ then resolves exactly as one the person starts would. It is the guard's only oth
 from __future__ import annotations
 
 import asyncio
+import json
+from datetime import datetime
 
 from loguru import logger
 
@@ -229,7 +231,8 @@ def _prefs_mode(registry) -> str | None:
 #: R-E20's auto ladder, in the order ``resolve_llm_mode`` walks it — the
 #: POWERS line reads the same order so a card never claims an engine the
 #: ladder would not reach first.
-_AUTO_LADDER = (CLAUDE_CONNECTION_ID, CODEX_CONNECTION_ID, OLLAMA_CONNECTION_ID)
+#: Ruling 36 D1 (2026-10-22): the local rung is gone — a model on this machine runs only when the person picks it.
+_AUTO_LADDER = (CLAUDE_CONNECTION_ID, CODEX_CONNECTION_ID)
 
 
 def configured_mode(settings, registry) -> str:
@@ -547,9 +550,10 @@ async def resolve_llm_mode(
             return "byok", "could not probe the Claude plan — using the API key you chose"
         return "byok", "Claude plan is not connected — using the API key you chose"
 
-    # configured == "auto" from here — the default (2026-10-19). R-E20's ladder: the Claude plan, the ChatGPT plan,
-    # Ollama; a plan is open to a scheduled run only through the person's switch (ruling 4b). A rung whose probe fails
-    # (None) falls through to the next, as an unconnected one does; the ladder never ends on a metered key.
+    # configured == "auto" from here — the default (2026-10-19). R-E20's ladder: the Claude plan, then the ChatGPT plan
+    # (ruling 36 D1 removed the local rung: a model on this machine runs only when chosen); a plan is open to a scheduled
+    # run only through the person's switch (ruling 4b). A rung whose probe fails (None) falls through to the next, as an
+    # unconnected one does; the ladder never ends on a metered key or on a local model.
     claude_open = user_triggered or _schedule_may_use("agent", registry)
     codex_open = user_triggered or _schedule_may_use("codex", registry)
     if claude_open:
@@ -562,12 +566,95 @@ async def resolve_llm_mode(
         codex = await _connected(registry, CODEX_CONNECTION_ID)
         if codex:
             return "codex", "ChatGPT plan signed in — running Sleep on your ChatGPT plan"
-    ollama = await _connected(registry, OLLAMA_CONNECTION_ID)
-    if ollama:
-        return "local", "Ollama is running — using the local engine"
     if not (claude_open or codex_open):
         return "auto", SCHEDULE_DEGRADED
     return "auto", NO_ENGINE
+
+
+#: The one-time record that Auto's local rung was retired for this install (ruling 36 D1): the date it was checked, and
+#: whether a person reading through a local model under Auto was kept on it as an explicit choice.
+AUTO_LOCAL_RECORD_KEY = "auto_local_retired"
+
+
+def _claude_signed_in_definitely(runner, timeout: float) -> bool | None:
+    """``claude auth status --json`` read for a DEFINITE answer: True signed in on the plan, False not installed or
+    signed out, ``None`` when the probe timed out, failed or printed something unreadable — never a guess."""
+    result = runner(["claude", "auth", "status", "--json"], stdin=None, timeout=timeout, cwd=None)
+    if result.rc == 127:
+        return False
+    if result.rc == 124:
+        return None
+    try:
+        info = json.loads((result.stdout or "").strip())
+    except ValueError:
+        return None
+    if not isinstance(info, dict):
+        return None
+    return bool(info.get("loggedIn"))
+
+
+def _codex_signed_in_definitely(runner, timeout: float) -> bool | None:
+    """``codex login status`` for a DEFINITE answer (rc 0 signed in, 127 not installed, a timeout is ``None``)."""
+    result = runner(["codex", "login", "status"], stdin=None, timeout=timeout, cwd=None)
+    if result.rc == 124:
+        return None
+    if result.rc == 127:
+        return False
+    return result.rc == 0
+
+
+async def retire_auto_local_rung(settings, registry, *, runner=None, timeout: float = 20.0,
+                                 new_install: bool = False) -> str | None:
+    """Ruling 36 D1, once per install: Auto no longer reaches a local model. A person whose Auto read through one —
+    nothing chosen, no plan signed in, a local model running — keeps reading with it: their choice becomes an explicit
+    ``local``, recorded (``AUTO_LOCAL_RECORD_KEY``, ``kept_local``) so Settings → Intelligence says so in one line,
+    never silently. A person with a plan signed in gets a ``checked`` record, so their local model is never adopted later.
+
+    It writes only on a DEFINITE answer (re-review, 2026-10-22): the local model's own short probe, then both plans'
+    status commands at the full 20 s (`agent_engine.probe`'s default, off the boot path — the lifespan runs this as a
+    background task). A cold-cache plan probe that times out or cannot be read must never pin a signed-in person to
+    `local` for good, so any unsure answer returns without a record and the next start asks again. Returns
+    ``"kept_local"``, ``"checked"``, or ``None`` (already done, pinned by the environment, or not sure yet). Never
+    raises.
+
+    ``new_install`` (the lifespan's signal that this boot seeded a brand-new bank, the same one that writes the nightly
+    schedule): a new install of this build never had a local rung to keep, so it is recorded ``checked`` at once —
+    a local model started days later is never adopted as its default (ruling 36 D1)."""
+    try:
+        entry = registry.prefs().get(SLEEP_ENGINE_PREF_KEY) or {}
+        if entry.get(AUTO_LOCAL_RECORD_KEY):
+            return None
+        if new_install:
+            registry.set_pref(SLEEP_ENGINE_PREF_KEY, AUTO_LOCAL_RECORD_KEY,
+                              {"outcome": "checked", "on": datetime.now().date().isoformat(), "new_install": True})
+            return "checked"
+        if hasattr(settings, "model_fields_set") and "llm_mode" in settings.model_fields_set:
+            return None
+        outcome = "checked"
+        if configured_mode(settings, registry) == "auto":
+            # The local model first: a short HTTP probe, so a machine without one never spawns a plan's CLI here.
+            local = await _connected(registry, OLLAMA_CONNECTION_ID)
+            if not local:
+                # Not running now (or unsure): it may simply start after Cicada at login, so nothing is recorded and
+                # the next start asks again — no plan CLI is spawned on a machine without a local model.
+                return None
+            if local:
+                from api.services import agent_engine
+
+                run = runner or agent_engine._default_runner()
+                claude = await asyncio.to_thread(_claude_signed_in_definitely, run, timeout)
+                codex = await asyncio.to_thread(_codex_signed_in_definitely, run, timeout)
+                if claude is None or codex is None:
+                    return None
+                if not (claude or codex):
+                    registry.set_pref(SLEEP_ENGINE_PREF_KEY, "mode", "local")
+                    outcome = "kept_local"
+        registry.set_pref(SLEEP_ENGINE_PREF_KEY, AUTO_LOCAL_RECORD_KEY,
+                          {"outcome": outcome, "on": datetime.now().date().isoformat()})
+        return outcome
+    except Exception as e:  # noqa: BLE001 — boot never fails for this
+        logger.warning(f"retire_auto_local_rung: {e}")
+        return None
 
 
 async def resolve_settings(

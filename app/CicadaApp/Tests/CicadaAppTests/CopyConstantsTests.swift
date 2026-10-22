@@ -85,11 +85,11 @@ final class CopyConstantsTests: XCTestCase {
     /// R-IB21's rule, for the paged Welcome (R-OB17): its one action and its exits in plain words, and a promise that
     /// is true — a reader may send what it reads, so the files are "kept on this Mac", never "never uploaded".
     func testTheWelcomeNamesItsOneActionAndItsSecondaryExits() {
-        XCTAssertEqual(Copy.onboardingGetStarted, "Get started")
+        XCTAssertEqual(Copy.onboardingContinue, "Continue")
         XCTAssertTrue(Copy.welcomeHomeLabels.contains(Copy.welcomeSetUpLater))
         XCTAssertTrue(Copy.onboardingLabels.contains(Copy.welcomeTryTheDemo))
-        XCTAssertFalse(Copy.welcomePromise.lowercased().contains("episode"))
-        XCTAssertFalse(Copy.welcomePromise.lowercased().contains("never uploaded"))
+        XCTAssertFalse(Copy.welcomeLine.lowercased().contains("episode"))
+        XCTAssertFalse(Copy.welcomeLine.lowercased().contains("never uploaded"))
     }
 
     /// Track P — the empty state must say what to DO, not just that there is
