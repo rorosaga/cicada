@@ -1218,5 +1218,25 @@
       "frontmatter": "{**parsed.frontmatter, 'tags': kept}",
       "disposition": "preserve_frontmatter_guarded"
     }
+  ],
+  "services/source_proposals.py": [
+    {
+      "function": "_write_item",
+      "method": "write",
+      "frontmatter": "item",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "propose",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "answer",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
   ]
 }

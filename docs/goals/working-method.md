@@ -46,6 +46,16 @@ list is what a reviewer checks:
 | App | `cd app/CicadaApp && swift test` | **0 failures** |
 | Graph (JS) | `node --test app/CicadaApp/Tests/graph/*.test.js` | **0 failures.** Pass the glob, not the directory — a bare directory arg fails with a bare "test failed". |
 
+**A checkout without its own `api/.venv` fails four tests by design (2026-10-22).** A scratch worktree run with the
+main checkout's interpreter (`~/code/cicada/api/.venv/bin/python -m pytest`) fails
+`test_backlog_import::test_the_script_runs_twice_and_the_second_run_changes_nothing`,
+`test_check_census::test_the_script_prints_the_census_and_refuses_a_non_bank`,
+`test_cli_launcher::test_a_two_link_chain_resolves_the_checkout_and_keeps_the_cwd` and
+`test_prose_repair::test_cli_inventory_bootstraps_scratch_and_has_no_apply`: each runs a script or launcher that uses
+*the checkout's own* `api/.venv` (the launcher refuses with "no Python environment", the scripts fall back to a bare
+`python3` without `loguru`). All four pass once the worktree has `api/.venv` (a symlink to the main venv is enough:
+`ln -s ~/code/cicada/api/.venv <worktree>/api/.venv`). Not a regression; link the venv before a full run.
+
 **Current disclosed backend failure is G185** ([audit status](audit-2026-10-05/STATUS.md)); do not hide it or classify an unrelated regression as expected. Counts above are dated reported evidence. PR #50 removed the old twelve failures, including the following causes:
 
 - **The developer's `api/.env` was leaking into the suite.** `litellm/__init__.py` calls `load_dotenv()`
