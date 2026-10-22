@@ -402,7 +402,7 @@ A preview line or the Sleep page's button that runs on an `openrouter/` model na
 Integrations; a *one-shot* import (drop an export, sync a folder once) stays where it already was,
 behind the `+` on the Sleep page's tab row (the Feed's, until 2026-10-16). Both read the same `channel_registry`, so a channel never drifts between the
 two surfaces. Round 3 added **Notes & files** (Apple Notes and, when Obsidian is installed, *Obsidian vault*; the
-watched folders and *Add a folder* moved to Settings → Search & files on 2026-10-14, and Notes & files keeps one
+watched folders and *Add a folder* moved to Settings → Search & memory on 2026-10-14, and Notes & files keeps one
 pointer, "Folders are in Search & files ›") and **Voice & meetings** (Wispr Flow once it is on this
 Mac) — both standing connections, so both live here; their marks are the installed apps' own icons.
 Harness rows wear their app's real mark ("Other agents" a neutral glyph); a folder's Manage, Wispr
@@ -1269,7 +1269,7 @@ field (⏎ searches by words through `POST /design/search`; the board re-ranks),
 an image file), and, when this Mac
 supports it but images aren't understood here yet, one row (DR-37) saying what it is for and its download size with
 *Turn on* (`POST /embeddings/install` with `part: vision`; the page polls while it installs). This is the in-context
-shortcut to Settings → Search & files → *Understand images* and keeps its one click: on a Mac without the meaning part
+shortcut to Settings → Search & memory → *Understand images* and keeps its one click: on a Mac without the meaning part
 it fetches both, and `vision.includesText` makes the row state the combined size ("…which also sets up Understand what
 you mean") before the click. Tiles: the screenshot through
 `StoredPreview` (`PictureURL` accepts `/design/…` as Cicada's own API), its colours as one strip, the site and the day
@@ -2083,7 +2083,7 @@ shows once in the Version row ("couldn't be installed … You're still on 0.3.0"
 reinstalled once on that launch. The zip must be one of the same release's own assets, over https. The new copy rewrites the
 `~/.cicada/bin` launchers when it opens. Log: `~/.cicada/logs/update.log`.
 
-**Settings → Search & files (owner, 2026-10-14; G182 phase 3, EmbeddingGemma 2 owner 2026-10-09, G133, G195 frame).**
+**Settings → Search & memory (owner, 2026-10-14; G182 phase 3, EmbeddingGemma 2 owner 2026-10-09, G133, G195 frame).**
 A section in the Cicada group between Privacy & data and Memory (`SettingsSection.searchFiles`, a new case): sidebar
 *Search & files*, page title *What Cicada can look through* (`SettingsSection.pageTitle`; the header shows it, the
 sidebar and search show the short name). One place for what Cicada can look through, in plain words — the owner: "without

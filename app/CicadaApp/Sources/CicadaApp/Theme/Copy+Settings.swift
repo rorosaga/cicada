@@ -69,7 +69,7 @@ extension Copy {
         }
     }
     static let backgroundInstall = "Install"
-    // G180 — Settings → General → Command-line tool (ruling 21). Provider-neutral: agents, never a named one.
+    // G180 — Settings → Agents → Command-line tool (ruling 21; on General until the Hyrum audit's B11). Provider-neutral: agents, never a named one.
     static let cliToolTitle = "Command-line tool"
     static let cliToolInstall = "Install the command-line tool"
     static let cliToolInstallHelp = "Adds one link, ~/.local/bin/cicada. No password needed."
@@ -108,7 +108,7 @@ extension Copy {
     // MARK: Engines (A3, R-O8)
     static let engines = "Engines"
     /// Settings defaults, pass 2 (owner 2026-10-22): what the page is for, in plain words, naming no provider or model.
-    static let enginesSubtitle = "What Cicada reads your conversations with."
+    static let enginesSubtitle = "Who reads your conversations, and what it signs in with."
     static let settingsEngines = "\(settings) → \(engines)"
     static let enginesChooseGroup = "Engine"
     /// The heading over the one switch that only matters on the API key card.
@@ -130,7 +130,7 @@ extension Copy {
 
     // MARK: Customize (A1, R-O11)
     static let remoteSubtitle = "Let AI apps outside this Mac use your memory."
-    static let settingsFromAnywhere = "\(settings) → \(fromAnywhere)"
+    static let settingsFromAnywhere = "\(settings) → \(Devices.sidebar) → \(fromAnywhere)"
     static let agentsOnThisMacGroup = "Agents on this Mac"
     static let agentsCloudTitle = "claude.ai, ChatGPT and your phone"
     static let agentsCloudDetail = "Cloud apps can't start a program on your Mac, so they reach Cicada through a link. You can also bring web chats in with the + on the Sleep page."

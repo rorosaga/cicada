@@ -23,7 +23,7 @@ PLAN_NOT_CHOSEN = "plan_not_chosen"  # scheduled runs may use the signed-in plan
 CLI_FIX = {
     NO_ENGINE: ("Connect your plan on this machine (`cicada engine connect claude-plan`, or `chatgpt-plan`) and leave "
                 "scheduled runs on it (`cicada sleep schedule --use-plan on`, the default), or choose an API model as "
-                "Sleep's engine with its key (`cicada sleep engine --mode byok`, the key in Settings → Plans & keys or "
+                "Sleep's engine with its key (`cicada sleep engine --mode byok`, the key in Settings → Engines → Plans & keys or "
                 "~/.cicada/secrets.env)."),
     PLAN_SIGNED_OUT: ("Sign in to your plan on this machine: `cicada engine connect claude-plan` (or "
                       "`chatgpt-plan`)."),

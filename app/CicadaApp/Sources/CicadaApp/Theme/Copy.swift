@@ -36,7 +36,7 @@ enum Copy {
 
     /// The canonical way to send someone to the connections settings. Built
     /// from the parts above so a rename can never desync the two halves.
-    static let settingsPlansAndKeys = "\(settings) → \(plansAndKeys)"
+    static let settingsPlansAndKeys = "\(settings) → \(engines) → \(plansAndKeys)"
     /// Ditto, for the Sleep section.
     static let settingsSleep = "\(settings) → \(sleepSettings)"
     /// Ditto, for the General tab (G130).

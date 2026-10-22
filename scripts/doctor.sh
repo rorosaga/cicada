@@ -197,7 +197,7 @@ else
     pass "Sleep engine: at least one connection is live"
   else
     fail "Sleep engine: no connection is live — Sleep has nothing to run on"
-    note "open Settings → Plans & keys, or run: claude auth login"
+    note "open Settings → Engines → Plans & keys, or run: claude auth login"
   fi
 fi
 

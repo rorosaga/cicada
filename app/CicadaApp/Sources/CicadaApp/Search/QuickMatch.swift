@@ -144,7 +144,9 @@ enum QuickMatch {
         var out: [Token] = []
         for part in query.split(whereSeparator: { $0.isWhitespace }) {
             let folded = fold(String(part))
-            guard !folded.scalars.isEmpty, seen.insert(folded.scalars).inserted else { continue }
+            // A part with no letter or digit ("&", "—") can match only by substring, which a one-scalar token never
+            // does (R-SU2), so it would fail every query that types a name with an ampersand in full.
+            guard folded.scalars.contains(where: isWordScalar), seen.insert(folded.scalars).inserted else { continue }
             out.append(Token(scalars: folded.scalars, mask: folded.mask))
             if out.count == maxTokens { break }
         }

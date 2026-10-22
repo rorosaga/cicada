@@ -198,16 +198,13 @@ struct SettingsPanel: View {
         case .you: YouView()
         case .privacy: PrivacyView()
         case .searchFiles: SearchFilesView()
-        case .memory: MemoryView()
         case .sleep: SettingsSleepView()
         case .integrations: IntegrationsView()
         case .reading: ReadingWebView()
         case .agents: ConnectView()
-        case .remote: FromAnywhereView()
         case .devices: DevicesSettingsView()
         case .skills: SkillsView()
         case .engines: EnginesView()
-        case .plansAndKeys: ConnectionsView()
         }
     }
 

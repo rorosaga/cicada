@@ -7,6 +7,9 @@ import SwiftUI
 /// Credentials only (G139, R-O9): the plan, its sign-in and the keys. Engine
 /// choice lives on Engines — the Max tier picker (a cost-estimate control, K4)
 /// is gone and "Use for Sleep" moved there as "Auto may use my Claude plan".
+///
+/// Hyrum audit B1 (2026-10-22): no longer a page of its own. It is the *Plans & keys* group at the end of Settings →
+/// Engines, under the anchor the page's header had (`SettingsRowID.plansAndKeys`, `page:plansAndKeys`).
 struct ConnectionsView: View {
     @Environment(ConnectionsViewModel.self) private var viewModel
     @State private var keyDrafts: [String: String] = [:]
@@ -27,9 +30,16 @@ struct ConnectionsView: View {
     // `body` is split into `refreshButton`, `pageContent`, `cards` and the dialog's words: as one expression it sat
     // near what the type checker solves in reasonable time on a slower release runner.
     var body: some View {
-        SettingsPage(section: .plansAndKeys, trailing: refreshButton) {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            HStack(alignment: .firstTextBaseline) {
+                SettingsGroupHeader(Copy.plansAndKeys)
+                Spacer(minLength: CicadaTheme.spacingSM)
+                refreshButton
+            }
+            .padding(.horizontal, CicadaTheme.spacingXS)
             pageContent
         }
+        .settingsRow(.plansAndKeys)
         .onAppear { openKeysIfLanded() }
         .onChange(of: focus?.landedNonce ?? 0) { _, _ in openKeysIfLanded() }
         // No `.task { load() }`: `ConnectionsViewModel` is a thin projection
@@ -50,11 +60,11 @@ struct ConnectionsView: View {
         }
     }
 
-    private var refreshButton: AnyView {
-        AnyView(
-            Button { Task { await viewModel.load(fresh: true) } } label: { Image(systemName: "arrow.clockwise") }
-                .help("Check again")
-        )
+    /// A group header's one icon control (DR-40), where the page header's bordered button sat before B1.
+    private var refreshButton: some View {
+        IconButton(systemName: "arrow.clockwise", help: "Check again", accessibilityLabel: "Check plans and keys again") {
+            Task { await viewModel.load(fresh: true) }
+        }
     }
 
     @ViewBuilder private var pageContent: some View {

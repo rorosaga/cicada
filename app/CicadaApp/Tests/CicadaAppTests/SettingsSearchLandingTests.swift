@@ -29,7 +29,7 @@ final class SettingsSearchLandingTests: XCTestCase {
     func testARowWithNoAnchorLandsOnItsPage() throws {
         let hit = try XCTUnwrap(SettingsSearchLanding.topHit("tailscale", in: entries))
         XCTAssertEqual(hit.id, .remoteReach)
-        XCTAssertEqual(hit.anchor, .page(.remote), "R-O12 — From anywhere lands on its header")
+        XCTAssertEqual(hit.anchor, .fromAnywhere, "R-O12 — From anywhere lands on its group (Hyrum audit B1)")
     }
 
     /// Typing a setting's own name surfaces it at the top of the results (the first three — two

@@ -27,7 +27,7 @@ What it is, end to end:
   hour; refresh tokens (``cic_rt_``) rotate on every use, and a rotated one presented again (past a short grace
   for a client's own concurrent refresh) revokes the whole grant. Every token is stored as its sha256 only,
   compared in constant time, and maps to a connector row — the same hashed, scoped, expiring and revocable row a
-  link connector is — so Settings → From anywhere revokes it and the grant can never outlive the connector.
+  link connector is — so Settings → Devices & access → From anywhere revokes it and the grant can never outlive the connector.
 * **Rate limits.** Registration, authorization and document fetches each have a bucket; the token and revocation
   endpoints have one per client id (a valid refresh is let through a spent bucket, so nobody can starve an app's
   renewal by spamming its public client id). At most :data:`MAX_PENDING` requests wait; past it the oldest of the

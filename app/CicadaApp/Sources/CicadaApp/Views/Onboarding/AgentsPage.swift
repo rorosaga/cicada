@@ -46,7 +46,7 @@ struct AgentsPage: View {
                     deeplink: AgentSetupCatalog.all(runtime: runtime, memoryRoot: model.memoryRoot)
                         .first { $0.id == "cursor" }?.deeplink?.url,
                     onConnected: { Task { await model.refreshWiring() } },
-                    onOpenFromAnywhere: { _ = router.openSettings(.remote) },
+                    onOpenFromAnywhere: { _ = router.openSettings(.devices, row: .fromAnywhere) },
                     onCreateLink: { linkFor = $0 })
             }
             // The pointer to Settings → Agents is the frame's foot line (`OnboardingView.footLine`), pinned under

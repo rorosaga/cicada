@@ -4802,7 +4802,7 @@ def design_search(ctx: ToolContext, query=None, image_path=None, image_base64=No
             lines.append(_design_line(ref, memory_path=None if ctx.is_remote else memory_path, legs=hit["legs"]))
     notes = []
     if "image_model" in out["missing"]:
-        notes.append("Searching by picture isn't set up on this Mac (the person can turn it on in Settings, Search & files), "
+        notes.append("Searching by picture isn't set up on this Mac (the person can turn it on in Settings, Search & memory), "
                      "so pictures were compared by their words only.")
     if "model" in out["missing"]:
         notes.append("Only words were compared: the on-device search model isn't installed.")

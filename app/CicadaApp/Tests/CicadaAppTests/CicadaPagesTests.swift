@@ -4,13 +4,13 @@ import XCTest
 /// G139 — the Cicada group's new pages (design §2.2; R-O17, R-O18, R-O21).
 final class CicadaPagesTests: XCTestCase {
     func testTheCicadaGroupReadsInTheDesignsOrder() {
-        // Search & files (owner, 2026-10-14) sits between Privacy & data and Memory.
-        XCTAssertEqual(SettingsGroup.cicada.sections, [.general, .you, .privacy, .searchFiles, .memory, .sleep])
-        // Settings defaults (owner 2026-10-22): Advanced is gone; Engines & keys is the engine and the sign-ins.
-        XCTAssertEqual(SettingsGroup.enginesAndKeys.sections, [.engines, .plansAndKeys])
+        // Hyrum audit B1 (2026-10-22): Memory joined Search & files, now Search & memory.
+        XCTAssertEqual(SettingsGroup.cicada.sections, [.general, .you, .privacy, .searchFiles, .sleep])
+        // Settings defaults (owner 2026-10-22): Advanced is gone. B1: Plans & keys is a group on Engines.
+        XCTAssertEqual(SettingsGroup.enginesAndKeys.sections, [.engines])
         XCTAssertNil(SettingsSection(rawValue: "advanced"))
         XCTAssertEqual(SettingsSection.restored(from: "advanced"), .general, "a saved Advanced reopens on General")
-        for section in [SettingsSection.you, .privacy, .searchFiles, .memory] {
+        for section in [SettingsSection.you, .privacy] {
             XCTAssertLessThanOrEqual(section.subtitle.count, 60)
             XCTAssertFalse(section.subtitle.lowercased().contains(section.title.lowercased()))
         }
@@ -67,13 +67,13 @@ final class CicadaPagesTests: XCTestCase {
     // MARK: Memory
 
     /// Settings defaults (owner 2026-10-22): Memory keeps How things fade; the link-preview button left (Sleep's
-    /// tail describes saved links on every run).
-    func testMemoryKeepsOnlyHowThingsFade() throws {
-        let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first { $0.path.hasSuffix("Views/Settings/MemoryView.swift") })
-        let memory = try String(contentsOf: file, encoding: .utf8)
-        XCTAssertTrue(memory.contains("FadePaceCard()"))
-        XCTAssertFalse(memory.contains("SettingsRow("), "no maintenance button on Memory")
-        XCTAssertFalse(memory.contains("APIClient"), "Memory starts no backend job")
+    /// tail describes saved links on every run). Hyrum audit B1: the card is drawn on Search & memory, under the old
+    /// page's anchor.
+    func testHowThingsFadeIsOnSearchAndMemory() throws {
+        let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first { $0.path.hasSuffix("Views/Settings/SearchFilesView.swift") })
+        let page = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertTrue(page.contains("FadePaceCard()\n                .settingsRow(.memoryGroup)"))
+        XCTAssertFalse(page.contains("enrich-links"), "no maintenance button")
     }
 
     /// R-O17 — the dedup sweep has no row until its endpoint stops blocking the

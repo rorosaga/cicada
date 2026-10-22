@@ -3063,7 +3063,7 @@ actor APIClient {
 
     /// `GET /embeddings` — which model the active bank's vectors use, what the next index sync
     /// builds with, the models this Mac can run and the larger model's install. Not a Store
-    /// domain, no ETag; Settings → Memory polls it only while an install runs.
+    /// domain, no ETag; Settings → Search & memory polls it only while an install runs.
     func fetchEmbeddings() async throws -> EmbeddingsStatus { try await get("/embeddings") }
 
     /// `POST /embeddings/choice` — `nil` goes back to the default. 400 for a model Cicada does not

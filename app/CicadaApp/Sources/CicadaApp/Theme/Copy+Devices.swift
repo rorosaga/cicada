@@ -57,8 +57,11 @@ extension Copy {
         static let demoStaysLocal = "The demo runs only when your memory lives on this Mac."
 
         // MARK: Settings → Devices
-        static let sidebar = "Devices"
-        static let subtitle = "Which of your devices reach your memory"
+        /// Hyrum audit B1 (2026-10-22): From anywhere joined this page, so the name says both.
+        static let sidebar = "Devices & access"
+        /// The name until B1; Settings search still finds the page by it.
+        static let formerSidebar = "Devices"
+        static let subtitle = "Which of your devices and apps reach your memory"
         static let devicesGroup = "Your devices"
         static let connectionIndexTitle = "Server connection"
         static func connectionServer(_ host: String) -> String { "This app is using \(host) now." }

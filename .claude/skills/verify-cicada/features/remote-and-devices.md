@@ -8,7 +8,7 @@ Off by default: an MCP listener on its own port for apps with no hook (claude.ai
 
 ## How to get to it (user POV)
 
-- Settings → From anywhere; Settings → Devices.
+- Settings → Devices & access → From anywhere; Settings → Devices.
 - `GET /remote/status`, `/remote/connectors`, `/remote/oauth/*`; `GET /devices`, `POST /devices`, `DELETE /devices/{device_id}`.
 - `cicada device add | list | revoke`.
 

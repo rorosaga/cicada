@@ -10,16 +10,17 @@ final class SearchFilesTests: XCTestCase {
 
     // MARK: The section
 
-    func testTheSectionSitsBetweenPrivacyAndMemoryWithItsOwnPageTitle() {
+    /// Hyrum audit B1 (2026-10-22): Memory's card joined this section, renamed *Search & memory*; the raw value and
+    /// the page title did not move, and a saved Memory selection opens here.
+    func testTheSectionSitsAfterPrivacyWithItsOwnPageTitle() {
         let cicada = SettingsGroup.cicada.sections
         XCTAssertEqual(cicada.firstIndex(of: .searchFiles), cicada.firstIndex(of: .privacy).map { $0 + 1 })
-        XCTAssertEqual(cicada.firstIndex(of: .memory), cicada.firstIndex(of: .searchFiles).map { $0 + 1 })
-        XCTAssertEqual(SettingsSection.searchFiles.title, "Search & files")
+        XCTAssertEqual(SettingsSection.searchFiles.title, "Search & memory")
         XCTAssertEqual(SettingsSection.searchFiles.pageTitle, "What Cicada can look through")
-        XCTAssertEqual(SettingsSection.memory.pageTitle, SettingsSection.memory.title, "other pages keep one name")
-        XCTAssertEqual(SettingsSection.searchFiles.rawValue, "searchFiles", "a new case: no persisted value moves")
-        XCTAssertEqual(SettingsSection.restored(from: "memory"), .memory)
-        XCTAssertEqual(Copy.SearchFiles.pointer, "Settings → Search & files")
+        XCTAssertEqual(SettingsSection.sleep.pageTitle, SettingsSection.sleep.title, "other pages keep one name")
+        XCTAssertEqual(SettingsSection.searchFiles.rawValue, "searchFiles", "no persisted value moves")
+        XCTAssertEqual(SettingsSection.restored(from: "memory"), .searchFiles)
+        XCTAssertEqual(Copy.SearchFiles.pointer, "Settings → Search & memory")
     }
 
     // MARK: The lint (the owner: "without mentioning embeddings")

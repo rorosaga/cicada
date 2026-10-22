@@ -1,12 +1,11 @@
 import Foundation
 
-/// The Settings scene's five sidebar rows (Track C — replacing the old
-/// four-tab `TabView` with a `NavigationSplitView`, adding the new
-/// Integrations section for G126 alongside G122's engine picker on Sleep).
+/// The Settings panel's sidebar rows: eleven since the Hyrum audit's B1 (2026-10-22). The first five were Track C's,
+/// replacing the old four-tab `TabView`.
 ///
 /// R7 (binding): raw values are machine keys, never the display string —
-/// `case plansAndKeys` (implicit raw value `"plansAndKeys"`), NOT a case
-/// whose raw value retypes `Copy.plansAndKeys`'s own display string. Two
+/// `case searchFiles` (implicit raw value `"searchFiles"`), NOT a case
+/// whose raw value retypes its own display string. Two
 /// reasons: `CopyConstantsTests`'s `testNoViewRetypesAPointerLiteral` bans
 /// that literal outside `Copy.swift` itself, and a raw value doubles as
 /// `@AppStorage("cicada.settingsSection")`'s
@@ -36,6 +35,11 @@ import Foundation
 /// the environment switches and the settings file were technical values nobody sets here. A saved `"advanced"` raw value
 /// no longer names a case, so `restored(from:)` opens General, as it does for any retired section.
 ///
+/// Hyrum audit B1 (2026-10-22): fourteen sections became eleven. Memory's one card (*How things fade*) joined Search &
+/// files, now *Search & memory*; From anywhere joined Devices, now *Devices & access*; Plans & keys joined Engines. The
+/// three retired raw values are `retired` below: a saved selection, a deep link or a search hit that named one opens
+/// its new home on the row that inherited it, never General and never blank. `SettingsAnchorsTests` holds that.
+///
 /// O5 — Skills (G138) closes Customize: what your agents can add, installed
 /// only by the agent's own installer after consent (R-O26).
 ///
@@ -46,7 +50,7 @@ import Foundation
 enum SettingsSection: String, CaseIterable, Identifiable {
     // Declared in sidebar order — `SettingsGroup.sections` filters this list,
     // and `SettingsKitTests` pins that the groups read it back unchanged.
-    case general, you, privacy, searchFiles, memory, sleep, integrations, reading, agents, remote, devices, skills, engines, plansAndKeys
+    case general, you, privacy, searchFiles, sleep, integrations, reading, agents, devices, skills, engines
 
     var id: String { rawValue }
 
@@ -56,16 +60,13 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .you: Copy.youSection
         case .privacy: Copy.privacyAndData
         case .searchFiles: Copy.SearchFiles.sidebar
-        case .memory: Copy.memorySection
         case .sleep: Copy.sleepSettings
         case .integrations: Copy.integrations
         case .reading: Copy.Reading.pageTitle
         case .agents: Copy.agents
-        case .remote: Copy.fromAnywhere
         case .devices: Copy.Devices.sidebar
         case .skills: Copy.skills
         case .engines: Copy.engines
-        case .plansAndKeys: Copy.plansAndKeys
         }
     }
 
@@ -84,16 +85,13 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .you: Copy.youSubtitle
         case .privacy: Copy.privacySubtitle
         case .searchFiles: Copy.SearchFiles.subtitle
-        case .memory: Copy.memorySubtitle
         case .sleep: Copy.sleepSettingsSubtitle
         case .integrations: Copy.integrationsSubtitle
         case .reading: Copy.Reading.pageSubtitle
         case .agents: Copy.agentsSubtitle
-        case .remote: Copy.remoteSubtitle
         case .devices: Copy.Devices.subtitle
         case .skills: Copy.skillsSubtitle
         case .engines: Copy.enginesSubtitle
-        case .plansAndKeys: Copy.plansAndKeysSubtitle
         }
     }
 
@@ -103,25 +101,21 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .you: "person.crop.circle"
         case .privacy: "hand.raised"
         case .searchFiles: "doc.text.magnifyingglass"
-        case .memory: "books.vertical"
         case .sleep: "moon.zzz"
         case .integrations: "puzzlepiece.extension"
         case .reading: "globe"
         case .agents: "cable.connector"
-        case .remote: "dot.radiowaves.left.and.right"
         case .devices: "laptopcomputer.and.iphone"
         case .skills: "sparkles"
         case .engines: "cpu"
-        // K4: `creditcard` read as a price on a page that must never show one.
-        case .plansAndKeys: "key.horizontal"
         }
     }
 
     var group: SettingsGroup {
         switch self {
-        case .general, .you, .privacy, .searchFiles, .memory, .sleep: .cicada
-        case .integrations, .reading, .agents, .remote, .devices, .skills: .customize
-        case .engines, .plansAndKeys: .enginesAndKeys
+        case .general, .you, .privacy, .searchFiles, .sleep: .cicada
+        case .integrations, .reading, .agents, .devices, .skills: .customize
+        case .engines: .enginesAndKeys
         }
     }
 
@@ -131,18 +125,25 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     /// (a retired case, or a future rename) both fall back to `.general`
     /// rather than trapping the reader on a section that no longer exists.
     static func restored(from raw: String?) -> SettingsSection {
-        guard let raw, let section = SettingsSection(rawValue: raw) else {
-            return .general
-        }
-        return section
+        guard let raw else { return .general }
+        return SettingsSection(rawValue: raw) ?? retired[raw]?.section ?? .general
     }
+
+    /// Hyrum audit B1 (2026-10-22): a section that merged into another, by its old raw value, with the row on the new
+    /// page that inherited it. Read by `restored(from:)` (a saved `cicada.settingsSection`) and by
+    /// `SettingsRowID.landing(_:)` (the old header anchor, `page:<raw>`, which docs and harness scripts name).
+    static let retired: [String: (section: SettingsSection, row: SettingsRowID)] = [
+        "memory": (.searchFiles, .memoryGroup),
+        "remote": (.devices, .fromAnywhere),
+        "plansAndKeys": (.engines, .plansAndKeys),
+    ]
 
     /// R-O11 — the retired "On this Mac / From anywhere" segment was persisted
     /// under `cicada.agentsMode`. A person who left Agents on "From anywhere"
-    /// reopens on the row that inherited it; everything else restores as before.
+    /// reopens where From anywhere lives now (Devices & access, since B1); everything else restores as before.
     static func restored(from raw: String?, legacyAgentsMode: String?) -> SettingsSection {
         let section = restored(from: raw)
-        return section == .agents && legacyAgentsMode == "anywhere" ? .remote : section
+        return section == .agents && legacyAgentsMode == "anywhere" ? .devices : section
     }
 }
 

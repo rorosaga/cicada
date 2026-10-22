@@ -1,4 +1,4 @@
-"""G182 phase 3 — Settings → Search & files (was Memory → Search model until 2026-10-14).
+"""G182 phase 3 — Settings → Search & memory (was Memory → Search model until 2026-10-14).
 
 ``GET /embeddings`` says which model the active bank's vectors use, which models
 this Mac can run, how a download is going and how far the background re-embed is.

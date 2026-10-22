@@ -159,6 +159,13 @@ struct DevicesSettingsView: View {
                     deviceList
                 }
             }
+            // Hyrum audit B1: From anywhere's page, unchanged, as this page's last group with the old page's anchor.
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                SettingsGroupHeader(Copy.fromAnywhere)
+                    .padding(.horizontal, CicadaTheme.spacingXS)
+                RemoteAccessView()
+            }
+            .settingsRow(.fromAnywhere)
         }
         .task {
             await model.refresh()

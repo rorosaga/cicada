@@ -13,7 +13,8 @@ import SwiftUI
 /// Scene (round-4 D4, G144) retired with the painted art (owner 2026-10-16): it picked a painting, and none is left.
 ///
 /// F-10 (round-4 T-Home, R-HO16) groups the page as *Look* (Appearance · Text size), *Startup* (Open Cicada at
-/// login · Show in menu bar) and *When Cicada is closed* (Keep memory working), then Setup. *Where your memory lives*
+/// login · Show in menu bar) and *When Cicada is closed* (Keep memory working), then *Getting started* (setup, the
+/// tour and the demo, one card since the Hyrum audit's B12) and the version. The command-line tool moved to Agents (B11). *Where your memory lives*
 /// moved to Devices (settings audit 2026-10-22): one place for where this app's memory is and which devices reach it. Text size stays in Look — F-10 omits it, and removing
 /// a working control needs the owner's word. Show in menu bar (`MenuBarPreference`) hides the bookworm without tearing
 /// it down; the app keeps its Dock icon, so hiding it never strands Cicada. The rows never promise what the app does not
@@ -30,13 +31,7 @@ import SwiftUI
 struct SettingsGeneralView: View {
     @AppStorage(ThemeStore.defaultsKey) private var appearanceRaw: String = AppearancePreference.dark.rawValue
     @AppStorage(MenuBarPreference.defaultsKey) private var showsMenuBar = true
-    // G117 — "Run setup again" needs the active bank (to clear the right
-    // per-bank `OnboardingState` flag) and the cross-scene hand-off
-    // (Settings is its own window, same reasoning as every other
-    // `AppRouter` use — see that type's own doc comment).
-    @Environment(AppRouter.self) private var router
     @Environment(Store.self) private var store
-    @Environment(SetupRunner.self) private var runner
     @Environment(LoginItemService.self) private var loginItems
     @Environment(BackendAgentService.self) private var backendAgent
     /// G182 phase 5 — the in-app updater; inert (and its row hidden) in a developer build.
@@ -125,29 +120,10 @@ struct SettingsGeneralView: View {
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 loginItems.refresh()
             }
+            // Hyrum audit B12: setup, the tour and the demo are one job, so one card. The command-line tool left for
+            // Agents (B11).
+            SettingsDemoTourGroup()
             SettingsGroupCard {
-                SettingsRow(.runSetup, title: Copy.setup, detail: Copy.runSetupDetail) {
-                    HStack(spacing: CicadaTheme.spacingSM) {
-                        // DR-40 — F-10's text buttons.
-                        TextButton(title: Copy.runSetupAgain) {
-                            OnboardingState.reset(bank: store.bank)
-                            router.requestFirstRun()
-                        }
-                        // R-IB17 — the checklist is re-openable, beside Run setup again so G139's index lands on both.
-                        TextButton(title: Copy.gsShowChecklist) {
-                            GettingStartedState.showChecklist(bank: store.bank)
-                            // A card already seen done this session would otherwise reopen as "You're set up."
-                            runner.sawDoneThisSession = false
-                            runner.checklistChanged()
-                            router.pendingTab = .home
-                            router.activateMainWindow()
-                        }
-                    }
-                }
-                SettingsDivider()
-                // G180 — the `cicada` command for agents with a shell: one link, no admin (ruling 21).
-                CommandLineToolSetting()
-                SettingsDivider()
                 // G182 — the version a tester reports; the backend's only when it differs (an updated app beside a
                 // background service still running the old one). Plain text, monospaced digits (DR-21). An update
                 // that couldn't be installed while Cicada was closed is said here, once, for this session (phase 5).
@@ -177,8 +153,6 @@ struct SettingsGeneralView: View {
                     }
                 }
             }
-            // G152 + G117 round 4 — the tour's replay and the demo's door, in their own view (one line here).
-            SettingsDemoTourGroup()
         }
     }
 }

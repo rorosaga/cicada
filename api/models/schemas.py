@@ -653,7 +653,7 @@ class DecaySuggestion(CamelModel):
 
 class DecayTuningResponse(CamelModel):
     """``GET /memory/decay-suggestions`` and ``PUT /memory/decay-tuning`` (G147).
-    Not a Store domain — fetched when Settings → Memory opens — so no ETag."""
+    Not a Store domain — fetched when Settings → Search & memory opens — so no ETag."""
 
     bank: str
     window_days: int
@@ -3502,7 +3502,7 @@ class BankTrashResponse(BankListResponse):
 
 
 class SearchIndexStatus(CamelModel):
-    """G139 — Settings → Memory's search-index row. `state` is
+    """G139 — Settings → Search & memory's search-index row. `state` is
     `search_index.ensure_fresh`'s own word."""
     state: str
     built_at: Optional[str] = None
