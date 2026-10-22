@@ -263,7 +263,9 @@ def test_stdio_claim_header_sits_above_the_video_lines_only(tmp_path):
     assert not text.startswith(mcp_tools.REFERENCE_HEADER) and text.startswith("Leased 1 video(s)")
     lines = text.splitlines()
     header = lines.index(mcp_tools.REFERENCE_HEADER)
-    assert lines[header + 1].startswith("1. ") and "again until it returns nothing" in lines[0]
+    # G200 A9: one rule on both doors — the provider's lines sit between the fence markers here too.
+    assert lines[header + 1] == mcp_tools.FENCE_OPEN and lines[header + 2].startswith("1. ")
+    assert "again until it returns nothing" in lines[0] and mcp_tools.FENCE_CLOSE in lines
 
 
 def test_the_stdio_header_is_the_remote_fences_header():
@@ -411,4 +413,4 @@ def test_the_primer_stays_inside_its_budget(tmp_path, monkeypatch):
     # 17: G198 + natural questions; remote 12: ruling 32 (owner, 2026-10-19), a connection that can capture is asked
     # to relay every turn. 18 / 13: ruling 34, a video hand-back names its lease_token. The budget above and R12
     # (test_handshake_read_r12) still hold at 13.
-    assert handshake.CONTRACT_VERSION == 18 and handshake.REMOTE_CONTRACT_VERSION == 13
+    assert handshake.CONTRACT_VERSION == 19 and handshake.REMOTE_CONTRACT_VERSION == 13  # 19: G200 A7

@@ -1364,7 +1364,7 @@ the CLI.
   then `CICADA_SESSION_ID`/`CICADA_SESSION_HARNESS`. `stdio_identity` is G48's minting policy, re-exported by
   `mcp/server.py` as `resolve_session_identity`. `cli_identity` never mints and keeps a harness named without an id.
 - **Gating.** `_hints_block` has a `can_open_hub` argument and names no action when the caller holds neither the detail
-  tool nor the hub tool. Recall drops the state cursor's `next_tool` when the caller lacks `cicada_handshake`.
+  tool nor the hub tool. Recall drops the state cursor's `refresh_with` when the caller lacks `cicada_handshake`.
   `render_question` (`can_answer`) drops `skip=true if unanswered` for a caller without `cicada_resolve_inbox`, and
   keeps the question and its choices. A remote connection keeps its current rendering until the G135 owner decides. Stdio holds
   every tool, and remote always holds the handshake and holds the hub tool whenever it holds recall, so both are
@@ -1398,9 +1398,7 @@ the CLI.
   answers `Could not write claim: observer '<value>' is not one of 'owner', 'agent', 'external' or 'external:<name>' …;
   nothing was written.`; absent or empty is still `agent`. `cicada_save_episode` with missing, empty or blank `content`
   answers `Nothing saved: \`content\` must be the text to keep, and it was empty.` Both are `Reply(code="refused")`,
-  so the command line exits 1. They are prose on the success channel like every refusal today; `isError` for refusals,
-  `structuredContent` and validation of every argument against its schema are the rest of G199, which re-records the
-  golden fixture once with A1/A4/A6/A7/A9.
+  so the command line exits 1, and both MCP doors answer them `isError: true` (next section).
 - **The advertised `observer` pattern names no person** (A11): `^(owner|agent|external|external:[a-z0-9][a-z0-9-]{0,63})$`
   (`mcp_tools.OBSERVER_PATTERN`). The legacy observer value old local installs send is still accepted by the body
   (`mcp_tools.observer_accepted`) and still stored as the owner; it is in no schema or description
@@ -1416,6 +1414,58 @@ the CLI.
   the next Sleep; no migration).
 - **Episode ids** carry the conversation's local day (ruling 34; `capture-and-sleep.md`). An id is opaque to an agent:
   `cicada_ask` dates each line by the local day its turn was said, never by the id.
+
+## The tool-call contract (G199, G200 A7/A9, Hyrum audit A1/A4/A6; 2026-10-22)
+
+One module, `api/services/tool_contract.py`, holds the rules both MCP doors keep. Each door checks a call against its
+OWN advertised table (stdio `TOOLS` in `mcp/server.py`, remote `REMOTE_TOOLS`), once, before a body runs.
+
+- **Arguments are checked against the schema** (`tool_contract.check`): `type` (unions too), `required`, `enum`,
+  `pattern`, `maxLength`, `maxItems`, `items`, nested objects, `anyOf`. A failure answers
+  ``Invalid arguments: `top_k` must be an integer (got the string "lots").`` with every problem named, code
+  `invalid_arguments`, and nothing run. `since` on `cicada_timeline` and `cicada_project` is a date or a number of days
+  (`SINCE_SCHEMA`: `"7"`, `"7d"`, `7`, `2026-09-01`); `"last tuesday"` used to fall back to the default window in
+  silence. `cicada_project`'s `tz` must be a zone `when.is_zone` reads (it used to fall back to UTC).
+- **Leniency kept, and said.** `null` for an optional argument is no argument. An argument the tool does not take is
+  dropped with a `Note:` naming it (a stdio-trained agent's `quote` on the remote `cicada_resolve_inbox` is no longer
+  lost in silence). `cicada_resolve_inbox` also takes `item_id` for `id`, unlisted (`ALIASES`; its sibling
+  `cicada_record_check` spells it so). **For the 0.6.0 release only** (`LENIENT_RELEASE`), a digit string where the
+  schema says integer, or `"true"`/`"false"` where it says boolean, is read as that value with a `Note:` saying the
+  next release refuses it; `test_the_leniency_lasts_one_release` fails once `VERSION` moves past 0.6.0.
+- **A refusal says so.** A body returns its sentence as `mcp_tools.Reply(text, code=…)`; every code in the command
+  line's `cli_types.REFUSAL_CODES` (`not_found`, `refused`, `invalid_arguments`, `out_of_range`, `error`, `demo_bank`,
+  `empty_graph`, …) answers `isError: true` plus `structuredContent: {code, data, message}` on both doors, and the
+  same code is the command line's `ok: false` and exit code. The sentence itself is unchanged, and `content` is still
+  the whole reply, so a 2024-11-05 client that ignores `structuredContent` reads what it always read. `duplicate`
+  (an episode already saved) is an answer, not an error. The tool bodies' `Error: …`, `Not recorded: …`,
+  `Not saved: …`, `Nothing changed — …` and not-found sentences carry codes (typed by a codemod over `mcp_tools`).
+- **An exception names its class, never its message** (`tool_contract.failure_text`): `Error: that didn't work
+  (ValueError).` on stdio as on remote; the tool door's `error` field is the same phrase. A message can carry a path or
+  the caller's own words. A body's own `could not answer (…)` sentences name the class only too.
+- **Third-party text is marked one way on both doors** (A9). Every read tool's reply (`catalog.READ_TOOLS`: recall,
+  recall_detail, open_hub, sources, ask, get_perspective, check_nudges, timeline, project, backlog, reading_queue,
+  video_queue) that is not a refusal sits between `REFERENCE_HEADER` and the `<<<cicada-reference` /
+  `cicada-reference>>>` markers (`tool_contract.reference`); a write's reply that carries a provider's words (a video
+  title, a site) marks those lines with the same header and markers (`_untrusted_block`). The command line's text is not
+  fenced. A `Note:` about the call sits after the block.
+- **The recall hints** (A1). The `cicada-hints` fence, its info string and its keys (`suggested_entities`,
+  `relevant_hub`, `hub_members_preview`, `next_tool`, `note`, `state`) are stable; key order, the prose `note` and the
+  precision of a number are not. The once-per-process `state` names its cursor's keys as the cursor's:
+  `pending_as_of` (was `pending`) and `refresh_with` (was a second `next_tool`). A hit's heading shows confidence to
+  two places.
+- **`cicada_recall_detail`** (A6) leaves Sleep's bookkeeping out of the page it returns (`section_provenance`,
+  `layout_version`, `decayed_through`, `learned_on`, `decay_rate`; `decay_class` stays). A part ends before a code fence
+  it would cut when it can; a fence longer than a part is cut, and the footer says the cut is inside that block, which
+  goes on. The parts are still the page's own bytes, and the claims fence is still the page's own JSONL.
+- **Names and arguments are frozen** (A4). G180 names no new tool names yet; the lean-MCP grouping, when it is decided,
+  keeps the old names callable and unlisted, with a removal date in TODO.md and a test.
+- **The handshake** (A7, `CONTRACT_VERSION` 19): the variant is picked by exact `clientInfo.name`
+  (`handshake.CLIENT_VARIANTS`: `claude-code`; `codex`, `codex-cli`, `codex-mcp-client`; `claude-ai`, `claude-desktop`
+  → `desktop`; anything else `generic`), never a substring, so a desktop app is never told to run `claude --resume`.
+  The primer names no HTTP route (`POST /conversations/{id}/resume`, `GET /episodes/{id}/span`, `GET /state` are gone):
+  resume is the person's step, and a claim's span is shown by `cicada_sources`.
+- **The fixture.** `api/tests/fixtures/mcp_stdio_golden.json` pins whole `tools/call` results (`call_tool`), refusals
+  and the leniency note included; `api/tests/test_mcp_error_contract.py` holds the rest.
 
 ## The remote connector's sign-in and capture (ruling 32, owner 2026-10-19)
 

@@ -10,6 +10,9 @@ call time), never a helper that moves. Dates in the bank are relative to today
 (replies carry ages such as "4 months ago"), and today's ISO date is replaced
 by `<today>` before comparing. Re-record ONLY for a deliberate reply change:
 `CICADA_RECORD_GOLDEN=1`.
+
+G199 (2026-10-22): each entry is the whole `tools/call` result an agent receives (`call_tool`): its text, and for a
+refusal `isError` and `structuredContent`. A read reply is fenced as reference data (G200 A9).
 """
 from __future__ import annotations
 
@@ -112,8 +115,8 @@ def server(tmp_path, monkeypatch):
     return srv
 
 
-def _replies(srv) -> dict[str, str]:
-    t = srv.handle_tool
+def _replies(srv) -> dict[str, dict]:
+    t = srv.call_tool
     today = date.today().isoformat()
     out = {
         "recall": t("cicada_recall", {"query": "alpha project"}),
@@ -144,7 +147,11 @@ def _replies(srv) -> dict[str, str]:
     out["ask"] = t("cicada_ask", {"query": "what does alpha use?"})
     out["save_url"] = t("cicada_save_url", {"url": "https://example.com/post", "note": "worth keeping"})
     out["save_url_bad"] = t("cicada_save_url", {"url": "ftp://example.com/x"})
-    return {k: v.replace(today, "<today>") for k, v in out.items()}
+    out["recall_no_query"] = t("cicada_recall", {})
+    out["ask_top_k_word"] = t("cicada_ask", {"query": "what does alpha use?", "top_k": "lots"})
+    out["ask_top_k_digits"] = t("cicada_ask", {"query": "what does alpha use?", "top_k": "3"})
+    out["timeline_since_words"] = t("cicada_timeline", {"since": "last tuesday"})
+    return {k: json.loads(json.dumps(v).replace(today, "<today>")) for k, v in out.items()}
 
 
 def test_stdio_tool_replies_are_byte_identical(server):

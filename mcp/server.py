@@ -36,7 +36,7 @@ from api.version import __version__  # noqa: E402
 from api.services import runtime_layout  # noqa: E402
 
 # G135 R-R2: every remote-capable tool body lives in `api/services/mcp_tools.py`.
-from api.services import design_tokens, mcp_tools  # noqa: E402
+from api.services import design_tokens, mcp_tools, tool_contract  # noqa: E402
 
 # G140 Q-R11: one pattern, not an enum (JSON Schema ANDs an `enum` with a `pattern`, and the librarian skill's
 # `external:<name>` must be a value the schema accepts). Hyrum audit A11 (2026-10-22): the legacy observer value is a
@@ -291,7 +291,8 @@ TOOLS = [
                     "items": {
                         "type": "object",
                         "properties": {
-                            "t": {"type": "string", "description": "When it is said: m:ss or h:mm:ss (e.g. '12:34'), or whole seconds."},
+                            "t": {"type": ["string", "number"],
+                                  "description": "When it is said: m:ss or h:mm:ss (e.g. '12:34'), or whole seconds."},
                             "quote": {"type": "string", "description": "The words the video says, verbatim (at most 240 characters)."},
                         },
                         "required": ["t", "quote"],
@@ -302,7 +303,7 @@ TOOLS = [
                     "type": "array",
                     "items": {
                         "type": "object",
-                        "properties": {"t": {"type": "string"}, "title": {"type": "string"}},
+                        "properties": {"t": {"type": ["string", "number"]}, "title": {"type": "string"}},
                         "required": ["t", "title"],
                     },
                     "description": "Optional. The video's chapters as {t, title}; stored only when the page has none.",
@@ -876,7 +877,7 @@ TOOLS = [
     },
     {
         "name": "cicada_resolve_inbox",
-        "description": "Answer a pending Cicada inbox question on the user's behalf, after they told you the answer in conversation — whether you asked or their words already settled it (pass those words as `quote`). Use ONLY with an answer the user actually gave — never guess. Pass the option_key shown by cicada_check_nudges (e.g. 'a', 'b', 'both', 'neither'), or `answer` with free text when none of the options is right (this records a user-stated, trust-protected claim and closes the competing ones), or defer=true when the user says they're not sure and want to be asked later. Pass skip=true when the user did not answer at all: nothing is written and cicada_check_nudges stops returning the item for the rest of this session.",
+        "description": "Answer a pending Cicada inbox question on the user's behalf, after they told you the answer in conversation — whether you asked or their words already settled it (pass those words as `quote`). Use ONLY with an answer the user actually gave — never guess. Pass the option_key shown by cicada_check_nudges (e.g. 'keep' or 'archive' on a decay question, 'a' or 'b' on a conflict), or `answer` with free text when none of the options is right (this records a user-stated, trust-protected claim and closes the competing ones), or defer=true when the user says they're not sure and want to be asked later. Pass skip=true when the user did not answer at all: nothing is written and cicada_check_nudges stops returning the item for the rest of this session.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -886,7 +887,7 @@ TOOLS = [
                 },
                 "option_key": {
                     "type": "string",
-                    "description": "The key of the option the user chose ('a', 'b', 'both', 'neither', …).",
+                    "description": "The key of the option the user chose, as cicada_check_nudges listed it ('keep', 'archive', 'a', 'b', …).",
                 },
                 "answer": {
                     "type": "string",
@@ -961,7 +962,7 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "since": {
-                    "type": "string",
+                    **tool_contract.SINCE_SCHEMA,
                     "description": "Optional. A date (YYYY-MM-DD) or a number of days back (e.g. '7'). Default 7 days; at most 90.",
                 },
             },
@@ -972,7 +973,8 @@ TOOLS = [
         "description": "Where one of the person's projects stands: what is under way, what is next, what went quiet, what happened (dated, from whose words), and the people, tools, documents and sub-projects around it. Read-only. Use when the person asks how a project is going, what happened on it, or what's next.",
         "inputSchema": {"type": "object", "required": ["project"], "properties": {
             "project": {"type": "string", "description": "A project's id or name."},
-            "since": {"type": "string", "description": "Optional: YYYY-MM-DD, or a number of days back. Default 90."},
+            "since": {**tool_contract.SINCE_SCHEMA,
+                      "description": "Optional: YYYY-MM-DD, or a number of days back. Default 90."},
             "tz": {"type": "string", "description": "Optional: the person's IANA timezone, for relative dates."}}},
     },
     {
@@ -1221,26 +1223,55 @@ def main():
 
         elif method == "tools/call":
             tool_name = params.get("name", "") if isinstance(params, dict) else ""
-            arguments = (params.get("arguments") if isinstance(params, dict) else None) or {}
+            arguments = params.get("arguments") if isinstance(params, dict) else None
             if not isinstance(tool_name, str) or not tool_name:
                 # Hyrum audit A10: no tool named is an invalid-params error, not a call to a blank tool.
                 respond_error(req_id, -32602, "Invalid params: tools/call needs a tool `name`")
                 continue
 
-            try:
-                result = handle_tool(tool_name, arguments)
-                respond(req_id, {
-                    "content": [{"type": "text", "text": result}],
-                })
-            except Exception as e:
-                respond(req_id, {
-                    "content": [{"type": "text", "text": f"Error: {e}"}],
-                    "isError": True,
-                })
+            respond(req_id, call_tool(tool_name, arguments))
 
         elif req_id is not None:
             # Unknown method with an id — return error
             respond_error(req_id, -32601, f"Method not found: {method}")
+
+
+_SCHEMAS = {tool["name"]: tool["inputSchema"] for tool in TOOLS}
+
+
+def call_tool(name: str, arguments) -> dict:
+    """One ``tools/call`` result (G199): the arguments checked once against the schema ``tools/list`` advertises, the
+    body run, and the reply shaped by ``tool_contract`` — a refusal code answers ``isError: true`` with
+    ``structuredContent``, an exception names its class and never its message, and a read reply is fenced as
+    reference data (G200 A9), the same rules the remote connector keeps."""
+    from api.remote.catalog import READ_TOOLS
+    from api.services import tool_client, tool_contract
+
+    if name not in _SCHEMAS:
+        reply = mcp_tools.Reply(f"Error: Unknown tool: {name[:80]}", code="invalid_arguments")
+        checked = tool_contract.Checked()
+    else:
+        checked = tool_contract.check(name, _SCHEMAS[name], arguments)
+        if checked.error:
+            reply = mcp_tools.Reply(checked.error, code="invalid_arguments")
+        else:
+            try:
+                reply = handle_tool(name, checked.arguments)
+            except tool_client.ToolClientError as exc:   # Cicada's own words about reaching the server
+                reply = mcp_tools.Reply(f"Error: {exc}", code="error")
+            except Exception as exc:  # noqa: BLE001 — the class, never the message (it can carry a path or a quote)
+                print(f"cicada-mcp: {name} failed ({type(exc).__name__})", file=sys.stderr)
+                reply = mcp_tools.Reply(tool_contract.failure_text(exc), code="error")
+    code, data = getattr(reply, "code", None), getattr(reply, "data", None)
+    text = str(reply)
+    if name in READ_TOOLS and not tool_contract.is_error(code):
+        text = tool_contract.reference(text)
+    text = tool_contract.with_warnings(text, checked.warnings)
+    result: dict = {"content": [{"type": "text", "text": text}]}
+    if tool_contract.is_error(code):
+        result["isError"] = True
+        result["structuredContent"] = tool_contract.structured(code, data, str(reply))
+    return result
 
 
 def respond(req_id, result):
@@ -1312,7 +1343,8 @@ def _remote_call(name: str, arguments: dict, options: dict | None = None) -> dic
     if isinstance(state.get("listed_revisions"), dict):
         _LISTED_REVISIONS.update({str(k): str(v) for k, v in state["listed_revisions"].items()})
     if answer.get("error"):
-        raise RuntimeError(str(answer["error"]))
+        # The server's own sentence for a body that raised (`tool_door.run`: the class, never the message).
+        raise tool_client.ToolClientError(str(answer["error"]))
     return answer
 
 
@@ -1327,10 +1359,9 @@ def _client_tool(name: str, arguments: dict) -> str:
     if isinstance(args, str):
         return args
     options = {"cwd": SESSION.project_dir or os.getcwd()} if name == "cicada_continue" else None
-    try:
-        return str(_remote_call(name, args, options).get("text") or "")
-    except tool_client.ToolClientError as exc:
-        raise RuntimeError(str(exc)) from None
+    answer = _remote_call(name, args, options)
+    data = answer.get("data") if isinstance(answer.get("data"), dict) else None
+    return mcp_tools.Reply(str(answer.get("text") or ""), code=answer.get("code"), data=data)
 
 
 def handle_tool(name: str, arguments: dict) -> str:

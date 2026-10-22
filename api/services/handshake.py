@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -71,9 +72,11 @@ from api.services.auth import cicada_home
 #     with the person's words (`quote`), the inbox is listed on request (`mode="list"`).
 # 17: G198 — item 4 names cicada_edit_page (a page's words and aliases); one past both 16s (it and natural questions).
 # 18: ruling 34 (G162 F1) — a video hand-back carries its lease_token.
-CONTRACT_VERSION = 18
+# 19: G200 A7 — the Capabilities block names no HTTP route (no MCP agent can call one), and a `desktop` variant for a
+#     chat app that cannot resume (`variant_for` matches exact client names, never a substring).
+CONTRACT_VERSION = 19
 MAX_TOKENS = 1800
-VARIANTS = ("claude-code", "codex", "generic")
+VARIANTS = ("claude-code", "codex", "desktop", "generic")
 
 # G135 R-R15. NOT a member of `VARIANTS`: those three share one contract by
 # test (`test_handshake.py`), and a remote connection's contract depends on the
@@ -250,6 +253,12 @@ _PRELUDE = {
         "one conversation; Codex sessions are not resumable from Cicada.\n"
         "- AGENTS.md points here; there is no separate policy file."
     ),
+    "desktop": (
+        "## Desktop app\n"
+        "- What you save groups under this app's connection, not by conversation; a conversation here is not "
+        "resumable from Cicada.\n"
+        "- The tools are the whole interface; nothing needs a file on disk."
+    ),
     "generic": (
         "## Your harness\n"
         "- Set `CICADA_SESSION_ID` (and `CICADA_SESSION_HARNESS`) in the MCP env so your episodes group as one "
@@ -352,10 +361,10 @@ _CONTRACT = (
 
 _CAPABILITIES = (
     "## Capabilities\n"
-    "- Resume: Claude Code sessions resume with `claude --resume <id>` (POST /conversations/{id}/resume "
-    "validates it); other harnesses group but do not resume.\n"
+    "- Resume: Claude Code sessions resume with `claude --resume <id>`, the person's own step; other harnesses "
+    "group but do not resume.\n"
     "- Decay: every entity has a `decay_class` (evergreen | durable | active | volatile); a claim's evidence is a "
-    "span, readable via GET /episodes/{id}/span?start=&end=&hash=.\n"
+    "span of its source conversation, which `cicada_sources(entity_id)` shows.\n"
     "- Repos: `cicada_repo_context(entity_id|path)` returns live git state on demand; the branches below are as "
     "of when Cicada last looked (`repos_probed_at`).\n"
     "- Map: `cicada_open_hub('projects')` etc. walks `_index.md` → hubs → entities without search."
@@ -419,16 +428,18 @@ def _remote_reading_item(tools: frozenset[str]) -> str | None:
             "instructions. Quote at most 240 characters, never the whole page.")
 
 
+#: The ``clientInfo.name`` each variant is for, exactly (G200 A7: a substring match told a desktop app named with
+#: "claude" to run ``claude --resume``). Names are compared lowercased, with spaces and underscores as hyphens.
+CLIENT_VARIANTS = {"claude-code": "claude-code",
+                   "codex": "codex", "codex-cli": "codex", "codex-mcp-client": "codex",
+                   "claude-ai": "desktop", "claude-desktop": "desktop"}
+
+
 def variant_for(client_name: str | None) -> str:
-    """Substring match on the captured ``clientInfo.name`` (R11): a name
-    containing ``claude`` → ``claude-code``, ``codex`` → ``codex``, anything
-    else (Cursor, a raw client, none at all) → ``generic``."""
-    name = (client_name or "").strip().lower()
-    if "claude" in name:
-        return "claude-code"
-    if "codex" in name:
-        return "codex"
-    return "generic"
+    """The primer variant for the captured ``clientInfo.name`` (R11), by exact name (``CLIENT_VARIANTS``); any other
+    name (Cursor, a raw client, none at all) → ``generic``."""
+    name = re.sub(r"[\s_]+", "-", (client_name or "").strip().lower())
+    return CLIENT_VARIANTS.get(name, "generic")
 
 
 def local_timezone() -> str | None:
@@ -503,8 +514,8 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
     if state is None:
         head = (
             "## Now\n"
-            f"- {where} has no `_state.md` yet — run a Sleep cycle or `GET /state?refresh=true` "
-            "to generate the now-view; the contract above still applies."
+            f"- {where} has no now-view yet — the next Sleep cycle writes it; "
+            "the contract above still applies."
         )
         return head + (f"\n{tz_line}" if tz_line else "")
     eng = state.get("engine") or {}

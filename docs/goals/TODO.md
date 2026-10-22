@@ -8,6 +8,23 @@
 
 ## Current state and evidence
 
+- **2026-10-22 — the MCP error and argument contract (branch `mcp-error-contract`; G199, G200 A7/A9, Hyrum audit
+  A1/A4/A6).** Both doors check a call against the schema they advertise, once, before a body runs
+  (`tool_contract.check`): a bad argument answers `isError: true` with ``Invalid arguments: `<field>` …`` naming every
+  problem; `since` must be a date or a number of days, `cicada_project`'s `tz` a real zone. A refusal keeps its
+  sentence and answers `isError: true` with `structuredContent: {code, data, message}`, from the command line's own
+  `REFUSAL_CODES` (now also `invalid_arguments`, `out_of_range`, `error`), so a code means the same thing to the CLI and
+  to an agent; ~140 refusal sentences in `mcp_tools` carry codes. An exception names its class only (stdio, the tool
+  door, remote). Every read reply is fenced as reference data on both doors; a write's provider lines are marked the
+  same way on both. The primer (contract 19) names no HTTP route and picks its variant by exact client name, with a
+  `desktop` variant for `claude-ai`. Recall's state cursor says `pending_as_of` / `refresh_with`; confidence shows two
+  places; `cicada_recall_detail` drops five bookkeeping keys and never ends a part inside a fence it can avoid. The
+  golden fixture now pins whole `tools/call` results and was re-recorded once. **Dated follow-up: the release after
+  0.6.0 refuses a digit string for an integer (and `"true"`/`"false"` for a boolean)** — remove the two lenient
+  branches in `tool_contract._value`; `test_mcp_error_contract.test_the_leniency_lasts_one_release` fails once
+  `VERSION` moves past 0.6.0. Tool and argument names are unchanged (G180 names no rename yet); `cicada_resolve_inbox`
+  also takes `item_id`, unlisted. Left out: the claims fence rendered through the one wire builder (A6), and fencing
+  the command line's text.
 - **2026-10-22 — the 0.6.0 release build type-checks on the runner (branch `fix/release-typecheck`).** Release run
   39714438472 failed: `SaveWhyPanel.swift:394` "unable to type-check this expression in reasonable time" on the
   macos-26 runner (it built on the dev Mac). A release build with `-warn-long-expression-type-checking=150` and

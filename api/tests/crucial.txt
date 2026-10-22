@@ -111,6 +111,12 @@ test_handshake_r12.py::test_every_argument_the_local_primer_names_is_in_the_sche
 test_handshake_r12.py::test_every_argument_a_remote_primer_names_is_in_its_schema
 test_handshake_r12.py::test_every_argument_the_recall_note_names_is_in_the_schema
 
+## One tool-call contract on both doors: checked against the advertised schema, a refusal is isError, no exception text (G199)
+test_mcp_error_contract.py::test_both_doors_refuse_the_same_bad_value
+test_mcp_error_contract.py::test_a_refusal_is_flagged_with_its_code
+test_mcp_error_contract.py::test_an_exception_never_carries_its_message
+test_mcp_error_contract.py::test_the_leniency_lasts_one_release
+
 ## Privacy: the person's words need the `sources` scope; the query and the prompt are never logged
 test_ask_source_words.py::test_without_the_sources_scope_no_conversation_words_are_shown
 test_ask_source_words.py::test_the_remote_door_without_sources_asks_without_conversation_words

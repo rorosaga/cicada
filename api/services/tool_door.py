@@ -36,7 +36,9 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import quote
 
-from api.services import agent_commits, bank_binding, cli_map, mcp_tools, write_admission
+from loguru import logger
+
+from api.services import agent_commits, bank_binding, cli_map, mcp_tools, tool_contract, write_admission
 
 SURFACES = ("mcp", "cli")
 MAX_SKIPPED = 500
@@ -229,8 +231,9 @@ def run(tool: str, arguments: dict, *, ctx: mcp_tools.ToolContext, state: Sessio
                          root=root, memory_path=memory_path, bank_name=bank_name)
     except DoorError:
         raise
-    except Exception as exc:  # noqa: BLE001 - the stdio server's own `Error: {e}` reply, to the person's own agent
-        return Answer(text="", error=str(exc) or type(exc).__name__)
+    except Exception as exc:  # noqa: BLE001 - G199: the class, never the message (it can carry a path or a quote)
+        logger.warning(f"tool door: {tool} failed ({type(exc).__name__})")
+        return Answer(text="", error=tool_contract.failure_text(exc).removeprefix("Error: "))
     state.state_hint_sent = ctx.state_hint_sent
     if isinstance(reply, Answer):
         return reply

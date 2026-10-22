@@ -26,6 +26,8 @@ def _allowed(spec: dict) -> set[str]:
     if kind == "array":
         items = (spec.get("items") or {}).get("type")
         return {"list"} if items == "string" else {"json"}
+    if isinstance(kind, list):           # a union (`since`: a date string or a number of days)
+        return set().union(*(_TYPE_KINDS[k] for k in kind))
     return _TYPE_KINDS[kind]
 
 

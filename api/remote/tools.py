@@ -30,6 +30,7 @@ page in their signed-in session, and Cicada records what it reported. Neither de
 from __future__ import annotations
 
 from api.remote import catalog
+from api.services import tool_contract
 
 _CONVERSATION = {"type": "string", "description": "The handle cicada_handshake returned for this conversation."}
 _STRING = {"type": "string"}
@@ -216,12 +217,13 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
            "summary": {"type": "string", "description": "What the video covers, one paragraph."},
            "excerpts": {"type": "array", "description": "Optional: up to 12 short quotes with their time.",
                         "items": {"type": "object", "required": ["t", "quote"], "properties": {
-                            "t": {"type": "string", "description": "When it is said, e.g. '12:34'."},
+                            "t": {"type": ["string", "number"],
+                                  "description": "When it is said, e.g. '12:34', or whole seconds."},
                             "quote": {"type": "string", "description": "The words, verbatim (at most 240 characters)."},
                         }}},
            "chapters": {"type": "array", "description": "Optional: the video's chapters.",
                         "items": {"type": "object", "required": ["t", "title"], "properties": {
-                            "t": {"type": "string"}, "title": {"type": "string"}}}},
+                            "t": {"type": ["string", "number"]}, "title": {"type": "string"}}}},
            "basis": {"type": "string", "enum": ["transcript", "frames", "both"],
                      "description": "Optional: what you actually used to read it. Omitted reads as method not given."},
            "engine": {"type": "string",
@@ -321,7 +323,7 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
           "What changed in the person's memory recently, day by day: what was captured, the pages Cicada "
           "created or updated overnight, pages that faded, facts that reached their stated end, and what "
           "agents wrote. Ids and counts only — open a page with cicada_recall_detail.",
-          {"since": {"type": "string", "description": "Optional: a date (YYYY-MM-DD) or a number of days "
+          {"since": {**tool_contract.SINCE_SCHEMA, "description": "Optional: a date (YYYY-MM-DD) or a number of days "
                                                       "back. Default 7, at most 90."}},
           read_only=True),
     _tool("cicada_project",
@@ -329,7 +331,8 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
           "happened (dated, from whose words), and the people, tools, documents and sub-projects around it. "
           "Read-only. Use when the person asks how a project is going, what happened on it, or what's next.",
           {"project": {"type": "string", "description": "A project's id or name."},
-           "since": {"type": "string", "description": "Optional: YYYY-MM-DD, or a number of days back. Default 90."},
+           "since": {**tool_contract.SINCE_SCHEMA,
+                     "description": "Optional: YYYY-MM-DD, or a number of days back. Default 90."},
            "tz": {"type": "string", "description": "Optional: the person's IANA timezone, for relative dates."}},
           ("project",), read_only=True),
     # G141 §5.2: the same schema the stdio server declares; observer is always
