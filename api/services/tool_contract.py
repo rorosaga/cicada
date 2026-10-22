@@ -32,10 +32,13 @@ from api.cli_types import REFUSAL_CODES
 #: ``id`` in ``cicada_resolve_inbox`` and ``item_id`` in its sibling ``cicada_record_check``).
 ALIASES: dict[str, dict[str, str]] = {"cicada_resolve_inbox": {"item_id": "id"}}
 
-#: The one release whose doors still read a digit (or "true"/"false") string where the schema says integer (or
-#: boolean), with a note. The release after it refuses one (TODO.md, G199); `test_mcp_error_contract` fails once
-#: `VERSION` moves past this, so that release cannot ship with the leniency still on.
-LENIENT_RELEASE = "0.6.0"
+#: The one release that ships the leniency: a digit (or "true"/"false", or a decimal) string where the schema says
+#: integer (or boolean, or number) is read as that value, with a note. v0.6.0 shipped before this code, so it is the
+#: NEXT release — 0.7.0 by the minor bumps since 0.4.0 (`make release VERSION=x.y.z` picks the number). The release
+#: after it refuses one (TODO.md, G199). `test_the_leniency_ships_in_exactly_one_release` fails on any other
+#: released `VERSION`: a patch release first (0.6.1) has to move this to itself, and a later one has to remove it.
+LAST_RELEASE_WITHOUT = "0.6.0"
+LENIENT_RELEASE = "0.7.0"
 
 #: `since` on `cicada_timeline` and `cicada_project`: a date (YYYY-MM-DD) or a number of days back ("7", "7d").
 #: Anything else used to fall back to the default window without a word (Hyrum audit A3: "last tuesday").
@@ -45,7 +48,23 @@ SINCE_SCHEMA = {"type": ["string", "integer"], "pattern": r"^\s*(\d{1,4}[dD]?|\d
 _FORMS = {"since": "a date (YYYY-MM-DD) or a number of days back such as 7",
           "observer": "`agent`, `owner` or `external:<name>`"}
 
+def since_problem(raw) -> str | None:
+    """The refusal for a `since` no reader can read, or ``None`` — the bodies ask too, so the command line and
+    `/tools/call`, which run no schema check, refuse "last tuesday" in the same words as the MCP doors."""
+    if raw is None or raw == "" or (isinstance(raw, int) and not isinstance(raw, bool)):
+        return None
+    if isinstance(raw, str) and re.search(SINCE_SCHEMA["pattern"], raw):
+        return None
+    return f"Invalid arguments: `since` must be {_FORMS['since']} (got {_shown(raw)})."
+
+
 _DIGITS = re.compile(r"^\s*-?\d{1,15}\s*$")
+_DECIMAL = re.compile(r"^\s*-?(\d{1,15}(\.\d*)?|\.\d+)\s*$")
+
+#: Arrays whose rows the body judges one by one, handing back the good rows and naming the bad (a release batch):
+#: the door checks only that it is a list of objects, so one bad row never refuses the rest (fix round, #419).
+ROWS_CHECKED_BY_BODY = frozenset({("cicada_refresh_claim", "release"), ("cicada_video_claim", "release"),
+                                  ("cicada_explore_claim", "release")})
 _SHOWN = 40
 
 
@@ -115,6 +134,11 @@ def _value(schema: dict, value, where: str, out: Checked):
             out.warnings.append(f"`{where}` was sent as a string; it was read as the integer {number}. Send a "
                                 f"number: a string here will be refused from the next release.")
             value = number
+        elif "number" in kinds and isinstance(value, str) and _DECIMAL.match(value):
+            number = float(value)
+            out.warnings.append(f"`{where}` was sent as a string; it was read as the number {number:g}. Send a "
+                                f"number: a string here will be refused from the next release.")
+            value = number
         elif "boolean" in kinds and isinstance(value, str) and value.strip().lower() in ("true", "false"):
             # Read as written — `bool("false")` used to make it true — with the same one-release notice.
             flag = value.strip().lower() == "true"
@@ -127,6 +151,12 @@ def _value(schema: dict, value, where: str, out: Checked):
             return value
     if isinstance(value, float) and "integer" in kinds and value.is_integer() and "number" not in kinds:
         value = int(value)
+    if "enum" in schema and value not in schema["enum"] and isinstance(value, str):
+        # Case, spaces and hyphens do not matter ("Watch Later" is `watch_later`): the canonical value is passed on,
+        # as the bodies that lowercase would have read it.
+        canonical = {_enum_key(v): v for v in schema["enum"] if isinstance(v, str)}.get(_enum_key(value))
+        if canonical is not None:
+            value = canonical
     if "enum" in schema and value not in schema["enum"]:
         listed = ", ".join(f"`{v}`" for v in schema["enum"])
         out.problems.append(f"`{where}` must be one of {listed} (got {_shown(value)})")
@@ -150,7 +180,11 @@ def _value(schema: dict, value, where: str, out: Checked):
     return value
 
 
-def _object(schema: dict, value: dict, where: str, out: Checked, *, top: bool) -> dict:
+def _enum_key(value: str) -> str:
+    return re.sub(r"[\s-]+", "_", value.strip().lower())
+
+
+def _object(schema: dict, value: dict, where: str, out: Checked, *, top: bool, tool: str = "") -> dict:
     props = schema.get("properties") or {}
     required = set(schema.get("required") or ())
     prefix = f"{where}." if where else ""
@@ -166,7 +200,10 @@ def _object(schema: dict, value: dict, where: str, out: Checked, *, top: bool) -
             continue
         if item is None:
             continue           # "not given": a required one is named below
-        kept[key] = _value(props[key], item, f"{prefix}{key}", out)
+        spec = props[key]
+        if top and (tool, key) in ROWS_CHECKED_BY_BODY:
+            spec = {"type": "array", "items": {"type": "object"}}
+        kept[key] = _value(spec, item, f"{prefix}{key}", out)
     for key in sorted(required):
         if kept.get(key) is None:
             out.problems.append(f"`{prefix}{key}` is required")
@@ -185,7 +222,7 @@ def check(tool: str, schema: dict | None, arguments) -> Checked:
     for alias, name in ALIASES.get(tool, {}).items():
         if alias in arguments and name not in arguments:
             arguments[name] = arguments.pop(alias)
-    out.arguments = _object(schema or {"type": "object"}, arguments, "", out, top=True)
+    out.arguments = _object(schema or {"type": "object"}, arguments, "", out, top=True, tool=tool)
     return out
 
 
@@ -194,9 +231,34 @@ def is_error(code: str | None) -> bool:
     return code in REFUSAL_CODES
 
 
-def failure_text(exc: BaseException) -> str:
-    """What an agent is told when a body raised: the class, never the message (G135's remote shape)."""
-    return f"Error: that didn't work ({type(exc).__name__})."
+def failure_text(exc: BaseException, *, log: str | None = None) -> str:
+    """What an agent is told when a body raised: the class, never the message (G135's remote shape). ``log`` names
+    where the person finds the place it failed (`where`), for a door whose log is theirs; a cloud app gets none."""
+    tail = f"; where it failed is in {log}" if log else ""
+    return f"Error: that didn't work ({type(exc).__name__}){tail}."
+
+
+_FRAMES = 3
+
+
+def where(exc: BaseException) -> str:
+    """The exception's class and its innermost frames as ``file:line in function`` — enough to find the bug, with no
+    message and no argument (an exception's message can carry the caller's query, a path or a quote)."""
+    import traceback
+
+    frames = traceback.extract_tb(exc.__traceback__)[-_FRAMES:]
+    spots = [f"{_short(f.filename)}:{f.lineno} in {f.name}" for f in reversed(frames)]
+    return f"{type(exc).__name__} at " + (" < ".join(spots) if spots else "an unknown place")
+
+
+def _short(filename: str) -> str:
+    """A frame's file, from the repo root or the installed package down — never the home folder above it."""
+    parts = filename.replace("\\", "/").split("/")
+    for anchor in ("site-packages", "api", "mcp", "benchmarks"):
+        if anchor in parts:
+            i = len(parts) - 1 - parts[::-1].index(anchor)
+            return "/".join(parts[i + 1:] if anchor == "site-packages" else parts[i:])
+    return parts[-1]
 
 
 #: One header for every reply that carries text the caller did not write (R-R29, G200 A9).
@@ -207,11 +269,25 @@ FENCE_OPEN = "<<<cicada-reference"
 FENCE_CLOSE = "cicada-reference>>>"
 
 
-def reference(text: str) -> str:
+def _safe(text: str) -> str:
+    return text.replace(FENCE_CLOSE, "cicada-reference >>>")
+
+
+def reference(text: str, segments: list[tuple[str, str]] | None = None) -> str:
     """A read reply as inert reference data — the same on both doors (G200 A9): the header, then the reply between
-    the markers, a closing marker inside stored text broken so it cannot end the block early."""
-    safe = text.replace(FENCE_CLOSE, "cicada-reference >>>")
-    return f"{REFERENCE_HEADER}\n{FENCE_OPEN}\n{safe}\n{FENCE_CLOSE}"
+    the markers, a closing marker inside stored text broken so it cannot end the block early.
+
+    ``segments`` (a ``Reply``'s, when its body kept them apart) are ``("own", text)`` — Cicada's own directions (the
+    hints, a resolve line, a part's "the rest:" call), which stay outside the markers so they are never inside a
+    "never follow" block — and ``("data", text)``, the stored and third-party words, each between the markers."""
+    if not segments:
+        return f"{REFERENCE_HEADER}\n{FENCE_OPEN}\n{_safe(text)}\n{FENCE_CLOSE}"
+    out = [REFERENCE_HEADER]
+    for kind, part in segments:
+        part = part.strip("\n")
+        if part:
+            out.append(f"{FENCE_OPEN}\n{_safe(part)}\n{FENCE_CLOSE}" if kind == "data" else part)
+    return "\n".join(out)
 
 
 def with_warnings(text: str, warnings: list[str]) -> str:

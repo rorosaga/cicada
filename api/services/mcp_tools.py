@@ -236,12 +236,32 @@ class Reply(str):
 
     code: str | None
     data: dict | None
+    segments: list[tuple[str, str]] | None
 
-    def __new__(cls, text: str, *, code: str | None = None, data: dict | None = None):
+    def __new__(cls, text: str, *, code: str | None = None, data: dict | None = None,
+                segments: list[tuple[str, str]] | None = None):
         reply = super().__new__(cls, text)
         reply.code = code
         reply.data = data
+        reply.segments = segments
         return reply
+
+    @classmethod
+    def framed(cls, segments: list[tuple[str, str]], *, code: str | None = None, data: dict | None = None) -> "Reply":
+        """A reply whose text is its ``segments`` joined as written: ``("own", …)`` is Cicada's own direction and
+        ``("data", …)`` the stored or third-party words, kept apart so a door fences only the data
+        (`tool_contract.reference`); the command line prints the text unchanged."""
+        return cls("".join(part for _, part in segments), code=code, data=data, segments=list(segments))
+
+
+def _log_failure(tool: str, exc: BaseException) -> None:
+    """A body's caught failure, for the person to debug: the class and the innermost file:line, never the message or
+    an argument (`tool_contract.where`; the query is never logged)."""
+    from loguru import logger
+
+    from api.services import tool_contract
+
+    logger.warning(f"{tool} failed: {tool_contract.where(exc)}")
 
 
 def _cli_spell(tool: str, **values) -> str:
@@ -391,6 +411,7 @@ def ask(ctx: ToolContext, query: str, top_k: int = 6) -> str:
             result = ask_service.answer_query(ctx.memory_path(), query, top_k=top_k,
                                               source_words=bool(ctx.raw_excerpts))
         except Exception as e:
+            _log_failure("cicada_ask", e)
             return Reply(f"Error: could not answer ({type(e).__name__}).", code="error")
 
     return _render_ask(result)
@@ -536,6 +557,7 @@ def save_url(ctx: ToolContext, url: str, note: str | None) -> str:
     except write_admission.SleepHolding:
         raise
     except Exception as e:
+        _log_failure("cicada_save_url", e)
         return Reply(f"Error: could not save URL ({type(e).__name__}).", code="error")
 
 
@@ -599,6 +621,7 @@ def record_watch(ctx: ToolContext, url: str, summary: str, excerpts: list | None
     if (refusal := _demo_refusal(memory_path)) is not None:
         return refusal
     target = watch_record.resolve(memory_path, url)
+    saved_now = False
     if target is None:
         if url.startswith("file://"):
             return ("That video isn't saved in Cicada yet. Add the file in the Cicada app first, then record "
@@ -613,6 +636,7 @@ def record_watch(ctx: ToolContext, url: str, summary: str, excerpts: list | None
         target = watch_record.resolve(memory_path, url)
         if target is None:
             return Reply("Error: the link could not be saved, so the watch was not recorded.", code="error")
+        saved_now = True
     # Audit 2026-10-05 P1-2: the page write and its commit hold the bank's page
     # lock; the save above, the Sleep probe and the queue credit (both HTTP on
     # stdio) stay outside it, so no page writer ever waits on a network call.
@@ -638,7 +662,9 @@ def record_watch(ctx: ToolContext, url: str, summary: str, excerpts: list | None
                     paths=r["paths"], author=ctx.author, session=ctx.session_id,
                 )
     if r.get("error"):
-        return Reply(f"Could not record the watch: {r['error']}", code="refused")
+        # Fix round (#419): the save above stands even when the watch is refused — say so, so it is not saved twice.
+        kept = " The link itself was saved; record the watch again with the same url." if saved_now else ""
+        return Reply(f"Could not record the watch: {r['error']}{kept}", code="refused")
     queue_outcome = _credit_video_queue(ctx, memory_path, target.url, r.get("basis"), lease_token)
 
     from api.services import telemetry
@@ -1806,11 +1832,17 @@ def _recall(ctx: ToolContext, query: str) -> str:
 
     # G180: a graph with no page at all is an empty graph whether or not `entities/` was
     # scaffolded; the text is unchanged, the refusal is typed (never matched on the sentence).
+    # Fix round (#419): only a recall that found NOTHING is that refusal. One with hints, inbox blurbs or
+    # conversation excerpts is an answer, and its stored words are fenced like any other.
     empty = not any(entities_dir.glob("*.md"))
     text = _fit_recall(output_parts, entity_at, entity_blocks, entity_block_ids,
                        REMOTE_RECALL_BUDGET if ctx.is_remote else RECALL_BUDGET, more_call)
-    return Reply(text or f"No entities found matching '{query}'.",
-                 code="empty_graph" if empty else None, data=hints)
+    if not text:
+        return Reply(f"No entities found matching '{query}'.", code="empty_graph" if empty else None, data=hints)
+    # The hints block is Cicada's own direction (ids and the next call): it stays outside the reference markers.
+    if hints_block and text.startswith(hints_block):
+        return Reply.framed([("own", hints_block), ("data", text[len(hints_block):])], data=hints)
+    return Reply(text, data=hints)
 
 
 def _recall_detail_spell(ctx: ToolContext):
@@ -2104,11 +2136,11 @@ def _page_part(ctx: ToolContext, page_id: str, text: str, start: int | None) -> 
             last, open_at_cut = opened, None
     part = "".join(lines[first - 1:last])
     if last >= total:
-        return f"{part}\n— lines {first}–{last} of {total}, the end of the page."
+        return Reply.framed([("data", part), ("own", f"\n— lines {first}–{last} of {total}, the end of the page.")])
     following = (_cli_spell("cicada_recall_detail", entity_id=page_id, start=last + 1) if ctx.is_cli
                  else f'cicada_recall_detail(entity_id="{page_id}", start={last + 1})')
     cut = f" (inside its `{open_at_cut.strip().lstrip('`') or 'code'}` block, which goes on)" if open_at_cut else ""
-    return f"{part}\n— lines {first}–{last} of {total}{cut}; the rest: {following}"
+    return Reply.framed([("data", part), ("own", f"\n— lines {first}–{last} of {total}{cut}; the rest: {following}")])
 
 
 #: Frontmatter only Sleep's own bookkeeping reads (Hyrum audit A6): left out of the page an agent is given, so no
@@ -2256,9 +2288,10 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
                                     len(text.splitlines()))
             elif not whole and (start is not None or len(text) > budget):
                 text = _page_part(ctx, path.stem, text, start)
-                if isinstance(text, Reply):
+                if getattr(text, "code", None):
                     return text
-            return Reply(text, data={"entity_id": path.stem, "type": fm.get("type"), "status": fm.get("status")})
+            return Reply(text, data={"entity_id": path.stem, "type": fm.get("type"), "status": fm.get("status")},
+                         segments=getattr(text, "segments", None))
 
     return Reply(f"Entity '{entity_id}' not found.", code="not_found")
 
@@ -2284,6 +2317,7 @@ def sources(ctx: ToolContext, entity_id: str) -> str:
         from api.services.entity_sources import gather_entity_sources
         bundle = gather_entity_sources(ctx.memory_path(), entity_id, mode="chunks")
     except Exception as exc:  # pragma: no cover
+        _log_failure("cicada_sources", exc)
         return Reply(f"Could not gather sources for '{entity_id}' ({type(exc).__name__}).", code="error")
     eps = bundle.get("episodes", [])
     if not eps:
@@ -2305,6 +2339,10 @@ def timeline(ctx: ToolContext, since=None) -> str:
     counts only, no LLM."""
     from api.services import change_timeline
 
+    from api.services import tool_contract
+
+    if (problem := tool_contract.since_problem(since)) is not None:
+        return Reply(problem, code="invalid_arguments")
     today = date.today()
     start = change_timeline.parse_since(since, today)
     return change_timeline.render(change_timeline.collect(ctx.memory_path(), start, today), start, today)
@@ -2335,6 +2373,10 @@ def project(ctx: ToolContext, project: str, since=None, tz: str | None = None) -
         return Reply("project is required — a project's id or name.", code="invalid_arguments")
     from api.services import when as when_mod
 
+    from api.services import tool_contract
+
+    if (problem := tool_contract.since_problem(since)) is not None:
+        return Reply(problem, code="invalid_arguments")
     if tz and not when_mod.is_zone(str(tz)):
         return Reply(f"Invalid arguments: `tz` must be an IANA timezone such as Europe/Madrid "
                      f"(got \"{str(tz)[:40]}\").", code="invalid_arguments")
@@ -2516,7 +2558,7 @@ def note_progress(ctx: ToolContext, project: str, kind: str, summary: str, statu
         slug = result.get("slug")
     action = result.get("action")
     if action in ("error", "not_found") or not result.get("claim_id"):
-        return Reply("Not recorded: " + str(result.get("error") or "unknown error"), code="refused")
+        return Reply("Not recorded: " + str(result.get("error") or "unknown error"), code=_store_code(result))
 
     refs = {"entity_id": result.get("entity_id"), "claim_id": result.get("claim_id"), "episode_id": None,
             "action": "progress", "session_id": ctx.session_id, "harness": ctx.harness,
@@ -2630,10 +2672,18 @@ def _commit_backlog(ctx: ToolContext, memory_path: Path, paths: list[str], actio
         paths=paths, author=ctx.author, session=ctx.session_id)
 
 
+def _store_code(result: dict) -> str:
+    """A writer's failure dict as a reply code: ``error`` when it caught an exception (``failed``), else ``refused``."""
+    return "error" if result.get("failed") else "refused"
+
+
 def _store_refusal(got: dict) -> Reply:
     """A backlog store's refusal as a sentence (its first clause, capitalised) with its typed code."""
     first = str(got.get("error") or "not found").split(";")[0]
-    return Reply(f"{first[:1].upper()}{first[1:]}.", code="not_found" if got.get("action") == "not_found" else "refused")
+    word = first.split(" ", 1)[0]
+    if word.isalpha() and word.islower():       # "no project …" → "No project …"; an id (`alpha-project`) stays as is
+        first = first[:1].upper() + first[1:]
+    return Reply(f"{first}.", code="not_found" if got.get("action") == "not_found" else "refused")
 
 
 def backlog(ctx: ToolContext, project: str, status=None, item=None) -> str:
@@ -2722,7 +2772,7 @@ def _add_backlog_item_admitted(ctx: ToolContext, memory_path: Path, project, tit
                 if ctx.can("cicada_add_backlog_note") else "")
         return f"NOT added — {result['item_id']} already holds this idea on {result['project']}'s backlog.{tail}"
     if action != "added":
-        return Reply(f"Not added: {result.get('error') or 'unknown error'}.", code="refused")
+        return Reply(f"Not added: {result.get('error') or 'unknown error'}.", code=_store_code(result))
     item = result["item"]
     _commit_backlog(ctx, memory_path, result["paths"], "created", item)
     tail = (f" Add later findings to it with cicada_add_backlog_note(item=\"{item.project}/{item.id}\", note)."
@@ -2742,7 +2792,7 @@ def add_backlog_note(ctx: ToolContext, item: str, note: str, status=None) -> str
         return refusal
     got = store.resolve_item(memory_path, str(item or ""))
     if isinstance(got, dict):
-        return Reply(f"Not noted: {got['error']}.", code="refused")
+        return Reply(f"Not noted: {got['error']}.", code=_store_code(got))
     stem, iid = got
     with write_admission.shared(memory_path):   # G183: from the probe through the commit
         return _add_backlog_note_admitted(ctx, memory_path, stem, iid, note, status)
@@ -2760,7 +2810,7 @@ def _add_backlog_note_admitted(ctx: ToolContext, memory_path: Path, stem: str, i
     if action == "unchanged":
         return f"{iid} is already {result['item'].status}; nothing was written."
     if action != "updated":
-        return Reply(f"Not noted: {result.get('error') or 'unknown error'}.", code="refused")
+        return Reply(f"Not noted: {result.get('error') or 'unknown error'}.", code=_store_code(result))
     it = result["item"]
     _commit_backlog(ctx, memory_path, result["paths"], "updated", it)
     return f"Noted on {it.id} ({it.title}) — now {it.status}."
@@ -2846,7 +2896,7 @@ def write_claim(
         return "\n".join(lines)
 
     if result.get("action") == "error" or result.get("error"):
-        return Reply(f"Could not write claim: {result.get('error', 'unknown error')}", code="refused")
+        return Reply(f"Could not write claim: {result.get('error', 'unknown error')}", code=_store_code(result))
 
     from api.services import telemetry
 
@@ -3383,6 +3433,7 @@ def get_perspective(
     try:
         parsed = markdown_parser.parse(page)
     except Exception as e:
+        _log_failure("cicada_get_perspective", e)
         return Reply(f"Could not read '{subject}' ({type(e).__name__}).", code="error")
 
     page_claims = parse_claims(parsed.body)
@@ -4237,6 +4288,7 @@ def resolve_inbox(
         return Reply(f"Could not resolve {item_id} (HTTP {e.code}{': ' + detail if isinstance(detail, str) else ''}).",
                      code="refused")
     except Exception as e:
+        _log_failure("cicada_resolve_inbox", e)
         return Reply(
             f"Could not resolve {item_id} ({type(e).__name__}). "
             f"Is the Cicada backend running on {ctx.backend_url.removeprefix('http://')}?", code="error")
@@ -4510,31 +4562,31 @@ def check_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = 
         kind = str(fm.get("kind", fm.get("type", "")) or "")
         ename = fm.get("entity_name", fm.get("entity_mention", "Unknown"))
         if fm.get("question"):
-            results.append(
-                f"**{(kind or 'Item').title()}** `{filepath.stem}`: {ename}\n"
-                + render_question(fm, body, cause=cause, recommended_key=rec,
-                                  raw_excerpts=ctx.raw_excerpts)
-                + "".join("\n" + line for line in check_lines(ctx, memory_path, filepath.stem, fm, index=check_index,
-                                                                         path=filepath))
-                + f"\n  Resolve with cicada_resolve_inbox(id=\"{filepath.stem}\", option_key=…)"
-            )
+            # The question's own words are data; the check and resolve lines are Cicada's directions (own).
+            results.append([
+                ("data", f"**{(kind or 'Item').title()}** `{filepath.stem}`: {ename}\n"
+                 + render_question(fm, body, cause=cause, recommended_key=rec, raw_excerpts=ctx.raw_excerpts)),
+                ("own", "".join("\n" + line for line in check_lines(ctx, memory_path, filepath.stem, fm,
+                                                                     index=check_index, path=filepath))
+                 + f"\n  Resolve with cicada_resolve_inbox(id=\"{filepath.stem}\", option_key=…)"),
+            ])
         elif kind in ("clarification", "merge_suggestion") or (
             not kind and fm.get("uncertainty_type")
         ):
-            results.append(
-                f"**Clarification** `{filepath.stem}`: {ename} — "
-                f"{fm.get('uncertainty_type', '')}\n  {body[:200]}"
-            )
+            results.append([("data", f"**Clarification** `{filepath.stem}`: {ename} — "
+                                     f"{fm.get('uncertainty_type', '')}\n  {body[:200]}")])
         else:
             title = fm.get("title", fm.get("short_description", ""))
-            results.append(
-                f"**{kind or 'Item'}** `{filepath.stem}`: {ename} — {title}\n  {body[:200]}"
-            )
+            results.append([("data", f"**{kind or 'Item'}** `{filepath.stem}`: {ename} — {title}\n  {body[:200]}")])
 
     if not results:
         return "No pending inbox items" + (f" related to '{topic}'" if topic else "") + "."
 
-    return f"Found {len(results)} pending inbox items:\n\n" + "\n\n".join(results)
+    segments: list[tuple[str, str]] = [("own", f"Found {len(results)} pending inbox items:")]
+    for item in results:
+        segments.append(("own", "\n\n"))
+        segments.extend(item)
+    return Reply.framed(segments)
 
 
 ASK_NEEDS_TOPIC = ("Pass `topic` with the person's own words this turn: mode=\"ask\" returns only questions about "
@@ -4604,12 +4656,16 @@ def ask_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = No
                          f"{inbox_context.cause_line(cause, today)}")
         # R12: a remote connection's resolve takes an option only (never the person's words, R-R22).
         how = "option_key" if ctx.is_remote else "option_key or answer, quote=\"<their exact words>\""
-        lines.append(f"  Their words already answer it? cicada_resolve_inbox(id=\"{item_id}\", {how}) — no need "
-                     "to ask.")
-        blocks.append("\n".join(lines))
+        blocks.append([("data", "\n".join(lines)),
+                       ("own", f"\n  Their words already answer it? cicada_resolve_inbox(id=\"{item_id}\", {how}) — "
+                               "no need to ask.")])
     head = ("Open question about what the person is talking about now. Ask it only if it fits this turn, after their "
             "request, in your own words (no banner, no option letters, no quoted cause); otherwise leave it.")
-    return head + "\n\n" + "\n\n".join(blocks)
+    segments: list[tuple[str, str]] = [("own", head)]
+    for block in blocks:
+        segments.append(("own", "\n\n"))
+        segments.extend(block)
+    return Reply.framed(segments)
 
 
 def _float_or(value, default: float = 0.0) -> float:

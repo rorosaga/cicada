@@ -19,10 +19,15 @@
   same way on both. The primer (contract 19) names no HTTP route and picks its variant by exact client name, with a
   `desktop` variant for `claude-ai`. Recall's state cursor says `pending_as_of` / `refresh_with`; confidence shows two
   places; `cicada_recall_detail` drops five bookkeeping keys and never ends a part inside a fence it can avoid. The
-  golden fixture now pins whole `tools/call` results and was re-recorded once. **Dated follow-up: the release after
-  0.6.0 refuses a digit string for an integer (and `"true"`/`"false"` for a boolean)** — remove the two lenient
-  branches in `tool_contract._value`; `test_mcp_error_contract.test_the_leniency_lasts_one_release` fails once
-  `VERSION` moves past 0.6.0. Tool and argument names are unchanged (G180 names no rename yet); `cicada_resolve_inbox`
+  golden fixture now pins whole `tools/call` results. **Dated follow-up: the leniency ships in exactly one release, the
+  first after v0.6.0 (which predates it) — 0.7.0 by the minor bumps since 0.4.0 — and the release after it refuses a
+  digit, decimal or `"true"`/`"false"` string where the schema says a number or boolean:** remove the lenient branches
+  in `tool_contract._value`. `test_mcp_error_contract.test_the_leniency_ships_in_exactly_one_release` fails on any
+  later `VERSION`, and on a patch release first (0.6.1 must move `LENIENT_RELEASE` to itself). Review fix round: a
+  read reply is fenced whatever its code, with Cicada's own directions outside the markers (`Reply.framed`); a recall
+  with stored words is never `empty_graph`; enums match without case; tolerated values (`engine`, `basis`, shot kinds,
+  roles) have no enum; a release batch keeps its good rows; every door logs the failing file:line, no message; the
+  writers' catch-alls no longer leak exception text. Tool and argument names are unchanged (G180 names no rename yet); `cicada_resolve_inbox`
   also takes `item_id`, unlisted. Left out: the claims fence rendered through the one wire builder (A6), and fencing
   the command line's text.
 - **2026-10-22 — Settings in eleven sections (Hyrum audit B1, with B11, B12, B23; G139; branch `settings-regroup`).**

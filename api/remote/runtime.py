@@ -95,6 +95,17 @@ def cap(text: str, limit: int = MAX_RESULT_CHARS) -> str:
 fence = tool_contract.reference
 
 
+def _fenced(reply: str, available: frozenset[str]) -> mcp_tools.Reply:
+    """A read reply fenced whatever its code (fix round, #419: a refusal can carry stored words), its own directions
+    outside the markers when the body kept them apart, the whole cut to the reply cap."""
+    code, data = getattr(reply, "code", None), getattr(reply, "data", None)
+    segments = [(kind, strip_unavailable(part, available)) for kind, part in (getattr(reply, "segments", None) or [])]
+    text = fence(strip_unavailable(str(reply), available), segments or None)
+    if len(text) > MAX_RESULT_CHARS:
+        text = fence(cap(strip_unavailable(str(reply), available)))
+    return mcp_tools.Reply(text, code=code, data=data)
+
+
 class ConversationState:
     """Per-handle skip set and once-per-conversation now-view (R-R24) — what the
     stdio server keeps in two process globals. 24 h TTL, bounded, thread-safe."""
@@ -341,7 +352,7 @@ class RemoteRuntime:
             except write_admission.SleepHolding:
                 raise   # the window opened during a self-admitted tool's fetch: `call` answers busy
             except Exception as exc:  # noqa: BLE001 — never a stack trace to a cloud app
-                logger.warning(f"remote tool {tool} failed for connector {connector.id}: {type(exc).__name__}")
+                logger.warning(f"remote tool {tool} failed for connector {connector.id}: {tool_contract.where(exc)}")
                 text, status = tool_contract.failure_text(exc), "error"
         if checked is not None and checked.warnings:
             text = mcp_tools.Reply(tool_contract.with_warnings(str(text), checked.warnings),
@@ -372,10 +383,8 @@ class RemoteRuntime:
         else:
             text = _DISPATCH[tool](ctx, args)
         self.conversations.set_hint_sent(handle, ctx.state_hint_sent)
-        code = getattr(text, "code", None)
-        if tool in catalog.READ_TOOLS and not tool_contract.is_error(code):
-            text = mcp_tools.Reply(fence(cap(strip_unavailable(text, ctx.available or frozenset()))), code=code,
-                                   data=getattr(text, "data", None))
+        if tool in catalog.READ_TOOLS:
+            text = _fenced(text, ctx.available or frozenset())
         return text
 
     def _resolve_bank(self) -> tuple[Path, str | None]:

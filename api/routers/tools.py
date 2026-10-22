@@ -83,4 +83,5 @@ async def call_tool(req: ToolCallRequest, request: Request, settings: Settings =
     except tool_door.DoorError as exc:
         raise HTTPException(status_code=exc.status, detail=str(exc)) from None
     return {"text": answer.text, "code": answer.code, "data": answer.data, "error": answer.error,
+            "segments": [list(seg) for seg in answer.segments] if answer.segments else None,
             "state": state.wire(), "bank": bank_name, "bankId": pin.id if pin is not None else None}

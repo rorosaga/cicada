@@ -224,12 +224,14 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
            "chapters": {"type": "array", "description": "Optional: the video's chapters.",
                         "items": {"type": "object", "required": ["t", "title"], "properties": {
                             "t": {"type": ["string", "number"]}, "title": {"type": "string"}}}},
-           "basis": {"type": "string", "enum": ["transcript", "frames", "both"],
-                     "description": "Optional: what you actually used to read it. Omitted reads as method not given."},
+           "basis": {"type": "string",
+                     "description": "Optional: what you actually used to read it — transcript, frames or both (another "
+                                    "value is not kept, and the reply says so). Omitted reads as method not given."},
            "engine": {"type": "string",
-                      "enum": ["captions", "video_link", "local_frames", "speech_to_text", "browser", "other"],
-                      "description": "Optional: which route you took."},
-           "duration": {"type": "string",
+                      "description": "Optional: which route you took — captions, video_link, local_frames, "
+                                     "speech_to_text, browser or other (another value is not kept, and the reply "
+                                     "says so)."},
+           "duration": {"type": ["string", "number"],
                         "description": "Optional: the video's length (m:ss, h:mm:ss or seconds); kept only if the page has none."},
            "lease_token": {"type": "string",
                            "description": "Optional: the lease_token cicada_video_claim gave you for this video."}},
@@ -356,8 +358,8 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
                                                         "or stops."},
            "participants": {"type": "array", "items": {"type": "object", "required": ["name", "role"], "properties": {
                "name": {"type": "string"},
-               "role": {"type": "string", "enum": ["owner", "from", "with", "for", "about", "used", "document",
-                                                   "project"]},
+               "role": {"type": "string", "description": "owner, from, with, for, about, used, document or project; a "
+                                                   "participant with another role is not kept."},
                "url": {"type": "string"}}}},
            "evidence": {"type": "array", "items": {"type": "object", "required": ["episode", "quote"], "properties": {
                "episode": {"type": "string"}, "quote": {"type": "string"}}}}},

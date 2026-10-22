@@ -80,6 +80,12 @@ def event_claim_id(subject: str, predicate: str, key: str, valid_from: str, take
 # --------------------------------------------------------------------------- #
 
 
+def _where(exc: BaseException) -> str:
+    from api.services import tool_contract
+
+    return tool_contract.where(exc)
+
+
 def _error(message: str, **extra) -> dict:
     return {"action": "error", "error": message, **extra}
 
@@ -502,8 +508,8 @@ def record_happening(memory_path: Path, *, subject: str, text: str, status: str,
                 "settled": getattr(claim, "_settle_result", None), "paths": _paths(page, bumped, inbox_paths),
                 "evidence": [e.to_dict() for e in spans]}
     except Exception as exc:  # noqa: BLE001 — never raise on a normal input
-        logger.warning(f"progress.record_happening failed: {type(exc).__name__}: {exc}")
-        return _error(f"{type(exc).__name__}: {exc}")
+        logger.warning(f"progress.record_happening failed: {_where(exc)}")
+        return _error(f"it didn\'t work ({type(exc).__name__}); nothing was written", failed=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -560,8 +566,8 @@ def set_milestone(memory_path: Path, *, subject: str, name: str, target: str | N
                 "claim_id": getattr(claim, "_folded_into", None) or claim.id, "slug": key, "target": tgt,
                 "paths": _paths(page, bumped, inbox_paths), "evidence": [e.to_dict() for e in spans]}
     except Exception as exc:  # noqa: BLE001
-        logger.warning(f"progress.set_milestone failed: {type(exc).__name__}: {exc}")
-        return _error(f"{type(exc).__name__}: {exc}")
+        logger.warning(f"progress.set_milestone failed: {_where(exc)}")
+        return _error(f"it didn\'t work ({type(exc).__name__}); nothing was written", failed=True)
 
 
 @page_lock.locked
@@ -646,8 +652,8 @@ def advance(memory_path: Path, *, subject: str, slug: str, status: str | None = 
                 "slug": key, "target": claim.target, "supersedes": due.id, "paths": _paths(page, bumped, inbox_paths),
                 "evidence": [e.to_dict() for e in spans]}
     except Exception as exc:  # noqa: BLE001
-        logger.warning(f"progress.advance failed: {type(exc).__name__}: {exc}")
-        return _error(f"{type(exc).__name__}: {exc}")
+        logger.warning(f"progress.advance failed: {_where(exc)}")
+        return _error(f"it didn\'t work ({type(exc).__name__}); nothing was written", failed=True)
 
 
 @page_lock.locked
@@ -672,8 +678,8 @@ def rename_milestone(memory_path: Path, *, subject: str, slug: str, name: str) -
         return {"action": "renamed", "entity_id": entity_id, "claim_id": head.id, "slug": slug,
                 "paths": [f"entities/{page.name}"]}
     except Exception as exc:  # noqa: BLE001
-        logger.warning(f"progress.rename_milestone failed: {type(exc).__name__}: {exc}")
-        return _error(f"{type(exc).__name__}: {exc}")
+        logger.warning(f"progress.rename_milestone failed: {_where(exc)}")
+        return _error(f"it didn\'t work ({type(exc).__name__}); nothing was written", failed=True)
 
 
 @page_lock.locked
@@ -721,8 +727,8 @@ def withdraw(memory_path: Path, *, subject: str, claim_id: str, author: str, rea
         return {"action": "retracted", "entity_id": entity_id, "claim_id": claim_id, "record_id": record.id,
                 "paths": [f"entities/{page.name}"], "evidence": [e.to_dict() for e in spans]}
     except Exception as exc:  # noqa: BLE001
-        logger.warning(f"progress.withdraw failed: {type(exc).__name__}: {exc}")
-        return _error(f"{type(exc).__name__}: {exc}")
+        logger.warning(f"progress.withdraw failed: {_where(exc)}")
+        return _error(f"it didn\'t work ({type(exc).__name__}); nothing was written", failed=True)
 
 
 # --------------------------------------------------------------------------- #

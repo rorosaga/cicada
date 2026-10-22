@@ -310,16 +310,14 @@ TOOLS = [
                 },
                 "basis": {
                     "type": "string",
-                    "enum": ["transcript", "frames", "both"],
-                    "description": "Optional but asked for. What you actually used to read it: transcript (captions or a transcript), frames (you looked at the video), or both. Omitted reads as 'method not given'. Cicada cannot verify this, so answer truthfully.",
+                    "description": "Optional but asked for: transcript, frames or both (another value is not kept, and the reply says so). What you actually used to read it: transcript (captions or a transcript), frames (you looked at the video), or both. Omitted reads as 'method not given'. Cicada cannot verify this, so answer truthfully.",
                 },
                 "engine": {
                     "type": "string",
-                    "enum": ["captions", "video_link", "local_frames", "speech_to_text", "browser", "other"],
-                    "description": "Optional. Which route you took: captions, video_link (a model that takes the link), local_frames, speech_to_text, browser, or other.",
+                    "description": "Optional. Which route you took: captions, video_link (a model that takes the link), local_frames, speech_to_text, browser, or other. Another value is not kept, and the reply says so; the watch is still recorded.",
                 },
                 "duration": {
-                    "type": "string",
+                    "type": ["string", "number"],
                     "description": "Optional. The video's length as m:ss, h:mm:ss or whole seconds; stored only when the page has none.",
                 },
                 "lease_token": {
@@ -581,7 +579,7 @@ TOOLS = [
             "http_status": {"type": "integer", "description": "The page's HTTP status, when the script read it."},
             "shots": {"type": "array", "description": "The screenshots the script saved.", "items": {
                 "type": "object", "required": ["kind"], "properties": {
-                    "kind": {"type": "string", "enum": ["viewport", "thumb", "full", "mobile", "dark"]},
+                    "kind": {"type": "string", "description": "viewport, thumb, full, mobile or dark; a shot of another kind is not kept."},
                     "path": {"type": "string", "description": "Absolute path of the JPEG or PNG the script saved."},
                     "base64": {"type": "string", "description": "The picture itself, base64 (when you have no file)."}}}},
             "page": {"type": "object", "description": "The page data the script printed: title, description, jsonld, outline, fonts, tokens, components, text, and settle (how long it waited for the page to settle before the first screenshot)."},
@@ -597,11 +595,11 @@ TOOLS = [
             "loaded_at": {"type": "string", "description": "When the saved page itself was loaded, ISO 8601 with a timezone (the script prints it)."},
             "pages": {"type": "array", "description": "The further pages the plan let you open, as the script printed them: each with url, kind, chosen_by, loaded_at, http_status, outcome, shots and page. Cicada keeps only pages within the plan's count, at least 8 seconds apart, on the same host and allowed by robots.txt.", "items": {
                 "type": "object", "required": ["url"], "properties": {
-                    "url": {"type": "string"}, "kind": {"type": "string"}, "chosen_by": {"type": "string", "enum": ["script", "agent"]},
+                    "url": {"type": "string"}, "kind": {"type": "string"}, "chosen_by": {"type": "string", "description": "script or agent (another value reads as script)."},
                     "loaded_at": {"type": "string"}, "http_status": {"type": "integer"},
                     "outcome": {"type": "string", "enum": ["captured", "moved", "not_found", "gone", "needs_login", "blocked", "failed"]},
                     "shots": {"type": "array", "items": {"type": "object", "required": ["kind"], "properties": {
-                        "kind": {"type": "string", "enum": ["viewport", "thumb", "full", "mobile", "dark"]},
+                        "kind": {"type": "string", "description": "viewport, thumb, full, mobile or dark; a shot of another kind is not kept."},
                         "path": {"type": "string"}, "base64": {"type": "string"}}}},
                     "page": {"type": "object", "description": "title, description, outline, fonts, tokens, components, settle."},
                     "design": design_tokens.JSON_SCHEMA}}},
@@ -992,7 +990,7 @@ TOOLS = [
             "settles": {"type": "string", "description": "Optional: the claim id of an ongoing item this finishes or stops."},
             "participants": {"type": "array", "items": {"type": "object", "required": ["name", "role"], "properties": {
                 "name": {"type": "string"},
-                "role": {"type": "string", "enum": ["owner", "from", "with", "for", "about", "used", "document", "project"]},
+                "role": {"type": "string", "description": "owner, from, with, for, about, used, document or project; a participant with another role is not kept."},
                 "url": {"type": "string"}}}},
             "evidence": {"type": "array", "items": {"type": "object", "required": ["episode", "quote"], "properties": {
                 "episode": {"type": "string"}, "quote": {"type": "string"}}}}}},
@@ -1041,14 +1039,14 @@ TOOLS = [
             "title": {"type": "string", "description": "Optional: a short name for this look (the page's title)."},
             "snippets": {"type": "array", "description": "Optional: HTML or CSS the person selected.", "items": {
                 "type": "object", "required": ["code"], "properties": {
-                    "lang": {"type": "string", "enum": ["html", "css", "js", "jsx", "tsx", "svg", "swift", "text"]},
+                    "lang": {"type": "string", "description": "html, css, js, jsx, tsx, svg, swift or text (another reads as text)."},
                     "code": {"type": "string"}}}},
             "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional: a few words to file it under."},
             "subject": {"type": "string", "description": "Optional: the id of the page this look shows (a website, product or project page already in memory); never creates one."},
             "tokens": design_tokens.JSON_SCHEMA,
             "region": {"type": "object", "description": "Optional: the visible region the screenshot covers, in page pixels.",
-                       "properties": {"x": {"type": "integer"}, "y": {"type": "integer"},
-                                      "width": {"type": "integer"}, "height": {"type": "integer"}}}}},
+                       "properties": {"x": {"type": "number"}, "y": {"type": "number"},
+                                      "width": {"type": "number"}, "height": {"type": "number"}}}}},
     },
     {
         # Design taste: read-only over the bank (writes only the derived index outside it).
@@ -1237,6 +1235,9 @@ def main():
 
 
 _SCHEMAS = {tool["name"]: tool["inputSchema"] for tool in TOOLS}
+#: Stdio-only reads whose whole reply is stored text (episodes, saved looks), fenced like the remote reads. The other
+#: stdio-only reads (explore queue, site map, skills) mark the provider lines inside them instead (`_untrusted_block`).
+_STDIO_READS = frozenset({"cicada_pending", "cicada_design_search", "cicada_continue"})
 
 
 def call_tool(name: str, arguments) -> dict:
@@ -1247,6 +1248,7 @@ def call_tool(name: str, arguments) -> dict:
     from api.remote.catalog import READ_TOOLS
     from api.services import tool_client, tool_contract
 
+    from_body = False
     if name not in _SCHEMAS:
         reply = mcp_tools.Reply(f"Error: Unknown tool: {name[:80]}", code="invalid_arguments")
         checked = tool_contract.Checked()
@@ -1257,15 +1259,19 @@ def call_tool(name: str, arguments) -> dict:
         else:
             try:
                 reply = handle_tool(name, checked.arguments)
+                from_body = True
             except tool_client.ToolClientError as exc:   # Cicada's own words about reaching the server
                 reply = mcp_tools.Reply(f"Error: {exc}", code="error")
             except Exception as exc:  # noqa: BLE001 — the class, never the message (it can carry a path or a quote)
-                print(f"cicada-mcp: {name} failed ({type(exc).__name__})", file=sys.stderr)
-                reply = mcp_tools.Reply(tool_contract.failure_text(exc), code="error")
+                # The person debugs from the harness's MCP log: the class and the innermost file:line, never the
+                # message or an argument (the query is never logged).
+                print(f"cicada-mcp: {name} failed: {tool_contract.where(exc)}", file=sys.stderr)
+                reply = mcp_tools.Reply(tool_contract.failure_text(exc, log="the MCP server's log"), code="error")
     code, data = getattr(reply, "code", None), getattr(reply, "data", None)
     text = str(reply)
-    if name in READ_TOOLS and not tool_contract.is_error(code):
-        text = tool_contract.reference(text)
+    if from_body and (name in READ_TOOLS or name in _STDIO_READS):
+        # Fix round (#419): a read reply is fenced whatever its code — a refusal can carry stored words too.
+        text = tool_contract.reference(text, getattr(reply, "segments", None))
     text = tool_contract.with_warnings(text, checked.warnings)
     result: dict = {"content": [{"type": "text", "text": text}]}
     if tool_contract.is_error(code):
@@ -1361,7 +1367,13 @@ def _client_tool(name: str, arguments: dict) -> str:
     options = {"cwd": SESSION.project_dir or os.getcwd()} if name == "cicada_continue" else None
     answer = _remote_call(name, args, options)
     data = answer.get("data") if isinstance(answer.get("data"), dict) else None
-    return mcp_tools.Reply(str(answer.get("text") or ""), code=answer.get("code"), data=data)
+    text = str(answer.get("text") or "")
+    raw = answer.get("segments")
+    segments = [(str(k), str(t)) for k, t in raw if k in ("own", "data")] if isinstance(raw, list) and all(
+        isinstance(seg, list) and len(seg) == 2 for seg in raw) else None
+    if segments is not None and "".join(t for _, t in segments) != text:
+        segments = None          # never trust a split that does not rebuild the text
+    return mcp_tools.Reply(text, code=answer.get("code"), data=data, segments=segments)
 
 
 def handle_tool(name: str, arguments: dict) -> str:
@@ -1380,7 +1392,12 @@ def handle_tool(name: str, arguments: dict) -> str:
             text = _handle_local_tool(name, arguments)
     else:
         text = _handle_local_tool(name, arguments)
-    return f"{notice}\n\n{text}" if notice and isinstance(text, str) else text
+    if notice and isinstance(text, str):
+        # Keep the body's Reply (its code and segments): a refusal just after a server move still answers isError.
+        return mcp_tools.Reply(f"{notice}\n\n{text}", code=getattr(text, "code", None), data=getattr(text, "data", None),
+                               segments=[("own", f"{notice}\n\n"), *(getattr(text, "segments", None) or
+                                                                       [("data", str(text))])])
+    return text
 
 
 def _handle_local_tool(name: str, arguments: dict) -> str:
