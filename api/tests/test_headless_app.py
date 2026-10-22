@@ -71,7 +71,7 @@ def test_a_device_reads_the_list_marked_as_itself_and_still_cannot_issue_or_revo
     assert rows["laptop"]["current"] is True and rows["desk"]["current"] is False
     # ids, names and times only: never a token or a hash
     assert set(rows["laptop"]) == {"id", "name", "createdAt", "revokedAt", "lastUsedAt", "useCount", "active",
-                                   "current"}
+                                   "current", "kind"}   # G212: `full` or `capture`, an enum
     assert rows["laptop"]["lastUsedAt"]                       # the read itself was a use: last seen is now
     assert client.post("/devices", json={"name": "x"}, headers=_auth(laptop["token"])).status_code == 403
     assert client.delete(f"/devices/{desk['device']['id']}", headers=_auth(laptop["token"])).status_code == 403

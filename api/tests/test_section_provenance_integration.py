@@ -32,8 +32,9 @@ def test_substantive_single_episode_promotion_then_b_fact_only_update(tmp_path, 
     git('config', 'user.name', 'Synthetic Test')
     git('config', 'user.email', 'synthetic@example.com')
     for ep, existing in [(ep_a, []), (ep_b, None)]:
-        # Four exchanges in which the person names it: promoted on its one conversation (`promotion`).
-        body = '\n'.join(f'user: alpha-project observation {n} for {ep}\nassistant: Noted.' for n in range(4))
+        # Four exchanges in which the person names it, the first calling it their project (ruling 36 D4).
+        body = 'user: alpha-project is my project.\nassistant: Noted.\n' + '\n'.join(
+            f'user: alpha-project observation {n} for {ep}\nassistant: Noted.' for n in range(4))
         markdown_parser.write(tmp_path / 'episodes' / f'{ep}.md', {'id': ep, 'timestamp': '2026-10-07T10:00:00Z'}, body)
         if existing is None:
             parsed = markdown_parser.parse(tmp_path / 'entities' / 'alpha-project.md')

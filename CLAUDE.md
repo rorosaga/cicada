@@ -225,7 +225,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Entity promotion:** a first mention stays in the index; a page needs 2+ conversations, >3 exchanges with the person's
   own words, or a link the person made to a high-confidence page other than the owner's — counted on the conversation,
   never guessed (`promotion`) — or the person's own words naming in full exactly one waiting Contacts card, never the "me"
-  card or a relation-only person (owner 2026-10-20; cards wait outside every bank until Contacts stops, `capture-and-sleep.md`). What is said about a
+  card or a relation-only person (owner 2026-10-20; cards wait outside every bank until Contacts stops, `capture-and-sleep.md`).
+  **A project is born only from a repository the hook observed or the person's own located words calling it one —
+  never from this rule (ruling 36 D4, `project_birth`); an older page is never archived for it.** What is said about a
   name with no page yet is held (`pending_store`), never lost. A page only an import made is quiet — dimmed, never
   asked about — until the person mentions it, derived on read (`quiet_pages`).
   A Stage-4 skill needs 2+ conversations too; one is held in its own store, `skill_hold` (G112, owner 2026-10-09).
@@ -265,11 +267,15 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   path on every plan run plus a one-off backlog sweep, and Cicada's own settings are never asked (27b, 2026-10-19). **A tracked source's
   dated re-check does (ruling 26):** a new dated fact; the newest evidence wins, even over the person's own words; the same
   day or undated asks once; dead = two failed visits a week apart; walled pages only by the person's agent (`storage.md`).
+  **Where to check (ruling 36 D5, 2026-10-22):** an agent (`inferred`) or Sleep's engine-free step may PROPOSE a link
+  already on the record — never one guessed from a name; a proposal is never trusted, drawn or re-checked until the
+  person takes it, one grouped review ("Confirm N links"); Sleep settles one only when the person's own located line
+  names that one page and the link's account is its name or alias — co-occurrence is never proof (`storage.md`).
 - **Pictures:** one precedence (the person's choice → Contacts photo → the photo a ticked Messages chat shares → a
   person's public-profile photo → a brand's logo → a media thumbnail → a monogram). **A logo comes only from a trusted
   `website` source — never a domain guessed from a name; a person never gets a logo and no service is sent a person's name (G146/G159).** A saved link's own site may show its own icon, asked of that site only (or the icon host its homepage declares, 2026-10-20; an SVG icon only sanitised and drawn to a PNG out of process, never served as SVG, 2026-10-20), on the person's view (owner 2026-10-19; `storage.md`); a watched or saved YouTube video its still, from YouTube's own host for that id only, on the same terms (2026-10-19). A person's photo is asked only
   with an identifier already on the page or record and given as their own account — the owner's hashed email, a GitHub,
-  X or LinkedIn profile link (owner, 2026-10-09; `network.md`); a LinkedIn link from the person's connections counts as given
+  X, Instagram or LinkedIn profile link (owner, 2026-10-09; Instagram, D5), never a proposal the person has not taken (`network.md`); a LinkedIn link from the person's connections counts as given
   on a confident match, never an alias-only one (owner 2026-10-17). The photo a chat shares in Messages is its page's
   picture everywhere — ticked chats only, read by the app from a copy, kept outside every bank, linked by the chat's
   correspondent record, gone on untick (owner 2026-10-16, `storage.md`).
@@ -327,7 +333,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   hashed and mapped to connector rows; a self-registered app is never named by its claim (`network.md`).
 - **Reading with the person's own agent (G166):** Cicada never spawns a browser and never signs in; it only asks. Only a
   link the person asked about, or a wall page of a site they allowed, can be recorded — and (owner 2026-10-16, G71) the
-  person's YouTube Watch later or history page, a standing ask once they turn that list on, stdio only; one person's
+  person's YouTube Watch later or history page, a standing ask once they turn that list on, stdio only; their saved list on X, Instagram or LinkedIn the same way, one site at a time, ≤ 10 reads a day, each item an
+  indexed save (G206, 2026-10-22, `mcp.md`); one person's
   LinkedIn profile only through the link their page lists, on the person's ask, ≤ 10 a day, stdio only (2026-10-16,
   `mcp.md`). Imported LinkedIn connections enrich existing people only, never mint a page. The backend never fetches a
   login-walled page. **Exploring saved sites (ruling 25):** only the person's click or a trusted local agent they asked
@@ -382,8 +389,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **The ToS rail — not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never behind auth. Consent
   interstitials and login walls are classified and retired **without a byte fetched**. **A block is never retried with
   different headers.** No scraping behind authentication, ever. **One dated exception (owner, 2026-10-09):** a person's
-  photo through unavatar.io from an X or LinkedIn link already on their page, behind its own gate — **on by default
-  since ruling 36 D5 (2026-10-22)**, shipped with sources on people (G61); the person can turn it off.
+  photo through unavatar.io from an X, Instagram or LinkedIn link already on their page, behind its own gate — **on by
+  default since ruling 36 D5 (2026-10-22)**, shipped with sources on people (G61); `off` still closes it.
 - **Credentials** live in `~/.cicada/secrets.env` (0600) — never in a bank, never logged.
 - **Headless (G181):** a server is its bank's one writer and binds 127.0.0.1 only; reach from another machine is an
   overlay the person runs (never a public port, never funnel — only the G135 listener may be, by the person, ruling 32), and no installer creates or copies a credential (`headless.md`).

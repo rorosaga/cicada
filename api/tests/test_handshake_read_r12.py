@@ -30,7 +30,7 @@ def _home(tmp_path, monkeypatch):
 
 
 def test_the_contract_versions_moved():
-    assert (handshake.CONTRACT_VERSION, handshake.REMOTE_CONTRACT_VERSION) == (19, 13)  # 19: G200 A7 (no HTTP route, a desktop variant); 18 / 13: ruling 34, the video hand-back names its lease_token; remote 12: ruling 32 capture; 17: G198 cicada_edit_page merged past 16 (questions come up naturally)
+    assert (handshake.CONTRACT_VERSION, handshake.REMOTE_CONTRACT_VERSION) == (20, 14)  # 20 / 14: G61 "Where to check" (ruling 36 D5) defines it and names inferred/evidence; 19: G200 A7 (no HTTP route, a desktop variant); 18 / 13: ruling 34, the video hand-back names its lease_token; remote 12: ruling 32 capture; 17: G198 cicada_edit_page merged past 16 (questions come up naturally)
 
 
 def test_the_parser_reads_the_reading_calls():
@@ -110,7 +110,7 @@ def test_a_full_bank_primer_with_item_9_stays_inside_the_budget(tmp_path, varian
 
 def test_an_empty_state_primer_is_far_inside_the_budget_with_item_9():
     for variant in handshake.VARIANTS:
-        assert len(handshake.build(None, variant=variant, bank="memory", reading=True)) // 4 < 1365  # ~1,361 with G198's edit line and ruling 34's lease_token; MAX_TOKENS (1,800) is the hard budget
+        assert len(handshake.build(None, variant=variant, bank="memory", reading=True)) // 4 < 1372  # ~1,368 with "Where to check" (ruling 36 D5, 2026-10-22); ~1,361 before, with G198's edit line and ruling 34's lease_token; MAX_TOKENS (1,800) is the hard budget
 
 
 @pytest.mark.parametrize("scopes", SUBSETS, ids=lambda s: "+".join(sorted(s)))

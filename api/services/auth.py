@@ -138,9 +138,11 @@ def bearer_admits(authorization: str | None) -> bool:
     if not device_tokens.looks_like(supplied):
         return False
     try:
-        return device_tokens.store().verify(supplied) is not None
+        device = device_tokens.store().verify(supplied)
     except Exception:  # noqa: BLE001 — fail closed
         return False
+    # G212: a capture-only device (a phone) gets the open answer — liveness and identity, never the memory's path.
+    return device is not None and device.kind != "capture"
 
 
 def get_token() -> str:
@@ -170,6 +172,12 @@ _DEVICE_READABLE = frozenset({("GET", "/devices"), ("GET", "/devices/status")})
 #: on faces the person's tunnel), so a device may read the connector state and revoke, never create or open.
 MASTER_ONLY_WRITE_PREFIXES = ("/remote", "/agent-api")
 _MASTER_ONLY_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH"})
+
+
+#: G212 (owner 2026-10-22): everything a capture-only device token (a paired phone's) may reach — send a link with a
+#: note, send a note, read back its own recent captures. Exact paths, never prefixes; `/healthz` is open to anyone.
+#: Every other route answers 403 to it, the device routes included.
+CAPTURE_ROUTES = frozenset({("POST", "/sources/save"), ("POST", "/capture/note"), ("GET", "/capture/mine")})
 
 
 def _master_only(path: str, method: str = "GET") -> bool:
@@ -217,6 +225,8 @@ async def require_token(
         raise HTTPException(status_code=401, detail="missing or invalid bearer token")
     if _master_only(request.url.path, request.method):
         raise HTTPException(status_code=403, detail="only the server's own token may do this")
+    if device.kind == "capture" and (request.method.upper(), request.url.path) not in CAPTURE_ROUTES:
+        raise HTTPException(status_code=403, detail="this device may only send captures")
     request.state.device = device
     device_context.bind(device.id)
     try:

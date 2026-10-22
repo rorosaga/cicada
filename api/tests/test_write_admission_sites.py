@@ -409,7 +409,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /intake/import": (CAPTURE, None),
     "PUT /agent-methods": (HELD, "api.services.skill_pages.ensure"),
     "POST /agent-methods/skills/{skill}/page": (HELD, "api.services.skill_pages.ensure"),
-    "POST /sources/save": (ADMITTED, None),
+    "POST /sources/save": (ADMITTED, "api.routers.sources._save_source"),   # G212: wrapped by its Idempotency-Key
     "POST /sources/saved-why": (ADMITTED, None),       # G191: the answer on the link's episode, committed alone
     "PUT /sources/saved-why": (ADMITTED, None),        # G191 v3: the person's edit of one answer, committed alone
     "POST /sources/bookmarks/remove": (ADMITTED, None),   # G191 v3: the page archived, the episode tombstoned
@@ -461,6 +461,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /capture/telegram": (INTAKE, None),
     "POST /capture/transcript": (CAPTURE, None),
     "POST /capture/turn": (CAPTURE, None),   # capture-everywhere: the same writer as the Stop hook
+    "POST /capture/note": (CAPTURE, None),   # G212: a note a device sent, staged like every source-keyed capture
     "POST /capture/session": (CAPTURE, None),   # G181 phase 2: a session read on its own machine, the same writer
     "POST /tools/call": (DOOR, None),
     "POST /v1/{op}": (REMOTE, None),
@@ -554,6 +555,8 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_record_refresh": (ADMITTED, "record_refresh"),
     # G71 (2026-10-16): Watch later saves media pages, history writes day episodes — committed alone, in one hold.
     "cicada_record_youtube_list": (ADMITTED, "record_youtube_list"),
+    # G206 (2026-10-22): saved posts become media pages and their episodes — committed alone, in one hold.
+    "cicada_record_saved_list": (ADMITTED, "record_saved_list"),
     # 2026-10-16: one person's LinkedIn profile — an episode and their page, committed alone, in one hold.
     "cicada_record_profile": (ADMITTED, "record_profile"),
     # G110: reads the bank's transcript episodes only (projection + paging); its metadata index and session registry

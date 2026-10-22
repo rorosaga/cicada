@@ -1129,6 +1129,42 @@ async def _rematch_contacts_safely(memory_path: Path) -> None:
         await asyncio.to_thread(contacts_local.restore, memory_path, report)
 
 
+async def _where_to_check_safely(memory_path: Path) -> None:
+    """G61 "Where to check" (G208, ruling 36 D5) — propose the profile links and own repositories the record already
+    holds as sources, untrusted until the person takes them, and keep one question per page about them
+    (`source_proposals`). Engine-free, no fetch, idempotent; respects `sources_removed`. One path-scoped `cicada` commit
+    (`Where to check <date>`, trigger `sleep/where-to-check`); pages dirty before it ran are skipped, a failed commit
+    undoes what it wrote. Never raises."""
+    from api.services import source_proposals
+
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Where to check skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    report = source_proposals.Report()
+    try:
+        await asyncio.to_thread(source_proposals.propose, memory_path, skip, report)
+    except Exception as exc:
+        logger.warning(f"Where to check failed — undoing {len(report.paths)} file(s): {type(exc).__name__}")
+        await asyncio.to_thread(source_proposals.restore, memory_path, report)
+        return
+    if not report.paths or not (memory_path / ".git").exists():
+        return
+    try:
+        async with _lock:
+            await git_service.commit_paths(
+                memory_path, source_proposals.commit_message(report, date.today()), report.paths)
+        # counts only — never a ref, a name or a page
+        logger.info(f"Where to check: {report.proposed} proposed on {report.pages} page(s), "
+                    f"{report.questions} question(s) written or updated")
+    except Exception as exc:
+        logger.warning(f"Where to check commit failed — undoing: {type(exc).__name__}")
+        await asyncio.to_thread(source_proposals.restore, memory_path, report)
+
+
 async def _site_sources_safely(memory_path: Path) -> None:
     """G61 S3-b — propose an official site from what a page already says (its `website` claim, a `## Links` host that
     is its own name) and confirm proposed sites on Cicada's OWN rail (`link_enrichment.fetch_identity`): at most
@@ -1364,6 +1400,9 @@ async def _run_engine_independent_tail(
         await _rematch_linkedin_safely(memory_path)
         # Contacts cards waiting outside the bank, matched against tonight's pages (owner ruling 2026-10-20) — the same slot.
         await _rematch_contacts_safely(memory_path)
+        # G61 "Where to check" (ruling 36 D5): links already on the record proposed as sources — after the imports
+        # above (a link they put on a page is not proposed again), before any poll's `git add -A`.
+        await _where_to_check_safely(memory_path)
         from api.services import demo_guard
 
         if demo_guard.is_demo(memory_path):
@@ -3201,6 +3240,10 @@ def _get_unprocessed_episodes(
             "gaps": evidence.gap_ranges(fm, content) if with_body else (),
             # G179: who the other side of a message conversation is (an agent's turns are never the person's).
             "correspondent": fm.get("correspondent") if isinstance(fm.get("correspondent"), dict) else None,
+            # Ruling 36 D4: the hook's own observation of the checkout a harness session ran in (`project_birth`
+            # reads the two stored values; nothing opens the path).
+            "project_dir": fm.get("project_dir") if isinstance(fm.get("project_dir"), str) else None,
+            "workspace_identity": fm.get("workspace_identity") if isinstance(fm.get("workspace_identity"), dict) else None,
         })
     # Order by INSTANT, not by string (G114 R2): a bank holds legacy
     # naive-local stamps beside `Z` and `+00:00` UTC ones, and a lexical sort

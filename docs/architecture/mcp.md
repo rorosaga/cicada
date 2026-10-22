@@ -113,7 +113,16 @@ fact can be checked when there is no claim to write — only a source the person
 agent guessed; it is not `cicada_sources` (conversations). `record` scope remotely, where a path, a
 repo or `access: local` is refused; it commits alone under the harness. `cicada_write_claim(sources=)`
 takes a string or `{ref, access}`. Since G61 S3-a (contract 12, remote 9) the primer names it, and takes an optional
-`entity` (an existing page that knows more about the source). **`cicada_change_source(subject, ref, predicate, action,
+`entity` (an existing page that knows more about the source). **Where to check (ruling 36 D5, contract 20, remote 14,
+2026-10-22):** the tool, the primer and the skill carry one definition — *a link where the current state of this thing
+can be checked — a profile, a personal site, a publication list, a repository or any page; Cicada re-checks it on a
+schedule and agents check it before answering about the thing* — and the tool takes `inferred: true` with `evidence:
+[{episode, quote}]` (≤ 3, the first located one kept as a span) for a source the agent found itself, on the record or
+in research. That lands as a proposal (`proposed: true`, `storage.md` "Where to check"): untrusted, no picture, no
+re-check, joined to the page's one question on the next Sleep; the reply says it waits for the person's yes. A profile
+ref is stored in its canonical form with its kind as the predicate when none is given. The direct add (the person
+named it) is unchanged. The CLI table's proposed `source add` row (`cli_map`, not exposed yet) names both arguments,
+so the CLI↔MCP parity test holds when it ships. **`cicada_change_source(subject, ref, predicate, action,
 reason, new_ref?, new_predicate?, access?, entity?)`** corrects (`update`) or removes (`remove`, `reason` required) a source
 the caller added — keyed `(ref, predicate)`; `record` scope remotely, a remote caller never names a path, a repo or `access:
 local`; refused with nothing written in a demo bank, while Sleep runs, for no such page or key, for an entry that is not the
@@ -443,6 +452,46 @@ folder `Watch later`, origin `youtube-playlist` — a video already saved by any
 through `watch_history` (door `agent`, the page's day; a row without a day is left out). Committed alone as the harness
 with its session trailer. **Not built:** a video removed from Watch later on YouTube stays saved here (the read only
 adds); the agent reads a few screens, so a long list fills over several reads.
+
+**Saved lists on X, Instagram and LinkedIn (G206, redesign 2026-10-22, ruling 36).** The YouTube lists' shape, per
+walled site: X Bookmarks (`https://x.com/i/bookmarks`), Instagram Saved (the profile's Saved tab, reached from
+`https://www.instagram.com/` — Cicada keeps no profile name) and LinkedIn Saved posts
+(`https://www.linkedin.com/my-items/saved-posts/`). Cicada never spawns a browser, never signs in and never fetches a list
+page; it only offers. **Consent:** agent reading on (its sheet acknowledged) AND the person turned that site's list on
+(`reading.json` `saved_lists`, `{x|instagram|linkedin: day}`, off by default, refused without a current acknowledgement;
+`PUT /reading/settings` `savedLists` patch, the Sources page's switch; `GET /reading/settings` carries `savedLists`
+and `saved` — per site the last read, its outcome, item count and pause, plus `readsToday`/`dailyReads`). Like a YouTube
+list it is a **standing ask for exactly that page**, never a site grant: it lets no other page of the site be recorded.
+**The offer** (`saved_lists.py`; state in `$CICADA_HOME/saved_lists.json`, ids, enums, counts and times only,
+`flock`ed): a list is due when allowed, not paused and not read for this bank in 20 hours; **one site's list at a time**
+(the first due, in the order X, Instagram, LinkedIn) and **at most 10 recorded reads a UTC day per bank** across the
+three (G206's bound, the LinkedIn profile read's, until measured). `cicada_reading_queue` (stdio only) appends its
+lines — the page, what to read (each post's link, author and the words it shows), only the list (never the feed or
+messages), never click anything that changes it (no unsave, like, follow or reply), never sign in — and
+`reading_queue.counts` counts a due list as one of the person's asks. **`cicada_record_saved_list(platform, outcome,
+items?, via?)`** (`record` scope, stdio only — `catalog.NEVER_REMOTE`; a proposed CLI row `read saved`, not exposed)
+under one admission and page lock: refused, writing nothing, in a demo bank, with reading off, for an unknown platform or
+outcome, a list not turned on, or the day's reads spent. `needs_login`/`blocked` pause **that site's** list for 7 days
+(no bank write; a sign-in on X says nothing about Instagram) and file a G205 agent request — "<Agent> is asking you to
+sign in to x.com, to read your bookmarks" — when the `agent_requests` module is present (a no-op before G205 lands;
+`saved_lists.resume_site` is what its "I signed in" should call); turning the list on again lifts the pause. A `read`
+(≤ 200 items a call): each item must be a post of that site (`saved_lists.canonical`: an X status, an Instagram
+`/p/`, `/reel/` or `/tv/`, a LinkedIn `feed/update/urn:li:…` or `/posts/…`; the rest are counted and left out), saved
+through `media_ingestor.write_prepared` with no fetch, under the list's own origin and folder (`x-bookmarks`/`Bookmarks`,
+`instagram-saved`/`Saved`, `linkedin-saved`/`Saved Items` — the export archives' own), so `history_index.kind` makes it
+**index-only: `processed: true`, `processed_by: index`, never read by a model** (ruling 30). Dedup is by URL: the post's
+other spellings (X's `i/web/status`, `twitter.com`, Instagram and LinkedIn without `www`) ride as `url_index` aliases, so
+a post an archive, a connector or a pasted link already saved is a duplicate; the platform's own ids are never asked
+for. The post's words become the title (≤ 80) and description (≤ 500), scrubbed; they are the post's, never the
+person's (no `note`). Committed alone as the harness with its session trailer. **Not built:** a post unsaved on the site
+stays saved here (the read only adds); the app's switch (spec in `app.md`, "Saved lists in your browser").
+
+**A walled post's title (2026-10-22).** The backend never fetches an X, Instagram or LinkedIn post (R-RW4), so a saved
+one is titled from its URL alone (`media_ingestor._walled_post_title`): "Post by @<user>" for an X status (before, its
+bare numeric status id), "Post on X" for `i/web/status`, "Instagram post"/"Instagram reel", "LinkedIn post" for a
+`feed/update` URN. `media_ingestor.is_placeholder_title` counts both today's fallback and the old bare-id title as a
+placeholder, so an agent's read (`page_read._apply_title`) still replaces either, and the reading queue never prints one
+as a title.
 
 **One person's LinkedIn profile (owner 2026-10-16: "extracting people profiles from my LinkedIn connections (maybe
 could be a skill)").** The connections import (`capture-and-sleep.md`, *LinkedIn connections*) leaves a person page

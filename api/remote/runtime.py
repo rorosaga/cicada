@@ -209,7 +209,7 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
         a.get("evidence")),
     "cicada_add_source": lambda c, a: mcp_tools.add_source(
         c, str(a.get("subject") or ""), str(a.get("ref") or ""), a.get("predicate"), a.get("access"),
-        a.get("kind"), a.get("entity")),
+        a.get("kind"), a.get("entity"), bool(a.get("inferred", False)), a.get("evidence")),
     "cicada_change_source": lambda c, a: mcp_tools.change_source(
         c, str(a.get("subject") or ""), str(a.get("ref") or ""), a.get("predicate"), str(a.get("action") or ""),
         a.get("reason"), a.get("new_ref"), a.get("new_predicate"), a.get("access"), a.get("entity")),

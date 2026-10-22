@@ -32,6 +32,7 @@ def test_25_same_name_mentions_retain_each_orientation_once(tmp_path, monkeypatc
         if oversized and n == 1:
             summary += ' Additional design context.' * 40
         entity = {'name': 'alpha-project', 'type': 'project', 'confidence': 0.9 if n == 1 else 0.8,
+                  'project_birth': {'origin': 'words', 'episode': episode},   # ruling 36 D4: an origin to be born
                   'summary': summary, 'key_facts': [f'Atomic observation-{n:02d}.'],
                   'source_episode': episode, 'source_episode_timestamp': day + 'T12:00:00Z',
                   'source_episode_day': day}
@@ -135,6 +136,7 @@ def test_25_identical_summaries_union_sources_without_fact_or_history_copies(tmp
     for n in range(1, 26):
         episode = f'ep_2026-01-15_{n:03d}'
         entity = {'name': 'alpha-project', 'type': 'project', 'summary': summary,
+                  'project_birth': {'origin': 'words', 'episode': episode},   # ruling 36 D4: an origin to be born
                   'key_facts': [summary], 'confidence': 0.8, 'source_episode': episode,
                   'source_episode_timestamp': '2026-01-15T12:00:00Z'}
         sp.attach(entity, episode, 'user: Synthetic repeated context.')

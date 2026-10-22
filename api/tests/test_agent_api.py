@@ -33,6 +33,10 @@ def server(tmp_path, monkeypatch):
     monkeypatch.delenv("CICADA_API_TOKEN", raising=False)
     monkeypatch.setattr(remote_runtime, "_SHARED", None)
     monkeypatch.setattr(agent_router, "LIMITS", Limits())
+    from api.remote import reach
+
+    # G212: no test ever runs the real tailscale CLI (its macOS binary is the GUI app's).
+    monkeypatch.setattr(reach, "tailnet_backend", lambda port, **kw: reach.TailnetBackend("missing", None))
     config.get_settings.cache_clear()
     from api.services.auth import get_token
 
@@ -245,7 +249,8 @@ def test_the_listener_serves_v1_with_the_same_envelope_and_never_mcp_to_an_agent
 
 def test_a_pairing_code_is_shown_once_spent_once_and_mints_a_device(server):
     client, master, _ = server
-    made = client.post("/devices/pairing", json={"url": "https://cicada.example.ts.net"}, headers=_auth(master))
+    made = client.post("/devices/pairing", json={"url": "https://cicada.example.ts.net", "kind": "full"},
+                       headers=_auth(master))
     assert made.status_code == 201
     code, qr = made.json()["code"], made.json()["qr"]
     assert qr == {"v": 1, "url": "https://cicada.example.ts.net", "code": code} and len(code) == 9

@@ -28,6 +28,11 @@
   from their signed-in browser (``youtube_lists``). Off by default; each is a
   standing ask for exactly that page (never a youtube.com site grant), needs a current acknowledgement
   to turn on, and counts only while the master switch is on.
+* ``saved_lists`` — ``{site: day}`` (G206, redesign 2026-10-22): the saved lists on
+  X (Bookmarks), Instagram (Saved) and LinkedIn (Saved posts) the person asked
+  their own agent to keep current (``saved_lists``), on the same terms as
+  ``youtube_lists``: off by default, a standing ask for exactly that list page,
+  never a site grant.
 * ``agent_ack`` — ``{date, v}``: the person's "I understand" on the first-use
   sheet. Turning the switch on needs a current one; a change of the sheet's
   wording bumps ``ACK_VERSION`` and asks again (until they do, the switch reads
@@ -166,9 +171,26 @@ def youtube_list_allowed(name: str) -> bool:
     return agent_enabled() and name in youtube_lists()
 
 
+#: The saved lists on walled sites an agent may be asked to read (G206; ``saved_lists.PLATFORMS``' keys).
+SAVED_LISTS = ("x", "instagram", "linkedin")
+
+
+def saved_lists() -> dict[str, str]:
+    """``{site: day granted}`` as stored. NOT gated on the master switch — see :func:`saved_list_allowed`."""
+    raw = _load().get("saved_lists")
+    if not isinstance(raw, dict):
+        return {}
+    return {k: str(raw[k] or "")[:10] for k in SAVED_LISTS if k in raw}
+
+
+def saved_list_allowed(key: str) -> bool:
+    return agent_enabled() and key in saved_lists()
+
+
 def snapshot() -> dict:
     held = ack()
     lists = youtube_lists()
+    saved = saved_lists()
     return {
         "agentEnabled": agent_enabled(),
         "allowedSites": allowed_sites(),
@@ -177,6 +199,7 @@ def snapshot() -> dict:
         "exploreSignedIn": explore_signed_in(),
         "neverExplore": never_explore(),
         "youtubeLists": {"watchLater": "watch_later" in lists, "history": "history" in lists},
+        "savedLists": {k: k in saved for k in SAVED_LISTS},
     }
 
 
@@ -186,7 +209,7 @@ class SettingsError(ValueError):
 
 def update(*, agent_enabled_: bool | None = None, acknowledge: bool = False, sites=None,
            surfaced=None, today: date | None = None, explore_signed_in_: bool | None = None,
-           never_explore_=None, youtube_lists_=None) -> dict:
+           never_explore_=None, youtube_lists_=None, saved_lists_=None) -> dict:
     """Apply one change and return the new snapshot.
 
     Turning the switch on needs a current acknowledgement — either already
@@ -253,6 +276,25 @@ def update(*, agent_enabled_: bool | None = None, acknowledge: bool = False, sit
             data["youtube_lists"] = dict(sorted(held_lists.items()))
         else:
             data.pop("youtube_lists", None)
+    if saved_lists_ is not None:
+        # G206: the same standing ask as a YouTube list, one per walled site's saved list.
+        if not isinstance(saved_lists_, dict) or any(str(k) not in SAVED_LISTS for k in saved_lists_):
+            raise SettingsError("savedLists must be a map of x, instagram or linkedin to true or false. "
+                                "Nothing was changed.")
+        if any(saved_lists_.values()) and not _ack_ok(data):
+            raise SettingsError(
+                "Read the sheet and tick I understand before turning this on. Nothing was changed.")
+        held_saved = data.get("saved_lists") if isinstance(data.get("saved_lists"), dict) else {}
+        held_saved = {k: str(v) for k, v in held_saved.items() if k in SAVED_LISTS}
+        for key, on in saved_lists_.items():
+            if on:
+                held_saved.setdefault(str(key), (today or date.today()).isoformat())
+            else:
+                held_saved.pop(str(key), None)
+        if held_saved:
+            data["saved_lists"] = dict(sorted(held_saved.items()))
+        else:
+            data.pop("saved_lists", None)
     if agent_enabled_ is not None:
         if agent_enabled_ and not _ack_ok(data):
             raise SettingsError(

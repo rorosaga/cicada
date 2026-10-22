@@ -206,14 +206,24 @@ def connect_agents(found: Found, ui: Ui, run: Callable) -> list[str]:
     return done
 
 
-def pair(call: Callable, ui: Ui, url: str | None, *, wait: bool, sleep=time.sleep, clock=time.monotonic) -> dict:
+def pair(call: Callable, ui: Ui, url: str | None, *, wait: bool, kind: str = "capture", sleep=time.sleep,
+         clock=time.monotonic) -> dict:
+    """``url`` None lets the server fill the QR with its tailnet address when the person's `tailscale serve` already
+    gives one (G212); otherwise the answer's ``reach.serveCommand`` is what they would run."""
     import json
 
-    body = {"url": url} if url else {}
+    body: dict = {"kind": kind}
+    if url:
+        body["url"] = url
     answer = call("POST", "/devices/pairing", body=body)
     code, qr = answer.get("code"), answer.get("qr") or {}
-    ui.say(f"\nPairing code: [bold]{code}[/bold]   (ten minutes, once)")
+    ui.say(f"\nPairing code: [bold]{code}[/bold]   (ten minutes, once; "
+           f"{'capture only: links and notes' if kind == 'capture' else 'a full device'})")
     ui.say(f"QR payload: {json.dumps(qr, separators=(',', ':'))}")
+    hint = (answer.get("reach") or {}).get("serveCommand")
+    if not qr.get("url") and hint:
+        ui.say(f"The QR has no address yet: to let devices on your tailnet reach this server, run `{hint}` "
+               "yourself (tailnet only, never public), then pair again.")
     ui.say("Scan it in the Cicada app on the new device, or post {\"code\", \"name\"} to <this server>/pair.")
     if not wait:
         return {"pairing": answer.get("pairing"), "code": code, "qr": qr, "paired": None}
@@ -274,10 +284,10 @@ def run_setup(*, call: Callable, ui: Ui, url: str | None = None, pair_now: bool 
     if pair_now is None:
         pair_now = ui.interactive and ui.confirm("\nPair a phone or another machine now?", default=False)
     if pair_now:
-        if ui.interactive and not url:
-            base = ui.text("The address it will reach this server at (blank: fill it in on the device):",
-                           default=base or "") or None
-        data["pairing"] = pair(call, ui, base, wait=ui.interactive)
+        # The backend's own address goes in the QR — never the listener's public one (`base`), which serves no `/pair`.
+        kind = "capture" if not ui.interactive or ui.confirm("Is it a phone (it may only send links and notes)?") \
+            else "full"
+        data["pairing"] = pair(call, ui, None, wait=ui.interactive, kind=kind)
 
     if agent_name is None and ui.interactive and ui.confirm(
             "\nGive a personal agent (one that can't use MCP) access over HTTP?", default=False):

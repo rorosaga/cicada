@@ -769,6 +769,9 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             # (the commit's `Cicada-Author` still names it).
             if entity.get("website") and str(entity_type).lower() in ("company", "tool", "project"):
                 fact_sources.propose_site(frontmatter, str(entity["website"]), added_by="agent")
+            if entity_type == "project" and isinstance(change.get("project_birth"), dict):
+                # Ruling 36 D4: where the project came from, written once where the page is born (`project_birth`).
+                frontmatter["born"] = change["project_birth"]
             if change.get("contacts_card") and entity_type == "person":
                 # Owner ruling 2026-10-20: a page promoted on a waiting card's first mention is born with the card's
                 # sources and photo — what a Contacts sync writes on a matched page (`contacts_local.seed_page`).

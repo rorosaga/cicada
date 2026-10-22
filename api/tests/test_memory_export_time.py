@@ -148,7 +148,7 @@ class _CycleDay(date):
 MEMORY = {"id": MEMORY_EP, "timestamp": "2026-09-20T10:00:00Z", "origin": "claude-export", "source": "claude_memory",
           "evidence_kind": "assistant", "content": "system: The user built Alpha Project, a rover arm, in 2023."}
 CONV = {"id": CONV_EP, "timestamp": "2023-05-10T10:00:00Z", "origin": "claude-export", "source": "claude",
-        "content": "user: Alpha Project is the rover arm I am building."}
+        "content": "user: Alpha Project is the rover arm project I am building."}
 
 
 def _reply(_msg):
@@ -234,13 +234,11 @@ def _write(bank, episodes, existing=()):
     return resolved["changes"]
 
 
-def test_a_page_first_heard_in_a_memory_entry_has_no_last_mention(bank):
-    (change,) = _write(bank, [MEMORY])
-    assert change["untimed"] is True and change["source_episode_timestamps"] == []
-    fm = markdown_parser.parse(bank / "entities" / "alpha-project.md").frontmatter
-    assert "last_referenced" not in fm                              # never mentioned in a conversation
-    assert str(fm["created"]) == "2026-10-08" == str(fm["decayed_through"])   # learned today; an import is not silence
-    assert fm["source_episodes"] == [MEMORY_EP]
+def test_a_project_first_heard_in_a_memory_entry_stays_a_mention(bank):
+    # Ruling 36 D4: a memory entry is the assistant's summary, never the person's words, and no repository: the
+    # project waits as a mention until a conversation gives it an origin (the next test).
+    assert _write(bank, [MEMORY]) == []
+    assert not (bank / "entities" / "alpha-project.md").exists()
 
 
 def test_a_conversation_beside_it_in_the_batch_dates_the_page(bank):

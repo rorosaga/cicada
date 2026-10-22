@@ -85,6 +85,9 @@ test_entity_types.py::test_the_create_branch_holds_the_set_even_when_a_payload_s
 test_page_quality.py::test_a_second_conversation_promotes_crediting_both_with_what_each_said
 test_owner_self_reference.py::test_every_self_reference_lands_on_the_owner_page_and_no_user_page_is_written
 
+## A project is born from a repository the hook observed or the person's own words, never consolidation alone (ruling 36 D4)
+test_project_birth.py::test_consolidation_alone_never_mints_a_project_even_over_two_conversations
+
 ## Claims and evidence spans: exact -> whitespace -> case-insensitive, never fuzzy; provenance never blocks memory
 test_evidence.py::test_locate_exact_then_normalised_then_case_insensitive_never_fuzzy
 test_evidence.py::test_verify_falls_back_to_reasoning_never_a_faked_span
@@ -172,3 +175,7 @@ test_fetch_embedding_model.py::test_the_release_build_and_the_checkout_share_one
 
 ## CLAUDE.md stays under its size limit and every architecture doc exists
 test_claude_md_size.py
+
+## Where to check (ruling 36 D5): a proposal is never trusted, drawn or re-checked; Sleep settles it only on the person's own located words
+test_where_to_check.py::test_a_profile_in_the_pages_own_text_is_proposed_untrusted_with_one_question_and_no_face
+test_where_to_check.py::test_without_the_persons_own_words_naming_it_nothing_is_settled
