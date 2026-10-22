@@ -490,6 +490,33 @@ def _withdrawn(c: Claim, slot: list[Claim]) -> bool:
     return bool(c.superseded_by) and any(r.id == c.superseded_by and is_record(r) for r in slot)
 
 
+def _reread_twin(new: Claim, slot: list[Claim], *, ending: bool = False) -> Claim | None:
+    """The closed claim ``new`` is a re-read of (G104): a closed, non-withdrawn claim every conversation ``new`` was
+    heard in already cites, with ``new``'s id — or, failing that, the same slot (``K``) and object.
+
+    Why the content match and not only the id: a claim id hashes its ``valid_from``, and ruling 34 (2026-10-22) moved a
+    conversation's day from its UTC stamp to the person's local day, so re-reading a conversation said between local and
+    UTC midnight (a resumed session, a Messages or folder edit, an export upgrading a relay) mints a different id for
+    the same belief. Matching on what the claim says, gated on its own conversations, holds for any future change to
+    how a day is read too; an alias for the old UTC-day id would need the episode's stamp here and the old rule kept
+    alive. ``ending`` (an ending record, born closed on its own day) prefers a record whose ``valid_to`` is its
+    ``valid_from`` over a claim the ending closed."""
+    heard = set(new.source_episodes or [])
+    if not heard:
+        return None
+
+    def reread(c: Claim) -> bool:
+        return not open_(c) and not _withdrawn(c, slot) and heard <= set(_said_refs(c))
+
+    by_id = next((c for c in slot if c.id == new.id and reread(c)), None)
+    if by_id is not None:
+        return by_id
+    same = [c for c in slot if K(c) == K(new) and same_object(c, new) and reread(c)]
+    if ending:
+        same.sort(key=lambda c: (str(c.valid_to or "")[:10] != str(c.valid_from or "")[:10], not c.supersedes))
+    return same[0] if same else None
+
+
 def _auto_settle_target(new: Claim, slot: list[Claim]) -> str | None:
     """R-PJ19 (R-PJB25): Sleep may settle only conservatively — a done happening
     closes an OLDER open ongoing one on the same subject when they share at
@@ -644,9 +671,7 @@ def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinalit
     is kept as closed history, never reopened (2026-10-14 review). A claim whose id the page already holds closed, read
     again from a conversation that claim already cites (G104), stays closed: a re-read never undoes a close, and never
     doubles an id. A withdrawn claim restated is a fresh assertion (``cicada_retract_claim``'s rule), as before."""
-    heard = set(new.source_episodes or [])
-    twin = next((c for c in slot if c.id == new.id and not open_(c) and not _withdrawn(c, slot)
-                 and heard and heard <= set(_said_refs(c))), None)
+    twin = _reread_twin(new, slot)
     if twin is not None:
         _merge_episodes(twin, new)
         return twin
@@ -770,7 +795,7 @@ def _place_ending(new: Claim, ending: "predicates.Ending", slot: list[Claim], se
         _reinforce(targets[0], new, today=today, untimed=untimed)
         return targets[0]
     new.predicate = canonical
-    dup = next((c for c in slot if c.id == new.id), None)
+    dup = next((c for c in slot if c.id == new.id), None) or _reread_twin(new, slot, ending=True)
     if dup is not None:
         # The same ending read again (a G104 re-read): one record, its sources merged.
         _merge_episodes(dup, new)

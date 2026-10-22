@@ -21,8 +21,11 @@
   `cicada_capture_turns` — no tool argument added, no schema change. claude.ai sends no zone, and a model is never asked
   to guess one, so its relayed ids take the server's zone. Left, with reasons (`capture-and-sleep.md`): the id-day
   readers inside decay (`latest_said`, `mention_weeks`, `inbox_tend._said`), Wispr dictation's UTC-day source key,
-  Messages' titles, and every `[:10]` on a stored day field, telemetry (UTC by design) or git dates. Tests:
-  `test_sleep_local_day.py`.
+  Messages' titles, and every `[:10]` on a stored day field, telemetry (UTC by design) or git dates. Review of #406:
+  a claim id hashes `valid_from`, so a re-read of a midnight-window conversation minted a new id and Stage 3, which knew
+  a re-read only by id, reopened a closed claim as an open copy and recorded an ending twice; `_reread_twin` now also
+  matches a closed, non-withdrawn claim by slot and object when every conversation it was heard in is already cited.
+  Tests: `test_sleep_local_day.py`.
 - **2026-10-22 — the dev auto-update runs on a Linux server too (G181; branch `feat/linux-dev-autoupdate`).**
   `scripts/dev/install-auto-update.sh` branches on `uname`: on Linux it writes a systemd user timer
   (`cicada-dev-autoupdate.timer`, `OnCalendar=*:0/5`, `Persistent=true`) and its oneshot service; `--uninstall` removes

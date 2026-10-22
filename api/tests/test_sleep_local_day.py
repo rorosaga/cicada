@@ -229,3 +229,63 @@ def test_a_relayed_turn_without_a_hint_takes_the_servers_zone(remote_world, utc_
     db, runtime, memory = remote_world
     _relay(db, runtime, "claude")
     assert _relayed_ids(memory) == ["ep_2026-10-21_001"]
+
+
+# --------------------------------------------------------------------------- #
+# A re-read after the day moved (review of #406): the claim id hashes valid_from
+# --------------------------------------------------------------------------- #
+
+
+def _claim(predicate, obj, valid_from, episode="ep_2026-10-21_001"):
+    from api.services.claims import Claim
+
+    return Claim(id=entity_extractor._emit_claim_id("bob-example", predicate, obj, valid_from),
+                 text=f"bob-example {predicate} {obj}", subject="bob-example", predicate=predicate, object=obj,
+                 object_kind="node", observer="agent", context="general", epistemic="explicit",
+                 source_trust="agent_extracted", confidence=0.6, valid_from=valid_from, source_episodes=[episode],
+                 origin="claude-code")
+
+
+def _reconcile(incoming, slot, *, single=False, endings=None):
+    from api.services import claim_reconciler
+
+    settings = SimpleNamespace(memory_path=None, litellm_model="m", archive_threshold=0.2, decay_nudge_threshold=0.4)
+    rec, _nudges, audit = claim_reconciler.reconcile_stage3(
+        incoming, {"bob-example": slot}, settings, cardinality_fn=lambda p: single,
+        endings_fn=endings or (lambda label: None), now_date="2026-10-26", decay=False)
+    return rec["bob-example"], audit
+
+
+@pytest.mark.parametrize("single", [False, True])
+def test_a_closed_claim_read_again_under_its_new_day_stays_closed(single):
+    """Minted under the UTC day (pre-#406), closed by the person; the same conversation re-read (a resumed session, an
+    edit in place, an export upgrade) now dates it the local day, so its id differs. It is still that claim: closed."""
+    old = _claim("works-on", "alpha-project", "2026-10-21")
+    old.valid_to, old.recorded_at, old.decayed_through = "2026-10-25", "2026-10-22", "2026-10-22"
+    kept, _ = _reconcile([_claim("works-on", "alpha-project", "2026-10-22")], [old], single=single)
+    assert [(c.id, c.valid_to) for c in kept] == [(old.id, "2026-10-25")], "no open copy beside the closed claim"
+
+
+def test_a_new_conversation_still_reopens_nothing_it_did_not_say():
+    """The match is gated on the claim's own conversations: a restatement from another conversation is new evidence."""
+    old = _claim("works-on", "alpha-project", "2026-10-21")
+    old.valid_to = "2026-10-25"
+    kept, _ = _reconcile([_claim("works-on", "alpha-project", "2026-10-26", episode="ep_2026-10-26_001")], [old])
+    assert sorted(c.valid_to or "open" for c in kept) == ["2026-10-25", "open"]
+
+
+def test_an_ending_read_again_under_its_new_day_is_not_added_twice():
+    from api.services import predicates
+
+    endings = lambda label: predicates.Ending("works-at", predicates.ENDING_OVER, False) if label == "left" else None
+    place = _claim("works-at", "acme-example", "2026-09-01", episode="ep_2026-09-01_001")
+    first = _claim("works-at", "acme-example", "2026-10-21")
+    first.predicate_raw = "left"
+    slot, audit = _reconcile([first], [place], endings=endings)
+    assert any(a.get("action") == "ended" for a in audit) and len(slot) == 2
+    again = _claim("works-at", "acme-example", "2026-10-22")
+    again.predicate_raw = "left"
+    slot, _ = _reconcile([again], slot, endings=endings)
+    assert len(slot) == 2, "one departure record, its sources merged — never a second"
+    record = next(c for c in slot if c.supersedes)
+    assert record.id == first.id and record.valid_to == record.valid_from == "2026-10-21"

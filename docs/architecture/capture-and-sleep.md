@@ -1749,7 +1749,10 @@ the page stood before the mention (`confidence_before_mention`, kept only until 
 **The day it was said** (ruling 34, follow-up 2026-10-22) is the conversation's local day: a page's `created`,
 `last_referenced` and new-mention day come from its conversations' timestamps through `source_dates.stamp_day`
 (`conflict_resolver._said_day_string`), a claim's `valid_from` through `source_dates.episode_day`. Only that attribution
-moved — no rate, floor, cap or watermark rule changed. A claim's *said* day (`decay_policy.latest_said`, `mention_weeks`,
+moved — no rate, floor, cap or watermark rule changed. A claim id hashes its `valid_from`, so re-reading a conversation
+said between local and UTC midnight mints a new id for the same belief; Stage 3 recognises a re-read by what the claim
+says, not only its id (`claim_reconciler._reread_twin`: closed, not withdrawn, same slot and object, and every
+conversation it was heard in already cited), so a closed claim stays closed and an ending is never recorded twice. A claim's *said* day (`decay_policy.latest_said`, `mention_weeks`,
 `inbox_tend._said`) still reads its episode ids' day: local for every id minted since 2026-10-22, at most one day early
 for a hook capture minted before it in the window between local and UTC midnight (left: it needs a header read per
 episode inside the decay pass; the trigger is a page seen fading a day early).
