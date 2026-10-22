@@ -39,6 +39,18 @@
   runs it with that one fix removed and still fails; three new breaks (`release_ignores_token`, `no_lease_cap`,
   `record_ignores_token`) are caught by `able_to_fail.py` (12 of 12). `run.sh`: 33 of 33 as expected; `--only
   code-churn` (P2, no lost row, on the fixed code) passes at 97,464,544 states in 21 minutes with four workers.
+- **2026-10-22 — one primary and its clients: the two-device test's defects fixed (G202 D1–D3, D5–D7; branch
+  `fix/sync-clients`).** The test ran the Mac and a Linux server both ways on scratch banks: one writer with clients
+  works (captures, saves, claims, edits, offline spool, concurrent writers); two primaries are UNBUILT (G132). Fixed:
+  a hook spool entry names the server and bank it was captured for and goes only there (a resend carries `bank_id`,
+  the capture routes refuse a bank id foreign to their memory with 409 `bank_mismatch` and answer `bankId`; a
+  refused entry is held apart and never blocks later turns — review of #408); the app's outbox does the same
+  per post and sends `X-Cicada-Bank-Id` on a server; `cicada status` and Settings → Devices count both spools by server,
+  and a successful MCP call or command flushes what waits for its server; Sleep's search warning says "this server" off a
+  Mac; the handshake names the roster's bank (`default`, not the folder) and `on <host>` on a client; a running MCP
+  session says once when its memory moved. Left open: D4 (device on claims and commits, G181), D8 (queued MCP/CLI
+  writes), G132. Tests: `test_sync_clients.py` (D1 reproduced with two loopback servers), `HeadlessAppTests`,
+  `OutboxLanesTests`.
 - **2026-10-22 — the dev auto-update runs on a Linux server too (G181; branch `feat/linux-dev-autoupdate`).**
   `scripts/dev/install-auto-update.sh` branches on `uname`: on Linux it writes a systemd user timer
   (`cicada-dev-autoupdate.timer`, `OnCalendar=*:0/5`, `Persistent=true`) and its oneshot service; `--uninstall` removes

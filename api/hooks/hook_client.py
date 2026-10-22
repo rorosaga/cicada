@@ -12,6 +12,9 @@ its ``api_token`` read and its log lines byte for byte, and nothing here runs.
   (``hook_spool.py``) under ``$CICADA_HOME``, and the next firing flushes it, oldest first, inside the hook's own time
   budget. A resend is safe: the server dedupes a session by its content hash and refuses a stale snapshot as
   ``superseded``; a per-turn post is kept in order behind anything already waiting.
+* **Whose:** each waiting post names the server (and, once heard, the bank) it was captured for, and goes only there
+  (D1, G202: ``hook_spool``). Besides a hook's firing, a successful MCP or command-line call from this machine flushes
+  what waits for the server it reached (:func:`flush_waiting`, D3).
 
 Stdlib at import. ``runtime_layout`` (stdlib only) and, for a session, Cicada's own extractor (``session_post``) are
 imported from this checkout by path only in client mode — the transcript rail, amended: the session is read here, on
@@ -20,6 +23,7 @@ the machine it lives on, and only what the extractor keeps is sent.
 from __future__ import annotations
 
 import json
+import os
 import socket
 import sys
 import urllib.error
@@ -67,6 +71,28 @@ def raw_base(environ) -> str:
 
 def is_client(environ) -> bool:
     return bool(raw_base(environ))
+
+
+def spool_module():
+    """``hook_spool``: the sibling a hook already imported by path, else the package module (the backend's side — the
+    stdio MCP server and the `cicada` command flush through here too). Both are the same file; its state is on disk."""
+    mod = sys.modules.get("hook_spool")
+    if mod is not None:
+        return mod
+    try:
+        from api.hooks import hook_spool as mod
+    except ImportError:
+        import hook_spool as mod
+    return mod
+
+
+def bank_in(text: str) -> str | None:
+    """The bank a capture answer says it filed the post in (``bankId``, additive since G202), or None."""
+    try:
+        value = json.loads(text).get("bankId")
+    except (ValueError, AttributeError):
+        return None
+    return value if isinstance(value, str) and value else None
 
 
 def target(environ) -> tuple[str | None, str, str | None]:
@@ -190,37 +216,122 @@ def deliver_turn(home: Path, route: str, body: dict, *, environ, post=None, time
     so it never waits on a flush). Returns the log line's outcome — an enum or a status, never content."""
     import time
 
-    import hook_spool as spool
-
+    spool = spool_module()
     post = post or send
     started = time.monotonic()
     base, token, problem = target(environ)
+    meant = spool.target_for(home, base)
     if problem:
-        spool.put(home, route, body)
+        spool.put(home, route, body, target=meant)
         return f"spooled: {problem}"
 
-    def one(r: str, b: dict, t: float) -> int | None:
+    def one(r: str, b: dict, t: float) -> tuple[int | None, str]:
         try:
-            return post(base + r, json.dumps(b).encode("utf-8"), token, t)[0]
+            return post(base + r, json.dumps(b).encode("utf-8"), token, t)
         except Exception:  # noqa: BLE001 - no answer
-            return None
+            return None, ""
 
     def size_of(_path, fallback: int) -> int:
         return fallback
 
-    if spool.has_turns(home):
-        spool.put(home, route, body)
-        if flush_budget > 0:
-            deadline = started + flush_budget
-            sent, _final, left = spool.flush(home, lambda r, b: one(r, b, max(0.1, min(timeout, deadline -
-                                                                                        time.monotonic() - 0.1))),
-                                             deadline=deadline, keep=keep, size_of=size_of)
-            return f"queued behind waiting turns: sent {sent}, {left} waiting"
-        return "queued behind waiting turns"
-    status = one(route, body, timeout)
+    flushed = ""
+    if spool.has_turns(home, base):
+        if flush_budget <= 0:
+            spool.put(home, route, body, target=meant)
+            return "queued behind waiting turns"
+        # The waiting turns go first; this one is sent after them, or waits behind those that still cannot land. It
+        # is stamped only after the flush, so a bank the server just refused is never written onto it (#408 review).
+        deadline = started + flush_budget
+        sent, _final, left = spool.flush(home, lambda r, b: one(r, b, max(0.1, min(timeout, deadline -
+                                                                                    time.monotonic() - 0.1))),
+                                         deadline=deadline, keep=keep, size_of=size_of, base=base)
+        meant = spool.target_for(home, base)
+        if spool.has_turns(home, base):
+            spool.put(home, route, body, target=meant)
+            return f"queued behind waiting turns: sent {sent}, {left} waiting" + elsewhere_note(home, base)
+        flushed = f"; spool: sent {sent}, 0 waiting" + elsewhere_note(home, base)
+        timeout = max(0.1, min(timeout, deadline - time.monotonic() - 0.1))
+    try:
+        status, text = post(base + route, json.dumps(body).encode("utf-8"), token, timeout)
+    except Exception:  # noqa: BLE001 - no answer
+        status, text = None, ""
     if landed(status):
-        return f"http {status}"
+        spool.remember_bank(home, base, bank_in(text))
+        return f"http {status}" + flushed
     if keep(status):
-        spool.put(home, route, body)
-        return "spooled: " + why(status)
-    return f"http {status}"
+        spool.put(home, route, body, target=meant)
+        return "spooled: " + why(status) + flushed
+    return f"http {status}" + flushed
+
+
+def elsewhere_note(home: Path, base: str | None) -> str:
+    """``"; 2 wait for another server (host)"`` when posts meant for a server this machine no longer points at are
+    waiting (D1, G202) — said, never sent here, never dropped. "" when there are none."""
+    try:
+        other = spool_module().waiting(home, base)["elsewhere"]
+    except Exception:  # noqa: BLE001 - a log phrase is never worth a failed hook
+        return ""
+    total = sum(other.values())
+    if not total:
+        return ""
+    hosts = ", ".join(sorted(h for h in other if h)) or "a server this machine no longer names"
+    return f"; {total} wait{'s' if total == 1 else ''} for another server ({hosts})"
+
+
+#: How long a flush after a tool call or a command may take (D3): the call already answered, so this is spare time.
+FLUSH_AFTER_CALL_S = 4.0
+
+
+def flush_waiting(home: Path, environ, *, budget: float = FLUSH_AFTER_CALL_S, post=None, surface: str = "call"):
+    """D3 (G202): this machine just reached its server through MCP or the command line, so the captures waiting for
+    that server go now, not only when a hook next fires. ``(sent, left)`` or None when nothing waited for it. Only
+    entries meant for this server are sent (``hook_spool.flush`` with its address); one line in the capture log says
+    what happened — counts only."""
+    import time
+
+    spool = spool_module()
+    if not spool.pending(home):
+        return None
+    base, token, problem = target(environ)
+    if problem or not spool.pending_for(home, base):
+        return None
+    post = post or send
+    deadline = time.monotonic() + budget
+
+    def one(r: str, b: dict) -> tuple[int | None, str]:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0.2:
+            return None, ""
+        try:
+            return post(base + r, json.dumps(b).encode("utf-8"), token, min(3.0, remaining - 0.1))
+        except Exception:  # noqa: BLE001 - no answer
+            return None, ""
+
+    def size_of(path, fallback: int) -> int:
+        try:
+            return Path(path or "").stat().st_size
+        except (OSError, ValueError):
+            return fallback
+
+    sent, _final, left = spool.flush(home, one, deadline=deadline, keep=keep, size_of=size_of, base=base)
+    _log_line(home, f"{surface} flush: sent {sent}, {left} waiting" + elsewhere_note(home, base))
+    return sent, left
+
+
+def _log_line(home: Path, message: str) -> None:
+    """One line in the capture log (``$CICADA_HOME/logs/capture.log``, 0600) — the hook's own log, so every flush is
+    read in one place. Never raises; skipped past 1 MB (the hook rotates it)."""
+    import time
+
+    path = Path(home) / "logs" / "capture.log"
+    try:
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if path.exists() and path.stat().st_size > 1024 * 1024:
+            return
+        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        try:
+            os.write(fd, f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} {message}\n".encode("utf-8"))
+        finally:
+            os.close(fd)
+    except OSError:
+        pass

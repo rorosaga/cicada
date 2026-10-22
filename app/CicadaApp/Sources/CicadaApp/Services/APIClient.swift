@@ -61,9 +61,13 @@ struct MemoryBank: Codable, Identifiable {
     let demo: Bool
 
     var id: String { name }
+    /// The bank's id in the server's `banks.yaml` (G181 phase 2) — what `X-Cicada-Bank-Id` names (G202). nil from an
+    /// older backend.
+    var serverId: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case name, active, entityCount, episodeCount, createdAt, description, legacy, demo
+        case serverId = "id"
     }
 
     /// Memberwise init (the `init(from:)` below suppresses the synthesized
@@ -80,9 +84,11 @@ struct MemoryBank: Codable, Identifiable {
 
     /// A copy with `active` replaced.
     func settingActive(_ isActive: Bool) -> MemoryBank {
-        MemoryBank(name: name, active: isActive, entityCount: entityCount,
-                   episodeCount: episodeCount, createdAt: createdAt, description: description,
-                   legacy: legacy, demo: demo)
+        var copy = MemoryBank(name: name, active: isActive, entityCount: entityCount,
+                              episodeCount: episodeCount, createdAt: createdAt, description: description,
+                              legacy: legacy, demo: demo)
+        copy.serverId = serverId
+        return copy
     }
 
     init(from decoder: Decoder) throws {
@@ -95,6 +101,7 @@ struct MemoryBank: Codable, Identifiable {
         description = try c.decodeIfPresent(String.self, forKey: .description)
         legacy = (try? c.decode(Bool.self, forKey: .legacy)) ?? false
         demo = (try? c.decode(Bool.self, forKey: .demo)) ?? false
+        serverId = (try? c.decodeIfPresent(String.self, forKey: .serverId)) ?? nil
     }
 }
 
@@ -1558,9 +1565,14 @@ actor APIClient {
     nonisolated let baseURL: String
     /// Which backend this client talks to, decided at launch (`ServerConnection.current`).
     nonisolated let connection: ServerConnection
-    private let cicadaHome: URL
+    /// Where this app keeps its state (`CicadaRuntime.cicadaHome`): the outbox and the hooks' spool live under it.
+    let cicadaHome: URL
     /// G181 phase 3 — the readers' posts that could not reach the server wait here (server mode only).
     let outbox: ReaderOutbox
+    /// G202 (D2) — each bank's id on this server, by the `X-Cicada-Bank` value that names it, learned from `/banks`:
+    /// a write names the id too (server mode only), so a post waiting in the outbox is refused by any memory but its
+    /// own, even one that shares its name.
+    private var bankIds: [String: String] = [:]
     private let decoder: JSONDecoder = {
         let d = JSONDecoder()
         return d
@@ -1666,8 +1678,22 @@ actor APIClient {
         // G183(d) — a write names the bank it started in; the server refuses it when that bank is no longer active.
         if let bank = BankScope.value(method: method) {
             request.setValue(bank, forHTTPHeaderField: BankScope.header)
+            // G202 (D2): on a server, the bank's identity too — a name repeats across memories, an id does not.
+            if connection.isServer, let id = bankIds[bank] {
+                request.setValue(id, forHTTPHeaderField: BankScope.idHeader)
+            }
         }
         return request
+    }
+
+    /// Learn each bank's id from a roster (G202). Server mode only; This Mac sends names as before.
+    private func noteBankIds(_ roster: BanksResponse?) {
+        guard connection.isServer, let roster else { return }
+        for bank in roster.banks {
+            guard let id = bank.serverId, !id.isEmpty,
+                  let header = BankScope.value(method: "POST", origin: bank.name, onScreen: nil) else { continue }
+            bankIds[header] = id
+        }
     }
 
     // MARK: - Graph
@@ -1694,7 +1720,9 @@ actor APIClient {
     /// error path, so degrading turned an honest failure into a silently empty
     /// dropdown with no explanation.
     func fetchBanks() async throws -> BanksResponse {
-        try await get("/banks")
+        let roster: BanksResponse = try await get("/banks")
+        noteBankIds(roster)
+        return roster
     }
 
     /// `POST /banks` `{name, description?}` → create a NEW EMPTY bank. Returns
@@ -1744,7 +1772,9 @@ actor APIClient {
     /// that will not decode is `nil`, never a failed switch — the server has already moved.
     func activateBank(name: String) async throws -> BanksResponse? {
         let data: Data = try await post("/banks/\(encodedBank(name))/activate")
-        return try? decoder.decode(BanksResponse.self, from: data)
+        let roster = try? decoder.decode(BanksResponse.self, from: data)
+        noteBankIds(roster)
+        return roster
     }
 
     /// `POST /banks/{name}/duplicate` `{newName}` → "save current under a name".
@@ -3442,7 +3472,10 @@ actor APIClient {
     private func waitingAhead(_ request: URLRequest, path: String) async -> Bool {
         let method = request.httpMethod ?? "POST"
         let bank = request.value(forHTTPHeaderField: BankScope.header)
-        let same: @Sendable (ReaderOutbox.Entry) -> Bool = { $0.method == method && $0.path == path && $0.bank == bank }
+        let base = baseURL
+        let same: @Sendable (ReaderOutbox.Entry) -> Bool = {
+            $0.method == method && $0.path == path && $0.bank == bank && ReaderOutbox.isFor($0, base: base)
+        }
         guard await outbox.has(where: same) else { return false }
         await flushOutbox(matching: same)
         return await outbox.has(where: same)
@@ -3451,7 +3484,9 @@ actor APIClient {
     private func keep(_ request: URLRequest, path: String) async -> Bool {
         guard let body = request.httpBody, !Task.isCancelled else { return false }
         let stored = try? await outbox.put(method: request.httpMethod ?? "POST", path: path, body: body,
-                                           bank: request.value(forHTTPHeaderField: BankScope.header))
+                                           bank: request.value(forHTTPHeaderField: BankScope.header),
+                                           bankId: request.value(forHTTPHeaderField: BankScope.idHeader),
+                                           base: baseURL)
         return stored == true
     }
 
@@ -3465,9 +3500,11 @@ actor APIClient {
     func flushOutbox(matching matches: @escaping @Sendable (ReaderOutbox.Entry) -> Bool) async
         -> ReaderOutbox.FlushResult {
         guard connection.isServer else { return ReaderOutbox.FlushResult() }
-        return await outbox.flush(where: matches) { entry in
+        // G202 (D2): only the posts read for THIS server go; each names the bank and the id it was read for.
+        return await outbox.flush(for: baseURL, where: matches) { entry in
             var request = await self.makeRequest(entry.path, method: entry.method)
             if let bank = entry.bank { request.setValue(bank, forHTTPHeaderField: BankScope.header) }
+            request.setValue(entry.bankId, forHTTPHeaderField: BankScope.idHeader)
             request.httpBody = entry.body
             guard let (_, response) = try? await self.session.data(for: request),
                   let http = response as? HTTPURLResponse else { return nil }
@@ -3567,7 +3604,13 @@ extension APIClient: SyncAPI {
     /// next launch too.
     func fetchBanks(etag: String?) async throws -> Conditional<BanksResponse> {
         do {
-            return try await getConditional("/banks", etag: etag)
+            let answer: Conditional<BanksResponse> = try await getConditional("/banks", etag: etag)
+            noteBankIds(answer.value)
+            if answer.value == nil, connection.isServer, bankIds.isEmpty {
+                // A roster cached from an earlier launch (304) carries no ids this client has heard: ask once in full.
+                noteBankIds(try? await get("/banks") as BanksResponse)
+            }
+            return answer
         } catch APIError.httpError(404, _) {
             return .unavailable(etag: etag)
         }

@@ -288,12 +288,27 @@ def call(boot, method: str, path: str, *, body=None, query: dict | None = None,
     except (TimeoutError, socket.timeout):
         raise Refusal("backend_timeout", "The app's backend did not answer in time; it may still be working on "
                                          "it. Check with `cicada sleep status` or the app.") from None
+    if getattr(boot, "client", False):
+        flush_spool()          # D3 (G202): the server answered, so what the hooks left waiting for it goes now
     if not raw:
         return {}
     try:
         return json.loads(raw.decode("utf-8"))
     except ValueError:
         raise Refusal("backend_error", "The app's backend answered something that is not JSON.") from None
+
+
+def flush_spool(environ=None):
+    """D3 (G202): send the captures this machine's hooks left waiting for the server it points at — only those (D1) —
+    inside a short budget. ``(sent, left)``, or None when nothing waited for it. Never raises."""
+    try:
+        from api.hooks import hook_client
+        from api.services import runtime_layout
+
+        environ = os.environ if environ is None else environ
+        return hook_client.flush_waiting(runtime_layout.cicada_home(environ), environ, surface="cli")
+    except Exception:  # noqa: BLE001 - a flush is never worth a failed command
+        return None
 
 
 def _client() -> bool:

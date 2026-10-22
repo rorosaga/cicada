@@ -70,6 +70,11 @@ extension Copy {
         static func waiting(_ n: Int) -> String {
             n == 1 ? "1 capture waits on this Mac for the server." : "\(n) captures wait on this Mac for the server."
         }
+        /// G202 (D1–D3): captures kept for a server this Mac no longer uses — never sent to the one in use.
+        static func waitingElsewhere(_ n: Int) -> String {
+            n == 1 ? "1 capture waits on this Mac for a server it no longer uses. It's kept, and sent only there."
+                : "\(n) captures wait on this Mac for a server it no longer uses. They're kept, and sent only there."
+        }
         static let sendNow = "Send now"
         static let none = "No other device reaches this memory yet."
         static let add = "Add a device"

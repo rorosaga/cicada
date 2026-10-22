@@ -446,6 +446,24 @@ def bank_id(root: Path, name: str) -> str | None:
     return _clean_id(record.get("id")) if isinstance(record, dict) else None
 
 
+def name_of(path: Path) -> str:
+    """The name the roster gives the bank at ``path`` — what `cicada status` and the app call it — never the folder's
+    name unless no registry names it (G202, D6: a fresh root's bank lives in the root folder, `memory`, and is called
+    `default`). Read-only."""
+    path = Path(path)
+    if path.parent.name == BANKS_SUBDIR and registry_path(path.parent.parent).exists():
+        return path.name
+    reg_file = registry_path(path)
+    if not reg_file.exists():
+        return path.name
+    try:
+        banks = _read_registry_file(reg_file).get("banks", {}) or {}
+    except Exception:
+        return path.name
+    legacy = [str(n) for n, r in banks.items() if isinstance(r, dict) and r.get("legacy")]
+    return legacy[0] if legacy else DEFAULT_BANK
+
+
 def bank_ids(root: Path) -> list[str]:
     """Every bank's id in this memory root (the root's identity, as a set of its banks). Read-only."""
     reg_file = registry_path(Path(root))

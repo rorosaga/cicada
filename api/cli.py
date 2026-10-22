@@ -298,6 +298,45 @@ _VERIFIED_WORDS = {"confirmed": "matches the app's backend", "mismatch": "the ap
                    "backend_down": "the app's backend is not running", "unverified": "the app's backend did not answer"}
 
 
+def _waiting_captures(base: str | None) -> dict:
+    """D3 (G202): what waits on this machine to be sent, by the server it was meant for — the hooks' spool
+    (``$CICADA_HOME/spool/capture``) and the app's outbox (``spool/app``). ``{"waiting": n for base, "elsewhere":
+    {host: n}}``; ``base`` None (this machine holds its own memory) makes everything elsewhere. Counts only."""
+    from api.hooks import hook_client
+    from api.services import runtime_layout
+
+    spool = hook_client.spool_module()
+    home = runtime_layout.cicada_home(os.environ)
+    out = spool.waiting(home, base)
+    here, elsewhere = out["here"], dict(out["elsewhere"])
+    folder = Path(home) / "spool" / "app"
+    for path in sorted(folder.glob("*.json")) if folder.is_dir() else []:
+        if path.name.startswith("."):
+            continue
+        try:
+            entry = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        meant = entry.get("base") if isinstance(entry, dict) and isinstance(entry.get("base"), str) else None
+        if base is not None and (meant is None or spool.same_server(meant, base)):
+            here += 1
+            continue
+        host = spool.host_of(meant) if meant else ""
+        elsewhere[host] = elsewhere.get(host, 0) + 1
+    return {"waiting": here, "elsewhere": elsewhere}
+
+
+def _waiting_lines(captures: dict, *, client: bool) -> list[str]:
+    lines = []
+    if client and captures.get("waiting"):
+        n = captures["waiting"]
+        lines.append(f"Waiting to be sent to this server: {n} capture{'s' if n != 1 else ''}")
+    for host, n in sorted((captures.get("elsewhere") or {}).items()):
+        where = f"another server ({host})" if host else "a server this machine no longer names"
+        lines.append(f"Waiting for {where}: {n} capture{'s' if n != 1 else ''} — kept, sent only there")
+    return lines
+
+
 def _client_status(boot: Boot) -> Result:
     """`cicada status` on a client (G181 phase 2): the server this shell uses, its bank and whether it answered."""
     state = boot.probe.get("state", "unverified")
@@ -326,6 +365,13 @@ def _client_status(boot: Boot) -> Result:
         if "writing" in backend:
             detail += ", Sleep is writing" if backend["writing"] else ", Sleep is not writing"
         lines.append(f"Backend: running ({detail})")
+        flushed = cli_app.flush_spool()        # D3 (G202): the server answered — what waits for it goes now
+        if flushed:
+            data["flushed"] = flushed[0]
+            if flushed[0]:
+                lines.append(f"Sent {flushed[0]} waiting capture{'s' if flushed[0] != 1 else ''} to this server")
+    data["captures"] = _waiting_captures(boot.backend_url)
+    lines += _waiting_lines(data["captures"], client=True)
     lines.append(f"cicada {__version__} ({boot.distribution}, a client of that server)")
     return Result(text="\n".join(lines), data=data, warnings=[] if state == "confirmed" else ["server_" + state])
 
@@ -367,6 +413,8 @@ def cmd_status(boot: Boot, args) -> Result:
     else:
         lines.append("Backend: not running" if backend["state"] == "backend_down" else "Backend: no answer")
     lines.append(f"Search index: {data['index']['vector']}")
+    data["captures"] = _waiting_captures(None)     # D3 (G202): left waiting for a server this machine used to use
+    lines += _waiting_lines(data["captures"], client=False)
     lines.append(f"cicada {__version__} ({boot.distribution})")
     return Result(text="\n".join(lines), data=data, warnings=_root_warnings(boot))
 
@@ -625,7 +673,11 @@ def cmd_handshake(boot: Boot, args) -> Result:
     from api.services import handshake, state_dictionary
 
     if boot.client:
-        reply = _door(boot, "cicada_handshake", {}, {"tz": handshake.local_timezone()})
+        from api.services import tool_client
+
+        # G202 (D6): the server is named by the host this machine reaches it on — never a path or a token.
+        reply = _door(boot, "cicada_handshake", {}, {"tz": handshake.local_timezone(),
+                                                     "server": tool_client.host_of(boot.backend_url)})
         return Result(text=str(reply), data=reply.data or {"tokens_est": len(reply) // 4},
                       warnings=_root_warnings(boot))
     names = frozenset(r.name for r in cli_map.exposed())

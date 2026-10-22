@@ -467,7 +467,7 @@ def _holds_read_scope(tools: frozenset[str]) -> bool:
 
 
 def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str | None = None,
-               personal: bool = True, raw: bool = True) -> str:
+               personal: bool = True, raw: bool = True, server: str | None = None) -> str:
     """``remote`` (G135 R-R15) drops what a caller off this Mac must not see
     or cannot act on: the `GET /state` hint (a loopback endpoint) and every
     repo path. Repo paths never leave the Mac. Stdio output is unchanged.
@@ -490,15 +490,20 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
     ``raw`` (G141 R-PJ23, R-PJB18): whether a remote caller holds
     ``cicada_sources``. Without it a project's ``now`` that is the person's
     own words (``verbatim``) reads "a note of yours" — the same line the
-    ``sources`` scope draws for every other verbatim word of theirs."""
+    ``sources`` scope draws for every other verbatim word of theirs.
+
+    ``bank`` is the bank's name as the roster says it (G202, D6: `default`, never the folder `memory`), and wins over
+    the name ``_state.md`` recorded; ``server`` (a client's host, never a path or a token) says where it lives, so two
+    servers' primers never read the same to an agent."""
     tz_line = f"- Their timezone: {tz}." if tz and personal else None
+    where = f"Bank `{bank}`" + (f" on {server}" if server else "")
     if state is None and remote:
-        head = f"## Now\n- Bank `{bank}` has no now-view yet; the contract above still applies."
+        head = f"## Now\n- {where} has no now-view yet; the contract above still applies."
         return head + (f"\n{tz_line}" if tz_line else "")
     if state is None:
         head = (
             "## Now\n"
-            f"- Bank `{bank}` has no `_state.md` yet — run a Sleep cycle or `GET /state?refresh=true` "
+            f"- {where} has no `_state.md` yet — run a Sleep cycle or `GET /state?refresh=true` "
             "to generate the now-view; the contract above still applies."
         )
         return head + (f"\n{tz_line}" if tz_line else "")
@@ -507,7 +512,7 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
     inb = state.get("inbox") or {}
     lines = [
         "## Now",
-        f"- Bank `{state.get('bank', bank)}` · engine {eng.get('engine')} ({eng.get('model') or 'unset'}) · "
+        f"- {where} · engine {eng.get('engine')} ({eng.get('model') or 'unset'}) · "
         f"inbox: {inb.get('pending', 0)} pending · Sleep queue {slp.get('queue_depth', 0)} · "
         f"last Sleep {slp.get('last_at') or 'never'} · as of {state.get('generated_at')}",
     ]
@@ -565,10 +570,11 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
 
 def _assemble(state: dict | None, variant: str, bank: str, tz: str | None = None,
               bridges: tuple[str, ...] = (), reading: bool = False, methods: tuple[str, ...] = (),
-              reading_tools: str | None = None, skill: str = "file") -> str:
+              reading_tools: str | None = None, skill: str = "file", server: str | None = None) -> str:
     capabilities = _CAPABILITIES + "".join(f"\n{line}" for line in bridges) + "".join(f"\n{line}" for line in methods)
     contract = _CONTRACT + (f"\n{_reading_item(reading_tools)}" if reading else "")
-    return "\n\n".join([_WHAT, _prelude(variant, skill), contract, _now_block(state, bank, tz=tz), capabilities])
+    return "\n\n".join([_WHAT, _prelude(variant, skill), contract, _now_block(state, bank, tz=tz, server=server),
+                        capabilities])
 
 
 def _fit(assemble, state: dict | None, max_tokens: int = MAX_TOKENS) -> str:
@@ -599,8 +605,10 @@ def _fit(assemble, state: dict | None, max_tokens: int = MAX_TOKENS) -> str:
 
 def build(state: dict | None, *, variant: str, bank: str, tz: str | None = None,
           bridges: tuple[str, ...] = (), reading: bool = False, methods: tuple[str, ...] = (),
-          reading_tools: str | None = None, max_tokens: int = MAX_TOKENS, skill: str = "file") -> str:
-    """Pure: the primer for a parsed state (or none) and a variant.
+          reading_tools: str | None = None, max_tokens: int = MAX_TOKENS, skill: str = "file",
+          server: str | None = None) -> str:
+    """Pure: the primer for a parsed state (or none) and a variant. ``server``: the host a client reaches this
+    bank on (G202, D6), named on the Now line; None on the bank's own machine.
 
     ``skill`` (#357) is ``claude_skill()``'s answer, which ``load_or_build`` reads: the claude-code prelude names the
     plugin's `cicada:cicada`, the ~/.claude/skills copy, or no policy file. Other variants ignore it.
@@ -639,8 +647,8 @@ def build(state: dict | None, *, variant: str, bank: str, tz: str | None = None,
     variant = variant if variant in VARIANTS else "generic"
     bridges = tuple(bridges)[: skill_catalog.MAX_BRIDGE_LINES]
     methods = tuple(methods)[: skill_catalog.MAX_METHOD_LINES]
-    return _fit(lambda st: _assemble(st, variant, bank, tz, bridges, reading, methods, reading_tools, skill), state,
-                max_tokens)
+    return _fit(lambda st: _assemble(st, variant, bank, tz, bridges, reading, methods, reading_tools, skill, server),
+                state, max_tokens)
 
 
 # G180: the `cicada` command line's primer. NOT a member of `VARIANTS` (those share one MCP
@@ -692,12 +700,13 @@ def _cli_contract(commands: frozenset[str]) -> str:
     return "## Contract\n" + "\n".join(f"{i}. {text}" for i, text in enumerate(items, 1))
 
 
-def build_cli(state: dict | None, *, commands: frozenset[str], bank: str, tz: str | None = None) -> str:
+def build_cli(state: dict | None, *, commands: frozenset[str], bank: str, tz: str | None = None,
+              server: str | None = None) -> str:
     """The primer `cicada handshake` prints (G180): what Cicada is, how to call it from a shell,
     the commands it holds, and the bank's now-view — within the same token aim as every primer."""
     commands = frozenset(commands)
     return _fit(lambda st: "\n\n".join([_WHAT, _CLI_PRELUDE, _cli_contract(commands),
-                                          _now_block(st, bank, tz=tz)]), state)
+                                          _now_block(st, bank, tz=tz, server=server)]), state)
 
 
 def build_remote(state: dict | None, *, tools: frozenset[str], bank: str, tz: str | None = None,
@@ -735,6 +744,7 @@ def _state_age_hours(state: dict | None) -> int | None:
 def load_or_build(
     memory_path: Path, client_name: str | None = None, *, variant: str | None = None,
     tools: frozenset[str] | None = None, cache_dir: Path | None = None, reserve: int = 0,
+    bank_name: str | None = None, server: str | None = None,
 ) -> tuple[str, dict]:
     """The primer for this bank + client, from cache when the state file is unchanged.
 
@@ -753,8 +763,17 @@ def load_or_build(
     SessionStart note — the local primer is fitted to ``MAX_TOKENS - reserve``,
     and the reserve is part of the cache key and file name. Remote primers
     ignore it.
+
+    ``bank_name`` (G202, D6): the bank's name as the caller's roster pinned it; else the roster's name for
+    ``memory_path`` (``bank_registry.name_of``), never the folder's. ``server``: the host a client reached this bank
+    on (the tool door passes it), named on the Now line. Both are part of the cache key.
     """
+    from api.services import bank_registry
+
     memory_path = Path(memory_path)
+    bank = bank_name or bank_registry.name_of(memory_path)
+    server = server.strip()[:255] if isinstance(server, str) and server.strip() else None
+    where_key = hashlib.sha256(f"{bank}\0{server or ''}".encode("utf-8")).hexdigest()[:8]
     path = state_dictionary.state_path(memory_path)
     try:
         st = path.stat()
@@ -776,8 +795,8 @@ def load_or_build(
             raise ValueError("the remote handshake needs the connection's tools")
         tool_key = hashlib.sha256(",".join(sorted(tools)).encode("utf-8")).hexdigest()[:12]
         cache_name = f"remote-{tool_key}"
-        key = f"r{REMOTE_CONTRACT_VERSION}:{cache_name}:{stamp}:{tz_key}:{reading_key}"
-        make = lambda st: build_remote(st, tools=frozenset(tools), bank=memory_path.name, tz=tz, reading=reading)  # noqa: E731
+        key = f"r{REMOTE_CONTRACT_VERSION}:{cache_name}:{stamp}:{tz_key}:{reading_key}:{where_key}"
+        make = lambda st: build_remote(st, tools=frozenset(tools), bank=bank, tz=tz, reading=reading)  # noqa: E731
     else:
         variant = variant if variant in VARIANTS else variant_for(client_name)
         # G138 R-O28: only the claude-code and codex variants ever carry a
@@ -797,13 +816,14 @@ def load_or_build(
         # The bridge set is part of the text, so it is part of the key: installing
         # or removing a bridged skill must never serve yesterday's primer.
         key = f"{CONTRACT_VERSION}:{variant}:sk-{skill}:{stamp}:{tz_key}:{skill_catalog.fingerprint(bridges)}:{reading_key}:{skill_catalog.fingerprint(methods)}:{hashlib.sha256((reading_tools or '').encode('utf-8')).hexdigest()[:6]}"
+        key += f":{where_key}"
         reserve = max(0, int(reserve or 0))
         if reserve:
             key += f":rv{reserve}"
             cache_name = f"{variant}.rv{reserve}"
         make = lambda st: build(  # noqa: E731
-            st, variant=variant, bank=memory_path.name, tz=tz, bridges=bridges, reading=reading, methods=methods,
-            reading_tools=reading_tools, max_tokens=MAX_TOKENS - reserve, skill=skill)
+            st, variant=variant, bank=bank, tz=tz, bridges=bridges, reading=reading, methods=methods,
+            reading_tools=reading_tools, max_tokens=MAX_TOKENS - reserve, skill=skill, server=server)
     cache_dir = Path(cache_dir) if cache_dir is not None else _cache_dir()
     cache_file = cache_dir / f"{memory_path.name}.{cache_name}.json"
     state = state_dictionary.read_state(memory_path)
