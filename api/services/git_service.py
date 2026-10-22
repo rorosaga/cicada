@@ -554,16 +554,20 @@ def run_git_write_sync(memory_path, *args: str) -> str:
 _TREE_WRITERS = WRITE_SUBCOMMANDS - {"add", "commit", "update-index", "update-ref"}
 
 
-#: The commit identity a bank falls back to on a machine with none configured (G181): a fresh Linux server has no
-#: ``user.name``/``user.email``, and git then refuses every commit. Placeholder values, never the person's — who wrote
-#: a change is the ``Cicada-Author`` trailer's job, not git's author field.
+#: The commit identity a bank falls back to when none is configured (G181, G203): placeholder values, never the
+#: person's. Who wrote a change is the ``Cicada-Author`` trailer's job, not git's author field; no reader of a bank's
+#: history reads the author field (G203's Hyrum line in storage.md).
 FALLBACK_IDENTITY = ("Cicada", "cicada@localhost")
 
 
-def _identity_resolves(memory_path: Path) -> bool:
+def _identity_configured(memory_path: Path) -> bool:
+    """True when git finds an identity someone chose (environment, repo, global or system config). ``useConfigOnly``
+    stops git guessing one: with no ``user.name`` it would take the account's full name and ``user@hostname``, and a
+    bank handed to someone else would carry both in every commit (G203)."""
     for var in ("GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"):
         try:
-            proc = subprocess.run(["git", "var", var], cwd=str(memory_path), capture_output=True)
+            proc = subprocess.run(["git", "-c", "user.useConfigOnly=true", "var", var], cwd=str(memory_path),
+                                  capture_output=True)
         except OSError:
             return True  # no git at all: nothing to fix here, and every write already degrades
         if proc.returncode != 0:
@@ -572,15 +576,16 @@ def _identity_resolves(memory_path: Path) -> bool:
 
 
 def ensure_commit_identity_sync(memory_path) -> bool:
-    """Give a bank a repo-local commit identity only when git resolves none (no global, system or environment
-    identity). Never overrides one that resolves, never touches ``~/.gitconfig``. Returns True when it set one."""
+    """Give a bank a repo-local commit identity only when none is configured: git would otherwise guess one from the
+    account (or, with ``useConfigOnly``, refuse every commit). Never overrides a configured one, never touches
+    ``~/.gitconfig``, never rewrites a commit already made. Returns True when it set one."""
     memory_path = Path(memory_path)
-    if not (memory_path / ".git").exists() or _identity_resolves(memory_path):
+    if not (memory_path / ".git").exists() or _identity_configured(memory_path):
         return False
     name, email = FALLBACK_IDENTITY
     run_git_write_sync(memory_path, "config", "user.name", name)
     run_git_write_sync(memory_path, "config", "user.email", email)
-    logger.info("git: this machine has no commit identity; the bank commits as Cicada <cicada@localhost>")
+    logger.info("git: no commit identity is configured; the bank commits as Cicada <cicada@localhost>")
     return True
 
 

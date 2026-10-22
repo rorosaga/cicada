@@ -1,0 +1,35 @@
+# The backend's crucial tier (docs/goals/working-method.md, "Test tiers") on every push to dev and every PR into it,
+# so a background agent's PR shows red before the coordinator reviews it. The same command as `make
+# test-crucial-backend`: `api/tests/crucial.txt` names the tests that guard CLAUDE.md's rails. The Swift half of the
+# tier needs a Mac and is not run here. Cost: the repo is public, so standard GitHub-hosted runners are free.
+name: Dev CI
+
+on:
+  push:
+    branches: ["dev"]
+  pull_request:
+    branches: ["dev"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  crucial-backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          python-version: "3.12.11"
+
+      - name: The backend's venv, from the lock
+        run: cd api && uv sync --frozen
+
+      - name: The crucial tier
+        run: make test-crucial-backend

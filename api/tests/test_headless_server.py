@@ -268,6 +268,58 @@ def test_a_global_identity_is_used_and_never_written(tmp_path, no_identity, monk
     assert _git(bank, "config", "--local", "--get", "user.name").returncode != 0
 
 
+@pytest.fixture
+def guessing_machine(no_identity, monkeypatch):
+    """A machine like a fresh Mac: no identity configured, and git left to guess one from the account."""
+    for var in ("GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("GIT_CONFIG_PARAMETERS", "")
+    return no_identity
+
+
+def test_a_guessed_identity_never_reaches_a_bank_commit(tmp_path, guessing_machine):
+    guessed = subprocess.run(["git", "var", "GIT_AUTHOR_IDENT"], cwd=str(tmp_path), capture_output=True, text=True)
+    if guessed.returncode != 0:
+        pytest.skip("git on this machine refuses to guess an identity, so there is nothing to leak")
+    bank = tmp_path / "bank"
+    bank_registry.scaffold_bank(bank)
+    (bank / "entities" / "alpha-project.md").write_text("# alpha-project\n")
+    assert _git(bank, "add", "-A").returncode == 0
+    assert _git(bank, "commit", "-m", "first").returncode == 0
+    author = _git(bank, "log", "-1", "--format=%an <%ae>|%cn <%ce>").stdout.strip()
+    assert author == "Cicada <cicada@localhost>|Cicada <cicada@localhost>", author
+
+
+def test_a_bank_made_before_keeps_its_history_and_commits_neutrally_from_now(tmp_path, guessing_machine):
+    bank = tmp_path / "bank"
+    bank_registry.scaffold_bank(bank, git_init=False)
+    _git(bank, "init", "-q")
+    env = {**os.environ, "GIT_AUTHOR_NAME": "old-guess", "GIT_AUTHOR_EMAIL": "old@guess.invalid",
+           "GIT_COMMITTER_NAME": "old-guess", "GIT_COMMITTER_EMAIL": "old@guess.invalid"}
+    (bank / "a.md").write_text("a\n")
+    subprocess.run(["git", "add", "-A"], cwd=bank, env=env, check=True)
+    subprocess.run(["git", "commit", "-qm", "before"], cwd=bank, env=env, check=True)
+    before = _git(bank, "rev-parse", "HEAD").stdout.strip()
+    bank_registry.scaffold_bank(bank)
+    assert _git(bank, "rev-parse", "HEAD").stdout.strip() == before, "history is never rewritten"
+    (bank / "b.md").write_text("b\n")
+    _git(bank, "add", "-A")
+    assert _git(bank, "commit", "-m", "after").returncode == 0
+    log = _git(bank, "log", "--format=%an <%ae>").stdout.split("\n")
+    assert log[:2] == ["Cicada <cicada@localhost>", "old-guess <old@guess.invalid>"]
+
+
+def test_the_neutral_identity_leaves_the_cicada_author_trailer_alone(tmp_path, guessing_machine):
+    bank = tmp_path / "bank"
+    bank_registry.scaffold_bank(bank)
+    (bank / "entities" / "alpha-project.md").write_text("# alpha-project\n")
+    git_service.run_git_write_sync(bank, "add", "-A")
+    git_service.run_git_write_sync(bank, "commit", "-m", "Page edit\n\nCicada-Author: claude-code")
+    body = _git(bank, "log", "-1", "--format=%B").stdout
+    assert git_service._parse_authors(body) == ["claude-code"]
+    assert _git(bank, "log", "-1", "--format=%an").stdout.strip() == "Cicada"
+
+
 def test_it_sets_the_identity_once_and_only_in_the_bank(tmp_path, no_identity):
     bank = tmp_path / "bank"
     bank_registry.scaffold_bank(bank, git_init=False)

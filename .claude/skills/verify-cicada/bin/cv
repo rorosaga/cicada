@@ -158,17 +158,49 @@ def save(run: dict) -> None:
     tmp.replace(path)
 
 
-# Passed through only when the caller's shell has it, and never written to run.json, evidence or a log: the plan's
-# headless sign-in (`claude setup-token`), the one way Sleep reaches the plan on a Linux box with no keychain.
-PASSTHROUGH_SECRETS = ("CLAUDE_CODE_OAUTH_TOKEN",)
+# The plan's headless sign-in (`claude setup-token`), the one way Sleep reaches the plan on a Linux box with no
+# keychain. Never in any process's environment but the engine's `claude` child: launch copies the caller's value into
+# a 0600 file in the run dir, `plan-claude` reads it into that child's env alone, and cleanup deletes it and masks
+# any copy of the value in the evidence. run.json and the backend's env carry only the file's path.
+PLAN_TOKEN_VAR = "CLAUDE_CODE_OAUTH_TOKEN"
+PLAN_TOKEN_FILE = "secrets/claude-oauth-token"
+MASK = "<masked CLAUDE_CODE_OAUTH_TOKEN>"
+
+
+def write_plan_token(rdir: Path) -> Path | None:
+    value = os.environ.get(PLAN_TOKEN_VAR, "").strip()
+    if not value:
+        return None
+    path = rdir / PLAN_TOKEN_FILE
+    path.parent.mkdir(mode=0o700)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(value)
+    return path
+
+
+def mask_plan_token(rdir: Path, evid: Path) -> int:
+    """Delete the run's token file; replace any copy of its value under the evidence dir. Returns files masked."""
+    path = rdir / PLAN_TOKEN_FILE
+    if not path.exists():
+        return 0
+    value = path.read_text().strip()
+    masked = 0
+    for f in (p for p in evid.rglob("*") if p.is_file() and not p.is_symlink()):
+        data = f.read_bytes()
+        if value and value.encode() in data:
+            f.write_bytes(data.replace(value.encode(), MASK.encode()))
+            masked += 1
+    path.unlink()
+    path.parent.rmdir()
+    return masked
 
 
 def env_for(run: dict, *, extra: dict | None = None) -> dict:
     """The one environment every process of a run gets. Nothing from the caller's shell leaks through except PATH,
-    the temp dir, the locale, the user name and PASSTHROUGH_SECRETS."""
+    the temp dir, the locale and the user name; never the plan token (see PLAN_TOKEN_VAR)."""
     base = {k: os.environ[k] for k in ("PATH", "TMPDIR", "LANG", "LC_ALL", "TERM", "USER", "LOGNAME")
             if k in os.environ}
-    base.update({k: os.environ[k] for k in PASSTHROUGH_SECRETS if os.environ.get(k)})
     base.update(run["env"])
     if extra:
         base.update(extra)
@@ -301,6 +333,7 @@ def cmd_launch(args) -> None:
     for sub in ("home", "cicada-home", "memory", "logs", "bin"):
         (rdir / sub).mkdir()
     evid.mkdir(parents=True, exist_ok=True)
+    token_file = write_plan_token(rdir)
     py = python_for(checkout)
     state = tree_state(checkout)
     run = {
@@ -321,6 +354,7 @@ def cmd_launch(args) -> None:
             "CICADA_ALLOW_CONNECTOR_FETCH": "off", "CICADA_ALLOW_LOGO_FETCH": "off", "CICADA_ALLOW_FEED_FETCH": "off",
             "OMP_NUM_THREADS": "4", "TOKENIZERS_PARALLELISM": "false", "HF_HUB_OFFLINE": "1",
             **GIT_IDENTITY,
+            **({"CICADA_VERIFY_PLAN_TOKEN_FILE": str(token_file)} if token_file else {}),
         },
     }
     save(run)
@@ -503,6 +537,9 @@ def cmd_cleanup(args) -> None:
     leftovers = [r for r in run["pids"] if ours(run, r)]
     if leftovers:
         die(f"still running: {leftovers}")
+    masked = mask_plan_token(rdir, Path(run["evidence_dir"]))
+    if masked:
+        print(f"masked the plan token in {masked} evidence file(s)")
     if "app" in run:
         subprocess.run([LSREGISTER, "-u", run["app"]["path"]], capture_output=True)
         remove_residue(run["bundle_id"])
@@ -1000,15 +1037,26 @@ def selftest_guards() -> list[tuple]:
             ok = not want
         rows.append((ok, f"evidence name {name!r}", "kept" if want else "refused", ""))
     shutil.rmtree(evid, ignore_errors=True)
-    fake = {"env": {"HOME": "/scratch"}}
-    with unittest.mock.patch.dict(os.environ, {"CLAUDE_CODE_OAUTH_TOKEN": "cv-selftest-not-a-token"}):
-        passed = env_for(fake).get("CLAUDE_CODE_OAUTH_TOKEN") == "cv-selftest-not-a-token"
-    rows.append((passed and "CLAUDE_CODE_OAUTH_TOKEN" not in fake["env"], "env passes CLAUDE_CODE_OAUTH_TOKEN",
-                 "passed, not in run.json", ""))
+    fake = {"env": {"HOME": "/scratch", "CICADA_VERIFY_PLAN_TOKEN_FILE": "/run/secrets/claude-oauth-token"}}
+    with unittest.mock.patch.dict(os.environ, {PLAN_TOKEN_VAR: "cv-selftest-not-a-token"}):
+        built = env_for(fake)
+    rows.append((PLAN_TOKEN_VAR not in built and "cv-selftest-not-a-token" not in json.dumps(built),
+                 "run env never carries CLAUDE_CODE_OAUTH_TOKEN", "absent", ""))
+    tdir = Path(os.environ.get("TMPDIR", "/tmp")) / f"cv-selftest-token-{os.getpid()}"
+    (tdir / "evidence").mkdir(parents=True)
+    with unittest.mock.patch.dict(os.environ, {PLAN_TOKEN_VAR: "cv-selftest-not-a-token"}):
+        tfile = write_plan_token(tdir)
+    mode = tfile.stat().st_mode & 0o777 if tfile else None
+    rows.append((mode == 0o600, "token file is 0600", "0600", oct(mode) if mode else "not written"))
+    (tdir / "evidence/leak.txt").write_text("before cv-selftest-not-a-token after")
+    masked = mask_plan_token(tdir, tdir / "evidence")
+    clean = "cv-selftest-not-a-token" not in (tdir / "evidence/leak.txt").read_text()
+    rows.append((masked == 1 and clean and not (tdir / PLAN_TOKEN_FILE).exists(),
+                 "cleanup masks the token in evidence and deletes the file", "masked", ""))
     with unittest.mock.patch.dict(os.environ, {}, clear=False):
-        os.environ.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
-        absent = "CLAUDE_CODE_OAUTH_TOKEN" not in env_for(fake)
-    rows.append((absent, "env without CLAUDE_CODE_OAUTH_TOKEN", "absent", ""))
+        os.environ.pop(PLAN_TOKEN_VAR, None)
+        rows.append((write_plan_token(tdir) is None, "no token in the caller: no file", "absent", ""))
+    shutil.rmtree(tdir, ignore_errors=True)
     for run_id, want in (("my-check.2", True), ("a_b", False), ("a\n", False), ("..", False), ("a/b", False),
                          ("", False)):
         rows.append((valid_run_id(run_id) == want, f"run id {run_id!r}", "accepted" if want else "refused", ""))
@@ -1043,7 +1091,7 @@ def cmd_selftest(args) -> None:
     src = shim.read_text()
     stub = Path(os.environ.get("TMPDIR", "/tmp")) / f"cv-selftest-stub-{os.getpid()}"
     stub.write_text("#!/bin/sh\necho STUB-RAN \"$@\"\necho \"HOME=$HOME CFG=${CLAUDE_CONFIG_DIR:-unset} "
-                    "KEY=${ANTHROPIC_API_KEY:-unset}\"\n")
+                    "KEY=${ANTHROPIC_API_KEY:-unset} TOK=${CLAUDE_CODE_OAUTH_TOKEN:-unset}\"\n")
     stub.chmod(0o755)
     env = {"PATH": os.environ["PATH"], "CICADA_VERIFY_REAL_CLAUDE": str(stub), "CICADA_VERIFY_MODEL": "haiku",
            "CICADA_CAPTURE": "off", "ANTHROPIC_API_KEY": "sk-test", "CLAUDE_CONFIG_DIR": "/nowhere"}
@@ -1101,6 +1149,26 @@ def cmd_selftest(args) -> None:
     shim_list = [json.loads(t) for t in re.findall(r'"[^"]*"', shim_pinned.group(1))] if shim_pinned else []
     rows.append((shim_list == eng["pinned"], "shim PINNED_FLAGS equals agent_engine.PINNED_FLAGS", "",
                  "" if shim_list == eng["pinned"] else pinned_src))
+    tok = stub.with_name(stub.name + "-token")
+    tok.write_text("cv-selftest-not-a-token\n")
+    auth_stub = stub.with_name(stub.name + "-auth")
+    auth_stub.write_text('#!/bin/sh\n[ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && printf \'{"loggedIn": true, '
+                         '"authMethod": "oauth_token", "email": "%s"}\' "$CLAUDE_CODE_OAUTH_TOKEN"\n')
+    auth_stub.chmod(0o755)
+    for name, argv in (("token file reaches the engine child", plain), ("token file reaches auth status", None)):
+        if argv is None:
+            res = subprocess.run([str(shim), "auth", "status", "--json"], capture_output=True, text=True,
+                                 env={**env, "CICADA_VERIFY_PLAN_TOKEN_FILE": str(tok),
+                                      "CICADA_VERIFY_REAL_CLAUDE": str(auth_stub)})
+            ok = ('"loggedIn": true' in res.stdout and '"oauth_token"' in res.stdout
+                  and "cv-selftest-not-a-token" not in res.stdout + res.stderr)
+        else:
+            res = subprocess.run([str(shim), *argv], capture_output=True, text=True,
+                                 env={**env, "CICADA_VERIFY_PLAN_TOKEN_FILE": str(tok)})
+            ok = "TOK=cv-selftest-not-a-token" in res.stdout
+        rows.append((ok, name, "passed", (res.stderr.strip() or "")[:110]))
+    tok.unlink()
+    auth_stub.unlink()
     stub.unlink()
     rows += selftest_guards()
     width = max(len(r[1]) for r in rows)
