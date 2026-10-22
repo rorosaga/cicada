@@ -868,30 +868,69 @@ def render_related(related_slugs: list[str], edges: list[dict], id_to_name: dict
 
 
 # Priority order for recall summaries: fact-bearing sections first. Summary +
-# Key Facts are ALWAYS included in full (they hold the answer); the rest fill
-# the remaining budget in this order.
+# Key Facts always lead (they hold the answer); the rest fill the remaining
+# budget in this order.
 _RECALL_PRIORITY = ["Summary", "Key Facts", "Article", "History", "Links", "Related", "Open Questions", "Looks"]
 
 
+def _clip_section(title: str, content: str, limit: int) -> str:
+    """``## <title>`` and as many of ``content``'s whole lines as fit in ``limit`` characters (2026-10-22: a page
+    with hundreds of key facts made one recall 200k+ characters, past the harness's cap, so the agent got nothing).
+    A cut says so in words: bullets end with ``- … and N more on the full page``, prose with `` …``; a first line
+    longer than the room is cut at a word boundary. Under the limit the block is returned whole, unchanged."""
+    block = f"## {title}\n{content}"
+    if len(block) <= limit:
+        return block
+    lines = content.splitlines()
+    kept: list[str] = []
+    size = len(title) + 4
+    room = max(limit - 60, 80)   # the marker's room
+    for line in lines:
+        if size + len(line) + 1 > room:
+            break
+        kept.append(line)
+        size += len(line) + 1
+    left = [ln for ln in lines[len(kept):] if ln.strip()]
+    if not kept:   # one long line: cut it at a word boundary
+        first = lines[0] if lines else ""
+        cut = first[: max(room - size, 40)].rsplit(" ", 1)[0]
+        return f"## {title}\n{cut} …"
+    bullets = [ln for ln in left if ln.lstrip().startswith(("- ", "* "))]
+    if bullets and len(bullets) == len(left):
+        kept.append(f"- … and {len(left):,} more on the full page")
+    else:
+        kept[-1] = kept[-1] + " …"
+    return f"## {title}\n" + "\n".join(kept)
+
+
 def summarize_for_recall(body: str, *, max_chars: int = 3200) -> str:
-    """Section-aware truncation that always preserves Summary + Key Facts.
+    """Section-aware truncation that always leads with Summary + Key Facts.
 
     Byte-offset truncation can cut Key Facts (where specific figures live). This
-    keeps Summary + Key Facts whole, then appends further canonical sections in
-    priority order until the char budget is reached.
+    keeps Summary + Key Facts first — whole when they fit, and otherwise cut at
+    whole lines with the cut said in words (``_clip_section``), Key Facts always
+    keeping at least a third of the budget — then appends further canonical
+    sections in priority order until the char budget is reached. The result is
+    bounded by about ``max_chars`` whatever the page holds.
     """
     from api.services.claims import strip_claims_block
     sections = parse_sections(strip_claims_block(body))
     lead = sections.get("", "").strip()
     chosen: list[str] = []
     used = 0
-    # Always-include tier, whole:
-    for title in ("Summary", "Key Facts"):
-        content = sections.get(title, "").strip()
-        if content:
-            block = f"## {title}\n{content}"
-            chosen.append(block)
-            used += len(block)
+    summary = sections.get("Summary", "").strip()
+    facts = sections.get("Key Facts", "").strip()
+    floor = max_chars // 3
+    facts_reserve = min(len(facts) + len("## Key Facts\n"), floor) if facts else 0
+    # The leading tier, bounded:
+    if summary:
+        block = _clip_section("Summary", summary, max(max_chars - facts_reserve, floor))
+        chosen.append(block)
+        used += len(block)
+    if facts:
+        block = _clip_section("Key Facts", facts, max(max_chars - used, floor))
+        chosen.append(block)
+        used += len(block)
     # Fill remaining budget:
     for title in _RECALL_PRIORITY:
         if title in ("Summary", "Key Facts"):
@@ -902,6 +941,8 @@ def summarize_for_recall(body: str, *, max_chars: int = 3200) -> str:
         block = f"## {title}\n{content}"
         if used + len(block) > max_chars and chosen:
             break
+        if not chosen:
+            block = _clip_section(title, content, max_chars)
         chosen.append(block)
         used += len(block)
     if not chosen:  # legacy flat body (no H2s)
