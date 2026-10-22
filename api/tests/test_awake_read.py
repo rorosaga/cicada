@@ -120,7 +120,8 @@ def test_a_big_import_is_indexed_not_read(bank, awake_on, monkeypatch):
     monkeypatch.setattr(awake_read._Queue, "_loop", lambda self: None)
     ids = [f"ep_2026-10-22_{i:03d}" for i in range(awake_read.IMPORT_READ_MAX + 1)]
     awake_read.after_import(bank, ids)
-    assert {k for (_b, _e, k) in awake_read.QUEUE.jobs} == {"index"}
+    jobs = list(awake_read.QUEUE.jobs.values())
+    assert [j.kind for j in jobs] == ["index"] and jobs[0].many == tuple(ids)   # one upsert, no read
 
 
 # --------------------------------------------------------------------------- step 0

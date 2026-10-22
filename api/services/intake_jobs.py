@@ -103,7 +103,11 @@ def run(job_id: str, episodes: list[dict], episodes_dir: Path, *, extras_only: l
 
     try:
         drafts = [episode_staging.draft_from_export(e) for e in episodes]
-        episode_staging.stage(drafts, episodes_dir, bank=episodes_dir.parent.name, progress=progress)
+        staged = episode_staging.stage(drafts, episodes_dir, bank=episodes_dir.parent.name, progress=progress)
+        # G207: a big import is indexed now (step 0); Sleep reads it.
+        from api.services import awake_read
+
+        awake_read.after_import(episodes_dir.parent, list(staged.touched.values()))
         if extras_only:
             episode_staging.stage([episode_staging.draft_from_export(e) for e in extras_only], episodes_dir,
                                   bank=episodes_dir.parent.name)

@@ -58,7 +58,12 @@ step against a stand-in token, including a `launch` that dies before `run.json`.
 
 ```sh
 $CV launch [--run-id ID] [--checkout PATH] [--evidence DIR] [--port N] [--search-model] [--no-owner] [--timeout 120]
+          [--env CICADA_AWAKE_READ=on ...]
 ```
+
+`--env KEY=VALUE` (repeatable) sets a feature's own switch in the backend's env; only `CICADA_AWAKE_*` keys pass (the
+G207 awake read: `CICADA_AWAKE_READ=on`, `CICADA_AWAKE_QUIET_S=10` to read a conversation ten seconds after its last
+turn). Never a credential, a path or an engine.
 
 Starts `python -m uvicorn api.main:app` from the checkout (default: the one holding the current directory; pass
 `--checkout` to verify another worktree's branch with this skill) on a free port, with that checkout's venv (else its

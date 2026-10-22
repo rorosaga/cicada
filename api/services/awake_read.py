@@ -94,6 +94,8 @@ class _Job:
     kind: str = field(compare=False)          # "index" | "read"
     settings: object = field(compare=False, default=None)
     tries: int = field(compare=False, default=0)
+    #: An import's ids, embedded in one upsert (``episode`` is then the import's key, not an id).
+    many: tuple[str, ...] = field(compare=False, default=())
 
 
 class _Queue:
@@ -180,11 +182,12 @@ def after_import(memory_path: Path, episode_ids: list[str], *, settings=None) ->
     small = len(ids) <= IMPORT_READ_MAX
     if not small:
         logger.info(f"awake_read: an import of {len(ids)} conversations — indexed now, read by Sleep")
-    for ep in ids:
-        if small:
+    if small:
+        for ep in ids:
             after_capture(memory_path, ep, status="created", settings=settings, ended=True)
-        elif mode() != "off":
-            QUEUE.put(_Job(time.monotonic() + INDEX_SETTLE_S, str(Path(memory_path)), ep, "index", settings))
+    elif mode() != "off":
+        QUEUE.put(_Job(time.monotonic() + INDEX_SETTLE_S, str(Path(memory_path)), f"import:{ids[0]}:{len(ids)}",
+                       "index", settings, many=tuple(ids)))
 
 
 def run_job(job: _Job) -> str:
@@ -192,11 +195,12 @@ def run_job(job: _Job) -> str:
     :data:`RETRY_S`. Returns the outcome (an enum word, for tests and the log)."""
     bank = Path(job.bank)
     if job.kind == "index":
-        outcome = index_now(bank, job.episode, settings=job.settings)
+        outcome = index_now(bank, list(job.many) or job.episode, settings=job.settings)
     else:
         outcome = asyncio.run(quick_read(bank, job.episode, settings=job.settings))
     if outcome in ("sleep_running", "reindexing", "admission") and job.tries + 1 < MAX_TRIES:
-        QUEUE.put(_Job(time.monotonic() + RETRY_S, job.bank, job.episode, job.kind, job.settings, job.tries + 1))
+        QUEUE.put(_Job(time.monotonic() + RETRY_S, job.bank, job.episode, job.kind, job.settings, job.tries + 1,
+                       job.many))
     logger.debug(f"awake_read: {job.kind} → {outcome}")
     return outcome
 
@@ -223,15 +227,17 @@ def _settings(settings):
 # --------------------------------------------------------------------------- step 0
 
 
-def index_now(memory_path: Path, episode_id: str, *, settings=None) -> str:
-    """Step 0 for one episode. ``indexed`` | ``unchanged`` | ``skipped`` | ``demo_bank`` | ``sleep_running`` |
-    ``reindexing`` | ``hosted_model`` | ``no_episode`` | ``failed``."""
+def index_now(memory_path: Path, episode_id: str | list[str], *, settings=None) -> str:
+    """Step 0 for one episode (or an import's list, in one upsert). ``indexed`` | ``unchanged`` | ``skipped`` |
+    ``demo_bank`` | ``sleep_running`` | ``reindexing`` | ``hosted_model`` | ``no_episode`` | ``failed``."""
     from api.services import demo_guard, embedding_models, vector_index
 
     memory_path = Path(memory_path)
     if demo_guard.is_demo(memory_path):
         return "demo_bank"
-    if not (memory_path / "episodes" / f"{episode_id}.md").is_file():
+    ids = [episode_id] if isinstance(episode_id, str) else list(episode_id)
+    ids = [e for e in ids if (memory_path / "episodes" / f"{e}.md").is_file()]
+    if not ids:
         return "no_episode"
     if _sleep_running():
         return "sleep_running"
@@ -246,7 +252,7 @@ def index_now(memory_path: Path, episode_id: str, *, settings=None) -> str:
         model = recorded or embedding_models.build_model(memory_path, settings)
         if not vector_index.runs_on_device(model):
             return "hosted_model"
-        stats = indexer.index_episode_stems([episode_id])
+        stats = indexer.index_episode_stems(ids)
     except Exception as exc:  # noqa: BLE001 - a derived index: never an error, Sleep's sync catches up
         logger.info(f"awake_read: step 0 not done ({type(exc).__name__}); Sleep's index sync will do it")
         return "failed"
