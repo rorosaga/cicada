@@ -438,9 +438,19 @@ def _conversations(memory_path: Path, n: int) -> list[dict]:
     """R5: ``resumable`` is computed per request by the API and never lands
     here — the injected ``transcript_exists`` is a constant so the aggregator
     never even stats a transcript path on the builder's behalf."""
-    rows = session_stats.aggregate_conversations(memory_path, limit=max(1, n), transcript_exists=lambda *_: False)
+    from api.services import inbox_tend
+
+    # A calendar entry or a saved item is source-keyed like an import, but it is a record, not a conversation an agent
+    # can pick up (benchmarks/newuser, 2026-10-22): read past them, newest first, up to `n`.
+    rows = session_stats.aggregate_conversations(memory_path, limit=max(1, n) + RECORD_HEADROOM,
+                                                 transcript_exists=lambda *_: False)
+    rows = [r for r in rows if not inbox_tend.record_origin(r.get("origin"))][:max(1, n)]
     return [{"id": r["conversation_id"], "harness": r["harness"], "title": r["title"][:TITLE_LIMIT],
              "last_seen": r["last_seen"], "episode_count": r["episode_count"]} for r in rows]
+
+
+#: How many records (calendar entries, saved items) `_conversations` reads past to find `n` conversations.
+RECORD_HEADROOM = 200
 
 
 # --- build / render -----------------------------------------------------------

@@ -235,6 +235,8 @@ def _no_background_reindex(monkeypatch):
     embeds in-process and the worker's own tests turn it on with a stand-in the child can import."""
     monkeypatch.setenv("CICADA_BACKGROUND_REINDEX", "off")
     monkeypatch.setenv("CICADA_EMBED_WORKER", "off")
+    # G207: the job after capture (an embed, a quick read) is off too — its own tests turn it on.
+    monkeypatch.setenv("CICADA_AWAKE_READ", "off")
 
 
 @pytest.fixture(autouse=True)

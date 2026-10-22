@@ -124,3 +124,32 @@ def test_the_tool_is_wired_on_stdio_and_read_scope_remotely(bank, monkeypatch):
     assert {t["name"] for t in srv.TOOLS} >= {"cicada_timeline"}
     assert catalog.TOOL_SCOPE["cicada_timeline"] == "read" and "cicada_timeline" in catalog.READ_TOOLS
     assert "cicada_timeline" in catalog.tool_names_for({"read"})
+
+
+def test_a_page_sleep_created_is_counted_as_new(tmp_path):
+    """benchmarks/newuser (2026-10-22): Sleep's commit body says ``create`` (``sleep_cycle._finalize`` writes the
+    change's own action word), and the timeline and the Sleep history counted only ``created`` — a first Sleep that
+    made 28 pages read "0 new page(s), 36 updated"."""
+    from api.services import git_service
+
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    _repo(memory)
+    body = ("entities/alpha-project.md: create (source: ep_2026-09-20_001, trigger: sleep/promotion)\n"
+            "entities/bob-example.md: update (source: ep_2026-09-20_001, trigger: sleep/extraction)\n\n"
+            "Cicada-Author: claude-haiku-5-5")
+    _commit(memory, f"Sleep cycle 2026-09-20 (batch 1 of 2)\n\n{body}", D1)
+    [day] = change_timeline.collect(memory, date(2026, 9, 19), date(2026, 9, 22))
+    assert (day.created, day.updated) == (["alpha-project"], 1)
+    entry = git_service._entry_from("abc", D1, "Sleep cycle 2026-09-20 (batch 1 of 2)", body)
+    assert (entry.entities_created, entry.entities_updated) == (1, 1)
+
+
+def test_a_saved_link_is_counted_by_its_source_not_as_unknown(tmp_path):
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    markdown_parser.write(memory / "episodes" / "ep_2026-09-20_001.md",
+                          {"id": "ep_2026-09-20_001", "timestamp": "2026-09-20T12:00:00+00:00", "source": "bookmark",
+                           "url": "https://example.com/a"}, "# A")
+    [day] = change_timeline.collect(memory, date(2026, 9, 19), date(2026, 9, 22))
+    assert dict(day.captured) == {"bookmark": 1}

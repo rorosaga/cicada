@@ -433,3 +433,18 @@ def test_the_hold_file_round_trips_and_skips_junk(tmp_path):
     assert skill_hold.settle(tmp_path, [], ["nobody"]) == (0, 0)
     assert skill_hold.settle(tmp_path, [], [held.slug]) == (0, 1) and skill_hold.load(tmp_path) == []
     assert not [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+
+
+def test_saved_items_and_calendar_entries_are_not_conversations(tmp_path):
+    """benchmarks/newuser (2026-10-22): two bookmarks grounded a "skill" about the person's bookmarking habits, and a
+    bookmark plus a calendar entry grounded another. A skill needs two CONVERSATIONS (owner ruling 2026-10-09): a saved
+    page's title and an event's title are the page's and the calendar's words, never how the person works."""
+    bank = _bank(tmp_path)
+    records = [{**e, "origin": origin} for e, origin in zip(_extracted(), ("bookmark", "calendar-local", "bookmark"))]
+    plan = skill_grounding.ground([SKILL], [], records, bank)
+    assert plan.changes == [] and plan.held == []
+    mixed = [{**e, "origin": origin} for e, origin in zip(_extracted(), ("claude-code", "calendar-local", "bookmark"))]
+    plan = skill_grounding.ground([SKILL], [], mixed, bank)
+    assert plan.changes == [] and [h.source_episode for h in plan.held] == [EP1], "one conversation: held"
+    assert skill_grounding.ground([SKILL], [], [{**e, "origin": "chatgpt-export"} for e in _extracted()],
+                                  bank).changes, "conversations still ground it"

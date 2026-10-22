@@ -283,6 +283,9 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   names. Apple Calendar (G142): the app reads EventKit after the one standard permission prompt and
   posts a rolling window to `POST /sources/calendar-local/sync` (one request = the whole window).
   `calendar_local.py` stages each event keyed `calendar-local:<id>`:
+  - a new episode for an event that has already begun is dated its start (timestamp and id day; read on time,
+    2026-10-16 — a first sync's past month was otherwise a month of mentions today); one still ahead is dated the day
+    Cicada learned of it; an existing episode keeps its id and first stamp (benchmarks/newuser, 2026-10-22);
   - notes are scrubbed, then cut at 2,000 characters;
   - a link keeps no query;
   - an event gone from the window is tombstoned, only for the calendars the request named;
@@ -735,6 +738,55 @@ extractor keeps crosses the wire:
   the turns after it), so the episode keeps their order; Cursor's prompt hook
   never flushes (it holds the person's message). Bounded at 2,000 entries / 128 MiB, oldest dropped and counted in
   the log. The recall hooks read the same base and token; they do not spool (a read).
+
+**After capture: the awake read (G207, ruling 36 D2, 2026-10-22).** A captured conversation is usable before Sleep
+reads it, through a separate job that never runs inside the capture write. `/capture/transcript`, `/capture/session`
+and `/capture/turn`, the relay (`cicada_capture_turns`) and an inline import call `awake_read.after_capture` /
+`after_import` once their writer has returned. That call only queues a job on one daemon worker
+(`cicada-awake-read`), keyed by bank, episode and kind, so a burst of turns debounces into one job. Only a `created`
+or `updated` write queues anything. A job held back by Sleep, a re-embed or the admission is retried after
+`RETRY_S` (120 s).
+
+- **Step 0, no model** (`index_now`): `INDEX_SETTLE_S` (3 s) after the capture, the episode's passages are embedded
+  into the episode table (`vector_index.index_episode_stems`). That is a targeted upsert: the same cut and model as
+  the table holds, no other episode's rows touched, and a table it cannot diff (another model, another width) is
+  `skipped`, never rebuilt from part of the bank. It gives way to Sleep within one chunk of `STOPPABLE_CHUNK` (64) texts (`should_stop`, review of #423), writing nothing
+  of the batch and freeing the index's write lock for Sleep's own sync, and is retried after; a big import is queued in
+  jobs of `IMPORT_INDEX_BATCH` (64) conversations so finished ones stay. It does not start while Sleep runs, while a search-model re-embed is
+  running, waiting or due (`embedding_models.pending_switch`), with a hosted embedder (`runs_on_device`), or in a
+  demo bank. The word index needs no job: it is fresh on every read (`search_index.ensure_fresh`, a 1 s TTL).
+- **Step 1, the quick read** (`quick_read`): when the conversation ends. A Stop fires every turn, so "ends" means a
+  `SessionEnd` flush (`ENDED_S`, 5 s), an import of at most `IMPORT_READ_MAX` (5) conversations, or `QUIET_S`
+  (600 s) with no new capture; a relayed conversation has no end event and waits for the quiet window. The read is
+  Stage 1's own extractor (`entity_extractor.extract(..., stage="quick_read")`), run once, with the person's engine
+  resolved like a scheduled run (`resolve_settings(user_triggered=False)`, rulings 4 and 31) and its small model
+  (`agent_disambiguation_model` / `codex_disambiguation_model` / `litellm_disambiguation_model`). It keeps only the
+  claims whose subject is a page that exists (the pages' names and aliases, plus the owner's self-references,
+  through `claim_pipeline.subject_resolver`). A name with no page is *held* in the record for Sleep's promotion,
+  never minted and never parked in `pending_store` (Sleep reads the conversation itself, so nothing is counted
+  twice). The output is one provisional record, `<bank>/.awake/<episode>.json` (`storage.md`). It is written under
+  `write_admission.admitted`, off the event loop, never across the model call, and not at all when Sleep read the
+  episode meanwhile. The same body revision is never read twice. At most `READS_PER_HOUR` (20) reads per process;
+  past that a conversation waits for Sleep, which is logged. Nothing provisional writes a page, a claims fence, a
+  pending line or a commit.
+- **Sleep settles** (`awake_read.settle`, right after `_mark_episodes_processed`): each provisional claim of a
+  retired episode is **confirmed** (the same deterministic claim id is now on its page), **corrected** (the page
+  holds a claim from that conversation with the same subject and predicate) or **dropped**. The counts are logged as
+  numbers only, then the record is deleted. A record whose episode was edited again stays for the run that reads
+  the new revision.
+- **`CICADA_AWAKE_READ`** = `off` | `index` (step 0) | `on` (steps 0 and 1). When unset: step 0, plus step 1 when
+  `awake_read.QUICK_READ_DEFAULT` says so. There is no Settings switch (owner D2). The suite's conftest sets `off`.
+  The default was decided by `benchmarks/awake_bench.py` (the numbers are in the PR and below).
+- **Measured (2026-10-22, saga-01, Claude plan, haiku for answer, judge and quick read, 3 repeats, 12 questions;
+  11 answerable only from a new conversation, 1 control):** easy set (6 new conversations): (a) today **1/12** every
+  run (only the control), (b) step 0 **12/12** every run, (c) step 0 + 1 **12/12** every run. Hard variant (the same
+  plus 30 unslept distractors): (a) 1, 1, 1; (b) 12, 12, 12; (c) 12, 12, 12, and 12, 12, 12 again on the final ranking of the provisional block. Today's recall states the stale fact on
+  9–11 of 36 answers (contradicted); (b) and (c) on none. The quick read costs **1 call per conversation** (1.01 with one retry in 108), about
+  10.8k input tokens (mostly Stage 1's own prompt) and 1.0–1.6k output, 6–8 s. In the verify run, Sleep's settle
+  of one quick read was 3 confirmed, 1 corrected, 1 dropped. **(c) does not beat (b), so step 1 is built but off**
+  (`QUICK_READ_DEFAULT = False`): step 0 alone closes the measured gap. Revisit when a set where (b) is below its
+  ceiling exists (more new conversations than recall's 3 excerpt slots can hold on one topic, or questions that need
+  a fact joined across conversations).
 
 ### Sleep — 5-stage nightly batch
 1. **Entity & relationship extraction** — LLM over episode chunks, structured output.
@@ -1482,7 +1534,9 @@ other writer added — a person's merge included — is counted and kept.
 evidence_entities, confidence}`; the old writer kept only the name and description, so every skill page was born
 with `source_episodes: []`, `created` = the cycle's day, no section provenance and no `related`, was written only
 when absent (a pattern found again never moved its page), and decayed with zero mention weeks. Now
-`skill_grounding.ground` matches each evidence name, without a model, to this batch's conversations (Stage 1's names,
+`skill_grounding.ground` matches each evidence name, without a model, to this batch's conversations — conversations
+only: a saved item or a calendar entry (`inbox_tend.record_origin`) is a record, never evidence of how the person
+works (benchmarks/newuser, 2026-10-22: two bookmarks had grounded a "skill") — (Stage 1's names,
 Stage 2's `name_to_id`, the changes' own sources), keeps those where two of the named entities came up together (every conversation of the one, when only one of them
 came up in the batch), and hands `apply_changes` an ordinary `create`/`update` change: dates from those
 conversations, the Summary's section provenance citing each as `reasoning` (an inference, never a quotation), a

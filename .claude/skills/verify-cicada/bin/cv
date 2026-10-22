@@ -301,6 +301,20 @@ def stop_role(run: dict, role: str) -> None:
 
 # --- launch / doctor / cleanup ------------------------------------------------------------------------------------
 
+#: What `launch --env` may set: a feature's own switches, never a credential, a path or an engine.
+LAUNCH_ENV_PREFIXES = ("CICADA_AWAKE_",)
+
+
+def launch_env(pairs: list[str] | None) -> dict:
+    out = {}
+    for pair in pairs or []:
+        key, sep, value = pair.partition("=")
+        if not sep or not key.startswith(LAUNCH_ENV_PREFIXES) or forbidden(value):
+            die(f"--env {pair!r}: only KEY=VALUE with a key starting {' or '.join(LAUNCH_ENV_PREFIXES)}")
+        out[key] = value
+    return out
+
+
 def cmd_launch(args) -> None:
     run_id = args.run_id or now_id()
     if not valid_run_id(run_id):
@@ -359,6 +373,7 @@ def cmd_launch(args) -> None:
             "OMP_NUM_THREADS": "4", "TOKENIZERS_PARALLELISM": "false", "HF_HUB_OFFLINE": "1",
             **GIT_IDENTITY,
             **({"CICADA_VERIFY_PLAN_TOKEN_FILE": str(token_file)} if token_file else {}),
+            **launch_env(args.env),
         },
     }
     save(run)
@@ -1232,6 +1247,8 @@ def main() -> None:
                    help="fetch the pinned on-device search model into the run (cached under the run root)")
     s.add_argument("--no-owner", action="store_true",
                    help=f"leave the owner unnamed (default: named {PLACEHOLDER_OWNER!r})")
+    s.add_argument("--env", action="append", metavar="KEY=VALUE",
+                   help="a feature switch for the backend (CICADA_AWAKE_* only), e.g. CICADA_AWAKE_READ=on")
     s.set_defaults(fn=cmd_launch)
 
     s = sub.add_parser("doctor", parents=[run_opt], help="read-only: is this run worth driving?")

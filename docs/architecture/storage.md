@@ -1368,6 +1368,16 @@ built both ways into throwaway indexes outside the bank, its words index too, a 
 synthetic bank, where half the queries are claim sentences and the prose is a 30-word vocabulary, `prose` loses every
 claim-sentence query (search MRR 0.927 → 0.743) and ties every name query.
 
+### The quick read's provisional records (G207, 2026-10-22)
+`<bank>/.awake/<episode>.json`, one per conversation a quick read covered (`awake_read`, its only writer). It holds
+the body revision, the read time, the engine and model, the provisional claims (each `Claim.to_dict()`, G118 spans
+included, on pages that exist), and the held names (name, type, page id they would key to, claim count). It is a
+**derived artifact**: listed in `bank_registry.DERIVED_ARTIFACTS`, so it is git-excluded, skipped by a bank copy and
+an export, and never committed. Losing it costs only the wait until Sleep. Recall reads a record only while its
+episode is `processed: false`, and Sleep's `settle` deletes it when it retires the episode. It is never a page,
+never a claims fence and never a `pending_store` line: Sleep stays the authority (`capture-and-sleep.md`, "After
+capture").
+
 ### SQLite FTS5 (lexical index, G136)
 `api/services/search_index.py`. One `search_index.db` per bank, **beside `vector_index.db` and never
 inside it**: entity names + aliases + prose, every claim (superseded ones kept as history), episode

@@ -842,8 +842,12 @@ def _extract_date(timestamp: str | None) -> str | None:
 
 
 def _stage_episodes(episodes: list[dict], episodes_dir: Path) -> tuple[int, int, int]:
+    return _stage_export(episodes, episodes_dir).as_tuple()
+
+
+def _stage_export(episodes: list[dict], episodes_dir: Path) -> episode_staging.StageResult:
     drafts = [episode_staging.draft_from_export(e) for e in episodes]
-    return episode_staging.stage(drafts, episodes_dir, bank=episodes_dir.parent.name).as_tuple()
+    return episode_staging.stage(drafts, episodes_dir, bank=episodes_dir.parent.name)
 
 
 def _normalise_import_timestamp(ts) -> str | None:

@@ -11,6 +11,9 @@ test_crucial_tier.py
 test_capture_needs_no_model.py
 test_capture_hook.py::test_cicada_cli_spawns_carry_capture_off
 test_capture_hook.py::test_hook_module_imports_nothing_from_api
+# G207 (ruling 36 D2): the job after capture only queues in the capture's thread; its quick read is provisional
+test_awake_read.py::test_after_capture_only_queues_and_debounces
+test_awake_read.py::test_quick_read_writes_a_provisional_record_and_nothing_else
 
 ## Capture: a transcript is read only under the harness root as <session_id>.jsonl within the cap (G105)
 test_capture_transcript.py::test_refuses_paths_outside_the_harness_root

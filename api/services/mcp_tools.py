@@ -1950,6 +1950,12 @@ def _recall(ctx: ToolContext, query: str) -> str:
             f"**Changed recently (last {RECENT_CHANGE_DAYS} days):**\n" + "\n".join(changes)
         )
 
+    # === G207: what conversations Sleep hasn't read yet already say (a quick read's provisional claims) ===
+    provisional = _provisional_lines(memory_path, query, [h.get("entity_id") or h.get("id") for h in merged[:7]])
+    if provisional:
+        output_parts.append("**Not yet read by Sleep (provisional — a quick read of conversations since the last "
+                            "Sleep; Sleep confirms, corrects or drops each):**\n" + "\n".join(provisional))
+
     # === Wikilink traversal: one hop out from the top entities ===
     hop_blurbs: list[str] = []
     for hit in merged[:3]:
@@ -1981,15 +1987,18 @@ def _recall(ctx: ToolContext, query: str) -> str:
 
     # === Related conversation excerpts from LEANN episode index ===
     # R-R22: the person's words verbatim — the "sources" scope, not "search".
+    # G207: by meaning (the vector leg, which step 0 fills right after capture) and by words (the FTS passages, fresh
+    # on read), rank-fused; a conversation Sleep hasn't read yet says so.
     if ctx.raw_excerpts:
-        episode_hits = _leann_search_episodes(memory_path, query, top_k=3)
+        episode_hits = _fuse_episode_hits(_leann_search_episodes(memory_path, query, top_k=3),
+                                          _lexical_search_episodes(memory_path, query, top_k=3), top_k=3)
         if episode_hits:
             ep_lines = ["**Related conversation excerpts:**"]
             for ep in episode_hits:
                 meta = ep.get("metadata", {}) or {}
                 ep_id = meta.get("episode_id", "unknown")
                 snippet = (ep.get("text") or "")[:400].strip().replace("\n", " ")
-                ep_lines.append(f"- [{ep_id}] {snippet}")
+                ep_lines.append(f"- [{ep_id}]{_unread_label(memory_path, ep_id)} {snippet}")
             output_parts.append("\n".join(ep_lines))
 
     # G180: a graph with no page at all is an empty graph whether or not `entities/` was
@@ -3780,6 +3789,75 @@ def _leann_search_episodes(memory_path: Path, query: str, top_k: int) -> list[di
         indexer = SqliteVecIndexer(memory_path)
         return indexer.search_episodes(query, top_k=top_k)
     except Exception:
+        return []
+
+
+def _lexical_search_episodes(memory_path: Path, query: str, top_k: int) -> list[dict]:
+    """Recall's word leg over conversations (G207): the FTS passages ``cicada_ask``'s search leg reads, bm25-ranked,
+    in the vector leg's shape. Fresh on read, so a conversation captured a moment ago is here before any vector or
+    Sleep. Never raises: a missing index is a leg fewer."""
+    try:
+        resp = search_service.search(memory_path, query, kinds=("episode",), mode="hybrid", per_kind=top_k,
+                                     vectors=False)
+    except Exception:  # noqa: BLE001
+        return []
+    from api.services import evidence
+
+    out = []
+    for h in resp.results:
+        ep_id = h.episode_id or h.id
+        if not ep_id:
+            continue
+        text = h.snippet or ""
+        if h.start is not None:
+            # The vector leg's ~400 characters, around the matched line, from the stored body (offsets are its own).
+            doc = evidence.source_document(memory_path, ep_id)
+            if doc is not None:
+                # Gate B2: the dropped-middle marker is nobody's words, blanked as the index blanks it.
+                body = evidence.mask_gaps(doc[1], evidence.gap_ranges(doc[0], doc[1]))
+                text = body[max(0, h.start - 100): h.start + 300] or text
+        out.append({"text": text, "score": h.score, "metadata": {"episode_id": ep_id}})
+    return out
+
+
+def _fuse_episode_hits(vector: list[dict], words: list[dict], top_k: int) -> list[dict]:
+    """One row per conversation, the two legs rank-fused; a conversation both legs found keeps the vector leg's
+    passage (the longer, meaning-matched one)."""
+    def key(row: dict) -> str | None:
+        return str((row.get("metadata") or {}).get("episode_id") or "") or None
+
+    if not words:
+        return vector[:top_k]
+    first: dict[str, dict] = {}
+    for row in [*vector, *words]:
+        k = key(row)
+        if k and k not in first:
+            first[k] = row
+    order = search_service.rrf_fuse([{"id": key(r)} for r in vector if key(r)],
+                                    [{"id": key(r)} for r in words if key(r)], key=lambda r: r.get("id"))
+    return [first[r["id"]] for r in order if r.get("id") in first][:top_k]
+
+
+def _unread_label(memory_path: Path, episode_id: str) -> str:
+    """`` (<day>, not yet read by Sleep)`` for a conversation still ``processed: false``, else ``""``."""
+    try:
+        f = bank_index.file(memory_path, "episodes", f"{episode_id}.md")
+    except Exception:  # noqa: BLE001
+        return ""
+    if f is None or (f.frontmatter or {}).get("processed"):
+        return ""
+    day = str((f.frontmatter or {}).get("timestamp") or "")[:10] or episode_id[3:13]
+    return f" ({day}, not yet read by Sleep)"
+
+
+def _provisional_lines(memory_path: Path, query: str, subject_ids: list[str]) -> list[str]:
+    try:
+        from api.services import awake_read
+
+        return awake_read.provisional_lines(memory_path, query, subject_ids,
+                                            names={k: v for k, v in search_index.entity_names(memory_path).items()
+                                                   if v})
+    except Exception:  # noqa: BLE001 - a derived record: recall with one block fewer
         return []
 
 
