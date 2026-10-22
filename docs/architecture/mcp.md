@@ -1382,6 +1382,32 @@ the CLI.
   - `handshake.build_cli`'s prelude names the same fallback, and stays within 1,800 tokens.
 - **Not yet built:** the overhead and latency measurement (T9). Its later slices are in the G180 row.
 
+## Stdio hygiene (the 2026-10-22 Hyrum audit: G199's integrity cases, G200 A8/A10/A11)
+
+- **Two refusals in the bodies, so every door refuses alike** (stdio, `/tools/call`, the remote connector, and the
+  command line, which calls the same body or the door). `cicada_write_claim` with an `observer` outside the accepted set
+  answers `Could not write claim: observer '<value>' is not one of 'owner', 'agent', 'external' or 'external:<name>' …;
+  nothing was written.`; absent or empty is still `agent`. `cicada_save_episode` with missing, empty or blank `content`
+  answers `Nothing saved: \`content\` must be the text to keep, and it was empty.` Both are `Reply(code="refused")`,
+  so the command line exits 1. They are prose on the success channel like every refusal today; `isError` for refusals,
+  `structuredContent` and validation of every argument against its schema are the rest of G199, which re-records the
+  golden fixture once with A1/A4/A6/A7/A9.
+- **The advertised `observer` pattern names no person** (A11): `^(owner|agent|external|external:[a-z0-9][a-z0-9-]{0,63})$`
+  (`mcp_tools.OBSERVER_PATTERN`). The legacy observer value old local installs send is still accepted by the body
+  (`mcp_tools.observer_accepted`) and still stored as the owner; it is in no schema or description
+  (`test_owner_name_portability`).
+- **JSON-RPC basics** (A10, additive): `ping` answers `{}` (a notification, none); a line that is not JSON answers
+  `-32700 Parse error` with `id: null`, one that is JSON but not an object `-32600`; `tools/call` without a `name`
+  answers `-32602`. Every stdio tool in the remote `catalog.READ_TOOLS` carries `annotations.readOnlyHint: true`, so the
+  two doors agree on which tools only read; no other annotation is added.
+- **Teaching material** (A8): `SKILL.md` (and its byte copy in the plugin) shows the current bank layout
+  (`banks/<bank>/…`), points corrections at `cicada_edit_page` / `cicada_write_claim` / `cicada_resolve_inbox` instead
+  of "never edit", and names the plugin as the Claude Code door when the tools are missing. A type hub's blurb tells an
+  agent to open a page with `cicada_recall_detail`, not a file path a remote or client agent does not have (rebuilt at
+  the next Sleep; no migration).
+- **Episode ids** carry the conversation's local day (ruling 34; `capture-and-sleep.md`). An id is opaque to an agent:
+  `cicada_ask` dates each line by the local day its turn was said, never by the id.
+
 ## The remote connector's sign-in and capture (ruling 32, owner 2026-10-19)
 
 - **Sign-in.** The G135 listener is also an OAuth 2.1 authorization server (`api/remote/oauth.py`; the whole flow,

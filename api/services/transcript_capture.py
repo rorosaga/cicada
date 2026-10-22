@@ -588,6 +588,7 @@ def capture_posted(
     hook_event: str | None = None,
     workspace=None,
     device: str | None = None,
+    utc_offset_minutes: int | None = None,
 ) -> CaptureResult:
     """A session read on another machine by Cicada's own extractor and posted as turns (G181 phase 2, owner ruling 2,
     2026-10-16): the transcript rail amended, never relaxed. Nothing here opens a path. What arrived is re-checked
@@ -596,7 +597,9 @@ def capture_posted(
     the same body, hash, sidecar and G110 metadata, the same demo refusal. ``transcript_bytes`` is the extent the
     client read and ``transcript_size`` the file's size when it sent, so a stale snapshot (a resend after an outage
     that a newer read already beat) is ``superseded`` while a replaced, shorter file is not stuck. ``device`` is the
-    id of the device token that signed the post (``request.state.device``), recorded on the episode as ``device``."""
+    id of the device token that signed the post (``request.state.device``), recorded on the episode as ``device``.
+    ``utc_offset_minutes`` is the client's UTC offset at the conversation's first turn (ruling 34): a new episode's id
+    carries that day in the person's zone, not this server's."""
     from api.services import session_post
 
     if demo_guard.is_demo(memory_path):
@@ -631,13 +634,15 @@ def capture_posted(
                              cwd=cwd, bank=bank, effort=effort, bank_paths=bank_paths, hook_event=hook_event,
                              registry_workspace=registry_workspace, read_bytes=transcript_bytes,
                              source_size=max(transcript_size, transcript_bytes),
-                             extra={"device": device} if device else None)
+                             extra={"device": device} if device else None,
+                             utc_offset_minutes=utc_offset_minutes)
 
 
 def write_session(memory_path: Path, *, harness: str, session_id: str, conv: Conversation, existing: Path | None,
                   cwd: str | None, bank: str | None, effort: str | None, bank_paths, hook_event: str | None,
                   registry_workspace, read_bytes: int | None = None, source_path: Path | None = None,
-                  extra: dict | None = None, stored=None, source_size: int | None = None) -> CaptureResult:
+                  extra: dict | None = None, stored=None, source_size: int | None = None,
+                  utc_offset_minutes: int | None = None) -> CaptureResult:
     """Write or update the session's ONE episode from ``conv`` (R3, G104).
 
     The caller holds ``_lock`` and the bank's episode lock and has found
@@ -647,7 +652,9 @@ def write_session(memory_path: Path, *, harness: str, session_id: str, conv: Con
     are the transcript extent (``None`` for posted turns: there is no file to be
     superseded by). ``extra`` is writer-owned frontmatter kept, like
     :data:`META_KEYS`, outside ``content_hash`` and before ``turns``; ``stored``
-    is the already-parsed ``existing`` when the caller read it."""
+    is the already-parsed ``existing`` when the caller read it. A new episode's id carries the conversation's first
+    day in the person's zone (ruling 34, ``episode_ids.id_day``): this machine's, or ``utc_offset_minutes`` when a
+    client posted its own; an existing episode keeps its id."""
     episodes_dir = memory_path / "episodes"
     kept = conv.summary["kept"]
     extra = dict(extra or {})
@@ -663,7 +670,8 @@ def write_session(memory_path: Path, *, harness: str, session_id: str, conv: Con
 
     if existing is None:
         timestamp = _utc(conv.started_at)
-        episode_id = episode_ids.next_episode_id(episodes_dir, timestamp[:10])
+        episode_id = episode_ids.next_episode_id(
+            episodes_dir, episode_ids.id_day(timestamp, utc_offset_minutes=utc_offset_minutes))
         fm = {
             "id": episode_id,
             "timestamp": timestamp,

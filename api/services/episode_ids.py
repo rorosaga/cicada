@@ -35,7 +35,7 @@ import os
 import re
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
 
@@ -219,6 +219,35 @@ def utc_now_iso() -> str:
     both, so a reader never has to know which writer produced the file.
     """
     return datetime.now(timezone.utc).isoformat()
+
+
+#: The widest UTC offset a zone has (UTC+14 / UTC-12, with room), in minutes: a posted offset outside it is ignored.
+MAX_UTC_OFFSET_MINUTES = 14 * 60
+
+
+def id_day(stamp: str | datetime | None = None, *, utc_offset_minutes: int | None = None) -> str:
+    """The day an episode id carries (ruling 34, 2026-10-22): the conversation's first moment as a calendar day in
+    the person's zone — this machine's, or the UTC offset a client posted with the turns (G181: a server elsewhere
+    mints the id, and its own zone is not the person's) — never the UTC day.
+
+    ``stamp`` is the conversation's first moment, ISO-8601 (``Z`` or an offset; a naive one is this machine's local
+    time, as every legacy writer meant it) or a ``datetime``; absent or unreadable, now. An id once minted is never
+    renamed: this decides only new ids."""
+    moment: datetime | None = stamp if isinstance(stamp, datetime) else None
+    if moment is None and stamp:
+        try:
+            moment = datetime.fromisoformat(str(stamp).strip().replace("Z", "+00:00"))
+        except ValueError:
+            moment = None
+    if moment is None:
+        moment = datetime.now(timezone.utc)
+    try:
+        if isinstance(utc_offset_minutes, int) and not isinstance(utc_offset_minutes, bool) \
+                and abs(utc_offset_minutes) <= MAX_UTC_OFFSET_MINUTES:
+            return moment.astimezone(timezone(timedelta(minutes=utc_offset_minutes))).date().isoformat()
+        return moment.astimezone().date().isoformat()
+    except (ValueError, OverflowError, OSError):
+        return moment.date().isoformat()
 
 
 def utc_now_seconds() -> str:

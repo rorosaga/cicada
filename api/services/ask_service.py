@@ -464,14 +464,16 @@ def _focus(terms: set[str], entities: list[dict]) -> set[str]:
     return (terms - names) or terms
 
 
-def _said_days(rows) -> str:
+def _said_days(rows, memory_path: Path | None = None) -> str:
     """``said 2023-08-11, 2023-09-30`` — the days of the conversations a page line came from (its provenance rows),
-    the latest two; empty when the line cites none."""
-    days = sorted({d for d in (ask_sources.episode_day(getattr(ev, "episode", "")) for ev in rows or []) if d})
+    the latest two, each the day it was said in the person's zone (ruling 34); empty when the line cites none."""
+    days = sorted({d for d in (ask_sources.said_day(memory_path, getattr(ev, "episode", "")) for ev in rows or [])
+                   if d})
     return ("said " + ", ".join(days[-2:])) if days else ""
 
 
-def _page_lines(ent: dict, terms: set[str], budget: int, similar=None) -> tuple[str, list]:
+def _page_lines(ent: dict, terms: set[str], budget: int, similar=None,
+                memory_path: Path | None = None) -> tuple[str, list]:
     """What of a page's prose fits ``budget``, item by item (``section_provenance.scan``): the article's lead, then
     the items sharing the most of the question's words, in page order under their section, each with the days it
     was said. Returns ``(text, pointers)`` — the pointers (``ask_sources.Pointer``) are where the chosen items came
@@ -541,7 +543,7 @@ def _page_lines(ent: dict, terms: set[str], budget: int, similar=None) -> tuple[
             section = row["section"]
             lines.append(f"{_SECTION_LABELS[section]}:")
         limit = _LEAD_CHARS if i == lead and row["score"] <= 0 else _PARAGRAPH_CHARS
-        said = "" if section == "history" else _said_days(row["evidence"])
+        said = "" if section == "history" else _said_days(row["evidence"], memory_path)
         lines.append(f"- {'[' + said + '] ' if said else ''}{_clip(row['text'], limit)}")
         # Every chosen item's conversations ground the page's citation; only the ones sharing the question's words
         # (weight > 0) lead to WHAT WAS SAID (``ask_sources.gather`` skips weight 0).
@@ -605,7 +607,7 @@ def _conversation_refs(excerpts: list) -> dict[str, dict]:
 _TIME_DAYS = 12
 
 
-def _time_block(query: str, searched, shown: list) -> str:
+def _time_block(query: str, searched, shown: list, memory_path: Path | None = None) -> str:
     """TIME BETWEEN THE CONVERSATIONS (2026-10-20): for a question about two moments, or one that asks how much time
     passed ("how many days ago", "how many months since"), every distinct local day a shown line was said, numbered
     from the earliest (so any gap is a subtraction), today's number, and for each end the day of its own best turn
@@ -630,7 +632,7 @@ def _time_block(query: str, searched, shown: list) -> str:
             if e.day and e.day != d.isoformat():
                 printed.setdefault(d, set()).add(e.day)
     end_days = [(p, ask_sources.local_day(p.stamp) if p.stamp else
-                 (by_episode.get(p.episode) or ask_sources.local_day(ask_sources.episode_day(p.episode))))
+                 (by_episode.get(p.episode) or ask_sources.local_day(ask_sources.said_day(memory_path, p.episode))))
                 for p in ends]
     must = {d for _, d in end_days if d}
     days = sorted(shown_days | must)
@@ -802,7 +804,7 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
                 if weight:
                     found += pointed
         similar = similar if (meaning or _asked_page(ent, query, asked)) else None
-        prose, pointed = _page_lines(ent, terms, int(_PROSE_CHARS * scale), similar)
+        prose, pointed = _page_lines(ent, terms, int(_PROSE_CHARS * scale), similar, memory_path)
         _ground(grounds, pointed)
         found += [p for p in pointed if p.weight > 0]
         ent["grounding"] = grounds
@@ -869,7 +871,7 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
     else:
         more = []
     if source_words:
-        timing = _time_block(query, searched, excerpts + more)
+        timing = _time_block(query, searched, excerpts + more, memory_path)
         if timing:
             context += "\n\n" + timing
     notes = ""

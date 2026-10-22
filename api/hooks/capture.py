@@ -197,6 +197,9 @@ def _client_capture(payload: dict, *, harness: str, session_id: str, event: str,
                 "retry": payload.get("stop_hook_active") is True,
                 "cwd": payload.get("cwd") if isinstance(payload.get("cwd"), str) else None,
                 "hook_event": payload.get("hook_event_name")}
+        offset = remote_client.utc_offset_minutes()
+        if offset is not None:
+            body["utc_offset_minutes"] = offset   # ruling 34: the id's day is this machine's, not the server's
     else:
         transcript_path = payload.get("transcript_path")
         if not transcript_path:
@@ -210,6 +213,9 @@ def _client_capture(payload: dict, *, harness: str, session_id: str, event: str,
         body = {"harness": harness, "session_id": session_id, "conversation": conversation,
                 "transcript_bytes": read_bytes, "cwd": payload.get("cwd"),
                 "hook_event": payload.get("hook_event_name")}
+        offset = remote_client.utc_offset_minutes(remote_client.first_stamp(conversation))
+        if offset is not None:
+            body["utc_offset_minutes"] = offset   # ruling 34: the id's day is this machine's, not the server's
         effort = payload.get("effort")
         level = effort.get("level") if isinstance(effort, dict) else None
         if isinstance(level, str) and level.strip():

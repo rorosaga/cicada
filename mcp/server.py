@@ -30,27 +30,18 @@ from api.services import agent_commits  # noqa: E402,F401
 from api.services import skill_folders  # noqa: E402  (the agent list is one place: agent_wiring.AGENTS)
 # Pure filesystem + datetime, no bank/config state — safe to hoist alongside.
 from api.services import episode_ids  # noqa: E402,F401
-# Track P R8/R9 — the legacy observer value is protocol and must stay in the
-# `cicada_write_claim` schema (CLAUDE.md R12: a description naming an argument
-# the schema would reject is a bug), but it is a person's name, the repo is
-# public and the install is portable. Imported from its one documented home
-# rather than retyped, so `mcp/` holds no name literal of its own.
-from api.services.owner_identity import LEGACY_OBSERVER  # noqa: E402
 # G182 — the one VERSION file, the same string /healthz and the app report.
 from api.version import __version__  # noqa: E402
 # G182 — CICADA_PORT (the launchers export it), else 8000.
 from api.services import runtime_layout  # noqa: E402
 
-# G140 Q-R11: one pattern, not an enum — JSON Schema ANDs an `enum` with a
-# `pattern`, and the librarian skill's `external:<name>` (a named third party)
-# must be a value the schema accepts (R5 §2 defect 4, G75 R12). The legacy
-# value stays accepted and unadvertised (Track P R8), imported, never typed.
-OBSERVER_PATTERN = (
-    rf"^(owner|agent|external|{re.escape(LEGACY_OBSERVER)}|external:[a-z0-9][a-z0-9-]{{0,63}})$"
-)
-
 # G135 R-R2: every remote-capable tool body lives in `api/services/mcp_tools.py`.
 from api.services import design_tokens, mcp_tools  # noqa: E402
+
+# G140 Q-R11: one pattern, not an enum (JSON Schema ANDs an `enum` with a `pattern`, and the librarian skill's
+# `external:<name>` must be a value the schema accepts). Hyrum audit A11 (2026-10-22): the legacy observer value is a
+# person's name and is no longer advertised here; the tool body still accepts it (`mcp_tools.observer_accepted`).
+OBSERVER_PATTERN = mcp_tools.OBSERVER_PATTERN
 # Re-exported for callers that CALL them (tests, back-compat). Tests that PATCH
 # a moved helper patch it on `mcp_tools`, where the bodies look it up.
 from api.services.mcp_tools import (  # noqa: E402,F401
@@ -662,24 +653,11 @@ TOOLS = [
                 },
                 "observer": {
                     "type": "string",
-                    # The legacy observer value stays in the PATTERN (not just
-                    # in the prose) so the schema itself keeps the
-                    # compatibility promise — CLAUDE.md R12: a primer or
-                    # schema naming an argument the schema itself would
-                    # reject is a bug. `agentic_write.write_claim` already
-                    # normalizes it to the resolved owner id (G117).
-                    #
-                    # Track P R8/R9 — imported from
-                    # `owner_identity.LEGACY_OBSERVER` rather than retyped, so
-                    # `mcp/` holds no person's name of its own (the repo is
-                    # public, the install is portable), and it is NOT
-                    # interpolated from a resolved owner: `TOOLS` is a module
-                    # constant built at import, before any bank is known, and
-                    # a tool description must not vary per bank (one prose
-                    # source, G75 R12). It stops being ADVERTISED here — an
-                    # agent should send 'owner'; the pattern keeps accepting
-                    # the legacy value for old callers, and naming it only
-                    # invites new ones. G140 Q-R11: `OBSERVER_PATTERN` above.
+                    # Hyrum audit A11 (2026-10-22): the advertised pattern
+                    # names only portable values; the legacy observer value
+                    # (a person's name) is accepted by the tool body for old
+                    # callers (`mcp_tools.observer_accepted`), never shown to
+                    # a client. A3: a value outside both is refused.
                     "pattern": OBSERVER_PATTERN,
                     "description": "Who holds this belief. 'owner' = the user stated this themselves (trust-protected). 'agent' = you inferred/extracted this. 'external' = attributed to a third party — or 'external:<name>' (lowercase letters, digits, hyphens) to name them. Defaults to 'agent'.",
                 },
@@ -1106,6 +1084,20 @@ TOOLS = [
 ]
 
 
+# Hyrum audit A10: a stdio read tool says so, from the one list of read tools the remote connector annotates with
+# (`api.remote.catalog.READ_TOOLS`), so the two doors cannot disagree on which tools only read. Additive: a tool that
+# already carries annotations keeps them.
+def _annotate_reads(tools: list[dict]) -> None:
+    from api.remote.catalog import READ_TOOLS
+
+    for tool in tools:
+        if tool["name"] in READ_TOOLS:
+            tool.setdefault("annotations", {}).setdefault("readOnlyHint", True)
+
+
+_annotate_reads(TOOLS)
+
+
 def initialize_result(params: dict) -> dict:
     """The MCP `initialize` result — G48's inbound capture plus G75's outbound primer.
 
@@ -1186,11 +1178,17 @@ def main():
         try:
             request = json.loads(line)
         except json.JSONDecodeError:
+            # Hyrum audit A10: JSON-RPC 2.0's parse error, with a null id (the request's own id is unreadable), so a
+            # client is told instead of waiting on an answer that never comes.
+            respond_error(None, -32700, "Parse error")
+            continue
+        if not isinstance(request, dict):
+            respond_error(None, -32600, "Invalid Request")
             continue
 
         method = request.get("method", "")
         req_id = request.get("id")
-        params = request.get("params", {})
+        params = request.get("params") or {}
 
         if method == "initialize":
             # G48 capture + G75 primer, both in initialize_result so the
@@ -1201,12 +1199,21 @@ def main():
             # Client acknowledged init — no response needed
             pass
 
+        elif method == "ping":
+            # Hyrum audit A10: MCP's liveness check answers an empty result (a notification gets none).
+            if req_id is not None:
+                respond(req_id, {})
+
         elif method == "tools/list":
             respond(req_id, {"tools": TOOLS})
 
         elif method == "tools/call":
-            tool_name = params.get("name", "")
-            arguments = params.get("arguments", {})
+            tool_name = params.get("name", "") if isinstance(params, dict) else ""
+            arguments = (params.get("arguments") if isinstance(params, dict) else None) or {}
+            if not isinstance(tool_name, str) or not tool_name:
+                # Hyrum audit A10: no tool named is an invalid-params error, not a call to a blank tool.
+                respond_error(req_id, -32602, "Invalid params: tools/call needs a tool `name`")
+                continue
 
             try:
                 result = handle_tool(tool_name, arguments)

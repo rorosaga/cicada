@@ -230,10 +230,7 @@ class Bank:
             if doc is not None:
                 fm, body = doc
                 if episode_time.counts_as_activity(fm) and history_index.kind(fm) is None:
-                    day = str(fm.get("timestamp") or "")[:10]
-                    if not _is_day(day):
-                        m = _EP_DAY_RE.match(doc_id)
-                        day = m.group(1) if m else ""
+                    day = _said_on(fm.get("timestamp"), doc_id)
                     if _is_day(day):
                         conv = Conversation(doc_id, day, str(fm.get("title") or ""), body,
                                             moment=not _is_save(fm) and doc_id not in self.bulk,
@@ -256,12 +253,21 @@ def _bulk_days(root: Path) -> frozenset[str]:
         if fm.get("session_id") and not _is_save(fm):
             continue   # a live session's own capture is dated by the session
         eid = str(fm.get("id") or f.stem)
-        day = str(fm.get("timestamp") or "")[:10]
-        if not _is_day(day):
-            m = _EP_DAY_RE.match(eid)
-            day = m.group(1) if m else ""
+        day = _said_on(fm.get("timestamp"), eid)
         per[(str(fm.get("origin") or fm.get("source") or ""), day)].append({eid, f.stem})
     return frozenset(e for files_ in per.values() if len(files_) > BULK_DAY for ids in files_ for e in ids)
+
+
+def _said_on(stamp, episode_id: str) -> str:
+    """The day a conversation was said, in the person's zone (ruling 34): its ``timestamp`` read locally, else the day
+    in its id — never a UTC stamp's first ten characters."""
+    from api.services import ask_sources
+
+    said = ask_sources.local_day(stamp) if stamp else None
+    if said is not None:
+        return said.isoformat()
+    m = _EP_DAY_RE.match(episode_id or "")
+    return m.group(1) if m else ""
 
 
 def _is_day(s: str) -> bool:

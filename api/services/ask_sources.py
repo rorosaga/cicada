@@ -81,8 +81,26 @@ def pointers(evidence_rows, weight: int, terms: set[str] | None = None) -> list[
 
 
 def episode_day(episode_id: str) -> str:
+    """The day written in an episode id — the day it was minted under, which before ruling 34 was the UTC day for
+    a hook capture. A reader that means "the day it was said" uses :func:`said_day`."""
     m = _EP_DAY.match(episode_id or "")
     return m.group(1) if m else ""
+
+
+def said_day(memory_path, episode_id: str) -> str:
+    """The day a conversation was said, as the person counts days (ruling 34, 2026-10-22): its stored ``timestamp``
+    in the person's zone (:func:`local_day`), else the day in its id. An id is never renamed, and one a hook writer
+    minted before the ruling carries the UTC day; this reads past it. One cached header read per episode
+    (``bank_index``); ``""`` for anything that is not an episode id."""
+    day = episode_day(episode_id)
+    if not day or memory_path is None:
+        return day
+    from api.services import bank_index
+
+    entry = bank_index.file(Path(memory_path), "episodes", f"{episode_id}.md")
+    stamp = entry.frontmatter.get("timestamp") if entry is not None else None
+    said = local_day(stamp) if stamp else None
+    return said.isoformat() if said is not None else day
 
 
 @dataclass
@@ -274,7 +292,9 @@ def _take(candidates: list[tuple], docs: dict[str, tuple], terms: set[str], owne
         clipped = _clip(body, at, min(excerpt_chars, total_chars - used))
         if len(clipped) < 20 and len(body.strip()) >= 20:
             break
-        day = (turn.ts or str(fm.get("timestamp") or "") or episode_day(ep))[:10]
+        # Ruling 34: the day the turn was said in the person's zone, never a UTC stamp's first ten characters.
+        said = local_day(turn.ts or fm.get("timestamp"))
+        day = said.isoformat() if said is not None else episode_day(ep)
         excerpt = Excerpt(episode=ep, day=day, who=_who(turn, fm, owner_name), text=clipped,
                           order=(day, ep, i), title=str(fm.get("title") or "").strip(),
                           stamp=str(turn.ts or fm.get("timestamp") or "") or day)
@@ -1148,21 +1168,24 @@ def _pick_ends(memory_path: Path, ends: Ends, terms: set[str], weights: dict[str
     47 days apart"): the two conversations on the subject whose days are that far apart (else the two best on
     different days)."""
     if ends.pair:
-        on = [ep for ep in on_subject if episode_day(ep)][:SUBJECT_RANKS]
-        pairs = [(a, b) for i, a in enumerate(on) for b in on[i + 1:] if episode_day(a) != episode_day(b)]
+        def day(ep: str) -> str:   # ruling 34: the day it was said, not the day in its id
+            return said_day(memory_path, ep)
+
+        on = [ep for ep in on_subject if day(ep)][:SUBJECT_RANKS]
+        pairs = [(a, b) for i, a in enumerate(on) for b in on[i + 1:] if day(a) != day(b)]
         if not pairs:
             return []
         if ends.apart_days is not None:
             from datetime import date
 
             def gap(p) -> int:
-                d0, d1 = (date.fromisoformat(episode_day(x)) for x in p)
+                d0, d1 = (date.fromisoformat(day(x)) for x in p)
                 return abs(abs((d1 - d0).days) - ends.apart_days)
 
             best = min(pairs, key=lambda p: (gap(p), on.index(p[0]) + on.index(p[1])))
         else:
             best = pairs[0]
-        best = tuple(sorted(best, key=lambda ep: (episode_day(ep), ep)))
+        best = tuple(sorted(best, key=lambda ep: (day(ep), ep)))
         return [EndPick(label=f"conversation {i + 1}", episode=ep, weights=weights) for i, ep in enumerate(best)]
 
     shared = _end_terms(ends.shared)
@@ -1181,8 +1204,8 @@ def _pick_ends(memory_path: Path, ends: Ends, terms: set[str], weights: dict[str
         fused, scores = _fuse(lexical, semantic)
         cands = [ep for ep in fused if held_e.get(ep)]
         if end.days:
-            cands = [ep for ep in cands if _on_day(episode_day(ep), end.days)] or \
-                [ep for ep in order if held.get(ep) and _on_day(episode_day(ep), end.days)]
+            cands = [ep for ep in cands if _on_day(said_day(memory_path, ep), end.days)] or \
+                [ep for ep in order if held.get(ep) and _on_day(said_day(memory_path, ep), end.days)]
         cands = _whole_words_first(memory_path, cands, own)
         ranked.append((end, w, cands, scores, held_e))
 
@@ -1240,13 +1263,37 @@ MEANING_PASSAGES = 2
 MEANING_EPISODES = 4
 
 
+def _id_days_near(n: str) -> list[str]:
+    """The id-day prefixes that may hold a conversation said on ``n`` (a day, a month or a ``-MM-DD``): ``n`` and the
+    days either side of it — an id a hook writer minted before ruling 34 carries the UTC day, at most one off."""
+    from datetime import date, timedelta
+
+    try:
+        if n.startswith("-"):
+            d = date.fromisoformat(f"2000{n}")   # a leap year, so -02-29 is a day
+            return [n, *(f"-{x:%m-%d}" for x in (d - timedelta(days=1), d + timedelta(days=1)))]
+        if len(n) == 10:
+            d = date.fromisoformat(n)
+            return [n, (d - timedelta(days=1)).isoformat(), (d + timedelta(days=1)).isoformat()]
+        if len(n) == 7:
+            first = date.fromisoformat(f"{n}-01")
+            after = (first + timedelta(days=32)).replace(day=1)
+            return [n, (first - timedelta(days=1)).isoformat(), after.isoformat()]
+    except ValueError:
+        pass
+    return [n]
+
+
 def _episodes_on(memory_path: Path, named: list[str], limit: int = MEANING_EPISODES) -> list[str]:
-    """The conversations held on the days (or months) ``named`` gives, by their ids' day, newest first."""
+    """The conversations said on the days (or months) ``named`` gives, newest first — found by their ids' day and
+    the days either side, kept by the day they were said (:func:`said_day`, ruling 34)."""
     folder = Path(memory_path) / "episodes"
     out: set[str] = set()
     for n in named:
-        pattern = f"ep_????{n}_*.md" if n.startswith("-") else f"ep_{n}*.md"
-        out |= {p.stem for p in folder.glob(pattern)}
+        for near in _id_days_near(n):
+            pattern = f"ep_????{near}_*.md" if near.startswith("-") else f"ep_{near}*.md"
+            out |= {p.stem for p in folder.glob(pattern)}
+    out = {ep for ep in out if _on_day(said_day(memory_path, ep), named)}
     return sorted(out, reverse=True)[:limit]
 
 
@@ -1392,7 +1439,7 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
         if named_m:
             # A day the question names leads, as it does for the words: the vector leg's passages from that day
             # first, then that day's other conversations, read whole.
-            first = [ep for ep in passages if _on_day(episode_day(ep), named_m)]
+            first = [ep for ep in passages if _on_day(said_day(memory_path, ep), named_m)]
             first += [ep for ep in _episodes_on(memory_path, named_m) if ep not in passages]
             passages = {ep: passages.get(ep, []) for ep in first} | {ep: v for ep, v in passages.items()
                                                                        if ep not in first}
@@ -1447,17 +1494,17 @@ def search(memory_path: Path, question: str, *, terms: set[str] | None = None, e
         named = [d for d in named if d not in end_days and not any(d.startswith(e) or e.startswith(d)
                                                                    for e in end_days)]
     if named:
-        for ep in [ep for ep in order if held.get(ep) and _on_day(episode_day(ep), named)][:NAMED_SLOTS]:
+        for ep in [ep for ep in order if held.get(ep) and _on_day(said_day(memory_path, ep), named)][:NAMED_SLOTS]:
             kept.setdefault(ep, "named")
     if ends is not None:
         if _LATEST.search(" ".join((question or "").lower().split())):
-            newest = sorted(on_subject, key=lambda ep: (episode_day(ep), ep), reverse=True)
+            newest = sorted(on_subject, key=lambda ep: (said_day(memory_path, ep), ep), reverse=True)
             for ep in newest[:1]:
                 kept.setdefault(ep, "latest")
         order = _reserve(order, [*kept, order[0]], max(SEARCH_EPISODES, len(kept) + 1))
         return Searched(episodes=order, weights=weights, shape=shape, kept=kept, ends=picks, **by)
     if shape in LATEST_SLOTS:
-        newest = sorted(on_subject, key=lambda ep: (episode_day(ep), ep), reverse=True)
+        newest = sorted(on_subject, key=lambda ep: (said_day(memory_path, ep), ep), reverse=True)
         for ep in newest[: LATEST_SLOTS[shape]]:
             kept.setdefault(ep, "latest")
     if kept:

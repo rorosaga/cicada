@@ -295,6 +295,26 @@ def _holding_pages(fn):
     return inner
 
 
+#: G140 Q-R11: the ``observer`` values ``cicada_write_claim``'s schema advertises — one pattern, not an enum (JSON
+#: Schema ANDs an ``enum`` with a ``pattern``, and the librarian skill's ``external:<name>`` must be a value the schema
+#: accepts). The legacy observer value is NOT in it (the 2026-10-22 Hyrum audit A11): it is a person's name, and a
+#: schema reaches every client; :func:`observer_accepted` keeps taking it from old callers.
+OBSERVER_PATTERN = r"^(owner|agent|external|external:[a-z0-9][a-z0-9-]{0,63})$"
+_OBSERVER_RE = re.compile(OBSERVER_PATTERN)
+
+
+def observer_accepted(observer) -> bool:
+    """Whether a ``cicada_write_claim`` caller's ``observer`` is one the tool records (Hyrum audit A3): the
+    advertised pattern, plus the legacy observer value old local installs still send (accepted, never advertised).
+    Absent or empty is the default, ``agent``."""
+    from api.services import owner_identity
+
+    if observer is None or observer == "":
+        return True
+    return isinstance(observer, str) and (bool(_OBSERVER_RE.match(observer))
+                                          or observer == owner_identity.LEGACY_OBSERVER)
+
+
 def _demo_refusal(memory_path: Path) -> str | None:
     """G141 capture-side track (R-CS13): every write tool refuses a demo bank —
     one check for stdio and remote alike. It takes the bank the tool already
@@ -2666,6 +2686,12 @@ def write_claim(
     memory_path = ctx.memory_path()
     if (refusal := _demo_refusal(memory_path)) is not None:
         return refusal
+    if not observer_accepted(observer):
+        # Hyrum audit A3: the schema's pattern was advertised and never checked, so any string was recorded as
+        # the belief's holder. Refused before anything is read or written; the reply names the accepted values.
+        return Reply(f"Could not write claim: observer {str(observer)[:64]!r} is not one of 'owner', 'agent', "
+                     "'external' or 'external:<name>' (lowercase letters, digits, hyphens); nothing was written.",
+                     code="refused")
     author = ctx.author
     result = agentic_write.write_claim(
         memory_path,
@@ -4117,6 +4143,9 @@ def save_episode(ctx: ToolContext, content: str, title: str | None) -> str:
     memory_path = ctx.memory_path()
     if (refusal := _demo_refusal(memory_path)) is not None:
         return Reply(refusal, code="demo_bank")
+    if not isinstance(content, str) or not content.strip():
+        # Hyrum audit A3: `content` is required, and an empty one used to be saved (and counted by the timeline).
+        return Reply("Nothing saved: `content` must be the text to keep, and it was empty.", code="refused")
     episodes_dir = memory_path / "episodes"
     episodes_dir.mkdir(parents=True, exist_ok=True)
 

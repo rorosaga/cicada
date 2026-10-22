@@ -143,6 +143,37 @@ def read_session(harness: str, session_id: str, transcript_path: str) -> tuple[d
     return wire, read_bytes, None
 
 
+def utc_offset_minutes(stamp=None) -> int | None:
+    """This machine's UTC offset in minutes (east positive) at ``stamp`` — an ISO time, the conversation's first turn —
+    or now (ruling 34): the server elsewhere mints the episode id, and the day it carries is the person's, here. Rides
+    on a ``/capture/session`` or ``/capture/turn`` post as ``utc_offset_minutes`` (additive; a server that predates it
+    ignores it). ``None`` when the zone cannot be read."""
+    from datetime import datetime, timezone
+
+    moment = None
+    if isinstance(stamp, str) and stamp.strip():
+        try:
+            moment = datetime.fromisoformat(stamp.strip().replace("Z", "+00:00"))
+        except ValueError:
+            moment = None
+    if moment is None or moment.tzinfo is None:
+        moment = datetime.now(timezone.utc)
+    try:
+        offset = moment.astimezone().utcoffset()
+    except (ValueError, OverflowError, OSError):
+        return None
+    return None if offset is None else int(offset.total_seconds() // 60)
+
+
+def first_stamp(conversation) -> str | None:
+    """The first kept turn's time in a session's wire (``session_post.to_wire``), or ``None``."""
+    turns = conversation.get("kept") if isinstance(conversation, dict) else None
+    for turn in turns if isinstance(turns, list) else []:
+        if isinstance(turn, dict) and isinstance(turn.get("ts"), str) and turn["ts"]:
+            return turn["ts"]
+    return None
+
+
 def outcome(text: str) -> str:
     try:
         parsed = json.loads(text)

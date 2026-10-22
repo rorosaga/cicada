@@ -31,6 +31,17 @@
   per agent the skills loaded and an estimate of description tokens, characters/4, no cap enforced). The Skills page
   shows a Kind column, the Plugins group and one weight line (DR-59's dated exception, ruling 35 §6). Tests:
   `test_skill_plugins.py`, `SkillsPageTests`. Pick up: slice (b), the Stop hook keeping the names of invoked skills.
+- **2026-10-22 — MCP hygiene from the Hyrum audit (branch `fix/mcp-hygiene`; G199's two integrity cases, G200 A8,
+  A10, A11, ruling 34's episode-id day).** `cicada_write_claim` refuses an `observer` outside its pattern and
+  `cicada_save_episode` refuses empty `content`, in the tool bodies, so stdio, `/tools/call`, the remote connector and
+  the command line refuse alike (`code: refused`, nothing written). The advertised `observer` pattern no longer names
+  the legacy observer value; the body still accepts it. Stdio answers `ping`, `-32700` and `-32602`, and annotates its
+  read tools from `catalog.READ_TOOLS`. `SKILL.md` (and the plugin copy) and the type-hub blurb no longer teach a stale
+  layout, "never edit" or a file path. Ruling 34: the two hook writers mint the local day (`episode_ids.id_day`); a client
+  posts its own `utc_offset_minutes` (additive on `/capture/session` and `/capture/turn`); `ask_sources.said_day` and
+  `benchmarks/hard_questions` read the stamp in the person's zone; ids are never renamed. The golden fixture did not
+  change. Left for G199 proper: `isError` for refusals, `structuredContent`, validating every argument. Found, not in
+  scope: Sleep's `source_dates.episode_day` still dates a conversation by its UTC stamp's first ten characters.
 - **2026-10-21 — the seven backend failures on dev before 0.6.0 (branch `fix/suite-0.6`).** The full suite on
   `24a419a7` gave 7 failed, 10,864 passed. Two were code: the entity card opened the claims ledger through
   `quiet_pages.page_is_quiet` (#391) because `bank_index.file` parsed with the ledger fold — it now reads the header

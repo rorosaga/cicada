@@ -196,8 +196,8 @@ def _write_hub(
     if hub_kind == "type":
         blurb = (
             f"{len(members)} {name.lower()} Cicada is tracking. Highest-confidence "
-            f"first. Click a name to open the entity page, or read "
-            f"`memory/entities/<id>.md` directly."
+            f"first. Click a name to open the entity page; an agent opens one "
+            f"with `cicada_recall_detail(<id>)`."
         )
     else:
         blurb = (
