@@ -326,6 +326,12 @@ authentication, ever.
 shared `base.forget()` removes them on disconnect, so a fields-vs-stored drift can't orphan a
 secret. Where a vendor bills per request (X's "owned reads"), the sync result carries the count so a
 cost is stated plainly rather than hidden behind a "connected" checkbox.
+**A key is checked before it is saved (G50/G215, 2026-10-22):** one free GET of the provider's own model list, sent
+only to that provider's fixed host (`key_check.PROBES`), on the person's Save, through `net_guard`, 6 s, no cookies,
+nothing logged. A refused key is never saved; an unreachable provider is "Save without checking", the person's choice.
+Only the key's last four characters ever leave the backend (`keyHint`). Every key a card stores is in
+`MANAGED_KEY_ENV`, stripped from every `claude`/`codex` child (`scrubbed_env`). Where the key lives next (OS secret
+store; never projected into the environment) is a pending rail amendment — research providers-2 §4.5.
 Cicada's own Codex sign-in lives in `~/.cicada/codex/` — Codex's files, never opened by Cicada,
 never in a bank.
 

@@ -29,7 +29,8 @@ from api.services.auth import cicada_home
 #: Every key Cicada stores for BYOK belongs here (R-AG11 added xAI, Groq and
 #: Mistral; ``test_byok_providers`` fails for a provider missing from it).
 MANAGED_KEY_ENV = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "GEMINI_API_KEY",
-                   "XAI_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY")
+                   "XAI_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY",
+                   "FIREWORKS_API_KEY", "DEEPINFRA_API_KEY", "TOGETHERAI_API_KEY")
 
 #: Variables Cicada never sets that would move a ``claude`` child off the
 #: person's plan: each outranks the ``/login`` subscription in Claude Code's

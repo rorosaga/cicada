@@ -18,6 +18,9 @@ router = APIRouter(prefix="/connections")
 
 class KeyBody(BaseModel):
     key: str
+    #: G50/G215: ``false`` saves without the provider's check — what the app offers only after a check could not
+    #: reach the provider. A refused key is never saved either way.
+    check: bool = True
 
 
 class PrefsBody(CamelModel):
@@ -104,11 +107,33 @@ async def logout(connection_id: str, reg: Registry = Depends(_registry)):
 
 @router.put("/{connection_id}/key", response_model=ConnectionStatus)
 async def set_key(connection_id: str, body: KeyBody, reg: Registry = Depends(_registry)):
+    """Save a key, after one check with its provider (G50/G215): a free, authenticated read of the provider's own
+    model list, sent only to that provider's fixed host (``key_check``) and only on this, the person's Save. 422 when
+    the provider refuses the key (nothing saved); 503 when Cicada could not reach it — the app then offers
+    ``{"check": false}``, "Save without checking". The answer carries the key's last four, never the key."""
+    from datetime import datetime, timezone
+
+    from api.services.connections import key_check, secrets
+
     adapter = _adapter(reg, connection_id)
     if not isinstance(adapter, byok.ByokAdapter):
         raise HTTPException(status_code=400, detail="only API-key connections accept a key")
     try:
-        adapter.set_key(body.key)
+        secrets.validate_secret_value(body.key)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    brand = byok.provider(adapter.provider).brand
+    verified_at = None
+    if body.check:
+        result = await key_check.check(adapter.provider, body.key.strip())
+        if result.result == "refused":
+            raise HTTPException(status_code=422, detail=f"This key was refused by {brand}. Nothing was saved.")
+        if result.result != "ok":
+            raise HTTPException(status_code=503, detail=f"Cicada couldn't reach {brand} to check this key. "
+                                                        "Save it without checking, or try again.")
+        verified_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        adapter.set_key(body.key, verified_at=verified_at)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     reg.invalidate()

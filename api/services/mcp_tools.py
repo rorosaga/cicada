@@ -971,6 +971,8 @@ def record_check(ctx: ToolContext, item_id: str, source: str, outcome: str, opti
         _check_agent_row(ctx, memory_path, item_id=item_id, entity_id=entry.entity_id, outcome=outcome,
                          host_class=host_class, effect=None)
         if outcome == "needs_login":
+            _ask_person_to_sign_in(ctx, memory_path, host, None,
+                                   fallback="to check a source for one of your questions")
             return (f"Recorded: the person needs to sign in to {host}. Stop on this page. Do not sign in, type "
                     "credentials or try another route. Move on; it shows in Cicada's settings for the person.")
         words = {"blocked": "the page blocked the read", "not_found": "the page was not found",
@@ -1292,6 +1294,20 @@ def video_claim(ctx: ToolContext, limit=None, release: list | None = None) -> st
         return Reply("Error: could not reach the video queue.", code="error")
 
 
+def _ask_person_to_sign_in(ctx: ToolContext, memory_path: Path, host: str, note: str | None, *,
+                           url_hash: str | None = None, fallback: str) -> None:
+    """G205: a login wall the agent met becomes one agent request in the person's Inbox (and a Mac notification),
+    naming the agent by its catalog id. Its reason is the agent's own note when it left one, else Cicada's fixed
+    words. Never fails the record: the agent's answer stands either way."""
+    try:
+        from api.services import agent_live, agent_requests
+
+        agent_requests.ask(memory_path, agent=agent_live.agent_for(ctx.harness, ctx.client_name), site=host,
+                           reason=note or fallback, url_hash=url_hash)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @_holding_pages
 def record_read(ctx: ToolContext, url: str, outcome: str, summary: str | None = None, excerpts: list | None = None,
                 via: str | None = None, note: str | None = None, title: str | None = None) -> str:
@@ -1341,6 +1357,8 @@ def record_read(ctx: ToolContext, url: str, outcome: str, summary: str | None = 
         _read_agent_row(ctx, memory_path, entity_id=target.entity_id if target else None, outcome=outcome,
                         host_class=verdict.host_class)
         if outcome == "needs_login":
+            _ask_person_to_sign_in(ctx, memory_path, host, note, url_hash=h,
+                                   fallback="to read the page you asked it to read")
             return (f"Recorded: the person needs to sign in to {host}. Stop on this page. Do not sign in, "
                     "type credentials or try another route. Move to the next link. It shows on the link in Cicada's Feed.")
         words = {"blocked": "the page blocked the read", "not_found": "the page was not found",
@@ -3262,7 +3280,7 @@ def change_source(ctx: ToolContext, subject: str, ref: str, predicate: str | Non
 EDIT_SLEEPING = ("Nothing changed — Cicada is consolidating memory right now, and an edit made now could be swept "
                  "into its commit under the wrong name. Try again in a few minutes.")
 #: Inbox kinds only the person answers, in the app: an edit can never resolve one (nor an agent its own proposal).
-APP_ONLY_INBOX_KINDS = frozenset({"normalization", "page_edit"})
+APP_ONLY_INBOX_KINDS = frozenset({"normalization", "page_edit", "agent_request"})
 
 
 @_holding_pages

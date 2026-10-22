@@ -119,6 +119,9 @@ logging.getLogger("uvicorn.access").addFilter(_RedactQueryString())
 import litellm
 litellm.suppress_debug_info = True
 litellm.set_verbose = False
+from api.services import price_supplement  # noqa: E402 — G50/G215: rows the pinned table lacks, each with its basis
+
+price_supplement.apply(litellm)
 
 
 #: How long shutdown waits for admitted writes still in flight (G183).

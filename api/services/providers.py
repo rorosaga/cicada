@@ -364,6 +364,10 @@ def resolve_llm_fn(
         # leaving `completion` unset here changes no inferred behavior.
         import litellm
 
+        from api.services import price_supplement
+
+        price_supplement.apply(litellm)
+
         completion = litellm.completion
     if sink is None:
         sink = telemetry.record
