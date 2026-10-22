@@ -98,9 +98,22 @@ class _BlankSentences(ast.NodeTransformer):
         return node
 
 
+def _canon(value) -> str:
+    # Interpreter-independent: ast.dump drops empty fields from 3.13 and 3.15 adds ImportFrom.is_lazy=0, so a field
+    # that is None, [] or (outside a Constant's value) 0 is left out rather than letting the lock depend on the version.
+    if isinstance(value, ast.AST):
+        def kept(v):
+            return v is not None and v != [] and (isinstance(value, ast.Constant) or type(v) not in (int, bool) or v)
+        fields = (f"{f}={_canon(v)}" for f in value._fields if kept(v := getattr(value, f, None)))
+        return f"{type(value).__name__}({','.join(fields)})"
+    if isinstance(value, list):
+        return "[" + ",".join(_canon(v) for v in value) + "]"
+    return repr(value)
+
+
 def fingerprint(source: str, node: ast.AST, reply_builder: bool) -> str:
     if reply_builder:
-        text = ast.dump(_BlankSentences().visit(node), include_attributes=False)
+        text = _canon(_BlankSentences().visit(node))
     else:
         first = min([node.lineno] + [d.lineno for d in getattr(node, "decorator_list", [])])
         text = "\n".join(source.splitlines()[first - 1:node.end_lineno])

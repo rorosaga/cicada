@@ -41,11 +41,11 @@ video_state::_parse 762c09dabf23de6b
 mcp_tools::SLEEP_PROBE_TIMEOUT_S 0150ff519f3ea9ed
 mcp_tools::_backend_sleep_running 7dd6758fc0207c46
 mcp_tools::ToolContext.pages_held 4dfdbda850ee5944
-mcp_tools::record_watch 6e662208b25641c6
+mcp_tools::record_watch ff0ca665d758322a
 mcp_tools::_credit_video_queue 97a5a24028da650a
-mcp_tools::video_claim 555e91db8b484a9e
+mcp_tools::video_claim 140a17bd4ed19e83
 watch_record::_write_episode 3ae72236cd642f44
-watch_record::record cc15ebb8ee9d578f
+watch_record::record b2aae4788bf6af0a
 episode_ids::utc_now_iso 3cbbb634c1f11eb6
 session_identity::parse 6029a7c96da8dc90
 session_identity::stdio_identity 11998f4d0d89da9e
