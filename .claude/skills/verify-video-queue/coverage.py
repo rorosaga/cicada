@@ -42,10 +42,11 @@ MODULES = {
 
 COVERED = {
     "video_queue": [
-        "LEASE_MINUTES", "MAX_ATTEMPTS", "EXPIRE_FAILED_DAYS", "CLAIM_PAGE", "DEFAULT_CLAIM",
+        "LEASE_MINUTES", "MAX_LEASE_PERIODS", "MAX_ATTEMPTS", "EXPIRE_FAILED_DAYS", "CLAIM_PAGE", "DEFAULT_CLAIM",
         "_iso", "_parse", "_now", "_stat", "_clean_row", "clean_code", "_read_file", "_locked", "_write",
         "_failed_expiry", "_lapsed", "_settle", "_drop_orphans", "view", "_saved", "_records_fn", "_open", "_reset",
-        "_upsert", "put", "remove", "retry", "handoff", "_refresh", "claim", "release", "complete",
+        "_upsert", "put", "remove", "retry", "handoff", "_lease_cap", "_refresh", "_token_matches", "claim", "release",
+        "complete",
     ],
     "video_state": ["BASES", "basis_facts", "clean_basis", "saved_videos", "watch_records", "newer_than", "satisfies",
                     "_parse"],

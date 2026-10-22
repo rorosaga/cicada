@@ -1,16 +1,20 @@
 ----------------------------- MODULE VideoQueue -----------------------------
 (***************************************************************************)
 (* The G162 video queue's lease lifecycle. Each locked read-modify-write   *)
-(* in api/services/video_queue.py is one step (video_queue._locked:230     *)
-(* around video_queue._write:243). Every writer reads the saved videos and *)
-(* the clock BEFORE it takes the lock, so a call is a snapshot step and a  *)
-(* locked step, fused where that drops no behaviour (see Free). A record   *)
-(* is three steps: the episode (mcp_tools.record_watch:613), the credit's  *)
-(* snapshot (video_queue.complete:682), and the locked credit              *)
-(* (mcp_tools.record_watch:629). Properties are judged on outcomes, with   *)
-(* history the code does not keep (`holder`, each record's place against   *)
-(* the request), never with the operator a fix edits.                      *)
+(* in api/services/video_queue.py is one step (video_queue._locked:250     *)
+(* around video_queue._write:263). A call is a snapshot step and a locked  *)
+(* step, fused where that drops no behaviour (see Free). Before ruling 34  *)
+(* every writer read the saved videos BEFORE the lock (finding F2); fix F2 *)
+(* reads them under it (video_queue.complete:739), so with F2 the snapshot *)
+(* is never stale. A record is three steps: the episode                    *)
+(* (mcp_tools.record_watch:635), the credit's snapshot, and the locked     *)
+(* credit (mcp_tools.record_watch:651). Properties are judged on outcomes, *)
+(* with history the code does not keep (`holder`, each record's place      *)
+(* against the request), never with the operator a fix edits.              *)
 (* Statechart: statechart.md. Coverage, bounds and abstractions: SKILL.md. *)
+(* Ruling 34 (2026-10-22) put fixes F1, F2, F4 and F5 in the code: the     *)
+(* code-* checks run with Fixes = {"F1", "F2", "F4", "F5"}. F3 is accepted *)
+(* and stays a proposal (the fixed-* checks add it).                       *)
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets, TLC
 
@@ -33,19 +37,23 @@ Min(a, b) == IF a < b THEN a ELSE b
 \* The session id a session's calls carry: a stable harness id (session_identity.stdio_identity:54), none (the CLI
 \* door's session_id "", cli_app.door:313), one shared by every conversation that omits its handle
 \* (remote.runtime.resolve_handle:68), or one minted again when the process restarts (Restart). An id over 80
-\* characters is "sessionless" here: video_queue.claim:635 stores it cut and every later compare is untruncated, so
+\* characters is "sessionless" here: video_queue.claim:679 stores it cut and every later compare is untruncated, so
 \* no compare ever matches, exactly as with no id.
 FirstId(s) == CASE IdMode = "shared"      -> <<"bucket", 0>>
                 [] IdMode = "sessionless" -> NoId
                 [] OTHER                  -> <<s, 0>>
 
 
-Row(st, w, a, ses, tok, left, fleft) ==
-    [st |-> st, want |-> w, att |-> a, ses |-> ses, tok |-> tok, left |-> left, fleft |-> fleft]
-Absent        == Row("absent", "transcript", 0, Nobody, Nobody, 0, 0)
-Queued(w, a)  == Row("queued", w, a, Nobody, Nobody, 0, 0)
-Failed(w, a)  == Row("failed", w, a, Nobody, Nobody, 0, FailTicks)
-Claimed(w, a, id, tok) == Row("claimed", w, a, IF id = NoId THEN Nobody ELSE id, tok, LeaseTicks, 0)
+\* `cap`: ticks left before the lease's cap (fix F4, video_queue.MAX_LEASE_PERIODS:67 lease periods from the claim,
+\* video_queue._lease_cap:627); 0 when F4 is off or the row is not leased.
+MaxLeasePeriods == 3
+CapTicks == IF "F4" \in Fixes THEN MaxLeasePeriods * LeaseTicks ELSE 0
+Row(st, w, a, ses, tok, left, fleft, cap) ==
+    [st |-> st, want |-> w, att |-> a, ses |-> ses, tok |-> tok, left |-> left, fleft |-> fleft, cap |-> cap]
+Absent        == Row("absent", "transcript", 0, Nobody, Nobody, 0, 0, 0)
+Queued(w, a)  == Row("queued", w, a, Nobody, Nobody, 0, 0, 0)
+Failed(w, a)  == Row("failed", w, a, Nobody, Nobody, 0, FailTicks, 0)
+Claimed(w, a, id, tok) == Row("claimed", w, a, IF id = NoId THEN Nobody ELSE id, tok, LeaseTicks, 0, CapTicks)
 Idle == [op |-> "idle", snap |-> {}, key |-> SomeKey, arg |-> "-", own |-> "-"]
 
 (***************************************************************************)
@@ -85,6 +93,7 @@ Recs   == [f : {"T", "F"}, st : Statuses]
 TypeOK ==
     /\ \A k \in Keys : q[k].st \in {"absent", "queued", "claimed", "failed"} /\ q[k].att \in 0..MaxAttempts
                        /\ q[k].left \in 0..LeaseTicks /\ q[k].fleft \in 0..FailTicks /\ q[k].tok \in Sessions \cup {Nobody}
+                       /\ q[k].cap \in 0..CapTicks /\ ("F4" \in Fixes /\ q[k].left > 0 => q[k].left <= q[k].cap)
     /\ recs \in [Keys -> SUBSET Recs]
     /\ saved \subseteq Keys
     /\ holding \in BOOLEAN
@@ -97,18 +106,18 @@ TypeOK ==
 -----------------------------------------------------------------------------
 (* The pure functions the locked steps share.                              *)
 
-\* video_queue._lapsed:276: a claimed row whose lease_until <= now.
+\* video_queue._lapsed:296: a claimed row whose lease_until <= now.
 Lapsed(r) ==
     CASE Break = "lapse_ignores_lease" -> r.st = "claimed"
       [] Break = "no_lapse"            -> FALSE
       [] OTHER                         -> r.st = "claimed" /\ r.left = 0
 
-\* video_queue._settle:309 a failed row past EXPIRE_FAILED_DAYS.
+\* video_queue._settle:329 a failed row past EXPIRE_FAILED_DAYS.
 FailExpired(r) == r.st = "failed" /\ r.fleft = 0 /\ Break # "no_fail_expiry"
 
 Meets(f, w) == f = "F" \/ (f = "T" /\ w = "transcript")
 
-\* video_state.newer_than:232 compares at >=, requested_at is cut to the second (video_queue._iso:132) and an episode
+\* video_state.newer_than:232 compares at >=, requested_at is cut to the second (video_queue._iso:149) and an episode
 \* timestamp keeps microseconds (episode_ids.utc_now_iso:221), so a record from the request's own second, even one
 \* written before it, counts as newer. Fix F3 keeps requested_at to the microsecond.
 CodeNewer(st) == After(st) \/ (Same(st) /\ "F3" \notin Fixes)
@@ -117,7 +126,7 @@ SatisfiesCode(rs, w) == \E r \in rs : CodeNewer(r.st) /\ Meets(r.f, w)
 SatisfiesTrue(rs, w) == \E r \in rs : After(r.st) /\ Meets(r.f, w)
 SatisfiesAny(rs, w)  == \E r \in rs : Meets(r.f, w)
 
-\* video_queue._settle:294: failed expiry, then each lapsed lease, only when Sleep is not holding (video_queue._settle:316).
+\* video_queue._settle:314: failed expiry, then each lapsed lease, only when Sleep is not holding (video_queue._settle:336).
 SettleRow(r, rs, hold) ==
     IF FailExpired(r) THEN Absent
     ELSE IF Lapsed(r) /\ (~hold \/ Break = "settle_ignores_holding")
@@ -129,23 +138,25 @@ SettleRow(r, rs, hold) ==
 
 Settle(qq, rr, hold) == [k \in Keys |-> SettleRow(qq[k], rr[k], hold)]
 
-\* video_queue._open:474: settle, then drop orphans only when the saved set is non-empty
-\* (video_queue._open:482).
+\* video_queue._open:496: settle, then drop orphans only when the saved set is non-empty
+\* (video_queue._open:505).
 Open(qq, rr, hold, snap) ==
     LET s1 == Settle(qq, rr, hold) IN
     IF snap = {} THEN s1 ELSE [k \in Keys |-> IF k \in snap THEN s1[k] ELSE Absent]
 
-\* video_queue._refresh:602: a call with a session id extends that id's unlapsed leases; no id, no refresh
-\* (video_queue._refresh:605).
+\* video_queue._refresh:633: a call with a session id extends that id's unlapsed leases; no id, no refresh
+\* (video_queue._refresh:637). Fix F4: never past the lease's cap (video_queue._refresh:644); a refresh only
+\* extends (video_queue._refresh:645), and left <= cap always, so the new lease is Min(LeaseTicks, cap).
+Extended(r) == IF "F4" \in Fixes /\ Break # "no_lease_cap" THEN Min(LeaseTicks, r.cap) ELSE LeaseTicks
 Refresh(qq, id) ==
     IF id = NoId THEN qq
     ELSE [k \in Keys |-> IF qq[k].st = "claimed" /\ qq[k].ses = id /\ ~Lapsed(qq[k])
-                         THEN [qq[k] EXCEPT !.left = LeaseTicks] ELSE qq[k]]
+                         THEN [qq[k] EXCEPT !.left = Extended(qq[k])] ELSE qq[k]]
 
-\* video_queue.claim:613: lease queued rows whose key is in the saved set
-\* (video_queue.claim:627). Fix F1 mints a lease token per
-\* claim and returns it; a token is modeled as the claimer itself (only its conversation ever sees it). With Legacy,
-\* a row may carry no token (written by the code before the fix).
+\* video_queue.claim:655: lease queued rows whose key is in the saved set
+\* (video_queue.claim:671). Fix F1 mints a lease token per
+\* claim and returns it (video_queue.claim:680); a token is modeled as the claimer itself (only its conversation
+\* ever sees it). With Legacy, a row may carry no token (claimed by the code before ruling 34).
 ClaimBase(qq, rr, hold, snap, id) == Refresh(Open(qq, rr, hold, snap), id)
 ClaimFrom == IF Break = "claim_takes_failed" THEN {"queued", "failed"} ELSE {"queued"}
 Claimable(qq, rr, hold, snap, id) == {k \in Keys : ClaimBase(qq, rr, hold, snap, id)[k].st \in ClaimFrom /\ k \in snap}
@@ -156,21 +167,24 @@ ClaimFn(qq, rr, hold, snap, id, take, tok) ==
     LET q1 == ClaimBase(qq, rr, hold, snap, id) IN
     [k \in Keys |-> IF k \in take THEN Claimed(q1[k].want, q1[k].att, id, tok) ELSE q1[k]]
 
-\* video_queue.release:641: today any claimed row becomes failed
-\* (video_queue.release:661). F1s, the first proposal: compare session ids.
-\* F1: the caller must pass the row's lease token; a row without one answers not_yours and lapses instead.
+\* video_queue.release:686: a claimed row becomes failed only with its own lease token (fix F1,
+\* video_queue.release:712); a row without one answers not_yours and lapses instead. F1s, the first proposal,
+\* rejected: compare session ids. With neither, the code before ruling 34: any claimed row.
 MayRelease(r, s) ==
     /\ r.st = "claimed"
-    /\ CASE "F1" \in Fixes  -> r.tok = s
+    /\ CASE Break = "release_ignores_token" -> TRUE
+         [] "F1" \in Fixes  -> r.tok = s
          [] "F1s" \in Fixes -> sid[s] # NoId /\ r.ses = sid[s]
          [] OTHER           -> TRUE
 ReleaseFn(qq, rr, hold, snap, s, k) ==
     LET q1 == Refresh(Open(qq, rr, hold, snap), sid[s]) IN
     IF MayRelease(q1[k], s) THEN [q1 EXCEPT ![k] = Failed(q1[k].want, q1[k].att)] ELSE q1
 
-\* video_queue.complete:692-696. Today a stated basis closes the row whatever the record's age. F3s, the first
-\* proposal: compare the record's time with requested_at through newer_than (seconds). F3: the same compare with
-\* requested_at kept to the microsecond. F5: a record with no basis closes the row only with the lease token.
+\* video_queue.complete:747. A stated basis closes the row whatever the record's age (F3, accepted by ruling
+\* 34). F3s, the first proposal: compare the record's time with requested_at through newer_than (seconds). F3:
+\* the same compare with requested_at kept to the microsecond. F5 (in the code): a record with no basis closes the
+\* row only with the lease token (video_queue.complete:749); without F5, the code before ruling 34 compared the
+\* session id.
 OwnNewer(o) == CASE "F3" \in Fixes  -> After(o)
                  [] "F3s" \in Fixes -> After(o) \/ Same(o)
                  [] OTHER           -> TRUE
@@ -178,11 +192,11 @@ Done(r, o, s, b) ==
     CASE b = "frames"     -> OwnNewer(o)
       [] b = "transcript" -> r.want = "transcript" /\ OwnNewer(o)
       [] OTHER            -> /\ r.st = "claimed"
-                             /\ \/ Break = "record_ignores_session"
+                             /\ \/ Break = "record_ignores_token"
                                 \/ ("F5" \in Fixes /\ r.tok = s)
                                 \/ ("F5" \notin Fixes /\ sid[s] # NoId /\ r.ses = sid[s])
 
-\* video_queue.complete:674: no refresh when the row is absent (video_queue.complete:688). `o` is where the
+\* video_queue.complete:725: no refresh when the row is absent (video_queue.complete:741). `o` is where the
 \* credit's own record sits against the request.
 CompleteFn(qq, rr, hold, snap, s, k, b, o) ==
     LET q1 == Open(qq, rr, hold, snap) IN
@@ -193,7 +207,7 @@ CompleteFn(qq, rr, hold, snap, s, k, b, o) ==
               THEN [q2 EXCEPT ![k].att = q2[k].att + 1]
               ELSE q2
 
-\* video_queue._upsert:493 (put:509): a new or failed row restarts requested_at.
+\* video_queue._upsert:516 (put:509): a new or failed row restarts requested_at.
 Restartable == IF Break = "put_restarts_claimed" THEN {"failed", "claimed"} ELSE {"failed"}
 PutFn(qq, rr, hold, snap, k, w) ==
     LET q1 == Open(qq, rr, hold, snap)
@@ -206,7 +220,7 @@ PutRestarts(qq, rr, hold, snap, k) == Open(qq, rr, hold, snap)[k].st \in {"absen
 Restarted(rs) == Norm({[r EXCEPT !.st = OnRequest(r.st)] : r \in rs})
 Seconded(rs)  == Norm({[r EXCEPT !.st = OnSecond(r.st)] : r \in rs})
 
-\* video_queue.remove:526, video_queue.retry:545 (retry keeps requested_at).
+\* video_queue.remove:550, video_queue.retry:569 (retry keeps requested_at).
 RemoveFn(qq, rr, hold, snap, k) == [Open(qq, rr, hold, snap) EXCEPT ![k] = Absent]
 RetryFn(qq, rr, hold, snap, k) ==
     LET q1 == Open(qq, rr, hold, snap) IN
@@ -254,7 +268,8 @@ Begin(a, op, k, arg) ==
                                 key |-> k, arg |-> arg, own |-> "-"]]
     /\ Spend(a)
 
-\* mcp_tools.video_claim:1204 reads the saved videos, then video_queue.claim runs under the lock.
+\* video_queue.claim reads the saved videos under its lock (video_queue.claim:668, fix F2); before ruling 34 the
+\* handler read them first.
 ClaimBegin(s) == Begin(s, "claim", SomeKey, "-") /\ UNCHANGED <<q, recs, saved, holding, copy, holder, sid>>
 
 ClaimLocked(s) ==
@@ -282,7 +297,7 @@ ClaimWrite(s) ==
     /\ copy' = [copy EXCEPT ![s] = [rows |-> [k \in Keys |-> Absent], h |-> [k \in Keys |-> Nobody]]]
     /\ UNCHANGED <<recs, saved, holding, calls, sid>>
 
-\* mcp_tools.video_claim:1206 video_claim(release=[{url, code, reason}]).
+\* mcp_tools.video_claim:1230 video_claim(release=[{url, code, reason}]).
 ReleaseBegin(s, k) == Begin(s, "release", k, "-") /\ UNCHANGED <<q, recs, saved, holding, copy, holder, sid>>
 
 ReleaseLocked(s) ==
@@ -293,7 +308,7 @@ ReleaseLocked(s) ==
     /\ pc' = [pc EXCEPT ![s] = Idle]
     /\ UNCHANGED <<recs, saved, holding, calls, copy, sid>>
 
-\* mcp_tools.record_watch:613 watch_record.record writes the episode; the credit has not run.
+\* mcp_tools.record_watch:635 watch_record.record writes the episode; the credit has not run.
 RecordEpisode(s, k, b) ==
     /\ k \in saved
     /\ CanCall(s)
@@ -302,7 +317,8 @@ RecordEpisode(s, k, b) ==
     /\ recs' = IF b = "none" THEN recs ELSE [recs EXCEPT ![k] = Norm(@ \cup {[f |-> Fact(b), st |-> Fresh]})]
     /\ UNCHANGED <<q, saved, holding, copy, holder, sid>>
 
-\* mcp_tools.record_watch:629 _credit_video_queue; video_queue.complete:682 reads the saved videos before its lock.
+\* mcp_tools.record_watch:651 _credit_video_queue; video_queue.complete:739 reads the saved videos under its lock
+\* (fix F2; before ruling 34, before it).
 CreditBegin(s) ==
     /\ Free
     /\ pc[s].op = "credit"
@@ -318,7 +334,7 @@ CompleteLocked(s) ==
     /\ pc' = [pc EXCEPT ![s] = Idle]
     /\ UNCHANGED <<recs, saved, holding, calls, copy, sid>>
 
-\* The queue credit never runs: it raised and _credit_video_queue swallowed it (mcp_tools._credit_video_queue:1107),
+\* The queue credit never runs: it raised and _credit_video_queue swallowed it (mcp_tools._credit_video_queue:1132),
 \* or the MCP process died after the episode was written.
 DropCredit(s) ==
     /\ Free
@@ -383,7 +399,9 @@ NewSecond ==
 Dec(n) == IF n > 0 THEN n - 1 ELSE 0
 Tick ==
     /\ \E k \in Keys : q[k].left > 0 \/ q[k].fleft > 0
-    /\ q' = [k \in Keys |-> [q[k] EXCEPT !.left = Dec(@), !.fleft = Dec(@)]]
+    \* A lapsed lease is never refreshed again, so its cap no longer matters: it is cleared (one state, not many).
+    /\ q' = [k \in Keys |-> [q[k] EXCEPT !.left = Dec(@), !.fleft = Dec(@),
+                                         !.cap = IF Dec(q[k].left) = 0 THEN 0 ELSE Dec(@)]]
     /\ recs' = [k \in Keys |-> Seconded(recs[k])]
     /\ pc' = Seconds
     /\ UNCHANGED <<saved, holding, calls, copy, holder, sid>>

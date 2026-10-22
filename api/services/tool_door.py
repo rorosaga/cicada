@@ -114,7 +114,7 @@ DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
     "cicada_save_url": lambda c, a: mcp_tools.save_url(c, _s(a, "url"), a.get("note")),
     "cicada_record_watch": lambda c, a: mcp_tools.record_watch(
         c, _s(a, "url"), _s(a, "summary"), a.get("excerpts"), a.get("chapters"), a.get("basis"), a.get("engine"),
-        a.get("duration")),
+        a.get("duration"), a.get("lease_token")),
     "cicada_video_queue": lambda c, a: mcp_tools.video_queue_list(c, a.get("limit")),
     "cicada_video_claim": lambda c, a: mcp_tools.video_claim(c, a.get("limit"), a.get("release")),
     "cicada_explore_queue": lambda c, a: mcp_tools.explore_queue_list(c, a.get("limit")),

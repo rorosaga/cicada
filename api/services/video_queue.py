@@ -28,6 +28,18 @@ gate. Its mtime (and the count of leases and expiries that have come due, see
   probe's worst case.
 * **Free text is scrubbed** (writer ``video_queue``): a release reason is one
   line of at most :data:`MAX_REASON_CHARS` characters, rendered as plain text.
+* **A lease is ended only by its token** (ruling 34, F1/F5): :func:`claim` mints a
+  128-bit ``lease_token`` per leased row and returns it; :func:`release`, and a
+  record with no basis (:func:`complete`), end a lease only with that row's token.
+  A session id is never proof of holding: conversations can share one, and a
+  caller with none (the CLI) or a new one after a restart could never hand back
+  its own. A row leased before tokens existed answers ``not_yours`` and lapses on
+  its own clock.
+* **The saved videos are read under the lock** (ruling 34, F2): a snapshot read
+  before it could lack a video saved and queued meanwhile, and the orphan drop
+  would take that fresh row.
+* **A lease lives at most :data:`MAX_LEASE_PERIODS` lease periods from its claim**
+  (ruling 34, F4): a session that keeps calling no longer holds a video forever.
 
 Nothing here fetches a video, a caption, a frame or a stream (Track V).
 """
@@ -51,6 +63,8 @@ from api.services.auth import cicada_home
 
 SCHEMA_V = 1
 LEASE_MINUTES = 45
+#: A refresh never carries a lease past this many lease periods from its first claim (ruling 34, F4).
+MAX_LEASE_PERIODS = 3
 MAX_ATTEMPTS = 3
 #: Videos one ``cicada_video_claim`` call leases at most. The prompt loops.
 CLAIM_PAGE = 10
@@ -66,6 +80,9 @@ FAIL_CODES = ("needs_login", "no_captions", "not_found", "blocked", "failed")
 METHODS = ("auto", "captions", "link")
 
 _BANK_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+_TOKEN = re.compile(r"^[0-9a-f]{32}$")
+#: The fields one lease carries; every path that ends a lease drops them all.
+_LEASE_FIELDS = ("claimed_by", "claimed_at", "lease_until", "session", "lease_token")
 
 
 class QueueError(ValueError):
@@ -173,6 +190,9 @@ def _clean_row(raw) -> dict | None:
         value = raw.get(name)
         if isinstance(value, str) and value:
             row[name] = value
+    token = raw.get("lease_token")
+    if isinstance(token, str) and _TOKEN.match(token):
+        row["lease_token"] = token
     failed = raw.get("failed")
     if isinstance(failed, dict):
         row["failed"] = {"code": clean_code(failed.get("code")), "reason": str(failed.get("reason") or "")[:MAX_REASON_CHARS],
@@ -327,7 +347,7 @@ def _settle(rows: list[dict], batches: dict[str, dict], now: datetime, *,
                     batches[bid]["updated_at"] = _iso(now)
                 continue
             row["attempts"] = int(row.get("attempts") or 0) + 1
-            for name in ("claimed_by", "claimed_at", "lease_until", "session"):
+            for name in _LEASE_FIELDS:
                 row.pop(name, None)
             if row["attempts"] >= MAX_ATTEMPTS:
                 row["state"] = "failed"
@@ -456,8 +476,10 @@ def batch_view(rows: list[dict], batches: dict[str, dict], saved) -> dict | None
 # ----------------------------------------------------------------- write paths
 
 
-def _saved(memory_path: Path, saved):
-    return saved if saved is not None else video_state.saved_videos(memory_path)
+def _saved(memory_path: Path):
+    """The saved videos, read by a writer **under the queue lock** (ruling 34, F2): a set read before the lock
+    may lack a video the person saved and queued while this writer waited, and the orphan drop would take it."""
+    return video_state.saved_videos(memory_path)
 
 
 def _records_fn(memory_path: Path):
@@ -472,7 +494,8 @@ def _records_fn(memory_path: Path):
 
 
 def _open(memory_path: Path, now: datetime, saved, holding):
-    """Load under the lock, settle, drop orphans. Returns rows, batches, changed."""
+    """Load under the lock, settle, drop orphans. Returns rows, batches, changed. ``saved`` is the caller's
+    :func:`_saved`, read under the same lock."""
     rows, batches = _read_file(memory_path)
     rows, batches, c1 = _settle(rows, batches, now, records=_records_fn(memory_path), holding=holding)
     # Orphans are dropped only on affirmative evidence: an empty ``saved`` is what an
@@ -485,7 +508,7 @@ def _open(memory_path: Path, now: datetime, saved, holding):
 
 
 def _reset(row: dict) -> None:
-    for name in ("claimed_by", "claimed_at", "lease_until", "session", "failed"):
+    for name in (*_LEASE_FIELDS, "failed"):
         row.pop(name, None)
     row["state"], row["attempts"] = "queued", 0
 
@@ -506,15 +529,16 @@ def _upsert(rows: list[dict], key: str, want: str, now: datetime) -> dict:
     return row
 
 
-def put(memory_path: Path, key: str, want: str, *, saved=None, now: datetime | None = None,
+def put(memory_path: Path, key: str, want: str, *, now: datetime | None = None,
         holding: Callable[[], bool] | None = None) -> dict:
     """Queue one video (idempotent). Raises :class:`NotAVideo` / :class:`QueueFull`."""
     if want not in WANTS:
         raise QueueError("want must be transcript or watch")
-    moment, saved = _now(now), _saved(memory_path, saved)
-    if key not in saved:
-        raise NotAVideo([key])
+    moment = _now(now)
     with _locked(memory_path) as target:
+        saved = _saved(memory_path)
+        if key not in saved:
+            raise NotAVideo([key])
         rows, batches, _ = _open(memory_path, moment, saved, holding)
         if not any(r["key"] == key for r in rows) and len(rows) >= MAX_ROWS:
             raise QueueFull()
@@ -523,12 +547,12 @@ def put(memory_path: Path, key: str, want: str, *, saved=None, now: datetime | N
     return dict(row)
 
 
-def remove(memory_path: Path, key: str, *, saved=None, now: datetime | None = None,
+def remove(memory_path: Path, key: str, *, now: datetime | None = None,
            holding: Callable[[], bool] | None = None) -> bool:
     """Remove a row and drop its key from its batch (the batch total shrinks)."""
-    moment, saved = _now(now), _saved(memory_path, saved)
+    moment = _now(now)
     with _locked(memory_path) as target:
-        rows, batches, changed = _open(memory_path, moment, saved, holding)
+        rows, batches, changed = _open(memory_path, moment, _saved(memory_path), holding)
         kept = [r for r in rows if r["key"] != key]
         if len(kept) == len(rows):
             if changed:
@@ -542,13 +566,13 @@ def remove(memory_path: Path, key: str, *, saved=None, now: datetime | None = No
     return True
 
 
-def retry(memory_path: Path, key: str, *, saved=None, now: datetime | None = None,
+def retry(memory_path: Path, key: str, *, now: datetime | None = None,
           holding: Callable[[], bool] | None = None) -> dict | None:
     """A failed row goes back to queued with its attempts reset. ``None`` when the
     key has no failed row."""
-    moment, saved = _now(now), _saved(memory_path, saved)
+    moment = _now(now)
     with _locked(memory_path) as target:
-        rows, batches, changed = _open(memory_path, moment, saved, holding)
+        rows, batches, changed = _open(memory_path, moment, _saved(memory_path), holding)
         row = next((r for r in rows if r["key"] == key and r["state"] == "failed"), None)
         if row is None:
             if changed:
@@ -559,7 +583,7 @@ def retry(memory_path: Path, key: str, *, saved=None, now: datetime | None = Non
     return dict(row)
 
 
-def handoff(memory_path: Path, items, method: str, *, saved=None, now: datetime | None = None,
+def handoff(memory_path: Path, items, method: str, *, now: datetime | None = None,
             holding: Callable[[], bool] | None = None) -> tuple[dict, int]:
     """The run's one write: upsert every selected video and stamp one batch that
     replaces the active one. Leases nothing. **No cap** (P1). All or nothing: an
@@ -579,11 +603,12 @@ def handoff(memory_path: Path, items, method: str, *, saved=None, now: datetime 
         wanted[key] = "watch" if "watch" in (want, wanted.get(key)) else "transcript"
     if not wanted:
         raise QueueError("pick at least one video")
-    moment, saved = _now(now), _saved(memory_path, saved)
-    unknown = [k for k in wanted if k not in saved]
-    if unknown:
-        raise NotAVideo(unknown)
+    moment = _now(now)
     with _locked(memory_path) as target:
+        saved = _saved(memory_path)
+        unknown = [k for k in wanted if k not in saved]
+        if unknown:
+            raise NotAVideo(unknown)
         rows, batches, _ = _open(memory_path, moment, saved, holding)
         existing = {r["key"] for r in rows}
         if len(existing) + len([k for k in wanted if k not in existing]) > MAX_ROWS:
@@ -599,29 +624,48 @@ def handoff(memory_path: Path, items, method: str, *, saved=None, now: datetime 
     return {"id": bid, "total": len(wanted), "method": method}, queued
 
 
+def _lease_cap(row: dict) -> datetime | None:
+    """The latest a refresh may carry this lease: :data:`MAX_LEASE_PERIODS` lease periods from its claim."""
+    claimed = _parse(row.get("claimed_at"))
+    return claimed + timedelta(minutes=LEASE_MINUTES * MAX_LEASE_PERIODS) if claimed else None
+
+
 def _refresh(rows: list[dict], session: str | None, now: datetime) -> None:
-    """Any call by a session extends its other leases: a sub-agent working a long
-    video is not judged lapsed."""
+    """Any queue call by a session extends its other leases, so a sub-agent working a long video is not judged
+    lapsed — but never past :func:`_lease_cap` (ruling 34, F4): a session that keeps calling no longer holds a
+    forgotten video forever. A refresh only extends; it never ends or hands over a lease (the token does that)."""
     if not session:
         return
-    until = _iso(now + timedelta(minutes=LEASE_MINUTES))
     for row in rows:
         if row["state"] == "claimed" and row.get("session") == session and not _lapsed(row, now):
-            row["lease_until"] = until
+            cap, current = _lease_cap(row), _parse(row.get("lease_until"))
+            if cap is None or current is None:
+                continue
+            until = min(now + timedelta(minutes=LEASE_MINUTES), cap)
+            if until > current:
+                row["lease_until"] = _iso(until)
 
 
-def claim(memory_path: Path, *, session: str | None, harness: str | None, limit=None, saved=None,
+def _token_matches(row: dict, token) -> bool:
+    """Is ``token`` this leased row's own lease token? A row leased before tokens existed has none: never."""
+    held, given = row.get("lease_token"), str(token or "").strip().lower()
+    return bool(held) and bool(_TOKEN.match(given)) and secrets.compare_digest(given, held)
+
+
+def claim(memory_path: Path, *, session: str | None, harness: str | None, limit=None,
           now: datetime | None = None, holding: Callable[[], bool] | None = None) -> list[dict]:
     """Lease the oldest ``queued`` videos to this session: at most
     ``min(limit or 5, 10)``, never the same video to two sessions. Returns the
-    leased rows (the caller joins them to the saved pages)."""
+    leased rows, each with its fresh 128-bit ``lease_token`` (the caller joins them to
+    the saved pages; only that token later releases the row, ruling 34)."""
     try:
         wanted = int(limit) if limit is not None else DEFAULT_CLAIM
     except (TypeError, ValueError):
         wanted = DEFAULT_CLAIM
     wanted = max(1, min(wanted, CLAIM_PAGE))
-    moment, saved = _now(now), _saved(memory_path, saved)
+    moment = _now(now)
     with _locked(memory_path) as target:
+        saved = _saved(memory_path)
         rows, batches, _ = _open(memory_path, moment, saved, holding)
         _refresh(rows, session, moment)
         queued = sorted((r for r in rows if r["state"] == "queued" and r["key"] in saved), key=lambda r: (r.get("requested_at") or "", r["key"]))
@@ -633,21 +677,25 @@ def claim(memory_path: Path, *, session: str | None, harness: str | None, limit=
             row["lease_until"] = _iso(moment + timedelta(minutes=LEASE_MINUTES))
             if session:
                 row["session"] = str(session)[:80]
+            row["lease_token"] = secrets.token_hex(16)
             leased.append(dict(row))
         _write(target, rows, batches)
     return leased
 
 
-def release(memory_path: Path, releases, *, session: str | None, saved=None, now: datetime | None = None,
+def release(memory_path: Path, releases, *, session: str | None, now: datetime | None = None,
             holding: Callable[[], bool] | None = None) -> list[tuple[str, str]]:
     """Hand claimed videos back as ``failed`` with a code and a scrubbed reason.
 
-    ``releases`` are ``{url, code?, reason?}``. Returns ``[(url, outcome)]`` with
-    outcome ``released`` | ``needs_login`` | ``not_claimed`` | ``unknown``."""
-    moment, saved = _now(now), _saved(memory_path, saved)
+    ``releases`` are ``{url, lease_token, code?, reason?}``. Returns ``[(url, outcome)]`` with
+    outcome ``released`` | ``needs_login`` | ``not_claimed`` | ``not_yours`` | ``unknown``.
+    Only the row's own ``lease_token`` hands it back (ruling 34, F1): a missing or
+    different token is ``not_yours`` and the lease lapses on its own clock. The
+    session id is never compared (it refreshes, it does not prove holding)."""
+    moment = _now(now)
     out: list[tuple[str, str]] = []
     with _locked(memory_path) as target:
-        rows, batches, _ = _open(memory_path, moment, saved, holding)
+        rows, batches, _ = _open(memory_path, moment, _saved(memory_path), holding)
         _refresh(rows, session, moment)
         for item in releases or []:
             if not isinstance(item, dict):
@@ -661,8 +709,11 @@ def release(memory_path: Path, releases, *, session: str | None, saved=None, now
             if row["state"] != "claimed":
                 out.append((url, "not_claimed"))
                 continue
+            if not _token_matches(row, item.get("lease_token")):
+                out.append((url, "not_yours"))
+                continue
             code = clean_code(item.get("code"))
-            for name in ("claimed_by", "claimed_at", "lease_until", "session"):
+            for name in _LEASE_FIELDS:
                 row.pop(name, None)
             row["state"] = "failed"
             row["failed"] = {"code": code, "reason": clean_text(item.get("reason")), "at": _iso(moment)}
@@ -671,19 +722,21 @@ def release(memory_path: Path, releases, *, session: str | None, saved=None, now
     return out
 
 
-def complete(memory_path: Path, key: str, basis, *, session: str | None, saved=None,
+def complete(memory_path: Path, key: str, basis, *, session: str | None, lease_token: str | None = None,
              now: datetime | None = None, holding: Callable[[], bool] | None = None) -> str:
     """A record landed for ``key``: apply §4.3's satisfaction table to its queue row.
 
     ``done`` (row removed, batch credited), ``stays`` (a transcript against a
     watch request: the row stays), ``left`` (no basis and not the leaseholder:
     the row stays) or ``none`` (nothing was queued). Written even when the bank
-    commit did not run — the queue is outside the bank."""
-    moment, saved = _now(now), _saved(memory_path, saved)
+    commit did not run — the queue is outside the bank. A record with no basis
+    closes a leased row only with that row's ``lease_token`` (ruling 34, F5): a
+    session id other conversations may share is never proof of holding."""
+    moment = _now(now)
     if _stat(memory_path) is None:
         return "none"
     with _locked(memory_path) as target:
-        rows, batches, changed = _open(memory_path, moment, saved, holding)
+        rows, batches, changed = _open(memory_path, moment, _saved(memory_path), holding)
         row = next((r for r in rows if r["key"] == key), None)
         if row is None:
             if changed:
@@ -693,7 +746,7 @@ def complete(memory_path: Path, key: str, basis, *, session: str | None, saved=N
         if stated:
             done = stated in ("frames", "both") or (stated == "transcript" and row["want"] == "transcript")
         else:
-            done = row["state"] == "claimed" and bool(session) and row.get("session") == session
+            done = row["state"] == "claimed" and _token_matches(row, lease_token)
         _refresh(rows, session, moment)
         if not done:
             _write(target, rows, batches)

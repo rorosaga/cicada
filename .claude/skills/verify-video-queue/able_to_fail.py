@@ -48,11 +48,21 @@ BREAKS = {
         '    return stamp + timedelta(days=EXPIRE_FAILED_DAYS) if stamp else None\n',
         '    return None\n',
         f"{QUEUE_TESTS}::test_failed_rows_and_finished_batches_expire_in_memory_and_persist_only_on_a_write"),
-    "record_ignores_session": (
+    "record_ignores_token": (
         "complete",
-        '            done = row["state"] == "claimed" and bool(session) and row.get("session") == session\n',
+        '            done = row["state"] == "claimed" and _token_matches(row, lease_token)\n',
         '            done = row["state"] == "claimed"\n',
         f"{QUEUE_TESTS}::test_the_satisfaction_table"),
+    "release_ignores_token": (
+        "release",
+        '            if not _token_matches(row, item.get("lease_token")):\n',
+        '            if False:\n',
+        f"{FORMAL_TESTS}::test_f1_a_session_cannot_hand_back_another_sessions_lease"),
+    "no_lease_cap": (
+        "_refresh",
+        '            until = min(now + timedelta(minutes=LEASE_MINUTES), cap)\n',
+        '            until = now + timedelta(minutes=LEASE_MINUTES)\n',
+        f"{FORMAL_TESTS}::test_f4_a_session_that_keeps_calling_holds_a_lease_at_most_three_periods"),
     "stays_counts_attempt": (
         "complete",
         '        if not done:\n            _write(target, rows, batches)\n',

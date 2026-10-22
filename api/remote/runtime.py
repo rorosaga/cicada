@@ -218,7 +218,7 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
         c, str(a.get("item") or ""), str(a.get("note") or ""), a.get("status")),
     "cicada_record_watch": lambda c, a: mcp_tools.record_watch(
         c, str(a.get("url") or ""), str(a.get("summary") or ""), a.get("excerpts"), a.get("chapters"),
-        basis=a.get("basis"), engine=a.get("engine"), duration=a.get("duration")),
+        basis=a.get("basis"), engine=a.get("engine"), duration=a.get("duration"), lease_token=a.get("lease_token")),
     "cicada_video_queue": lambda c, a: mcp_tools.video_queue_list(c, a.get("limit")),
     "cicada_video_claim": lambda c, a: mcp_tools.video_claim(c, a.get("limit"), a.get("release")),
     "cicada_reading_queue": lambda c, a: mcp_tools.reading_queue(c, a.get("limit")),

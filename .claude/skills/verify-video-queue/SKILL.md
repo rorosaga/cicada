@@ -35,7 +35,7 @@ line.
 ## Run it
 
 ```sh
-.claude/skills/verify-video-queue/run.sh            # code, findings, proposed fixes and every break: ~45 s
+.claude/skills/verify-video-queue/run.sh            # code, findings, proposed fixes and every break: ~60 s
 .claude/skills/verify-video-queue/run.sh --breaks   # only the breaks: ~15 s
 .claude/skills/verify-video-queue/run.sh --deep     # restarting ids, fixes under page churn, two videos: see bounds
 python3 .claude/skills/verify-video-queue/able_to_fail.py   # real-code breaks in a temporary copy: ~90 s
@@ -66,99 +66,87 @@ in its second or not). No property reads an operator a fix edits.
 | | Property (TLA+ name) | In one sentence | Harm if broken | Code today | With the proposals |
 |---|---|---|---|---|---|
 | P1 | `NoDoubleClaim` | A lease that has not lapsed never passes to another caller in one step. | Two agents watch one video. | verified | verified |
-| P2 | `NoLostRow` | A saved video's row leaves only when removed, aged out, or some record of it exists. | The person's request vanishes. | **F2** | verified (`fixed-churn`, `--deep`) |
-| P3 | `ReleaseOnlyByHolder` | Only the leaseholder hands a leased video back. | One agent fails another's work in progress. | **F1** | verified |
-| P4 | `RecordByOtherCorruptsNothing` | A credit by a caller that does not hold the lease ends it only on a record written after the request. | A working agent loses its lease unannounced. | **F3**, **F5** | verified |
-| P5 | `DoneIsSupported` | A row closes as done only on a record written after its request, or on its leaseholder's own record. | A request is closed by a record that predates it. | **F3** | verified, sub-second order included |
+| P2 | `NoLostRow` | A saved video's row leaves only when removed, aged out, or some record of it exists. | The person's request vanishes. | verified since ruling 34 (`code-churn`, `--deep`; was **F2**) | verified (`fixed-churn`, `--deep`) |
+| P3 | `ReleaseOnlyByHolder` | Only the leaseholder hands a leased video back. | One agent fails another's work in progress. | verified since ruling 34 (was **F1**) | verified |
+| P4 | `RecordByOtherCorruptsNothing` | A credit by a caller that does not hold the lease ends it only on a record written after the request. | A working agent loses its lease unannounced. | **F3** (accepted); F5 fixed by ruling 34 | verified |
+| P5 | `DoneIsSupported` | A row closes as done only on a record written after its request, or on its leaseholder's own record. | A request is closed by a record that predates it. | **F3** (accepted) | verified, sub-second order included |
 | P6 | `Idempotent` | Releasing, or recording with the same basis, twice leaves the queue as once did. | A retried tool call changes the outcome. | verified | verified |
 | P7 | `NoBurnWhileHeld` | A lapse costs an attempt only while Sleep is not holding the pages. | A long drain fails videos nobody had a chance at. | verified | verified |
 | P8 | `NoBurnWhenSatisfied` | A lapse never costs an attempt when a record written after the request satisfies it. | A watched video is re-queued or failed. | verified | verified |
-| P9 | `LeaseEnds` | Every lease ends in every reader's view once its caller goes quiet. | A video stays "picked up" forever. | verified; **F4** while the caller keeps calling | unchanged |
+| P9 | `LeaseEnds` | Every lease ends in every reader's view once its caller goes quiet. | A video stays "picked up" forever. | verified, and since ruling 34 also while the caller keeps calling (`code-lease-cap`; was **F4**) | unchanged |
 | P10 | `FailedEnds` | Every failed row eventually ages out or is tried again. | A failed row never leaves the list. | verified | unchanged |
 | P11 | `FailedReturnsOnlyByPerson` | A failed video returns to the queue only when the person asks. | An agent walks back into a login wall another agent reported. | verified | verified |
 | P12 | `NoLeaseTakenAway` | A live lease ends only by a release, a record's credit, the person's Remove, or its page going away. | Queueing again, or any other write, takes a video from its agent. | verified | verified |
-| P13 | `HolderCanRelease` | A caller can always hand back a live lease it holds. | An agent that cannot do a video must wait 45 minutes and burn an attempt. | verified (anyone may release) | verified with F1; **fails** with a session compare (`F1s-*`) |
+| P13 | `HolderCanRelease` | A caller can always hand back a live lease it holds. | An agent that cannot do a video must wait 45 minutes and burn an attempt. | verified (the lease token, F1) | verified with F1; **fails** with a session compare (`F1s-*`) |
 
 "Verified" means TLC explored every state within the bounds and found no violation, for every id mode the row's
 checks cover. The breaks below show each property can fail.
 
-## Open findings
+## Findings, and ruling 34
 
-Each finding has a test in `api/tests/test_video_queue_formal.py` that drives the real entry points in the
-counterexample's order and fails today on its assertion. The tests are `xfail(strict=True, raises=AssertionError)`
-with the finding id, so a fix flips them, and a hang (a 10 s thread guard) or a crash fails the run instead of
-counting as the finding.
+#399 left five findings with failing repros in `api/tests/test_video_queue_formal.py`. Ruling 34
+(`docs/goals/TODO.md`, 2026-10-22) decided them: F1, F2, F4 and F5 are fixed in the code and their tests now pass
+as guards; F3 is accepted and its two tests stay `xfail(strict=True, raises=AssertionError)`, so a change that
+closes it flips them. A hang (a 10 s thread guard) or a crash fails the run instead of counting as the finding.
 
-- **F1, release ignores who asks.** `s1` claims `k1`. `s2` calls `cicada_video_claim(release=[k1])`. `release`
-  finds the row `claimed` (`video_queue.release:661`) and fails it. The tool says it "hands videos back that you
-  could not do" (`server.TOOLS:518`). **Likelihood: low.** An agent has to release a link it did not lease, on
-  purpose or by a mix-up. Its weight is contract consistency: the explore queue refuses it
-  (`explore_queue.release:816`).
-- **F2, a stale saved snapshot drops a fresh row.** A writer reads the saved videos before its lock
-  (`mcp_tools.video_claim:1204`, `video_queue.complete:682` and every other writer). A video is saved and queued
-  meanwhile, and the writer's `_open` drops it as an orphan (`video_queue._open:482`). TLC's shortest trace also
-  uses the person's own two puts with a page hidden and saved again in between. **Likelihood: very low.** The window
-  is the lock wait, milliseconds, and up to about 2 s only behind a slow lazy Sleep probe on stdio
-  (`mcp_tools._backend_sleep_running:69`). The person must save and then queue inside it. Queueing again
-  recovers.
-- **F3, a record older than the request closes it.** `record_watch` writes its episode
-  (`mcp_tools.record_watch:613`). The person queues the video, and another caller claims it. The credit then
-  runs (`mcp_tools.record_watch:629`) and a stated basis closes the row (`video_queue.complete:694`) whatever the
+- **F1, release ignored who asks (fixed).** `s1` claimed `k1`; `s2` called `cicada_video_claim(release=[k1])` and
+  the row failed. Now `claim` mints a 128-bit `lease_token` per leased row (`video_queue.claim:680`), the reply
+  shows it on the video's line, and `release` ends a lease only with that row's token
+  (`video_queue.release:712`, `video_queue._token_matches:652`); anything else answers `not_yours` and the lease
+  lapses on its own clock, as does a row claimed before tokens existed. The session id is never compared: TLC
+  shows a session compare lets a handle-less remote conversation release another's lease
+  (`F1s-session-compare-shared-ids`), and leaves a CLI caller with no id or a restarted stdio process unable to
+  hand back its own (`F1s-session-compare-sessionless`, `F1s-session-compare-restart`).
+- **F2, a stale saved snapshot dropped a fresh row (fixed).** Every writer read the saved videos before its lock,
+  and a video saved and queued meanwhile was dropped as an orphan (`video_queue._open:505`). Every writer now reads
+  them under its lock (`video_queue.claim:668`, `video_queue.complete:739` and the rest; the writers no longer take
+  a `saved` argument), and the MCP handler reads them again after the claim for its reply lines only.
+- **F3, a record older than the request closes it (accepted).** `record_watch` writes its episode
+  (`mcp_tools.record_watch:635`). The person queues the video, and another caller claims it. The credit then
+  runs (`mcp_tools.record_watch:651`) and a stated basis closes the row (`video_queue.complete:747`) whatever the
   record's age, ending the other caller's lease. A second path needs no credit gap: `requested_at` is kept to the
-  second (`video_queue._iso:132`) and `newer_than` compares with `>=` (`video_state.newer_than:239`), so a record
+  second (`video_queue._iso:149`) and `newer_than` compares with `>=` (`video_state.newer_than:239`), so a record
   from earlier in the request's own second counts as newer, both here and in the lapse sweep
-  (`video_queue._settle:322`). **Likelihood: negligible.** The person has to queue a not-yet-queued video in the
-  same 0.1 to 3 s in which an agent finishes recording it.
-  **Bug or owner decision: an owner decision, and I recommend accepting it.** The row closes because a watch that
-  meets the request exists, written seconds before the person asked. That is what the person wants in the only
-  realistic case. The lapse sweep's newer-than rule exists so a record from before a re-request cannot close it,
-  and in that light F3 is a gap. The real cost is the other caller's lease ending: its own record later answers
-  `none`, and its watch is still recorded.
-- **F4, an active caller keeps its leases (by design).** A claim, release or complete carrying the caller's
-  session id refreshes every unlapsed lease stored under that id (`video_queue.claim:626`,
-  `video_queue.release:651`, `video_queue.complete:697`). Other tools do not refresh. A forgotten lease lives as
-  long as the caller keeps using the queue tools. Keeping this, or capping refreshes at an age from `claimed_at`,
-  is the owner's call.
-- **F5, a shared session id lets one conversation close another's lease.** Two remote conversations on one
-  connector that both omit their `conversation` handle share one id (`runtime.resolve_handle:75`). One claims a
-  video. The other records it with no basis, and `complete` closes the row as the leaseholder's own record
-  (`video_queue.complete:696`). **Likelihood: very low.** It needs two handle-less conversations on one connector
-  working the queue at once, and a record with no basis. A shared `CICADA_SESSION_ID` across processes does the
-  same.
+  (`video_queue._settle:342`). **Likelihood: negligible.** A watch that meets the request exists, written seconds
+  before the person asked, which is what the person wants in the only realistic case. **Revisit** (ruling 34) if a
+  lease is ever seen ending on an older record: then take the microsecond compare below.
+- **F4, an active caller kept its leases forever (fixed).** A claim, release or complete carrying the caller's
+  session id refreshes every unlapsed lease stored under that id (`video_queue.claim:670`,
+  `video_queue.release:699`, `video_queue.complete:750`). A refresh now never carries a lease past
+  `MAX_LEASE_PERIODS` (3) lease periods from its claim (`video_queue._refresh:644`, `video_queue._lease_cap:629`),
+  so a forgotten lease lapses at most 135 minutes after its claim however often the caller calls.
+- **F5, a shared session id let one conversation close another's lease (fixed).** Two remote conversations on one
+  connector that both omit their `conversation` handle share one id (`runtime.resolve_handle:75`). A record with no
+  basis now closes a leased row only with that row's lease token (`video_queue.complete:749`), which
+  `cicada_record_watch` takes as `lease_token`; without it the row is `left`.
 
-## The proposals, mirrored in the model
+## The fixes, mirrored in the model
 
-The model's `Fixes` constant holds each one. `fixed-*` checks every safety property with all four, across the
-session-id modes. The first proposals for F1 and F3 are kept as `F1s` and `F3s`, and their checks are expected to
-fail. That is what shows the fixed checks can fail.
+The model's `Fixes` constant holds each one. The `code-*` checks run with `{"F1", "F2", "F4", "F5"}`, what the
+code does since ruling 34. Each finding's check (`F1-*`, `F2-*`, `F4-*`, `F5-*`) runs the code with that one fix
+taken out and must still fail, which shows the passing checks can fail. `fixed-*` adds the F3 proposal and checks
+every safety property across the session-id modes. The rejected first proposals for F1 and F3 are kept as `F1s`
+and `F3s`, and their checks are expected to fail.
 
-- **F1: a lease token.** `claim` mints a 128-bit `lease_token` per leased row (as `explore_queue.claim:681`
-  does), stores it, and returns it beside each link. Release items carry it, and `release` accepts only a match.
-  A row without a token (claimed before the change) answers `not_yours` and lapses within 45 minutes. Do not also
-  accept a session match as `explore_queue.release:816` does. TLC shows a session compare lets a handle-less remote
-  conversation release another's lease (`F1s-session-compare-shared-ids`), and leaves a CLI caller with no id or a
-  restarted stdio process unable to hand back its own (`F1s-session-compare-sessionless`,
-  `F1s-session-compare-restart`). The token is modeled as the claimer itself: only its conversation sees the
-  reply, and that survives a process restart. With a unique token per claim, P3 holds almost by definition, so
-  the checks that carry weight here are P13 and the legacy rows (`fixed-legacy-rows`). Cost: `cicada_video_claim`'s
-  schema, the remote catalog and the primer gain `lease_token` (R12).
-- **F2: read the saved videos under the lock.** Move `_saved` inside `_locked` in every writer, and use the MCP
-  handler's snapshot only for its reply lines. `break-f2_credit_stale` shows a half fix that leaves
-  `complete`'s read before the lock still loses rows.
-- **F3, if the owner wants "after I asked": the microsecond compare.** Keep `requested_at` to the microsecond,
+- **F1, the lease token.** Modeled as the claimer itself: only its conversation sees the reply, and that survives a
+  process restart. With a unique token per claim, P3 holds almost by definition, so the checks that carry weight
+  are P13 and the legacy rows (`fixed-legacy-rows`, a row may carry no token). `break-release_ignores_token` shows
+  P3 fails without the check.
+- **F2, the saved videos read under the lock.** With F2 a snapshot is never stale. `break-f2_credit_stale` shows a
+  half fix that leaves `complete`'s read before the lock still loses rows.
+- **F4, the lease cap.** Each row carries `cap`, the ticks left before its cap (3 lease periods at claim); a refresh
+  sets the lease to `Min(LeaseTicks, cap)`. `code-lease-cap` holds P9 with one caller that never stops calling;
+  `break-no_lease_cap` and `F4-active-session-keeps-lease` show it fails without the cap.
+- **F5, the token for a record with no basis.** `break-record_ignores_token` shows P4 fails without it.
+- **F3, the proposal if the trigger ever fires: the microsecond compare.** Keep `requested_at` to the microsecond,
   pass the record's own episode timestamp to `complete`, and close a stated-basis row only when that timestamp
   is after `requested_at`. The lapse sweep then compares at full precision too. The first proposal, passing the
-  record's time through today's `newer_than`, still closes a row on a record from earlier in the same second
+  record's time through `newer_than`, still closes a row on a record from earlier in the same second
   (`F3s-seconds-compare-same-second`). Gaps that remain: one wall clock is assumed across processes, so a clock
   stepped back between the episode write and the put can still misorder them; rows queued before the change keep
   second precision until queued again; a repeated record with the same summary reuses its first episode and that
   episode's older timestamp (`watch_record._write_episode:153`), which errs towards leaving the row; `claim` sorts
   by the `requested_at` string, so mixed precisions should sort by the parsed instant.
-- **F5: the same token for a record with no basis.** `cicada_record_watch` accepts the `lease_token`, and the
-  no-basis branch closes the row only on a match; without one it answers `left`. A caller with no session id
-  gains a way to close its own lease this way, which it lacks today.
-
-Proposals stay proposals: this skill changes no product code.
 
 ## Reading a result
 
@@ -172,9 +160,9 @@ Each step names the call and the code it models.
   points in that order (see `test_video_queue_formal.py`), mark it `xfail(strict=True, raises=AssertionError)`
   with a new finding id, add a `models/F<n>-*.cfg` expected to violate, and add it to `EXPECT_DEFAULT`. Never weaken
   a property or remove a behaviour from the model to get a pass.
-- **A break shows only in the `fixed-*` checks.** A property with an open finding (P2, P3, P4, P5) is checked
-  on today's code only by its finding's check, which already fails. The `fixed-*` checks hold every property with
-  the proposals in place, so a new way to break P2-P5 surfaces there.
+- **A break shows only in the `fixed-*` checks.** A property with an open finding (P4, P5: F3, accepted) is
+  checked on the code only by its finding's check, which already fails. The `fixed-*` checks hold every property
+  with the F3 proposal in place, so a new way to break P4-P5 surfaces there.
 - **A finding's check now passes.** Either the code fixed it, or the model drifted. Confirm against the code. If
   the fix is real, mirror it (change the operator so the code-today checks describe the fixed code), flip the
   expectation to `pass` with a minimum state count, and remove the test's `xfail` marker.
@@ -186,27 +174,27 @@ Each step names the call and the code it models.
 
 ## Keeping it in step
 
-**Sync commit: `0fa3f239b13b42f4911a088d4fa7feca22ce4890`** (`dev`, 2026-10-22). At that commit the model
-describes these definitions:
+**Sync point: the ruling-34 fix** (branch `fix/video-lease` on `dev` at `10bf8f4d`, 2026-10-22; `coverage.lock`
+holds the fingerprints). At that point the model describes these definitions:
 
 | Code | Model |
 |---|---|
-| `video_queue._locked:230`, `video_queue._write:243`, `video_queue._read_file:194` | one locked step per write call |
-| `video_queue._lapsed:276`, `video_queue.LEASE_MINUTES:53` | `Lapsed`, `LeaseTicks`, `Tick` |
-| `video_queue._failed_expiry:271`, `video_queue.EXPIRE_FAILED_DAYS:60` | `FailExpired`, `FailTicks` |
-| `video_queue._settle:294`, `video_queue.MAX_ATTEMPTS:54` | `SettleRow`, `Settle` |
-| `video_queue._drop_orphans:352`, `video_queue._open:474`, `video_queue._saved:459` | `Open`, the `snap` of each snapshot step |
-| `video_queue._refresh:602` | `Refresh` (by session id; none refreshes nothing) |
-| `video_queue.claim:613` (stored id `video_queue.claim:635`) | `ClaimBegin`, `ClaimLocked`, `ClaimFn`, `Takes` (any non-empty subset) |
-| `video_queue.release:641` | `ReleaseBegin`, `ReleaseLocked`, `ReleaseFn`, `MayRelease` |
-| `video_queue.complete:674` (snapshot `video_queue.complete:682`) | `CreditBegin`, `CompleteLocked`, `CompleteFn`, `Done` |
-| `video_queue.put:509`, `video_queue.handoff:562`, `video_queue._upsert:493`, `video_queue.remove:526`, `video_queue.retry:545`, `video_queue._reset:487` | `PutBegin`, `RemoveBegin`, `RetryBegin`, `PersonLocked`, `Restarted` |
-| `video_queue.view:368` | the settled view each locked step starts from; `EffClaimed` |
-| `video_queue._iso:131`, `video_queue._parse:135`, `video_queue._now:127`, `video_queue._clean_row:161` | request time to the second; `same` places; `CodeNewer` |
+| `video_queue._locked:250`, `video_queue._write:263`, `video_queue._read_file:214` | one locked step per write call |
+| `video_queue._lapsed:296`, `video_queue.LEASE_MINUTES:65` | `Lapsed`, `LeaseTicks`, `Tick` |
+| `video_queue._failed_expiry:291`, `video_queue.EXPIRE_FAILED_DAYS:74` | `FailExpired`, `FailTicks` |
+| `video_queue._settle:314`, `video_queue.MAX_ATTEMPTS:68` | `SettleRow`, `Settle` |
+| `video_queue._drop_orphans:372`, `video_queue._open:496`, `video_queue._saved:482` | `Open`, the `snap` of each snapshot step (never stale with F2) |
+| `video_queue._refresh:633`, `video_queue._lease_cap:627`, `video_queue.MAX_LEASE_PERIODS:67` | `Refresh`, `Extended`, `cap` (by session id; none refreshes nothing; F4 caps it) |
+| `video_queue.claim:655` (stored id `video_queue.claim:679`, token `video_queue.claim:680`) | `ClaimBegin`, `ClaimLocked`, `ClaimFn`, `Takes` (any non-empty subset), `Tokens` |
+| `video_queue.release:686`, `video_queue._token_matches:649` | `ReleaseBegin`, `ReleaseLocked`, `ReleaseFn`, `MayRelease` |
+| `video_queue.complete:725` (saved set `video_queue.complete:739`) | `CreditBegin`, `CompleteLocked`, `CompleteFn`, `Done` |
+| `video_queue.put:532`, `video_queue.handoff:586`, `video_queue._upsert:516`, `video_queue.remove:550`, `video_queue.retry:569`, `video_queue._reset:510` | `PutBegin`, `RemoveBegin`, `RetryBegin`, `PersonLocked`, `Restarted` |
+| `video_queue.view:388` | the settled view each locked step starts from; `EffClaimed` |
+| `video_queue._iso:148`, `video_queue._parse:152`, `video_queue._now:144`, `video_queue._clean_row:178` | request time to the second; `same` places; `CodeNewer` |
 | `video_state.satisfies:242`, `video_state.newer_than:232`, `video_state.clean_basis:71`, `video_state.basis_facts:81`, `video_state.BASES:58`, `video_state.watch_records:202` | `SatisfiesCode`, `Fact`, the records |
 | `video_state.saved_videos:148` | `saved`, `SaveVideo`, `HideVideo` |
-| `mcp_tools.video_claim:1190` (snapshot `mcp_tools.video_claim:1204`) | `ClaimBegin`, `ReleaseBegin` |
-| `mcp_tools.record_watch:565` (episode `mcp_tools.record_watch:613`, credit `mcp_tools.record_watch:629`), `mcp_tools._credit_video_queue:1098`, `watch_record._write_episode:139`, `watch_record.record:239`, `episode_ids.utc_now_iso:213` | `RecordEpisode`, `CreditBegin`, `CompleteLocked`, `DropCredit`, `Fresh` |
+| `mcp_tools.video_claim:1215` (reply-only read `mcp_tools.video_claim:1255`) | `ClaimBegin`, `ReleaseBegin` |
+| `mcp_tools.record_watch:585` (episode `mcp_tools.record_watch:635`, credit `mcp_tools.record_watch:651`), `mcp_tools._credit_video_queue:1120`, `watch_record._write_episode:139`, `watch_record.record:239`, `episode_ids.utc_now_iso:213` | `RecordEpisode`, `CreditBegin`, `CompleteLocked`, `DropCredit`, `Fresh` |
 | `mcp_tools.ToolContext.pages_held:209`, `mcp_tools._backend_sleep_running:54` | `holding`, `SleepStart`, `SleepEnd` |
 | `session_identity.parse:42`, `session_identity.stdio_identity:54`, `session_identity.cli_identity:64`, `cli._tool_context:237`, `cli_app.door:305`, `tool_door.Caller:58`, `tool_door.context:182`, `runtime.resolve_handle:68`, `runtime.mint_handle:63` | `IdMode`, `FirstId`, `sid`, `Restart` |
 | `videos._view:69`, `videos._put:136`, `videos.delete_video_queue:150`, `videos._retry:155`, `videos._handoff:179` | `PutBegin`, `RemoveBegin`, `RetryBegin`, `PersonLocked` |
@@ -226,15 +214,19 @@ When a covered definition changes on purpose:
 - **Bounds.** One video and two callers plus the person, explored to the end, for each session-id mode: `stable`
   (a harness id), `shared` (one id for both, the remote day bucket), `sessionless` (no id, the CLI door; an id over
   80 characters behaves the same, since every compare fails), and `restart` (either caller may restart once and
-  take a new id, `--deep`). Liveness: one video, two calls per caller (`CallBudget = 2`). Orphans: two videos and
-  one caller with pages saved and hidden (`F2`, `break-f2_credit_stale`, and `fixed-churn` in `--deep`). A lease
+  take a new id, `--deep`). Liveness: one video, two calls per caller (`CallBudget = 2`), and one caller with no
+  call budget for the lease cap (`code-lease-cap`). Orphans: two videos and one caller with pages saved and hidden
+  (`F2`, `break-f2_credit_stale`, and `code-churn` and `fixed-churn` in `--deep`). A lease
   lasts 2 ticks, a failed row 1 tick, and three lapses fail a row, as in the code. Symmetry over videos and callers
   applies to safety only.
 - **`--deep` has never finished its two-video run.** `deep-safety` (two videos, two callers, stable ids) was
   stopped at a 15-minute cap on 2026-10-22 after 12,923,785 distinct states with no violation and 3.6 million
-  states still queued. The rest of `--deep` finishes: `code-ids-restart` and `fixed-ids-restart` (339,464 states,
-  about 12 s each) and `fixed-churn` (22,903,520 states, about 4 minutes with four workers). The one-video argument
-  below is what the default run rests on.
+  states still queued (before ruling 34; not rerun since). The rest of `--deep` finishes; before ruling 34
+  `code-ids-restart` and `fixed-ids-restart` took 339,464 states, about 12 s each, and `fixed-churn` 22,903,520
+  states, about 4 minutes with four workers. On the ruling-34 model (the lease cap adds a field), `code-ids-restart`
+  and `fixed-ids-restart` take 887,240 states, about a minute each, and `code-churn` (P2 on the fixed code)
+  97,464,544 states, 21 minutes with four workers, no violation; `fixed-churn` and `deep-safety` have not been rerun
+  and keep a minimum of 0. The one-video argument below is what the default run rests on.
 - **Why one video is enough.** Every property is about one video, and every step changes a row as a function of
   that row alone, with two exceptions. A call that refreshes the caller's other leases does, on one video, what a
   claim that finds nothing does. The orphan drop needs a non-empty snapshot that lacks the key, so its checks keep
@@ -254,7 +246,10 @@ When a covered definition changes on purpose:
     the stamps the step writes (a lease a few milliseconds shorter). If no writer ran in between, the code's step
     is the model's step taken before the tick.
   - `claim` may take any non-empty subset of the claimable rows, a superset of oldest first. A hand-off is one
-    `put` per video. A lease token is the claimer's identity.
+    `put` per video. A lease token is the claimer's identity, and a holder always passes it; a holder that omits
+    it acts as a non-holder would (`not_yours`, `left`), a subset of what the model explores for the other caller.
+  - The lease cap counts ticks from the claim and is cleared when the lease lapses (a lapsed lease is never
+    refreshed again), so it adds no state once it cannot matter.
 - **Left out.** Batches (`done`, expiry, the active batch), `MAX_ROWS`, the scrubbing and capping of reasons, the
   release codes (all one transition), `stamp`, `next_change_at`, ETags and the parse cache, `bank_slug`, the
   remote runtime's busy refusal, the demo-bank refusal, Sleep's admission internals (a flag here), clock skew

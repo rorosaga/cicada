@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from _video_fixtures import add_video, add_watch_episode, bank_with_videos, url_of
+from _video_fixtures import add_video, add_watch_episode, bank_with_videos, held, lease_token, url_of
 from api.services import bank_index, media_ingestor, sync_service, video_queue, video_state
 
 T0 = datetime(2026, 9, 29, 14, 0, 0, tzinfo=timezone.utc)
@@ -112,7 +112,7 @@ def test_git_status_is_clean_after_every_queue_call(bank):
     video_queue.put(memory, keys[0], "transcript", now=_at())
     video_queue.handoff(memory, [{"key": keys[1], "want": "watch"}], "auto", now=_at())
     claimed = video_queue.claim(memory, session="ses_a", harness="claude-code", now=_at(1))
-    video_queue.release(memory, [{"url": url_of("01"), "code": "needs_login", "reason": "login wall"}],
+    video_queue.release(memory, held(memory, [{"url": url_of("01"), "code": "needs_login", "reason": "login wall"}]),
                         session="ses_a", now=_at(2))
     video_queue.complete(memory, keys[0], "transcript", session="ses_a", now=_at(3))
     video_queue.remove(memory, keys[1])
@@ -200,23 +200,26 @@ def test_session_activity_refreshes_leases(bank):
 # --- B5: the satisfaction table -------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("want, basis, session, outcome", [
-    ("transcript", "transcript", "ses_a", "done"),
-    ("transcript", "frames", "ses_a", "done"),
-    ("transcript", "both", "ses_a", "done"),
-    ("watch", "transcript", "ses_a", "stays"),
-    ("watch", "frames", "ses_a", "done"),
-    ("watch", "both", "ses_a", "done"),
-    ("watch", None, "ses_a", "done"),        # omitted basis: the leaseholder closes it
-    ("watch", None, "ses_other", "left"),    # ... and nobody else does
-    ("transcript", None, "ses_other", "left"),
-    ("watch", "telepathy", "ses_a", "done"),  # unknown = omitted, for the leaseholder
+@pytest.mark.parametrize("want, basis, caller, outcome", [
+    ("transcript", "transcript", "holder", "done"),
+    ("transcript", "frames", "holder", "done"),
+    ("transcript", "both", "holder", "done"),
+    ("watch", "transcript", "holder", "stays"),
+    ("watch", "frames", "holder", "done"),
+    ("watch", "both", "holder", "done"),
+    ("watch", None, "holder", "done"),        # omitted basis: the leaseholder (its lease token) closes it
+    ("watch", None, "other", "left"),         # ... and nobody else does
+    ("transcript", None, "other", "left"),
+    ("watch", None, "same-session", "left"),  # ruling 34 F5: a shared session id is not the token
+    ("watch", "telepathy", "holder", "done"),  # unknown = omitted, for the leaseholder
 ])
-def test_the_satisfaction_table(bank, want, basis, session, outcome):
+def test_the_satisfaction_table(bank, want, basis, caller, outcome):
     memory, keys = bank
     video_queue.put(memory, keys[0], want, now=_at())
     video_queue.claim(memory, session="ses_a", harness="h", now=_at(1))
-    assert video_queue.complete(memory, keys[0], basis, session=session, now=_at(2)) == outcome
+    session, token = {"holder": ("ses_a", lease_token(memory, url_of("00"))), "other": ("ses_other", None),
+                      "same-session": ("ses_a", None)}[caller]
+    assert video_queue.complete(memory, keys[0], basis, session=session, lease_token=token, now=_at(2)) == outcome
     assert (keys[0] in _rows(memory, _at(2))) == (outcome != "done")
 
 
@@ -278,12 +281,12 @@ def test_release_code_and_reason(bank):
         video_queue.put(memory, k, "watch", now=_at())
     video_queue.claim(memory, session="ses_a", harness="h", limit=3, now=_at(1))
     secret = "sk-" + "a1b2c3d4e5f6a7b8c9d0e1f2"
-    results = video_queue.release(memory, [
+    results = video_queue.release(memory, held(memory, [
         {"url": url_of("00"), "code": "needs_login", "reason": f"line one\nline two {secret} " + "x" * 400},
         {"url": url_of("01"), "code": "telepathy", "reason": "odd"},
         {"url": url_of("02")},
         {"url": "https://example.com/never-queued"},
-    ], session="ses_a", now=_at(2))
+    ]), session="ses_a", now=_at(2))
     assert [o for _, o in results] == ["needs_login", "released", "released", "unknown"]
     rows = _rows(memory, _at(3))
     login = rows[keys[0]]["failed"]
@@ -291,6 +294,40 @@ def test_release_code_and_reason(bank):
     assert len(login["reason"]) <= video_queue.MAX_REASON_CHARS and "[redacted]" in login["reason"]
     assert rows[keys[1]]["failed"]["code"] == "failed"
     assert rows[keys[2]]["failed"]["reason"] == ""
+
+
+def test_only_the_lease_token_hands_a_video_back(bank):
+    """Ruling 34 (F1): a release with no token, a wrong one, or only the claimer's own session id is `not_yours`;
+    the lease stays and lapses on its own clock. The claim's own token hands it back, whatever the session."""
+    memory, keys = bank
+    video_queue.put(memory, keys[0], "watch", now=_at())
+    leased = video_queue.claim(memory, session="ses_a", harness="h", now=_at(1))
+    token = leased[0]["lease_token"]
+    assert re.fullmatch(r"[0-9a-f]{32}", token) and token == lease_token(memory, url_of("00"))
+    for item in ({"url": url_of("00")}, {"url": url_of("00"), "lease_token": "0" * 32},
+                 {"url": url_of("00"), "lease_token": token[:-1]}, {"url": url_of("00"), "lease_token": 7}):
+        assert video_queue.release(memory, [item], session="ses_a", now=_at(2)) == [(url_of("00"), "not_yours")]
+    assert _rows(memory, _at(2))[keys[0]]["state"] == "claimed"
+    assert video_queue.release(memory, [{"url": url_of("00"), "lease_token": token.upper()}], session=None,
+                               now=_at(3)) == [(url_of("00"), "released")]
+    assert "lease_token" not in _rows(memory, _at(3))[keys[0]]
+
+
+def test_a_row_leased_before_tokens_is_not_yours_and_lapses(bank):
+    """A row claimed by the code before ruling 34 carries no token: no release ends it; its lease lapses."""
+    memory, keys = bank
+    video_queue.put(memory, keys[0], "watch", now=_at())
+    video_queue.claim(memory, session="ses_a", harness="h", now=_at(1))
+    path = video_queue.path_for(memory)
+    data = json.loads(path.read_text())
+    for row in data["items"]:
+        row.pop("lease_token", None)
+    path.write_text(json.dumps(data))
+    assert video_queue.release(memory, [{"url": url_of("00"), "code": "failed"}], session="ses_a",
+                               now=_at(2)) == [(url_of("00"), "not_yours")]
+    assert video_queue.complete(memory, keys[0], None, session="ses_a", now=_at(3)) == "left"
+    row = _rows(memory, _at(3 + video_queue.LEASE_MINUTES))[keys[0]]   # each call refreshed it
+    assert row["state"] == "queued" and row["attempts"] == 1
 
 
 def test_only_a_claimed_video_can_be_released(bank):
@@ -303,7 +340,7 @@ def test_retry_puts_a_failed_row_back(bank):
     memory, keys = bank
     video_queue.put(memory, keys[0], "watch", now=_at())
     video_queue.claim(memory, session="s", harness="h", now=_at(1))
-    video_queue.release(memory, [{"url": url_of("00"), "code": "blocked"}], session="s", now=_at(2))
+    video_queue.release(memory, held(memory, [{"url": url_of("00"), "code": "blocked"}]), session="s", now=_at(2))
     row = video_queue.retry(memory, keys[0], now=_at(3))
     assert row["state"] == "queued" and row["attempts"] == 0 and "failed" not in row
     assert video_queue.retry(memory, keys[0], now=_at(4)) is None
@@ -316,7 +353,7 @@ def test_failed_rows_and_finished_batches_expire_in_memory_and_persist_only_on_a
     memory, keys = bank
     video_queue.handoff(memory, [{"key": keys[0], "want": "watch"}], "auto", now=_at())
     video_queue.claim(memory, session="s", harness="h", now=_at(1))
-    video_queue.release(memory, [{"url": url_of("00"), "code": "not_found"}], session="s", now=_at(2))
+    video_queue.release(memory, held(memory, [{"url": url_of("00"), "code": "not_found"}]), session="s", now=_at(2))
     path = video_queue.path_for(memory)
     before = path.stat().st_mtime_ns
     later = _at(60 * 24 * 8)
@@ -527,7 +564,7 @@ def test_handoff_waiting_count_matches_the_shared_cases(bank, case):
         video_queue.claim(memory, session="s", harness="h", limit=len(busy), now=_at(1))
     failed = [i for i in busy if states[i] == "failed"]
     if failed:
-        video_queue.release(memory, [{"url": url_of(f"{i:02d}"), "code": "failed"} for i in failed],
+        video_queue.release(memory, held(memory, [{"url": url_of(f"{i:02d}"), "code": "failed"} for i in failed]),
                             session="s", now=_at(2))
     for i, s in states.items():
         if s == "queued":

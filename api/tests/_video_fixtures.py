@@ -79,3 +79,17 @@ def bank_with_videos(tmp_path: Path, count: int = 3) -> tuple[Path, list[str]]:
 
 def url_of(slug: str) -> str:
     return YOUTUBE.format(id=f"vid{slug}")
+
+
+def lease_token(memory: Path, url: str) -> str | None:
+    """The lease token the queue holds for ``url``'s row — what its claim reply gave the claimer (ruling 34)."""
+    from api.services import video_queue
+
+    key = media_ingestor.url_hash(url)
+    rows, _ = video_queue._read_file(memory)
+    return next((r.get("lease_token") for r in rows if r["key"] == key), None)
+
+
+def held(memory: Path, items: list[dict]) -> list[dict]:
+    """Release items, each carrying its row's lease token: what a claimer that kept its claim reply sends."""
+    return [{**item, "lease_token": lease_token(memory, item["url"])} for item in items]

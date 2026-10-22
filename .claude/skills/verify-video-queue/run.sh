@@ -18,11 +18,15 @@ JOBS="${JOBS:-2}"
 WORKERS="${WORKERS:-2}"
 
 # name|expected|minimum distinct states for a pass (about 90% of the count at the sync commit; empty for a violation)
+# code-*: the code, Fixes = {F1, F2, F4, F5} since ruling 34. F1-, F2-, F4-, F5-: the code with that one fix taken
+# out (each was an open finding until ruling 34); each must still fail, which shows the code-* passes can fail.
+# F3-: the code as it is; F3 was accepted by ruling 34. F1s-, F3s-: rejected proposals. fixed-*: the code plus F3.
 EXPECT_DEFAULT="
-code-safety|pass|62000
-code-ids-shared|pass|62000
+code-safety|pass|144000
+code-ids-shared|pass|144000
 code-ids-sessionless|pass|62000
-code-liveness|pass|82000
+code-liveness|pass|86000
+code-lease-cap|pass|24700
 F1-release-by-non-holder|ReleaseOnlyByHolder|
 F1s-session-compare-shared-ids|ReleaseOnlyByHolder|
 F1s-session-compare-sessionless|HolderCanRelease|
@@ -33,18 +37,20 @@ F3-older-record-ends-lease|RecordByOtherCorruptsNothing|
 F3s-seconds-compare-same-second|DoneIsSupported|
 F4-active-session-keeps-lease|temporal|
 F5-shared-id-record-ends-lease|RecordByOtherCorruptsNothing|
-fixed-safety|pass|62000
-fixed-same-second|pass|415000
-fixed-ids-shared|pass|62000
+fixed-safety|pass|144000
+fixed-same-second|pass|946000
+fixed-ids-shared|pass|144000
 fixed-ids-sessionless|pass|62000
-fixed-legacy-rows|pass|93000
+fixed-legacy-rows|pass|257000
 "
 EXPECT_BREAKS="
 break-lapse_ignores_lease|NoDoubleClaim|
 break-nolock|NoDoubleClaim|
 break-no_lapse|temporal|
 break-no_fail_expiry|temporal|
-break-record_ignores_session|RecordByOtherCorruptsNothing|
+break-record_ignores_token|RecordByOtherCorruptsNothing|
+break-release_ignores_token|ReleaseOnlyByHolder|
+break-no_lease_cap|temporal|
 break-stays_counts_attempt|Idempotent|
 break-settle_ignores_holding|NoBurnWhileHeld|
 break-settle_ignores_records|NoBurnWhenSatisfied|
@@ -53,9 +59,10 @@ break-put_restarts_claimed|NoLeaseTakenAway|
 break-f2_credit_stale|NoLostRow|
 "
 EXPECT_DEEP="
-code-ids-restart|pass|305000
-fixed-ids-restart|pass|305000
-fixed-churn|pass|20600000
+code-ids-restart|pass|798000
+fixed-ids-restart|pass|798000
+code-churn|pass|87700000
+fixed-churn|pass|0
 deep-safety|pass|0
 "
 

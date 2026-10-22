@@ -321,6 +321,10 @@ TOOLS = [
                     "type": "string",
                     "description": "Optional. The video's length as m:ss, h:mm:ss or whole seconds; stored only when the page has none.",
                 },
+                "lease_token": {
+                    "type": "string",
+                    "description": "Optional. The lease_token cicada_video_claim gave you for this video. Without a basis, only it marks the person's queued request done.",
+                },
             },
             "required": ["url", "summary"],
         },
@@ -506,7 +510,7 @@ TOOLS = [
     },
     {
         "name": "cicada_video_claim",
-        "description": "Take the videos the person asked to have read or watched. With no `release`, leases the oldest queued ones to this session (up to `limit`, default 5, at most 10 a call) and returns each link with what is wanted; call it again until it returns nothing. With `release`, hands videos back that you could not do, with a code and a short reason (code needs_login when a sign-in stops you: do not sign in yourself). It changes only the person's queue, not their memory. Record each video you do with cicada_record_watch.",
+        "description": "Take the videos the person asked to have read or watched. With no `release`, leases the oldest queued ones to this session (up to `limit`, default 5, at most 10 a call) and returns each link with what is wanted; call it again until it returns nothing. Each leased video comes with a `lease_token`. With `release`, hands videos back that you could not do, each with the `lease_token` its claim gave you, a code and a short reason (code needs_login when a sign-in stops you: do not sign in yourself); a hand-back without its video's lease_token is refused as not yours and the lease ends on its own. It changes only the person's queue, not their memory. Record each video you do with cicada_record_watch.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -517,6 +521,7 @@ TOOLS = [
                         "type": "object",
                         "properties": {
                             "url": {"type": "string", "description": "The video's link as leased."},
+                            "lease_token": {"type": "string", "description": "The lease_token cicada_video_claim gave you for this video."},
                             "code": {"type": "string", "enum": ["needs_login", "no_captions", "not_found", "blocked", "failed"], "description": "Why it could not be done."},
                             "reason": {"type": "string", "description": "One short line (at most 200 characters)."},
                         },
@@ -1394,7 +1399,8 @@ def _handle_local_tool(name: str, arguments: dict) -> str:
     elif name == "cicada_record_watch":
         return handle_record_watch(arguments.get("url", ""), arguments.get("summary", ""),
                                    arguments.get("excerpts"), arguments.get("chapters"),
-                                   arguments.get("basis"), arguments.get("engine"), arguments.get("duration"))
+                                   arguments.get("basis"), arguments.get("engine"), arguments.get("duration"),
+                                   arguments.get("lease_token"))
     elif name == "cicada_video_queue":
         return handle_video_queue(arguments.get("limit"))
     elif name == "cicada_video_claim":
@@ -1651,8 +1657,9 @@ def handle_save_url(url, note) -> str:
     return mcp_tools.save_url(_ctx(), url, note)
 
 
-def handle_record_watch(url, summary, excerpts=None, chapters=None, basis=None, engine=None, duration=None) -> str:
-    return mcp_tools.record_watch(_ctx(), url, summary, excerpts, chapters, basis, engine, duration)
+def handle_record_watch(url, summary, excerpts=None, chapters=None, basis=None, engine=None, duration=None,
+                        lease_token=None) -> str:
+    return mcp_tools.record_watch(_ctx(), url, summary, excerpts, chapters, basis, engine, duration, lease_token)
 
 
 def handle_video_queue(limit=None) -> str:

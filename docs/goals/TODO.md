@@ -26,6 +26,19 @@
   a re-read only by id, reopened a closed claim as an open copy and recorded an ending twice; `_reread_twin` now also
   matches a closed, non-withdrawn claim by slot and object when every conversation it was heard in is already cited.
   Tests: `test_sleep_local_day.py`.
+- **2026-10-22 — the video queue's lease findings fixed as ruling 34 decided (G162; branch `fix/video-lease`).**
+  F1 + F5: `cicada_video_claim` mints a 128-bit `lease_token` per leased video and prints it on the video's line; a
+  hand-back, and a `cicada_record_watch` with no basis, end a lease only with that token (anything else is
+  `not_yours` / `left`, and the lease lapses on its own; the session id only refreshes). F2: every queue writer reads
+  the saved videos under the lock (the writers lost their `saved` argument). F4: a refresh never carries a lease past
+  `MAX_LEASE_PERIODS` = 3 lease periods from its claim. F3 accepted (xfail reasons cite the ruling and its trigger).
+  Contract (Hyrum Mode A): `lease_token` added to the stdio and remote schemas of both tools, the CLI's
+  `video record`, both primers (contract 18, remote 13), the claim reply and the librarian skill; the old
+  `{url, code, reason}` release still parses and answers with what to pass; the person's hand-off prompt names no
+  token (ruling 12) and points at the claim reply. Model: `code-*` checks run the fixed code; each finding's check
+  runs it with that one fix removed and still fails; three new breaks (`release_ignores_token`, `no_lease_cap`,
+  `record_ignores_token`) are caught by `able_to_fail.py` (12 of 12). `run.sh`: 33 of 33 as expected; `--only
+  code-churn` (P2, no lost row, on the fixed code) passes at 97,464,544 states in 21 minutes with four workers.
 - **2026-10-22 — the dev auto-update runs on a Linux server too (G181; branch `feat/linux-dev-autoupdate`).**
   `scripts/dev/install-auto-update.sh` branches on `uname`: on Linux it writes a systemd user timer
   (`cicada-dev-autoupdate.timer`, `OnCalendar=*:0/5`, `Persistent=true`) and its oneshot service; `--uninstall` removes
@@ -504,7 +517,7 @@ These are attached to permanent rows instead of becoming a second queue. Older d
 
 - **G106/G19:** confirm remaining client/backend ID sanitizer parity and wikilink navigation outside a WindowGroup.
 - **G109:** graph physics phases/visual fit check; re-check historical WKWebView remount claims against the merged audit fixes.
-- **G162 (model check 2026-10-22):** F1, F2, F3 and F5 in the queue's lease lifecycle are open with xfail-strict repros (`api/tests/test_video_queue_formal.py`), each low to negligible likelihood, with proposals checked in the model (a lease token, the saved set read under the lock, `requested_at` to the microsecond); F3 and F4 are the owner's call. Any change to `video_queue.py`, `video_state.py`, the record or claim tools or how a caller gets its session id runs `.claude/skills/verify-video-queue/run.sh`.
+- **G162 (model check 2026-10-22; ruling 34):** F1, F2, F4 and F5 are fixed (a per-claim lease token, the saved set read under the lock, a three-period lease cap); F3 is accepted and keeps its xfail-strict repros in `api/tests/test_video_queue_formal.py` until its trigger (a lease seen ending on an older record). The `--deep` minimums for `fixed-churn` and `deep-safety` are 0 until someone records them on the ruling-34 model. Any change to `video_queue.py`, `video_state.py`, the record or claim tools or how a caller gets its session id runs `.claude/skills/verify-video-queue/run.sh`.
 - **G162:** `/live/<id>` normalization changes need URL-index migration; unprobed player providers stay unverified; do not assemble third-party widget HTML or bypass an origin restriction. **G11:** verify the disclosed duplicate direct-file preview/hero player.
 - **G135/G177/G183:** current remote/local write races and fail-open commit probes; check scope isolation, timeout behavior and source permissions. **G61:** source entry identity, check-date/predicate invalidation and save-time fetch limits against the current common fetch guard.
 - **G130/G137/G184:** zoom/sidebar clamp, pixel-size alignment and active-run animation energy. Nightcap/time-of-day absence are superseded by shipped G176 art. DS-3c card Esc and Settings folder popover seams remain current-code checks.

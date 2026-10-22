@@ -272,8 +272,17 @@ the url-index key (`media_ingestor.url_hash`, never the media entity id); a reco
 `$CICADA_HOME/video_queue/<bank>.json` (`video_queue.py`; a bank name that is not a plain slug gets an ASCII slug plus a short sha1 of its name, never a refusal; orphans are dropped only while the url index answers non-empty; keys only, never a URL or a title; flock plus atomic replace;
 expiry applied in memory and persisted inside a write) — so nothing in its lifecycle dirties a bank, commits, or answers
 409 while Sleep runs. `cicada_video_queue` (`read`, read-only) lists what waits; `cicada_video_claim` (`record`) leases
-the oldest queued videos (10 a call, 45-minute lease) or, with `release=[{url, code, reason}]`, hands one back
-(`needs_login` tells the agent not to sign in and tells the person). It is in `WRITE_TOOLS` (the demo gate, the write
+the oldest queued videos (10 a call, 45-minute lease) or, with `release=[{url, lease_token, code, reason}]`, hands one
+back (`needs_login` tells the agent not to sign in and tells the person). **Ruling 34 (2026-10-22): a lease ends only by
+its token.** Each claim mints a 128-bit `lease_token` per video and prints it on that video's reply line, ahead of the
+provider's title; a hand-back ends the lease only with that video's token, and anything else (no token, a wrong one, the
+pre-ruling `{url, code, reason}` shape, a row claimed before tokens existed) answers *not handed back: pass the
+lease_token*, and the lease lapses on its own clock. A `cicada_record_watch` with no `basis` closes a leased row only with
+its `lease_token` (optional argument; with a basis the record closes a row that it meets, whoever records it). The session
+id is never proof of holding (conversations on one connector can share one, the CLI has none, a restarted stdio process
+gets a new one); it only refreshes the caller's other leases, and never past three lease periods from the claim
+(`MAX_LEASE_PERIODS`). Every queue writer reads the saved videos under the queue lock, so a video saved and queued while
+another writer waited is never dropped as an orphan. It is in `WRITE_TOOLS` (the demo gate, the write
 lock; only its per-video title/channel lines are fenced, Cicada's own instructions in the reply stay outside) but `runtime._writes_bank` is false for it, and **a lapsed lease is judged only when Sleep is not
 holding the pages** (`ToolContext.pages_held()`, asked lazily), so a drain cannot burn a video's three attempts; while a
 lapsed lease is due, the `videoQueue` stamp also carries that hold bit (`<mtime>:<due>:<held>`), so the hold ending moves
