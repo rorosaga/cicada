@@ -39,6 +39,7 @@ WRITERS = frozenset({
     "backlog",  # G150 R-B10: a backlog item's title, description and notes
     "tab-groups",  # G160 (round 4): a Chrome tab group's name and its tabs' titles and links
     "video_queue",  # G162: a release reason an agent wrote for a video it could not do
+    "note",  # G212: a note a paired device sent (`/capture/note`)
     "saved-why",  # G191: the person's answer to "what made you save this?"
     "imessage",  # G179: a ticked Messages conversation's words, both sides
     "watch-history",  # G71 (2026-10-16): a watched video's title and channel, one day's episode

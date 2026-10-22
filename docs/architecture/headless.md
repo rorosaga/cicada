@@ -217,6 +217,12 @@ run dir, never the scratch backend's environment; `cv cleanup` deletes the file 
 
 ## Clients on other machines (phase 2)
 
+**A phone or another machine pairs by code (G212, 2026-10-22):** `cicada device pair [--kind capture|full]` (or the
+app's QR) shows a one-time code; the device trades it once at `POST /pair` for its own token — a phone's is
+capture-only (`api.md`, "A phone is capture-only"). The QR names this machine's tailnet address for the backend only
+when the person already serves the backend port to their tailnet themselves, e.g. `tailscale serve --bg --https=8443
+8000` — tailnet only, never funnel; the backend still binds 127.0.0.1 and Cicada runs no tunnel command.
+
 Owner rulings 2026-10-16 (TODO ruling 28): per-device tokens; the transcript rail amended; a tailnet device of the
 person's counts as local for the G198 trust list.
 

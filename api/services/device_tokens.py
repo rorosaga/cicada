@@ -52,8 +52,13 @@ CREATE TABLE IF NOT EXISTS devices (
     created_at TEXT NOT NULL,
     revoked_at TEXT,
     last_used_at TEXT,
-    use_count INTEGER NOT NULL DEFAULT 0
+    use_count INTEGER NOT NULL DEFAULT 0,
+    kind TEXT NOT NULL DEFAULT 'full'
 )"""
+#: G212 (owner 2026-10-22): what a device token may do. ``full`` — every route but the master-only ones (ruling 28,
+#: what `cicada device add` and a computer's pairing issue); ``capture`` — a phone's: send links and notes, read back
+#: its own recent captures, nothing else (``auth.CAPTURE_ROUTES``). A row from before the column is ``full``.
+KINDS = ("full", "capture")
 #: G212: one-time pairing codes. A code is the credential a new device (a phone, another machine) trades ONCE for its
 #: own device token; only its sha256 is kept, it lives ten minutes, and it is spent by the first redeem that names it.
 _PAIRING_SCHEMA = """
@@ -64,7 +69,8 @@ CREATE TABLE IF NOT EXISTS pairings (
     expires_at TEXT NOT NULL,
     used_at TEXT,
     cancelled_at TEXT,
-    device_id TEXT
+    device_id TEXT,
+    kind TEXT NOT NULL DEFAULT 'capture'
 )"""
 #: Unambiguous when read off a screen or typed: no I, L, O, 0 or 1. 31 symbols, 8 of them: about 40 bits — with a
 #: ten-minute life, single use and a wrong-code bucket at the door, out of reach of guessing.
@@ -82,6 +88,7 @@ class Device:
     revoked_at: str | None = None
     last_used_at: str | None = None
     use_count: int = 0
+    kind: str = "full"
 
     @property
     def active(self) -> bool:
@@ -89,7 +96,8 @@ class Device:
 
     def wire(self) -> dict:
         return {"id": self.id, "name": self.name, "createdAt": self.created_at, "revokedAt": self.revoked_at,
-                "lastUsedAt": self.last_used_at, "useCount": self.use_count, "active": self.active}
+                "lastUsedAt": self.last_used_at, "useCount": self.use_count, "active": self.active,
+                "kind": self.kind}
 
 
 def _now() -> str:
@@ -117,7 +125,8 @@ def store_dir() -> Path:
 
 def _row(row: sqlite3.Row) -> Device:
     return Device(id=row["id"], name=row["name"], created_at=row["created_at"], revoked_at=row["revoked_at"],
-                  last_used_at=row["last_used_at"], use_count=int(row["use_count"] or 0))
+                  last_used_at=row["last_used_at"], use_count=int(row["use_count"] or 0),
+                  kind=row["kind"] if "kind" in row.keys() and row["kind"] in KINDS else "full")
 
 
 _touched: dict[str, float] = {}
@@ -135,6 +144,11 @@ class DeviceStore:
             db.execute("PRAGMA journal_mode=WAL")
             db.execute(_SCHEMA)
             db.execute(_PAIRING_SCHEMA)
+            # G212 (owner 2026-10-22): a store made before device kinds gains the column; every old device is full,
+            # and an old waiting code mints a full device, as it would have when it was made.
+            for table, default in (("devices", "full"), ("pairings", "full")):
+                if "kind" not in {r["name"] for r in db.execute(f"PRAGMA table_info({table})")}:
+                    db.execute(f"ALTER TABLE {table} ADD COLUMN kind TEXT NOT NULL DEFAULT '{default}'")
 
     @contextmanager
     def _db(self):
@@ -206,9 +220,12 @@ class DeviceStore:
 
     # ── G212: pairing ──────────────────────────────────────────────────────────
 
-    def create_pairing(self, *, now: datetime | None = None) -> tuple[Pairing, str]:
+    def create_pairing(self, *, now: datetime | None = None, kind: str = "capture") -> tuple[Pairing, str]:
         """A one-time code for a new device, shown on the person's own screen (a QR or the letters). Returns the
-        pairing and the code — the code is in this one answer only. At most five wait at a time."""
+        pairing and the code — the code is in this one answer only. At most five wait at a time. ``kind`` is what the
+        device it mints may do (``KINDS``; a phone's default is ``capture``, owner 2026-10-22)."""
+        if kind not in KINDS:
+            raise ValueError("kind must be 'capture' or 'full'")
         now = now or datetime.now(timezone.utc)
         stamp = now.replace(microsecond=0).isoformat()
         with self._db() as db:
@@ -223,8 +240,8 @@ class DeviceStore:
                 if db.execute("SELECT 1 FROM pairings WHERE id=?", (pairing_id,)).fetchone() is None:
                     break
             expires = (now + timedelta(seconds=PAIRING_TTL_S)).replace(microsecond=0).isoformat()
-            db.execute("INSERT INTO pairings (id, code_hash, created_at, expires_at) VALUES (?, ?, ?, ?)",
-                       (pairing_id, _hash(normalize_code(code)), stamp, expires))
+            db.execute("INSERT INTO pairings (id, code_hash, created_at, expires_at, kind) VALUES (?, ?, ?, ?, ?)",
+                       (pairing_id, _hash(normalize_code(code)), stamp, expires, kind))
         return self.pairing(pairing_id, now=now), f"{code[:4]}-{code[4:]}"
 
     def pairing(self, pairing_id: str, *, now: datetime | None = None) -> Pairing | None:
@@ -256,14 +273,15 @@ class DeviceStore:
                 "AND expires_at > ?", (stamp, _hash(normal), stamp)).rowcount
             if spent != 1:
                 raise KeyError("code")
-            row = db.execute("SELECT id FROM pairings WHERE code_hash=?", (_hash(normal),)).fetchone()
+            row = db.execute("SELECT id, kind FROM pairings WHERE code_hash=?", (_hash(normal),)).fetchone()
+            kind = row["kind"] if row["kind"] in KINDS else "capture"
             secret = secrets.token_urlsafe(32)
             while True:
                 device_id = "".join(secrets.choice(_ID_ALPHABET) for _ in range(8))
                 if db.execute("SELECT 1 FROM devices WHERE id=?", (device_id,)).fetchone() is None:
                     break
-            db.execute("INSERT INTO devices (id, name, token_hash, created_at) VALUES (?, ?, ?, ?)",
-                       (device_id, clean, _hash(secret), _now()))
+            db.execute("INSERT INTO devices (id, name, token_hash, created_at, kind) VALUES (?, ?, ?, ?, ?)",
+                       (device_id, clean, _hash(secret), _now(), kind))
             db.execute("UPDATE pairings SET device_id=? WHERE id=?", (device_id, row["id"]))
         return self.get(device_id), f"{PREFIX}{device_id}_{secret}"
 
@@ -275,10 +293,11 @@ class Pairing:
     expires_at: str
     state: str   # waiting | paired | cancelled | expired
     device_id: str | None = None
+    kind: str = "capture"
 
     def wire(self) -> dict:
         return {"id": self.id, "createdAt": self.created_at, "expiresAt": self.expires_at, "state": self.state,
-                "deviceId": self.device_id}
+                "deviceId": self.device_id, "kind": self.kind}
 
 
 def normalize_code(raw: str | None) -> str:
@@ -296,7 +315,7 @@ def _pairing(row: sqlite3.Row, now: datetime) -> Pairing:
     else:
         state = "waiting"
     return Pairing(id=row["id"], created_at=row["created_at"], expires_at=row["expires_at"], state=state,
-                   device_id=row["device_id"])
+                   device_id=row["device_id"], kind=row["kind"] if row["kind"] in KINDS else "capture")
 
 
 def store() -> DeviceStore:

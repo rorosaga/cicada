@@ -1363,13 +1363,20 @@ def cmd_device_revoke(boot, args) -> Result:
 
 def cmd_device_pair(boot, args) -> Result:
     require_person("Making a pairing code")
-    body = {"url": args.url} if getattr(args, "url", None) else {}
+    body: dict = {"url": args.url} if getattr(args, "url", None) else {}
+    if getattr(args, "kind", None):
+        body["kind"] = args.kind
     answer = call(boot, "POST", "/devices/pairing", body=body, bank_header=False)
     code, pairing = answer.get("code") or "", answer.get("pairing") or {}
     qr = json.dumps(answer.get("qr") or {}, separators=(",", ":"))
     text = "\n".join([
         f"Pairing code: {code}   (good until {pairing.get('expiresAt')}, once)",
         f"QR payload: {qr}",
+        f"Kind: {answer.get('kind') or 'capture'} ("
+        f"{'links and notes only' if (answer.get('kind') or 'capture') == 'capture' else 'every route a device may use'})",
+        *([f"No address in the QR: run `{answer['reach']['serveCommand']}` yourself for your tailnet, then pair "
+           "again, or pass --url."] if not (answer.get("qr") or {}).get("url")
+          and (answer.get("reach") or {}).get("serveCommand") else []),
         "On the new device: scan it in the Cicada app, or post {\"code\", \"name\"} to <server>/pair. It gets its own "
         "device token; `cicada device list` shows it, `cicada device revoke <id>` ends it."])
     return Result(text=text, data=answer, warnings=_warn(boot))

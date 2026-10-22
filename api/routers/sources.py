@@ -112,9 +112,25 @@ class CalendarUnsubscribeRequest(BaseModel):
 @router.post("/sources/save", response_model=SourceSaveResponse, dependencies=_DEMO_GATE)
 async def save_source(
     request: SourceSaveRequest,
+    http_request: Request,
     settings: Settings = Depends(get_settings),
 ):
-    """Save a single URL (menu-bar quick action, app paste field, MCP tool)."""
+    """Save a single URL (menu-bar quick action, app paste field, MCP tool, a paired phone).
+
+    G212: an ``Idempotency-Key`` (the phone's offline queue sends one) makes a resend the first answer, never a second
+    write — no second episode and no second "Note on …" (``idempotency``)."""
+    from api.services import idempotency
+
+    async def work():
+        answer = await _save_source(request, settings)
+        return 200, answer.model_dump(by_alias=True, mode="json")
+
+    _, body, _ = await idempotency.run_once(idempotency.scope_of(http_request), "/sources/save",
+                                            http_request.headers.get(idempotency.HEADER), work)
+    return body
+
+
+async def _save_source(request: SourceSaveRequest, settings: Settings) -> SourceSaveResponse:
     import httpx
 
     url = request.url.strip()
