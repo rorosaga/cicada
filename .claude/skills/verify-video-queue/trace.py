@@ -23,6 +23,13 @@ def tokens(text: str) -> list[str]:
     return out
 
 
+class HDict(dict):
+    """A TLC record or function, hashable so a set of records parses."""
+
+    def __hash__(self):
+        return hash(tuple(sorted(self.items(), key=str)))
+
+
 class Parser:
     def __init__(self, toks: list[str]):
         self.t, self.i = toks, 0
@@ -41,7 +48,7 @@ class Parser:
         left = self.atom()
         if self.peek() != ":>":
             return left
-        out = {}
+        out = HDict()
         while True:
             self.take(":>")
             out[left] = self.atom()
@@ -70,7 +77,7 @@ class Parser:
         if tok == "<<":
             return tuple(self.seq(">>"))
         if tok == "[":
-            rec = {}
+            rec = HDict()
             while self.peek() != "]":
                 name = self.take()
                 self.take("|->")
@@ -102,55 +109,63 @@ def states(text: str):
         yield head, env
 
 
-def row_words(r: dict) -> str:
+def ident(value) -> str:
+    if value in ((), "nobody", None):
+        return "none"
+    if isinstance(value, tuple):
+        return f"{value[0]}#{value[1]}" if value[1] else str(value[0])
+    return str(value)
+
+
+def row_words(r: dict, holder: str) -> str:
     st = r["st"]
     if st == "absent":
         return "not queued"
     if st == "claimed":
         lease = "lease lapsed" if r["left"] == 0 else f"lease {r['left']} tick(s) left"
-        return f"claimed by {r['ses']} ({lease}, attempts {r['att']}, wants {r['want']})"
+        token = f", token of {r['tok']}" if r["tok"] != "nobody" else ""
+        return (f"leased to {holder} (stored session id {ident(r['ses'])}{token}; {lease}, attempts {r['att']}, "
+                f"wants {r['want']})")
     if st == "failed":
         return f"failed (attempts {r['att']}, ages out in {r['fleft']} tick(s))"
     return f"queued (attempts {r['att']}, wants {r['want']})"
 
 
-CALLS = {
-    "claim": "cicada_video_claim()",
-    "claimWrite": "the second half of a lock-free claim",
-    "release": "cicada_video_claim(release=[{key}])",
-    "complete": "the queue credit of cicada_record_watch({key}, basis={arg})",
-    "put": "PUT /videos/queue/{key} want={arg}",
-    "remove": "DELETE /videos/queue/{key}",
-    "retry": "POST /videos/queue/{key}/retry",
-}
+PLACE = {"A1": "newer than any request, this second", "A0": "newer than any request",
+         "S1": "written before the request, in its second (this one)", "S0": "written before the request, in its second",
+         "B0": "written before the request"}
+FACT = {"T": "transcript", "F": "frames"}
+
+
+def recs_words(rs) -> str:
+    if not rs:
+        return "none"
+    return "; ".join(sorted(f"{FACT[r['f']]} record {PLACE[r['st']]}" for r in rs))
+
 
 STEP = {
-    "ClaimBegin": "{a} calls cicada_video_claim; mcp_tools.py:1204 reads the saved videos ({snap})",
-    "ClaimLocked": "{a}: video_queue.claim runs under the lock (video_queue.py:624)",
-    "ClaimWrite": "{a}: the lock-free claim writes the file it read earlier",
-    "ReleaseBegin": "{a} calls cicada_video_claim(release=[{key}]); mcp_tools.py:1204 reads the saved videos ({snap})",
-    "ReleaseLocked": "{a}: video_queue.release runs under the lock (video_queue.py:649)",
+    "ClaimBegin": "{a} calls cicada_video_claim; mcp_tools.video_claim:1204 reads the saved videos{snap}",
+    "ClaimLocked": "{a}: video_queue.claim runs under the lock",
+    "ClaimWrite": "{a}: the lock-free claim writes the file it read earlier (scratch break)",
+    "ReleaseBegin": "{a} calls cicada_video_claim(release=[{key}]); mcp_tools.video_claim:1204 reads the saved videos{snap}",
+    "ReleaseLocked": "{a}: video_queue.release({key}) runs under the lock",
     "RecordEpisode": "{a} calls cicada_record_watch({key}, basis={arg}); watch_record.record writes the episode "
-                     "(mcp_tools.py:613); the queue credit has not run yet",
-    "CompleteLocked": "{a}: the queue credit video_queue.complete({key}, basis={arg}) runs (mcp_tools.py:629, "
-                      "video_queue.py:685)",
-    "PutBegin": "the person queues {key} ({arg}); video_queue.put reads the saved videos ({snap}) before the lock "
-                "(video_queue.py:514)",
-    "RemoveBegin": "the person removes {key}; video_queue.remove reads the saved videos ({snap}) before the lock",
-    "RetryBegin": "the person presses Try again on {key}; video_queue.retry reads the saved videos ({snap})",
+                     "(mcp_tools.record_watch:613); the queue credit has not run yet",
+    "CreditBegin": "{a}: _credit_video_queue starts; video_queue.complete:682 reads the saved videos{snap}",
+    "CompleteLocked": "{a}: video_queue.complete({key}, basis={arg}) runs under the lock",
+    "PutBegin": "the person queues {key} ({arg}); video_queue.put:514 reads the saved videos{snap}",
+    "RemoveBegin": "the person removes {key}; video_queue.remove:529 reads the saved videos{snap}",
+    "RetryBegin": "the person presses Try again on {key}; video_queue.retry:549 reads the saved videos{snap}",
     "PersonLocked": "the person's video_queue.{op}({key}) runs under the lock",
-    "PersonAbort": "the backend drops the person's request before it writes",
     "SaveVideo": "{key} is saved (its url-index row and page appear)",
     "HideVideo": "{key}'s page is hidden (archived, dropped or junk), so saved_videos no longer lists it",
     "SleepStart": "Sleep takes the pages (pages_held() is now True)",
     "SleepEnd": "Sleep lets go of the pages",
-    "Tick": "time passes one tick (leases and failed rows count down)",
+    "Restart": "{a}'s MCP process restarts and mints a new session id",
+    "NewSecond": "the wall clock enters a new second",
+    "Tick": "time passes one lease tick (leases and failed rows count down)",
     "DropCredit": "{a}: the queue credit never runs (it raised and _credit_video_queue swallowed it, or the process died)",
 }
-
-
-def fmt_set(s) -> str:
-    return "{" + ", ".join(sorted(map(str, s))) + "}"
 
 
 def render(text: str) -> str:
@@ -162,42 +177,47 @@ def render(text: str) -> str:
         if prev is None:
             lines.append("start: nothing queued; every video saved")
         elif "Stuttering" in head:
-            lines.append("from here nothing changes any more, forever, and the property is still unmet")
-            out.append(f"{n}. " + lines[0])
+            out.append(f"{n}. from here nothing changes any more, forever, and the property is still unmet")
             break
         elif head.startswith("Back to state"):
             lines.append(f"{head.split(':')[0].lower()} ({action}): the behaviour repeats from there forever")
         else:
-            actor = next((a for a in env["pc"] if env["pc"][a] != prev["pc"][a]), None)
+            actor = next((a for a in env["pc"] if env["pc"][a]["op"] != prev["pc"][a]["op"]), None)
+            if actor is None:
+                actor = next((a for a in env.get("sid", {}) if env["sid"][a] != prev["sid"][a]), None)
             call = prev["pc"].get(actor) if actor else None
             if call is None or call.get("op") == "idle":
                 call = env["pc"].get(actor) if actor else {}
-            key = call.get("key") if call else None
-            changed_saved = (prev["saved"] ^ env["saved"])
+            call = call or {}
+            key = call.get("key")
+            changed_saved = prev["saved"] ^ env["saved"]
             if action in ("SaveVideo", "HideVideo") and changed_saved:
                 key = next(iter(changed_saved))
-            tmpl = STEP.get(action, action)
-            if action == "ClaimLocked" and env["pc"].get(actor, {}).get("op") == "claimWrite":
-                tmpl = "{a}: video_queue.claim reads the queue file with the lock removed (scratch break)"
-            lines.append(tmpl.format(a=actor, key=key, arg=(call or {}).get("arg"), op=(call or {}).get("op"),
-                                     snap=fmt_set((call or {}).get("snap", ()))))
+            snap = env["pc"].get(actor, {}).get("snap") if actor else None
+            snap_words = f" ({fmt_set(snap)})" if snap else ""
+            lines.append(STEP.get(action, action).format(a=actor, key=key, arg=call.get("arg"), op=call.get("op"),
+                                                         snap=snap_words))
             for k in env["q"]:
-                if env["q"][k] != prev["q"][k]:
-                    lines.append(f"   {k}: {row_words(prev['q'][k])} -> {row_words(env['q'][k])}")
+                if env["q"][k] != prev["q"][k] or env["holder"][k] != prev["holder"][k]:
+                    lines.append(f"   {k}: {row_words(prev['q'][k], prev['holder'][k])} -> "
+                                 f"{row_words(env['q'][k], env['holder'][k])}")
             for k in env["recs"]:
                 if env["recs"][k] != prev["recs"][k]:
-                    lines.append(f"   {k}: records newer than its request {fmt_set(prev['recs'][k])} -> "
-                                 f"{fmt_set(env['recs'][k])}")
-            for flag, words in (("lost", "a queued video was dropped while it is still saved"),
-                                ("relTrespass", "a session ended another session's lease"),
-                                ("recTrespass", "a record ended another session's lease with no newer record"),
-                                ("unsupported", "a row closed as done with no record newer than its request")):
-                if env.get(flag) and not prev.get(flag):
-                    lines.append(f"   => {words}")
+                    lines.append(f"   {k} records: {recs_words(prev['recs'][k])} -> {recs_words(env['recs'][k])}")
+            for a in env.get("sid", {}):
+                if env["sid"][a] != prev["sid"][a]:
+                    lines.append(f"   {a}'s session id: {ident(prev['sid'][a])} -> {ident(env['sid'][a])}")
         out.append(f"{n}. " + lines[0])
         out.extend(lines[1:])
         prev = env
+    violated = re.search(r"(Invariant|Action property) (\w+) is violated", text)
+    if violated:
+        out.append(f"=> the last step breaks {violated.group(2)} (SKILL.md, 'The properties')")
     return "\n".join(out)
+
+
+def fmt_set(s) -> str:
+    return "{" + ", ".join(sorted(map(str, s))) + "}"
 
 
 if __name__ == "__main__":
