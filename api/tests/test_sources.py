@@ -590,9 +590,11 @@ def test_write_media_episode_records_saved_at_when_recoverable(tmp_path):
 
     parsed = markdown_parser.parse(episodes / f"{ep_id}.md")
     assert parsed.frontmatter["saved_at"] == "2023-06-15"
-    # timestamp (ingest) is untouched and distinct from saved_at.
-    assert parsed.frontmatter["timestamp"] != "2023-06-15"
-    assert "**Originally saved:** 2023-06-15" in parsed.body
+    # Owner decision B (2026-10-22): a new save is dated the day it was saved — id, timestamp and the body's
+    # "Saved" line — so the separate "Originally saved" line has nothing left to add.
+    assert ep_id.startswith("ep_2023-06-15_")
+    assert str(parsed.frontmatter["timestamp"]).startswith("2023-06-15")
+    assert "**Saved:** 2023-06-15" in parsed.body and "Originally saved" not in parsed.body
 
 
 def test_write_media_episode_without_added_omits_the_new_saved_at_field(tmp_path):

@@ -36,7 +36,10 @@ Seven rails hold across all of them:
   this pass (at most `FRESH_CAP` = 3 listed), each with its episode and `added_at`, the browser's own instant (aware
   UTC, seconds; Chrome's `date_added`, Safari's Reading List `DateAdded`, `saved_at.instant_from_*`). The episode
   keeps `added_at` beside the day in `saved_at`, so the record says *when* a page that may since have changed was
-  saved. A moved bookmark is a URL already held, so a reorganisation is never fresh. **A re-save is fresh (G191 v3,
+  saved. **A new save is dated when it was saved (owner decision B, 2026-10-22):** its episode's `timestamp` and id
+  day are `added_at`, else noon UTC of `saved_at` (never later than now), so Sleep and Ask read the save on its own
+  day, as a calendar event is read on its start; with no recorded date it is the day Cicada took it in, and an
+  existing episode is never renamed (ruling 34). The media page's `created` stays the ingest day. A moved bookmark is a URL already held, so a reorganisation is never fresh. **A re-save is fresh (G191 v3,
   owner 2026-10-15):** a link the bank holds that this channel's file newly saved — absent from the channel's last
   seen-set and present now, or stamped by the browser later than the newest instant the last sync saw (the seen-set
   keeps `newest_added`) — is reported with `resave: true` and its own episode, by the sync and the early look alike
