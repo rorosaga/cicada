@@ -96,11 +96,23 @@ def test_off_by_default_needs_the_sheet_and_counts_only_while_agent_reading_is_o
         reading_settings.update(saved_lists_={"x": True})                     # no "I understand" yet
     with pytest.raises(reading_settings.SettingsError):
         reading_settings.update(acknowledge=True, saved_lists_={"facebook": True})   # not a list
-    reading_settings.update(acknowledge=True, saved_lists_={"x": True})
+    assert not any(saved_lists.allowed(k) for k in reading_settings.SAVED_LISTS)   # nothing before the sheet
+    reading_settings.update(acknowledge=True)
+    # Agent reading is on by default once the sheet is accepted (2026-10-22) — but every list stays off until the
+    # person turns that one on.
+    assert reading_settings.agent_enabled()
+    assert not any(saved_lists.allowed(k) for k in reading_settings.SAVED_LISTS)
+    reading_settings.update(saved_lists_={"x": True})
     assert reading_settings.snapshot()["savedLists"]["x"] is True
-    assert not saved_lists.allowed("x")                                       # master switch still off
-    reading_settings.update(agent_enabled_=True)
     assert saved_lists.allowed("x") and not saved_lists.allowed("instagram")
+    reading_settings.update(agent_enabled_=False)
+    assert not saved_lists.allowed("x")                                       # the person's off still wins
+    reading_settings.update(agent_enabled_=True)
+    assert saved_lists.allowed("x")
+    current = reading_settings.ACK_VERSION
+    monkeypatch.setattr(reading_settings, "ACK_VERSION", current + 1)
+    assert not saved_lists.allowed("x")                                       # a newer sheet must be accepted again
+    monkeypatch.setattr(reading_settings, "ACK_VERSION", current)
     reading_settings.update(saved_lists_={"x": False})
     assert not saved_lists.allowed("x")
 
