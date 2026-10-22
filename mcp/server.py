@@ -1078,7 +1078,7 @@ TOOLS = [
     {
         # The Skills page (2026-10-15): a read of the agents' skill folders; no fetch (the person checks updates).
         "name": "cicada_skills",
-        "description": "The agent skills installed on this Mac, per coding agent: where each came from, its version, whether an update is available (from the person's last check), and whether a tool skill's text is older than its tool. Also Cicada's suggestions, skills agents drafted, and requests waiting for the person.",
+        "description": "The agent skills installed on this Mac, per coding agent: where each came from, its version, whether an update is available (from the person's last check), and whether a tool skill's text is older than its tool. Also Claude Code's plugins and the skills each ships (read-only), each skill's kind (about-you, generic or unknown), the estimated weight each agent loads every session, Cicada's suggestions, skills agents drafted, and requests waiting for the person.",
         "inputSchema": {"type": "object", "properties": {}},
     },
     {

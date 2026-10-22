@@ -148,8 +148,49 @@ final class SkillsPageModel {
         }
     }
 
+    /// The person's word on what kind of skill this is (ruling 35 §5). The backend stores it; the page reloads.
+    func setKind(_ kind: SkillKind, to choice: String) async {
+        guard !kind.key.isEmpty, choice != kind.kind else { return }
+        await perform(kind.key) { try await api.setSkillKind(key: kind.key, kind: choice); return nil }
+    }
+
     func preview(_ source: String, choose: String? = nil) async throws -> SkillPreview {
         try await api.previewSkill(source: source, choose: choose)
+    }
+}
+
+/// The plugins group and the weight line, in words, pure (G201 slice (a)).
+enum SkillPluginWords {
+    /// "On", "Off", or "Per project" when Claude Code keeps the switch in a project's settings.
+    static func state(_ plugin: SkillPlugin) -> String {
+        switch plugin.enabled {
+        case true?: Copy.Skills.pluginOn
+        case false?: Copy.Skills.pluginOff
+        case nil: Copy.Skills.pluginPerProject
+        }
+    }
+
+    /// "v1.2.0 · market-a" — the version and where it came from, one meta line.
+    static func meta(_ plugin: SkillPlugin) -> String {
+        [plugin.version.isEmpty ? nil : "v\(plugin.version)", plugin.marketplace.isEmpty ? nil : plugin.marketplace]
+            .compactMap { $0 }.joined(separator: " · ")
+    }
+
+    /// The kind as one word: "About you", "Generic", "Not sure".
+    static func kind(_ kind: String) -> String {
+        switch kind {
+        case "about-you": Copy.Skills.kindAboutYou
+        case "generic": Copy.Skills.kindGeneric
+        default: Copy.Skills.kindUnknown
+        }
+    }
+
+    /// "Claude Code 14 skills, about 1,200 tokens · Codex 3 skills, about 150 tokens" — nil when nothing loads.
+    static func weight(_ weight: SkillsWeight) -> String? {
+        let parts = weight.agents.filter { $0.skills > 0 }.map {
+            Copy.Skills.weightPart($0.label, skills: $0.skills, tokens: $0.descriptionTokens)
+        }
+        return parts.isEmpty ? nil : Copy.Skills.weightLead + parts.joined(separator: " · ")
     }
 }
 

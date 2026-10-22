@@ -1143,7 +1143,12 @@ each with an exposed CLI row (`cicada skills list|propose|create`), one body eac
 - **`cicada_skills`** — every skill in this Mac's agents' folders (`skill_folders`), per agent (*on*, *through* another
   folder it reads, *off*), its source and version, the last update check (no fetch: the person checks), a tool skill
   whose text is older than its tool, permissions in words; then the catalog's suggestions, agents' drafts and the
-  requests waiting. Third-party SKILL.md names and descriptions are fenced as reference data.
+  requests waiting. Third-party SKILL.md names and descriptions are fenced as reference data. Since G201 slice (a)
+  (TODO ruling 35, 2026-10-22) each skill line also says its kind (`about-you`, `generic` or `kind unknown`, "(the
+  person's choice)" when they set it), a section lists Claude Code's plugins read-only (`id version · on|off|switched
+  per project · skills: …`, a skill only the person runs marked so), and one line gives each agent's loaded skills and
+  estimated description tokens (characters/4, said as an estimate). The reply's `data` gains `plugins` (ids). An agent
+  cannot set a kind or toggle a plugin: kinds are the person's (`PUT /skills/kinds`), plugins Claude Code's.
 - **`cicada_propose_skill(action, reason, source?, skill?, agents?)`** — `install` (a GitHub link, `owner/repo[@skill]`
   or an `npx skills add …` line, parsed by `skill_sources.parse`) and `update` **always** become a request the person
   approves on the Skills page, where they see the files first: an agent never installs third-party code through

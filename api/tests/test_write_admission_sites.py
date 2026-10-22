@@ -511,7 +511,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
         "POST /skills/check", "POST /skills/preview", "POST /skills/install", "POST /skills/{name}/update",
         "POST /skills/update-all", "PUT /skills/{name}/agents/{agent}", "POST /skills/{name}/refresh",
         "DELETE /skills/{name}", "POST /skills/drafts/{name}/publish", "DELETE /skills/drafts/{name}",
-        "POST /skills/requests/{request_id}/dismiss", "POST /skills/onboarding")},
+        "POST /skills/requests/{request_id}/dismiss", "POST /skills/onboarding", "PUT /skills/kinds")},
 }
 
 #: Every MCP tool (stdio and remote): the mcp_tools function it runs and its class.

@@ -7,7 +7,10 @@ import SwiftUI
 /// every other page's (owner 2026-10-20): the tabs Installed · Discover · Drafts in the eyebrow row (DR-25, DR-45),
 /// then Check for updates and a labelled *Add a skill* (DR-75, ⌘N) that opens the Add sheet. No pictures on rows.
 /// Applies DR-22, DR-25, DR-37, DR-40, DR-41, DR-43 (never blank over good data), DR-44, DR-45, DR-47, DR-48, DR-59,
-/// DR-75.
+/// DR-75. G201 slice (a) (TODO ruling 35, 2026-10-22): a Kind column (one word, a pull-down to correct it — DR-40's
+/// `TextButton`, as the Agents cell), Claude Code's plugins as their own read-only group under the table (DR-20/DR-47
+/// `SectionLabel`, DR-48 rows, DR-21 counts), and one weight line above it — DR-59's dated exception for an estimated
+/// token count, said as an estimate with its basis on hover.
 ///
 /// The app decides nothing: the backend reads the folders, checks upstream and writes every file
 /// (`api/services/skill_store.py`); a click here is one route (`SkillsPageModel`).
@@ -255,7 +258,7 @@ struct SkillsPageView: View {
 
     @ViewBuilder
     private func installed(_ data: SkillsPageData, style: ColumnPlan.ListStyle) -> some View {
-        if data.installed.isEmpty {
+        if data.installed.isEmpty && data.plugins.isEmpty {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 Text(Copy.Skills.emptyInstalledTitle).font(CicadaTheme.bodyFont)
                 Text(Copy.Skills.emptyInstalledMessage).font(CicadaTheme.metaFont)
@@ -263,6 +266,11 @@ struct SkillsPageView: View {
             }
         } else if style == .wide {
             VStack(alignment: .leading, spacing: 0) {
+                if let line = SkillPluginWords.weight(data.weight) {
+                    Text(line).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                        .monospacedDigit().lineLimit(1).help(Copy.Skills.weightHelp)
+                        .padding(.horizontal, CicadaTheme.spacingSM).padding(.bottom, CicadaTheme.spacingXS)
+                }
                 SkillsTableHeader()
                 ForEach(data.installed) { skill in
                     Divider().overlay(CicadaTheme.border)
@@ -271,7 +279,14 @@ struct SkillsPageView: View {
                                   onSelect: { select(skill.name) },
                                   onToggle: { agent in Task { await model.toggle(skill, agent: agent) } },
                                   onUpdate: { Task { await model.update(skill.name) } },
-                                  onRefresh: { Task { await model.refresh(skill.name) } })
+                                  onRefresh: { Task { await model.refresh(skill.name) } },
+                                  onKind: { choice in Task { await model.setKind(skill.kind, to: choice) } })
+                }
+                if !data.plugins.isEmpty {
+                    SkillPluginsGroup(plugins: data.plugins, busy: model.busy) { kind, choice in
+                        Task { await model.setKind(kind, to: choice) }
+                    }
+                    .padding(.top, CicadaTheme.spacingLG)
                 }
             }
         } else {
@@ -308,7 +323,8 @@ struct SkillsPageView: View {
             ForEach(data.drafts) { draft in
                 DraftSkillRow(draft: draft, busy: model.busy.contains(draft.name), onRead: { onRead(draft) },
                               onPublish: { onPublish(draft) },
-                              onDiscard: { Task { await model.discard(draft.name) } })
+                              onDiscard: { Task { await model.discard(draft.name) } },
+                              onKind: { choice in Task { await model.setKind(draft.kind, to: choice) } })
                 Divider().overlay(CicadaTheme.border)
             }
             if !data.noticed.isEmpty {
@@ -321,6 +337,9 @@ struct SkillsPageView: View {
                             Text(item.description).font(CicadaTheme.metaFont)
                                 .foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
                             Spacer(minLength: CicadaTheme.spacingSM)
+                            SkillKindMenu(kind: item.kind, busy: model.busy.contains(item.kind.key)) { choice in
+                                Task { await model.setKind(item.kind, to: choice) }
+                            }
                             Tag(text: Copy.Skills.noticedState(item.state, item.conversations))
                         }
                     }
@@ -335,6 +354,7 @@ struct SkillsPageView: View {
 
 enum SkillsTableLayout {
     static let agentsWidth: CGFloat = 220
+    static let kindWidth: CGFloat = 100
     static let statusWidth: CGFloat = 120
 }
 
@@ -344,6 +364,8 @@ struct SkillsTableHeader: View {
             SectionLabel(Copy.Skills.skillColumn).frame(maxWidth: .infinity, alignment: .leading)
             SectionLabel(Copy.Skills.agentsColumn)
                 .frame(width: CicadaTheme.scaled(SkillsTableLayout.agentsWidth), alignment: .leading)
+            SectionLabel(Copy.Skills.kindColumn)
+                .frame(width: CicadaTheme.scaled(SkillsTableLayout.kindWidth), alignment: .leading)
             SectionLabel(Copy.Skills.statusColumn)
                 .frame(width: CicadaTheme.scaled(SkillsTableLayout.statusWidth), alignment: .leading)
         }
@@ -362,6 +384,7 @@ struct SkillTableRow: View {
     var onToggle: (SkillAgentState) -> Void = { _ in }
     var onUpdate: () -> Void = {}
     var onRefresh: () -> Void = {}
+    var onKind: (String) -> Void = { _ in }
     @State private var hovering = false
 
     var body: some View {
@@ -376,6 +399,8 @@ struct SkillTableRow: View {
             .onTapGesture(perform: onSelect)
             SkillAgentsPullDown(agents: skill.agents, busy: busy, onToggle: onToggle)
                 .frame(width: CicadaTheme.scaled(SkillsTableLayout.agentsWidth), alignment: .leading)
+            SkillKindMenu(kind: skill.kind, busy: busy, onChoose: onKind)
+                .frame(width: CicadaTheme.scaled(SkillsTableLayout.kindWidth), alignment: .leading)
             SkillStatusCell(skill: skill, onUpdate: onUpdate, onRefresh: onRefresh)
                 .frame(width: CicadaTheme.scaled(SkillsTableLayout.statusWidth), alignment: .leading)
         }
@@ -751,6 +776,7 @@ struct DraftSkillRow: View {
     var onRead: () -> Void = {}
     var onPublish: () -> Void = {}
     var onDiscard: () -> Void = {}
+    var onKind: (String) -> Void = { _ in }
 
     var body: some View {
         HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
@@ -764,11 +790,143 @@ struct DraftSkillRow: View {
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            SkillKindMenu(kind: draft.kind, busy: busy, onChoose: onKind)
             TextButton(title: Copy.Skills.discard, inline: true, action: onDiscard)
             TextButton(title: Copy.Skills.readIt, inline: true, action: onRead)
             NeutralButton(title: Copy.Skills.publish, size: .compact, isDisabled: busy,
                           help: Copy.Skills.publishHelp, action: onPublish)
         }
         .padding(.vertical, CicadaTheme.spacingSM)
+    }
+}
+
+
+// MARK: - Kinds and plugins (G201 slice (a), TODO ruling 35)
+
+/// A skill's kind as one quiet word — "About you", "Generic", "Not sure" — and a pull-down to correct it, the Agents
+/// cell's pattern (DR-40 `TextButton`, a popover of plain rows). "your choice" follows the word once the person chose.
+struct SkillKindMenu: View {
+    let kind: SkillKind
+    let busy: Bool
+    var onChoose: (String) -> Void = { _ in }
+    @State private var open = false
+
+    var body: some View {
+        TextButton(title: SkillPluginWords.kind(kind.kind) + " ▾", help: Copy.Skills.kindHelp, inline: true) {
+            open.toggle()
+        }
+        .disabled(busy || kind.key.isEmpty)
+        .accessibilityLabel("\(Copy.Skills.kindColumn): \(SkillPluginWords.kind(kind.kind))"
+                            + (kind.by == "person" ? ", \(Copy.Skills.kindYours)" : ""))
+        .popover(isPresented: $open, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                ForEach(SkillKind.choices, id: \.self) { choice in
+                    Button {
+                        open = false
+                        onChoose(choice)
+                    } label: {
+                        HStack(spacing: CicadaTheme.spacingSM) {
+                            Image(systemName: "checkmark")
+                                .font(CicadaTheme.icon(.inline)).frame(width: CicadaTheme.scaled(16))
+                                .opacity(choice == kind.kind ? 1 : 0)
+                            Text(SkillPluginWords.kind(choice)).font(CicadaTheme.bodyFont)
+                            if choice == kind.kind, kind.by == "person" {
+                                Text(Copy.Skills.kindYours).font(CicadaTheme.metaFont)
+                                    .foregroundStyle(CicadaTheme.textTertiary)
+                            }
+                            Spacer(minLength: CicadaTheme.spacingSM)
+                        }
+                        .padding(.horizontal, CicadaTheme.spacingSM)
+                        .frame(height: CicadaTheme.scaled(28))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.cicadaPlain)
+                }
+            }
+            .padding(CicadaTheme.spacingSM)
+            .frame(minWidth: CicadaTheme.scaled(200))
+        }
+    }
+}
+
+/// Claude Code's plugins, read-only, under the table on the same columns: the plugin (its name and "v1.2.0 ·
+/// marketplace"), the agent it belongs to, and On / Off / Per project; then each skill it brings, indented, with its
+/// kind. Nothing here toggles a plugin — the line under the label says where the person does (DR-38: said once).
+struct SkillPluginsGroup: View {
+    let plugins: [SkillPlugin]
+    let busy: Set<String>
+    var onKind: (SkillKind, String) -> Void = { _, _ in }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                SectionLabel(Copy.Skills.pluginsTitle)
+                Text(Copy.Skills.pluginsLine).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, CicadaTheme.spacingSM).padding(.bottom, CicadaTheme.spacingSM)
+            ForEach(plugins) { plugin in
+                Divider().overlay(CicadaTheme.border)
+                SkillPluginRow(plugin: plugin)
+                ForEach(plugin.skills) { skill in
+                    SkillPluginSkillRow(skill: skill, busy: busy.contains(skill.kind.key)) { choice in
+                        onKind(skill.kind, choice)
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct SkillPluginRow: View {
+    let plugin: SkillPlugin
+
+    var body: some View {
+        HStack(spacing: CicadaTheme.spacingMD) {
+            VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                Text(plugin.name).font(CicadaTheme.rowFont).lineLimit(1)
+                Text(plugin.skills.isEmpty ? [SkillPluginWords.meta(plugin), Copy.Skills.pluginNoSkills]
+                        .filter { !$0.isEmpty }.joined(separator: " · ") : SkillPluginWords.meta(plugin))
+                    .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
+                    .monospacedDigit()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(Copy.Skills.pluginsHarness).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                .frame(width: CicadaTheme.scaled(SkillsTableLayout.agentsWidth), alignment: .leading)
+            Color.clear.frame(width: CicadaTheme.scaled(SkillsTableLayout.kindWidth), height: 1)
+            Text(SkillPluginWords.state(plugin)).font(CicadaTheme.metaFont)
+                .foregroundStyle(plugin.enabled == true ? CicadaTheme.textSecondary : CicadaTheme.textTertiary)
+                .help(plugin.note ?? Copy.Skills.pluginsLine)
+                .frame(width: CicadaTheme.scaled(SkillsTableLayout.statusWidth), alignment: .leading)
+        }
+        .padding(.vertical, CicadaTheme.spacingSM)
+        .padding(.horizontal, CicadaTheme.spacingSM)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+struct SkillPluginSkillRow: View {
+    let skill: SkillPlugin.Skill
+    let busy: Bool
+    var onKind: (String) -> Void = { _ in }
+
+    var body: some View {
+        HStack(spacing: CicadaTheme.spacingMD) {
+            HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
+                Text(skill.name).font(CicadaTheme.bodyFont).lineLimit(1)
+                Text(skill.description).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                    .lineLimit(1)
+            }
+            .padding(.leading, CicadaTheme.spacingLG)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(skill.userOnly ? Copy.Skills.userOnly : "").font(CicadaTheme.metaFont)
+                .foregroundStyle(CicadaTheme.textTertiary).help(skill.userOnly ? Copy.Skills.userOnlyHelp : "")
+                .frame(width: CicadaTheme.scaled(SkillsTableLayout.agentsWidth), alignment: .leading)
+            SkillKindMenu(kind: skill.kind, busy: busy, onChoose: onKind)
+                .frame(width: CicadaTheme.scaled(SkillsTableLayout.kindWidth), alignment: .leading)
+            Color.clear.frame(width: CicadaTheme.scaled(SkillsTableLayout.statusWidth), height: 1)
+        }
+        .padding(.vertical, CicadaTheme.scaled(4))
+        .padding(.horizontal, CicadaTheme.spacingSM)
     }
 }
