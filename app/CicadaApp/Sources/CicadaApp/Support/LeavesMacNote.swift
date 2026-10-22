@@ -26,7 +26,9 @@ enum LeavesMacNote {
         case "auto":
             // Auto names what a cycle you start would run (`preview.manual`), since that is what reads.
             switch manualEngine {
-            case "ollama", nil: return nil
+            // Ruling 31: Auto that found nothing (`none`), or one nobody resolved (`auto`), reads with nothing —
+            // never "your key sends…", which named a key nobody chose (settings defaults pass 2).
+            case "ollama", "none", "auto", nil: return nil
             case "claude-cli": return Copy.leavesMacClaudePlan
             case "codex-cli": return Copy.leavesMacChatGPTPlan
             default: return body(selected: "byok", provider: provider, manualEngine: nil, providers: providers)

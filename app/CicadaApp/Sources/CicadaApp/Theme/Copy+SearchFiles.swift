@@ -88,6 +88,13 @@ extension Copy {
                 ? "This memory was set up for sharper search on another Mac. Until you download it here (about \(megabytes(bytes))), search matches your words only."
                 : "This memory was set up for sharper search on another Mac. Until you download it here, search matches your words only."
         }
+        /// Nothing built yet and this setup's starting version isn't here (B-model, 2026-10-22): no "another Mac".
+        static func meaningNotYet(bytes: Int) -> String {
+            bytes > 0
+                ? "Search matches your words for now. Turn on the sharper version to search by meaning too: a one-time download of about \(megabytes(bytes)) that stays on this Mac."
+                : "Search matches your words for now. Turn on the sharper version to search by meaning too: a one-time download that stays on this Mac."
+        }
+        static let meaningWordsOnly = "Search matches your words for now."
         static let meaningMissingLarger = "This memory was set up for the larger version on another Mac, so search here matches your words only. Turn on the sharper version to search by meaning on this Mac."
         static func downloading(_ step: String) -> String { "\(step). You can close Settings; it keeps going." }
         static let gettingReady = "Getting ready. You can close Settings; it keeps going."
@@ -130,7 +137,8 @@ extension Copy {
             understandGroup, meaningTitle, imagesTitle, turnOn, tryAgain, download, on, sleepRunningHelp,
             meaningOffer(bytes: 585_000_000), meaningOffer(bytes: 0), meaningTurnOnHelp, meaningBuiltIn, meaningReadyHere,
             meaningUseHelp, meaningSharper, meaningLarger, meaningOther, meaningMissing(bytes: 585_000_000),
-            meaningMissing(bytes: 0), meaningMissingLarger, downloading("Downloading — 312 of 585 MB"), gettingReady,
+            meaningMissing(bytes: 0), meaningMissingLarger, meaningNotYet(bytes: 585_000_000), meaningNotYet(bytes: 0),
+            meaningWordsOnly, downloading("Downloading — 312 of 585 MB"), gettingReady,
             rereading(done: 1, total: 3), rereading(done: 0, total: 0), waitsForSleep, switchesAtNextSleep, loadFailed,
             imagesOffer(bytes: 309_000_000), imagesOffer(bytes: 0), imagesTurnOnHelp, imagesWaitsForMeaning,
             imagesWaitsHelp, imagesWaitsForDownload, imagesWaitsForDownloadHelp, imagesOn, imagesUnsupported,

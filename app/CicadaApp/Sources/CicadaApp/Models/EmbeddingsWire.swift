@@ -133,6 +133,10 @@ struct EmbeddingReindexState: Codable, Equatable {
 struct EmbeddingsStatus: Codable, Equatable {
     var model: String
     var nextModel: String
+    /// The model the bank's index records; nil when nothing is built yet — then `model` is only the configured
+    /// default, never "built elsewhere". `knowsRecorded` is false from an older backend that doesn't say.
+    var recorded: String? = nil
+    var knowsRecorded = false
     var choice: String? = nil
     var release: Bool = false
     var recommended: String? = nil
@@ -145,8 +149,9 @@ struct EmbeddingsStatus: Codable, Equatable {
     init(model: String, nextModel: String? = nil, choice: String? = nil, release: Bool = false,
          recommended: String? = nil, models: [EmbeddingModelOption] = [],
          install: EmbeddingInstallState = EmbeddingInstallState(), reindex: EmbeddingReindexState = EmbeddingReindexState(),
-         vision: EmbeddingVisionState? = nil) {
+         vision: EmbeddingVisionState? = nil, recorded: String?? = .none) {
         self.model = model; self.nextModel = nextModel ?? model; self.choice = choice
+        if case .some(let value) = recorded { self.recorded = value; self.knowsRecorded = true }
         self.release = release; self.recommended = recommended; self.models = models; self.install = install
         self.reindex = reindex; self.vision = vision
     }
@@ -155,6 +160,8 @@ struct EmbeddingsStatus: Codable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         model = (try? c.decode(String.self, forKey: .model)) ?? ""
         nextModel = (try? c.decode(String.self, forKey: .nextModel)) ?? model
+        knowsRecorded = c.contains(.recorded)
+        recorded = (try? c.decodeIfPresent(String.self, forKey: .recorded)) ?? nil
         choice = try? c.decodeIfPresent(String.self, forKey: .choice)
         release = (try? c.decode(Bool.self, forKey: .release)) ?? false
         recommended = try? c.decodeIfPresent(String.self, forKey: .recommended)
@@ -165,6 +172,9 @@ struct EmbeddingsStatus: Codable, Equatable {
     }
 
     func option(_ id: String) -> EmbeddingModelOption? { models.first { $0.id == id } }
+
+    /// The backend said nothing is built yet: `model` is the configured default, not what the memory was built with.
+    var nothingBuiltYet: Bool { knowsRecorded && recorded == nil }
 
     /// The model a download is about: one not on this Mac yet (the recommended one first), else any that needs one.
     var downloadable: EmbeddingModelOption? {
@@ -334,6 +344,20 @@ enum SearchUnderstanding {
             return UnderstandRow(detail: Copy.SearchFiles.switchesAtNextSleep)
         }
         guard let current = status.option(status.model) else { return UnderstandRow(detail: Copy.SearchFiles.meaningOther) }
+        if current.needsDownload, !current.available, status.nothingBuiltYet {
+            // Nothing built yet, and the version this setup starts with isn't on this Mac (a developer checkout's
+            // default is the larger one): never "set up on another Mac". Search reads words until a version is here;
+            // the way there is the one-click sharper version, else this default's own download (B-model, settings
+            // defaults pass 2).
+            let target = current.needsToken ? sharper : current
+            guard let target else { return UnderstandRow(detail: Copy.SearchFiles.meaningWordsOnly) }
+            return gated(UnderstandRow(detail: Copy.SearchFiles.meaningNotYet(bytes: target.downloadBytes),
+                                       button: Copy.SearchFiles.turnOn,
+                                       action: target.available ? .chooseMeaning(target.id) : .fetchMeaning(target.id),
+                                       help: target.available ? Copy.SearchFiles.meaningUseHelp
+                                           : Copy.SearchFiles.meaningTurnOnHelp),
+                         sleeping: sleeping, downloading: install.isInstalling)
+        }
         if current.needsDownload, !current.available {
             // Built elsewhere with a downloaded version: its vectors are kept, search reads words until it's here.
             // The larger version needs the person's own account key, which the app no longer asks for (settings

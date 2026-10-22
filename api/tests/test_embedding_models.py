@@ -204,3 +204,23 @@ def test_the_choice_waits_for_a_running_drain(env, monkeypatch):
         assert r.status_code == 409 and "Sleep" in r.json()["detail"]
     finally:
         config.get_settings.cache_clear()
+
+
+def test_a_fresh_bank_says_nothing_is_recorded_yet(env, monkeypatch, tmp_path):
+    """B-model (settings defaults pass 2, 2026-10-22): with no bundled model (a developer checkout, a scratch home)
+    the configured default is the larger model, so a fresh bank's ``model`` is that default — and the app read it as
+    "this memory was set up for the larger version on another Mac". ``recorded`` says nothing is built yet."""
+    from api.routers.embeddings import EmbeddingsStatus
+
+    monkeypatch.setattr(coreml_embedder, "supported", lambda: False)
+    monkeypatch.setattr(em, "sentence_transformers_available", lambda: False)
+    s = Settings()
+    assert s.resolved_embedding_model == em.LARGE_ID, "no bundled model: the checkout's default"
+    fresh = em.status(env, s)
+    assert fresh["model"] == em.LARGE_ID and fresh["recorded"] is None
+    wire = EmbeddingsStatus.model_validate(fresh).model_dump(by_alias=True)
+    assert "recorded" in wire and wire["recorded"] is None, "the key is sent even when empty, so the app can tell"
+
+    monkeypatch.setattr(em, "recorded_model", lambda bank: em.LARGE_ID)
+    built = em.status(env, s)
+    assert built["recorded"] == em.LARGE_ID and built["model"] == em.LARGE_ID

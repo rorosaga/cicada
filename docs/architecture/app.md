@@ -186,7 +186,17 @@ links every run); Agents has no `make install` card; Plans & keys folds the key 
 value already set (`api/.env`, the environment, the bank's prefs, `~/.cicada`, UserDefaults) is still honoured; the
 routes, `GET /status`'s `envOverrides` and `settings` blocks (`api.md`) and the `cicada` commands (`cicada sleep engine
 --model`, `cicada index use|install|rebuild`) stay for developers. The full control table is in PR #405 and
-`docs/research/2026-10-22-hyrum-audit.md`. Search is `SettingsIndex` over `QuickMatch` — the
+`docs/research/2026-10-22-hyrum-audit.md`. **Pass 2 (same day):** Engines opens on Auto (below, "Settings → Engines");
+Plans & keys says each card's state in words (`ConnectionsView.howLine` and `unconnectedDetail` map the plans', the
+local model's and the keys' backend sentences — a CLI, `localhost:…`, a key file's path, the variables Cicada strips —
+to `Copy.ConnectionLine`; an install hint keeps the backend's sentence, and `cicada engine list` prints them all
+unchanged). A value Cicada's setup fixes says where it is changed through `SettingsHelpLink`, which opens one public
+docs page, `docs/settings-outside-the-app.md` (the fixed engine on Engines, the fixed server on Devices, the usage
+ledger's *How to turn it off/on* on Privacy) — the page names the variable, the app never does. Search & files no
+longer says a fresh memory "was set up for the larger version on another Mac": `GET /embeddings` sends `recorded`
+(null when the bank's index records nothing yet, where `model` is only the configured default — the larger one in a
+checkout with no bundled model) and `SearchUnderstanding.meaning` then offers the sharper version
+(`meaningNotYet`); a backend without the key reads as before. Search is `SettingsIndex` over `QuickMatch` — the
 palette's one ranker — and landing always selects, scrolls, washes (the selected fill and the focus ring) and
 announces the row (G139). `SettingsSection` raw values did not move. General's appearance offers System, which
 follows the Mac's own light/dark through one app-scope observer (`ThemeStore.observeSystemAppearance`). General (F-10:
@@ -331,7 +341,18 @@ The first-read failure row uses the same calm “Reading stopped” / “See wha
 copy as Sleep (DR-7/59), never a raw server sentence. Its one *Past reads* action (DR-40) stages Sleep's Last cycle
 section through `AppRouter`; Sleep consumes it once on appear/change, selects Past reads and brings its tab row to the top.
 
-**Settings → Engines: the engine picker (G122, Track E; moved by G139 A3).** The Engine card ends with one *Ask* row,
+**Settings → Engines: Auto first (settings defaults pass 2, owner 2026-10-22; ruling 31).** `EnginesView` draws
+`EngineChooser(foldsOtherEngines: true)`: the card opens on `EngineHeadline` — *Auto* and what it uses now from
+`preview.manual` ("Using your Claude plan — you're signed in.", the ChatGPT plan, the model on this Mac, or "Nothing to
+read with yet" with a Plans & keys link), the rule in one line (a plan first, then a model on this Mac, never a key
+nobody chose), or, for a stored choice that isn't Auto, that card's name, its cost model and state, and *Back to Auto*
+(`EngineWrite(mode: "auto", model: nil)`; hidden while the environment fixes the engine). Every other card waits
+under *Use a different engine* (`DisclosureGroup`, DR-39, per viewer `cicada.engines.othersOpen`; landing on
+`.engineChoice` opens it). The extra-usage switch, `LeavesMacNote`, the chosen card's one step and both previews stay
+outside the fold. Onboarding's Who reads keeps `EngineChooser()`, the full row. Engines and Plans & keys stay two
+sections (B1 is the owner's): merged, sign-in, sign-out and key removal would sit below an open chooser. Auto that
+resolved to no engine says nothing leaves the Mac (`LeavesMacNote` returned the key's sentence before).
+**The engine picker (G122, Track E; moved by G139 A3).** The Engine card ends with one *Ask* row,
 "Answers your questions with the same engine as a cycle you start" (its own card until the 2026-10-22 settings audit,
 DR-37/DR-38). A row of cards with real marks — Auto,
 Claude plan, ChatGPT plan, OpenRouter, Ollama (tagged *Local*), API key — over the connections registry's candidates writes

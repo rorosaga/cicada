@@ -37,7 +37,7 @@ struct EnginesView: View {
     var body: some View {
         SettingsPage(section: .engines) {
             SettingsGroupCard(header: Copy.enginesChooseGroup) {
-                EngineChooser().padding(CicadaTheme.spacingMD)
+                EngineChooser(foldsOtherEngines: true).padding(CicadaTheme.spacingMD)
                 SettingsDivider()
                 // DR-37/DR-38: one line titled Ask under a header Ask was a card of its own; it belongs to the engine.
                 SettingsRow(.engineAsk, title: Copy.askTitle, detail: Copy.askFollowsEngine)

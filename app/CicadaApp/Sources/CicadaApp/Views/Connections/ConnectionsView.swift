@@ -173,7 +173,7 @@ private struct ConnectionCard: View {
             // G63: "why does this say Connected?" — the sentence comes from the
             // backend adapter that ran the probe, so the copy can never drift
             // from the check that produced it.
-            if let how = connection.how {
+            if let how = ConnectionsView.howLine(connection) {
                 Text(how)
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
@@ -271,6 +271,33 @@ extension ConnectionsView {
     static func unconnectedDetail(_ connection: ConnectionStatus) -> String? {
         guard !connection.connected else { return nil }
         if connection.login?.mode == "key" { return Copy.keyCardDetail }
-        return connection.detail
+        // Settings defaults pass 2: the same words for the two cards whose backend sentence names an address, a
+        // file or a command (`cicada engine list` keeps those). An install hint, or a plan that reports an API key
+        // instead, keeps the backend's sentence — each names the one step that fixes it.
+        switch connection.id {
+        case "byok-openrouter":
+            return Copy.ConnectionLine.openRouterNoKey
+        case "ollama-local":
+            return connection.available ? Copy.ConnectionLine.localNoModel : Copy.ConnectionLine.localNotRunning
+        case "claude-plan" where connection.available && (connection.detail ?? "").hasPrefix("Not signed in"):
+            return Copy.ConnectionLine.claudeSignedOut
+        default:
+            return connection.detail
+        }
+    }
+
+    /// G63's "why does this say Connected?", in words (settings defaults pass 2). The backend's `how` names the
+    /// CLI, the local address or the key file's path — right for `cicada engine list`, too technical here — and may
+    /// append which environment variables Cicada strips for its own calls, which Cicada handles without the person.
+    /// The connected state is the same probe's; only the sentence is the app's. An unknown card keeps the backend's.
+    static func howLine(_ connection: ConnectionStatus) -> String? {
+        guard connection.connected else { return connection.how }
+        switch connection.id {
+        case "claude-plan": return Copy.ConnectionLine.claudeSignedIn
+        case "chatgpt-plan": return Copy.ConnectionLine.chatgptSignedIn
+        case "ollama-local": return Copy.ConnectionLine.localReady
+        default:
+            return connection.isKeyBased ? Copy.ConnectionLine.keySaved : connection.how
+        }
     }
 }

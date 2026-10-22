@@ -206,7 +206,7 @@ enum Copy {
     /// spends, who starts it, and what a throttle does. Not "free" — plan
     /// quota is a real budget, just not a dollar one.
     static let sleepEngineExplainer =
-        "Sleep runs through the `claude` CLI on your plan: it spends plan quota, not money. "
+        "Sleep runs on your Claude plan through Claude Code: it spends plan quota, not money. "
         + "When you start a cycle yourself, and on the schedule unless you turn that off in Settings → Sleep; if the "
         + "plan throttles it stops cleanly with the queue intact."
 

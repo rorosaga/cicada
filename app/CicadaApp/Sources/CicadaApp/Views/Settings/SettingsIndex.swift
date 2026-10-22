@@ -231,7 +231,8 @@ enum SettingsIndex {
                       keywords: ["token", "link", "connect an app", "revoke"], anchor: .page(.remote)),
         // Engines
         SettingsEntry(.engineChoice, .engines, Copy.enginesChooseGroup,
-                      keywords: ["model", "llm", "claude", "chatgpt", "codex", "ollama", "api key", "plan", "auto"]),
+                      keywords: ["model", "llm", "claude", "chatgpt", "codex", "ollama", "openrouter", "api key", "plan", "auto",
+                                 "back to auto", "different engine"]),
         SettingsEntry(.engineOverage, .engines, Copy.keepGoingOnExtraUsage, keywords: ["extra usage", "overage", "limit"]),
         SettingsEntry(.enginePreview, .engines, Copy.enginePreviewTitle, keywords: ["schedule", "nightly", "which engine"]),
         SettingsEntry(.engineAsk, .engines, Copy.askTitle, keywords: ["questions", "answers"], detail: Copy.askFollowsEngine),

@@ -42,6 +42,21 @@
   `benchmarks/hard_questions` read the stamp in the person's zone; ids are never renamed. The golden fixture did not
   change. Left for G199 proper: `isError` for refusals, `structuredContent`, validating every argument. Found, not in
   scope: Sleep's `source_dates.episode_day` still dates a conversation by its UTC stamp's first ten characters.
+- **2026-10-22 — Settings defaults, pass 2: Engines opens on Auto (G139, ruling 31; branch `feat/settings-defaults-2`).**
+  Settings → Engines leads with what Auto uses now and why, in words: "Using your Claude plan — you're signed in", or
+  "Nothing to read with yet" with a link to Plans & keys. The other five engines sit under *Use a different engine*
+  (DR-39, per viewer `cicada.engines.othersOpen`; a search hit opens it). A stored choice that isn't Auto is shown by its
+  card's name, with *Back to Auto* (`PUT /sleep/engine {mode: auto}`, never sent while the environment fixes the engine).
+  Onboarding's Who reads keeps the full row of cards. Engines and Plans & keys stay two sections: merging them adds no
+  step saving, because sign-in, sign-out and key removal would sit below an open chooser (B1 is still the owner's call).
+  Plans & keys' status lines are in words (`ConnectionsView.howLine`/`unconnectedDetail`: no CLI, local address, key
+  path or variable; `cicada engine list` keeps the backend's sentences). The fixed engine (Engines), the fixed server
+  (Devices) and the usage ledger (Privacy) each link `docs/settings-outside-the-app.md`, which names what to change.
+  **B-model fixed:** a fresh bank in a checkout with no bundled model reported `model` = the larger default, and the
+  app read that as "set up for the larger version on another Mac". `GET /embeddings` now sends `recorded` (null when
+  nothing is built yet), and the row offers the sharper version instead (an older backend reads as before). Also
+  fixed: Auto with no engine said "Your key sends what it reads to its provider" (`LeavesMacNote`), which is false.
+  Pick up: review.
 - **2026-10-22 — Settings works toward good defaults (owner: "Remove all those environment variables and stuff in the
   settings page. Let's just work towards the good defaults"; G139; branch `feat/settings-defaults`).** No Settings page
   shows an environment variable, a settings file, a home path, a raw model id or a maintenance button. Cut: Advanced
@@ -52,8 +67,8 @@
   instead*. Said in words: the memory folder, where keys and tokens live, the pinned engine, the server pin, and
   `engine_cause`'s unknown-model fix. Every stored value is still honoured; routes, `/status` and the `cicada` commands
   are unchanged. Every data, privacy, consent and trust control stays drawn and searchable
-  (`SettingsDefaultsTests`). Detail: `app.md` (Settings), the Hyrum audit's B rows. Pick up: review; B-model's
-  "built elsewhere" inference on a fresh bank is still open.
+  (`SettingsDefaultsTests`). Detail: `app.md` (Settings), the Hyrum audit's B rows. B-model's "built elsewhere"
+  inference is fixed in pass 2 (above).
 - **2026-10-21 — the seven backend failures on dev before 0.6.0 (branch `fix/suite-0.6`).** The full suite on
   `24a419a7` gave 7 failed, 10,864 passed. Two were code: the entity card opened the claims ledger through
   `quiet_pages.page_is_quiet` (#391) because `bank_index.file` parsed with the ledger fold — it now reads the header

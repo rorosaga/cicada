@@ -24,6 +24,9 @@ struct MemoryHomeSetting: View {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 if model.lockedByEnvironment {
                     caption(Copy.Devices.environmentSet)
+                    // Settings defaults pass 2 (#405 review): where the pin is undone — the docs page, never the variable.
+                    SettingsHelpLink(url: Copy.SettingsHelp.serverFixed)
+                        .font(CicadaTheme.captionFont)
                 } else if model.choice == .server {
                     serverForm
                 } else if model.saved.isServer {
