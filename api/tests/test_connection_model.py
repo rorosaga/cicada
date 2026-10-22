@@ -391,3 +391,19 @@ def test_a_bad_key_is_refused_by_each_providers_own_status(monkeypatch):
                                        ("deepinfra", 401, "refused"), ("together", 503, "unreachable")):
         monkeypatch.setattr(httpx, "AsyncClient", answer(status))
         assert asyncio.run(key_check._http_check(provider, "fake")).result == expected, (provider, status)
+
+
+def test_a_device_token_reads_the_status_but_still_cannot_mint(env, monkeypatch):
+    """G212 review: like GET /devices, the status is readable from any of the person's devices; issuing is not."""
+    from api.services import auth
+
+    monkeypatch.setenv("CICADA_API_AUTH", "on")
+    laptop, token = device_tokens.store().create("laptop-example")
+    client = TestClient(main.app)
+    headers = {"Authorization": f"Bearer {token}"}
+    body = client.get("/devices/status", headers=headers).json()
+    assert [d["current"] for d in body["devices"]] == [False, True]
+    assert body["devices"][1]["how"] == "ssh"   # a device token on loopback: its tunnel
+    assert client.post("/devices", json={"name": "x"}, headers=headers).status_code == 403
+    assert client.get("/devices/status").status_code == 401
+    assert auth._master_only("/devices/status", "DELETE")
