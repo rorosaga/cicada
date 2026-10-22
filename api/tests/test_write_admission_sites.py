@@ -487,6 +487,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /connections/{connection_id}/login": (OUTSIDE, None),
     "POST /connections/{connection_id}/logout": (OUTSIDE, None),
     "PUT /connections/{connection_id}/key": (OUTSIDE, None),
+    "POST /agent-requests": (OUTSIDE, None),   # G205: $CICADA_HOME/agent_requests, never the bank
     "DELETE /connections/{connection_id}/key": (OUTSIDE, None),
     "PUT /connections/{connection_id}/prefs": (OUTSIDE, None),
     "PUT /reading/settings": (OUTSIDE, None),

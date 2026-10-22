@@ -1133,7 +1133,22 @@ def initialize_result(params: dict) -> dict:
     except Exception as exc:  # never fail a connect over a primer
         print(f"cicada-mcp: handshake unavailable: {exc}", file=sys.stderr)
     _warm_reading_queue()
+    _stamp_seen()
     return result
+
+
+def _stamp_seen() -> None:
+    """G217: this agent reached Cicada — one row in the last-seen registry (``agent_seen``: a catalog id and a time,
+    at most once a minute), which telemetry off does not silence. On a client machine the server's tool door stamps
+    it instead, with the device. Never fails a call."""
+    try:
+        if runtime_layout.is_client():
+            return
+        from api.services import agent_live, agent_seen
+
+        agent_seen.stamp_agent(agent_live.agent_for(SESSION.harness, CLIENT_INFO.get("name")), via="mcp")
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _warm_reading_queue() -> None:
@@ -1249,6 +1264,7 @@ def call_tool(name: str, arguments) -> dict:
     from api.services import tool_client, tool_contract
 
     from_body = False
+    _stamp_seen()
     if name not in _SCHEMAS:
         reply = mcp_tools.Reply(f"Error: Unknown tool: {name[:80]}", code="invalid_arguments")
         checked = tool_contract.Checked()

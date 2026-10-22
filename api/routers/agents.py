@@ -37,3 +37,14 @@ def live() -> AgentLiveResponse:
     """Round 4 C8: the live ✓. Engine-free, subprocess-free, never persisted —
     see api/services/agent_live.py for the three signals and the one rule."""
     return AgentLiveResponse(**agent_live.snapshot(home=Path.home()))
+
+
+@router.get("/providers")
+def providers() -> dict:
+    """G217: the one table of who connects to Cicada — an umbrella per provider with its logo slug, the ways each of
+    its products connects (stdio and hooks, the remote connector, the HTTP API, Messages, an export), their setup ids,
+    the ``clientInfo`` words that recognise them, and the plans and keys that can run Sleep. Static per release (no
+    probe, no file read), so no ETag: the app fetches it once per launch and caches it in memory."""
+    from api.services import agent_catalog
+
+    return agent_catalog.snapshot()

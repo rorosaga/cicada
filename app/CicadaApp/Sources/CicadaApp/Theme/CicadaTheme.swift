@@ -751,6 +751,7 @@ private extension CicadaTheme {
             case .followup: Color(hex: 0x8896FF)
             // G198: a proposed edit is a question the person answers — clarification's hue, no new colour.
             case .pageEdit: Color(hex: 0x8896FF)
+            case .agentRequest: Color(hex: 0x8896FF)
             // G129 slice 2 — decay's amber, darkened: a retraction reads as a
             // graver cousin of decay's fade, not a wholly new hue (R9, same
             // "no new hue budget" precedent as divergence/normalization above).
@@ -894,6 +895,7 @@ private extension CicadaTheme {
             case .normalization: Color(hex: 0x5A62E0)
             case .followup: Color(hex: 0x5A62E0)
             case .pageEdit: Color(hex: 0x5A62E0)
+            case .agentRequest: Color(hex: 0x5A62E0)
             case .removal: Color(hex: 0x8A5A10)
             case .unknown: Light.textTertiary
             }

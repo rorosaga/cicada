@@ -163,7 +163,8 @@ def get_token() -> str:
 #: the person on the server, never of a device. Reading the list is not (G181 phase 3): a device's app shows the
 #: person which of their devices reach this server (ids, names and times only), and still cannot add or revoke one.
 MASTER_ONLY_PREFIXES = ("/devices",)
-_DEVICE_READABLE = frozenset({("GET", "/devices")})
+#: G212: a device's app also reads the devices' status (names, connected, how, queue) — reading, never minting.
+_DEVICE_READABLE = frozenset({("GET", "/devices"), ("GET", "/devices/status")})
 #: Writes only the master token may make under these prefixes: minting, rotating or turning on a G135 remote
 #: connector. A connector token a device minted would outlive the device's own revocation (and the listener it turns
 #: on faces the person's tunnel), so a device may read the connector state and revoke, never create or open.
@@ -222,3 +223,9 @@ async def require_token(
         device_tokens.store().touch(device.id)
     except Exception:  # noqa: BLE001 - a usage stamp never fails a request
         pass
+    from api.services import agent_seen
+
+    # G212: how the device reached this server (loopback = its tunnel, a tailnet address or Serve header = Tailscale),
+    # read from the request alone. Throttled to a write a minute; never fails a request.
+    agent_seen.stamp_device(device.id, agent_seen.how_from_request(
+        peer=request.client.host if request.client else None, headers=request.headers, device=True))

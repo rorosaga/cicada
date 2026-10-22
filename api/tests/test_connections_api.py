@@ -40,6 +40,12 @@ def client(tmp_path, monkeypatch):
         raise ConnectionError("no ollama in tests")
 
     monkeypatch.setattr(registry, "_ollama_fetch_tags", no_tags)
+    from api.services.connections import key_check
+
+    async def accepted(_provider, _key):   # no network in the suite; the check's own tests drive the other answers
+        return key_check.KeyCheck("ok", frozenset({"gpt-5.4-mini"}))
+
+    monkeypatch.setattr(key_check, "check", accepted)
     test_client = TestClient(main.app)
     test_client.run_cli_calls = calls  # type: ignore[attr-defined]
     yield test_client

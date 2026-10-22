@@ -8,10 +8,11 @@ pinned to or checked against a bank (``bank_binding.NO_BANK_WRITE``). The token 
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from api.config import Settings, get_settings
 from api.services import device_tokens
 
 router = APIRouter()
@@ -30,6 +31,19 @@ async def list_devices(request: Request):
     asking = getattr(request.state, "device", None)
     asking_id = asking.id if asking is not None else None
     return {"devices": [{**d.wire(), "current": d.id == asking_id} for d in devices]}
+
+
+@router.get("/devices/status")
+async def devices_status(request: Request, settings: Settings = Depends(get_settings)):
+    """G212: this server and each active device, by its own name — connected or not, how it connects (local, SSH,
+    Tailscale, LAN; read from its requests), when it was last seen, and how many of its conversations wait for Sleep.
+    One list for the Sleep page's strip and Settings → Devices. Readable by a device token too (``current`` marks the
+    asking device). Not a Store domain, no ETag: a small body that changes by the minute; poll it while visible."""
+    from api.services import device_status
+
+    asking = getattr(request.state, "device", None)
+    return await run_in_threadpool(device_status.snapshot, settings.memory_path,
+                                   asking_device=asking.id if asking is not None else None)
 
 
 @router.post("/devices", status_code=201)
