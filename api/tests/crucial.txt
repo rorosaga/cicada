@@ -156,6 +156,10 @@ test_auth.py::test_cors_allows_loopback_origins_only
 ## Portability: no owner name primes a prompt
 test_owner_name_portability.py::test_no_llm_prompt_is_primed_with_a_person
 
+## Portability: a bank commits under a neutral identity, never one git guessed from the account (G203)
+test_headless_server.py::test_a_guessed_identity_never_reaches_a_bank_commit
+test_headless_server.py::test_a_bank_switched_to_at_runtime_gets_the_neutral_identity
+
 ## Test isolation: the suite never touches the real home, a developer's .env, or a real bank
 test_suite_home_isolation.py
 test_system_benchmark_isolation.py::test_unmarked_bank_and_home_are_refused_before_import

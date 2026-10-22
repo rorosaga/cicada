@@ -1455,6 +1455,17 @@ Cicada-Engine: claude-cli
 Cicada-Session: <id>
 ```
 
+**Git's author field is not provenance (G203, 2026-10-22).** A bank commits under whatever identity git is configured
+with, and the half nobody configured is the neutral `Cicada` / `cicada@localhost` that `ensure_commit_identity_sync` sets in
+the bank whenever it becomes active (never a guess from the account; `headless.md`, "Commits with no git identity"). Who wrote a change is read only from the
+trailers. Every reader of a bank's history today takes the trailers and none takes `%an`/`%ae`: the page history and
+blame (`git_service._parse_authors`, `page_blame`, G198), the contributors view and its calendar
+(`get_contributors`, `consumption_stats`), claim recovery (`claim_recovery`, `%(trailers:key=Cicada-Author)`), the
+coexist reopen and the Sleep page's history. Seen 2026-10-22 on a scratch bank where every commit's git author was the
+neutral one: blame named `verify` accepted by `user`, contributors listed `cicada`, `user`, `verify` and the model, and
+history named `claude-haiku-*`. The one `%an` reader, `repo_context` (and the app's `GitRunner`), reads a declared
+workspace repo, never a bank.
+
 **Triggers:** `sleep/extraction`, `sleep/promotion`, `sleep/conflict_resolution`, `sleep/decay`,
 `sleep/state`, `sleep/expiry`, `sleep/followup`, `sleep/source-links`, `maintenance/source-links`, `sleep/site-check`, `capture/calendar`, `capture/tab-groups`, `capture/contacts`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`,
 `user/companion_app` (also the Projects page's writes, G141 — `Project update <date>`,

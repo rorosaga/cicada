@@ -18,9 +18,9 @@ Preconditions:
 
 - A run is up and `$CV doctor` is all `ok` (backend, scratch root, plan).
 
-- **List.** Run `$CV api GET /banks`. One bank, `default`, at the scratch root.
-- **Demo guard.** Run `$CV api POST /banks/demo`, then `$CV capture --session verify-demo1 --user hi`. The capture lands in `default` (`redirectedFrom` set) or answers 409; then `$CV api POST /banks/leave-demo`.
-- **App.** `vclick 'menu button Memory banks'`, `$CV app shot banks`.
+- **List.** Run `$CV api GET /banks`. One bank, `default`, active.
+- **Demo guard.** Run `$CV api POST /banks/demo` (`active: demo`), then `$CV capture --session verify-demo1 --user hi`. The capture lands in `default` with `redirectedFrom: demo`; then `$CV api POST /banks/leave-demo` and `$CV doctor` (`active bank is inside the run`).
+- **App.** The bank menu is `menu button default … Switch memory bank` in the toolbar. Its AX press does not open it (2026-10-22); click its pixels with `$CV app click`, which needs our window frontmost and refuses (`did not become frontmost`) while the person works in another app. When it refuses, report the menu as not driven.
 
 ## Gotchas
 

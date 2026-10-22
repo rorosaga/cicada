@@ -21,9 +21,9 @@ Preconditions:
 
 - A run is up and `$CV doctor` is all `ok` (backend, scratch root, plan).
 
-- **Handshake.** Run `$CV mcp init`. The server info and the instructions text naming the scratch bank.
-- **Timeline.** Run `$CV mcp call cicada_timeline '{"since": "2026-01-01"}'`. Today's pages.
-- **Continue.** Run `$CV mcp call cicada_continue '{}'`. With no captured work for this folder it says so.
+- **Handshake.** Run `$CV mcp init`. The server info (`cicada-bookworm`, the version) and the instructions text.
+- **Timeline.** Run `$CV mcp call cicada_timeline '{"since": "2026-01-01"}'`. Today's captures by origin, the Sleep run and agent writes, ids and counts only. A `since` older than 90 days is clamped to 90 days.
+- **Continue.** Run `$CV mcp call cicada_continue '{}'`. With no captured work for this folder: `No captured session in this folder yet.`
 
 ## Gotchas
 

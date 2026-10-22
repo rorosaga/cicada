@@ -30,6 +30,18 @@
   writers' catch-alls no longer leak exception text. Tool and argument names are unchanged (G180 names no rename yet); `cicada_resolve_inbox`
   also takes `item_id`, unlisted. Left out: the claims fence rendered through the one wire builder (A6), and fencing
   the command line's text.
+- **2026-10-22 — ready for background agents: every verify recipe driven, the plan token only in the engine's child,
+  CI on `dev`, a neutral bank identity (G203; branch `agent-ready-ci`).** The 19 recipes in
+  `.claude/skills/verify-cicada/features/` that had never run were driven with `cv` on scratch banks: 4 worked as
+  written, 11 were wrong (request shapes, selectors, a CLI step that is person-only, Ask needing `--search-model`) and
+  are fixed, and 4 now say which part cannot be driven and give the nearest check (the video lease lifecycle, a site
+  exploration, the remote listener and OAuth, the bank menu without focus). One product defect found: G204 (`cicada_write_claim` names an
+  id that is not on the page when it folds into Sleep's claim). `cv` no longer puts `CLAUDE_CODE_OAUTH_TOKEN` in the
+  scratch backend's env: a 0600 file in the run dir, read into the engine's `claude` child by `plan-claude`, deleted and
+  masked at cleanup (`cv selftest` 87/87; `cv` also drops it from its own env, so no child of `cv` inherits it). `.github/workflows/dev-ci.yml` runs the backend crucial tier on pushes and
+  PRs to `dev` (260 passed on `ubuntu-latest`). A bank fills only the half of its git identity nobody configured with
+  `Cicada` / `cicada@localhost`, at startup and at every runtime switch, instead of the account's guessed name and host. Evidence:
+  `~/cicada-harness-run-2026-10-22/round2-agents/`.
 - **2026-10-22 — Settings in eleven sections (Hyrum audit B1, with B11, B12, B23; G139; branch `settings-regroup`).**
   Memory's one card joined Search & files (now *Search & memory*), From anywhere joined Devices (now *Devices &
   access*), Plans & keys closes Engines. Each moved page is a group under its old header anchor (`page:memory`,

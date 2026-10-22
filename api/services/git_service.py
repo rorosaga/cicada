@@ -554,34 +554,51 @@ def run_git_write_sync(memory_path, *args: str) -> str:
 _TREE_WRITERS = WRITE_SUBCOMMANDS - {"add", "commit", "update-index", "update-ref"}
 
 
-#: The commit identity a bank falls back to on a machine with none configured (G181): a fresh Linux server has no
-#: ``user.name``/``user.email``, and git then refuses every commit. Placeholder values, never the person's — who wrote
-#: a change is the ``Cicada-Author`` trailer's job, not git's author field.
+#: The commit identity a bank falls back to when none is configured (G181, G203): placeholder values, never the
+#: person's. Who wrote a change is the ``Cicada-Author`` trailer's job, not git's author field; no reader of a bank's
+#: history reads the author field (G203's Hyrum line in storage.md).
 FALLBACK_IDENTITY = ("Cicada", "cicada@localhost")
 
 
-def _identity_resolves(memory_path: Path) -> bool:
-    for var in ("GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"):
-        try:
-            proc = subprocess.run(["git", "var", var], cwd=str(memory_path), capture_output=True)
-        except OSError:
-            return True  # no git at all: nothing to fix here, and every write already degrades
-        if proc.returncode != 0:
-            return False
-    return True
+def _missing_identity_keys(memory_path: Path) -> list[str]:
+    """The halves of the commit identity nobody chose: ``user.name``, ``user.email``, both or neither. A half counts
+    as chosen when git finds it in the environment or in the repo, global or system config (``EMAIL`` too, which git
+    honours for the email); ``useConfigOnly`` stops git guessing, since with no ``user.name`` it would take the
+    account's full name and ``user@hostname`` and a bank handed to someone else would carry both (G203). Each half is
+    probed with the other one stood in, so a configured name is never mistaken for a missing one."""
+    probes = {"user.name": "user.email=probe@cicada.invalid", "user.email": "user.name=probe"}
+    missing = []
+    for key, stand_in in probes.items():
+        if key == "user.email" and os.environ.get("EMAIL"):
+            continue
+        for var in ("GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"):
+            try:
+                proc = subprocess.run(["git", "-c", "user.useConfigOnly=true", "-c", stand_in, "var", var],
+                                      cwd=str(memory_path), capture_output=True)
+            except OSError:
+                return []  # no git at all: nothing to fix here, and every write already degrades
+            if proc.returncode != 0:
+                missing.append(key)
+                break
+    return missing
 
 
 def ensure_commit_identity_sync(memory_path) -> bool:
-    """Give a bank a repo-local commit identity only when git resolves none (no global, system or environment
-    identity). Never overrides one that resolves, never touches ``~/.gitconfig``. Returns True when it set one."""
+    """Fill, in the bank's own config, only the half of the commit identity nobody configured, with the neutral
+    :data:`FALLBACK_IDENTITY` value: git would otherwise guess it from the account (or, with ``useConfigOnly``, refuse
+    every commit). A configured half is the person's choice and stays, so a global ``user.name`` with no email keeps
+    the name and gets the neutral email. Never touches ``~/.gitconfig``, never rewrites a commit already made. Runs
+    for every bank that becomes active (``scaffold_bank``, ``run_bank_migrations``). Returns True when it set one."""
     memory_path = Path(memory_path)
-    if not (memory_path / ".git").exists() or _identity_resolves(memory_path):
+    if not (memory_path / ".git").exists():
         return False
-    name, email = FALLBACK_IDENTITY
-    run_git_write_sync(memory_path, "config", "user.name", name)
-    run_git_write_sync(memory_path, "config", "user.email", email)
-    logger.info("git: this machine has no commit identity; the bank commits as Cicada <cicada@localhost>")
-    return True
+    missing = _missing_identity_keys(memory_path)
+    values = dict(zip(("user.name", "user.email"), FALLBACK_IDENTITY))
+    for key in missing:
+        run_git_write_sync(memory_path, "config", key, values[key])
+    if missing:
+        logger.info(f"git: no {' or '.join(missing)} is configured; the bank uses Cicada's neutral value")
+    return bool(missing)
 
 
 def _ledger_rels(paths) -> list[str]:

@@ -22,12 +22,14 @@ Every page reads as an article with its claims, sources, history and blame; the 
 Preconditions:
 
 - A run is up and `$CV doctor` is all `ok` (backend, scratch root, plan).
-- `alpha-project` exists.
+- `alpha-project` exists (the standard seed and one `$CV sleep`).
 
-- **Read.** Run `$CV api GET /entities/alpha-project --save api/entity.json`. Title, summary, claims.
+- **Read.** Run `$CV api GET /entities/alpha-project --save api/entity.json`. Title, `markdownContent`, claims, and `history` whose `author` is the `Cicada-Author` trailer (`claude-haiku-*`), not git's author.
 - **History.** Run `$CV cli -- page history alpha-project`. The Sleep commit that made it.
-- **Edit.** Run `$CV mcp call cicada_edit_page '{"subject": "alpha-project", "reason": "verify", "edits": [{"old": "<exact text>", "new": "<replacement>"}]}'` (full shape: `$CV mcp schema cicada_edit_page`). A trusted harness writes at once; an untrusted one proposes in the inbox. Check `$CV bank log` for the commit and its `Cicada-Author`.
-- **App.** Open the page from Projects or Home and `$CV app shot page`.
+- **Edit.** Copy one line of `markdownContent` exactly, then run `$CV mcp call cicada_edit_page '{"subject": "alpha-project", "reason": "verify run: name the library exactly", "edits": [{"old": "<exact line>", "new": "<replacement>"}]}'`. The verify harness is not on the trust list, so the reply says `Proposed, not applied … (inbox-NNN)` and `$CV bank log` shows `Page edit proposed` under `Cicada-Author: verify`.
+- **Apply.** Run `$CV api POST /inbox/<inbox-NNN>/resolve '{"action": "answer", "optionKey": "apply"}'`. `$CV bank cat entities/alpha-project.md` carries the new words.
+- **Blame.** Run `$CV api GET /entities/alpha-project/blame --save api/blame.json`. The Sleep commit and the edit, the edit as `author: verify`, `acceptedBy: user`.
+- **App.** `vclick 'button.*Description: Clusters,'`, then `vclick 'button Project, alpha-project'`. The page opens beside the grid (`Content`, `Perspectives`); `$CV app shot page`.
 
 ## Gotchas
 

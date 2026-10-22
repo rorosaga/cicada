@@ -870,6 +870,8 @@ MIGRATIONS: dict[str, tuple[str, str | None]] = {
     "repair_paper_contexts": (MIGRATION, None),
     "rewrite_placeholder_summaries": (MIGRATION, None),
     "repair_paper_claim_text": (MIGRATION, None),
+    # G203: writes only the bank's `.git/config` (a missing user.name / user.email), under the bank's git lock, never a page
+    "git_service.ensure_commit_identity_sync": (MIGRATION, None),
     # the paused run's sidecar and its re-armed job live outside every bank
     "sleep_paused.recover_after_restart": (OUTSIDE, None),
     "sleep_autocontinue.rearm_after_restart": (OUTSIDE, None),

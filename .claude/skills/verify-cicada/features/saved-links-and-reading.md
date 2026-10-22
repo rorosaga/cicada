@@ -18,9 +18,9 @@ Preconditions:
 
 - A run is up and `$CV doctor` is all `ok` (backend, scratch root, plan).
 
-- **Save.** Run `$CV mcp call cicada_save_url '{"url": "https://example.com/paper", "note": "verify"}'`. An episode is staged (`$CV bank ls`).
-- **Queue.** Run `$CV mcp call cicada_reading_queue '{}'`. What is waiting for the person's agent.
-- **App.** Paste a link into Home's field with `vh set_value` and press `Return`; `$CV app shot saved`.
+- **Save.** Run `$CV mcp call cicada_save_url '{"url": "https://example.com/paper", "note": "verify"}' --timeout 60`. `Saved "paper" as url media`, with its episode id; `$CV bank ls | grep '^episodes/'` shows it.
+- **Queue.** Run `$CV mcp call cicada_reading_queue '{}'`. On a fresh run: `Agent reading is off`. Turn it on in the run (the setting lives in the scratch `CICADA_HOME`) with `$CV api PUT /reading/settings '{"agentEnabled": true, "acknowledge": true}'`, then ask again: `Nothing is waiting` (a public link needs no agent).
+- **App.** On Home, `vh set_value --element_index <n> --value "https://example.com/reading"` on the `Search your memory` field and `vh press_key --key Return`. A new episode with `origin: saved-link`; `$CV app shot saved`.
 
 ## Gotchas
 

@@ -17,8 +17,8 @@ Preconditions:
 
 - A run is up and `$CV doctor` is all `ok` (backend, scratch root, plan).
 
-- **Read.** Run `$CV api GET /agents/wiring --save api/agents-wiring.json`. What is wired where, read only.
-- **App.** Open Settings → Agents and screenshot. Stop there.
+- **Read.** Run `$CV api GET /agents/wiring --save api/agents-wiring.json`. Each agent, what each step would run and the files it `touches`, all under the scratch home.
+- **App.** Settings → `vclick 'button Agents$'`. `Your agents` and the agent list; screenshot and stop.
 
 ## Gotchas
 
