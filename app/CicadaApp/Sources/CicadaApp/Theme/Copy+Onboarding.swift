@@ -139,8 +139,8 @@ extension Copy {
     static let welcomeTryTheDemo = "Try the demo"
     /// R-OB2 — a drop on Welcome is held until Get started; the card says so.
     static func welcomeDropsWaiting(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
-        n == 1 ? "1 export is waiting. It comes in after Get started."
-               : "\(UsageFormat.count(n, locale: locale)) exports are waiting. They come in after Get started."
+        n == 1 ? "1 export is waiting. It comes in after Continue."
+               : "\(UsageFormat.count(n, locale: locale)) exports are waiting. They come in after Continue."
     }
     static let readyTitle = "You’re set."
     static let readyNothingRead = "Nothing is read until you say so: press Read now in Getting started on Home. This list continues there."
@@ -157,6 +157,52 @@ extension Copy {
                : "\(UsageFormat.count(n, locale: locale)) sources keep up on their own"
     }
 
+    // MARK: Onboarding v2 (G217, G92, ruling 36; 2026-10-22) — five steps, under 40 words each
+
+    /// Welcome: what Cicada is, in one sentence.
+    static let welcomeLine = "One memory on this Mac that every agent you use reads and adds to."
+    static let onboardingSkip = "Skip"
+
+    /// Intelligence (ruling 36 D1): a signed-in plan is pre-selected and said in words, with what will run; a key is
+    /// an equal option one click away; a local model is never pitched.
+    static let intelTitle = "Who reads your memory"
+    static let intelSubline = "Pages are built while you sleep."
+    /// D1 — "that step says in words what will run": the person's own harness, on their own plan's limits. The name is
+    /// the person's own current choice (provider-neutral copy's one exception).
+    static func intelRuns(_ harness: String) -> String { "Cicada runs your own \(harness) on your plan." }
+    static let intelUseKey = "Use an API key"
+    static let intelUsePlan = "Use my plan"
+    static let intelMoreKeys = "More keys in"
+    static let intelMoreKeysWhere = "\(settings) → Intelligence"
+    static let intelNothing = "Nothing can read yet. Sign in to a plan or add a key."
+
+    /// Agents.
+    static let agentsTitle = "Connect your agents"
+    static let agentsSubline = "They read your memory and add to it."
+    static let agentsFound = "Found"
+    static let agentsConnect = "Connect"
+    static let agentsRun = "Run these"
+    static let agentsNoneFound = "No agents found on this Mac."
+    static let agentsAnother = "Another agent"
+    static let agentsPersonal = "Personal agents"
+    static let agentsPersonalNames = "Grok Bot, Muse, Instinct, Dots, Poke"
+
+    /// Sources.
+    static let sourcesSubline = "Tick what Cicada may read. Nothing is read before you tick."
+    static let sourcesChats = "Chat history"
+    static let sourcesDropFile = "Drop a file"
+    static let sourcesHowToExport = "How to get an export"
+    static let sourcesOn = "On"
+    static let sourcesComingIn = "Coming in"
+    static let sourcesNeedsYou = "Needs you"
+    static let sourcesOff = "Off"
+
+    /// Done: what happens next, in one line (`DoneLine`).
+    static let doneLead = "Talk to your agent; Cicada remembers."
+    static func doneScheduled(_ when: String) -> String { "It consolidates \(when)." }
+    static let doneImportsNow = "Your imports are coming in now."
+    static let doneReadNow = "Read now on Home builds your first pages."
+
     /// Buttons, titles and one-line captions — ≤ 60 characters (CopyConstantsTests).
     static var onboardingLabels: [String] {
         [importReading(9, of: 17, noun: "conversations"), importBrowsers, importCalendar, importCalendarAndContacts,
@@ -172,7 +218,12 @@ extension Copy {
          keepQuitAgentsSave, keepQuitSleep, onboardingGetStarted, onboardingContinue, onboardingBack,
          onboardingOpenCicada, onboardingStepOf(6), onboardingComingIn(4), welcomeEyebrow, welcomeTagline, welcomeWorksWith,
          welcomeJustLooking, welcomeTryTheDemo, readyTitle, readyOpensAtLoginMenuBar, readyOpensAtLogin, readyMenuBar,
-         readyAgentsConnected("Claude Code and Codex"), readyKeepUp(7)]
+         readyAgentsConnected("Claude Code and Codex"), readyKeepUp(7), onboardingSkip, intelTitle,
+         intelSubline, intelRuns("Claude Code"), intelUseKey, intelUsePlan, intelMoreKeys, intelMoreKeysWhere, intelNothing, agentsTitle, agentsSubline,
+         agentsFound, agentsConnect, agentsRun, agentsNoneFound, agentsAnother, agentsPersonal,
+         agentsPersonalNames, sourcesSubline, sourcesChats, sourcesDropFile, sourcesHowToExport, sourcesOn,
+         sourcesComingIn, sourcesNeedsYou, sourcesOff, doneLead, doneScheduled("tonight at 3:00"), doneImportsNow,
+         doneReadNow]
             + ChatVendor.allCases.map(importWait)
     }
 
@@ -182,6 +233,6 @@ extension Copy {
          seeHowGeminiHonest, agentsPageSubline, agentStepAlsoRecalls, agentStepRecallHow, whoReadsSubline,
          whoReadsNothingYet, privacyEverything, privacyEverythingElse, keepRunningSubline, keepRunningBackgroundItems,
          keepRunningWhere, keepQuitWaits, keepQuitAgentsWait, welcomePromise, welcomeDemoBlurb, readyNothingRead,
-         welcomeDropsWaiting(1), welcomeDropsWaiting(3)]
+         welcomeDropsWaiting(1), welcomeDropsWaiting(3), welcomeLine]
     }
 }

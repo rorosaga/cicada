@@ -319,7 +319,10 @@ def ensure_owner_entity(memory_path: Path, name: str) -> tuple[str, bool]:
     today = str(date.today())
 
     if not filepath.exists():
-        adopted = _placeholder_owner_id(entities_dir)
+        # The same name said again (onboarding's Continue after Back, a resumed or rerun setup) is the page that name
+        # already has — never a second owner page beside it (onboarding v2, 2026-10-22: the adopted placeholder keeps
+        # its id, so the name's own slug never exists and the second save used to mint one).
+        adopted = _owner_id_named(entities_dir, name) or _placeholder_owner_id(entities_dir)
         if adopted is not None:
             entity_id, filepath = adopted, entities_dir / f"{adopted}.md"
 
@@ -338,6 +341,21 @@ def ensure_owner_entity(memory_path: Path, name: str) -> tuple[str, bool]:
     )
     markdown_parser.write(filepath, frontmatter, body)
     return entity_id, True
+
+
+def _owner_id_named(entities_dir: Path, name: str) -> str | None:
+    """The owner page already carrying exactly this name (case and outer spaces aside), if one exists."""
+    wanted = name.strip().casefold()
+    if not wanted:
+        return None
+    for path in sorted(entities_dir.glob("*.md")):
+        try:
+            fm = markdown_parser.parse(path).frontmatter
+        except Exception:  # noqa: BLE001
+            continue
+        if fm.get("owner") is True and str(fm.get("name", "")).strip().casefold() == wanted:
+            return path.stem
+    return None
 
 
 def _has_owner_page(entities_dir: Path) -> bool:

@@ -181,6 +181,19 @@ def test_saying_the_name_later_adopts_the_page_instead_of_writing_a_second_one(t
     assert [p.stem for p in (bank / "entities").glob("*.md")] == ["owner"]  # no bob-example.md beside it
 
 
+def test_saying_the_same_name_again_keeps_the_one_adopted_page(tmp_path):
+    """Onboarding v2 (2026-10-22): Back to Welcome and Continue again saves the same name twice. The adopted page
+    keeps its id (`owner`), so the name's own slug never exists — the second save must find the page by its name,
+    never mint `bob-example.md` beside it (seen live: two owner nodes on a fresh bank's graph)."""
+    slug = bank_registry.create_bank(tmp_path, "Research")
+    bank = tmp_path / "banks" / slug
+    assert owner_identity.ensure_owner_entity(bank, "Bob Example") == ("owner", False)
+    assert owner_identity.ensure_owner_entity(bank, "  bob example ") == ("owner", False)
+    assert [p.stem for p in (bank / "entities").glob("*.md")] == ["owner"]
+    # A different name is still a different page (R3: reconciling an older name is entity merge's job).
+    assert owner_identity.ensure_owner_entity(bank, "Carol Example") == ("carol-example", True)
+
+
 def test_the_plain_name_still_resolves_in_stage_2_and_the_owner_words_reach_the_page(tmp_path):
     owner_identity.save_owner({"name": "Bob Example", "entity_id": "bob-example"})
     slug = bank_registry.create_bank(tmp_path, "Fresh")

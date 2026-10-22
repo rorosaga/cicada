@@ -78,12 +78,13 @@ struct GraphPage: View {
             // G117 — a fresh bank's graph is never a literal blank canvas; `isLoading` gates on an empty cache
             // AND a fetch in flight, so this never flashes over the instant on-disk hydrate.
             if !graphVM.isLoading && graphVM.nodes.hasNoContentBeyondOwner {
+                // Onboarding v2's empty state (2026-10-22): one icon, one bold sentence, one grey instruction.
                 EmptyStateView(
-                    title: "Nothing here yet",
+                    systemImage: "point.3.connected.trianglepath.dotted",
+                    title: Copy.emptyGraphTitle,
                     message: Copy.emptyGraphMessage,
-                    actionLabel: "Open Sources",
-                    settingsSection: .page(.sources),
-                    onDropFiles: { intake.accept(urls: $0, from: .emptyState(.graph)) }
+                    onDropFiles: { intake.accept(urls: $0, from: .emptyState(.graph)) },
+                    showsDropHint: false
                 )
             }
 

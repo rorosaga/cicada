@@ -152,26 +152,32 @@ struct IntelligenceView: View {
     // MARK: Choosing
 
     private func use(_ item: ProviderIntelligence) {
-        let id = ProviderDirectory.connectionId(item.connection)
-        switch id {
-        case "claude-plan": choose(card: "agent")
-        case "chatgpt-plan": choose(card: "codex")
-        case "byok-openrouter": choose(card: "openrouter")
-        case "ollama-local": choose(card: "local")
-        default:
-            guard let response = engineVM.response,
-                  let provider = response.providers.first(where: { $0.connectionId == id }),
-                  let write = EngineOption.providerWrite(provider, selectedCard: response.selected,
-                                                         currentModel: response.model) else { return }
-            Task { await engineVM.apply(write) }
-        }
+        guard let response = engineVM.response, let write = Self.write(using: item, response: response) else { return }
+        Task { await engineVM.apply(write) }
     }
 
     private func choose(card: String) {
-        guard let response = engineVM.response,
-              let candidate = response.candidates.first(where: { $0.id == card }),
-              let write = EngineWrite.choosing(candidate, current: response.selected) else { return }
+        guard let response = engineVM.response, let write = Self.write(card: card, response: response) else { return }
         Task { await engineVM.apply(write) }
+    }
+
+    /// The one write a row's *Use* sends — shared with onboarding's Intelligence step, so both choose alike.
+    static func write(using item: ProviderIntelligence, response: SleepEngineResponse) -> EngineWrite? {
+        let id = ProviderDirectory.connectionId(item.connection)
+        switch id {
+        case "claude-plan": return write(card: "agent", response: response)
+        case "chatgpt-plan": return write(card: "codex", response: response)
+        case "byok-openrouter": return write(card: "openrouter", response: response)
+        case "ollama-local": return write(card: "local", response: response)
+        default:
+            guard let provider = response.providers.first(where: { $0.connectionId == id }) else { return nil }
+            return EngineOption.providerWrite(provider, selectedCard: response.selected, currentModel: response.model)
+        }
+    }
+
+    static func write(card: String, response: SleepEngineResponse) -> EngineWrite? {
+        guard let candidate = response.candidates.first(where: { $0.id == card }) else { return nil }
+        return EngineWrite.choosing(candidate, current: response.selected)
     }
 
     // MARK: The scheduled-plan switch (ruling 4c)
@@ -188,8 +194,8 @@ struct IntelligenceView: View {
 }
 
 /// One plan or key: its umbrella's mark, its name, a dot and one word, and its one action. A key row opens in place
-/// to take a key.
-private struct IntelligenceRow: View {
+/// to take a key. Onboarding's Intelligence step draws the same row (one sign-in and one paste → Verify, never two).
+struct IntelligenceRow: View {
     let umbrella: ProviderUmbrella
     let item: ProviderIntelligence
     let connection: ConnectionStatus?
