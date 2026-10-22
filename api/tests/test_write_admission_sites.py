@@ -106,6 +106,8 @@ PROBE_SITES = {
                             "settle admits itself (`_settle_one`, `web_lookup._settle_admitted`)",
     "api/services/inbox_tend.py": "the tidy's stop check before each judge call; each settle admits itself and asks "
                                   "again (`_settle_one`)",
+    "api/services/awake_read.py": "the early check before an embed or a quick read's model call (G207); the "
+                                  "provisional record's write admits itself and asks again",
 }
 
 

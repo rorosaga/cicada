@@ -432,7 +432,12 @@ def import_bytes(content: bytes, filename: str, settings: Settings, *, bank: str
         return ImportResult(name, active, parsed, 0, 0, len(staging.skip), date_from, date_to,
                             pending=(pending, target / "episodes"), extras_only=extras_only)
     # `episode_staging.stage` holds its own process-wide lock (G114 ids).
-    created, updated, skipped = conv._stage_episodes(todo, target / "episodes")
+    staged = conv._stage_export(todo, target / "episodes")
+    created, updated, skipped = staged.as_tuple()
+    # G207: what this import wrote becomes recallable now; a small one is also read right away.
+    from api.services import awake_read
+
+    awake_read.after_import(target, list(staged.touched.values()), settings=settings)
     if not active and created + updated:
         # G87: staged into a bank Sleep does not read until someone switches to it.
         logger.warning(f"Import into NON-active bank '{name}': {created + updated} episode(s) staged")

@@ -22,7 +22,9 @@ from loguru import logger
 from pydantic import BaseModel, Field, model_validator
 
 from api.config import Settings, get_settings
-from api.services import bank_registry, continuity_sessions, demo_guard, episode_ids, hook_recall, harness_integrations
+from api.services import (
+    awake_read, bank_registry, continuity_sessions, demo_guard, episode_ids, harness_integrations, hook_recall,
+)
 from api.services.telegram_capture import (
     TELEGRAM_WEBHOOK_SECRET_ENV,
     ensure_webhook_secret,
@@ -225,6 +227,8 @@ async def capture_transcript_endpoint(
         raise HTTPException(status_code=400, detail=result.reason)
     if target.redirected_from:
         logger.info(f"capture: the demo bank is open — saved the {req.harness} session into '{target.name}'")
+    awake_read.after_capture(memory_path, result.episode_id, status=result.status, settings=settings,
+                             hook_event=req.hook_event)
     return {
         "status": result.status,
         "episodeId": result.episode_id,
@@ -303,6 +307,8 @@ async def capture_session_endpoint(req: SessionCaptureRequest, request: Request,
         raise HTTPException(status_code=400, detail=result.reason)
     if target.redirected_from:
         logger.info(f"capture: the demo bank is open — saved the {req.harness} session into '{target.name}'")
+    awake_read.after_capture(memory_path, result.episode_id, status=result.status, settings=settings,
+                             hook_event=req.hook_event)
     return {"status": result.status, "episodeId": result.episode_id, "turnsUser": result.turns_user,
             "turnsAssistant": result.turns_assistant, "summary": result.summary, "bank": target.name,
             "bankId": filed, "redirectedFrom": target.redirected_from}
@@ -366,6 +372,8 @@ async def capture_turn_endpoint(req: TurnCaptureRequest, settings: Settings = De
         raise HTTPException(status_code=400, detail=result.reason)
     if target.redirected_from:
         logger.info(f"capture: the demo bank is open — saved the {req.harness} turn into '{target.name}'")
+    awake_read.after_capture(memory_path, result.episode_id, status=result.status, settings=settings,
+                             hook_event=req.hook_event)
     return {"status": result.status, "episodeId": result.episode_id, "turnsUser": result.turns_user,
             "turnsAssistant": result.turns_assistant, "bank": target.name, "bankId": filed,
             "redirectedFrom": target.redirected_from}
