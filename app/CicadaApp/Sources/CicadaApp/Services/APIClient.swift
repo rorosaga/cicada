@@ -3745,16 +3745,23 @@ extension APIClient: SyncAPI {
                 catch APIError.httpError(404, _) { return nil }
             }()
             let (summaryResult, calendarResult, statsResult, connections, harness, feedback) = try await (s, c, st, conn, h, fb)
+            // Typed one at a time: as nested `??` chains in one literal these sat near the type checker's limit.
+            let summary: ConsumptionSummary = summaryResult.value ?? current?.summary ?? ConsumptionSummary()
+            let calendar: ConsumptionCalendar = calendarResult.value ?? current?.calendar
+                ?? ConsumptionCalendar(days: [], weeks: weeks)
+            let stats: ConsumptionStats = statsResult.value ?? current?.stats ?? Self.emptyConsumptionStats
             let bundle = ConsumptionBundle(
-                summary: summaryResult.value ?? current?.summary ?? ConsumptionSummary(),
-                calendar: calendarResult.value ?? current?.calendar ?? ConsumptionCalendar(days: [], weeks: weeks),
-                stats: statsResult.value ?? current?.stats ?? Self.emptyConsumptionStats,
+                summary: summary,
+                calendar: calendar,
+                stats: stats,
                 connections: connections,
                 harness: harness,
                 feedback: feedback
             )
-            let newEtag = [summaryResult.etag ?? parts[0] ?? "", calendarResult.etag ?? parts[1] ?? "", statsResult.etag ?? parts[2] ?? ""]
-                .joined(separator: "|")
+            let summaryEtag: String = summaryResult.etag ?? parts[0] ?? ""
+            let calendarEtag: String = calendarResult.etag ?? parts[1] ?? ""
+            let statsEtag: String = statsResult.etag ?? parts[2] ?? ""
+            let newEtag: String = [summaryEtag, calendarEtag, statsEtag].joined(separator: "|")
             return Conditional(value: bundle, etag: newEtag, notModified: false)
         } catch APIError.httpError(404, _) {
             return .unavailable(etag: etag)

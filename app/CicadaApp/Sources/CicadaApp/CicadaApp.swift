@@ -235,301 +235,10 @@ struct CicadaApp: App {
 
     var body: some Scene {
         WindowGroup(id: Self.mainWindowID) {
-            ContentView()
-                .environment(graphVM)
-                .environment(inboxVM)
-                .environment(sleepVM)
-                .environment(sleepEngineVM)
-                .environment(appRouter)
-                .environment(tour)
-                .environment(provenanceRouter)
-                .environment(provenanceCache)
-                .environment(projectsCache)
-                .environment(backlogCache)
-                .environment(channelItemsCache)
-                .environment(videoStateCache)
-                .environment(exploreCache)
-                .environment(readingSitesCache)
-                .environment(banksVM)
-                .environment(feedVM)
-                .environment(contributorsVM)
-                .environment(connectionsVM)
-                .environment(usageVM)
-                .environment(store)
-                .environment(findModel)
-                .environment(homeSearch)
-                .environment(browserWatcher)
-                .environment(saveWhy)
-                .environment(syncActivity)
-                .environment(localSources)
-                .environment(calendarReader)
-                .environment(tabGroups)
-                .environment(watchHistory)
-                .environment(contactsReader)
-                .environment(messages)
-                .environment(loginItems)
-                .environment(backendAgent)
-                .environment(updates)
-                .environment(intakeRouter)
-                .environment(setupRunner)
-                .environment(inventory)
-                .environment(exportWaits)
-                // R-IA24 — a Dock open reuses this window instead of opening a
-                // second one (the router, and its overlay, live in this one).
-                .handlesExternalEvents(preferring: Set(["*"]), allowing: Set(["*"]))
-                .preferredColorScheme(appColorScheme == .light ? .light : .dark)
-                .onChange(of: colorSchemeRaw) { _, _ in applyAppearance() }
-                .onChange(of: menuBarVisible) { _, visible in menuBarManager.setVisible(visible) }
-                .onChange(of: mascotRaw) { _, _ in menuBarManager.mascotChanged() }
-                .onReceive(DistributedNotificationCenter.default()
-                    .publisher(for: AppearancePreference.systemChangedNotification)
-                    .receive(on: RunLoop.main)) { _ in
-                    // The app-scope observer re-resolves the tokens; this one
-                    // exists for the AppKit chrome only. Refreshing here too
-                    // makes the two orderless (both writes are guarded).
-                    ThemeStore.shared.refreshSystemAppearance()
-                    applyAppearance()
-                }
-                // G133 / G134: folders and Wispr Flow settings are per memory, so a
-                // bank switch re-reads them and re-arms the watches.
-                // G191, review B1 — Sleep let go of the pages (the SSE `sleep` event's `writing`): send any answer the
-                // backend refused while it held them.
-                .onChange(of: ProjectWriteGate.blocked(store.status.value)) { was, now in
-                    if was && !now {
-                        // 2026-10-19: a bookmark sync refused while Sleep wrote (409) is read again now, so the
-                        // answer about it — held, awaiting that sync — lands without waiting for the next bookmark.
-                        Task {
-                            await browserWatcher.catchUp()
-                            await saveWhy.retryHeld()
-                        }
-                    }
-                }
-                // …and when the backend first answers after launch (a launch-time retry can beat its start).
-                .onChange(of: store.status.value == nil) { _, missing in
-                    if !missing { Task { await saveWhy.retryHeld() } }
-                }
-                // G181 phase 3 — the server answers again: what the readers left waiting goes first.
-                .onChange(of: store.isConnected) { _, connected in
-                    if connected { Task { await APIClient.shared.flushOutbox() } }
-                }
-                // G191 live — back from System Settings: a browser whose file was refused when its watch was armed
-                // (Safari before Full Disk Access) is armed again now that it can be read. The watcher also looks
-                // every few seconds while one is refused, for a grant made without coming back here.
-                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                    browserWatcher.refreshAccess()
-                }
-                .onChange(of: store.bank) { _, _ in
-                    Task { await localSources.reload() }
-                    // Round-4 D2 — the new memory gets the calendar too (a demo's 409 is said in words).
-                    Task { await calendarReader.bankChanged() }
-                    // G160 — the new memory gets the open groups too (its digest is its own).
-                    Task { await tabGroups.bankChanged() }
-                    // G71 — the new memory's YouTube history, past its own cursor.
-                    Task { await watchHistory.bankChanged() }
-                    // G154 (R-SR10) — the new memory's people get their Contacts sources too.
-                    Task { await contactsReader.bankChanged() }
-                    // G179 — the new memory's ticked conversations, past their own cursors.
-                    Task { await messages.bankChanged() }
-                    // Owner decision 5 (2026-10-16) — the new memory's bookmarks, past its own "what was synced".
-                    Task { await browserWatcher.bankChanged() }
-                }
-                .onAppear {
-                    // G130 R5: the View menu's CommandGroup below already
-                    // owns bare ⌘=/⌘−/⌘0; this monitor exists only to catch
-                    // ⌘⇧= (what a US keyboard sends for "⌘+"), which no
-                    // single `keyboardShortcut` can express alongside ⌘=
-                    // without two "Zoom In" menu rows. Guarded so a second
-                    // `.onAppear` (e.g. the window closing and reopening —
-                    // see `enableFirstMouseAcceptance`'s own precedent a few
-                    // lines below) never stacks a second monitor.
-                    if zoomMonitor == nil {
-                        zoomMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                            guard let action = ZoomKeyRouter.action(
-                                characters: event.charactersIgnoringModifiers ?? "",
-                                modifiers: event.modifierFlags
-                            ) else { return event }
-                            switch action {
-                            case .zoomIn: CicadaTheme.zoomIn()
-                            case .zoomOut: CicadaTheme.zoomOut()
-                            case .reset: CicadaTheme.resetZoom()
-                            }
-                            return nil
-                        }
-                    }
-                    // G181 phase 3 — on a server this Mac runs no backend of its own (and never falls back to one).
-                    if !ServerConnection.current.isServer { backend.start() }
-                    // Arms the per-browser watches and catches up on anything
-                    // saved while the app was closed.
-                    browserWatcher.start(store: store)
-                    // G191 — off until the person turns it on (Settings → Integrations → Browsers).
-                    saveWhy.attach(presenter: saveWhyPanel)
-                    saveWhy.start()
-                    bookmarkBubbles.isWanted = { [saveWhy, browserWatcher] channel in
-                        saveWhy.prefs.enabled && browserWatcher.isEnabled(channel)
-                    }
-                    bookmarkBubbles.onBubble = { [saveWhy, bookmarkBubbles] channel in
-                        saveWhy.bubbleSeen(channel: channel, frame: bookmarkBubbles.lastBubble?.bounds)
-                    }
-                    // 2026-10-19 — a click inside Chrome's own bubble is not leaving, unless it closed it (Done).
-                    saveWhy.bubbleOpen = { [bookmarkBubbles] in bookmarkBubbles.lastBubbleStillOpen() }
-                    // The split-brain rule: a held answer is sent only while the memory it was given in is active.
-                    saveWhy.activeBank = { [store] in store.bank }
-                    // The star on a page already saved opens that bookmark's answer, filled in — only when Automation
-                    // of Chrome is already allowed (never asked here; `SavedBookmarkLookup`).
-                    saveWhy.existing = { [store] channel in
-                        await SavedBookmarkLookup.live(channel: channel, items: store.sources.value ?? [])
-                    }
-                    saveWhy.onNamed = { [bookmarkBubbles] item in bookmarkBubbles.bookmarkNamed(item) }
-                    bookmarkBubbles.start()
-                    // G191 v3 — the app's own diff needs a "before" for each watched browser: read once now, so the
-                    // first bookmark after launch is named from the file without waiting for the backend.
-                    if saveWhy.prefs.enabled {
-                        Task {
-                            let browsers = await Task.detached { BrowserInventory.live() }.value
-                            await BookmarkFileDiff.shared.seed(channels: SaveWhySetup.channels(inventory: browsers)
-                                .filter { browserWatcher.isEnabled($0) })
-                        }
-                    }
-                    // Review B1 — an answer held through a 409 or a restart goes out again now.
-                    Task { await saveWhy.retryHeld() }
-                    // Track I T5 — the one intake owns `store.intakeInFlight`
-                    // through its request counter, and the Dock's opens wait in
-                    // `DockOpenQueue` until this line attaches it (R-IA25).
-                    intakeRouter.attach(store: store)
-                    intakeRouter.attach(activity: syncActivity)
-                    appDelegate.opens.attach { [intakeRouter, appRouter] urls in
-                        appRouter.showMainWindow()
-                        intakeRouter.accept(urls: urls, from: .dock)
-                    }
-                    localSources.start(store: store)
-                    // R-FA11 — reads only if the person connected before and macOS still says yes. A reopened
-                    // window runs this again: `arm()` is guarded, so that costs one catch-up sync and nothing more.
-                    calendarReader.start()
-                    // G160 (R-SR3) — reads only if the person turned the tab-groups switch on.
-                    tabGroups.start()
-                    // G71 — reads only if the person turned the YouTube history switch on.
-                    watchHistory.start()
-                    // G154 (R-SR10) — reads only after Connect, and on launch only when the book moved or a day passed.
-                    contactsReader.start()
-                    // G179 — reads only the conversations this memory has ticked.
-                    messages.start()
-                    // R-IB22 — the export someone was waiting for arrived (a sniff
-                    // recognised its vendor): its wait, in the active memory, is done.
-                    intakeRouter.onVendorSniffed = { [exportWaits, store] vendor in
-                        exportWaits.clear(vendor: vendor, bank: store.bank)
-                    }
-                    // A tapped reminder opens the one intake idle for that vendor —
-                    // never a cycle (G125 R10). Queued until now on a cold launch.
-                    appDelegate.reminderTaps.attach { [intakeRouter, appRouter] vendor in
-                        appRouter.showMainWindow()
-                        intakeRouter.present(from: .reminder(vendor))
-                    }
-                    // When SleepViewModel observes a cycle finish (running ->
-                    // idle, no error), refresh the graph/topics layer in
-                    // place. Without this, Sleep finishes successfully but
-                    // Topics/Graph stay frozen on the pre-cycle snapshot
-                    // until the user restarts the app.
-                    sleepVM.onCycleCompleted = { [graphVM, inboxVM] in
-                        await graphVM.loadGraph()
-                        await inboxVM.loadInbox()
-                    }
-                    // Resolving an inbox item drops the menu-bar badge instantly
-                    // instead of waiting for the next 30s status poll.
-                    inboxVM.onResolved = { [menuBarManager] in
-                        await menuBarManager.refreshAfterAction()
-                    }
-                    // DR-42 (R-DI3) — ⌘Q inside an Undo window sends the held answer first.
-                    appDelegate.heldAnswer = { [store] in store.hasAnswerInFlight }
-                    appDelegate.sendHeldAnswer = { [store] in await store.sendHeldAndDrain() }
-                    // G139 final review: a reopened window re-reads the system
-                    // appearance rather than trusting the last one this scene saw.
-                    ThemeStore.shared.refreshSystemAppearance()
-                    // Ensure the main window is key so TextFields can accept input.
-                    if let window = NSApplication.shared.windows.first(where: { $0.canBecomeKey }) {
-                        syncWindowChrome(window, mode: appColorScheme)
-                        enableFirstMouseAcceptance(for: window)
-                        switch LaunchState.shared.firstWindowAction() {
-                        case .show:
-                            window.makeKeyAndOrderFront(nil)
-                        case .close:
-                            // R-OB18 — a login start: everything above ran (backend, watchers, menu bar, sync engine
-                            // — all app-level), so the window can go the way a closed last window goes.
-                            window.orderOut(nil)
-                            DispatchQueue.main.async { window.close() }
-                        }
-                    }
-                    // Read as the menu opens, so "requested 2 hours ago" is true then.
-                    menuBarManager.exportWaitLines = { [exportWaits, store] in
-                        exportWaits.active(bank: store.bank).map { ExportWaits.menuLine($0, now: Date()) }
-                    }
-                    // Sleep page v5 — while a run is paused, every door routes to the Sleep page (only its Continue
-                    // resumes the run); the menu bar reads the same words the page's doors do.
-                    sleepVM.onPausedDoor = { [appRouter] in appRouter.routeToSleep() }
-                    // The doors read the paused run's record and the batch size even when the Sleep page was never
-                    // opened: a pause that appears, changes or clears refetches the status app-wide, and a bank
-                    // switch empties the VM's per-bank caches (the queue's titles, runs' details) and rereads.
-                    store.onSleepPausedChanged = { [sleepVM] in
-                        Task { @MainActor in
-                            await sleepVM.refreshStatus()
-                            if sleepVM.runOptions == nil { await sleepVM.loadRunOptions() }
-                        }
-                    }
-                    store.onBankChanged = { [sleepVM] in Task { @MainActor in await sleepVM.bankChanged() } }
-                    menuBarManager.sleepDoor = { [sleepVM] in sleepVM.door }
-                    menuBarManager.setup(
-                        onOpenApp: { [appRouter] in appRouter.showMainWindow() },
-                        onRunSleep: {
-                            await sleepVM.triggerManually()
-                            await menuBarManager.refreshAfterAction()
-                        },
-                        onSaveClipboardURL: {
-                            await menuBarManager.saveClipboardURL()
-                        },
-                        // R-IA26 — "Import a file…": bring the window forward and
-                        // open the intake idle, like File → Import….
-                        onImportFile: { [intakeRouter, appRouter] in
-                            appRouter.showMainWindow()
-                            intakeRouter.present(from: .menuBar)
-                        }
-                    )
-                    // G191 v2 — the developer-only preview (hidden unless its defaults key is set; never in a release).
-                    menuBarManager.onPreviewSaveWhy = { [saveWhy] channel in Task { await saveWhy.preview(channel: channel) } }
-                    // G191 v3 — Bookmarks…: the history under the status item; a row opens its page in the Feed.
-                    menuBarManager.onShowBookmarks = { [bookmarkHistory, store, appRouter] anchor in
-                        bookmarkHistory.toggle(store: store, anchor: anchor) { row in
-                            appRouter.routeToBookmark(row.mediaEntityId)
-                        }
-                    }
-                    // R-HO16 — the switch, applied at launch too.
-                    menuBarManager.setVisible(menuBarVisible)
-
-                    // Drive the menu-bar bookworm's stage dots live during a
-                    // running cycle (1s cadence), separate from the coarse 30s
-                    // poll below. applySleep only touches the sleep sub-struct so
-                    // the two never conflict.
-                    sleepVM.onStatusChanged = { next in
-                        menuBarManager.applySleep(next)
-                    }
-
-                    // The menu-bar bookworm is now driven by the Store's status
-                    // snapshot (SSE-pushed + refreshed on every version bump)
-                    // instead of a 30s poll. The Store tracks the sleep
-                    // running -> idle edge itself and hands us the timestamp
-                    // that makes the worm `digest`.
-                    store.onStatus = { [menuBarManager] snapshot, justFinishedAt in
-                        menuBarManager.apply(snapshot: snapshot, justFinishedAt: justFinishedAt)
-                    }
-
-                    // Disk first (instant frame), network second, then live.
-                    Task { @MainActor in
-                        await store.bootstrap()
-                        // The doors' "saving every N" reads the person's choice, not a fallback.
-                        await sleepVM.loadRunOptions()
-                    }
-                }
-                // NOTE: no `.onDisappear` teardown — closing the window must
-                // not stop the sync engine. The app lives on in the menu bar,
-                // and the bookworm is fed by the Store's status snapshot.
+            mainWindow
+            // NOTE: no `.onDisappear` teardown — closing the window must
+            // not stop the sync engine. The app lives on in the menu bar,
+            // and the bookworm is fed by the Store's status snapshot.
         }
         .defaultSize(width: 1200, height: 800)
         // DR-23 — the titlebar is a command bar: the window's title is hidden, and the toolbar's
@@ -564,6 +273,312 @@ struct CicadaApp: App {
                 Button(Copy.intakeFileMenuItem) { intakeRouter.present(from: .fileMenu) }
                     .keyboardShortcut("i", modifiers: [.command, .shift])
             }
+        }
+    }
+
+    /// The one window's content, split out of `body` with `environed` and `launch()`: as one expression the scene's
+    /// modifier chain and its `.onAppear` closure took the type checker seconds in a release build, near where a
+    /// slower runner gives up ("unable to type-check this expression in reasonable time").
+    private var mainWindow: some View {
+        environed
+        // R-IA24 — a Dock open reuses this window instead of opening a
+        // second one (the router, and its overlay, live in this one).
+        .handlesExternalEvents(preferring: Set(["*"]), allowing: Set(["*"]))
+        .preferredColorScheme(appColorScheme == .light ? .light : .dark)
+        .onChange(of: colorSchemeRaw) { _, _ in applyAppearance() }
+        .onChange(of: menuBarVisible) { _, visible in menuBarManager.setVisible(visible) }
+        .onChange(of: mascotRaw) { _, _ in menuBarManager.mascotChanged() }
+        .onReceive(DistributedNotificationCenter.default()
+            .publisher(for: AppearancePreference.systemChangedNotification)
+            .receive(on: RunLoop.main)) { _ in
+            // The app-scope observer re-resolves the tokens; this one
+            // exists for the AppKit chrome only. Refreshing here too
+            // makes the two orderless (both writes are guarded).
+            ThemeStore.shared.refreshSystemAppearance()
+            applyAppearance()
+        }
+        // G133 / G134: folders and Wispr Flow settings are per memory, so a
+        // bank switch re-reads them and re-arms the watches.
+        // G191, review B1 — Sleep let go of the pages (the SSE `sleep` event's `writing`): send any answer the
+        // backend refused while it held them.
+        .onChange(of: ProjectWriteGate.blocked(store.status.value)) { was, now in
+            if was && !now {
+                // 2026-10-19: a bookmark sync refused while Sleep wrote (409) is read again now, so the
+                // answer about it — held, awaiting that sync — lands without waiting for the next bookmark.
+                Task {
+                    await browserWatcher.catchUp()
+                    await saveWhy.retryHeld()
+                }
+            }
+        }
+        // …and when the backend first answers after launch (a launch-time retry can beat its start).
+        .onChange(of: store.status.value == nil) { _, missing in
+            if !missing { Task { await saveWhy.retryHeld() } }
+        }
+        // G181 phase 3 — the server answers again: what the readers left waiting goes first.
+        .onChange(of: store.isConnected) { _, connected in
+            if connected { Task { await APIClient.shared.flushOutbox() } }
+        }
+        // G191 live — back from System Settings: a browser whose file was refused when its watch was armed
+        // (Safari before Full Disk Access) is armed again now that it can be read. The watcher also looks
+        // every few seconds while one is refused, for a grant made without coming back here.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            browserWatcher.refreshAccess()
+        }
+        .onChange(of: store.bank) { _, _ in
+            Task { await localSources.reload() }
+            // Round-4 D2 — the new memory gets the calendar too (a demo's 409 is said in words).
+            Task { await calendarReader.bankChanged() }
+            // G160 — the new memory gets the open groups too (its digest is its own).
+            Task { await tabGroups.bankChanged() }
+            // G71 — the new memory's YouTube history, past its own cursor.
+            Task { await watchHistory.bankChanged() }
+            // G154 (R-SR10) — the new memory's people get their Contacts sources too.
+            Task { await contactsReader.bankChanged() }
+            // G179 — the new memory's ticked conversations, past their own cursors.
+            Task { await messages.bankChanged() }
+            // Owner decision 5 (2026-10-16) — the new memory's bookmarks, past its own "what was synced".
+            Task { await browserWatcher.bankChanged() }
+        }
+        .onAppear { launch() }
+    }
+
+    /// `ContentView` with every app-level model in its environment.
+    private var environed: some View {
+        ContentView()
+            .environment(graphVM)
+            .environment(inboxVM)
+            .environment(sleepVM)
+            .environment(sleepEngineVM)
+            .environment(appRouter)
+            .environment(tour)
+            .environment(provenanceRouter)
+            .environment(provenanceCache)
+            .environment(projectsCache)
+            .environment(backlogCache)
+            .environment(channelItemsCache)
+            .environment(videoStateCache)
+            .environment(exploreCache)
+            .environment(readingSitesCache)
+            .environment(banksVM)
+            .environment(feedVM)
+            .environment(contributorsVM)
+            .environment(connectionsVM)
+            .environment(usageVM)
+            .environment(store)
+            .environment(findModel)
+            .environment(homeSearch)
+            .environment(browserWatcher)
+            .environment(saveWhy)
+            .environment(syncActivity)
+            .environment(localSources)
+            .environment(calendarReader)
+            .environment(tabGroups)
+            .environment(watchHistory)
+            .environment(contactsReader)
+            .environment(messages)
+            .environment(loginItems)
+            .environment(backendAgent)
+            .environment(updates)
+            .environment(intakeRouter)
+            .environment(setupRunner)
+            .environment(inventory)
+            .environment(exportWaits)
+    }
+
+    /// What the window's `.onAppear` runs (unchanged; moved out of `body` for the type checker).
+    private func launch() {
+        // G130 R5: the View menu's CommandGroup below already
+        // owns bare ⌘=/⌘−/⌘0; this monitor exists only to catch
+        // ⌘⇧= (what a US keyboard sends for "⌘+"), which no
+        // single `keyboardShortcut` can express alongside ⌘=
+        // without two "Zoom In" menu rows. Guarded so a second
+        // `.onAppear` (e.g. the window closing and reopening —
+        // see `enableFirstMouseAcceptance`'s own precedent a few
+        // lines below) never stacks a second monitor.
+        if zoomMonitor == nil {
+            zoomMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                guard let action = ZoomKeyRouter.action(
+                    characters: event.charactersIgnoringModifiers ?? "",
+                    modifiers: event.modifierFlags
+                ) else { return event }
+                switch action {
+                case .zoomIn: CicadaTheme.zoomIn()
+                case .zoomOut: CicadaTheme.zoomOut()
+                case .reset: CicadaTheme.resetZoom()
+                }
+                return nil
+            }
+        }
+        // G181 phase 3 — on a server this Mac runs no backend of its own (and never falls back to one).
+        if !ServerConnection.current.isServer { backend.start() }
+        // Arms the per-browser watches and catches up on anything
+        // saved while the app was closed.
+        browserWatcher.start(store: store)
+        // G191 — off until the person turns it on (Settings → Integrations → Browsers).
+        saveWhy.attach(presenter: saveWhyPanel)
+        saveWhy.start()
+        bookmarkBubbles.isWanted = { [saveWhy, browserWatcher] channel in
+            saveWhy.prefs.enabled && browserWatcher.isEnabled(channel)
+        }
+        bookmarkBubbles.onBubble = { [saveWhy, bookmarkBubbles] channel in
+            saveWhy.bubbleSeen(channel: channel, frame: bookmarkBubbles.lastBubble?.bounds)
+        }
+        // 2026-10-19 — a click inside Chrome's own bubble is not leaving, unless it closed it (Done).
+        saveWhy.bubbleOpen = { [bookmarkBubbles] in bookmarkBubbles.lastBubbleStillOpen() }
+        // The split-brain rule: a held answer is sent only while the memory it was given in is active.
+        saveWhy.activeBank = { [store] in store.bank }
+        // The star on a page already saved opens that bookmark's answer, filled in — only when Automation
+        // of Chrome is already allowed (never asked here; `SavedBookmarkLookup`).
+        saveWhy.existing = { [store] channel in
+            await SavedBookmarkLookup.live(channel: channel, items: store.sources.value ?? [])
+        }
+        saveWhy.onNamed = { [bookmarkBubbles] item in bookmarkBubbles.bookmarkNamed(item) }
+        bookmarkBubbles.start()
+        // G191 v3 — the app's own diff needs a "before" for each watched browser: read once now, so the
+        // first bookmark after launch is named from the file without waiting for the backend.
+        if saveWhy.prefs.enabled {
+            Task {
+                let browsers = await Task.detached { BrowserInventory.live() }.value
+                await BookmarkFileDiff.shared.seed(channels: SaveWhySetup.channels(inventory: browsers)
+                    .filter { browserWatcher.isEnabled($0) })
+            }
+        }
+        // Review B1 — an answer held through a 409 or a restart goes out again now.
+        Task { await saveWhy.retryHeld() }
+        // Track I T5 — the one intake owns `store.intakeInFlight`
+        // through its request counter, and the Dock's opens wait in
+        // `DockOpenQueue` until this line attaches it (R-IA25).
+        intakeRouter.attach(store: store)
+        intakeRouter.attach(activity: syncActivity)
+        appDelegate.opens.attach { [intakeRouter, appRouter] urls in
+            appRouter.showMainWindow()
+            intakeRouter.accept(urls: urls, from: .dock)
+        }
+        localSources.start(store: store)
+        // R-FA11 — reads only if the person connected before and macOS still says yes. A reopened
+        // window runs this again: `arm()` is guarded, so that costs one catch-up sync and nothing more.
+        calendarReader.start()
+        // G160 (R-SR3) — reads only if the person turned the tab-groups switch on.
+        tabGroups.start()
+        // G71 — reads only if the person turned the YouTube history switch on.
+        watchHistory.start()
+        // G154 (R-SR10) — reads only after Connect, and on launch only when the book moved or a day passed.
+        contactsReader.start()
+        // G179 — reads only the conversations this memory has ticked.
+        messages.start()
+        // R-IB22 — the export someone was waiting for arrived (a sniff
+        // recognised its vendor): its wait, in the active memory, is done.
+        intakeRouter.onVendorSniffed = { [exportWaits, store] vendor in
+            exportWaits.clear(vendor: vendor, bank: store.bank)
+        }
+        // A tapped reminder opens the one intake idle for that vendor —
+        // never a cycle (G125 R10). Queued until now on a cold launch.
+        appDelegate.reminderTaps.attach { [intakeRouter, appRouter] vendor in
+            appRouter.showMainWindow()
+            intakeRouter.present(from: .reminder(vendor))
+        }
+        // When SleepViewModel observes a cycle finish (running ->
+        // idle, no error), refresh the graph/topics layer in
+        // place. Without this, Sleep finishes successfully but
+        // Topics/Graph stay frozen on the pre-cycle snapshot
+        // until the user restarts the app.
+        sleepVM.onCycleCompleted = { [graphVM, inboxVM] in
+            await graphVM.loadGraph()
+            await inboxVM.loadInbox()
+        }
+        // Resolving an inbox item drops the menu-bar badge instantly
+        // instead of waiting for the next 30s status poll.
+        inboxVM.onResolved = { [menuBarManager] in
+            await menuBarManager.refreshAfterAction()
+        }
+        // DR-42 (R-DI3) — ⌘Q inside an Undo window sends the held answer first.
+        appDelegate.heldAnswer = { [store] in store.hasAnswerInFlight }
+        appDelegate.sendHeldAnswer = { [store] in await store.sendHeldAndDrain() }
+        // G139 final review: a reopened window re-reads the system
+        // appearance rather than trusting the last one this scene saw.
+        ThemeStore.shared.refreshSystemAppearance()
+        // Ensure the main window is key so TextFields can accept input.
+        if let window = NSApplication.shared.windows.first(where: { $0.canBecomeKey }) {
+            syncWindowChrome(window, mode: appColorScheme)
+            enableFirstMouseAcceptance(for: window)
+            switch LaunchState.shared.firstWindowAction() {
+            case .show:
+                window.makeKeyAndOrderFront(nil)
+            case .close:
+                // R-OB18 — a login start: everything above ran (backend, watchers, menu bar, sync engine
+                // — all app-level), so the window can go the way a closed last window goes.
+                window.orderOut(nil)
+                DispatchQueue.main.async { window.close() }
+            }
+        }
+        // Read as the menu opens, so "requested 2 hours ago" is true then.
+        menuBarManager.exportWaitLines = { [exportWaits, store] in
+            exportWaits.active(bank: store.bank).map { ExportWaits.menuLine($0, now: Date()) }
+        }
+        // Sleep page v5 — while a run is paused, every door routes to the Sleep page (only its Continue
+        // resumes the run); the menu bar reads the same words the page's doors do.
+        sleepVM.onPausedDoor = { [appRouter] in appRouter.routeToSleep() }
+        // The doors read the paused run's record and the batch size even when the Sleep page was never
+        // opened: a pause that appears, changes or clears refetches the status app-wide, and a bank
+        // switch empties the VM's per-bank caches (the queue's titles, runs' details) and rereads.
+        store.onSleepPausedChanged = { [sleepVM] in
+            Task { @MainActor in
+                await sleepVM.refreshStatus()
+                if sleepVM.runOptions == nil { await sleepVM.loadRunOptions() }
+            }
+        }
+        store.onBankChanged = { [sleepVM] in Task { @MainActor in await sleepVM.bankChanged() } }
+        menuBarManager.sleepDoor = { [sleepVM] in sleepVM.door }
+        menuBarManager.setup(
+            onOpenApp: { [appRouter] in appRouter.showMainWindow() },
+            onRunSleep: {
+                await sleepVM.triggerManually()
+                await menuBarManager.refreshAfterAction()
+            },
+            onSaveClipboardURL: {
+                await menuBarManager.saveClipboardURL()
+            },
+            // R-IA26 — "Import a file…": bring the window forward and
+            // open the intake idle, like File → Import….
+            onImportFile: { [intakeRouter, appRouter] in
+                appRouter.showMainWindow()
+                intakeRouter.present(from: .menuBar)
+            }
+        )
+        // G191 v2 — the developer-only preview (hidden unless its defaults key is set; never in a release).
+        menuBarManager.onPreviewSaveWhy = { [saveWhy] channel in Task { await saveWhy.preview(channel: channel) } }
+        // G191 v3 — Bookmarks…: the history under the status item; a row opens its page in the Feed.
+        menuBarManager.onShowBookmarks = { [bookmarkHistory, store, appRouter] anchor in
+            bookmarkHistory.toggle(store: store, anchor: anchor) { row in
+                appRouter.routeToBookmark(row.mediaEntityId)
+            }
+        }
+        // R-HO16 — the switch, applied at launch too.
+        menuBarManager.setVisible(menuBarVisible)
+
+        // Drive the menu-bar bookworm's stage dots live during a
+        // running cycle (1s cadence), separate from the coarse 30s
+        // poll below. applySleep only touches the sleep sub-struct so
+        // the two never conflict.
+        sleepVM.onStatusChanged = { next in
+            menuBarManager.applySleep(next)
+        }
+
+        // The menu-bar bookworm is now driven by the Store's status
+        // snapshot (SSE-pushed + refreshed on every version bump)
+        // instead of a 30s poll. The Store tracks the sleep
+        // running -> idle edge itself and hands us the timestamp
+        // that makes the worm `digest`.
+        store.onStatus = { [menuBarManager] snapshot, justFinishedAt in
+            menuBarManager.apply(snapshot: snapshot, justFinishedAt: justFinishedAt)
+        }
+
+        // Disk first (instant frame), network second, then live.
+        Task { @MainActor in
+            await store.bootstrap()
+            // The doors' "saving every N" reads the person's choice, not a fallback.
+            await sleepVM.loadRunOptions()
         }
     }
 

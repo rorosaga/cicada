@@ -33,37 +33,45 @@ struct NeutralButton: View {
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    // `body` is split into `label` and `helpText`: as one expression it took the type checker most of a second in a
+    // release build.
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                if let leading { leading }
-                if let systemImage {
-                    Image(systemName: systemImage).font(CicadaTheme.icon(.inline))
-                }
-                // A fixed-height button never wraps: a long engine and model truncates instead.
-                Text(title).lineLimit(1).truncationMode(.tail)
-                if let keyHint { KeyHint(keyHint) }
-                if let trailingSystemImage {
-                    Image(systemName: trailingSystemImage)
-                        .font(CicadaTheme.icon(.inline))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-            }
-            .font(CicadaTheme.font(size: size == .compact ? 12 : 13, weight: .medium))
-            .foregroundStyle(CicadaTheme.textPrimary)
-            .padding(.horizontal, CicadaTheme.scaled(size == .compact ? 10 : 12))
-            .frame(height: CicadaTheme.scaled(size.height))
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-                .fill(hovering && !isDisabled ? CicadaTheme.bgButtonHover : CicadaTheme.bgButton))
-            .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
-        }
+        Button(action: action) { label }
         .buttonStyle(.cicadaPlain)
         .keyboardShortcut(shortcut)
         .disabled(isDisabled)
         .opacity(isDisabled ? Self.disabledOpacity : 1)
-        .help(isDisabled ? (disabledHelp ?? help ?? title) : (help ?? title))
+        .help(helpText)
         .onHover { hovering = $0 }
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+    }
+
+    private var helpText: String {
+        isDisabled ? (disabledHelp ?? help ?? title) : (help ?? title)
+    }
+
+    private var label: some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            if let leading { leading }
+            if let systemImage {
+                Image(systemName: systemImage).font(CicadaTheme.icon(.inline))
+            }
+            // A fixed-height button never wraps: a long engine and model truncates instead.
+            Text(title).lineLimit(1).truncationMode(.tail)
+            if let keyHint { KeyHint(keyHint) }
+            if let trailingSystemImage {
+                Image(systemName: trailingSystemImage)
+                    .font(CicadaTheme.icon(.inline))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+        }
+        .font(CicadaTheme.font(size: size == .compact ? 12 : 13, weight: .medium))
+        .foregroundStyle(CicadaTheme.textPrimary)
+        .padding(.horizontal, CicadaTheme.scaled(size == .compact ? 10 : 12))
+        .frame(height: CicadaTheme.scaled(size.height))
+        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+            .fill(hovering && !isDisabled ? CicadaTheme.bgButtonHover : CicadaTheme.bgButton))
+        .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
     }
 }
 
