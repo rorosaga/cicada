@@ -97,15 +97,19 @@ struct SettingsPanel: View {
         .environment(skillsVM)
         .task { await skillsVM.load() }
         .onAppear {
-            selection = SettingsSection.restored(from: sectionRaw,
-                                                 legacyAgentsMode: UserDefaults.standard.string(forKey: "cicada.agentsMode"))
+            let saved = SettingsSection.restoredLanding(from: sectionRaw,
+                                                        legacyAgentsMode: UserDefaults.standard.string(forKey: "cicada.agentsMode"))
             UserDefaults.standard.removeObject(forKey: "cicada.agentsMode")   // read once (R-O11)
-            apply(router.consumeSettings())
+            selection = saved.section
+            // Hyrum audit B1: a page that became a group opens on that group. A link's own request wins.
+            let request = router.consumeSettings()
+            if request?.section != nil { apply(request) } else if let row = saved.row { focus.go(saved.section, row: row) }
         }
         // A link fired while the panel is already open re-lands in place (R-DS22).
         .onChange(of: router.pendingSettings) { _, _ in apply(router.consumeSettings()) }
         .onChange(of: selection) { _, newValue in sectionRaw = newValue.rawValue }
         .onChange(of: query) { _, _ in
+            focus.endSettle()
             pickedSinceTyping = false
             focus.matchedRows = trimmedQuery.isEmpty ? [] : Set(hits.map(\.entry.anchor))
         }
@@ -144,6 +148,7 @@ struct SettingsPanel: View {
                                                        }) {
                                         selection = section
                                         pickedSinceTyping = true
+                                        focus.endSettle()
                                     }
                                 }
                             }

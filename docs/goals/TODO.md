@@ -16,8 +16,9 @@
   Reading folds its method pickers while off. Every "Settings → <old section>" in app copy, backend sentences and docs
   says the new path; `SettingsAnchorsTests` fails if an entry, deep link, retired value or pointer stops resolving.
   Found on the way: a query with a bare "&" ("Plans & keys", "Privacy & data") matched nothing (`QuickMatch.tokens`
-  now drops punctuation-only words), and a landing below late-loading cards stopped short (one unanimated re-scroll
-  after `settingsLandingSettle`). Presentation only. Not done: B5 (shared step renderer). Pass 2's "B1 is the owner's
+  drops a punctuation-only word beside a real one; alone, or an emoji, it stays a token), and a landing below
+  late-loading cards stopped short (the row lands again on each move inside a 3 s window, never animated, until the
+  person scrolls). Review round: a saved old section lands on its group; folds open on a landing without storing it. Presentation only. Not done: B5 (shared step renderer). Pass 2's "B1 is the owner's
   call" stands as the merge gate. Detail: `app.md` (Settings), the audit's *B1 as built*.
 - **2026-10-22 — the 0.6.0 release build type-checks on the runner (branch `fix/release-typecheck`).** Release run
   39714438472 failed: `SaveWhyPanel.swift:394` "unable to type-check this expression in reasonable time" on the

@@ -130,6 +130,9 @@ extension Copy {
 
     // MARK: Customize (A1, R-O11)
     static let remoteSubtitle = "Let AI apps outside this Mac use your memory."
+    /// The Plans & keys group's refresh on Engines (Hyrum audit B1): the tooltip, and what VoiceOver names.
+    static let checkAgain = "Check again"
+    static let checkPlansAndKeysAgain = "Check plans and keys again"
     static let settingsFromAnywhere = "\(settings) → \(Devices.sidebar) → \(fromAnywhere)"
     static let agentsOnThisMacGroup = "Agents on this Mac"
     static let agentsCloudTitle = "claude.ai, ChatGPT and your phone"

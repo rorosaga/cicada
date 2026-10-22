@@ -142,15 +142,28 @@ enum QuickMatch {
     static func tokens(_ query: String) -> [Token] {
         var seen = Set<[UInt32]>()
         var out: [Token] = []
-        for part in query.split(whereSeparator: { $0.isWhitespace }) {
+        var parts = query.split(whereSeparator: { $0.isWhitespace })
+        // A word of punctuation alone ("&", "-", "—") beside a real word would fail the whole query, since a field
+        // writes it as a separator (a name with an ampersand), so it is dropped there. Alone it stays a token as it always was
+        // (a symbol-only query is never "no query"), and an emoji is a symbol, not punctuation, so it always stays.
+        if parts.contains(where: { !isPunctuation($0) }) { parts.removeAll(where: isPunctuation) }
+        for part in parts {
             let folded = fold(String(part))
-            // A part with no letter or digit ("&", "—") can match only by substring, which a one-scalar token never
-            // does (R-SU2), so it would fail every query that types a name with an ampersand in full.
-            guard folded.scalars.contains(where: isWordScalar), seen.insert(folded.scalars).inserted else { continue }
+            guard !folded.scalars.isEmpty, seen.insert(folded.scalars).inserted else { continue }
             out.append(Token(scalars: folded.scalars, mask: folded.mask))
             if out.count == maxTokens { break }
         }
         return out
+    }
+
+    static func isPunctuation(_ part: Substring) -> Bool {
+        part.unicodeScalars.allSatisfy {
+            switch $0.properties.generalCategory {
+            case .connectorPunctuation, .dashPunctuation, .openPunctuation, .closePunctuation,
+                 .initialPunctuation, .finalPunctuation, .otherPunctuation: true
+            default: false
+            }
+        }
     }
 
     static func hit(_ token: Token, in field: Folded) -> Hit? {

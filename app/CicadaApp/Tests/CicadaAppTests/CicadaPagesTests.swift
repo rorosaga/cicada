@@ -10,7 +10,7 @@ final class CicadaPagesTests: XCTestCase {
         XCTAssertEqual(SettingsGroup.enginesAndKeys.sections, [.engines])
         XCTAssertNil(SettingsSection(rawValue: "advanced"))
         XCTAssertEqual(SettingsSection.restored(from: "advanced"), .general, "a saved Advanced reopens on General")
-        for section in [SettingsSection.you, .privacy] {
+        for section in [SettingsSection.you, .privacy, .searchFiles] {
             XCTAssertLessThanOrEqual(section.subtitle.count, 60)
             XCTAssertFalse(section.subtitle.lowercased().contains(section.title.lowercased()))
         }

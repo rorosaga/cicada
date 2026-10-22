@@ -214,7 +214,7 @@ when it was last used; `cicada device revoke <id>` ends it at once. The master t
 leaves the server, and a device token can neither issue nor revoke one.
 
 **On the client** (the person's Mac, say), two settings and nothing else — set by the person, or (phase 3) by the
-app on the person's click in Settings → Devices, which puts `$CICADA_HOME/api_base` in place when Cicada next opens
+app on the person's click in Settings → Devices & access, which puts `$CICADA_HOME/api_base` in place when Cicada next opens
 and writes `device_token`, both 0600:
 
 - `CICADA_API_BASE` — the address the person's own overlay gives the server (`https://…` for any host; plain `http://`
@@ -223,7 +223,7 @@ and writes `device_token`, both 0600:
 
 A Linux client gets the code, the hooks and the command with the server's own one line, run with `CICADA_API_BASE`
 exported (`install.sh` then installs no backend; the summary names the device token, not a master token). On a Mac,
-the app's Settings → Devices → *A server*, or Homebrew's `cicada-setup` with `CICADA_API_BASE` set.
+the app's Settings → Devices & access → *A server*, or Homebrew's `cicada-setup` with `CICADA_API_BASE` set.
 
 Unset, every client behaves exactly as on one machine. Set, the machine holds no bank — and gets none: `install.sh`
 on a client makes no memory folder, writes no `CICADA_MEMORY_PATH` and registers the MCP server without one (owner
@@ -266,7 +266,7 @@ two memories: a hook's capture waiting offline was delivered to whichever server
 - The app's outbox posts carry the same target (`base`, `bankId` beside the bank's name); a flush sends only this
   connection's, and every write on a server names `X-Cicada-Bank-Id` (ids learned from `/banks`). This Mac sends names
   only, as before.
-- Waiting captures are said: `cicada status` (client and local) and Settings → Devices count the hooks' spool and the
+- Waiting captures are said: `cicada status` (client and local) and Settings → Devices & access count the hooks' spool and the
   outbox, for this server and for a server this machine no longer uses. A successful stdio MCP call (in the background)
   or `cicada` command flushes what waits for its server, not only a hook's next firing.
 - The handshake's Now line names the bank as the roster does (`default`, never the folder) and, on a client,
@@ -288,7 +288,7 @@ approves it; `GET …/remote/oauth/requests` lists what waits (times only) and `
 
 ## The Mac app as a client (phase 3)
 
-Settings → Devices → *Where your memory lives*: **This Mac** (as always) or **A server** — the address the person's
+Settings → Devices & access → *Where your memory lives*: **This Mac** (as always) or **A server** — the address the person's
 overlay gives the server and this device's token from `cicada device add`. Nothing is written until the server
 answers: `GET /healthz` (open) proves it is Cicada, `GET /devices` with the token proves the token and names this
 device. Then the app writes `device_token` and the address to `$CICADA_HOME/api_base.next` (0600) and offers *Restart
@@ -343,8 +343,8 @@ On This Mac, what this Mac wrote says nothing. The bank picker's menu says *on <
 | Claude Code and Codex on the server, captured by their Stop hook | Claude Code and Codex on a client, read there, posted as turns |
 | Cursor and Gemini CLI on the server (`/capture/turn`) | The same hooks on a client, spooled when the server is away |
 | The CLI and stdio MCP on the server | The stdio MCP and the CLI on a client, through the server |
-| Scheduled Sleep on a metered key, a local model, or the person's plan when they allow it (ruling 4b) | The app (Settings → Devices → A server), its readers and their outbox |
-| The G135 remote listener, behind the person's overlay | Settings → Devices, and the device on every conversation and save |
+| Scheduled Sleep on a metered key, a local model, or the person's plan when they allow it (ruling 4b) | The app (Settings → Devices & access → A server), its readers and their outbox |
+| The G135 remote listener, behind the person's overlay | Settings → Devices & access, and the device on every conversation and save |
 
 Known limits of phase 2: the skills tools (`cicada_skills`, `skills list|propose|create`) act on the server's agent
 skill folders, not the client's; `cicada_continue` reads the continuity registry the server keeps (the client's hook

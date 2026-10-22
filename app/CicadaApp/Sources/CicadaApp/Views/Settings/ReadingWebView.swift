@@ -231,8 +231,11 @@ final class ReadingAgentModel {
 /// the choices are still the person's to make ahead, and a search hit or link on one opens the fold.
 struct ReadingWebView: View {
     @State private var model = ReadingAgentModel()
-    /// DR-39 — per viewer, never synced, like Plans & keys' key-card fold.
-    @AppStorage("cicada.reading.methodsOpen") private var methodsOpen = false
+    /// DR-39 — the person's own open or closed, per viewer, never synced. A landing opens it for this view only
+    /// (`methodsLanded`), so following a link never rewrites what the person chose.
+    @AppStorage("cicada.reading.methodsOpen") private var methodsStored = false
+    @State private var methodsLanded = false
+    private var methodsOpen: Bool { methodsStored || methodsLanded }
     @State private var showSheet = false
     /// The site whose switch raised the sheet: it rides the "Turn on" call.
     @State private var pendingSite: String?
@@ -259,16 +262,12 @@ struct ReadingWebView: View {
         }
         .onChange(of: focus?.landedNonce ?? 0) { _, _ in
             openSkill = nil
-            openMethodsIfLanded()
+            if let row = focus?.landed, ReadingMethodsFold.holds(row) { methodsLanded = true }
         }
-        .onAppear { openMethodsIfLanded() }
+        // A landing from another page selects this one and lands in the same pass, before this view exists, so only the
+        // row still washed (`highlighted`, the hold) counts here; a landing long past never reopens the fold.
+        .onAppear { if let row = focus?.highlighted, ReadingMethodsFold.holds(row) { methodsLanded = true } }
         .onDisappear { focus?.escapeBack = nil }
-    }
-
-    /// A landing on a method row opens the fold it waits under while the switch is off (R-O6).
-    private func openMethodsIfLanded() {
-        guard let row = focus?.landed else { return }
-        if ReadingMethodsFold.holds(row) { methodsOpen = true }
     }
 
     /// Esc's "back" while a skill's detail is open — a typed helper, so `body` stays inside the type checker's
@@ -330,16 +329,16 @@ struct ReadingWebView: View {
                 methodsGroup
                 watchMethodsGroup
             } else if model.methods != nil || model.watchMethods != nil {
-                DisclosureGroup(isExpanded: $methodsOpen) {
-                    VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                        methodsGroup
-                        watchMethodsGroup
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                    DisclosureHeader(title: Copy.Reading.methodsFold, isOpen: methodsOpen) {
+                        if methodsOpen { methodsStored = false; methodsLanded = false } else { methodsStored = true }
                     }
-                    .padding(.top, CicadaTheme.spacingSM)
-                } label: {
-                    Text(Copy.Reading.methodsFold)
-                        .font(CicadaTheme.rowFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
+                    if methodsOpen {
+                        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+                            methodsGroup
+                            watchMethodsGroup
+                        }
+                    }
                 }
             }
             sitesGroup

@@ -178,9 +178,13 @@ hand-off (now Devices & access) and a ⌘K recent (the group keeps its page's pa
 General. Search still finds each by its old name (`SettingsIndex.formerNames`, the groups' own entries). General's
 Setup row joined the tour and the demo in one *Getting started* card (B12); the command-line tool moved to Agents' last
 card (B11); Reading's two method groups wait under *How your agent reads and watches* while its switch is off, and a
-landing on any of them opens the fold (B23, `ReadingMethodsFold`). A landing scrolls again after
-`CicadaMotion.settingsLandingSettle`, never animated, so a row below cards that arrive late (Agents' setup steps) still
-lands on screen. `SettingsAnchorsTests` fails when a search entry, an in-app deep link, a retired value or a
+landing on any of them opens the fold for that view only, never stored (B23, `ReadingMethodsFold`; Plans & keys' key
+fold the same; both draw through `DisclosureHeader`, DR-39). A saved retired value lands on its group
+(`SettingsSection.restoredLanding`). A landing keeps its row on screen while late cards arrive (Agents' setup steps,
+the devices list): the row reports its place in the scroll content's own space, and each move inside
+`CicadaMotion.settingsLandingWindow` (3 s) lands again, never animated; the person's scroll wheel or a key, a new
+search, a sidebar pick or a newer landing ends it (`SettingsFocus.settlingRowMoved`, `endSettle`). From anywhere's
+public-address check runs once its group is on screen and switched on, not on every visit to Devices & access. `SettingsAnchorsTests` fails when a search entry, an in-app deep link, a retired value or a
 "Settings → <old section>" pointer in copy or docs stops resolving. No stored key, default, route, wire field or
 `cicada` command changed. Search & memory has no "Look for duplicates" yet (R-O17) — the dedup endpoint
 now runs off the event loop and commits what it merges (G183(e)), so the button is the remaining half. It also holds
@@ -222,7 +226,7 @@ window — the bookworm waits in the menu bar, and the Dock icon brings the wind
 `LaunchState`, R-OB18) and Keep memory working when
 Cicada is closed (`BackendAgentService`: a read-only `launchctl print`, and Install runs
 `scripts/install-backend-agent.sh` from the app's own checkout after the click, `CICADA_CAPTURE=off`, then hands
-launchd the port). **Where your memory lives** (G181 phase 3; the first card of Settings → Devices since the settings
+launchd the port). **Where your memory lives** (G181 phase 3; the first card of Settings → Devices & access since the settings
 audit of 2026-10-22, `docs/research/2026-10-22-hyrum-audit.md`, before that on General;
 `MemoryHomeSetting`, `ConnectionSettingsModel`): *This Mac* or *A server* — an address (https, or http to a loopback
 tunnel) and this device's token from `cicada device add`. *Check and use* writes nothing until `ServerProbe` hears the
@@ -238,7 +242,7 @@ refused before any request (`ServerLinkError.demoStaysLocal`); a reader's
 post the server did not take waits in `ReaderOutbox` (`$CICADA_HOME/spool/app/`; a newer post on its route waits
 behind it, never overtakes it) and is flushed when the event stream connects, lane by lane (route + memory: another
 memory's refused post waits without blocking the active memory's — owner decision 6, 2026-10-16; no answer or a
-refused token still stops the flush; `headless.md`, "The Mac app as a client"). **Settings → Devices** (`DevicesSettingsView`,
+refused token still stops the flush; `headless.md`, "The Mac app as a client"). **Settings → Devices & access** (`DevicesSettingsView`,
 `DevicesPageModel`; not a Store domain): *Where your memory lives* (above; only while this app runs on a server, the
 same card adds which server it is using, reachable or not as of when (DR-58), and captures waiting with *Send now*;
 on This Mac the choice already says it, DR-38) — and *Your devices* (name, added, last seen, *this Mac*; Add a device with its
@@ -2099,7 +2103,7 @@ reinstalled once on that launch. The zip must be one of the same release's own a
 `~/.cicada/bin` launchers when it opens. Log: `~/.cicada/logs/update.log`.
 
 **Settings → Search & memory (owner, 2026-10-14; G182 phase 3, EmbeddingGemma 2 owner 2026-10-09, G133, G195 frame).**
-A section in the Cicada group between Privacy & data and Memory (`SettingsSection.searchFiles`, a new case): sidebar
+A section in the Cicada group between Privacy & data and Sleep (`SettingsSection.searchFiles`, a new case in 2026-10-14): sidebar
 *Search & memory* (*Search & files* until B1), page title *What Cicada can look through* (`SettingsSection.pageTitle`; the header shows it, the
 sidebar and search show the short name). One place for what Cicada can look through, in plain words — the owner: "without
 mentioning embeddings". `SearchFilesView`, top to bottom:

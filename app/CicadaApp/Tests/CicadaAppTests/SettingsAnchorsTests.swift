@@ -80,7 +80,15 @@ final class SettingsAnchorsTests: XCTestCase {
             XCTAssertTrue(try isDrawn(home.row, on: home.section), "\(raw)'s group is not drawn on \(home.section)")
             let found = SettingsIndex.staticEntries.first { $0.id == home.row }
             XCTAssertEqual(found?.section, home.section, "searching the old page's name finds its group")
+            let landing = SettingsSection.restoredLanding(from: raw, legacyAgentsMode: nil)
+            XCTAssertEqual(landing.section, home.section, raw)
+            XCTAssertEqual(landing.row, home.row, "a saved \(raw) lands on its group, not the page's top")
         }
+        let anywhere = SettingsSection.restoredLanding(from: "agents", legacyAgentsMode: "anywhere")
+        XCTAssertEqual(anywhere.section, .devices)
+        XCTAssertEqual(anywhere.row, .fromAnywhere)
+        XCTAssertNil(SettingsSection.restoredLanding(from: "sleep", legacyAgentsMode: nil).row, "a living page opens at its top")
+        XCTAssertNil(SettingsSection.restoredLanding(from: "agents", legacyAgentsMode: "thisMac").row)
         XCTAssertEqual(SettingsSection.restored(from: "advanced"), .general)
         XCTAssertEqual(SettingsSection.restored(from: "bogus"), .general)
     }
@@ -108,13 +116,25 @@ final class SettingsAnchorsTests: XCTestCase {
         XCTAssertGreaterThan(checked, 10, "a scan over nothing passes vacuously")
     }
 
-    /// "Settings → <section>" in what a person or an agent reads names a section that exists.
+    /// "Settings → <section>" in what a person or an agent reads names a section that exists, even when a line break
+    /// or a comment marker falls inside the phrase. `docs/plans`, `docs/specs`, `docs/goals` and `docs/research` are
+    /// dated history and keep the names of their day.
     func testNoCopyOrCurrentDocNamesARetiredSection() throws {
-        let retired = ["Settings → Memory", "Settings → From anywhere", "Settings → Plans & keys",
-                       "Settings → Search & files", "Settings → Agents → From anywhere", "Settings → General → Command-line"]
-        let roots = ["app/CicadaApp/Sources", "api", "docs/architecture", "docs/connect-remote-apps.md",
-                     "docs/settings-outside-the-app.md", "docs/RELEASING.md", ".claude/skills/verify-cicada", "scripts",
-                     "Makefile"]
+        let gap = #"[\s/#*]+"#
+        let retired = [
+            "Memory\\b", "From\(gap)anywhere", "Plans\(gap)&\(gap)keys", "Search\(gap)&\(gap)files",
+            "Devices(?!\(gap)&\(gap)access)", "Agents\(gap)→\(gap)From", "General\(gap)→\(gap)Command",
+        ].map { try! NSRegularExpression(pattern: "Settings\(gap)→\(gap)" + $0) }
+        func caught(_ text: String) -> Bool {
+            retired.contains { $0.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil }
+        }
+        XCTAssertTrue(caught("devices (Settings →\n/// Devices). DR-59"), "a phrase broken by a comment line")
+        XCTAssertTrue(caught("open Settings → Plans & keys"))
+        XCTAssertFalse(caught("open Settings → Devices & access → From anywhere"))
+        XCTAssertFalse(caught("Settings → Search & memory"))
+        let roots = ["app/CicadaApp/Sources", "api", "mcp", "skills", "plugins", "scripts", "Makefile", "CLAUDE.md",
+                     "install.md", "docs/architecture", "docs/design", "docs/connect-remote-apps.md",
+                     "docs/settings-outside-the-app.md", "docs/RELEASING.md", ".claude/skills/verify-cicada"]
         var scanned = 0
         for root in roots {
             let url = Self.repo.appendingPathComponent(root)
@@ -122,15 +142,19 @@ final class SettingsAnchorsTests: XCTestCase {
             if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
                 files = (FileManager.default.enumerator(at: url, includingPropertiesForKeys: nil)?
                     .compactMap { $0 as? URL } ?? [])
-                    .filter { ["swift", "py", "md", "sh"].contains($0.pathExtension) && !$0.path.contains("/.build/") }
+                    .filter { ["swift", "py", "md", "sh", "json", "txt"].contains($0.pathExtension)
+                        && !$0.path.contains("/.build/") && !$0.path.contains("/.venv/") && !$0.path.contains("/node_modules/") }
             } else {
                 files = [url]
             }
             for file in files {
                 guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
                 scanned += 1
-                for phrase in retired {
-                    XCTAssertFalse(text.contains(phrase), "\(file.path) still says \"\(phrase)\"")
+                let range = NSRange(text.startIndex..., in: text)
+                for regex in retired {
+                    if let hit = regex.firstMatch(in: text, range: range), let found = Range(hit.range, in: text) {
+                        XCTFail("\(file.path) still says \"\(text[found])\"")
+                    }
                 }
             }
         }

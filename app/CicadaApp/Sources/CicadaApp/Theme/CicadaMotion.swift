@@ -55,9 +55,6 @@ enum CicadaMotion {
     /// an emphasis lingers so the eye can find the row, not a transition
     /// between two layouts — the 400 ms budget is for the latter.
     static let rowHighlightHold: TimeInterval = 1.2
-    /// A Settings landing scrolls again after this wait, never animated: a page whose cards arrive after the first
-    /// layout (Agents' setup steps) pushes a lower row away from where the first scroll left it (Hyrum audit B11).
-    static let settingsLandingSettle: TimeInterval = 0.4
     static let rowHighlightFadeDuration: TimeInterval = 0.6
 
     /// DR-22 / R-F2 (R-DS14) — the rail's first tooltip waits, the next opens at once while
@@ -69,6 +66,11 @@ enum CicadaMotion {
     /// and closes soon after the pointer leaves (research-hub's HoverCard 250 / 80). Hover delays, not animations.
     static let linkPreviewOpenDelay: TimeInterval = 0.25
     static let linkPreviewCloseDelay: TimeInterval = 0.08
+
+    /// A Settings landing keeps its row on screen this long while the page's late cards arrive (Agents' setup steps,
+    /// the devices list): each move of the row above the fold lands again, never animated. A bound, not an
+    /// animation; the person's own scroll, a new search or a sidebar pick ends it sooner (`SettingsFocus`).
+    static let settingsLandingWindow: TimeInterval = 3.0
 
     /// Clouds drift, grass never moves (R-M6): at most 8 pt either way over a
     /// 60–120 s period — peripheral, never noticed as movement — at no more

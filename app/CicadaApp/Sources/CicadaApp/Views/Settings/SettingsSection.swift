@@ -130,8 +130,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     }
 
     /// Hyrum audit B1 (2026-10-22): a section that merged into another, by its old raw value, with the row on the new
-    /// page that inherited it. Read by `restored(from:)` (a saved `cicada.settingsSection`) and by
-    /// `SettingsRowID.landing(_:)` (the old header anchor, `page:<raw>`, which docs and harness scripts name).
+    /// page that inherited it, whose anchor is the old header's (`page:<raw>`, which docs and harness scripts name).
+    /// Read by `restored(from:)` and `restoredLanding(from:legacyAgentsMode:)` (a saved `cicada.settingsSection`).
     static let retired: [String: (section: SettingsSection, row: SettingsRowID)] = [
         "memory": (.searchFiles, .memoryGroup),
         "remote": (.devices, .fromAnywhere),
@@ -142,8 +142,15 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     /// under `cicada.agentsMode`. A person who left Agents on "From anywhere"
     /// reopens where From anywhere lives now (Devices & access, since B1); everything else restores as before.
     static func restored(from raw: String?, legacyAgentsMode: String?) -> SettingsSection {
-        let section = restored(from: raw)
-        return section == .agents && legacyAgentsMode == "anywhere" ? .devices : section
+        restoredLanding(from: raw, legacyAgentsMode: legacyAgentsMode).section
+    }
+
+    /// Where the panel opens for a saved selection: the section, and the group a retired page became (nil for a page
+    /// that still exists, which opens at its top as before).
+    static func restoredLanding(from raw: String?, legacyAgentsMode: String?) -> (section: SettingsSection, row: SettingsRowID?) {
+        if raw == SettingsSection.agents.rawValue, legacyAgentsMode == "anywhere" { return (.devices, .fromAnywhere) }
+        if let raw, let moved = retired[raw] { return (moved.section, moved.row) }
+        return (restored(from: raw), nil)
     }
 }
 
