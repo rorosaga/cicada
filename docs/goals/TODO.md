@@ -1321,7 +1321,11 @@ A whole row moves to DONE only after its remaining implementation and required a
     the local 22nd as the 21st. Existing ids are never renamed; the two readers that take the day from the id
     (`ask_sources`, `benchmarks/hard_questions`) read the episode's `timestamp` in the person's zone instead.
     **Revisit** F3 if a lease is seen ending on an older record; A5 if a person who travels across zones finds a day
-    split wrong (the trigger for storing the zone on the episode).
+    split wrong (the trigger for storing the zone on the episode). **Follow-up (#403, 2026-10-22):** the ids and the two
+    id readers follow this; Sleep's own dating still takes a conversation's day from the first ten characters of its UTC
+    timestamp (`source_dates.episode_day`, used by `entity_extractor`), so words said just after local midnight are
+    still dated a day early there — the same rule applies to it — and the remote connector's relay
+    (`cicada_capture_turns`) posts no offset, so its ids take the server's zone.
 35. **The skill lifecycle: candidates in Cicada, a small proven set in the harness, retired when the model catches up
     (owner question 2026-10-22, decided by the acting owner under the standing go; G112, G201).** The owner's worry:
     "as Claude Code and the models improve, a skill that once patched a gap starts pulling agents back to outdated
