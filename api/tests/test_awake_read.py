@@ -124,6 +124,15 @@ def test_a_big_import_is_indexed_not_read(bank, awake_on, monkeypatch):
     assert [j.kind for j in jobs] == ["index"] and jobs[0].many == tuple(ids)   # one upsert, no read
 
 
+def test_a_huge_import_is_indexed_in_batches(bank, awake_on, monkeypatch):
+    monkeypatch.setattr(awake_read._Queue, "_loop", lambda self: None)
+    ids = [f"ep_2026-10-22_{i:03d}" for i in range(awake_read.IMPORT_INDEX_BATCH * 2 + 1)]
+    awake_read.after_import(bank, ids)
+    sizes = sorted(len(j.many) for j in awake_read.QUEUE.jobs.values())
+    assert sizes == [1, awake_read.IMPORT_INDEX_BATCH, awake_read.IMPORT_INDEX_BATCH]
+    assert sorted(e for j in awake_read.QUEUE.jobs.values() for e in j.many) == sorted(ids)
+
+
 # --------------------------------------------------------------------------- step 0
 
 
@@ -169,7 +178,8 @@ def test_targeted_upsert_never_rebuilds_another_models_table(tmp_path):
 def _patch_indexer(monkeypatch, model="fake-device", on_device=True):
     real = vector_index.SqliteVecIndexer
     monkeypatch.setattr(vector_index, "SqliteVecIndexer",
-                        lambda path, **kw: real(path, embed_fn=_embed, model_name=model))
+                        lambda path, embed_fn=_embed, **kw: real(path, embed_fn=embed_fn, model_name=model,
+                                                                  should_stop=kw.get("should_stop")))
     monkeypatch.setattr(vector_index, "runs_on_device", lambda m: on_device)
     from api.services import embedding_models
     monkeypatch.setattr(embedding_models, "pending_switch", lambda *a, **k: None)
@@ -179,6 +189,43 @@ def test_index_now_embeds_a_new_conversation(bank, monkeypatch):
     _patch_indexer(monkeypatch)
     assert awake_read.index_now(bank, "ep_2026-10-22_001") == "indexed"
     assert awake_read.index_now(bank, "ep_2026-10-22_001") == "unchanged"
+
+
+def test_step0_gives_way_when_sleep_starts_mid_embed(tmp_path, monkeypatch):
+    """Review of #423: a long step-0 job (an import) stops within one chunk once Sleep starts, writes nothing of the
+    batch, frees the index's write lock for Sleep's own sync, and is retried after Sleep."""
+    import threading
+
+    b = tmp_path / "bank"
+    ids = [f"ep_2026-10-22_{i:03d}" for i in range(vector_index.STOPPABLE_CHUNK * 3)]
+    for ep in ids:
+        _episode(b, ep, f"user: alpha harbor note {ep}")
+    sleep = {"on": False}
+    calls = []
+
+    def embed(texts, *, is_query=False):
+        calls.append(len(texts))
+        sleep["on"] = True   # Sleep is clicked while the first chunk embeds
+        return _embed(texts, is_query=is_query)
+
+    _patch_indexer(monkeypatch)
+    real = vector_index.SqliteVecIndexer
+    monkeypatch.setattr(vector_index, "SqliteVecIndexer", lambda path, **kw: real(path, embed_fn=embed,
+                        model_name="fake-device", should_stop=kw.get("should_stop")))
+    monkeypatch.setattr(awake_read, "_sleep_running", lambda: sleep["on"])
+    assert awake_read.index_now(b, ids) == "sleep_running"
+    assert calls == [vector_index.STOPPABLE_CHUNK]   # one chunk, then it gave way
+    assert not real(b, embed_fn=_embed, model_name="fake-device").index_info("episodes")   # nothing written
+
+    done = threading.Event()
+    threading.Thread(target=lambda: (real(b, embed_fn=_embed, model_name="fake-device").index_episodes(),
+                                     done.set()), daemon=True).start()
+    assert done.wait(30), "Sleep's index sync waited on the step-0 job's lock"
+
+    retried = []
+    monkeypatch.setattr(awake_read.QUEUE, "put", lambda job: retried.append(job))
+    awake_read.run_job(awake_read._Job(0.0, str(b), "import:x", "index", many=tuple(ids)))
+    assert retried and retried[0].many == tuple(ids)   # held back, so queued again
 
 
 @pytest.mark.parametrize("why", ["sleep", "reindex", "hosted", "demo"])

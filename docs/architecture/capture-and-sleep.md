@@ -744,7 +744,9 @@ or `updated` write queues anything. A job held back by Sleep, a re-embed or the 
 - **Step 0, no model** (`index_now`): `INDEX_SETTLE_S` (3 s) after the capture, the episode's passages are embedded
   into the episode table (`vector_index.index_episode_stems`). That is a targeted upsert: the same cut and model as
   the table holds, no other episode's rows touched, and a table it cannot diff (another model, another width) is
-  `skipped`, never rebuilt from part of the bank. It does not run while Sleep runs, while a search-model re-embed is
+  `skipped`, never rebuilt from part of the bank. It gives way to Sleep within one chunk of `STOPPABLE_CHUNK` (64) texts (`should_stop`, review of #423), writing nothing
+  of the batch and freeing the index's write lock for Sleep's own sync, and is retried after; a big import is queued in
+  jobs of `IMPORT_INDEX_BATCH` (64) conversations so finished ones stay. It does not start while Sleep runs, while a search-model re-embed is
   running, waiting or due (`embedding_models.pending_switch`), with a hosted embedder (`runs_on_device`), or in a
   demo bank. The word index needs no job: it is fresh on every read (`search_index.ensure_fresh`, a 1 s TTL).
 - **Step 1, the quick read** (`quick_read`): when the conversation ends. A Stop fires every turn, so "ends" means a

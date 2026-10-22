@@ -53,6 +53,8 @@ INDEX_SETTLE_S = 3.0
 #: An import of more conversations than this gets step 0 only and waits for Sleep. Reading a whole export on the
 #: person's plan, unasked, is not a quick read.
 IMPORT_READ_MAX = 5
+#: A big import is embedded in jobs of this many conversations, so what finished stays when Sleep cuts in.
+IMPORT_INDEX_BATCH = 64
 #: At most this many quick reads per hour per process. Past it, a conversation waits for Sleep (logged).
 READS_PER_HOUR = 20
 #: How long a job waits before trying again when Sleep, a re-embed or the admission held it back.
@@ -186,8 +188,10 @@ def after_import(memory_path: Path, episode_ids: list[str], *, settings=None) ->
         for ep in ids:
             after_capture(memory_path, ep, status="created", settings=settings, ended=True)
     elif mode() != "off":
-        QUEUE.put(_Job(time.monotonic() + INDEX_SETTLE_S, str(Path(memory_path)), f"import:{ids[0]}:{len(ids)}",
-                       "index", settings, many=tuple(ids)))
+        for at in range(0, len(ids), IMPORT_INDEX_BATCH):
+            part = ids[at: at + IMPORT_INDEX_BATCH]
+            QUEUE.put(_Job(time.monotonic() + INDEX_SETTLE_S, str(Path(memory_path)), f"import:{part[0]}:{len(part)}",
+                           "index", settings, many=tuple(part)))
 
 
 def run_job(job: _Job) -> str:
@@ -247,12 +251,16 @@ def index_now(memory_path: Path, episode_id: str | list[str], *, settings=None) 
     try:
         if embedding_models.pending_switch(memory_path, settings) is not None:
             return "reindexing"
-        indexer = vector_index.SqliteVecIndexer(memory_path, defer_model_switch=True)
+        # Review of #423: the embed gives way to Sleep within one chunk (STOPPABLE_CHUNK texts), as the background
+        # re-embed does, so Sleep's own index sync never waits on this job's write lock for a whole import.
+        indexer = vector_index.SqliteVecIndexer(memory_path, defer_model_switch=True, should_stop=_sleep_running)
         recorded = (indexer.index_info("episodes") or {}).get("model")
         model = recorded or embedding_models.build_model(memory_path, settings)
         if not vector_index.runs_on_device(model):
             return "hosted_model"
         stats = indexer.index_episode_stems(ids)
+    except vector_index.IndexSyncStopped:
+        return "sleep_running"   # nothing of this batch was written; retried after Sleep
     except Exception as exc:  # noqa: BLE001 - a derived index: never an error, Sleep's sync catches up
         logger.info(f"awake_read: step 0 not done ({type(exc).__name__}); Sleep's index sync will do it")
         return "failed"
