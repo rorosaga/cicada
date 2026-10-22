@@ -61,17 +61,12 @@ class _Episode:
     ids: set[str] = field(default_factory=set)     # the page ids those names resolved to
 
 
-#: Calendar entries: an event's title is the calendar's words, never a conversation (``CARD_REFUSED_SOURCES``' rule).
-_CALENDAR_ORIGINS = frozenset({"calendar", "calendar-local"})
-
-
 def _conversation(extraction: dict) -> bool:
-    """A conversation, not a record: a saved item (``inbox_tend.saved_origin``) or a calendar entry never grounds a
-    skill — two bookmarks once made a "skill" of the person's bookmarking (benchmarks/newuser, 2026-10-22)."""
+    """A conversation, not a record (``inbox_tend.record_origin``: a saved item or a calendar entry) — two bookmarks
+    once grounded a "skill" of the person's bookmarking (benchmarks/newuser, 2026-10-22)."""
     from api.services import inbox_tend
 
-    origin = str(extraction.get("origin") or "").strip().lower()
-    return origin not in _CALENDAR_ORIGINS and not inbox_tend.saved_origin(origin)
+    return not inbox_tend.record_origin(extraction.get("origin"))
 
 
 def _episode_index(extracted: list[dict], name_to_id: dict[str, str]) -> dict[str, _Episode]:
