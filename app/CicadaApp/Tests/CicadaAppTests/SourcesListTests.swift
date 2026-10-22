@@ -70,8 +70,9 @@ final class SourcesListTests: XCTestCase {
     /// R-S7's pins, restated for the rewritten page (SourcesV2Tests holds the originals).
     func testTheWayInStaysInTheEyebrowRow() throws {
         let page = try source("Views/Sources/SourcesPageView.swift")
-        // DR-75 (2026-10-20, round 2) — the labelled add button every page shares, worded from `Copy.addASource`.
-        XCTAssertTrue(page.contains("PageAddButton(title: Copy.addASource"))
-        XCTAssertEqual(page.components(separatedBy: "AddSourceSheet(").count - 1, 1)
+        // DR-75 (2026-10-20, round 2) — the labelled add button every page shares. G217 (ruling 36 D6): the page is the
+        // one catalogue, so its add imports a file (Files and links) and it presents no second catalogue.
+        XCTAssertTrue(page.contains("PageAddButton(title: Copy.Catalog.importFile"))
+        XCTAssertEqual(page.components(separatedBy: "AddSourceSheet(").count - 1, 0)
     }
 }

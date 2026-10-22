@@ -9,16 +9,16 @@ Status, in order: `proposed` → `building` (a branch exists) → `PR #n` (open 
 
 | ID | Feature | Status | PR | Updated |
 |---|---|---|---|---|
-| [G217](memory-evolution.md#g217) | Connection model: Sources · Intelligence · Agents, Settings in six, one agent table, one logo tile | proposed | — | 2026-10-22 |
-| [G50](memory-evolution.md#g50) | Intelligence: a key secured properly or the person's own Claude Code / Codex; more keys; Grok research (cited as G215) | proposed | — | 2026-10-22 |
-| [G205](memory-evolution.md#g205) | Agent requests: one Inbox kind and a notification | proposed | — | 2026-10-22 |
-| [G206](memory-evolution.md#g206) | Saved lists on X, LinkedIn, Instagram through the person's browser | proposed | — | 2026-10-22 |
+| [G217](memory-evolution.md#g217) | Connection model: Sources · Intelligence · Agents, Settings in six, one agent table, one logo tile (backend #425 merged; app: Sources as the one catalogue + logo tile adapter in PR #428; Settings, Agents page, Intelligence by UI-A) | PR #428 | [#425](https://github.com/rorosaga/cicada/pull/425), [#428](https://github.com/rorosaga/cicada/pull/428) | 2026-10-22 |
+| [G50](memory-evolution.md#g50) | Intelligence: a key secured properly or the person's own Claude Code / Codex; more keys; Grok research (cited as G215) (backend: three more key cards, keys checked before saving, xAI default fixed; key storage awaits the rail ruling) | PR #425 | [#425](https://github.com/rorosaga/cicada/pull/425) | 2026-10-22 |
+| [G205](memory-evolution.md#g205) | Agent requests: one Inbox kind and a notification (backend #425 merged; app: Inbox card, I signed in / Not now, Mac notification asked in words, PR #428) | PR #428 | [#425](https://github.com/rorosaga/cicada/pull/425), [#428](https://github.com/rorosaga/cicada/pull/428) | 2026-10-22 |
+| [G206](memory-evolution.md#g206) | Saved lists on X, LinkedIn, Instagram through the person's browser (app: Instagram on Sources with its reading switch, honest that the reader is coming, PR #428; backend still proposed) | proposed | [#428](https://github.com/rorosaga/cicada/pull/428) | 2026-10-22 |
 | [G207](memory-evolution.md#g207) | A quick read after each conversation; recall sees today | in review: step 0 on (vectors after capture, recall's word leg, "not yet read by Sleep"); the quick read built and off — it measured no better than step 0 (12/12 vs 12/12, 3 repeats) | #423 | 2026-10-22 |
-| [G61](memory-evolution.md#g61) | Update sources: sources on people, inferred proposals, a better name (cited as G208) | building | — | 2026-10-22 |
+| [G61](memory-evolution.md#g61) | Update sources: sources on people, inferred proposals, a better name (cited as G208) (backend #422; app: grouped Where-to-check review card and the entity card's chips, PR #428) | building | #422, [#428](https://github.com/rorosaga/cicada/pull/428) | 2026-10-22 |
 | [G209](memory-evolution.md#g209) | Duplicate people: in-cycle aliases, "same person?" questions | building | — | 2026-10-22 |
 | [G210](memory-evolution.md#g210) | Recall shows how old a belief is | proposed | — | 2026-10-22 |
 | [G141](memory-evolution.md#g141) | Projects born from a repository or the person's words; standard sections (cited as G211) | proposed | — | 2026-10-22 |
-| [G212](memory-evolution.md#g212) | Devices: each machine by its own name, connected status, easy pairing | proposed | — | 2026-10-22 |
+| [G212](memory-evolution.md#g212) | Devices: each machine by its own name, connected status, easy pairing (backend #425/#424 merged; app: Sleep's machines strip with per-machine queues, PR #428; Settings → Devices and pairing by UI-A) | PR #428 | [#425](https://github.com/rorosaga/cicada/pull/425), [#428](https://github.com/rorosaga/cicada/pull/428) | 2026-10-22 |
 | [G213](memory-evolution.md#g213) | HTTP API for agents without MCP; `cicada setup` | proposed | — | 2026-10-22 |
 | [G135](memory-evolution.md#g135) | Phones through the Claude, ChatGPT and Gemini apps (cited as G214) | proposed | — | 2026-10-22 |
 | [G91](memory-evolution.md#g91) | `cicada-app`: phone capture app, paired as a device (cited as G214) | building | — | 2026-10-22 |

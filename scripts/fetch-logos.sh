@@ -27,7 +27,8 @@
 #   scripts/fetch-logos.sh --accept        record upstream drift instead of failing on it
 #   scripts/fetch-logos.sh --only <id>     restrict a real run to one manifest id
 #
-# ORIGINS (the manifest's `origin` field): `commons` (a Wikimedia Commons SVG),
+# ORIGINS (the manifest's `origin` field): `set` (G217: the curated one-mark-per-umbrella set, sources committed
+# in app/assets/logo-set/, rasterized offline by scripts/build-logo-set.py), `commons` (a Wikimedia Commons SVG),
 # `repo` (R-AG9: an SVG in the vendor's OWN repository, pinned to a 40-hex commit
 # on raw.githubusercontent.com — never a branch, so a redraw upstream cannot
 # walk in), `recut` (a one-time transform of a committed file) and `legacy`
@@ -87,6 +88,11 @@ for a in sorted(json.load(open(sys.argv[1]))["assets"], key=lambda a: a["id"]):
 }
 
 sha256_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
+
+manifest_field() {  # manifest_field <id> <key>
+    "$PY" -c 'import json,sys;print(next((a.get(sys.argv[3]) or "") for a in json.load(open(sys.argv[1]))["assets"] if a["id"]==sys.argv[2]))' \
+        "$MANIFEST" "$1" "$2"
+}
 
 # --- --check: offline, read-only (this is what a CI job would run) ------------
 #
@@ -328,6 +334,20 @@ while IFS=$'\x1f' read -r id file origin commons svg_sha sha source; do
         repo)
             fetch_repo "$id" "$file" "$source" "$svg_sha"
             ;;
+        set)
+            # G217 (2026-10-22): the curated logo set. Its sources are committed under app/assets/logo-set/ and
+            # rebuilt offline by scripts/build-logo-set.py; here the committed source must still be the reviewed one
+            # (svgSha256) and the PNG the one it produced (sha256). Replacing a source is a reviewed commit plus a
+            # build-logo-set.py run, never a fetch.
+            src="$REPO/$(manifest_field "$id" setFile)"
+            if [[ ! -f "$src" || "$(sha256_of "$src")" != "$svg_sha" ]]; then
+                echo "DRIFT $id: $src is not the reviewed source — re-run scripts/build-logo-set.py and review" >&2
+                FAILED=1
+            elif [[ "$(sha256_of "$LOGOS/$file")" != "$sha" ]]; then
+                echo "DRIFT $id: $file was not produced by build-logo-set.py" >&2
+                FAILED=1
+            fi
+            ;;
         recut|legacy)
             # Never fetched, never regenerated — only the sha is verified.
             # A recut is a one-time act (R5): the committed file already carries
@@ -352,7 +372,7 @@ while IFS=$'\x1f' read -r id file origin commons svg_sha sha source; do
             fi
             ;;
         *)
-            echo "FAIL $id: unknown origin '$origin' (commons|repo|recut|legacy)" >&2
+            echo "FAIL $id: unknown origin '$origin' (commons|repo|set|recut|legacy)" >&2
             FAILED=1
             ;;
     esac
@@ -410,6 +430,12 @@ lines = [
     "app-drawn SF Symbol `>_` badge over its bottom-trailing corner (owner",
     "addendum 2, R-AG8); the mark's file itself is untouched.",
     "",
+    "A `set` row is one mark per provider umbrella (G217, 2026-10-22): Claude covers",
+    "Claude Code and the Claude app, OpenAI covers Codex, ChatGPT and Dots, Gemini",
+    "covers Gemini CLI. Its source is committed in `app/assets/logo-set/` (the ladder",
+    "and every choice are in that folder's README) and rasterized offline by",
+    "`scripts/build-logo-set.py`; `source` is where the source was fetched.",
+    "",
     "A `legacy` row predates this ledger: it was committed before the pipeline",
     "existed, so its provenance is the commit that introduced it rather than an",
     "upstream URL, and its licence line says exactly that instead of inventing one.",
@@ -432,9 +458,8 @@ for asset in manifest["assets"]:
     lines.append("| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |")
 lines += [
     "",
-    f"{len(manifest['assets'])} marks. New ones are rasterized at "
-    f"{manifest.get('size', 256)} px; the 2026-08-31 favicon rasters stay at 128 px",
-    "because upscaling a favicon would be fake resolution.",
+    f"{len(manifest['assets'])} marks, rasterized at {manifest.get('size', 256)} px; a PNG source served",
+    "smaller (Instinct 64 px, Warp 196 px) is shipped as served, because upscaling would be fake resolution.",
     "",
 ]
 attribution_path.write_text("\n".join(lines), encoding="utf-8")

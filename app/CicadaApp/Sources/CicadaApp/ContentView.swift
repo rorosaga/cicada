@@ -99,6 +99,10 @@ struct ContentView: View {
         // (from the on-disk cache or the network), are the two events that turn
         // an unknown input into a known one.
         .onChange(of: store.bank) { _, _ in evaluateFirstRun() }
+        // G205 — a new agent request is posted once as a Mac notification, whichever page shows.
+        .onChange(of: inboxVM.agentRequests.map(\.id), initial: true) { _, _ in
+            AgentRequestNotifier.shared.observe(inboxVM.agentRequests)
+        }
         // G118 slice 2 (R-PU26) — the Reader and its cache belong to no bank:
         // episode ids restart every day in every bank, so a switch closes the
         // Reader and forgets every cached document rather than show another

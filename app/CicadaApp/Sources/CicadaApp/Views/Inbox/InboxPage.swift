@@ -82,7 +82,15 @@ struct InboxPage: View {
                               open: { open($0) }, undo: { undo() }, move: { move($0) },
                               focusQuestion: { focus = .question }, escape: { escape() },
                               footer: AnyView(settledSection),
-                              header: AnyView(InboxReviewEntriesRow(entries: viewModel.reviewEntries) { startReview($0) }))
+                              header: AnyView(VStack(alignment: .leading, spacing: 0) {
+                                  // G205 / G61 — agents asking, then the grouped Where-to-check review, above the
+                                  // questions.
+                                  InboxTopCards(requests: viewModel.agentRequests,
+                                                reviews: viewModel.whereToCheckReviews,
+                                                answer: { item, resolution in viewModel.answer(item, resolution) },
+                                                openPage: { router.routeToClustersEntity($0) })
+                                  InboxReviewEntriesRow(entries: viewModel.reviewEntries) { startReview($0) }
+                              }))
                 .focused($focus, equals: .list)
                 .tourAnchor(.inbox)
         } detail: { plan in

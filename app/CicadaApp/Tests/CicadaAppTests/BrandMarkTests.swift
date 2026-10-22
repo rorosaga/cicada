@@ -7,7 +7,9 @@ final class BrandMarkTests: XCTestCase {
     func testClaudeCodeIsTheClaudeMarkWithATerminalBadge() {
         XCTAssertEqual(BrandMark.composition(for: "claude-code"), .init(file: "claude", badge: .terminal))
         XCTAssertEqual(BrandMark.composition(for: "claude-desktop"), .init(file: "claude", badge: nil))
-        XCTAssertEqual(BrandMark.composition(for: "codex"), .init(file: "codex", badge: nil))
+        XCTAssertEqual(BrandMark.composition(for: "codex"), .init(file: "openai", badge: nil))
+        XCTAssertEqual(BrandMark.composition(for: "chatgpt"), .init(file: "openai", badge: nil))
+        XCTAssertEqual(BrandMark.composition(for: "gemini-cli"), .init(file: "gemini", badge: nil))
     }
 
     func testTheLogicalNamesStillResolveButTheirRastersAreGone() throws {
@@ -31,7 +33,8 @@ final class BrandMarkTests: XCTestCase {
     }
 
     func testOpenCodeAndOpenRouterShipTheirMarks() {
-        for name in ["opencode", "opencode-dark", "openrouter", "openrouter-dark"] {
+        // G217: the set's OpenCode and OpenRouter marks are their own dark tiles, legible in both themes.
+        for name in ["opencode", "openrouter"] {
             XCTAssertNotNil(Bundle.cicadaResources.cicadaResource(name, ext: "png", in: "logos"), name)
         }
         XCTAssertEqual(ConnectionMark.logoName(connectionId: "byok-openrouter"), "openrouter")

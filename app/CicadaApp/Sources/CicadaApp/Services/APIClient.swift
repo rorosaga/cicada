@@ -1308,9 +1308,12 @@ struct EpisodeQueueItem: Codable, Identifiable {
     /// Owner 2026-10-20 — a saved link's site key (a bookmark or saved post Sleep has not read yet): the row draws that
     /// site's own mark (`SavedLinkMark`), never the browser's. Nil for every other episode and from an older backend.
     let site: String?
+    /// G212 — the device id that posted it (nil: this server, or an older backend), for the machines strip's queues.
+    var device: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, timestamp, source, origin, title, preview, chars, processed, copyKind, copyValue, changedAt, site
+        case device
     }
 
     init(from decoder: Decoder) throws {
@@ -1327,6 +1330,7 @@ struct EpisodeQueueItem: Codable, Identifiable {
         copyValue = try c.decodeIfPresent(String.self, forKey: .copyValue)
         changedAt = try c.decodeIfPresent(String.self, forKey: .changedAt)
         site = try c.decodeIfPresent(String.self, forKey: .site)
+        device = try c.decodeIfPresent(String.self, forKey: .device)
     }
 }
 
@@ -2310,6 +2314,13 @@ actor APIClient {
         if let mergeTarget { body["mergeTarget"] = mergeTarget }
         if let mergeSurvivor { body["mergeSurvivor"] = mergeSurvivor }
         try await post("/inbox/\(id)/resolve", body: body)
+    }
+
+    /// G61 "Where to check" (#422) — one row of the grouped review answered: `yes` takes that link on its page, `no`
+    /// removes it (remembered, never proposed again). The item keeps the rows not answered.
+    func resolveWhereToCheckRow(id: String, row: String, take: Bool) async throws {
+        try await post("/inbox/\(encodedID(id))/resolve",
+                       body: ["action": take ? "resolve" : "dismiss", "optionKey": take ? "yes" : "no", "row": row])
     }
 
     /// Owner ruling 2026-10-16 — "Settled by a check": the questions a web lookup or the person's agent settled
@@ -3329,6 +3340,13 @@ actor APIClient {
     }
 
     // MARK: - Devices (G181 phase 3)
+
+    /// `GET /devices/status` (G212) — this server and each device by its own name, connected or not, how it connects
+    /// and what waits for it. Not a Store domain and no ETag (it changes by the minute): the Sleep page polls it while
+    /// it shows and holds the answer in memory.
+    func fetchMachineStatus() async throws -> MachineStatusList {
+        try await get("/devices/status", timeout: Self.refreshTimeout)
+    }
 
     /// `GET /devices` — outside every bank, so never a Store domain (`DeviceDirectory` keeps it in memory).
     func getDevicesList() async throws -> DeviceList {

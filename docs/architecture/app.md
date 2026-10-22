@@ -878,8 +878,13 @@ neutral glyph Integrations' "Other agents" wears, DR-52; Settings-only, so onboa
 *Copy and send this to your agent* → Confirm, with its own "Do it by hand" `mcpServers` snippet; its ✓ lights for a
 local `initialize` from a client that names itself but matches no other pill (`agent_live.agent_for` → `other`; the
 release smoke test is excluded). `GET /agents/live` lights a pill's ✓ from the local handshake ledger
-rows, a used connector (`last_used_at`) or the agent's own config — no subprocess, never `~/Library`, never
+rows, the last-seen registry (`agent_seen`, G217: survives telemetry off), a used connector (`last_used_at`) or the agent's own config — no subprocess, never `~/Library`, never
 `~/.claude.json`; polled every 3 s while the page is visible.
+**Wire for the redesign (G217/G205/G212/G50, 2026-10-22; app not built yet):** `GET /providers` is the one table the
+Agents and Intelligence pages draw (umbrella, logo slug, ways, plans and keys); `/agents/live` adds rows for every
+tracked way after the eleven pills; `GET /devices/status` names each machine by its own name with `connected`, `how` and
+`queue`; an `agent_request` inbox item carries `request.notification` for a Mac notification; key cards carry `keyHint`,
+`keyStore`, `verifiedAt`, `termsNote`, and a 503 from `PUT …/key` means offer "Save without checking" (`api.md`).
 
 **The Skills page (owner 2026-10-15, third take).** At ⌘4 since ⌘ map A (2026-10-16). **Its top row is every other
 page's (owner 2026-10-20):** the tabs Installed · Discover · Drafts sit in the eyebrow row, then Check for updates and a
@@ -932,6 +937,48 @@ skill drives missing, a half install that would read "installed". `browser-harne
 verified by `scripts/verify-skills.sh`, whose `--print-urls` is pinned offline) are offered for reading and watching, each
 with a `terms` line; `macos-harness` states plainly that it can control the whole Mac. Choosing one is Settings, How your
 agent reads (`agent_methods`), not an install.
+
+**The redesign, Sources · Inbox · entity card · Sleep (G217, G205, G212, G61, G206; ruling 36 D5/D6, 2026-10-22).**
+- **Sources is the one catalogue** (`SourceCatalog`, pure; `SourceCatalogViews`). Every way in, on or off, grouped
+  *Accounts and browser* (X, YouTube, Instagram, LinkedIn, Reddit, Pinterest, TikTok) · *This Mac* (Calendar, Contacts,
+  Messages, each browser on this Mac, Apple Notes, Folders, Wispr Flow once present) · *Exports* (Files and links; Chat
+  exports, which point at their agent — `AppRouter.routeToAgents`, Settings → Agents until UI-A's Agents page lands) ·
+  *Feeds* (RSS, Calendar feeds, Telegram), then *Agents' conversations* for an overview harness row no entry speaks for.
+  A row is a `LogoTile` (through the `SourceLogoTile` adapter: an origin key or an umbrella logo slug in), the name, the
+  last sync only while on, and a dot with one word: **Connected · Needs sign-in · Off** (`SourceCatalog.status`: a
+  channel whose last failure reads as a lapsed sign-in, else any connected channel, an allowed site for Instagram, a
+  harness with conversations). Its detail (`SourceCatalogDetail`, DR-74's head) holds the source's own control — the
+  very rows Settings drew (`CalendarRow`, `ContactsRow`, `MessagesRow`, `BrowsersSection`, `WatchHistoryRow`,
+  `FolderChannelRow` + *Add a folder*, `WisprFlowRow`), or `ChannelActionsBar` (Connect / Refresh / Manage) for a
+  registry channel, or a tile's flow — then the per-site reading switch for a walled site (x, instagram, linkedin,
+  reddit, tiktok; `PUT /reading/settings` `{sites}`, turning a site on also turns reading on with its acknowledgement:
+  Reading the web left Settings, default on), then what came in (the source's v4 list when the overview has a row).
+  Instagram is offered with **Turn on** = the reading switch, saying the browser reader is still coming (G206) and
+  offering the data export. Obsidian's entry is gone (a vault is a folder). Contacts stays (ruling 33).
+- **One catalogue (Hyrum mode B):** the *Add a source* grid opens from nowhere now. The eyebrow keeps DR-75's labelled
+  add as *Import a file* (opens Files and links); Sleep's `+`/⌘N opens the Sources page; `routeToAddSource(tile)` lands
+  on that tile's entry (was Sleep's sheet); a tile's flow still opens alone (`AddSourceSheet(flowOnly: true)`, leaving
+  the flow closes it). *Sync now* / *Poll now* read **Refresh** everywhere on these surfaces. The `.source(id)`
+  selection and `routeToSourceDetail` still open the v4 detail; an overview id lands on its catalogue entry.
+- **Inbox top cards (G205, G61):** `agent_request` (`InboxKind.agentRequest`) and the grouped *Confirm N links* review
+  (`asks: sources`, `review: true`) are cards above the questions, out of the list, its tabs and the quick review
+  (`InboxViewModel.questions`). A request: the agent's tile, *Sign in to <site>*, whose and why, **I signed in**
+  (`optionKey: done`) / **Not now** (`dismiss`), both held for Undo like any answer. `AgentRequestNotifier` posts each
+  new request once as a local notification in the backend's words (title, body, category with the same two buttons, a
+  tap opens `openUrl` if http(s)); macOS is asked only from the card's in-words line *Get a notification when an agent
+  asks? Notify me*, at the first request; posted ids are remembered per viewer (`cicada.agentRequests.notified`). The
+  review: per row the link-kind glyph (`LinkKindGlyph`), the link, its page (opens it), where it was found on hover
+  (never an episode id), **Yes / No** answered alone (`POST /inbox/{id}/resolve` with `row`), optimistic with a toast.
+- **Entity card chips (G61):** `WhereToCheckChips` at the top of Content — the page's taken links (not proposals, not
+  notes) as chips: the site's own icon only where `iconSite` says the existing rule serves one (never on a person's page,
+  G159), else the link kind's glyph; click opens, right-click removes (`EntitySourceWrite .remove`), *Add* pastes one
+  (`EntitySourceAdd`). Read from `GET /entities/{id}/sources` when the card opens, held on the card. A `?` beside them
+  says how pages fade (Settings' Memory explainer moved here).
+- **Sleep's machines strip (G212):** under the room, `GET /devices/status` polled every `CicadaTiming.machinePoll`
+  (30 s) while the page shows, held in memory: each machine by its own name (this server's Computer Name), a green dot
+  while connected, how (Local · Tailscale · SSH · Local network), *N waiting*. A click opens that machine's queue in
+  Waiting (rows rebuilt from its own episodes; `GET /sleep/episodes` rows carry `device`, shape `episodes-3`). The
+  engine line is UI-A's.
 
 **Sources page — v3 (owner 2026-10-19; supersedes v2's tile grid, G124, DS-3c).** The owner: *"The Sources page needs
 an urgent redesign. It has these graphs and stuff, and it's not intuitive … in two clicks I click on something, then I

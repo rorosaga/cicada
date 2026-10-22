@@ -191,7 +191,7 @@ def test_history_says_withdrawn(srv, monkeypatch, today):
     assert "Earlier, newest first (1):" in full, "a record is bookkeeping, never listed as a belief"
     lines = mcp_tools._recent_changes(memory / "entities", [{"entity_id": "alpha-project"}],
                                       date.fromisoformat(today))
-    assert lines == [f'- `alpha-project` uses: "sqlite-vec" withdrawn {today} by claude-code — {REASON}']
+    assert lines == [f'- `alpha-project` uses: "sqlite-vec" — withdrawn on {today} by claude-code: {REASON}']
 
 
 def test_a_connection_can_only_withdraw_what_it_wrote(tmp_path, monkeypatch):

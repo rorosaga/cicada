@@ -2201,6 +2201,10 @@ class InboxKind(str, Enum):
     # G198: an agent's edit of a page's words or aliases, waiting for the person (the agent is not on their list of
     # agents that edit pages directly). `apply` writes it under the agent and the person; `dismiss` leaves the page.
     page_edit = "page_edit"
+    # G205: an agent asks the person for something only they can do (today: sign in to a site in their own browser
+    # so it can read a page). Machine-wide outside the bank (`agent_requests`), served here above the questions,
+    # resolved only by the person's tap (`done` | `dismiss`), never in a conversation.
+    agent_request = "agent_request"
 
 
 class RequiredInput(str, Enum):
@@ -2327,6 +2331,29 @@ class InboxFold(CamelModel):
     example: Optional[str] = None      # the anchor claim's sentence, clipped
 
 
+class AgentRequestNotification(CamelModel):
+    """G205: what the app posts as a Mac notification — ids and the agent's own words, never episode text."""
+
+    id: str
+    title: str
+    body: str
+    open_url: Optional[str] = None
+
+
+class AgentRequestInfo(CamelModel):
+    """G205: who is asking (a catalog way id, its name, its umbrella and logo slug for the tile) and for what."""
+
+    kind: str
+    agent: str
+    agent_name: str
+    umbrella: Optional[str] = None
+    logo: Optional[str] = None
+    site: Optional[str] = None
+    reason: Optional[str] = None
+    created_at: Optional[str] = None
+    notification: AgentRequestNotification
+
+
 class InboxItem(CamelModel):
     # G61 S3 (shadow): what agents reported from a source for this item, newest first. Additive; nothing reads it to act.
     checks: list[InboxCheckFinding] = []
@@ -2382,6 +2409,8 @@ class InboxItem(CamelModel):
     # build ignores both).
     subject: Optional[InboxSubject] = None
     fold: Optional[InboxFold] = None
+    # G205: set on an ``agent_request`` item only.
+    request: Optional[AgentRequestInfo] = None
 
 
 class InboxResolveRequest(CamelModel):
@@ -3121,6 +3150,9 @@ class EpisodeQueueItem(CamelModel):
     # `channel_items.saved_episode_url`), the name its row's site mark is drawn under; None for every other episode. The icon itself is asked by the episode's id
     # (`GET /sources/saved/episodes/{id}/site-icon`), never by this name.
     site: Optional[str] = None
+    # G212 — the device id that posted it (`device` frontmatter, G181 phase 3; None = this server), so the Sleep page's
+    # machines strip opens each machine's own queue. An id, never a name (`GET /devices/status` names it).
+    device: Optional[str] = None
 
 
 SCHEDULE_MODES = ("manual", "daily", "interval", "after_import")
@@ -4894,6 +4926,13 @@ class ConnectionStatus(CamelModel):
     # meaningful on `claude-plan`; a machine-global preference, never a probe.
     use_for_sleep: bool = False
     login: Optional[LoginHint] = None
+    # G50/G215 (key cards only): the key's last four characters ("…a1b2" — no route returns a key), where it lives
+    # (``file``: secrets.env 0600; ``environment``: a shell export the backend inherited), when its provider last
+    # accepted it, and what the provider's own terms mean for a personal memory (never a price, ruling 12).
+    key_hint: Optional[str] = None
+    key_store: Optional[str] = None
+    verified_at: Optional[str] = None
+    terms_note: Optional[str] = None
 
 
 class LoginSession(CamelModel):

@@ -222,7 +222,7 @@ def test_history_says_a_fact_ended_at_its_stated_end(tmp_path):
     ended = (date.today() - timedelta(days=2)).isoformat()
     _page(memory, "alpha-project", [_c("exams", expected_end=ended, valid_from="2026-01-01", valid_to=ended)])
     lines = mcp_tools._recent_changes(memory / "entities", [{"entity_id": "alpha-project"}], date.today())
-    assert lines == [f'- `alpha-project` has: "exams" ended {ended} (its stated end)']
+    assert lines == [f'- `alpha-project` has: "exams" — ended on {ended} (its stated end)']
 
 
 # --- Task 4 review round 1 -------------------------------------------------
@@ -305,7 +305,8 @@ def test_a_claim_closed_before_its_stated_end_is_not_said_to_have_reached_it(tmp
     _page(memory, "alpha-project", [_c("launch", predicate="due", object="2099-12-01",
                                        valid_from="2026-01-01", valid_to=closed)])
     lines = mcp_tools._recent_changes(memory / "entities", [{"entity_id": "alpha-project"}], date.today())
-    assert lines == [f'- `alpha-project` due: was "2099-12-01" until {closed}']
+    assert lines == [f'- `alpha-project` due: "2099-12-01" — closed on {closed}']
+    assert "stated end" not in lines[0]
 
 
 def test_closing_date_is_what_expire_writes():
