@@ -225,7 +225,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Entity promotion:** a first mention stays in the index; a page needs 2+ conversations, >3 exchanges with the person's
   own words, or a link the person made to a high-confidence page other than the owner's — counted on the conversation,
   never guessed (`promotion`) — or the person's own words naming in full exactly one waiting Contacts card, never the "me"
-  card or a relation-only person (owner 2026-10-20; cards wait outside every bank until Contacts stops, `capture-and-sleep.md`). What is said about a
+  card or a relation-only person (owner 2026-10-20; cards wait outside every bank until Contacts stops, `capture-and-sleep.md`).
+  **A project is born only from a repository the hook observed or the person's own located words calling it one —
+  never from this rule (ruling 36 D4, `project_birth`); an older page is never archived for it.** What is said about a
   name with no page yet is held (`pending_store`), never lost. A page only an import made is quiet — dimmed, never
   asked about — until the person mentions it, derived on read (`quiet_pages`).
   A Stage-4 skill needs 2+ conversations too; one is held in its own store, `skill_hold` (G112, owner 2026-10-09).

@@ -47,7 +47,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import bank_index, decay_policy, episode_ids, episode_staging, markdown_parser
+from api.services import bank_index, decay_policy, episode_ids, episode_staging, markdown_parser, project_birth
 from api.services.id_utils import sanitize_id
 
 FOLDERS_FILENAME = "folders.json"
@@ -527,6 +527,8 @@ def ensure_project(memory_path: Path, name: str, *, path: str, device: str) -> t
         **decay_policy.frontmatter_fields(decay_policy.default_class_for("project")),
         "source_episodes": [], "tags": ["folder"], "related": [], "version": 1,
         "paths": [entry],
+        # Ruling 36 D4: the person typed the name, so the project is born from their own words.
+        "born": project_birth.folder_birth(today),
     }
     page.parent.mkdir(parents=True, exist_ok=True)
     markdown_parser.write(page, fm, f"## Summary\n{name} — a folder of notes Cicada keeps in memory.")

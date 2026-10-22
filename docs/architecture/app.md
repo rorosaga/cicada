@@ -1259,6 +1259,29 @@ by project, day and cache revision; the last value stays up while the next build
 project whose happenings cite hundreds of pages opens at once (round-4 D6). Every Swift test reads
 the demo scenario's real wire, `app/CicadaApp/Tests/fixtures/projects-demo.json`, pinned by
 `api/tests/test_projects_app_fixture.py`.
+
+**Projects v3 — where it came from, six standard sections (ruling 36 D4, G141; backend shipped 2026-10-22, the SwiftUI
+part is a spec and needs a Mac).** The wire is `api.md`'s g141-5. What the page does with it:
+- **The row** keeps its one signal (DR-38) and adds nothing for a page with `origin` null. A row with `origin: repo`
+  leads its second line with the `chevron.left.forwardslash.chevron.right` glyph (DR-53, `textTertiary`); `words`
+  carries no mark — it is the common case and needs none.
+- **The header** (`DetailHeader`, DR-74) says where it came from in one line under the name, in `metaFont`
+  `textSecondary`: repo → "From the repository alpha-project · 22 Oct" (`repoName`); words → "You said this is a
+  project · 22 Oct", the day a button that opens the Reader on `episode` with the span highlighted (DR-31, DR-57
+  "You said"); folder → "You named this folder a project"; `kind` null → nothing (the review list is the Inbox's, after
+  the owner reads the dry run, never a banner here). `quote` is shown only in the Reader, through `quoteFont` (DR-18).
+- **The body is the six `sections` in their order**, each under one `SectionLabel` (DR-20, DR-47): *Overview*
+  (`markdown` rendered as page prose), *Timeline* (today's band and Lately, unchanged — the section's `entries` are ids
+  into `items`, so nothing is drawn twice, DR-38), *Done*, *Expected* (milestones then backlog items; a backlog entry
+  opens the item), *Design* (the page's `## Design` markdown, then its Looks as thumbnails opening the look), *People
+  involved* (person chips from `people`, each opening the person's card). An empty section is one `textTertiary` line
+  saying who would fill it (from `writtenBy`, in words: "Nothing done yet — tell an agent or log it here"), never a
+  blank and never a card of its own (DR-32, DR-37); Design and People start collapsed when empty (DR-39). `more` > 0
+  ends a section with "Show all n" opening the full list in the column. The existing folds (In progress · What
+  happened · Plan · Backlog) retire into these six; Log progress stays above them.
+- **Swift work:** decode `origin`, `sections`, `people` leniently into `ProjectOrigin`/`ProjectSection`/`ProjectPerson`
+  (`ProjectsCache` unchanged — the ETag shape moved, so caches refetch once), re-pin `projects-demo.json`'s decode test,
+  add `Copy+Projects` strings (provider-neutral, DR-59), and a `ProjectDetailSectionsTests` over the fixture.
 - **The list (v2):** text tabs **Current · Past** with counts (`ProjectsModel.tabs`; tapping the selected one keeps
   it). A project's group is `ProjectState`'s section (`ProjectsGroup`): in motion → Current; quiet → **Fading**, one
   folded disclosure at Current's foot, remembered on `cicada.projects.fadingOpen`; resting (decaying or archived, or
