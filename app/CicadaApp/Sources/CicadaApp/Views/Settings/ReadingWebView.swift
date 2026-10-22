@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// The state of Settings → Reading the web (G166). Last-known-good: a fetch that fails keeps the previous answer (the
+/// The state of the Sources page (G166). Last-known-good: a fetch that fails keeps the previous answer (the
 /// never-blank rule). Collaborators are injected so a test drives it with no network, like `AutoRecallModel`. Not a Store
 /// domain: fetched when the page opens and refreshed after every write.
 @MainActor
@@ -221,7 +221,7 @@ final class ReadingAgentModel {
     }
 }
 
-/// Settings → Reading the web (G166): "With an agent" (the person's own agent reads pages Cicada's reader could not, in
+/// the Sources page (G166): "With an agent" (the person's own agent reads pages Cicada's reader could not, in
 /// their own signed-in browser; off by default), "How your agent reads" (a choice the person makes — never something
 /// Cicada detects) and "Sites that need your browser" (every site Cicada's reader could not read, each with its favicon,
 /// a measured count and a switch). Turning on raises the first-use sheet and nothing changes until its button is pressed.

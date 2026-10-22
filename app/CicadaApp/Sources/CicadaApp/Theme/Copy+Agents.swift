@@ -1,6 +1,6 @@
 import Foundation
 
-/// Round 4 C8 — every sentence of Settings → Agents' selector and numbered steps (and of phase B's onboarding,
+/// Round 4 C8 — every sentence of the Agents page' selector and numbered steps (and of phase B's onboarding,
 /// which reuses the same two components). One extension so the words the table tests pin
 /// (`AgentStepsTests`) live in one place; plain words for a non-technical reader, no prices, no counts of tokens.
 extension Copy {

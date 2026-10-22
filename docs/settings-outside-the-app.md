@@ -18,7 +18,7 @@ Where a value can be set:
 
 ## The engine is fixed
 
-Settings → Engines says *"Cicada's setup on this Mac fixes the engine, so a choice here won't take effect."* when
+Settings → Intelligence says *"Cicada's setup on this Mac fixes the engine, so a choice here won't take effect."* when
 `CICADA_LLM_MODE` is set (one of `auto`, `agent`, `codex`, `local`, `byok`). It outranks the choice made in the app and
 in `cicada sleep engine`, which answer that the engine is fixed rather than change nothing silently.
 
@@ -28,9 +28,9 @@ running on this Mac — never an API key you didn't choose (ruling 31 in [TODO.m
 
 ## Where your memory lives is fixed
 
-Settings → Devices & access says *"Cicada's setup on this Mac fixes the server, so it can't be changed here."* when
+Settings → Devices says *"Cicada's setup on this Mac fixes the server, so it can't be changed here."* when
 `CICADA_API_BASE` is in the app's environment. It points this Mac at a Cicada server elsewhere and wins over the choice
-in Settings → Devices & access.
+in Settings → Devices.
 
 To choose in the app again (*This Mac* or *A server*), remove `CICADA_API_BASE` from the environment the app starts
 with and open Cicada again. The address and device token the app saved itself are kept in `$CICADA_HOME/api_base` and

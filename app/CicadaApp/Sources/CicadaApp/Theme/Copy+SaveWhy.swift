@@ -38,7 +38,7 @@ extension Copy {
             browser.map { "Saving in \($0)…" } ?? "Saving your bookmark…"
         }
 
-        // MARK: Settings → Integrations → Browsers
+        // MARK: the Sources page → Browsers
         static let switchTitle = "Ask why when I bookmark something"
         static let switchDetail = "When you bookmark a page, a small question grows out of the top of the screen: what made you save it? Pick any reasons and add a few words; they are kept with the bookmark and the time you saved it. Saving a page again asks again. Never after an import or a reorganised bookmark bar."
         /// G191 v3 — what Cicada watches to ask at once, in plain words: window positions only, no permission.

@@ -17,10 +17,10 @@ import SwiftUI
 /// call) is simply assigned back, so this view never renders a locally
 /// guessed state that could drift from what was actually persisted.
 ///
-/// Extracted for G139 (R-O8) so Settings → Engines and onboarding render one
+/// Extracted for G139 (R-O8) so Settings → Intelligence and onboarding render one
 /// component: `EngineCard` is this chooser in a glass card.
 struct EngineChooser: View {
-    /// Settings → Engines, Auto first (settings defaults pass 2, owner 2026-10-22; ruling 31): the page opens on what
+    /// Settings → Intelligence, Auto first (settings defaults pass 2, owner 2026-10-22; ruling 31): the page opens on what
     /// Auto — or the person's own choice — uses now, in words (`EngineHeadline`), and every other engine waits under
     /// *Use a different engine* (DR-39, per viewer). Onboarding's Who reads keeps the full row of cards (false).
     var foldsOtherEngines = false
@@ -132,7 +132,7 @@ struct EngineChooser: View {
                 openRouterPrompt(response)
             }
         }
-        .settingsRow(.engineChoice)
+        // D6: the engine's Settings anchor is Intelligence's In use row; this chooser lives in onboarding only.
 
         leavesMacNote(for: response)
 
@@ -604,8 +604,8 @@ struct EngineOptionCard: View {
 /// G122 live pass — the engine cards in rows of equal height. `LazyVGrid` sized each card to its own words, so the
 /// OpenRouter card (its cost line wrapping over "Signed in") stood taller than Auto and the plans beside it and the
 /// row's tops and bottoms stopped lining up. Columns follow `GridItem(.adaptive(minimum:))`'s rule; each row is as
-/// tall as its tallest card, and every card in it is offered that height (`EngineOptionCard` fills it). Settings →
-/// Engines, onboarding's Who reads (the same `EngineChooser`) and `.compact` all lay their cards out here.
+/// tall as its tallest card, and every card in it is offered that height (`EngineOptionCard` fills it). Settings
+/// (once), onboarding's Who reads (the same `EngineChooser`) and `.compact` all lay their cards out here.
 struct EngineCardGrid: Layout {
     var minimum: CGFloat
     var spacing: CGFloat
@@ -657,7 +657,7 @@ struct EngineCardGrid: Layout {
 
 /// R-AG14 — the "leaves your Mac" sentence under the engine cards: a glyph that points out of the
 /// box, the lead sentence in medium weight, the rest regular, all secondary text. Shared by
-/// Settings → Engines and `.compact` (phase B's Who reads inherits it).
+/// Settings → Intelligence and `.compact` (phase B's Who reads inherits it).
 struct LeavesMacNoteRow: View {
     let note: String
 

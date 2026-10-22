@@ -7,7 +7,7 @@ import SwiftUI
 /// (DR-74): the products under the umbrella and how each connects, its chat export's import, whether its page edits
 /// write at once or propose (G198's trust list), *Copy setup prompt*, and — for a harness with hooks — *Remembers
 /// automatically*. *Add an agent token* (DR-75) makes a G213 token for a personal agent that cannot use MCP and shows
-/// its one paragraph once. It replaced Settings → Agents; that page's anchors land here (`SettingsSection.retired`).
+/// its one paragraph once. It replaced the Agents page; that page's anchors land here (`SettingsSection.retired`).
 ///
 /// None of its reads is a Store domain: `/providers` is static per release (`ProviderDirectory`), `/agents/live` is a
 /// live probe and agent tokens are machine-global — each kept in memory, said here (CLAUDE.md, Sync).
@@ -254,9 +254,7 @@ private struct AgentDetailColumn: View {
     private func copySetup(_ harness: String) {
         Task { @MainActor in
             guard let setup = try? await APIClient.shared.fetchAgentSetup(harness: harness) else { return }
-            let text = setup.prompt ?? setup.display.joined(separator: "\n")
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
+            AppPasteboard.copy(setup.prompt ?? setup.display.joined(separator: "\n"))
             copied = true
         }
     }
@@ -269,7 +267,6 @@ struct AddAgentTokenSheet: View {
     @State private var created: AgentTokenCreated?
     @State private var busy = false
     @State private var problem: String?
-    @State private var copied = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
@@ -278,30 +275,16 @@ struct AddAgentTokenSheet: View {
                 Text(Copy.AgentsPage.shownOnce)
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
-                ScrollView {
-                    Text(created.prompt)
-                        .font(CicadaTheme.font(size: 12, weight: .regular, design: .monospaced))
-                        .foregroundStyle(CicadaTheme.textPrimary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(CicadaTheme.spacingMD)
-                }
-                .frame(maxHeight: CicadaTheme.scaled(220))
-                .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
-                .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+                // The paragraph is something the person copies (DR-19): the one copy box.
+                ScrollView { CommandBox(command: created.prompt) }
+                    .frame(maxHeight: CicadaTheme.scaled(240))
                 HStack {
                     Spacer()
-                    NeutralButton(title: copied ? Copy.AgentsPage.copied : Copy.AgentsPage.copy,
-                                  systemImage: "doc.on.doc", size: .compact) {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(created.prompt, forType: .string)
-                        copied = true
-                    }
                     NeutralButton(title: Copy.Devices.done, size: .compact) { onClose() }
                 }
             } else {
-                TextField(Copy.AgentsPage.tokenName, text: $name)
-                    .textFieldStyle(.roundedBorder)
+                TextField("", text: $name)
+                    .cicadaField(prompt: Copy.AgentsPage.tokenName, isEmpty: name.isEmpty)
                     .onSubmit(make)
                 if let problem {
                     Text(problem).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)

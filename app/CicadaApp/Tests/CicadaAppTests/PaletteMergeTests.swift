@@ -174,7 +174,7 @@ final class PaletteMergeTests: XCTestCase {
     }
 
     func testASettingsRowSaysItOpensSettings() {
-        XCTAssertEqual(FindRowText.primaryVerb(.settings(.integrations, row: nil)), "Open in Settings",
+        XCTAssertEqual(FindRowText.primaryVerb(.settings(.intelligence, row: nil)), "Open in Settings",
                        "R-HS20 — ⏎ opens it (R-SU12's explain-only verb retired with the Settings scene)")
     }
 }

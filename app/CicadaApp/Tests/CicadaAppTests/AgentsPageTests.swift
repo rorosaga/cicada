@@ -16,14 +16,15 @@ final class AgentsPageTests: XCTestCase {
         XCTAssertNil(SettingsSection(rawValue: "remote"))
         XCTAssertEqual(SettingsSection.restored(from: "remote"), .devices)
         XCTAssertEqual(SettingsSection.retired["remote"]?.row, .fromAnywhere)
-        XCTAssertEqual(SettingsSection.devices.group, .customize)
-        XCTAssertEqual(Copy.settingsFromAnywhere, "\(Copy.settings) → \(Copy.Devices.sidebar) → \(Copy.fromAnywhere)")
+        XCTAssertEqual(SettingsSection.devices.group, .cicada)
+        XCTAssertEqual(Copy.settingsFromAnywhere, "\(Copy.settings) → \(Copy.Devices.sidebar) → \(Copy.DevicesPage.apps)")
     }
 
     /// Someone who left Agents on its old "From anywhere" segment reopens where From anywhere lives now.
     func testTheRetiredSegmentMapsOntoTheNewRowOnce() {
         XCTAssertEqual(SettingsSection.restored(from: "agents", legacyAgentsMode: "anywhere"), .devices)
-        XCTAssertEqual(SettingsSection.restored(from: "agents", legacyAgentsMode: "thisMac"), .agents)
+        // D6: Agents is a sidebar page; a saved "agents" opens Settings on General.
+        XCTAssertEqual(SettingsSection.restored(from: "agents", legacyAgentsMode: "thisMac"), .general)
         XCTAssertEqual(SettingsSection.restored(from: "sleep", legacyAgentsMode: "anywhere"), .sleep)
         XCTAssertEqual(SettingsSection.restored(from: nil, legacyAgentsMode: nil), .general)
     }

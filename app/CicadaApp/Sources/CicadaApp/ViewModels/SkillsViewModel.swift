@@ -1,6 +1,6 @@
 import Foundation
 
-/// Settings → Skills' data (G138) — fetched when the Settings panel opens and
+/// the Skills page' data (G138) — fetched when the Settings panel opens and
 /// after an install. Owned by `SettingsPanel` so search can index the entries
 /// too. Not a Store domain: install state is derived per request (R-O23).
 @Observable

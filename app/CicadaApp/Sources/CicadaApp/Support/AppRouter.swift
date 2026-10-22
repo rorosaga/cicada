@@ -179,7 +179,7 @@ final class AppRouter {
         activateMainWindow()
     }
 
-    /// The Skills page (owner 2026-10-15) — Settings → Skills and a skill's detail hand off here: installing,
+    /// The Skills page (owner 2026-10-15) — the Skills page and a skill's detail hand off here: installing,
     /// updating and sharing skills is that page's.
     func routeToSkills() {
         closeSettings()

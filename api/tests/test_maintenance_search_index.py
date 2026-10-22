@@ -1,4 +1,4 @@
-"""G139 — Settings → Search & memory's search-index row: a status that reads the
+"""G139 — Settings → Privacy & data's search-index row: a status that reads the
 derived FTS5 index's freshness, and a rebuild that follows enrich-links' 409
 rules (R-O17 keeps the dedup sweep out)."""
 from __future__ import annotations

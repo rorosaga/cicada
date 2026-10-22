@@ -2,7 +2,7 @@
 
 A checkout that runs ``make embedding-model`` gains the small ONNX model. A FRESH bank is
 built with it; a bank already built with EmbeddingGemma keeps that model until the person
-picks another (Settings → Search & memory), and then every table is rebuilt at the new
+picks another (Settings → Privacy & data), and then every table is rebuilt at the new
 model's width — the index is derived and disposable, so a switch costs one re-embed, never a
 fact. Production resolution throughout (no injected embedder on the rebuild); only the two
 models' arithmetic is faked, so nothing is downloaded.

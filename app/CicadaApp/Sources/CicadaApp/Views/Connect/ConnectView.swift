@@ -108,7 +108,7 @@ enum AgentSetupCatalog {
                         command: "claude mcp add cicada --scope user --env CICADA_MEMORY_PATH=\(SnippetEscape.shell(memory)) -- \(SnippetEscape.shell(python))\(shellArgs)",
                         note: "Verify with `claude mcp list` or `/mcp` inside a session. New sessions pick it up automatically."
                     ),
-                    // G138 — the skill step lives on Settings → Skills now,
+                    // G138 — the skill step lives on the Skills page now,
                     // which writes Cicada's own skill with a marker (R-O26)
                     // instead of asking the person to paste a `cp`.
                 ]
@@ -260,7 +260,7 @@ enum AgentSetupCatalog {
 
 // MARK: - Agents page
 
-/// Settings → Agents — the one-time install, then "Your agents" (Round 4 C8): one selector of eleven agents with a
+/// the Agents page — the one-time install, then "Your agents" (Round 4 C8): one selector of eleven agents with a
 /// live ✓ (`AgentSelector`), the selected agent's numbered steps below it (`AgentSetupSteps`), and — for an
 /// agent with manual steps — "Do it by hand" under a disclosure (R-AG17). Then the skill row, the automatic
 /// recall group and the From anywhere pointer. The two components are self-contained so phase B's onboarding

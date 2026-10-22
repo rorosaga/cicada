@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings → Agents → "Remembers automatically" (G149). The page's other
+/// the Agents page → "Remembers automatically" (G149). The page's other
 /// groups wire the MCP server, so the agent asks Cicada when it thinks to.
 /// This group is the recall hooks: before the agent answers, Cicada adds a
 /// short note about the people and projects the message names, so a model

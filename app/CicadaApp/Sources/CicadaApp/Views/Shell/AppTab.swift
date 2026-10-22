@@ -35,7 +35,7 @@ enum AppTab: String, CaseIterable {
     /// shortcut moves; DESIGN_RULES §9, DR-22). A new raw value, so `restored(from:)` needs no mapping.
     case projects = "Projects"
     /// Ruling 36 D6 / G217 — the ninth page, ⌘9: every agent that reads and writes Cicada, by provider umbrella (it was
-    /// Settings → Agents). Appended so no existing shortcut moves (DR-22). A new raw value; a saved Settings
+    /// the Agents page). Appended so no existing shortcut moves (DR-22). A new raw value; a saved Settings
     /// `"agents"` section lands here through `SettingsSection.retired`.
     case agents = "Agents"
 

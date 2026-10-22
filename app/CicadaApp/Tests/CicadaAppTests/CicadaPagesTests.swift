@@ -4,16 +4,12 @@ import XCTest
 /// G139 — the Cicada group's new pages (design §2.2; R-O17, R-O18, R-O21).
 final class CicadaPagesTests: XCTestCase {
     func testTheCicadaGroupReadsInTheDesignsOrder() {
-        // Hyrum audit B1 (2026-10-22): Memory joined Search & files, now Search & memory.
-        XCTAssertEqual(SettingsGroup.cicada.sections, [.general, .you, .privacy, .searchFiles, .sleep])
-        // Settings defaults (owner 2026-10-22): Advanced is gone. B1: Plans & keys is a group on Engines.
-        XCTAssertEqual(SettingsGroup.enginesAndKeys.sections, [.engines])
+        // Ruling 36 D6 (2026-10-22): six sections in one unlabelled group; no page carries a subtitle.
+        XCTAssertEqual(SettingsGroup.cicada.sections, [.general, .you, .intelligence, .sleep, .devices, .privacy])
+        XCTAssertEqual(SettingsGroup.allCases, [.cicada])
         XCTAssertNil(SettingsSection(rawValue: "advanced"))
         XCTAssertEqual(SettingsSection.restored(from: "advanced"), .general, "a saved Advanced reopens on General")
-        for section in [SettingsSection.you, .privacy, .searchFiles] {
-            XCTAssertLessThanOrEqual(section.subtitle.count, 60)
-            XCTAssertFalse(section.subtitle.lowercased().contains(section.title.lowercased()))
-        }
+        for section in SettingsSection.allCases { XCTAssertEqual(section.subtitle, "") }
     }
 
     // MARK: You — only a real change is written (the PUT commits the owner page)

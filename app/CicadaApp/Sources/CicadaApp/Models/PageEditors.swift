@@ -3,7 +3,7 @@ import Observation
 
 // G198 (owner ruling 2026-10-14) — the agents the person lets edit a page's words directly: `GET/PUT
 // /settings/editors`, a machine-wide file the backend keeps outside every bank. Not a Store domain (no ETag): read
-// when Settings → Agents appears, held in memory, a toggle written optimistically and rolled back on refusal.
+// when the Agents page appears, held in memory, a toggle written optimistically and rolled back on refusal.
 
 struct PageEditor: Decodable, Equatable, Identifiable {
     var harness: String
@@ -79,7 +79,7 @@ struct PageEditorsResponse: Decodable, Equatable {
     }
 }
 
-/// Settings → Agents → "Edits pages directly". One load, one optimistic write at a time.
+/// the Agents page → "Edits pages directly". One load, one optimistic write at a time.
 @Observable
 @MainActor
 final class PageEditorsModel {

@@ -98,7 +98,7 @@ has not trusted — "Refusing to load formula rorosaga/cicada/cicada from untrus
   service that runs `opt/cicada/libexec`; another Cicada's service, hooks and MCP entry are left alone. On a Mac whose
   memory lives on a server (`CICADA_API_BASE` or the app's `~/.cicada/api_base`, phase 3) `install.sh` installs no
   local backend at all: the hooks, MCP and `cicada` already talk to the server. Use one install per Mac.
-- **Known limit:** the backend computes its own repo path with `resolve()`, so the app's Settings → Agents, run
+- **Known limit:** the backend computes its own repo path with `resolve()`, so the app's the Agents page, run
   against a Homebrew backend, would register hooks under the Cellar path; use `cicada-setup` to connect agents on a
   Homebrew install.
 
@@ -227,7 +227,7 @@ when it was last used; `cicada device revoke <id>` ends it at once. The master t
 leaves the server, and a device token can neither issue nor revoke one.
 
 **On the client** (the person's Mac, say), two settings and nothing else — set by the person, or (phase 3) by the
-app on the person's click in Settings → Devices & access, which puts `$CICADA_HOME/api_base` in place when Cicada next opens
+app on the person's click in Settings → Devices, which puts `$CICADA_HOME/api_base` in place when Cicada next opens
 and writes `device_token`, both 0600:
 
 - `CICADA_API_BASE` — the address the person's own overlay gives the server (`https://…` for any host; plain `http://`
@@ -236,7 +236,7 @@ and writes `device_token`, both 0600:
 
 A Linux client gets the code, the hooks and the command with the server's own one line, run with `CICADA_API_BASE`
 exported (`install.sh` then installs no backend; the summary names the device token, not a master token). On a Mac,
-the app's Settings → Devices & access → *A server*, or Homebrew's `cicada-setup` with `CICADA_API_BASE` set.
+the app's Settings → Devices → *A server*, or Homebrew's `cicada-setup` with `CICADA_API_BASE` set.
 
 Unset, every client behaves exactly as on one machine. Set, the machine holds no bank — and gets none: `install.sh`
 on a client makes no memory folder, writes no `CICADA_MEMORY_PATH` and registers the MCP server without one (owner
@@ -279,7 +279,7 @@ two memories: a hook's capture waiting offline was delivered to whichever server
 - The app's outbox posts carry the same target (`base`, `bankId` beside the bank's name); a flush sends only this
   connection's, and every write on a server names `X-Cicada-Bank-Id` (ids learned from `/banks`). This Mac sends names
   only, as before.
-- Waiting captures are said: `cicada status` (client and local) and Settings → Devices & access count the hooks' spool and the
+- Waiting captures are said: `cicada status` (client and local) and Settings → Devices count the hooks' spool and the
   outbox, for this server and for a server this machine no longer uses. A successful stdio MCP call (in the background)
   or `cicada` command flushes what waits for its server, not only a hook's next firing.
 - The handshake's Now line names the bank as the roster does (`default`, never the folder) and, on a client,
@@ -301,7 +301,7 @@ approves it; `GET …/remote/oauth/requests` lists what waits (times only) and `
 
 ## The Mac app as a client (phase 3)
 
-Settings → Devices & access → *Where your memory lives*: **This Mac** (as always) or **A server** — the address the person's
+Settings → Devices → *Where your memory lives*: **This Mac** (as always) or **A server** — the address the person's
 overlay gives the server and this device's token from `cicada device add`. Nothing is written until the server
 answers: `GET /healthz` (open) proves it is Cicada, `GET /devices` with the token proves the token and names this
 device. Then the app writes `device_token` and the address to `$CICADA_HOME/api_base.next` (0600) and offers *Restart
@@ -335,7 +335,7 @@ On a server the app:
   path and the server's dedup makes a resend harmless;
 - refuses the demo (`ServerLinkError.demoStaysLocal`, before any request): a demo is a This Mac thing.
 
-**Settings → Devices & access** (Customize, after Agents; From anywhere is its last group since the Hyrum audit's B1): *Where your memory lives* — the choice above and, only while
+**Settings → Devices** (Customize, after Agents; From anywhere is its last group since the Hyrum audit's B1): *Where your memory lives* — the choice above and, only while
 this app runs on a server, "This app is using <host> now.", reachable or not and as of when (`/healthz`, every 30 s
 while open), and how many captures wait on this Mac (the outbox and the hooks' spool, G202) — plus, on either mode, those kept for a server this Mac no longer uses — and *Your devices*: each
 device's name, when it was added and last seen, and *this Mac* on its own row. On This Mac (the master token) the page
@@ -356,8 +356,8 @@ On This Mac, what this Mac wrote says nothing. The bank picker's menu says *on <
 | Claude Code and Codex on the server, captured by their Stop hook | Claude Code and Codex on a client, read there, posted as turns |
 | Cursor and Gemini CLI on the server (`/capture/turn`) | The same hooks on a client, spooled when the server is away |
 | The CLI and stdio MCP on the server | The stdio MCP and the CLI on a client, through the server |
-| Scheduled Sleep on a metered key, a local model, or the person's plan when they allow it (ruling 4b) | The app (Settings → Devices & access → A server), its readers and their outbox |
-| The G135 remote listener, behind the person's overlay | Settings → Devices & access, and the device on every conversation and save |
+| Scheduled Sleep on a metered key, a local model, or the person's plan when they allow it (ruling 4b) | The app (Settings → Devices → A server), its readers and their outbox |
+| The G135 remote listener, behind the person's overlay | Settings → Devices, and the device on every conversation and save |
 
 Known limits of phase 2: the skills tools (`cicada_skills`, `skills list|propose|create`) act on the server's agent
 skill folders, not the client's; `cicada_continue` reads the continuity registry the server keeps (the client's hook

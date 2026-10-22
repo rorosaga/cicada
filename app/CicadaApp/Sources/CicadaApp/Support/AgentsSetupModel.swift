@@ -4,7 +4,7 @@ import Observation
 /// R-OB13 — F-04's fetches: the one `/agents/wiring` answer (Connect for me's steps and the binaries its policy
 /// checks, R-FA15), each pill's `/agents/setup` once, From anywhere's status (a cloud agent's link needs a tunnel)
 /// and the live memory root (so a registered server points at the bank the backend really uses, G88). Never blank:
-/// a failed fetch keeps the last answer. Settings → Agents keeps its own fetches (`ConnectView`, with the backoff
+/// a failed fetch keeps the last answer. the Agents page keeps its own fetches (`ConnectView`, with the backoff
 /// its always-open page needs); onboarding asks once per appearance.
 @MainActor
 @Observable

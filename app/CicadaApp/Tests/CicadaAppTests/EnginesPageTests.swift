@@ -11,62 +11,18 @@ final class EnginesPageTests: XCTestCase {
         return try String(contentsOf: root.appendingPathComponent(relative), encoding: .utf8)
     }
 
-    func testEnginesSitsFirstInEnginesAndKeys() {
-        XCTAssertEqual(SettingsGroup.enginesAndKeys.sections.first, .engines)
-        XCTAssertEqual(SettingsSection.engines.title, Copy.engines)
-        XCTAssertEqual(SettingsSection.engines.icon, "cpu")
-        XCTAssertEqual(Copy.settingsEngines, "\(Copy.settings) → \(Copy.engines)")
-    }
-
-    func testTheChooserIsTheOnePickerAndOnboardingStillEmbedsTheCard() throws {
-        XCTAssertTrue(try source("Views/Settings/EngineCard.swift").contains("EngineChooser()"))
-        XCTAssertTrue(try source("Views/Settings/EnginesView.swift").contains("EngineChooser(foldsOtherEngines: true)"))
-        XCTAssertFalse(try source("Views/Settings/SettingsSleepView.swift").contains("EngineCard("),
-                       "Sleep shows one read-only engine line now (A3)")
-        // Track I part b retired `FirstRunSheet`: the Welcome embeds the card's
-        // `.compact` form through `EngineChoice` (R-IB13).
-        XCTAssertTrue(try source("Views/Onboarding/EngineChoice.swift").contains("EngineCard(style: .compact"),
-                      "onboarding keeps the card, in its compact form (R-O8, R-IB13)")
-    }
-
-    /// Review round 1: the Sleep page's read-only engine lines name services,
-    /// so they draw through the Engines page's marked row, never bare text.
-    func testTheSleepPagesEngineLinesWearTheirMarks() throws {
-        let sleep = try source("Views/Settings/SettingsSleepView.swift")
-        XCTAssertTrue(sleep.contains("EngineChooser.previewRow(preview.manual"))
-        XCTAssertTrue(sleep.contains("EngineChooser.previewRow(preview.scheduled"))
-    }
-
-    /// K4 / R-O9 — no price, no cost-estimate control, no engine switch left on Plans & keys.
-    func testPlansAndKeysIsCredentialsOnly() throws {
-        for file in ["Views/Connections/ConnectionsView.swift", "Views/Settings/EnginesView.swift",
-                     "Views/Settings/EngineChooser.swift", "Views/Settings/SettingsSleepView.swift"] {
-            let text = try source(file)
-            for needle in ["priceUsdMonth", "priceNote", "showsTierPicker", "yourMaxTier", "setTier("] {
-                XCTAssertFalse(text.contains(needle), "\(file) still reaches \(needle)")
-            }
-        }
-        XCTAssertFalse(try source("Views/Connections/ConnectionsView.swift").contains("setUseForSleep"),
-                       "the Auto switch lives on Engines now (A3)")
-        XCTAssertTrue(try source("Views/Settings/EnginesView.swift").contains("setUseForSleep"))
-    }
-
-    /// G139 final review — `use_for_sleep` only changes anything when the API
-    /// key card is chosen (`engine_select.resolve_llm_mode`), so the switch
-    /// lives there, says so, and reloads the engine view model: the chooser's
-    /// "Next cycle you start" line and the Sleep page's engine line both read
-    /// `preview.manual`, which this pref feeds.
-    func testTheClaudePlanSwitchSitsUnderTheAPIKeyCardAndReloadsThePreview() throws {
-        let engines = try source("Views/Settings/EnginesView.swift")
-        XCTAssertTrue(engines.contains("engineVM.response?.mode == \"byok\""))
-        XCTAssertTrue(engines.contains("Copy.apiKeyGroup"))
-        let setter = try XCTUnwrap(engines.range(of: "setUseForSleep(plan.id, on: on)"))
-        XCTAssertTrue(engines[setter.upperBound...].contains("await engineVM.load()"),
-                      "the setter reloads SleepEngineViewModel after writing the pref")
-        XCTAssertFalse(Copy.useClaudePlanWhenIStart.lowercased().contains("auto"),
-                       "the switch does nothing under Auto; its label must not name it")
-        XCTAssertEqual(Copy.apiKeyGroup, Copy.engineLabel("litellm"),
-                       "the heading is the API key card's own name")
+    /// D6 (2026-10-22): Engines and Plans & keys became Settings → Intelligence. The "use my Claude plan" switch keeps
+    /// its rule — only under an API key — and still reloads the engine after writing the pref.
+    func testIntelligenceKeepsTheEnginesSwitches() throws {
+        let page = try source("Views/Settings/IntelligenceView.swift")
+        XCTAssertTrue(page.contains("engineVM.response?.mode == \"byok\""))
+        let setter = try XCTUnwrap(page.range(of: "setUseForSleep(plan.id, on: on)"))
+        XCTAssertTrue(page[setter.upperBound...].contains("await engineVM.load()"))
+        XCTAssertTrue(page.contains("EngineOption.showsOverageToggle"), "extra usage stays reachable (R-E13)")
+        XCTAssertTrue(page.contains("SettingsRow(.sleepUsePlan"), "ruling 4c's switch, under its own words")
+        XCTAssertFalse(Copy.useClaudePlanWhenIStart.lowercased().contains("auto"))
+        XCTAssertTrue(try source("Views/Settings/EngineCard.swift").contains("EngineChooser()"),
+                      "onboarding keeps the card")
     }
 
     func testThePreviewMarksAreTheCardsMarks() {

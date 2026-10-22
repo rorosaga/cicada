@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings → Search & memory (owner, 2026-10-14): *What Cicada can look through*. One place for the folders Cicada
+/// Settings → Privacy & data (owner, 2026-10-14): *What Cicada can look through*. One place for the folders Cicada
 /// keeps (G133, moved from Integrations → Notes & files) and for how well search understands what it finds (moved from
 /// Memory → Search model and the Looks page), in plain words — the owner: "without mentioning embeddings".
 ///

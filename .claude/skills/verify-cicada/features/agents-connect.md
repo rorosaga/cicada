@@ -1,6 +1,6 @@
 # Connect agents
 
-Settings → Agents registers Cicada's MCP server and hooks with Claude Code, Codex, Cursor, Gemini CLI and Claude Desktop, and shows live sessions.
+the Agents page registers Cicada's MCP server and hooks with Claude Code, Codex, Cursor, Gemini CLI and Claude Desktop, and shows live sessions.
 
 ## Sub-features
 
@@ -8,7 +8,7 @@ Settings → Agents registers Cicada's MCP server and hooks with Claude Code, Co
 
 ## How to get to it (user POV)
 
-- Settings → Agents.
+- the Agents page.
 - `GET /agents/wiring`, `/agents/setup`, `/agents/live`, `GET/PUT /agent-methods`.
 
 ## Driving it with verify-cicada

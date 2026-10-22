@@ -71,7 +71,7 @@ extension Copy {
         }
         static let saveFailed = "Couldn’t do that just now. Try again."
 
-        // MARK: Settings → Reading the web
+        // MARK: the Sources page
         static let signedInTitle = "Explore in your signed-in browser"
         static let signedInDetail = "When your agent explores your saved sites it uses your everyday browser session, so a site shows what it shows you. Turn this off to explore in a private context with no cookies instead."
         static let signedInLabel = "Explore in your signed-in browser"

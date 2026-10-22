@@ -34,7 +34,7 @@ enum LocalSourceCopy {
     static let folderNotWatched =
         "Cicada couldn't start watching this folder. It will try again the next time it syncs."
     static let folderNotSetUpHere = Copy.SearchFiles.folderNotSetUpHere
-    static let wisprTurnedOff = "Wispr Flow is turned off — turn it on in Settings → Integrations."
+    static let wisprTurnedOff = "Wispr Flow is turned off — turn it on on the Sources page."
     static let alreadySyncing = "Already syncing — anything new will follow right after."
     static let synced = "Synced"
 }

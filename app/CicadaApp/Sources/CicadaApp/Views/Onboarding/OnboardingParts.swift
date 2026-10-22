@@ -21,7 +21,7 @@ struct OnboardingHeadline: View {
     }
 }
 
-/// "More sources any time in Settings → Integrations" — a sentence ending in the one door into Settings
+/// "More sources any time on the Sources page" — a sentence ending in the one door into Settings
 /// (`SettingsSectionLink`, R-DS22), so a pointer never re-types a destination (G68 §2.8).
 struct OnboardingPointerLine: View {
     let lead: String

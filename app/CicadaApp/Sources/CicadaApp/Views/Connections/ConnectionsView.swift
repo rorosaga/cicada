@@ -9,7 +9,7 @@ import SwiftUI
 /// is gone and "Use for Sleep" moved there as "Auto may use my Claude plan".
 ///
 /// Hyrum audit B1 (2026-10-22): no longer a page of its own. It is the *Plans & keys* group at the end of Settings →
-/// Engines, under the anchor the page's header had (`SettingsRowID.plansAndKeys`, `page:plansAndKeys`).
+/// Intelligence, under the anchor the page's header had (`SettingsRowID.plansAndKeys`, `page:plansAndKeys`).
 struct ConnectionsView: View {
     @Environment(ConnectionsViewModel.self) private var viewModel
     @State private var keyDrafts: [String: String] = [:]
@@ -183,7 +183,7 @@ private struct ConnectionCard: View {
     let onSaveKey: () -> Void
 
     /// R-E27: the plan's vendor mark (Claude, ChatGPT), Ollama's, and each
-    /// key's vendor — one translation shared with Settings → Engines.
+    /// key's vendor — one translation shared with Settings → Intelligence.
     private var logo: String? { ConnectionMark.logoName(connectionId: connection.id) }
 
     var body: some View {

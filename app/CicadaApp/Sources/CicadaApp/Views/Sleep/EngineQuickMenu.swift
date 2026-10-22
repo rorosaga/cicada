@@ -6,7 +6,7 @@ import SwiftUI
 /// Every decision the quick menu makes, as a value (`EngineQuickMenuTests`), so its views render.
 ///
 /// **One source of truth (R-HS7).** It is built from `SleepEngineViewModel.response` — the object
-/// `EngineChooser` (Settings → Engines) reads, over the same `GET/PUT /sleep/engine` — and a tap
+/// `EngineChooser` (Settings → Intelligence) reads, over the same `GET/PUT /sleep/engine` — and a tap
 /// writes through the same rule (`EngineWrite`). No second pref, no Store domain (Track E's
 /// ruling 6). Since the 2026-09-28 ruling a plan row's caption is its window's state and a key
 /// row's is its model's list price (`CycleUsageText`); with no `usage` on the wire it is the
@@ -155,7 +155,7 @@ struct EngineQuickMenuModel: Equatable {
 }
 
 /// R-HS12 — one source for every engine line on the Sleep page: the chooser's response when it has
-/// one (the echo of the newest write, from this menu or from Settings → Engines), else the page's
+/// one (the echo of the newest write, from this menu or from Settings → Intelligence), else the page's
 /// own load. Before this, a switch in Settings left the caption on the old engine until the next visit.
 enum SleepEnginePreviewSource {
     static func current(chooser: SleepEngineResponse?, page: SleepEnginePreviews?) -> SleepEnginePreviews? {

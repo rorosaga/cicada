@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings → Integrations (G126) — a categorized, logo-first page over the
+/// the Sources page (G126) — a categorized, logo-first page over the
 /// existing `GET /sources/channels` / `GET /sources/overview` registry,
 /// reusing `ChannelActions` (the same sync/poll implementation the Feed's
 /// `ConnectedChannelsStrip` already calls) and `AddSourceTile` (the Feed's

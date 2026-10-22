@@ -15,7 +15,7 @@ extension Copy {
         static func moreWriters(_ n: Int) -> String { n == 1 ? "and 1 more" : "and \(UsageFormat.count(n)) more" }
         static let help = "Read from the page's history: who last changed each line of this part, and when."
 
-        // Settings → Agents
+        // the Agents page
         static let groupHeader = "Editing pages"
         static let rowTitle = "Agents that can edit pages directly"
         static let rowDetail = "An agent on this list fixes a page's words or aliases right away, with its reason in "

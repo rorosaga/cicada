@@ -74,7 +74,7 @@ struct MediaReadState: Codable, Equatable {
     }
 }
 
-/// `GET|PUT /reading/settings` (G166). Not a Store domain — fetched when Settings → Reading the web opens, like the
+/// `GET|PUT /reading/settings` (G166). Not a Store domain — fetched when the Sources page opens, like the
 /// fade pace — so no ETag use and no `VersionVector` mapping. `allowedSites` is `{site: day}`: the sites the person let an
 /// agent read (a site is offered to switch on only once Cicada's own reader could not read one of its pages).
 struct ReadingSettingsResponse: Decodable, Equatable {
@@ -458,7 +458,7 @@ enum MethodRowWords {
     }
 }
 
-/// The words of a site's row in Settings → Reading the web. Pure: the view and the tests read the same functions.
+/// The words of a site's row on the Sources page. Pure: the view and the tests read the same functions.
 /// Only measured counts and the server's own sentences; no page, title or URL ever reaches a row.
 enum ReadingSiteWords {
     /// `allowed` already counts only while agent reading is on, so a site granted while it is off never says "queued";

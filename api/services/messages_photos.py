@@ -136,7 +136,7 @@ def store(memory_path: Path, items: list[dict], *, bank: str | None = None) -> d
             raise PayloadError("a conversation id is the app's hash of the chat, 16–64 hex characters")
         if cid not in ticked:
             raise messages_source.NotSelected(
-                "This conversation isn't ticked in Settings → Integrations → Messages, so its photo wasn't kept.")
+                "This conversation isn't ticked on the Sources page → Messages, so its photo wasn't kept.")
         raw = item.get("photo_b64")
         decoded[cid] = _decode(raw) if raw else None
     stored = removed = unchanged = 0

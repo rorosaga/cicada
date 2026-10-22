@@ -19,7 +19,7 @@ struct ContentView: View {
     // rather than the old machine-global `hasSeenConnectGuide` flag: switching
     // to a fresh bank must show it again even on a Mac that already onboarded
     // a different one. `FirstRunGate` still decides, and unknown is still
-    // never empty. Settings → Agents keeps the long-form wiring.
+    // never empty. the Agents page keeps the long-form wiring.
     @State private var showFirstRun = false
     /// First run, or Settings → General's *Run setup again* (R-IB16).
     @State private var welcomeMode: OnboardingMode = .firstRun
@@ -40,7 +40,7 @@ struct ContentView: View {
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(SleepEngineViewModel.self) private var sleepEngineVM
     @Environment(ConnectionsViewModel.self) private var connectionsVM
-    /// G126 R9 — consumes a Settings → Integrations "Import in Sleep →"
+    /// G126 R9 — consumes a the Sources page "Import in Sleep →"
     /// hand-off by switching the rail's own selection.
     @Environment(AppRouter.self) private var router
     /// G152 — the guided tour: modal over the page area, the rail and the titlebar inert under it.

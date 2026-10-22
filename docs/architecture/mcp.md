@@ -382,7 +382,7 @@ contacted, not even for its favicon; a 404 is retried once with `www.`, only a s
 service is told the site's name (the registrable domain, never a saved subdomain), under `CICADA_ALLOW_LOGO_FETCH`.
 **The app half (G166).** `VersionVector.mapping["reading"] = [.sources]`, so an agent's outcome (an ask-store write, no
 bank write) refreshes Sleep › Saved over SSE; `MediaFeedItem.read` (`MediaReadState`, decoded leniently — an older backend, or
-a value this build cannot read, drops the block and never the row). **Settings → Reading the web** (`SettingsSection.reading`,
+a value this build cannot read, drops the block and never the row). **the Sources page** (`SettingsSection.reading`,
 in Customize after Integrations; `ReadingWebView`, `ReadingAgentModel`; not a Store domain — fetched when the page opens and
 answered by every write) has three groups. *With an agent*: "Let an agent read pages for you", off by default; turning it on
 raises `SettingsSheet`'s first-use sheet (what asking does, that Cicada only asks, Cicada's instruction to the agent — no
@@ -409,10 +409,10 @@ hand-off sentence). It is drawn only when something was recorded, an agent may b
 it", with the site's icon at 16 pt, and **Let an agent read <site>** beside Ask an agent — one `PUT` when the sheet is
 already acknowledged, else the same first-use sheet; a page of an allowed site reads "Waiting for your agent · <site> is
 allowed"; a disabled Ask carries the server's own `reason`); an ordinary page with agent reading off draws nothing.
-Settings → Agents keeps one row, "Reading pages", linking here. **Home** gains its own block, *Needs your browser*
+the Agents page keeps one row, "Reading pages", linking here. **Home** gains its own block, *Needs your browser*
 (`ReadingSitesSection` between Needs you and Last read, over `ReadingSitesCache` — in memory, ETag-revalidated when Home
 appears or the sources move, emptied on a bank switch, never a Store domain): "N saved pages need your browser to be read"
-(the server's `waitingNotAllowed`), up to three of those sites' icons, linking to Settings → Reading the web; hidden at
+(the server's `waitingNotAllowed`), up to three of those sites' icons, linking to the Sources page; hidden at
 zero and once every listed site is allowed, and never counted in Needs you. The wall
 is not shown only there: the saved row's second line says "Needs sign-in" (`ReadWords.rowFlag`) and `ContentView`
 toasts a link that just hit one (`ReadWords.newlyWalled`; the first look after launch or a bank switch announces
@@ -1406,7 +1406,7 @@ the CLI.
     `runtime_layout.LAUNCHERS` and `CicadaRuntime.launcherNames` list it.
   - A developer checkout has `scripts/cicada`. `make cli` / `./install.sh --cli` (`scripts/install-cli.sh`) link
     `~/.local/bin/cicada` to it.
-  - The app's Settings → Agents *Install the command-line tool* (General until the Hyrum audit's B11) links `~/.local/bin/cicada` to the runtime's own
+  - The app's the Agents page *Install the command-line tool* (General until the Hyrum audit's B11) links `~/.local/bin/cicada` to the runtime's own
     launcher (`app.md`). The script and the button share the never-replace rules.
   - A Swift end-to-end test runs outer shim → inner launcher → CLI in a synthetic bundle: caller's folder kept, a
     moved app exits 127 with the repair sentence, and the next rewrite works.

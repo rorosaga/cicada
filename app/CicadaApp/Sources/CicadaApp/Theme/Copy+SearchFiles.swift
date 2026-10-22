@@ -19,8 +19,9 @@ extension Copy {
         static let formerSidebar = "Search & files"
         static let pageTitle = "What Cicada can look through"
         static let subtitle = "Folders it reads, how search understands, how things fade."
-        /// "Settings → Search & memory" — the pointer every other surface uses (`CopyConstantsTests`).
-        static let pointer = "\(Copy.settings) → \(Copy.privacyAndData)"
+        /// Where folders are managed — the pointer every other surface uses (`CopyConstantsTests`). D6: folders are a
+        /// source, on the Sources page.
+        static let pointer = "the Sources page"
 
         // MARK: Folders
         static let foldersGroup = "Folders"

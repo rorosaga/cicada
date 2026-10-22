@@ -531,7 +531,7 @@ private struct GettingStartedRowAction: View {
         switch row.state {
         case .off, .needsAction, .failed:
             if let section = row.settingsLink {
-                // The state's own words ("Finish in Settings → Agents", "Finish in Integrations"), as `FoundRow`
+                // The state's own words ("Finish on the Agents page", "Finish in Integrations"), as `FoundRow`
                 // would with an `actionTitle`; the Claude-desktop sentence is only the fallback.
                 SettingsSectionLink(home: section,
                                     label: FoundRow.defaultActionTitle(row.state) ?? Copy.foundClaudeDesktopDetail)

@@ -110,7 +110,7 @@ def test_a_refused_key_says_so(tmp_path, monkeypatch):
     rig = install(monkeypatch)
     _every_call_refused(rig, litellm.exceptions.AuthenticationError("Incorrect API key provided", "openai", "m"))
     stop = _run(memory, user_triggered=True).drain.stop
-    assert "refused the API key" in stop.sentence and "Settings → Engines → Plans & keys" in stop.sentence
+    assert "refused the API key" in stop.sentence and "Settings → Intelligence → Plans & keys" in stop.sentence
     assert "pick another engine" in stop.sentence, "an install that never chose an engine is told that door too (G117)"
 
 

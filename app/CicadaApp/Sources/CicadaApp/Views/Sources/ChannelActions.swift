@@ -17,8 +17,8 @@ enum ChannelActions {
     /// Which implementation a channel's "Sync now" runs.
     ///
     /// L final review (finding 1): the backend gives `folder:<id>` and
-    /// `wispr-flow` the action `sync`, but every surface outside Settings →
-    /// Integrations sent it to `BrowserImportActions.syncChannel`, whose
+    /// `wispr-flow` the action `sync`, but every surface outside the old
+    /// Integrations page sent it to `BrowserImportActions.syncChannel`, whose
     /// `default:` threw "Unknown channel folder:…" — an internal id in the
     /// person's face on the source page and the Feed strip, and a silent no-op
     /// on the card. `notes` and the three connectors fell through the same
@@ -68,7 +68,7 @@ enum ChannelActions {
         return nil
     }
 
-    /// Whether this row's settings live in Settings → Integrations rather than
+    /// Whether this row's settings live on the Sources page rather than
     /// behind a Feed `+` tile — a folder or Wispr Flow has no `AddSourceTile`,
     /// so "Manage…" on the Feed strip used to open the generic add-source
     /// sheet (L final review, finding 1).

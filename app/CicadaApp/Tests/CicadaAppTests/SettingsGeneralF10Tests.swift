@@ -12,8 +12,9 @@ final class SettingsGeneralF10Tests: XCTestCase {
 
     func testGeneralIsF10sGroupsInOrder() throws {
         let text = try source("Views/Settings/SettingsGeneralView.swift")
-        let marks = ["header: Copy.lookGroup", "SettingsRow(.textSize,", "header: Copy.startupGroup",
-                     "SettingsRow(.openAtLogin,", "SettingsRow(.showInMenuBar,", "header: Copy.whenClosedGroup",
+        // D6's word budget: the groups keep their order without their headings.
+        let marks = ["SettingsRow(.appearance,", "SettingsRow(.textSize,",
+                     "SettingsRow(.openAtLogin,", "SettingsRow(.showInMenuBar,",
                      "SettingsRow(.backgroundService,", "SettingsDemoTourGroup()", "SettingsRow(.appVersion,"]
         let positions = try marks.map { try XCTUnwrap(text.range(of: $0), $0).lowerBound }
         XCTAssertEqual(positions, positions.sorted(),

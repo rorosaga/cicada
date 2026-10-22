@@ -3,7 +3,7 @@ import Observation
 
 /// G179 — the Messages conversations the person ticked, read by the APP from `chat.db` and posted per memory.
 ///
-/// **Nothing is read before a tick.** Opening Settings → Integrations → Messages lists the one-to-one conversations
+/// **Nothing is read before a tick.** Opening the Sources page → Messages lists the one-to-one conversations
 /// (names, last activity, counts — `MessagesReader.conversations`); only a ticked conversation's messages are ever
 /// read, and the backend refuses any other. **When it reads:** on launch and on a bank switch when something is ticked,
 /// on a tick, on Sync now, and on an FSEvents change in `~/Library/Messages` (Messages appends to `chat.db-wal` on every
@@ -155,7 +155,7 @@ final class MessagesWatcher {
         return item.name
     }
 
-    // MARK: The list (Settings → Integrations → Messages)
+    // MARK: The list (the Sources page → Messages)
 
     func loadList() async {
         listing = true

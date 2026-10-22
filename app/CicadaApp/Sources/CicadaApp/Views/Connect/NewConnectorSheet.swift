@@ -15,7 +15,7 @@ struct NewConnectorSheet: View {
     @State private var problem: String?
     @State private var created: RemoteConnectorCreated?
 
-    /// R-AG18 — Settings → Agents opens the sheet already on Claude, ChatGPT or Grok; From anywhere's own
+    /// R-AG18 — the Agents page opens the sheet already on Claude, ChatGPT or Grok; From anywhere's own
     /// "New connector" keeps starting on Claude. The link is still shown once, here, with that app's steps.
     init(initialApp: RemoteApp = .claude, onClose: @escaping () -> Void) {
         self.onClose = onClose

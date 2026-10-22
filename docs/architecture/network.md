@@ -144,7 +144,7 @@ a litellm upgrade. A model the table does not list still runs; on OpenRouter its
 and the Usage aggregates, never `$0` (ruling 12).
 
 **The Neural Engine search model's download (owner 2026-10-09).** EmbeddingGemma 2 (`api/services/model_fetch.py`) is
-fetched only when the person asks: *Turn on* beside *Understand what you mean* in Settings → Search & memory (the version picker and its confirm left the
+fetched only when the person asks: *Turn on* beside *Understand what you mean* in Settings → Privacy & data (the version picker and its confirm left the
 app on 2026-10-22; `cicada index install` is the other door) — a selection alone never downloads
 (`POST /embeddings/install` with `model`; the size is stated before the click from
 the pins, `downloadBytes`), `make embedding-model-gemma2`, or `install.sh` on macOS 15+ — never on a schedule, never by Sleep,
@@ -160,7 +160,7 @@ check and `scripts/fetch-embedding-model.sh`.
 
 **The image encoder is its own click (design taste, 2026-10-14).** The same pinned revision's `vision_files` — the
 vision `.mlpackage` and `position_embeddings.f16`, about 309 MB — are fetched only when the person presses *Turn on*
-beside *Understand images* in Settings → Search & memory (dimmed until the text encoder is here, so it is a second click;
+beside *Understand images* in Settings → Privacy & data (dimmed until the text encoder is here, so it is a second click;
 the Looks page's own shortcut went with the page on 2026-10-20) (`POST /embeddings/install` with `model` and
 `part: "vision"`), or runs `make
 embedding-model-vision`; the text encoder is fetched first when it isn't here — the Looks shortcut's one click, whose
@@ -209,7 +209,7 @@ IDN, a host two parsers read apart — is refused before any fetch, so the host 
 checks the client and the redirect URI first (exact match; an `http` loopback URI matches on any port, RFC 8252 — Claude
 Code's), and a mismatch is an error page, never a redirect (no open redirect); then it shows an eight-character code
 and waits (meta refresh, no script, no form, a strict CSP, framing denied; it names no app). **The person approves by
-typing that code** into the app — Settings → Devices & access → From anywhere, "A sign-in is waiting" — and only then sees who it
+typing that code** into the app — Settings → Devices → From anywhere, "A sign-in is waiting" — and only then sees who it
 is and where it returns, choosing the scopes (what the app asked, else the defaults) and the expiry (7/30/90 days). The
 app never lists codes and never offers a request to approve with a click (security review of #359: whoever starts a
 sign-in collects its result from `/authorize/wait`'s redirect, PKCE included, so a stranger who registers an app called

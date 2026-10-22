@@ -2,7 +2,7 @@ import SwiftUI
 
 /// DR-5 use 5 — a link: 12 medium in `accentText`, no fill, the label's own words (a "›" when it
 /// goes to another page). One definition for Needs you's *Open Inbox* and the Sleep menu's
-/// "More in Settings → Engines ›", so a link is never an ad-hoc `Button` tinted by hand.
+/// "More in Settings → Intelligence ›", so a link is never an ad-hoc `Button` tinted by hand.
 /// `accentText` (not the accent) is what clears 4.5:1 in light mode (DR-6).
 ///
 /// Owner 2026-10-14 (Home review #5; DR-41, DR-69): the bare glyph box was a ~15 pt target. The hit area is now 28 pt

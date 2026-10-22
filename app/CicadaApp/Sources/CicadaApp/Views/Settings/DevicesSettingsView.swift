@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// G181 phase 3 — Settings → Devices & access' *Where your memory lives* (on General until the settings audit, 2026-10-22):
+/// G181 phase 3 — Settings → Devices' *Where your memory lives* (on General until the settings audit, 2026-10-22):
 /// This Mac or A server (address + this device's token).
 ///
 /// A change is checked against the server before anything is written (`ServerProbe`: `/healthz` says it is Cicada,

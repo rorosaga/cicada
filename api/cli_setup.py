@@ -4,7 +4,7 @@ What it does, in order — every write is the backend's own route (ruling 21a), 
 word for word, and runs only on the person's yes:
 
 1. **Detect** (no writes): the Cicada server and its memory (`/healthz`), the agents on this machine and whether each
-   reaches Cicada (`GET /agents/wiring`, the probe Settings → Agents shows), and a way in from outside — Tailscale,
+   reaches Cicada (`GET /agents/wiring`, the probe the Agents page shows), and a way in from outside — Tailscale,
    a Funnel address, ngrok (`GET /remote/status`, which detects and never changes a tunnel).
 2. **Connect agents**: for each installed agent that does not reach Cicada yet, the exact commands the app would run
    after a click (`connect`, `display == shlex.join(argv)`), run here on a yes.

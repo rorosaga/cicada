@@ -9,7 +9,7 @@ Precedence, and the reason for each rung:
   1. ``llm_mode`` of ``"agent"``, ``"codex"`` or ``"local"`` — deliberate
      configuration in ``api/.env``; it wins, and nothing is probed.
   2. G122 — a ``sleep-engine`` pref written by ``PUT /sleep/engine`` (the
-     Settings → Engines engine picker), read only when the env var was never
+     Settings → Intelligence engine picker), read only when the env var was never
      set at all (``settings.model_fields_set``, R2) and only for a real
      ``Settings`` object (never the duck-typed stand-ins several hermetic
      Sleep tests pass) — so a UI choice can promote the configured mode
@@ -21,7 +21,7 @@ Precedence, and the reason for each rung:
      (``NO_ENGINE``), never a metered API key by itself. A resolved copy then carries ``no_engine_reason`` and every
      call built from it refuses before it is made (``providers.resolve_llm_fn``).
   4. ``"byok"`` — the person CHOSE an API key (``CICADA_LLM_MODE=byok`` or the picker): it defers to the
-     ``use_for_sleep`` pref — once the Claude card's **Use for Sleep** toggle, now Settings → Engines' "Use my
+     ``use_for_sleep`` pref — once the Claude card's **Use for Sleep** toggle, now Settings → Intelligence' "Use my
      Claude plan when I start a cycle", shown only under the API key card because this is the only rung that reads
      it (G139 final review) — and otherwise reads with the key.
 
@@ -55,7 +55,7 @@ CODEX_CONNECTION_ID = "chatgpt-plan"
 OLLAMA_CONNECTION_ID = "ollama-local"
 
 # G122 — the pseudo-connection id `Registry.set_pref`/`.prefs()` read/write
-# the Settings → Engines engine picker's choice under. Not a real adapter id
+# the Settings → Intelligence engine picker's choice under. Not a real adapter id
 # (`Registry.get` would raise `KeyError` for it) — `set_pref`/`prefs()` never
 # validate `connection_id` against `adapters()` (see registry.py), so an
 # ordinary dict key here is all this needs.
@@ -75,7 +75,7 @@ NO_ENGINE = ("no Sleep engine chosen — no plan is signed in, the local model i
 #: until resolved, and a call built from it refuses (``UNRESOLVED_AUTO``).
 AUTO_LABEL = "auto"
 UNRESOLVED_AUTO = ("Cicada had not chosen an engine for this call (Auto, unresolved) — it never falls to an API key by "
-                   "itself. Connect your plan, or choose an engine in Settings → Engines (`cicada sleep engine --mode "
+                   "itself. Connect your plan, or choose an engine in Settings → Intelligence (`cicada sleep engine --mode "
                    "…` on a server).")
 
 #: Engine label → (connection id, billing) for the two plan engines — the one
@@ -123,7 +123,7 @@ def no_engine_sentence(why: str | None) -> str:
                 "is running, and an API key is used only when you choose it as Sleep's engine. What was waiting is "
                 "still waiting.")
     return ("No engine to read with: no plan is signed in, the local model isn't running, and an API key is used only "
-            "when you choose it. Connect your plan, or choose an engine in Settings → Engines (on a server: `cicada "
+            "when you choose it. Connect your plan, or choose an engine in Settings → Intelligence (on a server: `cicada "
             "engine connect claude-plan`, or `cicada sleep engine --mode byok` for a key you chose). What was waiting "
             "is still waiting.")
 
@@ -214,7 +214,7 @@ _VALID_PREF_MODES = ("auto", "agent", "codex", "byok", "local")
 
 
 def _prefs_mode(registry) -> str | None:
-    """The mode a Settings → Engines engine picker (G122) wrote, or ``None``
+    """The mode a Settings → Intelligence engine picker (G122) wrote, or ``None``
     when there is no pref, the file is unreadable, or the stored value isn't
     one of the modes this module knows how to resolve. Defensive like
     ``use_for_sleep`` above — a corrupt or hand-edited prefs file must never
@@ -258,7 +258,7 @@ def powered_connection_id(settings, registry, connected_ids) -> str | None:
 
     A person present is assumed (user-triggered), so ruling 4's scheduled
     degradation is not applied here: the card answers "what runs when I
-    press Consolidate", and the Settings → Engines card already shows the
+    press Consolidate", and the Settings → Intelligence card already shows the
     scheduled line separately (G122). The ``byok`` fallthrough names the key
     card the configured API model bills (``telemetry.connection_for_model``,
     the join ``consumption_stats`` already uses), so a default install's
@@ -351,7 +351,7 @@ def _model_overrides(registry, mode: str) -> dict:
 
 
 def _prefs_allow_overage(registry) -> bool:
-    """R-E13: the Settings → Engines "Keep going on extra usage" choice.
+    """R-E13: the Settings → Intelligence "Keep going on extra usage" choice.
     Defensive like ``_prefs_mode`` — an unreadable prefs file reads as "not
     opted in", never as a reason to spend extra usage."""
     if registry is None:
@@ -465,7 +465,7 @@ async def resolve_llm_mode(
     """
     configured = (getattr(settings, "llm_mode", None) or "byok").strip().lower()
 
-    # G122, rung 2: a Settings → Engines engine picker choice, read only for a
+    # G122, rung 2: a Settings → Intelligence engine picker choice, read only for a
     # real ``Settings`` (never the duck-typed stand-ins several hermetic
     # Sleep tests pass — `model_fields_set` doesn't exist on those, so this
     # whole block, registry touch included, is skipped for them, R2) and
@@ -520,7 +520,7 @@ async def resolve_llm_mode(
     # the agent rung — and (2026-10-19) never into a metered key either: no
     # engine, said in words, before the registry is ever touched.
     if configured not in ("byok", "auto"):
-        return "auto", f"unrecognized CICADA_LLM_MODE={configured!r} — choose an engine in Settings → Engines"
+        return "auto", f"unrecognized CICADA_LLM_MODE={configured!r} — choose an engine in Settings → Intelligence"
 
     if registry is None:
         from api.services.connections.registry import get_registry
@@ -600,7 +600,7 @@ async def resolve_settings(
         # model/overage overrides read the same prefs. With `registry=None`
         # (every Sleep cycle, the link backfill, the maintenance endpoint)
         # `resolve_llm_mode` fetched its own and `_model_overrides(None, …)`
-        # returned {} — a model picked in Settings → Engines reached the
+        # returned {} — a model picked in Settings → Intelligence reached the
         # preview and never the cycle.
         from api.services.connections.registry import get_registry
 

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Cicada's own skills (G138), by their installed folder name. Settings → Skills listed them until D6; the Skills page
+/// Cicada's own skills (G138), by their installed folder name. the Skills page listed them until D6; the Skills page
 /// and the tests still name them.
 enum CicadaSkillBundle: String, CaseIterable, Identifiable {
     case cicada

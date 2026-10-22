@@ -5,7 +5,7 @@ import SwiftUI
 /// collapsed until the viewer opens it and remembered per channel (DR-39); open, one-line rows — the item's own title
 /// and its compact age, the date in `.help` (DR-34, DR-58) — the first twenty, then "Show more" loads the next twenty
 /// in place. One component wherever a source row is drawn: onboarding's Import page (`interactive: false` — a Reader
-/// opened there would sit hidden under the onboarding layer), Settings → Integrations, and the Sources detail column
+/// opened there would sit hidden under the onboarding layer), the Sources page, and the Sources detail column
 /// (`style: .open`, where the list is the page's content rather than a detail under a row).
 ///
 /// It reads `ChannelItemsCache` (never a Store domain) and keeps the last list while a newer one is read (never

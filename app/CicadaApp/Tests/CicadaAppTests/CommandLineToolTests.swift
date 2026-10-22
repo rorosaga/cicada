@@ -132,9 +132,9 @@ final class CommandLineToolTests: XCTestCase {
         XCTAssertTrue(Copy.cliToolDetail(.notInstalled).contains("~/.local/bin/cicada"))
     }
 
-    /// Hyrum audit B11 (2026-10-22): the row moved from General to Agents, with its anchor.
-    func testTheRowIsIndexedUnderAgents() {
-        XCTAssertTrue(SettingsIndex.staticEntries.contains { $0.id == .commandLineTool && $0.section == .agents })
+    /// Hyrum audit B11, then D6 (2026-10-22): the row lives on the Agents page; its old anchor lands there.
+    func testTheRowLivesOnTheAgentsPage() {
+        XCTAssertEqual(SettingsIndex.retiredRows[.commandLineTool], .page(.agents))
     }
 
     // MARK: Offscreen renders (never the app)

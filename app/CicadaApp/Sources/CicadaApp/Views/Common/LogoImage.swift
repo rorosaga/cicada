@@ -269,7 +269,7 @@ struct LogoImage: View {
     /// the call sites that have no app behind them (the platform rows) read
     /// exactly as before. R6 — this is the SAME precedence `OriginMark` runs,
     /// deliberately: the Sleep desk, the Sources grid, the `+` catalog and
-    /// Settings → Integrations must not disagree about what Safari looks like.
+    /// the Sources page must not disagree about what Safari looks like.
     static func platformTile(name: String, bundleId: String? = nil, size: CGFloat = 40,
                              systemFallback: String = "app") -> some View {
         PlatformTile(name: name, bundleId: bundleId, size: size, systemFallback: systemFallback)

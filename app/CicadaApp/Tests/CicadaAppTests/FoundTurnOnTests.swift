@@ -108,7 +108,7 @@ final class FoundTurnOnTests: XCTestCase {
         XCTAssertEqual(cursor, .openedApp)
         XCTAssertEqual(opened.first?.scheme, "cursor")
         let desktop = await FoundTurnOn.run(.agent("claude-desktop"), deps: deps())
-        XCTAssertEqual(desktop, .finishInSettings(.agents))
+        XCTAssertEqual(desktop, .finishInSettings(.page(.agents)))
     }
 
     func testADroppedExportIsCommittedAndSaysWhatCameIn() async {
@@ -134,7 +134,7 @@ final class FoundTurnOnTests: XCTestCase {
 
     func testAnUnregisteredAppStillFinishesInIntegrations() async {
         let r = await FoundTurnOn.run(.app("pinterest"), deps: deps())
-        XCTAssertEqual(r, .finishInSettings(.integrations))
+        XCTAssertEqual(r, .finishInSettings(.page(.sources)))
     }
 
     func testAnAppSourcesFailureIsItsRowsAndAStopIsAStop() async {
@@ -190,7 +190,7 @@ final class FoundTurnOnTests: XCTestCase {
     func testNoReaderRegistersNoDriverAndTheRowFinishesInIntegrations() async {
         XCTAssertTrue(AppSourceDrivers.live(calendar: nil, local: nil, store: nil).isEmpty)
         let r = await FoundTurnOn.run(.app(AppSourceDrivers.contacts), deps: liveDeps())
-        XCTAssertEqual(r, .finishInSettings(.integrations))
+        XCTAssertEqual(r, .finishInSettings(.page(.sources)))
     }
 
     func testContactsConnectsOnTheTickAndTheUntickDisconnects() async throws {

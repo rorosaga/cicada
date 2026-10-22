@@ -18,7 +18,7 @@ import SwiftUI
 /// picker's date (R-O10), and a schedule write refreshes `.status` so it
 /// follows at once.
 ///
-/// The engine moved to Settings → Engines (G139, A3); this page shows it
+/// The engine moved to Settings → Intelligence (G139, A3); this page shows it
 /// read-only — both ruling-4 previews, each wearing its engine's mark through
 /// `EngineChooser.previewRow` (a named service shows its real mark), and a
 /// pointer to where it changes.

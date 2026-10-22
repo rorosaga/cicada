@@ -96,6 +96,13 @@ enum SettingsIndex {
     ]
 
     static let staticEntries: [SettingsEntry] = [
+        // Sleep's look first: equal matches ("bookworm", "scenery") land on the study room's own rows.
+        SettingsEntry(.mascot, .sleep, Copy.Mascot.title,
+                      keywords: ["character", "avatar"] + MascotRegistry.all.map(\.displayName)),
+        SettingsEntry(.scenerySource, .sleep, Copy.Scenery.source, keywords: ["scenery", "weather", "local weather", "How Sleep is doing", "choose"]),
+        SettingsEntry(.sceneryTime, .sleep, Copy.Scenery.time, keywords: ["scenery", "day", "dusk", "night"], anchor: .scenerySource),
+        SettingsEntry(.sceneryWeather, .sleep, Copy.Scenery.weather, keywords: ["scenery", "sunny", "cloudy", "windy", "rainy", "curtains"], anchor: .scenerySource),
+        SettingsEntry(.sceneryPreview, .sleep, Copy.Scenery.preview, keywords: ["scenery", "study room"]),
         // General
         SettingsEntry(.appearance, .general, Copy.appearance, keywords: ["dark", "light", "theme", "mode", "system", "night"]),
         SettingsEntry(.textSize, .general, Copy.textSize, keywords: ["zoom", "font", "bigger", "smaller", "larger", "scale"]),
@@ -112,7 +119,7 @@ enum SettingsIndex {
                       anchor: .appVersion),
         // You
         SettingsEntry(.ownerName, .you, Copy.ownerNameTitle, keywords: ["name", "me", "owner", "who"]),
-        SettingsEntry(.ownerPhoto, .you, Copy.Profiles.photo, keywords: ["photo", "picture", "avatar", "face"],
+        SettingsEntry(.ownerPhoto, .you, Copy.Profiles.photo, keywords: ["photo", "picture", "face"],
                       anchor: .ownerName),
         SettingsEntry(.ownerEmail, .you, Copy.ownerEmailTitle, keywords: ["email", "mail", "address", "gravatar"]),
         SettingsEntry(.ownerProfiles, .you, Copy.Profiles.title,
@@ -135,20 +142,13 @@ enum SettingsIndex {
                       anchor: .sleepUsePlan),
         SettingsEntry(.engineAutoClaude, .intelligence, Copy.useClaudePlanWhenIStart,
                       keywords: ["claude plan", "subscription", "use for sleep", "api key"], anchor: .sleepUsePlan),
-        // Sleep — the study room first (D6)
-        SettingsEntry(.sceneryPreview, .sleep, Copy.Scenery.preview, keywords: ["scenery", "study room"]),
+        // Sleep's hours
         SettingsEntry(.sleepRuns, .sleep, Copy.runsTitle, keywords: ["schedule", "nightly", "daily", "interval", "automatic", "consolidate", "when", "hours"]),
         SettingsEntry(.sleepTime, .sleep, Copy.runsAt, keywords: ["time", "hour", "clock"]),
         SettingsEntry(.sleepInterval, .sleep, Copy.runsEvery, keywords: ["hours", "how often", "interval"]),
-        SettingsEntry(.scenerySource, .sleep, Copy.Scenery.source, keywords: ["scenery", "weather", "local weather", "How Sleep is doing", "choose"]),
-        SettingsEntry(.sceneryTime, .sleep, Copy.Scenery.time, keywords: ["scenery", "day", "dusk", "night"], anchor: .scenerySource),
-        SettingsEntry(.sceneryWeather, .sleep, Copy.Scenery.weather, keywords: ["scenery", "sunny", "cloudy", "windy", "rainy", "curtains"], anchor: .scenerySource),
-        SettingsEntry(.mascot, .sleep, Copy.Mascot.title,
-                      keywords: ["character", "avatar"] + MascotRegistry.all.map(\.displayName)),
         // Devices (G181, G212)
         SettingsEntry(.devicesList, .devices, Copy.Devices.devicesGroup,
-                      keywords: ["devices", "pair", "qr", "code", "phone", "laptop", "server", "connected", "tailscale",
-                                 "ssh", "revoke", "last seen", "add a device"]),
+                      keywords: ["devices", "pair", "qr", "code", "laptop", "server", "connected", "ssh", "revoke", "last seen", "add a device"]),
         SettingsEntry(.memoryHome, .devices, Copy.Devices.modeTitle,
                       keywords: ["server", "this mac", "headless", "remote", "address", "device token", "home server",
                                  "sync", "where", "memory lives"]),
@@ -157,8 +157,7 @@ enum SettingsIndex {
                       keywords: ["server", "connection", "reachable", "offline", "waiting", "queue"],
                       anchor: .memoryHome),
         SettingsEntry(.fromAnywhere, .devices, Copy.DevicesPage.apps,
-                      keywords: ["remote", "connector", "outside this mac", Copy.fromAnywhere, "claude.ai", "chatgpt",
-                                 "phone", "mobile"]),
+                      keywords: ["remote", "connector", "outside this mac", Copy.fromAnywhere]),
         SettingsEntry(.remoteSwitch, .devices, Copy.remoteSwitchTitle,
                       keywords: ["phone", "claude.ai", "chatgpt", "perplexity", "connector", "remote", "mobile", Copy.fromAnywhere],
                       anchor: .fromAnywhere),

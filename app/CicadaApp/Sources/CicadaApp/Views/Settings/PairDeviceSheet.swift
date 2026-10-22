@@ -33,7 +33,7 @@ struct PairDeviceSheet: View {
                         .accessibilityLabel(Copy.DevicesPage.pairTitle)
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                         Text(created.code)
-                            .font(CicadaTheme.font(size: 28, weight: .semibold, design: .monospaced))
+                            .font(CicadaTheme.font(size: 28, weight: .semibold).monospacedDigit())
                             .foregroundStyle(CicadaTheme.textPrimary)
                             .textSelection(.enabled)
                         Text(Copy.DevicesPage.noAddress)

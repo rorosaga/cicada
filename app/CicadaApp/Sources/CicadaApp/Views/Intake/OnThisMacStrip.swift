@@ -5,7 +5,7 @@ import SwiftUI
 /// one action that turns it on. Agents run `AgentConnect` (D-1: after THIS click,
 /// with the commands visible under the row's disclosure); browsers run
 /// `BrowserWatcher.syncNow` (T1's consent); Cursor opens its own confirm via its
-/// deep link; Claude Desktop is finished in Settings → Agents (slice 1). Every
+/// deep link; Claude Desktop is finished on the Agents page (slice 1). Every
 /// one of those decisions now lives in `FoundTurnOn` (part b), which the Welcome
 /// and Getting started run too; this strip only maps the result onto its row.
 struct OnThisMacStrip: View {

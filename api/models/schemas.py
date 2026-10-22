@@ -653,7 +653,7 @@ class DecaySuggestion(CamelModel):
 
 class DecayTuningResponse(CamelModel):
     """``GET /memory/decay-suggestions`` and ``PUT /memory/decay-tuning`` (G147).
-    Not a Store domain — fetched when Settings → Search & memory opens — so no ETag."""
+    Not a Store domain — fetched when Settings → Privacy & data opens — so no ETag."""
 
     bank: str
     window_days: int
@@ -3195,7 +3195,7 @@ class ScheduleResponse(ScheduleConfig):
 
 
 # --------------------------------------------------------------------------- #
-# G122 — GET/PUT /sleep/engine: the Settings → Engines engine & model picker.
+# G122 — GET/PUT /sleep/engine: the Settings → Intelligence engine & model picker.
 # --------------------------------------------------------------------------- #
 
 
@@ -3297,7 +3297,7 @@ class SleepEngineResponse(CamelModel):
     source: str  # "env" | "prefs" | "default"
     candidates: list[SleepEngineCandidate]
     preview: SleepEnginePreviews
-    allow_overage: bool = False  # R-E13: Settings → Engines "Keep going on extra usage"
+    allow_overage: bool = False  # R-E13: Settings → Intelligence "Keep going on extra usage"
     # R-AG12: ``mode`` is what runs; ``selected`` is the CARD that choice
     # belongs to (``openrouter`` for a ``byok`` mode with an ``openrouter/``
     # model, else the mode itself), so the app highlights the right card
@@ -3534,7 +3534,7 @@ class BankTrashResponse(BankListResponse):
 
 
 class SearchIndexStatus(CamelModel):
-    """G139 — Settings → Search & memory's search-index row. `state` is
+    """G139 — Settings → Privacy & data's search-index row. `state` is
     `search_index.ensure_fresh`'s own word."""
     state: str
     built_at: Optional[str] = None
@@ -3697,7 +3697,7 @@ class AgentWiringRow(CamelModel):
     registered server. ``autosave: invalid`` is a settings file that does not
     parse (F8: ``registry.status`` alone would have said ``absent``).
     ``autorecall`` (G149) is the recall hooks' state; ``autorecall_on``/
-    ``autorecall_off`` are what Settings → Agents runs, apart from ``connect``."""
+    ``autorecall_off`` are what the Agents page runs, apart from ``connect``."""
 
     id: str
     installed: bool = False

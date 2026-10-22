@@ -1115,7 +1115,7 @@ def _default_llm_fn(settings: Settings | None = None, *, extra_body: dict | None
     """Production LLM call: litellm JSON-mode per Settings, via the provider
     seam. ``settings`` (R-E23): the router passes the copy
     ``engine_select.resolve_settings`` returned, so Ask runs on the engine
-    chosen in Settings → Engines; ``None`` keeps the env resolution MCP's
+    chosen in Settings → Intelligence; ``None`` keeps the env resolution MCP's
     ``cicada_ask`` still uses this round (Track R adopts this seam when it
     moves the tool bodies into ``mcp_tools``). ``extra_body`` rides every
     call unchanged — the answer eval pins the plan's ``--effort`` through it

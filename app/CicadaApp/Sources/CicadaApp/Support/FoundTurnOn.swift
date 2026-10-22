@@ -47,7 +47,7 @@ enum AppSourceDrivers {
     /// Flow's column whitelist); a driver only calls them. Missing collaborators register nothing.
     ///
     /// Wispr Flow's speaker names are never guessed here: the driver keeps the person's `ownerSpeakerNames` as they
-    /// are (provenance never guesses who spoke; they are set in Settings → Integrations → Wispr Flow).
+    /// are (provenance never guesses who spoke; they are set on the Sources page → Wispr Flow).
     ///
     /// Contacts and the tab groups default to nil so a host that has neither (the `+` strip, a test) keeps compiling
     /// and registers nothing for them — their rows then finish in Integrations, as any unregistered source does.
@@ -258,7 +258,7 @@ enum FoundTurnOn {
         }
     }
 
-    /// R-OB8 — untick: stop keeping up, keep what came in. An agent is disconnected in Settings → Agents, and a drop
+    /// R-OB8 — untick: stop keeping up, keep what came in. An agent is disconnected on the Agents page, and a drop
     /// is never un-imported (`IntakeRouter.cancel`'s rule), so neither stops here.
     static func stop(_ id: FoundItemID, deps: FoundTurnOnDeps) async {
         switch id {

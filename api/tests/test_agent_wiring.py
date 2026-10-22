@@ -153,7 +153,7 @@ def test_no_author_machine_path_is_baked_in():
 
 def test_the_shared_argv_fixture_matches():
     """Task 8's AgentWiringCatalogTests reads the same file: the copy-paste snippets
-    in Settings → Agents and the commands the app runs cannot drift apart."""
+    on the Agents page and the commands the app runs cannot drift apart."""
     fixture = json.loads((Path(__file__).parent / "fixtures/agent_wiring_argv.json").read_text())
     data = asyncio.run(agent_wiring.probe(home=Path("/nonexistent-home"), memory_root=Path(fixture["memory"]),
                                           repo=Path(fixture["root"]), python=f"{fixture['root']}/api/.venv/bin/python",

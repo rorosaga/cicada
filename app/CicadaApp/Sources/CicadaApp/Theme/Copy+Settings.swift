@@ -69,7 +69,7 @@ extension Copy {
         }
     }
     static let backgroundInstall = "Install"
-    // G180 — Settings → Agents → Command-line tool (ruling 21; on General until the Hyrum audit's B11). Provider-neutral: agents, never a named one.
+    // G180 — the Agents page → Command-line tool (ruling 21; on General until the Hyrum audit's B11). Provider-neutral: agents, never a named one.
     static let cliToolTitle = "Command-line tool"
     static let cliToolInstall = "Install the command-line tool"
     static let cliToolInstallHelp = "Adds one link, ~/.local/bin/cicada. No password needed."
@@ -109,7 +109,7 @@ extension Copy {
     static let engines = "Engines"
     /// Settings defaults, pass 2 (owner 2026-10-22): what the page is for, in plain words, naming no provider or model.
     static let enginesSubtitle = "Who reads your conversations, and what it signs in with."
-    static let settingsEngines = "\(settings) → \(engines)"
+    static let settingsEngines = "\(settings) → \(Intelligence.title)"
     static let enginesChooseGroup = "Engine"
     /// The heading over the one switch that only matters on the API key card.
     static let apiKeyGroup = "API key"
@@ -133,7 +133,7 @@ extension Copy {
     /// The Plans & keys group's refresh on Engines (Hyrum audit B1): the tooltip, and what VoiceOver names.
     static let checkAgain = "Check again"
     static let checkPlansAndKeysAgain = "Check plans and keys again"
-    static let settingsFromAnywhere = "\(settings) → \(Devices.sidebar) → \(fromAnywhere)"
+    static let settingsFromAnywhere = "\(settings) → \(Devices.sidebar) → \(DevicesPage.apps)"
     static let agentsOnThisMacGroup = "Agents on this Mac"
     static let agentsCloudTitle = "claude.ai, ChatGPT and your phone"
     static let agentsCloudDetail = "Cloud apps can't start a program on your Mac, so they reach Cicada through a link. You can also bring web chats in with the + on the Sleep page."
@@ -377,7 +377,7 @@ extension Copy {
     static let openRouterFinishInBrowser = "Finish signing in in your browser — this card updates itself."
     static let openRouterCouldNotOpen = "Couldn't open OpenRouter's sign-in page. Paste a key instead."
 
-    // MARK: Who reads — Settings → Engines (R-AG11, R-AG12, R-AG14)
+    // MARK: Who reads — Settings → Intelligence (R-AG11, R-AG12, R-AG14)
     /// The OpenRouter card's name where a preview line names it (`EngineOption.previewName`).
     static let openRouterName = "OpenRouter"
     static let leavesMacLead = "This is where information leaves your Mac."

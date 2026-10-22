@@ -86,8 +86,8 @@ You can follow along, or run the steps yourself. You need a Mac with macOS 14 or
 
    If `~/.cursor` already exists, it also merges Cicada's user-level `sessionStart` hook into
    `~/.cursor/hooks.json` (unless `CICADA_RECALL=off`). This adds startup context only; automatic
-   Cursor capture is unsupported. Add MCP separately with Settings → Agents → Open in Cursor, or copy the
-   prompt beside it into Cursor's agent. Any other agent: Settings → Agents → *Another agent*.
+   Cursor capture is unsupported. Add MCP separately with the Agents page → Open in Cursor, or copy the
+   prompt beside it into Cursor's agent. Any other agent: the Agents page → *Another agent*.
    Remembers automatically turns the startup hook on/off independently; `./install.sh --uninstall`
    removes only Cicada's hook entries. `make doctor` reports configuration separately from connectivity.
    Invalid hook JSON is left unchanged. The local IDE path follows the

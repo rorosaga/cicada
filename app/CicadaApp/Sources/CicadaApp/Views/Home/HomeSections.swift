@@ -284,8 +284,8 @@ struct NeedsYouSection: View {
 // MARK: - Needs your browser (G166)
 
 /// Its own block, not a line inside Needs you (whose count is the Inbox's): the saved pages whose sites Cicada's reader
-/// could not read and the person has not allowed yet, with up to three of those sites' icons. It links to Settings →
-/// Reading the web, the page that owns the number; nothing here asks or reads anything. Hidden at zero and once every
+/// could not read and the person has not allowed yet, with up to three of those sites' icons. It links to the
+/// Sources page, which owns the number (D6); nothing here asks or reads anything. Hidden at zero and once every
 /// listed site is allowed.
 struct ReadingSitesSection: View {
     @Environment(Store.self) private var store

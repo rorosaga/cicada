@@ -66,7 +66,7 @@ METERED_ENGINES = frozenset({"litellm"})
 
 async def resolve_engine(settings, *, allow_metered: bool = False):
     """The engine a person-started Sleep would use now (`engine_select.resolve_settings`, ``user_triggered=True``:
-    the engine picked in Settings → Engines, a plan when one is chosen and connected), as ``(settings, label, why)``.
+    the engine picked in Settings → Intelligence, a plan when one is chosen and connected), as ``(settings, label, why)``.
 
     Raises :class:`EngineRefused` before any call when it resolves to the API-key engine and either the model's key is
     not in the environment (nothing is connected) or ``allow_metered`` is false — a rebuild of many pages on a metered
@@ -81,12 +81,12 @@ async def resolve_engine(settings, *, allow_metered: bool = False):
         model = str(getattr(resolved, "effective_consolidation_model", "") or "").strip()
         if not model or not _key_present(model):
             raise EngineRefused(
-                f"No engine is connected for this ({why}): connect a plan or a local engine in Settings → Engines, "
+                f"No engine is connected for this ({why}): connect a plan or a local engine in Settings → Intelligence, "
                 "or set an API key and pass --allow-metered.", engine=label)
         if not allow_metered:
             raise EngineRefused(
                 f"The engine that resolves is an API key, billed per call ({why}). Rebuilding pages this way spends "
-                "money: pass --allow-metered to agree to it, or choose a plan or a local engine in Settings → Engines.",
+                "money: pass --allow-metered to agree to it, or choose a plan or a local engine in Settings → Intelligence.",
                 engine=label)
     return resolved, label, why
 

@@ -134,7 +134,7 @@ struct ConnectedChannelRow: View {
     }
 
     /// The row itself opens "Manage…". A folder or Wispr Flow keeps its
-    /// settings in Settings → Integrations and has no `AddSourceTile`, so its
+    /// settings on the Sources page and has no `AddSourceTile`, so its
     /// row is a `SettingsSectionLink` there instead of a closure that would
     /// open the generic add-source sheet (L final review, finding 1).
     @ViewBuilder
@@ -192,7 +192,7 @@ struct ConnectedChannelRow: View {
     /// else, so the item lied about what it did.
     ///
     /// A folder or Wispr Flow row gets no menu "Manage…": its settings are in
-    /// Settings → Integrations, reached through the one door,
+    /// the Sources page, reached through the one door,
     /// `SettingsSectionLink`, which the row itself is (L final review,
     /// finding 1; R-DS22).
     static func menuActions(for channel: SourceChannel) -> [String] {
@@ -300,7 +300,7 @@ struct ConnectedChannelRow: View {
     /// `OriginIconography.logoName` is the only id → asset map there is
     /// (R-L4). This used to be a second, shorter switch returning only
     /// `pinterest|reddit|x|telegram`, which is why Chrome was a plain blue
-    /// globe in Settings → Integrations while being a drawn glyph on the
+    /// globe on the Sources page while being a drawn glyph on the
     /// Sleep desk, and why the two chat exports rendered as one shared SF
     /// bubble: one source, three pictures.
     static func logoName(for id: String) -> String? {

@@ -1,7 +1,7 @@
 """Message conversations the person ticks — iMessage first (G179), over the shared stager (G188's minimal slice).
 
 **Who reads what.** The APP opens ``~/Library/Messages/chat.db`` (it holds Full Disk Access; the launchd backend
-never does and never opens that path) and reads only the conversations the person ticked in Settings → Integrations
+never does and never opens that path) and reads only the conversations the person ticked on the Sources page
 → Messages: each message row's id, time, direction, words (``text``, or the archived ``attributedBody`` bytes),
 reaction/edit/unsend columns and its attachments' *names*. This module parses what it posts — the ``attributedBody``
 through :mod:`typedstream` — and stages it through ``episode_staging``; nothing here reads a database or a file the
@@ -716,7 +716,7 @@ def ingest(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict
     settings = load_settings(memory_path)
     entry = settings["conversations"].get(cid)
     if not entry or not entry.get("ticked"):
-        raise NotSelected("This conversation isn't ticked in Settings → Integrations → Messages, so nothing was saved.")
+        raise NotSelected("This conversation isn't ticked on the Sources page → Messages, so nothing was saved.")
     meta = conversation_meta(conversation)
     actor = actor_for(settings, cid, meta)
     counts = Counts()
