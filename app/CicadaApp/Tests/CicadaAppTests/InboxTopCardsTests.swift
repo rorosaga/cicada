@@ -75,3 +75,49 @@ final class WhereToCheckChipsTests: XCTestCase {
         XCTAssertNil(chips.first?.iconSite, "a person's page never carries a site icon (G159)")
     }
 }
+
+/// Review of #428 — an X link reads "@handle" with the X glyph; the reading switch on Sources keeps the first-use
+/// consent; a notification needs the person's own "Notify me"; the remembered ids keep the newest.
+final class ReviewOf428Tests: XCTestCase {
+    func testAnXLinkReadsAsItsHandleWithTheXGlyph() {
+        XCTAssertEqual(LinkWords.of(ref: "https://x.com/bob-example", label: "x", linkKind: "website"),
+                       LinkWords.Words(label: "@bob-example", kind: "x"))
+        XCTAssertEqual(LinkWords.of(ref: "https://www.twitter.com/bob-example/status/1", label: nil, linkKind: nil),
+                       LinkWords.Words(label: "@bob-example", kind: "x"))
+        XCTAssertEqual(LinkWords.of(ref: "https://x.com/", label: "x", linkKind: "website").label, "x",
+                       "no handle, no rewrite")
+        XCTAssertEqual(LinkWords.of(ref: "https://github.com/bob-example", label: "@bob-example", linkKind: "github"),
+                       LinkWords.Words(label: "@bob-example", kind: "github"))
+        XCTAssertEqual(LinkWords.of(ref: "https://example.com", label: "", linkKind: nil).label, "https://example.com")
+    }
+
+    @MainActor
+    func testANotificationWaitsForThePersonsOwnOptIn() {
+        XCTAssertEqual(AgentRequestNotifier.route(optedIn: false, permission: .allowed), .hold,
+                       "macOS already allowing Cicada (an export reminder) is not the person's yes")
+        XCTAssertEqual(AgentRequestNotifier.route(optedIn: true, permission: .allowed), .post)
+        XCTAssertEqual(AgentRequestNotifier.route(optedIn: true, permission: .notAsked), .hold)
+        XCTAssertEqual(AgentRequestNotifier.route(optedIn: false, permission: .refused), .drop)
+        let defaults = UserDefaults(suiteName: "ReviewOf428Tests-\(UUID().uuidString)")!
+        let notifier = AgentRequestNotifier(defaults: defaults)
+        XCTAssertTrue(notifier.asksInWords, "the in-words line shows until the person opts in")
+    }
+
+    func testTheRememberedIdsKeepTheNewest() {
+        var posted: [String: Double] = [:]
+        for i in 0..<250 { posted["req-\(i)"] = Double(i) }
+        let kept = AgentRequestNotifier.newest(posted, keep: 200)
+        XCTAssertEqual(kept.count, 200)
+        XCTAssertNotNil(kept["req-249"])
+        XCTAssertNil(kept["req-0"])
+    }
+
+    func testTheSourcesReadingSwitchNeverAcknowledgesOnItsOwn() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/CicadaApp/Views/Sources/SourceCatalogViews.swift")
+        let text = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertFalse(text.contains("acknowledge: on"), "only the first-use sheet's Turn on acknowledges")
+        XCTAssertTrue(text.contains("needsFirstUseSheet"))
+        XCTAssertTrue(text.contains("ReadingFirstUseSheet("))
+    }
+}

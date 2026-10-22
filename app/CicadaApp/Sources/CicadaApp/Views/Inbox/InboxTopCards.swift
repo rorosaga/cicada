@@ -20,6 +20,34 @@ enum LinkKindGlyph {
     }
 }
 
+/// G61 — how a link reads in a chip or a review row: the server's label and link kind, except an X profile, which
+/// reads "@handle" with the X glyph whatever the server sent (review of #428; #422 fixes the server side too). One
+/// helper for the Inbox's review rows and the entity card's chips.
+enum LinkWords {
+    struct Words: Equatable {
+        let label: String
+        let kind: String
+    }
+
+    static let xHosts: Set<String> = ["x.com", "twitter.com", "mobile.twitter.com", "mobile.x.com"]
+
+    static func of(ref: String, label: String?, linkKind: String?) -> Words {
+        if let handle = xHandle(ref) { return Words(label: "@" + handle, kind: "x") }
+        let words = (label ?? "").trimmingCharacters(in: .whitespaces)
+        return Words(label: words.isEmpty ? ref : words, kind: linkKind ?? "website")
+    }
+
+    /// The first path segment of an x.com / twitter.com link, when there is one.
+    static func xHandle(_ ref: String) -> String? {
+        guard let url = URL(string: ref), let raw = url.host?.lowercased() else { return nil }
+        let host = raw.hasPrefix("www.") ? String(raw.dropFirst(4)) : raw
+        guard xHosts.contains(host) else { return nil }
+        let first = url.path.split(separator: "/").first.map(String.init) ?? ""
+        let handle = first.hasPrefix("@") ? String(first.dropFirst()) : first
+        return handle.isEmpty ? nil : handle
+    }
+}
+
 /// G205 / G61 — the cards above the questions: agents asking, the in-words notification ask, and the grouped
 /// Where-to-check review. Small, one group each (DR-37), ringed not shadowed (DR-9), no primary button (DR-40: the
 /// Inbox has none).
@@ -129,13 +157,14 @@ struct WhereToCheckReviewCard: View {
     }
 
     private func rowView(_ row: WhereToCheckRow) -> some View {
-        HStack(spacing: CicadaTheme.spacingSM) {
-            Image(systemName: LinkKindGlyph.symbol(row.linkKind))
+        let words = LinkWords.of(ref: row.ref, label: row.label, linkKind: row.linkKind)
+        return HStack(spacing: CicadaTheme.spacingSM) {
+            Image(systemName: LinkKindGlyph.symbol(words.kind))
                 .font(CicadaTheme.icon(.list))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .frame(width: CicadaTheme.scaled(18))
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(1)) {
-                Text(row.label.isEmpty ? row.ref : row.label)
+                Text(words.label)
                     .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
                 Button { openPage(row.page) } label: {
                     Text(row.pageName.isEmpty ? row.page : row.pageName)
@@ -146,9 +175,9 @@ struct WhereToCheckReviewCard: View {
             .help(Self.evidenceWords(row))
             Spacer(minLength: CicadaTheme.spacingSM)
             NeutralButton(title: Copy.WhereToCheck.yes, size: .compact,
-                          help: Copy.WhereToCheck.rowHelp(yes: true, label: row.label)) { answer(row, take: true) }
+                          help: Copy.WhereToCheck.rowHelp(yes: true, label: words.label)) { answer(row, take: true) }
             TextButton(title: Copy.WhereToCheck.no,
-                       help: Copy.WhereToCheck.rowHelp(yes: false, label: row.label)) { answer(row, take: false) }
+                       help: Copy.WhereToCheck.rowHelp(yes: false, label: words.label)) { answer(row, take: false) }
         }
         .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
     }

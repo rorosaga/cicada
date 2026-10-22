@@ -45,18 +45,19 @@ struct WhereToCheckChips: View {
     }
 
     private func chip(_ source: EntitySource) -> some View {
-        Button {
+        let words = LinkWords.of(ref: source.ref, label: source.label, linkKind: source.linkKind)
+        return Button {
             if let url = source.url { NSWorkspace.shared.open(url) }
         } label: {
             HStack(spacing: CicadaTheme.scaled(5)) {
                 if let site = source.iconSite {
                     SiteIcon(site: site, size: .inline, entity: entityId)
                 } else {
-                    Image(systemName: LinkKindGlyph.symbol(source.linkKind ?? "website"))
+                    Image(systemName: LinkKindGlyph.symbol(words.kind))
                         .font(CicadaTheme.icon(.inline))
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
-                Text(source.label ?? source.ref)
+                Text(words.label)
                     .font(CicadaTheme.metaFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .lineLimit(1)

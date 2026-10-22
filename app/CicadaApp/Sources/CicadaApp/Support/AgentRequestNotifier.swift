@@ -18,46 +18,76 @@ final class AgentRequestNotifier {
     nonisolated static let userInfoId = "agentRequest"
     nonisolated static let userInfoURL = "openUrl"
     private static let postedKey = "cicada.agentRequests.notified"
+    /// Set only by the card's "Notify me" click: the person's own opt-in, in words, per viewer. Without it nothing is
+    /// posted, even when macOS already allows Cicada's notifications (say, for an export reminder) (review of #428).
+    static let optInKey = "cicada.agentRequests.notify"
 
     enum Permission: Equatable { case unknown, notAsked, allowed, refused }
 
     private(set) var permission: Permission = .unknown
-    @ObservationIgnored private var posted: Set<String>
+    private(set) var optedIn: Bool
+    /// Posted ids with when they were posted, so the remembered set keeps the newest (`remember`).
+    @ObservationIgnored private var posted: [String: Double]
     @ObservationIgnored private var waiting: [InboxItem] = []
     @ObservationIgnored private var categoryInstalled = false
 
-    init() {
-        posted = Set(UserDefaults.standard.stringArray(forKey: Self.postedKey) ?? [])
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        optedIn = defaults.bool(forKey: Self.optInKey)
+        posted = (defaults.dictionary(forKey: Self.postedKey) as? [String: Double]) ?? [:]
     }
 
-    /// The Inbox card's in-words ask shows only while a request waits and macOS has not been asked.
-    var asksInWords: Bool { permission == .notAsked }
+    @ObservationIgnored private let defaults: UserDefaults
+
+    /// The Inbox card's in-words ask shows while the person has not opted in — whatever macOS already allows — and
+    /// is gone once they did, or once macOS refused (their choice in System Settings stands).
+    var asksInWords: Bool { !optedIn && permission != .refused }
 
     /// Called whenever the inbox's agent requests change: each new one is posted once (or held until the person allows
     /// notifications in the card).
     func observe(_ requests: [InboxItem]) {
-        let fresh = requests.filter { !posted.contains($0.id) && $0.request?.notification != nil }
+        let fresh = Self.unposted(requests, posted: Set(posted.keys))
         guard !fresh.isEmpty, ReminderAvailability.current else { return }
         Task {
             await refreshPermission()
-            switch permission {
-            case .allowed: for item in fresh { await post(item) }
-            case .notAsked: waiting = fresh
-            case .refused, .unknown:
+            switch Self.route(optedIn: optedIn, permission: permission) {
+            case .post: for item in fresh { await post(item) }
+            case .hold: waiting = fresh
+            case .drop:
                 // Never asked again: their choice in System Settings stands. The Inbox card still shows the request.
                 remember(fresh.map(\.id))
             }
         }
     }
 
-    /// The person's click on the card's "Notify me" — the one moment macOS is asked.
+    enum Route: Equatable { case post, hold, drop }
+
+    /// Pure: post only after the person's own opt-in AND macOS's allowance; hold until the opt-in; drop once macOS
+    /// refused.
+    nonisolated static func route(optedIn: Bool, permission: Permission) -> Route {
+        if permission == .refused { return .drop }
+        guard optedIn else { return .hold }
+        return permission == .allowed ? .post : .hold
+    }
+
+    static func unposted(_ requests: [InboxItem], posted: Set<String>) -> [InboxItem] {
+        requests.filter { $0.kind == .agentRequest && !posted.contains($0.id) && $0.request?.notification != nil }
+    }
+
+    /// The person's click on the card's "Notify me": records their opt-in, then asks macOS only if it was never
+    /// asked, then posts what waited.
     func requestPermission() async {
+        optedIn = true
+        defaults.set(true, forKey: Self.optInKey)
         guard ReminderAvailability.current else { return }
-        let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])) ?? false
-        permission = granted ? .allowed : .refused
+        await refreshPermission()
+        if permission == .notAsked {
+            let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])) ?? false
+            permission = granted ? .allowed : .refused
+        }
         let pending = waiting
         waiting = []
-        if granted { for item in pending { await post(item) } } else { remember(pending.map(\.id)) }
+        if permission == .allowed { for item in pending { await post(item) } } else { remember(pending.map(\.id)) }
     }
 
     private func refreshPermission() async {
@@ -93,9 +123,17 @@ final class AgentRequestNotifier {
         remember([item.id])
     }
 
-    private func remember(_ ids: [String]) {
-        posted.formUnion(ids)
-        UserDefaults.standard.set(Array(posted.suffix(200)), forKey: Self.postedKey)
+    private func remember(_ ids: [String], now: Date = .now) {
+        for id in ids { posted[id] = now.timeIntervalSince1970 }
+        posted = Self.newest(posted, keep: 200)
+        defaults.set(posted, forKey: Self.postedKey)
+    }
+
+    /// The newest `keep` ids by when they were posted (ties by id, so the cut is stable).
+    nonisolated static func newest(_ posted: [String: Double], keep: Int) -> [String: Double] {
+        guard posted.count > keep else { return posted }
+        let kept = posted.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(keep)
+        return Dictionary(uniqueKeysWithValues: kept.map { ($0.key, $0.value) })
     }
 
     /// The notification's buttons and its body tap (`CicadaAppDelegate`): "I signed in" resolves `done` (lifts the

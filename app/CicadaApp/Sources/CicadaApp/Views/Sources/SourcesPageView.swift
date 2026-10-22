@@ -18,7 +18,7 @@ struct SourcesPageView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var columns = ListColumns<SourcesSelection>()
     /// G217 — the sites an agent may read, for the accounts' per-site control (in memory, not a Store domain).
-    @State private var reading = SiteReadingModel()
+    @State private var reading = ReadingAgentModel()
     /// The browsers on this Mac (one Launch Services pass per appearance, never per body evaluation).
     @State private var browsers = BrowserInventory.empty
     @Environment(LocalSourceWatcher.self) private var localSources
@@ -38,7 +38,7 @@ struct SourcesPageView: View {
             wisprPresent: localSources.wisprInstalled || channels.contains { $0.id == LocalSourceWatcher.wisprChannel },
             overview: overview)
         return SourceCatalog.rows(entries: entries, channels: channels, overview: overview,
-                                  readableSites: reading.readable)
+                                  readableSites: reading.readableSites)
     }
 
     var body: some View {
@@ -90,7 +90,7 @@ struct SourcesPageView: View {
         }
         .environment(reading)
         .task { await exploreCache.refresh() }
-        .task { await reading.load() }
+        .task { await reading.loadSettings() }
         .task { browsers = await Task.detached(priority: .userInitiated) { BrowserInventory.live() }.value }
         .onAppear { consumeAddSource() }
         .onChange(of: router.pendingAddSource) { _, _ in consumeAddSource() }

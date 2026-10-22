@@ -4,34 +4,15 @@ import SwiftUI
 // dot with one word (DR-34 row heights, DR-38 nothing said twice, DR-52 via the one tile adapter, DR-74 the detail's
 // head). Settings → Integrations' rows and the "Add a source" grid both land here.
 
-/// Which sites an agent may read in the person's own browser (`GET /reading/settings`). Not a Store domain: read when
-/// the Sources page shows and after each change, held in memory (the never-blank rule: a failed read keeps the last).
-@MainActor
-@Observable
-final class SiteReadingModel {
-    private(set) var settings: ReadingSettingsResponse?
-    private(set) var note: String?
-
-    var readable: Set<String> {
+/// G217 — the Sources page reads and writes the per-site reading switch through Settings' own model
+/// (`ReadingAgentModel`, in memory, not a Store domain), so the first-use consent is the same: a site turns on in one
+/// call only when a current acknowledgement is stored; otherwise the versioned first-use sheet asks first, and only
+/// its "Turn on" sends the acknowledgement (review of #428).
+extension ReadingAgentModel {
+    /// The walled sites an agent may read now: none while agent reading is off.
+    var readableSites: Set<String> {
         guard let settings, settings.agentEnabled else { return [] }
         return Set(settings.allowedSites.keys)
-    }
-
-    func load() async {
-        if let fresh = try? await APIClient.shared.fetchReadingSettings() { settings = fresh }
-    }
-
-    /// One site on or off. Turning a site on is the person's own act on that site's row, so it also turns the reading
-    /// switch on and gives the acknowledgement in the same call (Reading the web left Settings: default on, per-site
-    /// control here — ruling 36 D6). A refusal keeps the server's sentence.
-    func set(_ site: String, _ on: Bool) async {
-        note = nil
-        do {
-            settings = try await APIClient.shared.setReadingSettings(agentEnabled: on ? true : nil, sites: [site: on],
-                                                                     acknowledge: on)
-        } catch {
-            note = AddSourceSheet.friendlyError(error)
-        }
     }
 }
 
@@ -114,7 +95,9 @@ struct SourceCatalogDetail: View {
 
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
-    @Environment(SiteReadingModel.self) private var reading
+    @Environment(ReadingAgentModel.self) private var reading
+    /// The site whose switch raised the first-use sheet (acknowledgement not current).
+    @State private var consentSite: String?
     @Environment(LocalSourceWatcher.self) private var localSources
     @State private var flowTile: AddSourceTile?
     @State private var browsers = BrowserInventory.empty
@@ -156,7 +139,12 @@ struct SourceCatalogDetail: View {
         .sheet(item: $flowTile) { tile in
             AddSourceSheet(initialTile: tile, onClose: { flowTile = nil }, flowOnly: true)
         }
-        .task { await reading.load() }
+        .task { await reading.loadSettings() }
+        .sheet(isPresented: Binding(get: { consentSite != nil }, set: { if !$0 { consentSite = nil } })) {
+            SettingsSheet(title: Copy.Reading.sheetTitle, onClose: { consentSite = nil }) {
+                ReadingFirstUseSheet(model: reading, site: consentSite, label: row.entry.title) { consentSite = nil }
+            }
+        }
         .task {
             if row.entry.id.hasPrefix(SourceCatalog.browserPrefix) {
                 browsers = await Task.detached(priority: .userInitiated) { BrowserInventory.live() }.value
@@ -242,9 +230,9 @@ struct SourceCatalogDetail: View {
 
     /// The per-site reading control (Reading the web left Settings, ruling 36 D6). The Turn on row's switch.
     private func readingToggle(_ site: String) -> some View {
-        let on = reading.readable.contains(site)
+        let on = reading.readableSites.contains(site)
         return VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            Toggle(isOn: Binding(get: { on }, set: { value in Task { await reading.set(site, value) } })) {
+            Toggle(isOn: Binding(get: { on }, set: { value in flip(site, on: value) })) {
                 Text(Copy.Catalog.readSite(row.entry.title))
                     .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
             }
@@ -253,6 +241,19 @@ struct SourceCatalogDetail: View {
             if let note = reading.note {
                 Text(note).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// Settings' rule (`ReadingWebView.flip`): turning a site on without a current acknowledgement raises the
+    /// first-use sheet, and nothing changes until its "Turn on"; otherwise one call (`setSite`, never acknowledging).
+    private func flip(_ site: String, on: Bool) {
+        Task { @MainActor in
+            await reading.loadSettings()
+            if on, reading.needsFirstUseSheet {
+                consentSite = site
+            } else {
+                _ = await reading.setSite(site, allowed: on)
             }
         }
     }
