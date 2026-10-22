@@ -59,7 +59,7 @@ def test_a_deferred_save_of_a_walled_link_makes_no_request_and_no_enrich_call(tm
     idx: dict = {}
     item = media_ingestor.RawItem(url="https://x.com/alpha/status/1", origin="saved-link", defer_enrich=True)
     result = asyncio.run(media_ingestor.ingest_one(item, memory, None, idx))
-    assert result.status == "created" and result.title == "1"
+    assert result.status == "created" and result.title == "Post by @alpha"   # never its status id (G206, 2026-10-22)
     assert media_ingestor.url_hash(item.url) in idx
     assert (memory / "entities" / f"{result.media_entity_id}.md").exists()
 

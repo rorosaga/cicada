@@ -140,6 +140,8 @@ DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
     "cicada_record_profile": lambda c, a: mcp_tools.record_profile(
         c, _s(a, "entity_id"), _s(a, "url"), _s(a, "outcome"), a.get("company"), a.get("position"), a.get("quotes"),
         a.get("summary"), a.get("via")),
+    "cicada_record_saved_list": lambda c, a: mcp_tools.record_saved_list(c, _s(a, "platform"), _s(a, "outcome"),
+                                                                         a.get("items"), a.get("via")),
     "cicada_record_youtube_list": lambda c, a: mcp_tools.record_youtube_list(c, _s(a, "list"), _s(a, "outcome"),
                                                                              a.get("videos"), a.get("via")),
     "cicada_reading_queue": lambda c, a: mcp_tools.reading_queue(c, a.get("limit")),

@@ -12,7 +12,7 @@ Status, in order: `proposed` → `building` (a branch exists) → `PR #n` (open 
 | [G217](memory-evolution.md#g217) | Connection model: Sources · Intelligence · Agents, Settings in six, one agent table, one logo tile | proposed | — | 2026-10-22 |
 | [G50](memory-evolution.md#g50) | Intelligence: a key secured properly or the person's own Claude Code / Codex; more keys; Grok research (cited as G215) | proposed | — | 2026-10-22 |
 | [G205](memory-evolution.md#g205) | Agent requests: one Inbox kind and a notification | proposed | — | 2026-10-22 |
-| [G206](memory-evolution.md#g206) | Saved lists on X, LinkedIn, Instagram through the person's browser | proposed | — | 2026-10-22 |
+| [G206](memory-evolution.md#g206) | Saved lists on X, LinkedIn, Instagram through the person's browser; a saved X post titled by its author | PR (backend; app switch spec'd) | — | 2026-10-22 |
 | [G207](memory-evolution.md#g207) | A quick read after each conversation; recall sees today | building | — | 2026-10-22 |
 | [G61](memory-evolution.md#g61) | Update sources: sources on people, inferred proposals, a better name (cited as G208) | building | — | 2026-10-22 |
 | [G209](memory-evolution.md#g209) | Duplicate people: in-cycle aliases, "same person?" questions | building | — | 2026-10-22 |
