@@ -129,7 +129,10 @@ def test_a_remote_app_can_never_name_a_file_on_this_mac(remote, args):
     page = memory / "entities" / "bob-example.md"
     before, head = page.read_text(), _git(memory, "rev-parse", "HEAD")
     text, status = runtime.call(_connector(), "cicada_add_source", {"subject": "bob-example", **args})
-    assert status == "ok" and "can't name a file or folder" in text
+    # G199: a `kind` or `access` outside the schema this connection was shown is refused at the door; one inside it
+    # reaches the body's own refusal. Either way nothing is written.
+    assert (status == "ok" and "can't name a file or folder" in text) or \
+        (status == "invalid" and text.startswith("Invalid arguments: `"))
     assert page.read_text() == before and _git(memory, "rev-parse", "HEAD") == head
 
 

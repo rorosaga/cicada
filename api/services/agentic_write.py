@@ -572,17 +572,18 @@ def write_claim(
             "expected_end_ignored": bool(expected_end) and end is None,
         }
     except Exception as exc:  # never raise on a normal input
-        logger.warning(
-            f"agentic write_claim failed for subject={subject_raw!r} "
-            f"predicate={predicate_raw!r}: {type(exc).__name__}: {exc}"
-        )
+        # G199 fix round: the class and where, never the message (it can carry a path) nor the subject or predicate.
+        from api.services import tool_contract
+
+        logger.warning(f"agentic write_claim failed: {tool_contract.where(exc)}")
         return {
             "subject": subject_raw,
             "entity_id": None,
             "claim_id": None,
             "action": "error",
+            "failed": True,
             "observer": observer,
-            "error": f"{type(exc).__name__}: {exc}",
+            "error": f"it didn't work ({type(exc).__name__}); nothing was written",
         }
 
 

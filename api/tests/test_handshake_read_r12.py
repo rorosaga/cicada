@@ -30,7 +30,7 @@ def _home(tmp_path, monkeypatch):
 
 
 def test_the_contract_versions_moved():
-    assert (handshake.CONTRACT_VERSION, handshake.REMOTE_CONTRACT_VERSION) == (18, 13)  # 18 / 13: ruling 34, the video hand-back names its lease_token; remote 12: ruling 32 capture; 17: G198 cicada_edit_page merged past 16 (questions come up naturally)
+    assert (handshake.CONTRACT_VERSION, handshake.REMOTE_CONTRACT_VERSION) == (19, 13)  # 19: G200 A7 (no HTTP route, a desktop variant); 18 / 13: ruling 34, the video hand-back names its lease_token; remote 12: ruling 32 capture; 17: G198 cicada_edit_page merged past 16 (questions come up naturally)
 
 
 def test_the_parser_reads_the_reading_calls():

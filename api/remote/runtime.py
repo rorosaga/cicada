@@ -39,7 +39,7 @@ from typing import Callable
 from loguru import logger
 
 from api.remote import catalog
-from api.services import bank_binding, demo_guard, handshake, mcp_tools, telemetry, write_admission
+from api.services import bank_binding, demo_guard, handshake, mcp_tools, telemetry, tool_contract, write_admission
 
 HANDLE_RE = re.compile(r"^rc_([a-z0-9]{8})_(\d{4}-\d{2}-\d{2})(?:_([0-9a-f]{8}))?$")
 REFERENCE_HEADER = mcp_tools.REFERENCE_HEADER
@@ -91,11 +91,19 @@ def cap(text: str, limit: int = MAX_RESULT_CHARS) -> str:
     return text[:limit] + f"\n[… cut here: Cicada sends at most {limit:,} characters per reply]"
 
 
-def fence(text: str) -> str:
-    """R-R29: read replies are inert reference data; a closing marker inside
-    stored text is broken so it cannot end the fence early."""
-    safe = text.replace(FENCE_CLOSE, "cicada-reference >>>")
-    return f"{REFERENCE_HEADER}\n{FENCE_OPEN}\n{safe}\n{FENCE_CLOSE}"
+#: R-R29: read replies are inert reference data — the one rule both doors keep (G200 A9).
+fence = tool_contract.reference
+
+
+def _fenced(reply: str, available: frozenset[str]) -> mcp_tools.Reply:
+    """A read reply fenced whatever its code (fix round, #419: a refusal can carry stored words), its own directions
+    outside the markers when the body kept them apart, the whole cut to the reply cap."""
+    code, data = getattr(reply, "code", None), getattr(reply, "data", None)
+    segments = [(kind, strip_unavailable(part, available)) for kind, part in (getattr(reply, "segments", None) or [])]
+    text = fence(strip_unavailable(str(reply), available), segments or None)
+    if len(text) > MAX_RESULT_CHARS:
+        text = fence(cap(strip_unavailable(str(reply), available)))
+    return mcp_tools.Reply(text, code=code, data=data)
 
 
 class ConversationState:
@@ -319,8 +327,17 @@ class RemoteRuntime:
               writes: bool, memory_path: Path, bank_name: str | None = None, *,
               utc_offset_minutes: int | None = None) -> tuple[str, str]:
         today = self._today()
-        if tool not in catalog.tool_names_for(connector.scopes):
+        checked = None
+        if tool in catalog.tool_names_for(connector.scopes):
+            from api.remote import tools as remote_tools
+
+            # G199: checked once against the schema this connection was shown, as the stdio door does.
+            checked = tool_contract.check(tool, remote_tools.REMOTE_TOOLS[tool]["inputSchema"], arguments)
+            arguments = checked.arguments
+        if checked is None:
             text, status = DENIED_TEXT, "denied"
+        elif checked.error:
+            text, status = mcp_tools.Reply(checked.error, code="invalid_arguments"), "invalid"
         elif writes and self._sleep_running():
             text, status = BUSY_TEXT, "busy"
         elif tool in catalog.WRITE_TOOLS and demo_guard.is_demo(memory_path):
@@ -335,8 +352,11 @@ class RemoteRuntime:
             except write_admission.SleepHolding:
                 raise   # the window opened during a self-admitted tool's fetch: `call` answers busy
             except Exception as exc:  # noqa: BLE001 — never a stack trace to a cloud app
-                logger.warning(f"remote tool {tool} failed for connector {connector.id}: {type(exc).__name__}")
-                text, status = f"Error: that didn't work ({type(exc).__name__}).", "error"
+                logger.warning(f"remote tool {tool} failed for connector {connector.id}: {tool_contract.where(exc)}")
+                text, status = tool_contract.failure_text(exc), "error"
+        if checked is not None and checked.warnings:
+            text = mcp_tools.Reply(tool_contract.with_warnings(str(text), checked.warnings),
+                                   code=getattr(text, "code", None), data=getattr(text, "data", None))
         self._record(connector, tool, status, text, memory_path)
         return text, status
 
@@ -364,7 +384,7 @@ class RemoteRuntime:
             text = _DISPATCH[tool](ctx, args)
         self.conversations.set_hint_sent(handle, ctx.state_hint_sent)
         if tool in catalog.READ_TOOLS:
-            text = fence(cap(strip_unavailable(text, ctx.available or frozenset())))
+            text = _fenced(text, ctx.available or frozenset())
         return text
 
     def _resolve_bank(self) -> tuple[Path, str | None]:

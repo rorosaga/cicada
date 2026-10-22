@@ -80,6 +80,9 @@ def test_the_remote_variant_needs_its_tools(tmp_path):
         handshake.load_or_build(memory, variant="remote", cache_dir=tmp_path / "c")
 
 
-def test_the_three_local_variants_are_untouched():
-    assert handshake.VARIANTS == ("claude-code", "codex", "generic")
-    assert handshake.variant_for("claude-ai") == "claude-code", "stdio keeps its rule (R-R2)"
+def test_the_local_variants_are_chosen_by_exact_client_name():
+    assert handshake.VARIANTS == ("claude-code", "codex", "desktop", "generic")
+    # G200 A7: a desktop app named with "claude" is never told to run `claude --resume` (R-R2's rule was a substring).
+    assert handshake.variant_for("claude-ai") == "desktop"
+    assert handshake.variant_for("Claude Code") == "claude-code" and handshake.variant_for("codex-mcp-client") == "codex"
+    assert handshake.variant_for("my-claude-wrapper") == "generic" and handshake.variant_for(None) == "generic"

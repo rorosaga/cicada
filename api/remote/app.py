@@ -40,7 +40,7 @@ from starlette.routing import Route
 
 from api.remote import catalog, oauth as remote_oauth, store as remote_store, tools as remote_tools
 from api.remote.runtime import RemoteRuntime
-from api.services import telemetry
+from api.services import telemetry, tool_contract
 
 MAX_BODY_BYTES = 1_048_576
 THREADS = 4
@@ -312,7 +312,13 @@ def build_app(store: remote_store.ConnectorStore | None = None, *, runtime: Remo
         text, status = await anyio.to_thread.run_sync(
             partial(runtime.call, _caller(ctx), params.name, dict(params.arguments or {}), utc_offset_minutes=offset),
             limiter=limiter)
-        return types.CallToolResult(content=[types.TextContent(type="text", text=text)], is_error=status != "ok")
+        # G199: a refusal answers isError with its code, as the stdio door does (`tool_contract`).
+        code = getattr(text, "code", None)
+        refused = tool_contract.is_error(code)
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text=str(text))], is_error=status != "ok" or refused,
+            structured_content=tool_contract.structured(code, getattr(text, "data", None), str(text)) if refused
+            else None)
 
     async def protected_resource(request: Request) -> Response:
         base = remote_oauth.public_base(request)

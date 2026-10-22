@@ -422,7 +422,16 @@ def test_recall_hints_spell_get_for_the_cli(tmp_path):
     assert hints["next_tool"] == "cicada get"
     assert "`cicada get <entity-id>`" in hints["note"]
     assert_commands_parse(hints["note"])
-    assert (hints.get("state") or {}).get("next_tool", "cicada handshake") == "cicada handshake"
+    assert "next_tool" not in (hints.get("state") or {})
+
+
+def test_the_state_cursor_spells_its_refresh_for_the_cli(tmp_path, monkeypatch):
+    """The cursor's pointer is `refresh_with` (Hyrum audit A1), spelled as the command line's own command."""
+    memory = _bank(tmp_path, git=False)
+    monkeypatch.setattr(mcp_tools, "_state_hint", lambda _m: {"pending_as_of": 0, "refresh_with": "cicada_handshake"})
+    ctx = mcp_tools.ToolContext(memory_path=lambda: memory, session_id="s", harness="unknown", read_surface="cli")
+    state = mcp_tools.recall(ctx, "alpha project").data["state"]
+    assert "next_tool" not in state and state["refresh_with"] == "cicada handshake"
 
 
 def test_the_remote_package_never_imports_the_local_only_bodies():

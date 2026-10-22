@@ -15,6 +15,19 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 _OFFSET_RE = re.compile(r"^UTC([+-])(\d{2}):(\d{2})$")
 
 
+def is_zone(tz_name: str) -> bool:
+    """Whether ``zone`` reads this name as itself rather than falling back to UTC (G199: a caller's unknown zone is
+    refused, never silently read as UTC)."""
+    name = (tz_name or "").strip()
+    if _OFFSET_RE.match(name):
+        return True
+    try:
+        ZoneInfo(name)
+        return True
+    except (ZoneInfoNotFoundError, ValueError):
+        return False
+
+
 def zone(tz_name: str | None) -> tzinfo:
     """An IANA name, or `local_timezone`'s `UTC±HH:MM` fallback, else UTC —
     a zone is never worth a failed read (R-PJB16)."""

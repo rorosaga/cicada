@@ -36,7 +36,9 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import quote
 
-from api.services import agent_commits, bank_binding, cli_map, mcp_tools, write_admission
+from loguru import logger
+
+from api.services import agent_commits, bank_binding, cli_map, mcp_tools, tool_contract, write_admission
 
 SURFACES = ("mcp", "cli")
 MAX_SKIPPED = 500
@@ -206,6 +208,9 @@ class Answer:
     code: str | None = None
     data: dict | None = None
     error: str | None = None
+    #: ``mcp_tools.Reply.segments`` (additive on the wire): which parts are Cicada's own words, so the client's door
+    #: fences only the stored ones.
+    segments: list | None = None
 
 
 def run(tool: str, arguments: dict, *, ctx: mcp_tools.ToolContext, state: SessionState, surface: str, options: dict,
@@ -229,12 +234,20 @@ def run(tool: str, arguments: dict, *, ctx: mcp_tools.ToolContext, state: Sessio
                          root=root, memory_path=memory_path, bank_name=bank_name)
     except DoorError:
         raise
-    except Exception as exc:  # noqa: BLE001 - the stdio server's own `Error: {e}` reply, to the person's own agent
-        return Answer(text="", error=str(exc) or type(exc).__name__)
+    except Exception as exc:  # noqa: BLE001 - G199: the class, never the message (it can carry a path or a quote)
+        # The class and the innermost file:line in this server's log, never the message or an argument; the client
+        # (stdio or `cicada`) is told when, so the person finds the line.
+        from datetime import datetime, timezone
+
+        when = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+        logger.warning(f"tool door: {tool} failed: {tool_contract.where(exc)}")
+        return Answer(text="", error=tool_contract.failure_text(
+            exc, log=f"the Cicada server's log ({tool}, {when})").removeprefix("Error: "))
     state.state_hint_sent = ctx.state_hint_sent
     if isinstance(reply, Answer):
         return reply
-    return Answer(text=str(reply), code=getattr(reply, "code", None), data=getattr(reply, "data", None))
+    return Answer(text=str(reply), code=getattr(reply, "code", None), data=getattr(reply, "data", None),
+                  segments=getattr(reply, "segments", None))
 
 
 class _nolock:

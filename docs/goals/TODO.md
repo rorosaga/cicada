@@ -8,6 +8,28 @@
 
 ## Current state and evidence
 
+- **2026-10-22 — the MCP error and argument contract (branch `mcp-error-contract`; G199, G200 A7/A9, Hyrum audit
+  A1/A4/A6).** Both doors check a call against the schema they advertise, once, before a body runs
+  (`tool_contract.check`): a bad argument answers `isError: true` with ``Invalid arguments: `<field>` …`` naming every
+  problem; `since` must be a date or a number of days, `cicada_project`'s `tz` a real zone. A refusal keeps its
+  sentence and answers `isError: true` with `structuredContent: {code, data, message}`, from the command line's own
+  `REFUSAL_CODES` (now also `invalid_arguments`, `out_of_range`, `error`), so a code means the same thing to the CLI and
+  to an agent; ~140 refusal sentences in `mcp_tools` carry codes. An exception names its class only (stdio, the tool
+  door, remote). Every read reply is fenced as reference data on both doors; a write's provider lines are marked the
+  same way on both. The primer (contract 19) names no HTTP route and picks its variant by exact client name, with a
+  `desktop` variant for `claude-ai`. Recall's state cursor says `pending_as_of` / `refresh_with`; confidence shows two
+  places; `cicada_recall_detail` drops five bookkeeping keys and never ends a part inside a fence it can avoid. The
+  golden fixture now pins whole `tools/call` results. **Dated follow-up: the leniency ships in exactly one release, the
+  first after v0.6.0 (which predates it) — 0.7.0 by the minor bumps since 0.4.0 — and the release after it refuses a
+  digit, decimal or `"true"`/`"false"` string where the schema says a number or boolean:** remove the lenient branches
+  in `tool_contract._value`. `test_mcp_error_contract.test_the_leniency_ships_in_exactly_one_release` fails on any
+  later `VERSION`, and on a patch release first (0.6.1 must move `LENIENT_RELEASE` to itself). Review fix round: a
+  read reply is fenced whatever its code, with Cicada's own directions outside the markers (`Reply.framed`); a recall
+  with stored words is never `empty_graph`; enums match without case; tolerated values (`engine`, `basis`, shot kinds,
+  roles) have no enum; a release batch keeps its good rows; every door logs the failing file:line, no message; the
+  writers' catch-alls no longer leak exception text. Tool and argument names are unchanged (G180 names no rename yet); `cicada_resolve_inbox`
+  also takes `item_id`, unlisted. Left out: the claims fence rendered through the one wire builder (A6), and fencing
+  the command line's text.
 - **2026-10-22 — ready for background agents: every verify recipe driven, the plan token only in the engine's child,
   CI on `dev`, a neutral bank identity (G203; branch `agent-ready-ci`).** The 19 recipes in
   `.claude/skills/verify-cicada/features/` that had never run were driven with `cv` on scratch banks: 4 worked as

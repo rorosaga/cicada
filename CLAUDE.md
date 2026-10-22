@@ -297,6 +297,10 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 
 - The handshake rides `initialize`; recall fuses vectors, words and claims. **An agent's write carries provenance** (the
   harness as `Cicada-Author`, the session trailer) and an agent withdraws only what it wrote.
+- **One tool-call contract on both doors (G199):** a call is checked once against the schema that door advertises; a
+  refusal keeps its sentence and answers `isError` with its code; an exception names its class, never its message, in
+  any reply (the log gets its file:line, never its message); a read reply is fenced whatever its code, Cicada's own
+  directions outside the markers (`tool_contract`, `mcp.md`).
 - **Prose is no longer Sleep's alone (G198, owner 2026-10-14):** `cicada_edit_page` changes a page's words or aliases, never
   its claims, with a reason that is the commit message; only a harness on the person's trust list writes at once (Claude Code
   and Codex until the person changes it, owner 2026-10-14; never remote, never `agent`), any other proposes in the inbox; pinned fixes and removed aliases outlive Sleep; blame is read from git (`storage.md`, `mcp.md`).
