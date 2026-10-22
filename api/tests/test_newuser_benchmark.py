@@ -65,3 +65,15 @@ def test_questions_file_is_well_formed():
     assert len(ids) == 25 == len(set(ids))
     tools = {"cicada_ask", "cicada_recall", "cicada_timeline", "cicada_project", "cicada_continue"}
     assert {q["tool"] for q in data["questions"]} == tools
+
+
+def test_the_loader_posts_the_hooks_workspace_observation():
+    """A repository the hook observed is what lets a project page be born (ruling 36 D4): the loader's observation
+    must parse on the backend exactly as the hook's does — a family for a checkout, none for a plain folder."""
+    from benchmarks.newuser import load
+
+    from api.services import workspace_identity
+
+    repo = workspace_identity.parse(persona.FERNPOST_CWD, load.workspace(persona.FERNPOST_CWD, "/home/x"))
+    plain = workspace_identity.parse(persona.DOTFILES_CWD, load.workspace(persona.DOTFILES_CWD, "/home/x"))
+    assert repo and repo.get("family_hash") and plain and "family_hash" not in plain

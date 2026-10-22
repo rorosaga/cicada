@@ -11,13 +11,15 @@ Doors, in the order a new person meets them:
 1. ``PUT /settings/owner`` — the name onboarding asks for.
 2. ``POST /intake/import`` — the ChatGPT export zip, then the Claude.ai export zip (the app's import panel).
 3. ``POST /capture/transcript`` — each Claude Code session, as its Stop hook posts it, after the transcript is
-   copied under the scratch harness root (the hook never sends bytes; the backend reads the file there).
+   copied under the scratch harness root (the hook never sends bytes; the backend reads the file there), with the
+   hook's own workspace observation (a git checkout for the two repositories, :func:`workspace`).
 4. ``POST /sources/upload`` — the browser bookmarks file.
 5. ``POST /sources/calendar-local/sync`` — the calendar window the app reads through EventKit.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import time
@@ -66,6 +68,22 @@ def _upload(run: dict, path: str, file: Path) -> tuple[int, dict | str]:
     return _request(run, "POST", path, body=body, ctype=f"multipart/form-data; boundary={boundary}")
 
 
+def _hash(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8", "surrogateescape")).hexdigest()[:16]
+
+
+def workspace(cwd: str, home: str) -> dict:
+    """What the Stop hook's ``workspace_identity.observe`` posts for ``cwd``: the cwd's hash, and for a git checkout
+    the ``rev-parse`` pair plus the scope hash (G110 D2). The checkouts are the persona's, so the pair is synthesised
+    here the way git would answer in them; ``observed_at`` is now, as the backend accepts only a fresh look."""
+    from datetime import datetime, timezone
+
+    seen = {"cwd_hash": _hash(cwd), "observed_at": datetime.now(timezone.utc).isoformat()}
+    if cwd not in persona.REPO_CWDS:
+        return seen
+    return {**seen, "repo_root": cwd, "common_dir": f"{cwd}/.git", "scope_hash": _hash(f"{home}\0persona-host")}
+
+
 def _wait_job(run: dict, answer: dict) -> dict:
     job = (answer or {}).get("job") if isinstance(answer, dict) else None
     if not job:
@@ -100,7 +118,7 @@ def load(run_dir: Path, fixture: Path) -> list[dict]:
         shutil.copyfile(fixture / "claude-projects" / t["rel"], dest)
         note(f"transcript {t['session_id'][:8]}", *_json(run, "POST", "/capture/transcript", {
             "harness": "claude-code", "session_id": t["session_id"], "transcript_path": str(dest),
-            "cwd": t["cwd"], "hook_event": "Stop"}))
+            "cwd": t["cwd"], "hook_event": "Stop", "workspace": workspace(t["cwd"], run["env"]["HOME"])}))
     note("bookmarks", *_upload(run, "/sources/upload", fixture / manifest["bookmarks"]))
     note("calendar", *_json(run, "POST", "/sources/calendar-local/sync",
                             json.loads((fixture / manifest["calendar"]).read_text())))

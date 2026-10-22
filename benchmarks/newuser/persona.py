@@ -167,6 +167,9 @@ CLAUDE_AI: list[dict] = [
 FERNPOST_CWD = "/home/mara/code/fernpost"
 TIDEPOOL_CWD = "/home/mara/code/tidepool-cli"
 DOTFILES_CWD = "/home/mara/dotfiles"
+#: The folders that are git checkouts: the Stop hook observes a repository there (G110 D2), which is what lets a
+#: project page be born from it (ruling 36 D4). The dotfiles folder is not one.
+REPO_CWDS = frozenset({FERNPOST_CWD, TIDEPOOL_CWD})
 
 CLAUDE_CODE: list[dict] = [
     {"cwd": TIDEPOOL_CWD, "at": "2026-08-21T20:00", "turns": [
