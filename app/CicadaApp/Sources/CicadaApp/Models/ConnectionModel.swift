@@ -148,6 +148,11 @@ struct PairingCreated: Decodable, Equatable {
 
 struct PairingReach: Decodable, Equatable {
     var serveCommand: String?
+    /// `missing` | `stopped` | … — the serve command is offered only where Tailscale is installed.
+    var tailscale: String?
+
+    /// The command to show: only when Tailscale is on this machine (a command for a tool not installed helps no one).
+    var shownServeCommand: String? { tailscale == "missing" ? nil : serveCommand }
 }
 
 /// #432: what a pairing code mints — a phone's capture-only token, or another computer's full device token.

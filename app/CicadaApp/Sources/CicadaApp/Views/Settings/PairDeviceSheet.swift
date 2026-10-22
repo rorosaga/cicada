@@ -54,7 +54,7 @@ struct PairDeviceSheet: View {
                                 .font(CicadaTheme.captionFont)
                                 .foregroundStyle(CicadaTheme.textTertiary)
                                 .textSelection(.enabled)
-                        } else if created.reach?.serveCommand == nil {
+                        } else if created.reach?.shownServeCommand == nil {
                             Text(Copy.DevicesPage.noAddress)
                                 .font(CicadaTheme.captionFont)
                                 .foregroundStyle(CicadaTheme.textTertiary)
@@ -77,7 +77,7 @@ struct PairDeviceSheet: View {
                     Text(Copy.DevicesPage.pairScan)
                         .font(CicadaTheme.captionFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
-                } else if let command = created.reach?.serveCommand {
+                } else if let command = created.reach?.shownServeCommand {
                     // #432: the tailnet-only serve of the backend port the person would run (Cicada never runs it).
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                         Text(Copy.DevicesPage.serveLead)

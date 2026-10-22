@@ -132,6 +132,16 @@ final class ConnectionModelTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(PairingCreated.self, from: Data(with.utf8)).reach?.serveCommand,
                        "tailscale serve --bg --https=8443 8000")
         XCTAssertNil(try JSONDecoder().decode(PairingCreated.self, from: Data(older.utf8)).reach)
+        let missing = #"{"pairing":{"id":"p1","state":"waiting"},"code":"ABCD-EFGH","qr":{"v":1,"url":null,"code":"ABCD-EFGH"},"#
+            + #""reach":{"tailscale":"missing","url":null,"public":false,"serveCommand":"tailscale serve --bg --https=8443 8000"}}"#
+        XCTAssertNil(try JSONDecoder().decode(PairingCreated.self, from: Data(missing.utf8)).reach?.shownServeCommand,
+                     "no serve command where Tailscale is not installed")
+        let served = #"{"pairing":{"id":"p1","state":"waiting"},"code":"ABCD-EFGH","kind":"capture","#
+            + #""qr":{"v":1,"url":"https://mac.example.ts.net:8443","code":"ABCD-EFGH"},"#
+            + #""reach":{"tailscale":"no-funnel","url":"https://mac.example.ts.net:8443","public":false,"serveCommand":null}}"#
+        let answer = try JSONDecoder().decode(PairingCreated.self, from: Data(served.utf8))
+        XCTAssertEqual(answer.qr.url, "https://mac.example.ts.net:8443")
+        XCTAssertNil(answer.reach?.shownServeCommand)
         XCTAssertEqual(PairingKind.capture.rawValue, "capture")
         XCTAssertEqual(PairingKind.full.rawValue, "full")
     }
