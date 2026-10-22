@@ -22,9 +22,22 @@ struct SourceLogoTile: View {
     /// An `OriginIconography` key.
     let origin: String
     var size: Size = .row
+    /// A provider umbrella's logo slug (`GET /providers`, an agent request's `logo`), drawn before the origin's.
+    var logo: String? = nil
+
+    /// The bundled file an umbrella slug draws today (the umbrella set is UI-A's; until it lands, OpenAI wears the
+    /// ChatGPT mark and Anthropic the Claude one).
+    static func bundledName(forLogo slug: String) -> String {
+        switch slug {
+        case "openai": "chatgpt"
+        case "anthropic": "claude"
+        case "google": "gemini"
+        default: slug
+        }
+    }
 
     var body: some View {
-        LogoImage.platformTile(name: OriginIconography.logoName(for: origin) ?? "",
+        LogoImage.platformTile(name: logo.map(Self.bundledName(forLogo:)) ?? OriginIconography.logoName(for: origin) ?? "",
                                bundleId: OriginIconography.appBundleId(for: origin),
                                size: CicadaTheme.scaled(size.points),
                                systemFallback: OriginIconography.symbol(for: origin))

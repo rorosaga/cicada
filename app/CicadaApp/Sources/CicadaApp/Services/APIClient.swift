@@ -2312,6 +2312,13 @@ actor APIClient {
         try await post("/inbox/\(id)/resolve", body: body)
     }
 
+    /// G61 "Where to check" (#422) — one row of the grouped review answered: `yes` takes that link on its page, `no`
+    /// removes it (remembered, never proposed again). The item keeps the rows not answered.
+    func resolveWhereToCheckRow(id: String, row: String, take: Bool) async throws {
+        try await post("/inbox/\(encodedID(id))/resolve",
+                       body: ["action": take ? "resolve" : "dismiss", "optionKey": take ? "yes" : "no", "row": row])
+    }
+
     /// Owner ruling 2026-10-16 — "Settled by a check": the questions a web lookup or the person's agent settled
     /// (`GET /inbox/settled`). Not a Store domain: fetched when the Inbox opens and after an undo (`SettledChecks`).
     func fetchSettledChecks() async throws -> [SettledCheck] {
