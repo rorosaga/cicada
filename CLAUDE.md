@@ -314,8 +314,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   2026-10-13):** a command on state the running backend owns (Sleep, engine, search model, bank switch, settings, the
   app's page writes) calls the backend's own route with the token and its pinned bank, only after `/healthz` confirms the
   root; with the backend down it refuses. Commands that act as the person refuse from an agent's shell.
-- **The remote connector (G135)** is off by default, serves only MCP on its own listener, through a tunnel **the person**
-  runs; capability tokens are hashed, scoped (`sources` gates every verbatim word of the person's), expiring and
+- **The remote connector (G135)** is off by default, serves only MCP and the G213 agent API (`/v1`, owner 2026-10-22,
+  ruling 36 D3) on its own listener, through a tunnel **the person** runs; capability tokens are hashed, scoped (`sources` gates every verbatim word of the person's), expiring and
   revocable; a remote claim is never the person's own words.
   Apps sign in through the listener's own OAuth 2.1 server (ruling 32): consent only in the app, by typing the code the
   person's own page shows, never a click or the public page; PKCE S256, single-use codes, rotating refresh tokens, all

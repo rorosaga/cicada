@@ -132,6 +132,9 @@ class ToolContext:
     local_files: bool = True
     sleep_probe: Callable[[], bool] | None = None
     device_id: str | None = None
+    # G213: an agent token's own name as `Cicada-Author` (`api:<name>`, `catalog.Connector.author`); the harness
+    # stays the enum `agent-api` for frontmatter and the ledger. None = the harness is the author, as always.
+    author_override: str | None = None
 
     @property
     def is_remote(self) -> bool:
@@ -151,7 +154,7 @@ class ToolContext:
 
     @property
     def author(self) -> str:
-        return agent_commits.author_for(self.harness)
+        return self.author_override or agent_commits.author_for(self.harness)
 
     @property
     def trigger(self) -> str:

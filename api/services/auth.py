@@ -58,6 +58,10 @@ TOKEN_FILE_NAME = "api_token"
 _STATIC_OPEN_PATHS = frozenset({
     "/healthz",
     "/capture/telegram",
+    # G213: the agent API's how-to, the same text at both spellings; static, nothing about the person.
+    "/llms.txt",
+    # G212: a device redeems a one-time pairing code the person's own screen showed; the code is its credential.
+    "/pair",
 })
 
 
@@ -96,7 +100,9 @@ class _OpenPaths:
     def __contains__(self, path: object) -> bool:
         if not isinstance(path, str):
             return False
-        return path in _STATIC_OPEN_PATHS or _is_oauth_callback_path(path)
+        return (path in _STATIC_OPEN_PATHS or _is_oauth_callback_path(path)
+                # G213: the agent API checks its own bearer — a connector token, never this one (`routers/agent_api`).
+                or path.startswith("/v1/"))
 
 
 _OPEN_PATHS = _OpenPaths()
@@ -161,7 +167,7 @@ _DEVICE_READABLE = frozenset({("GET", "/devices")})
 #: Writes only the master token may make under these prefixes: minting, rotating or turning on a G135 remote
 #: connector. A connector token a device minted would outlive the device's own revocation (and the listener it turns
 #: on faces the person's tunnel), so a device may read the connector state and revoke, never create or open.
-MASTER_ONLY_WRITE_PREFIXES = ("/remote",)
+MASTER_ONLY_WRITE_PREFIXES = ("/remote", "/agent-api")
 _MASTER_ONLY_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH"})
 
 

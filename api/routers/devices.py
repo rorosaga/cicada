@@ -59,3 +59,96 @@ async def revoke_device(device_id: str):
     except KeyError:
         raise HTTPException(status_code=404, detail="No such device.") from None
     return {"device": device.wire()}
+
+
+# ── G212: pairing a new device with a one-time code ─────────────────────────────
+# The person's own screen shows the code (the app draws it as a QR, `{v, url, code}`); the new device posts it to
+# `POST /pair` — open, the code being its credential — and gets its own device token, exactly as `POST /devices`
+# would have issued it. Making a code is the master token's alone (under `/devices`, `auth.MASTER_ONLY_PREFIXES`):
+# a device can never mint another device. Possession of a code shown on the person's screen is the person's act
+# (ruling 28.1), the trust shape of ruling 32's typed sign-in code.
+
+_WRONG_CODES = None
+
+
+def _wrong_codes():
+    global _WRONG_CODES
+    if _WRONG_CODES is None:
+        from api.remote.oauth import Bucket
+
+        _WRONG_CODES = Bucket(10, 10)   # a typo is fine; a guessing loop is not
+    return _WRONG_CODES
+
+
+class PairingCreateRequest(BaseModel):
+    #: Where the new device will reach this server — the person's overlay address (`https://…`, or `http://` to a
+    #: loopback address only, the client rule of ruling 28). Carried in the QR; never fetched. Omit and the app fills it.
+    url: str | None = Field(None, max_length=300)
+
+
+class PairRequest(BaseModel):
+    code: str = Field(..., min_length=1, max_length=40)
+    #: The device's own name for itself (its host name, the phone's name) — what the person sees in Devices.
+    name: str = Field(..., min_length=1, max_length=200)
+
+
+def _pair_url(raw: str | None) -> str | None:
+    from urllib.parse import urlparse
+
+    value = (raw or "").strip().rstrip("/")
+    if not value:
+        return None
+    parsed = urlparse(value)
+    loopback = parsed.hostname in ("127.0.0.1", "localhost", "::1")
+    if (not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment
+            or not (parsed.scheme == "https" or (parsed.scheme == "http" and loopback))):
+        raise HTTPException(status_code=400, detail="Use the https:// address your overlay gives this server "
+                                                    "(plain http only to this machine itself).")
+    return value
+
+
+@router.post("/devices/pairing", status_code=201)
+async def create_pairing(req: PairingCreateRequest):
+    url = _pair_url(req.url)
+    try:
+        pairing, code = await run_in_threadpool(device_tokens.store().create_pairing)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    return {"pairing": pairing.wire(), "code": code, "qr": {"v": 1, "url": url, "code": code}}
+
+
+@router.get("/devices/pairing/{pairing_id}")
+async def get_pairing(pairing_id: str):
+    pairing = await run_in_threadpool(device_tokens.store().pairing, pairing_id)
+    if pairing is None:
+        raise HTTPException(status_code=404, detail="No such pairing.")
+    device = None
+    if pairing.device_id:
+        found = await run_in_threadpool(device_tokens.store().get, pairing.device_id)
+        device = found.wire() if found else None
+    return {"pairing": pairing.wire(), "device": device}
+
+
+@router.delete("/devices/pairing/{pairing_id}")
+async def cancel_pairing(pairing_id: str):
+    try:
+        pairing = await run_in_threadpool(device_tokens.store().cancel_pairing, pairing_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="No such pairing.") from None
+    return {"pairing": pairing.wire()}
+
+
+@router.post("/pair", status_code=201)
+async def redeem_pairing(req: PairRequest):
+    """Open (``auth._STATIC_OPEN_PATHS``): the code is the credential. Any code that matches nothing waiting is one
+    404, whatever the reason, and ten a minute is the most this door answers."""
+    if not _wrong_codes().take():
+        raise HTTPException(status_code=429, detail="Too many codes — wait a minute.", headers={"Retry-After": "60"})
+    try:
+        device, token = await run_in_threadpool(lambda: device_tokens.store().redeem(req.code, req.name))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    except KeyError:
+        raise HTTPException(status_code=404, detail="No pairing waits with that code — it was used, cancelled or "
+                                                    "expired. Ask for a new one.") from None
+    return {"device": device.wire(), "token": token}

@@ -172,7 +172,7 @@ item only (fetched once, on the person's click, through `net_guard` under the To
 
 **The remote connector (G135) — the one way in from outside this Mac.** Off by default
 (`~/.cicada/remote/settings.json`). When on, a **second listener on `127.0.0.1:8765`**
-(`CICADA_REMOTE_PORT`) serves **only MCP** — none of the FastAPI routers — to cloud AI apps
+(`CICADA_REMOTE_PORT`) serves **only MCP and the agent API** (below) — none of the FastAPI routers — to cloud AI apps
 through a tunnel **the person** runs (Tailscale Funnel or ngrok); **Cicada never starts, stops or
 reconfigures a tunnel** — `GET /remote/status` only detects one — on PATH or in
 the standard install folders, since an older LaunchAgent's PATH is bare (F2-back R-B15). Access is a per-connector
@@ -247,6 +247,16 @@ rather than refuse a new one, and any client — registered or a metadata docume
 is pruned after a day. A redirect URI with a backslash, a control character or a port that does not parse is refused,
 registered or presented. **Origin:** refused everywhere except a GET of the two
 sign-in pages (a browser navigation). Not supported: `private_key_jwt`, `client_credentials`, OpenID scopes.
+
+**The agent API on the listener (G213; owner 2026-10-22, ruling 36 D3 — amends "serves only MCP").** A cloud agent
+that cannot speak MCP (a texted personal agent, an agent that builds its own client from an OpenAPI document) can
+reach only a public URL, so the listener also answers `POST /v1/<op>`, `GET /v1/me`, `GET /v1/openapi.json`,
+`GET /v1/llms.txt` and `GET /llms.txt` — the same operations, envelope and status codes as the backend's own `/v1`
+(`api.md`, "The agent API"), run by `api/remote/agent_api.call` through the one shared `RemoteRuntime`. Same gate,
+same order: the `Origin` refusal, the token (`cic_at_`, `cic_rc_`, or an agent token `cic_api_` — which opens `/v1`
+only, never `/mcp`), the per-connector rate limit, the 1 MB body cap; the `sources` scope still gates every verbatim
+word of the person's, and a claim is `origin: remote:<id>`, never the person's own words. The two documents are open
+(static, nothing about the person). No FastAPI router is reachable through it.
 
 **The tunnel for sign-in is the person's, to this listener only.** claude.ai and ChatGPT reach the Mac from their own
 servers, so the person exposes the G135 listener's port publicly with a stable hostname — `tailscale funnel --bg 8765`

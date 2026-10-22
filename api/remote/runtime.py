@@ -265,6 +265,20 @@ def _writes_bank(tool: str, arguments=None) -> bool:
     return outcome == "read" or outcome not in ("needs_login", "blocked", "not_found", "failed")
 
 
+_SHARED: "RemoteRuntime | None" = None
+_SHARED_GUARD = threading.Lock()
+
+
+def shared() -> "RemoteRuntime":
+    """The one runtime this process runs remote calls through — the listener's `/mcp` and `/v1`, and the backend's own
+    `/v1` (G213) — so R-R28's one-write-at-a-time lock and the daily `ask` count hold across every door."""
+    global _SHARED
+    with _SHARED_GUARD:
+        if _SHARED is None:
+            _SHARED = RemoteRuntime()
+        return _SHARED
+
+
 class RemoteRuntime:
     def __init__(self, *, memory_path: Callable[[], Path] | None = None, backend_url: str | None = None,
                  post: Callable[[str, dict], dict] | None = None,
@@ -300,7 +314,7 @@ class RemoteRuntime:
             backend_url=self._backend_url or _backend_url(), read_surface="remote",
             connector_id=connector.id, available=catalog.tool_names_for(connector.scopes),
             raw_excerpts="sources" in connector.scopes, sources_limit=SOURCES_LIMIT,
-            sleep_holding=self._sleep_running,
+            sleep_holding=self._sleep_running, author_override=connector.author,
         )
 
     def call(self, connector: catalog.Connector, tool: str, arguments: dict | None, *,
