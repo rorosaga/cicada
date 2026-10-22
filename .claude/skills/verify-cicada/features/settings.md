@@ -27,5 +27,5 @@ Preconditions:
 
 ## Gotchas
 
-- Forbidden in a verify run: every Connect, Disconnect, Sign in, Sign out, Install, Set up and Turn on button in General (background service, Open at login, the CLI link), Engines, Plans & keys, Integrations and Agents. They reach launchd, the harness configs, the keychain, browsers, Contacts or Calendar, and an OAuth sign-in's callback defaults to `localhost:8000`, the person's own backend. Read those rows and screenshot them; never press them.
+- Forbidden in a verify run: every Connect, Disconnect, Sign in, Sign out, Install, Set up, Turn on/off and Update button, and the Open Cicada at login and Restart Cicada switches, in General (background service, Open at login, the CLI link), Devices, Engines, Plans & keys, Integrations and Agents. They reach launchd, the harness configs, the keychain, browsers, Contacts or Calendar, and an OAuth sign-in's callback defaults to `localhost:8000`, the person's own backend. Read those rows and screenshot them; never press them.
 - Plans & keys and Engines show the plan's account as `verify@example.invalid` (`plan-claude` masks it); any other email on screen is the person's, so delete that screenshot.

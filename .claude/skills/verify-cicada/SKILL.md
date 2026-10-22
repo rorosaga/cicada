@@ -133,8 +133,9 @@ $CV app shot projects
 ```
 
 `vh` fails unless this run's app is running, so the harness never starts a copy outside the run. `vclick` refuses a
-line that reads Connect, Disconnect, Sign in, Sign out, Install, Set up (not `Set up later`), Turn on or Get started
-(`cv deny`, case-insensitive). Sidebar pages are
+line that reads Connect, Disconnect, Sign in, Sign out, Install, Set up (not `Set up later`), Turn on, Turn off, Get
+started, at login, Update, Restart Cicada, Open in Cursor, Save chats on their own, Remove bookmark, Allow Contacts or
+Allow… (`cv deny`, case-insensitive; the full list is `FORBIDDEN_RE` in `bin/cv`). Sidebar pages are
 buttons with `Description: <Page>,` (Home, Graph, Clusters, Skills, Sleep, Inbox, Sources, Projects, Settings).
 Numbers change with every page; `vclick` reads fresh each time. When an element ignores an AX press, use the
 screenshot and `$CV app click X Y` (points from the top-left of our window; a `cv app shot` PNG on a Retina screen is
@@ -178,8 +179,10 @@ deletes the run dir unless `--keep-state`. Evidence is never removed. After a fa
   fails: `rm -rf app/CicadaApp/.build` in that checkout only, then `cv app build` again.
 - A first launch can raise a macOS privacy prompt that blocks the window; `cv app launch` then times out with no
   window. Screenshot the whole screen, tell the person, and do not click the prompt for them.
-- Never press a Connect, Disconnect, Sign in, Sign out, Install, Set up or Turn on button in the app in a verify
-  run: Settings → Engines, Plans & keys, Integrations, Agents, Skills and General. The Claude plan's Disconnect signs
+- Never press a Connect, Disconnect, Sign in, Sign out, Install, Set up, Turn on/off or Update button in the app in a
+  verify run, nor Open Cicada at login (it registers this copy as the person's login item), Restart Cicada (`open -n`
+  drops the scratch home), Open in Cursor, Remove bookmark (drives Chrome) or Allow Contacts / Allow… (TCC prompts):
+  Settings → Engines, Plans & keys, Integrations, Agents, Skills and General. The Claude plan's Disconnect signs
   the real `claude` out. `vclick` and `cv app click` refuse them; their `--allow-forbidden` only skips the check and
   never makes the press safe. They reach the real keychain, browsers, Contacts or Calendar,
   launchd or the harness configs, and an OAuth sign-in's callback defaults to `localhost:8000`, the person's own

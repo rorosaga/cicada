@@ -8,8 +8,8 @@ vh() {
   macos-harness "$1" --app "$app" "${@:2}"
 }
 vidx() { vh get_app_state --disableDiff | grep -E "$1" | head -1 | awk '{print $1}'; }
-# Refuses an element that reads like Connect, Disconnect, Sign in/out, Install, Set up, Turn on or Get started
-# (`cv deny`): those write the real account. --allow-forbidden skips the check; nothing makes such a press safe.
+# Refuses an element that reads like a button whose effect leaves the run (`cv deny`, FORBIDDEN_RE in cv): Connect,
+# Sign in/out, Install, Set up, Turn on/off, Open at login, Update, Restart Cicada and the rest. --allow-forbidden skips the check; nothing makes such a press safe.
 vclick() {
   local allow=""; [ "$1" = "--allow-forbidden" ] && { allow=1; shift; }
   local line; line="$(vh get_app_state --disableDiff | grep -E "$1" | head -1)"

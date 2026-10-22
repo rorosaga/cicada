@@ -39,9 +39,14 @@ REAL_APP_SUPPORT = REAL_HOME / "Library/Application Support/Cicada"
 # The person's own state: a verify app holding a file open under any of these has escaped the scratch home.
 REAL_STATE_ROOTS = (REAL_HOME / ".cicada", REAL_HOME / "cicada", REAL_APP_SUPPORT)
 REAL_BUNDLE_SUPPORT_PREFIX = str(REAL_HOME / "Library/Application Support" / OWNER_BUNDLE_ID)
-# Buttons that write the real account (Gotchas in ../SKILL.md). "Set up later" only dismisses the welcome screen.
+# Buttons whose effect leaves the run (Gotchas in ../SKILL.md): the real account, login items, launchd, the harness
+# configs, TCC and Automation prompts, the person's browser. "Set up later" only dismisses the welcome screen.
+# "Restart Cicada" reopens the bundle with `open -n`, which drops the scratch home; "Update" runs an installer or
+# rewrites a harness hook; "Open in Cursor" writes Cursor's own config; "Remove bookmark" drives Chrome.
 FORBIDDEN_RE = re.compile(r"\b(dis)?connect\b|\bsign\s+(in|out)\b|\binstall\b|\bset\s+up\b(?!\s+later)|"
-                          r"\bturn\s+on\b|\bget\s+started\b", re.I)
+                          r"\bturn\s+(on|off)\b|\bget\s+started\b|\bat\s+login\b|\bupdate\b|"
+                          r"\brestart\s+cicada\b|\bopen\s+in\s+cursor\b|\bsave\s+chats\s+on\s+their\s+own\b|"
+                          r"\bremove\s+bookmark\b|\ballow\s+contacts\b|\ballow\s*(\u2026|\.\.\.)", re.I)
 LSREGISTER = ("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/"
               "lsregister")
 PLACEHOLDER_OWNER = "Verify Person"
@@ -938,7 +943,7 @@ def app_path(run: dict, args) -> None:
 
 def cmd_deny(args) -> None:
     if hit := forbidden(args.text):
-        die(f"refused: {args.text.strip()[:160]!r} reads {hit!r}, a button that writes the real account "
+        die(f"refused: {args.text.strip()[:160]!r} reads {hit!r}, a button whose effect leaves the run "
             "(SKILL.md, Gotchas)")
 
 
@@ -951,8 +956,15 @@ def selftest_guards() -> list[tuple]:
     for label, want in (("7 button Description: Disconnect, Help: Signs out", True), ("button Connect", True),
                         ("button Sign in", True), ("button Sign Out", True), ("button Install", True),
                         ("button Set up", True), ("button Turn on", True), ("button Get started", True),
+                        ("toggle Open Cicada at login", True), ("button Turn off", True), ("button Update", True),
+                        ("button Update all", True), ("button Restart to update", True),
+                        ("button Restart Cicada", True), ("button Open in Cursor", True),
+                        ("button Save chats on their own", True), ("button Remove bookmark\u2026", True),
+                        ("button Allow Contacts", True), ("button Allow\u2026", True),
                         ("12 button Description: Projects,", False), ("button Set up later", False),
-                        ("text Connected", False), ("button Description: Integrations,", False)):
+                        ("text Connected", False), ("button Description: Integrations,", False),
+                        ("button Restart tour", False), ("button Check for Updates\u2026", False),
+                        ("button Allow your agent to use your browser", False)):
         rows.append((bool(forbidden(label)) == want, f"deny {label!r}", "refused" if want else "allowed", ""))
     stub_vh = ('. "$HARNESS"; vh() { if [ "$1" = get_app_state ]; then printf "%s\\n" "$LINE"; '
                'else echo CLICKED "$@"; fi; }; vclick "$@"')
