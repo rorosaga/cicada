@@ -21,6 +21,8 @@ struct SleepWaitingList: View {
     let page: SleepPageModel
     let liveness: SleepLiveness
     let episodes: [EpisodeQueueItem]
+    /// G212 — one machine's queue open: its rows, built from its own episodes (nil: the page's rows, every machine's).
+    var machineRows: [StudyRow]? = nil
     var onSelectEntity: ((String) -> Void)?
     /// Track Z Z6 (I5, I7) — hands the room to the rows, so a row and its spine answer each other's hover.
     var room: RoomModel? = nil
@@ -45,7 +47,7 @@ struct SleepWaitingList: View {
                                 onRetry: canRetry ? onRetryParked : nil, onSeeOwnerPage: onSeeOwnerPage)
                     .saturation(liveness.saturation)
             }
-            StudyListCard(rows: page.rows, episodes: episodes, queueLoad: page.queueLoad,
+            StudyListCard(rows: machineRows ?? page.rows, episodes: episodes, queueLoad: page.queueLoad,
                           onSelectEntity: onSelectEntity, room: room)
                 .id(DetailsSection.waiting.anchorID)
                 .saturation(liveness.saturation)

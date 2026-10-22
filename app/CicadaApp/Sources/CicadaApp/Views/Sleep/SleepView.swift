@@ -528,9 +528,12 @@ struct SleepView: View {
         let rowInset = ListInsets.of(.wide).leading
         switch tab {
         case .waiting:
-            SleepWaitingList(page: page, liveness: liveness,
-                             episodes: MachinesStrip.episodes(sleepVM.queuedEpisodes,
-                                                              machine: machines.first { $0.id == openMachine }),
+            let machine = machines.first { $0.id == openMachine }
+            let machineEpisodes = MachinesStrip.episodes(sleepVM.queuedEpisodes, machine: machine)
+            SleepWaitingList(page: page, liveness: liveness, episodes: machineEpisodes,
+                             machineRows: machine == nil ? nil
+                                 : studyRows(queued: machineEpisodes, queueByOrigin: [:], readByOrigin: [:],
+                                             running: false),
                              onSelectEntity: onSelectEntity, room: room, queue: sleepVM.queue,
                              showsRun: showsRunBlock(page), runPaused: sleepVM.isPaused,
                              ownerReady: ownerReady(page), onRetryParked: retryParked,
