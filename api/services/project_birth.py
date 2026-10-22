@@ -125,7 +125,17 @@ def _close(sentence: str, a: tuple[int, int], b: tuple[int, int]) -> bool:
     """The name and the project word sit in one clause, at most :data:`MAX_GAP_WORDS` words apart."""
     lo, hi = (a[1], b[0]) if a[0] <= b[0] else (b[1], a[0])
     between = sentence[lo:hi]
-    return lo <= hi and not _CLAUSE_BREAK.search(between) and len(_WORD.findall(between)) <= MAX_GAP_WORDS
+    if lo > hi:
+        return False
+    if b[0] < a[0]:
+        # "New project with Teo: fernpost" — a colon after the project word's clause introduces its name, when the
+        # name is the first thing after it (benchmarks/newuser, owner 2026-10-22). A name BEFORE a colon still
+        # starts a new thought ("fernpost: the project at work …").
+        head, colon, tail = between.rpartition(":")
+        if colon and not tail.strip() and not _CLAUSE_BREAK.search(head) \
+                and len(_WORD.findall(head)) <= MAX_GAP_WORDS:
+            return True
+    return not _CLAUSE_BREAK.search(between) and len(_WORD.findall(between)) <= MAX_GAP_WORDS
 
 
 def said_project(entity: dict, text: str, *, override: str | None = None, gaps=()) -> evidence.Evidence | None:

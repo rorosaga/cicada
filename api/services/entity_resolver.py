@@ -353,6 +353,10 @@ async def resolve(
                     gate=lookahead.gate if lookahead is not None else None,
                 )
 
+            if match is None and _written_type(entity, siblings) == "project":
+                # W2 (benchmarks/newuser, 2026-10-22): a project mention whose own recorded alias names exactly one
+                # project page is that page's news, not a birth to hold (ruling 36 D4 is about NEW pages).
+                match = _project_alias_match(entity, siblings, existing_by_name, resolved_creates)
             if match is not None and match["decision"] == "same":
                 candidate = match["candidate"]
                 name_to_id[name_lower] = candidate["id"]
@@ -445,7 +449,9 @@ async def resolve(
             # Ruling 36 D4 (G141): a project is born from a repository the person works in or their own words calling
             # it one (`project_birth`), never from the rule above alone; below it, it stays a mention.
             birth = project_birth.birth_of(entity, siblings)
-            if (entity.get("type") or "").lower() == "project":
+            # W4: the gate reads the type the create will WRITE — a sibling's "project" overrides a "concept" when the
+            # payloads merge (`_merge_entity_payload`), so a page was once written as a project with no birth.
+            if _written_type(entity, siblings) == "project":
                 should_promote = birth is not None
 
             if ambiguous_match and match.get("lead") is not None:
@@ -1259,6 +1265,45 @@ def _fold_named_handle_lines(change: dict, name_lower: str, lines: dict[str, lis
         _fold_pending(change, renamed)
         name_to_id.setdefault(line.name.lower(), change["id"])
         promoted_pending.append(line.name)
+
+
+def _written_type(entity: dict, siblings) -> str:
+    """The type a create from ``entity`` and its ``siblings`` is written with — ``_merge_entity_payload``'s rule, read
+    in the order the loop merges them: an empty or ``concept`` type takes the next mention's."""
+    kind = str(entity.get("type") or "").lower()
+    for sibling in siblings:
+        if not kind or kind == "concept":
+            kind = str(sibling.get("type") or kind or "concept").lower()
+    return kind or "concept"
+
+
+def _project_alias_match(entity: dict, siblings, existing_by_name: dict[str, dict],
+                         created_by_id: dict[str, dict]) -> dict | None:
+    """A ``same`` match for a project mention whose recorded alias is the name (or an alias) of exactly ONE project
+    page — on disk, else born in this batch. ``None`` when no alias names one, or two do."""
+    names = {person_leads.handle_key(a) for e in (entity, *siblings) for a in (e.get("aliases") or [])
+             if str(a).strip()} - {person_leads.handle_key(entity.get("name") or "")}
+    if not names:
+        return None
+    hits: dict[str, dict] = {}
+    for data in existing_by_name.values():
+        candidate = {"source": "existing", "id": data["id"], "data": data}
+        fm = data.get("frontmatter") or {}
+        keys = {person_leads.handle_key(fm.get("name") or data["id"])} | {
+            person_leads.handle_key(a) for a in (fm.get("aliases") or []) if str(a).strip()}
+        if _candidate_type(candidate) == "project" and names & keys:
+            hits[data["id"]] = candidate
+    if not hits:
+        for pid, change in created_by_id.items():
+            candidate = {"source": "created", "id": pid, "data": change}
+            created = change.get("entity") or {}
+            keys = {person_leads.handle_key(created.get("name") or pid)} | {
+                person_leads.handle_key(a) for a in (created.get("aliases") or []) if str(a).strip()}
+            if _candidate_type(candidate) == "project" and names & keys:
+                hits[pid] = candidate
+    if len(hits) != 1:
+        return None
+    return {"decision": "same", "candidate": next(iter(hits.values()))}
 
 
 def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: list[dict],
