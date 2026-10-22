@@ -283,6 +283,9 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   names. Apple Calendar (G142): the app reads EventKit after the one standard permission prompt and
   posts a rolling window to `POST /sources/calendar-local/sync` (one request = the whole window).
   `calendar_local.py` stages each event keyed `calendar-local:<id>`:
+  - a new episode for an event that has already begun is dated its start (timestamp and id day; read on time,
+    2026-10-16 — a first sync's past month was otherwise a month of mentions today); one still ahead is dated the day
+    Cicada learned of it; an existing episode keeps its id and first stamp (benchmarks/newuser, 2026-10-22);
   - notes are scrubbed, then cut at 2,000 characters;
   - a link keeps no query;
   - an event gone from the window is tombstoned, only for the calendars the request named;
@@ -1531,7 +1534,9 @@ other writer added — a person's merge included — is counted and kept.
 evidence_entities, confidence}`; the old writer kept only the name and description, so every skill page was born
 with `source_episodes: []`, `created` = the cycle's day, no section provenance and no `related`, was written only
 when absent (a pattern found again never moved its page), and decayed with zero mention weeks. Now
-`skill_grounding.ground` matches each evidence name, without a model, to this batch's conversations (Stage 1's names,
+`skill_grounding.ground` matches each evidence name, without a model, to this batch's conversations — conversations
+only: a saved item or a calendar entry (`inbox_tend.record_origin`) is a record, never evidence of how the person
+works (benchmarks/newuser, 2026-10-22: two bookmarks had grounded a "skill") — (Stage 1's names,
 Stage 2's `name_to_id`, the changes' own sources), keeps those where two of the named entities came up together (every conversation of the one, when only one of them
 came up in the batch), and hands `apply_changes` an ordinary `create`/`update` change: dates from those
 conversations, the Summary's section provenance citing each as `reasoning` (an inference, never a quotation), a

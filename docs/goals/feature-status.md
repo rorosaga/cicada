@@ -23,3 +23,4 @@ Status, in order: `proposed` → `building` (a branch exists) → `PR #n` (open 
 | [G135](memory-evolution.md#g135) | Phones through the Claude, ChatGPT and Gemini apps (cited as G214) | proposed | — | 2026-10-22 |
 | [G91](memory-evolution.md#g91) | `cicada-app`: phone capture app, paired as a device (cited as G214) | building | — | 2026-10-22 |
 | [G216](memory-evolution.md#g216) | Recall stays under the harness's result cap | merged | #418 | 2026-10-22 |
+| [G148](memory-evolution.md#g148) | New-user benchmark (`benchmarks/newuser`): a stranger's two months, one Sleep, 25 questions over MCP ×3; with fixes to calendar dating, endings, skills, the timeline's counts and the handshake's recent conversations | PR (fix/new-user-memory) | — | 2026-10-22 |

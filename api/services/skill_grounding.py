@@ -21,7 +21,8 @@ Stage 1 found — no new writer, no model call:
   skill is an inference across them, never a quotation of one (G118 R6).
 * **Related.** Each evidence entity with a page gets a ``draws on`` edge, so ``related`` names it.
 * **Two conversations (owner ruling 2026-10-09).** A NEW skill page needs two or more conversations, the bar entity
-  promotion sets. A skill grounded on one conversation is held, not written and not lost: :func:`settle` parks it in
+  promotion sets — conversations only: a saved item or a calendar entry is a record, never evidence of how the person
+  works (benchmarks/newuser, 2026-10-22). A skill grounded on one conversation is held, not written and not lost: :func:`settle` parks it in
   its own store (``skill_hold``, ``pending_skills.jsonl``, keyed by the page id it would get) with that conversation,
   its description, confidence and evidence pages. A later batch that grounds the same skill on another conversation
   clears the bar: the page is created citing both, its evidence pages joined, and the line leaves the store. Nothing
@@ -60,11 +61,19 @@ class _Episode:
     ids: set[str] = field(default_factory=set)     # the page ids those names resolved to
 
 
+def _conversation(extraction: dict) -> bool:
+    """A conversation, not a record (``inbox_tend.record_origin``: a saved item or a calendar entry) — two bookmarks
+    once grounded a "skill" of the person's bookmarking (benchmarks/newuser, 2026-10-22)."""
+    from api.services import inbox_tend
+
+    return not inbox_tend.record_origin(extraction.get("origin"))
+
+
 def _episode_index(extracted: list[dict], name_to_id: dict[str, str]) -> dict[str, _Episode]:
     index: dict[str, _Episode] = {}
     for extraction in extracted or []:
         ep_id = str(extraction.get("episode_id") or "")
-        if not ep_id:
+        if not ep_id or not _conversation(extraction):
             continue
         ep = index.setdefault(ep_id, _Episode())
         for entity in extraction.get("entities", []) or []:

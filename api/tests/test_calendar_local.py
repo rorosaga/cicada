@@ -156,3 +156,36 @@ def test_the_channel_is_offered_before_the_first_sync_and_counts_after(client):
     _post(c, [_event("E1"), _event("E2")])
     assert (row()["connected"], row()["count"], row()["countNoun"]) == (True, 2, "event")
     assert "calendar-local" in {spec.id for spec in source_overview.CATALOG}
+
+
+# --- benchmarks/newuser (2026-10-22): an event that already happened is dated the day it happened -------------------
+
+
+def test_a_past_event_is_dated_the_day_it_happened(client):
+    """A first sync reads 30 days back: dated the sync day, every past event read as a mention today — a job the
+    person left looked current again, and its farewell lunch read as said today. Read on time (2026-10-16): what
+    happened before Cicada read it counts on the day it happened."""
+    c, memory = client
+    assert _post(c, [_event("E1", start="2026-09-11T12:00:00+00:00")]).status_code == 200
+    [(_, ep)] = _episodes(memory).items()
+    assert ep.frontmatter["id"].startswith("ep_2026-09-11_")
+    assert ep.frontmatter["timestamp"].startswith("2026-09-11T12:00:00")
+
+
+def test_a_future_event_is_dated_the_day_cicada_learned_of_it(client):
+    c, memory = client
+    far = {"from": "2026-09-01T00:00:00+00:00", "to": "2099-02-01T00:00:00+00:00"}
+    assert _post(c, [_event("E1", start="2099-01-05T09:00:00+00:00")], window=far).status_code == 200
+    [(_, ep)] = _episodes(memory).items()
+    assert not ep.frontmatter["id"].startswith("ep_2099"), "never dated in the future"
+    assert not str(ep.frontmatter["timestamp"]).startswith("2099")
+
+
+def test_a_moved_event_keeps_its_id_and_first_date(client):
+    c, memory = client
+    _post(c, [_event("E1", start="2026-09-11T12:00:00+00:00")])
+    [(_, before)] = _episodes(memory).items()
+    assert _post(c, [_event("E1", title="Moved", start="2026-09-12T12:00:00+00:00")]).json()["updated"] == 1
+    [(_, after)] = _episodes(memory).items()
+    assert (after.frontmatter["id"], after.frontmatter["timestamp"]) == (
+        before.frontmatter["id"], before.frontmatter["timestamp"])

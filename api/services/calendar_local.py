@@ -21,9 +21,11 @@ What an event may carry into the bank, and why (R4B-13):
 One request carries the whole window: a tombstone needs the complete set, so an
 event is tombstoned only when its calendar is named in the request, its stored
 start lies in [from, to) and it was not posted — a calendar the request does not
-name says nothing about its events. The episode is dated the day Cicada learned
-of the event (the ICS path's rule); the event's own times are in the body, where
-Sleep reads dates, and in `event_start`/`event_end`.
+name says nothing about its events. A new episode for an event that has already
+begun is dated its start (read on time, 2026-10-16; benchmarks/newuser measured a
+first sync's past month read as mentions today); one still ahead is dated the day
+Cicada learned of it (the ICS path's rule). The event's own times are in the body,
+where Sleep reads dates, and in `event_start`/`event_end`.
 """
 
 from __future__ import annotations
@@ -32,7 +34,7 @@ from datetime import date, datetime, time, timezone
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-from api.services import episode_scrub, episode_staging
+from api.services import episode_ids, episode_scrub, episode_staging
 
 CHANNEL_ID = "calendar-local"
 LABEL = "Apple Calendar"
@@ -140,6 +142,14 @@ def _vanished(sid: str, fm: dict, posted: dict, calendars: dict, start: datetime
     return at is not None and start <= at < end
 
 
+def _happened(ev: dict, now: datetime) -> datetime | None:
+    """When a new episode for this event is dated: its start once it has begun — read on time (owner 2026-10-16), so a
+    first sync's month of past events is never a month of mentions today — else ``None``, the day Cicada learned of it
+    (a future event is known now, never said in the future). An existing episode keeps its id and first stamp."""
+    start = instant(ev.get("start"))
+    return start.astimezone(timezone.utc) if start is not None and start <= now else None
+
+
 def sync(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict:
     """Stage one window (C6). `payload` is the request with snake_case keys
     (`window.start`/`window.end` are the wire's `from`/`to`). Returns the four
@@ -160,6 +170,7 @@ def sync(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict:
         raise PayloadError(f"at most {MAX_EVENTS} events per sync")
     drafts: list[episode_staging.EpisodeDraft] = []
     scrubbed = 0
+    now = datetime.now(timezone.utc)
     for sid, ev in events.items():
         body, n = body_for(ev, calendars.get(str(ev.get("calendar_id") or "")))
         title, m = episode_scrub.scrub(_clip(ev.get("title")) or "Untitled event")
@@ -167,8 +178,10 @@ def sync(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict:
         extra = {"event_start": str(ev.get("start") or ""), "calendar_id": str(ev.get("calendar_id") or "")}
         if ev.get("end"):
             extra["event_end"] = str(ev["end"])
+        when = _happened(ev, now)
         drafts.append(episode_staging.EpisodeDraft(
             title=title, source_id=sid, source_updated_at=str(ev.get("last_modified") or "") or None,
+            timestamp=when.isoformat() if when else None, original_date=episode_ids.id_day(when) if when else None,
             source=ORIGIN, origin=ORIGIN, body=body, extra=extra, writer=SCRUB_WRITER))
     episodes_dir = Path(memory_path) / "episodes"
     episodes_dir.mkdir(parents=True, exist_ok=True)

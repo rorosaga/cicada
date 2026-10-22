@@ -10,6 +10,13 @@
 
 ## Current state and evidence
 
+- **2026-10-22 — the new-user benchmark and what it fixed (G148; branch `fix/new-user-memory`).** `benchmarks/newuser`
+  loads an invented person through the real doors onto a verify-cicada scratch backend, sleeps once (plan, haiku) and
+  asks 25 questions over MCP stdio; rerun it before each release (its README). Branch base 23.0/25 → 24.0/25 (three
+  repeats each, no spread). Fixed: calendar events dated the day they happened (`calendar_local`), "worked with" /
+  "dropped" endings (seed), skills grounded only on conversations (`skill_grounding`, `inbox_tend.record_origin`),
+  created pages counted (`change_timeline`, `git_service.CREATED_ACTIONS`), recent conversations without calendar
+  entries (`state_dictionary`). The written-up findings (G209, G141, G21, G112) are on the G148 row.
 - **2026-10-22 — projects born from a repository or the person's words (G141, ruling 36 D4; branch `feat/projects-v2`).** Stage 2 mints a project page only on a birth record Stage 1 computed with no model: a harness session the hook observed in a checkout of that folder name, or one clause of the person's own turn calling it a project; `born:` is written once; six standard sections and the people involved ride the timeline wire (g141-5); `api.scripts.project_origins_dry_run` lists every existing project page as repo / words / neither, read only. The hook reads no git remote (G110 D2), so the folder name stands in — disclosed on the row. **Next:** the acting owner runs the dry run on the real bank and asks the owner before any review list; the SwiftUI page is specced in `app.md` (needs a Mac).
 - **2026-10-22 — the redesign's decisions recorded (ruling 36; branch `docs/redesign-2026-10-22`).** The owner's answers D1–D6 are ruling 36: a key secured properly or the person's own Claude Code / Codex, never a local default (amends ruling 31); a quick read after each conversation, on by default only if measured better (amends the capture rail); the agent tiers plus an HTTP API for agents without MCP, served on the G135 listener; projects from a repository or the person's words; the person's-photo gate on with sources on people; Settings in six. Backlog: new G205–G207, G209, G210, G212, G213, G216 (done, #418) and G217 (the connection model — the briefs' "G204" was taken); G208, G211, G214, G215 fold into G61, G141, G91 + G135, G50 as redirects. `feature-status.md` tracks each line.
 - **2026-10-22 — the MCP error and argument contract (branch `mcp-error-contract`; G199, G200 A7/A9, Hyrum audit
