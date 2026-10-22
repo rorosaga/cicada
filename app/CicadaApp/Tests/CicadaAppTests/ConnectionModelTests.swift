@@ -123,4 +123,16 @@ final class ConnectionModelTests: XCTestCase {
         XCTAssertTrue(DevicesSettingsView.detail(device, now: now).hasPrefix("last seen "))
         XCTAssertEqual(DevicesSettingsView.presence(DeviceStatusRow(deviceId: "d2", name: "New"), now: now), .notSetUp)
     }
+
+    /// #432 (additive): the answer may carry `reach.serveCommand`; an older backend's answer without it still decodes.
+    func testThePairingAnswerReadsReachWhenPresentAndWithout() throws {
+        let with = #"{"pairing":{"id":"p1","state":"waiting","expiresAt":"2026-10-22T10:10:00Z"},"code":"ABCD-EFGH","#
+            + #""qr":{"v":1,"url":null,"code":"ABCD-EFGH"},"reach":{"serveCommand":"tailscale serve --bg --https=8443 8000"}}"#
+        let older = #"{"pairing":{"id":"p1","state":"waiting"},"code":"ABCD-EFGH","qr":{"v":1,"url":null,"code":"ABCD-EFGH"}}"#
+        XCTAssertEqual(try JSONDecoder().decode(PairingCreated.self, from: Data(with.utf8)).reach?.serveCommand,
+                       "tailscale serve --bg --https=8443 8000")
+        XCTAssertNil(try JSONDecoder().decode(PairingCreated.self, from: Data(older.utf8)).reach)
+        XCTAssertEqual(PairingKind.capture.rawValue, "capture")
+        XCTAssertEqual(PairingKind.full.rawValue, "full")
+    }
 }

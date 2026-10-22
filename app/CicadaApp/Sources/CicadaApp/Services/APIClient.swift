@@ -3378,8 +3378,9 @@ actor APIClient {
     }
 
     /// `POST /devices/pairing` — the master token's alone; `url` is where the new device will reach this server.
-    func createPairing(url: String?) async throws -> PairingCreated {
-        var body: [String: Any] = [:]
+    func createPairing(url: String?, kind: PairingKind = .capture) async throws -> PairingCreated {
+        // `kind` is #432's (an older backend ignores it): a phone's capture-only token, or a computer's full one.
+        var body: [String: Any] = ["kind": kind.rawValue]
         if let url { body["url"] = url }
         return try await post("/devices/pairing", body: body)
     }

@@ -141,6 +141,19 @@ struct PairingCreated: Decodable, Equatable {
     var pairing: PairingState
     var code: String
     var qr: PairingQR
+    /// #432 (additive): how this machine is reached for pairing — the `tailscale serve` command the person would run
+    /// when the QR carries no address. Absent on an older backend, which keeps today's wording.
+    var reach: PairingReach? = nil
+}
+
+struct PairingReach: Decodable, Equatable {
+    var serveCommand: String?
+}
+
+/// #432: what a pairing code mints — a phone's capture-only token, or another computer's full device token.
+enum PairingKind: String, CaseIterable, Identifiable {
+    case capture, full
+    var id: String { rawValue }
 }
 
 struct PairingQR: Codable, Equatable {

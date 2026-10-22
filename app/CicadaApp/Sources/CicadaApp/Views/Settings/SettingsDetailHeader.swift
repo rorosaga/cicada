@@ -99,7 +99,7 @@ struct SettingsHeading {
     }
 
     static var integrations: SettingsHeading { .init(retired: "integrations", title: Copy.integrations) }
-    static var reading: SettingsHeading { .init(retired: "reading", title: Copy.Reading.pageTitle) }
+    static var reading: SettingsHeading { .init(retired: "reading", title: Copy.Reading.inBrowserTitle) }
     static var agents: SettingsHeading { .init(retired: "agents", title: Copy.agents) }
     static var skills: SettingsHeading { .init(retired: "skills", title: Copy.skills) }
 }

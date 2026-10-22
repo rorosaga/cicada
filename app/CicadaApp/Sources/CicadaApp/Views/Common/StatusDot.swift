@@ -15,7 +15,9 @@ struct StatusDot: View {
             Text(word)
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(on ? CicadaTheme.textSecondary : CicadaTheme.textTertiary)
+                .lineLimit(1)
         }
+        .fixedSize()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(word)
     }

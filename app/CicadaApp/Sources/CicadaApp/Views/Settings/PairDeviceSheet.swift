@@ -16,12 +16,22 @@ struct PairDeviceSheet: View {
     var onClose: () -> Void
 
     @State private var created: PairingCreated?
+    /// #432: Phone (the default) mints a capture-only token; Computer a full device token.
+    @State private var kind: PairingKind = .capture
     @State private var state = "waiting"
     @State private var problem: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             Text(Copy.DevicesPage.pairTitle).font(CicadaTheme.titleFont).foregroundStyle(CicadaTheme.textPrimary)
+            Picker(Copy.DevicesPage.kindLabel, selection: $kind) {
+                Text(Copy.DevicesPage.kindPhone).tag(PairingKind.capture)
+                Text(Copy.DevicesPage.kindComputer).tag(PairingKind.full)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .onChange(of: kind) { _, _ in Task { await restart() } }
             if let created {
                 HStack(alignment: .center, spacing: CicadaTheme.spacingXL) {
                     PairingQRImage(payload: PairingPayload.json(created.qr))
@@ -39,11 +49,17 @@ struct PairDeviceSheet: View {
                         // The QR carries this machine's tailnet address when the backend could tell it (the agent-API
                         // worker's change); then the address is said and scanning is enough. Else one line says
                         // which address to type.
-                        Text(created.qr.url ?? Copy.DevicesPage.noAddress)
-                            .font(CicadaTheme.captionFont)
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .textSelection(.enabled)
+                        if let url = created.qr.url {
+                            Text(url)
+                                .font(CicadaTheme.captionFont)
+                                .foregroundStyle(CicadaTheme.textTertiary)
+                                .textSelection(.enabled)
+                        } else if created.reach?.serveCommand == nil {
+                            Text(Copy.DevicesPage.noAddress)
+                                .font(CicadaTheme.captionFont)
+                                .foregroundStyle(CicadaTheme.textTertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                         if state == "waiting", let expires = created.pairing.expiresAt.flatMap(ISODate.parse) {
                             Text(Copy.DevicesPage.expires(expires))
                                 .font(CicadaTheme.captionFont.monospacedDigit())
@@ -61,6 +77,14 @@ struct PairDeviceSheet: View {
                     Text(Copy.DevicesPage.pairScan)
                         .font(CicadaTheme.captionFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
+                } else if let command = created.reach?.serveCommand {
+                    // #432: the tailnet-only serve of the backend port the person would run (Cicada never runs it).
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                        Text(Copy.DevicesPage.serveLead)
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                        CommandBox(command: command)
+                    }
                 }
             } else if problem == nil {
                 ProgressView().controlSize(.small)
@@ -85,11 +109,18 @@ struct PairDeviceSheet: View {
         problem = nil
         state = "waiting"
         do {
-            created = try await APIClient.shared.createPairing(url: nil)
+            created = try await APIClient.shared.createPairing(url: nil, kind: kind)
         } catch {
             let answer = ConnectionModelText.detail(error)
             problem = answer?.code == 409 ? Copy.DevicesPage.tooMany : (answer?.text ?? error.localizedDescription)
         }
+    }
+
+    /// The kind changed: the waiting code is cancelled and a new one made for the chosen kind.
+    private func restart() async {
+        if state == "waiting", let id = created?.pairing.id { try? await APIClient.shared.cancelPairing(id) }
+        created = nil
+        await start()
     }
 
     private func poll() async {
