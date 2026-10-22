@@ -55,7 +55,7 @@ break-f2_credit_stale|NoLostRow|
 EXPECT_DEEP="
 code-ids-restart|pass|305000
 fixed-ids-restart|pass|305000
-fixed-churn|pass|0
+fixed-churn|pass|20600000
 deep-safety|pass|0
 "
 
@@ -74,11 +74,13 @@ if [ "${1:-}" = "--check" ]; then
   name="$2"; expected="$3"; minimum="$4"
   log="$OUT/$name.out"
   start=$(date +%s)
-  "$JAVA_BIN" -XX:+UseParallelGC -cp "$JAR" tlc2.TLC -workers "$WORKERS" -nowarning \
-    -config "$HERE/models/$name.cfg" -metadir "$OUT/states/$name" "$HERE/VideoQueue.tla" > "$log" 2>&1 || true
-  rm -rf "$OUT/states/$name"
+  # Each TLC gets its own temp dir: two at once otherwise race extracting the standard modules into one.
+  mkdir -p "$OUT/tmp/$name"
+  "$JAVA_BIN" -XX:+UseParallelGC "-Djava.io.tmpdir=$OUT/tmp/$name" -cp "$JAR" tlc2.TLC -workers "$WORKERS" \
+    -nowarning -config "$HERE/models/$name.cfg" -metadir "$OUT/states/$name" "$HERE/VideoQueue.tla" > "$log" 2>&1 || true
+  rm -rf "$OUT/states/$name" "$OUT/tmp/$name"
   got="$(outcome_of "$log")"
-  states="$(grep -oE '[0-9,]+ distinct states found' "$log" | tail -1 | cut -d' ' -f1 | tr -d ,)"
+  states="$(grep -oE '[0-9,]+ distinct states found' "$log" | tail -1 | cut -d' ' -f1 | tr -d , || true)"
   if [ "$got" != pass ] && [ "$got" != error ]; then
     python3 -I "$HERE/trace.py" "$log" > "$OUT/$name.trace.txt" 2>&1 || true
   fi
@@ -137,7 +139,7 @@ mkdir -p "$OUT"
 export OUT JAVA_BIN JAR WORKERS
 
 printf '%s\n' "$EXPECT" | grep '|' | tr '|' ' ' | awk '{print $1, $2, ($3 == "" ? 0 : $3)}' \
-  | xargs -P "$JOBS" -n 3 "$HERE/run.sh" --check
+  | xargs -P "$JOBS" -n 3 "$HERE/run.sh" --check || true
 
 failures=0
 printf "%-34s %-30s %-30s %10s %5s\n" check expected got states s

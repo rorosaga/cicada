@@ -38,7 +38,7 @@ line.
 .claude/skills/verify-video-queue/run.sh            # code, findings, proposed fixes and every break: ~45 s
 .claude/skills/verify-video-queue/run.sh --breaks   # only the breaks: ~15 s
 .claude/skills/verify-video-queue/run.sh --deep     # restarting ids, fixes under page churn, two videos: see bounds
-python3 .claude/skills/verify-video-queue/able_to_fail.py   # real-code breaks in a temporary copy: ~2 min
+python3 .claude/skills/verify-video-queue/able_to_fail.py   # real-code breaks in a temporary copy: ~90 s
 ```
 
 `run.sh` needs Java 11 or newer (it tries `$JAVA`, then Homebrew's `openjdk@17`, then `java` on the PATH), `curl`,
@@ -172,6 +172,9 @@ Each step names the call and the code it models.
   points in that order (see `test_video_queue_formal.py`), mark it `xfail(strict=True, raises=AssertionError)`
   with a new finding id, add a `models/F<n>-*.cfg` expected to violate, and add it to `EXPECT_DEFAULT`. Never weaken
   a property or remove a behaviour from the model to get a pass.
+- **A break shows only in the `fixed-*` checks.** A property with an open finding (P2, P3, P4, P5) is checked
+  on today's code only by its finding's check, which already fails. The `fixed-*` checks hold every property with
+  the proposals in place, so a new way to break P2-P5 surfaces there.
 - **A finding's check now passes.** Either the code fixed it, or the model drifted. Confirm against the code. If
   the fix is real, mirror it (change the operator so the code-today checks describe the fixed code), flip the
   expectation to `pass` with a minimum state count, and remove the test's `xfail` marker.
@@ -227,9 +230,11 @@ When a covered definition changes on purpose:
   one caller with pages saved and hidden (`F2`, `break-f2_credit_stale`, and `fixed-churn` in `--deep`). A lease
   lasts 2 ticks, a failed row 1 tick, and three lapses fail a row, as in the code. Symmetry over videos and callers
   applies to safety only.
-- **`--deep` never finished its two-video run.** `deep-safety` (two videos, two callers) was stopped after 22
-  minutes and 18,960,075 distinct states with no violation, on the model before this round's id modes; see the
-  run log in the PR for this round's figure. The one-video argument below is what the default run rests on.
+- **`--deep` has never finished its two-video run.** `deep-safety` (two videos, two callers, stable ids) was
+  stopped at a 15-minute cap on 2026-10-22 after 12,923,785 distinct states with no violation and 3.6 million
+  states still queued. The rest of `--deep` finishes: `code-ids-restart` and `fixed-ids-restart` (339,464 states,
+  about 12 s each) and `fixed-churn` (22,903,520 states, about 4 minutes with four workers). The one-video argument
+  below is what the default run rests on.
 - **Why one video is enough.** Every property is about one video, and every step changes a row as a function of
   that row alone, with two exceptions. A call that refreshes the caller's other leases does, on one video, what a
   claim that finds nothing does. The orphan drop needs a non-empty snapshot that lacks the key, so its checks keep
