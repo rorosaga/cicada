@@ -24,6 +24,12 @@ carries the entry's bank id in its body (``bank_id``), and the server refuses it
 it would file it in is another one — so a capture waiting for one memory never lands in another, even behind the same
 address (an SSH tunnel's local port pointed at a second server). An entry written before targets existed (``v`` 1)
 names nothing and goes to whichever server answers, as it always did.
+
+**A refused bank never blocks the live lane** (review of #408): the server refuses a ``bank_id`` only when it names no
+bank of that server's memory (another memory behind the same address; a bank switch on the server itself files the
+resend where a live capture would go). A refused entry is *held* (``held_at``): counted as waiting for another memory,
+never in front of this server's turns, retried at most every :data:`HOLD_RETRY_S`; and the address's remembered bank
+is forgotten, so new entries stop carrying it. A capture that lands teaches the address its bank again.
 """
 from __future__ import annotations
 
@@ -41,6 +47,9 @@ MAX_ENTRIES = 2000
 MAX_BYTES = 128 * 1024 * 1024
 #: Leave this much of the budget unspent: the log line and the process exit come after the last send.
 MARGIN_S = 0.3
+#: A held entry (its bank refused, ``bank_mismatch``) is tried again at most this often: the memory it was captured
+#: for may come back behind this address, and until then a retry is one request, never a block.
+HOLD_RETRY_S = 600.0
 
 
 def spool_dir(home: Path) -> Path:
@@ -120,6 +129,67 @@ def remember_bank(home: Path, base: str | None, bank_id) -> None:
             tmp.unlink()
         except OSError:
             pass
+
+
+def forget_bank(home: Path, base: str | None, bank_id) -> None:
+    """The server refused ``bank_id`` (409 ``bank_mismatch``): stop stamping new entries with it — the next capture
+    that lands says which bank this address files in now."""
+    if not base or not bank_id:
+        return
+    servers = _read_servers(home)
+    if servers.get(_norm(base)) != bank_id:
+        return
+    servers.pop(_norm(base), None)
+    folder = spool_dir(home)
+    tmp = folder / f".servers.{secrets.token_hex(4)}.tmp"
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            os.write(fd, json.dumps(servers).encode("utf-8"))
+        finally:
+            os.close(fd)
+        os.replace(tmp, folder / SERVERS_FILE)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+def _held(entry: dict) -> bool:
+    return isinstance(entry, dict) and isinstance(entry.get("held_at"), (int, float))
+
+
+def _due(entry: dict, now: float | None = None) -> bool:
+    return not _held(entry) or (now or time.time()) - float(entry["held_at"]) >= HOLD_RETRY_S
+
+
+def _hold(path: Path, entry: dict) -> None:
+    """Mark an entry held (its bank refused), in place and atomically; its body is unchanged."""
+    entry = {**entry, "held_at": time.time()}
+    tmp = path.parent / f".{path.name}.{secrets.token_hex(4)}.tmp"
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            os.write(fd, json.dumps(entry).encode("utf-8"))
+        finally:
+            os.close(fd)
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+def mismatch(status, text) -> bool:
+    """A 409 whose code is ``bank_mismatch``: the server says this entry's bank is not one of its memory's."""
+    if status != 409 or not isinstance(text, str):
+        return False
+    try:
+        return json.loads(text).get("code") == "bank_mismatch"
+    except (ValueError, AttributeError):
+        return False
 
 
 def target_for(home: Path, base: str | None) -> dict | None:
@@ -222,24 +292,36 @@ def waiting(home: Path, base: str | None) -> dict:
     except OSError:
         return {"here": 0, "elsewhere": {}}
     for path in paths:
-        target = _target_of(_read(path) or {})
-        if base is not None and _for(target, base):
+        entry = _read(path) or {}
+        target = _target_of(entry)
+        if base is not None and _for(target, base) and not _held(entry):
             here += 1
             continue
         host = host_of(target["base"]) if target else ""
+        if _held(entry):
+            host = f"{host} (another memory)" if host else "another memory"
         elsewhere[host] = elsewhere.get(host, 0) + 1
     return {"here": here, "elsewhere": elsewhere}
 
 
 def pending_for(home: Path, base: str | None) -> int:
-    """How many entries a flush to ``base`` would try."""
-    return waiting(home, base)["here"]
+    """How many entries a flush to ``base`` would try now: this server's, plus a held one whose retry is due."""
+    count, now = 0, time.time()
+    for path in entries(home):
+        entry = _read(path) or {}
+        if (base is None or _for(_target_of(entry), base)) and _due(entry, now):
+            count += 1
+    return count
 
 
 def has_turns(home: Path, base: str | None = None) -> bool:
-    """A per-turn post waits for ``base`` (any server when None): a new turn for it queues behind."""
+    """A per-turn post waits for ``base`` (any server when None): a new turn for it queues behind. A held turn (its
+    bank refused) waits for its own memory and never holds this server's turns."""
     for path in entries(home):
-        if path.name.startswith("t-") and (base is None or _for(_target_of(_read(path) or {}), base)):
+        if not path.name.startswith("t-"):
+            continue
+        entry = _read(path) or {}
+        if not _held(entry) and (base is None or _for(_target_of(entry), base)):
             return True
     return False
 
@@ -322,13 +404,29 @@ def _flush_locked(home, send, *, deadline, keep, size_of, base) -> tuple[int, in
         target = _target_of(entry)
         if not _for(target, base):
             continue               # meant for another server: it waits for that one (D1, G202)
+        held = _held(entry)
+        if held and not _due(entry):
+            continue               # its memory refused it lately: it waits apart, and never in front of others
         if target and target.get("bank_id") and isinstance(body, dict):
-            body["bank_id"] = target["bank_id"]   # the server refuses it if it would file it in another bank
+            body["bank_id"] = target["bank_id"]   # the server refuses it if its memory has no such bank
         if entry.get("key") and isinstance(body, dict) and "transcript_bytes" in body:
             body["transcript_size"] = size_of(entry.get("transcript_path"), int(body.get("transcript_bytes") or 0))
-        status = send(route, body)
+        answer = send(route, body)
+        status, text = answer if isinstance(answer, tuple) else (answer, "")
         if status is not None and 200 <= status < 300:
             sent += 1
+            try:
+                remember_bank(home, base, json.loads(text).get("bankId") if text else None)
+            except (ValueError, AttributeError):
+                pass
+        elif mismatch(status, text):
+            # Another memory answers at this address: hold the entry for its own, never block this server's lane,
+            # and stop stamping new entries with the refused bank (review of #408).
+            _hold(path, entry)
+            forget_bank(home, base, (target or {}).get("bank_id"))
+            continue
+        elif held:
+            continue               # a held entry's retry that did not land changes nothing else
         elif keep(status):
             if status in _STOP_ALL:
                 break

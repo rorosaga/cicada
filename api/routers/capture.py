@@ -254,22 +254,25 @@ class SessionCaptureRequest(BaseModel):
     utc_offset_minutes: int | None = Field(None, ge=-episode_ids.MAX_UTC_OFFSET_MINUTES,
                                            le=episode_ids.MAX_UTC_OFFSET_MINUTES)
     #: G202 (D1), additive: a spooled resend names the bank it was captured for (the ``bankId`` an earlier answer
-    #: gave); when the bank this post would be filed in is another one, it is refused (409 ``bank_mismatch``) and the
-    #: client keeps it waiting. Absent (every live post): filed where a capture goes now, as before.
+    #: gave); when no bank of this server's memory has that id it is refused (409 ``bank_mismatch``) and the client
+    #: holds it for its own memory. Absent (every live post): filed where a capture goes now, as before.
     bank_id: str | None = Field(None, max_length=128)
 
 
 def _filed_in(settings: Settings, target, claimed: str | None) -> str | None:
-    """The id of the bank a capture is filed in; ``bank_binding.BankMismatch`` (409 ``bank_mismatch``, nothing read
-    or written) when a resend names another (G202, D1). The demo redirect counts: the id is the bank written."""
+    """The id of the bank a capture is filed in (the demo redirect counts: the id is the bank written).
+
+    A resend names the bank its client last heard this address file in (G202, D1). It is refused —
+    ``bank_binding.BankMismatch``, 409 ``bank_mismatch``, nothing read or written — only when that id is no bank of
+    this server's memory: the address now leads to another memory. A bank switch on this server is the person's own
+    move, and the resend is filed where a live capture of the same session goes now, so a session is never split
+    between the bank it started in and the one it continues in (G104; review of #408)."""
     from api.services import bank_binding
 
     filed = bank_registry.bank_id(settings.memory_root, target.name) if target is not None else None
-    if claimed and claimed != filed:
+    if claimed and claimed != filed and claimed not in bank_registry.bank_ids(settings.memory_root):
         raise bank_binding.BankMismatch()
     return filed
-
-
 
 @router.post("/capture/session")
 async def capture_session_endpoint(req: SessionCaptureRequest, request: Request,
@@ -330,8 +333,8 @@ class TurnCaptureRequest(BaseModel):
     utc_offset_minutes: int | None = Field(None, ge=-episode_ids.MAX_UTC_OFFSET_MINUTES,
                                            le=episode_ids.MAX_UTC_OFFSET_MINUTES)
     #: G202 (D1), additive: a spooled resend names the bank it was captured for (the ``bankId`` an earlier answer
-    #: gave); when the bank this post would be filed in is another one, it is refused (409 ``bank_mismatch``) and the
-    #: client keeps it waiting. Absent (every live post): filed where a capture goes now, as before.
+    #: gave); when no bank of this server's memory has that id it is refused (409 ``bank_mismatch``) and the client
+    #: holds it for its own memory. Absent (every live post): filed where a capture goes now, as before.
     bank_id: str | None = Field(None, max_length=128)
 
 

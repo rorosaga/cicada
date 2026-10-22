@@ -225,35 +225,43 @@ def deliver_turn(home: Path, route: str, body: dict, *, environ, post=None, time
         spool.put(home, route, body, target=meant)
         return f"spooled: {problem}"
 
-    def one(r: str, b: dict, t: float) -> int | None:
+    def one(r: str, b: dict, t: float) -> tuple[int | None, str]:
         try:
-            return post(base + r, json.dumps(b).encode("utf-8"), token, t)[0]
+            return post(base + r, json.dumps(b).encode("utf-8"), token, t)
         except Exception:  # noqa: BLE001 - no answer
-            return None
+            return None, ""
 
     def size_of(_path, fallback: int) -> int:
         return fallback
 
+    flushed = ""
     if spool.has_turns(home, base):
-        spool.put(home, route, body, target=meant)
-        if flush_budget > 0:
-            deadline = started + flush_budget
-            sent, _final, left = spool.flush(home, lambda r, b: one(r, b, max(0.1, min(timeout, deadline -
-                                                                                        time.monotonic() - 0.1))),
-                                             deadline=deadline, keep=keep, size_of=size_of, base=base)
+        if flush_budget <= 0:
+            spool.put(home, route, body, target=meant)
+            return "queued behind waiting turns"
+        # The waiting turns go first; this one is sent after them, or waits behind those that still cannot land. It
+        # is stamped only after the flush, so a bank the server just refused is never written onto it (#408 review).
+        deadline = started + flush_budget
+        sent, _final, left = spool.flush(home, lambda r, b: one(r, b, max(0.1, min(timeout, deadline -
+                                                                                    time.monotonic() - 0.1))),
+                                         deadline=deadline, keep=keep, size_of=size_of, base=base)
+        meant = spool.target_for(home, base)
+        if spool.has_turns(home, base):
+            spool.put(home, route, body, target=meant)
             return f"queued behind waiting turns: sent {sent}, {left} waiting" + elsewhere_note(home, base)
-        return "queued behind waiting turns"
+        flushed = f"; spool: sent {sent}, 0 waiting" + elsewhere_note(home, base)
+        timeout = max(0.1, min(timeout, deadline - time.monotonic() - 0.1))
     try:
         status, text = post(base + route, json.dumps(body).encode("utf-8"), token, timeout)
     except Exception:  # noqa: BLE001 - no answer
         status, text = None, ""
     if landed(status):
         spool.remember_bank(home, base, bank_in(text))
-        return f"http {status}"
+        return f"http {status}" + flushed
     if keep(status):
         spool.put(home, route, body, target=meant)
-        return "spooled: " + why(status)
-    return f"http {status}"
+        return "spooled: " + why(status) + flushed
+    return f"http {status}" + flushed
 
 
 def elsewhere_note(home: Path, base: str | None) -> str:
@@ -290,14 +298,14 @@ def flush_waiting(home: Path, environ, *, budget: float = FLUSH_AFTER_CALL_S, po
     post = post or send
     deadline = time.monotonic() + budget
 
-    def one(r: str, b: dict) -> int | None:
+    def one(r: str, b: dict) -> tuple[int | None, str]:
         remaining = deadline - time.monotonic()
         if remaining <= 0.2:
-            return None
+            return None, ""
         try:
-            return post(base + r, json.dumps(b).encode("utf-8"), token, min(3.0, remaining - 0.1))[0]
+            return post(base + r, json.dumps(b).encode("utf-8"), token, min(3.0, remaining - 0.1))
         except Exception:  # noqa: BLE001 - no answer
-            return None
+            return None, ""
 
     def size_of(path, fallback: int) -> int:
         try:

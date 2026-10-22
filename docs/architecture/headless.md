@@ -254,9 +254,15 @@ two memories: a hook's capture waiting offline was delivered to whichever server
 - Each hook spool entry names its **target** — the address (`runtime_layout.api_base`) and, once heard, the bank id the
   server's capture answer gave (`bankId`, kept per address in `spool/capture/.servers`). A flush sends only the entries
   for the address in use; a resend carries `bank_id`, and `/capture/session` and `/capture/turn` refuse it with 409
-  `bank_mismatch` when the bank they would file it in is another one (the demo redirect counts: the id is the bank
-  written). Entries for another server wait, never dropped; the hook's log line says how many and for which host. A
-  session keeps one entry per server. An entry from before (no target) goes where the client points, as it did.
+  `bank_mismatch` only when no bank of that server's memory has the id — the address now leads to another memory. A
+  bank switch on the server itself files the resend where a live capture of the same session goes (a session is never
+  split between two banks of one memory). Entries for another server wait, never dropped; the hook's log line says how
+  many and for which host. A session keeps one entry per server. An entry from before (no target) goes where the
+  client points, as it did.
+- A refused entry is **held** for its own memory (review of #408): counted as waiting for another memory, never in
+  front of this server's turns, retried at most every 10 minutes; the address's remembered bank is forgotten, and a
+  turn queued behind waiting turns is stamped only after they were flushed, so new captures never carry a refused
+  bank. The next capture that lands teaches the address its bank again.
 - The app's outbox posts carry the same target (`base`, `bankId` beside the bank's name); a flush sends only this
   connection's, and every write on a server names `X-Cicada-Bank-Id` (ids learned from `/banks`). This Mac sends names
   only, as before.

@@ -174,8 +174,71 @@ def test_d1_the_same_address_leading_to_another_server_keeps_the_capture(two_ser
     _fire(_env(home, cicada_home, a.url), SID, t1)
     a.down, a.bank_id = False, "bank-other"                  # same address, another memory behind it
     before = len(a.posts)
-    assert hook_client.flush_waiting(cicada_home, _env(home, cicada_home, a.url)) == (0, 1)
-    assert len(a.posts) == before and hook_spool.pending(cicada_home) == 1
+    assert hook_client.flush_waiting(cicada_home, _env(home, cicada_home, a.url)) == (0, 0)
+    assert len(a.posts) == before and hook_spool.pending(cicada_home) == 1   # held for its own memory, never dropped
+    host = a.url.removeprefix("http://")
+    assert hook_spool.waiting(cicada_home, a.url) == {"here": 0, "elsewhere": {f"{host} (another memory)": 1}}
+    assert hook_spool.bank_for(cicada_home, a.url) is None     # new captures stop carrying the refused bank
+    assert hook_client.flush_waiting(cicada_home, _env(home, cicada_home, a.url)) is None   # not retried at once
+
+
+def test_review_408_a_refused_bank_never_stops_this_server_s_turns(tmp_path, monkeypatch):
+    """#408 review: a turn spooled while the client knew bank A; the address now answers for bank B and refuses A
+    (409 `bank_mismatch`). Before the fix every later turn queued behind it and none landed ("sent 0, 2/3/4
+    waiting"); now the refused turn is held for its own memory and the next turns land, teaching the address B."""
+    from api.hooks import hook_client, hook_spool
+
+    home = tmp_path / "ch"
+    base = "http://127.0.0.1:9"
+    hook_spool.remember_bank(home, base, "bank-A")
+    hook_spool.put(home, "/capture/turn", {"n": 0}, target=hook_spool.target_for(home, base))
+    posts = []
+
+    def post(url, data, token, timeout):
+        body = json.loads(data)
+        posts.append((body["n"], body.get("bank_id")))
+        if body.get("bank_id") and body["bank_id"] != "bank-B":
+            return 409, json.dumps({"code": "bank_mismatch", "detail": "Memory switched"})
+        return 200, json.dumps({"status": "created", "bankId": "bank-B"})
+
+    monkeypatch.setattr(hook_client, "target", lambda env: (base, "tok", None))
+    outs = [hook_client.deliver_turn(home, "/capture/turn", {"n": i}, environ={}, post=post, timeout=1,
+                                     flush_budget=2) for i in (1, 2, 3)]
+    assert outs[0].startswith("http 200; spool: sent 0, 0 waiting; 1 waits for another server")
+    assert outs[1:] == ["http 200", "http 200"]
+    assert posts == [(0, "bank-A"), (1, None), (2, None), (3, None)]     # A tried once; the rest landed, unstamped
+    assert hook_spool.bank_for(home, base) == "bank-B"
+    assert not hook_spool.has_turns(home, base) and hook_spool.pending(home) == 1
+    # Its own memory answers at this address again: past the retry interval, the held turn lands there.
+    monkeypatch.setattr(hook_client.spool_module(), "HOLD_RETRY_S", 0.0)   # the module the hooks use (by path)
+    assert hook_client.flush_waiting(home, {}, post=lambda url, data, token, t: (200, '{"bankId": "bank-A"}')) \
+        == (1, 0)
+    assert hook_spool.pending(home) == 0
+
+
+def test_review_408_a_refused_session_is_held_and_not_resent_every_flush(tmp_path, monkeypatch):
+    from api.hooks import hook_client, hook_spool
+
+    home = tmp_path / "ch"
+    base = "https://cicada.example.ts.net"
+    hook_spool.remember_bank(home, base, "bank-A")
+    hook_spool.put(home, "/capture/session", {"session_id": "s"}, key="claude-code:s",
+                   target=hook_spool.target_for(home, base))
+    monkeypatch.setattr(hook_client, "target", lambda env: (base, "tok", None))
+    calls = []
+
+    def refuse(url, data, token, t):
+        calls.append(url)
+        return 409, '{"code": "bank_mismatch"}'
+
+    assert hook_client.flush_waiting(home, {}, post=refuse) == (0, 0)
+    assert hook_client.flush_waiting(home, {}, post=refuse) is None
+    assert len(calls) == 1 and hook_spool.pending(home) == 1
+    # A 409 that is not about the bank (the demo with no real bank) still waits as before, for this server.
+    hook_spool.put(home, "/capture/session", {"session_id": "t"}, key="claude-code:t",
+                   target=hook_spool.target_for(home, base))
+    hook_client.flush_waiting(home, {}, post=lambda *a: (409, '{"detail": "demo"}'))
+    assert hook_spool.waiting(home, base)["here"] == 1
 
 
 def test_d1_a_new_snapshot_for_one_server_never_replaces_the_one_waiting_for_another(tmp_path):
@@ -244,10 +307,17 @@ def test_d1_the_route_refuses_a_resend_for_another_bank_and_names_the_bank_it_fi
             assert sorted((root / "episodes").glob("ep_*.md")) == episodes
             same = client.post("/capture/session", json={**body, "bank_id": filed}, headers=auth)
             assert same.status_code == 200 and same.json()["bankId"] == filed
+            # A bank switch on this server is the person's move: a resend for the old bank is filed where a live
+            # capture goes now (one memory), never refused into a loop (#408 review).
+            bank_registry.create_bank(root, "beta")
+            bank_registry.activate_bank(root, "beta")
+            moved = client.post("/capture/session", json={**body, "bank_id": filed}, headers=auth)
+            assert moved.status_code == 200, moved.text
+            assert moved.json()["bankId"] == bank_registry.bank_id(root, "beta") != filed
             turn = {"harness": "cursor", "session_id": "conv-0001", "messages": [{"speaker": "user", "text": "hi"}]}
             assert client.post("/capture/turn", json={**turn, "bank_id": "f" * 32},
                                headers=auth).status_code == 409
-            assert client.post("/capture/turn", json=turn, headers=auth).json()["bankId"] == filed
+            assert client.post("/capture/turn", json=turn, headers=auth).json()["bankId"] == bank_registry.bank_id(root, "beta")
     finally:
         config.get_settings.cache_clear()
 
