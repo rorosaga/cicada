@@ -31,6 +31,8 @@ def _locomo_sample(sample_id="conv-x"):
                 {"speaker": "bob-example", "dia_id": "D2:2", "text": "alpha-project status planning."},
                 {"speaker": "alice-example", "dia_id": "D2:3", "text": "beta-project runs-on primary-machine."},
                 {"speaker": "bob-example", "dia_id": "D2:4", "text": "Agreed."},
+                # Ruling 36 D4: a project page is born only from the person's own words calling it one (or a repo).
+                {"speaker": "alice-example", "dia_id": "D2:5", "text": "alpha-project is my own project."},
             ],
         },
         "qa": [
