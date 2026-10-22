@@ -443,27 +443,35 @@ def _words(text: str) -> set[str]:
 
 def provisional_lines(memory_path: Path, query: str, subject_ids: list[str], *, names: dict[str, str] | None = None,
                       max_claims: int = 12, max_held: int = 5) -> list[str]:
-    """Recall's provisional block: claims on the top hits' pages first, then claims sharing a word with the query,
-    then held names that match a query word. Empty when nothing qualifies."""
+    """Recall's provisional block: claims on the top hits' pages or sharing a word with the query, those sharing the
+    most of the query's words first, then by their page's rank among the hits; then held names that match a query
+    word. Empty when nothing qualifies."""
     recs = records(memory_path)
     if not recs:
         return []
     names = names or {}
     want = list(dict.fromkeys(s for s in subject_ids if s))
+    rank = {sid: i for i, sid in enumerate(want)}
     q = _words(query)
-    chosen: list[tuple[dict, dict]] = []
+    scored: list[tuple[tuple[int, int, int], dict, dict]] = []
     seen: set[str] = set()
-    for rank in (0, 1):
-        for rec in recs:
-            for c in rec.get("claims") or []:
-                cid = f"{rec.get('episode')}:{c.get('id')}"
-                if cid in seen:
-                    continue
-                hit = (c.get("subject") in want) if rank == 0 else bool(q & _words(
-                    " ".join(str(c.get(k) or "") for k in ("text", "subject", "object", "predicate"))))
-                if hit:
-                    seen.add(cid)
-                    chosen.append((rec, c))
+    n = 0
+    for rec in recs:
+        for c in rec.get("claims") or []:
+            cid = f"{rec.get('episode')}:{c.get('id')}"
+            if cid in seen:
+                continue
+            seen.add(cid)
+            overlap = len(q & _words(" ".join(str(c.get(k) or "") for k in ("text", "subject", "object",
+                                                                             "predicate"))))
+            on_hit = c.get("subject") in rank
+            if not (on_hit or overlap):
+                continue
+            # The query's own words first, then the page's rank among recall's hits, then the newest read.
+            scored.append(((-overlap, rank.get(c.get("subject"), len(want)), n), rec, c))
+            n += 1
+    scored.sort(key=lambda t: t[0])
+    chosen = [(rec, c) for _k, rec, c in scored]
     lines = []
     for rec, c in chosen[:max_claims]:
         subject = names.get(c.get("subject")) or c.get("subject")

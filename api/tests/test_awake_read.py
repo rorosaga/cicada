@@ -395,3 +395,15 @@ def test_recall_with_many_records_stays_in_budget(bank, engine, monkeypatch):
     assert len(out) <= mcp_tools.RECALL_BUDGET + 2_000   # fenced markers ride outside the budgeted text
     block = out.split("Not yet read by Sleep (provisional")[1]
     assert block.count("\n- [[") <= 12
+
+
+def test_provisional_lines_put_the_querys_own_words_first(bank):
+    _page(bank, "verify-person", "Verify Person")
+    filler = [{"id": f"clm_o{i}", "subject": "verify-person", "text": f"Verify Person likes thing {i}",
+               "predicate": "likes", "object": f"thing {i}"} for i in range(20)]
+    wanted = {"id": "clm_dl", "subject": "alpha-project", "text": "Alpha Project deadline December 5",
+              "predicate": "has-deadline", "object": "December 5"}
+    awake_read._write_record(bank, "ep_2026-10-22_001", {"episode": "ep_2026-10-22_001", "revision": "r",
+                                                          "read_at": "x", "claims": [*filler, wanted], "held": []})
+    lines = awake_read.provisional_lines(bank, "When is the Alpha deadline?", ["verify-person", "alpha-project"])
+    assert len(lines) == 12 and "clm_dl" in lines[0]
