@@ -202,7 +202,7 @@ extension Copy {
     static let calendarNotReady = "Your calendars aren't ready to read yet — Cicada will try again."
     /// Sync now on the `calendar-local` card before Calendar was connected (G142): the app reads EventKit only after
     /// the person's own Connect, so a Sources card never starts that first read.
-    static let calendarConnectFirst = "Connect Calendar in Settings → Integrations first — Cicada reads it only after you do."
+    static let calendarConnectFirst = "Connect Calendar on the Sources page first — Cicada reads it only after you do."
     static func calendarSyncedSummary(_ events: Int?, locale: Locale = .autoupdatingCurrent) -> String {
         guard let events else { return "Calendar synced" }
         return "Calendar synced · \(UsageFormat.count(events, locale: locale)) \(events == 1 ? "event" : "events")"
@@ -291,6 +291,8 @@ extension Copy {
     /// (final review): each Stop re-reads the whole transcript
     /// (`transcript_capture.capture_transcript`), so "once, never again" was false.
     static let transcriptsFact = "When an agent finishes a reply, Cicada reads that conversation to keep your words and the agent's final answer. It never opens those files for anything else."
+    /// D6's word budget: the fact in one line.
+    static let transcriptsShort = "Read only for your words and the agent's final answer."
     static let bankActive = "Active"
     static func bankCounts(entities: Int, episodes: Int) -> String {
         "\(UsageFormat.count(entities)) \(entities == 1 ? "entity" : "entities") · \(UsageFormat.count(episodes)) \(episodes == 1 ? "episode" : "episodes")"

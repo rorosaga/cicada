@@ -28,7 +28,7 @@ struct FoundRow: View {
     var action: (() -> Void)? = nil
     /// Instead of a button: the one thing to do is in Settings (a plain closure
     /// cannot reliably open that window — see `SettingsSectionLink`).
-    var settingsLink: SettingsSection? = nil
+    var settingsLink: SettingsHome? = nil
     /// The Welcome's tick (W4, R-IB12): present, the tick IS the consent, so an
     /// `.off` row shows no Turn on — nothing runs before Start. Only Allow…
     /// (`.needsAction`) and Retry (`.failed`) keep a button. nil everywhere
@@ -140,7 +140,7 @@ struct FoundRow: View {
             EmptyView()
         case .off, .needsAction, .failed:
             if let settingsLink {
-                SettingsSectionLink(section: settingsLink, label: actionTitle ?? Copy.foundClaudeDesktopDetail)
+                SettingsSectionLink(home: settingsLink, label: actionTitle ?? Copy.foundClaudeDesktopDetail)
             } else if let title = actionTitle ?? Self.defaultActionTitle(state), let action {
                 NeutralButton(title: title, size: .compact, action: action)   // DR-40
             }

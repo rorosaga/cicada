@@ -59,7 +59,7 @@ struct OnThisMacStrip: View {
             FoundRow(mark: Self.mark(item.id), title: item.title, detail: Self.detail(item.id),
                      state: states[item.id] ?? base, disclosure: disclosure,
                      action: { Task { await turnOn(item) } },
-                     settingsLink: item.id == .agent("claude-desktop") ? .agents : nil)
+                     settingsLink: item.id == .agent("claude-desktop") ? .page(.agents) : nil)
             if let lines = refused[item.id] {
                 Text(Copy.foundRefused).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                 // To inspect, not to run: no copy button (see `Copy.foundRefused`).

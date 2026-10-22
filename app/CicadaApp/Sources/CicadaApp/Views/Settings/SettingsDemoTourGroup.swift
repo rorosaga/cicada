@@ -21,8 +21,8 @@ struct SettingsDemoTourGroup: View {
     private var inDemo: Bool { DemoMode.isActive(store.banks.value) }
 
     var body: some View {
-        SettingsGroupCard(header: Copy.Demo.settingsGroup) {
-            SettingsRow(.runSetup, title: Copy.setup, detail: Copy.runSetupDetail) {
+        SettingsGroupCard {
+            SettingsRow(.runSetup, title: Copy.setup) {
                 HStack(spacing: CicadaTheme.spacingSM) {
                     // DR-40 — F-10's text buttons.
                     TextButton(title: Copy.runSetupAgain) {
@@ -41,15 +41,14 @@ struct SettingsDemoTourGroup: View {
                 }
             }
             SettingsDivider()
-            SettingsRow(.guidedTour, title: Copy.Tour.settingsTitle, detail: Copy.Tour.settingsDetail) {
+            SettingsRow(.guidedTour, title: Copy.Tour.settingsTitle) {
                 TextButton(title: Copy.Tour.offerTake) {
                     router.closeSettings()
                     tour.requestStart()
                 }
             }
             SettingsDivider()
-            SettingsRow(.demoMemory, title: Copy.Demo.demoTitle,
-                        detail: inDemo ? Copy.Demo.demoActiveDetail : Copy.Demo.demoDetail) {
+            SettingsRow(.demoMemory, title: Copy.Demo.demoTitle) {
                 TextButton(title: inDemo ? Copy.Demo.leaveDemo : Copy.Demo.exploreDemo) {
                     inDemo ? leave() : enter()
                 }

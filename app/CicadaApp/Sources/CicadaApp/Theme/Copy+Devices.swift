@@ -100,7 +100,7 @@ extension Copy {
         static let cancel = "Cancel"
         static let done = "Done"
         static let shownOnceTitle = "Copy this token now"
-        static let shownOnceDetail = "It is shown once. On that device, open Cicada → Settings → Devices & access → A server, and "
+        static let shownOnceDetail = "It is shown once. On that device, open Cicada → Settings → Devices → A server, and "
             + "paste this address and token."
         static let copy = "Copy"
         static let copied = "Copied"

@@ -142,8 +142,7 @@ struct ConnectedChannelRow: View {
         let spoken = ChannelDetailLine.text(channel).map { "\(channel.label). \($0)" } ?? channel.label
         if ChannelActions.managesInIntegrations(channel.id) {
             // A folder lands on its own row on Search & files; the others open Integrations as before.
-            let section = ChannelActions.settingsSection(for: channel.id)
-            SettingsSectionLink(section: section, row: section == .searchFiles ? .channel(channel.id) : nil,
+            SettingsSectionLink(home: ChannelActions.settingsSection(for: channel.id),
                                 accessibilityText: spoken) { rowLabel }
         } else {
             Button { onAction("manage") } label: { rowLabel }

@@ -445,7 +445,7 @@ struct SleepControlRow: View {
                 }
                 // The owner's quick switch (R-HS8, R-HS9). It stays while a cycle runs: a change
                 // applies to the next one (G80). It names the person's own engine and model — never another.
-                EngineQuickMenuButton(size: .compact)
+                EngineLabelButton(size: .compact)   // D6: a label that opens Settings → Intelligence (UI-A)
                 // The owner's at-rest row (2026-10-16): Consolidate · engine · Options, one height. Options opens the
                 // same reading options the floating "Reading options…" link did, on this row instead of its own line.
                 if showsOptionsLink {

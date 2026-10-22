@@ -15,8 +15,9 @@ struct MemoryHomeSetting: View {
     @Environment(Store.self) private var store
 
     var body: some View {
+        // D6 word budget: the choice explains itself on This Mac; only the server form needs its sentence.
         SettingsRow(.memoryHome, title: Copy.Devices.modeTitle,
-                    detail: model.choice == .thisMac ? Copy.Devices.thisMacDetail : Copy.Devices.serverDetail) {
+                    detail: model.choice == .thisMac ? nil : Copy.Devices.serverDetail) {
             PillPicker(title: Copy.Devices.modeTitle, selection: $model.choice,
                        options: ConnectionSettingsModel.Choice.allCases.map { PillOption(value: $0, label: $0.label) })
                 .disabled(model.lockedByEnvironment)
@@ -111,33 +112,52 @@ struct MemoryHomeSetting: View {
     }
 }
 
-/// G181 phase 3 — Settings → Devices & access (owner 2026-10-16: "a page in settings … where I can see the synced devices").
-///
-/// Two cards: *Where your memory lives* — the choice (`MemoryHomeSetting`) and, only while this app runs on a server,
-/// which server it uses, whether it answers and as of when, and how many captures wait on this Mac for it — and
-/// *Your devices*: each device the person issued a token for, when it was added
-/// and last seen, Revoke. On This Mac (the master token) the page adds a device, showing its token once, and revokes
-/// one; on a server's client it reads the list and says the two commands to run on the server (ruling 28.1). Not a
-/// Store domain (`/devices` is outside every bank): read on appear and every 30 s while the page is open, kept in
-/// memory. DR-40 controls, DR-58 "ago" recomputed each minute, DR-21 tabular digits.
+
+/// Settings → Devices (G181 phase 3, G212, ruling 36 D6): each machine by its own name — the server by its Computer
+/// Name, never "this Mac" (owner, 2026-10-22) — with a dot and one word, how it connects (this machine, Tailscale,
+/// SSH, local network), when it was last seen and how many of its conversations wait for Sleep, and Revoke. *Pair a
+/// device* shows a one-time code as a QR drawn here (`PairDeviceSheet`). Where the memory lives (This Mac or a server)
+/// and the remote connector (*Apps outside this machine*, folded, DR-39) close the page. `GET /devices/status` is not a
+/// Store domain (it changes by the minute): read on appear and every 30 s while the page is open, kept in memory.
 struct DevicesSettingsView: View {
     @State private var model = DevicesPageModel(api: APIClient.shared, connection: APIClient.shared.connection,
                                                 directory: DeviceDirectory.shared)
-    @State private var showAdd = false
-    @State private var pendingRevoke: DeviceRecord?
+    @State private var rows: [DeviceStatusRow] = []
+    @State private var pairing = false
+    @State private var pendingRevoke: DeviceStatusRow?
+    @State private var appsOpen = false
 
     var body: some View {
         SettingsPage(section: .devices) {
-            // DR-38: one card says where the memory lives. The running connection's status joins it only on a server.
-            SettingsGroupCard(header: Copy.Devices.whereGroup) {
-                MemoryHomeSetting()
-                if model.connectionLine == nil, model.waitingElsewhere > 0 {
-                    // G202: captures left for a server this Mac used before (DR-38: said in the card that says where).
-                    SettingsDivider()
-                    Text(Copy.Devices.waitingElsewhere(model.waitingElsewhere))
-                        .font(CicadaTheme.captionFont.monospacedDigit())
-                        .foregroundStyle(CicadaTheme.textSecondary)
+            SettingsGroupCard {
+                TimelineView(.everyMinute) { context in
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                            if index > 0 { SettingsDivider() }
+                            ConnectionLine(logo: nil, name: row.name, systemFallback: Self.symbol(row),
+                                           detail: Self.detail(row, now: context.date),
+                                           status: (row.connected ? Copy.Status.connected : Copy.Status.off,
+                                                    row.connected)) {
+                                if model.canManage, let id = row.deviceId, !row.current {
+                                    TextButton(title: Copy.DevicesPage.revoke, inline: true) { pendingRevoke = row }
+                                        .accessibilityIdentifier("devices.revoke.\(id)")
+                                }
+                            }
+                        }
+                    }
                 }
+                if model.canManage {
+                    SettingsDivider()
+                    HStack {
+                        Spacer()
+                        NeutralButton(title: Copy.DevicesPage.pair, systemImage: "qrcode", size: .compact) { pairing = true }
+                    }
+                    .padding(CicadaTheme.spacingMD)
+                }
+            }
+            .settingsRow(.devicesList)
+            SettingsGroupCard {
+                MemoryHomeSetting()
                 if let line = model.connectionLine {
                     SettingsDivider()
                     SettingsRow(.devicesConnection, title: line, detail: model.connection.invalidReason) {
@@ -147,48 +167,75 @@ struct DevicesSettingsView: View {
                     }
                 }
             }
-            SettingsGroupCard(header: Copy.Devices.devicesGroup) {
-                SettingsRow(.devicesList, title: Copy.Devices.devicesGroup,
-                            detail: model.canManage ? nil : Copy.Devices.addOnServer) {
-                    if model.canManage {
-                        NeutralButton(title: Copy.Devices.add, size: .compact, help: Copy.Devices.addHelp) {
-                            showAdd = true
-                        }
-                    }
-                } below: {
-                    deviceList
+            // Hyrum audit B1 / D6: the remote connector, unchanged, folded (DR-39) under the old page's anchor.
+            SettingsGroupCard {
+                DisclosureGroup(isExpanded: $appsOpen) {
+                    RemoteAccessView().padding(.top, CicadaTheme.spacingSM)
+                } label: {
+                    Text(Copy.DevicesPage.apps)
+                        .font(CicadaTheme.rowFont)
+                        .foregroundStyle(CicadaTheme.textPrimary)
                 }
-            }
-            // Hyrum audit B1: From anywhere's page, unchanged, as this page's last group with the old page's anchor.
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                SettingsGroupHeader(Copy.fromAnywhere)
-                    .padding(.horizontal, CicadaTheme.spacingXS)
-                RemoteAccessView()
+                .padding(CicadaTheme.spacingMD)
             }
             .settingsRow(.fromAnywhere)
         }
         .task {
-            await model.refresh()
+            await refresh()
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
                 if Task.isCancelled { break }
-                await model.refresh()
+                await refresh()
             }
         }
-        .sheet(isPresented: $showAdd) {
-            AddDeviceSheet(model: model) { showAdd = false }
+        .sheet(isPresented: $pairing) {
+            PairDeviceSheet { pairing = false; Task { await refresh() } }
         }
         .confirmationDialog(Copy.Devices.revokeTitle(pendingRevoke?.name ?? ""),
                             isPresented: Binding(get: { pendingRevoke != nil }, set: { if !$0 { pendingRevoke = nil } }),
                             titleVisibility: .visible) {
             Button(Copy.Devices.revoke, role: .destructive) {
-                if let target = pendingRevoke { Task { await model.revoke(target) } }
+                if let id = pendingRevoke?.deviceId {
+                    Task { _ = try? await APIClient.shared.revokeDevice(id: id); await refresh() }
+                }
                 pendingRevoke = nil
             }
             Button(Copy.Devices.cancel, role: .cancel) { pendingRevoke = nil }
         } message: {
             Text(Copy.Devices.revokeMessage)
         }
+    }
+
+    private func refresh() async {
+        await model.refresh()
+        if let answer = try? await APIClient.shared.fetchDeviceStatus() {
+            rows = answer.devices.map { row in
+                var row = row
+                // The server names itself by its Computer Name; an older backend's blank name falls back to this
+                // machine's own, never to "this Mac".
+                if row.name.isEmpty, row.isServer { row.name = Host.current().localizedName ?? row.name }
+                return row
+            }
+        }
+    }
+
+    static func symbol(_ row: DeviceStatusRow) -> String {
+        if row.isServer { return "desktopcomputer" }
+        let name = row.name.lowercased()
+        if name.contains("iphone") || name.contains("phone") { return "iphone" }
+        if name.contains("ipad") { return "ipad" }
+        return "laptopcomputer"
+    }
+
+    /// "Tailscale · 3 min ago · 2 waiting" — how, when, and what waits; each part only when known.
+    static func detail(_ row: DeviceStatusRow, now: Date) -> String {
+        var parts: [String] = []
+        if let how = ConnectionModelText.how(row.how) { parts.append(how) }
+        if !row.isServer, let seen = row.lastSeenAt.flatMap(ISODate.parse) {
+            parts.append(Copy.AgentsPage.seen(seen, now: now))
+        }
+        if row.queue > 0 { parts.append(Copy.DevicesPage.waiting(row.queue)) }
+        return parts.joined(separator: " · ")
     }
 
     private var connectionStatus: some View {
@@ -213,48 +260,6 @@ struct DevicesSettingsView: View {
                     Text(Copy.Devices.waitingElsewhere(model.waitingElsewhere))
                         .font(CicadaTheme.captionFont.monospacedDigit())
                         .foregroundStyle(CicadaTheme.textSecondary)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder private var deviceList: some View {
-        TimelineView(.everyMinute) { context in
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                if model.loadFailed && model.devices.isEmpty {
-                    Text(Copy.Devices.loadFailed).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
-                } else if model.devices.isEmpty {
-                    Text(Copy.Devices.none).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
-                }
-                ForEach(model.devices) { device in
-                    HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
-                        Image(systemName: "laptopcomputer")
-                            .font(CicadaTheme.icon(.inline))
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                        VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                            HStack(spacing: CicadaTheme.spacingXS) {
-                                Text(device.name)
-                                    .font(CicadaTheme.rowFont)
-                                    .foregroundStyle(CicadaTheme.textPrimary)
-                                if device.current {
-                                    Text(Copy.Devices.thisDevice)
-                                        .font(CicadaTheme.captionFont)
-                                        .foregroundStyle(CicadaTheme.textTertiary)
-                                }
-                            }
-                            Text(model.detail(device, at: context.date))
-                                .font(CicadaTheme.captionFont.monospacedDigit())
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                        }
-                        Spacer(minLength: CicadaTheme.spacingSM)
-                        if model.canManage && device.active {
-                            TextButton(title: Copy.Devices.revoke, inline: true) { pendingRevoke = device }
-                        }
-                    }
-                    .opacity(device.active ? 1 : 0.6)
-                }
-                if let problem = model.problem {
-                    Text(problem).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
                 }
             }
         }

@@ -5,7 +5,7 @@ import XCTest
 final class ScenerySettingsTests: XCTestCase {
     func testExactCopyAndSearchLandOnVisibleScenerySource() {
         XCTAssertEqual(Copy.Scenery.group, "The scenery")
-        XCTAssertEqual(Copy.Scenery.disclosure, "Open-Meteo receives your time zone's city every half hour while the study room is open and, like any web request, your network address. Nothing from your memory is sent.")
+        XCTAssertEqual(Copy.Scenery.disclosure, "Open-Meteo gets your time zone's city, never your memory.")
         for query in ["scenery", "local weather", "scenery night", "rainy"] {
             let entry = SettingsSearchLanding.topHit(query, in: SettingsIndex.staticEntries)
             XCTAssertEqual(entry?.section, .sleep, query)

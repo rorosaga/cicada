@@ -166,6 +166,30 @@ enum SleepEnginePreviewSource {
 /// The button beside Consolidate (R-HS8…R-HS10): a `NeutralButton` (DR-40) wearing the running
 /// engine's mark, its name and model, and a disclosure glyph; it opens the menu below it. It owns
 /// the menu's open state and the writes; `EngineQuickMenu` is a pure renderer.
+/// D6 (owner brief, 2026-10-22): on the Sleep page the engine is a label — what reads, with its mark — that opens
+/// Settings → Intelligence, where the choice lives. The full menu stays in Sleep → Options (*Runs on*), which keeps the
+/// plan reserve and the model prices reachable where ruling 12 allows them.
+struct EngineLabelButton: View {
+    @Environment(SleepEngineViewModel.self) private var engineVM
+    @Environment(AppRouter.self) private var router
+    var size: NeutralButton.Size = .regular
+
+    var body: some View {
+        if let response = engineVM.response, let label = EngineQuickMenuModel.buttonLabel(response) {
+            HugWidth(maxWidth: CicadaTheme.scaled(EngineQuickMenu.buttonMaxWidth)) {
+                NeutralButton(title: label,
+                              leading: AnyView(EngineMark(engine: response.preview?.manual.engine ?? "",
+                                                          size: CicadaTheme.scaled(14),
+                                                          model: response.preview?.manual.model)),
+                              size: size, help: Copy.EngineMenu.moreInSettings) {
+                    router.openSettings(.intelligence, row: .engineChoice)
+                }
+                .accessibilityLabel(Copy.EngineMenu.buttonAccessibility(label))
+            }
+        }
+    }
+}
+
 struct EngineQuickMenuButton: View {
     @Environment(SleepEngineViewModel.self) private var engineVM
     @Environment(SleepViewModel.self) private var sleepVM
@@ -283,7 +307,7 @@ struct EngineQuickMenu: View {
             previewsSection
             HStack {
                 Spacer(minLength: 0)
-                InlineLink(title: Copy.EngineMenu.moreInSettings) { openSettings(.engines, .engineChoice) }
+                InlineLink(title: Copy.EngineMenu.moreInSettings) { openSettings(.intelligence, .engineChoice) }
             }
             .padding(.horizontal, CicadaTheme.spacingSM)
             .padding(.vertical, CicadaTheme.spacingXS)
@@ -327,7 +351,7 @@ struct EngineQuickMenu: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if model.showsPlansAndKeysLink {
-                    InlineLink(title: Copy.EngineMenu.plansAndKeys) { openSettings(.engines, .plansAndKeys) }
+                    InlineLink(title: Copy.EngineMenu.plansAndKeys) { openSettings(.intelligence, .plansAndKeys) }
                 }
                 if let command = model.command {
                     CommandBox(command: command)

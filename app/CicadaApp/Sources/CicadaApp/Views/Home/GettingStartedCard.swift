@@ -533,7 +533,7 @@ private struct GettingStartedRowAction: View {
             if let section = row.settingsLink {
                 // The state's own words ("Finish in Settings → Agents", "Finish in Integrations"), as `FoundRow`
                 // would with an `actionTitle`; the Claude-desktop sentence is only the fallback.
-                SettingsSectionLink(section: section,
+                SettingsSectionLink(home: section,
                                     label: FoundRow.defaultActionTitle(row.state) ?? Copy.foundClaudeDesktopDetail)
             } else if let title = FoundRow.defaultActionTitle(row.state) {
                 NeutralButton(title: title, size: .compact, action: action)

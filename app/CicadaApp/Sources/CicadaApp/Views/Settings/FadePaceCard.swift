@@ -19,12 +19,18 @@ struct FadePaceCard: View {
         return DecayTuningModel.rows(response, notNow: DecayTuningModel.decodeNotNow(notNowRaw))
     }
 
+    /// D6: the explainer left Settings (the page cards' "?", UI-B); the card shows only while it holds a suggestion
+    /// or a chosen pace — the control stays reachable, the words go.
     var body: some View {
-        SettingsGroupCard(header: Copy.fadeHeader) {
-            SettingsRow(.fadePace, title: Copy.fadePaceTitle, detail: note ?? Copy.fadePaceDetail)
-            ForEach(rows) { row in
-                SettingsDivider()
-                typeRow(row)
+        Group {
+            if !rows.isEmpty {
+                SettingsGroupCard(header: Copy.fadeHeader) {
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                        if index > 0 { SettingsDivider() }
+                        typeRow(row)
+                    }
+                }
+                .settingsRow(.fadePace)
             }
         }
         .task { await load() }

@@ -83,7 +83,7 @@ extension Copy {
     enum Bookmarks {
         static let menuItem = "Bookmarks…"
         static let searchPrompt = "Search bookmarks and why you saved them"
-        static let none = "No bookmarks yet. Turn on a browser under Settings → Integrations."
+        static let none = "No bookmarks yet. Turn on a browser on the Sources page."
         static let noMatch = "Nothing matches."
         static func footer(_ total: Int) -> String {
             total == 1 ? "1 bookmark · Return opens it in Cicada" : "\(UsageFormat.count(total)) bookmarks · Return opens one in Cicada"

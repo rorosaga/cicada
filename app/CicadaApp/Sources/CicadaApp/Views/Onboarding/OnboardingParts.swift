@@ -25,13 +25,30 @@ struct OnboardingHeadline: View {
 /// (`SettingsSectionLink`, R-DS22), so a pointer never re-types a destination (G68 §2.8).
 struct OnboardingPointerLine: View {
     let lead: String
-    let section: SettingsSection
+    let home: SettingsHome
     let label: String
+    @Environment(AppRouter.self) private var router: AppRouter?
+
+    init(lead: String, section: SettingsSection, label: String) {
+        self.init(lead: lead, home: .settings(section, nil), label: label)
+    }
+
+    /// D6 — Sources and Agents are sidebar pages now; their pointer opens the page.
+    init(lead: String, home: SettingsHome, label: String) {
+        self.lead = lead
+        self.home = home
+        self.label = label
+    }
 
     var body: some View {
         HStack(spacing: CicadaTheme.spacingXS) {
             Text(lead).foregroundStyle(CicadaTheme.textSecondary)
-            SettingsSectionLink(section: section, label: label)
+            switch home {
+            case let .settings(section, row): SettingsSectionLink(section: section, row: row, label: label)
+            case .page:
+                Button { router?.open(home) } label: { Text(label).foregroundStyle(CicadaTheme.accentText) }
+                    .buttonStyle(.cicadaPlain)
+            }
         }
         .font(CicadaTheme.captionFont)
     }

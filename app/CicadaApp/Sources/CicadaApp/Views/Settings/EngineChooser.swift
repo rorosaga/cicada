@@ -193,7 +193,7 @@ struct EngineChooser: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if headline.needsSignIn {
-                        SettingsInlineLink(section: .engines, row: .plansAndKeys, label: Copy.plansAndKeys)
+                        SettingsInlineLink(section: .intelligence, row: .plansAndKeys, label: Copy.plansAndKeys)
                             .font(CicadaTheme.captionFont)
                     }
                 }
@@ -247,7 +247,7 @@ struct EngineChooser: View {
         if let hint = EngineOption.signInHint(response.candidates) {
             HStack(spacing: CicadaTheme.spacingXS) {
                 Text(hint).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
-                SettingsInlineLink(section: .engines, row: .plansAndKeys, label: Copy.plansAndKeys)
+                SettingsInlineLink(section: .intelligence, row: .plansAndKeys, label: Copy.plansAndKeys)
                     .font(CicadaTheme.captionFont)
             }
         }

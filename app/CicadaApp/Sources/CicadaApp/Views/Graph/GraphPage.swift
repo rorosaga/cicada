@@ -81,8 +81,8 @@ struct GraphPage: View {
                 EmptyStateView(
                     title: "Nothing here yet",
                     message: Copy.emptyGraphMessage,
-                    actionLabel: "Open Integrations",
-                    settingsSection: .integrations,
+                    actionLabel: "Open Sources",
+                    settingsSection: .page(.sources),
                     onDropFiles: { intake.accept(urls: $0, from: .emptyState(.graph)) }
                 )
             }

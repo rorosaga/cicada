@@ -287,7 +287,7 @@ struct ReadingWebView: View {
     }
 
     private var page: some View {
-        SettingsPage(section: .reading) {
+        SettingsPage(heading: .reading) {
             SettingsGroupCard(header: Copy.Reading.withAgentGroup) {
                 SettingsRow(.readingAgent, title: Copy.Reading.switchTitle,
                             detail: model.note ?? Copy.Reading.switchDetail) {

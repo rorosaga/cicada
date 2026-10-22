@@ -306,6 +306,21 @@ final class AppRouter {
         return activateMainWindow()
     }
 
+    /// D6 — a retired Settings page's new home: a row in the panel, or the sidebar page it became (Settings closes).
+    func open(_ home: SettingsHome) {
+        switch home {
+        case let .settings(section, row): openSettings(section, row: row)
+        case let .page(tab): routeToPage(tab)
+        }
+    }
+
+    /// Close Settings and show a sidebar page — Sources, Agents or Skills, where three retired Settings pages went.
+    func routeToPage(_ tab: AppTab) {
+        closeSettings()
+        pendingTab = tab
+        activateMainWindow()
+    }
+
     func closeSettings() {
         settingsOpen = false
         pendingSettings = nil

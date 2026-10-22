@@ -20,7 +20,7 @@ extension Copy {
         static let pageTitle = "What Cicada can look through"
         static let subtitle = "Folders it reads, how search understands, how things fade."
         /// "Settings → Search & memory" — the pointer every other surface uses (`CopyConstantsTests`).
-        static let pointer = "\(Copy.settings) → \(sidebar)"
+        static let pointer = "\(Copy.settings) → \(Copy.privacyAndData)"
 
         // MARK: Folders
         static let foldersGroup = "Folders"
@@ -60,6 +60,8 @@ extension Copy {
         // MARK: How search understands
         static let understandGroup = "How search understands"
         static let meaningTitle = "Understand what you mean"
+        /// D6 (owner brief, 2026-10-22): the one search row on Privacy & data.
+        static let runsHere = "Search runs on this Mac"
         static let imagesTitle = "Understand images"
         static let turnOn = "Turn on"
         static let tryAgain = "Try again"

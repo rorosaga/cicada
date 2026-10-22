@@ -3365,6 +3365,54 @@ actor APIClient {
         return try decoder.decode(Answer.self, from: data).device
     }
 
+    // MARK: - The connection model (G217, G212, G213)
+
+    /// `GET /providers` — static per release, so no ETag and no Store domain: fetched once per launch, kept in memory.
+    func fetchProviders() async throws -> ProvidersResponse {
+        try await get("/providers", timeout: Self.refreshTimeout)
+    }
+
+    /// `GET /devices/status` — not a Store domain (it changes by the minute); polled while a view shows it.
+    func fetchDeviceStatus() async throws -> DeviceStatusResponse {
+        try await get("/devices/status", timeout: Self.refreshTimeout)
+    }
+
+    /// `POST /devices/pairing` — the master token's alone; `url` is where the new device will reach this server.
+    func createPairing(url: String?) async throws -> PairingCreated {
+        var body: [String: Any] = [:]
+        if let url { body["url"] = url }
+        return try await post("/devices/pairing", body: body)
+    }
+
+    func pairingState(_ id: String) async throws -> PairingAnswer {
+        try await get("/devices/pairing/\(encodedID(id))", timeout: Self.refreshTimeout)
+    }
+
+    func cancelPairing(_ id: String) async throws {
+        _ = try await delete("/devices/pairing/\(encodedID(id))")
+    }
+
+    /// `PUT /connections/{id}/key` with the check flag (G50): 422 = refused (nothing saved), 503 = unreachable — the
+    /// caller then offers "Save without checking", which resends with `check: false`.
+    func saveKey(_ id: String, key: String, check: Bool) async throws -> ConnectionStatus {
+        try await put("/connections/\(encodedID(id))/key", body: ["key": key, "check": check])
+    }
+
+    /// `GET /agent-api/tokens` (G213) — machine-global, outside every bank; not a Store domain.
+    func fetchAgentTokens() async throws -> [AgentToken] {
+        struct Answer: Decodable { var tokens: [AgentToken] }
+        let answer: Answer = try await get("/agent-api/tokens", timeout: Self.refreshTimeout)
+        return answer.tokens
+    }
+
+    func createAgentToken(name: String) async throws -> AgentTokenCreated {
+        try await post("/agent-api/tokens", body: ["name": name])
+    }
+
+    func revokeAgentToken(_ id: String) async throws {
+        _ = try await delete("/agent-api/tokens/\(encodedID(id))")
+    }
+
     // MARK: - Generic Helpers
 
     /// `timeout` overrides Foundation's 60 s default for this one request.

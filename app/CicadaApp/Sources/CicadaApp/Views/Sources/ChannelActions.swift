@@ -79,11 +79,10 @@ enum ChannelActions {
         }
     }
 
-    /// Which Settings section manages it: a watched folder lives on Search & files (owner, 2026-10-14), every other
-    /// app-read source on Integrations.
-    static func settingsSection(for channelId: String) -> SettingsSection {
-        if case .folder = syncRoute(for: channelId) { return .searchFiles }
-        return .integrations
+    /// Where it is managed. D6 (2026-10-22): every app-read source, watched folders included, on the Sources page —
+    /// Integrations and Search & files left Settings.
+    static func settingsSection(for channelId: String) -> SettingsHome {
+        .page(.sources)
     }
 
     /// Track I T1 (R-IA2): a Sync now on a watched browser IS the consent, so it

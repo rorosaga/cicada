@@ -13,24 +13,25 @@ import SwiftUI
 /// The label is generic so a whole row can be the link (L final review, finding 1: a folder or
 /// Wispr Flow row on the Feed strip has its settings in Integrations).
 struct SettingsSectionLink<Label: View>: View {
-    let section: SettingsSection
-    /// G139 (R-O15) — land on (scroll to and briefly wash) this row once the panel shows it.
-    let row: SettingsRowID?
+    /// G139 (R-O15) — the section and the row to land on; D6 — or the sidebar page a retired section became (Settings
+    /// closes on the way, `AppRouter.open(_:)`).
+    let home: SettingsHome
     let accessibilityText: String
     let label: Label
-    /// G137 R-M18: an empty state's one action is the page's one prominent action — same
-    /// door, drawn through `primaryActionStyle()` (its label through `primaryActionInk()`)
-    /// instead of as link text. Off by default, so every other caller (the Sleep page's
-    /// schedule link, a Feed-strip row) renders as a quiet link.
+    /// G137 R-M18: an empty state's one action is the page's one prominent action — same door, drawn through
+    /// `primaryActionStyle()` (its label through `primaryActionInk()`) instead of as link text. Off by default.
     var prominent: Bool = false
-    /// Optional so a link rendered outside the main window's tree (a preview) draws without
-    /// trapping; in the app the router is always there.
+    /// Optional so a link rendered outside the main window's tree (a preview) draws without trapping.
     @Environment(AppRouter.self) private var router: AppRouter?
 
     init(section: SettingsSection, row: SettingsRowID? = nil, accessibilityText: String,
          prominent: Bool = false, @ViewBuilder label: () -> Label) {
-        self.section = section
-        self.row = row
+        self.init(home: .settings(section, row), accessibilityText: accessibilityText, prominent: prominent,
+                  label: label)
+    }
+
+    init(home: SettingsHome, accessibilityText: String, prominent: Bool = false, @ViewBuilder label: () -> Label) {
+        self.home = home
         self.accessibilityText = accessibilityText
         self.prominent = prominent
         self.label = label()
@@ -46,17 +47,28 @@ struct SettingsSectionLink<Label: View>: View {
                     .buttonStyle(.cicadaPlain)
             }
         }
-        .accessibilityLabel("\(accessibilityText), opens \(Copy.settings) — \(section.title)")
+        .accessibilityLabel("\(accessibilityText), opens \(destination)")
     }
 
-    private func open() { router?.openSettings(section, row: row) }
+    private var destination: String {
+        switch home {
+        case let .settings(section, _): "\(Copy.settings) — \(section.title)"
+        case let .page(tab): tab.title
+        }
+    }
+
+    private func open() { router?.open(home) }
 }
 
 extension SettingsSectionLink where Label == Text {
     /// The text link every earlier call site uses: link ink (DR-5 use 5, `accentText`), or —
     /// `prominent` — the page's one prominent action (the body inks it).
     init(section: SettingsSection, row: SettingsRowID? = nil, label: String, prominent: Bool = false) {
-        self.init(section: section, row: row, accessibilityText: label, prominent: prominent) {
+        self.init(home: .settings(section, row), label: label, prominent: prominent)
+    }
+
+    init(home: SettingsHome, label: String, prominent: Bool = false) {
+        self.init(home: home, accessibilityText: label, prominent: prominent) {
             prominent ? Text(label) : Text(label).foregroundStyle(CicadaTheme.accentText)
         }
     }

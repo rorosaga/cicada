@@ -565,6 +565,8 @@ struct ContentView: View {
             ProjectsPage()
         case .skills:
             SkillsPage()
+        case .agents:
+            AgentsSidebarPage()
         }
     }
 }

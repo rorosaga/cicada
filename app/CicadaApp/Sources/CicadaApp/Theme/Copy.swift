@@ -207,7 +207,7 @@ enum Copy {
     /// quota is a real budget, just not a dollar one.
     static let sleepEngineExplainer =
         "Sleep runs on your Claude plan through Claude Code: it spends plan quota, not money. "
-        + "When you start a cycle yourself, and on the schedule unless you turn that off in Settings → Sleep; if the "
+        + "When you start a cycle yourself, and on the schedule unless you turn that off in Settings → Intelligence; if the "
         + "plan throttles it stops cleanly with the queue intact."
 
     // MARK: Engines (Track E — R-E4, R-E13, R-E24, R-E28)

@@ -58,7 +58,8 @@ extension Copy {
     static let importDropDetail = "A .zip, a folder or one file, read on this Mac."
     static let importSeeHow = "See how ›"
     static let importMoreSources = "More sources any time in"
-    static let onboardingSettingsIntegrations = "\(settings) → \(integrations)"
+    /// D6: Sources is a sidebar page now.
+    static let onboardingSettingsIntegrations = "Sources"
     static func importWait(_ vendor: ChatVendor) -> String {
         switch vendor {
         case .claude: "Ready in minutes to hours"
@@ -86,7 +87,8 @@ extension Copy {
     static let agentsPageTitle = "Work with your agents"
     static let agentsPageSubline = "Pick an agent and follow its steps. Connected agents read your memory, add to it, and sign what they write."
     static let agentsFoot = "Connect or disconnect agents any time in"
-    static let onboardingSettingsAgents = "\(settings) → \(agents)"
+    /// D6: Agents is a sidebar page now.
+    static let onboardingSettingsAgents = "Agents"
     /// R-OB12 — said on the step whose click also turns it on.
     static let agentStepAlsoRecalls = "It also turns on Remembers automatically; undo that in \(settings) → \(agents)."
     static let agentStepRecallHow = "Before your agent answers, Cicada adds a short note about who and what you mention. Undo it in \(settings) → \(agents)."

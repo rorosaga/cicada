@@ -77,7 +77,7 @@ struct IntegrationsView: View {
     var body: some View {
         SettingsScroll {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXL) {
-                SettingsDetailHeader(section: .integrations)
+                SettingsDetailHeader(heading: .integrations)
 
                 switch Self.loadState(channels: store.channels.value, overview: store.sourcesOverview.value,
                                       isLoading: isLoading, error: loadError) {
@@ -361,7 +361,7 @@ private struct FoldersPointerRow: View {
             Text(Copy.SearchFiles.integrationsLinkLead)
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
-            SettingsInlineLink(section: .searchFiles, row: .searchFolders, label: Copy.SearchFiles.sidebar)
+            SettingsInlineLink(home: .page(.sources), label: Copy.SearchFiles.sidebar)
                 .font(CicadaTheme.captionFont)
             Spacer()
         }

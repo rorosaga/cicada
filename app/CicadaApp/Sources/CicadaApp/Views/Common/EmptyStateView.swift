@@ -26,7 +26,7 @@ struct EmptyStateView: View {
     var action: (() -> Void)? = nil
     /// Set instead of `actionLabel`/`action` when the one thing to do is
     /// "open Settings, on this section."
-    var settingsSection: SettingsSection? = nil
+    var settingsSection: SettingsHome? = nil
     /// Track I T5 (R-IA27) — set on a page an export can fill (Graph, Feed,
     /// Sources): the view takes a dropped file and hands it to the one intake
     /// with that page's own origin. Nil (Inbox) attaches no drop target at all.
@@ -45,7 +45,7 @@ struct EmptyStateView: View {
                 .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
                 .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             if let section = settingsSection, let actionLabel {
-                SettingsSectionLink(section: section, label: actionLabel, prominent: true)
+                SettingsSectionLink(home: section, label: actionLabel, prominent: true)
                     .padding(.top, CicadaTheme.spacingSM)
             } else if let actionLabel, let action {
                 PrimaryActionButton(title: actionLabel, action: action)

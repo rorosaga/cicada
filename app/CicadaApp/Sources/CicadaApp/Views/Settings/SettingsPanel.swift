@@ -28,9 +28,6 @@ struct SettingsPanel: View {
     @AppStorage(ThemeStore.defaultsKey) private var appearanceRaw = AppearancePreference.dark.rawValue
     @State private var selection: SettingsSection = .general
     @State private var focus = SettingsFocus()
-    /// Skills' data (G138) lives here, not in the page, so search can index the recommended
-    /// skills while another section is showing.
-    @State private var skillsVM = SkillsViewModel()
     @State private var query = ""
     /// Picking a sidebar row after typing shows that section; typing again brings the results back.
     @State private var pickedSinceTyping = false
@@ -41,18 +38,10 @@ struct SettingsPanel: View {
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(AppRouter.self) private var router
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// Names and ids only feed the index (never a command).
-    private let agents = AgentCatalog.all
-
-    // Carried over unchanged from the retired scene — the index is the same index.
+    // D6: channels, harnesses, agents and skills left with their pages; connections stay (Intelligence's rows).
     private var entries: [SettingsEntry] {
-        SettingsIndex.pageEntries + SettingsIndex.staticEntries + SettingsIndex.dynamicEntries(
-            channels: store.channels.value ?? [],
-            harnessRows: IntegrationHarnessRows.rows(from: store.sourcesOverview.value ?? []),
-            exportOnly: IntegrationsView.exportOnlyTiles,   // the page's own list, never a retyped copy
-            connections: store.connections.value ?? [],
-            agents: agents,
-            skills: skillsVM.all)
+        SettingsIndex.pageEntries + SettingsIndex.staticEntries
+            + SettingsIndex.dynamicEntries(connections: store.connections.value ?? [])
     }
     private var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var hits: [SettingsHit] { SettingsIndex.search(trimmedQuery, in: entries) }
@@ -94,8 +83,6 @@ struct SettingsPanel: View {
             .frame(width: geo.size.width, height: geo.size.height)
         }
         .environment(focus)
-        .environment(skillsVM)
-        .task { await skillsVM.load() }
         .onAppear {
             let saved = SettingsSection.restoredLanding(from: sectionRaw,
                                                         legacyAgentsMode: UserDefaults.standard.string(forKey: "cicada.agentsMode"))
@@ -134,9 +121,12 @@ struct SettingsPanel: View {
                         let sections = group.sections.filter { trimmedQuery.isEmpty || counts[$0, default: 0] > 0 }
                         if !sections.isEmpty {
                             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                                SectionLabel(group.title)
-                                    .frame(height: CicadaTheme.scaled(24))
-                                    .padding(.horizontal, CicadaTheme.scaled(10))
+                                // D6: one group of six rows needs no heading.
+                                if SettingsGroup.allCases.count > 1 {
+                                    SectionLabel(group.title)
+                                        .frame(height: CicadaTheme.scaled(24))
+                                        .padding(.horizontal, CicadaTheme.scaled(10))
+                                }
                                 ForEach(sections) { section in
                                     SettingsSidebarRow(section: section,
                                                        isSelected: selection == section && !showingResults,
@@ -201,15 +191,10 @@ struct SettingsPanel: View {
         switch selection {
         case .general: SettingsGeneralView()
         case .you: YouView()
-        case .privacy: PrivacyView()
-        case .searchFiles: SearchFilesView()
+        case .intelligence: IntelligenceView()
         case .sleep: SettingsSleepView()
-        case .integrations: IntegrationsView()
-        case .reading: ReadingWebView()
-        case .agents: ConnectView()
         case .devices: DevicesSettingsView()
-        case .skills: SkillsView()
-        case .engines: EnginesView()
+        case .privacy: PrivacyView()
         }
     }
 

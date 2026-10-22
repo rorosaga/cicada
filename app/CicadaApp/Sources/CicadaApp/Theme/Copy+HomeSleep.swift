@@ -25,7 +25,7 @@ extension Copy {
         static let whenYouStart = "When you start a cycle"
         static let scheduledCycles = "Scheduled cycles"
         static let writeFailed = "Couldn't change the engine — nothing changed."
-        static let moreInSettings = "More in Settings → Engines ›"
+        static let moreInSettings = "More in Settings → Intelligence ›"
         static let plansAndKeys = "Plans & keys ›"
         static let autoPrefix = "Auto"
         static func signInFirst(_ label: String) -> String { "Sign in on Plans & keys to use your \(label)" }

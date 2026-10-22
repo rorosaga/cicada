@@ -311,7 +311,7 @@ struct ConnectView: View {
     private var remoteReady: Bool { remote?.enabled == true && remote?.effectiveUrl != nil }
 
     var body: some View {
-        SettingsPage(section: .agents) {
+        SettingsPage(heading: .agents) {
             // Settings defaults (owner 2026-10-22): no `make install` card. Installing is the installer's job
             // (`install.sh`, or a release app that carries its own backend, G182); Settings never shows a shell step.
             SettingsGroupCard(header: Copy.agentsYourAgents, trailingHeader: Copy.agentsConnectedSummary(live.connectedCount)) {
@@ -339,7 +339,7 @@ struct ConnectView: View {
                 .padding(CicadaTheme.spacingMD)
                 SettingsDivider()
                 SettingsRow(.agentsSkill, title: Copy.agentsSkillTitle, detail: Copy.agentsSkillDetail) {
-                    SettingsInlineLink(section: .skills, row: .skill(CicadaSkillBundle.cicada.rawValue), label: Copy.openSkills)
+                    SettingsInlineLink(home: .page(.skills), label: Copy.openSkills)
                 }
             }
             AutoRecallGroup()
@@ -354,7 +354,7 @@ struct ConnectView: View {
                 SettingsDivider()
                 // G166 — reading pages with an agent has its own page; this is the way there from Agents.
                 SettingsRow(.agentsReading, title: Copy.Reading.agentsRowTitle, detail: Copy.Reading.agentsRowDetail) {
-                    SettingsInlineLink(section: .reading, row: .readingAgent, label: Copy.Reading.pageTitle)
+                    SettingsInlineLink(home: .page(.sources), label: Copy.Reading.pageTitle)
                 }
             }
         }
