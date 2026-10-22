@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The nine primary views. Raw values are this tab's **stable identity** —
+/// The eight primary views (the ninth, Looks, went on 2026-10-20: a look lives on the page of the thing it shows). Raw values are this tab's **stable identity** —
 /// the persisted selection (`cicada.selectedTab`) and the ⌘-slot order in
 /// `allCases` — so a surviving tab's raw value must never move, even when its
 /// label changes.
@@ -34,9 +34,6 @@ enum AppTab: String, CaseIterable {
     /// G141 PJ-5 — the eighth page, ⌘8 (owner ruling 2026-09-23: the first free cell after Sources, so no existing
     /// shortcut moves; DESIGN_RULES §9, DR-22). A new raw value, so `restored(from:)` needs no mapping.
     case projects = "Projects"
-    /// Design taste (owner, 2026-10-14) — the ninth page, ⌘9: the board of looks the person likes. The first free
-    /// cell after Projects, so no existing shortcut moves (the Projects ruling's reasoning; placement is the owner's).
-    case looks = "Looks"
 
     /// Decodes a persisted selection, mapping every retired tab to whichever
     /// page inherited its content. Anything unrecognised falls back to Home.
@@ -46,6 +43,9 @@ enum AppTab: String, CaseIterable {
         switch raw {
         case "Feed", "Capture": return .sleep   // the Sleep redesign (2026-10-16): the Feed is Sleep's Saved tab
         case "Activity", "Contributors", "Usage": return .sources   // G124: Activity → Sources
+        // Looks on pages (owner 2026-10-20): the board went; its looks live on their pages, and Clusters filters to
+        // the pages that have them.
+        case "Looks": return .clusters
         case "Connections", "Connect": return .graph   // now Settings tabs (⌘,)
         default: return .home
         }
@@ -60,7 +60,6 @@ enum AppTab: String, CaseIterable {
         case .inbox: "tray"
         case .sources: "tray.2"
         case .projects: "point.topleft.down.to.point.bottomright.curvepath"
-        case .looks: "paintpalette"
         case .skills: "puzzlepiece.extension"
         }
     }
@@ -76,7 +75,7 @@ extension AppTab {
     /// Feed folded into it (2026-10-16): a saved item's detail sits beside its list, the Reader beside both.
     var hostsOwnReader: Bool {
         switch self {
-        case .inbox, .clusters, .sleep, .sources, .projects: true
+        case .inbox, .clusters, .sleep, .sources, .projects, .skills: true
         default: false
         }
     }

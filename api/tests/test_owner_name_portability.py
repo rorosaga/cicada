@@ -13,9 +13,9 @@ supposed to live, and asserts the SHAPE the fix introduced:
 
   1. the title-cased form appears nowhere in shipped ``api/``/``mcp/`` — a
      capitalised given name is always a person, never a protocol value;
-  2. no MCP tool description contains the lowercase form — the ``observer``
-     ENUM keeps it (CLAUDE.md R12: a schema that rejects what a description
-     names is a bug), the prose does not;
+  2. no MCP tool description contains the lowercase form, and since the
+     2026-10-22 Hyrum audit (A11) no advertised schema does either — the
+     tool body accepts it, unadvertised;
   3. no ``*_PROMPT`` constant in ``api/services/`` contains it — no LLM is
      primed with a person's name.
 
@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import json
 import pkgutil
 import re
 from pathlib import Path
@@ -110,15 +111,10 @@ def test_no_mcp_tool_description_names_a_person():
     assert offenders == [], (
         "a tool description reaches every agent on initialize — keep it neutral"
     )
-    # The wire value itself is protocol and MUST stay reachable (R12).
-    observer_schema = next(
-        t["inputSchema"]["properties"]["observer"]
-        for t in server.TOOLS
-        if t["name"] == "cicada_write_claim"
-    )
-    assert re.fullmatch(observer_schema["pattern"], SLUG), (
-        "the legacy observer stays accepted, it just stops being advertised"
-    )
+    # Hyrum audit A11 (2026-10-22): no part of the advertised schema names it — the observer pattern neither — while
+    # the tool body keeps accepting the wire value from old local installs.
+    assert SLUG not in json.dumps(server.TOOLS).lower(), "the legacy observer value is in an advertised schema"
+    assert server.mcp_tools.observer_accepted(SLUG), "the legacy observer stays accepted, never advertised"
 
 
 def _prompt_constants() -> list[tuple[str, str]]:

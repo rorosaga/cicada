@@ -90,13 +90,13 @@ private struct FactCell: View {
         HStack(spacing: CicadaTheme.scaled(4)) {
             ForEach(Array(fact.values.enumerated()), id: \.element.id) { index, item in
                 if index > 0 {
-                    Text(Copy.People.dot).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textTertiary)
+                    Text(Copy.People.dot).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
                 }
                 valueWord(item)
             }
             if !fact.more.isEmpty {
                 Text(Copy.People.more(fact.more.count))
-                    .font(CicadaTheme.font(size: 13))
+                    .font(CicadaTheme.bodyFont)
                     .monospacedDigit()
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .help(Copy.People.alsoAt(fact.more))
@@ -108,7 +108,7 @@ private struct FactCell: View {
     @ViewBuilder
     private func valueWord(_ item: PersonFactValue) -> some View {
         let words = Text(item.name)
-            .font(CicadaTheme.font(size: 13, weight: .medium))
+            .font(CicadaTheme.rowFont)
             .foregroundStyle(CicadaTheme.textPrimary)
             .lineLimit(1)
             .truncationMode(.tail)
@@ -129,7 +129,7 @@ private struct FactCell: View {
                     .frame(width: CicadaTheme.scaled(6), height: CicadaTheme.scaled(6))
             }
             Text(fact.value)
-                .font(CicadaTheme.font(size: 13, weight: .medium))
+                .font(CicadaTheme.rowFont)
                 .monospacedDigit()
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .lineLimit(1)

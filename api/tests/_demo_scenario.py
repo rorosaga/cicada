@@ -8,6 +8,10 @@ ran. Every name is demo fiction and every URL is on example.com.
 """
 from __future__ import annotations
 
+import atexit
+import os
+import shutil
+import tempfile
 from contextlib import ExitStack
 from datetime import date, timedelta
 from pathlib import Path
@@ -30,11 +34,11 @@ def d(offset: int) -> str:
     return (T + timedelta(days=offset)).isoformat()
 
 
-def demo(tmp_path: Path, *, index: bool = True, events: bool = True, person: bool = True,
-         followups: bool = True, backlog: bool = True, showcase: bool = False) -> Path:
-    """The scenario bank. ``showcase`` (round 4 T-Demo) is OFF by default: every expectation the scenario tests pin
-    was written before it, and `test_projects_app_fixture.py` proves it leaves the Projects wire alone; the
-    showcase's own tests turn it on."""
+def build(tmp_path: Path, *, index: bool = True, events: bool = True, person: bool = True,
+          followups: bool = True, backlog: bool = True, showcase: bool = False, today: date | None = T) -> Path:
+    """The scenario bank, generated from scratch at ``tmp_path / "demo"`` (~1–3 s of writes and git). Only a test of
+    the generator itself (determinism) needs this; every other test takes :func:`demo`'s copy. ``today=None`` is
+    `populate`'s own default, the real day."""
     bank = tmp_path / "demo"
     bank_registry.scaffold_bank(bank)
     wanted = {"events": events, "person": person, "followups": followups, "backlog": backlog, "showcase": showcase}
@@ -42,7 +46,48 @@ def demo(tmp_path: Path, *, index: bool = True, events: bool = True, person: boo
         for flag, name in _STEPS.items():
             if not wanted[flag] and hasattr(demo_bank, name):
                 stack.enter_context(mock.patch.object(demo_bank, name, lambda *a, **k: None))
-        demo_bank.populate(bank, today=T)
+        demo_bank.populate(bank, today=today)
+    bank_index.invalidate()
+    if index:
+        search_index.ensure_fresh(bank, wait=True, max_age_s=0)
+    return bank
+
+
+#: One pristine bank per set of flags, built once per test process (suite cut 1, 2026-10-19: 20 files spent ~220 s
+#: building the same few banks over and over). Templates live under the suite's own tmp root and are never handed out:
+#: a test gets a copy.
+_TEMPLATES: dict[tuple, Path] = {}
+
+
+def _template_root() -> Path:
+    """A fresh dir under the suite's tmp root (`conftest.py` removes it at exit); outside the suite, its own."""
+    root = os.environ.get("CICADA_SUITE_ROOT")
+    if root and Path(root).is_dir():
+        return Path(tempfile.mkdtemp(prefix="demo-template-", dir=root))
+    made = Path(tempfile.mkdtemp(prefix="cicada-demo-template-"))
+    atexit.register(shutil.rmtree, made, ignore_errors=True)
+    return made
+
+
+def demo(tmp_path: Path, *, index: bool = True, events: bool = True, person: bool = True,
+         followups: bool = True, backlog: bool = True, showcase: bool = False, today: date | None = T) -> Path:
+    """The scenario bank at ``tmp_path / "demo"``: an independent copy of a template :func:`build` made once per
+    process for these flags — files, git history and (``index``) the FTS index, with their mtimes, so the index reads
+    as fresh. A test may write to its copy freely. ``showcase`` (round 4 T-Demo) is OFF by default: every expectation
+    the scenario tests pin was written before it, and `test_projects_app_fixture.py` proves it leaves the Projects
+    wire alone; the showcase's own tests turn it on. ``today=None`` is the real day (keyed by it, so a run that
+    crosses midnight builds again).
+
+    A caller must not patch ``demo_bank`` before calling it: the template is built once per process for these flags
+    and cached, so a patched ``populate`` step would be baked into the copy every later test receives."""
+    key = (index, events, person, followups, backlog, showcase, today or date.today())
+    template = _TEMPLATES.get(key)
+    if template is None or not template.is_dir():
+        template = build(_template_root(), index=index, events=events, person=person, followups=followups,
+                         backlog=backlog, showcase=showcase, today=today)
+        _TEMPLATES[key] = template
+    bank = tmp_path / "demo"
+    shutil.copytree(template, bank, symlinks=True)
     bank_index.invalidate()
     if index:
         search_index.ensure_fresh(bank, wait=True, max_age_s=0)

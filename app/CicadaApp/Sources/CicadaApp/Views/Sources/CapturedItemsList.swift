@@ -26,8 +26,6 @@ struct CapturedItemsList: View {
     @Environment(AppRouter.self) private var router: AppRouter?
     @Environment(Store.self) private var store: Store?
     @AppStorage private var remembered: Bool
-    @State private var hovering = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(channel: String, interactive: Bool = true, style: Style = .disclosure) {
         self.channel = channel
@@ -40,8 +38,11 @@ struct CapturedItemsList: View {
 
     /// Re-read when the list opens and whenever the channels move (`/sources/channels` ETags over the same
     /// components this list does, so a sync that brought something in lands here too; a 304 moves nothing).
+    /// Sources v4 (review of #358): and when the overview moves — it rides `photos` too, so a chat photo that arrives
+    /// for a chat with no page reaches its row.
     private var refreshKey: String {
         "\(channel)|\(isOpen)|\(store?.channels.loadedAt?.timeIntervalSinceReferenceDate ?? 0)"
+            + "|\(store?.sourcesOverview.loadedAt?.timeIntervalSinceReferenceDate ?? 0)"
     }
 
     private var noun: (one: String, many: String) {
@@ -69,26 +70,9 @@ struct CapturedItemsList: View {
     // MARK: The disclosure
 
     private var disclosure: some View {
-        Button { remembered.toggle() } label: {
-            HStack(spacing: CicadaTheme.scaled(6)) {
-                Image(systemName: remembered ? "chevron.down" : "chevron.right")
-                    .font(CicadaTheme.icon(.inline))
-                    .frame(width: CicadaTheme.scaled(12))
-                    .iconHover(hovering: hovering)
-                Text(Copy.capturedTitle)
-                Spacer(minLength: 0)
-            }
-            .font(CicadaTheme.metaMediumFont)
-            .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
-            .frame(height: CicadaTheme.scaled(28))
-            .contentShape(Rectangle())
-            .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+        DisclosureHeader(title: Copy.capturedTitle, isOpen: remembered, help: Copy.capturedHelp, fillsWidth: true) {
+            remembered.toggle()
         }
-        .buttonStyle(.cicadaPlain)
-        .onHover { hovering = $0 }
-        .help(Copy.capturedHelp)
-        .accessibilityLabel(Copy.capturedTitle)
-        .accessibilityValue(remembered ? Copy.Lists.expanded : Copy.Lists.collapsed)
     }
 
     // MARK: The rows
@@ -114,9 +98,17 @@ struct CapturedItemsList: View {
                 let today = ISODay.today()
                 VStack(spacing: 0) {
                     ForEach(list.items, id: \.self) { item in
-                        CapturedItemRow(item: item, today: today,
-                                        route: CapturedItemRoute.of(item, interactive: interactive), open: go,
-                                        leftLine: CapturedItems.leftLine(item, channel: channel))
+                        if item.videos != nil && interactive {
+                            // Sources v4 — a watched day opens in place to that day's videos.
+                            WatchedDayRow(item: item, today: today)
+                        } else if item.kind == .chat && interactive {
+                            // Sources v4 (review of #358) — one row per chat, opening in place to its sittings.
+                            ChatSittingsRow(item: item, today: today, open: go)
+                        } else {
+                            CapturedItemRow(item: item, today: today,
+                                            route: CapturedItemRoute.of(item, interactive: interactive), open: go,
+                                            leftLine: CapturedItems.leftLine(item, channel: channel))
+                        }
                     }
                 }
                 if list.hasMore { showMore(list, loading: cache.isLoadingMore(channel), cache: cache) }
@@ -126,10 +118,9 @@ struct CapturedItemsList: View {
             case .failed(let why): line(why)
             case .gone: line(Copy.capturedNone)
             case .idle, .loading, .loaded:
-                HStack(spacing: CicadaTheme.spacingXS) {
-                    ProgressView().controlSize(.small)
-                    line(Copy.capturedLoading)
-                }
+                // DR-43 — the first read is the list pages' own state: words over a still skeleton, no spinner.
+                ListSkeleton(message: Copy.capturedLoading, rows: 3)
+                    .padding(.vertical, CicadaTheme.spacingSM)
             }
         }
     }
@@ -145,9 +136,11 @@ struct CapturedItemsList: View {
 
     private func showMore(_ list: ChannelItemsList, loading: Bool, cache: ChannelItemsCache) -> some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            TextButton(title: Copy.capturedShowMore) { Task { await cache.loadMore(channel) } }
-                .disabled(loading)
-            if loading { ProgressView().controlSize(.small) }
+            // The next page says so in words on its own button (DR-43: words, no spinner).
+            TextButton(title: loading ? Copy.capturedLoadingMore : Copy.capturedShowMore) {
+                Task { await cache.loadMore(channel) }
+            }
+            .disabled(loading)
             Spacer(minLength: CicadaTheme.spacingSM)
             Text(Copy.capturedShown(list.items.count, of: list.total, noun: noun))
                 .font(CicadaTheme.metaFont)
@@ -205,6 +198,10 @@ private struct CapturedItemRow: View {
 
     private func label(_ age: (text: String, help: String)?) -> some View {
         HStack(spacing: CicadaTheme.spacingSM) {
+            // Sources v4 — a Messages row leads with the chat's face (its photo, else a ring with a letter).
+            if let chat = item.chat {
+                ChatFace(id: chat.id, label: chat.label, photo: chat.photo, side: CicadaTheme.scaled(20))
+            }
             Text(item.title)
                 .font(CicadaTheme.bodyFont)
                 .foregroundStyle(leftLine == nil ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
@@ -228,8 +225,7 @@ private struct CapturedItemRow: View {
         }
         .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
         .padding(.horizontal, CicadaTheme.scaled(10))
-        .background(hovering && route != nil ? CicadaTheme.bgHover : Color.clear,
-                    in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+        .rowHoverFill(hovering: hovering && route != nil)
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
         .contentShape(Rectangle())
     }
@@ -268,16 +264,16 @@ struct SavedItemRow: View {
         }
     }
 
+    /// Owner ruling 2026-10-19: the site's own icon, asked of that site only (never an icon service), now that the
+    /// person opened this list; a bundled family mark or a monogram until — or unless — it arrives (`SavedLinkMark`).
+    /// marks-2 (owner 2026-10-20: "none of the YouTube stuff shows thumbnails"): a saved YouTube video draws its still
+    /// instead, as a watched day's row does.
     @ViewBuilder
     private var mark: some View {
-        switch SavedItemText.mark(item) {
-        case .site(let key, let label):
-            // Owner ruling 2026-10-19: the site's own icon, asked of that site only (never an icon service), now that
-            // the person opened this list; a bundled family mark or a monogram until — or unless — it arrives.
-            SiteIcon(site: key, label: label, savedItem: item.kind == .media ? item.id : nil)
-        case .monogram(let letter):
-            SiteMonogram(letter: letter, side: CicadaTheme.scaled(SiteIconLayout.Size.row.points))
-                .accessibilityHidden(true)
+        if let still = SavedItemText.stillPath(item) {
+            VideoStill(path: still)
+        } else {
+            SavedLinkMark(mark: SavedItemText.mark(item))
         }
     }
 
@@ -322,8 +318,7 @@ struct SavedItemRow: View {
         .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.twoLine),
                maxHeight: CicadaTheme.scaled(RowMetrics.twoLine), alignment: .leading)
         .padding(.horizontal, CicadaTheme.scaled(10))
-        .background(hovering && route != nil ? CicadaTheme.bgHover : Color.clear,
-                    in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+        .rowHoverFill(hovering: hovering && route != nil)
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
         .contentShape(Rectangle())
     }

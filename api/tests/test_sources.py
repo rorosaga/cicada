@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytest
 
@@ -462,9 +462,9 @@ def test_parse_netscape_bookmarks_carries_nearest_enclosing_folder():
     </DL>"""
     items = media_ingestor.parse_netscape_bookmarks(html)
     assert {i.folder for i in items} == {"Reading"}
-    # Folder also lands as a tag (pre-existing behavior), now alongside the
-    # dedicated ``folder`` field.
-    assert all("Reading" in i.tags for i in items)
+    # The folder is provenance, never a tag: a tag shared by enough pages
+    # becomes a hub (owner 2026-10-19).
+    assert all("Reading" not in i.tags for i in items)
 
 
 def test_parse_netscape_bookmarks_no_folder_is_none():
@@ -554,7 +554,7 @@ def test_parse_safari_bookmarks_plist_nested_folder_path():
     assert by_url["https://example.org/top"].folder == "Favorites"
 
 
-def test_ingest_one_media_entity_carries_folder_frontmatter_and_tag(tmp_path, monkeypatch):
+def test_ingest_one_media_entity_carries_folder_frontmatter_never_a_tag(tmp_path, monkeypatch):
     _offline_enrich(monkeypatch)
     memory = tmp_path / "memory"
     (memory / "episodes").mkdir(parents=True)
@@ -571,33 +571,12 @@ def test_ingest_one_media_entity_carries_folder_frontmatter_and_tag(tmp_path, mo
     assert len(entities) == 1
     fm = markdown_parser.parse(entities[0]).frontmatter
     assert fm["folder"] == "Bookmarks bar/AI/Papers"
-    assert "bookmarks-bar-ai-papers" in fm["tags"]
+    assert "bookmarks-bar-ai-papers" not in fm["tags"]
 
     episodes = list((memory / "episodes").glob("ep_*.md"))
     assert len(episodes) == 1
     ep_fm = markdown_parser.parse(episodes[0]).frontmatter
     assert ep_fm["folder"] == "Bookmarks bar/AI/Papers"
-
-
-# --- G114 R2: one timestamp shape -----------------------------------------
-
-
-def test_write_media_episode_timestamp_is_aware_utc(tmp_path):
-    """The ingest ``timestamp`` is aware UTC with an explicit ``+00:00`` —
-    never the old naive-local ``datetime.now().isoformat() + "Z"``, which
-    labelled the machine's wall clock as UTC and was off by its offset."""
-    from datetime import timezone
-
-    item = RawItem(url="https://example.com/a")
-    meta = MediaMeta(title="A", media_type="url")
-    episodes = tmp_path / "episodes"
-    ep_id = media_ingestor.write_media_episode(episodes, item, meta, "media-a")
-
-    ts = markdown_parser.parse(episodes / f"{ep_id}.md").frontmatter["timestamp"]
-    assert isinstance(ts, str) and ts.endswith("+00:00"), ts
-    parsed = datetime.fromisoformat(ts)
-    assert parsed.tzinfo is not None
-    assert abs((datetime.now(timezone.utc) - parsed).total_seconds()) < 60
 
 
 # --- G99d: RawItem.added -> episode/entity frontmatter -> url_index -------

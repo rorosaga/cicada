@@ -12,34 +12,23 @@ import SwiftUI
 ///    and *Understand images* (its own second click, dimmed at 45 % with the reason in `.help` until the first is on,
 ///    DR-41). A failure leads with one `warning` glyph and is never `danger` text (DR-7).
 /// 3. One privacy line (`metaFont`).
-/// 4. *Advanced*, collapsed by default and remembered per viewer (DR-39): the *Search version* picker, the larger
-///    version's account sheet, *Rebuild search*. Version names live here and nowhere else.
 ///
-/// **Rails.** Every download is the person's click (`POST /embeddings/install`), never the page's; an account key rides
-/// one request body and is never kept (`LargerSearchModelSheet`); the app reads folders and the backend parses bytes
+/// **No Advanced (settings defaults, owner 2026-10-22).** The *Search version* picker (raw version names, the larger
+/// version's account sheet) and *Rebuild search* left the page: *Understand what you mean* is the one choice, a
+/// version already chosen keeps being used, and the index rebuilds itself (derived and disposable). Both stay on the
+/// command line (`cicada index use <model>`, `cicada index install <model>`, `cicada index rebuild`).
+///
+/// **Rails.** Every download is the person's click (`POST /embeddings/install`), never the page's; the app reads folders and the backend parses bytes
 /// (`AddFolderRow` → `NSOpenPanel` → `LocalSourceWatcher`); *Look inside* comes before a folder joins memory
 /// (`AddFolderSheet`); while Sleep runs a switch waits and the button says why (`ProjectWriteGate.sleepRunning`).
 /// `GET /embeddings` is not a Store domain: read when the page opens, polled while a download or re-read runs.
 struct SearchFilesView: View {
     @Environment(Store.self) private var store
-    @Environment(SettingsFocus.self) private var focus: SettingsFocus?
-    /// DR-39 — per viewer, never synced: a person who opened Advanced finds it open next time.
-    @AppStorage(Self.advancedKey) private var advancedOpen = false
     @State private var embeddings: EmbeddingsStatus?
     @State private var loadFailed = false
     @State private var meaningNote: String?
     @State private var imagesNote: String?
-    @State private var modelNote: String?
     @State private var acting = false
-    @State private var index: SearchIndexStatus?
-    @State private var indexNote: String?
-    @State private var rebuilding = false
-    @State private var installModelID: String?
-    @State private var showInstall = false
-    /// A picked version not on this Mac: the confirm that names its size. Nothing is sent until its *Download*.
-    @State private var pendingDownload: String?
-
-    static let advancedKey = "cicada.searchFiles.advancedOpen"
 
     private var sleeping: Bool { ProjectWriteGate.sleepRunning(store.status.value) }
     private var inDemo: Bool { DemoMode.isShowing(store.banks.value, bank: store.bank) }
@@ -56,26 +45,10 @@ struct SearchFilesView: View {
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, CicadaTheme.spacingXS)
-            advanced
         }
         .task { await loadEmbeddings() }
-        .task { index = try? await APIClient.shared.fetchSearchIndexStatus() }
         // Polls only while a download or the background re-read runs; the id flips when it ends, which cancels it.
         .task(id: embeddings?.isBusy == true) { await pollWhileBusy() }
-        .onAppear { openAdvancedIfLanded() }
-        .onChange(of: focus?.landedNonce ?? 0) { _, _ in openAdvancedIfLanded() }
-        // R-HS16 — a sheet centred on the window, never a popover at the panel's edge.
-        .sheet(isPresented: $showInstall) {
-            SettingsSheet(title: Copy.SearchModel.sheetTitle, onClose: { showInstall = false }) {
-                LargerSearchModelSheet(modelID: installModelID ?? "",
-                                       onStarted: { status in
-                                           embeddings = status
-                                           modelNote = nil
-                                           showInstall = false
-                                       },
-                                       onCancel: { showInstall = false })
-            }
-        }
     }
 
     // MARK: Folders
@@ -204,118 +177,6 @@ struct SearchFilesView: View {
         }
     }
 
-    // MARK: Advanced (DR-39)
-
-    private var advanced: some View {
-        DisclosureGroup(isExpanded: $advancedOpen) {
-            SettingsGroupCard {
-                searchVersionRow
-                SettingsDivider()
-                SettingsRow(.searchIndex, title: Copy.SearchFiles.rebuildTitle,
-                            detail: indexNote ?? MemoryMaintenanceText.index(index)) {
-                    NeutralButton(title: Copy.SearchFiles.rebuildNow, size: .compact, isDisabled: rebuilding) { rebuild() }
-                }
-            }
-            .padding(.top, CicadaTheme.spacingSM)
-        } label: {
-            Text(Copy.SearchFiles.advanced)
-                .font(CicadaTheme.font(size: 13, weight: .medium))
-                .foregroundStyle(CicadaTheme.textSecondary)
-        }
-        .settingsRow(.searchAdvanced)
-    }
-
-    /// The catalog's versions by their own labels — the one place they are named. A selection is never the consent
-    /// (review B1): a version not on this Mac raises a confirm that names its size, and only its *Download* button
-    /// sends; the larger one opens the account sheet. Disabled at 45 % with the reason in `.help` while Sleep writes
-    /// (DR-41).
-    @ViewBuilder
-    private var searchVersionRow: some View {
-        SettingsRow(.searchModel, title: Copy.SearchModel.title, detail: modelNote ?? SearchModelLogic.detail(embeddings)) {
-            if let embeddings, !embeddings.models.isEmpty {
-                PillPicker(title: Copy.SearchModel.title,
-                           selection: Binding(get: { embeddings.nextModel }, set: { pick($0) }),
-                           options: embeddings.models.map { PillOption(value: $0.id, label: $0.label) })
-                    .disabled(sleeping || acting)
-                    .opacity(sleeping ? NeutralButton.disabledOpacity : 1)
-                    .help(sleeping ? Copy.SearchModel.sleepRunningHelp : Copy.SearchModel.pickerHelp)
-            }
-        } below: {
-            if let id = pendingDownload, let embeddings {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    Text(SearchModelLogic.confirmation(for: id, in: embeddings))
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: CicadaTheme.spacingSM)
-                    TextButton(title: Copy.SearchModel.confirmCancel) { pendingDownload = nil }
-                    NeutralButton(title: Copy.SearchModel.confirmDownloadButton, size: .compact,
-                                  isDisabled: sleeping || acting || embeddings.install.isInstalling,
-                                  help: Copy.SearchModel.confirmDownloadHelp,
-                                  disabledHelp: sleeping ? Copy.SearchModel.sleepRunningHelp : Copy.SearchFiles.downloadRunningHelp) {
-                        confirmDownload(id)
-                    }
-                }
-            }
-        }
-    }
-
-    /// A pick never downloads (review B1): `.confirmDownload` only raises the confirm.
-    private func pick(_ id: String) {
-        guard let status = embeddings else { return }
-        pendingDownload = nil
-        switch SearchModelLogic.route(picked: id, status: status, sleepWriting: sleeping) {
-        case .nothing:
-            break
-        case .blocked:
-            modelNote = Copy.SearchModel.sleepRunningHelp
-        case .install:
-            installModelID = id
-            showInstall = true
-        case .confirmDownload(let id):
-            pendingDownload = id
-        case .choose(let id):
-            send { try await APIClient.shared.chooseEmbeddingModel(id) }
-        }
-    }
-
-    /// The confirm's explicit *Download*: the person's click, after the size was said.
-    private func confirmDownload(_ id: String) {
-        pendingDownload = nil
-        send { try await APIClient.shared.installEmbeddingModel(id) }
-    }
-
-    private func send(_ work: @escaping @MainActor () async throws -> EmbeddingsStatus) {
-        acting = true
-        Task { @MainActor in
-            defer { acting = false }
-            do {
-                embeddings = try await work()
-                modelNote = nil
-            } catch {
-                // 409's `detail` is the backend's sentence ("Sleep is running…", "isn't on this Mac yet").
-                modelNote = AddSourceSheet.friendlyError(error)
-                if let fresh = try? await APIClient.shared.fetchEmbeddings() { embeddings = fresh }
-            }
-        }
-    }
-
-    /// Rebuilding costs CPU, never a fact (TODO ruling 3), so it is one button with no confirmation.
-    private func rebuild() {
-        rebuilding = true
-        Task { @MainActor in
-            defer { rebuilding = false }
-            do {
-                index = try await APIClient.shared.rebuildSearchIndex()
-                indexNote = nil
-            } catch APIError.httpError(409, let message) {
-                indexNote = SleepRefusal.matches(APIError.httpError(409, message)) ? Copy.sleepIsRunning : Copy.alreadyRunning
-            } catch {
-                indexNote = AddSourceSheet.friendlyError(error)
-            }
-        }
-    }
-
     // MARK: Loading
 
     private func loadEmbeddings() async {
@@ -336,10 +197,5 @@ struct SearchFilesView: View {
             embeddings = status
             if !status.isBusy { return }
         }
-    }
-
-    /// A search for "embedding" or "rebuild" lands on the Advanced disclosure; it opens so the row is on screen.
-    private func openAdvancedIfLanded() {
-        if focus?.landed == .searchAdvanced { advancedOpen = true }
     }
 }

@@ -16,6 +16,9 @@ pydantic-settings>=2.13.1
 # A saved PDF's first page, rendered in the backend (api/services/pdf_page.py): PDFium's own arm64 wheel.
 pypdfium2>=4.30
 python-multipart>=0.0.24
+# A site's SVG icon, sanitised then drawn to a PNG out of process (api/services/svg_raster.py, owner 2026-10-20):
+# resvg's Rust renderer, no script engine and no network code.
+resvg-py>=0.5.0
 pyyaml>=6.0.3
 sqlite-vec>=0.1.9
 thefuzz[speedup]>=0.22.1

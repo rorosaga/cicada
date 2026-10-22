@@ -30,7 +30,16 @@ means wherever the bank records it, and says so channel by channel below:
   ``folder_id``; a long file's sections are one row), by the file's own name.
 
 * ``youtube-history`` / ``tiktok-history`` — the watched days, one episode
-  each, by title (captured, never a save; indexed only, ruling 30).
+  each (captured, never a save; indexed only, ruling 30), each with
+  ``videos``, how many were watched that day; the month summaries are not
+  listed (they are counted from these days). A day opens to its videos through
+  :func:`watched_day` (Sources v4, owner 2026-10-19: "what I watched in one
+  day: a dropdown and you see all the videos I watched that day").
+* ``imessage`` — one row per chat (``kind: chat``), titled by **who the chat is
+  with** (its sittings' ``correspondent`` record), dated by its newest sitting,
+  with ``sittings`` and ``chat``: the app's conversation hash, that name, and
+  the stored photo's hash when the chat shares one (Sources v4). A chat opens to
+  its sittings through :func:`chat_sittings`.
 * the saved sources with no channel (``instagram``, ``youtube``, ``linkedin``,
   ``tiktok``: one-shot imports, ``source_overview.CATALOG``) — listed by their
   Sources row id, as the media pages stamped with the row's origins.
@@ -66,12 +75,16 @@ from api.services import (
     episode_scrub,
     fact_sources,
     folder_source,
+    history_index,
     media_ingestor,
+    media_preview,
+    messages_source,
     notes_sync,
     reading_hosts,
     saved_why,
     source_overview,
     tab_groups,
+    watch_history,
     wispr_flow,
 )
 from api.services.channel_registry import CHANNEL_IDS
@@ -79,7 +92,11 @@ from api.services.channel_registry import CHANNEL_IDS
 #: Folded into the route's ETag: bump it when the body changes for the same bank files.
 #: `g161-2`: a bookmark channel also lists the links that left the browser, with `left` (G191 v4).
 #: `g161-3`: a saved link's row carries `site` and `why`; channel-less saved sources list by their row id (Sources v3).
-SHAPE = "g161-3"
+#: `g161-4`: Sources v4 — a title says its day once; Messages lists one row per chat (`kind: chat`, `sittings`, `chat`);
+#: a watched day carries `videos` and the month summaries are not listed.
+#: `g161-6`: marks-2 — a saved YouTube video's row carries `video` (its still is asked by the page's id), and a saved
+#: link still waiting for Sleep (an episode row) carries `host`/`site` (its icon is asked by the episode's id).
+SHAPE = "g161-6"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -185,6 +202,16 @@ def _row(kind: str, item_id: str, title: str, day: str | None, sort_at: datetime
             "_sort": (sort_at or datetime.min.replace(tzinfo=timezone.utc)).timestamp()}
 
 
+def _without_day(title: str, day: str | None) -> str:
+    """Sources v4 (owner 2026-10-19: "avoid repetition") — a title that ends with the row's own day (a Messages
+    sitting's "… · 2026-10-19", a watched day's) drops it: the row already shows that day, once, on its right."""
+    if day:
+        for sep in (" · ", " - ", " — "):
+            if title.endswith(sep + day) and len(title) > len(sep + day):
+                return title[: -len(sep + day)].rstrip()
+    return title
+
+
 def _episode_row(fm: dict, stem: str, *, when_key: str | None = None) -> dict:
     """An episode by its own title. The day is `when_key`'s value when given (an event's start), else the
     day the source dated it (`original_date`), else the day Cicada captured it."""
@@ -192,7 +219,7 @@ def _episode_row(fm: dict, stem: str, *, when_key: str | None = None) -> dict:
     when = own or fm.get("original_date") or fm.get("timestamp")
     # An event's day is its own calendar day as written (`2026-10-01T09:00:00-05:00` is Oct 1), never shifted to UTC.
     day = _day(str(own)[:10]) if own and len(str(own)) >= 10 else _day(when)
-    return _row("episode", str(fm.get("id") or stem), _title(fm.get("title")), day,
+    return _row("episode", str(fm.get("id") or stem), _without_day(_title(fm.get("title")), day), day,
                 _instant(when) or _instant(fm.get("timestamp")))
 
 
@@ -246,8 +273,7 @@ def _site(url) -> dict:
     if not host:
         return {}
     out = {"host": host}
-    site = reading_hosts.site_of(raw)
-    if reading_hosts.valid_site_key(site):
+    if site := reading_hosts.mark_key(raw):
         out["site"] = site
     return out
 
@@ -285,7 +311,12 @@ def _episodes(memory_path: Path, keep, *, when_key: str | None = None, media: _M
                 seen_media.add(media_id)
                 rows.append(row)
             continue
-        rows.append(_episode_row(fm, f.stem, when_key=when_key))
+        row = _episode_row(fm, f.stem, when_key=when_key)
+        # marks-2 — a saved link Sleep has not made a page of yet still names its site, so its row asks that site's
+        # icon by the episode's id (`GET /sources/saved/episodes/{id}/site-icon`) instead of drawing a letter.
+        if url := saved_episode_url(fm):
+            row["_url"] = url
+        rows.append(row)
     return rows
 
 
@@ -354,14 +385,170 @@ def _collect(memory_path: Path, channel_id: str) -> list[dict]:
     if channel_id in _SAVED_SOURCE_ROWS:
         return media.by_origins(tuple(_SAVED_SOURCE_ROWS[channel_id]))
     if channel_id in _HISTORY_ROWS:
-        origins = set(_HISTORY_ROWS[channel_id])
-        return _episodes(memory_path, lambda fm: str(fm.get("origin") or "") in origins)
+        return _watched_days(memory_path, set(_HISTORY_ROWS[channel_id]))
+    if channel_id == messages_source.ORIGIN:
+        return _chat_rows(memory_path)
     if channel_id in _ORIGIN_CHANNELS:
         origins = set(_ORIGIN_CHANNELS[channel_id])
         return _episodes(memory_path, lambda fm: str(fm.get("origin") or "") in origins, media=media)
     if channel_id.startswith(folder_source.CHANNEL_PREFIX):
         return _folder(memory_path, channel_id[len(folder_source.CHANNEL_PREFIX):])
     return []
+
+
+def _watched_days(memory_path: Path, origins: set[str]) -> list[dict]:
+    """One row per watched day (never the month summaries, which are counted from these days), with `videos`."""
+    rows = []
+    for f in bank_index.files(memory_path, "episodes"):
+        fm = f.frontmatter or {}
+        if str(fm.get("origin") or "") not in origins or not _live(fm) or history_index.kind(fm) == "month":
+            continue
+        row = _episode_row(fm, f.stem)
+        try:
+            row["videos"] = max(0, int(fm.get("videos") or len(fm.get("watched") or [])))
+        except (TypeError, ValueError):
+            row["videos"] = 0
+        rows.append(row)
+    return rows
+
+
+def _chat_rows(memory_path: Path) -> list[dict]:
+    """Messages — one row per chat (review of #358: "one row per chat, newest day, N sittings"), titled by who it is
+    with, its day the newest sitting's, carrying the chat and how many sittings it holds; a sitting with no chat hash
+    (never written today) stays its own episode row."""
+    photos = source_overview._chat_photos(memory_path)
+    chats: dict[str, dict] = {}
+    rows = []
+    for f in bank_index.files(memory_path, "episodes"):
+        fm = f.frontmatter or {}
+        if fm.get("origin") != messages_source.ORIGIN or not _live(fm):
+            continue
+        row = _episode_row(fm, f.stem)
+        cid = str(fm.get("conversation") or "")
+        if not messages_source.CONVERSATION_ID_RE.match(cid):
+            rows.append(row)
+            continue
+        record = fm.get("correspondent") if isinstance(fm.get("correspondent"), dict) else {}
+        name = _title(record.get("name"), fallback="")
+        held = chats.get(cid)
+        if held is None:
+            chats[cid] = held = {**_row("chat", cid, name or row["title"], row["day"], None), "sittings": 0}
+            held["_sort"] = row["_sort"]
+        held["sittings"] += 1
+        if row["_sort"] >= held["_sort"]:
+            held["_sort"], held["day"] = row["_sort"], row["day"]
+            if name:
+                held["title"] = name
+    for cid, held in chats.items():
+        held["chat"] = {"id": cid, "label": held["title"], "photo": photos.get(cid)}
+        rows.append(held)
+    return rows
+
+
+def chat_sittings(memory_path: Path, conversation: str) -> dict | None:
+    """One chat's sittings, newest first — what its row opens to: each sitting's episode (it opens in the Reader), its
+    day and how many messages it holds. Titles are not repeated: the row above already names the chat. None for an id
+    that is not a chat hash or has no live sitting."""
+    if not messages_source.CONVERSATION_ID_RE.match(str(conversation or "")):
+        return None
+    out = []
+    for f in bank_index.files(Path(memory_path), "episodes"):
+        fm = f.frontmatter or {}
+        if (fm.get("origin") != messages_source.ORIGIN or not _live(fm)
+                or str(fm.get("conversation") or "") != conversation):
+            continue
+        row = _episode_row(fm, f.stem)
+        try:
+            messages = max(0, int(fm.get("message_count") or 0))
+        except (TypeError, ValueError):
+            messages = 0
+        out.append({"id": row["id"], "day": row["day"], "messages": messages or None, "_sort": row["_sort"]})
+    if not out:
+        return None
+    out.sort(key=lambda r: (-r["_sort"], r["id"]))
+    return {"conversation": conversation, "sittings": [{k: v for k, v in r.items() if k != "_sort"} for r in out]}
+
+
+#: A watched day's videos on the wire: at most this many (a day keeps at most `watch_history.MAX_PER_DAY`).
+DAY_VIDEOS_MAX = 400
+
+
+def watched_day(memory_path: Path, episode_id: str) -> dict | None:
+    """Sources v4 — one watched day's videos, in the order they were watched: each one's title, channel, the times it
+    was watched, its URL (the provider's own watch page) and, for YouTube, its video id (the key its thumbnail is asked
+    under, :func:`day_has_video`) and the saved page when the person also saved it (`media_entity_id`, so a click
+    lands where a saved item opens). Read from the day's own record; nothing is fetched and no model reads it (ruling
+    30). None for an id that is not a live watched day."""
+    from api.services import video_urls
+
+    f = bank_index.file(Path(memory_path), "episodes", f"{episode_id}.md")
+    fm = (f.frontmatter or {}) if f is not None else {}
+    if (str(fm.get("origin") or "") not in watch_history.HISTORY_ORIGINS or not _live(fm)
+            or history_index.kind(fm) == "month"):
+        return None
+    media = _Media(Path(memory_path))
+    videos = []
+    for r in (fm.get("watched") or [])[:DAY_VIDEOS_MAX]:
+        if not isinstance(r, dict) or not watch_history.watch_url(str(r.get("url") or "")):
+            continue
+        url = str(r["url"])
+        ref = video_urls.resolve(url)
+        indexed = media.by_hash.get(media_ingestor.url_hash(url))
+        page = str(indexed.get("media_entity_id") or "") if isinstance(indexed, dict) else ""
+        videos.append({
+            "url": url,
+            "title": _title(r.get("title"), fallback="Untitled video"),
+            "channel": _title(r.get("channel"), fallback="") or None,
+            "times": [str(t) for t in (r.get("times") or []) if t][: watch_history.MAX_TIMES],
+            "video_id": ref.video_id if ref is not None and ref.provider == "youtube" else None,
+            "media_entity_id": page if page and media.row(page) is not None else None,
+        })
+    return {"episode": str(fm.get("id") or episode_id), "day": str(fm.get("watched_on") or fm.get("original_date") or ""),
+            "platform": str(fm.get("platform") or ""), "videos": videos}
+
+
+def day_has_video(memory_path: Path, episode_id: str, video_id: str) -> bool:
+    """Whether ``video_id`` is a YouTube video the watched day ``episode_id`` records — the only ids whose still the
+    backend asks YouTube's own thumbnail host for (owner 2026-10-19), and only for a day the person opened (the route
+    is keyed by the day). One file read, never a walk of the bank; never an id a request merely names."""
+    from api.services import video_urls
+
+    if not media_preview.youtube_id_ok(video_id):
+        return False
+    f = bank_index.file(Path(memory_path), "episodes", f"{episode_id}.md")
+    fm = (f.frontmatter or {}) if f is not None else {}
+    if str(fm.get("origin") or "") != watch_history.ORIGINS["youtube"] or not _live(fm):
+        return False
+    for r in (fm.get("watched") or [])[:DAY_VIDEOS_MAX]:
+        if isinstance(r, dict) and video_id in str(r.get("url") or ""):
+            ref = video_urls.resolve(str(r["url"]))
+            if ref is not None and ref.provider == "youtube" and ref.video_id == video_id:
+                return True
+    return False
+
+
+def saved_faces(memory_path: Path, list_id: str, *, limit: int = 3) -> tuple[list[dict], int]:
+    """A saved source's faces, from the same set its list lists (review of #358: a row never says "Nothing saved"
+    beside faces): the sites of its live saved pages — never a bookmark that left the browser — those whose own icon is
+    already cached first, then the rest, each newest first, one face per site (`{id, label, site}`: the newest page of
+    that site, its bare host, its site key), and how many more sites there are."""
+    from api.services import logo_service
+
+    rows = [r for r in _collect(Path(memory_path), list_id) if r.get("kind") == "media" and not r.get("left")]
+    rows.sort(key=lambda r: (-r["_sort"], r["title"].casefold(), r["id"]))
+    seen: dict[str, dict] = {}
+    known: set[str] = set()
+    hits = logo_service.own_site_hits(memory_path)
+    for r in rows:
+        where = _site(r.get("_url"))
+        if where.get("site") and where["site"] not in seen:
+            seen[where["site"]] = {"id": r["id"], "label": where["host"], "site": where["site"]}
+            if logo_service.own_site_domain(str(r.get("_url") or "")) in hits:
+                known.add(where["site"])
+    # marks-2 (owner 2026-10-20: a letter where the site has its own picture) — the newest sites whose icon is already
+    # cached come first, then the rest, newest first; the app asks those as they show (`SiteIconStore`).
+    faces = sorted(seen.values(), key=lambda f: f["site"] not in known)
+    return faces[:limit], max(0, len(faces) - limit)
 
 
 def _folder(memory_path: Path, folder_id: str) -> list[dict]:
@@ -416,8 +603,14 @@ def _why(memory_path: Path, episode_id) -> dict | None:
 def _enrich(memory_path: Path, row: dict) -> dict:
     """A served saved-link row gains its `site` and its `why`; every private key is dropped."""
     out = {k: v for k, v in row.items() if not k.startswith("_")}
+    if row.get("kind") == "episode" and row.get("_url"):
+        out.update(_site(row["_url"]))
     if row.get("kind") == "media":
         out.update(_site(row.get("_url")))
+        # marks-2 (owner 2026-10-20: "none of the YouTube stuff shows thumbnails") — a saved YouTube video's row draws
+        # its still, asked by the page's id (`GET /sources/saved/{id}/still`); the id itself never rides the wire.
+        if media_preview.youtube_video_id(str(row.get("_url") or "")):
+            out["video"] = True
         if why := _why(memory_path, row.get("_episode")):
             out["why"] = why
     return out
@@ -436,6 +629,64 @@ def items(memory_path: Path, channel_id: str, *, offset: int = 0, limit: int = L
     return {"channel": channel_id, "total": len(rows), "offset": offset, "limit": limit, "items": page}
 
 
+def saved_episode_site(memory_path: Path, episode_id: str) -> str | None:
+    """The one site a saved link's own icon may be asked of BEFORE Sleep made its page (owner 2026-10-20): a Waiting
+    row of a bookmark or a saved post is an episode, with no media id yet. Same rule as :func:`saved_link_site`, read
+    from the episode's own record: a live episode of a saved source (``intent_of`` its source key is ``saved``) whose
+    frontmatter names the link (``url``) — the registrable domain of THAT URL (``logo_service.own_site_domain``), else
+    None and nothing is asked. A conversation, a captured page, a tab group or a watched day never qualifies; the
+    caller never supplies the site."""
+    from api.services import episode_ids, logo_service
+
+    if not episode_ids.EPISODE_ID_RE.fullmatch(episode_id or ""):
+        return None
+    f = bank_index.file(Path(memory_path), "episodes", f"{episode_id}.md")
+    url = saved_episode_url((f.frontmatter or {}) if f is not None else {})
+    return logo_service.own_site_domain(url) if url else None
+
+
+def saved_episode_url(fm: dict) -> str | None:
+    """The link a saved-source episode names (its frontmatter ``url``), for a live episode of a saved source that is
+    not a conversation — else None. One predicate for the Waiting row's site key and its icon door."""
+    if not fm or not _live(fm) or fm.get("session_id"):
+        return None
+    if source_overview.intent_of(source_overview.source_key(fm)) != "saved":
+        return None
+    return str(fm.get("url") or "").strip() or None
+
+
+def is_saved_link_page(fm: dict) -> bool:
+    """A live media page a `saved` source owns (an origin a `saved` row owns, or none, as Files & links takes) — the one
+    predicate behind the media icon route and every row's ``siteKey`` (review of #372: a key on a page the route refuses
+    would record a miss for the whole site)."""
+    if not fm or fm.get("type") != "media" or source_overview.is_hidden(fm):
+        return False
+    origin = str(fm.get("origin") or "").strip()
+    owner = source_overview.source_key({"origin": origin}) if origin else "files"
+    return source_overview.intent_of(owner) == "saved"
+
+
+def media_video_id(memory_path: Path, media_entity_id: str) -> str | None:
+    """The YouTube video a saved link's page is (marks-2, owner direction 2026-10-19/20): the id `video_urls` resolves
+    from THIS page's own URL (the url index's entry, else its frontmatter), only for a live media page a saved source
+    owns (`is_saved_link_page`, the site-icon route's predicate) — else None and nothing is asked. Never an id the caller supplies; the still is keyed by it so a video watched and
+    saved is asked once (`media_preview.ensure_video_still`)."""
+    memory_path = Path(memory_path)
+    f = bank_index.file(memory_path, "entities", f"{media_entity_id}.md")
+    fm = (f.frontmatter or {}) if f is not None else {}
+    if not is_saved_link_page(fm):   # security review of #387: a saved link's page, the media icon route's predicate
+        return None
+    try:
+        index = media_ingestor.load_url_index(memory_path)
+    except Exception:
+        index = {}
+    media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
+    url = next((str(e.get("url") or "") for e in (index.values() if isinstance(index, dict) else [])
+                if isinstance(e, dict) and str(e.get("media_entity_id") or "") == media_entity_id
+                and not e.get("alias_of")), "") or str(fm.get("url") or media.get("url") or "")
+    return media_preview.youtube_video_id(url) if url else None
+
+
 def saved_link_site(memory_path: Path, media_entity_id: str) -> str | None:
     """The one site a saved link's own icon may be asked of (owner ruling 2026-10-19): the registrable domain of THIS
     link's own URL (`logo_service.own_site_domain`), only for a live media page a saved source lists (a bookmark, a
@@ -445,13 +696,9 @@ def saved_link_site(memory_path: Path, media_entity_id: str) -> str | None:
 
     memory_path = Path(memory_path)
     f = bank_index.file(memory_path, "entities", f"{media_entity_id}.md")
-    fm = (f.frontmatter or {}) if f is not None else {}
-    if fm.get("type") != "media" or source_overview.is_hidden(fm):
+    if not is_saved_link_page((f.frontmatter or {}) if f is not None else {}):
         return None
-    origin = str(fm.get("origin") or "").strip()
-    owner = source_overview.source_key({"origin": origin}) if origin else "files"
-    if source_overview.intent_of(owner) != "saved":
-        return None
+    fm = f.frontmatter
     try:
         index = media_ingestor.load_url_index(memory_path)
     except Exception:

@@ -295,6 +295,26 @@ def _holding_pages(fn):
     return inner
 
 
+#: G140 Q-R11: the ``observer`` values ``cicada_write_claim``'s schema advertises — one pattern, not an enum (JSON
+#: Schema ANDs an ``enum`` with a ``pattern``, and the librarian skill's ``external:<name>`` must be a value the schema
+#: accepts). The legacy observer value is NOT in it (the 2026-10-22 Hyrum audit A11): it is a person's name, and a
+#: schema reaches every client; :func:`observer_accepted` keeps taking it from old callers.
+OBSERVER_PATTERN = r"^(owner|agent|external|external:[a-z0-9][a-z0-9-]{0,63})$"
+_OBSERVER_RE = re.compile(OBSERVER_PATTERN)
+
+
+def observer_accepted(observer) -> bool:
+    """Whether a ``cicada_write_claim`` caller's ``observer`` is one the tool records (Hyrum audit A3): the
+    advertised pattern, plus the legacy observer value old local installs still send (accepted, never advertised).
+    Absent or empty is the default, ``agent``."""
+    from api.services import owner_identity
+
+    if observer is None or observer == "":
+        return True
+    return isinstance(observer, str) and (bool(_OBSERVER_RE.match(observer))
+                                          or observer == owner_identity.LEGACY_OBSERVER)
+
+
 def _demo_refusal(memory_path: Path) -> str | None:
     """G141 capture-side track (R-CS13): every write tool refuses a demo bank —
     one check for stdio and remote alike. It takes the bank the tool already
@@ -564,7 +584,7 @@ def _write_saved_url(ctx: ToolContext, memory_path: Path, item, prepared) -> str
 
 def record_watch(ctx: ToolContext, url: str, summary: str, excerpts: list | None = None,
                  chapters: list | None = None, basis: str | None = None, engine: str | None = None,
-                 duration=None) -> str:
+                 duration=None, lease_token: str | None = None) -> str:
     """``cicada_record_watch`` (G140 Q-R8, R5 §5.7): record what the caller's
     own tools saw in a saved video — a summary, ≤ 12 timestamped quotes, and
     optional chapters — as one episode and one ``describes`` claim, committed
@@ -576,7 +596,9 @@ def record_watch(ctx: ToolContext, url: str, summary: str, excerpts: list | None
     ``duration`` are the caller's own account of how it read the video — never
     verified, so the app says "an agent recorded that it watched". The record is
     also credited to the person's video queue, **whether or not the bank commit
-    ran** (the queue file lives outside the bank)."""
+    ran** (the queue file lives outside the bank). ``lease_token`` is the one
+    ``cicada_video_claim`` gave for this video: without a basis, only it closes the
+    leased row (ruling 34, F5)."""
     from api.services import watch_record
 
     url = (url or "").strip()
@@ -626,7 +648,7 @@ def record_watch(ctx: ToolContext, url: str, summary: str, excerpts: list | None
                 )
     if r.get("error"):
         return f"Could not record the watch: {r['error']}"
-    queue_outcome = _credit_video_queue(ctx, memory_path, target.url, r.get("basis"))
+    queue_outcome = _credit_video_queue(ctx, memory_path, target.url, r.get("basis"), lease_token)
 
     from api.services import telemetry
 
@@ -1095,14 +1117,15 @@ def _video_ledger(ctx: ToolContext, memory_path: Path, action: str, *, count: in
     ))
 
 
-def _credit_video_queue(ctx: ToolContext, memory_path: Path, url: str, basis: str | None) -> str | None:
+def _credit_video_queue(ctx: ToolContext, memory_path: Path, url: str, basis: str | None,
+                        lease_token: str | None = None) -> str | None:
     """Apply a landed record to the person's queue row for it (§4.3). Never raises:
     the queue is outside the bank and a queue fault must not fail a record."""
     from api.services import media_ingestor, video_queue
 
     try:
         outcome = video_queue.complete(memory_path, media_ingestor.url_hash(url), basis,
-                                       session=ctx.session_id, holding=ctx.pages_held)
+                                       session=ctx.session_id, lease_token=lease_token, holding=ctx.pages_held)
         if outcome == "done":
             _video_ledger(ctx, memory_path, "complete")
         return outcome
@@ -1131,7 +1154,7 @@ def _untrusted_block(ctx: ToolContext, lines: list[str]) -> list[str]:
     return [REFERENCE_HEADER, FENCE_OPEN, *safe, FENCE_CLOSE]
 
 
-def _video_lines(rows: list[dict], saved: dict, *, state_words: bool = False) -> list[str]:
+def _video_lines(rows: list[dict], saved: dict, *, state_words: bool = False, tokens: bool = False) -> list[str]:
     from api.services import video_chapters
 
     lines = []
@@ -1148,7 +1171,9 @@ def _video_lines(rows: list[dict], saved: dict, *, state_words: bool = False) ->
         if state_words:
             bits.append("picked up by " + (row.get("claimed_by") or "an agent") if row["state"] == "claimed"
                         else "waiting")
-        lines.append(f"{i}. {video.url} — " + " · ".join(bits))
+        # The token goes before the provider's title, so no title can put a look-alike ahead of it.
+        token = f"lease_token: {row['lease_token']} · " if tokens and row.get("lease_token") else ""
+        lines.append(f"{i}. {video.url} — {token}" + " · ".join(bits))
     return lines
 
 
@@ -1201,10 +1226,8 @@ def video_claim(ctx: ToolContext, limit=None, release: list | None = None) -> st
     if (refusal := _demo_refusal(memory_path)) is not None:
         return refusal
     try:
-        saved = video_state.saved_videos(memory_path)
         if release:
-            results = video_queue.release(memory_path, release, session=ctx.session_id, saved=saved,
-                                          holding=ctx.pages_held)
+            results = video_queue.release(memory_path, release, session=ctx.session_id, holding=ctx.pages_held)
             handed = [u for u, o in results if o in ("released", "needs_login")]
             if handed:
                 first = next((o for _, o in results if o == "needs_login"), "released")
@@ -1214,15 +1237,22 @@ def video_claim(ctx: ToolContext, limit=None, release: list | None = None) -> st
             for url, outcome in results:
                 if outcome == "not_claimed":
                     lines.append(f"Not yours to hand back (it isn't leased to anyone): {_one_line(url, 200)}")
+                elif outcome == "not_yours":
+                    lines.append(f"Not handed back: pass the lease_token cicada_video_claim gave you for it. Without "
+                                 f"it the lease ends on its own within {video_queue.LEASE_MINUTES} minutes: "
+                                 f"{_one_line(url, 200)}")
                 elif outcome == "unknown":
                     lines.append(f"Not in the person's video queue: {_one_line(url, 200)}")
             if any(o == "needs_login" for _, o in results):
                 lines.append(_NEEDS_LOGIN_TEXT)
             return "\n".join(lines)
         rows = video_queue.claim(memory_path, session=ctx.session_id, harness=ctx.harness, limit=limit,
-                                 saved=saved, holding=ctx.pages_held)
+                                 holding=ctx.pages_held)
         if not rows:
             return "Nothing is waiting in the person's video queue."
+        # Read after the claim, for the reply lines only: the queue read its own saved set under its lock (F2), and a
+        # video saved while this call waited is then named here too.
+        saved = video_state.saved_videos(memory_path)
         _video_ledger(ctx, memory_path, "claim", count=len(rows))
         from api.services import handshake
 
@@ -1230,14 +1260,14 @@ def video_claim(ctx: ToolContext, limit=None, release: list | None = None) -> st
                                             remote=ctx.is_remote)
         head = (f"Leased {len(rows)} video(s) for about {video_queue.LEASE_MINUTES} minutes. Read or watch each with "
                 f"{video_prompt.tools_phrase(clause, reply=True)}, then record it with cicada_record_watch(url, summary, excerpts, basis, engine, "
-                "duration); hand one back with cicada_video_claim(release=[{url, code, reason}]). Call "
-                "cicada_video_claim again until it returns nothing.")
+                "duration, lease_token); hand one back with cicada_video_claim(release=[{url, lease_token, code, reason}]). "
+                "Each video's lease_token is on its line. Call cicada_video_claim again until it returns nothing.")
         _, batches = video_queue.view(memory_path)
         method = None
         if batches:
             method = video_prompt.method_line(batches[max(batches, key=lambda b: (batches[b]["created_at"], b))]["method"])
         extra = [x for x in (method, clause) if x]
-        return "\n".join([head, *_untrusted_block(ctx, _video_lines(rows, saved)), *extra])
+        return "\n".join([head, *_untrusted_block(ctx, _video_lines(rows, saved, tokens=True)), *extra])
     except video_queue.QueueError as exc:
         return f"Error: {exc}"
     except (OSError, ValueError):
@@ -1421,7 +1451,7 @@ def record_youtube_list(ctx: ToolContext, list_name: str, outcome: str, videos=N
         said = watch_history.summary(result)
     else:
         idx = media_ingestor.load_url_index(memory_path)
-        created = duplicates = 0
+        created = duplicates = listed = 0
         seen: set[str] = set()
         for row in rows:
             row = row if isinstance(row, dict) else {}
@@ -1440,12 +1470,16 @@ def record_youtube_list(ctx: ToolContext, list_name: str, outcome: str, videos=N
             ref = video_urls.resolve(url)
             meta = MediaMeta(title=title or media_ingestor._fallback_title(url), site="youtube.com",
                              channel=channel, media_type="youtube", provider=ref.provider if ref else None)
-            res = media_ingestor.write_prepared(PreparedItem(item, meta), memory_path, idx)
+            # Inside this tool's admission and page lock (`_holding_pages`): a repeat appends Watch later to its page.
+            res = media_ingestor.write_prepared(PreparedItem(item, meta), memory_path, idx, append_list=True)
             if res.status == "created":
                 created += 1
                 paths += [f"entities/{res.media_entity_id}.md", f"episodes/{res.episode_id}.md"]
             else:
                 duplicates += 1
+                if res.collection_added:   # saved before from another list: its page now lists Watch later too
+                    listed += 1
+                    paths.append(f"entities/{res.media_entity_id}.md")
         # `write_prepared`'s contract: every caller saves the index. A duplicate adds its alias rows too
         # (`index_aliases`), so it is saved whenever a row was written, and committed when its bytes moved
         # (backend hunt, 2026-10-16: it was saved only when a video was new, dropping a duplicate's aliases).
@@ -1458,7 +1492,8 @@ def record_youtube_list(ctx: ToolContext, list_name: str, outcome: str, videos=N
         if index_changed:
             paths.append("sources/url_index.json")
         lines = ([f"sources/url_index.json: updated (trigger: {ctx.trigger})"] if index_changed else []) + (
-            [f"{created} Watch later video(s) saved (trigger: {ctx.trigger})"] if created else [])
+            [f"{created} Watch later video(s) saved (trigger: {ctx.trigger})"] if created else []) + (
+            [f"{listed} saved video(s) now list Watch later (trigger: {ctx.trigger})"] if listed else [])
         youtube_lists.note(memory_path, name, "read", videos=len(seen))
         said = (f"{created} new Watch later video(s) saved; {duplicates} already in memory "
                 "(saved before by a Takeout, a bookmark or a link).")
@@ -2661,6 +2696,12 @@ def write_claim(
     memory_path = ctx.memory_path()
     if (refusal := _demo_refusal(memory_path)) is not None:
         return refusal
+    if not observer_accepted(observer):
+        # Hyrum audit A3: the schema's pattern was advertised and never checked, so any string was recorded as
+        # the belief's holder. Refused before anything is read or written; the reply names the accepted values.
+        return Reply(f"Could not write claim: observer {str(observer)[:64]!r} is not one of 'owner', 'agent', "
+                     "'external' or 'external:<name>' (lowercase letters, digits, hyphens); nothing was written.",
+                     code="refused")
     author = ctx.author
     result = agentic_write.write_claim(
         memory_path,
@@ -4092,7 +4133,7 @@ def _relevant_inbox(memory_path: Path, query: str, *, raw_excerpts: bool = True,
         # A deferred item is hidden everywhere it could be surfaced, the
         # proactive recall block included — the user asked to be reminded
         # later, not on the next unrelated question.
-        if not nudge_visible(fm, wanted=frozenset(), today=today):
+        if not nudge_visible(fm, wanted=frozenset(), today=today, memory_path=memory_path):
             continue
         named = inbox_ask_gate.with_page_names(memory_path, fm)
         if str(fm.get("kind") or "") in inbox_ask_gate.NEVER_ASKED or not inbox_ask_gate.named_in(named, query):
@@ -4112,6 +4153,9 @@ def save_episode(ctx: ToolContext, content: str, title: str | None) -> str:
     memory_path = ctx.memory_path()
     if (refusal := _demo_refusal(memory_path)) is not None:
         return Reply(refusal, code="demo_bank")
+    if not isinstance(content, str) or not content.strip():
+        # Hyrum audit A3: `content` is required, and an empty one used to be saved (and counted by the timeline).
+        return Reply("Nothing saved: `content` must be the text to keep, and it was empty.", code="refused")
     episodes_dir = memory_path / "episodes"
     episodes_dir.mkdir(parents=True, exist_ok=True)
 
@@ -4214,13 +4258,15 @@ def _save_new_episode(ctx: ToolContext, episodes_dir: Path, today: str, content:
     return episode_ids.create_episode(episodes_dir, frontmatter, content)
 
 
-def nudge_visible(fm: dict, *, wanted, today: str, skipped=frozenset(), stem: str = "") -> bool:
+def nudge_visible(fm: dict, *, wanted, today: str, skipped=frozenset(), stem: str = "",
+                  memory_path: Path | None = None) -> bool:
     """``check_nudges``' item filter, shared with the recall hook (G149) so an
     item the hook points at is exactly an item ``cicada_check_nudges`` lists:
     not an id this session skipped, never ``normalization`` (app-only audit
     rows), the subject in ``wanted`` when ids were given (G75 R12's exact
     match), and not deferred. ``fm`` may be a frontmatter dict or the search
-    index's inbox ``meta``; both carry ``kind``, ``entity_id``, ``remind_after``."""
+    index's inbox ``meta``; both carry ``kind``, ``entity_id``, ``remind_after``.
+    With ``memory_path``, never about a quiet page either (owner ruling 2026-10-20, ``GET /inbox``'s own rule)."""
     from api.services import inbox_questions
 
     if stem and stem in skipped:
@@ -4229,7 +4275,13 @@ def nudge_visible(fm: dict, *, wanted, today: str, skipped=frozenset(), stem: st
         return False
     if wanted and str(fm.get("entity_id") or "") not in wanted:
         return False
-    return not inbox_questions.is_deferred(fm, today)
+    if inbox_questions.is_deferred(fm, today):
+        return False
+    if memory_path is not None:
+        from api.services import inbox_service
+
+        return not inbox_service._subject_quiet(Path(memory_path), str(fm.get("entity_id") or ""))
+    return True
 
 
 #: At most this many questions come back in ``mode="ask"`` — the agent asks at most one per turn; the second is a
@@ -4277,7 +4329,7 @@ def check_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = 
             continue
         fm, body = read_inbox_item(filepath)
 
-        if not nudge_visible(fm, wanted=wanted, today=today):
+        if not nudge_visible(fm, wanted=wanted, today=today, memory_path=memory_path):
             continue
 
         if topic:
@@ -4358,7 +4410,7 @@ def ask_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = No
         if filepath.stem in ctx.skipped_inbox_ids:
             continue
         fm, _body = read_inbox_item(filepath)
-        if not nudge_visible(fm, wanted=frozenset(), today=today):
+        if not nudge_visible(fm, wanted=frozenset(), today=today, memory_path=memory_path):
             continue
         kind = str(fm.get("kind") or fm.get("type") or "")
         # Cheap refusals first: a kind never asked, or a page the conversation is not on, costs no cause lookup.
@@ -4627,6 +4679,8 @@ def _design_line(ref, *, memory_path: Path | None = None, legs: list[str] | None
     bits = [f"- {ref.id} · {name}"]
     if ref.url:
         bits.append(ref.url)
+    if ref.entity:
+        bits.append(f"on page {ref.entity}")
     if ref.palette:
         bits.append("palette " + " ".join(c["hex"] for c in ref.palette[:6]))
     if ref.look:
@@ -4655,11 +4709,15 @@ def _design_line(ref, *, memory_path: Path | None = None, legs: list[str] | None
 
 
 def save_design(ctx: ToolContext, url=None, note=None, image_path=None, image_base64=None, title=None, snippets=None,
-                tags=None, region=None, tokens=None) -> str:
+                tags=None, region=None, tokens=None, subject=None) -> str:
     """`cicada_save_design` (design taste): a look the person likes, captured by their agent — the screenshot, the
     page, what they liked, and any HTML/CSS they pointed at. Written by the one writer (`design_refs`) as the harness,
     with the conversation as `Cicada-Session:`; refused in a demo bank and while Sleep runs. The palette is read from
-    the pixels before the admission is taken."""
+    the pixels before the admission is taken.
+
+    ``subject`` (owner 2026-10-20) is the page the look shows: a page id already in memory — never one created. Without
+    it the writer finds the page whose own site it is, else the saved link's page, else leaves it unattached. The
+    page's ``## Looks`` line is written and committed with the look, under the page lock."""
     from api.services import design_refs, telemetry
 
     memory_path = ctx.memory_path()
@@ -4674,14 +4732,18 @@ def save_design(ctx: ToolContext, url=None, note=None, image_path=None, image_ba
 
     computed, problems = design_tokens.clean(tokens)
     specimens = _design_specimens(ctx, memory_path, tokens)
+    subject = str(subject or "").strip() or None
+    if subject is not None and not design_refs.page_exists(memory_path, subject):
+        return (f"Not saved: there is no page `{subject[:80]}` in memory. Name a page recall returned, or leave "
+                "`subject` out and Cicada places it.")
     look = design_refs.read_look(data, design_refs.declared_colours(snippets, computed))
-    with write_admission.shared(memory_path):   # G183: from the probe through the commit
+    with write_admission.shared(memory_path), page_lock.page_lock(memory_path):   # G183: probe through commit
         if ctx.sleep_running():
             return DESIGN_SLEEPING
         result = design_refs.add_ref(memory_path, image=data, url=url, title=title, note=note, snippets=snippets,
                                      tags=tags if isinstance(tags, list) else None, region=region, via="agent",
                                      author=ctx.author, session=ctx.session_id, look=look, computed=computed,
-                                     specimens=specimens)
+                                     specimens=specimens, entity=subject)
         if result["action"] == "duplicate":
             return f"NOT saved — that screenshot is already on the board as {result['id']}."
         if result["action"] != "added":
@@ -4695,9 +4757,12 @@ def save_design(ctx: ToolContext, url=None, note=None, image_path=None, image_ba
             billing="subscription", invocations=1, refs=refs))
         agent_commits.commit_write(
             memory_path, subject=ctx.commit_subject,
-            lines=[f"{p}: created (source: n/a, trigger: {ctx.trigger})" for p in result["paths"]],
+            lines=[f"{p}: {'updated' if p.startswith('entities/') else 'created'} (source: n/a, trigger: {ctx.trigger})"
+                   for p in result["paths"]],
             paths=result["paths"], author=ctx.author, session=ctx.session_id)
-    head = f"Saved {ref.id} to the person's design board. Your note shows as yours, never as their words."
+    where = (f" It is on the page `{ref.entity}` (its Looks section)." if ref.entity else
+             " It isn't on a page yet: no page in memory has that site as its own, so the person places it.")
+    head = f"Saved {ref.id}. Your note shows as yours, never as their words.{where}"
     detail = _design_line(ref)
     if problems:
         detail += "\n  tokens left out: " + "; ".join(problems[:6])
@@ -4737,7 +4802,7 @@ def design_search(ctx: ToolContext, query=None, image_path=None, image_base64=No
             lines.append(_design_line(ref, memory_path=None if ctx.is_remote else memory_path, legs=hit["legs"]))
     notes = []
     if "image_model" in out["missing"]:
-        notes.append("Searching by picture isn't set up on this Mac (the person can turn it on from the Looks page), "
+        notes.append("Searching by picture isn't set up on this Mac (the person can turn it on in Settings, Search & files), "
                      "so pictures were compared by their words only.")
     if "model" in out["missing"]:
         notes.append("Only words were compared: the on-device search model isn't installed.")
@@ -4987,7 +5052,8 @@ def _explore_page_shots(ctx: ToolContext, memory_path: Path, page: dict) -> list
 
 def _explore_looks(ctx: ToolContext, memory_path: Path, *, site, cap: dict, landing: bytes | None,
                    pages: list[dict], why_text: str | None, landing_design=None,
-                   save_look: bool = False, landing_specimens=None) -> tuple[list[str], list[str]]:
+                   save_look: bool = False, landing_specimens=None,
+                   subject: str | None = None) -> tuple[list[str], list[str]]:
     """The auto-Look (G196 via G166 slice 2): when the person's reason is the design, the visit's best pictures become
     Looks through the one design writer — the landing page first, then each page whose look is new, never two near
     copies (dHash within ``site_captures.SAME``), at most :data:`MAX_AUTO_LOOKS`. Each names the site, the date and
@@ -4995,13 +5061,17 @@ def _explore_looks(ctx: ToolContext, memory_path: Path, *, site, cap: dict, land
     save, so it shows as what they liked. Each Look keeps the page's computed type and colour roles when the capture
     printed them (``design``, looks v2). ``save_look`` (the person's "Save its look") keeps the landing page even when
     its look has not changed since the last visit. Each Look keeps the type specimens its page's capture drew
-    (``specimens``, looks polish). ``(ids, paths)``."""
+    (``specimens``, looks polish). ``(ids, paths)``.
+
+    Each Look goes on the page of the thing it shows (owner 2026-10-20): ``subject``, the page the person pasted the
+    link on (the queue row's), else the writer's own rule — the page whose trusted site this is, else the saved
+    link's page (the landing picture) — else none."""
     from api.services import design_refs, explore_plan, site_captures
 
     candidates: list[tuple[str, str, str | None, bytes, str | None, str | None, object, object]] = []
     if landing is not None and (save_look or (cap.get("change") or {}).get("look") != "same"):
         candidates.append((explore_plan.page_kind(site.url), site.url, cap.get("title"), landing, cap.get("dhash"),
-                           site.entity_id, landing_design, landing_specimens))
+                           subject, landing_design, landing_specimens))
     stored = {p.get("url"): p for p in cap.get("pages") or [] if isinstance(p, dict)}
     for page in pages:
         kept = stored.get(page["url"]) or {}
@@ -5010,7 +5080,7 @@ def _explore_looks(ctx: ToolContext, memory_path: Path, *, site, cap: dict, land
             continue
         if (kept.get("change") or {}).get("look") == "same":
             continue
-        candidates.append((page["kind"], page["url"], kept.get("title"), viewport, kept.get("dhash"), None,
+        candidates.append((page["kind"], page["url"], kept.get("title"), viewport, kept.get("dhash"), subject,
                            page.get("design"), page.get("specimens")))
     ids: list[str] = []
     paths: list[str] = []
@@ -5130,7 +5200,7 @@ def record_capture(ctx: ToolContext, url: str, lease_token: str, outcome: str, c
                       "design": design_tokens.clean(page_in.get("design"))[0] or None,
                       "specimens": _design_specimens(ctx, memory_path, page_in.get("design"))})
     looks: list[str] = []
-    with write_admission.shared(memory_path):   # G183: from the probe through the commit
+    with write_admission.shared(memory_path), page_lock.page_lock(memory_path):   # G183: probe through commit
         if ctx.sleep_running():
             return EXPLORE_SLEEPING
         result = site_captures.record(
@@ -5165,7 +5235,7 @@ def record_capture(ctx: ToolContext, url: str, lease_token: str, outcome: str, c
                 looks, look_paths = _explore_looks(ctx, memory_path, site=site, cap=cap, landing=landing,
                                                    pages=ready, why_text=(site.why or {}).get("text"),
                                                    landing_design=design, save_look=bool(plan.get("save_look")),
-                                                   landing_specimens=specimens)
+                                                   landing_specimens=specimens, subject=(row or {}).get("subject"))
                 paths += look_paths
         if paths:
             agent_commits.commit_write(
@@ -5455,6 +5525,13 @@ _SKILL_ACTIONS = ("install", "update", "on", "off", "refresh")
 _SKILL_DIRECT = ("on", "off", "refresh")
 
 
+def _kind_words(row: dict) -> str:
+    """``about-you``, ``generic`` or ``kind unknown`` — and whose word it is when the person chose it."""
+    kind = row.get("kind") or "unknown"
+    word = "kind unknown" if kind == "unknown" else kind
+    return word + (" (the person's choice)" if row.get("kindBy") == "person" else "")
+
+
 def _skill_line(row: dict) -> list[str]:
     on = [a["label"] for a in row["agents"] if a["state"] == "on"]
     through = [a["label"] for a in row["agents"] if a["state"] == "through"]
@@ -5464,6 +5541,8 @@ def _skill_line(row: dict) -> list[str]:
     bits.append(("in " + ", ".join(on)) if on else "in no agent's own folder")
     if through:
         bits.append("also seen by " + ", ".join(through))
+    if row.get("kind"):
+        bits.append(_kind_words(row))
     lines = [f"- {row['name']} — {_one_line(row['description'], 160)}", "  " + " · ".join(bits)]
     tool = row.get("tool") or {}
     if tool.get("text") == "older":
@@ -5500,15 +5579,29 @@ def skills(ctx: ToolContext) -> str:
     if data["suggested"]:
         lines += ["", "Suggested by Cicada, not installed: " + "; ".join(
             f"{s['id']} ({_one_line(s.get('summary') or '', 80)})" for s in data["suggested"][:8])]
+    plugins = data.get("plugins") or []
+    if plugins:
+        lines += ["", "Claude Code plugins (read-only: the person turns them on or off in Claude Code with /plugin):"]
+        for p in plugins:
+            state = {True: "on", False: "off"}.get(p.get("enabled"), "switched per project")
+            head = f"- {p['id']}" + (f" {p['version']}" if p.get("version") else "") + f" · {state}"
+            names = ", ".join(s["name"] + (" (the person runs it)" if s.get("userOnly") else "")
+                              for s in p.get("skills") or [])
+            lines.append(head + (f" · skills: {names}" if names else " · no skills"))
+    weight = (data.get("weight") or {}).get("agents") or []
+    if weight:
+        lines += ["", "Loaded every session (estimate, characters/4 of names and descriptions): " + "; ".join(
+            f"{w['label']} {w['skills']} skill(s), ~{w['descriptionTokens']} tokens" for w in weight) + "."]
     if data["drafts"]:
         lines += ["", "Made by agents, held until the person publishes them: " + ", ".join(
-            f"{d['name']} (by {d['authorLabel']})" for d in data["drafts"])]
+            f"{d['name']} (by {d['authorLabel']}, {_kind_words(d)})" for d in data["drafts"])]
     if data["requests"]:
         lines += ["", f"Waiting for the person on the Skills page: {len(data['requests'])} request(s)."]
     lines += ["", "To ask for an install or update: cicada_propose_skill. To write a new skill for a workflow: "
                   "cicada_create_skill. You never install third-party code yourself through Cicada."]
     return Reply("\n".join(lines), data={"installed": [r["name"] for r in data["installed"]],
-                                         "requests": len(data["requests"])})
+                                         "requests": len(data["requests"]),
+                                         "plugins": [p["id"] for p in plugins]})
 
 
 def propose_skill(ctx: ToolContext, action, source=None, name=None, agents=None, reason=None) -> str:

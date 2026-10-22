@@ -70,7 +70,7 @@ struct MarkdownBody: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
         case .list(let items):
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                     HStack(alignment: .top, spacing: 6) {
                         Text(item.marker)
@@ -101,9 +101,9 @@ struct MarkdownBody: View {
                         .padding(CicadaTheme.spacingSM)
                 }
                 .background(CicadaTheme.surface)
-                .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+                .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
                 .overlay(
-                    RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                    CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                         .stroke(CicadaTheme.border, lineWidth: 1)
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)

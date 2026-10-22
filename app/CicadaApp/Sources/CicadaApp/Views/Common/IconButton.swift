@@ -17,6 +17,11 @@ struct IconButton: View {
     var shortcut: KeyboardShortcut? = nil
     /// `isOn` — a sticky toggle (the Graph's pan button, R-DG3) wears the selected fill, never the accent (DR-5).
     var isOn = false
+    /// What an assistive technology's press runs instead of `action` (VoiceOver's VO-Space, Switch Control): nil runs
+    /// `action`. A caller that reads the event running its action to choose its motion (DR-60) passes one, because an
+    /// accessibility press arrives with no event of its own — `NSApp.currentEvent` is whatever came last, often a
+    /// click — and must land as a key does (`AssistivePress`).
+    var accessibilityPress: (() -> Void)? = nil
     let action: () -> Void
 
     @State private var hovering = false
@@ -37,7 +42,22 @@ struct IconButton: View {
         .help(help)
         .accessibilityLabel(accessibilityLabel ?? help)
         .accessibilityAddTraits(isOn ? .isSelected : [])
+        .modifier(AssistivePress(action: accessibilityPress))
         .onHover { hovering = $0 }
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+    }
+}
+
+/// An assistive technology's press, set apart from the pointer's and the keyboard's (2026-10-20, DR-60): with an
+/// action, the view's default accessibility action runs it instead of the control's own; with none, nothing changes.
+struct AssistivePress: ViewModifier {
+    let action: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        if let action {
+            content.accessibilityAction(.default, action)
+        } else {
+            content
+        }
     }
 }

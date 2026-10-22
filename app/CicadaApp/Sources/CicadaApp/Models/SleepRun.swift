@@ -179,11 +179,12 @@ struct SleepRunOptions: Codable, Equatable {
     var continueAfterReset: Bool
     var reservePct: Int?
     var reserveChoices: [Int]
-    /// TODO ruling 4b (owner, 2026-10-16): this machine lets scheduled runs use the person's plan. Off by default.
+    /// TODO ruling 4b (owner, 2026-10-16; amended 2026-10-19): this machine lets scheduled runs use the person's plan.
+    /// On by default; only the person's explicit off stops it.
     var scheduledUsePlan: Bool
 
     init(batchSize: Int = 25, batchSizeChoices: [Int] = [10, 25, 50], continueAfterReset: Bool = false,
-         reservePct: Int? = nil, reserveChoices: [Int] = [5, 10, 20, 30], scheduledUsePlan: Bool = false) {
+         reservePct: Int? = nil, reserveChoices: [Int] = [5, 10, 20, 30], scheduledUsePlan: Bool = true) {
         self.batchSize = batchSize; self.batchSizeChoices = batchSizeChoices
         self.continueAfterReset = continueAfterReset; self.reservePct = reservePct; self.reserveChoices = reserveChoices
         self.scheduledUsePlan = scheduledUsePlan
@@ -196,6 +197,7 @@ struct SleepRunOptions: Codable, Equatable {
         continueAfterReset = ((try? c.decodeIfPresent(Bool.self, forKey: .continueAfterReset)) ?? nil) ?? false
         reservePct = (try? c.decodeIfPresent(Int.self, forKey: .reservePct)) ?? nil
         reserveChoices = ((try? c.decodeIfPresent([Int].self, forKey: .reserveChoices)) ?? nil) ?? []
+        // An older server has no such switch: its scheduled runs never used a plan.
         scheduledUsePlan = ((try? c.decodeIfPresent(Bool.self, forKey: .scheduledUsePlan)) ?? nil) ?? false
     }
     enum CodingKeys: String, CodingKey {

@@ -188,7 +188,11 @@ extension QuickIndex {
     static func inboxDocs(_ items: [InboxItem]) -> [Doc] {
         items.map { item in
             let row = FindRow(key: FindRowKey(kind: .inbox, id: item.id), group: .inbox, title: InboxSearch.title(item),
-                              detail: item.entityName.isEmpty ? nil : item.entityName, badge: item.kind.label,
+                              // Say it once — no page name under a question that already names it.
+                              detail: item.entityName.isEmpty
+                                  || InboxRowWords.repeats(name: item.entityName, in: InboxSearch.title(item))
+                                  ? nil : item.entityName,
+                              badge: item.kind.label,
                               mark: .symbol(item.kind.icon), tieBreak: item.priority, destination: .inbox(id: item.id))
             return Doc(row: row, fields: InboxSearch.fields(item))
         }

@@ -34,12 +34,17 @@ from pathlib import Path
 from api.models.schemas import (
     EntityProvenance,
     EpisodeAgent,
+    EpisodeAttachment,
     EpisodeCitation,
     EpisodeCitationEntity,
     EpisodeCitations,
     EpisodeFocus,
     EpisodeText,
     EpisodeTurn,
+    EpisodeReaction,
+    EpisodeRelay,
+    EpisodeTurnExtras,
+    EpisodeUnsent,
     EpisodeWatch,
     EvidenceModel,
     ProvenanceContributor,
@@ -64,6 +69,7 @@ from api.services import (
     section_provenance,
     source_dates,
     turn_authorship,
+    turn_extras,
     video_state,
 )
 from api.services.claims import Claim, Evidence, is_current, is_event, is_record, parse_claims, served_prose
@@ -181,11 +187,14 @@ def episode_document(
         focus_model = _derived_focus(memory_path, text, focus)
 
     watch = _watch(memory_path, doc_id, fm) if is_episode else None
+    index_at = {t.start: t.index for t in spans}
+    extras_at = turn_extras.by_offset(fm) if is_episode else {}
     turn_models: list[EpisodeTurn] = []
     for t in spans:
         s = agents.get(t.start) if t.role == "assistant" else None
         turn_models.append(EpisodeTurn(**asdict(t), model=s.model if s else None, effort=s.effort if s else None,
-                                       fidelity=watch.fidelity if watch is not None and t.role == "media" else None))
+                                       fidelity=watch.fidelity if watch is not None and t.role == "media" else None,
+                                       extras=_extras(extras_at.get(t.start), index_at)))
 
     return EpisodeText(
         episode=doc_id,
@@ -204,11 +213,70 @@ def episode_document(
         correspondent=_opt(_correspondent(fm).get("name")) if is_episode else None,
         correspondent_kind=_opt(_correspondent(fm).get("kind")) if is_episode else None,
         device=_opt(fm.get("device")) if is_episode else None,
+        site=_saved_site(fm) if is_episode else None,
         turns=turn_models,
         focus=focus_model,
         agent=agent,
         watch=watch,
+        relay=_relay(fm) if is_episode else None,
+        unsent=_unsent(fm, spans) if is_episode else [],
     )
+
+
+def _saved_site(fm: dict) -> str | None:
+    """Owner 2026-10-20: the site key a saved link's Reader header is marked with (the Waiting row's own rule)."""
+    from api.services import channel_items, reading_hosts
+
+    url = channel_items.saved_episode_url(fm)
+    return reading_hosts.mark_key(url) if url else None
+
+
+def _extras(stored: dict | None, index_at: dict[int, int]) -> EpisodeTurnExtras | None:
+    """A turn's stored extras on the wire: a reply's target offset becomes the target turn's index (a target that is
+    no turn start here, or a ``{ref}``, reads as a reply to a message elsewhere). Tolerant: a malformed value is
+    dropped, never raised."""
+    if not stored:
+        return None
+    reply = stored.get("reply_to")
+    reply_to = index_at.get(reply) if isinstance(reply, int) and not isinstance(reply, bool) else None
+    runs = stored.get("code_runs")
+    out = EpisodeTurnExtras(
+        reactions=[EpisodeReaction(**r) for r in turn_extras.clean_reactions(stored.get("reactions"))],
+        reply_to=reply_to,
+        reply_elsewhere=reply is not None and reply_to is None,
+        attachments=[EpisodeAttachment(**a) for a in turn_extras.clean_attachments(stored.get("attachments"))],
+        edited=stored.get("edited") is True,
+        forwarded_from=_opt(stored.get("forwarded_from")),
+        code_runs=runs if isinstance(runs, int) and not isinstance(runs, bool) and runs > 0 else None,
+    )
+    return out if out != EpisodeTurnExtras() else None
+
+
+def _unsent(fm: dict, spans) -> list[EpisodeUnsent]:
+    out = []
+    for entry in turn_extras.unsent(fm):
+        at = int(entry["at"])
+        before = next((t.index for t in spans if t.start >= at), spans[-1].index + 1 if spans else 1)
+        out.append(EpisodeUnsent(before=before, speaker=str(entry["speaker"]), ts=_opt(entry.get("ts"))))
+    return out
+
+
+def _relay(fm: dict) -> EpisodeRelay | None:
+    """Ruling 32: the relay record of an episode an export has not upgraded yet, or ``None``. An upgraded episode
+    holds the export's words — the person's own — so it is no longer a relay to the Reader."""
+    from api.services.turn_capture import RELAY_KEY
+
+    record = (fm or {}).get(RELAY_KEY)
+    if not isinstance(record, dict) or record.get("upgraded_at"):
+        return None
+    app = _opt(record.get("app"))
+    label = None
+    if app:
+        from api.remote.catalog import APPS
+
+        known = APPS.get(app)
+        label = known.label if known is not None and app != "other" else None
+    return EpisodeRelay(app=app, label=label)
 
 
 def _correspondent(fm: dict) -> dict:

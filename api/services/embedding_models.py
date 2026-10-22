@@ -645,6 +645,9 @@ def status(bank: Path, settings, environ=os.environ) -> dict:
     return {
         "model": recorded or building,
         "next_model": building,
+        # What the bank's index records, or None when nothing is built yet: ``model`` falls back to the configured
+        # default then, which must not read as "this memory was built elsewhere with a version missing here".
+        "recorded": recorded,
         "choice": choice,
         "release": runtime_layout.is_release(environ),
         "recommended": PREFERRED_ID if supported and not is_available(PREFERRED_ID, environ) else None,

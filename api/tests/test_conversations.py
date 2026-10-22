@@ -267,20 +267,6 @@ def test_gemini_timestamp_renders_aware_utc():
     assert conv._parse_gemini_timestamp("garbage") is None
 
 
-def test_write_new_episode_without_timestamp_stamps_aware_utc(tmp_path):
-    from datetime import datetime, timezone
-
-    ep_dir = tmp_path / "episodes"
-    ep_dir.mkdir()
-    episode = {"title": "T", "source": "claude_memory", "messages": [], "timestamp": None}
-    path = conv._write_new_episode(episode, ep_dir, "system: x", "abc123", {})
-    ts = markdown_parser.parse(path).frontmatter["timestamp"]
-    assert isinstance(ts, str) and ts.endswith("+00:00"), ts
-    parsed = datetime.fromisoformat(ts)
-    assert parsed.tzinfo is not None
-    assert abs((datetime.now(timezone.utc) - parsed).total_seconds()) < 60
-
-
 def test_write_new_episode_normalises_aware_z_timestamp(tmp_path):
     """A Claude export's own `...Z` stamp is already UTC; the file gets the
     one R2 shape so a bank never grows a third spelling of the same instant."""

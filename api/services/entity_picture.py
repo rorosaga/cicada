@@ -437,6 +437,85 @@ def write_clear(memory_path, entity_id: str) -> PictureWrite | None:
     return PictureWrite(page=f"entities/{entity_id}.md", subject="Remove picture", removed=removed)
 
 
+# --- a merge or rename keeps the person's picture (G146 open item, 2026-10-21) -------------------------------------
+# The upload's path is derived from the page id (R-PE1), so a page that changes id — merged into another, or renamed to
+# a cleaner slug — used to keep its `picture:` mark (a rename) or lose it (a merge) while the bytes stayed at the old
+# id: the picture 404'd, or a file nothing named was left in `assets/pictures/`. One plan, read by the footprint (which
+# only asks) and by the writer (which acts), so what a merge is predicted to touch and what it touches cannot drift.
+
+
+def _choice(fm: dict) -> dict | None:
+    """The person's own picture choice on a page — an upload or "use initials" — else None."""
+    picture = (fm or {}).get("picture")
+    if isinstance(picture, dict) and picture.get("kind") in ("upload", "initials"):
+        return picture
+    return None
+
+
+def _stored_upload(memory_path, entity_id: str, fm: dict) -> tuple[str, Path] | None:
+    """``(ext, path)`` of the upload the page's own mark names, when its file is there; else None."""
+    picture = _choice(fm)
+    if picture is None or picture.get("kind") != "upload":
+        return None
+    ext = picture.get("ext")
+    path = upload_path(memory_path, entity_id, ext) if isinstance(ext, str) else None
+    return (ext, path) if path is not None and path.is_file() else None
+
+
+def _merge_plan(memory_path, loser_id: str, loser_fm: dict, winner_id: str,
+                winner_fm: dict) -> tuple[dict | None, tuple[str, str] | None, str | None]:
+    """``(mark the winner takes, (from, to) file move, file removed)`` for a merge, as bank-relative paths.
+
+    The winner's own choice stands; with none, the loser's choice travels — an upload only with its file, which moves
+    to the winner's id. A loser's upload that does not travel is removed (git keeps it)."""
+    stored = _stored_upload(memory_path, loser_id, loser_fm)
+    loser_choice = _choice(loser_fm)
+    if _choice(winner_fm) is None and loser_choice is not None:
+        if loser_choice.get("kind") == "initials":
+            return dict(loser_choice), None, None   # no upload is named by an initials mark (`write_initials`)
+        if stored is not None and upload_path(memory_path, winner_id, stored[0]) is not None:
+            ext = stored[0]
+            return dict(loser_choice), (upload_rel(loser_id, ext), upload_rel(winner_id, ext)), None
+    return None, None, upload_rel(loser_id, stored[0]) if stored else None
+
+
+def merge_footprint(memory_path, loser_id: str, loser_fm: dict, winner_id: str, winner_fm: dict) -> list[str]:
+    """The picture files :func:`carry_on_merge` would move or remove, without touching anything."""
+    _mark, move, removed = _merge_plan(memory_path, loser_id, loser_fm, winner_id, winner_fm)
+    return [*(move or ()), *([removed] if removed else [])]
+
+
+def carry_on_merge(memory_path, loser_id: str, loser_fm: dict, winner_id: str, winner_fm: dict) -> list[str]:
+    """Carry the person's picture choice from a merge's loser onto the winner's frontmatter (mutated in place; the
+    caller writes it) and move or remove the loser's file. Returns the bank-relative paths it moved or removed."""
+    mark, move, removed = _merge_plan(memory_path, loser_id, loser_fm, winner_id, winner_fm)
+    base = Path(memory_path)
+    if mark is not None:
+        winner_fm["picture"] = mark
+    if move is not None:
+        os.replace(base / move[0], base / move[1])
+    if removed is not None:
+        (base / removed).unlink(missing_ok=True)
+    return [*(move or ()), *([removed] if removed else [])]
+
+
+def rename_footprint(memory_path, old_id: str, new_id: str, fm: dict) -> list[str]:
+    """The picture file :func:`carry_on_rename` would move (from, to), without touching anything."""
+    stored = _stored_upload(memory_path, old_id, fm) if old_id != new_id else None
+    if stored is None or upload_path(memory_path, new_id, stored[0]) is None:
+        return []
+    return [upload_rel(old_id, stored[0]), upload_rel(new_id, stored[0])]
+
+
+def carry_on_rename(memory_path, old_id: str, new_id: str, fm: dict) -> list[str]:
+    """A page moved from ``old_id`` to ``new_id``: its uploaded picture's file follows it (its mark already did, in the
+    frontmatter). Returns the bank-relative paths it moved."""
+    move = rename_footprint(memory_path, old_id, new_id, fm)
+    if move:
+        os.replace(Path(memory_path) / move[0], Path(memory_path) / move[1])
+    return move
+
+
 def picture_file(memory_path, entity_id: str, fm: dict) -> tuple[Path, str] | None:
     """What `GET /entities/{id}/picture` serves: the person's upload, else the Contacts photo, else the photo the
     page's Messages chat shares — at a path derived from the id (or the chat's id), never one the page names (R-PE1),

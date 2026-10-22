@@ -31,6 +31,11 @@ def ico() -> bytes:
     return b"\x00\x00\x01\x00\x01\x00" + bytes([32, 32]) + b"\x00" * 14
 
 
+def page(*links: str, base: str = "") -> bytes:
+    head = (f'<base href="{base}">' if base else "") + "".join(links)
+    return f"<!doctype html><html><head><title>t</title>{head}</head><body>hi</body></html>".encode()
+
+
 class Recorder:
     def __init__(self, answers=None, default=(404, b"", "text/plain")):
         self.urls: list[str] = []
@@ -63,15 +68,16 @@ def test_the_icon_is_asked_of_the_site_itself_never_a_service():
     fetcher = Recorder({"https://paperfold.example/favicon.ico": (200, ico(), "image/x-icon")})
     got = run(logo_service.fetch_own_site_icon("paperfold.example", fetcher=fetcher))
     assert got is not None and got[1] == "ico"
-    assert fetcher.urls == ["https://paperfold.example/apple-touch-icon.png", "https://paperfold.example/favicon.ico"]
+    assert fetcher.urls == ["https://paperfold.example/", "https://paperfold.example/apple-touch-icon.png",
+                            "https://paperfold.example/favicon.ico"], "the homepage, then the two fixed paths"
     assert SERVICE_HOST not in fetcher.hosts and fetcher.hosts == {"paperfold.example"}
 
 
-def test_the_touch_icon_wins_and_the_homepage_is_never_read():
-    fetcher = Recorder({"https://paperfold.example/apple-touch-icon.png": (200, png(), "image/png")})
+def test_with_nothing_declared_the_touch_icon_wins_after_the_homepage():
+    fetcher = Recorder({"https://paperfold.example/": (200, page(), "text/html"),
+                        "https://paperfold.example/apple-touch-icon.png": (200, png(), "image/png")})
     assert run(logo_service.fetch_own_site_icon("paperfold.example", fetcher=fetcher))[1] == "png"
-    assert fetcher.urls == ["https://paperfold.example/apple-touch-icon.png"]
-    assert not any(urlparse(u).path in ("", "/") for u in fetcher.urls), "no HTML page is fetched"
+    assert fetcher.urls == ["https://paperfold.example/", "https://paperfold.example/apple-touch-icon.png"]
 
 
 def test_a_favicon_served_as_octet_stream_is_sniffed_but_an_svg_never_is():
@@ -86,7 +92,11 @@ def test_a_block_stops_at_once_and_is_never_retried():
     for status in (401, 403, 407, 451):
         fetcher = Recorder({"https://walled.example/apple-touch-icon.png": (status, b"no", "text/html")})
         assert run(logo_service.fetch_own_site_icon("walled.example", fetcher=fetcher)) is None
-        assert fetcher.urls == ["https://walled.example/apple-touch-icon.png"], "no second path, no other headers"
+        assert fetcher.urls == ["https://walled.example/", "https://walled.example/apple-touch-icon.png"], \
+            "no second path, no other headers"
+        home = Recorder({"https://walled.example/": (status, b"no", "text/html")})
+        assert run(logo_service.fetch_own_site_icon("walled.example", fetcher=home)) is None
+        assert home.urls == ["https://walled.example/"], "a block on the homepage stops the whole discovery"
 
 
 def test_an_oversize_body_is_refused():
@@ -143,6 +153,340 @@ def test_the_domain_is_the_links_own_registrable_domain():
     assert logo_service.own_site_domain("") is None
 
 
+# --- discovery like a browser (owner amendment 2026-10-20) -------------------------------------------------------
+
+
+def jpeg(w=64, h=64) -> bytes:
+    return b"\xff\xd8\xff\xc0\x00\x11\x08" + struct.pack(">HH", h, w) + b"\x00" * 12
+
+
+def test_an_icon_declared_at_another_path_behind_a_same_site_redirect():
+    fetcher = Recorder({
+        "https://site-a.example/": (301, b"", "text/html", "https://www.site-a.example/"),
+        "https://www.site-a.example/": (200, page('<link rel="icon" type="image/png" sizes="192x192" '
+                                                  'href="/assets/fav-search.png">'), "text/html; charset=utf-8"),
+        "https://www.site-a.example/assets/fav-search.png": (200, png(192, 192), "image/png"),
+    })
+    got = run(logo_service.fetch_own_site_icon("site-a.example", fetcher=fetcher))
+    assert got is not None and got[1] == "png"
+    assert fetcher.urls == ["https://site-a.example/", "https://www.site-a.example/",
+                            "https://www.site-a.example/assets/fav-search.png"], "resolved against the page's final URL"
+
+
+def test_a_relative_href_and_a_base_href_resolve_like_a_browser():
+    fetcher = Recorder({"https://site-b.example/": (200, page('<link rel=icon href="assets/icon.png">'), "text/html"),
+                        "https://site-b.example/assets/icon.png": (200, png(), "image/png")})
+    assert run(logo_service.fetch_own_site_icon("site-b.example", fetcher=fetcher)) is not None
+    based = Recorder({"https://site-b.example/": (200, page('<link rel=icon href="i.png">', base="/static/"), "text/html"),
+                      "https://site-b.example/static/i.png": (200, png(), "image/png")})
+    assert run(logo_service.fetch_own_site_icon("site-b.example", fetcher=based)) is not None
+    assert based.urls[-1] == "https://site-b.example/static/i.png"
+
+
+def test_shortcut_icon_and_apple_touch_the_larger_raster_first():
+    links = ('<link rel="shortcut icon" href="/_assets/g-32.jpg">'
+             '<link rel="apple-touch-icon" href="/_assets/g-256.jpg">')
+    fetcher = Recorder({"https://site-c.example/": (200, page(links), "text/html"),
+                        "https://site-c.example/_assets/g-256.jpg": (200, jpeg(256, 256), "image/jpeg"),
+                        "https://site-c.example/_assets/g-32.jpg": (200, jpeg(32, 32), "image/jpeg")})
+    got = run(logo_service.fetch_own_site_icon("site-c.example", fetcher=fetcher))
+    assert got is not None and got[1] == "jpg" and logo_service.min_dimension(got[0]) == 256
+    assert fetcher.urls[-1] == "https://site-c.example/_assets/g-256.jpg"
+    # The shortcut icon alone is found too, and when the big one fails the next is asked.
+    fetcher.answers.pop("https://site-c.example/_assets/g-256.jpg")
+    fetcher.urls.clear()
+    got = run(logo_service.fetch_own_site_icon("site-c.example", fetcher=fetcher))
+    assert got is not None and logo_service.min_dimension(got[0]) == 32
+
+
+def test_an_svg_only_site_asks_its_svgs_last_and_an_spa_html_favicon_is_never_an_icon():
+    svg_links = ('<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3">'
+                 '<link rel="icon" href="assets/favicon.svg">'
+                 '<link rel="mask-icon" href="/mask.png" color="#000">')
+    spa = b"<!doctype html><html><head></head><body><div id=root></div></body></html>"
+    fetcher = Recorder({"https://site-d.example/": (200, page(svg_links), "text/html"),
+                        "https://site-d.example/favicon.ico": (200, spa, "text/html"),
+                        "https://site-d.example/apple-touch-icon.png": (200, spa, "image/png")})
+    assert run(logo_service.fetch_own_site_icon("site-d.example", fetcher=fetcher)) is None
+    assert not any("mask" in u for u in fetcher.urls), "a mask icon is never even asked"
+    assert fetcher.urls == ["https://site-d.example/", "https://site-d.example/apple-touch-icon.png",
+                            "https://site-d.example/favicon.ico", "https://site-d.example/favicon.svg?v=3",
+                            "https://site-d.example/assets/favicon.svg"], "the rasters first; SVGs only after they miss"
+
+
+def test_a_data_icon_decodes_only_as_a_capped_raster():
+    import base64
+
+    raster = base64.b64encode(png(48, 48)).decode()
+    fetcher = Recorder({"https://site-e.example/": (200, page(f'<link rel="icon" href="data:image/png;base64,{raster}">'),
+                                                     "text/html")})
+    got = run(logo_service.fetch_own_site_icon("site-e.example", fetcher=fetcher))
+    assert got is not None and got[1] == "png" and fetcher.urls == ["https://site-e.example/"], "nothing else asked"
+    svg = base64.b64encode(b"<svg xmlns='http://www.w3.org/2000/svg'><script>x()</script></svg>").decode()
+    for uri in (f"data:image/svg+xml;base64,{svg}", "data:image/svg+xml,%3Csvg%3E%3C/svg%3E",
+                f"data:image/png;base64,{svg}"):  # SVG bytes behind a raster type
+        assert logo_service._decode_data_icon(uri) is None
+        fetcher = Recorder({"https://site-e.example/": (200, page(f'<link rel="icon" href="{uri}">'), "text/html")})
+        assert run(logo_service.fetch_own_site_icon("site-e.example", fetcher=fetcher)) is None
+    huge = base64.b64encode(png() + b"\x00" * (logo_service.MAX_BYTES + 10)).decode()
+    assert logo_service._decode_data_icon(f"data:image/png;base64,{huge}") is None, "capped before decoding"
+
+
+def test_a_bare_domain_with_no_address_asks_its_www_host_once():
+    resolver = lambda host: [] if host == "site-l.example" else ["93.184.216.34"]
+    fetcher = Recorder({"https://www.site-l.example/": (200, page(), "text/html"),
+                        "https://www.site-l.example/favicon.ico": (200, ico(), "image/x-icon")})
+    assert run(logo_service.fetch_own_site_icon("site-l.example", fetcher=fetcher, resolver=resolver)) is not None
+    assert fetcher.urls == ["https://www.site-l.example/", "https://www.site-l.example/apple-touch-icon.png",
+                            "https://www.site-l.example/favicon.ico"], "the bare host is never asked; its www. is"
+    answered = Recorder()  # the bare host answered (a 404): www. is not asked on top
+    assert run(logo_service.fetch_own_site_icon("site-l.example", fetcher=answered)) is None
+    assert "www.site-l.example" not in answered.hosts
+
+
+def test_a_homepage_that_moved_to_another_domain_is_followed_there():
+    """marks-2 regression (real values redacted): a renamed site 301s its homepage to its new domain, which declares a
+    192 px PNG at a non-standard path beside an SVG and an apple-touch icon. (`.zz`, not `.example`: the moved-to name
+    must look public, and `reading_hosts` treats every RFC 2606 name as private.) v3 refused the off-site hop, then asked the
+    old domain's fixed paths (which redirected off-site too) and recorded a miss; a browser tab shows the icon."""
+    links = ('<link rel="icon" type="image/png" sizes="192x192" href="/assets/favicon-search.png">'
+             '<link rel="icon" type="image/svg+xml" sizes="any" href="/assets/favicon-browser.svg">'
+             '<link rel="apple-touch-icon" href="/assets/poster/icon.png">')
+    fetcher = Recorder({
+        "https://old-name.example/": (301, b"", "", "https://new-name.zz/?from=old"),
+        "https://new-name.zz/?from=old": (200, page(links), "text/html; charset=utf-8"),
+        "https://new-name.zz/assets/favicon-search.png": (200, png(192, 192), "image/png"),
+    })
+    got = run(logo_service.fetch_own_site_icon("old-name.example", fetcher=fetcher))
+    assert got is not None and got[1] == "png" and logo_service.min_dimension(got[0]) == 192
+    assert fetcher.urls[-1] == "https://new-name.zz/assets/favicon-search.png"
+
+
+def test_a_moved_homepage_lends_its_fixed_paths_but_nothing_else_leaves():
+    fetcher = Recorder({"https://site-f.example/": (308, b"", "text/html", "https://elsewhere.zz/"),
+                        "https://elsewhere.zz/": (200, page(), "text/html"),
+                        "https://elsewhere.zz/favicon.ico": (200, ico(), "image/x-icon")})
+    assert run(logo_service.fetch_own_site_icon("site-f.example", fetcher=fetcher)) is not None
+    assert "site-f.example" not in {urlparse(u).hostname for u in fetcher.urls[1:]}, "the fixed paths on the new host"
+    # A fixed path that redirects to a third domain is still a miss: only the saved site and where it moved count.
+    third = Recorder({"https://site-f.example/": (308, b"", "text/html", "https://elsewhere.zz/"),
+                      "https://elsewhere.zz/": (200, page(), "text/html"),
+                      "https://elsewhere.zz/apple-touch-icon.png": (302, b"", "", "https://cdn.third.example/a.png"),
+                      "https://cdn.third.example/a.png": (200, png(), "image/png")})
+    assert run(logo_service.fetch_own_site_icon("site-f.example", fetcher=third)) is None
+    assert "cdn.third.example" not in third.hosts
+
+
+@pytest.mark.parametrize("wall", [
+    "https://login.microsoftonline.com/common/oauth2/authorize?client_id=x",
+    "https://accounts.google.com/ServiceLogin?continue=x",
+    "https://consent.vendor.zz/?continue=x",
+    "https://sso.idp.zz/login?next=x",
+    "https://other-site.zz/oauth2/authorize?client_id=x",
+])
+def test_a_homepage_never_moves_onto_a_login_or_consent_wall(tmp_path, wall):
+    """Security review of #387: an off-site hop that a redirect-to-wall check catches is refused before a byte is
+    fetched — the identity provider's icon is never cached as the saved site's; the saved site's own fixed paths are
+    still asked."""
+    host = urlparse(wall).hostname
+    fetcher = Recorder({"https://site-w.example/": (302, b"", "", wall),
+                        wall: (200, page('<link rel=icon href="/idp.png">'), "text/html"),
+                        f"https://{host}/idp.png": (200, png(), "image/png"),
+                        f"https://{host}/favicon.ico": (200, ico(), "image/x-icon"),
+                        "https://site-w.example/favicon.ico": (200, ico(), "image/x-icon")})
+    got = run(logo_service.ensure_own_site_icon(tmp_path / "memory", "site-w.example", fetcher=fetcher))
+    assert host not in fetcher.hosts, "the wall is never asked"
+    assert fetcher.urls[-2:] == ["https://site-w.example/apple-touch-icon.png", "https://site-w.example/favicon.ico"]
+    assert got is not None and got.read_bytes() == ico(), "the saved site's own favicon, nothing from the other host"
+    assert set(logo_service.read_meta(logo_service.own_site_bank("memory"))) == {"site-w.example"}
+
+
+def test_a_moved_site_never_lends_a_wall_its_icon_paths():
+    """The domain a site moved to counts as the site — but a declared icon or SVG on a third host behind a sign-in
+    path is still never asked."""
+    links = '<link rel="icon" href="https://cdn.third.zz/auth/icon.png"><link rel="icon" href="https://cdn.third.zz/sso/i.svg">'
+    fetcher = Recorder({"https://old-name.example/": (301, b"", "", "https://new-name.zz/"),
+                        "https://new-name.zz/": (200, page(links), "text/html"),
+                        "https://cdn.third.zz/auth/icon.png": (200, png(), "image/png")})
+    assert run(logo_service.fetch_own_site_icon("old-name.example", fetcher=fetcher)) is None
+    assert "cdn.third.zz" not in fetcher.hosts
+
+
+def test_a_homepage_never_moves_to_a_login_wall_or_a_private_name():
+    walled = Recorder({"https://site-w.example/": (302, b"", "", "https://www.linkedin.com/company/x"),
+                       "https://site-w.example/favicon.ico": (200, ico(), "image/x-icon")})
+    assert run(logo_service.fetch_own_site_icon("site-w.example", fetcher=walled)) is not None
+    assert "www.linkedin.com" not in walled.hosts, "a walled host is never asked; the site's own fixed paths still are"
+    private = Recorder({"https://site-p.example/": (302, b"", "", "https://router.local/"),
+                        "https://router.local/": (200, page('<link rel=icon href="/x.png">'), "text/html")})
+    assert run(logo_service.fetch_own_site_icon("site-p.example", fetcher=private)) is None
+    assert "router.local" not in private.hosts
+
+
+def test_a_cdn_icon_the_page_declares_light_before_dark():
+    links = ('<link rel="icon" href="https://cdn.example/img/dark.png" media="(prefers-color-scheme: dark)">'
+             '<link rel="icon" href="https://cdn.example/img/light.png" media="(prefers-color-scheme: light)">')
+    fetcher = Recorder({"https://site-g.example/": (308, b"", "text/html", "https://www.site-g.example/"),
+                        "https://www.site-g.example/": (200, page(links), "text/html"),
+                        "https://cdn.example/img/light.png": (200, png(), "image/png"),
+                        "https://cdn.example/img/dark.png": (200, png(), "image/png")})
+    assert run(logo_service.fetch_own_site_icon("site-g.example", fetcher=fetcher)) is not None
+    assert fetcher.urls[-1] == "https://cdn.example/img/light.png"
+    assert "https://cdn.example/img/dark.png" not in fetcher.urls
+
+
+def test_a_cdn_icon_must_say_image_sniff_as_one_and_stay_public_and_https():
+    links = '<link rel="icon" href="https://cdn.example/i.png">'
+    home = {"https://site-h.example/": (200, page(links), "text/html")}
+    plain = Recorder({**home, "https://cdn.example/i.png": (200, png(), "application/octet-stream")})
+    assert run(logo_service.fetch_own_site_icon("site-h.example", fetcher=plain)) is None, "another host must say image"
+    html = Recorder({**home, "https://cdn.example/i.png": (200, b"<html>login</html>", "image/png")})
+    assert run(logo_service.fetch_own_site_icon("site-h.example", fetcher=html)) is None, "bytes must be a raster"
+    private = Recorder({**home, "https://cdn.example/i.png": (200, png(), "image/png")})
+    resolver = lambda host: ["10.0.0.9"] if host == "cdn.example" else ["93.184.216.34"]
+    assert run(logo_service.fetch_own_site_icon("site-h.example", fetcher=private, resolver=resolver)) is None
+    assert "cdn.example" not in private.hosts, "the SSRF guard refuses before any byte is asked"
+    http = Recorder({"https://site-h.example/": (200, page('<link rel="icon" href="http://cdn.example/i.png">'),
+                                                 "text/html")})
+    assert run(logo_service.fetch_own_site_icon("site-h.example", fetcher=http)) is None
+    assert "cdn.example" not in http.hosts, "https only"
+    bounce = Recorder({**home, "https://cdn.example/i.png": (302, b"", "text/html", "https://third.example/i.png"),
+                       "https://third.example/i.png": (200, png(), "image/png")})
+    assert run(logo_service.fetch_own_site_icon("site-h.example", fetcher=bounce)) is None
+    assert "third.example" not in bounce.hosts, "a declared icon's redirect never wanders to a third site"
+
+
+def test_an_oversize_declared_icon_falls_through_to_the_next():
+    links = '<link rel="icon" sizes="512x512" href="/big.png"><link rel="icon" sizes="32x32" href="/small.png">'
+    fetcher = Recorder({"https://site-i.example/": (200, page(links), "text/html"),
+                        "https://site-i.example/big.png": (200, png(512, 512) + b"\x00" * logo_service.MAX_BYTES,
+                                                            "image/png"),
+                        "https://site-i.example/small.png": (200, png(32, 32), "image/png")})
+    got = run(logo_service.fetch_own_site_icon("site-i.example", fetcher=fetcher))
+    assert got is not None and logo_service.min_dimension(got[0]) == 32
+
+
+def test_at_most_three_declared_icons_are_asked():
+    links = "".join(f'<link rel="icon" sizes="{n}x{n}" href="/i{n}.png">' for n in (16, 32, 64, 128, 256))
+    fetcher = Recorder({"https://site-j.example/": (200, page(links), "text/html")})
+    assert run(logo_service.fetch_own_site_icon("site-j.example", fetcher=fetcher)) is None
+    asked = [u for u in fetcher.urls if "/i" in u]
+    assert asked == ["https://site-j.example/i256.png", "https://site-j.example/i128.png",
+                     "https://site-j.example/i64.png"], "the largest first, three at most"
+
+
+HOSTILE_PAGES = {
+    "lt_a": b"<a" * (logo_service.MAX_BYTES // 2),
+    "nested_quotes": b"<link a='" * (logo_service.MAX_BYTES // 9),
+    "pi": b"<?" * (logo_service.MAX_BYTES // 2),
+    "lt_slash": b"</" * (logo_service.MAX_BYTES // 2),
+    "link_lt": b"<link" * (logo_service.MAX_BYTES // 5),
+    "one_huge_tag": b"<link " + b"a=b " * (logo_service.MAX_BYTES // 4) + b">",
+    "many_links": b'<link rel="icon" href="/f.png" sizes="32x32">' * (logo_service.MAX_BYTES // 46),
+}
+
+
+@pytest.mark.parametrize("name", sorted(HOSTILE_PAGES))
+def test_a_hostile_page_finishes_in_budget_and_never_holds_the_event_loop(name):
+    """Security review of #371: the stdlib HTML tokenizer is quadratic on such markup and ran on the event loop, so
+    `wait_for` could not stop it and the whole backend froze. Now only `<link>`/`<base>` tags are scanned, linearly,
+    off the loop: the discovery ends inside its budget while a 0.1 s ticker keeps ticking."""
+    import time
+
+    body = HOSTILE_PAGES[name][: logo_service.MAX_BYTES]
+
+    async def fetcher(url):
+        await asyncio.sleep(0)
+        if url.endswith("/"):
+            return logo_service.FetchResult(status=200, body=body, content_type="text/html")
+        return logo_service.FetchResult(status=404, body=b"", content_type="text/plain")
+
+    async def main():
+        ticks = [time.perf_counter()]
+        stop = asyncio.Event()
+
+        async def ticker():
+            while not stop.is_set():
+                await asyncio.sleep(0.1)
+                ticks.append(time.perf_counter())
+        task = asyncio.create_task(ticker())
+        await asyncio.sleep(0.15)
+        started = time.perf_counter()
+        await logo_service.fetch_own_site_icon("hostile.example", fetcher=fetcher)
+        wall = time.perf_counter() - started
+        await asyncio.sleep(0.15)
+        stop.set()
+        await task
+        return wall, max(b - a for a, b in zip(ticks, ticks[1:]))
+    wall, stall = run(main())
+    assert wall < logo_service.OWN_SITE_BUDGET_SECONDS
+    assert stall < 0.5, f"the event loop stalled {stall:.2f}s"
+
+
+def test_the_budget_stops_slow_answers_and_cpu_work_alike(tmp_path, monkeypatch):
+    import time
+
+    monkeypatch.setattr(logo_service, "OWN_SITE_BUDGET_SECONDS", 0.05)
+
+    async def slow(url):
+        await asyncio.sleep(2)
+        return logo_service.FetchResult(status=200, body=png(), content_type="image/png")
+    started = time.monotonic()
+    assert run(logo_service.fetch_own_site_icon("site-k.example", fetcher=slow)) is None
+    assert time.monotonic() - started < 1
+    assert run(logo_service.ensure_own_site_icon(tmp_path / "bank", "site-k.example", fetcher=slow)) is None
+    assert logo_service.read_meta(logo_service.own_site_bank("bank"))["site-k.example"]["miss"] is True
+    # CPU work counts against the same clock: the page's scan runs off the loop, so the budget still fires on time
+    # even when the scan itself is slow.
+    real = logo_service._declared
+
+    def slow_scan(html, url):
+        time.sleep(0.5)
+        return real(html, url)
+    monkeypatch.setattr(logo_service, "_declared", slow_scan)
+
+    async def page_then_icon(url):
+        if url.endswith("/"):
+            return logo_service.FetchResult(status=200, body=page('<link rel=icon href="/i.png">'), content_type="text/html")
+        return logo_service.FetchResult(status=200, body=png(), content_type="image/png")
+    async def timed():
+        started = time.monotonic()
+        got = await logo_service.fetch_own_site_icon("site-k.example", fetcher=page_then_icon)
+        return got, time.monotonic() - started
+    got, wall = run(timed())
+    assert got is None and wall < 0.3, "the budget fired while the scan was still running"
+
+
+def test_every_hop_is_plain_https_and_a_declared_url_has_no_port_or_userinfo():
+    downgrade = Recorder({"https://site-m.example/": (301, b"", "text/html", "http://www.site-m.example/"),
+                          "http://www.site-m.example/": (200, page('<link rel=icon href="/i.png">'), "text/html")})
+    run(logo_service.fetch_own_site_icon("site-m.example", fetcher=downgrade))
+    assert not any(u.startswith("http:") for u in downgrade.urls), "a same-site redirect to http is never followed"
+    ported = Recorder({"https://site-m.example/": (301, b"", "text/html", "https://www.site-m.example:8443/")})
+    run(logo_service.fetch_own_site_icon("site-m.example", fetcher=ported))
+    assert not any(":8443" in u for u in ported.urls), "nor one to another port"
+    links = ('<link rel="icon" sizes="64x64" href="https://cdn.example:8443/i.png">'
+             '<link rel="icon" sizes="48x48" href="https://user:pw@cdn.example/i.png">'
+             '<link rel="icon" sizes="32x32" href="https://cdn.example:443/i.png">')
+    declared = Recorder({"https://site-m.example/": (200, page(links), "text/html")})
+    assert run(logo_service.fetch_own_site_icon("site-m.example", fetcher=declared)) is None
+    assert "cdn.example" not in declared.hosts, "an explicit port or userinfo is never asked"
+    assert logo_service.declared_icons(page(links), "https://site-m.example/") == []
+
+
+def test_declared_icons_ranks_and_skips():
+    links = ('<link rel="mask-icon" href="/m.png">'
+             '<link rel="icon" sizes="16x16" href="/16.png">'
+             '<link rel="icon" sizes="any" href="/any.png">'
+             '<LINK REL="Shortcut Icon" HREF="/s.ico">'
+             '<link rel="apple-touch-icon" href="/touch.png">'
+             '<link rel="icon" sizes="64x64" href="/64-dark.png" media="(prefers-color-scheme:dark)">'
+             '<link rel="stylesheet" href="/s.css">')
+    got = [urlparse(link.url).path for link in logo_service.declared_icons(page(links), "https://x.example/")]
+    assert got == ["/touch.png", "/any.png", "/s.ico", "/16.png", "/64-dark.png"]
+    assert logo_service.declared_icons(b"<html><link rel=icon", "https://x.example/") == []
+
+
 # --- the cache ----------------------------------------------------------------------------------------------------
 
 
@@ -158,13 +502,43 @@ def test_a_hit_and_a_miss_are_cached_outside_the_bank(tmp_path):
     assert again.urls == [], "a fresh hit is served from the cache"
     miss = Recorder()
     assert run(logo_service.ensure_own_site_icon(bank, "b.example", fetcher=miss)) is None
-    assert len(miss.urls) == 2
+    assert len(miss.urls) == 3
     later = Recorder({"https://b.example/apple-touch-icon.png": (200, png(), "image/png")})
     assert run(logo_service.ensure_own_site_icon(bank, "b.example", fetcher=later)) is None
     assert later.urls == [], "a fresh miss is cached too"
     meta = logo_service.read_meta(logo_service.own_site_bank("memory"))
     assert meta["b.example"]["miss"] is True and meta["a.example"]["ext"] == "png"
     assert logo_service.read_meta(logo_service.site_bank("memory")) == {}, "never mixed with the icon-service cache"
+
+
+def test_a_miss_from_the_older_discovery_is_asked_once_more_and_hits_stay(tmp_path):
+    from datetime import datetime, timezone
+
+    bank = tmp_path / "memory"
+    bank.mkdir()
+    own = logo_service.own_site_bank("memory")
+    now = datetime.now(timezone.utc).isoformat()
+    run(logo_service._record_meta(own, "old-miss.example", {"fetched_at": now, "miss": True, "etag": None, "ext": None}))
+    run(logo_service._record_meta(own, "old-hit.example", {"fetched_at": now, "miss": False, "etag": None, "ext": "png"}))
+    # marks-2: a miss stamped by the discovery just before this one (v3 refused a moved homepage) is asked again too.
+    run(logo_service._record_meta(own, "v3-miss.example", {"fetched_at": now, "miss": True, "etag": None, "ext": None,
+                                                           "v": logo_service.OWN_SITE_DISCOVERY - 1}))
+    (logo_service.logos_dir(own) / "old-hit.example.png").write_bytes(png())
+    fetcher = Recorder({"https://old-miss.example/": (200, page('<link rel=icon href="/i.png">'), "text/html"),
+                        "https://old-miss.example/i.png": (200, png(), "image/png")})
+    assert run(logo_service.ensure_own_site_icon(bank, "old-miss.example", fetcher=fetcher)) is not None
+    assert run(logo_service.ensure_own_site_icon(bank, "old-hit.example", fetcher=fetcher)) is not None
+    assert "old-hit.example" not in fetcher.hosts, "a hit from the older discovery is kept"
+    assert logo_service.read_meta(own)["old-miss.example"]["v"] == logo_service.OWN_SITE_DISCOVERY
+    still_missing = Recorder()
+    assert run(logo_service.ensure_own_site_icon(bank, "v3-miss.example", fetcher=still_missing)) is None
+    assert still_missing.urls, "a lower-v miss is asked once more"
+    assert run(logo_service.ensure_own_site_icon(bank, "v3-miss.example", fetcher=still_missing)) is None
+    assert len(still_missing.urls) == 3, "…and only once: the new miss carries this discovery's v"
+    again = Recorder()
+    assert run(logo_service.ensure_own_site_icon(bank, "new-miss.example", fetcher=again)) is None
+    assert run(logo_service.ensure_own_site_icon(bank, "new-miss.example", fetcher=again)) is None
+    assert len(again.urls) == 3, "a miss under this discovery is retried only when it expires"
 
 
 # --- the route: only on request, only for a saved link ---------------------------------------------------------------
@@ -252,6 +626,85 @@ def test_sleep_never_reaches_the_own_site_path():
             assert "own_site" not in text and "saved_link_site" not in text, name
 
 
+# --- owner 2026-10-20: a Waiting row of a saved link, before Sleep made its page -------------------------------------
+
+
+@pytest.fixture
+def episodes(bank):
+    ep = bank / "episodes"
+    base = {"timestamp": "2026-10-01T10:00:00+00:00", "processed": False}
+    _write(ep / "ep_2026-10-01_1.md", {**base, "id": "ep_2026-10-01_1", "origin": "chrome-bookmark",
+                                       "url": "https://www.paperfold.io/a?q=1", "title": "A"})
+    _write(ep / "ep_2026-10-01_2.md", {**base, "id": "ep_2026-10-01_2", "origin": "claude-code", "session_id": "s-1",
+                                       "harness": "claude-code", "url": "https://paperfold.io/"})
+    _write(ep / "ep_2026-10-01_3.md", {**base, "id": "ep_2026-10-01_3", "origin": "rss",
+                                       "url": "https://feedsite.io/post"})
+    _write(ep / "ep_2026-10-01_4.md", {**base, "id": "ep_2026-10-01_4", "origin": "chrome-bookmark",
+                                       "url": "https://gone-site.io/", "source_deleted_at": "2026-10-02T00:00:00+00:00"})
+    _write(ep / "ep_2026-10-01_5.md", {**base, "id": "ep_2026-10-01_5", "origin": "chrome-bookmark",
+                                       "url": "https://www.linkedin.com/posts/x"})
+    bank_index.invalidate()
+    return bank
+
+
+def test_only_a_live_saved_episode_names_a_site(episodes):
+    assert channel_items.saved_episode_site(episodes, "ep_2026-10-01_1") == "paperfold.io"
+    assert channel_items.saved_episode_site(episodes, "ep_2026-10-01_2") is None, "a conversation is never a saved link"
+    assert channel_items.saved_episode_site(episodes, "ep_2026-10-01_3") is None, "a feed item is captured, not saved"
+    assert channel_items.saved_episode_site(episodes, "ep_2026-10-01_4") is None, "a deleted source is not live"
+    assert channel_items.saved_episode_site(episodes, "ep_2026-10-01_5") is None, "a walled family is never asked"
+    for bad in ("nope", "../entities/media-saved", "ep_2026-10-01_9", "ep_2026-10-01_1\n", "ep_2026-10-01_1.md"):
+        assert channel_items.saved_episode_site(episodes, bad) is None
+
+
+def test_the_episode_route_asks_the_same_site_and_cache(episodes, monkeypatch):
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(episodes))
+    config.get_settings.cache_clear()
+    client = TestClient(main.app)
+    asked: list[str] = []
+    real = logo_service.ensure_own_site_icon
+
+    async def injected(memory_path, site, *, fetcher=None):
+        asked.append(site)
+        return await real(memory_path, site, fetcher=Recorder(
+            {"https://paperfold.io/apple-touch-icon.png": (200, png(), "image/png")}))
+    monkeypatch.setattr(logo_service, "ensure_own_site_icon", injected)
+    try:
+        r = client.get("/sources/saved/episodes/ep_2026-10-01_1/site-icon")
+        assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+        assert asked == ["paperfold.io"]
+        # The media route for the same site is served from the one cache: nothing asked again.
+        assert client.get("/sources/saved/media-saved/site-icon").status_code == 200
+        assert asked == ["paperfold.io"], "one site, one ask"
+        for other in ("ep_2026-10-01_2", "ep_2026-10-01_3", "ep_2026-10-01_4", "ep_2026-10-01_5", "nope"):
+            assert client.get(f"/sources/saved/episodes/{other}/site-icon").status_code == 404
+        assert asked == ["paperfold.io"], "a refused id asks nothing"
+    finally:
+        config.get_settings.cache_clear()
+
+
+def test_rows_carry_the_site_key_their_mark_is_drawn_under(episodes, monkeypatch):
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(episodes))
+    config.get_settings.cache_clear()
+    try:
+        rows = {r["id"]: r for r in TestClient(main.app).get("/sleep/episodes?processed=false").json()}
+        assert rows["ep_2026-10-01_1"]["site"] == "paperfold.io"
+        assert rows["ep_2026-10-01_5"]["site"] == "linkedin", "a walled family keys its bundled mark"
+        assert rows["ep_2026-10-01_2"]["site"] is None, "a conversation's row keeps its harness mark"
+        assert rows["ep_2026-10-01_3"]["site"] is None, "a captured feed item keeps its source's mark"
+        assert rows["ep_2026-10-01_4"]["site"] is None, "a deleted bookmark is not a live saved link"
+    finally:
+        config.get_settings.cache_clear()
+
+
+def test_mark_key_is_site_of_when_valid():
+    from api.services import reading_hosts
+    assert reading_hosts.mark_key("https://blog.paperfold.io/x") == "paperfold.io"
+    assert reading_hosts.mark_key("https://user.github.io/p") == "user.github.io"
+    assert reading_hosts.mark_key("https://lnkd.in/abc") == "linkedin"
+    assert reading_hosts.mark_key("") is None and reading_hosts.mark_key("not a url") is None
+
+
 def test_a_reserved_or_private_name_is_never_asked():
     assert logo_service.own_site_domain("https://paperfold.example/") is None, "a reserved name is not a public site"
 
@@ -303,4 +756,92 @@ def test_the_site_check_never_resolves_on_the_event_loop(monkeypatch):
     monkeypatch.setattr(net_guard, "is_fetchable_url_async", off_loop)
     fetcher = Recorder({"https://a.example/apple-touch-icon.png": (200, png(), "image/png")})
     assert run(logo_service.fetch_own_site_icon("a.example", fetcher=fetcher)) is not None
-    assert calls == ["https://a.example/apple-touch-icon.png"]
+    assert calls == ["https://a.example/", "https://a.example/apple-touch-icon.png"]
+
+
+def test_a_saved_item_on_the_list_carries_its_site_key(bank, client):
+    # Review of #372: a key only where the media icon route answers — a feed page's key would ask by an id the route
+    # refuses, and that miss must never stand for the site.
+    idx = json.loads((bank / "sources" / "url_index.json").read_text(encoding="utf-8"))
+    idx["h2"]["url"] = "https://paperfold.io/feed-post"
+    (bank / "sources" / "url_index.json").write_text(json.dumps(idx), encoding="utf-8")
+    bank_index.invalidate()
+    items = {i["mediaEntityId"]: i for i in client.get("/sources").json()["items"]}
+    assert items["media-saved"]["siteKey"] == "paperfold.io", "the one key every surface draws its mark under"
+    assert items["media-feed"].get("siteKey") is None, "a captured feed page names no site: its row keeps its mark"
+    assert channel_items.saved_link_site(bank, "media-feed") is None
+
+
+def test_the_readers_document_names_a_saved_links_site(episodes):
+    from api.services import provenance
+    assert provenance.episode_document(episodes, "ep_2026-10-01_1").site == "paperfold.io"
+    assert provenance.episode_document(episodes, "ep_2026-10-01_2").site is None, "a conversation keeps its harness"
+    assert provenance.episode_document(episodes, "ep_2026-10-01_3").site is None
+
+
+# --- SVG icons, drawn safely (owner 2026-10-20) -------------------------------------------------------------------
+
+ICON_SVG = (b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><script>fetch("https://evil.example/")</script>'
+            b'<circle cx="12" cy="12" r="10" fill="#c33" onload="x()"/></svg>')
+
+
+def test_an_svg_only_site_gets_a_png_drawn_from_its_svg_and_never_stores_svg(tmp_path):
+    bank = tmp_path / "memory"
+    bank.mkdir()
+    fetcher = Recorder({"https://site-s.example/": (200, page('<link rel="icon" type="image/svg+xml" href="/i.svg">'),
+                                                     "text/html"),
+                        "https://site-s.example/i.svg": (200, ICON_SVG, "image/svg+xml")})
+    path = run(logo_service.ensure_own_site_icon(bank, "site-s.example", fetcher=fetcher))
+    assert path is not None and path.suffix == ".png" and bank not in path.parents
+    data = path.read_bytes()
+    assert data.startswith(b"\x89PNG") and struct.unpack(">II", data[16:24]) == (64, 64)
+    assert not list(path.parent.glob("*.svg")) and b"<svg" not in data
+    assert logo_service.read_meta(logo_service.own_site_bank("memory"))["site-s.example"]["ext"] == "png"
+    assert "evil.example" not in fetcher.hosts
+
+
+def test_a_data_svg_icon_is_drawn_and_a_raster_still_wins():
+    import base64
+    from urllib.parse import quote
+
+    for uri in (f"data:image/svg+xml,{quote(ICON_SVG.decode())}",
+                f"data:image/svg+xml;base64,{base64.b64encode(ICON_SVG).decode()}"):
+        fetcher = Recorder({"https://site-t.example/": (200, page(f'<link rel="icon" href="{uri}">'), "text/html")})
+        got = run(logo_service.fetch_own_site_icon("site-t.example", fetcher=fetcher))
+        assert got is not None and got[1] == "png" and got[0].startswith(b"\x89PNG")
+    fetcher = Recorder({"https://site-t.example/": (200, page('<link rel="icon" href="/i.svg">'), "text/html"),
+                        "https://site-t.example/favicon.ico": (200, ico(), "image/x-icon")})
+    got = run(logo_service.fetch_own_site_icon("site-t.example", fetcher=fetcher))
+    assert got is not None and got[1] == "ico" and "https://site-t.example/i.svg" not in fetcher.urls, \
+        "a site with any raster keeps it; its SVG is never asked"
+
+
+def test_a_declared_svg_is_held_to_the_declared_icon_rules():
+    links = page('<link rel="icon" href="https://cdn.example/i.svg">')
+    for answer in ((200, ICON_SVG, "text/html"), (200, ICON_SVG, "application/octet-stream"),
+                   (200, b"<html>not an svg</html>", "image/svg+xml"),
+                   (200, ICON_SVG + b"<!--" + b"x" * (64 * 1024) + b"-->", "image/svg+xml")):
+        fetcher = Recorder({"https://site-u.example/": (200, links, "text/html"), "https://cdn.example/i.svg": answer})
+        assert run(logo_service.fetch_own_site_icon("site-u.example", fetcher=fetcher)) is None
+    hostile = (b'<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/passwd">]>'
+               b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><desc>&x;</desc><rect width="1" height="1"/></svg>')
+    fetcher = Recorder({"https://site-u.example/": (200, links, "text/html"),
+                        "https://cdn.example/i.svg": (200, hostile, "image/svg+xml")})
+    assert run(logo_service.fetch_own_site_icon("site-u.example", fetcher=fetcher)) is None
+    off_site = Recorder({"https://site-u.example/": (200, links, "text/html"),
+                         "https://cdn.example/i.svg": (302, b"", "text/html", "https://third.example/i.svg"),
+                         "https://third.example/i.svg": (200, ICON_SVG, "image/svg+xml")})
+    assert run(logo_service.fetch_own_site_icon("site-u.example", fetcher=off_site)) is None
+    assert "third.example" not in off_site.hosts
+    ok = Recorder({"https://site-u.example/": (200, links, "text/html"),
+                   "https://cdn.example/i.svg": (200, ICON_SVG, "image/svg+xml; charset=utf-8")})
+    assert run(logo_service.fetch_own_site_icon("site-u.example", fetcher=ok)) is not None
+
+
+def test_a_block_on_a_declared_svg_stops_discovery():
+    fetcher = Recorder({"https://site-v.example/": (200, page('<link rel="icon" href="/a.svg"><link rel="icon" '
+                                                              'href="/b.svg">'), "text/html"),
+                        "https://site-v.example/a.svg": (403, b"no", "text/html"),
+                        "https://site-v.example/b.svg": (200, ICON_SVG, "image/svg+xml")})
+    assert run(logo_service.fetch_own_site_icon("site-v.example", fetcher=fetcher)) is None
+    assert "https://site-v.example/b.svg" not in fetcher.urls

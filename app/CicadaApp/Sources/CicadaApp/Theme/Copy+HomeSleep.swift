@@ -10,10 +10,11 @@ extension Copy {
     /// The owner's quick switch (2026-09-23; R-HS7…R-HS11).
     enum EngineMenu {
         static let title = "Engine for the cycles you start"
-        /// `sleep_engine_prefs.env_pin_sentence`'s words: the environment, not this menu, sets the engine.
+        /// The environment, not this menu, sets the engine (`sleep_engine_prefs.env_pin_sentence` says it with the
+        /// variable's name, for the CLI). The app says it in words and never names a variable or a file (settings
+        /// defaults, owner 2026-10-22); the mode is not named either, since the cards already show which one runs.
         static func pinnedByEnvironment(_ mode: String) -> String {
-            "CICADA_LLM_MODE=\(mode) in Cicada's environment (api/.env) sets the engine, so a choice here changes "
-                + "nothing. Remove that line and restart Cicada to choose here."
+            "Cicada's setup on this Mac fixes the engine, so a choice here won't take effect."
         }
         static let buttonHelp = "Engine and model for the cycles you start"
         static func buttonAccessibility(_ label: String) -> String { "\(title): \(label)" }
@@ -37,6 +38,11 @@ extension Copy {
     /// plan window's share — and a plan's share carries the honest limit that it covers all use.
     enum SleepUsage {
         static let notRecorded = "Usage not recorded"
+        /// Say it once — Past nights' label carries what no row recorded, instead of every row repeating it.
+        static let pastNights = "Past nights"
+        static let usageNotRecordedNote = "usage not recorded"
+        static let timeNotRecordedNote = "time not recorded"
+        static let usageAndTimeNotRecorded = "usage and time not recorded"
         static let noCalls = "No model calls"
         static let ranLocally = "Ran on this Mac"
         static let modelsTitle = "Models"

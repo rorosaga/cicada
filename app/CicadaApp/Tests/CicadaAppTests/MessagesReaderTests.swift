@@ -42,6 +42,42 @@ final class MessagesReaderTests: XCTestCase {
 
     // MARK: tests
 
+    func testATapbackAReplyAndAStickerCrossAsIdsAndAFlagNeverAPath() throws {
+        let chat = chat("+15550000001")
+        let first = message(chat, minute: 0, fromMe: false, text: "Plan the alpha-project launch?")
+        let tapback = message(chat, minute: 1, fromMe: true, text: "Reacted 🎉 to “Plan…”", tapback: true)
+        exec("UPDATE message SET associated_message_type = 2006, associated_message_guid = ?, associated_message_emoji = ? "
+             + "WHERE ROWID = ?", ["p:0/SYNTH-1", "🎉", tapback])
+        let reply = message(chat, minute: 2, fromMe: true, text: "Yes, this week.")
+        exec("UPDATE message SET thread_originator_guid = 'SYNTH-1' WHERE ROWID = ?", [reply])
+        let sticker = message(chat, minute: 3, fromMe: true, text: nil, attachment: "sticker.heic")
+        exec("UPDATE attachment SET is_sticker = 1 WHERE ROWID = (SELECT attachment_id FROM message_attachment_join "
+             + "WHERE message_id = ?)", [sticker])
+        XCTAssertEqual(first, 1)
+        let reader = MessagesReader(database: dbURL)
+        let conversation = try XCTUnwrap(try reader.conversations().first)
+        let pass = try reader.read(conversation, name: "Instinct", since: MessagesCursor())
+        let rows = try XCTUnwrap(try object(pass)["messages"] as? [[String: Any]])
+        XCTAssertEqual(rows[1]["associatedMessageGuid"] as? String, "p:0/SYNTH-1")
+        XCTAssertEqual(rows[1]["associatedMessageEmoji"] as? String, "🎉")
+        XCTAssertEqual(rows[2]["threadOriginatorGuid"] as? String, "SYNTH-1")
+        XCTAssertNil(rows[0]["threadOriginatorGuid"], "an empty column is not sent")
+        let attachments = try XCTUnwrap(rows[3]["attachments"] as? [[String: Any]])
+        XCTAssertEqual(attachments.first?["isSticker"] as? Bool, true)
+        XCTAssertFalse(String(decoding: pass.json, as: UTF8.self).contains("CANARY"), "an attachment's path never crosses")
+    }
+
+    func testAnOlderDatabaseWithoutTheNewerColumnsStillSyncs() throws {
+        let chat = chat("+15550000001")
+        message(chat, minute: 0, fromMe: true, text: "Hello there")
+        exec("ALTER TABLE message DROP COLUMN associated_message_emoji")
+        exec("ALTER TABLE attachment DROP COLUMN is_sticker")
+        let reader = MessagesReader(database: dbURL)
+        let conversation = try XCTUnwrap(try reader.conversations().first)
+        let pass = try reader.read(conversation, name: "Instinct", since: MessagesCursor())
+        XCTAssertEqual(pass.count, 1)
+    }
+
     func testTheListIsOneToOneChatsWithCountsAndNoWords() throws {
         let (instinct, other) = seed()
         let listed = try MessagesReader(database: dbURL).conversations()

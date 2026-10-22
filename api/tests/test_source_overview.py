@@ -306,8 +306,11 @@ def test_activity_reads_a_naive_stamp_as_local_then_converts_to_utc():
 def test_overview_etag_recipe_is_unchanged_by_the_activity_field(client, bank):
     """ETag ship-together (R-A16): `activity` is computed from episodes, which
     the recipe already covers and `VersionVector.mapping` already routes to
-    `.sourcesOverview` — so the recipe must NOT move, and no client mapping
-    change is owed. Pinned behaviourally, not by grepping the source.
+    `.sourcesOverview`. Pinned behaviourally, not by grepping the source.
+    Sources v4 adds `photos` (a Messages face carries its chat photo's hash),
+    which the app's mapping routes to `.sourcesOverview` in the same PR.
+    marks-2 adds `siteIcons` (the own-site icon index, outside the bank), which
+    the app's mapping routes to `.sourcesOverview` in the same PR.
 
     (The connector tag is built from `ADAPTERS`, so read it off the response
     rather than retyping it: the point of this test is that adding `activity`
@@ -321,7 +324,7 @@ def test_overview_etag_recipe_is_unchanged_by_the_activity_field(client, bank):
     assert "activity" in r.json()["sources"][0]
     tag = ",".join(f"{k}:{a.is_connected()}" for k, a in sorted(ADAPTERS.items()))
     expected = sync_service.etag_for(
-        bank, "sources", "episodes", "entities",
+        bank, "sources", "episodes", "entities", "photos", "siteIcons",
         extra=f"{source_overview.SHAPE}|telegram:False|connectors:{tag}",
     )
     assert r.headers["etag"] == expected

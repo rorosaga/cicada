@@ -485,9 +485,9 @@ struct ContentView: View {
     private var toastBanner: some View {
         if let toast = store.toast {
             Text(toast)
-                .font(CicadaTheme.font(size: 12, weight: .medium))
+                .font(CicadaTheme.metaMediumFont)
                 .foregroundStyle(CicadaTheme.textPrimary)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, CicadaTheme.spacingLG)
                 .padding(.vertical, 9)
                 // DR-9/DR-10: a floating surface — the floating ring, and one soft
                 // shadow in light only (`Theme/Elevation.swift`).
@@ -553,8 +553,6 @@ struct ContentView: View {
             }
         case .projects:
             ProjectsPage()
-        case .looks:
-            LooksPage()
         case .skills:
             SkillsPage()
         }

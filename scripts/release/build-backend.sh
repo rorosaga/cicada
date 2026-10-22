@@ -169,9 +169,16 @@ step "Checking the assembled backend…"
 CHECK_HOME="$(mktemp -d)"
 CICADA_HOME="$CHECK_HOME/home" CICADA_MEMORY_PATH="$CHECK_HOME/bank" CICADA_CAPTURE=off \
   "$OUT/bin/cicada-python" - <<'PYCHECK' || die "the assembled backend does not import"
-import api.main, sqlite_vec, onnxruntime, tokenizers, certifi, pypdfium2  # noqa: F401
+import api.main, sqlite_vec, onnxruntime, tokenizers, certifi, pypdfium2, resvg_py  # noqa: F401
 from api.version import __version__
 print(f"    imports ok · version {__version__}")
+# One real SVG icon drawn the way the backend draws it: a child of THIS Python, `-I`, empty environment, no new file
+# descriptor (api/services/svg_raster.py) — so a bundle whose renderer cannot load in that child fails here, not later.
+import asyncio
+from api.services import svg_raster
+_svg = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#c33"/></svg>'
+assert svg_raster.png_is_icon(asyncio.run(svg_raster.svg_to_png(_svg)) or b""), "the SVG icon renderer did not draw"
+print("    svg icon renderer ok")
 PYCHECK
 rm -rf "$CHECK_HOME"
 # No bytecode in the app (see the header); the check above wrote its own under CHECK_HOME.

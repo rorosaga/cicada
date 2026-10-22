@@ -32,12 +32,12 @@ struct HeatmapView: View {
     }
 
     private func cell(_ c: CalendarCell?) -> some View {
-        RoundedRectangle(cornerRadius: 2)
+        CicadaTheme.shape(2)
             .fill(c.map { CicadaTheme.heatRamp(level: $0.level) } ?? Color.clear)
             .frame(width: cellSize, height: cellSize)
             .overlay {
                 if let c, selected?.date == c.date {
-                    RoundedRectangle(cornerRadius: 2).stroke(CicadaTheme.textPrimary, lineWidth: 1)
+                    CicadaTheme.shape(2).stroke(CicadaTheme.textPrimary, lineWidth: 1)
                 }
             }
             .help(c.map(Self.tooltip) ?? "")
@@ -90,7 +90,7 @@ struct HeatmapView: View {
             Spacer()
             Text("Less").font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
             ForEach(0..<5, id: \.self) { l in
-                RoundedRectangle(cornerRadius: 2).fill(CicadaTheme.heatRamp(level: l)).frame(width: cellSize, height: cellSize)
+                CicadaTheme.shape(2).fill(CicadaTheme.heatRamp(level: l)).frame(width: cellSize, height: cellSize)
             }
             Text("More").font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
         }

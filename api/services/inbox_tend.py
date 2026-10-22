@@ -25,6 +25,9 @@ words are already the question's cause or one option's evidence).
   words of the person's on it): archived;
 * ``conflict`` — the newest dated statement settles it (single-valued, one option said strictly later than every
   other, never a machine claim over the person's own);
+* ``conflict`` / ``clarification`` about Cicada's OWN runtime settings, on its own page — which engine Sleep runs read
+  with, whether scheduled runs use the plan, the schedule's time (``web_settle.own_settings``; owner 2026-10-19) — retired as ``own_settings`` (no claim touched): the system
+  knows them and Settings shows them, so they are never asked;
 * everything else — a clarification, a follow-up, a proposed edit — stays for the person (move 1 aside).
 
 Never a question about who a person is, or merging two people, without the person's own words on the record (move 1).
@@ -101,10 +104,11 @@ RULES: dict[str, str] = {
     "said_on_record": "You already said this in an earlier conversation",
     "in_passing": "Mentioned once in passing; nothing ties it to your life",
     "newest_words": "Your newest words on it say this",
+    "own_settings": "About Cicada's own settings, which Cicada already knows: Settings shows them",
 }
 #: The rules that read only the bank: re-run inside each settle, which goes ahead only when they still agree.
 ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "one_off", "newest_evidence",
-                         "multi_valued", "in_passing", "newest_words"})
+                         "multi_valued", "in_passing", "newest_words", "own_settings"})
 #: The judged kinds (owner, 2026-10-17: the inbox keeps only what genuinely needs the person).
 JUDGED_KINDS = frozenset({"merge_suggestion", "conflict", "normalization", "decay"})
 MAX_REASON_CHARS = 160
@@ -152,7 +156,7 @@ class Decision:
     kind: str
     rule: str
     #: The resolver call: ``{"action": ..., "option_key": ..., "merge_target": ..., "answer": ...}``; ``None`` retires
-    #: the question (its subject is gone) without a resolver.
+    #: the question without a resolver, touching nothing else (its subject is gone, or it is Cicada's own settings).
     request: dict | None
     #: What Sleep answered, in words, for the settled list.
     answer: str = ""
@@ -534,6 +538,14 @@ def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
                         guard=_guard(memory_path, str(fm.get("entity_id") or ""))), ""
     if page_state == "unreadable":
         return None, "unreadable_page"   # never retired on a read error: the person (or a repair) looks at it
+    if kind in ("conflict", "clarification"):
+        from api.services import web_settle
+
+        if web_settle.own_settings(fm):
+            # Owner 2026-10-19: Cicada's own engine, schedule or plan switch is the system's to know — never asked.
+            # Retired like a question whose subject is gone: moved to its record, no claim touched, one Sleep commit.
+            return Decision(item_id, kind, "own_settings", None, answer="Cicada's own settings",
+                            guard=_guard(memory_path, str(fm.get("entity_id") or ""))), ""
     if kind == "merge_suggestion":
         return _merge_rule(memory_path, item_id, fm)
     if kind == "normalization":
@@ -1452,6 +1464,70 @@ def persons_span(memory_path: Path, episode_id: str, quote: str):
     return None
 
 
+#: Words an answer may carry that its quote need not ("a soldering station" ← "the soldering station on the desk").
+_ANSWER_FILLER = frozenset("""a an the is are was were it its my our your his her their of to in on at
+un una unos unas el la los las lo es son era fue mi mis su sus de del al en""".split())
+#: A follow-up's answers are states, not values: the person's words must say the state, in one of these words (folded,
+#: English and Spanish — the languages the bank is read in), or the option's own label.
+_FOLLOWUP_WORDS = {
+    "done": frozenset("""done finished finish completed complete shipped launched submitted delivered published passed
+                      happened went terminado terminada termine hecho hecha listo lista acabe complete entregue""".split()),
+    "still": frozenset("""still ongoing continuing continue keep keeping going sigo seguimos todavia aun
+                       continuo continua""".split()),
+    "stopped": frozenset("""stopped stop quit dropped abandoned paused ended deje dejamos pare paramos
+                         abandone""".split()),
+    "missed": frozenset("""missed late overdue slipped postponed delayed perdi tarde retrasado atrasado""".split()),
+    "dropped": frozenset("""dropped cancelled canceled abandoned scrapped cancele cancelado cancelada
+                         abandonado""".split()),
+}
+
+
+def answer_supported(memory_path: Path, fm: dict, request: dict, quote: str, *, label: str = "") -> bool:
+    """Do the person's own words SAY the answer taken from them? Located words that say something else never settle
+    a question (review of #393: a run in the morning never named anyone's sister). No model — folded whole words:
+
+    * a free ``answer``: every word of it but fillers is in the quote; a name question's (``asks: name``) answer as
+      one whole phrase;
+    * a conflict's option: its label's words are in the quote, or the object of the claim it stands for is;
+    * a follow-up's option: the quote says that state (:data:`_FOLLOWUP_WORDS`) or the option's label.
+    A merge or keep-apart answer from the person's words is left to its own rules (move 1 only)."""
+    from api.services.claims import parse_claims
+
+    said = _fold_name(quote)
+    if not said:
+        return False
+    words = set(said.split())
+    action = str((request or {}).get("action") or "")
+    if action == "answer":
+        wanted = [w for w in _fold_name(request.get("answer")).split() if w not in _ANSWER_FILLER]
+        if not wanted:
+            return False   # an answer of fillers alone ("the") says nothing
+        if str(fm.get("asks") or "") == "name":
+            return _phrase_in(" ".join(wanted), said)
+        return all(w in words for w in wanted)
+    if action != "resolve":
+        return True
+    kind, key = str(fm.get("kind") or ""), str(request.get("option_key") or "")
+    lab = _fold_name(label)
+    lab_words = [w for w in lab.split() if w not in _ANSWER_FILLER]
+    if lab_words and all(w in words for w in lab_words):
+        return True
+    if kind == "followup":
+        return bool(words & _FOLLOWUP_WORDS.get(key, frozenset()))
+    if kind == "conflict":
+        option = next((o for o in inbox_questions.normalize_options(fm.get("options")) if str(o.get("key")) == key), {})
+        claim_id = str(option.get("claim_id") or "")
+        page = _page(memory_path, str(fm.get("entity_id") or "")) if claim_id else None
+        if page is not None:
+            try:
+                claim = next((c for c in parse_claims(page[2]) if c.id == claim_id), None)
+            except Exception:  # noqa: BLE001
+                claim = None
+            obj = _fold_name(getattr(claim, "object", "")) if claim is not None else ""
+            return bool(obj) and _phrase_in(obj, said)
+    return False
+
+
 def _answer_decision(memory_path: Path, path: Path, fm: dict, reply: dict, choices: dict[str, str],
                      episode_id: str, model: str | None, rule: str) -> tuple[Decision | None, str]:
     """The engine's reply → a decision, only on the person's own words located exactly in ``episode_id``."""
@@ -1468,8 +1544,10 @@ def _answer_decision(memory_path: Path, path: Path, fm: dict, reply: dict, choic
         key = str(reply.get("option") or "").strip()
         if key not in choices:
             return None, "no_option"
-        return Decision(path.stem, kind, rule, {"action": "resolve", "option_key": key},
-                        answer=choices[key], quote=words, model=model), ""
+        request = {"action": "resolve", "option_key": key}
+        if not answer_supported(memory_path, fm, request, quote, label=choices[key]):
+            return None, "quote_says_otherwise"
+        return Decision(path.stem, kind, rule, request, answer=choices[key], quote=words, model=model), ""
     if kind == "merge_suggestion":
         key = str(reply.get("option") or "").strip()
         target = str(fm.get("merge_target_hint") or "")
@@ -1481,6 +1559,8 @@ def _answer_decision(memory_path: Path, path: Path, fm: dict, reply: dict, choic
     answer = " ".join(str(reply.get("answer") or "").split())[:MAX_ANSWER_CHARS]
     if not answer:
         return None, "no_answer"
+    if not answer_supported(memory_path, fm, {"action": "answer", "answer": answer}, quote):
+        return None, "quote_says_otherwise"   # the person's words, but not saying this answer
     return Decision(path.stem, kind, rule, {"action": "answer", "answer": answer},
                     answer=answer, quote=words, model=model), ""
 
@@ -1644,7 +1724,7 @@ def record_lines(memory_path: Path, fm: dict) -> list[tuple[str, str, str]]:
 #: engine twice, so a drain's few reads move on to questions with something new on the record. In this process only
 #: (ids and a hash; a restart reads each once more).
 _RECORD_READ: dict[tuple[str, str], str] = {}
-_NOT_ANSWERED = frozenset({"not_answered", "quote_not_found", "no_option", "no_answer"})
+_NOT_ANSWERED = frozenset({"not_answered", "quote_not_found", "no_option", "no_answer", "quote_says_otherwise"})
 
 
 def _record_key(memory_path: Path, path: Path) -> tuple[str, str]:
@@ -1881,17 +1961,32 @@ def _sleep_holds(admitted: bool) -> bool:
 async def policy_pass(memory_path: Path, settings, report: Report, *, llm_fn=None, judge_cap: int | None = JUDGE_CAP,
                       limit: int | None = None, dry_run: bool = False, judge: bool = True,
                       admitted: bool = False, engine: str | None = None, record_cap: int | None = 0,
-                      progress: Callable[[], None] | None = None) -> None:
+                      progress: Callable[[], None] | None = None, kinds: frozenset[str] | None = None,
+                      trace: Callable[[dict], None] | None = None) -> None:
     """Move 2 over every open question, one at a time: decide (the engine-free rules, then the judge on up to
     ``judge_cap`` questions — ``None``: no cap) and settle it at once, so nothing decided waits while the bank moves.
     A clarification, follow-up or conflict still open is then looked for across the whole record (move 3) on up to
     ``record_cap`` questions (``None``: no cap; 0: never). ``dry_run`` decides and counts, writing nothing.
-    ``admitted`` (the tidy) stops the moment Sleep holds the pages — before an engine call and before a settle."""
+    ``admitted`` (the tidy) stops the moment Sleep holds the pages — before an engine call and before a settle.
+    ``kinds`` reads only questions of those kinds (``limit`` counts only them). ``trace`` (the coordinator's dry run)
+    is handed one :func:`trace_row` per question read — the decision, its rule, the judge's own confidence and
+    reason — and is the caller's to keep: nothing here logs or stores it."""
     today = date.today().isoformat()
     judged = 0
     searched = 0
     seen = 0
+    verdicts: list[dict] = []
+    call_fn = llm_fn
+    if trace is not None and llm_fn is not None:
+        def call_fn(*args, **kwargs):   # the judge's own reply, kept for the trace row of the question being read
+            from api.services import json_parse
+
+            resp = llm_fn(*args, **kwargs)
+            verdicts.append(json_parse.parse_json_object_or(_content(resp), {}))
+            return resp
     for path, _fm, _body in pending(memory_path):
+        if kinds is not None and str(_fm.get("kind") or "") not in kinds:
+            continue
         if limit is not None and seen >= limit:
             break
         if report.stopped:
@@ -1905,6 +2000,7 @@ async def policy_pass(memory_path: Path, settings, report: Report, *, llm_fn=Non
         except Exception:  # noqa: BLE001 — gone or unreadable: nothing to settle
             continue
         seen += 1
+        verdicts.clear()
         fm, body = dict(parsed.frontmatter), parsed.body
         kind = str(fm.get("kind") or "")
         d, why = policy(memory_path, path, fm, today=today)
@@ -1913,7 +2009,7 @@ async def policy_pass(memory_path: Path, settings, report: Report, *, llm_fn=Non
                 judged += 1
                 report.judged += 1
                 try:
-                    d, why = await judge_item(memory_path, path, fm, body, llm_fn)
+                    d, why = await judge_item(memory_path, path, fm, body, call_fn)
                 except Exception as exc:  # noqa: BLE001
                     paused = _plan_paused(exc)
                     if paused:
@@ -1926,7 +2022,7 @@ async def policy_pass(memory_path: Path, settings, report: Report, *, llm_fn=Non
                 report.stopped = "sleep_running"
                 break
             try:
-                found, rwhy = await read_record_answer(memory_path, path, fm, llm_fn)
+                found, rwhy = await read_record_answer(memory_path, path, fm, call_fn)
             except Exception as exc:  # noqa: BLE001
                 paused = _plan_paused(exc)
                 if paused:
@@ -1940,6 +2036,8 @@ async def policy_pass(memory_path: Path, settings, report: Report, *, llm_fn=Non
                 d, why = found, ""
             elif rwhy not in ("not_on_record",):
                 why = f"{why}+record:{rwhy}" if why else f"record:{rwhy}"
+        if trace is not None:
+            trace(trace_row(memory_path, path.stem, fm, d, why, verdicts, fingerprint, engine=engine))
         if d is None:
             report.asked += 1
             report.count(kind, f"ask:{why}")
@@ -2084,15 +2182,22 @@ def start_tidy(memory_path: Path, settings, *, limit: int | None = None, judge: 
 
 
 async def tidy(memory_path: Path, settings, *, dry_run: bool = True, limit: int | None = None, judge: bool = False,
-               llm_fn=None) -> dict:
+               llm_fn=None, engine: str | None = None, kinds: frozenset[str] | None = None,
+               trace: Callable[[dict], None] | None = None) -> dict:
     """The one-time tidy of the existing backlog: the same policy (move 2) over every open question. ``dry_run``
     writes nothing and prints counts per kind and per decision — never a title, a name or any text. ``judge`` lets
     the judge read duplicates, conflicts, label folds and fading pages with the person's chosen engine (their Claude
     plan included, owner 2026-10-17); a plan limit pauses it (``stopped: plan_limit``) and what it settled stays
     settled. A real run decides and settles one question at a time under the bank's write admission, one commit
-    each, and stops the moment Sleep holds the pages."""
+    each, and stops the moment Sleep holds the pages.
+
+    A given ``llm_fn`` (with its ``engine`` label) replaces the person's chosen engine, which is then never resolved:
+    the coordinator's trace judges on the Claude plan this way, never on the engine the bank is set to. ``trace``
+    (:func:`trace_row`, one row per question read) is a dry run's only; ``kinds`` reads only those kinds."""
     from api.services import engine_select
 
+    if trace is not None and not dry_run:
+        raise ValueError("a trace is a dry run's: a real tidy reports counts only")
     memory_path = Path(memory_path)
     report = Report()
     started_at = _now()
@@ -2109,7 +2214,6 @@ async def tidy(memory_path: Path, settings, *, dry_run: bool = True, limit: int 
         if not dry_run and not (memory_path / ".git").exists():
             report.stopped = "no_git"
             return report.as_dict()
-        engine = None
         if judge and llm_fn is None:
             resolved, _why = await engine_select.resolve_settings(settings, user_triggered=True)
             engine = engine_select.engine_label(resolved)
@@ -2120,20 +2224,365 @@ async def tidy(memory_path: Path, settings, *, dry_run: bool = True, limit: int 
         with agent_engine.use_scope(f"inbox-tidy:{memory_path.name}"):
             await policy_pass(memory_path, settings, report, llm_fn=llm_fn if judge else None, judge_cap=None,
                               limit=limit, dry_run=dry_run, judge=judge, admitted=True, engine=engine,
-                              record_cap=None if judge else 0, progress=progress)
+                              record_cap=None if judge else 0, progress=progress, kinds=kinds, trace=trace)
         if report.settled and not dry_run:
-            try:
-                from api.services import state_dictionary
+            from api.services import state_dictionary
 
-                await state_dictionary.refresh_and_commit(memory_path, settings)
-            except Exception as exc:  # noqa: BLE001 — the projection never fails the tidy
-                logger.info(f"state refresh after the tidy skipped: {type(exc).__name__}")
+            # Admitted, and skipped while Sleep holds the pages: it could otherwise ride Sleep's batch commit.
+            await state_dictionary.refresh_admitted(memory_path, settings)
     finally:
         if not dry_run:
             _TIDY["running"] = False
             _save_tidy(memory_path, report, running=False, started_at=started_at)
     out = report.as_dict()
     out["dry_run"] = dry_run
+    return out
+
+
+# --------------------------------------------------------------------------- the coordinator's trace and vetted apply
+#
+# Owner rule, 2026-10-20: read every proposed answer before any bulk write (a counts-only dry run once let 8 wrong
+# conflict settles reach a bank). The trace is a dry run that hands its caller one row per question — the names, the
+# decision, the judge's confidence and reason — for the caller to keep outside every bank; the vetted apply settles
+# only the rows the caller kept, exactly as decided, through the same resolvers and as Sleep's undoable commit.
+
+#: The words a trace row says its decision in.
+TRACE_DECISIONS = ("merge", "keep_apart", "settle", "leave")
+#: What a vetted row may settle, rule by rule: ``(kinds, actions)`` — exactly what the rules and judges above produce
+#: (``None`` as an action: the question retired with no resolver). ``said_in_conversation`` is move 1's, made inside a
+#: Sleep batch and never in a trace, so it is never vetted. An ``answer`` is never vetted outside ``said_on_record``.
+VETTED_RULES: dict[str, tuple[frozenset[str] | None, frozenset]] = {
+    "subject_gone": (None, frozenset({None})),            # any kind but a proposed edit (``NEVER``)
+    "own_settings": (frozenset({"conflict", "clarification"}), frozenset({None})),
+    "same_spelling": (frozenset({"merge_suggestion"}), frozenset({"merge"})),
+    "spelling_fold": (frozenset({"normalization"}), frozenset({"resolve"})),
+    "one_off": (frozenset({"decay"}), frozenset({"archive"})),
+    "newest_evidence": (frozenset({"conflict"}), frozenset({"resolve"})),
+    "multi_valued": (frozenset({"conflict"}), frozenset({"dismiss"})),
+    "in_passing": (frozenset({"clarification"}), frozenset({"dismiss"})),
+    "newest_words": (frozenset({"conflict"}), frozenset({"resolve"})),
+    "judged_same": (frozenset({"merge_suggestion"}), frozenset({"merge"})),
+    "judged_different": (frozenset({"merge_suggestion"}), frozenset({"reject"})),
+    "judged_fold": (frozenset({"normalization"}), frozenset({"resolve"})),
+    "judged_conflict": (frozenset({"conflict"}), frozenset({"resolve"})),
+    "judged_archive": (frozenset({"decay"}), frozenset({"archive"})),
+    "judged_keep": (frozenset({"decay"}), frozenset({"keep_active"})),
+    "said_on_record": (RECORD_KINDS, frozenset({"resolve", "answer"})),
+}
+#: The rules an engine read: only these may carry the judging model and its engine as the commit's author.
+VETTED_ENGINE_RULES = frozenset({"judged_same", "judged_different", "judged_fold", "judged_conflict",
+                                 "judged_archive", "judged_keep", "said_on_record"})
+#: The model ids each engine may name as author (the CLI aliases, or a provider's own id shape).
+_ENGINE_MODELS = {
+    "claude-cli": re.compile(r"(?:haiku|sonnet|opus|claude-[a-z0-9.-]{1,60}(?:\[1m\])?)"),
+    "codex-cli": re.compile(r"(?:gpt-[a-z0-9.-]{1,40}|o[0-9][a-z0-9-]{0,30}|codex-[a-z0-9.-]{1,40})"),
+    "litellm": re.compile(r"(?:(?:openrouter|anthropic|openai|gemini|groq|mistral)/)?[a-z0-9][a-z0-9._:/-]{1,100}"),
+    "ollama": re.compile(r"(?:ollama/)?[a-z0-9][a-z0-9._:-]{0,60}"),
+}
+MAX_VETTED = 500
+_VETTED_ID = re.compile(r"inbox-[A-Za-z0-9_-]{1,96}")
+_EPISODE_ID = re.compile(r"ep_[A-Za-z0-9_-]{1,96}")
+
+
+def _sha256(data: bytes) -> str:
+    import hashlib
+
+    return hashlib.sha256(data).hexdigest()
+
+
+def _decision_word(d: Decision | None) -> str:
+    if d is None:
+        return "leave"
+    action = str((d.request or {}).get("action") or "")
+    return {"merge": "merge", "reject": "keep_apart"}.get(action, "settle")
+
+
+def _trace_names(memory_path: Path, kind: str, fm: dict) -> list[str]:
+    """The two names a question is about (a duplicate's mention and its page; a fold's two labels), or its subject."""
+    def page_name(entity_id: str) -> str:
+        page = _page(memory_path, entity_id)
+        return str(page[1].get("name") or page[0].stem) if page else ""
+
+    entity_id = str(fm.get("entity_id") or "")
+    subject = str(fm.get("entity_name") or fm.get("entity_mention") or "") or page_name(entity_id) or entity_id
+    if kind == "merge_suggestion":
+        hint = str(fm.get("merge_target_hint") or "")
+        return [subject, page_name(hint) or hint]
+    if kind == "normalization":
+        return [str(fm.get("raw_predicate") or ""), str(fm.get("canonical_predicate") or "")]
+    return [subject]
+
+
+def _trace_confidence(verdicts: list[dict]) -> float | None:
+    for verdict in reversed(verdicts):
+        try:
+            return float(verdict["confidence"])
+        except (KeyError, TypeError, ValueError):
+            continue
+    return None
+
+
+def trace_row(memory_path: Path, item_id: str, fm: dict, d: Decision | None, why: str, verdicts: list[dict],
+              fingerprint: bytes, *, engine: str | None = None) -> dict:
+    """One question as the dry run decided it, for the coordinator to read before anything is applied. ``decision``
+    is ``merge`` / ``keep_apart`` / ``settle`` / ``leave``; ``confidence`` is the judge's own (``None`` for an
+    engine-free rule, which has no confidence to give); ``reason`` is one line. A decided row carries ``apply`` —
+    the decision exactly as made, with a hash of the question file and of every page it read — which
+    :func:`vetted_decision` takes back only while all of them are unchanged."""
+    kind = str(fm.get("kind") or "")
+    judge_reason = next((_reason(v) for v in reversed(verdicts) if _reason(v)), "")
+    if d is not None:
+        reason = d.reason or judge_reason or RULES.get(d.rule, "")
+    else:
+        reason = judge_reason or why
+    row: dict = {"id": item_id, "kind": kind, "names": _trace_names(memory_path, kind, fm),
+                 "decision": _decision_word(d), "rule": d.rule if d is not None else why,
+                 "confidence": _trace_confidence(verdicts), "judged": bool(verdicts), "reason": reason,
+                 "answer": d.answer if d is not None else ""}
+    options = fm.get("options")
+    if isinstance(options, list) and options:
+        row["options"] = [str(o.get("label") or o.get("key") or "") if isinstance(o, dict) else str(o)
+                          for o in options]
+    if d is not None:
+        row["apply"] = {"rule": d.rule, "request": d.request, "answer": d.answer, "reason": d.reason,
+                        "model": d.model, "engine": engine if d.model else None, "quote": d.quote,
+                        "guard": d.guard, "item_sha256": _sha256(fingerprint)}
+    return row
+
+
+class Unvetted(ValueError):
+    """A vetted row that cannot be applied as written; the message is a short code, never the row's text."""
+
+
+def _strict(request, shape: dict) -> dict:
+    """The request, only when it is exactly ``shape``'s keys, each a non-empty string the shape allows."""
+    if not isinstance(request, dict) or set(request) != set(shape):
+        raise Unvetted("bad_request")
+    for key, allowed in shape.items():
+        value = request.get(key)
+        if not isinstance(value, str) or not value.strip() or (allowed is not None and value not in allowed):
+            raise Unvetted("bad_request")
+    return dict(request)
+
+
+def _option_keys(fm: dict) -> frozenset[str]:
+    return frozenset(str(o.get("key")) for o in inbox_questions.normalize_options(fm.get("options"))
+                     if str(o.get("key") or "") and str(o.get("key")) not in _GENERIC_KEYS)
+
+
+def _vetted_request(memory_path: Path, kind: str, fm: dict, rule: str, request) -> dict:
+    """A judged or record rule's request, held to the one shape that rule produces for this question."""
+    action = str(request.get("action") or "") if isinstance(request, dict) else ""
+    if action not in VETTED_RULES[rule][1]:
+        raise Unvetted("bad_action")
+    if action in ("merge", "reject"):
+        from api.services.id_utils import resolve_entity_file
+
+        out = _strict(request, {"action": {action}, "merge_target": None})
+        wanted = resolve_entity_file(Path(memory_path), out["merge_target"])
+        hinted = resolve_entity_file(Path(memory_path), str(fm.get("merge_target_hint") or ""))
+        if wanted is None or hinted is None or wanted != hinted:
+            raise Unvetted("other_target")   # only the page the question itself names
+        return out
+    if action == "resolve":
+        if kind == "normalization":
+            return _strict(request, {"action": {"resolve"}, "option_key": {"0"}})
+        if kind == "followup":
+            return _strict(request, {"action": {"resolve"}, "option_key": set(_followup_choices(memory_path, fm)[0])})
+        return _strict(request, {"action": {"resolve"}, "option_key": set(_option_keys(fm))})
+    if action == "answer":
+        out = _strict(request, {"action": {"answer"}, "answer": None})
+        if len(out["answer"]) > MAX_ANSWER_CHARS:
+            raise Unvetted("bad_request")
+        return out
+    return _strict(request, {"action": {action}})
+
+
+def _vetted_quote(memory_path: Path, quote) -> dict:
+    """The person's own words, located again in their own turn (``persons_span``) — or refused."""
+    if (not isinstance(quote, dict) or not _EPISODE_ID.fullmatch(str(quote.get("episode") or ""))
+            or not isinstance(quote.get("quote"), str) or not quote["quote"].strip()):
+        raise Unvetted("bad_quote")
+    if persons_span(memory_path, quote["episode"], quote["quote"]) is None:
+        raise Unvetted("not_the_persons_words")
+    return {"episode": quote["episode"], "quote": quote["quote"]}
+
+
+def _vetted_guard(memory_path: Path, guard, required: dict) -> dict:
+    """The row's page hashes: at least every page the decision reads (``required``, as :func:`_guard` names them), each
+    still as the trace read it."""
+    if not isinstance(guard, dict) or any(not isinstance(k, str) or (v is not None and not isinstance(v, str))
+                                          for k, v in guard.items()):
+        raise Unvetted("bad_guard")
+    if not set(required) <= set(guard):
+        raise Unvetted("thin_guard")
+    for rel, digest in guard.items():
+        if not rel.startswith("entities/") or ".." in rel.split("/"):
+            raise Unvetted("bad_guard")
+        if _hash(Path(memory_path) / rel) != digest:
+            raise Unvetted("changed")
+    return dict(guard)
+
+
+def _vetted_author(rule: str, plan: dict) -> tuple[str | None, str | None]:
+    """``(model, engine)`` for the commit's author: only a rule an engine read may name them, and only a model id the
+    named engine uses; any other rule is authored as Sleep's own (``cicada``)."""
+    if rule not in VETTED_ENGINE_RULES:
+        return None, None
+    model, engine = plan.get("model"), plan.get("engine")
+    if model is None and engine is None:
+        return None, None
+    pattern = _ENGINE_MODELS.get(engine) if isinstance(engine, str) else None
+    if pattern is None or not isinstance(model, str) or not pattern.fullmatch(model):
+        raise Unvetted("bad_model")
+    return model, engine
+
+
+def vetted_decision(memory_path: Path, row: dict) -> tuple[Decision, str | None]:
+    """A trace row the coordinator kept → ``(decision, engine label)``. The row only CHOOSES a question; the server
+    decides whether that answer may still be given, against the bank as it is now, whatever the body says:
+
+    * the question file is byte-for-byte what was traced, its kind is the row's, and the person has not put it off,
+      taken a settle back or kept it as theirs; a name question (``asks: name``) settles only on the person's words;
+    * the rule is one :data:`VETTED_RULES` knows, for this kind, with exactly the request shape it produces;
+    * an engine-free rule is decided again now and must give the same answer (that decision is the one applied);
+    * a judged rule needs ``policy()`` to still say ``needs_judge`` — so the person, type-mismatch and same-page
+      refusals hold again — and a guard over at least every page the judge reads, each unchanged;
+    * ``said_on_record`` needs the person's own words, located again in their own turn of a conversation that does not
+      raise the question, said after every side of it; it alone may carry an ``answer``;
+    * the model and engine name the author only for a rule an engine read, and only as an id that engine uses.
+
+    Refused (:class:`Unvetted`, a short code) otherwise. The settle checks the pages again under admission."""
+    memory_path = Path(memory_path)
+    if not isinstance(row, dict):
+        raise Unvetted("bad_row")
+    item_id = str(row.get("id") or "")
+    if not _VETTED_ID.fullmatch(item_id):
+        raise Unvetted("bad_id")
+    plan = row.get("apply")
+    if not isinstance(plan, dict):
+        raise Unvetted("not_decided")
+    path = _inbox(memory_path) / f"{item_id}.md"
+    try:
+        raw = path.read_bytes()
+        fm = dict(markdown_parser.parse(path).frontmatter)
+    except Exception:  # noqa: BLE001 — gone or unreadable
+        raise Unvetted("gone") from None
+    if str(plan.get("item_sha256") or "") != _sha256(raw):
+        raise Unvetted("changed")
+    kind = str(fm.get("kind") or "")
+    if str(row.get("kind") or "") != kind:
+        raise Unvetted("changed")
+    today = date.today().isoformat()
+    if _blocked(fm, today):
+        raise Unvetted("the_persons")
+    rule = str(plan.get("rule") or "")
+    if rule not in VETTED_RULES:
+        raise Unvetted("bad_rule")
+    kinds, _actions = VETTED_RULES[rule]
+    if (kinds is not None and kind not in kinds) or kind in NEVER:
+        raise Unvetted("bad_rule")
+    if str(fm.get("asks") or "") == "name" and rule != "said_on_record":
+        raise Unvetted("the_persons")   # who someone is: only the person's own words (ruling 29, role_people)
+    request = plan.get("request")
+    if request is not None and not isinstance(request, dict):
+        raise Unvetted("bad_request")
+    fresh, why = policy(memory_path, path, fm, today=today)
+    entity_id = str(fm.get("entity_id") or "")
+
+    if rule in ENGINE_FREE:
+        if fresh is None or fresh.rule != rule or fresh.request != request:
+            raise Unvetted("changed")
+        _vetted_guard(memory_path, plan.get("guard") or {}, fresh.guard)
+        fresh.fingerprint = raw
+        return fresh, None
+
+    if rule == "said_on_record":
+        if fresh is not None or why in _RECORD_SKIP:
+            raise Unvetted("changed")
+        if plan.get("quote") is None:
+            raise Unvetted("bad_quote")
+        quote = _vetted_quote(memory_path, plan.get("quote"))
+        floor = _record_floor(memory_path, fm)
+        if floor is None or (floor and _day(quote["episode"]) <= floor):
+            raise Unvetted("not_after_the_question")
+        if quote["episode"] in _record_cited(memory_path, fm):
+            raise Unvetted("not_after_the_question")   # the conversation a question rests on never answers it
+        request = _vetted_request(memory_path, kind, fm, rule, request)
+        label = ""
+        if request.get("action") == "resolve":
+            labels = (_followup_choices(memory_path, fm)[0] if kind == "followup" else
+                      {str(o.get("key")): str(o.get("label") or "")
+                       for o in inbox_questions.normalize_options(fm.get("options"))})
+            label = labels.get(request["option_key"], "")
+        if not answer_supported(memory_path, fm, request, quote["quote"], label=label):
+            raise Unvetted("quote_says_otherwise")   # the person's words, but not saying this answer
+        required = _guard(memory_path, entity_id)
+    else:   # a judge's rule
+        if fresh is not None or why != "needs_judge" or kind not in JUDGED_KINDS:
+            raise Unvetted("not_judged")
+        quote = _vetted_quote(memory_path, plan["quote"]) if plan.get("quote") is not None else None
+        if quote is not None and rule != "judged_conflict":
+            raise Unvetted("bad_quote")
+        required = _guard(memory_path, entity_id, *([str(fm.get("merge_target_hint") or "")]
+                                                     if kind == "merge_suggestion" else []))
+    request = _vetted_request(memory_path, kind, fm, rule, request)
+    guard = _vetted_guard(memory_path, plan.get("guard") or {}, required)
+    model, engine = _vetted_author(rule, plan)
+    reason = _reason({"reason": plan.get("reason")}) if isinstance(plan.get("reason"), str) else ""
+    answer = " ".join(str(plan.get("answer") or "").split())[:MAX_REASON_CHARS]
+    return Decision(item_id, kind, rule, request, answer=answer, quote=quote, model=model, fingerprint=raw,
+                    guard=guard, reason=reason), engine
+
+
+async def apply_vetted(memory_path: Path, settings, rows: list[dict]) -> dict:
+    """Settle exactly the rows the coordinator kept from a trace, one at a time, each under the bank's write admission
+    through the person's own resolver as Sleep's undoable commit (:func:`apply`), stopping once Sleep holds the pages.
+    Busy for an updater while it runs, like the tidy. Answers per id: ``settled``, ``changed`` (the question or a page
+    it read moved since the trace: left as it is), ``refused`` (with a code) or ``not_reached`` (the run stopped)."""
+    memory_path = Path(memory_path)
+    report = Report()
+    started_at = _now()
+    results: list[dict] = []
+    seen: set[str] = set()
+    _TIDY.update(running=True, report=report, bank=os.path.realpath(memory_path), started_at=started_at)
+    try:
+        if not (memory_path / ".git").exists():
+            report.stopped = "no_git"
+        for row in rows:
+            item_id = str(row.get("id") or "")[:120] if isinstance(row, dict) else ""
+            if report.stopped:
+                results.append({"id": item_id, "outcome": "not_reached"})
+                continue
+            if item_id in seen:
+                results.append({"id": item_id, "outcome": "refused", "why": "duplicate"})
+                continue
+            seen.add(item_id)
+            try:
+                d, engine = vetted_decision(memory_path, row)
+            except Unvetted as exc:
+                report.asked += 1
+                report.count(str(row.get("kind") or "") if isinstance(row, dict) else "", f"refused:{exc}")
+                results.append({"id": item_id, "outcome": "refused", "why": str(exc)})
+                continue
+            if _sleep_holds(True):
+                report.stopped = "sleep_running"
+                results.append({"id": item_id, "outcome": "not_reached"})
+                continue
+            before = report.settled
+            if not await _settle_one(memory_path, settings, d, report, engine=engine, admitted=True):
+                results.append({"id": item_id, "outcome": "not_reached"})
+                continue
+            results.append({"id": item_id, "outcome": "settled" if report.settled > before else "changed"})
+        if report.settled:
+            from api.services import state_dictionary
+
+            await state_dictionary.refresh_admitted(memory_path, settings)
+    finally:
+        _TIDY["running"] = False
+        _save_tidy(memory_path, report, running=False, started_at=started_at)
+    out = report.as_dict()
+    out["results"] = results
     return out
 
 

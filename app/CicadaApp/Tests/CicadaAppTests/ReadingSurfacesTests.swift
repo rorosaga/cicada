@@ -297,9 +297,10 @@ final class ReadingSurfacesTests: XCTestCase {
 
     func testSettingsSectionRawValuesDidNotMove() {
         // Search & files (owner, 2026-10-14) is a new case between privacy and memory; Devices (G181 phase 3) one after
-        // From anywhere; no existing value moved.
+        // From anywhere; no existing value moved. Advanced retired (settings defaults, owner 2026-10-22): its saved value
+        // reopens on General.
         let raw = ["general", "you", "privacy", "searchFiles", "memory", "sleep", "integrations", "reading", "agents",
-                   "remote", "devices", "skills", "engines", "plansAndKeys", "advanced"]
+                   "remote", "devices", "skills", "engines", "plansAndKeys"]
         XCTAssertEqual(SettingsSection.allCases.map(\.rawValue), raw)
         for value in raw { XCTAssertNotNil(SettingsSection(rawValue: value), value) }
     }

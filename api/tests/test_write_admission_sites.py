@@ -101,7 +101,9 @@ PROBE_SITES = {
     "api/services/explore_queue.py": "the same lease judgement and the sync stamp",
     "api/services/inbox_service.py": "the early 409 before an answer's model call; the admitted write asks again",
     "api/services/paper_metadata.py": "a long networked run's stop check; its writes are left to the tail (disclosed)",
-    "api/routers/inbox.py": "the one-time tidy's early 409 (ruling 29); each settle admits itself (`_settle_one`)",
+    "api/routers/inbox.py": "the one-time tidy's, its vetted apply's and the web-check sweep's early 409s (ruling 29; "
+                            "2026-10-19/20); each "
+                            "settle admits itself (`_settle_one`, `web_lookup._settle_admitted`)",
     "api/services/inbox_tend.py": "the tidy's stop check before each judge call; each settle admits itself and asks "
                                   "again (`_settle_one`)",
 }
@@ -350,6 +352,8 @@ INTAKE = ("intake: creates NEW media pages and episodes in a batch with fetches 
 CAPTURE = "capture: episodes and capture sidecars only (Awake, ungated by rail) — never an entity page"
 REGISTRY = "registry: one bank file Sleep never reads or rewrites, committed alone"
 OUTSIDE = "outside: writes nothing in the bank (settings, credentials, ledger, caches, the video queue)"
+MARKED = ("marked: writes only outside every bank, at once even while Sleep runs — what Sleep reads of it in its "
+          "window it re-checks against a marker the write stamps, so no hold is needed")
 SLEEP = "sleep: Sleep's own controls"
 BANKS = "banks: bank lifecycle — refused while a run is pinned to its bank"
 NONE = "none: reads or computes; writes nothing"
@@ -362,6 +366,9 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /inbox/settled/{item_id}/undo": (ADMITTED, None),   # the web check's undo (owner ruling 2026-10-16)
     # Ruling 29: the one-time tidy settles each question under its own admission, refused while Sleep holds the pages.
     "POST /inbox/tidy": (ADMITTED, "api.services.inbox_tend._settle_one"),
+    "POST /inbox/web-check": (ADMITTED, "api.services.web_lookup._settle_admitted"),   # the 2026-10-19 sweep
+    # Owner rule 2026-10-20: the vetted apply of a coordinator's trace, each row settled under its own admission.
+    "POST /inbox/tidy/apply": (ADMITTED, "api.services.inbox_tend._settle_one"),
     "POST /nudges/{nudge_id}/resolve": (ADMITTED, "api.services.inbox_service.resolve"),
     "POST /clarifications/{clarification_id}": (ADMITTED, "api.services.inbox_service.resolve"),
     "POST /entities/{entity_id}/read": (OUTSIDE, None),
@@ -436,6 +443,13 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/contacts-local/sync": (ADMITTED, None),
     "POST /sources/linkedin-connections/preview": (NONE, None),   # reads pages, writes nothing, keeps nothing
     "POST /sources/linkedin-connections/import": (ADMITTED, None),
+    # Review of #391/#393: the Contacts forget writes only `$CICADA_HOME/people/*`, at once, even while Sleep runs —
+    # the app sends it once and a 409 would keep a disconnected address book's cards. It stamps a forget marker that
+    # every Sleep read of the waiting set honours (Stage 2's index, Stage 5's seed, the rematch and its save back).
+    "DELETE /sources/contacts-local/waiting": (MARKED, None),
+    # The LinkedIn forget is the person's click in a panel that shows a refusal in words: admitted, 409 while Sleep's
+    # tail may be reading the kept export.
+    "DELETE /sources/linkedin-connections": (ADMITTED, None),
     "POST /sources/messages/sync": (CAPTURE, None),            # G179: one ticked conversation's sittings
     "PUT /sources/messages/settings": (CAPTURE, None),         # G179: the registry file + a re-attributed sitting
     "POST /sources/messages/conversations": (NONE, None),      # G179: detection over names and counts, stores nothing
@@ -472,6 +486,10 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /remote/connectors": (OUTSIDE, None),
     "POST /remote/connectors/{connector_id}/rotate": (OUTSIDE, None),
     "DELETE /remote/connectors/{connector_id}": (OUTSIDE, None),
+    "POST /remote/oauth/match": (OUTSIDE, None),
+    "POST /remote/oauth/approve": (OUTSIDE, None),
+    "POST /remote/oauth/requests/deny-all": (OUTSIDE, None),
+    "POST /remote/oauth/requests/{ref}/deny": (OUTSIDE, None),
     "PUT /videos/queue/{key}": (OUTSIDE, None),
     "DELETE /videos/queue/{key}": (OUTSIDE, None),
     "POST /videos/queue/{key}/retry": (OUTSIDE, None),
@@ -480,6 +498,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /embeddings/install": (OUTSIDE, None),
     "POST /design": (ADMITTED, None),                 # design taste: the reference and its screenshot, committed alone
     "DELETE /design/{ref_id}": (ADMITTED, None),
+    "PUT /design/{ref_id}/entity": (ADMITTED, None),
+    "PATCH /design/{ref_id}": (ADMITTED, None),          # the person's own words on a look   # a look onto a page: the record and both pages' sections
     "POST /design/search": (OUTSIDE, None),           # the derived index in $CICADA_HOME only
     # G166 exploring: the queue file in $CICADA_HOME only; the bank is written by cicada_record_capture alone.
     "POST /explore/batches": (OUTSIDE, None),
@@ -491,7 +511,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
         "POST /skills/check", "POST /skills/preview", "POST /skills/install", "POST /skills/{name}/update",
         "POST /skills/update-all", "PUT /skills/{name}/agents/{agent}", "POST /skills/{name}/refresh",
         "DELETE /skills/{name}", "POST /skills/drafts/{name}/publish", "DELETE /skills/drafts/{name}",
-        "POST /skills/requests/{request_id}/dismiss", "POST /skills/onboarding")},
+        "POST /skills/requests/{request_id}/dismiss", "POST /skills/onboarding", "PUT /skills/kinds")},
 }
 
 #: Every MCP tool (stdio and remote): the mcp_tools function it runs and its class.
@@ -543,6 +563,9 @@ TOOLS: dict[str, tuple[str, str | None]] = {
 
 #: `write_admission.holding()` is the in-hold question: each site and what holds the bank around it.
 HOLDING_SITES = {
+    "api/services/state_dictionary.py": "refresh_admitted(): the `_state.md` refresh after the undo routes, the inbox "
+                                        "tidy and the web sweep — inside its own run_admitted() transaction, skipped "
+                                        "while Sleep holds the pages (GET /state's pattern)",
     "api/routers/maintenance.py": "the sweep's may_write: asked inside each merge's own hold (and, stale, before a "
                                   "judge call, where nothing is written)",
     "api/routers/local_sources.py": "folder update/sync and Wispr Flow: inside their route()'s hold",
@@ -773,6 +796,62 @@ def test_get_state_inside_the_window_serves_the_file_and_writes_nothing(tmp_path
     assert calls == [1], "no refresh while Sleep holds the pages"
     assert subprocess.run(["git", "-C", str(memory), "rev-parse", "HEAD"], capture_output=True,
                                         text=True).stdout == head
+
+
+def test_refresh_admitted_holds_admission_and_skips_while_sleep_holds_the_pages(tmp_path, monkeypatch):
+    """The undo routes, the inbox tidy and the web sweep refresh `_state.md` through this one door."""
+    import asyncio
+
+    from api.services import state_dictionary
+
+    memory = _bank(tmp_path)
+    seen: list[int] = []
+
+    async def refresh_and_commit(memory_path, settings=None, **_kw):
+        seen.append(write_admission.holders(memory))
+        return {"written": False}
+
+    monkeypatch.setattr(state_dictionary, "refresh_and_commit", refresh_and_commit)
+    assert asyncio.run(state_dictionary.refresh_admitted(memory, None)) == {"written": False}
+    assert seen == [1], "inside the bank's admission"
+    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: True)
+    assert asyncio.run(state_dictionary.refresh_admitted(memory, None)) is None
+    assert seen == [1], "skipped while Sleep holds the pages — it would ride Sleep's batch commit"
+
+    async def boom(*_a, **_kw):
+        raise RuntimeError("projection failed")
+
+    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: False)
+    monkeypatch.setattr(state_dictionary, "refresh_and_commit", boom)
+    assert asyncio.run(state_dictionary.refresh_admitted(memory, None)) is None, "never fails the write before it"
+
+
+#: Every module that calls `state_dictionary.refresh_and_commit` directly, and why that call cannot ride Sleep's batch
+#: commit. Any other writer refreshes through `state_dictionary.refresh_admitted`.
+REFRESH_AND_COMMIT_CALLERS = {
+    "api/services/state_dictionary.py": "its own definition and `refresh_admitted`",
+    "api/services/sleep_cycle.py": "Sleep's tail: Sleep itself, under its own git lock",
+    "api/routers/state.py": "GET /state: inside run_admitted, skipped while write_admission.holding()",
+    "api/services/inbox_service.py": "resolve(): inside the resolution's run_admitted, never when Sleep is the actor",
+}
+
+
+def test_every_state_refresh_outside_sleep_is_admitted():
+    """Review of #360: the undo routes and the tidy refreshed `_state.md` outside admission."""
+    found = set()
+    for path in sorted((ROOT / "api").rglob("*.py")):
+        rel = path.relative_to(ROOT).as_posix()
+        if "/tests/" in rel or "/.venv/" in rel:
+            continue
+        if "refresh_and_commit(" in path.read_text(encoding="utf-8"):
+            found.add(rel)
+    assert sorted(found - set(REFRESH_AND_COMMIT_CALLERS)) == [], \
+        "a direct refresh_and_commit caller: use state_dictionary.refresh_admitted, or classify it here"
+    assert sorted(set(REFRESH_AND_COMMIT_CALLERS) - found) == [], "a stale REFRESH_AND_COMMIT_CALLERS entry"
+    for route in ("undo_settled", "_undo_sleep_settle"):
+        from api.routers import inbox
+
+        assert "refresh_admitted(" in _src(getattr(inbox, route)), route
 
 
 # --- G98/G115: the one-shot bank migrations (boot and every bank activation) -----------------------------------------

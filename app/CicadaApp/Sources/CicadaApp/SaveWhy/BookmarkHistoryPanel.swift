@@ -65,7 +65,7 @@ struct BookmarkHistoryView: View {
                     .foregroundStyle(CicadaTheme.textTertiary)
                 TextField(Copy.Bookmarks.searchPrompt, text: $model.query)
                     .textFieldStyle(.plain)
-                    .font(CicadaTheme.font(size: 13))
+                    .font(CicadaTheme.bodyFont)
                     .focused($searchFocused)
                     .onSubmit { if rows.indices.contains(model.selection) { onOpen(rows[model.selection]) } }
                     .onChange(of: model.query) { _, _ in model.selection = 0 }
@@ -150,7 +150,7 @@ struct BookmarkHistoryRowView: View {
                 .ringed(in: CicadaTheme.shape(CicadaTheme.radiusXS + 2))
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                 Text(row.title)
-                    .font(CicadaTheme.font(size: 13, weight: .medium))
+                    .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.tail)

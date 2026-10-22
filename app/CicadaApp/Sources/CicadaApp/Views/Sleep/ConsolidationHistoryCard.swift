@@ -176,7 +176,8 @@ struct ConsolidationHistoryCard: View {
     var onToggleRun: (String) -> Void = { _ in }
 
     var body: some View {
-        SleepDetailsSection(title: "Past nights") {
+        let layout = PastNightsLayout(entries)
+        SleepDetailsSection(title: layout.title) {
             if entries.isEmpty {
                 Text("Nothing consolidated yet.")
                     .font(CicadaTheme.bodyFont)
@@ -185,19 +186,20 @@ struct ConsolidationHistoryCard: View {
                     .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
             } else {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(PastNightItem.group(entries)) { item in
+                    ForEach(layout.items) { item in
                         switch item {
                         case .cycle(let entry):
-                            cycleRow(entry)
+                            cycleRow(entry, layout: layout, showsDate: layout.datedIds.contains(item.id))
                         case .run(let ref, let members):
                             PastRunRow(ref: ref, newest: members[0], isExpanded: expandedRun == ref.id,
+                                       showsDate: layout.datedIds.contains(item.id),
                                        onToggle: { onToggleRun(ref.id) })
                             if expandedRun == ref.id {
                                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                                     RunDetailBlock(detail: runDetails[ref.id], onSelectEntity: onSelectEntity)
                                         .padding(.leading, CicadaTheme.scaled(142))
                                         .padding(.trailing, CicadaTheme.scaled(40))
-                                    ForEach(members) { entry in cycleRow(entry) }
+                                    ForEach(members) { entry in cycleRow(entry, layout: layout, showsDate: false) }
                                 }
                                 .padding(.bottom, CicadaTheme.spacingSM)
                             }
@@ -209,8 +211,9 @@ struct ConsolidationHistoryCard: View {
     }
 
     @ViewBuilder
-    private func cycleRow(_ entry: SleepHistoryEntry) -> some View {
-        PastNightRow(entry: entry, isExpanded: expanded == entry.commitHash, onToggle: onToggle)
+    private func cycleRow(_ entry: SleepHistoryEntry, layout: PastNightsLayout, showsDate: Bool) -> some View {
+        PastNightRow(entry: entry, isExpanded: expanded == entry.commitHash, showsDate: showsDate,
+                     showsUsage: !layout.usageSaidOnce, showsDuration: !layout.durationSaidOnce, onToggle: onToggle)
         if expanded == entry.commitHash {
             detail(for: entry)
                 // The mock's indent: the detail starts under the headline.
@@ -298,7 +301,7 @@ struct ConsolidationHistoryCard: View {
                 if !d.episodesByOrigin.isEmpty {
                     FlowLayout(spacing: 6) {
                         ForEach(d.episodesByOrigin.sorted(by: { $0.key < $1.key }), id: \.key) { origin, count in
-                            HStack(spacing: 4) {
+                            HStack(spacing: CicadaTheme.spacingXS) {
                                 OriginMark(origin: origin, size: CicadaTheme.scaled(12))
                                 Text(UsageFormat.count(count))
                                     .font(CicadaTheme.metaFont)
@@ -359,6 +362,11 @@ struct ConsolidationHistoryCard: View {
 private struct PastNightRow: View {
     let entry: SleepHistoryEntry
     let isExpanded: Bool
+    /// Say it once — the day only on its first row; the rows under it on the same day leave it blank.
+    var showsDate = true
+    /// False when the section's label already says no row recorded usage (or time).
+    var showsUsage = true
+    var showsDuration = true
     let onToggle: (String) -> Void
     @State private var hovering = false
 
@@ -373,7 +381,7 @@ private struct PastNightRow: View {
             HStack(spacing: CicadaTheme.spacingSM) {
                 // The time exists only since `--date=iso-strict` (Task 1); a legacy `yyyy-MM-dd`
                 // row reads "—" rather than a fabricated midnight (R-A14).
-                Text(SleepHistoryPresentation.dateText(entry.date))
+                Text(showsDate ? SleepHistoryPresentation.dateText(entry.date) : "")
                     .font(CicadaTheme.metaFont)
                     .monospacedDigit()
                     .foregroundStyle(isDecay ? CicadaTheme.textTertiary : CicadaTheme.textSecondary)
@@ -388,7 +396,7 @@ private struct PastNightRow: View {
                     headline(isDecay: isDecay)
                     // 2026-09-28 — what the cycle cost, one line under the counts; words come from
                     // `CycleUsageText`, so no figure is spelled in this view.
-                    if let usage = CycleUsageText.summaryLine(kind: entry.kind, summary: entry.usageSummary) {
+                    if showsUsage, let usage = CycleUsageText.summaryLine(kind: entry.kind, summary: entry.usageSummary) {
                         Text(usage)
                             .font(CicadaTheme.metaFont)
                             .monospacedDigit()
@@ -420,23 +428,22 @@ private struct PastNightRow: View {
                 // P18 — a `—` is a value with a reason, and the reason is on hover: the duration
                 // is joined from the `sleep_run` telemetry ledger by commit hash, and there is
                 // simply no row to join when telemetry was off (R5).
-                Text(SleepHistoryPresentation.durationText(ms: entry.durationMs))
-                    .font(CicadaTheme.metaFont)
-                    .monospacedDigit()
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .frame(width: CicadaTheme.scaled(52), alignment: .trailing)
-                    .help(entry.durationMs == nil ? Copy.noTimingRecorded : "")
+                if showsDuration {
+                    Text(SleepHistoryPresentation.durationText(ms: entry.durationMs))
+                        .font(CicadaTheme.metaFont)
+                        .monospacedDigit()
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .frame(width: CicadaTheme.scaled(52), alignment: .trailing)
+                        .help(entry.durationMs == nil ? Copy.noTimingRecorded : "")
+                }
 
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(CicadaTheme.icon(.inline))
-                    .foregroundStyle(CicadaTheme.textTertiary)
+                DisclosureChevron(isOpen: isExpanded)
                     .frame(width: CicadaTheme.scaled(28))
             }
             .padding(.leading, CicadaTheme.scaled(10))
             .padding(.trailing, CicadaTheme.scaled(4))
             .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-                .fill(hovering ? CicadaTheme.bgHover : Color.clear))
+            .rowHoverFill(hovering: hovering)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
@@ -475,6 +482,50 @@ private struct PastNightRow: View {
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+}
+
+/// Say it once (owner 2026-10-19) — what Past nights draws once instead of on every row: the day on its first row
+/// only (the rows under it are the same day), and, when no row recorded its usage or its time, one note on the
+/// section's label ("Past nights · usage and time not recorded") instead of "Usage not recorded" and "—" on each.
+/// Pure, so the rule is tested without a view.
+struct PastNightsLayout {
+    let items: [PastNightItem]
+    /// The items that draw their day: the first of each day, newest first.
+    let datedIds: Set<String>
+    let usageSaidOnce: Bool
+    let durationSaidOnce: Bool
+
+    init(_ entries: [SleepHistoryEntry]) {
+        items = PastNightItem.group(entries)
+        var dated: Set<String> = []
+        var lastDay: String?
+        for item in items {
+            let iso: String
+            switch item {
+            case .cycle(let entry): iso = entry.date
+            case .run(let ref, let members): iso = ref.startedAt ?? members[0].date
+            }
+            let day = SleepHistoryPresentation.dateText(iso)
+            if day != lastDay { dated.insert(item.id) }
+            lastDay = day
+        }
+        datedIds = dated
+        // Over EVERY cycle row the section can draw — a run's batches included, which draw these lines when the run is
+        // open (review of #363): one batch with usage means each row says its own, so no row's figure is ever hidden
+        // under a label that says it was not recorded (ruling 12).
+        let cycles = entries.filter { $0.kind == "sleep" }
+        usageSaidOnce = cycles.count > 1 && cycles.allSatisfy { $0.usageSummary == nil }
+        durationSaidOnce = cycles.count > 1 && cycles.allSatisfy { $0.durationMs == nil }
+    }
+
+    var title: String {
+        switch (usageSaidOnce, durationSaidOnce) {
+        case (true, true): Eyebrow.text(Copy.SleepUsage.pastNights, Copy.SleepUsage.usageAndTimeNotRecorded)
+        case (true, false): Eyebrow.text(Copy.SleepUsage.pastNights, Copy.SleepUsage.usageNotRecordedNote)
+        case (false, true): Eyebrow.text(Copy.SleepUsage.pastNights, Copy.SleepUsage.timeNotRecordedNote)
+        case (false, false): Copy.SleepUsage.pastNights
         }
     }
 }

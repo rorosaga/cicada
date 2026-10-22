@@ -15,15 +15,48 @@ import Foundation
 /// posts the same bytes again while the server is away (an unchanged bookmarks file at every look) keeps one entry,
 /// and different bytes on one route (two browsers, two conversations) each wait, in order. Bounded by count, bytes and
 /// age; the oldest go first. Nothing here holds a token — the request is signed when it is sent.
+///
+/// **Each post names the memory it was read for** (G202, D2 of the 2026-10-22 two-device test): the server's address
+/// (`base`) and the bank's id there (`bankId`, `X-Cicada-Bank-Id`) beside its name. A flush sends only the posts whose
+/// address is the one this app uses now, and re-sends the id, so the server refuses (409 `bank_mismatch`) a post meant
+/// for another of its memories; the rest wait, never dropped, and the Devices page counts them apart. A post written
+/// before (`v` 1, no address) goes to whichever server this app uses, as it always did.
 actor ReaderOutbox {
     struct Entry: Codable, Equatable, Sendable {
-        var v = 1
+        var v = 2
         let method: String
         let path: String
         let body: Data
         /// The `X-Cicada-Bank` value the original request carried: a post is never re-filed into another memory.
         let bank: String?
         let queuedAt: Date
+        /// The server it was read for (`APIClient.baseURL`); nil in a post written before G202.
+        var base: String? = nil
+        /// That bank's id on that server (`X-Cicada-Bank-Id`), when this app had heard it.
+        var bankId: String? = nil
+    }
+
+    /// Two addresses name the same server: scheme and host without case, a trailing slash ignored — the hooks' rule
+    /// (`hook_spool.same_server`).
+    static func sameServer(_ a: String?, _ b: String?) -> Bool {
+        guard let a, let b, !a.isEmpty, !b.isEmpty else { return false }
+        return normalized(a) == normalized(b)
+    }
+
+    static func normalized(_ base: String) -> String {
+        guard let parts = URLComponents(string: base.trimmingCharacters(in: .whitespaces)),
+              let scheme = parts.scheme, let host = parts.host else { return base }
+        var path = parts.path
+        while path.hasSuffix("/") { path.removeLast() }
+        let port = parts.port.map { ":\($0)" } ?? ""
+        return "\(scheme.lowercased())://\(host.lowercased())\(port)\(path)"
+    }
+
+    /// Whether `entry` may go to `base`: one that names no server goes wherever this app points; one that does, only
+    /// there. A nil `base` (a caller that does not filter) takes every post.
+    static func isFor(_ entry: Entry, base: String?) -> Bool {
+        guard let base, let meant = entry.base, !meant.isEmpty else { return true }
+        return sameServer(meant, base)
     }
 
     struct FlushResult: Equatable, Sendable {
@@ -81,16 +114,21 @@ actor ReaderOutbox {
 
     private func name(for entry: Entry) -> String {
         var key = Data("\(entry.method)\u{0}\(entry.path)\u{0}\(entry.bank ?? "")\u{0}".utf8)
+        if let base = entry.base {
+            key.append(Data("\(Self.normalized(base))\u{0}\(entry.bankId ?? "")\u{0}".utf8))
+        }
         key.append(entry.body)
         return "p-" + SHA256.hash(data: key).prefix(16).map { String(format: "%02x", $0) }.joined() + ".json"
     }
 
     /// Keep one post. Returns false when it is not a reader's post (nothing was written).
     @discardableResult
-    func put(method: String, path: String, body: Data, bank: String?) throws -> Bool {
+    func put(method: String, path: String, body: Data, bank: String?, bankId: String? = nil,
+             base: String? = nil) throws -> Bool {
         guard Self.queues(path) else { return false }
         try ensureFolder()
-        let entry = Entry(method: method, path: path, body: body, bank: bank, queuedAt: now())
+        let entry = Entry(method: method, path: path, body: body, bank: bank, queuedAt: now(), base: base,
+                          bankId: bankId)
         let target = folder.appendingPathComponent(name(for: entry))
         let staging = folder.appendingPathComponent(".\(target.lastPathComponent).\(UUID().uuidString.prefix(6)).tmp")
         let data = try JSONEncoder().encode(entry)
@@ -124,6 +162,16 @@ actor ReaderOutbox {
 
     func count() -> Int { entries().count }
 
+    /// What waits, by server: `here` for `base`, `elsewhere` for a server this app no longer uses (D3, G202). A nil
+    /// `base` (This Mac) counts every post that names a server as elsewhere, and one that names none as here.
+    func waiting(for base: String?) -> (here: Int, elsewhere: Int) {
+        var here = 0, elsewhere = 0
+        for item in entries() {
+            if base == nil ? item.entry.base == nil : Self.isFor(item.entry, base: base) { here += 1 } else { elsewhere += 1 }
+        }
+        return (here, elsewhere)
+    }
+
     /// Whether a post `matches` still waits (the APIClient asks before sending a newer one on the same route).
     func has(where matches: (Entry) -> Bool) -> Bool { entries().contains { matches($0.entry) } }
 
@@ -151,15 +199,17 @@ actor ReaderOutbox {
     /// memory never blocks the active memory's). `send` answers the HTTP status, or nil when no answer came. One
     /// flush at a time. `matches` narrows it to one route's posts (the APIClient sends those before a newer post on
     /// that route).
-    func flush(where matches: @Sendable (Entry) -> Bool = { _ in true },
+    /// `base`: only the posts read for that server go (D2, G202); the others wait for theirs, and `waiting` counts
+    /// only `base`'s. nil sends every post (the behaviour before G202, kept for callers that do not filter).
+    func flush(for base: String? = nil, where matches: @Sendable (Entry) -> Bool = { _ in true },
                send: @Sendable (Entry) async -> Int?) async -> FlushResult {
-        guard !flushing else { return FlushResult(waiting: count()) }
+        guard !flushing else { return FlushResult(waiting: base == nil ? count() : waiting(for: base).here) }
         flushing = true
         defer { flushing = false }
         trim()
         var result = FlushResult()
         var held: Set<String> = []
-        for item in entries() where matches(item.entry) {
+        for item in entries() where Self.isFor(item.entry, base: base) && matches(item.entry) {
             let lane = Self.lane(item.entry)
             if held.contains(lane) { continue }
             let status = await send(item.entry)
@@ -175,13 +225,39 @@ actor ReaderOutbox {
                 break
             }
         }
-        result.waiting = count()
+        result.waiting = base == nil ? count() : waiting(for: base).here
         return result
     }
 
-    /// A post's lane: its route and its memory. Order holds within a lane; lanes never wait on each other.
+    /// A post's lane: its route and its memory (server, bank name and id). Order holds within a lane; lanes never wait
+    /// on each other.
     static func lane(_ entry: Entry) -> String {
         let bare = entry.path.split(separator: "?", maxSplits: 1).first.map(String.init) ?? entry.path
-        return "\(entry.method) \(bare)\u{0}\(entry.bank ?? "")"
+        let server = entry.base.map(normalized) ?? ""
+        return "\(entry.method) \(bare)\u{0}\(entry.bank ?? "")\u{0}\(server)\u{0}\(entry.bankId ?? "")"
+    }
+}
+
+/// D3 (G202) — what the hooks on this Mac left waiting (`$CICADA_HOME/spool/capture`, `api/hooks/hook_spool.py`):
+/// counted by the server each capture was meant for, never read beyond that. The app never sends these; a hook's
+/// next firing, an agent's next call or `cicada status` does.
+enum HookSpool {
+    static func folder(cicadaHome: URL) -> URL {
+        cicadaHome.appendingPathComponent("spool/capture", isDirectory: true)
+    }
+
+    /// `here`: captures for `base` (a capture that names no server counts here on a server, elsewhere on This Mac);
+    /// `elsewhere`: for a server this Mac no longer uses.
+    static func waiting(cicadaHome: URL, base: String?) -> (here: Int, elsewhere: Int) {
+        let files = (try? FileManager.default.contentsOfDirectory(at: folder(cicadaHome: cicadaHome),
+                                                                  includingPropertiesForKeys: nil)) ?? []
+        var here = 0, elsewhere = 0
+        for file in files where file.pathExtension == "json" && !file.lastPathComponent.hasPrefix(".") {
+            guard let data = try? Data(contentsOf: file),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            let meant = (object["target"] as? [String: Any])?["base"] as? String
+            if let base, meant == nil || ReaderOutbox.sameServer(meant, base) { here += 1 } else { elsewhere += 1 }
+        }
+        return (here, elsewhere)
     }
 }

@@ -14,8 +14,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from _demo_scenario import demo
 from api import config, main
-from api.services import bank_index, bank_registry, demo_bank, evidence, git_service, markdown_parser, provenance
+from api.services import bank_index, evidence, git_service, markdown_parser, provenance
 from api.services.claims import Claim, Evidence, EVIDENCE_KINDS, write_claims
 
 SID = "33333333-4444-4555-8666-777777777777"
@@ -241,10 +242,7 @@ def test_fifty_claims_across_twenty_episodes_stay_in_budget(tmp_path, monkeypatc
 
 
 def test_the_demo_bank_answers_with_an_exact_quote(tmp_path):
-    bank = tmp_path / "demo"
-    bank_registry.scaffold_bank(bank)
-    demo_bank.populate(bank)
-    bank_index.invalidate()
+    bank = demo(tmp_path, index=False, showcase=True, today=None)   # `populate` with every step, on the real day
     counts, truncated = asyncio.run(git_service.entity_commit_authors(bank, "alpha-project"))
     result = provenance.entity_provenance(bank, bank / "entities" / "alpha-project.md",
                                           commit_authors=counts, commits_truncated=truncated)

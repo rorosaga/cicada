@@ -54,20 +54,12 @@ enum SourcesModel {
             .union(contributors.map { SourcesSelection.contributor($0.author) })
     }
 
-    /// DR-25 — "Sources · 7 connected" / "Sources · 2 of 7 · Saved by you" / "Sources · Who wrote your memory".
+    /// DR-25 — "Sources · 7 connected", whatever is open. Sources v4 (review of #358): the position and the group
+    /// ("2 of 7 · Saved by you") repeated what the list beside it already shows — the selected row and its group label
+    /// (DR-38) — so the eyebrow stays the page's.
     static func eyebrow(groups: [SourceIntentGroups.Group], open: SourcesSelection?) -> String {
         let ordered = groups.flatMap(\.rows)
-        let overview = Eyebrow.text(Copy.sources, ordered.isEmpty ? "" : Copy.Lists.connected(ordered.count))
-        switch open {
-        case .contributor?:
-            return Eyebrow.text(Copy.sources, Copy.Lists.whoWrote)
-        case .source(let id)?:
-            guard let i = ordered.firstIndex(where: { $0.id == id }),
-                  let group = groups.first(where: { $0.rows.contains { $0.id == id } }) else { return overview }
-            return Eyebrow.text(Copy.sources, Copy.Inbox.position(i + 1, of: ordered.count), group.title)
-        case nil:
-            return overview
-        }
+        return Eyebrow.text(Copy.sources, ordered.isEmpty ? "" : Copy.Lists.connected(ordered.count))
     }
 
     /// A contributor's share of entities written, from the strip's own segments (one scale, R-S6).
@@ -166,19 +158,9 @@ struct SourcesOverviewColumn: View {
     private var statistics: some View {
         let isOpen = usageVM.mode == .advanced
         return VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            Button { usageVM.mode = isOpen ? .minimal : .advanced } label: {
-                HStack(spacing: CicadaTheme.scaled(6)) {
-                    Image(systemName: isOpen ? "chevron.down" : "chevron.right").font(CicadaTheme.icon(.inline))
-                    Text(Copy.Lists.advancedStatistics)
-                }
-                .font(CicadaTheme.metaMediumFont)
-                .foregroundStyle(CicadaTheme.textSecondary)
-                .frame(height: CicadaTheme.scaled(28))
-                .contentShape(Rectangle())
+            DisclosureHeader(title: Copy.Lists.advancedStatistics, isOpen: isOpen, help: Copy.Lists.advancedHelp) {
+                usageVM.mode = isOpen ? .minimal : .advanced
             }
-            .buttonStyle(.cicadaPlain)
-            .help(Copy.Lists.advancedHelp)
-            .accessibilityValue(isOpen ? Copy.Lists.expanded : Copy.Lists.collapsed)
             .padding(.horizontal, CicadaTheme.scaled(10))
             if isOpen {
                 ContributorsStrip { onOpen(.contributor($0.author)) }
@@ -288,6 +270,14 @@ struct SourceListRow: View {
                         .monospacedDigit()
                         .foregroundStyle(liveness.tone.isAlarm && !selected ? CicadaTheme.warning : metaColor)
                         .lineLimit(1)
+                }
+                // Sources v4 (owner 2026-10-19) — on the root, who and where it came from: the chats that fed Messages,
+                // the sites a saved source's things came from; three faces, then "+N".
+                if style == .wide && !source.faces.isEmpty {
+                    Spacer(minLength: CicadaTheme.spacingSM)
+                    // Centred on the two lines beside it (the row is top-aligned, so the stack is set down, never stretched).
+                    SourceFaces(faces: source.faces, more: source.facesMore)
+                        .padding(.top, CicadaTheme.scaled(6))
                 }
             }
         case .titles, .hidden:

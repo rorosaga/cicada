@@ -916,15 +916,18 @@ def survey(memory_path: Path, *, settings=None) -> Plan:
 
 
 def _rename_footprint(memory_path: Path, page_id: str, new_name: str) -> list[str]:
-    """Every path a retitle would write, before it runs: the page, its new id, ``graph_edges.yaml`` when an edge names
-    the page, and each page whose references the shared matcher (``entity_merge._repoint_page``) would move — so a
-    page someone else is editing is never swept into the repair's commit."""
-    from api.services import entity_merge
+    """Every path a retitle would write, before it runs: the page, its new id, its uploaded picture's file (G146),
+    ``graph_edges.yaml`` when an edge names the page, and each page whose references the shared matcher
+    (``entity_merge._repoint_page``) would move — so a page someone else is editing is never swept into the repair's
+    commit."""
+    from api.services import entity_merge, entity_picture
 
     entities = Path(memory_path) / "entities"
-    old_name = str(markdown_parser.parse(entities / f"{page_id}.md").frontmatter.get("name") or page_id)
-    new_id = sanitize_id(new_name)
-    paths = [f"entities/{page_id}.md", f"entities/{new_id}.md"]
+    fm = markdown_parser.parse(entities / f"{page_id}.md").frontmatter
+    old_name = str(fm.get("name") or page_id)
+    new_id = _free_id(entities, new_name, page_id)   # the id `rename` will write, a taken title's `-2` included
+    paths = [f"entities/{page_id}.md", f"entities/{new_id}.md",
+             *entity_picture.rename_footprint(memory_path, page_id, new_id, fm)]
     if entity_merge._edges_name(memory_path, page_id):
         paths.append("graph_edges.yaml")
     old = entity_merge._names(page_id, old_name)

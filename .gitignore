@@ -29,6 +29,9 @@ benchmark_results/
 
 # Benchmark inputs that contain personal content
 benchmarks/*.local.*
+# hard_questions.py output (already covered above; named so a rename never un-ignores it)
+benchmarks/answer_eval.hard*.local.yaml
+benchmarks/answer_eval.hard.review.local.md
 benchmarks/questions.yaml
 benchmarks/queries.txt
 

@@ -1,0 +1,163 @@
+# The backend crucial tier (owner 2026-10-19: "only crucial stuff"). `make test-crucial` runs these (`pytest -m
+# crucial` over the files named here); `make test` runs the whole suite. `conftest.py` puts the `crucial` marker on
+# every test a line names. A line is `test_file.py::test_name` (every parametrization of it),
+# `test_file.py::Class::test_name`, or `test_file.py` (the whole file). Grouped under `## <rail>`, one strong test per
+# rail where one is enough. `test_crucial_tier.py` fails when a line names nothing.
+
+## The tier itself: every line here and in the Swift list names a real test
+test_crucial_tier.py
+
+## Capture: no LLM at capture time
+test_capture_needs_no_model.py
+test_capture_hook.py::test_cicada_cli_spawns_carry_capture_off
+test_capture_hook.py::test_hook_module_imports_nothing_from_api
+
+## Capture: a transcript is read only under the harness root as <session_id>.jsonl within the cap (G105)
+test_capture_transcript.py::test_refuses_paths_outside_the_harness_root
+test_capture_transcript.py::test_refuses_symlink_that_escapes_the_root
+test_capture_transcript.py::test_refuses_stem_mismatch_non_jsonl_and_oversize
+test_capture_transcript.py::test_ledger_row_is_counts_only
+test_session_stats.py::test_transcript_exists_is_isfile_only_under_the_injected_root
+
+## Capture: one episode per session (G104)
+test_turn_capture.py::test_a_multi_turn_cursor_conversation_is_one_episode
+test_capture_transcript.py::test_second_firing_updates_in_place_and_requeues
+
+## Capture never writes into a demo bank
+test_demo_capture.py::test_a_real_bank_is_never_a_demo_even_when_named_demo
+test_demo_capture.py::test_with_no_real_bank_to_choose_the_hook_gets_409_and_nothing_is_written
+test_demo_capture.py::test_every_mcp_write_tool_refuses_a_demo_bank_and_writes_nothing
+test_demo_capture_routes.py::test_every_capture_route_is_gated_or_named
+test_demo_capture_routes.py::test_a_gated_route_answers_409_and_writes_nothing
+
+## Every writer scrubs; every source-keyed writer stages through one module
+test_episode_scrub.py::test_a_one_time_code_loses_its_digits_and_keeps_its_sentence
+test_episode_scrub.py::test_scrub_body_records_a_count_and_a_writer_never_the_text
+test_episode_writers_scrub.py::test_every_module_that_mints_an_episode_id_references_episode_scrub
+test_episode_writers_scrub.py::test_the_lint_found_the_writers_it_exists_for
+test_episode_staging.py::test_a_deleted_source_is_stamped_never_removed_and_comes_back_clean
+
+## One id rule: max-suffix+1 per date, aware UTC; a new episode never replaces a file
+test_episode_ids.py::test_next_episode_id_is_max_plus_one_not_count_plus_one
+test_episode_ids.py::test_utc_now_iso_is_aware_utc
+test_storage_integrity.py::test_transcript_capture_never_overwrites_an_id_another_process_took
+
+## Sleep's write window and write admission (G177, G183)
+test_write_admission.py::test_a_writer_admitted_before_the_flip_finishes_before_sleep_proceeds
+test_write_admission.py::test_a_writer_arriving_after_the_flip_is_refused_and_writes_nothing
+test_write_admission.py::test_a_lock_that_cannot_be_opened_fails_closed
+test_write_window_guards.py::test_a_page_writing_route_refuses_inside_the_write_window
+test_write_window_guards.py::test_reading_routes_are_never_gated
+test_status_writing.py::test_status_says_writing_only_inside_the_window
+
+## Ruling 4 / 4b / 4c: a scheduled run uses a plan only through the person's switch, on unless they turned it off
+test_engine_select.py::test_ruling_4_names_both_plans_in_one_tuple
+test_engine_select.py::test_a_settings_chosen_plan_never_runs_on_a_schedule_with_the_switch_off
+test_server_readers.py::test_with_the_switch_off_a_scheduled_run_never_uses_a_plan_chosen_in_settings
+test_server_readers.py::test_the_switch_is_on_by_default_and_an_explicit_off_stays_off
+test_server_readers.py::test_with_the_switch_a_scheduled_run_uses_the_claude_plan_chosen_in_settings
+test_server_readers.py::test_the_switch_is_stored_beside_the_reading_options_and_reads_off_when_corrupt
+test_sleep_scheduled_drain.py::test_a_scheduled_drain_reads_every_batch_but_never_selects_a_plan
+
+## Ruling 31: the default is Auto — a plan, else a local model — never a metered key nobody chose
+test_engine_select.py::test_the_default_install_never_falls_to_a_metered_key
+test_engine_select.py::test_a_resolved_no_engine_copy_refuses_every_call_before_it_is_made
+test_plan_first_inbox.py::test_a_run_with_no_engine_stops_before_stage_one_and_spends_nothing
+
+## Ruling 27 / 27b: a public-thing question is looked up, cited and undoable; Cicada's own settings are never asked
+test_plan_first_inbox.py::test_each_measured_shape_is_classified_as_pinned
+test_plan_first_inbox.py::test_the_sweeps_dry_run_counts_and_writes_nothing
+test_plan_first_inbox.py::test_the_sweep_settles_each_with_a_citation_one_commit_each_and_each_is_undoable
+
+## Temporal decay: evergreen never decays or is proposed; a mention never lowers; age counts from when it was said
+test_decay_policy.py::test_agent_producible_set_excludes_evergreen
+test_decay_policy.py::test_evergreen_always_resolves_to_a_zero_rate
+test_decay_writers.py::test_created_entity_ignores_an_evergreen_estimate_that_slipped_through
+test_decay_age_counts.py::test_an_evergreen_page_never_fades
+test_decay_age_counts.py::test_an_old_re_mention_never_lowers_a_decaying_page
+test_decay_age_counts.py::test_a_live_page_is_still_charged_at_most_a_week_per_cycle
+test_decay_age_counts.py::test_a_page_from_two_old_conversations_fades_dimmed_and_archives_only_by_live_silence
+test_decay_read_on_time.py::test_late_conversations_land_the_same_whatever_the_batches_and_as_if_read_on_time
+
+## Entity types are a closed set of 10; promotion needs 2+ conversations or the person's own words
+test_entity_types.py::test_known_accepts_exactly_the_ten
+test_entity_types.py::test_the_create_branch_holds_the_set_even_when_a_payload_slipped_through
+test_page_quality.py::test_a_second_conversation_promotes_crediting_both_with_what_each_said
+test_owner_self_reference.py::test_every_self_reference_lands_on_the_owner_page_and_no_user_page_is_written
+
+## Claims and evidence spans: exact -> whitespace -> case-insensitive, never fuzzy; provenance never blocks memory
+test_evidence.py::test_locate_exact_then_normalised_then_case_insensitive_never_fuzzy
+test_evidence.py::test_verify_falls_back_to_reasoning_never_a_faked_span
+test_claims_evidence.py::test_evidence_round_trips_through_the_claims_block
+test_claims_jsonl.py::test_append_keeps_every_existing_byte_and_writes_json_lines
+
+## A page's claims ledger: a write never drops a ledger line; git commits and restores a page with its ledger
+test_hub_pages.py::test_a_write_from_the_page_alone_never_drops_a_ledger_line
+test_hub_pages.py::test_a_commit_naming_the_page_takes_its_ledger_and_a_checkout_puts_it_back
+
+## The telemetry ledger is ids and enums only, never text
+test_cycle_usage.py::test_the_llm_call_ledger_row_stays_ids_enums_and_numbers
+test_handshake.py::test_record_is_ids_and_enums_only
+test_hook_context_route.py::test_one_ledger_row_per_firing_ids_and_enums_only_filed_beside_reads
+
+## _state.md is a cursor and commits alone, the read path too
+test_state_wiring.py::test_finalize_splits_a_dirty_state_file_out_of_the_model_commit
+test_state_wiring.py::test_get_state_read_commits_its_own_rewrite_as_cicada
+
+## The handshake is <= 1,800 tokens; R12: every argument a primer names exists in the tool schema
+test_handshake.py::test_build_carries_contract_state_and_capabilities
+test_handshake.py::test_never_secrets_never_transcripts
+test_handshake_r12.py::test_every_argument_the_local_primer_names_is_in_the_schema
+test_handshake_r12.py::test_every_argument_a_remote_primer_names_is_in_its_schema
+test_handshake_r12.py::test_every_argument_the_recall_note_names_is_in_the_schema
+
+## Privacy: the person's words need the `sources` scope; the query and the prompt are never logged
+test_ask_source_words.py::test_without_the_sources_scope_no_conversation_words_are_shown
+test_ask_source_words.py::test_the_remote_door_without_sources_asks_without_conversation_words
+test_search_service.py::test_the_query_is_never_logged
+test_search_service.py::test_the_access_log_never_carries_the_query
+test_hook_recall_privacy.py::test_the_prompt_never_reaches_a_log_the_ledger_or_the_bank
+
+## Git: one git writer per bank; git's lock is never deleted; every Sleep commit carries its trailers
+test_session_trailer.py::test_sessions_emit_one_trailer_line_each_after_the_authors
+test_git_write_lock.py::test_no_module_spawns_a_git_write_outside_git_service
+test_git_write_lock.py::test_an_external_index_lock_is_waited_out_and_never_deleted
+
+## The network: net_guard on every server-side fetch; the ToS rail (4 s / 512 KB / no auth / a block never retried)
+test_net_guard.py::test_private_and_odd_urls_are_refused
+test_net_guard.py::test_a_name_that_resolves_inward_is_refused
+test_net_guard.py::test_the_httpx_hook_refuses_every_hop
+test_default_summarize_gate.py::test_the_summarizer_reads_at_most_the_rails_byte_cap_on_the_rails_client
+test_default_summarize_gate.py::test_a_blocked_page_is_never_summarized_or_retried
+test_media_preview.py::test_a_wall_is_a_miss_and_never_retried_with_other_headers
+test_reading_walled_never_fetched.py::test_enrich_never_touches_the_client_for_a_walled_host
+test_reading_never_spawns_browser.py::test_no_module_imports_a_browser_driver_or_names_a_browser_binary
+
+## Search model download: every file sha256-checked; credentials live in secrets.env at 0600
+test_fetch_embedding_model.py::test_a_checksum_mismatch_installs_nothing
+test_embeddinggemma2.py::test_a_checksum_mismatch_installs_nothing
+test_connection_secrets.py::test_set_secret_writes_0600_and_exports
+
+## The backend never reads ~/Library or a declared folder
+test_backend_never_reads_folders.py::test_repos_location_resume_and_state_never_touch_a_declared_folder
+
+## API auth: every route but /healthz needs the bearer token; CORS is loopback only
+test_auth.py::test_healthz_is_open_but_status_requires_token
+test_auth.py::test_wrong_token_rejected
+test_auth.py::test_cors_allows_loopback_origins_only
+
+## Portability: no owner name primes a prompt
+test_owner_name_portability.py::test_no_llm_prompt_is_primed_with_a_person
+
+## Test isolation: the suite never touches the real home, a developer's .env, or a real bank
+test_suite_home_isolation.py
+test_system_benchmark_isolation.py::test_unmarked_bank_and_home_are_refused_before_import
+
+## Release: pinned, hashed inputs; signing inside-out; tags only on a greater version
+test_release_build.py::test_inputs_are_pinned_by_hash
+test_release_build.py::test_signing_is_inside_out_and_never_deep
+test_release_version_check.py::test_an_untagged_version_not_greater_than_the_latest_tag_fails_loudly
+test_fetch_embedding_model.py::test_the_release_build_and_the_checkout_share_one_copy_of_the_pins
+
+## CLAUDE.md stays under its size limit and every architecture doc exists
+test_claude_md_size.py

@@ -56,7 +56,7 @@ def release(tmp_path):
     (served / "release.json").write_text(json.dumps({"assets": [
         {"name": "Cicada-9.9.9.zip", "browser_download_url": f"{base}/Cicada-9.9.9.zip"},
         {"name": "latest.json", "browser_download_url": f"{base}/latest.json"}]}))
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
     home = tmp_path / "home"
     home.mkdir()
     env = {"HOME": str(home), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CICADA_NO_OPEN": "1",

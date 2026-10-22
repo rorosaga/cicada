@@ -141,18 +141,25 @@ public things and closes the question. The answer is saved with its link and quo
 by a check' list. Never searched: people's names, your own files, your projects, your life." The S3 rule above — a check
 settles nothing — still holds for every other question. **Which:** a pending conflict or clarification whose subject is
 a `company`, `concept`, `tool` or `media` page (or such a suggested type with a pending line); never a `person`, an
-untyped name Cicada's own description says is someone (person words), a person page's name or alias, the owner's page,
+untyped name Cicada's own description says is someone (person words; "the user"/"the person" as the speaker aside, and
+one it says is the speaker's own kept home — 2026-10-19), a person page's name or alias, the owner's page, a question
+about Cicada's own runtime settings on its own page (`own_settings`: the Sleep engine choice, the scheduled-plan
+switch, the schedule's time — never searched, never asked, 27b),
 a file, path or handle, a page with `path:`/`repos:`, a project, a question that says "you/your", an option naming a
-person or saying "my"/"her" (labels ride in the prompt), a question the person already took a check back on
+person or saying "my"/"her" (labels ride in the prompt), a conflict tied to the person in any way — first person, the
+owner's name, a project's name, "currently uses", "planned for", "<owner>'s thesis" — or two different things sharing a
+name with no option that is the page's own name (2026-10-20, `features.md`), a question the person already took a check back on
 (`web_check: undone`), a multi-valued predicate other than what the thing *is*, or a conflict whose predicate is not
 world-truth (`locus` world/artifact or a short public list: `description`, `is-a`… — `web_settle.classify`). **What it
 is** (owner, 2026-10-16, his own example "Is <tool-a> an agent harness or an AI agent itself?"): a type question
 (`web_settle.TYPE_PREDICATES`: `is-a`, `type`, `kind`, `category`, `genre`, `description`) is eligible though `is-a` is
-multi-valued; one option settles only when the page rules the others out (Sleep's answer must say
-`others_ruled_out: true`), the item's own `both` option when the page says it is all of them — one cited claim per
+multi-valued; one option settles only when the page rules the others out — defines it as that option and nowhere as
+another (Sleep's answer must say `others_ruled_out: true`) — the item's own `both` option when the page describes it as
+more than one of them (2026-10-19) — one cited claim per
 option, nothing closed — and never an option the item does not have. **What leaves the machine:** the search query is the
-subject's name plus at most one generic category word from a fixed list, read from Cicada's own description, none on a
-type question and none when unsure (`web_settle.query_for`); nothing else. **What the model may read (ruling 27a,
+subject's name plus at most one generic category word from a fixed list, read from Cicada's own description (Sleep's
+lookup and the sweep also from a mention line where the word stands beside the name, `web_settle.context_category`),
+none on a type question and none when unsure (`web_settle.query_for`); nothing else. **What the model may read (ruling 27a,
 owner 2026-10-16: "Yes, use local context"):** Sleep's lookup prompt carries `web_settle.local_context` — the
 description and up to two mention lines, ≤ 600 characters, scrubbed, no one's name, no link or path — only to judge
 which search result is the thing the person meant; it never enters the query (capture-and-sleep.md). **The person's own agent:** `cicada_check_nudges` adds `Public: look it up on the web (search only
@@ -230,7 +237,10 @@ Save: when the person says they like how a site or screen looks, the agent sends
 (an absolute path to a PNG or JPEG it saved, ≤ 4 MB) or `image_base64` — with `url`, a `note` on what they liked, and any
 HTML/CSS they pointed at as `snippets` (`title`, `tags`, `region` optional), and since looks v2 the page's computed type
 and colour roles as `tokens` (`design_tokens.JSON_SCHEMA`, `storage.md`; what is out of bounds is listed back as
-"tokens left out"). The note is the agent's: it is shown as "Noted by <harness>", never as the person's words. The stdio server reads that file as the
+"tokens left out"). **`subject`** (owner 2026-10-20) is the id of the page the look shows — a page recall returned; an
+unknown id is refused with nothing written, and none given lets the writer place it (the one page whose trusted site it
+is, else the saved link's page, else nowhere — `storage.md`); the reply says which page, and `design_search` rows say
+"on page <id>". The note is the agent's: it is shown as "Noted by <harness>", never as the person's words. The stdio server reads that file as the
 agent's own child process, and only a regular PNG/JPEG outside `~/.claude`, `~/.codex`, `~/.cicada` / `CICADA_HOME`,
 `~/Library` and the bank (the transcript rail, and the app-reads-`~/Library` rail). The refusal is **by file identity,
 never by spelling** (review 2026-10-14): the resolved file and every folder above it are compared by `(st_dev,
@@ -262,14 +272,23 @@ the url-index key (`media_ingestor.url_hash`, never the media entity id); a reco
 `$CICADA_HOME/video_queue/<bank>.json` (`video_queue.py`; a bank name that is not a plain slug gets an ASCII slug plus a short sha1 of its name, never a refusal; orphans are dropped only while the url index answers non-empty; keys only, never a URL or a title; flock plus atomic replace;
 expiry applied in memory and persisted inside a write) — so nothing in its lifecycle dirties a bank, commits, or answers
 409 while Sleep runs. `cicada_video_queue` (`read`, read-only) lists what waits; `cicada_video_claim` (`record`) leases
-the oldest queued videos (10 a call, 45-minute lease) or, with `release=[{url, code, reason}]`, hands one back
-(`needs_login` tells the agent not to sign in and tells the person). It is in `WRITE_TOOLS` (the demo gate, the write
+the oldest queued videos (10 a call, 45-minute lease) or, with `release=[{url, lease_token, code, reason}]`, hands one
+back (`needs_login` tells the agent not to sign in and tells the person). **Ruling 34 (2026-10-22): a lease ends only by
+its token.** Each claim mints a 128-bit `lease_token` per video and prints it on that video's reply line, ahead of the
+provider's title; a hand-back ends the lease only with that video's token, and anything else (no token, a wrong one, the
+pre-ruling `{url, code, reason}` shape, a row claimed before tokens existed) answers *not handed back: pass the
+lease_token*, and the lease lapses on its own clock. A `cicada_record_watch` with no `basis` closes a leased row only with
+its `lease_token` (optional argument; with a basis the record closes a row that it meets, whoever records it). The session
+id is never proof of holding (conversations on one connector can share one, the CLI has none, a restarted stdio process
+gets a new one); it only refreshes the caller's other leases, and never past three lease periods from the claim
+(`MAX_LEASE_PERIODS`). Every queue writer reads the saved videos under the queue lock, so a video saved and queued while
+another writer waited is never dropped as an orphan. It is in `WRITE_TOOLS` (the demo gate, the write
 lock; only its per-video title/channel lines are fenced, Cicada's own instructions in the reply stay outside) but `runtime._writes_bank` is false for it, and **a lapsed lease is judged only when Sleep is not
 holding the pages** (`ToolContext.pages_held()`, asked lazily), so a drain cannot burn a video's three attempts; while a
 lapsed lease is due, the `videoQueue` stamp also carries that hold bit (`<mtime>:<due>:<held>`), so the hold ending moves
 the component the app follows with nothing written. `VideoStateCache.reset()` on a bank switch keeps what a page asked
 for (`asked`), and the switch reads the new bank at once.
-`record_watch` credits the queue whether or not its bank commit ran. **No batch cap** (a hand-off takes every selected
+`record_watch` credits the queue whether or not its bank commit ran. The lease lifecycle is model-checked by `.claude/skills/verify-video-queue` (run it on any change to the queue, the record credit or caller session ids). **No batch cap** (a hand-off takes every selected
 video; the queue file's ceiling is 2,000 rows) and **no site list** (any saved video can be queued; a login wall is handed
 back and surfaced). The hand-off prompt (`video_prompt.py`, ≤ 1,200 characters) is provider-neutral, names no browser
 route by default, and carries the browser permission only while the single reading permission is on; the seam for "how
@@ -508,6 +527,61 @@ never opens a browser and never schedules an agent.
   isolated contexts are drivable and cookies do not cross; three daemons with separate runtime dirs capture in parallel;
   walls, a 404 and an unresolvable host classify as designed; the script's output records end to end. **Unverified:** a
   headed Chrome behind the `chrome://inspect` approval, and background-tab rendering there.
+
+**The Claude Code plugin (owner 2026-10-19: "a Claude Code plugin … so the agent can use the Cicada MCP and
+conversations get stored and captured").** The rule: **the plugin is the canonical Claude Code door; `install.sh` is
+the canonical machine install** (the venv, the memory folder, the backend, the app, and the Codex, Cursor and Gemini CLI
+wiring stay `install.sh`'s and the app's).
+
+- **Layout.** This repo is its own marketplace: `.claude-plugin/marketplace.json` (name `cicada`) lists one plugin,
+  `./plugins/cicada`, so its id is `cicada@cicada`. The plugin holds `.claude-plugin/plugin.json` (its `version` is a
+  `VERSION` stamp: `release.sh bump` moves it and `check_version.py agree` holds it), `.claude-plugin/icon.png` (a copy
+  of the app icon's 1024 px PNG, `app/CicadaApp/Art/AppIcon/Cicada-1024.png`; `claude plugin validate` warns
+  `ICON_MISSING` without it), `skills/cicada/SKILL.md` (a
+  byte-for-byte copy of the root `SKILL.md`, which stays the source; a test fails on drift), `.mcp.json` (the stdio
+  server `cicada`, which Claude Code lists as `plugin:cicada:cicada`), `hooks/hooks.json` and two POSIX scripts in
+  `scripts/` — never a top-level `bin/`, which makes claude.ai and Cowork refuse a plugin.
+- **Hooks.** The same five events and the same scripts install.sh registers: `Stop`, `PreCompact` and `SessionEnd`
+  run `scripts/cicada-hook capture --harness claude-code` (G105, G110 gate A); `SessionStart` and `UserPromptSubmit`
+  run `scripts/cicada-hook recall --harness claude-code` (G149), each with install.sh's 5 s timeout. The script execs,
+  with the hook's stdin and environment unchanged, the checkout named in the plugin's `cicada_repo` setting
+  (`<repo>/api/.venv/bin/python <repo>/api/hooks/<name>.py`, a developer build) or else the app's
+  `$CICADA_HOME/bin/cicada-hook` launcher (a release, G182). With neither it writes one line to stderr and exits 0 —
+  nothing on stdout, which would become the agent's context. Every capture rail stays in the scripts it runs:
+  `CICADA_CAPTURE=off` (Cicada's own spawns; Sleep's `claude -p` also runs `--safe-mode`, which disables plugins), one
+  episode per session, the transcript read by the backend only under the harness root. The plugin's `recall` setting
+  (*Remember automatically*, on by default) silences only the recall hooks.
+- **The skill the handshake names.** The Claude Code prelude names the `cicada` skill that is there
+  (`handshake.claude_skill`, part of the primer's cache key): `cicada:cicada` when the plugin is on (the same
+  `registry.plugin_state` test), else `~/.claude/skills/cicada` when `install.sh --skill` or the Skills page put a copy
+  there, else no policy file at all.
+- **The MCP server.** `scripts/cicada-mcp` execs the same checkout's `mcp/server.py` or the app's `cicada-mcp`
+  launcher; the `memory_path` setting, when set, becomes `CICADA_MEMORY_PATH` (the memory root — the server resolves
+  the active bank itself, as install.sh's own registration does).
+- **Settings.** `cicada_repo`, `memory_path` (both optional directories) and `recall` are `userConfig`, saved by Claude
+  Code under `pluginConfigs["cicada@cicada"]`; nothing sensitive is asked (the API token stays in `~/.cicada`).
+- **No double fire, and never no door.** `registry.py plugin --settings ~/.claude/settings.json` (read-only; the one
+  test, `registry.plugin_state`) answers `on` only when the plugin is enabled (`enabledPlugins["cicada@cicada"]`, user
+  settings), installed (`~/.claude/plugins/installed_plugins.json`) and able to run a Cicada by its scripts' own order
+  (a `cicada_repo` checkout with its venv — never falling back past one that isn't — else an executable
+  `$CICADA_HOME/bin/cicada-hook`); `broken` (exit 4, with why) when enabled but it would run nothing — a settings file
+  synced from another machine, no app and no checkout. With `on`, `install.sh` registers no Claude Code hook or MCP
+  entry and removes the ones it registered before (`registry.py uninstall`, Cicada's entries only; `claude mcp remove
+  cicada -s user`), skips `--skill` and says so; with `broken` it keeps its own entries and warns with the fix.
+  `make doctor` reports which door is active, fails a `broken` plugin, a leftover settings hook or user-scope `cicada`
+  entry (each would run twice), and names what the plugin runs; `GET /agents/wiring` reads Claude Code as on with
+  `capabilities.via = "plugin"` and no argv only for `on` (a `broken` plugin leaves the row probed as before, with why
+  in `detail`), names leftover settings hooks in `detail`, and `GET /agents/setup?harness=claude-code` hands back a
+  prompt that runs nothing. The app's *Remembers automatically* row reads the plugin's own `recall` setting, on or off,
+  and says it is switched there.
+- **Recall off stays off.** The plugin's recall hooks do nothing under its `recall` setting off or `CICADA_RECALL=off`.
+  When `install.sh` hands Claude Code over, a recall-off choice — `CICADA_RECALL=off`, or the app's switch (a capture
+  hook in the settings file and no recall hook) — is written into the plugin's own setting first
+  (`registry.py plugin-recall-off`: `pluginConfigs["cicada@cicada"].options.recall = false`, merged, atomic).
+- **Installing it.** In Claude Code: `/plugin marketplace add rorosaga/cicada`, then `/plugin install cicada@cicada`
+  (or, on 2.1.275+, `/plugin install cicada --marketplace rorosaga/cicada`), then re-run `./install.sh` once on a
+  source checkout so its older Claude Code entries go. A GitHub marketplace follows the default branch (`main`, so a
+  release); a checkout can add itself with `/plugin marketplace add ~/code/cicada` to try `dev`.
 
 **Implicit recall (G149).** G105 stopped capture depending on a model's tool call, and recall now works the
 same way.
@@ -760,7 +834,8 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   provenance (the episode). At most 8 episodes, ranked by how many question words the pointing claim or item shares;
   inside them, a turn is kept when it holds a pointed span or shares the question's words (minus scaffolding such as
   "how long"), at most 10 excerpts and 6,000 characters, each turn clipped around the span or first match, a short
-  reply with the turn it answers and a question with its reply, then sorted oldest first. Every line names its day and
+  reply with the turn it answers and a question with its reply, then sorted oldest first (a count or a list reads
+  breadth first, wider — "Lists and counts" below). Every line names its day and
   who spoke from the episode's own turn markers — the person (by the owner page's name), the assistant, or another
   person in a message conversation; an unmarked episode an agent saved through a tool door (`source` mcp/cli) is "an
   agent's saved note", never the person — and Cicada's gap line is never one. Read at answer time from bank files only
@@ -808,11 +883,11 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   when several conversations on one subject match, the later one carries what happened (the outcome after the plan,
   the agreed price after the listing) — and a kept conversation shows its best turn before the rest of the budget
   fills by score. `anchored` keeps the conversations of the named day (at most 2) and never adds a later one; the
-  best-ranked conversation is never pushed out. `enumerate` reads the 4 exactly as any question does, then adds one
-  line (≤ 300 characters, no context turns) from each further on-subject conversation and each of the 4 the budget
-  left without a line, up to 10 conversations and 1,800 more characters; its header tells the model to count each
-  distinct event once and say the count covers what memory shows. A value question the gate takes for a count ("how
-  many stars do I need") so loses nothing. Lines stay oldest first. Rule 11 adds: lines on one subject on different
+  best-ranked conversation is never pushed out. `enumerate` reads the 4 as any question does (but for whose turn
+  counts — "Lists and counts" below), then adds one line (≤ 300 characters, no context turns) from each further
+  on-subject conversation and each of the 4 the budget left without a line, up to 16 conversations and 3,600 more
+  characters; its header tells the model to count each distinct event once and say the count covers what memory
+  shows. A value question the gate takes for a count ("how many stars do I need") so keeps its own turns. Lines stay oldest first. Rule 11 adds: lines on one subject on different
   days — the later is what happened after (answer with it, the earlier as history, never "the outcome is not
   recorded" when a later line states it); a question about one past occasion is answered from that occasion, and a
   later line about something else never replaces it or what the entities and WHAT WAS SAID show. The page leg's WHAT
@@ -820,6 +895,185 @@ clipped to 600 characters; and Ask never read an episode although every claim ca
   embedded once per Ask: the page leg's claim search and this leg share the vector through the indexer's per-model
   query cache (measured: one query embed per Ask). Measured: `docs/research/2026-10-17-memory-benchmarks.md`, "Ask
   depth".
+- **Two ends (2026-10-20).** A question about two moments needs both in front of the model. The owner's hard set had
+  0 of 7 temporal questions right: "when I first … and by the time I later …" found the first conversation and not
+  the later one; "between <month> and <month>" got one end and an adjacent conversation for the other; a gap came
+  back one day off or as a range. One search over the whole question ranks the conversation holding most of its words
+  first, and that is one end. `ask_sources.two_ends` (no model) reads the moments from the question's own words —
+  "first … later / by the time / eventually", "between A and B" (with a time word or a date each side), "which came
+  first, A or B", "A before or after B", "how many days since A when B", "go/change from A to B", the order of two
+  or three quoted events or "the day …" items, a day or month named for each half, and Spanish "entre … y …", "de ser
+  A a ser B", "al principio … después", "cuando volví a", "qué fue primero, A o B" (Spanish dates and a month named
+  alone now count as named days); "two conversations 47 days apart" names a pair. "From A to B", "between A and B" and
+  two named months are two moments only with a change, duration or order word OUTSIDE the matched words ("switching
+  from vim to emacs", "the time difference between Madrid and Lima", "the flight between Lima and Madrid", "in May and
+  June" are not); "which … first, A or B" needs a past verb and "first" closing its clause ("what should I do first"
+  is advice); "first and foremost", "first of all", "primero que nada" and an opening "First, …" are no first moment. A
+  count that is not a duration ("how many times between March and July", "¿cuántas veces…?", "¿cuántos libros…?")
+  stays a count. A day the question names outside every end, and an outcome word ("final", "latest"), keep their own
+  reservations beside the ends. Its shape is `two_ends`: each end is searched on its own
+  words (the half, with what the question says around it; an end that names a month or day, or has fewer than two
+  words of its own, also carries the whole question's) through the same two legs, and the best conversation for each
+  end is kept inside the 4 read — from the end's own named month or day when it names one; of an end's first three
+  conversations, the one whose best turn holds most of its words as whole words leads (the index matches a word's
+  start, so "start" also finds "starter"). Two ends share a conversation when their best turns in it differ (a session
+  resumed days later), or when the second has no other holding half as much of its words; a pair "N days apart" is the two
+  on-subject conversations whose days are closest to N apart. Each end's conversation leads with its 2 best turns by
+  the end's own words (each end's best first), and the leg's budget grows by 2 excerpts and 1,000 characters. For a
+  two-ends question, or one that asks how much time has passed ("how many days ago", "how many months have passed
+  since", "how long ago", "¿hace cuántos días…?" — not a length: "how long is my commute"), the prompt adds
+  TIME BETWEEN THE CONVERSATIONS: every distinct day a shown line was said — the LOCAL calendar day of its turn's
+  stamp (`ask_sources.local_day`, the day `current_day` counts in; a turn at 01:30 local is stored on the previous UTC
+  day) — numbered from the earliest, today's number, and for each end its best-matching conversation, the day of the
+  end's own best turn there and the exact gap from the end above (days, weeks, about months)
+  — computed from the dates, never left to the model to estimate; it says a kept conversation is a best match, not
+  proof (rule 11), and that an event told as "yesterday" or "last week" moves by that much. The system prompt is
+  unchanged. On the broad public benchmark sample (LongMemEval_S 100, LoCoMo 10 conversations) every prompt outside
+  the temporal categories stayed byte-identical — a measurement on those sets, not a guarantee for every question.
+  Measured:
+  `docs/research/2026-10-17-memory-benchmarks.md`, "Two ends".
+- **Lists and counts (2026-10-20).** A count or a list needs every conversation that told the thing, with the line
+  that tells it. The broad sample (#380): LoCoMo multi-hop 65 J against the whole-conversation control's 96, its
+  answer turns in the prompt for 147 of 322; LongMemEval_S multi-session 11.7 %, 28 of 71 — answers counted what
+  they saw, one or two short. Three causes, three changes, no model in retrieval:
+  1. *Whose turn tells it.* The other side of a chat repeats the question's words ("weddings are such fun to attend")
+     and its turn beat the person's own line that told the event. `ask_sources.asked_about` reads who the question
+     is about from its own words — the person (first person — in Spanish also the verb alone: "he leído", "fui",
+     "compré" —, "the user"/"the owner", or their name: all of it or its first word, never a shared surname alone),
+     the agent ("you"), another speaker named by their label or the conversation's
+     correspondent. In a conversation where it asks about some speakers and not all, another speaker's turn counts
+     `OTHER_SPEAKER_SHARE` (0.5) of its words' weight, less the weight of the asked speakers' names it holds (said by
+     someone else a name only addresses them); a turn holding nothing more is dropped (`_about_first`). Window and
+     breadth both. The window is otherwise read as before: a version that also gave each window conversation one
+     line before a second from any lost a knowledge-update answer turn ("how many stars do I need": the correction
+     in the newest conversation) and was dropped.
+  2. *Lists asked as plain questions.* `question_shape` now also reads as `enumerate`, only when nothing else in
+     the question says what it is (no named day, no outcome word): "where has <name> camped", "what are <name>'s
+     hobbies", "what are the names of …", "which of my …", "what kind of indoor activities has …" (`_LIST`), and
+     Spanish counts and lists ("¿cuántas veces…?", "¿cuántos libros…?", "en total", "¿qué libros he leído?",
+     "¿cuáles fueron los resultados?" — a plural noun after "cuáles son/fueron"). Never a list: a plural that names
+     one thing about a subject (thoughts, opinions, views, feelings, reasons, chances, odds, details, plans;
+     pensamientos, opiniones, razones, planes, detalles — `_ONE_THING`), "which of my laptops is faster", "where have
+     you been", "¿cuántos años tiene…?" (an age), "todos los días" (a habit), "¿qué más has hecho?". A superlative ("the most", "favorite", "best") asks for one thing and is never a list — also
+     for the older "which … have I" form. `two_ends` reads exactly the forms it read before. A list made only of
+     words common across the bank ("what books has <name> read" in a chat about books) keeps them at the low
+     weight their rarity gives instead of showing nothing (`_lexical(common_share=1.0)`, only when no word of the
+     question is rare).
+  3. *A page's whole inventory.* "What activities does <name> partake in" shares no word with "went camping at the
+     beach", and the page leg showed only the items sharing the question's words (Sleep's page held the camping
+     lines; the prompt held 7 of its 119 items). For an `enumerate` question that names a page (its name or an
+     alias, as words — never the person's own page because the question says "I"), among the first three pages the
+     items the question's words leave unchosen are ranked by the search model the conversations' table was built
+     with (`SqliteVecIndexer.similarity`: the question as a query, the items as passages, cosine; computed now, never
+     stored, nothing logged) and fill the page's existing prose budget (4,800 characters) nearest first. Bounds
+     (review of #381): only a model this machine runs (`vector_index.runs_on_device`: `onnx_embedder.find` resolves
+     it, never an OpenAI or OpenRouter id — a hosted model would be sent the page's text at answer time; otherwise
+     no ranking); one allowance of `SIMILAR_TEXTS` = 120 items for the whole question across every page it ranks,
+     each clipped to `SIMILAR_CHARS` = 240 characters (120 × 240 ≈ 0.3 s warm on the Neural Engine; whole long items
+     were ~4 s, three pages ~11 s); the Core ML passage functions load within `PASSAGE_LOAD_WAIT_S` = 1.5 s
+     (`CoreMLEmbedder.passages`), else the ranking is skipped and the load goes on in the background; any failure
+     turns ranking off for the rest of the question.
+     Each such item's conversation leads to WHAT WAS SAID like any chosen item's, and there a turn qualifies by the
+     item's own words (two of them, or its only one; an item with none of its own leads nowhere) — the line that
+     told it. WHAT WAS SAID for a count or a list is
+     read breadth first: each pointed conversation's best turn (≤ 300 characters), in rank order, up to 16
+     conversations, then second turns, within 24 excerpts and 7,200 characters (`BREADTH_*`; was 8 / 10 / 6,000).
+  No computed list of distinct occurrences is added: without a model, an event retold in a second conversation
+  can't be told from a second event, and a conversation count stated as a number would anchor the model on it.
+  Bounds: the search leg's breadth +1,800 characters, WHAT WAS SAID +1,200; the page fill uses the budget the page
+  already had. Measured: `docs/research/2026-10-17-memory-benchmarks.md`, "Lists and counts".
+- **Judgements and Spanish (2026-10-20, G148).** Two gaps the broad sample and the owner's hard set showed, each fixed
+  with no model in retrieval:
+  1. *A judgement is reasoned, a fact still declines.* LoCoMo open-domain scored 48.8 against 75 for the
+     whole-conversation control; 37 of 42 misses said memory doesn't state what the record gave grounds to judge.
+     `ask_sources.asks_inference` (no model) reads a judgement: a likelihood word (likely, probably, possibly,
+     suspected, "do you think", "be considered"; probable, posible, quizás, tal vez), a leading "based on"/"in light
+     of"/"según", a choice of what someone lives nearer to — or a conditional about someone else (review of #385):
+     would/might/could, or a Spanish third-person "-ría" ("sería", "podría", "le gustaría", "disfrutaría"), only next
+     to a name or he/she/they (a Spanish "le", "a <name>", "de <name>" too). Never about I or we ("which restaurant
+     would we go to"), a thing ("when would the dentist appointment be"), "could not"/"couldn't", a request to the
+     agent ("could you", "-rías": "¿sabrías decirme …?", "please"), or a conditional only reported ("what did she say
+     she would do") — unless a likelihood word asks for a judgement. Over the whole of LoCoMo it fires on 48 of 96
+     open-domain questions and on none of the 1,890 others (adversarial included), nor on the broad sample's 100
+     LongMemEval questions. Only such a question gets the `_INFERENCE_NOTE` block after the question (the system prompt is
+     unchanged): give the most likely answer marked as an inference ("Probably …, because …"), with the lines it
+     rests on; general knowledge may connect the record to the question's terms but never supplies a fact about the
+     people; "memory doesn't say" is not the answer when the record bears on it; confidence below 0.7. Its named
+     pages' items are ranked by the search model as a list's are (`Searched.similar`, same bounds).
+  2. *A Spanish question by meaning.* A Spanish question over English conversations put none of their words in
+     front of the model: every word leg (claims and page items by shared words, WHAT WAS SAID, the search leg's
+     turns) matches words. `ask_sources.question_language` (no model) reads a Spanish question: Spanish function words outnumber English ones,
+     an article or "de"/"y" next to a capitalised word counting for neither ("Juan de la Torre", "Los Olivos"), and a
+     question opening with an English question word or auxiliary without "¿" is English;
+     `by_meaning` is then true — never for an English question whose words the record lacks, which is how an
+     abstention looks (the first cut turned "what is the name of my hamster?" into a lookup). The meaning leg **leads** only when the words can't (review of #385:
+     the owner's Spanish questions over his own Spanish conversations fell 50 → 43 % when it always led): no word of
+     the question is weighed, or most of the `LANGUAGE_PASSAGES` = 3 nearest passages are in another language
+     (`text_language`, function words). Over conversations in the question's own language the words lead exactly as
+     for an English question — #381's count and list path included — and the meaning leg only **adds** at most
+     `MEANING_EXTRA_EXCERPTS` = 2 lines (800 characters) after them, a conversation the words left out first
+     (`Searched.adds`); the page leg reads as for any question. Leading:
+     the vector leg's nearest passages (`Searched.passages`, the chunks' own text, no extra search) lead the search
+     leg — each of the first `MEANING_EPISODES` = 4 conversations shows the turns of its `MEANING_PASSAGES` = 2
+     nearest passages ranked by the search model on the question less the bank's common words (`turn_similar`, an
+     allowance of `MEANING_TURNS` = 96; gap 3 below), one per conversation first, taking
+     turns with what the words found; a day the question names leads (that day's conversations, read whole when the
+     vector leg missed them). The full-budget pages rank their first `_NEAR_SCAN` = 24 claims and their items by the
+     search model (`MEANING_TEXTS` = 160 for the question): the `_NEAR_CLAIMS` = 4 nearest claims point to WHAT WAS
+     SAID, and a pointed line leads to its turn by the line's own words (`gather(follow=True)`). The prompt says the
+     lines were found by meaning and adds `_SPANISH_NOTE` (the record may be in English, Spanish or both; answer in
+     Spanish). Same on-device-only bounds as the list ranking; without the search model a Spanish question reads as
+     before. Also, for a Spanish question only (`ask_sources.question_terms`; in English several are names — "Ella",
+     "Han", "Como" — so the shared `text_fold.SUBJECT_STOPWORDS` is unchanged): Spanish function words are not subject
+     words (`text_fold.SPANISH_STOPWORDS`), Spanish tense words leave the search words (`ES_TENSE_WORDS`), Spanish time
+     phrasing reads as English does ("por primera vez", "al principio", "solía" → anchored; "al final", "actualmente",
+     "todavía" → latest), and past-tense cues and a preterite's "-ó" ask for history. "ayer", "anteayer" and "hace
+     tres días" name days. English prompts are
+     byte-identical except the judgement questions'. Measured: `docs/research/2026-10-17-memory-benchmarks.md`,
+     "Judgements and Spanish".
+- **Implied facts, English over Spanish, names across languages (2026-10-20, G148, the gaps after #385).** No model in
+  retrieval; measured in `docs/research/2026-10-17-memory-benchmarks.md`, "Implied facts and the record's language".
+  1. *A fact the record only implies.* `ask_sources.asks_implied` (no model) reads a question worded as a fact whose
+     answer is usually shown, not said: a state, country, continent or holiday ("which US state …", "in what country
+     …"; "state" only beside a place or a verb of place, never a status — "what state is the PR in"), an age ("how old
+     is <name>"), a preference ("which … does <name> prefer"), the common name of something described ("what card
+     game is <name> talking about", "which popular composer …"), a yes or no about someone ("does <name> live in …",
+     "is <name> married") — someone a person page in front of the model names, or he/she/they; "is Docker running?"
+     is not one — and "who is <name>?" alone; Spanish forms too. Never a judgement (that keeps `_INFERENCE_NOTE`),
+     never about I, we or you, never a request. Such a question gets `_IMPLIED_NOTE` after the question, stricter than
+     the judgement note: a line that states it wins; when none does but the lines plainly imply it (a city's state or
+     country, a day's holiday, a described thing's well-known name, what someone's words and doings show) the answer
+     is marked "Probably …, because …" with its lines and days; general knowledge may make the link, never a fact
+     about the people; an inference is only about whom the question names (what the lines say of someone else is
+     theirs — LoCoMo's adversarial shape); a loose link is still a decline; confidence below 0.7. Its named pages'
+     items are ranked by the search model as a judgement's are. Over LoCoMo it fires on 31 of the 48 open-domain
+     questions the judgement detector leaves out, and on 25 of the other 1,890 (4 adversarial, 3 of which name a
+     person page); on none of the broad sample's 100 LongMemEval questions.
+  2. *An English question over conversations held in Spanish.* `ask_sources.record_language`: when the nearest
+     passage of one of the vector leg's first `MEANING_EPISODES` conversations is in another language than the
+     question (`text_language`) **and scores at least the search model's floor** (`RECORD_FLOORS`: EmbeddingGemma 2
+     0.72; a model with no measured floor never takes this path), the question goes by meaning too
+     (`Searched.record_lang`) — decided by the record's language and evidence that a passage speaks of the question,
+     never by the question's missing words (an abstention looks like that). Review of #390: on a record in both
+     languages the nearest passages always exist, so without the floor "what is the name of my hamster?" went by
+     meaning onto unrelated Spanish turns. On `locomo-es-turns.json` the nearest Spanish passage of 24 never-said
+     questions scored 0.635–0.717 and of answerable ones 0.625–0.821 (70 % at or above 0.72): no floor separates them
+     cleanly, so it sits above every never-said one and the rest read as on dev. It **leads** when most of the
+     three nearest passages are in the other language; otherwise it **adds** at most two lines beside the words, from
+     the other-language passages only (the words read the question's own). The prompt adds `_RECORD_LANGUAGE_NOTE`
+     (a translated name is the same thing, a line that does not mean what is asked is no answer; answer in the
+     question's language). Over a record all in the question's
+     language nothing changes: every English prompt of the broad sample's banks (382 LoCoMo, 100 LongMemEval_S) is
+     byte-identical to dev but the implied-fact questions'.
+  3. *A name in one language, the conversation in the other.* The claims vector leg already finds the page by its
+     translated name ("la academia de baile de Jon" → the dance-studio page, four of four pairs checked); aliases
+     bridge only what Sleep recorded; the word legs never can, and no word list is added. What did not bridge was the
+     meaning leg's turn choice: it ranked only a conversation's nearest passage, and the speakers' names won it — in a
+     two-person chat every greeting names the other ("¡Hola Jon! ¿Qué tal?"). Turns are now ranked on the question
+     less the words said in most of the bank's conversations (`_without`, the word index's own `COMMON_SHARE`), from
+     each conversation's `MEANING_PASSAGES` = 2 nearest passages (`MEANING_TURNS` 48 → 96). This also changes every
+     Spanish question's prompt (#385's path). LoCoMo's two Spanish film-title misses were not a language gap: the
+     conversation never names the film in either language.
 - **The `sources` scope.** `answer_query(source_words=...)`, `POST /ask` `sourceWords` (default true): `cicada_ask`
   passes `ctx.raw_excerpts`, so a remote connector without `sources` gets no conversation words in the prompt (R-R22)
   — neither leg runs for it.
@@ -898,7 +1152,12 @@ each with an exposed CLI row (`cicada skills list|propose|create`), one body eac
 - **`cicada_skills`** — every skill in this Mac's agents' folders (`skill_folders`), per agent (*on*, *through* another
   folder it reads, *off*), its source and version, the last update check (no fetch: the person checks), a tool skill
   whose text is older than its tool, permissions in words; then the catalog's suggestions, agents' drafts and the
-  requests waiting. Third-party SKILL.md names and descriptions are fenced as reference data.
+  requests waiting. Third-party SKILL.md names and descriptions are fenced as reference data. Since G201 slice (a)
+  (TODO ruling 35, 2026-10-22) each skill line also says its kind (`about-you`, `generic` or `kind unknown`, "(the
+  person's choice)" when they set it), a section lists Claude Code's plugins read-only (`id version · on|off|switched
+  per project · skills: …`, a skill only the person runs marked so), and one line gives each agent's loaded skills and
+  estimated description tokens (characters/4, said as an estimate). The reply's `data` gains `plugins` (ids). An agent
+  cannot set a kind or toggle a plugin: kinds are the person's (`PUT /skills/kinds`), plugins Claude Code's.
 - **`cicada_propose_skill(action, reason, source?, skill?, agents?)`** — `install` (a GitHub link, `owner/repo[@skill]`
   or an `npx skills add …` line, parsed by `skill_sources.parse`) and `update` **always** become a request the person
   approves on the Skills page, where they see the files first: an agent never installs third-party code through
@@ -1131,3 +1390,46 @@ the CLI.
     against the MCP schemas (R12 for the MCP half).
   - `handshake.build_cli`'s prelude names the same fallback, and stays within 1,800 tokens.
 - **Not yet built:** the overhead and latency measurement (T9). Its later slices are in the G180 row.
+
+## Stdio hygiene (the 2026-10-22 Hyrum audit: G199's integrity cases, G200 A8/A10/A11)
+
+- **Two refusals in the bodies, so every door refuses alike** (stdio, `/tools/call`, the remote connector, and the
+  command line, which calls the same body or the door). `cicada_write_claim` with an `observer` outside the accepted set
+  answers `Could not write claim: observer '<value>' is not one of 'owner', 'agent', 'external' or 'external:<name>' …;
+  nothing was written.`; absent or empty is still `agent`. `cicada_save_episode` with missing, empty or blank `content`
+  answers `Nothing saved: \`content\` must be the text to keep, and it was empty.` Both are `Reply(code="refused")`,
+  so the command line exits 1. They are prose on the success channel like every refusal today; `isError` for refusals,
+  `structuredContent` and validation of every argument against its schema are the rest of G199, which re-records the
+  golden fixture once with A1/A4/A6/A7/A9.
+- **The advertised `observer` pattern names no person** (A11): `^(owner|agent|external|external:[a-z0-9][a-z0-9-]{0,63})$`
+  (`mcp_tools.OBSERVER_PATTERN`). The legacy observer value old local installs send is still accepted by the body
+  (`mcp_tools.observer_accepted`) and still stored as the owner; it is in no schema or description
+  (`test_owner_name_portability`).
+- **JSON-RPC basics** (A10, additive): `ping` answers `{}` (a notification, none); a line that is not JSON answers
+  `-32700 Parse error` with `id: null`, one that is JSON but not an object `-32600`; `tools/call` without a `name`
+  answers `-32602`. Every stdio tool in the remote `catalog.READ_TOOLS` carries `annotations.readOnlyHint: true`, so the
+  two doors agree on which tools only read; no other annotation is added.
+- **Teaching material** (A8): `SKILL.md` (and its byte copy in the plugin) shows the current bank layout
+  (`banks/<bank>/…`), points corrections at `cicada_edit_page` / `cicada_write_claim` / `cicada_resolve_inbox` instead
+  of "never edit", and names the plugin as the Claude Code door when the tools are missing. A type hub's blurb tells an
+  agent to open a page with `cicada_recall_detail`, not a file path a remote or client agent does not have (rebuilt at
+  the next Sleep; no migration).
+- **Episode ids** carry the conversation's local day (ruling 34; `capture-and-sleep.md`). An id is opaque to an agent:
+  `cicada_ask` dates each line by the local day its turn was said, never by the id.
+
+## The remote connector's sign-in and capture (ruling 32, owner 2026-10-19)
+
+- **Sign-in.** The G135 listener is also an OAuth 2.1 authorization server (`api/remote/oauth.py`; the whole flow,
+  its checks and its limits are in `network.md`). A signed-in app holds an hour-long `cic_at_` access token and a
+  rotating `cic_rt_` refresh token; the gate verifies an access token against the connector row it maps to, so tool
+  lists, scopes, the Sleep gate, the ledger and every write's provenance (`Cicada-Author: <app harness>`,
+  `Cicada-Session: rc_…`) are the link connector's, unchanged. The secret link (`/c/<token>/mcp`) still works; the docs
+  and the From anywhere page steer Claude and ChatGPT to sign-in, which puts no secret in a URL.
+- **`cicada_capture_turns(message, previous_reply?, conversation)`** (`record` scope, remote only —
+  `catalog.REMOTE_ONLY`, so `test_remote_tools.py` classifies every stdio tool plus it). Not read-only, idempotent, not
+  destructive and not open-world: an app that confirms writes (ChatGPT) asks the person, who can allow it always.
+  `REMOTE_CONTRACT_VERSION` 12 puts "Capture every turn" first in the remote contract, only where the connection holds
+  the tool (R12 per scope set). What it writes and why it is never the person's own words: `capture-and-sleep.md`,
+  "Hookless apps, through the remote connector". Its schema takes no zone: the listener reads the IANA `timezone` of
+  the `openai/userLocation` hint ChatGPT puts in a call's `_meta` (only that field) so the episode id carries the
+  person's day (ruling 34); claude.ai sends none, and its relayed ids take the server's zone.

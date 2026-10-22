@@ -40,7 +40,7 @@ PATHS = ("ask", "full-context")
 #: The run's settings that must match on --resume (anything else would mix two experiments in one table).
 PINNED = ("dataset", "sleep_model", "disambiguation_model", "answer_model", "judge_model", "paths",
           "sleep_schedule", "batch_size", "embedding_model", "units", "only", "per_category", "limit",
-          "include_adversarial")
+          "include_adversarial", "questions", "questions_lang", "turns")
 
 
 def _mark(path: Path, marker: str) -> None:
@@ -110,7 +110,10 @@ def prepare(args) -> int:
 def unit_env(home: Path, bank: Path, cfg: dict, claude_home: str) -> dict[str, str]:
     # USER/LOGNAME: the `claude` CLI finds its sign-in in the login keychain by the account name; without them a
     # signed-in plan reads as signed out. Neither is a secret.
-    env = {k: os.environ[k] for k in ("PATH", "TMPDIR", "LANG", "LC_ALL", "USER", "LOGNAME") if k in os.environ}
+    # Thread caps pass through so an eval can keep to a few cores on a shared machine.
+    env = {k: os.environ[k] for k in ("PATH", "TMPDIR", "LANG", "LC_ALL", "USER", "LOGNAME", "OMP_NUM_THREADS",
+                                      "VECLIB_MAXIMUM_THREADS", "RAYON_NUM_THREADS", "TOKENIZERS_PARALLELISM")
+           if k in os.environ}
     env.update({
         "HOME": str(home), "CICADA_HOME": str(home), "CICADA_MEMORY_PATH": str(bank),
         "CICADA_CAPTURE": "off", "CICADA_TELEMETRY": "off",
@@ -137,6 +140,9 @@ def _config(args) -> dict:
         "sleep_schedule": args.sleep_schedule, "batch_size": args.batch_size,
         "embedding_model": args.embedding_model or "", "units": args.units, "only": args.only or [],
         "per_category": args.per_category, "limit": args.limit, "include_adversarial": args.include_adversarial,
+        "questions": str(Path(args.questions).absolute()) if args.questions else "",
+        "questions_lang": args.questions_lang or "",
+        "turns": str(Path(args.turns).absolute()) if args.turns else "",
         "concurrency": args.concurrency, "fake_engine": bool(args.fake_engine),
         "dataset_file": str(args.dataset_file) if args.dataset_file else "",
     }
@@ -174,9 +180,15 @@ def run(args) -> int:
                  else datasets.longmemeval_units(path, cfg["dataset"].split("-", 1)[1]))
     else:
         units = datasets.load_units(cfg["dataset"], lay["data"])
+    if cfg.get("turns"):   # a turn fixture: some conversations reworded (e.g. held in Spanish), the questions not
+        units = datasets.apply_turns(units, json.loads(Path(cfg["turns"]).read_text(encoding="utf-8")))
+    if cfg.get("questions"):   # a question fixture: its questions only, in its wording, every category it lists
+        fixture = json.loads(Path(cfg["questions"]).read_text(encoding="utf-8"))
+        units = datasets.apply_questions(units, fixture, cfg.get("questions_lang") or "")
     units = datasets.select(units, units_limit=cfg["units"], only=cfg["only"] or None,
                             per_category=cfg["per_category"], limit=cfg["limit"],
-                            skip_categories=() if cfg["include_adversarial"] else ("adversarial",))
+                            skip_categories=() if cfg["include_adversarial"] or cfg.get("questions")
+                            else ("adversarial",))
     print(f"run {run_dir}\n  {len(units)} unit(s), {sum(len(u['questions']) for u in units)} question(s) · "
           f"Sleep {cfg['sleep_model']} (+{cfg['disambiguation_model']}) · answer {cfg['answer_model']} · "
           f"judge {cfg['judge_model']} · paths {','.join(cfg['paths'])}", flush=True)
@@ -197,6 +209,9 @@ def run(args) -> int:
                **{k: cfg[k] for k in ("sleep_model", "disambiguation_model", "answer_model", "judge_model", "paths",
                                       "sleep_schedule", "batch_size", "concurrency")},
                "fake_engine": bool(cfg.get("fake_engine"))}
+        if args.gate:
+            while subprocess.run(args.gate, shell=True, check=False).returncode != 0:   # noqa: S602 — the person's own
+                time.sleep(60)
         started = time.perf_counter()
         print(f"  unit {unit['unit_id']}: {len(unit['sessions'])} sessions, {len(unit['questions'])} questions …",
               flush=True)
@@ -262,17 +277,26 @@ def parser() -> argparse.ArgumentParser:
     r.add_argument("--limit", type=int, help="at most N questions per unit (LongMemEval: N units)")
     r.add_argument("--include-adversarial", action="store_true",
                    help="LoCoMo category 5 too (scored apart with the abstention judge; never in the headline)")
+    r.add_argument("--questions", help="a question fixture (benchmarks/public/fixtures/): only its questions, in its "
+                                       "wording — e.g. locomo-es.json, LoCoMo questions in Spanish")
+    r.add_argument("--questions-lang", help="the fixture wording to ask (default: the fixture's own language; 'en' "
+                                            "asks the same questions in the dataset's English)")
+    r.add_argument("--turns", help="a turn fixture (benchmarks/public/fixtures/): those conversation turns reworded — "
+                                   "e.g. locomo-es-turns.json, LoCoMo sessions held in Spanish")
     r.add_argument("--sleep-model", default="sonnet", help="Sleep's model on the plan (CICADA_AGENT_MODEL)")
     r.add_argument("--disambiguation-model", default="haiku")
     r.add_argument("--answer-model", default="sonnet")
     r.add_argument("--judge-model", default="sonnet")
     r.add_argument("--paths", default="ask", help="comma list: ask (cicada_ask) and/or full-context (the control)")
-    r.add_argument("--sleep-schedule", choices=("once", "per-session"), default="once",
-                   help="once: one drain after everything is staged; per-session: a drain after each session, "
+    r.add_argument("--sleep-schedule", choices=("once", "per-session", "none"), default="once",
+                   help="none: stage and index only, no Sleep (Ask over the raw conversations' search leg); "
+                        "once: one drain after everything is staged; per-session: a drain after each session, "
                         "on that session's day (the nightly rhythm; more Sleep calls)")
     r.add_argument("--batch-size", type=int, default=25)
     r.add_argument("--embedding-model", default="", help="pin the search model id (default: what the home has)")
     r.add_argument("--concurrency", type=int, default=3, help="concurrent plan calls (CICADA_AGENT_MAX_CONCURRENCY)")
+    r.add_argument("--gate", help="a shell command run before each unit; the unit starts once it exits 0 (e.g. a "
+                                   "script that waits while another Sleep shares the plan). Never pinned.")
     r.add_argument("--claude-home", help="the home folder whose `claude` sign-in the plan calls use "
                                          "(default: yours; a separate signed-in folder works too)")
     r.add_argument("--fake-engine", action="store_true", help=argparse.SUPPRESS)   # offline test of the harness

@@ -1,35 +1,16 @@
 import SwiftUI
 
-/// A browser / social / feed / messaging / import source's page (G124): its
-/// channel state (joined from the `channels` snapshot by `channelId`),
-/// Sync/Poll now where the channel supports it (the same actions the Feed's
-/// connected-channel rows run — browser files are read HERE and posted as
-/// bytes, R1 of the Safari import: the launchd backend has no Full Disk
-/// Access and never opens `~/Library` itself), folder/device counts, and the
-/// Feed's items filtered to this source's origins (R6 — a client-side filter
-/// over the existing `sources` Store domain, no new endpoint).
+/// A browser / social / feed / messaging / import source's list (G124): under the one header (`SourceDetailHead`, which
+/// holds the channel's state and Sync/Poll now since Sources v4), the removals proposed against it, folder/device
+/// counts when there are folders, and what came in — a saved source's saved things, Messages by chat, watch history by
+/// day, every other source's items by name.
 struct ChannelSourceView: View {
     let source: SourceOverview
 
     @Environment(Store.self) private var store
-    @Environment(CalendarReader.self) private var calendarReader: CalendarReader?
     @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
-    @Environment(WatchHistoryWatcher.self) private var watchHistory: WatchHistoryWatcher?
-    @Environment(MessagesWatcher.self) private var messages: MessagesWatcher?
-    @Environment(ContactsReader.self) private var contacts: ContactsReader?
-    @Environment(BrowserWatcher.self) private var watcher
-    @Environment(LocalSourceWatcher.self) private var localSources
-    /// Round 4 (R-SR17) — the running sync and its ×.
-    @Environment(SyncActivity.self) private var activity
     @Environment(InboxViewModel.self) private var inboxVM
     @Environment(AppRouter.self) private var router
-    @State private var busy = false
-    @State private var feedback: ChannelFeedback?
-
-    private var channel: SourceChannel? {
-        guard let id = source.channelId else { return nil }
-        return (store.channels.value ?? []).first { $0.id == id }
-    }
 
     /// The Feed's items that belong to this source — the rule itself lives on
     /// `SourceOverview` so it can be tested without a view.
@@ -48,8 +29,10 @@ struct ChannelSourceView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                if let channel { stateCard(channel) }
+            // Review of #372 — lazy all the way down, so a long captured list realises (and asks marks for) only the
+            // rows on screen.
+            LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+                // Sources v4 — the channel's state, last sync and Sync now live in the one header (`SourceDetailHead`).
                 // The held answer's own Undo row keeps the section up after its last removal (R-DI16).
                 if !removals.isEmpty || inboxVM.heldRemoval(channel: source.channelId) != nil { deletionsSection }
                 if source.intent == .saved {
@@ -68,7 +51,8 @@ struct ChannelSourceView: View {
     @ViewBuilder
     private var capturedContent: some View {
         let groups = SourceItemsGrouping.folders(items)
-        if groups.count > 1 || (groups.first?.folder != SourceItemsGrouping.noFolder) {
+        // Sources v4: never an empty "By folder" heading — a source with no folders (Messages) draws none.
+        if SourceItemsGrouping.showsFolders(groups) {
             folderCounts(groups)
         }
         if source.id == TabGroupWatcher.channel {
@@ -109,60 +93,12 @@ struct ChannelSourceView: View {
         } else {
             // R-DL16 — a source's saved item opens in Sleep › Saved's detail column ("Open in Saved").
             let now = Date.now
-            VStack(spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {
+            LazyVStack(spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {
                 ForEach(items) { item in
                     FeedListRow(item: item, style: .triage, selected: false, now: now) {
                         router.routeToSavedItem(item.mediaEntityId)
                     }
                 }
-            }
-        }
-    }
-
-    /// Round 4 (decision 3) — the channel's state as one `SourceRow`: what came in, "Last synced …" or "Syncing
-    /// now" with an × (R-SR11/R-SR12); a failure is the row's `.problem`, so the old red line is gone.
-    private func stateCard(_ channel: SourceChannel) -> some View {
-        let watch = watcher.state(for: channel.id)
-        let model = SourceRowModel(id: channel.id, origin: source.mark, title: SourceDisplayName.of(source),
-                                   line: SourceRowText.countLine(channel) ?? ChannelDetailLine.text(channel),
-                                   status: SourceRowText.status(channel: channel, watch: watch,
-                                                                run: activity.run(for: channel.id)))
-        return VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
-                SourceRow(model: model, now: context.date, onCancel: { activity.cancel(channel.id) }) {
-                    if channel.actions.contains("sync") {
-                        actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader, tabGroups: tabGroups, contacts: contacts, messages: messages, watchHistory: watchHistory) }
-                    }
-                    if channel.actions.contains("poll") {
-                        actionButton("Poll now") { try await ChannelActions.poll(channel.id) }
-                    }
-                }
-            }
-            // R-D6 kept: the Full Disk Access fix is shown exactly where the read failed.
-            if watch == .blocked, let error = watcher.error(for: channel.id) { FullDiskAccessHint(error: error) }
-            if let feedback {
-                Text(feedback.text).font(CicadaTheme.captionFont)
-                    .foregroundStyle(feedback.isError ? CicadaTheme.danger : CicadaTheme.success)
-                    .task(id: feedback) {
-                        try? await Task.sleep(for: .seconds(5))
-                        if !Task.isCancelled { self.feedback = nil }
-                    }
-            }
-        }
-        .padding(CicadaTheme.spacingMD).glassCard()
-    }
-
-    /// Every action refreshes the overview alongside the channel/items
-    /// domains: the card's counts and `connected` dot come from
-    /// `/sources/overview`, not from `/sources/channels`.
-    private func actionButton(_ title: String, _ work: @escaping () async throws -> String) -> some View {
-        NeutralButton(title: title, size: .compact, isDisabled: busy) {   // DR-40
-            Task {
-                busy = true
-                do { feedback = ChannelFeedback(text: try await work(), isError: false) }
-                catch { feedback = ChannelFeedback(text: AddSourceSheet.friendlyError(error), isError: true) }
-                busy = false
-                await store.refresh([.channels, .sources, .sourcesOverview, .status])
             }
         }
     }
@@ -199,7 +135,7 @@ struct ChannelSourceView: View {
                 ForEach(groups, id: \.folder) { g in
                     // R-SR13: Safari's internal keys in Safari's words ("Favorites/AI", not `BookmarksBar/AI`).
                     Text("\(SafariSections.displayFolder(g.folder)) · \(UsageFormat.count(g.count))")
-                        .font(CicadaTheme.font(size: 11)).padding(.horizontal, 8).padding(.vertical, 3)
+                        .font(CicadaTheme.captionFont).padding(.horizontal, CicadaTheme.spacingSM).padding(.vertical, 3)
                         .background(CicadaTheme.surfaceHover).clipShape(Capsule())
                 }
             }

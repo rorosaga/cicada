@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "cicada": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/cicada-mcp",
+      "args": [],
+      "env": {
+        "CICADA_PLUGIN_REPO": "${user_config.cicada_repo}",
+        "CICADA_PLUGIN_MEMORY_PATH": "${user_config.memory_path}"
+      }
+    }
+  }
+}

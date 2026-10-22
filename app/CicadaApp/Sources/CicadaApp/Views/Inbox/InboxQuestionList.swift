@@ -141,9 +141,7 @@ struct InboxRow: View {
         }
         .padding(.horizontal, CicadaTheme.scaled(10))
         .frame(height: CicadaTheme.scaled(height))
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-            .fill(selected ? CicadaTheme.bgSelected : (hovering ? CicadaTheme.bgHover : Color.clear)))
-        .onHover { hovering = $0 }
+        .rowHover($hovering, selected: selected)
     }
 
     @ViewBuilder
@@ -195,7 +193,9 @@ struct InboxRow: View {
             question.frame(maxWidth: CicadaTheme.scaled(ColumnLayout.textMaxWidth), alignment: .leading)
             Spacer(minLength: 0)
             if slots.entity {
-                Text(item.displayName)
+                // Say it once — a question that already names its page ("Still tracking Beta Project?") leaves the
+                // column blank; the slot keeps its width so the columns still line up.
+                Text(InboxRowWords.namesItsPage(item) ? "" : item.displayName)
                     .font(CicadaTheme.metaFont)
                     .foregroundStyle(metaColor)
                     .lineLimit(1)
@@ -218,7 +218,7 @@ struct InboxRow: View {
                 age
             }
             HStack(spacing: CicadaTheme.scaled(6)) {
-                if !item.displayName.isEmpty {
+                if !item.displayName.isEmpty && !InboxRowWords.namesItsPage(item) {
                     Text(item.displayName)
                         .font(CicadaTheme.metaFont)
                         .foregroundStyle(metaColor)
@@ -262,7 +262,7 @@ struct InboxUndoRow: View {
 
     private var label: some View {
         Text(style == .titles || style == .hidden ? held.shortLabel : held.label)
-            .font(CicadaTheme.font(size: 13, weight: .medium))
+            .font(CicadaTheme.rowFont)
             .foregroundStyle(CicadaTheme.textSecondary)
             .lineLimit(1)
     }
@@ -277,7 +277,7 @@ struct InboxUndoRow: View {
     var body: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             Image(systemName: "checkmark.circle")
-                .font(CicadaTheme.font(size: 14))
+                .font(CicadaTheme.icon(.list))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .accessibilityHidden(true)
             switch style {
@@ -299,5 +299,54 @@ struct InboxUndoRow: View {
         .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
         .accessibilityElement(children: .contain)
         .onAppear { AccessibilityNotification.Announcement(held.label).post() }
+    }
+}
+
+/// Say it once (owner 2026-10-19) — whether a question's own words already name the page it is about, so a row (or a
+/// ⌘K row, or the card's header) does not print that name a second time beside it. Review of #363: the WHOLE name as
+/// whole words, diacritic-insensitive and case-insensitive after its first letter, its characters matched literally —
+/// "Al" is not in "Alpha", "Go" not in "go?", "Rust" not in "trust" — and not as the start or end of a longer name:
+/// "Claude" is not named by "Claude Code" (a capitalised word or a number right beside it continues the name). When in
+/// doubt the name shows.
+enum InboxRowWords {
+    static func namesItsPage(_ item: InboxItem) -> Bool {
+        repeats(name: item.displayName, in: item.questionText)
+    }
+
+    static func repeats(name: String, in text: String) -> Bool {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return false }
+        let pattern = "(?<![\\p{L}\\p{N}_\\-])" + NSRegularExpression.escapedPattern(for: name)
+            + "(?![\\p{L}\\p{N}_\\-])"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return false }
+        let ns = text as NSString
+        for match in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            // A capitalised name is never named by a lowercase word: "Go" is not in "How did it go?".
+            guard ns.substring(with: match.range).first == name.first else { continue }
+            let before = ns.substring(to: match.range.location)
+            let after = ns.substring(from: match.range.location + match.range.length)
+            if !continuesAName(word: lastWord(before)), !continuesAName(word: firstWord(after)) { return true }
+        }
+        // Diacritics: "Jose" names "José" — fold both once (folding is idempotent, so this recurses at most once).
+        let fold: (String) -> String = { $0.folding(options: [.diacriticInsensitive], locale: nil) }
+        let (n, t) = (fold(name), fold(text))
+        if n != name || t != text { return repeats(name: n, in: t) }
+        return false
+    }
+
+    /// The word right beside the match, across one space only: punctuation or a line between ends the name.
+    private static func lastWord(_ s: String) -> String? {
+        guard s.hasSuffix(" ") else { return nil }
+        return s.dropLast().split(separator: " ").last.map(String.init)
+    }
+
+    private static func firstWord(_ s: String) -> String? {
+        guard s.hasPrefix(" ") else { return nil }
+        return s.dropFirst().split(separator: " ").first.map(String.init)
+    }
+
+    private static func continuesAName(word: String?) -> Bool {
+        guard let first = word?.first else { return false }
+        return first.isUppercase || first.isNumber || first == "("
     }
 }

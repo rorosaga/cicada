@@ -249,7 +249,30 @@ class SessionCaptureRequest(BaseModel):
     hook_event: str | None = Field(None, max_length=64)
     effort: str | None = Field(default=None, max_length=32)
     workspace: Any = None
+    #: Ruling 34 (2026-10-22), additive: the client's UTC offset in minutes at the conversation's first turn (east
+    #: positive), so a new episode's id carries the person's day, not this server's. Absent: this server's zone.
+    utc_offset_minutes: int | None = Field(None, ge=-episode_ids.MAX_UTC_OFFSET_MINUTES,
+                                           le=episode_ids.MAX_UTC_OFFSET_MINUTES)
+    #: G202 (D1), additive: a spooled resend names the bank it was captured for (the ``bankId`` an earlier answer
+    #: gave); when no bank of this server's memory has that id it is refused (409 ``bank_mismatch``) and the client
+    #: holds it for its own memory. Absent (every live post): filed where a capture goes now, as before.
+    bank_id: str | None = Field(None, max_length=128)
 
+
+def _filed_in(settings: Settings, target, claimed: str | None) -> str | None:
+    """The id of the bank a capture is filed in (the demo redirect counts: the id is the bank written).
+
+    A resend names the bank its client last heard this address file in (G202, D1). It is refused —
+    ``bank_binding.BankMismatch``, 409 ``bank_mismatch``, nothing read or written — only when that id is no bank of
+    this server's memory: the address now leads to another memory. A bank switch on this server is the person's own
+    move, and the resend is filed where a live capture of the same session goes now, so a session is never split
+    between the bank it started in and the one it continues in (G104; review of #408)."""
+    from api.services import bank_binding
+
+    filed = bank_registry.bank_id(settings.memory_root, target.name) if target is not None else None
+    if claimed and claimed != filed and claimed not in bank_registry.bank_ids(settings.memory_root):
+        raise bank_binding.BankMismatch()
+    return filed
 
 @router.post("/capture/session")
 async def capture_session_endpoint(req: SessionCaptureRequest, request: Request,
@@ -260,6 +283,7 @@ async def capture_session_endpoint(req: SessionCaptureRequest, request: Request,
     episode per session, ids minted here, the same demo redirect and answers. The device that signed the post
     (its token, ``request.state.device``) is recorded on the episode."""
     target = bank_registry.capture_bank(settings.memory_root)
+    filed = _filed_in(settings, target, req.bank_id)
     memory_path = target.path if target is not None else settings.memory_path
     device = getattr(request.state, "device", None)
 
@@ -270,7 +294,7 @@ async def capture_session_endpoint(req: SessionCaptureRequest, request: Request,
             keep_assistant=settings.capture_assistant_replies, bank=memory_path.name, effort=req.effort,
             hook_event=req.hook_event, workspace=req.workspace,
             bank_paths=continuity_sessions.bank_paths_for(settings.memory_root),
-            device=device.id if device is not None else None)
+            device=device.id if device is not None else None, utc_offset_minutes=req.utc_offset_minutes)
 
     result = await asyncio.to_thread(_capture)
     if target is None or result.status == "refused":
@@ -281,7 +305,7 @@ async def capture_session_endpoint(req: SessionCaptureRequest, request: Request,
         logger.info(f"capture: the demo bank is open — saved the {req.harness} session into '{target.name}'")
     return {"status": result.status, "episodeId": result.episode_id, "turnsUser": result.turns_user,
             "turnsAssistant": result.turns_assistant, "summary": result.summary, "bank": target.name,
-            "redirectedFrom": target.redirected_from}
+            "bankId": filed, "redirectedFrom": target.redirected_from}
 
 
 class PostedTurn(BaseModel):
@@ -304,6 +328,14 @@ class TurnCaptureRequest(BaseModel):
     model: str | None = Field(None, max_length=200)
     cwd: str | None = Field(None, max_length=4096)
     hook_event: str | None = Field(None, max_length=64)
+    #: Ruling 34 (2026-10-22), additive: the client's UTC offset in minutes at the conversation's first turn (east
+    #: positive), so a new episode's id carries the person's day, not this server's. Absent: this server's zone.
+    utc_offset_minutes: int | None = Field(None, ge=-episode_ids.MAX_UTC_OFFSET_MINUTES,
+                                           le=episode_ids.MAX_UTC_OFFSET_MINUTES)
+    #: G202 (D1), additive: a spooled resend names the bank it was captured for (the ``bankId`` an earlier answer
+    #: gave); when no bank of this server's memory has that id it is refused (409 ``bank_mismatch``) and the client
+    #: holds it for its own memory. Absent (every live post): filed where a capture goes now, as before.
+    bank_id: str | None = Field(None, max_length=128)
 
 
 @router.post("/capture/turn")
@@ -315,6 +347,7 @@ async def capture_turn_endpoint(req: TurnCaptureRequest, settings: Settings = De
     turn is saved into the real bank left most recently and the response names
     it; with no real bank, ``409`` and nothing is written."""
     target = bank_registry.capture_bank(settings.memory_root)
+    filed = _filed_in(settings, target, req.bank_id)
     memory_path = target.path if target is not None else settings.memory_path
 
     def _capture():
@@ -323,7 +356,8 @@ async def capture_turn_endpoint(req: TurnCaptureRequest, settings: Settings = De
             turns=[turn_capture_mod.Posted(t.speaker, t.text) for t in req.messages],
             turn_id=req.turn_id, retry=req.retry, model=req.model, cwd=req.cwd,
             keep_assistant=settings.capture_assistant_replies, bank=memory_path.name,
-            bank_paths=continuity_sessions.bank_paths_for(settings.memory_root), hook_event=req.hook_event)
+            bank_paths=continuity_sessions.bank_paths_for(settings.memory_root), hook_event=req.hook_event,
+            utc_offset_minutes=req.utc_offset_minutes)
 
     result = await asyncio.to_thread(_capture)
     if target is None or result.status == "refused":
@@ -333,7 +367,8 @@ async def capture_turn_endpoint(req: TurnCaptureRequest, settings: Settings = De
     if target.redirected_from:
         logger.info(f"capture: the demo bank is open — saved the {req.harness} turn into '{target.name}'")
     return {"status": result.status, "episodeId": result.episode_id, "turnsUser": result.turns_user,
-            "turnsAssistant": result.turns_assistant, "bank": target.name, "redirectedFrom": target.redirected_from}
+            "turnsAssistant": result.turns_assistant, "bank": target.name, "bankId": filed,
+            "redirectedFrom": target.redirected_from}
 
 
 class HookContextRequest(BaseModel):

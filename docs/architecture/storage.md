@@ -38,7 +38,7 @@ read_late: 2026-03-20      # only between a late read and the decay pass that pl
 decay_rate: 0.05           # per-entity, not global
 decay_class: active        # evergreen | durable | active | volatile (G66)
 source_episodes: [ep_2026-01-10_001]
-tags: []                   # open set, freeform
+tags: []                   # open set, freeform; never a saved list's name (that is `folder:` / `collections:`)
 related: []                # duplicates wikilinks for programmatic access
 version: 3
 claims_ledger: {claims: 5835, hash: 1a2b3c4d5e6f}  # only on a page whose older claims live in its ledger
@@ -64,6 +64,38 @@ changes; a page dirty in git is skipped; it refuses while Sleep runs.
 produced by Stage-1 extraction** — `PRODUCIBLE_ENTITY_TYPES` excludes it; due-dates attach as a
 `due` claim on the relevant project instead of spawning a standalone entity. `media` is likewise
 excluded — it comes from the ingestion path, not conversation extraction.
+
+**A saved list is provenance, never a tag or a hub (owner 2026-10-19: "the video was taken from this playlist and that's
+it … a property of the markdown").** A media page records every list it was saved from — a YouTube playlist (Watch
+later included), an Instagram collection, a Pinterest board, a Reddit subreddit or saved list, an X or LinkedIn
+export's list, a browser bookmark folder, a device's Safari tabs — as `collections:` (in the order it was saved from
+them) with the first also its `folder:` (every older reader, the Sources page's grouping among them, knows only
+`folder:`; a page from before `collections:` holds its `folder:` alone, `id_utils.page_lists`). A later save of the
+same URL from another list — a second playlist in the same export, a re-import, the person's agent reading Watch
+later — appends that list through `media_ingestor.add_collection` (and makes it the `folder:` of a page that had
+none). A batch's repeats are appended after its new pages commit, in one admitted transaction
+(`append_collections`: write admission, then the page lock, through their own `user` commit, 500 pages a commit, off
+the event loop); while Sleep holds the pages nothing is appended and the next import or sync derives it again. The
+agent's Watch later read appends inside its own admission and page lock. A list the page already holds changes
+nothing.
+
+**Provenance never makes a hub.** Stage 5.6 makes any tag shared by `hub_tag_min_members` (5) active pages a
+`topic-<tag>` hub with a `member of` edge to each, and the media writer used to put `sanitize_id(folder)` in `tags`
+(the Netscape parser the raw folder name), beside the media type and the capture door's origin — so every list,
+media type and door with enough saves became a hub. `id_utils.provenance_tags` names those tags: a page's list tags
+(`list_tags`: the raw name and slug of each of its lists), and on a `media` page its `media.media_type`,
+`media.kind`, `origin:` and a door's stamp (`<browser>-bookmark`, `bookmark`, `safari-tab`) — each repeats a field
+the page holds. `write_media_entity` no longer writes list tags; media-type and origin tags stay on the page (readers
+filter by them), but the hub tier (`hub_builder._topic_tags`) gathers no page by any provenance tag, so a bank's list
+and provenance hubs go at its next Sleep. A tag the person or Sleep wrote for meaning — any tag on a non-media page,
+any other tag on a media one — still makes its hub. An existing bank is repaired by `python -m
+api.scripts.repair_list_hubs --bank <path>` (dry run: counts only — pages to untag, tag hubs on disk, and those the
+regenerated tier drops by kind, `list_hubs`, `provenance_hubs`, `other_hubs`, or adds, `hubs_to_add`; `--apply`:
+strips only list tags, never `folder:`, `collections:`, the body or claims, regenerates the hub tier through
+`hub_builder.regenerate_hubs_and_index`, and commits pages, hubs and `_index.md` under `cicada`,
+`maintenance/list-hubs` — pages written and committed 500 at a time, the hub tier in the last part; a page dirty in
+git is skipped unless its only change from HEAD is this repair's (an interrupted run's, adopted and committed); refused
+while Sleep runs or when git cannot list the dirty pages; a rerun changes nothing — `list_hub_repair`).
 
 **Status lifecycle:** `active` → `decaying` → `archived` → `dropped` (user-dismissed, never
 resurfaced).
@@ -351,13 +383,20 @@ stem ignoring case, reads one index built from that listing, never a glob per ca
 themselves (`recall_detail`, `sources`, progress participants, the backlog's project page) use the same rule. Before the loser's
 page is deleted, `graph_edges.yaml` and every other page's `related:`, `[[wikilinks]]` (with `|label` or `#section`),
 source `entity:` links and claims whose subject or node object named it are repointed (`repoint_references`), the
-loser's name joins the winner's `aliases`, and the result lists the paths it wrote. The inbox's
-rename-to-the-cleaner-slug branch repoints the same references (`rename_references`), and every inbox note lands above
-the fence. `episodes/` is never rewritten. **The dedup sweep commits its own merges (G183(e)):** `POST
+loser's name joins the winner's `aliases`, and the result lists the paths it wrote. **What the person gave either page
+survives (2026-10-21):** both pages' `kept_on` days are unioned (oldest first, the newest 52; G147), and the person's
+picture choice travels when the winner has none of its own (G146) — an upload's file moves to
+`assets/pictures/<winner>.<ext>`, "use initials" is copied, an upload mark whose file is gone does not travel, and a
+loser's upload that the winner's own choice outranks is removed (git keeps it), so no file nothing names is left behind;
+one plan (`entity_picture._merge_plan`) feeds the footprint and the writer. The inbox's
+rename-to-the-cleaner-slug branch repoints the same references (`rename_references`), which also moves the page's
+uploaded picture to its new id (`entity_picture.carry_on_rename`; the placeholder repair's `_rename_footprint` names
+it), and every inbox note lands above the fence. `episodes/` is never rewritten. **The dedup sweep commits its own merges (G183(e)):** `POST
 /maintenance/dedup-sweep` with `dryRun: false` runs each merge as one transaction under the page lock **and** the bank's
 git write lock, from its footprint check through its commit or recovery (never across the judge's model call). The
-footprint — `entity_merge.merge_footprint`: winner, loser, `graph_edges.yaml` when an edge names the loser, and every page
-naming the loser, found by `_repoint_page`, the same matcher `repoint_references` writes with — is known before any write.
+footprint — `entity_merge.merge_footprint`: winner, loser, `graph_edges.yaml` when an edge names the loser, every page
+naming the loser, found by `_repoint_page`, the same matcher `repoint_references` writes with, and the picture files the
+merge moves or removes — is known before any write.
 The merge is refused untouched when a footprint path is unsafe to put back (`skippedUnsafe`: unmerged index stages, a
 symlink, not a regular file) or dirty (`skippedDirty`), so nothing another writer left uncommitted is ever committed as
 `cicada`. Only the footprint is snapshotted (bytes, permission bits, stage-0 index entry or absence). The merge must write
@@ -511,6 +550,26 @@ small memo keyed on the file's stamp) or from a parse it already makes. First `/
 0.5 s.
 
 G110 A2's `reply_gaps: [{offset, omitted_chars}]` records clipped final-reply gaps outside `content_hash`.
+
+**What made a conversation a conversation (2026-10-20, `turn_extras`).** Beside the words, never in them: two
+frontmatter keys written by `episode_staging` alone (the one writer of a source-keyed episode), before the `turns`
+sidecar, outside `content_hash`. `turn_extras: [{offset, reactions?, reply_to?, attachments?, edited?, forwarded_from?,
+code_runs?}]` — one entry per turn that has any, keyed by its marker-line start (the sidecar's offset):
+`reactions: [{by, kind, emoji?}]` with `by` a turn marker (`user` / `assistant` / `speaker:<label>`) and `kind` one of
+love · like · dislike · laugh · emphasize · question · emoji · sticker; `reply_to` the target turn's offset, or `{ref}`
+(a source's opaque message key) when the target is in another episode; `attachments: [{kind, name, size?, mime?,
+generated?}]` (kind image · video · audio · file · sticker — a name and a size, never a path or a byte);
+`edited: true`; `forwarded_from`; `code_runs`. `unsent_turns: [{at, speaker, ts?, ref?}]` — where an unsent message
+was (`at` = the offset of the turn it preceded, or one past the body's end) and who sent it, never its words. A draft
+carries them as `Turn.extras` (a reply's target an index into the draft's turns) and `EpisodeDraft.unsent`; the stager
+renders the offsets against the scrubbed body, scrubs every string, and drops a malformed value rather than raising.
+**No span can move:** the body, its hash and the sidecar are byte-identical with or without extras
+(`test_turn_extras`). A draft whose words did not move but whose extras did (a reaction, an unsend, a reply's target,
+a re-imported export) is written frontmatter-only (`_set_extras`, counted `extras_updated` and `skipped`): never
+re-queued, so a reaction never makes Sleep read a conversation again. Reactions are never turns: no body line, so never
+a person's statement, an episode or anything Sleep reads. `/episodes/{id}/text` serves them per turn as `extras`
+(`reply_to` as the target turn's `index`, `reply_elsewhere` when it is not here) and the episode's `unsent: [{before,
+speaker, ts}]` (`before` a turn index).
 Evidence readers accept only the exact marker at that recorded offset. Reader head/gap/tail blocks keep their
 block indexes; the reply fragments retain the original timestamp, model and effort. Evidence `turn_at` counts
 the head and tail as one original turn; a marker or touching quote is nobody's words
@@ -681,22 +740,97 @@ Round 4 (C2–C4):
   **A saved link's own site icon (owner ruling 2026-10-19).** A saved link's row (Sources › a saved source) shows its
   site's own icon, asked of **that site only** — never an icon service, so no one learns what the person saved:
   `GET /sources/saved/{media_entity_id}/site-icon`, asked by the app for a row of a list the person opened (never from
-  Sleep, never a whole bank; listing items fetches nothing). The site is the registrable domain of THIS link's own URL
+  the Sleep cycle, never a whole bank; listing items fetches nothing). The site is the registrable domain of THIS link's own URL
   from the url index (`channel_items.saved_link_site` → `logo_service.own_site_domain`), for a live media page a `saved`
   source owns; a walled family, a private or reserved name is never asked (the row keeps its bundled mark or monogram).
-  Two fixed paths, `https://<site>/apple-touch-icon.png` then `/favicon.ico`, never the homepage's HTML (a page of the
-  site's HTML is the most bytes and the likeliest consent wall or login redirect, for a path the two conventions
-  cover); each hop through the SSRF guard (`net_guard`'s rule), on the same registrable domain and never a login host,
-  4 s, the body streamed with `Accept-Encoding: identity` and cut at 512 KB of raw bytes (no compressed body inflates first), DNS checked off the event loop, no cookies, raster only; 401/403/407/451 stops at once and nothing is retried
+  **Everywhere (owner 2026-10-20):** every surface that draws a saved link draws this mark (`app.md`, "One mark for a
+  saved link"), and a saved link Sleep has not made a page of yet — a Waiting row — asks
+  `GET /sources/saved/episodes/{episode_id}/site-icon`: the site is read from THAT episode's own `url`, only for a live,
+  non-conversation episode of a `saved` source (`channel_items.saved_episode_url` / `saved_episode_site`), with the same
+  gate, fetch and per-site cache. Rows name the key the mark is drawn under — `siteKey` on `GET /sources` items (shape
+  `site-key-1`; only on a page the media route serves, `channel_items.is_saved_link_page`), `site` on `GET /sleep/episodes` rows (`episodes-2`) and on `GET /episodes/{id}/text` (`site1`) — from
+  one function, `reading_hosts.mark_key` (a walled family's name, else the registrable domain); the icon is always asked
+  by an id, never by that name.
+  **Discovery, amended (owner 2026-10-20: "a lot of them don't show any logo … when I open the website I can clearly
+  see a favicon in the Chrome tab").** The 2026-10-19 rule asked two fixed paths and never the HTML; it missed every
+  site that declares its icon at another path, on a CDN, or only behind a redirect to www. Now, like a browser
+  (`logo_service.fetch_own_site_icon`): the homepage `https://<site>/` (or `https://www.<site>/` when the bare domain has
+  no public address), following https redirects on the default port — on the same registrable domain, or (owner
+  direction 2026-10-20, "a picture specific to the site, not a letter"; marks-2) to the public, non-walled domain a
+  renamed site moved to, which then counts as the site for the rest of the discovery (its declared icons and fixed
+  paths; a fixed path that redirects to a third domain is still a miss). Every hop that leaves the saved site is first
+  put to the redirect-to-wall rule (`link_enrichment._redirected_to_wall`: a `consent.` host, a known sign-in host, a
+  `/login`·`/signin`·`/auth`·`/oauth2`·`/sso` path) and refused before a byte is fetched — an identity provider's icon
+  is never cached as a site's (security review of #387); its `<link rel>` declarations — `icon`,
+  `shortcut icon`, `apple-touch-icon` — found by one linear scan of `<link>`/`<base>` tags only, off the event loop (`declared_icons`; never the
+  stdlib HTML tokenizer, which is quadratic on hostile markup — security review of #371; the first 64 tags; `mask-icon` skipped,
+  anything typed or named SVG kept aside for the SVG step below; an href with an explicit port or userinfo skipped), resolved against the page's final URL or its `<base href>`, ranked light-scheme
+  (or scheme-less) before dark, then the largest declared raster of at least 32 px (an apple-touch icon with no `sizes`
+  counts as 180), then unknown sizes, then small ones; at most three asked; then `/apple-touch-icon.png` and
+  `/favicon.ico` on the host that answered. A declared URL on another host (a CDN the page names) is asked: https only,
+  through the SSRF guard on every hop, its redirects kept on its own or the site's registrable domain, and kept only
+  when the content-type says `image/*` **and** the bytes sniff as PNG/ICO/GIF/JPEG/WebP; on the site itself a favicon
+  served as `application/octet-stream` still counts by its bytes, but anything that says HTML/XML/SVG never does (an SPA
+  answering `/favicon.ico` with its page). A `data:` raster icon is decoded only when it is base64 raster, its size
+  capped at 512 KB before decoding and its bytes sniffed like a download.
+  **SVG is drawn, safely (owner ruling 2026-10-20: "yes, we should draw the SVG icon safely"; amends "SVG stays a miss"
+  of the same day).** Only when no raster answered — declared or at the fixed paths, so a site with any raster keeps
+  it — the page's declared SVG icons (typed `image/svg+xml`, a path ending `.svg`, or `data:image/svg+xml`, base64 or
+  percent-encoded; never `mask-icon`; at most two, `declared_svg_icons`) are asked under the declared-icon rules (https,
+  SSRF guard per hop, redirects on its own or the site's domain, a block stops discovery), kept only when the
+  content-type says SVG (on the site itself also XML/octet-stream/plain) and the bytes open as SVG, ≤ 64 KB.
+  `svg_raster` then: **sanitises** in pure Python — expat with every DTD, entity declaration and external entity
+  refused outright (no billion laughs, no XXE), ≤ 32 deep and ≤ 1,000 elements while parsing, rebuilt from an
+  allow-list (shapes, paths, groups, `defs`/`symbol`, gradients and stops, `clipPath`, `mask`, `<style>` and presentation
+  attributes, transforms); `script`, `foreignObject`, `image`, `text`, filters, animation, `on*` handlers, any `href`
+  but a local `#id`, any `url()` but `url(#id)`, CSS with `@`, escapes, comments or `filter` is dropped; a `<use>` only of a local element
+  that held no `<use>` (≤ 64); a mask or clip path that applies another (directly, by inline style, through a `<use>`, or
+  any `<style>` setting one beside a mask or clip path) refuses the icon — each level multiplies the work; a viewBox of four finite numbers within ±1e6; the output a fresh document Cicada wrote at
+  64×64 — then **draws** it with resvg (Rust; no script engine, no network code) in a child `python -I` with an empty
+  environment and working directory that caps its CPU seconds (and address space where the OS enforces it — Linux,
+  not macOS, where the sanitiser's expansion limits and the wall clock bound memory), reads the SVG, then sets
+  `RLIMIT_NOFILE` to 0 (no new descriptor at all, so no file and no socket even after closing one of its own; a limit
+  of 3 only capped the number — security review of #382), and is killed at 2 s wall clock — and **checks** the
+  answer is a 64×64 PNG that is not fully transparent. Only that PNG is cached (`<site>.png`) and served; SVG bytes are
+  never stored or served. Any failure is a miss, the monogram. The drawing happens after the 4 s network budget, not
+  inside it. A homepage that redirects to a login host, a private or reserved name is not followed (the saved
+  site's fixed paths are still asked). One 4 s budget covers the whole discovery
+  (`OWN_SITE_BUDGET_SECONDS`); each hop never a login host, the body streamed with `Accept-Encoding: identity` and cut at 512 KB of raw bytes (no compressed body inflates first), DNS checked off the event loop, no cookies, raster only; 401/403/407/451 stops at once and nothing is retried
   with other headers. Behind `CICADA_ALLOW_LOGO_FETCH` (off: nothing asked, nothing recorded, the monogram). Cached in
-  `$CICADA_HOME/logos/<bank>/sites/own/` — hits 30 days, misses 7 — never in a bank; any failure is a 404 the row draws
+  `$CICADA_HOME/logos/<bank>/sites/own/` — hits 30 days, misses 7, each entry stamped with the discovery's version
+  `v` (`OWN_SITE_DISCOVERY` = 4: 3 for the SVG ruling, 4 for the moved homepage): a miss recorded by an older discovery — a lower `v`, or none — is asked once more, hits stay — never in a bank; any failure is a 404 the row draws
   as its monogram. This is a row's mark only: it never becomes a page's picture, and `domain_for` still takes no saved
   link's site.
+  **A watched or saved YouTube video's still (owner direction 2026-10-19, Sources v4).** *"For YouTube … why don't you
+  render the thumbnail of the video?"* A video in a watched day the person opened (Sources › YouTube history › a day)
+  may show its still: `GET /sources/watch-history/days/{episode}/videos/{video_id}/thumbnail`, asked by the app only for a row of a
+  day the person opened (as the row comes on screen, at most four at a time), never from Sleep. The backend asks **YouTube's own thumbnail host for that video id only**
+  (`i.ytimg.com/vi/<id>/hqdefault.jpg`, `media_preview.YOUTUBE_STILL`, the pin a saved video's preview already uses),
+  and only for an id THAT day's record holds (`channel_items.day_has_video`, one file read — never an id a request
+  merely names, never a walk of the bank). Behind `CICADA_ALLOW_LOGO_FETCH`, through the ToS rail (`media_preview._get`: `net_guard` on every hop, 4 s,
+  ≤ 512 KB, no cookies, raster only, a wall never retried), cached outside every bank at
+  `$CICADA_HOME/previews/<bank>/watched/<id>.<ext>` with its misses (`media_preview.ensure_video_still`); any failure is
+  a 404 the row draws as a quiet play glyph. A picture is not a read: no model ever reads watch history (ruling 30).
+  **A saved YouTube video draws the same still (marks-2, owner 2026-10-20: "none of the YouTube stuff shows
+  thumbnails, just low-res YouTube logos").** A saved list's row of a media page whose own URL is a YouTube video carries
+  `video: true` (`channel_items` shape `g161-6`) and asks `GET /sources/saved/{media_entity_id}/still`: the id is the
+  one THAT page's own URL names (`channel_items.media_video_id` — only a page `is_saved_link_page` admits, the site-icon
+  route's predicate; never an id a request names), served by the same `ensure_video_still` fetch and cache as a watched video's, so a video watched
+  and saved is asked once. Same gate, same rail; 404 = no picture. Sleep › Saved/Videos and the entity card already
+  draw a video page's stored preview (`/entities/{id}/preview`, the same YouTube still pin).
+  A day's videos come from `GET /sources/watch-history/days/{episode}` (`channel_items.watched_day`: title, channel,
+  times, the provider's watch URL, the id, and the saved page when the person also saved it — read from the day's own
+  record, nothing fetched; ETag over `sources`+`episodes`+`entities`, not a Store domain).
+  **A Messages chat's face (Sources v4).** The photo a ticked chat shares (above, `messages_photos`) is also that chat's
+  face on its Sources row and in its list, served by conversation: `GET /sources/messages/chats/{conversation}/photo`
+  (404 for an id that is not a chat hash, a chat not ticked, or no photo; nothing fetched). `messages_photos.stamp`
+  (the `photos` component) hashes every stored photo, a chat with no page yet included, so its face arrives too.
 - `picture:` (G146) — the person's own choice of picture for a page: `{kind: upload, sha, ext, added}` for a
   picture they uploaded, whose bytes live **in the bank** at `assets/pictures/<id>.<png|jpg>` (their record, so it
   travels with the bank; the path is derived from the id, never read from the page), or `{kind: initials, added}`
   for "Use initials instead". Written only by `POST|DELETE /entities/{id}/picture` and `…/picture/initials`, each
-  committed alone as `user`, 409 while Sleep runs; never by an agent. The app shrinks a picture to ≤ 512 px before
+  committed alone as `user`, 409 while Sleep runs; never by an agent. A merge or a rename to a new id carries the
+  choice and moves the file with it (2026-10-21, "A merge keeps both claim sets" above). The app shrinks a picture to ≤ 512 px before
   it leaves the Mac; the server keeps only a PNG or JPEG ≤ 512 KB (no Pillow). `entity_picture.resolve` is the one
   precedence (the person's choice → a person's Contacts photo → the photo a ticked Messages chat shares, on its
   `person`/`tool` page → a person's public-profile photo → a brand's logo → a media page's preview → a ring monogram),
@@ -792,7 +926,7 @@ Round 4 (C2–C4):
   `capture-and-sleep.md`, "Placeholder people", has the rules; `features.md` the question.
 - `kept_on:` (G147) — the days the person answered *keep* to a decay question; each joins the page's
   mention weeks, so a kept page fades a little slower. Written only by the decay resolver, deduped,
-  capped at 52. Not an episode id and never read as one.
+  capped at 52, and unioned by a merge (`decay_policy.merged_keeps`). Not an episode id and never read as one.
 - `paths:` (G133) — on a `project` page a watched folder anchors: `[{path, device}]`, where that
   folder lives on which Mac. For display and relink only; the backend never opens it.
 - `media.kind: paper` + `paper:` (G133) — a paper page: `arxiv_id`, `doi`, `authors`, `published`,
@@ -800,7 +934,8 @@ Round 4 (C2–C4):
   (`media-arxiv-<id>` / `media-doi-<hash>`); the abstract is a `describes` claim from
   `external:arxiv` or `external:crossref`, a dated cache shown under the personal tier (G121).
 - On an episode (G133/G134): `turns` (the G118 per-turn sidecar), `evidence_kind`,
-  `source_deleted_at`, and a section's `content_sha` — see the Awake rails.
+  `source_deleted_at`, and a section's `content_sha` — see the Awake rails; on a conversation, `turn_extras` and
+  `unsent_turns` (2026-10-20, above).
 
 ### Backlogs (G150)
 
@@ -828,7 +963,7 @@ idea, later findings are notes. Both reads ETag over the `backlog` sync componen
 is a Store domain (`BacklogCache` in the app, like `ProjectsCache`). A note's model and effort are joined to its turn at
 read once round 4's per-turn join lands; until then a note names its harness.
 
-### Design references — the Looks board (design taste, owner 2026-10-14)
+### Design references — looks, on the pages of the things they show (design taste, owner 2026-10-14; 2026-10-20)
 
 A look the person likes is memory: **one markdown file per reference** at `<bank>/design/<id>.md` plus its screenshot
 at `<bank>/assets/design/<id>.<png|jpg>`, both **in the bank and committed together** — the screenshot is the person's
@@ -839,8 +974,8 @@ create (`markdown_parser.write_new`). Frontmatter: `id`, `title`, `url` (http/ht
 explore | demo`), `image: {file, sha256, width, height, bytes}`, `region` (optional), `palette: [{hex, share, role,
 declared?}]`, `look` (the palette's words: dark/light, muted/vivid, hue names), `tokens: {fonts, generic, colors,
 font_sizes, spacing, radii}` (from the snippets), `computed` (the page's computed type and colour roles, below),
-`note_by` (who wrote the note, written when it is not the person), `tags`, `entity` (optional; a page it is about, never
-created). Body: the title, the screenshot embedded as `![Screenshot](../assets/design/<id>.png)`, the link, the note —
+`note_by` (who wrote the note, written when it is not the person), `tags`, `entity` (optional; the page the look shows, never
+created — below). Body: the title, the screenshot embedded as `![Screenshot](../assets/design/<id>.png)`, the link, the note —
 under `## What I liked` only when it is the person's own words, under `## Noted by <agent>` ("Noted by Claude Code")
 when an agent wrote it (looks v2, 2026-10-15; any heading in it demoted) — and `## Snippets` (fenced code).
 
@@ -853,11 +988,45 @@ the person; `added_by` an agent → that agent; `added_by: user` with `via: agen
 agents as the person until then). **One writer**, `api/services/design_refs.py`, behind every door: REST (`routers/design.py`),
 MCP (`mcp_tools.save_design`) and the demo. Every text is scrubbed (writer `design`); one screenshot (by sha256) is one
 reference; PNG or JPEG only, 32–8192 px, ≤ 4 MB (the app shrinks to ≤ 2560 px first). **Never an entity page** (the 10
-types stay closed): Stage 1 never reads `design/`, nothing here writes `entities/`, and a reference never decays. The
+types stay closed): Stage 1 never reads `design/`, and a reference never decays; the one thing written under `entities/`
+is a page's `## Looks` section (below). The
 person's writes commit alone as `Design reference <day>` / `Cicada-Author: user` / `user/companion_app` and are refused
 in a demo bank and while Sleep holds the pages; an agent's as `Agent write` with its harness and session. An agent
 removes only what it added. `sync_service`'s `design` component (a stat walk of `design/`) is the board's ETag; it is
 not a Store domain.
+
+**A look lives on the page of the thing it shows (owner rulings 2026-10-20).** *"This should be ingrained in the
+markdown of a specific thing."* The record stays one file in `design/` — its palette, tokens, specimens, note and
+vectors are the look's, and a page's prose rewrite can never lose them — and its `entity:` is the attachment. The page's
+markdown renders it: a canonical `## Looks` section (`entity_body.CANONICAL_SECTIONS`, after `## Links`), one bullet
+per look, newest first — `- [<title>](../design/<id>.md) · <site> · <day>` with the screenshot embedded on the
+indented line below (`![<title>](../assets/design/<id>.png)`) — so git, GitHub, Obsidian and an agent's
+`cicada_recall_detail` read the page whole. **Why the record stays separate, not moved into the page:** the page is
+rewritten by Sleep's writers and capped by its article budget, the 10 types stay closed, a look never decays while its
+page may archive, the screenshot's hash, palette and vectors key on the record id, and moving a look between pages is
+one frontmatter field. **One writer:** `design_refs.sync_page` writes the section surgically (the prose before the claims
+fence edited, the fence and ledger untouched, nothing else moved) under the page lock, from the records; an empty
+section is removed. Being canonical, Sleep's merges carry it as it is and it never reads as a hand edit
+(`has_human_prose`); the article writer's titles refuse "Looks". **Where a look goes** (`design_refs.subject_for`,
+deterministic, no model): the page a door names (`entity` on `POST /design`, `subject` on `cicada_save_design`, the
+explore ask's `subject`); else exactly one page whose trusted `website` source (the one its mark is drawn from) is the
+look's site — two claimants attach nothing; else the saved link's own page for exactly that URL (`url_index`); else
+nowhere — never a page invented. Moves: `PUT /design/{id}/entity` (`design_refs.attach`; an agent moves only its own),
+a removal re-renders the page, and a page merge moves the loser's looks to the winner (`entity_merge` →
+`design_refs.repoint`, in the merge's footprint). A look whose page went reads as unattached (`GET /design` serves
+`entity` only for a page that is there). The person's own words on a look (`PATCH /design/{id}`, `design_refs.update_ref`): name, link and note, scrubbed; a
+note written there is theirs (`note_by` dropped, under `## What I liked`); the record's body is rendered again and the
+page's line follows the new name, committed together. A page edit inside `## Looks` is refused in words
+(`page_edits.REBUILT_SECTIONS`, beside `## Related`), and a pinned correction never reaches into it. The section heading
+is matched as a whole line (`## Looks and feel` is the person's own section). **The one-time move** for looks saved
+before: `api/scripts/attach_looks.py --bank <path>` (dry run, counts), `--list` (the looks left unattached and why, plus
+the moves — for the person's terminal only), `--apply` (`cicada` commits, `Looks attached to their pages: …`, refused
+while Sleep runs or when git cannot list the dirty files); idempotent (`looks_attach`). It follows `list_hub_repair`'s
+rules: a record, page or claims ledger dirty in git is skipped unless its only change from HEAD is this move's own (a
+record's `entity:`, a page's `## Looks` section) — what an interrupted run leaves, adopted and committed by the next;
+every file is re-read before it is written and dropped if it changed since the survey; commits come
+`COMMIT_STEP` paths at a time (a page with the looks moving onto it in one step). A look whose page is gone and that no
+rule places has its stale `entity:` cleared there (the board already reads it as unattached).
 
 **What is read locally, with no model:** the palette and its words, and the CSS tokens of the snippets (regular
 expressions over the text as given; nothing is fetched or run). **The palette (looks v2, `design_palette`)** reads
@@ -1011,7 +1180,10 @@ Every regeneration that touches disk goes through `state_dictionary.refresh_and_
 commits `_state.md` ALONE (`commit_paths`, never `git add -A`) as `State snapshot <date>` /
 `Cicada-Author: cicada`. **The read path commits too, on purpose:** a projection left dirty "for
 Sleep's tail" gets swept into the next `git add -A` writer's commit under the wrong author — the
-G85-class smear. `sleep.next_at` is computed per request, never persisted: in the file it advanced
+G85-class smear. Outside Sleep, that refresh is one admitted transaction skipped while Sleep holds the pages
+(G183), or it could ride Sleep's batch commit under Sleep's author: `GET /state` and an inbox resolution inline,
+every other writer (the settled-question undos, the inbox tidy, the web sweep) through
+`state_dictionary.refresh_admitted`; `test_write_admission_sites.py` lists the direct callers. `sleep.next_at` is computed per request, never persisted: in the file it advanced
 every day and made every idle night commit.
 
 **`_state.md` schema v3 (G141):** each of the top 7 project rows gains `next: {slug, name, target}`
@@ -1155,7 +1327,10 @@ claim-sentence query (search MRR 0.927 → 0.743) and ties every name query.
 inside it**: entity names + aliases + prose, every claim (superseded ones kept as history), episode
 titles + 600-character passages that tile the evidence text exactly, media/paper metadata, inbox
 questions and backlog items (G150), in seven per-kind FTS5 tables (`unicode61 remove_diacritics 2`, prefix `2 3 4`; rowid
-`doc_id << 16 | n`). `dropped` pages are never indexed. **Derived and disposable** (TODO ruling 3):
+`doc_id << 16 | n`). `dropped` pages are never indexed. An episode's `docs.meta` carries what a hit shows without
+reading the file — title, harness, origin, conversation id, hash, `index_only` (ruling 30, schema 6) and, for a saved
+link's episode, its `site` key (schema 7, review of #372; `channel_items.saved_episode_url` → `reading_hosts.mark_key`,
+the Waiting row's rule), so the palette draws the site's own mark. **Derived and disposable** (TODO ruling 3):
 deleting it costs a few seconds of CPU and never a fact; a missing, corrupt or schema-mismatched file is
 rebuilt, never an error. **Never tracked:** `bank_registry.ensure_derived_excluded` writes
 `.git/info/exclude` before the file first exists. It follows a worktree or submodule bank's `.git` file
@@ -1179,6 +1354,16 @@ lifespan and a bank switch warm it in the background. The caller always passes t
 tiers 0–2), fuses it with the stored vectors in `mode=hybrid`, and **never embeds in `mode=prefix`**.
 **The query is never logged**: not by loguru, and not by uvicorn's access log (`api/main.py` strips the
 query string of `/search` and `/conversations/recent`, G136 R22).
+**Every claim's object, per page (`claim_rows`, 2026-10-19).** G141's reverse layer (the Projects list and a
+project's cluster) resolves every indexed claim's object against the page names it holds — id, name or alias, the
+`resolve` rule — instead of a MATCH OR'ed over every project's id and name (~0.6 s at 700 projects). The rows
+(`object`, payload JSON) are kept in process memory per page under the stamp the index holds and re-read only for a
+page whose stamp moved (one range read per page, one scan past 64), in one read snapshot with the stamps they are filed
+under; disposable like the file, `None` while no usable index answers. Only a page-to-page claim names a project: the
+payload carries `object_kind` (added without a schema bump — a row indexed before reads by id or name only, never by
+alias), a `value-of-` predicate never names one, and an alias under 3 characters names nothing (the detail's
+`_tree_names` guard). The list's converted payloads are a slotted LRU (`_PAYLOAD_CLAIMS`, 40k, ~1.2 KB each with
+its key; ~13k / ~16 MB on the 8k-page synthetic bank).
 
 ### Continuity index and session registry (G110 slice 1a)
 `$CICADA_HOME/continuity/<bank-id>.index.json` is a **derived, disposable** map of every `ep_*.md` to `(mtime_ns, size, row)`, where a

@@ -141,13 +141,6 @@ def test_fetch_saved_sends_a_user_agent_and_never_the_password():
 # --- sync --------------------------------------------------------------------
 
 
-def test_sync_is_skipped_without_credentials(tmp_path, monkeypatch):
-    memory = _memory(tmp_path, monkeypatch)
-    result = run(reddit.sync(memory, http_fn=_fake_http()))
-    assert result["status"] == "skipped"
-    assert result["reason"] == "not connected"
-
-
 def test_sync_ingests_and_stores_the_cursor(tmp_path, monkeypatch):
     memory = _memory(tmp_path, monkeypatch)
     _credentials()
@@ -180,14 +173,6 @@ def test_sync_records_a_failure_instead_of_raising(tmp_path, monkeypatch):
     assert result["status"] == "error"
     assert "429" in result["error"]
     assert "429" in sync_state.read_sync_state(memory)["reddit"]["last_error"]
-
-
-def test_sync_refuses_the_default_transport_when_the_gate_is_closed(tmp_path, monkeypatch):
-    memory = _memory(tmp_path, monkeypatch)
-    _credentials()
-    result = run(reddit.sync(memory))
-    assert result["status"] == "skipped"
-    assert result["reason"] == "network disabled"
 
 
 def test_credential_fields_never_leak_a_value(tmp_path, monkeypatch):

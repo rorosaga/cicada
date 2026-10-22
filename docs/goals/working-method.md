@@ -21,13 +21,14 @@ list is what a reviewer checks:
    confirmed; every API it assumes is grepped; broken fixtures are fixed *in the plan* before an
    implementer ever runs.
 3. **Each task is one reviewable commit** built test-first: write the failing test, watch it fail,
-   implement, watch it pass, run the full suite, commit with the message the plan names.
+   implement, watch it pass, run the test files of the modules it touched plus their direct callers and
+   `make test-crucial`, commit with the message the plan names (see *Test tiers* below).
 4. **Each task is reviewed by a separate agent** that re-runs the tests itself rather than trusting
    the report, with a bounded fix loop (max 3 rounds) before it is recorded as unresolved.
 5. **Two whole-branch lenses at the end** — correctness/regression and rails/privacy/docs — then one
    fix pass and a scoped re-review.
-6. **The orchestrator verifies again** before merging: both suites, by hand, with the real numbers
-   quoted in the PR.
+6. **The orchestrator verifies again** before merging: `make test-crucial` and the touched files, by hand, with the
+   real numbers quoted in the PR. The full suites run once before each release.
 7. **Docs move with the code.** The area's doc in `docs/architecture/` for how a subsystem works (updated in the
    same PR that makes it wrong), `CLAUDE.md` only when a *rail* changes — one or two lines pointing at the doc; it is
    loaded into every session and `test_claude_md_size.py` fails above 60,000 characters (2026-10-01: it had grown to
@@ -38,6 +39,8 @@ list is what a reviewer checks:
 
 | Suite | Command | Expected |
 |---|---|---|
+| Crucial tier | `make test-crucial` | **0 failures** — 247 backend tests in ~16 s, 47 Swift tests in ~4 s (+ build), 2026-10-19 |
+| Bench tier | `make test-bench` | 12 tests, ~50 s, 2026-10-19: **1 known failure**, `test_projects_bench.py` (the 2,500-page project list's p95 is ~230 ms against its 80 ms budget; it was an unrun `CICADA_BENCH=1` opt-in until the marker). Run on a quiet machine |
 | Backend | `api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider` | October 5 audit on `4264e297`: 6,016 passed, **1 known G185 failure**, 1 skipped; rerun for the change |
 | App | `cd app/CicadaApp && swift test` | **0 failures** |
 | Graph (JS) | `node --test app/CicadaApp/Tests/graph/*.test.js` | **0 failures.** Pass the glob, not the directory — a bare directory arg fails with a bare "test failed". |
@@ -60,10 +63,68 @@ list is what a reviewer checks:
   session tmp dir before anything is imported; `test_suite_home_isolation.py` holds it. A scratch HOME on the command
   line is still good practice, no longer the only guard.
 
+### Test tiers (owner 2026-10-19: "only crucial stuff")
+
+The Mac is shared, and the full suites cost ~22 min (10,065 backend tests, measured file by file 2026-10-19) plus
+~3.5 min of Swift. So the work runs in three tiers, plus the benchmarks:
+
+- **Every change:** the test files of the modules it touched plus their direct callers (grep for the imports), and
+  `make test-crucial`. Never the whole backend suite, never `swift test` unfiltered — `swift test --filter
+  '\.(ClassA|ClassB)/'`. Niced (`nice -n 10`), one run at a time, no parallel suites.
+- **Daily / before a PR:** `make test-crucial` — the tests that guard CLAUDE.md's rails, ~20 s of tests in all.
+  The lists are `api/tests/crucial.txt` (the `crucial` pytest marker is put on what it names, so `pytest -m crucial`
+  selects the same set) and `app/CicadaApp/Tests/crucial-tests.txt` (joined into one `--filter` regex), each grouped
+  by the rail a test guards. `test_crucial_tier.py` fails when a line names a test that no longer exists, and pins the
+  rails that are numbers (the 1,800-token handshake, the ToS rail's 4 s / 512 KB).
+- **Before a release:** `make test` — every backend and Swift test, benchmarks included (`-o addopts=""`), once, by
+  the coordinator.
+- **Benchmarks (`bench` marker):** a wall-clock budget (search, the SessionStart route, hook recall, the project list,
+  the inbox at the owner's scale, a slow registry) or a benchmark-harness run. They flake on a busy Mac, so
+  `api/pyproject.toml`'s addopts (`-m 'not bench'`) leaves them out of every default run, a bare `pytest` on their
+  file included; `make test-bench` (`-m bench`) runs them alone on a quiet machine. A later `-m` replaces the addopts,
+  so `-m crucial` selects exactly the crucial list, and `conftest.py` refuses a crucial line that names a `bench` test:
+  a rail's guard asserts behaviour, never a stopwatch. A new wall-clock assertion is `@pytest.mark.bench` (the old
+  `CICADA_BENCH=1` opt-in is gone).
+
+**Keeping the suite cheap (suite cuts, 2026-10-19).** A test that needs the demo scenario takes
+`_demo_scenario.demo(tmp_path, …)`: a copy of a template built once per process for those flags (only the determinism
+tests call `build`). An expensive fixture bank is built once per module and copied per test (`test_cli_app.py`'s
+`_template`). A fake HTTP server polls at 10 ms (`serve_forever(poll_interval=0.01)`): the default 0.5 s is paid on
+every `shutdown()`. Checks that mirror each other across connectors, registries or writers are one parametrized test.
+
+**Joining the tier.** A test joins when it is the strongest guard of a rail CLAUDE.md states and no listed test already
+guards it — one strong test per rail, not a file's worth. A new rail adds its line in the same PR. A test leaves only
+with the rail. Speed is a tiebreak, never the reason.
+
 Do not trust a remembered count. Compare the same command on a clean baseline in an isolated checkout when attribution is needed; preserve shared staged/unstaged work.
 
 Any additional failure needs attribution against the current baseline. Never `swift run` the app (bundle-less binary, window never becomes key);
-`make dev` is the only correct launch.
+`make dev` is the only correct launch of the person's own app.
+
+**Verifying a change end to end (2026-10-22).** `.claude/skills/verify-cicada/` runs the backend, the MCP server, a
+Sleep cycle (Claude plan, haiku), the CLI and a second copy of the app (a per-run bundle id, on a scratch home through
+`CFFIXED_USER_HOME`) on scratch state, never touching the live install, and keeps a feature map of every user-facing
+feature with its recipe. `--checkout <path>` runs another worktree's branch. Use it instead of driving the person's
+app or backend.
+
+**A Swift test that hangs inside an AppKit render is the machine, not the test (2026-10-20).** The first layer-backed
+`NSView` in an `xctest` process runs `+[NSApplication initialize]`, which opens the general pasteboard over a
+synchronous XPC call. When the system's `pboard` daemon is wedged (seen 2026-10-20: its general-pasteboard queue blocked
+waiting on a remote pasteboard item's data), every such test waits forever: `ClustersGridTests` and `EntityHeaderTests`
+(a picture's drop target is an AppKit view) and every `NSHostingView` render. The same tests pass in under a second once
+`pboard` answers. Check before chasing it: `perl -e 'alarm 10; exec @ARGV' /usr/bin/pbpaste >/dev/null; echo $?` —
+`142` means the pasteboard does not answer. The person restarts it (`launchctl kickstart -k gui/$(id -u)/com.apple.pboard`,
+or logs out and back in); a worker never kills a process it did not start.
+
+**A Swift test never reads the machine's locale or lets a render pick its own pixel format (2026-10-22).** Four classes
+failed on a Mac set to a non-US region at a commit that had passed: three asserted "Oct 2" through a formatter that read
+`Locale.current` ("2 Oct" there). The product is right to follow the reader's locale; the formatter takes
+`locale: Locale = .autoupdatingCurrent` (the `UsageFormat.count` convention) and the test passes `en_US` and also
+asserts `en_GB`, so the seam is proved on any host. The fourth compared exact pixels from `ImageRenderer.cgImage`, which
+chooses its output from the content: an installed app's icon (a book plate's mark) arrives as 16-bit extended-range
+(first seen the day after a macOS point update), the whole render became 16-bit ITU-R 2100 PQ, and the read back to
+8-bit sRGB moved one channel by one step. A pixel-exact test draws through `renderer.render` into its own 8-bit sRGB `CGContext`
+(`PileRenderTests.render`). Neither failure is a baseline; both are fixed.
 
 ### Rails that override convenience
 
@@ -131,7 +192,7 @@ afterwards — it is a half-written task the resumed agent redoes from scratch.
 
 ### Landing a track
 
-Verify both suites yourself → `git merge --no-edit origin/dev` in the worktree and resolve conflicts
+Verify the crucial tier and the touched files yourself → `git merge --no-edit origin/dev` in the worktree and resolve conflicts
 (they are almost always a `docs/architecture/` doc, `TODO.md`, `memory-evolution.md`, and the telemetry kind tuples
 where two tracks each added a kind — take the **union**) → push → `gh pr create --base dev` →
 `gh pr merge --merge` → pull `dev` → replace `PR #88` in the docs → restart the backend

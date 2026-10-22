@@ -36,6 +36,14 @@ What the move adds — each additive, each inert to an episode that does not use
   forks a legacy episode (R-LS4).
 * ``queue_for_sleep=False`` — an episode a deterministic parser consolidated and
   Sleep never will (``processed_by: parser``, R-LS10).
+* Relay upgrade (ruling 32) — a Claude or ChatGPT export's conversation whose
+  ``source_id`` is new, and whose first person message matches exactly one episode
+  that app's model relayed through the remote connector within two days of it
+  (``turn_capture.relay_match_key``), rewrites THAT episode in place with the
+  export's words instead of adding a second copy: same file and id, re-queued, the
+  relay marked ``upgraded_at`` and its ``evidence_kind: assistant`` dropped — the
+  export holds the person's own words. Two candidates, or a first message too short
+  to tell conversations apart, upgrade nothing.
 
 The pre-scan reads ``bank_index``'s cached frontmatter instead of re-parsing
 every episode per call (R-LS3): a watched folder stages on every save.
@@ -59,7 +67,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable
 
-from api.services import agent_turns, bank_index, episode_ids, episode_scrub, markdown_parser
+from api.services import agent_turns, bank_index, episode_ids, episode_scrub, markdown_parser, turn_extras
 
 #: Keys of one ``turns`` sidecar entry (R-PB4) — the coordination contract, exactly.
 #: Round 4 C1 adds ``model``/``effort``: written on an agent turn only, only when the
@@ -88,6 +96,10 @@ class Turn:
     # on every other speaker, cleaned again by `_stamps` before it is written.
     model: str | None = None
     effort: str | None = None
+    # What made the turn part of a conversation beside its words — reactions, a reply's target (an index into the
+    # draft's turns, or ``{ref}``), attachments, edited, forwarded-from, code runs (`turn_extras`). Outside the body
+    # and its hash: written to the episode's ``turn_extras`` with offsets into the stored body.
+    extras: dict | None = None
 
 
 @dataclass
@@ -109,6 +121,9 @@ class EpisodeDraft:
     #: parser by default (R-LS10); G141 R-PJ18's companion note is `user` — the
     #: person's own Log words, which Sleep never re-reads.
     processed_by: str = PARSED_ONLY
+    #: Messages the sender unsent, by position only — ``[{before: turn index, speaker, ts?, ref?}]`` — never words
+    #: (`turn_extras.UNSENT_KEY`).
+    unsent: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -120,6 +135,9 @@ class StageResult:
     tombstoned: int = 0
     #: unchanged bodies whose file hash moved (counted in ``skipped`` too).
     restamped: int = 0
+    #: unchanged bodies whose extras moved (a reaction, an unsend) — frontmatter only, never re-queued; counted in
+    #: ``skipped`` too.
+    extras_updated: int = 0
     scrubbed: int = 0
     #: source_id -> episode id, for every draft with an id (skips included).
     episode_ids: dict[str, str] = field(default_factory=dict)
@@ -170,8 +188,10 @@ def draft_from_export(episode: dict) -> EpisodeDraft:
         original_date=episode.get("original_date"),
         source=episode.get("source", "unknown"),
         origin=episode.get("origin"),
-        turns=[Turn(text=m["text"], speaker=m["role"], ts=m.get("timestamp"))
+        turns=[Turn(text=m["text"], speaker=m["role"], ts=m.get("timestamp"), model=m.get("model"),
+                    extras=m.get("extras") or None)
                for m in episode.get("messages", [])],
+        unsent=list(episode.get("unsent") or []),
         writer="import",
         # An importer may declare whose words the episode holds (a Claude memory is
         # the assistant's); absent, the per-line markers decide as before.
@@ -240,6 +260,37 @@ def stamps_for(draft: EpisodeDraft, body: str) -> list[dict]:
     return []
 
 
+def render_extras(draft: EpisodeDraft, *, raw: bool = False) -> dict:
+    """``{turn_extras?, unsent_turns?}`` for the body ``draft`` renders to — scrubbed, or ``raw`` for an episode whose
+    stored body is the legacy unscrubbed render — with every offset a turn start in that body. ``{}`` for a
+    pre-rendered body or a draft with no extras (no scrub is run then)."""
+    if draft.body is not None or not turn_extras.has_any(draft.turns, draft.unsent):
+        return {}
+    texts = [t.text if raw else episode_scrub.scrub(t.text)[0] for t in draft.turns]
+    lengths = [len(_line(t, x)) for t, x in zip(draft.turns, texts)]
+    body_length = sum(lengths) + max(len(lengths) - 1, 0)
+    return turn_extras.render(draft.turns, lengths, draft.unsent, body_length)
+
+
+def _extras_matching(draft: EpisodeDraft, body: str) -> dict:
+    """:func:`render_extras` for ``body`` when it is ``draft``'s own rendering (scrubbed or raw), else ``{}`` — the
+    offsets would point into text they do not index (the rule :func:`stamps_for` keeps for the sidecar)."""
+    if draft.body is not None or not turn_extras.has_any(draft.turns, draft.unsent):
+        return {}
+    for raw in (False, True):
+        texts = [t.text if raw else episode_scrub.scrub(t.text)[0] for t in draft.turns]
+        if "\n".join(_line(t, x) for t, x in zip(draft.turns, texts)) == body:
+            return render_extras(draft, raw=raw)
+    return {}
+
+
+def _apply_extras(fm: dict, extras: dict) -> None:
+    """`turn_extras.apply`, then the sidecar back to the last key (R-PB4)."""
+    turn_extras.apply(fm, extras)
+    if "turns" in fm:
+        fm["turns"] = fm.pop("turns")
+
+
 def _raw_render(draft: EpisodeDraft) -> str:
     if draft.body is not None:
         return draft.body
@@ -270,8 +321,57 @@ def scan(episodes_dir: Path) -> tuple[dict[str, IndexEntry], set[str]]:
     return by_source, hashes
 
 
-def _apply_common(fm: dict, draft: EpisodeDraft, stamps: list[dict]) -> None:
+#: Ruling 32: an export source → the remote connector app whose relayed episodes it may upgrade.
+RELAY_UPGRADES = {"claude": "claude", "chatgpt": "chatgpt"}
+#: How far apart a relayed conversation's start and the export's may be and still be one conversation.
+RELAY_WINDOW_S = 2 * 86400
+#: Writer-owned keys of a relayed episode that describe the relayed body, dropped when an export replaces it.
+_RELAY_BODY_KEYS = ("evidence_kind", "hook_turns", "capture_gap", "capture_flags")
+
+
+def relay_candidates(episodes_dir: Path) -> dict[tuple[str, str], list[IndexEntry]]:
+    """Relayed episodes not yet upgraded, by ``(app, match key)`` — one cached read, as :func:`scan`."""
+    out: dict[tuple[str, str], list[IndexEntry]] = {}
+    for f in bank_index.files(episodes_dir.parent, episodes_dir.name):
+        fm = f.frontmatter or {}
+        relay = fm.get("relay")
+        if not isinstance(relay, dict) or relay.get("upgraded_at") or not relay.get("first") or not relay.get("app"):
+            continue
+        out.setdefault((str(relay["app"]), str(relay["first"])), []).append(
+            IndexEntry(path=f.path, id=str(fm.get("id") or f.stem), fm=dict(fm)))
+    return out
+
+
+def _when(value) -> datetime | None:
+    try:
+        dt = datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+    return dt if dt.tzinfo else None
+
+
+def relay_for(draft: EpisodeDraft, candidates: dict[tuple[str, str], list[IndexEntry]]) -> IndexEntry | None:
+    """The ONE relayed episode this export conversation is (ruling 32), or ``None``."""
+    app = RELAY_UPGRADES.get(draft.source)
+    first = next((t.text for t in draft.turns if t.speaker == "user" and (t.text or "").strip()), None)
+    started = _when(normalise_timestamp(draft.timestamp))
+    if app is None or first is None or started is None:
+        return None
+    from api.services.transcript_extract import clean_turn
+    from api.services.turn_capture import relay_match_key
+
+    cleaned, _ = clean_turn("user", first, first=True)
+    key = relay_match_key(cleaned.text if cleaned is not None else None)
+    if key is None:
+        return None
+    near = [e for e in candidates.get((app, key), [])
+            if (t := _when(e.fm.get("timestamp"))) is not None and abs((t - started).total_seconds()) <= RELAY_WINDOW_S]
+    return near[0] if len(near) == 1 else None
+
+
+def _apply_common(fm: dict, draft: EpisodeDraft, stamps: list[dict], body: str | None = None) -> None:
     fm.update(draft.extra)
+    _apply_extras(fm, _extras_matching(draft, body) if body is not None else {})
     if draft.content_sha:
         fm["content_sha"] = draft.content_sha
     if draft.queue_for_sleep:
@@ -315,7 +415,7 @@ def write_new(draft: EpisodeDraft, episodes_dir: Path, body: str, digest: str,
     if draft.source_id is not None:
         fm["source_id"] = draft.source_id
         fm["source_updated_at"] = draft.source_updated_at
-    _apply_common(fm, draft, stamps)
+    _apply_common(fm, draft, stamps, body)
     # Audit K01: `date_counts` was seeded at the start of the call, and a writer
     # in another process (an MCP server, the Stop hook) may have taken the id
     # since; the create re-mints rather than replace that episode.
@@ -347,7 +447,26 @@ def update_in_place(path: Path, draft: EpisodeDraft, body: str, digest: str, sta
     if draft.origin:
         fm["origin"] = draft.origin
     fm.pop("source_deleted_at", None)
-    _apply_common(fm, draft, stamps)
+    _apply_common(fm, draft, stamps, body)
+    markdown_parser.write(path, fm, body)
+
+
+@_under_episode_lock
+def upgrade_relay(path: Path, draft: EpisodeDraft, body: str, digest: str, stamps: list[dict], at: str) -> None:
+    """Ruling 32: the export's words replace a relayed body — same file, same id and original timestamp, re-queued
+    for Sleep. The relay record stays, stamped ``upgraded_at``, so the app can say where the episode began."""
+    fm = dict(markdown_parser.parse(path).frontmatter)
+    for key in _RELAY_BODY_KEYS:
+        fm.pop(key, None)
+    fm["relay"] = {**(fm.get("relay") or {}), "upgraded_at": at, "upgraded_by": draft.source}
+    fm["source"] = draft.source
+    fm["title"] = draft.title or fm.get("title", "Untitled")
+    fm["content_hash"] = digest
+    fm["source_id"] = draft.source_id
+    fm["source_updated_at"] = draft.source_updated_at
+    if draft.origin:
+        fm["origin"] = draft.origin
+    _apply_common(fm, draft, stamps, body)
     markdown_parser.write(path, fm, body)
 
 
@@ -366,6 +485,7 @@ def _refresh(path: Path, draft: EpisodeDraft) -> None:
     if draft.source_updated_at:
         fm["source_updated_at"] = draft.source_updated_at
     _requeue_for_authorship(fm, draft)
+    _apply_extras(fm, _extras_matching(draft, parsed.body))
     markdown_parser.write(path, fm, parsed.body)
 
 
@@ -502,6 +622,16 @@ def _restamp(path: Path, draft: EpisodeDraft) -> None:
 
 
 @_under_episode_lock
+def _set_extras(path: Path, extras: dict) -> None:
+    """Same words, new extras (a reaction, an unsend, a reply's target): frontmatter only — the body, its hash, every
+    evidence span and the queue are untouched, because nothing anyone said moved."""
+    parsed = markdown_parser.parse(path)
+    fm = dict(parsed.frontmatter)
+    _apply_extras(fm, extras)
+    markdown_parser.write(path, fm, parsed.body)
+
+
+@_under_episode_lock
 def _repoint(path: Path, draft: EpisodeDraft, old_sid: str) -> None:
     parsed = markdown_parser.parse(path)
     fm = dict(parsed.frontmatter)
@@ -516,6 +646,7 @@ def _repoint(path: Path, draft: EpisodeDraft, old_sid: str) -> None:
     fm.pop("source_deleted_at", None)
     fm.update(draft.extra)
     _requeue_for_authorship(fm, draft)
+    _apply_extras(fm, _extras_matching(draft, parsed.body))
     markdown_parser.write(path, fm, parsed.body)
 
 
@@ -610,6 +741,7 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
             renames.setdefault((str(sha), _fragment(sid)), sid)
 
     writer = "import"
+    relays: dict[tuple[str, str], list[IndexEntry]] | None = None
     for draft in drafts:
         writer = draft.writer
         body, stamps, n = render(draft)
@@ -632,6 +764,22 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
                     result.renamed_sources.append((old, sid))
                     _mark(result, "renamed", sid, entry, episodes_dir)
                     _report(progress, "renamed")
+                    continue
+            if entry is None and draft.source in RELAY_UPGRADES:
+                if relays is None:
+                    relays = relay_candidates(episodes_dir)
+                relayed = relay_for(draft, relays)
+                if relayed is not None:
+                    if write:
+                        upgrade_relay(relayed.path, draft, body, digest, stamps, now)
+                    for bucket in relays.values():
+                        if relayed in bucket:
+                            bucket.remove(relayed)
+                    known_hashes.add(digest)
+                    entry = IndexEntry(path=relayed.path, id=relayed.id, fm={"content_hash": digest})
+                    index[sid] = entry
+                    _mark(result, "updated", sid, entry, episodes_dir)
+                    _report(progress, "updated")
                     continue
             if entry is None:
                 path = (write_new(draft, episodes_dir, body, digest, stamps, date_counts) if write
@@ -657,6 +805,15 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
                     entry.fm["content_sha"] = draft.content_sha
                     result.restamped += 1
                     result.paths.append(_rel(entry.path, episodes_dir))
+                extras = render_extras(draft, raw=entry.fm.get("content_hash") != digest)
+                if extras != turn_extras.stored(entry.fm):
+                    # A reaction, an unsend or a reply's target moved and no word did (turn_extras): frontmatter only.
+                    if write:
+                        _set_extras(entry.path, extras)
+                    turn_extras.apply(entry.fm, extras)
+                    result.extras_updated += 1
+                    if (rel := _rel(entry.path, episodes_dir)) not in result.paths:
+                        result.paths.append(rel)
                 result.skipped += 1
                 result.verdicts.append("skipped")
                 result.episode_ids[sid] = entry.id

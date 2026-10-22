@@ -26,14 +26,14 @@ struct QuoteBlock: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-            RoundedRectangle(cornerRadius: 1)
+            CicadaTheme.shape(1)
                 .fill(EvidenceLabel.ruleColor(kind))
                 .frame(width: 2)
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 // R-DL2 — the one door: a quote reads without markup or role labels, the span kept exact.
                 let clean = ExcerptText.quoteParts(before: before, span: span, after: after)
                 Text(Self.attributed(before: clean.before, span: clean.span, after: clean.after, style: style))
-                    .font(CicadaTheme.font(size: 12))
+                    .font(CicadaTheme.metaFont)
                     .lineLimit(lineLimit)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
@@ -47,9 +47,10 @@ struct QuoteBlock: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// The span in `quoteFont`; the neighbourhood in `textTertiary`. The wash
-    /// is the accent `wash` (DR-18, R-DI11); the dandelion wash retired with
-    /// the Reader's margin bar (DR-13).
+    /// The span in `quoteFont`; the neighbourhood in `textTertiary`. The tint
+    /// is `wash`, neutral ink — never the accent, so it never reads as a text
+    /// selection (DR-18, R-DI11, §9 2026-10-20); the dandelion wash retired
+    /// with the Reader's margin bar (DR-13).
     static func attributed(before: String, span: String, after: String, style: Style) -> AttributedString {
         var head = AttributedString(before)
         head.foregroundColor = CicadaTheme.textTertiary

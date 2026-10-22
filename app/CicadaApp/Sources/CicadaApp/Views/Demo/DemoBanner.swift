@@ -16,7 +16,7 @@ struct DemoBanner: View {
         if DemoMode.isActive(store.banks.value) {
             HStack(spacing: CicadaTheme.spacingMD) {
                 Image(systemName: "sparkles")
-                    .font(CicadaTheme.font(size: 14))
+                    .font(CicadaTheme.icon(.list))
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .frame(width: CicadaTheme.scaled(32), height: CicadaTheme.scaled(32))
                     .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgButton))

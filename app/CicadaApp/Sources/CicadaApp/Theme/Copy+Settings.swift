@@ -107,7 +107,8 @@ extension Copy {
 
     // MARK: Engines (A3, R-O8)
     static let engines = "Engines"
-    static let enginesSubtitle = "Which model does Cicada's thinking."
+    /// Settings defaults, pass 2 (owner 2026-10-22): what the page is for, in plain words, naming no provider or model.
+    static let enginesSubtitle = "What Cicada reads your conversations with."
     static let settingsEngines = "\(settings) → \(engines)"
     static let enginesChooseGroup = "Engine"
     /// The heading over the one switch that only matters on the API key card.
@@ -117,28 +118,19 @@ extension Copy {
     /// tries the plan first, so the switch only ever changes the API key card
     /// (`engine_select.resolve_llm_mode`; G139 final review).
     static let useClaudePlanWhenIStart = "Use my Claude plan when I start a cycle"
-    static let askGroup = "Ask"
     static let askTitle = "Ask"
     static let askFollowsEngine = "Answers your questions with the same engine as a cycle you start."
 
     // MARK: Sleep (R-O10)
-    static let runsGroup = "Runs"
     static let runsTitle = "Runs"
     static let runsAt = "At"
     static let runsEvery = "Every"
-    static let sleepEngineGroup = "Engine"
     static let sleepEngineRowTitle = "Engine"
     static let changeInEngines = "Change in Engines"
 
     // MARK: Customize (A1, R-O11)
     static let remoteSubtitle = "Let AI apps outside this Mac use your memory."
     static let settingsFromAnywhere = "\(settings) → \(fromAnywhere)"
-    static let agentsInstallGroup = "One-time install"
-    static let agentsInstallTitle = "Install Cicada on this Mac"
-    static let agentsInstallDetail = "Sets up Python, the background service and the nightly schedule. Skip it if you've done it."
-    static func agentsHomeCaption(_ home: String) -> String {
-        "The commands below use \(home). Change it if your copy of Cicada lives somewhere else."
-    }
     static let agentsOnThisMacGroup = "Agents on this Mac"
     static let agentsCloudTitle = "claude.ai, ChatGPT and your phone"
     static let agentsCloudDetail = "Cloud apps can't start a program on your Mac, so they reach Cicada through a link. You can also bring web chats in with the + on the Sleep page."
@@ -155,6 +147,9 @@ extension Copy {
     // Names no agent: a service named in the UI wears its mark, and this line has none.
     static let autoRecallNone = "None of the agents on this Mac can do this yet."
     static let autoRecallOn = "On. Your agent sees a short note when you mention something Cicada remembers."
+    // Owner 2026-10-19: Claude Code's door is the Cicada plugin when it is on; the plugin's own settings switch this.
+    static let autoRecallPluginOn = "On through the Cicada plugin. Turn it off in the plugin's settings (/plugin)."
+    static let autoRecallPluginOff = "Off in the Cicada plugin's settings. Turn it on there (/plugin)."
     static let autoRecallOff = "Off. Your agent only sees your memory when it asks for it."
     static let autoRecallStale = "Needs an update, because Cicada moved since this was set up."
     static let autoRecallUnreadable = "Its settings file can't be read, so Cicada won't touch it."
@@ -228,7 +223,6 @@ extension Copy {
     /// page shows, so a result reads like the row it lands on.
     static let remoteReachTitle = "How apps reach this Mac"
     static let remoteNewConnectorTitle = "New connector"
-    static let engineModelTitle = "Model"
     static let enginePreviewTitle = "What runs"
     /// A result's live value for a Plans & keys row — the state, never the
     /// account line (an email is not something to show beside a search hit).
@@ -251,7 +245,10 @@ extension Copy {
     static let privacyAndData = "Privacy & data"
     static let privacySubtitle = "What stays on this Mac, and how to take it with you."
     static let settingsPrivacy = "\(settings) → \(privacyAndData)"
-    static let memoryLocationTitle = "Where your memory lives"
+    /// Not "Where your memory lives": Devices asks that question (This Mac or a server); this row opens the folder.
+    static let memoryLocationTitle = "Memory folder"
+    /// Settings defaults (owner 2026-10-22): the folder in words, never its path — Show in Finder opens it.
+    static let memoryLocationDetail = "Your memory is plain text files in one folder, with its full history."
     static let showInFinder = "Show in Finder"
     static let banksTitle = "Memory banks"
     /// DR-24 — the one bank selector is the search bar's menu; the Graph page lost it (QA 2026-10-16).
@@ -268,11 +265,6 @@ extension Copy {
     static let telemetryTitle = "Usage ledger"
     static let telemetryOn = "On — ids and counts only, never your words."
     static let telemetryOff = "Off."
-    /// Not "in api/.env" (final review): `telemetry.enabled()` reads only the
-    /// process environment. Since 2026-10-13 a developer checkout's backend fills
-    /// its environment from api/.env (`api/settings_file.py`), but a release has
-    /// no such file, so the environment is the one instruction true for both.
-    static let telemetryHow = "To turn it off, set CICADA_TELEMETRY=off in the backend's environment (its LaunchAgent) and restart it."
     static let reachingTheInternet = "Reaching the internet"
     static let outboundConnectorsTitle = "Nightly connector check"
     static let outboundConnectorsDetail = "Checks your connected apps for new saves while Sleep runs."
@@ -281,7 +273,14 @@ extension Copy {
     static let outboundLogosTitle = "Logos"
     static let outboundLogosDetail = "Fetches a logo for a page that names a website."
     static let credentialsTitle = "API keys"
-    static let credentialsDetail = "Stored in ~/.cicada/secrets.env, readable only by you."
+    /// In words, never the file's path (settings defaults, owner 2026-10-22; Hyrum B-paths: a fixed `~/.cicada` was
+    /// wrong whenever `CICADA_HOME` pointed elsewhere).
+    static let credentialsDetail = "Kept in a file on this Mac that only you can read."
+    static let keyRemovedFromMac = "Removes the key from this Mac."
+    /// Plans & keys' one fold (ruling 31, plans first): the key cards nobody has saved a key in.
+    static let useAnAPIKeyInstead = "Use an API key instead"
+    /// A key card with no key yet, in words (no path, no variable).
+    static let keyCardDetail = "Paste a key. It stays on this Mac, readable only by you."
     static let removeAllKeys = "Remove all keys…"
     static let remoteAccessTitle = "Access from other apps"
     static let transcriptsTitle = "Agent conversations"
@@ -313,9 +312,6 @@ extension Copy {
     static let memorySection = "Memory"
     /// Search & files took finding (owner, 2026-10-14): Memory keeps how Cicada tidies what it knows.
     static let memorySubtitle = "How Cicada tidies what it knows."
-    static let enrichLinksTitle = "Fetch link previews"
-    static let enrichLinksDetail = "Reads each saved link's page — 4 seconds at most, never behind a login — and writes a short description with your engine."
-    static let fetchNow = "Fetch now"
     static let sleepIsRunning = "Sleep is running — try again when it finishes."
     static let alreadyRunning = "Already running — try again when it finishes."
     // G147 — How things fade
@@ -328,28 +324,6 @@ extension Copy {
     static let fadeBusyHelp = "Saving your last change…"
     static let fadeLoadFailed = "Couldn't read your answers just now — open this page again to retry."
     static let fadeSaveFailed = "Couldn't save that — try again."
-
-    // MARK: Advanced
-    static let advanced = "Advanced"
-    static let advancedSubtitle = "The backend, paths and environment switches."
-    static let backendTitle = "Backend"
-    static let mcpCommandTitle = "MCP server"
-    static let mcpCommandDetail = "The command every agent on this Mac runs to reach Cicada."
-    static let apiTokenTitle = "API token"
-    static let apiTokenDetail = "Kept in ~/.cicada/api_token. It is never shown here."
-    static let apiTokenOverridden = "Replaced by CICADA_API_TOKEN in the environment."
-    static let envOverridesTitle = "Set in api/.env or the environment"
-    static let envOverridesNone = "None — Cicada is using its own settings."
-    static let settingsFileTitle = "Settings file"
-    static let settingsFileNone = "None read — settings come from the environment and Cicada's defaults."
-    static let backendNotAnswering = "Not answering."
-    static func backendLine(version: String?, entities: Int?, episodes: Int?) -> String {
-        var parts = ["Connected"]
-        if let version { parts.append("version \(version)") }
-        if let entities { parts.append("\(UsageFormat.count(entities)) \(entities == 1 ? "entity" : "entities")") }
-        if let episodes { parts.append("\(UsageFormat.count(episodes)) \(episodes == 1 ? "episode" : "episodes")") }
-        return parts.joined(separator: " · ")
-    }
 
     // MARK: Skills (G138)
     static let skills = "Skills"
@@ -416,5 +390,47 @@ extension Copy {
     static let whereDoIGetOne = "Where do I get one?"
     static let keySave = "Save"
     static let keyProvider = "Provider"
-    static let openRouterModel = "Model"
+
+    // MARK: Engines — Auto first (settings defaults pass 2, owner 2026-10-22; ruling 31)
+    /// Auto is the default and the visible state: the page says what it uses now and why, and every other engine
+    /// waits under one fold (DR-39). A name appears only as the person's own connection (copy rail).
+    enum EngineHeadline {
+        static let auto = "Auto"
+        static func usingPlan(_ label: String) -> String { "Using your \(label) — you're signed in." }
+        static func usingLocal(_ label: String) -> String { "Using \(label) on this Mac — no plan is signed in." }
+        static let usingKey = "Using your API key."
+        static let nothingYet = "Nothing to read with yet. Sign in to a plan and Auto uses it."
+        static let rule = "Auto uses a plan you're signed in to first, then a model running on this Mac. "
+            + "It never uses an API key you didn't choose."
+        static let chosen = "You chose this engine instead of Auto."
+        static let backToAuto = "Back to Auto"
+        static let backToAutoHelp = "Let Cicada pick: your plan first, then a model on this Mac"
+        static let differentEngine = "Use a different engine"
+    }
+
+    // MARK: Plans & keys status lines, in words (settings defaults pass 2)
+    /// The backend's adapter sentences name a CLI, a local address or a file; `cicada engine list` keeps them. The
+    /// app says the same state in words (`ConnectionWords`).
+    enum ConnectionLine {
+        static let claudeSignedIn = "Signed in through Claude Code on this Mac. Cicada asks it to do the reading and never sees your password or token."
+        static let claudeSignedOut = "Not signed in on this Mac."
+        static let chatgptSignedIn = "Signed in with Cicada's own ChatGPT sign-in on this Mac, separate from Codex in your terminal. Cicada never sees your password or token."
+        static let localReady = "Runs on this Mac, free."
+        static let localNotRunning = "Not running on this Mac. Install Ollama from ollama.com and open it."
+        static let localNoModel = "Running, but its model isn't on this Mac yet."
+        static let keySaved = "Your key is saved on this Mac, readable only by you. Each use is billed to it."
+        static let openRouterNoKey = "Sign in with OpenRouter, or paste a key. It stays on this Mac, readable only by you."
+    }
+
+    // MARK: How to change what Cicada's setup fixes (settings defaults pass 2)
+    /// A value set outside the app is honoured and said in words; how to change it lives in one docs page, linked —
+    /// never a variable's name on the page.
+    enum SettingsHelp {
+        static let howToChange = "How to change this"
+        static let page = "https://github.com/rorosaga/cicada/blob/main/docs/settings-outside-the-app.md"
+        static let engineFixed = URL(string: page + "#the-engine-is-fixed")!
+        static let serverFixed = URL(string: page + "#where-your-memory-lives-is-fixed")!
+        static let usageLedger = URL(string: page + "#the-usage-ledger")!
+        static func usageLedgerLink(off: Bool) -> String { off ? "How to turn it on" : "How to turn it off" }
+    }
 }

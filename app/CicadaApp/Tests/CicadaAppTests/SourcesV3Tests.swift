@@ -111,9 +111,13 @@ final class SourcesV3Tests: XCTestCase {
         let channel = try source("Views/Sources/ChannelSourceView.swift")
         XCTAssertTrue(channel.contains("if source.intent == .saved {"))
         XCTAssertTrue(channel.contains("CapturedItemsList(channel: source.itemsListId, style: .saved)"))
+        // Review of #372: the captured list is lazy, so a long list asks marks only for the rows on screen.
+        XCTAssertTrue(channel.contains("LazyVStack(spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {\n                ForEach(items)"))
+        XCTAssertFalse(channel.contains("            VStack(spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {\n                ForEach(items)"))
+        // Sources v4: no source has a 30-day card or queue strip any more — one header, then the list.
         let detail = try source("Views/Sources/SourceDetailView.swift")
-        XCTAssertTrue(detail.contains("if source.intent == .captured {\n                headerCard"),
-                      "the 30-day line and the queue strip stay with captured sources only")
+        XCTAssertFalse(detail.contains("headerCard"))
+        XCTAssertTrue(detail.contains("SourceDetailHead(source: live"))
     }
 
     func testTheFirstClickOpensTheSourceAndTheEyebrowSaysWhere() {
@@ -122,7 +126,8 @@ final class SourcesV3Tests: XCTestCase {
                                                row("harness:claude-code", .harness, .captured)])
         columns.open(.source("chrome-bookmarks"))
         XCTAssertEqual(columns.openId, .source("chrome-bookmarks"))
-        XCTAssertEqual(SourcesModel.eyebrow(groups: groups, open: columns.openId), "Sources · 1 of 2 · Saved by you")
+        XCTAssertEqual(SourcesModel.eyebrow(groups: groups, open: columns.openId), "Sources · 2 connected",
+                       "Sources v4: the eyebrow stays the page's (the list shows where you are)")
     }
 
     func testASavedRowOpensWhereASavedItemOpensToday() {
@@ -163,8 +168,9 @@ final class SourcesV3Tests: XCTestCase {
 
     func testThePageAndTheRailAreWiredToTheReselect() throws {
         let page = try source("Views/Sources/SourcesPageView.swift")
-        XCTAssertTrue(page.contains(".onChange(of: router.reselections(of: .sources))"))
-        XCTAssertTrue(page.contains("Instant.run { change() }"), "the ⌘ path never animates (DR-60)")
+        XCTAssertTrue(page.contains(".onRailReselect(.sources, router: router)"))
+        XCTAssertTrue(page.contains("router.popToRoot(reduceMotion: reduceMotion, change)"),
+                      "the shared path: the ⌘ key never animates (DR-60)")
         let rail = try source("Views/Shell/NavRail.swift")
         XCTAssertTrue(rail.contains("router?.reselect(tab, byKey:"))
     }
@@ -201,7 +207,7 @@ final class SourcesV3Tests: XCTestCase {
 
     func testTheMarkIsTheSitesNeverTheBrowsersWithAMonogramFallback() {
         let site = ChannelItem(kind: .media, id: "m1", title: "Post", host: "linkedin.com", site: "linkedin")
-        XCTAssertEqual(SavedItemText.mark(site), .site(key: "linkedin", label: "linkedin.com"))
+        XCTAssertEqual(SavedItemText.mark(site), .site(key: "linkedin", label: "linkedin.com", door: .media("m1")))
         XCTAssertEqual(SiteIconLayout.rung(favicon: false, site: "linkedin", markExists: { _ in true }),
                        .bundled("linkedin"), "a family's own bundled mark")
         XCTAssertEqual(SiteIconLayout.rung(favicon: false, site: "example.com", markExists: { _ in true }), .monogram,
@@ -213,7 +219,9 @@ final class SourcesV3Tests: XCTestCase {
 
     func testTheRowsMarkAsksItsOwnSiteThroughTheBackend() throws {
         let row = try source("Views/Sources/CapturedItemsList.swift")
-        XCTAssertTrue(row.contains("SiteIcon(site: key, label: label, savedItem: item.kind == .media ? item.id : nil)"))
+        XCTAssertTrue(row.contains("SavedLinkMark(mark: SavedItemText.mark(item))"), "the one shared mark (2026-10-20)")
+        let mark = try source("Views/Common/SavedLinkMark.swift")
+        XCTAssertTrue(mark.contains("case .media(let id)?: SiteIcon(site: key, label: label, size: size, savedItem: id)"))
         let client = try source("Services/APIClient.swift")
         XCTAssertTrue(client.contains("\"/sources/saved/\\(encodedID(mediaEntityId))/site-icon\""))
         XCTAssertFalse(row.contains("OriginMark(origin"), "never the browser's mark on a saved row")
@@ -237,16 +245,18 @@ final class SourcesV3Tests: XCTestCase {
     }
 
     /// Owner ruling 2026-10-19 — a saved row asks its own site's icon by its media id, once per site; never the
-    /// reading list's icon-service route.
+    /// reading list's icon-service route. Review of #372: the icon is the site's, a miss is the id's.
     func testASavedRowAsksItsOwnSiteOncePerSiteAndNeverTheIconService() async {
         let saved = SavedAsks()
+        let icon = SavedLinkMarkTests.png
         let store = SiteIconStore(fetch: { _ in XCTFail("the icon-service route is never asked for a saved row"); return nil },
-                                  fetchForSaved: { id in await saved.add(id); return nil })
+                                  fetchForSaved: { id in await saved.add(id); return id == "media-3" ? nil : icon })
         _ = await store.image(site: "paperfold.io", bank: "b1", savedItem: "media-1")
         _ = await store.image(site: "paperfold.io", bank: "b1", savedItem: "media-2")
         _ = await store.image(site: "other.io", bank: "b1", savedItem: "media-3")
+        _ = await store.image(site: "other.io", bank: "b1", savedItem: "media-3")
         let asked = await saved.ids
-        XCTAssertEqual(asked, ["media-1", "media-3"], "a second row of the same site reuses the first answer, a miss too")
+        XCTAssertEqual(asked, ["media-1", "media-3"], "a second row of the same site reuses its icon; an id's miss is kept")
     }
 
     // MARK: 5 · Paging at the owner's scale

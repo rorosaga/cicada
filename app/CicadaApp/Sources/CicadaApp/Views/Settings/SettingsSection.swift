@@ -26,11 +26,15 @@ import Foundation
 ///
 /// O4 — the Cicada group gains You (the owner, G117), Privacy & data (what
 /// stays on this Mac and how to take it away), and Memory (the derived index
-/// and the link backfill); Advanced closes Engines & keys. New cases only, so
+/// and the link backfill); Advanced closed Engines & keys until 2026-10-22. New cases only, so
 /// every persisted raw value still restores (K1).
 ///
 /// G166 — Reading the web sits after Integrations in Customize: which sites the person's own agent may read for them and
 /// how it reads them. A new case only, so every persisted raw value still restores.
+///
+/// Settings defaults (owner, 2026-10-22): Advanced is gone — the backend's status, the MCP command, the token's path,
+/// the environment switches and the settings file were technical values nobody sets here. A saved `"advanced"` raw value
+/// no longer names a case, so `restored(from:)` opens General, as it does for any retired section.
 ///
 /// O5 — Skills (G138) closes Customize: what your agents can add, installed
 /// only by the agent's own installer after consent (R-O26).
@@ -42,7 +46,7 @@ import Foundation
 enum SettingsSection: String, CaseIterable, Identifiable {
     // Declared in sidebar order — `SettingsGroup.sections` filters this list,
     // and `SettingsKitTests` pins that the groups read it back unchanged.
-    case general, you, privacy, searchFiles, memory, sleep, integrations, reading, agents, remote, devices, skills, engines, plansAndKeys, advanced
+    case general, you, privacy, searchFiles, memory, sleep, integrations, reading, agents, remote, devices, skills, engines, plansAndKeys
 
     var id: String { rawValue }
 
@@ -62,7 +66,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .skills: Copy.skills
         case .engines: Copy.engines
         case .plansAndKeys: Copy.plansAndKeys
-        case .advanced: Copy.advanced
         }
     }
 
@@ -91,7 +94,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .skills: Copy.skillsSubtitle
         case .engines: Copy.enginesSubtitle
         case .plansAndKeys: Copy.plansAndKeysSubtitle
-        case .advanced: Copy.advancedSubtitle
         }
     }
 
@@ -112,7 +114,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .engines: "cpu"
         // K4: `creditcard` read as a price on a page that must never show one.
         case .plansAndKeys: "key.horizontal"
-        case .advanced: "wrench.and.screwdriver"
         }
     }
 
@@ -120,7 +121,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general, .you, .privacy, .searchFiles, .memory, .sleep: .cicada
         case .integrations, .reading, .agents, .remote, .devices, .skills: .customize
-        case .engines, .plansAndKeys, .advanced: .enginesAndKeys
+        case .engines, .plansAndKeys: .enginesAndKeys
         }
     }
 

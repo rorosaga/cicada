@@ -155,6 +155,7 @@ extension Copy {
     static let capturedNoPeople = "No one in your contacts matched a person Cicada knows yet."
     static let capturedLoadFailed = "Couldn't read what came in. Cicada will try again when you open it."
     static let capturedShowMore = "Show more"
+    static let capturedLoadingMore = "Reading more…"
     /// "20 of 229 notes" — `noun` is `CapturedItems.noun`'s pair, so the unit is always said (DR-21).
     static func capturedShown(_ shown: Int, of total: Int, noun: (one: String, many: String),
                               locale: Locale = .autoupdatingCurrent) -> String {
@@ -166,7 +167,7 @@ extension Copy {
         case .episode: "Open in the Reader"
         case .media: "Open in Saved"
         case .page: "Open their card"
-        case .unknown: ""
+        case .chat, .unknown: ""
         }
     }
     static func capturedRowLabel(_ title: String, age: String?, left: String? = nil) -> String {

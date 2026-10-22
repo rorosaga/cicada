@@ -68,7 +68,9 @@ struct LogoImage: View {
     /// hair against its own 0.14 × size radius — accepted.
     private func bundledBody(_ name: String) -> some View {
         ZStack(alignment: .bottomTrailing) {
-            if let image {
+            // Review of #358 (Sources v4): a bundled mark is drawn on the first frame — a small PNG read once and
+            // cached — so a row never flashes the generic "app" placeholder before its own mark.
+            if let image = Self.bundledImageNow(for: name) ?? image {
                 Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
                     .frame(width: size, height: size)
             } else {
@@ -210,6 +212,18 @@ struct LogoImage: View {
         return loaded
     }
 
+    /// The bundled mark now, synchronously: the cache, else one small PNG read and cached (main actor, like
+    /// `menuImage`). Nil only when no such mark ships — then the placeholder is the honest answer.
+    @MainActor
+    static func bundledImageNow(for name: String) -> NSImage? {
+        guard let file = resolvedName(for: name) else { return nil }
+        if let cached = cache[file] { return cached }
+        guard let url = Bundle.cicadaResources.cicadaResource(file, ext: "png", in: "logos"),
+              let loaded = NSImage(contentsOf: url) else { return nil }
+        cache[file] = loaded
+        return loaded
+    }
+
     /// A bundled mark for an AppKit menu — a `.menu` `Picker` or a `Menu` item. AppKit flattens such a label into an
     /// `NSMenuItem` image and draws it at the `NSImage`'s own size, ignoring every SwiftUI frame, so a `LogoImage`
     /// there showed its full-resolution PNG (a 300 pt OpenAI mark over Who reads, QA 2026-10-16). The copy carries
@@ -279,9 +293,9 @@ private struct PlatformTile: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: cornerRadius)
+            CicadaTheme.shape(cornerRadius)
                 .fill(CicadaTheme.surfaceElevated)
-            RoundedRectangle(cornerRadius: cornerRadius)
+            CicadaTheme.shape(cornerRadius)
                 .stroke(CicadaTheme.border, lineWidth: 1)
             if let bundleId, let icon = InstalledAppIcon.image(bundleId: bundleId, size: markSize) {
                 Image(nsImage: icon)
@@ -302,7 +316,7 @@ private struct PlatformTile: View {
                 // unconditionally rather than maintaining a list of which
                 // rasters are opaque.
                 LogoImage(name: name, size: markSize)
-                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius * (markSize / size)))
+                    .clipShape(CicadaTheme.shape(cornerRadius * (markSize / size)))
             } else {
                 Image(systemName: systemFallback)
                     .font(CicadaTheme.font(size: size * 0.42, weight: .medium))

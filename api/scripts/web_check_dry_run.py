@@ -1,16 +1,35 @@
-"""Measure the web check on a bank without writing anything (owner brief, 2026-10-16; ``web_lookup.dry_run``).
+"""Measure the web check on a bank without writing anything (owner brief, 2026-10-16; the sweep, owner ruling
+2026-10-19: ``web_lookup.sweep``).
 
-    api/.venv/bin/python -m api.scripts.web_check_dry_run --bank <path> --limit 8
-    api/.venv/bin/python -m api.scripts.web_check_dry_run --bank <path> --limit 8 --include-recent
+    api/.venv/bin/python -m api.scripts.web_check_dry_run --bank <path> --census          # no engine call at all
+    api/.venv/bin/python -m api.scripts.web_check_dry_run --bank <path> --limit 20
+    api/.venv/bin/python -m api.scripts.web_check_dry_run --bank <path> --limit 20 --include-recent
+    api/.venv/bin/python -m api.scripts.web_check_dry_run --bank <path> --limit 20 --include-recent --trace
 
-Runs the engine the person chose — as a person-started Sleep would, so the Claude plan's own web search when that is the
-engine (ruling 4 binds a scheduled run; this is the person's command) — on the next ``--limit`` questions the web check
-would look up, and prints one JSON object of COUNTS: how many were eligible, looked up, would have settled, how many
-prompts carried a mention line or a description, how many queries were a bare name, and the reasons by kind
-(``clarification``, ``conflict``, ``type_conflict``). Never an item id, a name, a query, a link or a quote. It writes
-nothing: no settle, no commit, no memo row, no ledger row. ``--include-recent`` also re-measures questions a run looked
-up in the last 30 days. The bank is named explicitly; nothing is resolved from the active bank. Exit 0 done, 2 not a
-bank.
+Prints one JSON object of COUNTS. Always the census: per kind, how many open questions a lookup may answer
+(``public``), a trusted local agent may (``repo_state``), or stay for the person and why (``person``,
+``private_type``, ``own_settings``, ``no_page`` …). Then — unless ``--census`` — it runs the engine the person chose,
+as a run they start would (their Claude plan's own web search when that is the engine), on up to ``--limit`` of the
+eligible questions and counts how many were looked up and would settle, with the reasons by kind (``clarification``,
+``conflict``, ``type_conflict``). Never an item id, a name, a query, a link or a quote. It writes nothing: no settle,
+no commit, no memo row, no ledger row. ``--include-recent`` also re-measures questions a run looked up in the last 30
+days. The bank is named explicitly; nothing is resolved from the active bank. Exit 0 done, 2 not a bank.
+
+``--trace`` (for the person running it, never a log): the same counts plus, per looked-up question, only its pinned
+query (the name and the category word that would be searched), where that word came from (``description``,
+``context`` or ``none``), how many context lines it carried, how many people's names the context had replaced, and the
+outcome (``would_settle`` or the reason). Never the context's words, a link, a quote or an answer. It also counts how
+the bank's person names are redacted (``web_settle.person_name_census``: split, whole phrase, skipped, relations, and
+person-typed names that read as a thing — the data to fix in the bank, never a name).
+
+``--trace-raw`` (implies ``--trace``; for the eyes of the person running it, printed and never written anywhere):
+per lookup also the searches the engine ran, how many links each search returned, the model (and every model the call
+used with its output tokens: the search's own side-call is one), and the model's
+raw final text cut to 400 characters — which may quote the subject's name and what the web says about it.
+
+The real sweep is the running backend's own route (it holds the bank's write admission and Sleep's window, ruling
+21a): ``POST /inbox/web-check?dryRun=false[&limit=N]`` with the token, then ``GET /inbox/web-check`` for its counts;
+each settle is undoable under "Settled by a check".
 """
 from __future__ import annotations
 
@@ -24,9 +43,14 @@ from pathlib import Path
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="web_check_dry_run", description=__doc__.splitlines()[0])
     parser.add_argument("--bank", required=True, help="the bank directory (holds entities/ and inbox/)")
-    parser.add_argument("--limit", type=int, default=8, help="look up at most this many questions (default 8)")
+    parser.add_argument("--limit", type=int, default=20, help="look up at most this many questions (default 20)")
     parser.add_argument("--include-recent", action="store_true",
                         help="also re-measure questions looked up in the last 30 days")
+    parser.add_argument("--census", action="store_true", help="count what a lookup may answer; no engine call")
+    parser.add_argument("--trace", action="store_true",
+                        help="also print each lookup's pinned query, redaction count and outcome (for your eyes)")
+    parser.add_argument("--trace-raw", action="store_true",
+                        help="--trace plus the searches run, links returned and the model's raw reply (your eyes only)")
     args = parser.parse_args(argv)
     bank = Path(args.bank).expanduser().resolve()
     if not (bank / "entities").is_dir() or not (bank / "inbox").is_dir():
@@ -34,9 +58,38 @@ def main(argv=None) -> int:
         return 2
 
     from api.config import Settings
-    from api.services import web_lookup
+    from api.services import web_lookup, web_settle
 
-    counts = asyncio.run(web_lookup.dry_run(bank, Settings(), limit=args.limit, include_recent=args.include_recent))
+    if args.trace_raw:
+        args.trace = True
+    rows: list[dict] = []
+    raws: list[dict] = []
+    facts = web_settle.bank_facts(bank) if args.trace else None
+
+    def raw(c, resp) -> None:
+        raws.append({"searches": web_lookup.searched_queries(resp),
+                     "links": list((resp.get("tool_results") if isinstance(resp, dict) else None) or []),
+                     "model": web_lookup._model_of(resp),
+                     "models_used": dict((resp.get("model_usage") if isinstance(resp, dict) else None) or {}),
+                     "text": web_lookup._content(resp)[:400]})
+
+    def trace(c, context, a) -> None:
+        stats: dict = {}
+        web_settle.local_context(bank, c, facts, stats=stats)   # the same lines again, only to count the redactions
+        row = {"query": web_settle.query_for(c), "category_from": c.category_from or "none",
+               "context_lines": len(context), "people_redacted": stats.get("people", 0),
+               "outcome": "would_settle" if a.ok else a.reason}
+        if args.trace_raw:
+            row.update(raws.pop() if raws else
+                       {"searches": [], "links": [], "model": None, "models_used": {}, "text": ""})
+        rows.append(row)
+
+    counts = asyncio.run(web_lookup.sweep(bank, Settings(), dry_run=True, limit=0 if args.census else args.limit,
+                                          include_recent=args.include_recent, on_lookup=trace if args.trace else None,
+                                          raw_sink=raw if args.trace_raw else None))
+    if args.trace:
+        counts["trace"] = rows
+        counts["person_names"] = web_settle.person_name_census(facts)
     print(json.dumps(counts, sort_keys=True))
     return 0
 

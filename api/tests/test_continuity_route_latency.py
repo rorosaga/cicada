@@ -9,7 +9,8 @@ registry rows present. Reports server-side `latencyMs` (run with `-s`).
 * cold — no index file, no in-memory index, no handshake cache: p95 ≤ 600 ms;
 * warm — the same call again: p95 ≤ 250 ms;
 * near the deadline — assembly slowed to 750 ms and the registry lock held:
-  the answer stays within the 800 ms budget (+50 ms) and carries no partial note.
+  the answer stays within the 800 ms budget (+50 ms). That it carries no partial note is asserted in the default
+  suite (``test_hook_continuity.py``), on a shortened budget.
 
 Interpreter start-up and a cold disk are not measured; the OS file cache is
 warm after the first read. End-to-end hook latency (the stdlib hook posting
@@ -31,6 +32,9 @@ from _continuity_fixtures import CWD, sid, write_other_episode, write_session
 from _reading_fixtures import enable
 from api import config, main
 from api.services import continuity, continuity_sessions, hook_recall
+
+#: A wall-clock budget: the `bench` tier (`make test-bench`, and `make test` before a release), never the default run.
+pytestmark = pytest.mark.bench
 
 URL = "/capture/hook-context"
 RUNS = 10
@@ -94,7 +98,7 @@ def test_the_whole_route_cold_and_warm(client, big):
     assert _p95(cold) <= 600 and _p95(warm) <= 250
 
 
-def test_near_the_deadline_with_a_held_lock_there_is_no_partial_note(client, big, monkeypatch):
+def test_near_the_deadline_with_a_held_lock_the_answer_is_on_time(client, big, monkeypatch):
     real = continuity.assemble
 
     def slow(*a, **k):
@@ -111,7 +115,6 @@ def test_near_the_deadline_with_a_held_lock_there_is_no_partial_note(client, big
     finally:
         os.close(fd)
     assert data["latencyMs"] <= hook_recall.PRIMER_BUDGET_S * 1000 + 50
-    assert data["additionalContext"] is None and data["reason"] == "timeout"
 
 
 def test_end_to_end_hook_latency_is_reported(client, big, tmp_path):

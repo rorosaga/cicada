@@ -7,8 +7,13 @@ extension Copy {
         static let title = "Messages"
         /// The one sentence before access (the brief: what Cicada reads, and why it needs Full Disk Access).
         static let whatItReads = "Cicada reads only the conversations you tick here — each message's words, who sent "
-            + "it and when, and the names of attachments, never the files — from Messages on this Mac, which macOS "
-            + "lets an app open only with Full Disk Access."
+            + "it and when, its reactions, replies and edits, and the names of attachments, never the files — from "
+            + "Messages on this Mac, which macOS lets an app open only with Full Disk Access."
+        /// 2026-10-20: sittings saved before reactions, replies and attachments were kept get them only on a re-read.
+        static let readAgain = "Read again"
+        static let readAgainHelp = "Read your ticked conversations again from the start, to add reactions, replies, "
+            + "edits and attachments to what was saved before. A conversation whose words didn't change isn't read by "
+            + "Sleep again."
         static let rowLineNone = "Pick the conversations Cicada should remember"
         static func rowLine(ticked: Int) -> String {
             ticked == 1 ? "Remembering 1 conversation" : "Remembering \(ticked) conversations"

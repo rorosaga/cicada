@@ -40,6 +40,7 @@ final class EngineCardTests: XCTestCase {
         XCTAssertNil(ready.command)
     }
 
+    /// Settings shows who reads, never a model id (settings defaults, owner 2026-10-22).
     /// The engine half of each preview line is exactly `Copy.engineLabel`'s
     /// existing three-way mapping — never a fresh coinage that could drift
     /// from what the rest of the app already calls each engine.
@@ -47,13 +48,13 @@ final class EngineCardTests: XCTestCase {
         let manual = SleepEnginePreview(engine: "claude-cli", model: "sonnet", why: "user-triggered")
         XCTAssertEqual(
             EngineChooser.previewLine(manual, label: Copy.EngineMenu.whenYouStart),
-            "\(Copy.EngineMenu.whenYouStart): \(Copy.engineLabel("claude-cli")) · sonnet"
+            "\(Copy.EngineMenu.whenYouStart): \(Copy.engineLabel("claude-cli"))"
         )
 
         let scheduled = SleepEnginePreview(engine: "litellm", model: "gpt-5.4-mini", why: "scheduled cycle")
         XCTAssertEqual(
             EngineChooser.previewLine(scheduled, label: Copy.EngineMenu.scheduledCycles),
-            "\(Copy.EngineMenu.scheduledCycles): \(Copy.engineLabel("litellm")) · gpt-5.4-mini"
+            "\(Copy.EngineMenu.scheduledCycles): \(Copy.engineLabel("litellm"))"
         )
     }
 
@@ -92,7 +93,7 @@ final class EngineCardTests: XCTestCase {
         let manual = SleepEnginePreview(engine: "codex-cli", model: "gpt-5.6-luna",
                                         why: "Sleep engine set to 'codex' in Settings")
         XCTAssertEqual(EngineChooser.previewLine(manual, label: Copy.EngineMenu.whenYouStart),
-                       "\(Copy.EngineMenu.whenYouStart): Codex (your ChatGPT plan) · gpt-5.6-luna")
+                       "\(Copy.EngineMenu.whenYouStart): Codex (your ChatGPT plan)")
     }
 
     func testAllowOverageDecodesTolerantly() throws {

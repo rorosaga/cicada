@@ -12,8 +12,9 @@ import SwiftUI
 ///
 /// `.mention` — a match found by name (G118 §4.9, DR-57): semibold, never washed; the wash and the
 /// underline are for words someone quoted (R-DI11). `reveal` (0…1) scales the wash and the
-/// underline so `spanReveal` fades them in (DR-61) instead of popping them; every existing call
-/// site passes nothing and gets 1.
+/// underline: `CitedSpanRenderer` animates it, so `spanReveal` fades a renderer-drawn span in (DR-61); a selectable
+/// `CitedPassage` only shows or hides its marks (attributes are not interpolated). A call site that passes nothing
+/// gets 1.
 enum CitedSpan {
     enum Mark: Equatable { case plain, current, other, mention }
     struct Segment: Equatable {
@@ -132,6 +133,8 @@ struct CitedPassage: View {
     var color: Color = CicadaTheme.textPrimary
     /// DR-61 — 0 hides the marks, 1 shows them.
     var reveal: Double = 1
+    /// False in a chat bubble, which hugs its words rather than taking the column (`ReaderChatRows`).
+    var fillsWidth = true
 
     var body: some View {
         Text(CitedSpan.fallback(segments, reveal: reveal))
@@ -139,7 +142,7 @@ struct CitedPassage: View {
             .lineSpacing(lineSpacing)
             .foregroundStyle(color)
             .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: fillsWidth ? .infinity : nil, alignment: .leading)
             .textSelection(.enabled)
     }
 }

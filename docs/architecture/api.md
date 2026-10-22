@@ -86,8 +86,13 @@ before it is decoded (`messages_photos.B64_MAX`, 422 as before).
 **Schedule and reading options (ruling 4b, owner decision 2).** `GET/PUT /sleep/schedule` answer the schedule plus,
 while it runs on its own, `warning` and `warningCode` when a scheduled run would have no engine it may use
 (`ScheduleResponse`, `engine_readiness`); the PUT body is unchanged and the app never sends them back.
-`GET/PUT /sleep/run-options` carry `scheduledUsePlan` (machine-wide, off by default; `null` is 422).
-`POST /ask` on an engine with no key answers that it has no engine, naming the pages it found, and calls nothing.
+`GET/PUT /sleep/run-options` carry `scheduledUsePlan` (machine-wide, on unless the person turned it off — ruling 4c,
+2026-10-19; an off is stored as `false`; `null` is 422).
+`POST /ask` with no engine — an API model with no key, or Auto with no plan and no local model (ruling 31: never a key
+nobody chose) — answers that it has no engine, naming the pages it found, and calls nothing.
+**The web-check sweep (ruling 27b, 2026-10-19).** `POST /inbox/web-check?dryRun=true|false[&limit=N][&includeRecent=true]`
+answers counts only (dry run) or `{"status": "started"}` and runs in the background; `GET /inbox/web-check` its counts.
+409 while Sleep, the tidy or another sweep runs. Not a Store domain, no ETag (`features.md`).
 
 **Device tokens (G181 phase 2, owner ruling 1, 2026-10-16).** A second machine of the person's never gets the master
 token: each device gets its own **named, hashed, revocable** token (`device_tokens`, the G135 store's shape kept apart:
@@ -118,7 +123,7 @@ loopback tunnel only). No installer creates, copies or logs either.
   the save's episode; `SHAPE` `device-1` moves the ETag once, and the app's `SnapshotCache.schema` is 3 in the same
   change), `GET /entities/{id}/provenance` conversations (`device`, the newest one in the group) and
   `GET /episodes/{id}/text` (`device`). The last two are not Store domains.
-- `CICADA_API_BASE`, else the app's `$CICADA_HOME/api_base` (written only on the person's click in Settings → General,
+- `CICADA_API_BASE`, else the app's `$CICADA_HOME/api_base` (written only on the person's click in Settings → Devices,
   0600): `runtime_layout._raw_base` and its stdlib twin `hook_client.raw_base` read the file only from the real
   environment or one that names its own `CICADA_HOME`, so a test's bare dict never reaches a home.
 
@@ -130,7 +135,8 @@ unauthenticated; `GET /banks` carries each bank's `id`. A mutating request may n
 beside `X-Cicada-Bank`; either mismatch is 409 `bank_mismatch` before anything runs.
 
 **`POST /capture/session` and `POST /tools/call` (G181 phase 2).** The first takes a Claude Code or Codex session read
-on the client by Cicada's own extractor (`capture-and-sleep.md`, "A session from another machine"); the second is the
+on the client by Cicada's own extractor (`capture-and-sleep.md`, "A session from another machine"), with an optional
+`utc_offset_minutes` (−840…840; ruling 34, also on `/capture/turn`) so the id it mints carries the client's local day; the second is the
 tool door (`mcp.md`, "A client of a server on another machine"). Both run their work off the event loop; the door
 answers `{text, code, data, error, state, bank}` with 200 for anything a body said (a body's exception is `error`, the
 stdio server's `Error: …`), 404 for an unknown tool and 403 for a tool the command-line surface does not hold.
@@ -142,7 +148,10 @@ live bank is ~1.8 MB. **Ship the ETag and its client mapping together** — `GET
 `.inbox`; change one half, change both. `/graph`'s `extra` carries a node-shape tag
 (`graph.NODE_SHAPE`), bumped when a node gains a field a client must see or the body changes for
 the same files (F1's context filter and fence strip; `+previews` when a media node's `picture` became the stored
-preview path); `/sources` carries `sources.SHAPE` in its `extra` the same way (`preview-1`: items gained `preview`;
+preview path; `+quiet`, owner ruling 2026-10-20, when a node gained `quiet` — omitted when false, derived from the
+entity files the ETag already covers and from episodes whose kind never changes, so no component moved; folded into
+the node's `contentHash` only when true, so a lit node's hash is unchanged; `GET /entities/{id}` carries the same
+`quiet`, no ETag); `/sources` carries `sources.SHAPE` in its `extra` the same way (`preview-1`: items gained `preview`;
 `saved-why-2`, G191 v3: items gained `savedWhyHistory`, `lastSavedAt` and `captureThumb`). Neither moved a component,
 so `VersionVector` was unchanged by those — but G191 v3 also folds the `captures` component into `/sources`' ETag (a
 new site capture gives a bookmark's row its thumbnail), so `VersionVector` maps `captures` → `.sources`.
@@ -150,14 +159,16 @@ new site capture gives a bookmark's row its thumbnail), so `VersionVector` maps 
 bookmark has left, read from the bookmark seen-set's `left` map. That file (`sources/bookmark_seen.json`) is not `*.md`, so
 the `sources` component's directory fingerprint never saw it — it now rides the component by its own mtime (client
 mapping unchanged: `sources` → `.sources`). `GET /sources/channels/{id}/items` for a bookmark channel also lists the links
-that left the browser, each with `left` (shape `g161-2`). Sources v3 (2026-10-19, shape `g161-3`): a saved link's row adds `host`, `site` and `why` (the newest *Ask why* answer, read only for the page served), and a channel-less saved import is listed by its Sources row id; `GET /sources/overview` rows carry `intent` (`saved` | `captured`, ETag shape `overview-v3`; `app.md`, "Sources page — v3"). `GET /sources/saved/{media_entity_id}/site-icon` serves a saved link's own site icon, asked of that site only (owner ruling 2026-10-19; `storage.md`); 404 = draw the monogram. `POST /sources/sync-bookmarks` gained `leftMarked`;
+that left the browser, each with `left` (shape `g161-2`). Sources v3 (2026-10-19, shape `g161-3`): a saved link's row adds `host`, `site` and `why` (the newest *Ask why* answer, read only for the page served), and a channel-less saved import is listed by its Sources row id; `GET /sources/overview` rows carry `intent` (`saved` | `captured`, ETag shape `overview-v3`; `app.md`, "Sources page — v3"). `GET /sources/saved/{media_entity_id}/site-icon` serves a saved link's own site icon, asked of that site only (owner ruling 2026-10-19; `storage.md`); 404 = draw the monogram; `GET /sources/saved/episodes/{episode_id}/site-icon` serves the same for a Waiting row of a saved link with no page yet (2026-10-20), and `GET /sources` items carry `siteKey` (shape `site-key-1`), `GET /sleep/episodes` rows `site` (`episodes-2`) — client mappings unchanged, both are in-memory reads. Sources v4 (2026-10-19, shapes `g161-4` / `overview-v4`): an overview row adds `waiting`, `faces` and `facesMore`, and its ETag folds in `photos` (a chat face carries its photo's hash) — `VersionVector` maps `photos` to `.sourcesOverview` in the same PR; a list row drops a trailing " · <its day>", a Messages row carries `chat`, a watched day `videos` (month summaries unlisted). Review of #358 (shape `g161-5`): Messages lists one row per chat (`kind: chat`, `sittings`), a saved row's faces come from the set its list lists and only while its count is above zero, and the items ETag folds in `photos` too (`messages_photos.stamp` hashes every stored photo). New: `GET /sources/watch-history/days/{episode}` (a day's videos, ETag, not a Store domain), `GET /sources/watch-history/days/{episode}/videos/{video_id}/thumbnail`, `GET /sources/saved/{media_entity_id}/still` (marks-2: a saved YouTube video's still by its page's id, the same store; items shape `g161-6` adds `video` on such a row and `host`/`site` on a saved link's waiting episode row; the overview's ETag folds the `siteIcons` sync component — the own-site icon index, mapped by `VersionVector` to `.sourcesOverview` in the same PR — because a saved row's faces put cached icons first), `GET /sources/messages/chats/{conversation}/sittings` (ETag, not a Store domain) and `GET /sources/messages/chats/{conversation}/photo` (404 = no picture; `storage.md`). `POST /sources/sync-bookmarks` gained `leftMarked`;
 `removalsProposed` stays on the wire and is always 0 for bookmarks. `GET /sources/saved-why/options` serves the four
 reasons and an always-empty `projects`; `POST`/`PUT /sources/saved-why` still accept a retired reason (`technique`) and a
 project (an edit may keep an archived one).
 
 **G191 v3 bookmark writes** (both 409 in a demo bank and while Sleep holds the pages, both committed alone as
 `Cicada-Author: user`): `PUT /sources/saved-why` `{url, at, reasons[], project?, text?}` changes the one answer given at
-`at` (404 when there is none; its `at` and `addedAt` kept, `editedAt` stamped); `POST /sources/bookmarks/remove`
+`at` (404 when there is none; its `at` and `addedAt` kept, `editedAt` stamped; 2026-10-19: an edit that changes nothing —
+the same reasons in any order, project and words — writes nothing, stamps nothing and commits nothing, so the panel the
+star opens on a saved page can be left as it was); `POST /sources/bookmarks/remove`
 `{url}` archives the link's media page (never deleted) and stamps its episode `source_deleted_at` (trigger
 `user/bookmark_remove`; 404 for a link not held, idempotent). `POST /sources/saved-why` gained `addedAt` (the moment of
 saving it answers) and answers with `history`. The app reaches both through `Store.perform` (`SavedWhyWrite`,
@@ -167,7 +178,8 @@ saving it answers) and answers with `history`. The app reaches both through `Sto
 `projects|<shape>|<author shape>|<machine zone>` (`git_service.AUTHOR_SHAPE` since round 4, R4B-9) — never today, never a viewer zone — and are **not** Store domains
 (no `VersionVector` mapping, fetched on demand like provenance). A timeline item carries at most
 12 participants plus `participantsTotal`, and a cluster group at most 8 names no page holds yet
-(round 4 D6; `PROJECT_SHAPE` g141-3). The person's writes (G141 PJ-3b) —
+(round 4 D6). A list row's `activity` is the window's first day only — the row bar's start, all the list draws from it;
+the detail keeps the series (`PROJECT_SHAPE` g141-4, 2026-10-19: 40 % of the list's body at 700 projects). The person's writes (G141 PJ-3b) —
 `POST /projects/{id}/milestones`, `PATCH /projects/{id}/milestones/{slug}`, `POST /projects/{id}/happenings`
 (the Log: one time phrase becomes the day, a companion episode keeps the words), `POST
 /projects/{id}/threads/{claim_id}` and `POST /projects/{id}/withdraw` (happenings only) — answer **409**
@@ -192,12 +204,17 @@ through `Settings`. `GET /status` carries `settings`: `file` (`"api/.env"` or nu
 memory path or the app-spawned developer backend's copy of the file, counts as from the file) — `CICADA_` names only,
 never a value — and `effective`, the four values Sleep's pace and page
 writing turn on (`agentMaxConcurrency`, `sleepResolveConcurrency`, `summarySynthesisEnabled`, `pageArticlesEnabled`).
-The backend logs the same names once at startup. Settings → Advanced shows them (`app.md`).
+The backend logs the same names once at startup. No Settings page shows them since 2026-10-22 (settings defaults,
+`app.md`): they are a developer's to read, here and in that log.
 
 **`GET /sleep/episodes` (2026-10-19)** answers a bare list of episode rows, as before. With no query it is every
 episode (the original shape, kept for any client still asking); `processed=false` is only the waiting ones — what the
 app asks for (`APIClient.fetchEpisodeQueue(etag:)`: the Sleep page's Waiting rows and count fallback, a source's queue
 strip) — and `processed=true` with `offset`/`limit` (≤ 1000) pages the read ones; `X-Total-Count` is the filtered total.
+The paged call has no app client, and none is needed (checked 2026-10-19): no surface lists read conversations from
+this route — Sleep › Past reads runs (`/sleep/history`, `/sleep/runs/{id}`), the waiting list is `/sleep/queue` (≤ 200)
+and `processed=false`, and a source's conversations are `/conversations/recent` (≤ 200, filtered before its cap). A
+surface that one day lists read episodes pages here instead of downloading them all.
 Rows are chosen from `bank_index`'s cached headers (`sleep_cycle.episode_headers`) and only the sent rows' bodies are
 read: on a synthetic 8,237-episode bank (10 waiting) the bare call is 4.3 MB / 1.7 s warm before and 0.4 s after, the
 waiting list 5 KB / 45 ms, a 304 ~25 ms. ETag over `episodes` with `extra` = `sleep.EPISODES_SHAPE|<query>|<folders.json
@@ -211,6 +228,11 @@ process, an unresolvable base and a home that does not exist; and `APIClient.loa
 under the temporary directory and ignores `CICADA_API_TOKEN` (`testMayReadToken`). A view model's defaults call `shared`,
 so a test that forgets to inject a closure gets an offline answer, never the running backend or the person's token
 (`APIClientIsolationTests`). The shipped app is unchanged: both checks key on `AppPasteboard.isRunningTests`.
+The same goes for every other default that reads `CicadaRuntime.current` (#348 follow-up): under XCTest it is
+`CicadaRuntime.underTests()`, the same code root with a home under the temporary directory
+(`cicada-xctest-<pid>/home`, the shell's `CICADA_HOME` ignored), so `ServerConnection`'s files, the device token, the
+updater's token file, log and Trash never resolve to the person's; and `SleepProbe.live` answers over
+`NoBackendURLProtocol` (`RuntimeHomeIsolationTests`).
 
 `GET /status` has no ETag (the app refetches it whenever the vector's `sleep` component moves). Its `sleep.writing`
 (G177) is `sleep_cycle.is_writing()` — the predicate behind every "Sleep is running" 409 — and the SSE `sleep` event and
@@ -290,11 +312,35 @@ folder its docs name and the folders it also reads; an agent with none is left o
 table, the MCP schema's agent enum and the app (through `GET /skills`) all derive from it, and an agent whose home
 folder is missing is hidden (`test_the_agent_list_is_one_place`). The rest: (`test_only_skill_store_writes_into_an_agents_
 skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME/skills/{library,drafts,removed}` plus
-`requests.json`, `updates.json`, `onboarding.json`; write admission classes every route `OUTSIDE`.
+`requests.json`, `updates.json`, `onboarding.json`, `kinds.json`; write admission classes every route `OUTSIDE`.
 - `GET /skills` — installed rows (source, version, `status` — `update|refresh|current|local|unchecked` —, update with
   `from` and its `changes`, agents, tool, permissions, details with an instructions `excerpt`),
   `suggested` (catalog, with `method` `tool|copy|manual|own`), `drafts`, `noticed` (the bank's held and page skills,
-  G112), `requests`, `checkedAt`, `uv`, `jobs`. No ETag: not a Store domain.
+  G112), `requests`, `checkedAt`, `uv`, `jobs`. No ETag: not a Store domain. **Additive since G201 slice (a)** (TODO
+  ruling 35, 2026-10-22): every installed, draft, noticed and plugin skill carries `kind` (`about-you|generic|unknown`),
+  `kindBy` (`person|cicada`) and `kindKey`; `plugins` lists Claude Code's installed plugins (`id` `name@marketplace`,
+  `name`, `marketplace`, `version`, `scope`, `enabled` true/false/null, `installedAt`, `updatedAt`, `harness`,
+  `canToggle: false`, `note`, and `skills` — `name`, one-line `description`, `userOnly` for
+  `disable-model-invocation`); `weight` is `{agents: [{id, label, skills, fromPlugins, userOnly,
+  descriptionTokens}], basis, estimate: true}`. Field order is not a contract.
+- **Plugins (`skill_plugins`), read-only.** From Claude Code's own files under the agent home:
+  `.claude/plugins/installed_plugins.json` (v2 `{version, plugins: {id: [entries]}}`, and the older flat shapes), the
+  user `settings.json`'s `enabledPlugins`, each plugin's `.claude-plugin/plugin.json`, and its skills' SKILL.md
+  frontmatter (`skills/` plus the manifest's own `./` paths). The user-scope entry wins; a project-scoped install's
+  switch lives in that project's settings, which the backend never opens, so its `enabled` is null and its `note` says
+  so. An `installPath` outside `.claude/plugins` and a manifest path that escapes the plugin are never followed; a
+  missing or corrupt file is an empty answer, never an error. Shown only when Claude Code is on this Mac. Cicada never
+  installs, removes or toggles a plugin.
+- **Kinds (`skill_kind`), no model call.** Third-party text (a plugin, GitHub, `npx skills`, the catalog, a tool) and
+  Cicada's own bundles are `generic`; a candidate (a held or page skill Sleep noticed, an agent's draft, a published
+  draft) is `about-you` when its evidence pages (`related`, a held line's `evidence_ids`) or its text's `[[links]]`
+  name a `person` or `project` page or the owner's page, else `unknown`; a local skill folder of unknown origin is
+  `unknown`. `PUT /skills/kinds {key, kind}` (`kind` null clears) stores the person's choice in
+  `$CICADA_HOME/skills/kinds.json` through `skill_store.set_kind`, the one writer; it wins over the rule.
+- **Weight.** Per agent on this Mac: the skills it loads (its own folder and the folders it also reads; for Claude
+  Code also every switched-on plugin's skills) and `descriptionTokens`, an estimate — the characters of each loaded
+  skill's name and description divided by 4 (a `userOnly` skill loads no description). No cap is enforced (ruling 35
+  §6's ask past 12 is slice (d)).
 - `POST /skills/check {auto}` — fetches upstream: a repo-folder skill's newest commits that touched its folder
   (against the commit recorded at install) or a tool's/tag's newer releases, each with its `changes` (≤ 20, titles and
   cut notes) and a compare or release link. `auto` (the page opening) only past an hour; a click past a minute.

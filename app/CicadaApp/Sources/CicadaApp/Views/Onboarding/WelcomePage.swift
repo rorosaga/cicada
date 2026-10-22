@@ -97,7 +97,7 @@ struct WelcomePage: View {
                 .frame(width: CicadaTheme.scaled(28), height: CicadaTheme.scaled(28))
                 .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
             VStack(alignment: .leading, spacing: 2) {
-                Text(Copy.welcomeJustLooking).font(CicadaTheme.font(size: 13, weight: .medium))
+                Text(Copy.welcomeJustLooking).font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                 Text(Copy.welcomeDemoBlurb).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)

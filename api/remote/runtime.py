@@ -218,7 +218,7 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
         c, str(a.get("item") or ""), str(a.get("note") or ""), a.get("status")),
     "cicada_record_watch": lambda c, a: mcp_tools.record_watch(
         c, str(a.get("url") or ""), str(a.get("summary") or ""), a.get("excerpts"), a.get("chapters"),
-        basis=a.get("basis"), engine=a.get("engine"), duration=a.get("duration")),
+        basis=a.get("basis"), engine=a.get("engine"), duration=a.get("duration"), lease_token=a.get("lease_token")),
     "cicada_video_queue": lambda c, a: mcp_tools.video_queue_list(c, a.get("limit")),
     "cicada_video_claim": lambda c, a: mcp_tools.video_claim(c, a.get("limit"), a.get("release")),
     "cicada_reading_queue": lambda c, a: mcp_tools.reading_queue(c, a.get("limit")),
@@ -238,7 +238,8 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
 def _writes_bank(tool: str, arguments=None) -> bool:
     """Whether a write tool's call touches a bank file — what the Sleep gate guards.
 
-    Every write tool does, except two. ``cicada_video_claim`` (G162) writes only the
+    Every write tool does, except three. ``cicada_capture_turns`` (ruling 32) is capture,
+    the hook's writer: no commit and no Sleep gate. ``cicada_video_claim`` (G162) writes only the
     person's video queue (``$CICADA_HOME``, outside every bank), so a long drain does
     not stall an agent working the queue (a lapsed lease is judged only when Sleep is
     not holding the pages, ``ToolContext.pages_held``). And ``cicada_record_read`` with
@@ -247,7 +248,8 @@ def _writes_bank(tool: str, arguments=None) -> bool:
     person's app at once even while a cycle runs; a ``read`` writes a page and an
     episode and waits like any other write. The demo gate and the write lock still
     apply to all of them."""
-    if tool == "cicada_video_claim":
+    if tool in ("cicada_video_claim", "cicada_capture_turns"):
+        # Ruling 32: a relayed turn is capture, the hook's writer — no commit and no Sleep gate, like a Stop hook.
         return False
     if tool not in ("cicada_record_read", "cicada_record_check"):
         return True
@@ -293,7 +295,10 @@ class RemoteRuntime:
             sleep_holding=self._sleep_running,
         )
 
-    def call(self, connector: catalog.Connector, tool: str, arguments: dict | None) -> tuple[str, str]:
+    def call(self, connector: catalog.Connector, tool: str, arguments: dict | None, *,
+             utc_offset_minutes: int | None = None) -> tuple[str, str]:
+        """``utc_offset_minutes`` (ruling 34) is the person's UTC offset when the calling app sent a zone hint with the
+        request (``relay_capture.offset_from_meta``); only ``cicada_capture_turns`` reads it."""
         writes = tool in catalog.WRITE_TOOLS and _writes_bank(tool, arguments)
         # Resolved ONCE: admitted, gated, written, committed and named to the backend (G183 rounds 1–2).
         memory_path, bank_name = self._resolve_bank()
@@ -304,13 +309,15 @@ class RemoteRuntime:
         held = writes and tool not in SELF_ADMITTED
         try:
             with write_admission.shared(memory_path) if held else contextlib.nullcontext():
-                return self._call(connector, tool, arguments, writes, memory_path, bank_name)
+                return self._call(connector, tool, arguments, writes, memory_path, bank_name,
+                                  utc_offset_minutes=utc_offset_minutes)
         except write_admission.SleepHolding:
             self._record(connector, tool, "busy", BUSY_TEXT, memory_path)
             return BUSY_TEXT, "busy"
 
     def _call(self, connector: catalog.Connector, tool: str, arguments: dict | None,
-              writes: bool, memory_path: Path, bank_name: str | None = None) -> tuple[str, str]:
+              writes: bool, memory_path: Path, bank_name: str | None = None, *,
+              utc_offset_minutes: int | None = None) -> tuple[str, str]:
         today = self._today()
         if tool not in catalog.tool_names_for(connector.scopes):
             text, status = DENIED_TEXT, "denied"
@@ -323,7 +330,8 @@ class RemoteRuntime:
             text, status = CAPPED_TEXT, "capped"
         else:
             try:
-                text, status = self._run(connector, tool, dict(arguments or {}), today, memory_path, bank_name), "ok"
+                text, status = self._run(connector, tool, dict(arguments or {}), today, memory_path, bank_name,
+                                         utc_offset_minutes=utc_offset_minutes), "ok"
             except write_admission.SleepHolding:
                 raise   # the window opened during a self-admitted tool's fetch: `call` answers busy
             except Exception as exc:  # noqa: BLE001 — never a stack trace to a cloud app
@@ -333,7 +341,7 @@ class RemoteRuntime:
         return text, status
 
     def _run(self, connector: catalog.Connector, tool: str, args: dict, today: str, memory_path: Path,
-             bank_name: str | None = None) -> str:
+             bank_name: str | None = None, *, utc_offset_minutes: int | None = None) -> str:
         if tool == "cicada_handshake":
             primer, meta = handshake.load_or_build(
                 memory_path, variant=handshake.REMOTE_VARIANT, tools=catalog.tool_names_for(connector.scopes))
@@ -343,7 +351,13 @@ class RemoteRuntime:
             return text + self._reading_note(memory_path, connector)
         handle = resolve_handle(connector.id, args.get("conversation"), today)
         ctx = self.tool_context(connector, handle, memory_path, bank_name)
-        if tool in catalog.WRITE_TOOLS:
+        if tool == "cicada_capture_turns":
+            from api.services import relay_capture
+
+            with self._write_lock:
+                text = relay_capture.capture_turns(ctx, args.get("message"), args.get("previous_reply"),
+                                                   app=connector.app, utc_offset_minutes=utc_offset_minutes)
+        elif tool in catalog.WRITE_TOOLS:
             with self._write_lock:
                 text = _DISPATCH[tool](ctx, args)
         else:

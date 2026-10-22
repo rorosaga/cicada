@@ -2,13 +2,17 @@ import AppKit
 import Foundation
 import Observation
 
-/// Design taste (2026-10-14) — the Looks page's in-memory cache, `BacklogCache`'s twin: the board and the references
-/// opened, revalidated with the server's ETag when the page appears, a write lands, or a sync event moves `design` or
-/// the bank (`LooksRefresh`); emptied on a bank switch. Never blank: a failed or 304 answer keeps the last value
-/// (DR-43). A search re-ranks the board the server already sent — the ids come back, the rows are the board's.
+/// Design taste (2026-10-14) — the looks' in-memory cache, `BacklogCache`'s twin: every look and the ones opened,
+/// revalidated with the server's ETag when a page that shows looks appears, a write lands, or a sync event moves
+/// `design` or the bank (`LooksRefresh`); emptied on a bank switch. Never blank: a failed or 304 answer keeps the last
+/// value (DR-43). Since the Looks page went (owner 2026-10-20) a look lives on the page of the thing it shows: one
+/// shared cache answers the entity card (a page's looks), Clusters' "has looks" filter and the looks not on a page yet.
 @Observable
 @MainActor
 final class LooksCache {
+    /// The app's one copy (the card and Clusters read it; tests make their own over a fake).
+    static let shared = LooksCache()
+
     enum Phase: Equatable { case idle, loading, loaded, failed(String) }
 
     private(set) var board: DesignBoard?
@@ -37,6 +41,20 @@ final class LooksCache {
         return ranking.compactMap { byId[$0] }
     }
 
+    /// The looks on one page, newest first (the order the server sends).
+    func looks(on entityId: String) -> [DesignRefSummary] {
+        board?.refs.filter { $0.entity == entityId } ?? []
+    }
+
+    /// The looks no page shows yet — the ones the person can put on a page from its Looks section.
+    var unplaced: [DesignRefSummary] { board?.refs.filter { $0.entity == nil } ?? [] }
+
+    /// Every page that shows at least one look (Clusters' filter).
+    var pagesWithLooks: Set<String> { Set(board?.refs.compactMap(\.entity) ?? []) }
+
+    /// The ids most like one look (`similar`), best first; nil until asked.
+    private(set) var similar: [String: [String]] = [:]
+
     func reset() {
         epoch &+= 1
         board = nil
@@ -46,6 +64,7 @@ final class LooksCache {
         searchNote = nil
         etag = nil
         refETags = [:]
+        similar = [:]
     }
 
     func refresh() async {
@@ -139,6 +158,42 @@ final class LooksCache {
         }
     }
 
+    /// Put a look on a page, or take it off (`entity` nil); the board is read again so every page shows the move.
+    @discardableResult
+    func attach(_ id: String, to entity: String?) async -> Bool {
+        writeError = nil
+        do {
+            let ref = try await api.attachDesignRef(id: id, entity: entity)
+            refs[id] = ref
+            await refresh()
+            return true
+        } catch {
+            writeError = LooksErrors.sentence(error)
+            return false
+        }
+    }
+
+    /// The person's own words on a look; the board is read again (a new name shows on every surface).
+    @discardableResult
+    func edit(_ id: String, title: String, url: String, note: String) async -> Bool {
+        writeError = nil
+        do {
+            refs[id] = try await api.editDesignRef(id: id, title: title, url: url, note: note)
+            await refresh()
+            return true
+        } catch {
+            writeError = LooksErrors.sentence(error)
+            return false
+        }
+    }
+
+    /// The looks most like `id`, kept for the sheet that asked (a failure keeps what was there, DR-43).
+    func loadSimilar(_ id: String) async {
+        let started = epoch
+        guard let answer = try? await api.similarDesign(id: id), started == epoch else { return }
+        similar[id] = answer.results.map(\.id).filter { $0 != id }
+    }
+
     func turnOnPictureSearch() async {
         do {
             try await api.installImageModel()
@@ -154,7 +209,7 @@ final class LooksCache {
 
 enum LooksErrors {
     static func sentence(_ error: Error) -> String {
-        if case APIError.httpError(let code, let body) = error, [400, 409, 413].contains(code),
+        if case APIError.httpError(let code, let body) = error, [400, 404, 409, 413, 422].contains(code),
            let data = body.data(using: .utf8),
            let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["detail"] as? String {
             return detail
@@ -163,8 +218,8 @@ enum LooksErrors {
     }
 }
 
-/// When the visible Looks page asks again: a sync version event that moved `design` (every reference file's stamp)
-/// or the bank itself.
+/// When a surface that shows looks asks again: a sync version event that moved `design` (every reference file's
+/// stamp) or the bank itself.
 enum LooksRefresh {
     static let components = ["design", "bank"]
 

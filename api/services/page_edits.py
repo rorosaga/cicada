@@ -67,8 +67,18 @@ CORRECTIONS = "corrections"
 ALIASES_REMOVED = "aliases_removed"
 #: The halves of a page the article writer owns; a rewrite of one makes the page the editor's.
 MACHINE_SECTIONS = ("Summary", entity_article.SECTION)
-#: Rebuilt by Sleep from the graph on every update: an edit could not stand.
-REBUILT_SECTIONS = ("Related",)
+#: Rebuilt by a machine writer on every update, so an edit could not stand: ``Related`` by Sleep from the graph, ``Looks``
+#: by ``design_refs`` from the look records (owner 2026-10-20).
+REBUILT_SECTIONS = ("Related", "Looks")
+
+
+def _rebuilt_why(title: str) -> str:
+    """Why an edit in a rebuilt section would not last, and what to do instead."""
+    if title == "Looks":
+        return ("'Looks' is written from the look records on every change, so an edit there would not last. Move or "
+                "remove a look from the page's Looks section in the app (or save one with cicada_save_design) instead.")
+    return (f"'{title}' is rebuilt from the graph on every update, so an edit there would not last. Record the "
+            "relation as a claim instead.")
 
 KIND = "page_edit"            # the inbox kind of a proposal
 TRIGGER_APPLY = "inbox/page_edit/resolved:apply"
@@ -398,14 +408,20 @@ def apply_corrections(frontmatter: dict, body: str) -> tuple[str, int]:
     if not rows or not body:
         return body, 0
     prose, rest = split_prose(body)
-    related = next((h for h in headings(prose) if h.level == 2 and h.title in REBUILT_SECTIONS), None)
-    if related is None:
-        fixed, n = correct_text(prose, rows)
-    else:
-        head, n1 = correct_text(prose[:related.start], rows)
-        tail, n2 = correct_text(prose[related.end:], rows)
-        fixed, n = head + prose[related.start:related.end] + tail, n1 + n2
-    return (fixed + rest, n) if n else (body, 0)
+    rebuilt = sorted((h for h in headings(prose) if h.level == 2 and h.title in REBUILT_SECTIONS),
+                     key=lambda h: h.start)
+    parts: list[str] = []
+    n = at = 0
+    for h in rebuilt:   # every rebuilt section is kept as its writer left it; the prose between them is corrected
+        if h.start < at:
+            continue
+        fixed, k = correct_text(prose[at:h.start], rows)
+        parts += [fixed, prose[h.start:h.end]]
+        n, at = n + k, h.end
+    fixed, k = correct_text(prose[at:], rows)
+    parts.append(fixed)
+    n += k
+    return ("".join(parts) + rest, n) if n else (body, 0)
 
 
 def apply_corrections_to_sections(frontmatter: dict, sections: dict[str, str]) -> dict[str, str]:
@@ -518,8 +534,7 @@ def plan(frontmatter: dict, body: str, request: Request, *, author: str, day: st
         for at in hits:
             title = section_at(prose, at, marks)
             if title in REBUILT_SECTIONS:
-                raise EditError(f"Edit {i}: '{title}' is rebuilt from the graph on every update, so an edit there "
-                                "would not last. Record the relation as a claim instead.")
+                raise EditError(f"Edit {i}: {_rebuilt_why(title)}")
             if title not in touched:
                 touched.append(title)
         if _is_link(old):
@@ -532,8 +547,7 @@ def plan(frontmatter: dict, body: str, request: Request, *, author: str, day: st
     if request.section is not None:
         heading, owner_section = _find_section(prose, request.section)
         if heading.title in REBUILT_SECTIONS:
-            raise EditError(f"'{heading.title}' is rebuilt from the graph on every update, so an edit there would "
-                            "not last. Record the relation as a claim instead.")
+            raise EditError(_rebuilt_why(heading.title))
         before, after = prose[:heading.content], prose[heading.end:]
         if not before.endswith("\n"):
             before += "\n"

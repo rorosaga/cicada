@@ -129,6 +129,11 @@ def _youtube_id(url: str) -> str | None:
     return ref.video_id if _YOUTUBE_ID_RE.fullmatch(ref.video_id) else None
 
 
+def youtube_video_id(url: str) -> str | None:
+    """The YouTube video id a page's URL names (the pin `YOUTUBE_STILL` is built from), else None."""
+    return _youtube_id(url or "")
+
+
 def _never_scraped(url: str) -> bool:
     from api.services.papers import never_scraped   # lazy: papers imports the graph builder
 
@@ -444,4 +449,90 @@ async def ensure_preview(memory_path, entity_id: str, *, fetcher: Fetcher | None
                     pass
         await asyncio.to_thread(_write_meta, bank, entity_id,
                                 {"hit": {"key": source.key, "ext": ext, "at": at, "kind": source.kind}})
+        return target
+
+
+# --- a watched video's still (Sources v4, owner 2026-10-19) --------------------------------------------------------
+#
+# "For YouTube … why don't you render the thumbnail of the video?" Owner direction, recorded in `storage.md` beside the
+# site-icon ruling: a watched or saved YouTube video may show its still, asked of YouTube's own thumbnail host for THAT
+# video id only (`YOUTUBE_STILL`, the same pin rung 2 above uses), only when the person opens that day or list, behind
+# `CICADA_ALLOW_LOGO_FETCH`, through `_get` (net_guard on every hop, 4 s, ≤ 512 KB, no cookies, a wall never retried),
+# cached here outside every bank (`previews/<bank>/watched/<id>.<ext>`, misses remembered like a page's); any failure
+# draws no picture. It is a picture, not a read: no model ever sees watch history (ruling 30). The caller has already
+# checked the id is one the opened day records (`channel_items.day_has_video`) — never an id a request merely names.
+
+WATCHED_DIR = "watched"
+
+
+def youtube_id_ok(video_id: str) -> bool:
+    """The shape of a YouTube video id this store keys by (the pin `_youtube_id` accepts)."""
+    return bool(video_id) and _YOUTUBE_ID_RE.fullmatch(str(video_id)) is not None
+
+
+def _watched_root(bank: str) -> Path:
+    return _root(bank) / WATCHED_DIR
+
+
+def stored_still(bank: str, video_id: str) -> Path | None:
+    """The stored still for ``video_id``, or None."""
+    if not youtube_id_ok(video_id):
+        return None
+    base = _watched_root(bank)
+    meta_path = _inside(base, f"{video_id}.json")
+    if meta_path is None:
+        return None
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    hit = meta.get("hit") if isinstance(meta, dict) else None
+    if not isinstance(hit, dict) or hit.get("ext") not in EXTS:
+        return None
+    path = _inside(base, f"{video_id}.{hit['ext']}")
+    return path if path is not None and path.is_file() else None
+
+
+async def ensure_video_still(memory_path, video_id: str, *, fetcher: Fetcher | None = None,
+                             now: datetime | None = None) -> Path | None:
+    """Stored still → fetch once → store, for one validated YouTube id. None = no picture (gate off, a miss)."""
+    if not youtube_id_ok(video_id):
+        return None
+    bank = logo_service.bank_name(Path(memory_path))
+    base = _watched_root(bank)
+    meta_path = _inside(base, f"{video_id}.json")
+    if meta_path is None:
+        return None
+    async with _lock(f"{bank}/{WATCHED_DIR}/{video_id}"):
+        stored = stored_still(bank, video_id)
+        if stored is not None:
+            return stored
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
+        except (OSError, ValueError):
+            meta = {}
+        source = Source("image", YOUTUBE_STILL.format(id=video_id))
+        if fresh_miss(meta, source.key, now=now):
+            return None
+        if fetcher is None:
+            if not fetch_allowed():
+                return None   # never asked: not a miss
+            fetcher = _http_get
+        at = (now or datetime.now(timezone.utc)).isoformat()
+        try:
+            body, ext = await _produce(source, fetcher, _default_renderer)
+        except _Miss as miss:
+            meta = {"miss": {"key": source.key, "at": at, "reason": miss.reason, "transient": miss.transient}}
+            await asyncio.to_thread(_write_atomic, meta_path, (json.dumps(meta, sort_keys=True) + "\n").encode())
+            return None
+        target = _inside(base, f"{video_id}.{ext}")
+        if target is None:
+            return None
+        try:
+            await asyncio.to_thread(_write_atomic, target, body)
+            await asyncio.to_thread(_write_atomic, meta_path, (json.dumps(
+                {"hit": {"key": source.key, "ext": ext, "at": at}}, sort_keys=True) + "\n").encode())
+        except OSError as exc:
+            logger.warning(f"watched still not stored: {type(exc).__name__}")
+            return None
         return target

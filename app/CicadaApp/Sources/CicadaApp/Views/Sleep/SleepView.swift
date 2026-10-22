@@ -229,6 +229,9 @@ struct SleepView: View {
     @State private var room = RoomModel()
 
     private static let tabsAnchor = "sleep.tabs"
+    private static let topAnchor = "sleep.top"
+    /// Say it once — bumps when Sleep is clicked again in the rail, so the page scrolls back to the room.
+    @State private var toTop = 0
 
     /// Three stages, so the type checker never faces one chain of every modifier (ContentView's `lifecycleStage`
     /// reason): the page and its sheet, then the hand-offs, then the load and the cycle's edges.
@@ -281,6 +284,8 @@ struct SleepView: View {
             feedVM.reconcile()
         }
         .onChange(of: appRouter.pendingSleepDetails) { _, _ in consumeDetailsRoute() }
+        // Say it once — Sleep clicked again in the rail: the room, the list its state chooses, nothing open.
+        .onRailReselect(.sleep, router: appRouter) { popToRoot() }
         .onChange(of: appRouter.pendingAddSource) { _, _ in consumePendingAddSource() }
         .onChange(of: appRouter.pendingSavedItem) { _, _ in consumeLanding() }
         .onChange(of: appRouter.pendingVideoChooser) { _, _ in consumeVideoChooser() }
@@ -428,6 +433,7 @@ struct SleepView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                     eyebrowRow(page, gutter: plan.gutter)
+                        .id(Self.topAnchor)
                     roomBlock(page, columnWidth: plan.list - 2 * plan.gutter)
                         .padding(.horizontal, plan.gutter)
                         .padding(.bottom, CicadaTheme.spacingXL)
@@ -445,6 +451,7 @@ struct SleepView: View {
             }
             // A tail link, a spine or a hand-off asked for the lists: once they are drawn, bring the tab row to the
             // top in one frame (DESIGN §3.5 — "opening a row scrolls the tab row to the top in one frame").
+            .onChange(of: toTop) { _, _ in Instant.run { proxy.scrollTo(Self.topAnchor, anchor: .top) } }
             .task(id: scrollToTabs) {
                 guard scrollToTabs else { return }
                 DispatchQueue.main.async {
@@ -473,8 +480,8 @@ struct SleepView: View {
     /// The tab row as the list's pinned header: on the page ground, so rows scrolling under it never show through.
     private func stickyTabRow(_ page: SleepPageModel, tab: SleepTab, gutter: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            SleepTabRow(tabs: tabRowTabs(page), selected: tab, select: { selectTab($0) }, findOpen: $findOpen,
-                        onAdd: { openSheet(nil) })
+            SleepTabRow(tabs: tabRowTabs(page), selected: tab, select: { selectTab($0) },
+                        findOpen: $findOpen, onAdd: { openSheet(nil) })
             if findOpen && tab.hasFind {
                 PageFindRow(text: Binding(get: { feedVM.searchText }, set: { feedVM.searchText = $0 }),
                             isOpen: $findOpen, prompt: Copy.Lists.findFeed)
@@ -639,6 +646,8 @@ struct SleepView: View {
                          exportWaiting: exportWaiting, videos: videoItems.count)
     }
 
+    /// The Waiting tab keeps its count everywhere (review of #363): the tab row is pinned, so once the room scrolls
+    /// away it is the one place the waiting total is still on screen.
     private func tabRowTabs(_ page: SleepPageModel) -> [TextTab<SleepTab>] {
         SleepTabRow.tabs(SleepTab.visible(waitingHasRows: waitingHasRows(page), saved: feedVM.items.count,
                                           exportWaiting: exportWaiting, videos: videoItems.count),
@@ -662,6 +671,20 @@ struct SleepView: View {
             findOpen = false
             chosenTab = tab
         }
+    }
+
+    /// The root is the room over the tab its state chooses (`chosenTab == nil`): the watch run, the open item, the
+    /// Reader and find all close, and the page scrolls back to the top.
+    private func popToRoot() {
+        appRouter.popToRoot(reduceMotion: reduceMotion) {
+            if inRun { run.leave() }
+            if provenance.isPresented { provenance.close() }
+            feedVM.columns.close()
+            findOpen = false
+            chosenTab = nil
+        }
+        toTop &+= 1
+        focus = .list
     }
 
     private func open(_ item: MediaFeedItem) {
@@ -982,7 +1005,7 @@ struct SleepView: View {
     /// one loses work the reader can still use, and an undated one lies by
     /// omission.
     private func stalenessChip(_ asOf: Date) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: CicadaTheme.spacingXS) {
             Image(systemName: "wifi.slash")
                 .font(CicadaTheme.font(size: 9, weight: .semibold))
             Text(Copy.asOf(asOf))

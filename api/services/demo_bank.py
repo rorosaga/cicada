@@ -940,6 +940,16 @@ _DESIGN_LOOKS = (
 )
 
 
+#: The page each demo look shows (owner 2026-10-20: a look lives on the page of the thing it shows). One is left
+#: unattached, so the demo shows a look waiting to be placed.
+_DESIGN_SUBJECTS = {
+    "Quiet dark dashboard": "lab-cluster-example",
+    "Terminal-green docs": "lab-cluster-example",
+    "Bright product launch": "pick-and-place-demo",
+    "Pastel portfolio": "garden-sensor-project",
+}
+
+
 def _write_design_board(bank_dir: Path, today: date) -> None:
     """Five looks on the demo's board (design taste), each committed at once under whoever saved it — the person's
     as `Design reference` / `user/companion_app` (what the app commits), the agent's as `Agent write` /
@@ -950,11 +960,13 @@ def _write_design_board(bank_dir: Path, today: date) -> None:
 
     for offset, author, title, url, colours, layout, note, snippets in _DESIGN_LOOKS:
         background, surface, text, accent = colours
+        subject = _DESIGN_SUBJECTS.get(title)
         image = demo_pictures.website(background, surface, text, accent, **layout)
         now = datetime.combine(today + timedelta(days=offset), time(16, 30), tzinfo=timezone.utc)
         session = _AGENT_SESSION if author != "user" else None
         result = design_refs.add_ref(bank_dir, image=image, url=url, title=title, note=note, snippets=snippets,
-                                     via="demo", author=author, session=session, now=now)
+                                     via="demo", author=author, session=session, now=now, entity=subject,
+                                     attach_auto=False)
         if result.get("action") != "added":
             continue
         if author == "user":

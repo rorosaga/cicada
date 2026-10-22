@@ -91,14 +91,28 @@ JSON_ONLY_SUFFIX = (
 #: the shared lenient parser (``json_parse``), which is belt-and-braces the
 #: spec asks for regardless. Widen this map once a live cycle proves no
 #: field-stripping.
+#: Disambiguation answers one pair (``decision``) or, since 2026-10-20, several candidates in one call
+#: (``decisions``, `entity_resolver._llm_judge_batch`): both shapes are declared, neither required — the prompt asks
+#: for the one it needs and the parser reads a missing decision as ``unsure``.
 SCHEMA_BY_STAGE: dict[str, dict] = {
     "disambiguation": {
         "type": "object",
         "properties": {
             "decision": {"type": "string", "enum": ["same", "different", "unsure"]},
             "reason": {"type": "string"},
+            "decisions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "entry": {"type": "integer"},
+                        "decision": {"type": "string", "enum": ["same", "different", "unsure"]},
+                        "reason": {"type": "string"},
+                    },
+                    "required": ["entry", "decision"],
+                },
+            },
         },
-        "required": ["decision"],
     },
 }
 
@@ -191,6 +205,9 @@ def _wrap(value: Any) -> Any:
     return value
 
 
+_FAMILY_ALIASES = frozenset({"sonnet", "haiku", "opus"})
+
+
 def _bare_model(model: str) -> str:
     return (model or "").strip().split("/")[-1].lower()
 
@@ -225,6 +242,13 @@ def model_from_envelope(envelope: dict, requested_model: str) -> str:
         canonical = (info or {}).get("canonicalModel") or key
         if want and (_bare_model(canonical) == want or _bare_model(key) == want):
             return key
+    # Asked by a family alias ("sonnet"): the one key of that family answered it. 2026-10-19: a web lookup's search
+    # side-call out-output the main turn and a sonnet lookup was recorded as the side-call's model.
+    if want in _FAMILY_ALIASES:
+        family = [key for key, info in per_model.items()
+                  if want in re.split(r"[^a-z]+", _bare_model((info or {}).get("canonicalModel") or key))]
+        if len(family) == 1:
+            return family[0]
     return max(
         per_model.items(),
         key=lambda kv: int((kv[1] or {}).get("outputTokens") or 0),
@@ -824,6 +848,7 @@ def complete(
     if policy.web_search:
         # What the call searched for, so the caller can hold it to the pinned query (never logged).
         envelope["_tool_uses"] = [[name, dict(inp)] for name, inp in stream.tool_uses]
+        envelope["_tool_results"] = list(stream.tool_results)
     return envelope
 
 

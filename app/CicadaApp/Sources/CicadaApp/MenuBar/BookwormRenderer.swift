@@ -25,7 +25,7 @@ enum BookwormRenderer {
         if let hit = cache[key] { return hit }
         let crop = pair?.0.frameImage(frame)
         let image = composite(crop: crop, overlay: BookwormOverlays.grid(for: state), pointSize: pointSize)
-        image.accessibilityDescription = "Cicada — \(state.title), \(state.detail)"
+        image.accessibilityDescription = Copy.MenuBar.itemLabel(state.title, state.detail)
         if cache.count > maxCacheEntries { cache.removeAll() }
         cache[key] = image
         return image

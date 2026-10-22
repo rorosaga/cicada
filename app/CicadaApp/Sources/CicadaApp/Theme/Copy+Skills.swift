@@ -6,6 +6,8 @@ import Foundation
 extension Copy {
     enum Skills {
         static let page = "Skills"
+        /// DR-27 — the list hid beside a skill and the Reader: "‹ 4 skills" brings it back.
+        static func skillsBack(_ n: Int) -> String { n == 1 ? "‹ 1 skill" : "‹ \(UsageFormat.count(n)) skills" }
         static let discover = "Discover"
         static let drafts = "Drafts"
         static let skillColumn = "Skill"
@@ -91,6 +93,33 @@ extension Copy {
             if let from { parts.append("from \(from)") }
             return parts.joined(separator: " · ")
         }
+
+        // Kinds and plugins (G201 slice (a), TODO ruling 35)
+        static let kindColumn = "Kind"
+        static let kindAboutYou = "About you"
+        static let kindGeneric = "Generic"
+        static let kindUnknown = "Not sure"
+        static let kindHelp = "About you: your people, projects and ways of working. Generic: how-to that any agent "
+            + "could learn. Choose to correct Cicada's guess."
+        static let kindYours = "your choice"
+        static let pluginsTitle = "Plugins"
+        static let pluginsLine = "Claude Code's plugins and the skills each brings. Turn one on or off in Claude Code."
+        /// The one harness whose plugins Cicada reads today — the person's own install, shown as theirs.
+        static let pluginsHarness = "Claude Code"
+        static let pluginOn = "On"
+        static let pluginOff = "Off"
+        static let pluginPerProject = "Per project"
+        static let pluginNoSkills = "No skills"
+        static let userOnly = "you run it"
+        static let userOnlyHelp = "Only you can start this one, so it adds nothing to each session."
+        /// DR-59's dated exception (TODO ruling 35 §6, 2026-10-22): the installed set's weight, said as an estimate.
+        static let weightLead = "Loaded every session: "
+        static func weightPart(_ agent: String, skills: Int, tokens: Int) -> String {
+            let noun = skills == 1 ? "1 skill" : "\(UsageFormat.count(skills)) skills"
+            return "\(agent) \(noun), about \(UsageFormat.count(tokens)) tokens"
+        }
+        static let weightHelp = "An estimate: the characters of each loaded skill's name and description, divided by "
+            + "4. A skill only you can start loads no description."
 
         // Requests
         static func asked(_ who: String, _ what: String) -> String { "\(who) wants to \(what)" }

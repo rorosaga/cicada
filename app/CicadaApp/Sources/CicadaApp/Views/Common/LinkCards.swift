@@ -332,7 +332,7 @@ struct ProseImage: View {
 
     var body: some View {
         if StoredPreviewPath.loads(url) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 ImageThumbnail(path: url, width: 320, height: 180, caption: alt.isEmpty ? nil : alt)
                 if !alt.isEmpty {
                     Text(alt)

@@ -1,11 +1,12 @@
 import Foundation
 
-/// G181 phase 3 — the words for where memory lives (Settings → General) and for the person's devices (Settings →
+/// G181 phase 3 — the words for where memory lives and for the person's devices (Settings →
 /// Devices). DR-59: sentence case, plain verbs. Provider-neutral (owner 2026-09-30): an overlay is "your own private
-/// network", never a product's name — the person's own address is the only name shown.
+/// network", never a product's name — the person's own address is the only name shown. No file path or environment
+/// variable is shown (settings defaults, owner 2026-10-22); a device without the app is set up from headless.md.
 extension Copy {
     enum Devices {
-        // MARK: Settings → General — where your memory lives
+        // MARK: Settings → Devices — where your memory lives
         static let whereGroup = "Where your memory lives"
         static let modeTitle = "Memory on"
         static let thisMac = "This Mac"
@@ -19,10 +20,9 @@ extension Copy {
             + "tunnel that ends on this Mac."
         static let tokenTitle = "Device token"
         static let tokenPlaceholder = "cic_dev_…"
-        static let tokenHelp = "Make one on the server with `cicada device add <name>`, then paste it here. It is kept in "
-            + "~/.cicada/device_token, readable only by you."
+        static let tokenHelp = "Make one on the server with `cicada device add <name>`, then paste it here. It is kept on "
+            + "this Mac, readable only by you."
         static let tokenSaved = "A device token is saved on this Mac."
-        static let deviceTokenDetail = "This Mac's device token for the server, kept in ~/.cicada/device_token. It is never shown here."
         static let tokenReplace = "Replace"
         static let check = "Check and use"
         static let checking = "Checking the server…"
@@ -30,7 +30,7 @@ extension Copy {
         static let restart = "Restart Cicada"
         static let restartHelp = "Cicada closes and opens again to switch where your memory lives"
         static let restartByHand = "Quit Cicada and open it again to switch."
-        static let environmentSet = "Set by CICADA_API_BASE in Cicada's environment, so it can't be changed here."
+        static let environmentSet = "Cicada's setup on this Mac fixes the server, so it can't be changed here."
         static let backgroundNotNeeded = "Not needed while your memory lives on a server: nothing runs on this Mac for it."
         static let agentsFollow = "Agents and the cicada command on this Mac follow this choice once Cicada restarts."
 
@@ -58,11 +58,10 @@ extension Copy {
 
         // MARK: Settings → Devices
         static let sidebar = "Devices"
-        static let subtitle = "Which of your devices reach your memory, and where it lives"
-        static let connectionGroup = "This app"
+        static let subtitle = "Which of your devices reach your memory"
         static let devicesGroup = "Your devices"
-        static let connectionThisMac = "Your memory lives on this Mac."
-        static func connectionServer(_ host: String) -> String { "Your memory lives on \(host)." }
+        static let connectionIndexTitle = "Server connection"
+        static func connectionServer(_ host: String) -> String { "This app is using \(host) now." }
         static let connectionInvalid = "The server address isn't valid, so nothing is sent anywhere."
         static func reachable(_ checked: String) -> String { "Reachable · checked \(checked)" }
         static func unreachable(_ since: String?) -> String {
@@ -70,6 +69,11 @@ extension Copy {
         }
         static func waiting(_ n: Int) -> String {
             n == 1 ? "1 capture waits on this Mac for the server." : "\(n) captures wait on this Mac for the server."
+        }
+        /// G202 (D1–D3): captures kept for a server this Mac no longer uses — never sent to the one in use.
+        static func waitingElsewhere(_ n: Int) -> String {
+            n == 1 ? "1 capture waits on this Mac for a server it no longer uses. It's kept, and sent only there."
+                : "\(n) captures wait on this Mac for a server it no longer uses. They're kept, and sent only there."
         }
         static let sendNow = "Send now"
         static let none = "No other device reaches this memory yet."
@@ -93,9 +97,8 @@ extension Copy {
         static let cancel = "Cancel"
         static let done = "Done"
         static let shownOnceTitle = "Copy this token now"
-        static let shownOnceDetail = "It is shown once. On that device, open Cicada → Settings → General → A server, and "
-            + "paste this address and token. For agents without the app, put the token in ~/.cicada/device_token "
-            + "(mode 0600) and set CICADA_API_BASE."
+        static let shownOnceDetail = "It is shown once. On that device, open Cicada → Settings → Devices → A server, and "
+            + "paste this address and token."
         static let copy = "Copy"
         static let copied = "Copied"
 

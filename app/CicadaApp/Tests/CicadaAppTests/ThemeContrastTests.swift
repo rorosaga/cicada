@@ -38,13 +38,24 @@ final class ThemeContrastTests: XCTestCase {
         }
     }
 
-    /// DR-2 — the one pair that needs its own step: light tertiary on a selected fill is 4.33:1.
+    /// DR-2 — the one pair that needs its own step: light tertiary on a selected fill is 4.06:1.
     func testLightTertiaryOnASelectedFillIsWhyOnFillExists() {
         CicadaTheme.mode = .light
         XCTAssertLessThan(c(CicadaTheme.textTertiary, CicadaTheme.bgSelected), 4.5)
         XCTAssertGreaterThanOrEqual(c(CicadaTheme.textTertiaryOnFill, CicadaTheme.bgSelected), 4.5)
         CicadaTheme.mode = .dark
         XCTAssertGreaterThanOrEqual(c(CicadaTheme.textTertiary, CicadaTheme.bgSelected), 4.5)
+    }
+
+    /// DR-48 (review of #377) — a selected row never reads as the pointer's row: the two fills sit at least a full
+    /// step apart in both modes (they were 1.07:1 in light and 1.09:1 in dark).
+    func testSelectedIsClearlyApartFromHover() {
+        for mode in [AppColorScheme.dark, .light] {
+            CicadaTheme.mode = mode
+            XCTAssertGreaterThanOrEqual(c(CicadaTheme.bgSelected, CicadaTheme.bgHover), 1.12, "\(mode.rawValue)")
+            XCTAssertGreaterThan(c(CicadaTheme.bgSelected, CicadaTheme.bgBase), c(CicadaTheme.bgHover, CicadaTheme.bgBase),
+                                 "\(mode.rawValue): selected is the stronger fill")
+        }
     }
 
     /// DR-3 — quaternary is for disabled controls only: dimmer than tertiary, never the only cue.
@@ -112,17 +123,61 @@ final class ThemeContrastTests: XCTestCase {
         }
     }
 
-    /// DR-18 / R-DI11 — cited words stay primary-ink legible on the wash, on the Reader's pane and
-    /// on the focus card, in both themes. Measured on the rules' mocked system blue, like every accent
-    /// bar in this file (R-DS4): the live accent is whatever the test Mac's is.
+    /// DR-18 / R-DI11 — cited words stay primary-ink legible on the wash, on the Reader's pane, on the focus card and
+    /// on both chat bubbles, in both themes. The wash is neutral ink since 2026-10-20 (an accent fill read as a text
+    /// selection), so it is measured as it is drawn: white 10 % in dark, black 7 % in light.
     func testPrimaryInkReadsOnTheCitedWash() {
         for mode in [AppColorScheme.dark, .light] {
             CicadaTheme.mode = mode
-            let accent = Color(hex: mode == .dark ? 0x0A84FF : 0x007AFF)
-            let alpha = mode == .dark ? 0.18 : 0.10   // `CicadaTheme.wash`'s opacity
-            for surface in [CicadaTheme.bgPane, CicadaTheme.bgFocus] {
-                let wash = ThemeTokenTests.blend(accent, over: surface, alpha: alpha)
-                XCTAssertGreaterThanOrEqual(c(CicadaTheme.textPrimary, wash), 7, "\(mode.rawValue)")
+            for (name, tint) in [("wash", CicadaTheme.wash), ("washSoft", CicadaTheme.washSoft)] {
+                for surface in citedSurfaces {
+                    XCTAssertGreaterThanOrEqual(c(CicadaTheme.textPrimary, tinted(tint, over: surface)), 7,
+                                                "\(mode.rawValue) \(name)")
+                }
+            }
+        }
+    }
+
+    /// Review of #383 — another cited span (`washSoft`) was 1.09:1 off the light pane and 1.17:1 off the dark person
+    /// bubble, so in the document view, which has no "Cited" marker, it could not be found. Every cited span now stands
+    /// at least as far off every surface it sits on as the current span's tint does (≥ 1.16:1; measured light 1.17,
+    /// dark 1.32–1.37), and no tinted pane reads as a hovered or selected row (≥ 1.04:1 from both; measured light
+    /// 1.08 / 1.05, dark 1.09 / 1.23).
+    func testEveryCitedSpanIsFindableAndNoneReadsAsARow() {
+        for mode in [AppColorScheme.dark, .light] {
+            CicadaTheme.mode = mode
+            for surface in citedSurfaces {
+                let current = c(tinted(CicadaTheme.wash, over: surface), surface)
+                let other = c(tinted(CicadaTheme.washSoft, over: surface), surface)
+                XCTAssertGreaterThanOrEqual(other, current - 0.001, "\(mode.rawValue): another span is fainter")
+                XCTAssertGreaterThanOrEqual(other, 1.16, "\(mode.rawValue): another span is hard to find")
+            }
+            for tint in [CicadaTheme.wash, CicadaTheme.washSoft] {
+                let pane = tinted(tint, over: CicadaTheme.bgPane)
+                XCTAssertGreaterThanOrEqual(c(pane, CicadaTheme.bgSelected), 1.04, "\(mode.rawValue): reads as selected")
+                XCTAssertGreaterThanOrEqual(c(pane, CicadaTheme.bgHover), 1.04, "\(mode.rawValue): reads as hovered")
+            }
+        }
+    }
+
+    private var citedSurfaces: [Color] {
+        [CicadaTheme.bgPane, CicadaTheme.bgFocus, CicadaTheme.chatBubbleFill, CicadaTheme.chatBubbleOtherFill]
+    }
+
+    /// A translucent token as it is drawn over `surface`.
+    private func tinted(_ tint: Color, over surface: Color) -> Color {
+        let t = NSColor(tint).usingColorSpace(.sRGB)!
+        return ThemeTokenTests.blend(Color(.sRGB, red: t.redComponent, green: t.greenComponent, blue: t.blueComponent),
+                                     over: surface, alpha: t.alphaComponent)
+    }
+
+    /// The Reader's chat bubbles (2026-10-20): both inks a message can be drawn in clear AA on both bubbles.
+    func testBothInksReadOnBothChatBubbles() {
+        for mode in [AppColorScheme.dark, .light] {
+            CicadaTheme.mode = mode
+            for bubble in [CicadaTheme.chatBubbleFill, CicadaTheme.chatBubbleOtherFill] {
+                XCTAssertGreaterThanOrEqual(c(CicadaTheme.textPrimary, bubble), 7, "\(mode.rawValue)")
+                XCTAssertGreaterThanOrEqual(c(CicadaTheme.textSecondary, bubble), 4.5, "\(mode.rawValue)")
             }
         }
     }

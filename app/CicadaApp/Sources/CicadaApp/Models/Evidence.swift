@@ -173,12 +173,17 @@ struct EpisodeTurn: Codable, Hashable, Identifiable {
     /// G162 — on a `media` turn only: `verbatim` (captions) or `approximate` (a model's reading, or a record that
     /// never said). Nil against an older backend and on every other role.
     let fidelity: VideoFidelity?
+    /// 2026-10-20 (`turn_extras`) — reactions, a reply's target, attachments, edited, forwarded-from, code runs; nil
+    /// when the turn has none and against an older backend.
+    var extras: EpisodeTurnExtras? = nil
 
     var id: Int { index }
 
     init(index: Int, start: Int, contentStart: Int, end: Int, role: String = "user",
          marker: String? = nil, speaker: String? = nil, ts: String? = nil,
-         model: String? = nil, effort: String? = nil, t: Int? = nil, fidelity: VideoFidelity? = nil) {
+         model: String? = nil, effort: String? = nil, t: Int? = nil, fidelity: VideoFidelity? = nil,
+         extras: EpisodeTurnExtras? = nil) {
+        self.extras = extras
         self.index = index
         self.start = start
         self.contentStart = contentStart
@@ -193,7 +198,9 @@ struct EpisodeTurn: Codable, Hashable, Identifiable {
         self.fidelity = fidelity
     }
 
-    enum CodingKeys: String, CodingKey { case index, start, contentStart, end, role, marker, speaker, ts, model, effort, t, fidelity }
+    enum CodingKeys: String, CodingKey {
+        case index, start, contentStart, end, role, marker, speaker, ts, model, effort, t, fidelity, extras
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -209,7 +216,89 @@ struct EpisodeTurn: Codable, Hashable, Identifiable {
         effort = (try? c.decodeIfPresent(String.self, forKey: .effort)) ?? nil
         t = (try? c.decodeIfPresent(Int.self, forKey: .t)) ?? nil
         fidelity = ((try? c.decodeIfPresent(String.self, forKey: .fidelity)) ?? nil).flatMap(VideoFidelity.init(rawValue:))
+        extras = (try? c.decodeIfPresent(EpisodeTurnExtras.self, forKey: .extras)) ?? nil
     }
+}
+
+/// One reaction on a turn (`EpisodeReaction`): `by` is a turn marker — `user` (the person), `assistant`,
+/// `speaker:<label>` — `kind` one of love · like · dislike · laugh · emphasize · question · emoji · sticker.
+struct EpisodeReaction: Codable, Hashable {
+    let by: String
+    let kind: String
+    var emoji: String? = nil
+}
+
+/// A file a turn carried — kind, name, size, type. Never a path; the file itself never reaches the bank.
+struct EpisodeAttachment: Codable, Hashable {
+    let kind: String
+    let name: String
+    var size: Int? = nil
+    var mime: String? = nil
+    var generated: Bool = false
+
+    init(kind: String, name: String, size: Int? = nil, mime: String? = nil, generated: Bool = false) {
+        self.kind = kind
+        self.name = name
+        self.size = size
+        self.mime = mime
+        self.generated = generated
+    }
+
+    enum CodingKeys: String, CodingKey { case kind, name, size, mime, generated }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? "file"
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        size = (try? c.decodeIfPresent(Int.self, forKey: .size)) ?? nil
+        mime = (try? c.decodeIfPresent(String.self, forKey: .mime)) ?? nil
+        generated = (try? c.decodeIfPresent(Bool.self, forKey: .generated)) ?? false
+    }
+}
+
+/// What made a turn part of a conversation beside its words (`EpisodeTurnExtras`). `replyTo` is the target turn's
+/// `index`; `replyElsewhere` a reply to a message this document does not hold.
+struct EpisodeTurnExtras: Codable, Hashable {
+    var reactions: [EpisodeReaction] = []
+    var replyTo: Int? = nil
+    var replyElsewhere: Bool = false
+    var attachments: [EpisodeAttachment] = []
+    var edited: Bool = false
+    var forwardedFrom: String? = nil
+    var codeRuns: Int? = nil
+
+    init(reactions: [EpisodeReaction] = [], replyTo: Int? = nil, replyElsewhere: Bool = false,
+         attachments: [EpisodeAttachment] = [], edited: Bool = false, forwardedFrom: String? = nil,
+         codeRuns: Int? = nil) {
+        self.reactions = reactions
+        self.replyTo = replyTo
+        self.replyElsewhere = replyElsewhere
+        self.attachments = attachments
+        self.edited = edited
+        self.forwardedFrom = forwardedFrom
+        self.codeRuns = codeRuns
+    }
+
+    enum CodingKeys: String, CodingKey { case reactions, replyTo, replyElsewhere, attachments, edited, forwardedFrom, codeRuns }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        reactions = (try? c.decodeIfPresent([EpisodeReaction].self, forKey: .reactions)) ?? []
+        replyTo = (try? c.decodeIfPresent(Int.self, forKey: .replyTo)) ?? nil
+        replyElsewhere = (try? c.decodeIfPresent(Bool.self, forKey: .replyElsewhere)) ?? false
+        attachments = (try? c.decodeIfPresent([EpisodeAttachment].self, forKey: .attachments)) ?? []
+        edited = (try? c.decodeIfPresent(Bool.self, forKey: .edited)) ?? false
+        forwardedFrom = (try? c.decodeIfPresent(String.self, forKey: .forwardedFrom)) ?? nil
+        codeRuns = (try? c.decodeIfPresent(Int.self, forKey: .codeRuns)) ?? nil
+    }
+}
+
+/// A message its sender unsent (`EpisodeUnsent`): where it was — before the turn with this `index`, one past the
+/// last turn's when it came last — and who sent it. Never its words.
+struct EpisodeUnsent: Codable, Hashable {
+    let before: Int
+    let speaker: String
+    var ts: String? = nil
 }
 
 /// The span the Reader lands on (`EpisodeFocus`). A stale focus carries NO
@@ -314,6 +403,26 @@ struct EpisodeWatch: Codable, Hashable {
     }
 }
 
+/// Ruling 32 — a conversation a hookless app's model relayed through the remote connector, until an export upgrades
+/// it: `app` is the connector catalog's id, `label` its name ("ChatGPT"), the person's own app. Both may be nil.
+struct EpisodeRelay: Codable, Hashable {
+    var app: String? = nil
+    var label: String? = nil
+
+    enum CodingKeys: String, CodingKey { case app, label }
+
+    init(app: String? = nil, label: String? = nil) {
+        self.app = app
+        self.label = label
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        app = (try? c.decodeIfPresent(String.self, forKey: .app)) ?? nil
+        label = (try? c.decodeIfPresent(String.self, forKey: .label)) ?? nil
+    }
+}
+
 /// `EpisodeText` — a whole stored document for the Reader. `text` is capped
 /// at 400,000 characters server-side (`truncated`, R-PB5); `length` and
 /// `hash` always describe the WHOLE text. `conversationId` is the stamped
@@ -348,6 +457,13 @@ struct EpisodeText: Codable, Hashable {
     /// G181 phase 3 — the id of the person's device whose token posted this conversation; nil for a page and for what
     /// the server's own machine wrote.
     var device: String? = nil
+    /// Ruling 32 — set while the episode is a relay no export has upgraded; nil against an older backend.
+    var relay: EpisodeRelay? = nil
+    /// Owner 2026-10-20 — a saved link's site key: the Reader's header wears that site's own mark, never the browser's.
+    /// Nil for every other episode, for a page and from an older backend.
+    var site: String? = nil
+    /// 2026-10-20 — messages their senders unsent, by position; empty against an older backend.
+    var unsent: [EpisodeUnsent] = []
 
     var isPage: Bool { kind == "page" }
     var isPageRead: Bool { source == EvidenceSpeaker.pageReadSource }
@@ -380,7 +496,7 @@ struct EpisodeText: Codable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case episode, kind, text, length, hash, truncated, title, timestamp, harness, origin
-        case conversationId, captureKind, turns, focus, agent, watch, source, correspondent, device
+        case conversationId, captureKind, turns, focus, agent, watch, source, correspondent, device, relay, site, unsent
     }
 
     init(from decoder: Decoder) throws {
@@ -388,6 +504,9 @@ struct EpisodeText: Codable, Hashable {
         source = try? c.decodeIfPresent(String.self, forKey: .source)
         correspondent = try? c.decodeIfPresent(String.self, forKey: .correspondent)
         device = (try? c.decodeIfPresent(String.self, forKey: .device)) ?? nil
+        relay = (try? c.decodeIfPresent(EpisodeRelay.self, forKey: .relay)) ?? nil
+        site = (try? c.decodeIfPresent(String.self, forKey: .site)) ?? nil
+        unsent = (try? c.decodeIfPresent([EpisodeUnsent].self, forKey: .unsent)) ?? []
         episode = try c.decodeIfPresent(String.self, forKey: .episode) ?? ""
         kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "episode"
         text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""

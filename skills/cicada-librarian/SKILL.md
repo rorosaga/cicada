@@ -43,10 +43,11 @@ server's `instructions`); this skill covers only the consolidation loop.
   local engine downloads the video does so on the person's machine, which is
   the person's call and yours, never Cicada's. `cicada_video_claim` takes what
   the person queued (repeat it until it returns nothing) and hands back what you
-  cannot do (`release=[{url, code, reason}]`, code `needs_login` when a sign-in
-  stops you: never sign in yourself). Then call
+  cannot do (`release=[{url, lease_token, code, reason}]`, with the
+  `lease_token` its claim gave you; code `needs_login` when a sign-in stops
+  you: never sign in yourself). Then call
   `cicada_record_watch(url, summary, excerpts=[{t, quote}], basis, engine?,
-  duration?)`:
+  duration?, lease_token?)`:
   1. `summary` — your faithful account of what the video covers, one paragraph.
   2. `excerpts` — up to 12 short quotes (at most 240 characters) with the time
      each is said (`"12:34"`): the words the video actually says. **Never paste

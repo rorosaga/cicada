@@ -91,6 +91,8 @@ struct PastRunRow: View {
     let ref: SleepRunRef
     let newest: SleepHistoryEntry
     let isExpanded: Bool
+    /// Say it once — the day only on the first row of that day (`PastNightsLayout`).
+    var showsDate = true
     let onToggle: () -> Void
     @State private var hovering = false
 
@@ -98,7 +100,7 @@ struct PastRunRow: View {
         let start = ref.startedAt ?? newest.date
         Button(action: onToggle) {
             HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-                Text(SleepHistoryPresentation.dateText(start))
+                Text(showsDate ? SleepHistoryPresentation.dateText(start) : "")
                     .font(CicadaTheme.metaFont)
                     .monospacedDigit()
                     .foregroundStyle(CicadaTheme.textSecondary)
@@ -130,20 +132,29 @@ struct PastRunRow: View {
                     }
                 }
                 Spacer(minLength: CicadaTheme.spacingSM)
-                if let engine = newest.engine {
-                    EngineMark(engine: engine, size: CicadaTheme.scaled(12))
+                // The engine in words beside its mark, as a cycle row says it (review of #363): the readout leaves its
+                // engine row to Past nights' newest row, which may be this one.
+                if let pill = SleepHistoryPresentation.enginePill(newest) {
+                    HStack(spacing: CicadaTheme.scaled(4)) {
+                        if let engine = newest.engine {
+                            EngineMark(engine: engine, size: CicadaTheme.scaled(12))
+                        }
+                        Text(pill)
+                            .font(CicadaTheme.metaFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .frame(maxWidth: CicadaTheme.scaled(250), alignment: .trailing)
                 }
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(CicadaTheme.icon(.inline))
-                    .foregroundStyle(CicadaTheme.textTertiary)
+                DisclosureChevron(isOpen: isExpanded)
                     .frame(width: CicadaTheme.scaled(28))
             }
             .padding(.leading, CicadaTheme.scaled(10))
             .padding(.trailing, CicadaTheme.scaled(4))
             .padding(.vertical, CicadaTheme.scaled(6))
             .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-                .fill(hovering ? CicadaTheme.bgHover : Color.clear))
+            .rowHoverFill(hovering: hovering)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)

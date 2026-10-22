@@ -551,20 +551,27 @@ final class BookmarksV3Tests: XCTestCase {
         XCTAssertEqual(presenter.shown, 1, "one panel, bound — never a second for the same save")
     }
 
-    /// A bubble that was not the bookmark's (no bookmark comes): the panel withdraws after its bound and keeps
-    /// nothing (G191 v4: and nothing is learned or refused).
+    /// A bubble that was not the bookmark's (no bookmark comes): an untouched panel withdraws after its bound and
+    /// keeps nothing (G191 v4: and nothing is learned or refused). 2026-10-19: a touched one stays — only the person
+    /// closes it — says there is nothing to keep its answer with, and posts nothing when they leave.
     @MainActor
     func testABubbleWithNoBookmarkWithdrawsAndKeepsNothing() async throws {
         let api = V3FakeAPI(options: options())
         let (center, presenter, _) = await center(api, clock: now)
         center.bubbleSeen(channel: "chrome-bookmarks")
-        center.input(.tapReason("product"))
         center.withdraw()   // what the bound's timer does at `pendingBound`
         XCTAssertEqual(center.lastOutcome, .withdrawn)
         XCTAssertEqual(presenter.hidden, 1)
+
+        center.bubbleSeen(channel: "chrome-bookmarks")
+        center.input(.tapReason("product"))
+        center.withdraw()
+        XCTAssertTrue(center.isShowing, "a touched panel is never closed under the person")
+        XCTAssertTrue(center.noBookmark)
+        center.input(.clickOutside)
         await center.settle()
         let posts = await api.posts
-        XCTAssertTrue(posts.isEmpty, "a tap on a withdrawn panel is never saved against a guess")
+        XCTAssertTrue(posts.isEmpty, "a tap with no bookmark is never saved against a guess")
         XCTAssertGreaterThan(SaveWhyPolicy.pendingBound, 2.5 + 0.35, "longer than Chrome's own write delay")
     }
 

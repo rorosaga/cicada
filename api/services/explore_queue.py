@@ -73,6 +73,8 @@ ASKS = ("look",)
 _KEY = re.compile(r"^[0-9a-f]{12}$")
 _SITE = re.compile(r"^[a-z0-9][a-z0-9.-]{0,79}$")
 _TOKEN = re.compile(r"^[0-9a-f]{32}$")
+#: A page id a "Save its look" ask came from (owner 2026-10-20): the Look goes on that page.
+_SUBJECT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
 _BATCH = re.compile(r"^x_[0-9a-f]{6}$")
 
 
@@ -167,6 +169,8 @@ def _clean_row(raw) -> dict | None:
     _str_fields(raw, row, ("batch", "claimed_by", "claimed_at", "lease_until", "session"))
     if raw.get("asked") in ASKS:
         row["asked"] = raw["asked"]
+    if isinstance(raw.get("subject"), str) and _SUBJECT.match(raw["subject"]):
+        row["subject"] = raw["subject"]
     token = raw.get("lease_token")
     if isinstance(token, str) and _TOKEN.match(token):
         row["lease_token"] = token
@@ -528,16 +532,21 @@ def ask(memory_path: Path, sites, *, asked: str, started_by: dict, now: datetime
     queued with the depth the ask implies and ``asked`` set, so the plan computed at claim and at record (from the
     same row) includes it. A row an agent holds keeps its lease and gains the ask. A paused site is resumed only when
     the person asked (their asking again is what lifts a pause, :func:`retry`); an agent's ask leaves it paused.
-    ``sites`` are ``{key, site}``."""
+    ``sites`` are ``{key, site, subject?}`` — ``subject`` (owner 2026-10-20) the page id the person asked from, so the
+    Look goes on that page; the row keeps the id and nothing else of it."""
     if asked not in ASKS:
         raise QueueError("that is not something a saved link can be asked for")
     depth = {"look": "look"}[asked]
     wanted: dict[str, str] = {}
+    subjects: dict[str, str] = {}
     for item in sites or []:
         key, site = str((item or {}).get("key") or ""), str((item or {}).get("site") or "")
         if not _KEY.match(key) or not _SITE.match(site):
             raise QueueError("every site needs its key and its site name")
         wanted[key] = site
+        subject = str((item or {}).get("subject") or "")
+        if subject and _SUBJECT.match(subject):
+            subjects[key] = subject
     if not wanted:
         raise QueueError("pick at least one saved site")
     kind = str((started_by or {}).get("kind") or "person")
@@ -576,6 +585,8 @@ def ask(memory_path: Path, sites, *, asked: str, started_by: dict, now: datetime
             if row["depth"] == "capture":   # the plan joins every reason; the row's word only labels the deepest
                 row["depth"] = depth
             row["asked"] = asked
+            if subjects.get(key):
+                row["subject"] = subjects[key]
             row["batch"] = bid
             if key in batch["done"]:
                 batch["done"].remove(key)

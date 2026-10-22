@@ -247,7 +247,8 @@ struct DesignSearchResult: Decodable, Equatable, Sendable {
     var missing: [String]
 }
 
-/// What the person hands the board: the screenshot's bytes (already shrunk, `DesignImageShrink`), the page, the note.
+/// What the person hands Cicada: the screenshot's bytes (already shrunk, `DesignImageShrink`), the page it came from,
+/// the note — and `entity`, the page of the thing it shows (owner 2026-10-20: a picture dropped on a page lands there).
 struct DesignUpload: Equatable, Sendable {
     var image: Data
     var ext: String
@@ -255,4 +256,5 @@ struct DesignUpload: Equatable, Sendable {
     var title: String?
     var note: String?
     var via: String
+    var entity: String? = nil
 }

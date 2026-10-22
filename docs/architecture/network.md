@@ -18,8 +18,11 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   two a week apart mark the source dead) — **the web check** (TODO ruling 27: `web_lookup.run_tail` sends no request of
   its own; the engine's search does, so the gate is asked before any engine call, and what reaches the search is only a
   public subject's name plus at most one generic category word, every reported search held to it (the prompt's
-  local context, ruling 27a, is never searched) — `capture-and-sleep.md`) — and
+  local context, ruling 27a, is never searched) — `capture-and-sleep.md`; on every plan run, scheduled ones included
+  since the plan switch is on by default, ruling 27b) — and
   paper details (below). It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite sets).
+  The backlog's one-off web-check sweep (`POST /inbox/web-check`, ruling 27b) is the person's start, so the gate is
+  reported in its counts, never applied — the same pinned query and nothing else leaves.
   A user-initiated `sync_now`, `POST /maintenance/enrich-links`, `POST /maintenance/verify-sites`, the person's
   "check now" on one source (`POST /entities/{id}/sources/refresh`; a login-walled source is only marked asked for
   their agent, never fetched), every OAuth
@@ -33,11 +36,31 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   and injects fetchers instead. It also gates the icons of the sites Settings, Reading the web, lists (G166): those
   come from the icon service only and the login-walled site is never contacted for its favicon (nor, since
   `fetch_logo` skips its first two rungs for a walled host, is a company or tool page's logo domain when it is one).
-  It also gates a saved link's own site icon (owner ruling 2026-10-19): Sources' saved rows ask the backend
-  (`GET /sources/saved/{id}/site-icon`), which asks the link's own registrable domain — `/apple-touch-icon.png`, then
-  `/favicon.ico`, never its HTML and **never an icon service**, so no third party learns what was saved — only when the
-  person opens that list, never from Sleep; same-site hops only, through the SSRF guard, 4 s, ≤ 512 KB streamed, no
-  cookies, a block (401/403/407/451) never retried; hits and misses cached under `logos/<bank>/sites/own/` (`storage.md`).
+  It also gates a saved link's own site icon (owner ruling 2026-10-19; everywhere a saved link is drawn, 2026-10-20):
+  a saved row asks the backend (`GET /sources/saved/{id}/site-icon`, or `/sources/saved/episodes/{id}/site-icon` for a
+  Waiting row with no page yet; rows ask as they appear, at most four at a time), which asks the link's own registrable domain and **never an icon service**, so
+  no third party learns what was saved — only when the person opens that list, never from the Sleep cycle. **Amended (owner
+  2026-10-20: "when I open the website I can clearly see a favicon in the Chrome tab"):** discovery goes the way a
+  browser does — the homepage (its www. host when the bare domain has no address; redirects on the same registrable
+  domain, or — owner direction 2026-10-20, "a picture specific to the site, not a letter" — to the public, non-walled
+  domain a renamed site moved to, each hop through the SSRF guard and never a hop the redirect-to-wall rule catches:
+  a `consent.` host, a sign-in host or a sign-in path, refused before a byte is fetched), its `<link rel>` icon declarations, best raster first (≤ 3 asked), then `/apple-touch-icon.png` and
+  `/favicon.ico`. An icon URL the page itself declares may sit on another host (a CDN): https only, every hop through
+  the SSRF guard and kept on that host's or the site's domain, accepted only when it says `image/*` and its bytes sniff
+  as a raster. 4 s for the whole discovery, ≤ 512 KB per response streamed, no cookies, a block (401/403/407/451) from
+  the site stops it and is never retried; a base64 raster `data:` icon is decoded, capped at 512 KB. **SVG (owner
+  ruling 2026-10-20: "yes, we should draw the SVG icon safely"):** only when no raster answered, at most two declared
+  SVG icons (served or `data:`) are asked under the same declared-icon rules, ≤ 64 KB, sanitised (no DTD or entities,
+  an allow-list of shapes/paths/gradients/transforms, no script, `foreignObject`, image, text, external `href` or
+  `url()`, no CSS comments or filters, no mask or clip path applying another) and drawn to a 64×64 PNG by
+  `svg_raster` in a child process whose descriptor limit is 0 (it can create no file or socket descriptor) and which is
+  killed at 2 s; the release build draws one real icon this way before it ships; only the PNG is cached and served, SVG never is. The drawing makes no request of its own. Hits and misses
+  cached under `logos/<bank>/sites/own/` (a miss from an older discovery is asked once more; `storage.md`).
+  It also gates a watched video's still (owner direction 2026-10-19, Sources v4): a day the person opened in Sources ›
+  YouTube history asks `GET /sources/watch-history/days/{episode}/videos/{id}/thumbnail`, which asks YouTube's own
+  thumbnail host for that id only, and only for an id that day records; the media-preview rail, cached under
+  `previews/<bank>/watched/` (`storage.md`). The same still for a saved YouTube video's row in a list the person
+  opened (`GET /sources/saved/{id}/still`, marks-2): the id that page's own URL names, the same store.
   It also covers a person's public-profile photo, which has a second, narrower gate of its own:
 - **`CICADA_ALLOW_PERSON_PHOTO_FETCH=off`** (G159 amendment, owner 2026-10-09; on by default, off for the test suite)
   stops every public-profile photo lookup for people while logos keep working. `person_photo` asks only when the app
@@ -121,8 +144,8 @@ a litellm upgrade. A model the table does not list still runs; on OpenRouter its
 and the Usage aggregates, never `$0` (ruling 12).
 
 **The Neural Engine search model's download (owner 2026-10-09).** EmbeddingGemma 2 (`api/services/model_fetch.py`) is
-fetched only when the person asks: *Turn on* beside *Understand what you mean* in Settings → Search & files, or the
-*Download* in the confirm a *Sharper* pick under its Advanced raises — a selection alone never downloads
+fetched only when the person asks: *Turn on* beside *Understand what you mean* in Settings → Search & files (the version picker and its confirm left the
+app on 2026-10-22; `cicada index install` is the other door) — a selection alone never downloads
 (`POST /embeddings/install` with `model`; the size is stated before the click from
 the pins, `downloadBytes`), `make embedding-model-gemma2`, or `install.sh` on macOS 15+ — never on a schedule, never by Sleep,
 never by the backend on its own. It reads one pinned revision of `FluidInference/embeddinggemma-2-coreml` from
@@ -137,8 +160,9 @@ check and `scripts/fetch-embedding-model.sh`.
 
 **The image encoder is its own click (design taste, 2026-10-14).** The same pinned revision's `vision_files` — the
 vision `.mlpackage` and `position_embeddings.f16`, about 309 MB — are fetched only when the person presses *Turn on*
-beside *Understand images* in Settings → Search & files (dimmed until the text encoder is here, so it is a second click)
-or on the Looks page (`POST /embeddings/install` with `model` and `part: "vision"`), or runs `make
+beside *Understand images* in Settings → Search & files (dimmed until the text encoder is here, so it is a second click;
+the Looks page's own shortcut went with the page on 2026-10-20) (`POST /embeddings/install` with `model` and
+`part: "vision"`), or runs `make
 embedding-model-vision`; the text encoder is fetched first when it isn't here — the Looks shortcut's one click, whose
 row states the combined size first (`vision.includesText`). Same transport, same checks (size and sha256 while streaming,
 one mismatch installs nothing), staged in `.embeddinggemma-2.vision.partial` and grafted beside the text encoder, a
@@ -158,7 +182,7 @@ capability token `cic_rc_<id>_<secret>`: shown once, only its sha256 stored in
 episode excerpts and the inbox `Cause:` quote alike; `pending`, `mark_processed` and `repo_context`
 never), expiring
 (7/30/90 days) and revocable. It arrives as a secret link (`/c/<token>/mcp`) or a bearer header —
-one verifier. Tools outside a connector's scopes are absent from `tools/list`; any `Origin` header
+one verifier — or, since ruling 32, through sign-in (below), the way the docs now steer every app that supports it. Tools outside a connector's scopes are absent from `tools/list`; any `Origin` header
 is refused; the listener has no access log (a secret link's path IS the token). Every remote write
 commits alone as `Cicada-Author: <app harness>`, `Cicada-Session: rc_…`, trigger
 `remote/<harness>`, no engine; a remote claim is `origin: remote:<id>` and can never be the
@@ -166,6 +190,69 @@ person's own words. Each call leaves one ids-only `remote_call` ledger row, file
 `reads-*.jsonl` so it never ticks the app's consumption domain. Every server-side fetch of someone
 else's URL goes through `net_guard` (`is_global`, never `is_private`, because tailnet addresses are
 neither; the name lookup runs off the event loop).
+
+**Sign-in for the remote connector (ruling 32, owner 2026-10-19).** So claude.ai (web, desktop and its phone apps)
+and ChatGPT can add Cicada as a custom connector, the G135 listener is also an **OAuth 2.1 authorization server**
+(`api/remote/oauth.py`), and still serves nothing else: `/mcp`, the two protected-resource documents,
+`/.well-known/oauth-authorization-server`, `/authorize`, `/authorize/wait`, `/token`, `/register` and `/revoke`; every
+other path is a 404 and no FastAPI router is reachable. **Discovery:** a request to `/mcp` without a valid token is a 401
+whose `WWW-Authenticate` carries `resource_metadata="<base>/.well-known/oauth-protected-resource/mcp"` and the default
+scopes; that document names `<base>` as the one authorization server; the AS metadata advertises the code flow only,
+`S256` only, `none`/`client_secret_post`/`client_secret_basic`, `client_id_metadata_document_supported` and
+`authorization_response_iss_parameter_supported` (so ChatGPT uses its stable redirect URI). `<base>` is the person's
+saved address, else the `Host` the tunnel forwarded. **Registration:** DCR (`/register`: https or loopback-http redirect
+URIs only, ≤ 5, no fragment or credentials; unused clients pruned after a day, ≤ 200) or a Client ID Metadata Document
+(an https `client_id`, fetched through `net_guard` under the ToS rail — 4 s, ≤ 64 KB, no cookies, no redirects — its
+`client_id` must equal the URL, public clients only, cached a day; a client id that is not plain ASCII, or whose
+host is not lower-case letters, digits, dots and dashes exactly as httpx would connect to it — a full-width dot, an
+IDN, a host two parsers read apart — is refused before any fetch, so the host shown as publisher is the one asked). **Consent is never on the public page:** `/authorize`
+checks the client and the redirect URI first (exact match; an `http` loopback URI matches on any port, RFC 8252 — Claude
+Code's), and a mismatch is an error page, never a redirect (no open redirect); then it shows an eight-character code
+and waits (meta refresh, no script, no form, a strict CSP, framing denied; it names no app). **The person approves by
+typing that code** into the app — Settings → Agents → From anywhere, "A sign-in is waiting" — and only then sees who it
+is and where it returns, choosing the scopes (what the app asked, else the defaults) and the expiry (7/30/90 days). The
+app never lists codes and never offers a request to approve with a click (security review of #359: whoever starts a
+sign-in collects its result from `/authorize/wait`'s redirect, PKCE included, so a stranger who registers an app called
+"Claude" returning to claude.ai — or reuses Claude's public metadata-document client id — and waits for a click would
+get the tokens; a typed code only the person's own page shows closes that). Waiting requests are listed only as
+waiting, each with Deny, plus Deny all. A registered (DCR) client is never named or branded: it is "Unverified app
+(registered <time> ago)" with the generic mark, and its connector's app is `other`; only a metadata-document client is
+named, as "<its name>, published by <the host it was fetched from>" — the name is letters, digits, spaces, dashes and
+apostrophes only, and one that claims a status ("published by", "verified", "official"…) is dropped. The loopback API is `GET /remote/oauth/requests`
+(ref and times only), `POST /remote/oauth/match` and `POST /remote/oauth/approve` (by `userCode`, ten misses then a
+minute's wait), `POST /remote/oauth/requests/{ref}/deny` and `…/deny-all`, behind the API token. The waiting page is
+bound to its browser by an HttpOnly, Secure, `__Host-` cookie (Path=/, no Domain), so a leaked request id collects nothing; the client's `state` is
+echoed untouched and `iss` rides every response, errors included. At most 50 requests wait; past that one is dropped —
+the oldest of the source holding the most (the last address the tunnel appended to `X-Forwarded-For`, an IPv6
+address as its /64, hashed), never the new one refused — so a flood evicts itself before the person's one sign-in; one unanswered for ten minutes
+expires. The code is the one value stored in the clear (the page must show it again), and it is blanked when the
+request is answered, denied or dropped.
+**Tokens:** the code is single-use, 120 s, bound to the client, the redirect URI, the PKCE challenge and the resource;
+a replayed code revokes what it issued. Access tokens (`cic_at_<connector>_<secret>`) live an hour; refresh tokens
+(`cic_rt_…`) rotate on every use, and a rotated one presented again more than 30 s later (a client's own concurrent
+refresh is forgiven) ends the whole grant and revokes the connector, so Settings shows it. An access token is good only for the resource it was issued for (its
+audience). Every token, code, client secret and browser binding is stored as its sha256 only (`~/.cicada/remote/connectors.db`,
+the same 0600 file), compared in constant time, and none is ever logged; the client's `state` is dropped once the
+code is used. Approval creates an ordinary connector row (`auth: oauth`) — hashed, scoped, expiring, revocable — whose
+app is read from where the code goes (claude.ai → Claude, chatgpt.com → ChatGPT, a loopback redirect from Claude's own
+metadata document → Claude Code, else Other), so its writes carry that app's harness; revoking it in Settings ends its
+access and refresh tokens at once, and a grant never outlives it. A signed-in connector has no link and cannot be
+rotated. **Rate limits** (in memory): registration 10 then 2 a minute; authorization 10 then 6 a minute per source,
+with no global ceiling (many sources could spend one; the 50-request cap and the fetch bucket already bound the cost);
+token and revocation 30 a minute per registered client id and 300 in all — an unregistered id spends nothing (it is
+refused as `invalid_client`), and a spent bucket still admits a valid refresh token or a live, unused authorization
+code, so spamming an app's public client id cannot stop its sign-in or its renewal; document fetches 10 then 2 a
+minute, each inside one overall 4 s deadline. A full client table (200) drops its oldest client that never got a grant
+rather than refuse a new one, and any client — registered or a metadata document's — with no grant and no live request
+is pruned after a day. A redirect URI with a backslash, a control character or a port that does not parse is refused,
+registered or presented. **Origin:** refused everywhere except a GET of the two
+sign-in pages (a browser navigation). Not supported: `private_key_jwt`, `client_credentials`, OpenID scopes.
+
+**The tunnel for sign-in is the person's, to this listener only.** claude.ai and ChatGPT reach the Mac from their own
+servers, so the person exposes the G135 listener's port publicly with a stable hostname — `tailscale funnel --bg 8765`
+or `ngrok http 8765 --url <their-domain>`. That is the one public port Cicada is ever reached on: the backend's own port
+(8000) is never funnelled (the headless rail, `headless.md`), and Cicada never starts a tunnel. What the person runs is in
+[`docs/connect-remote-apps.md`](../connect-remote-apps.md).
 
 **A failed poll is recorded, not raised** (`sync_state.record_error`) and surfaces per-channel as
 `lastError`; a gate-skipped poll is recorded distinctly (`record_skip`) so a skip never reads as a

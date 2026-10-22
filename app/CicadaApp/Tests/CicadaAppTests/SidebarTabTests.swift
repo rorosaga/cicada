@@ -1,7 +1,8 @@
 import XCTest
 @testable import CicadaApp
 
-/// G68 §1 — nine rows (G108 added Home at ⌘1; G141 PJ-5 added Projects at ⌘8; design taste added Looks at ⌘9; the Sleep
+/// G68 §1 — eight rows (G108 added Home at ⌘1; G141 PJ-5 added Projects at ⌘8; design taste added Looks at ⌘9 and the
+/// owner moved looks onto their pages on 2026-10-20, so it went; the Sleep
 /// redesign retired the Feed and gave its ⌘4 to Skills, 2026-10-16, ⌘ map A), stable
 /// identities, and a decoder that survives a
 /// selection written by an older build.
@@ -9,19 +10,19 @@ import XCTest
 final class SidebarTabTests: XCTestCase {
 
     /// G108 ruled (spec decision 12): Home is the front door at ⌘1, Graph follows at ⌘2.
-    func testTheSidebarIsNineRowsInVisualOrder() {
-        XCTAssertEqual(AppTab.allCases, [.home, .graph, .clusters, .skills, .sleep, .inbox, .sources, .projects, .looks])
+    /// Looks on pages (owner 2026-10-20): the ninth page, Looks, went — a look lives on the page of the thing it shows.
+    func testTheSidebarIsEightRowsInVisualOrder() {
+        XCTAssertEqual(AppTab.allCases, [.home, .graph, .clusters, .skills, .sleep, .inbox, .sources, .projects])
     }
 
     /// ⌘ map A (owner, 2026-10-16) — Skills takes the Feed's ⌘4 and nothing else moves: every shortcut a person
     /// learned still opens the page it opened.
     func testMapANothingButTheFeedsCellMoves() {
         XCTAssertEqual(AppTab.allCases.map { RailItem.shortcut(for: $0) },
-                       ["⌘1", "⌘2", "⌘3", "⌘4", "⌘5", "⌘6", "⌘7", "⌘8", "⌘9"])
+                       ["⌘1", "⌘2", "⌘3", "⌘4", "⌘5", "⌘6", "⌘7", "⌘8"])
         XCTAssertEqual(RailItem.shortcut(for: .skills), "⌘4")
         XCTAssertEqual(RailItem.shortcut(for: .sleep), "⌘5")
         XCTAssertEqual(RailItem.shortcut(for: .inbox), "⌘6")
-        XCTAssertEqual(RailItem.shortcut(for: .looks), "⌘9")
     }
 
     /// The one-time hint: only the key (⌘ held), only on Skills, only once per viewer.
@@ -44,7 +45,6 @@ final class SidebarTabTests: XCTestCase {
         XCTAssertEqual(AppTab.inbox.rawValue, "Inbox")
         XCTAssertEqual(AppTab.sources.rawValue, "Sources")
         XCTAssertEqual(AppTab.projects.rawValue, "Projects")
-        XCTAssertEqual(AppTab.looks.rawValue, "Looks")
     }
 
     /// The six retired raw values still exist in some user's defaults. Each
@@ -59,6 +59,7 @@ final class SidebarTabTests: XCTestCase {
         XCTAssertEqual(AppTab.restored(from: "Usage"), .sources)
         XCTAssertEqual(AppTab.restored(from: "Connections"), .graph)
         XCTAssertEqual(AppTab.restored(from: "Connect"), .graph)
+        XCTAssertEqual(AppTab.restored(from: "Looks"), .clusters, "Looks went to the pages; Clusters filters to them")
     }
 
     func testUnknownOrMissingSelectionsFallBackToHome() {
@@ -78,10 +79,10 @@ final class SidebarTabTests: XCTestCase {
         }
     }
 
-    /// ⌘1–9 follow the visual order, and every row has an icon. Nine pages since the Feed folded into Sleep
-    /// (2026-10-16), so every page has a ⌘ slot — Skills at ⌘4.
+    /// ⌘1–8 follow the visual order, and every row has an icon. Eight pages since Looks went to its pages
+    /// (2026-10-20), so every page has a ⌘ slot — Skills at ⌘4.
     func testEveryTabHasAShortcutSlotAndAnIcon() {
-        XCTAssertEqual(AppTab.allCases.count, 9)
+        XCTAssertEqual(AppTab.allCases.count, 8)
         XCTAssertEqual(AppTab.allCases.firstIndex(of: .home), 0, "⌘1 is Home")
         XCTAssertEqual(AppTab.allCases.firstIndex(of: .graph), 1, "⌘2 is Graph")
         for (index, tab) in AppTab.allCases.enumerated() {

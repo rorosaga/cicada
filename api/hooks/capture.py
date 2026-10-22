@@ -197,6 +197,9 @@ def _client_capture(payload: dict, *, harness: str, session_id: str, event: str,
                 "retry": payload.get("stop_hook_active") is True,
                 "cwd": payload.get("cwd") if isinstance(payload.get("cwd"), str) else None,
                 "hook_event": payload.get("hook_event_name")}
+        offset = remote_client.utc_offset_minutes()
+        if offset is not None:
+            body["utc_offset_minutes"] = offset   # ruling 34: the id's day is this machine's, not the server's
     else:
         transcript_path = payload.get("transcript_path")
         if not transcript_path:
@@ -210,6 +213,9 @@ def _client_capture(payload: dict, *, harness: str, session_id: str, event: str,
         body = {"harness": harness, "session_id": session_id, "conversation": conversation,
                 "transcript_bytes": read_bytes, "cwd": payload.get("cwd"),
                 "hook_event": payload.get("hook_event_name")}
+        offset = remote_client.utc_offset_minutes(remote_client.first_stamp(conversation))
+        if offset is not None:
+            body["utc_offset_minutes"] = offset   # ruling 34: the id's day is this machine's, not the server's
         effort = payload.get("effort")
         level = effort.get("level") if isinstance(effort, dict) else None
         if isinstance(level, str) and level.strip():
@@ -227,41 +233,56 @@ def _client_capture(payload: dict, *, harness: str, session_id: str, event: str,
 
     if "transcript_bytes" in body:
         body["transcript_size"] = size_of(transcript_path, body["transcript_bytes"])
+    # D1 (G202): what waits names the server — and, once heard, the bank — it was captured for, and goes only there.
+    meant = spool.target_for(home, base)
     if problem:
-        dropped = spool.put(home, route, body, key=key, transcript_path=transcript_path)
+        dropped = spool.put(home, route, body, key=key, transcript_path=transcript_path, target=meant)
         _log(log_path, f"{tag} spooled: {problem}" + (f" (dropped {dropped} oldest)" if dropped else ""))
         return 0
 
-    def send(r: str, b: dict) -> int | None:
+    def send(r: str, b: dict) -> tuple[int | None, str]:
         remaining = deadline - time.monotonic()
         if remaining <= 0.2:
-            return None
+            return None, ""
         timeout = min(TIMEOUT_S, remaining - 0.1)
-        return _client_post(post, base + r, json.dumps(b).encode("utf-8"), token, timeout)[0]
+        return _client_post(post, base + r, json.dumps(b).encode("utf-8"), token, timeout)
 
-    # A turn waits behind turns already waiting, so the episode keeps their order.
-    if key is None and spool.has_turns(home):
-        spool.put(home, route, body)
-        sent, final, left = spool.flush(home, send, deadline=deadline, keep=remote_client.keep, size_of=size_of)
-        _log(log_path, f"{tag} queued behind waiting turns: sent {sent}, {left} waiting")
-        return 0
+    # A turn waits behind turns already waiting for this server, so the episode keeps their order.
+    flushed = ""
+    if key is None and spool.has_turns(home, base):
+        # The waiting turns go first; this one follows them, or waits behind those that still cannot land — stamped
+        # only after the flush, so a bank the server just refused is never written onto it (#408 review).
+        sent, final, left = spool.flush(home, send, deadline=deadline, keep=remote_client.keep, size_of=size_of,
+                                        base=base)
+        meant = spool.target_for(home, base)
+        if spool.has_turns(home, base):
+            spool.put(home, route, body, target=meant)
+            _log(log_path, f"{tag} queued behind waiting turns: sent {sent}, {left} waiting"
+                 + remote_client.elsewhere_note(home, base))
+            return 0
+        flushed = f"; spool: sent {sent}, 0 waiting"
     remaining = deadline - time.monotonic()
     status, text = _client_post(post, base + route, json.dumps(body).encode("utf-8"), token,
                                 max(0.1, min(SESSION_END_TIMEOUT_S if event == "SessionEnd" else TIMEOUT_S,
                                              remaining - 0.2)))
     if remote_client.landed(status):
+        filed = remote_client.bank_in(text)
+        spool.remember_bank(home, base, filed)
         if key:
-            spool.drop(home, key)
+            # The newer snapshot landed: an older one waiting for this server and the bank it was filed in is
+            # obsolete. One waiting for another server — or another of this server's banks — stays (D1).
+            spool.drop(home, key, base, tuple(b for b in (filed or meant.get("bank_id"),) if b))
             remember(home, harness, session_id, body.get("workspace"), environ=environ)
-        line = f"{tag} http {status} {_outcome(text)}".rstrip()
-        if event != "SessionEnd" and spool.pending(home):
+        line = f"{tag} http {status} {_outcome(text)}".rstrip() + flushed
+        if event != "SessionEnd" and spool.pending_for(home, base):
             sent, _final, left = spool.flush(home, send, deadline=deadline, keep=remote_client.keep,
-                                             size_of=size_of)
+                                             size_of=size_of, base=base)
             line += f"; spool: sent {sent}, {left} waiting"
+        line += remote_client.elsewhere_note(home, base)
         _log(log_path, line)
         return 0
     if remote_client.keep(status):
-        dropped = spool.put(home, route, body, key=key, transcript_path=transcript_path)
+        dropped = spool.put(home, route, body, key=key, transcript_path=transcript_path, target=meant)
         _log(log_path, f"{tag} spooled: {remote_client.why(status)}" + (f" (dropped {dropped} oldest)" if dropped else ""))
         return 0
     _log(log_path, f"{tag} http {status} {_outcome(text)}".rstrip())

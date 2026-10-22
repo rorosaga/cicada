@@ -114,6 +114,29 @@ def _forget_the_developers_dotenv():
 
 
 @pytest.fixture(autouse=True)
+def _suite_reads_with_a_chosen_key(request):
+    """2026-10-19 (owner: "OpenRouter, eliminate it as the default"): the shipped ``llm_mode`` is ``auto`` — a plan,
+    else the local model, never a metered key by itself. Most of this suite was written when a bare ``Settings()``
+    meant "the API key, nobody chose", and drives Sleep's stages with fake model calls behind that key; for those
+    tests a bare ``Settings()`` still reads as a chosen key (never marked env-explicit, so a test's prefs still win).
+    A test of the shipped engine selection opts out with ``@pytest.mark.shipped_engine_default``."""
+    if request.node.get_closest_marker("shipped_engine_default"):
+        yield
+        return
+    from api.config import Settings
+
+    field = Settings.model_fields["llm_mode"]
+    shipped = field.default
+    field.default = "byok"
+    Settings.model_rebuild(force=True)
+    try:
+        yield
+    finally:
+        field.default = shipped
+        Settings.model_rebuild(force=True)
+
+
+@pytest.fixture(autouse=True)
 def _default_cicada_home(tmp_path, monkeypatch):
     """G117: `owner_identity.resolve_observer` now sits on the observer/
     claim-write hot path (`agentic_write.write_claim`, `telegram_capture`,
@@ -592,3 +615,30 @@ def _fresh_query_vector_cache():
     vector_index.clear_query_cache()
     yield
     vector_index.clear_query_cache()
+
+
+def pytest_configure(config):
+    # Also declared in api/pyproject.toml beside the `-m 'not bench'` addopts; kept here for a run from another rootdir.
+    config.addinivalue_line(
+        "markers", "crucial: guards a CLAUDE.md rail; the daily tier (`make test-crucial`, listed in crucial.txt)")
+    config.addinivalue_line(
+        "markers", "bench: a wall-clock budget or a benchmark run; `make test-bench` and `make test`, never the default run")
+    config.addinivalue_line(
+        "markers", "shipped_engine_default: a bare Settings() keeps the shipped llm_mode (auto) instead of the suite's key")
+
+
+def pytest_collection_modifyitems(config, items):
+    """The crucial tier (owner 2026-10-19): every test `crucial.txt` names carries the `crucial` marker, so
+    `pytest -m crucial` runs exactly the list. The list is the one place a test joins or leaves the tier."""
+    from api.tests import _crucial
+
+    entries = _crucial.backend_entries()
+    for item in items:
+        inner = item.nodeid.split("::")[1:]
+        if inner:
+            inner[-1] = inner[-1].split("[", 1)[0]
+        if _crucial.is_crucial(item.path.name, tuple(inner), entries):
+            if item.get_closest_marker("bench") is not None:
+                # The daily tier never waits on a wall-clock budget (suite cut 3): a rail's guard asserts behaviour.
+                raise pytest.UsageError(f"crucial.txt names a `bench` test: {item.nodeid}")
+            item.add_marker(pytest.mark.crucial)

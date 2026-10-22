@@ -1,9 +1,8 @@
 """R-PJB9 — §6.6's latency budgets on a 2,500-page synthetic bank, opt-in
-(`CICADA_BENCH=1`): a p95 assertion in the always-on suite is flaky on a loaded
+(the `bench` marker, `make test-bench`): a p95 assertion in the always-on suite is flaky on a loaded
 machine and would teach the team to ignore a red. Placeholder names only."""
 from __future__ import annotations
 
-import os
 import time
 from datetime import date, timedelta
 
@@ -13,7 +12,8 @@ from _synthetic_bank import _entity
 from api.services import bank_index, evidence, markdown_parser, predicates, project_timeline, search_index
 from api.services.claims import Claim, Evidence, write_claims
 
-pytestmark = pytest.mark.skipif(os.environ.get("CICADA_BENCH") != "1", reason="R-PJB9: opt-in")
+#: R-PJB9: a wall-clock budget is the `bench` tier (`make test-bench`, and `make test` before a release).
+pytestmark = pytest.mark.bench
 DAY0 = date(2026, 3, 1)
 
 

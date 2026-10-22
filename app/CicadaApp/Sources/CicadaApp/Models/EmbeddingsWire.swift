@@ -133,6 +133,10 @@ struct EmbeddingReindexState: Codable, Equatable {
 struct EmbeddingsStatus: Codable, Equatable {
     var model: String
     var nextModel: String
+    /// The model the bank's index records; nil when nothing is built yet — then `model` is only the configured
+    /// default, never "built elsewhere". `knowsRecorded` is false from an older backend that doesn't say.
+    var recorded: String? = nil
+    var knowsRecorded = false
     var choice: String? = nil
     var release: Bool = false
     var recommended: String? = nil
@@ -145,8 +149,9 @@ struct EmbeddingsStatus: Codable, Equatable {
     init(model: String, nextModel: String? = nil, choice: String? = nil, release: Bool = false,
          recommended: String? = nil, models: [EmbeddingModelOption] = [],
          install: EmbeddingInstallState = EmbeddingInstallState(), reindex: EmbeddingReindexState = EmbeddingReindexState(),
-         vision: EmbeddingVisionState? = nil) {
+         vision: EmbeddingVisionState? = nil, recorded: String?? = .none) {
         self.model = model; self.nextModel = nextModel ?? model; self.choice = choice
+        if case .some(let value) = recorded { self.recorded = value; self.knowsRecorded = true }
         self.release = release; self.recommended = recommended; self.models = models; self.install = install
         self.reindex = reindex; self.vision = vision
     }
@@ -155,6 +160,8 @@ struct EmbeddingsStatus: Codable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         model = (try? c.decode(String.self, forKey: .model)) ?? ""
         nextModel = (try? c.decode(String.self, forKey: .nextModel)) ?? model
+        knowsRecorded = c.contains(.recorded)
+        recorded = (try? c.decodeIfPresent(String.self, forKey: .recorded)) ?? nil
         choice = try? c.decodeIfPresent(String.self, forKey: .choice)
         release = (try? c.decode(Bool.self, forKey: .release)) ?? false
         recommended = try? c.decodeIfPresent(String.self, forKey: .recommended)
@@ -165,6 +172,9 @@ struct EmbeddingsStatus: Codable, Equatable {
     }
 
     func option(_ id: String) -> EmbeddingModelOption? { models.first { $0.id == id } }
+
+    /// The backend said nothing is built yet: `model` is the configured default, not what the memory was built with.
+    var nothingBuiltYet: Bool { knowsRecorded && recorded == nil }
 
     /// The model a download is about: one not on this Mac yet (the recommended one first), else any that needs one.
     var downloadable: EmbeddingModelOption? {
@@ -192,6 +202,9 @@ enum SearchModelRoute: Equatable {
     case choose(String)
 }
 
+/// The version picker's rules. Settings defaults (owner 2026-10-22) took the picker and the account sheet out of the
+/// app, so only `pollInterval` is read there now; the rest stays pure and tested as the record of how a version choice
+/// is made safely (a pick is never the consent, the size is said first), for the day a picker returns.
 enum SearchModelLogic {
     /// How often the row re-reads `GET /embeddings` while an install runs.
     static let pollInterval: Duration = .seconds(2)
@@ -216,9 +229,8 @@ enum SearchModelLogic {
     static func modelPage(_ id: String) -> URL? { URL(string: "https://huggingface.co/\(id)") }
     static let tokensPage = URL(string: "https://huggingface.co/settings/tokens")!
 
-    /// Advanced → Search version's detail line, in words, for every state (DR-37: it shares the card with Rebuild
-    /// search). An install in progress outranks everything; a failure outranks a pending switch only while the
-    /// version it was for is still missing; a pending switch outranks what the bank uses now. The image part's
+    /// The (retired) Search version row's detail line, in words, for every state. An install in progress outranks
+    /// everything; a failure outranks a pending switch only while the version it was for is still missing; a pending switch outranks what the bank uses now. The image part's
     /// download belongs to *Understand images*, never to this line.
     static func detail(_ status: EmbeddingsStatus?) -> String? {
         guard let status else { return nil }
@@ -324,7 +336,7 @@ enum SearchUnderstanding {
         }
         if reindex.state == "waiting" { return UnderstandRow(detail: Copy.SearchFiles.waitsForSleep) }
         // Review B2 — the backend's sentence here can be a health diagnostic (a hosted service, a dev command); the
-        // default view says it in its own words. Advanced's line keeps the backend's detail.
+        // page says it in its own words.
         if reindex.state == "failed", status.nextModel != status.model {
             return UnderstandRow(detail: Copy.SearchFiles.rereadFailed, failed: true)
         }
@@ -332,9 +344,32 @@ enum SearchUnderstanding {
             return UnderstandRow(detail: Copy.SearchFiles.switchesAtNextSleep)
         }
         guard let current = status.option(status.model) else { return UnderstandRow(detail: Copy.SearchFiles.meaningOther) }
+        if current.needsDownload, !current.available, status.nothingBuiltYet {
+            // Nothing built yet, and the version this setup starts with isn't on this Mac (a developer checkout's
+            // default is the larger one): never "set up on another Mac". Search reads words until a version is here;
+            // the way there is the one-click sharper version, else this default's own download (B-model, settings
+            // defaults pass 2).
+            let target = current.needsToken ? sharper : current
+            guard let target else { return UnderstandRow(detail: Copy.SearchFiles.meaningWordsOnly) }
+            return gated(UnderstandRow(detail: Copy.SearchFiles.meaningNotYet(bytes: target.downloadBytes),
+                                       button: Copy.SearchFiles.turnOn,
+                                       action: target.available ? .chooseMeaning(target.id) : .fetchMeaning(target.id),
+                                       help: target.available ? Copy.SearchFiles.meaningUseHelp
+                                           : Copy.SearchFiles.meaningTurnOnHelp),
+                         sleeping: sleeping, downloading: install.isInstalling)
+        }
         if current.needsDownload, !current.available {
             // Built elsewhere with a downloaded version: its vectors are kept, search reads words until it's here.
-            if current.needsToken { return UnderstandRow(detail: Copy.SearchFiles.meaningMissingLarger) }
+            // The larger version needs the person's own account key, which the app no longer asks for (settings
+            // defaults, owner 2026-10-22; `cicada index install` still does): the way out here is the sharper one.
+            if current.needsToken {
+                guard let sharper else { return UnderstandRow(detail: Copy.SearchFiles.meaningMissingLarger) }
+                return gated(UnderstandRow(detail: Copy.SearchFiles.meaningMissingLarger, button: Copy.SearchFiles.turnOn,
+                                           action: sharper.available ? .chooseMeaning(sharper.id) : .fetchMeaning(sharper.id),
+                                           help: sharper.available ? Copy.SearchFiles.meaningUseHelp
+                                               : Copy.SearchFiles.meaningTurnOnHelp),
+                             sleeping: sleeping, downloading: install.isInstalling)
+            }
             return gated(UnderstandRow(detail: Copy.SearchFiles.meaningMissing(bytes: current.downloadBytes),
                                        button: Copy.SearchFiles.download, action: .fetchMeaning(current.id),
                                        help: Copy.SearchFiles.meaningTurnOnHelp), sleeping: sleeping, downloading: install.isInstalling)

@@ -28,7 +28,7 @@ from __future__ import annotations
 import subprocess
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Callable
 
@@ -122,21 +122,8 @@ def _git_log(memory_path: Path, since: date, until: date) -> str | None:
 def _local_day(raw) -> date | None:
     """An episode timestamp of any stored shape as a LOCAL calendar day
     (G114: legacy naive, ``Z`` and ``+00:00`` coexist; YAML may hand back a
-    ``datetime``)."""
-    if isinstance(raw, datetime):
-        dt = raw
-    else:
-        key = episode_ids.timestamp_sort_key(str(raw) if raw else None)
-        if not key:
-            return None
-        try:
-            dt = datetime.fromisoformat(key)
-        except ValueError:
-            return None
-    try:
-        return dt.astimezone().date()
-    except (ValueError, OverflowError, OSError):
-        return None
+    ``datetime``) — :func:`episode_ids.local_day`, the one rule (ruling 34)."""
+    return episode_ids.local_day(raw)
 
 
 def collect(memory_path: Path, since: date, until: date, *,

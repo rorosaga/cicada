@@ -21,10 +21,12 @@ becomes a moment's fact chip itself (it is already a row).
 """
 from __future__ import annotations
 
+import bisect
+import json
 import os
 import re
 import threading
-from collections import Counter
+from collections import Counter, OrderedDict
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from pathlib import Path
@@ -41,7 +43,8 @@ from api.services import (
 )
 from api.services.claim_reconciler import is_human
 from api.services.claims import (
-    HAPPENED, MILESTONE, Claim, Evidence, is_event, is_persons_words, is_record, parse_claims, strip_claims_block,
+    HAPPENED, MILESTONE, Claim, Evidence, is_event, is_persons_words, is_record, is_value_predicate, parse_claims,
+    strip_claims_block,
 )
 from api.services.hub_builder import _one_line_summary
 from api.services.id_utils import sanitize_id
@@ -51,7 +54,9 @@ from api.services.transclusion_resolver import claim_to_model
 # g141-2 (T5): happenings, open threads and `milestone` chains join the payload.
 # g141-3 (round 4 D6): an item carries at most PARTICIPANTS_SHOWN participants + `participantsTotal`,
 # and a cluster group at most GROUP_CAP names no page holds yet.
-PROJECT_SHAPE = "g141-3"
+# g141-4 (2026-10-19): a list row's `activity` is the window's first day only — the bar's start, the one thing the
+# list draws from it; the detail keeps the series.
+PROJECT_SHAPE = "g141-4"
 TREE_DEPTH = 2
 MAX_SCAN_PAGES = 200          # §6.6: raw scans are capped; hitting the cap sets `partial`
 COMMONS_DEGREE = 12           # R-PJ20
@@ -100,6 +105,94 @@ def _cached_claims(f: bank_index.IndexedFile, body: Callable[[], str]) -> list[C
     return claims
 
 
+# Per episode, across requests, keyed on its `bank_index` stamp: the start and stored time of every turn a span can
+# land in (`evidence.turn_at`'s rule — a gap block is never a turn, a fragment resuming after a recorded gap belongs to
+# the turn before it) and the recorded gaps. `_anchor` asked `turn_at` once per claim, re-reading the episode's whole
+# `turns` sidecar through `with_turns` — whose 64-entry memo thrashes on a list that cites thousands of episodes:
+# ~25k YAML parses, ~90 % of a 5 s `GET /projects` on an 8k-page synthetic bank (2026-10-19). Compact (offsets and
+# instants only, never text) and bounded: a bank switch or a mass rewrite simply refills it.
+_TurnTimes = tuple[tuple[int, ...], tuple[str | None, ...], tuple[tuple[int, int], ...]]
+_TURN_TIMES: dict[str, tuple[int, int, _TurnTimes | None]] = {}
+_TURN_TIMES_MAX = 50_000
+
+
+def _turn_times(f: bank_index.IndexedFile, text: Callable[[], str | None]) -> _TurnTimes | None:
+    """`(turn starts, their stored times, gap ranges)` of one episode, or `None` when it stores no `turns` sidecar."""
+    key = str(f.path)
+    hit = _TURN_TIMES.get(key)         # a dict read is atomic; only the fill below takes the lock
+    if hit is not None and hit[0] == f.mtime_ns and hit[1] == f.size:
+        return hit[2]
+    value: _TurnTimes | None = None
+    if f.has_turns:
+        fm = bank_index.with_turns(f)
+        stamps = evidence.turn_stamps(fm)
+        if stamps:
+            body = text() or ""
+            gaps = evidence.gap_ranges(fm, body)
+            spans = evidence.turns(body, stamps=stamps, gaps=gaps)
+            starts: list[int] = []
+            times: list[str | None] = []
+            gap_ranges: list[tuple[int, int]] = []
+            for i, t in enumerate(spans):
+                if t.role == evidence.GAP_KIND:
+                    gap_ranges.append((t.start, t.end))
+                elif not (t.marker is None and i and spans[i - 1].role == evidence.GAP_KIND):
+                    starts.append(t.start)
+                    times.append(t.ts)
+            value = (tuple(starts), tuple(times), tuple(gap_ranges))
+    try:
+        st = os.stat(f.path)
+        unchanged = (st.st_mtime_ns, st.st_size) == (f.mtime_ns, f.size)
+    except OSError:
+        unchanged = False
+    if unchanged:                      # never file a read under a stamp it does not match
+        with _CLAIMS_LOCK:
+            if len(_TURN_TIMES) >= _TURN_TIMES_MAX:
+                _TURN_TIMES.clear()
+            _TURN_TIMES[key] = (f.mtime_ns, f.size, value)
+    return value
+
+
+def _turn_ts(times: _TurnTimes | None, start: int) -> str | None:
+    """The stored time of the turn a span starting at `start` lands in — `evidence.turn_at(...)["ts"]`, by bisection."""
+    if not times:
+        return None
+    starts, stamps, gaps = times
+    if any(a <= start < b for a, b in gaps):
+        return None
+    i = bisect.bisect_right(starts, start) - 1
+    return stamps[i] if i >= 0 else None
+
+
+# `_Bank.resolve`'s lookup keys per reference string, across requests: `sanitize_id` was most of a resolve, and the
+# list resolves every indexed claim's object (~43k on an 8k-page bank) on every read.
+_REF_KEYS: dict[str, tuple[str, str, str]] = {}
+_REF_KEYS_MAX = 60_000
+# An FTS claim payload (its JSON, `search_index.claim_rows`) as the thin Claim `_payload_claim` makes, across
+# requests: identical JSON is an identical claim, so the key is the text itself. Shared like `_CLAIMS_CACHE`'s.
+# Least recently used first out: a claim edited away leaves its old JSON behind until it ages out. ~0.6 KB a claim
+# beside its JSON key (shared with `claim_rows`), so the cap bounds it near 25 MB with keys; an 8k-page bank with 700
+# projects holds ~13k (review of #354).
+_PAYLOAD_CLAIMS: OrderedDict[str, "_PayloadClaim | None"] = OrderedDict()
+_PAYLOAD_CLAIMS_MAX = 40_000
+
+
+def _ref_keys(raw: str) -> tuple[str, str, str]:
+    """`(stripped, lower-cased, sanitize_id)` of a reference — what `_Bank.resolve` looks up."""
+    hit = _REF_KEYS.get(raw)
+    if hit is None:
+        ref = raw.strip()
+        hit = (ref, ref.lower(), sanitize_id(ref) if ref else "")
+        if len(_REF_KEYS) >= _REF_KEYS_MAX:
+            _REF_KEYS.clear()
+        _REF_KEYS[raw] = hit
+    return hit
+
+
+_EMPTY: dict = {}
+_MISS = object()
+
+
 def _day(value) -> str | None:
     try:
         return date.fromisoformat(str(value)[:10]).isoformat()
@@ -131,6 +224,17 @@ class _Bank:
         self._parents: tuple[dict[str, str], dict[str, list[str]]] | None = None
         self._citing: dict[str, list[str]] = {}
         self._ep_keys: dict[str, tuple] = {}
+        self._timed: dict[str, bool] = {}
+        self._ep_days: dict[str, str | None] = {}
+        self._claim_convs: dict[int, tuple[tuple[str, str], ...]] = {}
+        self._anchor_days: dict[int, str | None] = {}
+        self._held: list[Claim] = []
+        self._ts_days: dict[str, str | None] = {}
+        self._resolved: dict[str, str | None] = {}
+        self._stems: list[str] | None = None
+        self._direct: dict[str, str] = {}
+        self._reverse: dict[str, tuple[str | None, bool]] = {}
+        self._ep_convs: dict[str, tuple[tuple[str, str]] | None] = {}
         self.scanned = 0
         self.partial = False
         self.transcript_exists = transcript_exists or session_stats.default_transcript_exists
@@ -141,14 +245,26 @@ class _Bank:
         f = self.entities.get(eid)
         return dict(f.frontmatter or {}) if f else {}
 
+    def _fm(self, eid: str) -> dict:
+        """`fm` without the copy, for this class's own reads (the list asks for every page's type and status)."""
+        f = self.entities.get(eid)
+        return (f.frontmatter or _EMPTY) if f else _EMPTY
+
+    @property
+    def stems(self) -> list[str]:
+        """Every page id, sorted once per request."""
+        if self._stems is None:
+            self._stems = sorted(self.entities)
+        return self._stems
+
     def live(self, eid: str | None) -> bool:
-        return bool(eid) and eid in self.entities and str(self.fm(eid).get("status") or "active") != "dropped"
+        return bool(eid) and eid in self.entities and str(self._fm(eid).get("status") or "active") != "dropped"
 
     def type_of(self, eid: str | None) -> str | None:
-        return str(self.fm(eid).get("type") or "") or None if eid else None
+        return str(self._fm(eid).get("type") or "") or None if eid else None
 
     def name(self, eid: str) -> str:
-        return str(self.fm(eid).get("name") or eid.replace("-", " ").title())
+        return str(self._fm(eid).get("name") or eid.replace("-", " ").title())
 
     def body(self, eid: str) -> str:
         if eid not in self._bodies:
@@ -187,29 +303,56 @@ class _Bank:
     def names(self) -> dict[str, str]:
         if self._names is None:
             idx: dict[str, str] = {}
-            for stem in sorted(self.entities):
+            direct: dict[str, str] = {}
+            for stem in self.stems:
                 fm = self.entities[stem].frontmatter or {}
                 keys = [stem, stem.replace("-", " ")]
                 name = str(fm.get("name") or "").strip()
                 if name:
                     keys += [name, sanitize_id(name)]
+                for k in keys:
+                    direct.setdefault(k.strip().lower(), stem)
                 keys += [str(a) for a in (fm.get("aliases") or []) if str(a).strip()]
                 for k in keys:
                     idx.setdefault(k.strip().lower(), stem)
-            self._names = idx
+            self._names, self._direct = idx, direct
         return self._names
 
+    def reverse_target(self, ref) -> tuple[str | None, bool]:
+        """`(page, by alias)` a claim's object names, for the reverse layer (§6.4): `resolve`, except that an alias
+        shorter than 3 characters names nothing — the detail's `_tree_names` guard (a two-letter alias would match
+        every claim that happens to say it)."""
+        text = str(ref or "")
+        hit = self._reverse.get(text)
+        if hit is None:
+            target = self.resolve(text)
+            alias = False
+            if target is not None:
+                raw, lower, sanitized = _ref_keys(text)
+                self.names()
+                alias = raw != target and self._direct.get(lower) != target and self._direct.get(sanitized) != target
+                if alias and len(raw) < 3:
+                    target = None
+            hit = self._reverse[text] = (target, alias)
+        return hit
+
     def resolve(self, ref) -> str | None:
-        raw = str(ref or "").strip()
-        if not raw:
-            return None
-        if raw in self.entities:
-            return raw
-        idx = self.names()
-        return idx.get(raw.lower()) or idx.get(sanitize_id(raw))
+        text = str(ref or "")
+        hit = self._resolved.get(text, _MISS)
+        if hit is _MISS:
+            raw, lower, sanitized = _ref_keys(text)
+            if not raw:
+                hit = None
+            elif raw in self.entities:
+                hit = raw
+            else:
+                idx = self.names()
+                hit = idx.get(lower) or idx.get(sanitized)
+            self._resolved[text] = hit
+        return hit
 
     def owner(self) -> str | None:
-        for stem in sorted(self.entities):
+        for stem in self.stems:
             if (self.entities[stem].frontmatter or {}).get("owner") is True:
                 return stem
         try:
@@ -243,8 +386,11 @@ class _Bank:
     def timed(self, ep: str) -> bool:
         """An episode of this bank whose date is a mention's — never a memory export entry ("facts yes,
         activity no", owner 2026-10-08: its date is the summary's, not when anything in it came up)."""
-        f = self.episodes.get(ep)
-        return f is not None and episode_time.counts_as_activity(f.frontmatter)
+        hit = self._timed.get(ep)
+        if hit is None:
+            f = self.episodes.get(ep)
+            hit = self._timed[ep] = f is not None and episode_time.counts_as_activity(f.frontmatter)
+        return hit
 
     def untimed_only(self, claim: Claim) -> bool:
         """Every episode the claim cites in this bank is a memory export entry: a fact with no activity day."""
@@ -263,16 +409,17 @@ class _Bank:
         (§6.4's reverse claims). The FTS claim table answers first; while it builds,
         a raw prefilter reads pages whose text names a tree id, under the budget."""
         targets = set(tree)
-        names = [n for t in tree for n in (t, self.name(t))]
-        hits = search_index.claims_about(self.path, names)
-        if hits is not None:
-            subjects = sorted({ref for ref, _ in hits})
+        rows = search_index.claim_rows(self.path)
+        if rows is not None:
+            # Every indexed claim's object, resolved here exactly as below: the pages naming the tree by id, name or
+            # alias — one rule with the list's (R-PJB19), and no MATCH over the names.
+            subjects = [ref for ref, items in rows if any(self.reverse_target(obj)[0] in targets for obj, _ in items)]
         else:
             # The raw scan is what §6.6 caps: EVERY page read is charged (not only the ones that
             # match), so a 2,500-page bank with no index reads at most MAX_SCAN_PAGES and says
             # `partial`. Needles are ids AND names, lower-cased, like the FTS phrase — a claim whose
             # object is a display name ("Rover Arm Project") must be found on both paths.
-            needles = {n.lower() for n in names if n}
+            needles = {n.lower() for t in tree for n in (t, self.name(t)) if n}
             subjects = []
             for stem, f in sorted(self.entities.items()):
                 if stem in targets:
@@ -289,7 +436,8 @@ class _Bank:
         for s in subjects:
             if s in targets or not self.live(s):
                 continue
-            found = [c for c in self.claims(s) if c.object_kind in _NODE and self.resolve(c.object) in targets]
+            found = [c for c in self.claims(s) if c.object_kind in _NODE and not is_value_predicate(c.predicate)
+                     and self.reverse_target(c.object)[0] in targets]
             if found:
                 out[s] = found
         return out
@@ -346,14 +494,11 @@ def _anchor(bank: _Bank, claim: Claim) -> _Anchor | None:
         return _Anchor(None, day, None, "day", None) if day else None
     ep = min(candidates, key=lambda e: (bank.ep_key(e)[0], e))
     span = next((e for e in spans if e.episode == ep), None)
-    fm = bank.episodes[ep].frontmatter or {}
     instant, basis = None, "episode"
     if span is not None:
-        stamps = evidence.turn_stamps(bank_index.with_turns(bank.episodes[ep]))
-        if stamps:
-            text = bank.episode_text(ep) or ""
-            turn = evidence.turn_at(text, span.start, stamps, evidence.gap_ranges(fm, text))
-            instant = when.parse_instant((turn or {}).get("ts"))
+        times = _turn_times(bank.episodes[ep], lambda: bank.episode_text(ep))
+        if times:
+            instant = when.parse_instant(_turn_ts(times, span.start))
             basis = "turn" if instant else "episode"
     if instant is None:
         instant = bank.ep_key(ep)[1]
@@ -369,7 +514,7 @@ def _parents(bank: _Bank) -> tuple[dict[str, str], dict[str, list[str]]]:
     this per root made the list O(projects²) in page walks (R-PJB9's bench)."""
     if bank._parents is None:
         parent_of: dict[str, str] = {}
-        for stem in sorted(bank.entities):
+        for stem in bank.stems:
             if bank.type_of(stem) != "project" or not bank.live(stem):
                 continue
             for c in bank.claims(stem):
@@ -404,7 +549,23 @@ def _neg(day: str) -> str:
 
 
 def _one_liner(bank: _Bank, eid: str) -> str:
-    return _one_line_summary(strip_claims_block(bank.body(eid)), limit=120)
+    """A page's one line, across requests per page stamp: the list asks it of every project, and reading 700 bodies
+    per read was ~30 ms of it."""
+    f = bank.entities.get(eid)
+    if f is None:
+        return _one_line_summary(strip_claims_block(bank.body(eid)), limit=120)
+    key = str(f.path)
+    hit = _ONE_LINERS.get(key)
+    if hit is not None and hit[0] == (f.mtime_ns, f.size):
+        return hit[1]
+    line = _one_line_summary(strip_claims_block(bank.body(eid)), limit=120)
+    if len(_ONE_LINERS) >= _CLAIMS_CACHE_MAX:
+        _ONE_LINERS.clear()
+    _ONE_LINERS[key] = ((f.mtime_ns, f.size), line)
+    return line
+
+
+_ONE_LINERS: dict[str, tuple[tuple[int, int], str]] = {}
 
 
 def _words(predicate: str) -> str:
@@ -447,7 +608,7 @@ def _project_links(bank: _Bank) -> dict[str, set[str]]:
     """`{page: {live project pages linked to it by an open node claim, either
     way}}` — one pass over every project page's open node claims."""
     links: dict[str, set[str]] = {}
-    for stem in sorted(bank.entities):
+    for stem in bank.stems:
         if bank.type_of(stem) != "project" or not bank.live(stem):
             continue
         for c in bank.claims(stem):
@@ -964,26 +1125,82 @@ def _conv_key(bank: _Bank, ep: str) -> str:
 
 
 def _ep_day(bank: _Bank, ep: str) -> str | None:
-    instant = when.parse_instant((bank.episodes[ep].frontmatter or {}).get("timestamp"))
-    return when.local_day(instant, bank.tz).isoformat() if instant else None
+    if ep not in bank._ep_days:
+        instant = when.parse_instant((bank.episodes[ep].frontmatter or {}).get("timestamp"))
+        bank._ep_days[ep] = when.local_day(instant, bank.tz).isoformat() if instant else None
+    return bank._ep_days[ep]
+
+
+def _anchor_day(bank: _Bank, c: Claim) -> str | None:
+    """`_anchor(bank, c).day` — the list's only use of an anchor — once per claim per request (a sub-project's
+    claims are read again for every tree that holds it; keyed on the object, which the request's caches keep
+    alive, and `bank._held` keeps alive too, so no id is reused within the request), without building the
+    anchor: the list asks it of every claim about every project (~25k on an 8k-page bank).
+    `test_the_list_anchor_day_is_the_anchors` holds the two to one rule."""
+    key = id(c)
+    hit = bank._anchor_days.get(key, _MISS)
+    if hit is not _MISS:
+        return hit
+    timed = bank.timed
+    spans = [e for e in c.evidence if e.is_span() and timed(e.episode)]
+    candidates = [e.episode for e in spans] or [ep for ep in c.source_episodes if timed(ep)]
+    day: str | None
+    if not candidates:
+        # No timed episode: a claim every one of whose episodes in this bank is a memory export entry has no day
+        # (`untimed_only`); one citing none of this bank's episodes falls back to `valid_from`.
+        day = None if any(e in bank.episodes for e in _claim_episodes(c)) else _day(c.valid_from)
+    else:
+        ep = candidates[0] if len(candidates) == 1 else min(candidates, key=lambda e: (bank.ep_key(e)[0], e))
+        span = next((e for e in spans if e.episode == ep), None)
+        day = None
+        if span is not None:
+            ts = _turn_ts(_turn_times(bank.episodes[ep], lambda: bank.episode_text(ep)), span.start)
+            if ts:
+                day = bank._ts_days.get(ts, _MISS)
+                if day is _MISS:
+                    instant = when.parse_instant(ts)
+                    day = bank._ts_days[ts] = when.local_day(instant, bank.tz).isoformat() if instant else None
+        day = day or _ep_day(bank, ep) or _day(c.valid_from)
+    bank._anchor_days[key] = day
+    bank._held.append(c)
+    return day
+
+
+def _convs(bank: _Bank, c: Claim) -> tuple[tuple[str, str], ...]:
+    """`(local day, conversation)` of every timed episode a claim cites or was written in, once per claim per
+    request (`_activity`'s unit)."""
+    key = id(c)
+    hit = bank._claim_convs.get(key)
+    if hit is not None:
+        return hit
+    eps = _claim_episodes(c)
+    if c.session_ids or c.session_id:
+        for sid in c.all_session_ids():
+            eps += bank.session_episodes(sid)
+    known = bank._ep_convs
+    out = []
+    for ep in dict.fromkeys(eps):
+        conv = known.get(ep, _MISS)
+        if conv is _MISS:
+            # Stored as a 1-tuple, so the common one-episode claim shares it instead of allocating its own:
+            # every object a read keeps alive is one a full GC pass walks (2026-10-19: 50 ms pauses).
+            conv = known[ep] = (((day, _conv_key(bank, ep)),)
+                                if bank.timed(ep) and (day := _ep_day(bank, ep)) else None)
+        if conv is not None:
+            out.append(conv)
+    hit = bank._claim_convs[key] = (() if not out else out[0] if len(out) == 1
+                                    else tuple(pair for one in out for pair in one))
+    bank._held.append(c)               # keyed on id(c): kept alive, so no id is reused within the request
+    return hit
 
 
 def _activity(bank: _Bank, claims: list[Claim]) -> list[ActivityDay]:
     """Distinct conversations per local day, over the `ACTIVITY_DAYS` ending
     at the last active day (§10.1: anchored to data, never to today)."""
     per_day: dict[str, set[str]] = {}
-    seen: set[str] = set()
     for c in claims:
-        eps = _claim_episodes(c)
-        for sid in c.all_session_ids():
-            eps += bank.session_episodes(sid)
-        for ep in eps:
-            if ep in seen or not bank.timed(ep):
-                continue
-            seen.add(ep)
-            day = _ep_day(bank, ep)
-            if day:
-                per_day.setdefault(day, set()).add(_conv_key(bank, ep))
+        for day, conv in _convs(bank, c):
+            per_day.setdefault(day, set()).add(conv)
     if not per_day:
         return []
     last = date.fromisoformat(max(per_day))
@@ -1221,6 +1438,46 @@ def _payload_claim(payload: dict) -> Claim | None:
                  evidence=[Evidence.from_dict(ev)] if isinstance(ev, dict) else [])
 
 
+class _PayloadClaim:
+    """An FTS claim payload as the list reads it: the fields `_open`, `is_event`, `_anchor_day` and `_convs` use, and
+    nothing else. Slotted, ~0.6 KB against a full `Claim`'s ~3 KB — thousands live in `_PAYLOAD_CLAIMS` (review of
+    #354). A payload carries one evidence span and no sessions, as `_payload_claim` always read it."""
+
+    __slots__ = ("id", "predicate", "object", "object_kind", "valid_from", "valid_to", "superseded_by", "evidence")
+    source_episodes: tuple = ()
+    session_ids: tuple = ()
+    session_id = None
+
+    def __init__(self, c: Claim, object_kind: str | None):
+        self.id, self.predicate, self.object, self.object_kind = c.id, c.predicate, c.object, object_kind
+        self.valid_from, self.valid_to, self.superseded_by = c.valid_from, c.valid_to, c.superseded_by
+        self.evidence = tuple(c.evidence)
+
+    def all_session_ids(self) -> list[str]:
+        return []
+
+
+def _cached_payload_claim(payload: str) -> _PayloadClaim | None:
+    """One payload's claim, or `None` for one that names none. Its `object_kind` is `None` for a row indexed before
+    the payload carried it (no schema bump: such a row reads as it did, see `list_projects`)."""
+    with _CLAIMS_LOCK:
+        hit = _PAYLOAD_CLAIMS.get(payload, _MISS)
+        if hit is not _MISS:
+            _PAYLOAD_CLAIMS.move_to_end(payload)
+            return hit
+    try:
+        data = json.loads(payload)
+    except ValueError:
+        data = None
+    claim = _payload_claim(data) if isinstance(data, dict) else None
+    hit = _PayloadClaim(claim, data.get("object_kind")) if claim is not None else None
+    with _CLAIMS_LOCK:
+        _PAYLOAD_CLAIMS[payload] = hit
+        while len(_PAYLOAD_CLAIMS) > _PAYLOAD_CLAIMS_MAX:
+            _PAYLOAD_CLAIMS.popitem(last=False)
+    return hit
+
+
 def _followup_counts(bank: _Bank) -> Counter:
     """Pending `followup` inbox items per entity (PJ-6; always empty before it)."""
     out: Counter = Counter()
@@ -1236,16 +1493,22 @@ def _followup_counts(bank: _Bank) -> Counter:
 def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: Callable | None = None) -> ProjectsResponse:
     """Every live project, lighter than the detail and honest about it
     (R-PJB19): each project page, the owner page and the FTS claim payloads
-    that name a tree page — never a member page. `partial` whenever the FTS
-    index could not answer (the reverse layer is then the owner's alone)."""
+    whose object resolves to a tree page — never a member page. `partial`
+    whenever the FTS index could not answer (the reverse layer is then the
+    owner's alone).
+
+    Fast after a change (2026-10-19, 700 projects on an 8k-page synthetic bank:
+    5.2 s → ~0.25 s): every reverse row comes from `search_index.claim_rows`
+    (kept per page, re-read only where the index moved), a payload's Claim and a
+    page's one-liner are cached across requests, an episode's turn times are
+    cached per episode stamp (`_turn_times`), and a claim's anchor day and
+    conversations are worked out once per request (`_anchor_day`, `_convs`)."""
     bank = _Bank(memory_path, tz_name, transcript_exists)
-    projects = [s for s in sorted(bank.entities) if bank.type_of(s) == "project" and bank.live(s)]
+    projects = [s for s in bank.stems if bank.type_of(s) == "project" and bank.live(s)]
     owner = bank.owner()
     owner_claims = bank.claims(owner) if owner and bank.live(owner) else []
-    names = [n for p in projects for n in (p, bank.name(p))]
-    payloads = search_index.claims_about(bank.path, names) if names else []
-    partial = payloads is None
-    payloads = payloads or []
+    rows = search_index.claim_rows(bank.path) if projects else []
+    partial = rows is None
     followups = _followup_counts(bank)
     # The owner page can carry thousands of claims: resolve each once per request and file it under the page it
     # names, as the payloads below are — reading it per project was O(projects × owner claims).
@@ -1254,21 +1517,38 @@ def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: 
         if c.object_kind in _NODE and (target := bank.resolve(c.object)) is not None:
             owner_by_target.setdefault(target, []).append(i)
     owner_events = _owner_events(bank, owner) if owner and bank.live(owner) else []
-    # Each payload is converted and resolved ONCE and filed under the page its
-    # object names; a project then reads only its own tree's buckets, in the
-    # payloads' order. Scanning every payload per project was O(projects ×
-    # payloads) — ~600k conversions on R-PJB9's 2,500-page bench.
+    # Every indexed claim's object is resolved ONCE and, when it names a live
+    # project, filed under it; a project then reads only its own tree's
+    # buckets, in (page, fence) order. Scanning every payload per project was
+    # O(projects × payloads) — ~600k conversions on R-PJB9's 2,500-page bench —
+    # and a MATCH over every project's name ~0.6 s at 700 projects (2026-10-19).
+    live_projects = set(projects)
     by_target: dict[str, list[int]] = {}
-    converted: list[tuple[str, Claim]] = []
-    for ref, payload in payloads:
-        c = _payload_claim(payload)
-        if c is None or not _open(c):
-            continue
-        target = bank.resolve(c.object)
-        if target is None:
-            continue
-        by_target.setdefault(target, []).append(len(converted))
-        converted.append((ref, c))
+    refs: list[str] = []                 # two lists, not a pair per row: fewer objects for the GC to walk
+    converted: list[Claim] = []
+    resolved, resolve = bank._resolved, bank.resolve      # the memo inline: ~40k rows a read
+    for ref, items in rows or ():
+        for obj, payload in items:
+            target = resolved.get(obj, _MISS)
+            if target is _MISS:
+                target = resolve(obj)
+            if target not in live_projects:
+                continue
+            c = _cached_payload_claim(payload)
+            if c is None:
+                continue
+            kind = c.object_kind
+            if not _open(c) or is_value_predicate(c.predicate):
+                continue
+            target, alias = bank.reverse_target(obj)
+            # Only a page-to-page claim names a project: a value, an inbox answer or a to-do whose words happen to be
+            # a project's name is not about it. A row indexed before payloads carried the kind is read as before —
+            # by id or name only, never by alias.
+            if target is None or (kind not in _NODE if kind is not None else alias):
+                continue
+            by_target.setdefault(target, []).append(len(converted))
+            refs.append(ref)
+            converted.append(c)
     rows: list[ProjectRow] = []
     for root in projects:
         tree, parent = _tree(bank, root)
@@ -1286,7 +1566,7 @@ def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: 
                 seen.add(c.id)
                 claims.append(c)
         for i in sorted(i for t in tree for i in by_target.get(t, ())):
-            ref, c = converted[i]
+            ref, c = refs[i], converted[i]
             if ref in targets or ref == owner or c.id in seen:
                 continue
             seen.add(c.id)
@@ -1295,7 +1575,7 @@ def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: 
         # An event's day is when it happened (`valid_from`), not the day of the
         # episode it cites — the detail's rule for `momentDays`, kept here so
         # list and detail agree (R-PJB19). A milestone is a plan, not activity.
-        days = sorted({a.day for c in claims if not is_event(c) and (a := _anchor(bank, c)) is not None and a.day}
+        days = sorted({d for c in claims if not is_event(c) and (d := _anchor_day(bank, c))}
                       | {d for c, _ in events if c.predicate == HAPPENED and (d := _day(c.valid_from))})
         milestones = _milestones(bank, tree)
         progress = project_state.progress([m.model_dump(by_alias=True) for m in milestones])
@@ -1308,7 +1588,9 @@ def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: 
             planned=bool(milestones), last_moment_day=days[-1] if days else None,
             median_gap_days=project_state.median_gap(days),
             open_threads=_threads(bank, root, events)[:THREADS_IN_ROW], milestones=shown,
-            progress=ProjectProgress(**progress), activity=_activity(bank, claims),
+            # The row's bar starts at the window's first day — all the list shows of the density (the detail
+            # carries the series); 40 % of the body at 700 projects (g141-4, 2026-10-19).
+            progress=ProjectProgress(**progress), activity=_activity(bank, claims)[:1],
             followups=sum(followups.get(t, 0) for t in tree)))
     rows.sort(key=lambda r: (r.last_moment_day is None, _neg(r.last_moment_day) if r.last_moment_day else "", r.id))
     return ProjectsResponse(projects=rows, tz_name=bank.tz_name, partial=partial or bank.partial)

@@ -2,7 +2,9 @@ import SwiftUI
 
 /// §5.3 / DR-16 — a detail column's head: the thing's real mark (20 pt, DR-52), its title as the detail heading
 /// (`displayFont(size: 22)`, DR-16's H1 role), one line saying what it is, and Close × — with "‹ N" first when DR-27 hid
-/// the list. Sources' source and contributor columns share it.
+/// the list. Sources' source and contributor columns share it, and so do the Backlog item, Settings' detail panes and —
+/// since the consistency pass (2026-10-20) — Skills' and Looks' side columns, which had set their titles in the 17 pt
+/// heading face beside a hand-placed ×. A thing with no mark of its own passes none (`DetailHeader(title:…)`).
 struct DetailHeader<Mark: View>: View {
     let title: String
     var blurb: String? = nil
@@ -20,7 +22,7 @@ struct DetailHeader<Mark: View>: View {
                     .padding(.leading, -CicadaTheme.scaled(10))
             }
             HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
-                mark().padding(.top, CicadaTheme.scaled(4))
+                if Mark.self != EmptyView.self { mark().padding(.top, CicadaTheme.scaled(4)) }
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(3)) {
                     Text(title)
                         .font(CicadaTheme.displayFont(size: 22))
@@ -40,5 +42,13 @@ struct DetailHeader<Mark: View>: View {
             }
         }
         .padding(.vertical, CicadaTheme.spacingMD)
+    }
+}
+
+extension DetailHeader where Mark == EmptyView {
+    init(title: String, blurb: String? = nil, backLabel: String? = nil, onShowList: @escaping () -> Void = {},
+         closeHelp: String, closeShortcut: KeyboardShortcut? = nil, onClose: @escaping () -> Void) {
+        self.init(title: title, blurb: blurb, backLabel: backLabel, onShowList: onShowList, closeHelp: closeHelp,
+                  closeShortcut: closeShortcut, onClose: onClose, mark: { EmptyView() })
     }
 }

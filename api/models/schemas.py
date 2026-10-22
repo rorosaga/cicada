@@ -308,6 +308,16 @@ class OriginsResponse(CamelModel):
 # --- Sources overview (G124 — one card per memory source) ---
 
 
+class SourceFace(CamelModel):
+    """Sources v4 — one face on a source's row: a chat that fed Messages, or a site a saved thing came from."""
+
+    kind: str                    # chat | site
+    id: str                      # chat: the app's conversation hash; site: the saved page its mark is asked by
+    label: str                   # chat: who it is with; site: the bare host
+    site: Optional[str] = None   # site: `reading_hosts.site_of`'s key
+    photo: Optional[str] = None  # chat: the stored photo's hash (`GET /sources/messages/chats/{id}/photo?v=`)
+
+
 class SourceOverview(CamelModel):
     """One memory source as the Sources page shows it.
 
@@ -347,6 +357,13 @@ class SourceOverview(CamelModel):
     # Sources v3 (2026-10-19) — ``saved`` (the person saved each item on purpose) or ``captured`` (Cicada captures it
     # on its own); ``source_overview.intent_of``. The page's two groups.
     intent: str = "captured"
+    # Sources v4 (2026-10-19) — this source's episodes still waiting for Sleep's read (the detail's "Consolidate now ·
+    # N waiting"); and up to three faces, newest first — a Messages chat (`kind: chat`, its photo's hash when one is
+    # stored) or the site a saved thing came from (`kind: site`, `id` = the saved page the site's mark is asked by) —
+    # with how many more there are.
+    waiting: int = 0
+    faces: list[SourceFace] = Field(default_factory=list)
+    faces_more: int = 0
 
 
 class SourceOverviewResponse(CamelModel):
@@ -556,6 +573,8 @@ class EntityResponse(CamelModel):
     picture: Optional[str] = None
     picture_source: Optional[str] = None
     picture_inputs: Optional[PictureInputsModel] = None
+    # Owner ruling 2026-10-20 — `GraphNode.quiet`'s twin from the same rule (`quiet_pages`), derived at read.
+    quiet: bool = False
 
 
 class PaperSummary(CamelModel):
@@ -1090,6 +1109,50 @@ class EpisodeTurn(CamelModel):
     # `approximate` (a model's reading of the link, or a record that never said);
     # only on a `media` turn.
     fidelity: Optional[str] = None
+    #: 2026-10-20 (`turn_extras`): what made this turn part of a conversation beside its words; null when nothing.
+    extras: Optional["EpisodeTurnExtras"] = None
+
+
+class EpisodeReaction(CamelModel):
+    """One reaction on a turn: ``by`` is a turn marker (``user`` = the person, ``assistant``, ``speaker:<label>``),
+    ``kind`` one of ``turn_extras.REACTION_KINDS``, ``emoji`` what it shows as."""
+
+    by: str
+    kind: str
+    emoji: Optional[str] = None
+
+
+class EpisodeAttachment(CamelModel):
+    """A file a turn carried — its kind (``image`` | ``video`` | ``audio`` | ``file`` | ``sticker``), name, size and
+    type. Never a path, never the file."""
+
+    kind: str = "file"
+    name: str = ""
+    size: Optional[int] = None
+    mime: Optional[str] = None
+    generated: bool = False
+
+
+class EpisodeTurnExtras(CamelModel):
+    """A turn's extras (`turn_extras`): ``reply_to`` is the target turn's ``index`` in this document;
+    ``reply_elsewhere`` a reply to a message this document does not hold."""
+
+    reactions: list[EpisodeReaction] = []
+    reply_to: Optional[int] = None
+    reply_elsewhere: bool = False
+    attachments: list[EpisodeAttachment] = []
+    edited: bool = False
+    forwarded_from: Optional[str] = None
+    code_runs: Optional[int] = None
+
+
+class EpisodeUnsent(CamelModel):
+    """A message its sender unsent: ``before`` is the ``index`` of the turn it preceded (one past the last turn's when
+    it came last); ``speaker`` a turn marker. Never its words."""
+
+    before: int
+    speaker: str
+    ts: Optional[str] = None
 
 
 class EpisodeFocus(CamelModel):
@@ -1130,6 +1193,15 @@ class EpisodeWatch(CamelModel):
     author_effort: Optional[str] = None
 
 
+class EpisodeRelay(CamelModel):
+    """Ruling 32: a conversation a hookless app's model relayed through the remote connector, until an export of it
+    upgrades the episode. ``app`` is the connector catalog's id (``chatgpt``), ``label`` its name ("ChatGPT") — the
+    person's own app, so the Reader may name it ("Relayed by ChatGPT"); both null when the connector named no app."""
+
+    app: Optional[str] = None
+    label: Optional[str] = None
+
+
 class EpisodeText(CamelModel):
     """``GET /episodes/{id}/text`` — a whole stored document for the Reader
     (G118 slice 2, design §4.8.1). ``text`` is capped at 400,000 characters
@@ -1162,10 +1234,20 @@ class EpisodeText(CamelModel):
     #: G181 phase 3: the id of the person's device whose token posted this episode; null for a page and for what the
     #: server's own machine wrote.
     device: Optional[str] = None
+    #: Owner 2026-10-20: a saved link's site key (``channel_items.saved_episode_url`` → ``reading_hosts.mark_key``), so
+    #: the Reader's header wears the link's own site mark; null for every other episode and for a page.
+    site: Optional[str] = None
     turns: list[EpisodeTurn] = []
     focus: Optional[EpisodeFocus] = None
     agent: Optional[EpisodeAgent] = None
     watch: Optional[EpisodeWatch] = None
+    #: Ruling 32: set while the episode is a relay not yet upgraded by an export; null for everything else.
+    relay: Optional[EpisodeRelay] = None
+    #: 2026-10-20: messages their senders unsent, by position (`turn_extras`).
+    unsent: list[EpisodeUnsent] = []
+
+
+EpisodeTurn.model_rebuild()
 
 
 class ProvenanceSpan(CamelModel):
@@ -1856,6 +1938,10 @@ class GraphNode(CamelModel):
     picture: Optional[str] = None
     picture_source: Optional[str] = None
     last_referenced: Optional[str] = None
+    # Owner ruling 2026-10-20 — a page only an import made (a saved link, video or playlist item) that the person has
+    # not mentioned yet (`quiet_pages`): drawn dimmed, never asked about. Derived on every read, never stored; OMITTED
+    # when false, like an absent picture, so the largest snapshot pays only for the quiet few.
+    quiet: bool = False
 
     @model_serializer(mode="wrap")
     def _omit_absent_picture(self, handler) -> dict[str, Any]:
@@ -1864,6 +1950,8 @@ class GraphNode(CamelModel):
             for key in ("picture", "pictureSource", "picture_source"):
                 if key in data and data[key] is None:
                     del data[key]
+            if data.get("quiet") is False:
+                del data["quiet"]
         return data
 
 
@@ -1905,7 +1993,9 @@ class SearchHit(CamelModel):
       ``valid_to``/``superseded_by`` set means history ("was X until …").
     - ``episode``: ``id`` is the episode (evidence doc) id and ``name`` its
       title; ``start``/``end``/``hash`` are a span into the evidence text
-      (G118) around the best passage, and ``evidence_kind`` is its speaker.
+      (G118) around the best passage, and ``evidence_kind`` is its speaker;
+      ``site`` is a saved link's site key (``reading_hosts.mark_key``, review
+      of #372), so its row wears the site's own mark, never the browser's.
     - ``inbox``: ``id`` is the inbox item id, ``name`` the question it is
       served as, ``type`` the item's kind, ``subject_id`` its entity.
 
@@ -1931,6 +2021,7 @@ class SearchHit(CamelModel):
     conversation_id: str | None = None
     harness: str | None = None
     origin: str | None = None
+    site: str | None = None
     timestamp: str | None = None
     start: int | None = None
     end: int | None = None
@@ -3026,6 +3117,10 @@ class EpisodeQueueItem(CamelModel):
     copy_kind: Optional[str] = None
     copy_value: Optional[str] = None
     changed_at: Optional[str] = None
+    # Owner 2026-10-20 — a saved link's site key (`reading_hosts.mark_key` over the url of a live saved-source episode,
+    # `channel_items.saved_episode_url`), the name its row's site mark is drawn under; None for every other episode. The icon itself is asked by the episode's id
+    # (`GET /sources/saved/episodes/{id}/site-icon`), never by this name.
+    site: Optional[str] = None
 
 
 SCHEDULE_MODES = ("manual", "daily", "interval", "after_import")
@@ -3206,9 +3301,9 @@ class SleepRunOptions(CamelModel):
     continue_after_reset: bool = False
     reserve_pct: Optional[int] = None
     reserve_choices: list[int] = Field(default_factory=list)
-    # TODO ruling 4b (owner, 2026-10-16): this machine lets SCHEDULED runs use the person's plan (Claude or ChatGPT).
-    # Off by default; nightly runs then count against the plan's limits.
-    scheduled_use_plan: bool = False
+    # TODO ruling 4b (owner, 2026-10-16; amended 2026-10-19): this machine lets SCHEDULED runs use the person's plan
+    # (Claude or ChatGPT). On by default — only the person's explicit off stops it; nightly runs count against the plan.
+    scheduled_use_plan: bool = True
 
 
 class SleepRunOptionsUpdate(CamelModel):
@@ -3586,7 +3681,9 @@ class AgentWiringRow(CamelModel):
     autorecall: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
     autorecall_on: list[AgentWiringStep] = []
     autorecall_off: list[AgentWiringStep] = []
-    # Integration support/evidence, separate from MCP registration and hook config.
+    # Integration support/evidence, separate from MCP registration and hook config. ``via: plugin`` (owner
+    # 2026-10-19): Claude Code reaches Cicada through the Cicada plugin, which carries the server and every hook, so
+    # the row is on and offers no argv.
     capabilities: dict[str, str] = {}
 
 
@@ -3771,6 +3868,10 @@ class MediaSourceItem(CamelModel):
     title: str
     media_type: str
     site: Optional[str] = None
+    # Owner 2026-10-20 — the key the item's own site mark is drawn under (`reading_hosts.site_of` over the link's URL:
+    # a walled family's name, else the registrable domain), so every surface asks the same site and the same cache.
+    # A name, never a URL; None when the URL names no valid site. Additive.
+    site_key: Optional[str] = None
     channel: Optional[str] = None
     thumbnail: Optional[str] = None
     # `EntityMedia.preview`'s twin: the stored copy of the page's own picture, from the page alone. Additive.
@@ -4477,6 +4578,8 @@ class MessagesAttachmentIn(CamelModel):
     mime_type: Optional[str] = None
     uti: Optional[str] = None
     total_bytes: int = 0
+    #: A sticker placed on a message, not a file sent (``attachment.is_sticker``).
+    is_sticker: bool = False
 
 
 class MessagesRowIn(CamelModel):
@@ -4495,6 +4598,11 @@ class MessagesRowIn(CamelModel):
     date_edited: int = 0
     date_retracted: int = 0
     attachments: list[MessagesAttachmentIn] = []
+    #: A tapback row's target (``p:<part>/<guid>`` or ``bp:<guid>``) and, for an emoji tapback, its emoji.
+    associated_message_guid: Optional[str] = None
+    associated_message_emoji: Optional[str] = None
+    #: An inline reply's target message (``thread_originator_guid``).
+    thread_originator_guid: Optional[str] = None
 
 
 class MessagesSyncRequest(CamelModel):
@@ -4516,6 +4624,10 @@ class MessagesSyncResponse(CamelModel):
     edited: int = 0
     attachments: int = 0
     decoded: int = 0
+    #: Tapbacks placed on a stored message, and those whose message is not stored (never kept).
+    reactions_kept: int = 0
+    reactions_orphaned: int = 0
+    replies: int = 0
     sittings: int = 0
     created: int = 0
     updated: int = 0
@@ -4627,12 +4739,18 @@ class ContactRecord(CamelModel):
     has_phone: bool = False
     has_birthday: bool = False
     photo_b64: Optional[str] = None
+    #: Owner ruling 2026-10-20 — the address book's own "me" card (`CNContactStore.unifiedMeContact`): it belongs to
+    #: the owner's page (G169), is never matched to a namesake and never waits. A flag about the owner, not a card fact.
+    is_me: bool = False
 
 
 class ContactsLocalSyncRequest(CamelModel):
     """``POST /sources/contacts-local/sync`` — the WHOLE address book (a removal needs the complete set)."""
 
     contacts: list[ContactRecord] = []
+    # Review of #393: the app's Contacts connection this sync belongs to (minted at Connect). A sync from a connection
+    # the person ended is dropped (`contacts_local.connection_ended`); an older app sends none.
+    connection: Optional[str] = None
 
 
 class ContactsLocalSyncResponse(CamelModel):
@@ -4644,6 +4762,8 @@ class ContactsLocalSyncResponse(CamelModel):
     sources_added: int = 0
     sources_removed: int = 0
     photos: int = 0
+    #: Owner ruling 2026-10-20 — cards that matched no page and wait outside the bank for a first mention.
+    waiting: int = 0
     bank: str = ""
 
 
@@ -4909,6 +5029,43 @@ class RemoteConnectorOut(CamelModel):
     last_used_at: Optional[str] = None
     last_client: Optional[str] = None
     state: str
+    auth: str = "link"  # "link" (a shown-once secret) | "oauth" (the app signed in, ruling 32)
+
+
+class RemoteSignInWaitingOut(CamelModel):
+    """That a sign-in waits (ruling 32, security review of #359): no code, no name, no return host — a request is
+    approved only by typing the code the person's own browser page shows."""
+    ref: str
+    created_at: str
+    expires_at: str
+
+
+class RemoteSignInOut(CamelModel):
+    """The waiting sign-in whose code the person typed. ``verified`` only for a metadata-document client, named with the
+    host it was fetched from; a registered client shows no name, only when it registered. Never the code."""
+    ref: str
+    verified: bool
+    client_name: Optional[str] = None
+    client_kind: str
+    client_host: Optional[str] = None
+    client_registered_at: Optional[str] = None
+    redirect_host: str
+    loopback: bool
+    app: str
+    scopes_asked: list[str]
+    created_at: str
+    expires_at: str
+
+
+class RemoteSignInCodeIn(CamelModel):
+    user_code: str
+
+
+class RemoteSignInApproveIn(CamelModel):
+    user_code: str
+    scopes: list[str]
+    expires_in_days: int = 30  # 7/30/90 only — every connector expires
+    label: str = ""
 
 
 class RemoteConnectorCreatedOut(CamelModel):

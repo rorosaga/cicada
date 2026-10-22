@@ -30,7 +30,6 @@ final class SettingsSectionTests: XCTestCase {
         XCTAssertEqual(SettingsSection.privacy.title, Copy.privacyAndData)
         XCTAssertEqual(SettingsSection.memory.title, Copy.memorySection)
         XCTAssertEqual(SettingsSection.searchFiles.title, Copy.SearchFiles.sidebar)
-        XCTAssertEqual(SettingsSection.advanced.title, Copy.advanced)
         XCTAssertEqual(SettingsSection.skills.title, Copy.skills)
     }
 

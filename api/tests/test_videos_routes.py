@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi.testclient import TestClient
 
-from _video_fixtures import add_video, add_watch_episode, bank_with_videos, url_of
+from _video_fixtures import add_video, add_watch_episode, bank_with_videos, held, url_of
 from api import config, main
 from api.routers import videos as videos_router
 from api.services import bank_index, demo_guard, sync_service, video_prompt, video_queue, video_state
@@ -67,7 +67,7 @@ def test_summary_matches_state_queue(rig):
     add_watch_episode(memory, url_of("03"), basis="transcript")
     c.post("/videos/run/handoff", json={"items": [{"key": k, "want": "watch"} for k in keys[:3]], "method": "auto"})
     video_queue.claim(memory, session="s", harness="claude-code", limit=2, now=NOW)
-    video_queue.release(memory, [{"url": url_of("00"), "code": "needs_login", "reason": "login wall"}],
+    video_queue.release(memory, held(memory, [{"url": url_of("00"), "code": "needs_login", "reason": "login wall"}]),
                         session="s", now=NOW)
     state, summary = c.get("/videos/state").json(), c.get("/videos/summary").json()
     block = {k: v for k, v in summary.items() if k not in ("shape", "nextChangeAt")}
@@ -91,7 +91,8 @@ def test_remove_and_retry(rig):
     c, memory, keys = rig
     c.put(f"/videos/queue/{keys[0]}", json={"want": "transcript"})
     video_queue.claim(memory, session="s", harness="h", now=NOW)
-    video_queue.release(memory, [{"url": url_of("00"), "code": "not_found", "reason": "gone"}], session="s", now=NOW)
+    video_queue.release(memory, held(memory, [{"url": url_of("00"), "code": "not_found", "reason": "gone"}]), session="s",
+                        now=NOW)
     retried = c.post(f"/videos/queue/{keys[0]}/retry")
     assert retried.status_code == 200 and retried.json()["queueState"] == "queued"
     assert c.delete(f"/videos/queue/{keys[0]}").json() == {"removed": True}

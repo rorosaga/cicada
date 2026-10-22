@@ -63,6 +63,7 @@ class EmbeddingVisionState(CamelModel):
 class EmbeddingsStatus(CamelModel):
     model: str
     next_model: str
+    recorded: str | None = None   # the model the bank's index records; None = nothing built yet
     choice: str | None = None
     release: bool
     recommended: str | None = None

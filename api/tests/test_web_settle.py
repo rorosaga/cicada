@@ -9,6 +9,7 @@ real; nothing reaches a network or a paid API."""
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from datetime import date
 from types import SimpleNamespace
@@ -52,7 +53,7 @@ def bank(tmp_path, monkeypatch):
         p.unlink()
     _entity(memory, "owner-example", type="person", owner=True, name="Owner Example")
     _entity(memory, "alice-example", type="person", name="Alice Example", aliases=["Ali"])
-    _entity(memory, "example-film", type="media", name="Example Film", body="## Summary\nA film.\n")
+    _entity(memory, "example-film", type="media", name="Example Film", body="## Summary\nA movie.\n")
     tool_body = write_claims("## Summary\nA tool.\n", [
         Claim(id="clm_h", text="Tool A is an agent harness", subject="tool-a", predicate="description",
               object="agent harness", valid_from="2026-05-01", recorded_at="2026-05-01"),
@@ -62,7 +63,7 @@ def bank(tmp_path, monkeypatch):
     _entity(memory, "tool-a", type="tool", name="Tool A", body=tool_body)
     # 101: a film with a page — public.
     _item(memory, "inbox-101", kind="clarification", entity_id="example-film", entity_name="Example Film",
-          title="Who or what is Example Film?", suggested_classification="media — a film", body=SECRET)
+          title="Who or what is Example Film?", suggested_classification="media — a movie", body=SECRET)
     # 102: a tool conflict on a world-truth predicate — public.
     _item(memory, "inbox-102", kind="conflict", entity_id="tool-a", entity_name="Tool A", predicate="description",
           question="Is Tool A an agent harness or an AI agent?", title="Is Tool A an agent harness or an AI agent?",
@@ -154,7 +155,7 @@ def test_the_filter_searches_a_film_a_paper_and_a_tool_and_never_a_person_a_file
 
 def test_the_query_is_the_name_and_a_category_word_and_the_items_own_text_never_reaches_the_engine(bank):
     film = web_settle.candidate(bank, bank / "inbox" / "inbox-101.md", web_settle.bank_facts(bank))
-    assert web_settle.query_for(film) == "Example Film film"
+    assert web_settle.query_for(film) == "Example Film movie"
     calls: list = []
     _run(bank, _fake(_answers, calls=calls))
     sent = json.dumps(calls)
@@ -266,13 +267,21 @@ def test_the_connector_gate_stops_the_lookup_before_any_call(bank, monkeypatch):
     assert report.reason == "gate" and calls == []
 
 
-def test_ruling_4_a_scheduled_run_never_uses_a_plan_but_may_use_a_metered_search(bank, monkeypatch):
+def test_ruling_4_a_scheduled_run_uses_a_plan_only_through_the_switch_but_may_use_a_metered_search(bank, monkeypatch):
     import asyncio
     import litellm
 
     async def plan(settings, registry=None, *, user_triggered=True):
         return SimpleNamespace(llm_mode="agent"), "pinned"
+    class _Prefs:
+        def __init__(self, on):
+            self._p = {"sleep-run": {"scheduled_use_plan": on}}
+
+        def prefs(self):
+            return self._p
+
     monkeypatch.setattr(engine_select, "resolve_settings", plan)
+    monkeypatch.setattr(web_lookup, "_registry", lambda settings: _Prefs(False))   # the person's explicit off
     resolved, _label, why = asyncio.run(web_lookup.engine_for(object(), user_triggered=False))
     assert resolved is None and why == "scheduled_plan"
     resolved, _label, why = asyncio.run(web_lookup.engine_for(object(), user_triggered=True))
@@ -371,7 +380,7 @@ def test_check_nudges_names_the_settle_path_only_for_a_public_question(server, b
 
     ctx = SimpleNamespace(is_remote=False, author="claude-code", can=lambda tool: True)
     film = mcp_tools._settle_lines(ctx, bank, "inbox-101")
-    assert film and 'search only "Example Film film"' in film[0] and 'outcome="settles"' in film[0]
+    assert film and 'search only "Example Film movie"' in film[0] and 'outcome="settles"' in film[0]
     assert mcp_tools._settle_lines(ctx, bank, "inbox-201") == []
 
 
@@ -387,7 +396,7 @@ def test_the_ledger_rows_are_ids_and_enums_only(bank, monkeypatch):
     web = [r for r in rows if r.get("kind") == "web_check"]
     assert {r["refs"]["action"] for r in web} == {"settle", "skip"}
     blob = json.dumps(web)
-    for text in (FILM_URL, "films.film-example.net", "Example Film film", "science-fiction", "secret-phrase-xyz"):
+    for text in (FILM_URL, "films.film-example.net", "Example Film movie", "science-fiction", "secret-phrase-xyz"):
         assert text not in blob
 
 
@@ -430,10 +439,10 @@ def test_the_plan_call_gets_the_web_search_as_its_only_tool():
         agent_engine.build_argv(model="sonnet", system_prompt="s", tools=("Bash",))
     stream = agent_stream.parse_stream("\n".join([
         json.dumps({"type": "assistant", "message": {"content": [
-            {"type": "tool_use", "name": "WebSearch", "input": {"query": "Example Film film"}}]}}),
+            {"type": "tool_use", "name": "WebSearch", "input": {"query": "Example Film movie"}}]}}),
         json.dumps({"type": "result", "result": "{}", "usage": {}}),
     ]))
-    assert stream.tool_uses == [("WebSearch", {"query": "Example Film film"})]
+    assert stream.tool_uses == [("WebSearch", {"query": "Example Film movie"})]
 
 
 def test_a_metered_call_asks_the_provider_for_one_search(monkeypatch):
@@ -493,7 +502,7 @@ def test_an_is_a_conflict_is_eligible_and_its_prompt_offers_the_items_own_both_o
     assert c.type_question and c.both_key == "both"
     assert c.options == [("a", "agent harness for running models"), ("b", "AI agent itself")]
     user = web_lookup.build_messages(c)[-1]["content"]
-    assert "option_key 'both'" in user and "rule out every other option" in user
+    assert "option_key 'both'" in user and "describes it nowhere as any other" in user
     # What the thing IS is the question: no category word would answer it, so the query is the bare name (2026-10-16).
     assert web_settle.query_for(c) == "Tool B"
 
@@ -724,7 +733,7 @@ def test_the_local_context_is_bounded_scrubbed_names_no_one_and_never_enters_the
     text = "\n".join(context)
     assert len(text) <= web_settle.MAX_CONTEXT_CHARS
     assert all(len(line) <= web_settle.MAX_LINE_CHARS + len("Mentioned: ") for line in context)
-    assert context[0].startswith("Cicada's description: ") and "film" in context[0].lower()
+    assert context[0].startswith("Cicada's description: ") and "movie" in context[0].lower()
     assert web_settle.has_mentions(context) and "Example Film" in text
     for leak in ("Alice", "alice", "~/Documents", "plan.md", "https://", "example-host", "@example.org",
                  "abcdef1234567890abcdef", "@ali_handle", "user:", "secret-phrase-xyz", "dinner"):
@@ -735,12 +744,12 @@ def test_the_local_context_is_bounded_scrubbed_names_no_one_and_never_enters_the
     assert all(t in line for t in ("[link]", "[address]", "[handle]", "[path]", "someone"))
     assert not any(t in line for t in ("Alice", "https://", "alice@", "abcdef1234567890abcdef", "@ali_handle", "~/"))
     # The query is unchanged in kind: the name and at most one category word, never a word of the context.
-    assert web_settle.query_for(c) == "Example Film film"
+    assert web_settle.query_for(c) == "Example Film movie"
     calls: list = []
     _run(bank, _fake(_answers, calls=calls))
     film_prompt = next(m[-1]["content"] for m in calls if "Subject: Example Film" in m[-1]["content"])
     assert "Mentioned: " in film_prompt and "never search for these words" in film_prompt
-    assert film_prompt.split("Search query (use exactly this): ", 1)[1].split("\n", 1)[0] == "Example Film film"
+    assert film_prompt.split("Search query (use exactly this): ", 1)[1].split("\n", 1)[0] == "Example Film movie"
 
 
 def test_the_pinned_query_check_still_rejects_a_search_carrying_the_context(bank):
@@ -763,7 +772,7 @@ def test_the_pinned_query_check_still_rejects_a_search_carrying_the_context(bank
 
 def test_a_cut_never_leaves_half_a_name_or_a_code_without_its_cue():
     """Review fix: a line is cleaned whole and only then cut, and a person is redacted by any word of their name."""
-    facts = web_settle.BankFacts(person_names=frozenset({"alice example", "owner person"}))
+    facts = web_settle.BankFacts(person_names=frozenset({"alice example", "olive sample"}))
     c = web_settle.Candidate(item_id="inbox-1", kind="clarification", scope="public", entity_id="tool-b",
                              name="Tool B", entity_type="tool", has_page=True, predicate="description", options=[],
                              category=[])
@@ -774,7 +783,7 @@ def test_a_cut_never_leaves_half_a_name_or_a_code_without_its_cue():
         line = web_settle._mention_line(body, (at, at + 6), c, facts)
         assert "Tool B" in line and len(line) <= web_settle.MAX_LINE_CHARS
         assert not any(t in line for t in ("Alice", "Example", "482913")), (pad, line)
-    for text in ("Alice went", "EXAMPLE said", "owner's mate", "OWNER-PERSON's"):
+    for text in ("Alice went", "EXAMPLE said", "olive's mate", "OLIVE-SAMPLE's"):
         assert web_settle.clean_context_line(text, facts).startswith("someone"), text
     assert web_settle.clean_context_line("malice examples", facts) == "malice examples", "whole words only"
     # A word the subject's own name carries stays (the prompt already names it); the person's full name never does.
@@ -822,7 +831,7 @@ def test_a_type_question_carries_its_mentions_but_not_cicadas_own_guess(bank):
     context = web_settle.local_context(bank, c, facts)
     assert context == ["Mentioned: I set up Tool B yesterday to run my local models in a loop."]
     user = web_lookup.build_messages(c, context)[-1]["content"]
-    assert "the notes decide which one the person meant" in user and "An AI agent" not in user
+    assert "the notes do not say which one the person meant" in user and "An AI agent" not in user
 
 
 # ---------- category words: from Cicada's own description, one at most, none when unsure ----------
@@ -846,7 +855,7 @@ def test_the_category_word_comes_from_the_description_never_the_type_alone(bank)
     facts = web_settle.bank_facts(bank)
     q = {i: web_settle.query_for(web_settle.candidate(bank, bank / "inbox" / f"{i}.md", facts))
          for i in ("inbox-111", "inbox-112", "inbox-113", "inbox-114")}
-    assert q["inbox-111"] == "Corner Example"           # typed company, described as a restaurant: no "company"
+    assert q["inbox-111"] == "Corner Example restaurant"  # typed company, described as a restaurant: never "company"
     assert q["inbox-112"] == "Lib Example library"      # one word, the first the description names
     assert q["inbox-113"] == "Year Example software"
     assert q["inbox-114"] == "Year Example"             # the word an option carries is not sent
@@ -964,3 +973,635 @@ def test_an_undo_refused_on_an_unreadable_page_changes_nothing(bank):
     assert (bank / pending_store.PENDING_STORE_FILE).read_bytes() == store_before, "nothing was changed"
     assert _git(bank, "status", "--porcelain") == ""
     assert "inbox-103" in {r["id"] for r in web_settle.list_settled(bank)}
+
+
+# ---------- the context keeps its words (2026-10-19: role names and mistyped pages garbled every line) ----------
+
+#: The shapes the trace found among a real bank's person names (real values redacted): relations, a pronoun, Stage 1's
+#: own speaker, and person-typed phrases that are things.
+GARBLING_NAMES = frozenset({
+    "the girlfriend", "the friend in australia", "his dad", "his brother", "my dad", "olive sample's dad", "her",
+    "the user", "psychologist friend of the sister", "simultaneous localization and mapping",
+    "simple algorithm for recommendation", "robotics and ai lab teacher", "university talents and careers department",
+    "mi hermana", "el profe de la uni",
+    # Real people: every one still redacted, whole and by each part.
+    "alex", "mar example-surname", "john placeholder", "olive sample", "ana de la example",
+})
+
+
+#: The relation-shaped names among GARBLING_NAMES (and real names): their articles and relations stay in the line.
+RELATION_NAMES = frozenset({"the girlfriend", "the friend in australia", "his dad", "his brother", "my dad",
+                            "olive sample's dad", "her", "the user", "psychologist friend of the sister", "mi hermana",
+                            "el profe de la uni", "alex", "mar example-surname", "john placeholder", "olive sample",
+                            "ana de la example"})
+
+
+def test_a_relation_name_keeps_its_articles_and_relations_but_every_real_name_goes():
+    facts = web_settle.BankFacts(person_names=RELATION_NAMES)
+    line = ("Tool B partnered with Alex on the ledger, and his team said it is the closest (walking distance) to "
+            "the station and quick and cheap on a weekday for her dad and my sister; the user asked for it")
+    out = web_settle.clean_context_line(line, facts, limit=2000)
+    # Alex, and "the user" as a whole phrase (a relation name with no name in it) — nothing else.
+    assert "Alex" not in out and out.count("someone") == 2 and "someone asked" in out, out
+    for word in ("the", "and", "his", "her", "for", "dad", "sister", "closest", "quick", "cheap"):
+        assert f" {word} " in f" {out} ".replace(",", " ").replace(";", " "), (word, out)
+    # Every real name still goes — whole, by each part, any case, and inside a relation phrase.
+    stats: dict = {}
+    out = web_settle.clean_context_line(
+        "Mar Example-Surname met MAR, then Example-Surname and john; Olive Sample's dad and Ana de la Example came",
+        facts, limit=2000, stats=stats)
+    for leak in ("Mar", "MAR", "Example", "Surname", "john", "Olive", "Sample", "Ana"):
+        assert leak not in out, (leak, out)
+    assert " de la " not in out and stats["people"] == 6
+    assert web_settle.clean_context_line("his dad said the girlfriend and his friend agreed", facts) == \
+        "someone said someone and his someone agreed"   # "friend" is a surname too: a part of a relation name goes
+    assert web_settle.clean_context_line("mi hermana dijo que el profe de la uni la recomendó", facts) == \
+        "someone dijo que someone la recomendó"
+
+
+def test_a_person_typed_thing_is_redacted_by_every_part_and_counted_for_the_person_to_fix():
+    """Re-review of #366: only a relation-shaped name keeps words; a page typed person that is a technique is
+    redacted by each of its parts like any name (over-redaction is the safe failure) and counted by the census."""
+    facts = web_settle.BankFacts(person_names=frozenset({"simple algorithm for recommendation"}))
+    out = web_settle.clean_context_line("a simple algorithm for ranking", facts)
+    assert out == "a someone someone someone ranking"
+    assert web_settle.person_name_census(facts)["looks_like_a_thing"] == 1
+
+
+def test_name_shapes_and_the_thing_detector():
+    shapes = {n: web_settle.name_shape(n) for n in GARBLING_NAMES}
+    assert shapes["her"] == "skip", "a lone pronoun is no one's name"
+    assert web_settle.name_shape("dad") == "split" and web_settle.name_shape("sin") == "split"
+    for relation in ("the girlfriend", "his dad", "my dad", "the user", "mi hermana"):
+        assert shapes[relation] == "whole", relation   # a relation phrase with no name: the phrase only
+    for name in ("mar example-surname", "john placeholder", "olive sample's dad", "ana de la example", "alex",
+                 "the friend in australia", "simple algorithm for recommendation", "robotics and ai lab teacher",
+                 "simultaneous localization and mapping", "psychologist friend of the sister"):
+        assert shapes[name] == "split", name
+    for name in ("his brother luis", "ana's dad", "dad of ana", "the girlfriend maria", "mi hermana lucía",
+                 "the friend in australia"):
+        assert web_settle.relation_shaped(name), name
+    for name in ("lee brother", "tom user", "fred friend", "jane doctor", "pa her", "maria de los angeles perez"):
+        assert not web_settle.relation_shaped(name), name
+    things = {n for n in GARBLING_NAMES if web_settle.looks_like_a_thing(n)}
+    assert things == {"simultaneous localization and mapping", "simple algorithm for recommendation",
+                      "university talents and careers department"}
+    census = web_settle.person_name_census(web_settle.BankFacts(person_names=GARBLING_NAMES))
+    assert census["looks_like_a_thing"] == 3 and census["skip"] == 1 and sum(
+        census[k] for k in ("split", "whole", "skip")) == len(GARBLING_NAMES)
+    assert all(isinstance(v, int) for v in census.values()), "counts only, never a name"
+
+
+#: The #366 review's probes: every one was redacted on dev and must stay redacted — given names that are English or
+#: Spanish words, surnames that are particles elsewhere, short and joined parts, accents, and a name inside a relation.
+REVIEW_PROBES = [
+    ("will smith", "Will said Smith liked Tool B; I told Smith about it"),
+    ("can yaman", "Yaman recommended Tool B to Can"),
+    ("maría de los ángeles pérez", "María and Pérez went to Tool B"),
+    ("maria de los angeles perez", "Maria and Perez went to Tool B"),
+    ("conan o'brien", "Conan mentioned Tool B, and O'Brien too"),
+    ("lisa su", "Lisa liked Tool B"),
+    ("an nguyen", "Nguyen liked Tool B"),
+    ("su-bin lee", "Lee and Su-bin liked Tool B"),
+    ("nina example", "Nina loved Tool B"),
+    ("guy example", "Guy loved Tool B"),
+    ("priya das", "Das loved Tool B"),
+    ("van example", "Van loved Tool B"),
+    ("nina", "Nina loved Tool B"),
+    ("will", "Will loved Tool B"),
+    ("guy", "Guy loved Tool B"),
+    ("mar", "Mar loved Tool B; Mar's pick"),
+    ("rosa", "Rosa loved Tool B"),
+    ("the girlfriend maria", "Maria loved Tool B"),
+    ("his brother luis", "Luis loved Tool B"),
+    ("dad of ana", "Ana loved Tool B"),
+    ("ana's dad", "Ana loved Tool B"),
+    ("mi hermana lucía", "Lucía loved Tool B, LUCIA said"),
+    ("tia", "Tia loved Tool B"),
+    ("della example", "Della loved Tool B"),
+    ("maría", "Maria loved Tool B, and MARÍA too"),
+    ("del example", "Del loved Tool B"),
+    ("son example", "Son loved Tool B"),
+    ("coach example", "Coach loved Tool B"),
+]
+
+
+@pytest.mark.parametrize("name, text", REVIEW_PROBES)
+def test_every_part_of_a_real_name_is_redacted_whatever_word_it_also_is(name, text):
+    out = web_settle._redact_people(text, frozenset({name}))
+    leaked = [w for w in re.findall(r"\w+", text) if w not in {"Tool", "B", "and", "too", "said", "pick", "to",
+                                                                "loved", "liked", "went", "mentioned", "I", "told",
+                                                                "about", "it", "recommended", "s", "O"}
+              and re.search(rf"(?<!\w){re.escape(w)}(?!\w)", out)]
+    assert not leaked, (name, out)
+    assert "Tool B" in out
+
+
+def test_the_never_a_name_list_holds_no_name_the_review_found():
+    for word in ("will", "can", "guy", "nina", "rosa", "mar", "tia", "una", "con", "del", "son", "das", "van",
+                 "della", "child", "kid", "baby", "boss", "coach", "nurse", "driver", "barber", "cousin", "person",
+                 "papa", "mama", "padre", "primo", "amigo", "pareja", "her", "sin", "via", "que", "friend",
+                 "sobrino", "doctor", "tutor", "mentor", "partner", "family", "lab"):
+        assert word not in web_settle._NEVER_A_NAME, word
+
+
+@pytest.mark.parametrize("name, text, gone", [
+    ("pa her", "Her said Tool B was good; Pa Her agreed", "Her"),
+    ("mai her", "Mai and Her loved Tool B", "Her"),
+    ("min-jun sin", "Sin recommended Tool B", "Sin"),
+    ("sin", "Sin recommended Tool B", "Sin"),
+    ("via example", "Via recommended Tool B", "Via"),
+    ("fred friend", "Friend recommended Tool B", "Friend"),
+    ("ana sobrino", "Sobrino recommended Tool B", "Sobrino"),
+    ("jane doctor", "Doctor recommended Tool B", "Doctor"),
+    ("mark tutor", "Tutor recommended Tool B", "Tutor"),
+    ("alex mentor", "Mentor recommended Tool B", "Mentor"),
+    ("tom user", "User loved Tool B", "User"),
+    ("joe family", "Family loved Tool B", "Family"),
+    ("sam partner", "Partner loved Tool B", "Partner"),
+    ("lee brother", "Brother loved Tool B", "Brother"),
+    ("kim lab", "Lab loved Tool B", "Lab"),
+    ("que example", "Que loved Tool B", "Que"),
+    ("dad", "Dad loved Tool B", "Dad"),
+])
+def test_a_relation_word_inside_an_ordinary_name_is_a_surname_and_goes(name, text, gone):
+    """Re-review of #366: the never-a-name list applies to relation-shaped names only."""
+    out = web_settle._redact_people(text, frozenset({name}))
+    assert not re.search(rf"(?<!\w){gone}(?!\w)", out), (name, out)
+
+
+# ---------- the category word from where it was mentioned (2026-10-19) ----------
+
+
+def _bare(name="Corner Example", **kw):
+    return web_settle.Candidate(item_id="inbox-1", kind=kw.pop("kind", "clarification"), scope="public",
+                                entity_id="corner-example", name=name, entity_type="company", has_page=True,
+                                predicate="description", options=kw.pop("options", []), category=[], **kw)
+
+
+@pytest.mark.parametrize("line, word", [
+    ("we went to the restaurant Corner Example last night", "restaurant"),
+    ("Corner Example, a small café near the station", "cafe"),
+    ("Corner Example is a startup in someone's city", "startup"),
+    ("Corner Example (a band from the nineties)", "band"),
+    ("a dataset called Corner Example", "dataset"),
+    ("fuimos al restaurante Corner Example", "restaurant"),
+    ("Corner Example es una empresa de robótica", "company"),
+    ("the Corner Example app keeps crashing", "app"),
+    ("Corner Example restaurant opened again", "restaurant"),
+    ("did Corner Example show up", None),             # a verb after the name is no category
+    ("book Corner Example for friday", None),         # nor one before it without a determiner
+    ("I like Corner Example a lot", None),
+    ("the bar was full, then Corner Example", None),   # a category word away from the name says nothing about it
+])
+def test_the_category_word_is_read_beside_the_name_in_a_mention_line(line, word):
+    assert web_settle.context_category(_bare(), [f"Mentioned: {line}"]) == ([word] if word else [])
+
+
+def test_the_context_word_follows_the_same_limits_and_only_the_word_leaves(bank):
+    line = ["Mentioned: the restaurant Corner Example is closest to the station"]
+    assert web_settle.context_category(_bare(type_question=True), line) == [], "never on what the thing IS"
+    assert web_settle.context_category(_bare(kind="conflict", options=[("a", "a restaurant"), ("b", "a bar")]),
+                                       line) == [], "never a word an option carries"
+    assert web_settle.context_category(_bare(), ["Cicada's description: a restaurant"]) == [], "mention lines only"
+    # End to end: a company page with no category in its description takes the word from its mention line.
+    _episode(bank, "ep_2026-09-05_001", "user: dinner at the restaurant Corner Example with Alice, quick and cheap")
+    _entity(bank, "corner-example", type="company", name="Corner Example", description="A place in town")
+    _item(bank, "inbox-115", kind="clarification", entity_id="corner-example", entity_name="Corner Example",
+          title="Who or what is Corner Example?", source_episode="ep_2026-09-05_001")
+    _commit(bank, "seed")
+    facts = web_settle.bank_facts(bank)
+    todo, _ = web_lookup.select(bank, facts, {}, date(2026, 10, 19), cap=10)
+    c, context = next((c, ctx) for c, ctx in todo if c.item_id == "inbox-115")
+    assert web_settle.query_for(c) == "Corner Example restaurant" and c.category_from == "context"
+    assert any("quick and cheap" in line and "someone" in line and "Alice" not in line for line in context)
+    film = next(c for c, _ in todo if c.item_id == "inbox-101")
+    assert web_settle.query_for(film) == "Example Film movie" and film.category_from == "description"
+
+
+def test_the_dry_run_trace_prints_the_query_the_redactions_and_the_outcome_only(bank, monkeypatch):
+    import contextlib
+    import io
+
+    from api.scripts import web_check_dry_run
+
+    _episode(bank, "ep_2026-09-03_009", "user: Example Film with Alice and her friend, worth it")
+    markdown_parser.write(bank / "inbox" / "inbox-101.md",
+                          {**markdown_parser.parse(bank / "inbox" / "inbox-101.md").frontmatter,
+                           "source_episode": "ep_2026-09-03_009"}, "Context.")
+    _commit(bank, "ep")
+
+    async def fake_engine_for(settings, *, user_triggered):
+        return "resolved", "claude-cli", "plan"
+
+    monkeypatch.setattr(web_lookup, "engine_for", fake_engine_for)
+    monkeypatch.setattr(web_lookup, "default_llm_fn", lambda resolved, sink=None: _fake(_answers))
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        assert web_check_dry_run.main(["--bank", str(bank), "--limit", "3", "--trace"]) == 0
+    out = json.loads(buf.getvalue())
+    film = next(r for r in out["trace"] if r["query"] == "Example Film movie")
+    assert film == {"query": "Example Film movie", "category_from": "description", "context_lines": 2,
+                    "people_redacted": 1, "outcome": "would_settle"}
+    assert set(out["person_names"]) == {"split", "whole", "skip", "relation", "looks_like_a_thing"}
+    for leak in ("Alice", "worth it", "https", "quote", "2019"):
+        assert leak not in buf.getvalue(), leak
+
+
+def test_trace_raw_adds_the_searches_links_model_and_reply_and_writes_nothing(bank, monkeypatch, tmp_path):
+    import contextlib
+    import io
+
+    from api.scripts import web_check_dry_run
+
+    async def fake_engine_for(settings, *, user_triggered):
+        return "resolved", "claude-cli", "plan"
+
+    def with_links(user_fn):
+        def fn(**kw):
+            resp = user_fn(**kw)
+            resp["tool_results"] = [3]
+            return resp
+        return fn
+
+    monkeypatch.setattr(web_lookup, "engine_for", fake_engine_for)
+    monkeypatch.setattr(web_lookup, "default_llm_fn", lambda resolved, sink=None: with_links(_fake(_answers)))
+    before = _snapshot_tree(bank, tmp_path / "home")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        assert web_check_dry_run.main(["--bank", str(bank), "--limit", "3", "--trace-raw"]) == 0
+    rows = json.loads(buf.getvalue())["trace"]
+    film = next(r for r in rows if r["query"] == "Example Film movie")
+    assert film["searches"] == ["Example Film movie"] and film["links"] == [3] and film["model"] == "fake-model"
+    assert film["text"].startswith('{"sure": true') and len(film["text"]) <= 400
+    assert all({"searches", "links", "model", "text", "outcome"} <= set(r) for r in rows)
+    assert _snapshot_tree(bank, tmp_path / "home") == before
+
+
+def test_the_stream_counts_the_links_each_search_returned():
+    from api.services import agent_stream
+
+    stdout = "\n".join(json.dumps(o) for o in [
+        {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "WebSearch",
+                                                        "input": {"query": "Tool B"}}]}},
+        {"type": "user", "message": {"content": [{"type": "tool_result", "content":
+            'Web search results\n\nLinks: [{"title":"a","url":"https://a.example"},'
+            '{"title":"b","url":"https://b.example"}]'}]}},
+        {"type": "result", "result": "{}", "is_error": False},
+    ])
+    out = agent_stream.parse_stream(stdout)
+    assert out.tool_uses == [("WebSearch", {"query": "Tool B"})] and out.tool_results == [2]
+
+
+def test_an_unsure_answer_with_no_search_is_counted_as_no_search():
+    """2026-10-19: a real bank's sweep counted 18 "unsure" and could not say whether the engine searched at all."""
+    import asyncio
+
+    c = web_settle.Candidate("inbox-1", "clarification", "public", "x", "X", "media", True, "description", [], [])
+
+    def answer(searched, text):
+        def fn(**kw):
+            return {"choices": [{"message": {"content": text}}], "model": "m",
+                    "tool_uses": [["WebSearch", {"query": "X"}]] if searched else []}
+        return fn
+
+    def reason(fn):
+        (_c, a), = asyncio.run(web_lookup.look_up(fn, [(c, [])], web_lookup.Report()))
+        return a.reason
+
+    assert reason(answer(False, '{"sure": false}')) == "no_search"
+    assert reason(answer(True, '{"sure": false}')) == "unsure"
+    assert reason(answer(False, '{"sure": true, "answer": "a", "url": "u", "quote": "q"}')) == "query_strayed"
+
+
+@pytest.mark.parametrize("description, name, expected", [
+    ("Possibly a software library or tool the user is evaluating", "Frieren", []),   # a guess sends no word
+    ("A tool or a film", "Example Thing", []),
+    ("A concept the user uses for describing good days", "Perfect Days", []),        # "concept" says nothing
+    ("A paper the user's project is based on", "arXiv paper 2005.11401", []),       # already in the name
+    ("A small restaurant two streets from the station", "Corner Example", ["restaurant"]),
+    ("An open-source library and framework for parsing feeds", "Lib Example", ["library"]),
+])
+def test_a_guessed_empty_or_repeated_category_word_never_rides_with_the_name(description, name, expected):
+    """2026-10-19, measured: "Frieren software", "Perfect Days concept" and "arXiv paper <id> paper" stayed unsure;
+    the same items with the bare name all settled."""
+    assert web_settle._category(description, type_question=False, labels=[], name=name) == expected
+    assert web_settle.context_category(_bare(name=name), [f"Mentioned: the paper {name} was cited"]) == (
+        [] if "paper" in name.lower() else ["paper"])
+
+
+def test_a_lookup_runs_on_the_plans_lookup_tier_never_on_a_metered_key(monkeypatch):
+    """2026-10-19, measured on synthetic shapes: the cheap Sleep tier settled 4/10 public things its own search named
+    (8/10 with the clearer sure bar), the plan's larger tier 10/10 — so a lookup asks the same plan for that tier, for
+    that one call; the person's metered model is never changed."""
+    import asyncio
+
+    from api.config import Settings
+
+    async def plan(settings, registry=None, *, user_triggered=True):
+        return Settings(llm_mode="agent", agent_model="haiku"), "pinned"
+
+    monkeypatch.setattr(engine_select, "resolve_settings", plan)
+    resolved, _label, why = asyncio.run(web_lookup.engine_for(Settings(), user_triggered=True))
+    assert why == "plan" and resolved.agent_model == "sonnet" and resolved.llm_mode == "agent"
+    resolved, _label, _why = asyncio.run(web_lookup.engine_for(Settings(web_check_agent_model=""),
+                                                               user_triggered=True))
+    assert resolved.agent_model == "haiku", "empty: the person's own Sleep model"
+    # the scheduled-plan switch still decides first
+    monkeypatch.setattr(web_lookup, "_registry",
+                        lambda settings: SimpleNamespace(prefs=lambda: {"sleep-run": {"scheduled_use_plan": False}}))
+    assert asyncio.run(web_lookup.engine_for(Settings(), user_triggered=False))[0] is None
+
+    import litellm
+
+    async def metered(settings, registry=None, *, user_triggered=True):
+        return Settings(llm_mode="byok", litellm_model="anthropic/claude-x"), "byok"
+
+    monkeypatch.setattr(engine_select, "resolve_settings", metered)
+    monkeypatch.setattr(litellm, "supports_web_search", lambda model: True)
+    resolved, _label, why = asyncio.run(web_lookup.engine_for(Settings(), user_triggered=True))
+    assert why == "metered" and resolved.litellm_model == "anthropic/claude-x"
+
+
+def test_the_sure_bar_names_what_is_sure_and_keeps_a_local_place_unsure():
+    prompt = web_lookup.SYSTEM_PROMPT
+    assert "as the search showed them to you" in prompt and "verbatim" not in prompt
+    assert "a small local place" in prompt and "name outright is a sure answer" in prompt
+    assert '{"sure": false}' in prompt and "could be a private person" in prompt
+
+
+# ---------- a conflict about the person's own situation never settles (2026-10-20) ----------
+#
+# The real sweep settled nine conflicts and eight were the owner's own (real values redacted). Each shape is a fixture
+# here with placeholder names; only "what a public thing IS" stays eligible.
+
+_BOTH = {"key": "both", "label": "Both are true (different contexts)", "claim_id": None}
+
+
+def _conflict(entity_id, name, question, labels, *, predicate="description"):
+    return dict(kind="conflict", status="pending", entity_id=entity_id, entity_name=name, predicate=predicate,
+                question=question, title=question,
+                options=[{"key": k, "label": label, "claim_id": None} for k, label in zip("ab", labels)] + [_BOTH])
+
+
+#: (shape, entity id, name, type, question, labels, expected reason)
+THE_EIGHT = [
+    ("which accessory am I using", "stylus-example", "Stylus Example", "tool",
+     "Which Stylus Example am I actually using?", ["Stylus Example Pro", "Stylus Example Mini"], "personal"),
+    ("the device I'm modding", "reader-example", "Reader Example", "tool",
+     "Is the Reader Example I'm modding a Model A or a Model B?", ["Model A", "Model B"], "personal"),
+    ("the model in the owner's thesis", "model-example", "Model Example", "tool",
+     "Is the Model Example in Owner's thesis evaluation actually version 2 or version 3?",
+     ["version 2", "version 3"], "personal"),
+    ("currently uses / superseded by", "tunnel-example", "Tunnel Example", "tool",
+     "Does Owner currently use Tunnel Example to reach the lab network, or is it superseded by Setup B?",
+     ["Currently uses Tunnel Example", "Superseded by Setup B"], "personal"),
+    ("the person's own term vs a product", "abx", "ABX", "concept",
+     "Is ABX the usability research method or the screen-recording product?",
+     ["usability research method", "screen-recording product"], "different_things"),
+    ("two different things sharing a name", "nova", "Nova", "tool",
+     "Is this entity Nova web framework, or Nova charting library?",
+     ["Nova web framework", "Nova charting library"], "different_things"),
+    ("planned for the owner's project", "api", "API", "concept",
+     "Is Gizmo Example an API feature planned for Alpha Project, or a separate developer-tools product the owner "
+     "was interested in?", ["API feature planned for Alpha Project", "developer-tools product"], "personal"),
+    ("a platform or a class in the owner's code", "course", "Course", "concept",
+     "Is Course the online learning platform, or the nested C++ class called `Course` in Owner's code?",
+     ["online learning platform", "nested C++ class"], "personal"),
+]
+
+
+def _seed_conflicts(memory):
+    for i, (_, eid, name, etype, question, labels, _) in enumerate(THE_EIGHT):
+        _entity(memory, eid, type=etype, name=name)
+        _item(memory, f"inbox-{401 + i}", **_conflict(eid, name, question, labels))
+    _entity(memory, "tool-c", type="tool", name="Tool C")
+    _item(memory, "inbox-409", **_conflict("tool-c", "Tool C", "Is Tool C an AI code editor or an AI agent?",
+                                           ["AI code editor", "AI agent"]))
+    _commit(memory, "seed the eight")
+
+
+@pytest.mark.parametrize("shape,eid,name,etype,question,labels,reason", THE_EIGHT, ids=[s[0] for s in THE_EIGHT])
+def test_each_of_the_eight_shapes_is_not_lookup_eligible(bank, shape, eid, name, etype, question, labels, reason):
+    _entity(bank, eid, type=etype, name=name)
+    bank_index.invalidate()
+    fm = _conflict(eid, name, question, labels)
+    assert web_settle.classify(bank, fm, "", web_settle.bank_facts(bank)) == (None, reason), shape
+
+
+def test_what_a_public_thing_is_stays_eligible(bank):
+    _entity(bank, "tool-c", type="tool", name="Tool C")
+    bank_index.invalidate()
+    facts = web_settle.bank_facts(bank)
+    fm = _conflict("tool-c", "Tool C", "Is Tool C an AI code editor or an AI agent?", ["AI code editor", "AI agent"])
+    assert web_settle.classify(bank, fm, "", facts) == ("public", "public")
+    # Words that only look personal: "US" in the question is a country, "the user interface" is a thing.
+    us = _conflict("tool-c", "Tool C", "Is Tool C a US product or a UK product?", ["a framework", "a library"])
+    assert web_settle.classify(bank, us, "", facts) == ("public", "public")
+    ui = _conflict("tool-c", "Tool C", "Is Tool C a user interface library or a database?",
+                   ["user interface library", "database"])
+    assert web_settle.classify(bank, ui, "", facts) == ("public", "public")
+
+
+@pytest.mark.parametrize("question,labels", [
+    ("¿Qué versión de Tool C estoy usando?", ["v1", "v2"]),
+    ("Is Tool C what we use at work or a library?", ["a service", "a library"]),
+    ("Is Tool C still used by Alpha Project?", ["yes", "no"]),
+    ("Is Tool C an editor or an agent?", ["an editor", "my agent"]),
+    ("Is Tool C an editor or an agent?", ["an editor", "Formerly an agent"]),
+    ("Is Tool C in Ali's setup a CLI or an app?", ["a CLI", "an app"]),
+    ("Is Tool C the owner's editor or a plugin?", ["an editor", "a plugin"]),
+])
+def test_the_person_in_a_question_or_an_option_keeps_it_home(bank, question, labels):
+    _entity(bank, "tool-c", type="tool", name="Tool C")
+    bank_index.invalidate()
+    scope, _ = web_settle.classify(bank, _conflict("tool-c", "Tool C", question, labels), "",
+                                   web_settle.bank_facts(bank))
+    assert scope is None, question
+
+
+def test_a_page_its_own_description_calls_the_persons_own_keeps_its_conflict_home(bank):
+    _entity(bank, "tool-c", type="tool", name="Tool C", description="A script the user wrote for their notes.")
+    bank_index.invalidate()
+    fm = _conflict("tool-c", "Tool C", "Is Tool C a CLI or an app?", ["a CLI", "an app"])
+    assert web_settle.classify(bank, fm, "", web_settle.bank_facts(bank)) == (None, "personal")
+
+
+def test_the_census_counts_the_eight_as_kept_and_the_right_one_as_public(bank):
+    _seed_conflicts(bank)
+    counts = web_settle.census(bank)["by_kind"]["conflict"]
+    for k in [f"inbox-{n}" for n in range(401, 410)]:
+        assert (bank / "inbox" / f"{k}.md").exists()
+    eight = {f"inbox-{401 + i}": row[-1] for i, row in enumerate(THE_EIGHT)}
+    facts = web_settle.bank_facts(bank)
+    for item_id, reason in eight.items():
+        parsed = markdown_parser.parse(bank / "inbox" / f"{item_id}.md")
+        assert web_settle.classify(bank, parsed.frontmatter, parsed.body, facts) == (None, reason), item_id
+    assert counts.get("personal", 0) >= 6 and counts.get("different_things", 0) >= 2
+    assert web_settle.candidate(bank, bank / "inbox" / "inbox-409.md", facts) is not None
+    assert {c.item_id for c in web_settle.candidates(bank, facts=facts)} & set(eight) == set()
+
+
+def test_two_things_sharing_a_name_settle_only_on_the_pages_own_name(bank):
+    _entity(bank, "nova", type="tool", name="Nova", aliases=["Nóva Framework"])
+    question = "Is this entity the Nova Framework, or Nova charting library?"
+    _item(bank, "inbox-420", **_conflict("nova", "Nova", question, ["the nova framework", "Nova charting library"]))
+    _commit(bank, "seed nova")
+    facts = web_settle.bank_facts(bank)
+    c = web_settle.candidate(bank, bank / "inbox" / "inbox-420.md", facts)
+    assert c is not None and c.different_things, "an option is the page's own alias (accents and case folded)"
+    before = (bank / "entities" / "nova.md").read_text()
+    for key in ("b", "both"):
+        with pytest.raises(web_settle.NotSettleable):
+            web_settle.settle(bank, "inbox-420", ref=TOOL_URL, quote="Nova is a charting library.", option_key=key,
+                              checker="fake-model", checker_kind="sleep")
+        assert (bank / "entities" / "nova.md").read_text() == before and (bank / "inbox" / "inbox-420.md").exists()
+    assert not list((bank / "episodes").glob("*.md")) or all(
+        "Web check" not in p.read_text() for p in (bank / "episodes").glob("*.md"))
+    done = web_settle.settle(bank, "inbox-420", ref=TOOL_URL, quote="Nova Framework is a web framework.",
+                             option_key="a", checker="fake-model", checker_kind="sleep")
+    claims = parse_claims(markdown_parser.parse(bank / "entities" / "nova.md").body)
+    assert [c.object for c in claims if c.id == done.claim_id] == ["the nova framework"]
+
+
+def test_a_situation_is_never_written_as_a_description(bank, monkeypatch):
+    """Belt and braces at the writer: should a situation label reach :func:`settle`, nothing is written."""
+    _entity(bank, "tool-c", type="tool", name="Tool C")
+    _item(bank, "inbox-421", **_conflict("tool-c", "Tool C", "Is Tool C a CLI or an app?",
+                                         ["Currently uses Tool D", "an app"]))
+    _commit(bank, "seed situation")
+    monkeypatch.setattr(web_settle, "personal_conflict", lambda *a, **k: None)   # the gate, bypassed
+    before = (bank / "entities" / "tool-c.md").read_text()
+    with pytest.raises(web_settle.NotSettleable):
+        web_settle.settle(bank, "inbox-421", ref=TOOL_URL, quote="Tool C is a CLI.", option_key="a",
+                          checker="fake-model", checker_kind="sleep")
+    assert (bank / "entities" / "tool-c.md").read_text() == before and (bank / "inbox" / "inbox-421.md").exists()
+
+
+def test_a_lookup_that_picks_the_other_thing_sharing_the_name_is_counted_and_never_settles():
+    c = web_settle.Candidate("inbox-1", "conflict", "public", "nova", "Nova", "tool", True, "description",
+                             [("a", "Nova Framework"), ("b", "Nova charting library")], [], type_question=True,
+                             both_key="both", different_things=True, subject_names=frozenset({"nova framework"}))
+    for key in ("b", "both"):
+        a = web_lookup.parse_answer(c, json.dumps({"sure": True, "option_key": key, "others_ruled_out": True,
+                                                   "url": TOOL_URL, "quote": "q"}))
+        assert (a.ok, a.reason) == (False, "different_thing")
+    a = web_lookup.parse_answer(c, json.dumps({"sure": True, "option_key": "a", "others_ruled_out": True,
+                                               "url": TOOL_URL, "quote": "q"}))
+    assert a.ok
+
+
+# ---------- review of #368: the bank's own names, somebody's doings, the person's own claims ----------
+
+#: Caught ONLY by the bank-name path (``_names_in`` / the short alias): stubbing it makes each read public.
+BANK_NAME_ONLY = [
+    ("Does Owner use Tool C as an editor or a CLI?", ["an editor", "a CLI"]),        # the owner's name, a part
+    ("Is Tool C part of Alpha Project or a library?", ["a module", "a library"]),    # a project page's name
+    ("Is Tool C part of Alpha or a library?", ["a module", "a library"]),            # its distinctive head word
+    ("Is Tool C Ali's editor or a plugin?", ["an editor", "a plugin"]),              # a person's alias
+    ("Is Tool C the OE editor or a plugin?", ["an editor", "a plugin"]),             # the owner's 2-letter alias
+]
+
+
+@pytest.mark.parametrize("question,labels", BANK_NAME_ONLY)
+def test_a_name_from_the_bank_keeps_a_conflict_home_and_only_that_path_catches_it(bank, monkeypatch, question,
+                                                                                 labels):
+    _entity(bank, "owner-example", type="person", owner=True, name="Owner Example", aliases=["OE"])
+    _entity(bank, "tool-c", type="tool", name="Tool C")
+    bank_index.invalidate()
+    facts = web_settle.bank_facts(bank)
+    fm = _conflict("tool-c", "Tool C", question, labels)
+    assert web_settle.classify(bank, fm, "", facts) == (None, "personal"), question
+    monkeypatch.setattr(web_settle, "_names_in", lambda *a, **k: False)
+    monkeypatch.setattr(web_settle, "_short_alias_in", lambda *a, **k: False)
+    assert web_settle.classify(bank, fm, "", facts) == ("public", "public"), "nothing else caught it"
+
+
+def test_a_short_alias_is_a_whole_token_in_its_own_case(bank):
+    _entity(bank, "owner-example", type="person", owner=True, name="Owner Example", aliases=["OE"])
+    _entity(bank, "tool-c", type="tool", name="Tool C")
+    bank_index.invalidate()
+    facts = web_settle.bank_facts(bank)
+    for q in ("Is Tool C a shoe or a toe?", "Is Tool C an oe-format reader or a plugin?"):
+        assert web_settle.classify(bank, _conflict("tool-c", "Tool C", q, ["an editor", "a plugin"]), "",
+                                   facts)[0] == "public", q
+
+
+@pytest.mark.parametrize("question,labels", [
+    # Spanish second person
+    ("¿Qué versión de Tool C usas?", ["v1", "v2"]),
+    ("¿Qué versión de Tool C tienes?", ["v1", "v2"]),
+    ("¿Es Tool C tu editor o un CLI?", ["editor", "CLI"]),
+    ("¿Tool C es el editor que usa en su trabajo?", ["v1", "v2"]),
+    # third person, no one named
+    ("Is the Tool C he uses an editor or a CLI?", ["an editor", "a CLI"]),
+    ("Which Tool C does she have?", ["v1", "v2"]),
+    ("Is the Tool C they use a v1 or a v2?", ["v1", "v2"]),
+    # doings and places, lowercase "i"
+    ("Is the tool c i bought a v1 or a v2?", ["v1", "v2"]),
+    ("Which Tool C model was purchased?", ["v1", "v2"]),
+    ("Was Tool C installed on the laptop as a CLI or as an app?", ["a CLI", "an app"]),
+    ("Is Tool C the deploy tool on the team's server or a library?", ["deploy tool", "a library"]),
+    ("Is Tool C a CLI or a library in the home lab?", ["a CLI", "a library"]),
+    # situation labels
+    ("Is Tool C a CLI or an app?", ["used daily", "an app"]),
+    ("Is Tool C a CLI or an app?", ["Abandoned", "an app"]),
+    ("Is Tool C a CLI, or was it dropped for Tool D?", ["a CLI", "dropped for Tool D"]),
+])
+def test_somebodys_doings_keep_a_conflict_home_named_or_not(bank, question, labels):
+    _entity(bank, "tool-c", type="tool", name="Tool C")
+    bank_index.invalidate()
+    assert web_settle.classify(bank, _conflict("tool-c", "Tool C", question, labels), "",
+                               web_settle.bank_facts(bank)) == (None, "personal"), question
+
+
+def test_a_page_whose_description_names_the_owner_or_a_project_keeps_its_conflict_home(bank):
+    _entity(bank, "tool-d", type="tool", name="Tool D", description="A CLI used in Alpha Project for deploys.")
+    _entity(bank, "tool-e", type="tool", name="Tool E", description="Owner's preferred editor.")
+    bank_index.invalidate()
+    facts = web_settle.bank_facts(bank)
+    for eid, name in (("tool-d", "Tool D"), ("tool-e", "Tool E")):
+        fm = _conflict(eid, name, f"Is {name} an editor or an IDE?", ["an editor", "an IDE"])
+        assert web_settle.classify(bank, fm, "", facts) == (None, "personal"), eid
+
+
+def _reader(memory, *, trust="agent_extracted", kind="user"):
+    from api.services.claims import Evidence
+
+    ev = [Evidence(episode="ep_2026-09-01_001", start=0, end=10, kind=kind, hash="x")] if kind else []
+    body = write_claims("## Summary\nA reader.\n", [
+        Claim(id="clm_r10", text="Reader X is a 10th gen", subject="reader-x", predicate="description",
+              object="10th gen", source_trust=trust, evidence=list(ev), valid_from="2026-05-01",
+              recorded_at="2026-05-01"),
+        Claim(id="clm_r11", text="Reader X is an 11th gen", subject="reader-x", predicate="description",
+              object="11th gen", source_trust=trust, evidence=list(ev), valid_from="2026-08-01",
+              recorded_at="2026-08-01"),
+    ])
+    _entity(memory, "reader-x", type="tool", name="Reader X", body=body)
+    bank_index.invalidate()
+    q = "Is Reader X a 10th or 11th gen?"
+    return dict(kind="conflict", status="pending", entity_id="reader-x", entity_name="Reader X",
+                predicate="description", question=q, title=q,
+                options=[{"key": "a", "label": "10th gen", "claim_id": "clm_r10"},
+                         {"key": "b", "label": "11th gen", "claim_id": "clm_r11"}, _BOTH])
+
+
+@pytest.mark.parametrize("trust,kind", [("agent_extracted", "user"), ("user_stated", None), ("user_stated", "page")])
+def test_competing_claims_all_from_the_persons_own_words_keep_a_neutral_question_home(bank, trust, kind):
+    fm = _reader(bank, trust=trust, kind=kind)
+    assert web_settle.classify(bank, fm, "", web_settle.bank_facts(bank)) == (None, "personal")
+
+
+@pytest.mark.parametrize("trust,kind", [("agent_extracted", "page"), ("external", None)])
+def test_competing_claims_from_elsewhere_leave_a_neutral_question_public(bank, trust, kind):
+    fm = _reader(bank, trust=trust, kind=kind)
+    assert web_settle.classify(bank, fm, "", web_settle.bank_facts(bank)) == ("public", "public")
+
+
+def test_odd_frontmatter_never_crashes_the_gate(bank):
+    facts = web_settle.bank_facts(bank)
+    assert web_settle.names_the_subject(5, frozenset({"x"})) is False
+    assert web_settle.subject_names({"entity_name": None}, {"name": 5, "aliases": "str"}) == frozenset()
+    fm = dict(kind="conflict", status="pending", entity_id="tool-a", entity_name="Tool A", predicate="description",
+              question="Q?", options=[{"key": "a", "label": {"x": 1}}, {"key": "b", "label": ["y"]}])
+    web_settle.classify(bank, fm, "", facts)

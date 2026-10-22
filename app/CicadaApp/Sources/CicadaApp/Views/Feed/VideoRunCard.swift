@@ -131,7 +131,7 @@ struct VideoRunCard: View {
 
     private func wantBlurb(_ name: String, _ blurb: String) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-            Text(name).font(CicadaTheme.font(size: 13, weight: .medium)).foregroundStyle(CicadaTheme.textPrimary)
+            Text(name).font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.textPrimary)
             Text(blurb)
                 .font(CicadaTheme.metaFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
@@ -144,7 +144,7 @@ struct VideoRunCard: View {
             VideoThumb(preview: row.item.preview, durationS: row.item.durationS, width: 64, height: 36)
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                 Text(row.item.title.isEmpty ? row.item.url : row.item.title)
-                    .font(CicadaTheme.font(size: 13))
+                    .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(1)
                 VideoChannelLine(item: row.item)
@@ -171,7 +171,7 @@ struct VideoRunCard: View {
                 .help(row.state.isQueued ? Copy.Videos.removeHelp : Copy.Videos.notInQueueYet)
             } label: {
                 Text(want == .watch ? Copy.Videos.wantWatchName : Copy.Videos.wantTranscriptName)
-                    .font(CicadaTheme.font(size: 12, weight: .medium))
+                    .font(CicadaTheme.metaMediumFont)
             }
             .menuStyle(.button)
             .fixedSize()
@@ -231,7 +231,7 @@ struct VideoRunCard: View {
 
     private func promptBox(_ text: String, collapsed: Bool) -> some View {
         Text(text)
-            .font(CicadaTheme.font(size: 12))
+            .font(CicadaTheme.metaFont)
             .foregroundStyle(CicadaTheme.textSecondary)
             .lineLimit(collapsed ? 5 : nil)
             .fixedSize(horizontal: false, vertical: true)
@@ -311,7 +311,7 @@ struct VideoRunCard: View {
         DisclosureGroup(isExpanded: $agentGotOpen) {
             promptBox(agentGot ?? "", collapsed: false).padding(.top, CicadaTheme.spacingSM)
         } label: {
-            Text(Copy.Videos.whatYourAgentGot).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textPrimary)
+            Text(Copy.Videos.whatYourAgentGot).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
         }
         .padding(.top, CicadaTheme.spacingMD)
         .task(id: agentGotOpen) { if agentGotOpen, agentGot == nil { agentGot = await cache.prompt(count: nil, method: nil) } }
@@ -391,7 +391,7 @@ struct VideoRunProgressRow: View {
             VideoThumb(preview: member.row.item.preview, durationS: member.row.item.durationS, width: 56, height: 32)
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                 Text(member.row.item.title.isEmpty ? member.row.item.url : member.row.item.title)
-                    .font(CicadaTheme.font(size: 13))
+                    .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(1)
                 Text(VideoRunProgress.line(member))
@@ -404,9 +404,7 @@ struct VideoRunProgressRow: View {
         }
         .padding(.horizontal, CicadaTheme.spacingSM)
         .frame(height: CicadaTheme.scaled(RowMetrics.twoLine))
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-            .fill(hovering && member.status == .recorded ? CicadaTheme.bgHover : Color.clear))
-        .onHover { hovering = $0 }
+        .rowHover($hovering, enabled: member.status == .recorded)
     }
 
     private var glyph: String {

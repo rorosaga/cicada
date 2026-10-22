@@ -55,6 +55,7 @@ from api.services import (
     media_ingestor,
     notes_sync,
     reading_asks,
+    reading_hosts,
     reading_queue,
     reading_service,
     reading_settings,
@@ -302,7 +303,11 @@ async def upload_sources(
     if backfilled:
         media_ingestor.save_url_index(memory_path, idx)
 
+    # The upload's repeats (a video already saved, or one in two playlists of this export) go to `ingest_batch`
+    # too: it appends each one's list to its page's `collections:` (owner 2026-10-19).
     if not fresh:
+        if any((it.folder or "").strip() for it in items):
+            await media_ingestor.ingest_batch(items, memory_path, from_bookmark_file=from_bookmark_file)
         return SourceUploadResponse(
             status="ok",
             episodes_created=0,
@@ -314,13 +319,13 @@ async def upload_sources(
 
     if len(fresh) <= media_ingestor._INLINE_ENRICH_LIMIT:
         created, _ = await media_ingestor.ingest_batch(
-            fresh, memory_path, from_bookmark_file=from_bookmark_file
+            items, memory_path, from_bookmark_file=from_bookmark_file
         )
         message = f"Saved {created} item(s) from {source_label}"
     else:
         background_tasks.add_task(
             media_ingestor.ingest_chunked,
-            fresh,
+            items,
             memory_path,
             from_bookmark_file=from_bookmark_file,
         )
@@ -865,8 +870,9 @@ def _capture_thumbs(memory_path: Path) -> dict[str, str]:
 
 #: The `/sources` payload's shape version, folded into its ETag: `saved-why-2` added `savedWhyHistory`,
 #: `lastSavedAt` and `captureThumb` (G191 v3); `saved-why-3` added `leftBrowser` (G191 v4) and the four reason labels;
-#: `device-1` added `device` (G181 phase 3: which of the person's devices posted the save).
-SHAPE = "device-1"
+#: `device-1` added `device` (G181 phase 3: which of the person's devices posted the save); `site-key-1` added
+#: `siteKey` (owner 2026-10-20: the key every surface draws the item's own site mark under).
+SHAPE = "site-key-1"
 
 
 def _device_of(fm: dict) -> str | None:
@@ -939,6 +945,7 @@ async def list_sources(
         preview: str | None = None
         fm_read = None
         wall_page = None
+        saved_page = False
         entity_path = Path(memory_path) / "entities" / f"{entity_id}.md"
         if entity_path.exists():
             try:
@@ -946,6 +953,8 @@ async def list_sources(
 
                 parsed = markdown_parser.parse(entity_path)
                 fm = parsed.frontmatter or {}
+                # Review of #372: a site key only where the media icon route would answer (one predicate).
+                saved_page = channel_items.is_saved_link_page(fm)
                 # G102 R12 — read the excerpt + `about` ids straight after the
                 # parse, before any later field: this block is one `try` whose
                 # `except: pass` would otherwise drop them if relevance or
@@ -1032,6 +1041,7 @@ async def list_sources(
                 title=entry.get("title", ""),
                 media_type=entry.get("media_type", "url"),
                 site=site,
+                site_key=reading_hosts.mark_key(str(entry.get("url") or "")) if saved_page else None,
                 channel=channel,
                 thumbnail=entry.get("thumbnail"),
                 preview=preview,
@@ -1130,8 +1140,11 @@ async def sources_overview(
     memory_path = settings.memory_path
     connectors_connected = {cid: adapter.is_connected() for cid, adapter in ADAPTERS.items()}
     connector_tag = ",".join(f"{k}:{v}" for k, v in sorted(connectors_connected.items()))
+    # Sources v4: `photos` too — a Messages face carries its chat photo's hash (`messages_photos`, outside the bank).
+    # marks-2: `siteIcons` too — a saved row's faces put sites with a cached own icon first (`VersionVector` maps it to
+    # `.sourcesOverview` in the same PR).
     etag = sync_service.etag_for(
-        memory_path, "sources", "episodes", "entities",
+        memory_path, "sources", "episodes", "entities", "photos", "siteIcons",
         extra=f"{source_overview.SHAPE}|telegram:{settings.telegram_enabled}|connectors:{connector_tag}",
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
@@ -1210,8 +1223,9 @@ async def list_channel_items(
     memory_path = settings.memory_path
     if not channel_items.known(memory_path, channel_id):
         raise HTTPException(status_code=404, detail="Unknown channel")
+    # Sources v4 (review of #358): `photos` too — a Messages row carries its chat photo's hash.
     etag = sync_service.etag_for(
-        memory_path, "sources", "episodes", "entities",
+        memory_path, "sources", "episodes", "entities", "photos",
         extra=f"{channel_items.SHAPE}|{channel_id}|{offset}|{limit}",
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
@@ -1229,18 +1243,35 @@ _OWN_ICON_SEMAPHORE = asyncio.Semaphore(4)
 @router.get("/sources/saved/{media_entity_id}/site-icon")
 async def get_saved_link_site_icon(media_entity_id: str, request: Request, settings: Settings = Depends(get_settings)):
     """A saved link's own site icon (owner ruling 2026-10-19), for its row in a list the person opened. Asked of that
-    site only — `https://<registrable domain>/apple-touch-icon.png`, then `/favicon.ico` — never of an icon service,
-    so no one else learns what was saved; behind `CICADA_ALLOW_LOGO_FETCH`; cached under `logos/<bank>/sites/own/`
+    site only — its homepage's declared icons (or a CDN URL that page names), then `/apple-touch-icon.png` and
+    `/favicon.ico` (discovery amended 2026-10-20), then a declared SVG drawn to a PNG by `svg_raster` (2026-10-20; SVG
+    is never served) — never of an icon service, so no one else learns what was saved; behind `CICADA_ALLOW_LOGO_FETCH`; cached under `logos/<bank>/sites/own/`
     with misses. 404 means "draw the monogram": a page that is not a live saved link, a walled or private host, the
     gate off, a miss. Nothing calls this but the app's row; Sleep never does."""
+    memory_path = settings.memory_path
+    site = await run_in_threadpool(channel_items.saved_link_site, memory_path, media_entity_id)
+    return await _serve_own_site_icon(request, memory_path, site)
+
+
+@router.get("/sources/saved/episodes/{episode_id}/site-icon")
+async def get_saved_episode_site_icon(episode_id: str, request: Request, settings: Settings = Depends(get_settings)):
+    """The same icon for a saved link Sleep has not made a page of yet (owner 2026-10-20): a Waiting row of a bookmark
+    or a saved post is an episode, so it is asked by the episode's id. The site is read from THAT episode's own `url`,
+    only for a live episode of a saved source (`channel_items.saved_episode_site`); the same gate, the same per-site
+    cache and the same fetch as the saved-link route. 404 means "draw the monogram"."""
+    memory_path = settings.memory_path
+    site = await run_in_threadpool(channel_items.saved_episode_site, memory_path, episode_id)
+    return await _serve_own_site_icon(request, memory_path, site)
+
+
+async def _serve_own_site_icon(request: Request, memory_path, site: str | None):
+    """Serve `site`'s own icon from the cache, asking the site at most once (`ensure_own_site_icon`, ≤ 4 at a time)."""
     import hashlib
 
     from fastapi.responses import FileResponse
 
     from api.services import logo_service
 
-    memory_path = settings.memory_path
-    site = await run_in_threadpool(channel_items.saved_link_site, memory_path, media_entity_id)
     if not site:
         raise HTTPException(404, "no icon for this site")
     bank = logo_service.own_site_bank(logo_service.bank_name(memory_path))
@@ -1257,6 +1288,132 @@ async def get_saved_link_site_icon(media_entity_id: str, request: Request, setti
         return Response(status_code=304, headers=headers)
     types = {"png": "image/png", "jpg": "image/jpeg", "gif": "image/gif", "webp": "image/webp", "ico": "image/x-icon"}
     return FileResponse(path, media_type=types.get(path.suffix.lstrip("."), "application/octet-stream"), headers=headers)
+
+
+@router.get("/sources/watch-history/days/{episode_id}")
+async def get_watched_day(episode_id: str, request: Request, response: Response,
+                          settings: Settings = Depends(get_settings)):
+    """Sources v4 — one watched day's videos, in the order watched (`channel_items.watched_day`): what the person sees
+    when they open that day. Read from the day's own record; nothing fetched, no model (ruling 30). Not a Store domain:
+    the app keeps it in memory and revalidates with this ETag (`episodes` for the day, `sources`+`entities` for which
+    videos are also saved)."""
+    memory_path = settings.memory_path
+    etag = sync_service.etag_for(memory_path, "sources", "episodes", "entities",
+                                 extra=f"{channel_items.SHAPE}|day|{episode_id}")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    day = await run_in_threadpool(channel_items.watched_day, memory_path, episode_id)
+    if day is None:
+        raise HTTPException(status_code=404, detail="Not a watched day")
+    # The app's wire is camelCase (`CamelModel`'s rule), spelled here for the two keys that have an underscore.
+    return {**day, "videos": [{("videoId" if k == "video_id" else "mediaEntityId" if k == "media_entity_id" else k): v
+                               for k, v in video.items()} for video in day["videos"]]}
+
+
+_STILL_SEMAPHORE = asyncio.Semaphore(4)
+
+
+@router.get("/sources/watch-history/days/{episode_id}/videos/{video_id}/thumbnail")
+async def get_watched_video_thumbnail(episode_id: str, video_id: str, request: Request,
+                                      settings: Settings = Depends(get_settings)):
+    """Sources v4 (owner direction 2026-10-19, `storage.md`) — a watched YouTube video's still, for its row in the day
+    the person opened. Keyed by that day (review of #358): the id must be one THIS day records
+    (`channel_items.day_has_video`, one file read), and the backend asks YouTube's own thumbnail host for that id only;
+    behind `CICADA_ALLOW_LOGO_FETCH`, through the ToS rail, cached outside every bank
+    (`media_preview.ensure_video_still`), at most four at a time. 404 = no picture. Sleep never calls it; no model
+    reads history."""
+    from api.services import media_preview
+
+    memory_path = settings.memory_path
+    async with _STILL_SEMAPHORE:
+        known = await run_in_threadpool(channel_items.day_has_video, memory_path, episode_id, video_id)
+        if not known:
+            raise HTTPException(404, "no picture for this video")
+        path = await media_preview.ensure_video_still(memory_path, video_id)
+    return _serve_still(request, path)
+
+
+@router.get("/sources/saved/{media_entity_id}/still")
+async def get_saved_video_still(media_entity_id: str, request: Request, settings: Settings = Depends(get_settings)):
+    """marks-2 (owner 2026-10-20: "none of the YouTube stuff shows thumbnails, just low-res YouTube logos") — a saved
+    YouTube video's still, for its row in a list the person opened: the same fetch and cache as a watched video's
+    (`media_preview.ensure_video_still`, YouTube's own thumbnail host, that id only, behind `CICADA_ALLOW_LOGO_FETCH`,
+    outside every bank), keyed by the id THIS page's own URL names (`channel_items.media_video_id`) — never an id the
+    request names. 404 = no picture (the row keeps its site mark). Sleep never calls it."""
+    from api.services import media_preview
+
+    memory_path = settings.memory_path
+    async with _STILL_SEMAPHORE:
+        video_id = await run_in_threadpool(channel_items.media_video_id, memory_path, media_entity_id)
+        if not video_id:
+            raise HTTPException(404, "no picture for this video")
+        path = await media_preview.ensure_video_still(memory_path, video_id)
+    return _serve_still(request, path)
+
+
+def _serve_still(request: Request, path):
+    import hashlib
+
+    from fastapi.responses import FileResponse
+
+    from api.services import media_preview
+
+    if path is None or not path.exists():
+        raise HTTPException(404, "no picture for this video")
+    stat = path.stat()
+    etag = '"' + hashlib.sha1(f"{path.name}:{stat.st_mtime_ns}:{stat.st_size}".encode()).hexdigest()[:16] + '"'
+    headers = {"ETag": etag, "Cache-Control": "max-age=86400"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    media_type = media_preview.MEDIA_TYPES.get(path.suffix.lstrip("."), "application/octet-stream")
+    return FileResponse(path, media_type=media_type, headers=headers)
+
+
+@router.get("/sources/messages/chats/{conversation}/sittings")
+async def get_messages_chat_sittings(conversation: str, request: Request, response: Response,
+                                     settings: Settings = Depends(get_settings)):
+    """Sources v4 (review of #358) — one Messages chat's sittings, newest first: what its row opens to
+    (`channel_items.chat_sittings`; each sitting opens in the Reader). Titles only, never a body; not a Store domain —
+    the app keeps it in memory and revalidates with this ETag."""
+    memory_path = settings.memory_path
+    etag = sync_service.etag_for(memory_path, "episodes", extra=f"{channel_items.SHAPE}|sittings|{conversation}")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    page = await run_in_threadpool(channel_items.chat_sittings, memory_path, conversation)
+    if page is None:
+        raise HTTPException(status_code=404, detail="No such chat")
+    return page
+
+
+@router.get("/sources/messages/chats/{conversation}/photo")
+async def get_messages_chat_photo(conversation: str, request: Request, settings: Settings = Depends(get_settings)):
+    """Sources v4 — the photo a ticked Messages chat shares, as that chat's face on the Sources row and in its list
+    (owner 2026-10-19: "the profile pictures of the chats that have contributed"). The bytes the app already posted
+    (`messages_photos`, outside every bank, never sent anywhere); nothing is fetched. 404 = draw the monogram: an id
+    that is not a chat hash, a chat not ticked, or no photo stored."""
+    import hashlib
+
+    from fastapi.responses import FileResponse
+
+    from api.services import logo_service, messages_photos, messages_source
+
+    memory_path = settings.memory_path
+    if not messages_source.CONVERSATION_ID_RE.match(conversation or ""):
+        raise HTTPException(404, "no photo for this chat")
+    ticked = await run_in_threadpool(lambda: {
+        cid for cid, e in messages_source.load_settings(memory_path)["conversations"].items() if e.get("ticked")})
+    entry = messages_photos.read_meta(logo_service.bank_name(memory_path)).get(conversation)
+    if conversation not in ticked or not isinstance(entry, dict):
+        raise HTTPException(404, "no photo for this chat")
+    path = messages_photos.photo_path(logo_service.bank_name(memory_path), conversation, str(entry.get("ext") or "png"))
+    if path is None or not path.is_file():
+        raise HTTPException(404, "no photo for this chat")
+    etag = '"' + hashlib.sha1(f"{conversation}:{entry.get('sha')}".encode()).hexdigest()[:16] + '"'
+    headers = {"ETag": etag, "Cache-Control": "max-age=86400"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    media_type = "image/jpeg" if path.suffix == ".jpg" else "image/png"
+    return FileResponse(path, media_type=media_type, headers=headers)
 
 
 # --- Feed subscriptions (registry + poll) -----------------------------------

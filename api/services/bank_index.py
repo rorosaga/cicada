@@ -13,6 +13,7 @@ import os
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from functools import cached_property
 from pathlib import Path
 
 from loguru import logger
@@ -36,8 +37,9 @@ class IndexedFile:
     frontmatter: dict = field(default_factory=dict)
     has_turns: bool = False
 
-    @property
+    @cached_property
     def stem(self) -> str:
+        # Cached: a read model keys every page and episode by it, per request (`Path.stem` is ~1 µs; 13k a request).
         return self.path.stem
 
     def body(self) -> str:
@@ -187,7 +189,9 @@ def file(memory_path: Path, subdir: str, name: str) -> IndexedFile | None:
     read. ``name`` is the on-disk filename (``<stem>.md``); a missing or malformed file is ``None``.
 
     Shares :func:`files`' cache, so a long-lived process that has listed the directory answers from it,
-    and a fresh one parses the one page a read needs instead of all of them."""
+    and a fresh one parses the one page a read needs instead of all of them. It reads the header exactly as
+    :func:`files` does (``markdown_parser.header``): never a page's claims ledger, never the fold's read mark —
+    :meth:`IndexedFile.body` folds the ledger only when a caller asks for the body."""
     global parse_count
     directory = Path(memory_path) / subdir
     path = directory / name
@@ -202,13 +206,10 @@ def file(memory_path: Path, subdir: str, name: str) -> IndexedFile | None:
         if hit is not None and (hit.mtime_ns, hit.size) == stamp:
             return hit
     try:
-        fm = markdown_parser.parse(path).frontmatter
+        fm, has_turns = markdown_parser.header(path)   # the cache never holds the sidecar (`IndexedFile`)
     except Exception as exc:  # malformed file: skip, never crash a caller
         logger.warning(f"bank_index: skipping malformed {path}: {exc}")
         return None
-    has_turns = isinstance(fm, dict) and "turns" in fm
-    if has_turns:
-        fm.pop("turns")   # the cache never holds the sidecar (`IndexedFile`)
     entry = IndexedFile(path=path, mtime_ns=stamp[0], size=stamp[1], frontmatter=fm, has_turns=has_turns)
     with _lock:
         try:

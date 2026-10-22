@@ -452,9 +452,7 @@ private struct EngineMenuRow: View {
             }
             .padding(.horizontal, CicadaTheme.spacingSM)
             .frame(height: CicadaTheme.scaled(RowMetrics.menuItem))
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-                .fill(row.isSelected ? CicadaTheme.bgSelected
-                                     : (hovering && row.isSelectable ? CicadaTheme.bgHover : Color.clear)))
+            .rowHoverFill(hovering: hovering && row.isSelectable, selected: row.isSelected)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)

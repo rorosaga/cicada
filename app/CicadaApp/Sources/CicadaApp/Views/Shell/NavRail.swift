@@ -290,3 +290,11 @@ final class RailTooltipState {
 enum RailReselect {
     static func isReselect(current: AppTab, tapped: AppTab) -> Bool { current == tapped }
 }
+
+/// Say it once (owner 2026-10-19) — the one hook every page uses to hear its rail cell clicked (or its ⌘ key pressed)
+/// while it already shows. The page passes what "its root" means; `AppRouter.popToRoot` decides the motion.
+extension View {
+    func onRailReselect(_ tab: AppTab, router: AppRouter?, perform: @escaping () -> Void) -> some View {
+        onChange(of: router?.reselections(of: tab) ?? 0) { _, _ in perform() }
+    }
+}

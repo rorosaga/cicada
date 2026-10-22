@@ -176,7 +176,7 @@ enum CicadaTheme {
     static var textPrimary: Color { mode == .dark ? Dark.textPrimary : Light.textPrimary }
     static var textSecondary: Color { mode == .dark ? Dark.textSecondary : Light.textSecondary }
     static var textTertiary: Color { mode == .dark ? Dark.textTertiary : Light.textTertiary }
-    /// Tertiary text ON a selected or hovered fill: light `textTertiary` is 4.33:1 on
+    /// Tertiary text ON a selected or hovered fill: light `textTertiary` is 4.06:1 on
     /// `bgSelected`, under the 4.5:1 bar (DR-2). Dark's tertiary already clears it.
     static var textTertiaryOnFill: Color { mode == .dark ? Dark.textTertiary : Light.textTertiaryOnFill }
     /// Disabled states only (DR-3) — never the only cue, never text a reader needs.
@@ -206,9 +206,19 @@ enum CicadaTheme {
     /// Links and "Recommended" (DR-5 uses 5–6) — see `AccentInk` (R-DS4).
     static var accentText: Color { mode == .dark ? AccentInk.textDark : AccentInk.textLight }
     static var accentTextHover: Color { mode == .dark ? AccentInk.hoverDark : AccentInk.hoverLight }
-    /// The cited span's wash (DR-18) and the other spans' (`washSoft`).
-    static var wash: Color { accent.opacity(mode == .dark ? 0.18 : 0.10) }
-    static var washSoft: Color { accent.opacity(mode == .dark ? 0.08 : 0.07) }
+    /// The cited span's tint (DR-18) and the other spans' (`washSoft`). Neutral ink, never the accent (owner
+    /// 2026-10-20, DESIGN_RULES §9): an accent fill behind words is exactly what macOS draws for a text selection, so a
+    /// cited passage read as "selected". The accent stays on the current span's underline and its marker
+    /// (`ReaderChat.CitedMark`); the tint only says which words, and is distinct from every selection and hover fill.
+    ///
+    /// `washSoft` is as visible as `wash` (review of #383, 2026-10-20): at white 5 % / black 4 % another cited span
+    /// stood 1.09:1 off the light pane and 1.17:1 off the dark person bubble, so in the document view — no "Cited"
+    /// marker there — the spans the navigator counts could not be found. The current span is told by its accent
+    /// underline (and, in a chat, its marker's accent bar), not by a darker tint. Neither may go further: black 7 % sits
+    /// midway between light `bgHover` and `bgSelected` on the pane, and white 10 % one step above dark `bgSelected`, so
+    /// no tinted word reads as a hovered or selected row (`ThemeContrastTests.testEveryCitedSpanIsFindable…`).
+    static var wash: Color { mode == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.07) }
+    static var washSoft: Color { wash }
     /// Keyboard focus — 2 pt at 60 % (DR-5 use 1).
     static var focusRing: Color { accent.opacity(0.6) }
 
@@ -314,6 +324,15 @@ enum CicadaTheme {
     /// the page in both modes. `SkyBandTests` holds it to a tint (≤ 1.35:1
     /// against the page) that keeps text ≥ 7:1 over it, for every sky.
     static let skyBandOpacity: Double = 0.12
+
+    /// Owner ruling 2026-10-20 — a quiet page's picture in a list (an imported page the person has not mentioned yet).
+    /// Its name steps down the text ladder instead (`quietName`, DR-2); the picture, which has no ladder, fades. Never
+    /// the accent (DR-5); a selected row is fully lit.
+    static let quietPictureOpacity: Double = 0.5
+
+    /// A quiet row's name, a step down the ladder: `textTertiaryOnFill` holds ≥ 4.5:1 on `bgBase`, hover and selection
+    /// alike (DR-2/DR-3), so the dimmed name stays readable under any fill.
+    static var quietName: Color { textTertiaryOnFill }
 
     /// The window's AppKit background for `mode` — the one place `NSWindow`
     /// gets a theme colour (R-M10). Takes the mode explicitly because
@@ -503,7 +522,8 @@ enum CicadaTheme {
 
     // MARK: - Icons (DR-53)
     enum IconRole {
-        case rail, railFoot, titlebar, sidebar, list, commandBar, inline, badge
+        /// `disclosure` — every fold's chevron (DR-39/DR-53, 2026-10-20): 10 pt, semibold so it holds at that size.
+        case rail, railFoot, titlebar, sidebar, list, commandBar, inline, badge, disclosure
         var points: CGFloat {
             switch self {
             case .rail: 18
@@ -512,11 +532,13 @@ enum CicadaTheme {
             case .list: 14
             case .commandBar: 13
             case .inline: 12
-            case .badge: 10
+            case .badge, .disclosure: 10
             }
         }
     }
-    static func icon(_ role: IconRole) -> Font { font(size: role.points) }
+    static func icon(_ role: IconRole) -> Font {
+        role == .disclosure ? font(size: role.points, weight: .semibold) : font(size: role.points)
+    }
     static func iconPoints(_ role: IconRole) -> CGFloat { scaled(role.points) }
 
     // MARK: - Spacing (G130: derived from `uiScale` — the 551 call sites are untouched, R2)
@@ -550,6 +572,22 @@ enum CicadaTheme {
     /// DR-12 — a nested pair's outer radius. Padding scales with uiScale and radii do not, so
     /// the pair is derived rather than spelled twice.
     static func concentric(inner: CGFloat, padding: CGFloat) -> CGFloat { inner + padding }
+
+    /// The person's side of a chat in the Reader (owner, 2026-10-19; DESIGN_RULES §9): a neutral graphite fill — never
+    /// the accent (DR-5), never a shadow (DR-10). Tertiary text never sits on it (DR-2); the times are outside it.
+    /// Its own value since 2026-10-20, not `bgSelected`: a bubble is a speaker, not a selected row.
+    static var chatBubbleFill: Color { mode == .dark ? Dark.chatBubble : Light.chatBubble }
+    /// The other party's bubble (owner, 2026-10-20: "the sender side, on the other side, also had a chat bubble"): a
+    /// quieter neutral than the person's, lifted by the resting ring (DR-9), never a shadow (DR-10), never the accent.
+    static var chatBubbleOtherFill: Color { mode == .dark ? Dark.chatBubbleOther : Light.chatBubbleOther }
+    /// A chat bubble's shape: `cornerRadius`, continuous (DR-12); a long message drawn as several blocks squares the
+    /// corners where one block meets the next, so it reads as one bubble.
+    static func chatBubble(roundTop: Bool, roundBottom: Bool) -> UnevenRoundedRectangle {
+        let top = roundTop ? cornerRadius : 0
+        let bottom = roundBottom ? cornerRadius : 0
+        return UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: bottom, bottomTrailingRadius: bottom,
+                                      topTrailingRadius: top, style: .continuous)
+    }
 
     // MARK: - Inbox Kind Colors
     // Leading-icon hue per inbox card kind. Decay amber, conflict red,
@@ -592,7 +630,13 @@ private extension CicadaTheme {
         static let bgOption = Color(hex: 0x1D1E21)
         static let bgButton = Color(hex: 0x232427)
         static let bgButtonHover = Color(hex: 0x2C2D30)
-        static let bgSelected = Color(hex: 0x222326)
+        // Round 2 (2026-10-20): one step further from bgHover (was #222326, 1.09:1 against it; now 1.13:1) so the
+        // selected row and the pointer's row never read alike. Tertiary on it stays 4.68:1.
+        static let bgSelected = Color(hex: 0x252629)
+        // The Reader's chat bubbles (2026-10-20): the person's a step above bgSelected, the other party's a step above
+        // the pane, with its ring.
+        static let chatBubble = Color(hex: 0x2B2C30)
+        static let chatBubbleOther = Color(hex: 0x1A1B1D)
         static let bgMenu = Color(hex: 0x1B1C1E)
         static let bgKey = Color(hex: 0x26272A)
         static let keyGlyph = Color(hex: 0x9A9CA1)
@@ -746,7 +790,11 @@ private extension CicadaTheme {
         static let bgOption = Color(hex: 0xF7F7F5)
         static let bgButton = Color(hex: 0xF2F2F0)
         static let bgButtonHover = Color(hex: 0xE3E3E0)
-        static let bgSelected = Color(hex: 0xE8E8E5)
+        // Round 2 (2026-10-20): one step further from bgHover (was #E8E8E5, 1.07:1 against it; now 1.14:1) — the
+        // palette's selected and hovered rows read alike. textTertiaryOnFill on it stays 4.86:1.
+        static let bgSelected = Color(hex: 0xE1E1DE)
+        static let chatBubble = Color(hex: 0xE7E7E3)
+        static let chatBubbleOther = Color(hex: 0xFFFFFF)
         static let bgMenu = Color(hex: 0xFFFFFF)
         static let bgKey = Color(hex: 0xEAEAE7)
         static let keyGlyph = Color(hex: 0x5A5B60)
@@ -754,8 +802,8 @@ private extension CicadaTheme {
         static let border = Color(hex: 0xE3E3E1)        // black 8 % over bgBase (R-DS2)
         static let borderLight = Color(hex: 0xCFCFCE)   // black 16 % over bgBase
 
-        // Measured on #F7F7F5: primary 17.2:1, secondary 10.8:1, tertiary 5.0:1 (4.33:1 on
-        // bgSelected — hence textTertiaryOnFill, 5.2:1), quaternary 3.2:1 (disabled only).
+        // Measured on #F7F7F5: primary 17.2:1, secondary 10.8:1, tertiary 5.0:1 (4.06:1 on
+        // bgSelected — hence textTertiaryOnFill, 4.86:1), quaternary 3.2:1 (disabled only).
         static let textPrimary = Color(hex: 0x141415)
         static let textSecondary = Color(hex: 0x38393C)
         static let textTertiary = Color(hex: 0x6A6B70)

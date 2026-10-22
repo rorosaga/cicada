@@ -34,6 +34,76 @@ final class HeadlessAppTests: XCTestCase {
         return ServerConnection(mode: .server(url), source: .file)
     }
 
+    // MARK: G202 — a waiting post goes only to the server and bank it was read for (D2), and is counted (D3)
+
+    private static let roster = #"{"banks":[{"name":"default","active":true,"id":"id-a"}],"active":"default"}"#
+
+    func testAWaitingPostNeverFollowsTheAppToAnotherServer() async throws {
+        try "x".write(to: home.appendingPathComponent("device_token"), atomically: true, encoding: .utf8)
+        let onA = APIClient(session: HeadlessStubProtocol.session(), connection: server("https://a.example.ts.net"),
+                            runtime: runtime())
+        HeadlessStubProtocol.respond = { req in req.url?.path == "/banks" ? (200, Self.roster) : (500, "{}") }
+        _ = try await onA.fetchBanks()                                   // the app learns the bank's id
+        HeadlessStubProtocol.reset()
+        HeadlessStubProtocol.fail = URLError(.cannotConnectToHost)
+        do {
+            _ = try await BankScope.bound(to: "default") { try await onA.syncNotes(dump: "alpha notes") }
+            XCTFail("expected the post to wait")
+        } catch let error as ServerLinkError {
+            XCTAssertEqual(error, .queuedOffline)
+        }
+        let waitingEntries = await onA.outbox.entries()
+        let entry = try XCTUnwrap(waitingEntries.first?.entry)
+        XCTAssertEqual(entry.base, "https://a.example.ts.net")
+        XCTAssertEqual(entry.bankId, "id-a")
+
+        // The person points the app at another server; its flush never sends A's post there.
+        HeadlessStubProtocol.reset()
+        HeadlessStubProtocol.respond = { _ in (200, #"{"banks":[],"active":"default"}"#) }
+        let onB = APIClient(session: HeadlessStubProtocol.session(), connection: server("https://b.example.ts.net"),
+                            runtime: runtime())
+        let flushedOnB = await onB.flushOutbox()
+        XCTAssertEqual(flushedOnB.sent, 0)
+        XCTAssertFalse(HeadlessStubProtocol.requests.contains { $0.url?.path == "/sources/sync-notes" })
+        let counted = await onB.waitingCaptures()
+        XCTAssertEqual(counted, CaptureWait(here: 0, elsewhere: 1))
+
+        // Back on A: it goes there, naming the bank's id, so another memory of A's would refuse it.
+        HeadlessStubProtocol.reset()
+        HeadlessStubProtocol.respond = { _ in (200, #"{"created":0,"updated":0,"unchanged":0,"skipped":0}"#) }
+        let back = await onA.flushOutbox()
+        XCTAssertEqual(back.sent, 1)
+        let sent = try XCTUnwrap(HeadlessStubProtocol.requests.first { $0.url?.path == "/sources/sync-notes" })
+        XCTAssertEqual(sent.url?.host, "a.example.ts.net")
+        XCTAssertEqual(sent.value(forHTTPHeaderField: BankScope.idHeader), "id-a")
+        XCTAssertEqual(sent.value(forHTTPHeaderField: BankScope.header), "default")
+    }
+
+    func testThisMacNeverSendsABankIdAndCountsTheHooksSpoolByServer() async throws {
+        let spool = HookSpool.folder(cicadaHome: home)
+        try FileManager.default.createDirectory(at: spool, withIntermediateDirectories: true)
+        try #"{"v":2,"target":{"base":"https://a.example.ts.net","bank_id":"id-a"}}"#
+            .write(to: spool.appendingPathComponent("s-1.json"), atomically: true, encoding: .utf8)
+        try #"{"v":2,"target":{"base":"https://old.example.ts.net/","bank_id":null}}"#
+            .write(to: spool.appendingPathComponent("s-2.json"), atomically: true, encoding: .utf8)
+        try #"{"v":1}"#.write(to: spool.appendingPathComponent("t-3.json"), atomically: true, encoding: .utf8)
+        try "{}".write(to: spool.appendingPathComponent(".servers"), atomically: true, encoding: .utf8)
+        XCTAssertTrue(HookSpool.waiting(cicadaHome: home, base: "https://A.example.ts.net/") == (2, 1))
+        XCTAssertTrue(HookSpool.waiting(cicadaHome: home, base: nil) == (0, 3))
+        XCTAssertTrue(ReaderOutbox.sameServer("https://old.example.ts.net/", "https://OLD.example.ts.net"))
+        XCTAssertFalse(ReaderOutbox.sameServer("https://a.example.ts.net", "https://a.example.ts.net:8443"))
+
+        let local = APIClient(session: HeadlessStubProtocol.session(), connection: ServerConnection(mode: .thisMac, source: .none),
+                              runtime: runtime())
+        HeadlessStubProtocol.respond = { req in req.url?.path == "/banks" ? (200, Self.roster) : (200, "{}") }
+        _ = try await local.fetchBanks()
+        _ = try? await BankScope.bound(to: "default") { try await local.triggerSleep() }
+        let write = try XCTUnwrap(HeadlessStubProtocol.requests.last)
+        XCTAssertNil(write.value(forHTTPHeaderField: BankScope.idHeader), "This Mac sends names as before")
+        let counted = await local.waitingCaptures()
+        XCTAssertEqual(counted, CaptureWait(here: 0, elsewhere: 3))
+    }
+
     // MARK: The address rule (runtime_layout.api_base, restated)
 
     func testAnAddressIsHttpsOrALoopbackTunnel() {
@@ -413,6 +483,7 @@ final class HeadlessAppTests: XCTestCase {
         api.rows = [DeviceRecord(id: "abcd1234", name: "laptop", createdAt: "2026-10-16T10:00:00+00:00",
                                  lastUsedAt: "2026-10-16T11:00:00+00:00", current: true)]
         api.waiting = 2
+        api.elsewhere = 1
         let now = Date(timeIntervalSince1970: 1_792_150_000)
         let onServer = DevicesPageModel(api: api, connection: server("https://cicada.example.ts.net"), now: { now })
         await onServer.refresh()
@@ -428,7 +499,10 @@ final class HeadlessAppTests: XCTestCase {
         await onMac.refresh()
         XCTAssertTrue(onMac.canManage)
         XCTAssertEqual(onMac.waiting, 0)
+        XCTAssertEqual(onMac.waitingElsewhere, 1, "left for a server this Mac used before: said, never sent here")
+        XCTAssertEqual(onServer.waitingElsewhere, 1)
         XCTAssertNil(onMac.statusLine(at: now))
+        XCTAssertNil(onMac.connectionLine, "on This Mac the choice already says where the memory lives (DR-38)")
         await onMac.add(name: "  desk ")
         XCTAssertEqual(api.created, ["desk"])
         XCTAssertEqual(onMac.created?.token, "cic_dev_new00000_" + String(repeating: "y", count: 43))
@@ -467,7 +541,7 @@ final class HeadlessAppTests: XCTestCase {
         XCTAssertEqual(directory.label(for: nil), Copy.Devices.thisServer)
     }
 
-    // MARK: Settings → General
+    // MARK: Settings → Devices (where your memory lives)
 
     @MainActor
     func testChoosingAServerIsCheckedBeforeAnythingIsWritten() async {
@@ -576,14 +650,21 @@ final class HeadlessAppTests: XCTestCase {
         }
         XCTAssertTrue(local.requests.isEmpty)
 
-        // It answers again (here, at the first server's port): the waiting post goes there, signed by this device.
-        let back = APIClient(session: session, connection: server("http://127.0.0.1:\(remote.port)"),
-                             runtime: runtime(port: local.port))
-        let flushed = await back.flushOutbox()
+        // G202 (D2): another server never receives it — the post was read for the one that went away.
+        let elsewhere = APIClient(session: session, connection: server("http://127.0.0.1:\(remote.port)"),
+                                  runtime: runtime(port: local.port))
+        let notThere = await elsewhere.flushOutbox()
+        XCTAssertEqual(notThere.sent, 0)
+        XCTAssertNotEqual(remote.requests.last?.line, "POST /sources/sync-notes HTTP/1.1")
+
+        // Its own server answers again at its address: the waiting post goes there, signed by this device.
+        let returned = try LoopbackHTTPServer(port: gonePort) { _ in (200, #"{"created":0,"updated":0}"#) }
+        defer { returned.stop() }
+        let flushed = await offline.flushOutbox()
         XCTAssertEqual(flushed.sent, 1)
-        XCTAssertEqual(remote.requests.last?.line, "POST /sources/sync-notes HTTP/1.1")
-        XCTAssertEqual(remote.requests.last?.headers["authorization"], "Bearer \(deviceToken)")
-        XCTAssertTrue(remote.requests.last?.body.contains("a note") == true)
+        XCTAssertEqual(returned.requests.last?.line, "POST /sources/sync-notes HTTP/1.1")
+        XCTAssertEqual(returned.requests.last?.headers["authorization"], "Bearer \(deviceToken)")
+        XCTAssertTrue(returned.requests.last?.body.contains("a note") == true)
         XCTAssertTrue(local.requests.isEmpty)
     }
 }
@@ -609,6 +690,8 @@ final class FakeDevicesAPI: DevicesAPI, @unchecked Sendable {
     }
     func outboxCount() async -> Int { waiting }
     func flushOutbox() async -> ReaderOutbox.FlushResult { ReaderOutbox.FlushResult() }
+    var elsewhere = 0
+    func waitingCaptures() async -> CaptureWait { CaptureWait(here: waiting, elsewhere: elsewhere) }
 }
 
 /// A URLProtocol double of its own (not `MockURLProtocol`), so these tests never share a handler with another file's.
@@ -677,7 +760,8 @@ final class LoopbackHTTPServer: @unchecked Sendable {
 
     var requests: [Received] { lock.withLock { received } }
 
-    init(respond: @escaping @Sendable (String) -> (Int, String)) throws {
+    /// `port` 0 takes an ephemeral one; a given port lets a test bring a stopped server back at its own address.
+    init(port requested: Int = 0, respond: @escaping @Sendable (String) -> (Int, String)) throws {
         let socket = Darwin.socket(AF_INET, SOCK_STREAM, 0)
         guard socket >= 0 else { throw POSIXError(.EIO) }
         var reuse: Int32 = 1
@@ -686,6 +770,7 @@ final class LoopbackHTTPServer: @unchecked Sendable {
         address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         address.sin_family = sa_family_t(AF_INET)
         address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        address.sin_port = UInt16(requested).bigEndian
         let bound = withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(socket, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
         }

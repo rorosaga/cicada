@@ -133,8 +133,9 @@ struct ClustersGridView: View {
     }
 }
 
-/// A type's card header (F-11): its outline glyph in its hue, its plural name, its count, "Show all ›" when some are
-/// hidden. The hue appears once, on the glyph (DR-8).
+/// A type's card header (F-11): its outline glyph in its hue, its plural name, "Show all ›" when some are hidden. The
+/// hue appears once, on the glyph (DR-8). Say it once (owner 2026-10-19): the count is the type's tab's ("People 17"),
+/// so the card no longer prints it beside the name.
 struct ClusterCardHeader: View {
     let type: EntityType
     let count: Int
@@ -149,10 +150,6 @@ struct ClusterCardHeader: View {
             Text(type.groupLabel)
                 .font(CicadaTheme.font(size: 14, weight: .medium))
                 .foregroundStyle(CicadaTheme.textPrimary)
-            Text(UsageFormat.count(count))
-                .font(CicadaTheme.metaFont)
-                .monospacedDigit()
-                .foregroundStyle(CicadaTheme.textTertiary)
             Spacer(minLength: 0)
             if let showAll {
                 TextButton(title: Copy.People.showAll, help: Copy.People.showAllHelp(type.groupLabel), action: showAll)
@@ -206,7 +203,7 @@ struct ClusterShortCard: View {
                     HStack(spacing: CicadaTheme.spacingSM) {
                         EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 20)
                         Text(entity.name)
-                            .font(CicadaTheme.font(size: 13))
+                            .font(CicadaTheme.bodyFont)
                             .foregroundStyle(CicadaTheme.textPrimary)
                             .lineLimit(1)
                         if let line = ClustersModel.line(entity) {
@@ -241,11 +238,12 @@ struct ClusterTile: View {
         HStack(spacing: CicadaTheme.spacingMD) {
             EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 32, heldInputs: entity.pictureInputs,
                           editing: .tile)
+                .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
             Button(action: open) {
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                     Text(entity.name)
-                        .font(CicadaTheme.font(size: 13, weight: .medium))
-                        .foregroundStyle(CicadaTheme.textPrimary)
+                        .font(CicadaTheme.rowFont)
+                        .foregroundStyle(entity.quiet ? CicadaTheme.quietName : CicadaTheme.textPrimary)
                         .lineLimit(1)
                     if let line = ClustersModel.line(entity) {
                         Text(line).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
@@ -256,12 +254,12 @@ struct ClusterTile: View {
             }
             .buttonStyle(.cicadaPlain)
             .accessibilityLabel(Copy.Lists.entityRow(type: entity.type.label, name: entity.name, open: false))
+            .accessibilityValue(entity.quiet ? Copy.Lists.quiet : "")
         }
         .padding(.horizontal, CicadaTheme.scaled(8))
         .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.twoLine),
                maxHeight: CicadaTheme.scaled(RowMetrics.twoLine), alignment: .leading)
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering ? CicadaTheme.bgHover : Color.clear))
+        .rowHover($hovering)
         .contentShape(Rectangle())
-        .onHover { hovering = $0 }
     }
 }

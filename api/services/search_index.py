@@ -57,7 +57,7 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import (bank_index, bank_registry, episode_ids, evidence, fact_sources, history_index,
-                          inbox_questions, markdown_parser, text_fold)
+                          inbox_questions, markdown_parser)
 from api.services.claims import is_event, is_record, parse_claims, strip_claims_block
 from api.services.graph_builder import summarize
 
@@ -72,7 +72,9 @@ DB_FILE = "search_index.db"
 # "6": an episode's `docs.meta` says when it is index-only (a watched day, a list save: ruling 30), so Ask's search
 # leg counts a word's rarity over the conversations it can show, not over thousands of watched days; the bump
 # rebuilds every index once (TODO ruling 3).
-SCHEMA_VERSION = "6"
+# "7": a saved link's episode records its site key in `docs.meta` (`site`, review of #372), so the ⌘K palette draws
+# a bookmark's conversation row with the site's own mark, never the browser's; the bump rebuilds every index once.
+SCHEMA_VERSION = "7"
 TOKENIZER = "unicode61 remove_diacritics 2"
 # Prefix indexes for 2-, 3- and 4-character prefixes: type-as-you-go queries
 # are mostly that short, and a prefix with no index is a range scan over
@@ -235,6 +237,11 @@ def reset(memory_path: Path | None = None) -> None:
             _NAMES.clear()
         else:
             _NAMES.pop(str(Path(memory_path)), None)
+    with _CLAIM_ROWS_LOCK:
+        if memory_path is None:
+            _CLAIM_ROWS.clear()
+        else:
+            _CLAIM_ROWS.pop(str(Path(memory_path)), None)
 
 
 def invalidate(memory_path: Path) -> None:
@@ -519,6 +526,9 @@ def claim_payload(claim) -> dict:
         "expected_end": claim.expected_end, "observer": claim.observer,
         "evidence": first.to_dict() if first else None,
         "status": claim.status if is_event(claim) else None,
+        # The Projects list's reverse layer keeps page-to-page claims only (2026-10-19). Added without a schema
+        # bump: a page indexed before carries no kind until its next edit, and the reader says what that means.
+        "object_kind": claim.object_kind,
     }
 
 
@@ -540,6 +550,8 @@ def _index_episode(conn, doc_key: str, f, fm: dict, body: str) -> None:
     }
     if history_index.is_index_only(fm):
         meta["index_only"] = True   # ruling 30: a record to look up — Ask's search leg neither counts nor shows it
+    if site := _saved_site(fm):
+        meta["site"] = site   # a saved link's own site key: its row's mark (owner 2026-10-20, review of #372)
     gaps = evidence.gap_ranges(fm, body)
     if gaps:
         meta["gaps"] = [list(g) for g in gaps]   # gate B2: the episode's own record, for a hit's kind
@@ -557,6 +569,16 @@ def _index_episode(conn, doc_key: str, f, fm: dict, body: str) -> None:
             "INSERT INTO pas(rowid, body, s, e) VALUES (?, ?, ?, ?)",
             ((doc_id << ROW_BITS) | n, text[s:e], s, e),
         )
+
+
+def _saved_site(fm: dict) -> str | None:
+    """The site key a saved link's episode is marked with — the Waiting row's and the Reader header's one rule
+    (`channel_items.saved_episode_url` → `reading_hosts.mark_key`), else None. Read from the episode's own
+    frontmatter, so a rebuild derives the same answer. Imported here: `channel_items` reads half the services."""
+    from api.services import channel_items, reading_hosts
+
+    url = channel_items.saved_episode_url(fm)
+    return reading_hosts.mark_key(url) if url else None
 
 
 def _index_inbox(conn, doc_key: str, f, fm: dict, body: str) -> None:
@@ -907,32 +929,6 @@ def wait_idle(memory_path: Path, timeout: float = 30.0) -> bool:
     return True
 
 
-def claims_about(memory_path: Path, names: list[str]) -> list[tuple[str, dict]] | None:
-    """`(subject page id, claim payload)` for every indexed claim whose
-    `predicate object` column holds one of `names` as a phrase (G141 §6.4's
-    reverse claims). A candidate list — the caller resolves the object exactly.
-    `None` when no usable index answers, so the caller can fall back and say
-    `partial` (§6.6); never raises."""
-    state = ensure_fresh(memory_path)
-    if state not in ("ready", "stale"):
-        return None
-    phrases = []
-    for name in names:
-        toks = [t for t in text_fold.words(name) if t]
-        if toks:
-            phrases.append('keywords : "' + " ".join(toks) + '"')
-    if not phrases:
-        return []
-    try:
-        with Reader(memory_path) as reader:
-            rows = reader.conn.execute(
-                f"SELECT d.ref, c.payload FROM clm c JOIN docs d ON d.id = (c.rowid >> {ROW_BITS}) "
-                "WHERE clm MATCH ? ORDER BY d.ref, c.rowid", (" OR ".join(phrases),)).fetchall()
-    except sqlite3.Error:
-        return None
-    return [(str(ref), json.loads(p or "{}")) for ref, p in rows]
-
-
 def pages_citing(memory_path: Path, episode_id: str) -> list[str] | None:
     """Pages holding a claim with a SPAN into `episode_id` (R-PJB20), sorted;
     `None` when no usable index answers."""
@@ -970,6 +966,72 @@ def pages_citing_many(memory_path: Path, episode_ids: list[str]) -> dict[str, li
     except sqlite3.Error:
         return None
     return {ep: sorted(refs) for ep, refs in out.items()}
+
+
+# --- every claim's object, per page -----------------------------------------------
+
+#: bank path -> (the stamps it answered for, {doc_key: ((mtime_ns, size), ref, rows)}, the sorted answer). `rows` is
+#: `((object, payload json), ...)` in fence order. Kept per page so a change re-reads only the pages it moved.
+_CLAIM_ROWS: dict[str, tuple[dict, dict, list]] = {}
+_CLAIM_ROWS_LOCK = threading.Lock()
+#: Past this many moved pages one scan of the claim table beats a range read per page.
+_CLAIM_ROWS_SCAN = 64
+
+
+def claim_rows(memory_path: Path) -> list[tuple[str, tuple[tuple[str, str], ...]]] | None:
+    """``[(subject page id, ((object, payload json), ...))]`` for every indexed claim, by page id, fence order.
+
+    G141's reverse layer (§6.4, R-PJB19) resolves each object against the names it holds; this hands it every
+    object at once instead of a MATCH over every project's name. That MATCH — one phrase per id and name, OR'ed —
+    cost ~0.6 s per Projects list at 700 projects, after every change to the bank (2026-10-19). The rows are kept
+    per page in this process and re-read only for a page whose stamp the index moved, so the read after one edit
+    reads one page. ``None`` when no usable index answers (the caller falls back and says ``partial``); never
+    raises. The payload stays JSON: a caller decodes only the rows it keeps."""
+    memory_path = Path(memory_path)
+    if ensure_fresh(memory_path) not in ("ready", "stale"):
+        return None
+    stamps = _state(memory_path).stamps or {}
+    want = {k: v for k, v in stamps.items() if k.startswith("entities/")}
+    key = str(memory_path)
+    with _CLAIM_ROWS_LOCK:
+        cached = _CLAIM_ROWS.get(key)
+    if cached is not None and cached[0] == want:
+        return cached[2]
+    held = {k: v for k, v in (cached[1] if cached is not None else {}).items() if k in want}
+    moved = [k for k, stamp in want.items() if (held.get(k) or (None,))[0] != stamp]
+    try:
+        with Reader(memory_path) as reader:      # one snapshot: the rows and the stamps they are filed under
+            if len(moved) > _CLAIM_ROWS_SCAN:
+                docs = {i: (k, (int(m), int(z)), str(r)) for i, k, m, z, r in reader.conn.execute(
+                    "SELECT id, doc_key, mtime_ns, size, ref FROM docs "
+                    "WHERE doc_key >= 'entities/' AND doc_key < 'entities0'")}
+                rows: dict[int, list[tuple[str, str]]] = {}
+                for rowid, obj, payload in reader.conn.execute(
+                        "SELECT rowid, json_extract(payload, '$.object'), payload FROM clm ORDER BY rowid"):
+                    rows.setdefault(int(rowid) >> ROW_BITS, []).append((str(obj or ""), str(payload or "{}")))
+                held = {k: (stamp, ref, tuple(rows.get(i, ()))) for i, (k, stamp, ref) in docs.items()}
+            else:
+                for i in range(0, len(moved), 500):        # SQLite's bound-parameter ceiling
+                    chunk = moved[i:i + 500]
+                    found = reader.conn.execute(
+                        f"SELECT id, doc_key, mtime_ns, size, ref FROM docs WHERE doc_key IN ({','.join('?' * len(chunk))})",
+                        chunk).fetchall()
+                    for doc_id, doc_key, m, z, ref in found:
+                        lo = int(doc_id) << ROW_BITS
+                        held[doc_key] = ((int(m), int(z)), str(ref), tuple(
+                            (str(obj or ""), str(payload or "{}")) for obj, payload in reader.conn.execute(
+                                "SELECT json_extract(payload, '$.object'), payload FROM clm "
+                                "WHERE rowid BETWEEN ? AND ? ORDER BY rowid", (lo, lo | ((1 << ROW_BITS) - 1)))))
+                    for doc_key in set(chunk) - {row[1] for row in found}:
+                        held.pop(doc_key, None)        # stamped but not (yet) in this snapshot
+    except sqlite3.Error:
+        return None
+    answer = [(ref, rows) for _doc_key, (_stamp, ref, rows) in sorted(held.items(), key=lambda kv: kv[1][1])]
+    with _CLAIM_ROWS_LOCK:
+        # Filed under the stamps the rows were read at: a page another writer moved in between reads as moved
+        # next time, never as current.
+        _CLAIM_ROWS[key] = ({k: v[0] for k, v in held.items()}, held, answer)
+    return answer
 
 
 # --- page names ---------------------------------------------------------------

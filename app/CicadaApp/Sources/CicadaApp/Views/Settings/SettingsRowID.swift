@@ -23,9 +23,9 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     // General → Startup → Show in menu bar (round-4 decision 6, R-HO16)
     static let showInMenuBar = SettingsRowID("showInMenuBar")
     static let backgroundService = SettingsRowID("backgroundService")
-    // General → Where your memory lives (G181 phase 3): This Mac or a server
+    // Devices → Where your memory lives (G181 phase 3): This Mac or a server
     static let memoryHome = SettingsRowID("memoryHome")
-    // Devices (G181 phase 3): this app's connection, and the person's devices
+    // Devices (G181 phase 3): the server this app uses (in Where your memory lives), and the person's devices
     static let devicesConnection = SettingsRowID("devicesConnection")
     static let devicesList = SettingsRowID("devicesList")
     // General → Setup → Command-line tool (G180, TODO ruling 21)
@@ -47,7 +47,6 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let mascot = SettingsRowID("mascot")
     // Engines (Task 2)
     static let engineChoice = SettingsRowID("engineChoice")
-    static let engineModel = SettingsRowID("engineModel")
     static let engineOverage = SettingsRowID("engineOverage")
     static let enginePreview = SettingsRowID("enginePreview")
     static let engineAsk = SettingsRowID("engineAsk")
@@ -59,7 +58,6 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     // Integrations (round 4, G154)
     static let contactsApp = SettingsRowID("contactsApp")
     // Agents and From anywhere (Task 3)
-    static let agentsInstall = SettingsRowID("agentsInstall")
     static let agentsCloud = SettingsRowID("agentsCloud")
     // Agents' pointer to Skills (Task 8)
     static let agentsSkill = SettingsRowID("agentsSkill")
@@ -103,24 +101,12 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let credentials = SettingsRowID("credentials")
     static let remoteAccess = SettingsRowID("remoteAccess")
     static let transcripts = SettingsRowID("transcripts")
-    // Memory (Task 6)
-    static let searchIndex = SettingsRowID("searchIndex")
-    // Search & files (owner, 2026-10-14): the folder list, the two consent rows and the Advanced disclosure
-    // (Search version and Rebuild search land on it and open it).
+    // Search & files (owner, 2026-10-14): the folder list and the two consent rows. Search version, Rebuild search,
+    // the Advanced disclosure and Memory's Fetch link previews left the app (settings defaults, owner 2026-10-22).
     static let searchFolders = SettingsRowID("searchFolders")
     static let searchMeaning = SettingsRowID("searchMeaning")
     static let searchImages = SettingsRowID("searchImages")
-    static let searchAdvanced = SettingsRowID("searchAdvanced")
-    // Memory → Search model (G182 phase 3)
-    static let searchModel = SettingsRowID("searchModel")
-    static let enrichLinks = SettingsRowID("enrichLinks")
     static let fadePace = SettingsRowID("fadePace")
-    // Advanced (Task 6)
-    static let backendStatus = SettingsRowID("backendStatus")
-    static let mcpCommand = SettingsRowID("mcpCommand")
-    static let apiToken = SettingsRowID("apiToken")
-    static let envOverrides = SettingsRowID("envOverrides")
-    static let settingsFile = SettingsRowID("settingsFile")
 
     /// Every section's header — what a section-level hit lands on (R-O14).
     static func page(_ section: SettingsSection) -> SettingsRowID { SettingsRowID("page:\(section.rawValue)") }

@@ -89,12 +89,15 @@ struct ClustersListColumn: View {
                     .foregroundStyle(CicadaTheme.entityColor(for: type))
                     .accessibilityHidden(true)
                 Text(type.groupLabel)
-                    .font(CicadaTheme.font(size: 13, weight: .medium))
+                    .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
-                Text(UsageFormat.count(count))
-                    .font(CicadaTheme.metaFont)
-                    .monospacedDigit()
-                    .foregroundStyle(CicadaTheme.textTertiary)
+                // Say it once — outside find the type's tab already counts it; under find the count is the matches'.
+                if findOpen && !query.isEmpty {
+                    Text(UsageFormat.count(count))
+                        .font(CicadaTheme.metaFont)
+                        .monospacedDigit()
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
                 if recency {
                     Text(Copy.People.recencySuffix).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                 }
@@ -145,7 +148,11 @@ struct ClusterRow: View {
     let selected: Bool
     let open: () -> Void
 
-    private var nameColor: Color { selected ? CicadaTheme.textPrimary : CicadaTheme.textSecondary }
+    private var nameColor: Color {
+        selected ? CicadaTheme.textPrimary : entity.quiet ? CicadaTheme.quietName : CicadaTheme.textSecondary
+    }
+    /// Owner ruling 2026-10-20: an imported page not mentioned yet is dimmed — never on the selected row.
+    private var pictureOpacity: Double { entity.quiet && !selected ? CicadaTheme.quietPictureOpacity : 1 }
     private var metaColor: Color { selected ? CicadaTheme.textTertiaryOnFill : CicadaTheme.textTertiary }
 
     var body: some View {
@@ -157,6 +164,7 @@ struct ClusterRow: View {
             }
             .buttonStyle(.cicadaPlain)
             .accessibilityLabel(Copy.Lists.entityRow(type: entity.type.label, name: entity.name, open: selected))
+            .accessibilityValue(entity.quiet ? Copy.Lists.quiet : "")
             .accessibilityAddTraits(selected ? .isSelected : [])
             if style == .wide {
                 IconButton(systemName: "chevron.right", help: Copy.Lists.openCard, action: open)
@@ -179,6 +187,7 @@ struct ClusterRow: View {
         case .wide:   // only while find is open (All's groups, then its ranked matches); STATE 0 is the grid
             HStack(spacing: CicadaTheme.spacingMD) {
                 EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 24)
+                    .opacity(pictureOpacity)
                 name.frame(maxWidth: CicadaTheme.scaled(ColumnLayout.textMaxWidth), alignment: .leading)
                 if let detail = ClustersModel.detail(entity, showsType: showsType) {
                     Text(detail).font(CicadaTheme.metaFont).foregroundStyle(metaColor).lineLimit(1)
@@ -188,6 +197,7 @@ struct ClusterRow: View {
         case .triage:   // F-12's list: picture, name, age; the line under them
             HStack(spacing: CicadaTheme.spacingMD) {
                 EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 32)
+                    .opacity(pictureOpacity)
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                     HStack(spacing: CicadaTheme.spacingSM) {
                         name
@@ -205,6 +215,7 @@ struct ClusterRow: View {
         case .titles, .hidden:
             HStack(spacing: CicadaTheme.spacingSM) {
                 EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 20)
+                    .opacity(pictureOpacity)
                 name.help(entity.name)
             }
         }

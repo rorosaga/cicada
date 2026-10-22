@@ -199,6 +199,30 @@ def test_episode_hits_carry_a_verifiable_span_around_the_match(tmp_path):
     assert title.matched_field == "name" and title.start is None and title.hash is None, "a title match claims no span"
 
 
+def test_a_saved_links_episode_hit_names_its_site_and_a_conversation_none(tmp_path):
+    """Review of #372 — the palette draws a bookmark's conversation row with the site's own mark, so its hit carries the
+    site key the Waiting row and the Reader header use; a conversation, a feed item and a deleted source carry none."""
+    memory = _bank(tmp_path)
+    base = {"timestamp": "2026-09-03T10:00:00+00:00", "processed": False}
+    for eid, fm in (
+        ("ep_2026-09-03_001", {"origin": "chrome-bookmark", "url": "https://www.paperfold.io/a?q=1",
+                               "title": "Paperfold folding guide"}),
+        ("ep_2026-09-03_002", {"origin": "rss", "url": "https://feedsite.io/post", "title": "Paperfold feed post"}),
+        ("ep_2026-09-03_003", {"origin": "chrome-bookmark", "url": "https://gone-site.io/",
+                               "title": "Paperfold gone", "source_deleted_at": "2026-09-04T00:00:00+00:00"}),
+    ):
+        markdown_parser.write(memory / "episodes" / f"{eid}.md", {**base, "id": eid, **fm}, "A saved page about paperfold.")
+    search_index.rebuild(memory)
+    hits = {h.episode_id: h for h in _by_kind(_search(memory, "paperfold", kinds=("episode",), mode="prefix"),
+                                               "episode")}
+    assert hits["ep_2026-09-03_001"].site == "paperfold.io"
+    assert hits["ep_2026-09-03_002"].site is None, "a feed item is captured, not saved"
+    assert hits["ep_2026-09-03_003"].site is None, "a deleted source is not live"
+    [conversation] = _by_kind(_search(memory, "sqlite vec", kinds=("episode",), mode="prefix"), "episode")
+    assert conversation.site is None, "a conversation is never a saved link"
+    assert int(search_index.SCHEMA_VERSION) >= 7, "an index built before `site` must rebuild"
+
+
 def test_prefix_mode_never_builds_an_indexer_or_touches_the_embed_cache(tmp_path, monkeypatch):
     memory = _bank(tmp_path)
 

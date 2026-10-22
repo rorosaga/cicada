@@ -608,6 +608,7 @@ def _episode_hit(ctx: _Ctx, ep: _Episode, score: float, chunk: str = "") -> Sear
         conversation_id=meta.get("conversation_id") or None,
         harness=meta.get("harness") or None,
         origin=meta.get("origin") or None,
+        site=meta.get("site") or None,
         timestamp=meta.get("timestamp") or None,
         start=start,
         end=end,
@@ -665,7 +666,8 @@ def _inbox_kind(ctx: _Ctx) -> tuple[list[SearchHit], int | None]:
             # A private helper, on purpose: the SAME test load_inbox applies,
             # so the palette can never offer a card /inbox hides (precedent:
             # sources.py reads link_enrichment's private extractor this way).
-            gone[subject] = inbox_service._subject_gone(ctx.memory_path, *subject)
+            gone[subject] = (inbox_service._subject_gone(ctx.memory_path, *subject)
+                             or inbox_service._subject_quiet(ctx.memory_path, subject[0]))
         if gone[subject]:
             continue
         fields = [(meta.get("question", ""), 1.0, "name"), (meta.get("entity_name", ""), 0.9, "alias"),

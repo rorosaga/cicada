@@ -3,9 +3,10 @@ import SwiftUI
 import XCTest
 @testable import CicadaApp
 
-/// Design taste (2026-10-14) — the Looks page: its wire, its cache, its refresh rule, the shrink before a screenshot
-/// leaves the Mac, and offscreen renders of the board in both appearances (`LOOKS_RENDER_DIR`). Synthetic only: made-up
-/// pages drawn here, example.com links.
+/// Design taste (2026-10-14) — looks: their wire, their cache, the refresh rule, the shrink before a screenshot leaves
+/// the Mac, and — since the Looks page went to the pages of the things looks show (owner 2026-10-20) — a page's looks,
+/// Clusters' "has looks" filter and offscreen renders of the card's section and an opened look in both appearances
+/// (`LOOKS_RENDER_DIR`). Synthetic only: made-up pages drawn here, example.com links.
 @MainActor
 final class LooksTests: XCTestCase {
 
@@ -110,6 +111,30 @@ final class LooksTests: XCTestCase {
         }
         func installImageModel() async throws {}
         func setRefusal(_ text: String?) { refuseSave = text }
+        var attached: [(String, String?)] = []
+        func attachDesignRef(id: String, entity: String?) async throws -> DesignRef {
+            guard let i = board.refs.firstIndex(where: { $0.id == id }) else { throw APIError.httpError(404, "{}") }
+            if entity == "missing-page" {
+                throw APIError.httpError(422, "{\"detail\": \"That page isn't in memory, so the look can't go on it.\"}")
+            }
+            attached.append((id, entity))
+            board.refs[i].entity = entity
+            etag = "\"e4-\(attached.count)\""
+            return DesignRef(summary: board.refs[i], note: "")
+        }
+        var edits: [(String, String, String, String)] = []
+        func editDesignRef(id: String, title: String, url: String, note: String) async throws -> DesignRef {
+            guard let i = board.refs.firstIndex(where: { $0.id == id }) else { throw APIError.httpError(404, "{}") }
+            edits.append((id, title, url, note))
+            board.refs[i].title = title
+            board.refs[i].noteBy = "user"
+            etag = "\"e5-\(edits.count)\""
+            return DesignRef(summary: board.refs[i], note: note)
+        }
+        func similarDesign(id: String) async throws -> DesignSearchResult {
+            DesignSearchResult(results: board.refs.map { DesignHit(id: $0.id, score: 1, legs: ["picture"]) },
+                               mode: "picture", missing: [])
+        }
     }
 
     private func board() throws -> DesignBoard {
@@ -153,13 +178,96 @@ final class LooksTests: XCTestCase {
         XCTAssertTrue(cache.visible.isEmpty && cache.phase == .idle, "a bank switch empties it")
     }
 
-    /// DR-40 — the composer has exactly one primary action, Save, and it is the house primary button.
-    func testTheComposerHasOnePrimaryActionAndItIsSave() throws {
-        let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first { $0.path.hasSuffix("Views/Looks/LooksPage.swift") })
-        let text = try String(contentsOf: file, encoding: .utf8)
-        XCTAssertEqual(text.components(separatedBy: "PrimaryActionButton(").count - 1, 1)
-        XCTAssertTrue(text.contains("PrimaryActionButton(title: saving ? Copy.Looks.saving : Copy.Looks.save"))
-        XCTAssertFalse(text.contains(".borderedProminent"), "never a hand-rolled primary")
+    // MARK: Looks on pages (owner 2026-10-20)
+
+    func testAPagesLooksTheOnesOnNoPageAndThePagesThatHaveThem() async throws {
+        var board = try board()
+        board.refs[0].entity = "alpha-project"
+        let api = FakeAPI(board: board)
+        let cache = LooksCache(api: api)
+        await cache.refresh()
+        XCTAssertEqual(cache.looks(on: "alpha-project").map(\.id), ["2026-10-13-dashboard-example-com"])
+        XCTAssertEqual(cache.unplaced.map(\.id), ["2026-10-10-look"])
+        XCTAssertEqual(cache.pagesWithLooks, ["alpha-project"])
+        // Putting the unplaced look on the page reads the board again, so every surface shows the move.
+        let moved = await cache.attach("2026-10-10-look", to: "alpha-project")
+        XCTAssertTrue(moved)
+        XCTAssertEqual(cache.looks(on: "alpha-project").count, 2)
+        XCTAssertTrue(cache.unplaced.isEmpty)
+        let refused = await cache.attach("2026-10-10-look", to: "missing-page")
+        XCTAssertFalse(refused)
+        XCTAssertEqual(cache.writeError, "That page isn't in memory, so the look can't go on it.",
+                       "the server's own sentence")
+        await cache.attach("2026-10-10-look", to: nil)
+        XCTAssertEqual(cache.unplaced.map(\.id), ["2026-10-10-look"], "taken off a page, kept")
+        await cache.loadSimilar("2026-10-10-look")
+        XCTAssertEqual(cache.similar["2026-10-10-look"], ["2026-10-13-dashboard-example-com"], "never itself")
+        cache.reset()
+        XCTAssertTrue(cache.pagesWithLooks.isEmpty && cache.similar.isEmpty, "a bank switch empties it")
+    }
+
+    /// Review of #384 — the person's own words on a look, from its sheet: what they liked becomes theirs.
+    func testThePersonsOwnWordsOnALook() async throws {
+        let api = FakeAPI(board: try board())
+        let cache = LooksCache(api: api)
+        await cache.refresh()
+        let saved = await cache.edit("2026-10-10-look", title: "Calm panels", url: "", note: "Mine.")
+        XCTAssertTrue(saved)
+        XCTAssertEqual(cache.refs["2026-10-10-look"]?.note, "Mine.")
+        XCTAssertEqual(cache.board?.refs.first { $0.id == "2026-10-10-look" }?.title, "Calm panels",
+                       "the board is read again, so every surface shows the new name")
+        let refused = await cache.edit("2026-01-01-none", title: "", url: "", note: "")
+        XCTAssertFalse(refused)
+    }
+
+    func testAPastedLinkMustBeAWebsite() {
+        XCTAssertEqual(PageLooks.link("  https://dashboard.example.com/overview \n"), "https://dashboard.example.com/overview")
+        XCTAssertEqual(PageLooks.link("http://studio.example.com"), "http://studio.example.com")
+        XCTAssertNil(PageLooks.link("dashboard.example.com"), "no scheme: said, never guessed")
+        XCTAssertNil(PageLooks.link("file:///Users/x/shot.png"))
+        XCTAssertNil(PageLooks.link("https://"))
+        XCTAssertNil(PageLooks.link(""))
+    }
+
+    func testASimilarLookSaysThePageItIsOn() {
+        let on = DesignRefSummary(id: "a", entity: "alpha-project")
+        XCTAssertEqual(PageLooks.place(on, names: ["alpha-project": "Alpha Project"]), "On Alpha Project")
+        XCTAssertEqual(PageLooks.place(on, names: [:]), "On alpha-project")
+        XCTAssertEqual(PageLooks.place(DesignRefSummary(id: "b"), names: [:]), Copy.Looks.notOnAPage)
+    }
+
+    func testAPictureDroppedOnAPageIsPostedWithThePage() async throws {
+        let api = FakeAPI(board: try board())
+        let cache = LooksCache(api: api)
+        await cache.refresh()
+        let said = await PageLooks.drop(Self.page(width: 400, height: 250, background: .white, accent: .black),
+                                        on: "alpha-project", cache: cache)
+        XCTAssertEqual(said, Copy.Looks.dropped)
+        let saved = await api.saved
+        XCTAssertEqual(saved.first?.entity, "alpha-project")
+        XCTAssertEqual(saved.first?.via, "drop")
+        await api.setRefusal("Cicada has its demo memory open.")
+        let refused = await PageLooks.drop(Self.page(width: 300, height: 200, background: .black, accent: .white),
+                                           on: "alpha-project", cache: cache)
+        XCTAssertEqual(refused, "Cicada has its demo memory open.")
+    }
+
+    func testTheArticleLeavesTheLooksSectionToTheCard() {
+        let markdown = """
+        ## Summary
+        Alpha Project is a synthetic page.
+
+        ## Key Facts
+        - It has panels.
+
+        ## Looks
+        - [Quiet dark dashboard](../design/2026-10-13-dashboard-example-com.md) · dashboard.example.com · 2026-10-13
+          ![Quiet dark dashboard](../assets/design/2026-10-13-dashboard-example-com.png)
+        """
+        let article = WikiArticle.build(markdown)
+        let text = article.rows.map { String($0.text.characters) }.joined(separator: "\n")
+        XCTAssertTrue(text.contains("It has panels."))
+        XCTAssertFalse(text.contains("Quiet dark dashboard"), "the card draws the looks itself, from the looks")
     }
 
     // MARK: Before a screenshot leaves the Mac
@@ -277,18 +385,18 @@ final class LooksTests: XCTestCase {
         try png.write(to: url)
     }
 
-    func testRenderTheBoardForReview() throws {
+    func testRenderThePageLooksForReview() throws {
         guard let dir = ProcessInfo.processInfo.environment["LOOKS_RENDER_DIR"], !dir.isEmpty else {
             throw XCTSkip("set LOOKS_RENDER_DIR to write the review renders")
         }
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         defer { CicadaTheme.mode = .dark; CicadaTheme.uiScale = 1 }
-        let refs = Self.fixtures.map(\.0)
+        var refs = Self.fixtures.map(\.0)
+        for i in refs.indices { refs[i].entity = i < 2 ? "alpha-project" : (i == 2 ? "beta-project" : nil) }
         let images = Dictionary(uniqueKeysWithValues: Self.fixtures.map { ($0.0.id, $0.1) })
         let tile: (DesignRefSummary) -> AnyView = { ref in
             AnyView(Image(nsImage: images[ref.id]!).resizable().scaledToFill())
         }
-        let vision = DesignVision(supported: true, installed: false, downloadBytes: 309_277_919)
         let open = refs[4]
         let detail = DesignRef(summary: open, note: open.notePreview, snippets: [DesignSnippet(lang: "css", code:
             ":root { --bg: #14161c; --panel: #1d2029; --accent: #7c9cff; }\n.panel { border-radius: 10px; padding: 18px; }")],
@@ -296,49 +404,55 @@ final class LooksTests: XCTestCase {
                                        roles: [.init(role: "body", size: 19, weight: 400), .init(role: "drop_cap", size: 88)]),
                         DesignSpecimen(family: "Inter", generic: "sans-serif",
                                        roles: [.init(role: "heading", size: 56, weight: 700)])])
+        let names = ["alpha-project": "Alpha Project", "beta-project": "Beta Project"]
         for mode in [AppColorScheme.light, .dark] {
             CicadaTheme.mode = mode
             let name = mode == .dark ? "dark" : "light"
-            let board = LooksBoardView(refs: refs, total: refs.count, phase: .loaded, vision: vision, searching: false,
-                                       searchNote: nil, query: .constant(""), open: nil, detail: nil, writeError: nil,
-                                       tile: tile)
-                .background(CicadaTheme.bgBase)
-            try snapshot(board, size: CGSize(width: 1180, height: 760), mode: mode,
-                         to: URL(fileURLWithPath: dir).appendingPathComponent("looks-board-\(name).png"))
-            let opened = LooksBoardView(refs: refs, total: refs.count, phase: .loaded,
-                                        vision: DesignVision(supported: true, installed: true), searching: true,
-                                        searchNote: nil, query: .constant("dark dashboard"), open: open, detail: detail,
-                                        writeError: nil, tile: tile)
-                .background(CicadaTheme.bgBase)
-            try snapshot(opened, size: CGSize(width: 1180, height: 900), mode: mode,
-                         to: URL(fileURLWithPath: dir).appendingPathComponent("looks-open-\(name).png"))
+            // A page with looks: its tiles, then the ways to add one (a link, a drop, a saved look on no page).
+            let section = PageLooksBlock(refs: Array(refs.prefix(2)), unplaced: Array(refs.suffix(2)),
+                                         entityId: "alpha-project", tile: tile, emptyOpen: .constant(false),
+                                         onOpen: { _ in })
+                .padding(32).frame(width: 760, alignment: .topLeading).background(CicadaTheme.bgBase)
+            try snapshot(section, size: CGSize(width: 760, height: 420), mode: mode,
+                         to: URL(fileURLWithPath: dir).appendingPathComponent("page-looks-\(name).png"))
+            // A page with none: the remembered disclosure, opened.
+            let empty = PageLooksBlock(refs: [], unplaced: Array(refs.suffix(2)), entityId: "gamma-project",
+                                       tile: tile, emptyOpen: .constant(true), onOpen: { _ in })
+                .padding(32).frame(width: 760, alignment: .topLeading).background(CicadaTheme.bgBase)
+            try snapshot(empty, size: CGSize(width: 760, height: 180), mode: mode,
+                         to: URL(fileURLWithPath: dir).appendingPathComponent("page-looks-empty-\(name).png"))
+            // A look opened large from its page: the detail, the looks like it (each saying its page), Take it off.
+            let extra = PageLookExtra(similar: Array(refs.prefix(3)), names: names, onPage: true, tile: tile,
+                                      onOpenPage: { _ in }, onTakeOff: {})
+            let sheet = LooksDetailColumn(summary: open, detail: detail, image: tile(open), onClose: {}, onRemove: {},
+                                          extra: AnyView(extra))
+            try snapshot(sheet, size: CGSize(width: 760, height: 1500), mode: mode,
+                         to: URL(fileURLWithPath: dir).appendingPathComponent("page-look-open-\(name).png"))
             var zoom = LooksZoom()
             zoom.present(open.id, from: .zero, style: .instant)
             let enlarged = LooksZoomOverlay(zoom: zoom, summary: open, onClose: { _ in })
             try snapshot(enlarged, size: CGSize(width: 1180, height: 760), mode: mode,
                          to: URL(fileURLWithPath: dir).appendingPathComponent("looks-enlarged-\(name).png"))
-            let empty = LooksBoardView(refs: [], total: 0, phase: .loaded, vision: vision, searching: false,
-                                       searchNote: nil, query: .constant(""), open: nil, detail: nil, writeError: nil,
-                                       tile: tile)
-                .background(CicadaTheme.bgBase)
-            try snapshot(empty, size: CGSize(width: 1000, height: 520), mode: mode,
-                         to: URL(fileURLWithPath: dir).appendingPathComponent("looks-empty-\(name).png"))
-            let composer = LooksComposer(input: LooksComposerInput(image: images[refs[3].id]!, data: Data(), ext: "png",
-                                                                   via: "paste"),
-                                         saving: false, error: nil, onCancel: {}, onFindSimilar: { _ in },
-                                         onSave: { _ in })
-            try snapshot(composer, size: CGSize(width: 460, height: 560), mode: mode,
-                         to: URL(fileURLWithPath: dir).appendingPathComponent("looks-composer-\(name).png"))
-            // A hosting view's capture cannot draw Liquid Glass (the window server composites it), so the actions row —
-            // whose Save is the glass-prominent primary — is also rendered through SwiftUI's own renderer.
-            let actions = LooksComposerActions(saving: false, onCancel: {}, onFindSimilar: {}, onSave: {})
-                .frame(width: 412).padding(24).background(CicadaTheme.bgPane)
-                .environment(\.colorScheme, mode == .dark ? .dark : .light)
-            let renderer = ImageRenderer(content: actions)
-            renderer.scale = 2
-            let tiff = try XCTUnwrap(renderer.nsImage?.tiffRepresentation)
-            let png = try XCTUnwrap(NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]))
-            try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("looks-composer-actions-\(name).png"))
+            // Clusters' Looks tab: every look, each saying the page it is on (one on none).
+            let gallery = LooksGallery(refs: refs, total: refs.count, phase: .loaded, names: names, searching: false,
+                                       note: nil, query: .constant(""), tile: tile)
+                .padding(.top, 24).background(CicadaTheme.bgBase)
+            try snapshot(gallery, size: CGSize(width: 1180, height: 760), mode: mode,
+                         to: URL(fileURLWithPath: dir).appendingPathComponent("clusters-looks-\(name).png"))
+            // The sheet's own part: the person's words, put it on a page, the similar looks.
+            let words = VStack(alignment: .leading, spacing: 24) {
+                PageLookEdit(summary: open, detail: detail, onSave: { _, _, _ in })
+                PageLookPlace(onPage: true, rank: { _ in [] }, onPlace: { _ in })
+            }
+            .padding(32).frame(width: 760, alignment: .topLeading).background(CicadaTheme.bgPane)
+            try snapshot(words, size: CGSize(width: 760, height: 420), mode: mode,
+                         to: URL(fileURLWithPath: dir).appendingPathComponent("page-look-words-\(name).png"))
+            // Clusters' View menu with the new filter on.
+            let menu = ClustersViewMenu(types: .constant(Set(EntityType.selectableCases)), labels: .constant([]),
+                                        labelCounts: [("design", 3), ("work", 2)], typeCounts: [.project: 4, .tool: 2],
+                                        expandAll: .constant(false), onlyWithLooks: .constant(true), looksCount: 2)
+            try snapshot(menu, size: CGSize(width: 260, height: 600), mode: mode,
+                         to: URL(fileURLWithPath: dir).appendingPathComponent("clusters-view-menu-looks-\(name).png"))
         }
     }
 }

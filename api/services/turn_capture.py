@@ -41,6 +41,7 @@ equally fine). No LLM anywhere.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -61,6 +62,23 @@ SPEAKERS = ("user", "assistant")
 #: cleaned turn keeps (16k / 2k), so code stripped before the cap still leaves
 #: the words; a bound on the request, not a budget.
 TEXT_MAX_CHARS = 256 * 1024
+#: Ruling 32: a turn relayed by a hookless app's model through the remote connector. The episode records the
+#: channel under this key, and declares ``evidence_kind: assistant`` — the person's words reached Cicada through a
+#: model that may paraphrase, so they are never counted as the person's own (promotion, ruling-29 settling) until an
+#: export of the same conversation upgrades the episode (``episode_staging``).
+RELAY_KEY = "relay"
+#: The shortest first message an export may be matched on: below this, two conversations could share it.
+RELAY_MATCH_MIN = 24
+
+
+def relay_match_key(text: str | None) -> str | None:
+    """What a relayed conversation and its export are matched on: the cleaned first person message, case-folded,
+    letters and digits only, its first 400 — a model relaying "verbatim" may still move spaces or punctuation. ``None``
+    for a message too short to tell two conversations apart."""
+    folded = re.sub(r"[\W_]+", "", (text or "").casefold())[:400]
+    if len(folded) < RELAY_MATCH_MIN:
+        return None
+    return hashlib.sha256(folded.encode("utf-8")).hexdigest()[:16]
 
 
 @dataclass
@@ -238,8 +256,15 @@ def capture_turns(
     bank: str | None = None,
     bank_paths: tuple | None = None,
     hook_event: str | None = None,
+    relay: dict | None = None,
+    utc_offset_minutes: int | None = None,
 ) -> tc.CaptureResult:
     """Merge the posted turns into the session's one episode and write it.
+
+    ``relay`` (ruling 32) marks turns a hookless app's model relayed through the remote connector: ``{app,
+    connector, channel}``. Any catalog harness is then accepted, the episode carries the channel and
+    ``evidence_kind: assistant``, and an episode an export already upgraded is left alone (``upgraded``).
+    ``utc_offset_minutes`` (ruling 34): a client's UTC offset, so a new episode's id carries the person's day.
 
     ``status`` is ``transcript_capture``'s vocabulary: ``refused`` (a demo bank,
     a bad harness, session or turn id, or ``state_mismatch``; nothing written),
@@ -247,7 +272,7 @@ def capture_turns(
     ``created``, ``updated`` (re-queued for Sleep), ``unchanged``, ``metadata``."""
     if demo_guard.is_demo(memory_path):
         return _refuse(harness, session_id, bank, "demo_bank", hook_event)
-    if harness not in HARNESSES:
+    if harness not in HARNESSES and relay is None:
         return _refuse(harness, session_id, bank, "bad_harness", hook_event)
     sid = (session_id or "").strip()
     if not tc._SESSION_ID_RE.match(sid):
@@ -265,6 +290,9 @@ def capture_turns(
     with tc._lock, episode_ids.episode_lock(episodes_dir):
         existing = tc._find_session_episode(episodes_dir, harness, sid)
         stored = markdown_parser.parse(existing) if existing is not None else None
+        if relay is not None and stored is not None and isinstance(stored.frontmatter.get(RELAY_KEY), dict) \
+                and stored.frontmatter[RELAY_KEY].get("upgraded_at"):
+            return tc.CaptureResult("upgraded", str(stored.frontmatter.get("id") or existing.stem), 0, 0, {})
         if stored is not None:
             state = _load(stored)
             if state is None:
@@ -293,7 +321,14 @@ def capture_turns(
                 "first_request_clipped": counts["first_request_clipped"],
             },
         )
+        extra: dict = {STATE_KEY: _entries(conv, ids)}
+        if relay is not None:
+            first = next((t.text for t in kept if t.role == "user"), None)
+            extra = {"evidence_kind": "assistant",
+                     RELAY_KEY: {**{k: v for k, v in relay.items() if v is not None},
+                                 "first": relay_match_key(first)},
+                     **extra}
         return tc.write_session(memory_path, harness=harness, session_id=sid, conv=conv, existing=existing,
                                 cwd=cwd, bank=bank, effort=None, bank_paths=bank_paths if use_registry else None,
                                 hook_event=hook_event, registry_workspace=registry_workspace,
-                                extra={STATE_KEY: _entries(conv, ids)}, stored=stored)
+                                extra=extra, stored=stored, utc_offset_minutes=utc_offset_minutes)

@@ -193,10 +193,11 @@ async def rename_bank(
             code = 400
         raise HTTPException(code, msg)
     if not legacy and slug != name:
-        # Kept LinkedIn connections are keyed by the bank's folder, which a non-legacy rename moves.
-        from api.services import linkedin_people
+        # The people directory (kept LinkedIn connections, Contacts' waiting cards) is keyed by the bank's folder, which a
+        # non-legacy rename moves.
+        from api.services import people_directory
 
-        linkedin_people.rename(name, slug)
+        people_directory.rename(name, slug)
     logger.info(f"Renamed bank '{name}' -> '{slug}'")
     data = bank_registry.list_banks(settings.memory_root)
     return BankListResponse(
@@ -231,10 +232,11 @@ async def delete_bank(name: str, settings: Settings = Depends(get_settings)) -> 
     except ValueError as exc:
         # The same bank already sits in the trash under this second's stamp.
         raise HTTPException(409, str(exc))
-    # The bank's kept LinkedIn connections (outside every bank) go with it: names never outlive their bank.
-    from api.services import linkedin_people
+    # The bank's people directory (kept LinkedIn connections, Contacts' waiting cards — outside every bank) goes with
+    # it: names never outlive their bank.
+    from api.services import people_directory
 
-    linkedin_people.forget(name)
+    people_directory.forget(name)
     logger.info(f"Moved bank '{name}' to the trash")
     data = bank_registry.list_banks(root)
     return BankTrashResponse(

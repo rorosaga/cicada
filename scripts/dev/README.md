@@ -62,6 +62,22 @@ error or an unreadable answer means a busy backend, so it defers too.
 `CICADA_AUTOUPDATE_FORCE=1` skips the check. The backend restarts only when runtime code moved (`api` outside
 `api/tests`, `mcp`, the dependency files); a test-only or benchmark-only merge never restarts it.
 
+## The auto-updater on a Linux server (G181)
+
+`scripts/dev/install-auto-update.sh` on Linux writes a systemd **user** timer instead of the launchd job:
+`cicada-dev-autoupdate.timer` (`OnCalendar=*:0/5`, `Persistent=true`, so a mark the machine was off through runs once at
+boot) starts the oneshot `cicada-dev-autoupdate.service`, which runs `auto-update.sh` with uv's folder on its `PATH`.
+The installer starts one run at once (launchd's `RunAtLoad`); `--uninstall` disables and removes both units.
+`SYSTEMD_USER_DIR` overrides the unit folder, as for `install-backend-service.sh`. The job's own output goes to
+`logs/auto-update.systemd.log`; what it did goes to `logs/auto-update.log`, as on a Mac.
+
+`auto-update.sh` keeps every guard (on `dev`, no tracked changes, fast-forward only, waits out Sleep, the installed
+stamp). On Linux it then restarts the systemd user unit `scripts/install-backend-service.sh` installs
+(`cicada-backend.service`, or `CICADA_BACKEND_UNIT`) when runtime code moved and the unit exists; re-syncs the venv in
+its own shape when the lock moved — `scripts/sync-server-env.sh` for a server venv (no sentence-transformers), `uv
+sync` for a full one; and moves the stamp, since there is no app to build or sign — only when the sync and the restart both worked, so a failure is retried on the next tick (a failed sync also skips the restart: new code on old dependencies is not started). It asks `/sleep/status` on the port and `CICADA_HOME` the backend unit itself names (`--port N`, `Environment=CICADA_HOME=`), so a server on another port is never restarted under a running Sleep; `CICADA_PORT`/`CICADA_HOME` in the job's environment still win. A user timer stops at logout unless
+lingering is on (`sudo loginctl enable-linger <user>`, the person's step).
+
 ## Install tests in Docker (G181)
 
 - `scripts/dev/test-install-linux.sh [ubuntu|fedora]` — the one-line Linux install (`scripts/install-server.sh`) on

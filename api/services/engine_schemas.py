@@ -90,8 +90,18 @@ def extraction_schema(*, strict: bool) -> dict:
 
 
 def disambiguation_schema(*, strict: bool) -> dict:
-    """The Codex twin of ``agent_engine.SCHEMA_BY_STAGE["disambiguation"]``
-    (which stays the literal V1b verified for Claude)."""
-    decision = {"type": "string", "enum": ["same", "different", "unsure"]}
+    """The Codex twin of ``agent_engine.SCHEMA_BY_STAGE["disambiguation"]`` (a literal there): a one-pair
+    ``decision`` or a batch's ``decisions``."""
+    words = ["same", "different", "unsure"]
+    decision = {"type": "string", "enum": words}
     reason = {"type": ["string", "null"]} if strict else {"type": "string"}
-    return _object({"decision": decision, "reason": reason}, ["decision"], strict=strict)
+    # Several candidates in one call (2026-10-20, `entity_resolver._llm_judge_batch`): a decision per entry. A
+    # one-pair answer leaves `decisions` null, a batch answer `decision`; strict mode needs every key, so both are
+    # nullable there.
+    row = _object({"entry": {"type": "integer"}, "decision": decision, "reason": reason}, ["entry", "decision"],
+                  strict=strict)
+    if strict:
+        return _object({"decision": {"type": ["string", "null"], "enum": [*words, None]}, "reason": reason,
+                        "decisions": {"type": ["array", "null"], "items": row}}, [], strict=True)
+    return _object({"decision": decision, "reason": reason, "decisions": {"type": "array", "items": row}}, [],
+                   strict=False)

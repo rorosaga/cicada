@@ -21,6 +21,8 @@ Cicada never fetches the video itself.
 `cicada_add_source` is not open-world: it only records a reference (G61 phase 2 S1).
 `cicada_change_source` (G61 S3-a) corrects or removes only an entry this connection added; a removal is a mark
 in the page and a commit, so it stays history and is not `destructive`.
+`cicada_capture_turns` (record, ruling 32) is capture for an app with no hook: idempotent (a re-sent turn changes
+nothing) and not destructive; it is a write, so an app that confirms writes asks — the person can allow it always.
 `cicada_reading_queue` (read) and `cicada_record_read` (record) are G166's: the person's own agent reads a
 page in their signed-in session, and Cicada records what it reported. Neither description names the other
 (different scopes), so a connection holding only one is never told about an absent tool.
@@ -98,6 +100,16 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
           {"content": {"type": "string", "description": "What to keep, in plain words."},
            "title": {"type": "string", "description": "A short title."}},
           ("content",), read_only=False, idempotent=True),
+    _tool("cicada_capture_turns",
+          "Keep this conversation in the person's memory as it happens. Call it on EVERY turn, before you answer: "
+          "`message` is the person's message exactly as they wrote it (never a summary), `previous_reply` is your "
+          "own previous reply exactly as you gave it (omit it on the first turn). Pass the `conversation` handle "
+          "from cicada_handshake so the whole conversation stays one record. Re-sending a turn changes nothing. "
+          "Cicada stores what you relay as relayed by this app, not as the person's own words.",
+          {"message": {"type": "string", "description": "The person's message this turn, word for word."},
+           "previous_reply": {"type": "string",
+                              "description": "Your previous reply, word for word. Omit on the first turn."}},
+          ("message",), read_only=False, idempotent=True),
     _tool("cicada_write_claim",
           "Record one fact as subject – predicate – object, marked as coming from this app. Use observer "
           "'agent' when you inferred it and 'external' when someone other than the person said it; a remote "
@@ -216,7 +228,9 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
                       "enum": ["captions", "video_link", "local_frames", "speech_to_text", "browser", "other"],
                       "description": "Optional: which route you took."},
            "duration": {"type": "string",
-                        "description": "Optional: the video's length (m:ss, h:mm:ss or seconds); kept only if the page has none."}},
+                        "description": "Optional: the video's length (m:ss, h:mm:ss or seconds); kept only if the page has none."},
+           "lease_token": {"type": "string",
+                           "description": "Optional: the lease_token cicada_video_claim gave you for this video."}},
           ("url", "summary"), read_only=False, idempotent=True, open_world=True),
     _tool("cicada_video_queue",
           "The person's video queue, read-only: the saved videos they asked an agent to read or watch, and "
@@ -227,13 +241,16 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
     _tool("cicada_video_claim",
           "Take the videos the person asked to have read or watched: with no `release`, leases the oldest "
           "queued ones to this conversation (up to `limit`, default 5, at most 10 a call) and returns each "
-          "link with what is wanted. Call it again until it returns nothing. With `release`, hands videos back "
-          "that you could not do, with a code and a short reason. It changes only the person's queue, not "
-          "their memory.",
+          "link with what is wanted and its `lease_token`. Call it again until it returns nothing. With "
+          "`release`, hands videos back that you could not do, each with its `lease_token`, a code and a short "
+          "reason; without the token it is not yours to hand back and the lease ends on its own. It changes only "
+          "the person's queue, not their memory.",
           {"limit": {"type": "integer", "description": "Optional: how many to take (default 5, at most 10)."},
            "release": {"type": "array", "description": "Optional: videos to hand back instead of taking more.",
                        "items": {"type": "object", "required": ["url"], "properties": {
                            "url": {"type": "string", "description": "The video's link as leased."},
+                           "lease_token": {"type": "string",
+                                           "description": "The lease_token cicada_video_claim gave you for this video."},
                            "code": {"type": "string",
                                     "enum": ["needs_login", "no_captions", "not_found", "blocked", "failed"],
                                     "description": "Why it could not be done; needs_login when a sign-in stops you."},

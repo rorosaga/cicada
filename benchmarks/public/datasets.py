@@ -141,7 +141,7 @@ def locomo_units(path: Path) -> list[dict]:
                 "date": start.isoformat(),
                 "title": f"Conversation with {b} · session {n}",
                 "turns": [{"speaker": "user" if t.get("speaker") == a else "other",
-                           "text": _locomo_text(t),
+                           "text": _locomo_text(t), "dia_id": str(t.get("dia_id") or ""),
                            "ts": (start + timedelta(seconds=30 * i)).isoformat()}
                           for i, t in enumerate(turns) if _locomo_text(t)],
             })
@@ -191,7 +191,7 @@ def longmemeval_units(path: Path, variant: str) -> list[dict]:
         for sid, when, turns in zip(item["haystack_session_ids"], item["haystack_dates"], item["haystack_sessions"]):
             start = lme_time(when)
             rows = [{"speaker": "user" if t.get("role") == "user" else "assistant",
-                     "text": str(t.get("content") or "").strip(),
+                     "text": str(t.get("content") or "").strip(), "has_answer": bool(t.get("has_answer")),
                      "ts": (start + timedelta(seconds=30 * i)).isoformat()}
                     for i, t in enumerate(turns) if str(t.get("content") or "").strip()]
             if rows:
@@ -218,6 +218,53 @@ def load_units(name: str, cache: Path) -> list[dict]:
     if name.startswith("longmemeval-"):
         return longmemeval_units(path, name.split("-", 1)[1])
     raise ValueError(f"unknown dataset {name}")
+
+
+def apply_questions(units: list[dict], fixture: dict, lang: str = "") -> list[dict]:
+    """A question fixture (``benchmarks/public/fixtures/*.json``: ``{"lang", "questions": {qid: {lang: text, …}}}``):
+    each unit keeps only the fixture's questions, worded in ``lang`` (default: the fixture's own), every category
+    included. A unit with none is dropped. Gold answers and evidence stay the dataset's own."""
+    lang = lang or str(fixture.get("lang") or "en")
+    wanted = fixture.get("questions") or {}
+    out = []
+    for unit in units:
+        qs = []
+        for q in unit["questions"]:
+            entry = wanted.get(q["qid"])
+            if entry is None:
+                continue
+            if lang not in entry:
+                raise ValueError(f"question fixture has no {lang!r} wording for {q['qid']}")
+            qs.append({**q, "question": str(entry[lang]), "lang": lang})
+        if qs:
+            out.append({**unit, "questions": qs})
+    return out
+
+
+def apply_turns(units: list[dict], fixture: dict) -> list[dict]:
+    """A turn fixture (``benchmarks/public/fixtures/*-turns.json``: ``{"lang", "turns": {unit_id: {session number:
+    {turn index: text}}}}``): those turns reworded — e.g. translated, to ask a question over conversations held in
+    another language — every other turn as the dataset has it. Sessions keep their ids, days and speakers, and each
+    turn its dialogue id, so the evidence still names the (reworded) answer turns. A turn index past the session is an
+    error, never a silent skip."""
+    wanted = fixture.get("turns") or {}
+    out = []
+    for unit in units:
+        mine = wanted.get(unit["unit_id"]) or {}
+        if not mine:
+            out.append(unit)
+            continue
+        sessions = []
+        for s in unit["sessions"]:
+            reworded = mine.get(s["source_id"].rsplit("-", 1)[-1]) or {}
+            turns = [dict(t) for t in s["turns"]]
+            for i, text in reworded.items():
+                if not 0 <= int(i) < len(turns):
+                    raise ValueError(f"turn fixture: {unit['unit_id']} {s['source_id']} has no turn {i}")
+                turns[int(i)]["text"] = str(text)
+            sessions.append({**s, "turns": turns})
+        out.append({**unit, "sessions": sessions})
+    return out
 
 
 def select(units: list[dict], *, units_limit: int | None = None, only: list[str] | None = None,

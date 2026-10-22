@@ -5,11 +5,11 @@ from __future__ import annotations
 
 import re
 
-from _demo_scenario import T, d, day_one, demo
+from _demo_scenario import T, build, d, day_one, demo
 from fastapi.testclient import TestClient
 
 from api import config, main
-from api.services import bank_index, bank_registry, claim_contexts, demo_bank, demo_showcase, markdown_parser
+from api.services import bank_index, claim_contexts, demo_showcase, markdown_parser
 from api.services.claims import parse_claims
 
 _URL = re.compile(r"https?://[^\s)\"'>\]]+")
@@ -27,9 +27,7 @@ def _client(tmp_path, monkeypatch):
 
 
 def test_populate_writes_the_expected_counts(tmp_path):
-    bank_dir = tmp_path / "demo"
-    bank_registry.scaffold_bank(bank_dir)
-    demo_bank.populate(bank_dir)
+    bank_dir = demo(tmp_path, index=False, showcase=True, today=None)   # `populate` with every step, on the real day
     assert len(list((bank_dir / "entities").glob("*.md"))) >= 60
     assert len(list((bank_dir / "episodes").glob("*.md"))) >= 40
     # PJ-6: the quiet camera thread's follow-up (spec §12), deliberately; then round 4's showcase adds the three kinds
@@ -40,9 +38,7 @@ def test_populate_writes_the_expected_counts(tmp_path):
 
 
 def test_populate_is_only_placeholder_names(tmp_path):
-    bank_dir = tmp_path / "demo"
-    bank_registry.scaffold_bank(bank_dir)
-    demo_bank.populate(bank_dir)
+    bank_dir = demo(tmp_path, index=False, showcase=True, today=None)   # `populate` with every step, on the real day
     text = "\n".join(p.read_text() for p in bank_dir.rglob("*.md"))
     urls = _URL.findall(text)
     # EVERY url (spec §12) — or one of the showcase's four public items, each with its licence (round 4 T-Demo).
@@ -83,7 +79,7 @@ def test_expiry_closed_the_two_past_dues_in_its_own_commit(tmp_path):
 
 
 def test_a_pinned_today_is_deterministic(tmp_path):
-    a, b = demo(tmp_path / "a", index=False), demo(tmp_path / "b", index=False)
+    a, b = build(tmp_path / "a", index=False), build(tmp_path / "b", index=False)   # two generations, never a copy
     for sub in ("entities", "episodes"):
         for p in sorted((a / sub).glob("*.md")):
             if p.stem == "bob-example":
@@ -99,9 +95,7 @@ def test_populate_writes_real_git_history_with_trailers(tmp_path):
     rather than one big untrailered commit."""
     import subprocess
 
-    bank_dir = tmp_path / "demo"
-    bank_registry.scaffold_bank(bank_dir)
-    demo_bank.populate(bank_dir)
+    bank_dir = demo(tmp_path, index=False, showcase=True, today=None)   # `populate` with every step, on the real day
     log = subprocess.run(
         ["git", "-C", str(bank_dir), "log", "--format=%B---END---"],
         check=True, capture_output=True, text=True,
@@ -171,10 +165,7 @@ def test_populate_gives_the_works_at_conflict_a_person_added_source(tmp_path):
 
     from api.services import inbox_service
 
-    bank_dir = tmp_path / "demo"
-    bank_registry.scaffold_bank(bank_dir)
-    demo_bank.populate(bank_dir)
-    bank_index.invalidate()
+    bank_dir = demo(tmp_path, index=False, showcase=True, today=None)   # `populate` with every step, on the real day
     items = {i.id: i for i in inbox_service.load_inbox(bank_dir)}
     assert items["inbox-003"].hint == "You said https://example.com/dana-example/team is where to check this"
     log = subprocess.run(["git", "-C", str(bank_dir), "log", "-1", "--format=%B", "--",

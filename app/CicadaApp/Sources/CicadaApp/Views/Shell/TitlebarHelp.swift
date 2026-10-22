@@ -20,7 +20,6 @@ enum HelpContent: Equatable {
     case clusters
     case sources
     case projects
-    case looks
     case skills
 
     static func page(_ tab: AppTab) -> HelpContent {
@@ -31,7 +30,6 @@ enum HelpContent: Equatable {
         case .clusters: .clusters
         case .sources: .sources
         case .projects: .projects
-        case .looks: .looks
         case .skills: .skills
         default: .aboutCicada
         }
@@ -58,7 +56,6 @@ struct TitlebarHelpButton: View {
                     case .clusters: ListHelpPopover(page: ListHelp.clusters)
                     case .sources: ListHelpPopover(page: ListHelp.sources)
                     case .projects: ListHelpPopover(page: ListHelp.projects)
-                    case .looks: ListHelpPopover(page: ListHelp.looks)
                     case .skills: ListHelpPopover(page: ListHelp.skills)
                     }
                     // G152 — every page's `?` replays the tour; the closure is built here, where the environment is.
@@ -120,7 +117,8 @@ enum ListHelp {
 
     static let clusters = Page(
         title: "How Clusters works",
-        subtitle: "Every entity, grouped by type. Pick a type, open a card, then follow a belief to the conversation it came from.",
+        subtitle: "Every entity, grouped by type. Pick a type, open a card, then follow a belief to the conversation it "
+            + "came from. View narrows to the pages that show a look you saved; a page's looks sit on its card.",
         keys: [
             .init(key: "⌘F", does: "Find on this page"),
             .init(key: "↑ ↓", does: "Move through the list"),
@@ -137,16 +135,6 @@ enum ListHelp {
             + "can ask, or write a skill for you to publish.",
         keys: [
             .init(key: "⌘K", does: "Go to Skills from anywhere"),
-        ])
-
-    static let looks = Page(
-        title: "How Looks works",
-        subtitle: "Screenshots of sites whose look you like, with what you liked and their colours. Drop or paste one "
-            + "to save it, or to find the looks like it; your agents search the same board before they build.",
-        keys: [
-            .init(key: "⌘V", does: "Paste a screenshot"),
-            .init(key: "⏎", does: "Search by the words in the field"),
-            .init(key: "Esc", does: "Close the open look"),
         ])
 
     /// The Sleep page's lists (the Feed's keys until it folded into Sleep, 2026-10-16) — drawn under "How Cicada
@@ -228,17 +216,17 @@ struct AboutCicadaPopover: View {
 
             HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
                 Image(systemName: "antenna.radiowaves.left.and.right")
-                    .font(CicadaTheme.font(size: 14))
+                    .font(CicadaTheme.icon(.list))
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .frame(width: 20)
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                     Text("Capture")
                         .font(CicadaTheme.font(size: 13, weight: .semibold))
                         .foregroundStyle(CicadaTheme.textPrimary)
 
                     Text(Copy.aboutCicadaCapture)
-                        .font(CicadaTheme.font(size: 11))
+                        .font(CicadaTheme.captionFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -246,18 +234,18 @@ struct AboutCicadaPopover: View {
 
             HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
                 Image(systemName: "moon.fill")
-                    .font(CicadaTheme.font(size: 14))
+                    .font(CicadaTheme.icon(.list))
                     // DR-5: the accent is never decorative.
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .frame(width: 20)
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                     Text("Sleep")
                         .font(CicadaTheme.font(size: 13, weight: .semibold))
                         .foregroundStyle(CicadaTheme.textPrimary)
 
                     Text(Copy.aboutCicadaSleep)
-                        .font(CicadaTheme.font(size: 11))
+                        .font(CicadaTheme.captionFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }

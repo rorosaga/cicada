@@ -38,7 +38,7 @@ struct KeepRunningPage: View {
             }
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 HStack {
-                    Text(Copy.keepMemoryWorking).font(CicadaTheme.font(size: 13, weight: .medium))
+                    Text(Copy.keepMemoryWorking).font(CicadaTheme.rowFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                     Spacer()
                     BackgroundServiceButton()
@@ -66,7 +66,7 @@ struct KeepRunningPage: View {
             Image(systemName: symbol).foregroundStyle(CicadaTheme.textSecondary)
                 .frame(width: CicadaTheme.scaled(20))
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                Text(title).font(CicadaTheme.font(size: 13, weight: .medium)).foregroundStyle(CicadaTheme.textPrimary)
+                Text(title).font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.textPrimary)
                 Text(detail).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

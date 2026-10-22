@@ -132,6 +132,7 @@ def test_a_held_registry_lock_never_costs_the_answer(client, bank, monkeypatch):
     assert row.refs["rendering"] == "pointer"
 
 
+@pytest.mark.bench   # a wall-clock budget with 1.2 s of real sleeps: `make test-bench`
 def test_a_slow_registry_still_answers_within_the_budget(client, bank, monkeypatch):  # noqa: F811
     real = continuity_sessions._write
 
@@ -142,9 +143,52 @@ def test_a_slow_registry_still_answers_within_the_budget(client, bank, monkeypat
     monkeypatch.setattr(continuity_sessions, "_write", slow)
     data = _start(client)
     assert data["latencyMs"] <= hook_recall.PRIMER_BUDGET_S * 1000 + 50
-    assert data["reason"] == "timeout"
-    time.sleep(1.5)                               # the late write lands, monotonically
-    assert _row(bank)["started_at"]
+
+
+def _eventually(check, within=3.0):
+    stop = time.monotonic() + within
+    while not check() and time.monotonic() < stop:
+        time.sleep(0.05)
+    return check()
+
+
+def test_a_slow_registry_answers_timeout_and_its_late_write_still_lands(client, bank, monkeypatch):  # noqa: F811
+    """The behaviour the bench test above times, on a shortened budget so the default run stays fast (#353 note)."""
+    real = continuity_sessions._write
+
+    def slow(path, rows):
+        time.sleep(0.3)
+        real(path, rows)
+
+    monkeypatch.setattr(hook_recall, "PRIMER_BUDGET_S", 0.15)
+    monkeypatch.setattr(continuity_sessions, "_write", slow)
+    data = _start(client)
+    assert data["reason"] == "timeout" and data["additionalContext"] is None
+    assert _eventually(lambda: (_row(bank) or {}).get("started_at")), "the late write lands, monotonically"
+
+
+def test_near_the_deadline_with_a_held_lock_there_is_no_partial_note(client, bank, monkeypatch):  # noqa: F811
+    """`test_continuity_route_latency.py` times this at the critic's scale; here, the answer itself: assembly that
+    runs past the deadline while the registry lock is held gives no note at all, never a partial one."""
+    write_session(bank, 1, A_TURNS)
+    real = continuity.assemble
+
+    def slow(*a, **k):
+        time.sleep(0.25)
+        return real(*a, **k)
+
+    monkeypatch.setattr(hook_recall, "PRIMER_BUDGET_S", 0.2)
+    monkeypatch.setattr(continuity, "assemble", slow)
+    continuity_sessions.apply(bank, bank_paths=(bank,), harness="claude-code", session_id=sid(5),
+                              events={"started_at": "2026-10-01T00:00:00+00:00"}, deadline=None)
+    home = continuity_sessions.continuity_home((bank,))
+    fd = os.open(home / f"{continuity_sessions.bank_file_id(bank)}.lock", os.O_RDWR)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    try:
+        data = _start(client, session=sid(90))
+    finally:
+        os.close(fd)
+    assert data["additionalContext"] is None and data["reason"] == "timeout"
 
 
 def test_the_capture_bank_is_resolved_once_per_request(client, bank, monkeypatch):  # noqa: F811

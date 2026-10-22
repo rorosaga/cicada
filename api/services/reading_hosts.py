@@ -341,6 +341,14 @@ def site_label(site: str) -> str:
     return HOST_LABELS.get(site, site)
 
 
+def mark_key(url_or_host: str) -> str | None:
+    """The one key a saved thing's site mark is drawn under (owner 2026-10-20: every surface draws a saved link with
+    its own site's mark): ``site_of`` when it is a valid site key, else None. A name the app keys its icon cache and
+    its bundled family mark by — the icon itself is always asked by the item's id, never by this name."""
+    site = site_of(url_or_host or "")
+    return site if valid_site_key(site) else None
+
+
 def valid_site_key(key: str) -> bool:
     """A site key a permission may be stored under: a plain lower-case host-like
     name, and never the never-offered host."""

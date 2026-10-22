@@ -10,6 +10,11 @@ a stdio process on the server would.
 What stays on this machine is only what lives here: a picture or screenshot an agent saved is read here and sent as
 base64 (the server never opens a path a client names), and ``cicada_repo_context`` probes git here, where the
 repository is.
+
+Two things ride on a call that answered (G202, the 2026-10-22 two-device test): the captures this machine's hooks left
+waiting for that server are sent in the background (D3, ``hook_client.flush_waiting``), and when the server or its
+bank is not the one the previous call reached — the app moved ``api_base`` while this session ran — the reply says so
+once, in one line (D7, :func:`where_changed`), so an agent never switches memories without being told.
 """
 from __future__ import annotations
 
@@ -17,7 +22,9 @@ import base64
 import json
 import os
 import socket
+import threading
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from api.services import runtime_layout
 
@@ -140,7 +147,67 @@ def call(tool: str, arguments: dict, *, caller: dict, state: dict, surface: str 
         raise ToolClientError("Cicada's server answered something that is not JSON.") from None
     if not isinstance(answer, dict):
         raise ToolClientError("Cicada's server answered something unexpected.")
+    _flush_spool_soon(environ)
+    bank = answer.get("bank") if isinstance(answer.get("bank"), str) else ""
+    ident = answer.get("bankId") if isinstance(answer.get("bankId"), str) else ""
+    notice = where_changed((host_of(base), bank, ident or bank))
+    if notice and isinstance(answer.get("text"), str):
+        answer["text"] = f"{notice}\n\n{answer['text']}"
     return answer
+
+
+def host_of(base: str) -> str:
+    """What may be said about a server: its host, with its port when it has one — never a path or a token."""
+    try:
+        parts = urlsplit(base)
+        host = parts.hostname or ""
+        return f"{host}:{parts.port}" if host and parts.port else host or "the server"
+    except ValueError:
+        return "the server"
+
+
+#: This MCP session's memory as of its last call: ``(where, bank name, identity)`` — where is a server's host or
+#: :data:`THIS_MACHINE`. Per process, so per conversation; a `cicada` command is one call and never sees a switch.
+_LAST_WHERE: tuple[str, str, str] | None = None
+_WHERE_LOCK = threading.Lock()
+THIS_MACHINE = "this machine"
+
+
+def where_changed(where: tuple[str, str, str]) -> str | None:
+    """D7 (G202): one line when this call's memory is not the previous call's — another server, or another bank on it
+    (compared by id when the server gives one) — else None. The first call says nothing: the handshake named it."""
+    global _LAST_WHERE
+    with _WHERE_LOCK:
+        before, _LAST_WHERE = _LAST_WHERE, where
+    if before is None or (before[0], before[2]) == (where[0], where[2]):
+        return None
+
+    def label(w: tuple[str, str, str]) -> str:
+        return f"{w[0]}/{w[1]}" if w[1] else w[0]
+
+    return (f"Cicada: memory now comes from {label(where)}, not {label(before)} — what you recalled earlier in "
+            "this conversation came from the other one.")
+
+
+def _flush_spool_soon(environ) -> None:
+    """D3 (G202): the server just answered, so what the hooks left waiting for it goes now, in the background — the
+    reply never waits on it. One flusher at a time (``hook_spool``'s lock); never raises."""
+    try:
+        from api.hooks import hook_client
+
+        home = runtime_layout.cicada_home(environ)
+        if not hook_client.spool_module().pending(home):
+            return
+    except Exception:  # noqa: BLE001
+        return
+
+    def run():
+        try:
+            hook_client.flush_waiting(home, environ, surface="mcp")
+        except Exception:  # noqa: BLE001 - a flush is never worth a failed tool call
+            pass
+
+    threading.Thread(target=run, name="cicada-spool-flush", daemon=True).start()
 
 
 NOT_REACHED_TEXT = ("Cicada's server could not be reached. Nothing was read or written; try again when it is "

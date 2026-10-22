@@ -33,7 +33,7 @@ from api.services import (
     bank_index, decay_policy, episode_ids, episode_scrub, history_index, markdown_parser, net_guard, saved_at,
     video_chapters, video_urls,
 )
-from api.services.id_utils import sanitize_id
+from api.services.id_utils import folder_tags, page_lists, sanitize_id
 
 USER_AGENT = "Mozilla/5.0 (CicadaBot)"
 _TIMEOUT = 5.0
@@ -172,6 +172,8 @@ class IngestResult:
     media_type: str
     thumbnail: str | None = None
     url: str = ""
+    # A duplicate saved from a list its page did not hold yet: the list was added to its `collections:`.
+    collection_added: bool = False
 
 
 # --- URL normalization & hashing ---
@@ -538,16 +540,15 @@ def parse_netscape_bookmarks(html: str) -> list[RawItem]:
         if not href or href.startswith("javascript:") or href.startswith("place:"):
             continue
         tags = [t.strip() for t in (a.get("tags", "") or "").split(",") if t.strip()]
-        # Nearest enclosing folder <H3> name -> a tag for nested links.
+        # Nearest enclosing folder <H3> name -> ``folder``, provenance only.
         # Netscape's loose/unclosed-tag HTML doesn't expose a clean DL/DT
         # nesting to reconstruct a full folder *path* (that would mean
         # rewriting this parser around real DOM ancestry); we carry the single
-        # nearest-enclosing folder name only, same depth this parser already
-        # sees for the tag above.
+        # nearest-enclosing folder name only. It is never a tag: a folder, a
+        # playlist or a board is where a save came from, not a topic, and a
+        # tag shared by enough pages becomes a hub (owner 2026-10-19).
         folder_tag = a.find_previous("h3")
         folder_name = folder_tag.get_text(strip=True) if folder_tag else None
-        if folder_name:
-            tags.append(folder_name)
         items.append(RawItem(
             url=href,
             title=(a.get_text(strip=True) or None),
@@ -2073,14 +2074,13 @@ def write_media_entity(
 ) -> None:
     entities_dir.mkdir(parents=True, exist_ok=True)
     today = datetime.now()
-    tag_set = set([meta.media_type] + (item.tags or []))
-    # Sanitized folder-slug tag mirrors notes_sync stamping its Apple Notes
-    # folder onto the episode: raw human path lives in frontmatter (below),
-    # a filesystem-/graph-safe slug also lands in tags so folder/category is
-    # filterable the same way any other tag is.
-    if item.folder:
-        tag_set.add(sanitize_id(item.folder))
-    tags = sorted(tag_set)
+    # The list a save came from — a playlist, a board, a collection, a bookmark
+    # folder, a subreddit, a device's tabs — is provenance: the page's
+    # ``folder:`` below, never a tag. A slug of it used to land in ``tags``
+    # too, and every list with enough saves became a tag hub in the graph
+    # (owner 2026-10-19: "this should be just a provenance thing"); a tag the
+    # parser derived from the folder is dropped here for the same reason.
+    tags = sorted({meta.media_type} | (set(item.tags or []) - folder_tags(item.folder)))
 
     frontmatter = {
         "name": meta.title,
@@ -2098,6 +2098,10 @@ def write_media_entity(
         "version": 1,
         "folder": item.folder or None,
     }
+    if (item.folder or "").strip():
+        # Every list the page was saved from, `folder:` first (owner 2026-10-19); a later save of the same URL from
+        # another list appends (`add_collection`). Written only when set, like `folder:`'s readers expect.
+        frontmatter["collections"] = [item.folder.strip()]
     # G99d seam guard (Devin round 1, PR #26): see write_media_episode's same
     # comment — validate before persisting, don't just trust the producer.
     validated_added = saved_at.validate(item.added)
@@ -2346,7 +2350,90 @@ async def prepare_one(item: RawItem, memory_path: Path, client, idx: dict,
     return PreparedItem(item, meta, from_bookmark_file)
 
 
-def write_prepared(prepared: PreparedItem, memory_path: Path, idx: dict) -> IngestResult:
+def add_collection(memory_path: Path, entity_id: str, folder: str | None) -> bool:
+    """A link already saved, saved again from another list (a second playlist, board, collection or folder): append
+    that list to its media page's ``collections:`` (and make it the ``folder:`` of a page that had none). Returns
+    whether the page changed; a list the page already holds, a missing page or a page that is not ``media`` changes
+    nothing. Read from the cached frontmatter first, so a repeat that changes nothing parses nothing.
+
+    It rewrites a page that exists: the caller holds the bank's write admission (Sleep not holding the pages) and
+    the page lock through its commit — :func:`append_collections`, or a tool already inside both
+    (``write_prepared(..., append_list=True)``)."""
+    from api.services import bank_index
+
+    name = (folder or "").strip()
+    if not name or not entity_id or "/" in entity_id:
+        return False
+    entry = bank_index.file(memory_path, "entities", f"{entity_id}.md")
+    if entry is None or entry.frontmatter.get("type") != "media" or name in page_lists(entry.frontmatter):
+        return False
+    path = memory_path / "entities" / f"{entity_id}.md"
+    parsed = markdown_parser.parse(path)
+    lists = page_lists(parsed.frontmatter)
+    if name in lists:
+        return False
+    fm = {**parsed.frontmatter, "collections": [*lists, name]}
+    if not str(fm.get("folder") or "").strip():
+        fm["folder"] = name
+    markdown_parser.write(path, fm, parsed.body)
+    return True
+
+
+def add_collections(memory_path: Path, items: list[RawItem], idx: dict) -> list[str]:
+    """:func:`add_collection` for every item of a batch whose link ``idx`` already holds — a link saved before, or
+    one this batch saved from an earlier list (the same video in two playlists of one export). Returns the pages
+    changed, memory-relative. Call after the batch's new rows are in ``idx``, inside :func:`append_collections`."""
+    changed: list[str] = []
+    for item in items:
+        if not item.url or not (item.folder or "").strip():
+            continue
+        found = existing_hash(item, idx)
+        entity_id = str((idx.get(found) or {}).get("media_entity_id") or "") if found else ""
+        if entity_id and add_collection(memory_path, entity_id, item.folder):
+            rel = f"entities/{entity_id}.md"
+            if rel not in changed:
+                changed.append(rel)
+    return changed
+
+
+#: Pages per commit: a commit names each path on git's command line (``history_index.COMMIT_STEP``'s reason).
+COMMIT_STEP = 500
+
+
+async def append_collections(memory_path: Path, items: list[RawItem], idx: dict, *, commit: bool = True,
+                             author: str = "user", trigger: str = "user/media_save") -> list[str]:
+    """Append each repeat's list to its page (:func:`add_collections`) and commit those pages — one admitted
+    transaction (G183): the bank's write admission, then the page lock, through the commit, off the event loop.
+    When Sleep holds the pages nothing is appended: the next import or sync of the same list derives it again.
+    Returns the pages changed."""
+    if not any(it.url and (it.folder or "").strip() for it in items):
+        return []
+    from api.services import git_service, page_lock, write_admission
+
+    def work() -> list[str]:
+        with page_lock.page_lock(memory_path):
+            changed = add_collections(memory_path, items, idx)
+            if commit and changed:
+                chunks = [changed[i:i + COMMIT_STEP] for i in range(0, len(changed), COMMIT_STEP)]
+                for n, chunk in enumerate(chunks, 1):
+                    part = f" (part {n} of {len(chunks)})" if len(chunks) > 1 else ""
+                    git_service.commit_paths_sync(memory_path, git_service.build_commit_message(
+                        f"Sources lists {datetime.now().strftime('%Y-%m-%d')}{part}",
+                        [f"{rel}: list added (trigger: {trigger})" for rel in chunk],
+                        authors=[author]), chunk)
+            return changed
+
+    async def body() -> list[str]:
+        return await asyncio.to_thread(work)
+
+    try:
+        return await write_admission.run_admitted(memory_path, body, refuse=write_admission.SleepHolding)
+    except write_admission.SleepHolding:
+        logger.info("saved lists: Sleep holds the pages; the repeats' lists are added on the next import or sync")
+        return []
+
+
+def write_prepared(prepared: PreparedItem, memory_path: Path, idx: dict, *, append_list: bool = False) -> IngestResult:
     """The file half of :func:`ingest_one`: no network. ``idx`` is checked again — a link saved since it was
     prepared is a duplicate (and one dropped since gets the offline metadata)."""
     item, from_bookmark_file = prepared.item, prepared.from_bookmark_file
@@ -2360,6 +2447,10 @@ def write_prepared(prepared: PreparedItem, memory_path: Path, idx: dict) -> Inge
         # already calls `save_url_index` unconditionally right after this
         # returns, so a backfill here is never silently lost.
         _backfill_content_saved_at(existing, item)
+        # Saved again from another list: the page keeps every list it came from — only for a caller inside the
+        # bank's write admission and page lock, which commits the page when `collection_added`. A batch appends
+        # its repeats afterwards, admitted (`append_collections`).
+        added = append_list and add_collection(memory_path, str(existing.get("media_entity_id") or ""), item.folder)
         return IngestResult(
             status="duplicate",
             media_entity_id=existing.get("media_entity_id", ""),
@@ -2368,6 +2459,7 @@ def write_prepared(prepared: PreparedItem, memory_path: Path, idx: dict) -> Inge
             media_type=existing.get("media_type", _classify(item.url, from_bookmark_file)),
             thumbnail=existing.get("thumbnail"),
             url=item.url,
+            collection_added=added,
         )
     meta = prepared.meta or MediaMeta(
         title=item.title or _fallback_title(item.url), description="", site=_site_of(item.url),
@@ -2479,6 +2571,11 @@ async def ingest_batch(
         # created. Persist it before returning.
         if backfilled:
             save_url_index(memory_path, idx)
+        # A re-import is also how a video already saved learns its other playlists (owner 2026-10-19).
+        try:
+            await append_collections(memory_path, items, idx, commit=commit)
+        except Exception as e:
+            logger.warning(f"Saved lists append failed: {type(e).__name__}: {e}")
         return 0, len(items)
 
     sem = asyncio.Semaphore(8)
@@ -2520,6 +2617,12 @@ async def ingest_batch(
             await _commit_media(memory_path, created, ["sources/url_index.json", *created_paths])
         except Exception as e:
             logger.warning(f"Media commit failed: {type(e).__name__}: {e}")
+    # The batch's repeats — a link saved before, or the same link from a second list in this batch — append their
+    # list to the page (owner 2026-10-19), after every new row is in `idx` and the new pages are committed.
+    try:
+        await append_collections(memory_path, items, idx, commit=commit)
+    except Exception as e:
+        logger.warning(f"Saved lists append failed: {type(e).__name__}: {e}")
 
     return created, len(items) - len(fresh)
 
@@ -2558,16 +2661,20 @@ async def _commit_media(
     from api.services import git_service
 
     date_str = datetime.now().strftime("%Y-%m-%d")
-    message = git_service.build_commit_message(
-        f"Sources ingest {date_str}",
-        [
-            f"sources/url_index.json: updated (trigger: {trigger})",
-            f"{count} media item(s) saved (trigger: {trigger})",
-        ],
-        authors=[author],
-        sessions=sessions,
-    )
-    await git_service.commit_paths(memory_path, message, paths)
+    # A large batch commits in parts: a commit names each path on git's command line.
+    chunks = [paths[i:i + COMMIT_STEP] for i in range(0, len(paths), COMMIT_STEP)]
+    for n, chunk in enumerate(chunks, 1):
+        part = f" (part {n} of {len(chunks)})" if len(chunks) > 1 else ""
+        message = git_service.build_commit_message(
+            f"Sources ingest {date_str}{part}",
+            [
+                f"sources/url_index.json: updated (trigger: {trigger})",
+                f"{count} media item(s) saved (trigger: {trigger})",
+            ],
+            authors=[author],
+            sessions=sessions,
+        )
+        await git_service.commit_paths(memory_path, message, chunk)
 
 
 # --- Sleep-cycle media edge injection (CRITIC FIX) ---

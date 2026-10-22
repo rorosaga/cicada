@@ -24,6 +24,9 @@ import pytest
 
 from api.services import bank_index, markdown_parser, search_index, search_service
 
+#: A wall-clock budget: the `bench` tier (`make test-bench`, and `make test` before a release), never the default run.
+pytestmark = pytest.mark.bench
+
 N_ENTITIES = 2000
 N_EPISODES = 1500
 N_QUERIES = 120
@@ -51,15 +54,14 @@ def _fake_embed(texts, *, is_query=False):
     return rows / np.linalg.norm(rows, axis=1, keepdims=True)
 
 
-@pytest.fixture(scope="module")
-def big_bank(tmp_path_factory):
-    rng = random.Random(7)
-    memory = tmp_path_factory.mktemp("latency") / "memory"
+def write_bank(memory, rng: random.Random, *, entities: int = N_ENTITIES, episodes: int = N_EPISODES) -> list[str]:
+    """The synthetic bank's pages and conversations, from ``rng``; its vocabulary back. Shared with the default-suite
+    behaviour checks, which build a smaller one from the same generator."""
     for sub in ("entities", "episodes", "inbox"):
         (memory / sub).mkdir(parents=True)
     vocab: list[str] = []
     types = ["project", "person", "concept", "tool", "media"]
-    for i in range(N_ENTITIES):
+    for i in range(entities):
         a, b = _word(rng), _word(rng)
         vocab += [a, b]
         claims = "".join(
@@ -75,7 +77,7 @@ def big_bank(tmp_path_factory):
                               {"name": f"{a} {b} {i}", "type": types[i % 5], "status": "active",
                                "confidence": 0.5, "aliases": [_word(rng), _word(rng)], "tags": [_word(rng)]},
                               body)
-    for i in range(N_EPISODES):
+    for i in range(episodes):
         turns = rng.choice([4, 8, 8, 12, 20, 60])
         body = "\n".join(f"{rng.choice(['user', 'assistant'])}: {_sentence(rng, rng.randint(10, 60))}"
                          for _ in range(turns))
@@ -83,6 +85,14 @@ def big_bank(tmp_path_factory):
                               {"id": f"ep_{i}", "title": _sentence(rng, 4), "harness": "claude-code",
                                "session_id": f"ses_2026-09-01_{i:08d}", "timestamp": "2026-09-01T00:00:00+00:00"},
                               body)
+    return vocab
+
+
+@pytest.fixture(scope="module")
+def big_bank(tmp_path_factory):
+    rng = random.Random(7)
+    memory = tmp_path_factory.mktemp("latency") / "memory"
+    vocab = write_bank(memory, rng)
     bank_index.invalidate()
     search_index.reset()
     started = time.perf_counter()

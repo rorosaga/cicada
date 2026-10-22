@@ -147,7 +147,7 @@ final class ThemeTokenTests: XCTestCase {
             Row(name: "bgOption", read: { CicadaTheme.bgOption }, dark: 0x1D1E21, light: 0xF7F7F5),
             Row(name: "bgButton", read: { CicadaTheme.bgButton }, dark: 0x232427, light: 0xF2F2F0),
             Row(name: "bgButtonHover", read: { CicadaTheme.bgButtonHover }, dark: 0x2C2D30, light: 0xE3E3E0),
-            Row(name: "bgSelected", read: { CicadaTheme.bgSelected }, dark: 0x222326, light: 0xE8E8E5),
+            Row(name: "bgSelected", read: { CicadaTheme.bgSelected }, dark: 0x252629, light: 0xE1E1DE),
             Row(name: "bgMenu", read: { CicadaTheme.bgMenu }, dark: 0x1B1C1E, light: 0xFFFFFF),
             Row(name: "bgKey", read: { CicadaTheme.bgKey }, dark: 0x26272A, light: 0xEAEAE7),
             Row(name: "keyGlyph", read: { CicadaTheme.keyGlyph }, dark: 0x9A9CA1, light: 0x5A5B60),

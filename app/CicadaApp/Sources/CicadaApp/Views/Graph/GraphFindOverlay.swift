@@ -68,7 +68,7 @@ struct GraphFindOverlay: View {
             Circle().fill(CicadaTheme.entityColor(for: hit.node.type))
                 .frame(width: CicadaTheme.scaled(7), height: CicadaTheme.scaled(7))
             Text(ExcerptText.attributed(hit.node.name, bold: hit.ranges))
-                .font(CicadaTheme.font(size: 13))
+                .font(CicadaTheme.bodyFont)
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .lineLimit(1)
             Spacer(minLength: 0)
@@ -78,8 +78,7 @@ struct GraphFindOverlay: View {
         }
         .padding(.horizontal, CicadaTheme.spacingSM)
         .frame(height: CicadaTheme.scaled(32))
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-            .fill(selected ? CicadaTheme.bgSelected : (hovered == hit.node.id ? CicadaTheme.bgHover : Color.clear)))
+        .rowHoverFill(hovering: hovered == hit.node.id, selected: selected)
         .contentShape(Rectangle())
         .onHover { inside in hovered = inside ? hit.node.id : (hovered == hit.node.id ? nil : hovered) }
         .onTapGesture { pick(index) }

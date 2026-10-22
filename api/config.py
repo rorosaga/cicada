@@ -113,21 +113,23 @@ class Settings(BaseSettings):
     openrouter_title: str = "Cicada"          # CICADA_OPENROUTER_TITLE (X-OpenRouter-Title)
 
     # LLM consolidation mode — how ``resolve_llm_fn`` routes the sleep-cycle
-    # model. "byok" (default) is today's behavior: whatever ``litellm_model``
-    # (or ``effective_consolidation_model``) resolves to, routed through
-    # litellm's normal provider prefixes (openai/anthropic/openrouter/...) using
-    # the matching *_API_KEY env var. "local" routes to an on-device Ollama
-    # server instead — no API key required, fully offline — by binding the
-    # model to ``ollama/<ollama_model>`` and pointing litellm's api_base at
-    # ``ollama_base_url``. ``"agent"`` runs every call through the user's own
-    # ``claude`` CLI on their subscription (G74(a)); ``"auto"`` resolves to
-    # the agent rung when the Claude plan probes connected, else the local
-    # rung when Ollama is running, else ``"byok"``. ``"codex"`` runs every
-    # call through Cicada's own ``codex exec`` sign-in on the person's ChatGPT
-    # plan (G49, Track E). Resolution happens once
-    # per Sleep cycle in ``engine_select``; ``resolve_llm_fn`` treats an
-    # unresolved ``"auto"`` as ``"byok"`` and never shells out synchronously.
-    llm_mode: str = "byok"                    # CICADA_LLM_MODE (agent|auto|byok|codex|local)
+    # model. ``"auto"`` (the default since 2026-10-19, owner: "the defaults now are either the Claude plan or the
+    # Codex/ChatGPT plan") resolves to the Claude plan when it probes connected, else the ChatGPT plan when it is
+    # signed in, else Ollama when it is running — and NEVER to a metered API key by itself: with none of them there is
+    # no engine, said in words (``engine_select.NO_ENGINE``). ``"byok"`` is the person's choice of an API key —
+    # whatever ``litellm_model`` (or ``effective_consolidation_model``) resolves to, routed through litellm's provider
+    # prefixes (openai/anthropic/openrouter/...) with the matching *_API_KEY — set here or by the Settings → Engines
+    # picker. "local" routes to an on-device Ollama server — no API key required, fully offline — by binding the
+    # model to ``ollama/<ollama_model>`` and pointing litellm's api_base at ``ollama_base_url``. ``"agent"`` runs
+    # every call through the user's own ``claude`` CLI on their subscription (G74(a)); ``"codex"`` runs every
+    # call through Cicada's own ``codex exec`` sign-in on the person's ChatGPT plan (G49, Track E). Resolution
+    # happens once per Sleep cycle in ``engine_select``; ``resolve_llm_fn`` treats an unresolved ``"auto"`` as
+    # ``"byok"`` and never shells out synchronously — a RESOLVED auto that found no engine carries
+    # ``no_engine_reason`` and refuses every call before it is made.
+    llm_mode: str = "auto"                    # CICADA_LLM_MODE (agent|auto|byok|codex|local)
+    # Set only on a resolved copy (``engine_select.resolve_settings``) whose engine selection found nothing it may use:
+    # the sentence saying why. Every engine call built from that copy refuses with it (``providers.resolve_llm_fn``).
+    no_engine_reason: str = ""
     # Model name passed to Ollama when llm_mode="local" (litellm bind:
     # "ollama/<ollama_model>"). Does NOT include the "ollama/" prefix itself.
     ollama_model: str = "llama3.1"             # CICADA_OLLAMA_MODEL
@@ -262,6 +264,10 @@ class Settings(BaseSettings):
     # Owner ruling 2026-10-16 (G61): the web lookup on Sleep's tail settles at most this many public-thing
     # questions a run (one search call each); 0 turns the step off. `web_lookup`.
     web_check_per_run: int = 8                 # CICADA_WEB_CHECK_PER_RUN
+    # 2026-10-19: the plan tier a web lookup runs on, for that one call only — same plan, same switch and limits as the
+    # person's own Sleep engine. A cheap Sleep tier answered "not sure" on what its own search plainly said. Empty = the
+    # person's Sleep model. Never applied to a metered key (that spend is the person's own choice of model).
+    web_check_agent_model: str = "sonnet"      # CICADA_WEB_CHECK_AGENT_MODEL
     # Track C: reuse (zero-LLM) and fetch+summarize shared that one budget with
     # reuse spent first, so a night with 20 reuse candidates read no new page.
     # This many of the cap are reserved for fetches while any wait (the in-cycle

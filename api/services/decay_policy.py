@@ -270,6 +270,14 @@ def record_keep(fm: dict, today: str) -> list[str]:
     return kept[-KEPT_ON_CAP:]
 
 
+def merged_keeps(winner_fm: dict, loser_fm: dict) -> list[str]:
+    """``kept_on`` for a page that absorbed another (a merge): both pages' keep days, deduped, oldest first, the newest
+    ``KEPT_ON_CAP`` kept. A keep is the person's verdict on the thing, not on one of its two pages; before 2026-10-21 a
+    merge carried ``source_episodes`` but dropped the absorbed page's keeps, so a page the person had kept faded at the
+    pace of one they never answered for (G147)."""
+    return sorted(set(kept_dates(winner_fm)) | set(kept_dates(loser_fm)))[-KEPT_ON_CAP:]
+
+
 def effective(
     fm: dict,
     *,

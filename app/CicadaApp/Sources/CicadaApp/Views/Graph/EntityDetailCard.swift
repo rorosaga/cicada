@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - EntityCardNavigation
 //
@@ -71,6 +72,8 @@ struct EntityDetailCard: View {
     @State private var paperDetail: PaperDetail?
     /// R-DG21 / DR-39 — the Details disclosure, collapsed until this viewer opens it, then remembered.
     @AppStorage(DetailsWords.openKey) private var detailsOpen = false
+    /// A picture held over the page (owner 2026-10-20: dropping one adds it to the page's looks).
+    @State private var lookDropTargeted = false
     /// Owner 2026-10-09 (DR-39) — the card opens on the page; every other section waits behind its own remembered
     /// disclosure and reads its data only when opened (`CardDisclosure`).
     @AppStorage(CardSections.beliefsKey) private var beliefsOpen = false
@@ -314,18 +317,39 @@ struct EntityDetailCard: View {
     private var contentTab: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
             pageBlock
+            // Owner 2026-10-20 — a look lives on the page of the thing it shows: its tiles are the page's content when
+            // it has some; with none, the ways to add one wait behind their own disclosure below (DR-39).
+            if !isStub, showsLooks { looksSection }
             if Self.listsFolder(entity.type) { locationSection }
             if !repoContexts.isEmpty { repositorySection }
             // The sections behind a click sit together, closer than the blocks above (DR-35).
             VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
                 beliefsSection
                 originsSection.id(Self.provenanceAnchor)
+                if !isStub, !showsLooks { looksSection }
                 if entity.type == .person { connectionsSection }
                 detailsSection
             }
         }
         .frame(maxWidth: CicadaTheme.scaled(760), alignment: .leading)
         .modifier(EntityTabInsets(style: style))
+        // Owner 2026-10-20 — a picture dropped anywhere on a page becomes one of its looks (the app reads the picture,
+        // the backend is handed bytes). The ring says where it will land while it is held over the page (DR-9).
+        .overlay {
+            if lookDropTargeted {
+                CicadaTheme.shape(CicadaTheme.radiusLarge)
+                    .strokeBorder(CicadaTheme.borderLight, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                    .allowsHitTesting(false)
+            }
+        }
+        .onDrop(of: [.image, .fileURL], isTargeted: $lookDropTargeted) { providers in
+            guard !isStub else { return false }
+            let id = entity.id
+            LooksIntake.load(providers) { image in
+                Task { store.toast = await PageLooks.drop(image, on: id) }
+            }
+            return true
+        }
         .task(id: entity.id) {
             // G124 R11 — a card open is a read. Fire-and-forget on its own
             // Task so a slow ledger never delays the page below.
@@ -390,6 +414,13 @@ struct EntityDetailCard: View {
         }
     }
 
+    /// Whether this page shows looks (the shared cache, read when a card opens; `PageLooksSection` keeps it fresh).
+    private var showsLooks: Bool { !LooksCache.shared.looks(on: entity.id).isEmpty }
+
+    private var looksSection: some View {
+        PageLooksSection(entityId: entity.id, navigate: { navigate(to: $0) })
+    }
+
     /// The page: a paper's or a media page's own card, then the article (or the file). Its Rendered/Source switch
     /// and Copy sit at the end of the header's tab row (`EntityCardHeader.pageTools`).
     private var pageBlock: some View {
@@ -438,7 +469,7 @@ struct EntityDetailCard: View {
                     if !claimsLoaded {
                         SectionLoading(text: Copy.Graph.readingBeliefs)
                     } else if validClaims.isEmpty {
-                        Text(Copy.Graph.noBeliefsYet).font(CicadaTheme.font(size: 13))
+                        Text(Copy.Graph.noBeliefsYet).font(CicadaTheme.bodyFont)
                             .foregroundStyle(CicadaTheme.textTertiary)
                     } else if entity.type == .person {
                         PersonBeliefsSection(ordered: digest.newestFirst, showsLabel: false,
@@ -622,7 +653,7 @@ struct EntityDetailCard: View {
                                                  : CicadaTheme.textTertiary)
                                 .frame(width: 16)
                             Text(entry.name)
-                                .font(CicadaTheme.font(size: 12))
+                                .font(CicadaTheme.metaFont)
                                 .foregroundStyle(CicadaTheme.textSecondary)
                                 .lineLimit(1)
                             Spacer()
@@ -909,7 +940,7 @@ struct EntityDetailCard: View {
     }
 
     private func detailValue(_ text: String) -> some View {
-        Text(text).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textSecondary)
+        Text(text).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
     }
 
     /// The page's own `## Related` section, when its article has one: where "and K more" leads.
@@ -1124,9 +1155,7 @@ struct EntityDetailCard: View {
     private func whatChangedToggle(_ entry: EntityHistoryEntry) -> some View {
         Button { toggleCommit(entry.commitHash) } label: {
             HStack(spacing: CicadaTheme.scaled(5)) {
-                Image(systemName: isExpanded(entry) ? "chevron.down" : "chevron.right")
-                    .font(CicadaTheme.font(size: 9, weight: .semibold))
-                    .accessibilityHidden(true)
+                DisclosureChevron(isOpen: isExpanded(entry), color: nil)
                 Text(Copy.Graph.whatChanged)
             }
             .font(CicadaTheme.metaFont)
@@ -1191,7 +1220,7 @@ struct EntityDetailCard: View {
                 ProgressView().controlSize(.small).frame(maxWidth: .infinity, alignment: .center)
             } else if validClaims.isEmpty {
                 Text(Copy.Graph.noBeliefsYet)
-                    .font(CicadaTheme.font(size: 13))
+                    .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
             } else {
                 ForEach(digest.divergences) { d in divergenceBlock(d) }
@@ -1250,7 +1279,7 @@ struct EntityDetailCard: View {
                 let keys = TimelineKeys.rows(contested: digest.contested, requested: requestedKey)
                 if keys.isEmpty {
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                        Text(Copy.Graph.noContested).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textSecondary)
+                        Text(Copy.Graph.noContested).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
                         Text(Copy.Graph.noContestedDetail).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                     }
                 } else {
@@ -1370,15 +1399,11 @@ private struct TimelineKeyRow: View {
                 Tag(text: ClaimContext.displayName(key.context), dot: CicadaTheme.contextColor(key.context))
                 Spacer(minLength: 0)
                 Text(summary).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
-                Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                    .font(CicadaTheme.font(size: 10, weight: .semibold))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .accessibilityHidden(true)
+                DisclosureChevron(isOpen: expanded)
             }
             .padding(.horizontal, CicadaTheme.scaled(10))
             .frame(height: CicadaTheme.scaled(RowMetrics.oneLine))
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-                .fill(expanded ? CicadaTheme.bgSelected : (hovering ? CicadaTheme.bgHover : Color.clear)))
+            .rowHoverFill(hovering: hovering, selected: expanded)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
@@ -1558,11 +1583,11 @@ struct RelatedLinksRow: View {
     private func link(_ rel: String) -> some View {
         if let id = DetailsWords.relatedTarget(rel, in: entities) {
             Button { onOpen(id) } label: {
-                Text(rel).font(CicadaTheme.font(size: 13, weight: .medium)).foregroundStyle(CicadaTheme.accentText)
+                Text(rel).font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.accentText)
             }
             .buttonStyle(.cicadaPlain)
         } else {
-            Text(rel).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textSecondary)
+            Text(rel).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
         }
     }
 
@@ -1570,13 +1595,13 @@ struct RelatedLinksRow: View {
     private func more(_ n: Int) -> some View {
         if let onMore {
             Button(action: onMore) {
-                Text(Copy.Graph.relatedMore(n)).font(CicadaTheme.font(size: 13, weight: .medium))
+                Text(Copy.Graph.relatedMore(n)).font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.accentText)
             }
             .buttonStyle(.cicadaPlain)
             .help(Copy.Graph.relatedMoreHelp)
         } else {
-            Text(Copy.Graph.relatedMore(n)).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textTertiary)
+            Text(Copy.Graph.relatedMore(n)).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
         }
     }
 }

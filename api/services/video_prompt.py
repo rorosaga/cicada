@@ -80,7 +80,9 @@ def build(count: int, method: str | None = "auto", *, browser_clause: str | None
         "3. Record each with cicada_record_watch(url, summary, excerpts=[{t, quote}], basis, engine, duration): "
         "basis is what you used (transcript, frames or both); one paragraph, at most 12 short quotes, "
         "no transcript.",
-        "4. If you can't, hand it back with cicada_video_claim(release=[{url, code, reason}]); use code "
+        # Ruling 34: the hand-back's shape (with the claim's own lease key) is in the claim reply; this prompt is the
+        # person's to read and names no key (ruling 12 keeps the word out of it).
+        "4. If you can't, hand it back with cicada_video_claim's release, as its reply shows; use code "
         "needs_login if it needs the person to sign in, and never sign in yourself.",
     ]
     for extra in (method_line(method), (method_clause or "")[:MAX_METHOD_CLAUSE_CHARS] or None, browser_clause):

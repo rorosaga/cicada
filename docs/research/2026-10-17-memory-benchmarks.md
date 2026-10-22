@@ -133,8 +133,14 @@ api/.venv/bin/python -m benchmarks.public.run report --run <run folder>
 - **Resumable:** per-unit `state.json` (Sleep legs), `answers.jsonl`, `judgments.jsonl`; a plan limit pauses Sleep
   (exit 3), any other resumable stop (engine signed out, bank busy) exits 4 with its reason, a Sleep failure exits 1;
   `--resume` continues the paused drain and retries exactly the answers and judgments that failed (finished ones are
-  never redone). The report counts unanswered and ungraded questions and gives the score with them as not correct. Slices are
-  deterministic (first N per category / per unit).
+  never redone). `--sleep-schedule none` stages and indexes a unit without Sleep (Ask over the conversations'
+  search leg alone — how LongMemEval_S fits a plan); `--gate <command>` runs a command before each unit and starts it
+  only on exit 0 (a run waits out another Sleep sharing the plan). Every `ask` row keeps the prompt's size, the
+  context-build time before the model call and whether the dataset's own answer turns reached the prompt verbatim (any
+  40-character stretch; `prompts.jsonl` beside it), and the report prints them (2026-10-20). The report counts unanswered and ungraded questions and gives the score with them as not correct. Slices are
+  deterministic (first N per category / per unit). `--questions <fixture>` asks only a fixture's questions, in its
+  wording, every category it lists (`benchmarks/public/fixtures/locomo-es.json`: 50 LoCoMo questions in Spanish,
+  10 of them adversarial; `--questions-lang en` asks the same questions in English) — pinned like the other settings.
 - **Cost, measured:** every plan call is counted by phase (sleep / answer / judge) and stage with its wall seconds;
   `report.json` and the printed table carry them beside the scores. No dollar figure — a plan call has no price.
 - **Tested offline:** `api/tests/test_public_benchmark.py` runs a synthetic LoCoMo-shaped conversation through the
@@ -154,6 +160,34 @@ Per question: `expect` (facts a right answer states), `forbid` (stale values it 
 fact recall, contradictions, stale facts asserted, declined-but-should-know, answered-but-should-decline, per tag.
 Both calls on the plan by default (`--engine configured` answers with the bank's configured engine). Results are
 written 0600 under `benchmark_results/` (gitignored); the terminal shows ids and scores unless `--show`.
+
+**Repeats and the accept rule (2026-10-20).** Four runs of the owner's 60 questions on near-identical code scored 46,
+44, 42 and 42 correct: 37 questions always right, 10 always wrong, 13 flipping — even between two runs of the same
+code. One run therefore cannot judge a change, so every question is answered and judged `--repeats` times (default 3,
+run-major, resumable per (question, run); a failed pair is asked again). The summary reports each measure (correct,
+fact recall, contradicted, stale asserted, declined-but-should-know, answered-but-should-decline) as mean and min–max
+across runs, overall and per tag, plus per question always right / always wrong / flips, flipping ids listed.
+`--compare A.jsonl B.jsonl` takes each question's majority verdict over its runs and calls B better or worse than A
+only when (1) the exact two-sided sign test on the questions whose majority changed gives p < 0.05 and (2) the change
+in mean correct is wider than the wider min–max of either file, and (3) the two move the same way (more majorities
+gained than lost and the mean up, or both down; when they disagree the verdict is "within noise (directions
+disagree)"); otherwise "within noise". Why this rule: pairing by
+question removes the between-question spread, which dwarfs any change; the majority over runs damps the flippers; the
+sign test assumes nothing about distributions and stays valid however noisy the flippers are (under no change a moved
+majority is equally likely to move either way — noise costs power, never false alarms); and the spread guard stops a
+handful of borderline majority moves from passing while the totals sit inside run-to-run noise. Ties (an even number
+of runs split evenly) have no majority and are left out. A results file holds runs of one set of settings: `--fresh` starts it over (with
+`--only`, re-asks just those questions), and the eval refuses to resume into a file whose runs recorded another
+model, effort, CLI version, engine or top-k. With 60 questions a real change needs about six or more
+majority moves, all or nearly all in one direction (6–0 gives p = 0.031; 5–0 gives 0.0625).
+
+**What can be pinned.** `claude -p` (2.1.304) has no temperature, top-p or seed flag, so the plan's sampling cannot be
+fixed. Its other inputs are: the model (`--answer-model`/`--judge-model` take a full id such as `claude-sonnet-5-5`
+as well as an alias, and every row records the model the plan reported), the effort (`--effort` pins `--effort` on
+both calls through the seam's one effort channel and drops an inherited `CLAUDE_CODE_EFFORT_LEVEL`, which the CLI lets
+override the flag; off by default so numbers stay comparable with earlier runs), and the CLI version (each run's header
+row). User settings are already excluded by the seam (`--setting-sources ""`). `--compare` names any of these that
+differ between the two files.
 
 ---
 
@@ -428,3 +462,405 @@ Gemma re-answers 156).
 **Still open.** The newest conversation's *answer* turn is not guaranteed — only its best-matching turn (one
 knowledge-update question lost its answer turn to that); counts whose evidence turns share no rare word with the
 question; the judge's strictness on abstentions phrased as "zero".
+
+## Broad sample 2026-10-20
+
+**Why.** Rodrigo 2026-10-20: *"using my plan and Gemma embeddings and all of the perfect setup we're using, run the
+best benchmark to see how good the memory is."* The chosen size: all 10 LoCoMo conversations (40 questions each,
+10 per category 1–4) and 100 LongMemEval_S questions, answers repeated where cheap.
+
+**Setup (the production one, measured as run).** Branch `bench/broad-2026-10-20` (dev `966213be` + the harness
+changes above, `5ba897f3`); `claude` CLI 2.1.304 on the owner's Claude plan; Sleep `haiku` with `haiku`
+disambiguation (the owner's production Sleep model), batch 25, one drain per conversation on the dataset's clock;
+answers and the judge `sonnet` (as every earlier run); search model **EmbeddingGemma 2** (`google/embeddinggemma-2:768`,
+Core ML, recorded in every bank's index, episode passages 1,600/200); concurrency 3; embedding threads capped at 4.
+Web lookups (the `sonnet` lookup tier) do not run in a benchmark — every fetch gate is off in the unit's environment —
+so that setting is inert here. Every unit ran only while the owner's own backend reported Sleep not running and
+never between 02:40 and 03:20 local (the gate waited out the nightly run).
+
+**What "LongMemEval_S" means here.** Each question ships its own ~50-session haystack; Sleep over it costs ~50
+extraction calls a question (≈ 5,000 for 100), past any plan budget. These banks are **staged and indexed, never
+consolidated** (`--sleep-schedule none`): Ask answers from the search leg over the raw conversations (no pages). That
+is the path the owner's own un-slept backlog takes, not the full system. 100 questions, stratified: temporal 20,
+multi-session 20, knowledge-update 16, single-session-user 12, single-session-assistant 10, preference 8, abstention
+14 (the first N of each in file order; ids in the run's `config.json`).
+
+### Results
+
+**LoCoMo, 10 conversations, 382 questions (categories 1–4; three conversations have fewer than 10 of a category)** —
+J, Mem0's judge:
+
+| Path | J | single-hop | multi-hop | temporal | open-domain | token F1 |
+|---|---|---|---|---|---|---|
+| `ask`, all 10 (n = 382) | **74.9** | 91.0 (100) | 65.0 (100) | 90.0 (100) | 48.8 (82) | 11.1 |
+| `ask`, the 5 control conversations (n = 198) | 77.8 | 100 | 66.0 | 86.0 | 58.3 | 10.4 |
+| `full-context` control, same 5 (n = 198) | **88.9** | 98.0 | 96.0 | 86.0 | 75.0 | 12.4 |
+| `ask` repeat on conv-26/43/49 (n = 120): run 1 / run 2 | 79.2 / 79.2 (range 79.2–79.2) | 100 / 96.7 | 63.3 / 66.7 | 80 / 80 | 73.3 / 73.3 | — |
+
+Per conversation (`ask` J): conv-26 85.0, conv-30 86.7, conv-41 81.6, conv-42 62.5, conv-43 67.5, conv-44 62.2,
+conv-47 70.0, conv-48 70.0, conv-49 85.0, conv-50 81.1 — the spread (62–87) is wider than the repeat noise (4 of 120
+answers flipped between repeats, the total unchanged). Control per conversation: 95.0 / 97.4 / 80.0 / 80.0 / 92.5
+(conv-26/41/43/47/49). Published, for orientation only (gpt-4o-mini readers, other judges): Mem0 66.9, full-context
+72.9, Zep 75.1, Letta 74.0.
+
+**LongMemEval_S, 100 questions, no Sleep, three answer repeats** (the prompt is the same each time — retrieval is
+deterministic — so the spread is the answer model and the judge):
+
+| Type | n | mean | min–max |
+|---|---|---|---|
+| single-session-user | 12 | 97.2 | 91.7–100 |
+| knowledge-update | 16 | 87.5 | 87.5–87.5 |
+| temporal-reasoning | 20 | 73.3 | 70.0–75.0 |
+| single-session-preference | 8 | 62.5 | 62.5–62.5 |
+| single-session-assistant | 10 | 60.0 | 60.0–60.0 |
+| multi-session | 20 | **11.7** | 10.0–15.0 |
+| abstention | 14 | 92.9 | 92.9–92.9 |
+| **all 100** | 100 | **66.7** | 66.0–67.0 |
+| answerable 86 / task-averaged | 86 | 62.4 / 65.3 | 61.6–62.8 / 64.4–65.8 |
+
+65 questions right in all three repeats, 32 wrong in all three, 3 flipped. Published, indicative only: the paper's
+GPT-4o full-context on S 60.6; Zep 71.2 on S (both with GPT-4o judges and full systems; this row has no consolidation).
+
+**Honesty.**
+
+| | LoCoMo `ask` (382) | LoCoMo control (198) | LongMemEval_S run 1 (86 answerable + 14 abstention) |
+|---|---|---|---|
+| wrong answers | 96 | 22 | 32 |
+| of them, the answer names the gap ("memory does not say …") | 70 | 15 | 21 |
+| asserted something the judge rejected | 26 — 14 lists with items missing, 3 counts one off ("at least two" for "two" among them), 3 relative dates a day/week from the gold, 3 inferences unlike the gold's, 2 wrong details, 1 hedged "does not clearly show" | 7 | 11 — 8 counts or totals (7 one or two short, phrased "memory shows N"), 2 stale values on knowledge-update questions, 1 date arithmetic |
+| contradicted outright (a definite wrong fact) | ≈ 7 (1.8 %): 3 dates, 2 counts, 2 details (one a "yes" where the gold is "no", conv-50:q042) | — | 3 (3.5 %): two stale values (9ea5eabc, 89941a93), one date (9a707b81) |
+| answered but should have declined | — (category 5 not run) | — | **1 of 14** (031748ae_abs, the same in all three repeats) |
+
+(The gap/assert split comes from the answer's own wording, read by hand for the asserted rows.) One LongMemEval answer
+in 300 was Ask's degrade path: the model's reply was not JSON and Ask returned "could not synthesize" (gpt4_59149c77,
+run 1); the control had one such reply in 199, retried on resume.
+
+**Retrieval — did the dataset's own answer turn reach Ask's prompt?** (verbatim, any 40-character stretch)
+
+| | questions with ≥ 1 answer turn shown | answer turns shown | J when shown / when not |
+|---|---|---|---|
+| LoCoMo all | 290 / 375 (77 %) | — | **83.8** (290) / **43.5** (85) |
+| — single-hop / temporal | 87 / 100, 87 / 100 | 97 / 117, 91 / 112 | |
+| — multi-hop | 76 / 100 | **147 / 322** | |
+| — open-domain | 40 / 75 | 52 / 169 | |
+| LongMemEval_S all | 76 / 89 (85 %) | — | 70.3 (74) / 16.7 (12) |
+| — knowledge-update / ss-user / ss-assistant / temporal | 16/16, 12/12, 9/10, 19/20 | 29/33, 13/13, 9/10, 31/45 | |
+| — multi-session | 15 / 20 | **28 / 71** | |
+| — preference | 3 / 8 | 4 / 14 | |
+
+**Timing and size** (answer = Ask's whole call including the model; context build = everything before the model call):
+
+| | answer p50 / p95 s | context build p50 / p95 ms | prompt chars p50 / p95 / max |
+|---|---|---|---|
+| LoCoMo `ask` | 3.96 / 5.63 | 49 / 580 (warm, past each process's first three questions: 47.5 / 72.1; the first ones pay the search model's ~0.6 s load) | 15.2k / 22.5k / 25.1k |
+| LoCoMo control | 4.52 / 7.09 | — | the whole conversation (~45–90k characters) |
+| LongMemEval_S `ask` | 5.0 / 6.5 | 1,106 / 1,168 — every unit is a fresh process, so each is a cold search-model load (~1 s); the leg itself measured 15–26 ms warm on 2026-10-19 | 4.5k / 6.8k / 6.9k |
+
+**Sleep** (haiku): 272 sessions in 10 drains, 1,405 s wall (86–176 s a conversation); 348 calls — 272 extraction,
+26 merge, 17 skills, 16 conflict, 12 inbox tending, 5 disambiguation; no failed call. Banks: 7–23 pages, 40–123 claims
+(838 in all), 13–56 lines held in the pending store. LongMemEval_S intake + index (no model): p50 14.0 s a question
+(~50 sessions on Gemma 2).
+
+**Plan calls: 2,349** (≤ 2,500 budget) — Sleep 348 (`haiku`); answers 1,001 and judge 1,000 (`sonnet`): LoCoMo
+`ask` 382 + control 199 + repeat 120, LongMemEval 3 × 100, each judged once. No plan limit was hit and no call failed.
+
+### The five most common failure shapes
+
+1. **Open-domain inference declined** (37 of 42 open-domain misses named a gap). The question asks for a likely
+   reading ("does he live near a beach or the mountains?", "which state…?"); the evidence is there in pieces and Ask's
+   rules make the model say memory does not state it. The control is weakest here too (75.0). Example: conv-41:q041.
+   A sub-shape is naming a thing from its description (a card game described by its rules, a composer by a film
+   theme) with the turn shown: conv-47:q016.
+2. **Lists and counts across sessions come up short.** LoCoMo multi-hop: 35 misses, only 147 of 322 answer turns
+   reached the prompt; LongMemEval multi-session: 17–18 of 20 wrong in every repeat, 28 of 71 answer turns shown, the
+   answer counts what it sees ("memory shows 2") one or two short. The control gets multi-hop to 96.0. Examples:
+   conv-26:q015, LongMemEval 0a995998.
+3. **A detail on no page and in no shown turn → an honest decline.** When no answer turn reached the prompt, J is
+   43.5 against 83.8 when one did (LoCoMo). Example: conv-48:q018.
+4. **The assistant's own long answer, clipped** (LongMemEval single-session-assistant, 4 of 10 wrong in every repeat
+   with the answer turn shown for 9 of 10): the shown excerpt holds the start of a long assistant list, not the item
+   asked for ("the 7th job"). Example: 1903aded.
+5. **Relative dates a day or a week from the gold** ("last Saturday" / "last week" resolved against the session day,
+   where the gold names another day or a different week): conv-26:q005, conv-44:q005, conv-43:q006; LongMemEval
+   9a707b81. Some of these golds are themselves loose (the Penfield audit's point).
+
+Smaller: preference questions declined for want of a stated taste (0edc2aef, 3 of 8 every repeat); two stale values on
+knowledge-update without Sleep (9ea5eabc).
+
+### Reading it
+
+- **On a consolidated life (LoCoMo) Cicada answers 74.9 J over 382 questions, 11 points under the same reader with the
+  whole conversation in context** (77.8 vs 88.9 on the five shared conversations). Single-hop (91) and temporal (90)
+  are at the control; the gap is multi-hop (65 vs 96) and open-domain (49 vs 75).
+- **The gap is retrieval breadth, not honesty.** 73 % of misses name the gap; outright contradictions are ≈ 2 %
+  (LoCoMo) and 3.5 % (LongMemEval); one abstention question in 14 was answered. When an answer turn reached the prompt
+  J was 84; when none did, 44.
+- **Raw conversations alone (LongMemEval_S, no Sleep) reach 66.7 overall** — single-session and knowledge-update are
+  strong (97 / 88), multi-session counting is near zero (12). Counting across sessions is the one category every run
+  of this harness has missed (2026-10-17 oracle 0/2, control included).
+- **Sleep model:** these banks were built by `haiku`; the 2026-10-17 conv-26 / conv-49 runs used `sonnet` Sleep (75.0
+  / 92.5 full runs, 40 questions each) against 85.0 / 85.0 here — inside the ±15-point noise of 40 questions, so this
+  sample shows no measurable cost from the cheaper Sleep model.
+- Not run: LoCoMo category 5 (adversarial), a LongMemEval_S full-context control (~115k tokens a question), LongMemEval
+  with Sleep (budget), the judge validation on hand grades (still open from 2026-10-17).
+
+## Two ends: questions about two moments (2026-10-20, branch `feat/ask-two-ends`)
+
+**The problem** (the owner's new hard set, measured by the coordinator, real values redacted): temporal 0 of 7. Ask
+found one end of "when I first … and by the time I later …", "between <month> and <month>", "how many days between A
+and B" and not the other (or an adjacent day's conversation for it), and estimated the gap (a "178–208 day" range; 16
+for 17). One search over the whole question ranks first the conversation holding most of its words — one end.
+
+**What changed** (`docs/architecture/mcp.md`, "Two ends"): `ask_sources.two_ends` reads the moments from the
+question's words (no model); each end is searched on its own words through the same two legs and its best
+conversation is kept in the window, on its own named month or day; each end leads with its own best turns; for
+two-ends and elapsed-time questions the prompt carries TIME BETWEEN THE CONVERSATIONS — the shown days numbered from
+the earliest, today, and the exact gap between the ends. Spanish dates and a month named alone count as named days.
+#365/#367's single-sentence clip is not reintroduced; #349's search leg is unchanged for every other shape.
+
+**Measured** on the broad sample's banks (EmbeddingGemma 2; sonnet answers and judge; the broad run's own answers on
+dev as "before" — its r1–r3 repeats; only the questions whose prompt changed re-answered, 3 repeats):
+
+| | prompts changed | before (r1 / r2 / r3) | after (3 repeats) |
+|---|---|---|---|
+| LongMemEval_S temporal-reasoning (23) | 18 | 17 / 18 / 18 | **19 / 19 / 19** |
+| LoCoMo temporal (100, 10 conversations) | 2 | 90 | 90 (both changed ones right 3/3) |
+| every other category (LME 77, LoCoMo 282) | 0 — byte-identical | — | — |
+
+Gains: the order of three quoted events (0/3 → 3/3: all three conversations now reach the prompt, 2 → 3 answer turns
+shown) and "how many days between MoMA and the Met" (2/3 → 3/3). No changed question got worse; the one abstention
+among them stayed right 3/3. Answer turns shown for the 18 changed: 28 → 30 of 35. Prompt p50 5.2k → 6.5k
+characters on the changed questions; context build p50 +27 ms (one more embed and word search per end). The two
+LongMemEval misses left are one-moment "how many days ago … when I …" questions whose event is dated relative to its
+session; out of scope here. Plan calls: 122.
+
+*After review (same day):* "from A to B", "between A and B" and two named months now need a change, duration or order
+word outside the matched words; "which … first" needs a past verb; Spanish counts and "first and foremost"-style
+openers are excluded; a named day outside the ends and an outcome word keep their reservations; days are the local day
+of each line's stamp (a line whose stored UTC date differs is named beside it); an end is dated by its own best turn,
+and two ends may share a session resumed days later. The same 20 public questions changed (nothing else did); one
+more repeat of them with the reviewed code: LongMemEval_S temporal 19/23, LoCoMo's two right. Plan calls: 40 (162 in
+all).
+
+
+## Lists and counts (2026-10-20, branch `feat/ask-lists`)
+
+**The problem** (the broad sample above): LoCoMo multi-hop 65 J against the control's 96, its answer turns in the
+prompt for 147 of 322; LongMemEval_S multi-session 11.7 %, 28 of 71 — answers counted what they saw, one or two short
+(conv-26:q015, 0a995998). Reading the misses: on LongMemEval the evidence conversations were mostly found (fused rank
+0–6) but the line shown from them was the agent's reply repeating the question's words, not the person's line that
+told the event; on LoCoMo the subject's page held the items (the camping and swimming lines on the page of the person
+asked about) but the page leg showed only the 7 of its 119 items sharing the question's words, and the turns that told
+them share none ("what activities …" vs "went camping at the beach"); and 15 of the 100 multi-hop list questions were
+read as one fact ("where has <name> camped?", "what are <name>'s hobbies?").
+
+**Design** (`docs/architecture/mcp.md`, "Lists and counts"; no model in retrieval): (1) whose turn tells it — a count
+or a list prefers the turns of whoever the question is about (the person, the agent, a named speaker), another
+speaker's turn at half its words' weight less the asked speaker's name; (2) more list forms read as `enumerate`
+(plain-question lists, Spanish counts; a superlative never); a list of only common words keeps them at low weight;
+the search leg's breadth 10 → 16 conversations; (3) a page the list names is filled with its items nearest the
+question by the search model (one batch of ≤ 120 items, computed now, never stored), and each leads to the turn that
+told it by the item's own words, WHAT WAS SAID read breadth first. Tried and dropped: one line from each window
+conversation before a second from any (lost a knowledge-update answer turn: "how many stars do I need" — 0f05491a);
+embedding conversation turns (≈ 2.5 ms a turn and the asked person's name dominated the ranking); a computed list of
+occurrences (without a model a retold event can't be told from a new one).
+
+**Retrieval, no model** (the broad sample's banks, EmbeddingGemma 2; answer turns shown, of the dataset's answer turns):
+
+| | before (dev) | after |
+|---|---|---|
+| LoCoMo multi-hop (100) — answer turns · questions with ≥ 1 · with all | 147 / 322 · 76 · 26 | **187** / 322 · 86 · 36 |
+| LoCoMo multi-hop — gold list items whose words all reach the prompt (any form) | 179 / 242 | **199** / 242 |
+| LongMemEval_S multi-session (25 incl. abstention) — answer turns · ≥ 1 · all | 28 / 72 · 15 · 3 | **45** / 72 · 19 · 9 |
+| other categories whose prompt changed (count-shaped questions in them) | | LME knowledge-update 12, temporal 11, ss-assistant 1; LoCoMo single-hop 14, open-domain 3, temporal 1 |
+| — their answer turns | KU 29, temporal 35, single-hop 97, open-domain 52 | 30, 42, 99, 54 — no question lost one |
+
+Every other prompt is byte-identical. Prompt size on the changed questions: LoCoMo p50 16.2k → 23.7k characters, the
+largest prompt of the sample 25.1k → 31.6k; LongMemEval_S max 7.6k → 8.7k. Context build: LoCoMo changed questions
++220 ms p50, +650–710 ms p95 (≤ 953 ms) — the page items' one embedding batch, warm ~1.7 ms an item; LongMemEval_S
+(no pages) +0 ms p50.
+
+**Answers** (sonnet answers and judge on the plan; the broad run's own answers on dev as "before"; only the changed
+multi-hop and multi-session questions re-answered; repeat 2 on LongMemEval and on the three LoCoMo conversations the
+broad run repeated):
+
+| | before | after |
+|---|---|---|
+| LoCoMo multi-hop, 100 questions (59 changed; one repeat) | 65 | **73** |
+| — the 17 changed in conv-26 / 43 / 49, two repeats each | 8, 9 | **11, 11** |
+| LongMemEval_S multi-session, 20 (r1 / r2 / r3 · r1 / r2) | 3 / 2 / 2 (11.7 %) | **7 / 7 (35 %)** |
+| LongMemEval_S multi-session abstention (5) | 15 of 15 | 9 of 10 — 88432d0a_abs's honest decline phrased "the count is 0" was judged wrong once (right in r2), the judge strictness noted 2026-10-19 |
+
+Changed LoCoMo questions: 32 → 40 of 59 (10 right that were wrong, 2 the other way, both on near-identical
+answers: conv-30:q024 now lists one more event than before and is still judged short; conv-42:q019 gives the same "3,
+or 2 confirmed" in both). Plan calls: **258** (129 answers, 129 judgments). The owner's two sets are measured by the
+coordinator with `--compare`.
+
+**Still open.** LongMemEval's remaining misses count items whose turns hold none of the question's words ("citrus
+fruits" told as "lime", "doctors" told as "my dermatologist"): only a turn-level semantic pick would reach them, and
+measured here it cost more than it ranked. A question that names no page and asks in the first person ("how many
+weddings have I attended") gets the search leg's breadth only: the person's own page holds a whole life and is never
+item-ranked.
+
+*After review (same day):* the page ranking runs only on a model this machine runs (a hosted embedding model would
+have been sent page text at answer time), with one allowance of 120 items for the whole question, each clipped to 240
+characters, and a bounded 1.5 s wait for the Core ML passage functions; more one-thing plurals, an age, a habit and
+"what else" are no longer lists; Spanish first-person verbs and "the user" count as the person. Re-measured: answer
+turns LoCoMo multi-hop 188 / 322, LongMemEval_S multi-session 45 / 72 (unchanged), gold items 199 / 242; no question
+lost an answer turn against dev. Context build on the changed LoCoMo questions +217–222 ms p50, +242–648 ms p95, at
+most +717 ms (the first question in a process loads the packed function); the largest prompt 29.9k characters. The
+15 multi-hop questions whose prompt changed again were re-answered once: 9 → 10 right, so LoCoMo multi-hop is **74**
+of 100 (one repeat; dev 65). Plan calls: 30 (288 in all).
+
+## Judgements and Spanish (2026-10-20, branch `feat/ask-infer-es`)
+
+**Why.** The broad sample: LoCoMo open-domain 48.8 J against 75 for the whole-conversation control, 37 of 42 misses
+saying memory doesn't state what was a reasonable inference from what it found. The owner's hard set: Spanish 5 of 10,
+the English counterparts much higher.
+
+**Causes found.**
+1. *Judgements declined as missing facts.* Rule 1 ("never guess") read every "would <name> likely …" as a fact to look
+   up. Nothing told the model a judgement may be reasoned from the record.
+2. *A Spanish question over English conversations reached none of their words.* Every word leg matches the question's
+   words: claims and page items by shared words, WHAT WAS SAID through those, the search leg's turns by weighted words.
+   With 40 LoCoMo questions translated to Spanish (fixture `benchmarks/public/fixtures/locomo-es.json`), the dataset's
+   answer turns reached the prompt **8 of 74** times; the same 40 in English, **38 of 74**. The entities were found
+   (the vector leg is multilingual), their conversations' words were not. Also: Spanish function words were subject
+   words, the shape detectors and `_wants_history` read only English time phrasing, "ayer"/"hace tres días" named no day.
+
+**Fixes.** See `docs/architecture/mcp.md`, "Judgements and Spanish": a judgement detector and a prompt note for those
+questions only (the system prompt is unchanged); Spanish questions go *by meaning* — the vector leg's nearest passages
+lead the search leg, ranked turn by turn by the search model, and the full-budget pages' claims and items are ranked by
+it; Spanish stopwords, time phrasing and relative days. Tried and dropped: going by meaning also for an English question
+whose words the record lacks — that is how an abstention looks ("what is the name of my hamster?" turned into a
+lookup).
+
+**Retrieval, no model:** Spanish answer turns **8 → 33 of 74** (English 38). Every English prompt of the broad
+sample's banks (300 LoCoMo, 100 LongMemEval_S) is byte-identical to dev except the 42 open-domain judgement questions'.
+The judgement detector fires on 48 of LoCoMo's 96 open-domain questions and on none of its other 1,890 (446
+adversarial), nor on the 100 LongMemEval_S questions. Context build: Spanish 35 → 420 ms p50 (the search model ranks
+up to 160 page texts and 48 turns); judgement questions +210 ms p50 (their named pages' items ranked). Prompt p50:
+Spanish 9.0k → 19.4k characters (English 15.6k), max 26.1k.
+
+**Answers on haiku** (answers and judge `haiku`, broad sample banks, EmbeddingGemma 2, one repeat):
+
+| | dev | this branch |
+|---|---|---|
+| LoCoMo open-domain judgement questions (42 whose prompt changed) | 17 / 42 (40.5) | **26 / 42 (61.9)** |
+| LoCoMo in Spanish, 40 answerable (fixture) | 20 / 40 (50.0) | **27 / 40 (67.5)** |
+| — by category: single-hop / multi-hop / temporal / open-domain | 9/10 · 5/10 · 4/11 · 2/9 | 9/10 · 9/10 · 6/11 · 3/9 |
+| LoCoMo adversarial in Spanish (10) | 10 / 10 | 9 / 10 |
+| English adversarial, LongMemEval abstention, every other English question | — | prompt byte-identical: unchanged |
+
+- **Open-domain:** 12 right that were wrong, 3 the other way: two "would Caroline …" answers inferred the wrong way
+  from the right evidence, and a yes/no "did they meet" was answered "probably yes" from a plan to meet. Every
+  inference was marked as one (confidence 0.3–0.6). The other 40 open-domain questions' prompts are unchanged and were
+  not re-answered.
+- **Spanish:** 10 right that were wrong, 3 the other way: one answer gave the right day (2023-05-07) and was judged
+  wrong; two ask about a film by its Spanish title, which the record never uses. The adversarial miss is an honest
+  decline ("memory holds no favourite DJ of Dave") that went on to name a related favourite.
+- **Plan calls: 370** (2 translations, 184 answers, 184 judgments). The owner's two sets are measured by the
+  coordinator with `--compare`.
+
+**Still open.** Open-domain questions asked as plain facts ("does <name> live in <state>?", "how old is <name>?",
+"what nickname does …") are not read as judgements and still decline. A Spanish question about something named only
+in English (a film title translated) misses it. An English question over Spanish conversations is not helped: going
+by meaning on missing words breaks abstention, so it would need the bank's own language, not the question's words.
+
+*After review (same day):* a bare conditional is a judgement only about someone else (never I/we, a thing, "could
+not", a request such as "¿sabrías decirme …?"); an English question with Spanish names stays English; the Spanish
+stopwords, tense words and history cues apply to Spanish questions only, so the shared stopword list is dev's ("Ella",
+"Han", "Como" are names in English). Re-probed: all 400 English prompts and all 50 Spanish prompts are byte-identical to
+the ones measured above, so no answer was re-run (0 more plan calls).
+
+*Second review (owner's sets on haiku, three runs):* within noise overall, but the owner's Spanish questions fell 50 →
+43 % — his conversations are largely Spanish, and always leading by meaning displaced word hits that already worked
+(one Spanish count across several sessions went right → wrong). Now the meaning leg leads only when no word of the
+question is weighed or the nearest passages are in another language; over same-language conversations the words lead
+as on dev (the list path included) and meaning adds at most two lines after them. A synthetic bank with Spanish and
+English conversations checks both: the Spanish word hits all stay, the English answer turn is still reached. Every
+LoCoMo Spanish passage set is English, so all 50 fixture prompts and all 400 English prompts are byte-identical to the
+measured ones: no answer was re-run.
+
+## Implied facts and the record's language (2026-10-20, branch `feat/ask-gaps`)
+
+**Why.** Three shapes still missed after #385: open-domain questions worded as facts ("does <name> live in <state>?"),
+an English question over conversations held in Spanish, and a thing named in one language and said in the other.
+
+**Fixture.** `benchmarks/public/fixtures/locomo-es-turns.json`: 28 LoCoMo sessions translated to Spanish once by
+`claude-haiku-5-5` (every session of conv-30, the even sessions of conv-26; names of people and pets kept, names of
+things in their usual Spanish words), questions left in English. `benchmarks.public.run --turns <fixture>` applies it
+(`datasets.apply_turns`). Measured here on banks of those conversations without Sleep (staged and indexed only), so
+the search leg is the whole context; the English originals the same way, as the ceiling.
+
+**Causes found.**
+1. 31 of the 48 open-domain questions the judgement detector leaves out are fact-worded inferences (a state or
+   country from a city, a holiday from a day, a described game's name, a yes or no about someone, an age, a
+   preference). 9 of the 10 measured declined in every dev run ("memory does not say which country …" beside the city).
+2. An English question over Spanish conversations: every word leg missed, and `by_meaning` was keyed on the question's
+   language only. Answer turns reached the prompt 19 of 106 times over conv-30 in Spanish (English originals 59).
+3. Across languages the claims vector leg already finds the page (four of four Spanish/English name pairs on the slept
+   banks retrieved the same pages). The meaning leg's turn choice did not: the speakers' names dominated its ranking
+   ("¡Hola Jon! ¿Qué tal?" nearest to "what book is Jon reading?") and it read only each conversation's nearest
+   passage. #385's two film-title misses are a dataset artifact: the conversation never names the film.
+
+**Fixes.** `docs/architecture/mcp.md`, "Implied facts, English over Spanish, names across languages".
+
+**Retrieval, no model** (answer turns shown, answerable questions; EmbeddingGemma 2):
+
+| | dev | this branch | English originals |
+|---|---|---|---|
+| conv-30 held in Spanish, English questions (106 turns) | 19 | **46** (56 before the floor) | 59 |
+| conv-26 half in Spanish, English questions (203 turns) | 70 | **94** (105 before the floor) | 114 |
+| #385's Spanish questions over English banks (74 turns) | 33 | **39** | 38 |
+| LoCoMo implied-fact questions (the evidence turns of the questions with the note) | 53 of 99 | 52 of 96 | — |
+
+Context build p50: Spanish-record banks 13 → 139 ms; Spanish questions 412 → 439 ms; implied-fact questions +215 ms
+(their pages' items ranked). Every English prompt of the broad sample's banks (382 LoCoMo, 100 LongMemEval_S) is
+byte-identical to dev except the implied-fact questions' (at most 33 of the 382).
+
+**Answers on haiku** (answers and judge `claude-haiku-5-5`, `benchmarks.answer_eval` format, 3 runs each side,
+`--compare`):
+
+| | dev | this branch | compare |
+|---|---|---|---|
+| Implied facts: 10 open-domain + 1 single-hop + 1 multi-hop + 3 adversarial (15) | 4.67 (4–5) | **12 (12–12)** | better: 7 wrong→right, 0 lost, p = 0.016 |
+| — open-domain (10) | 0.67 (0–1) | **8** | |
+| — adversarial whose prompt changed (3) | 2 / 3 | 2 / 3 | same question wrong both sides |
+| English over Spanish: conv-30 (6) + conv-26 mixed (4), incl. 3 adversarial | 3 (3–3) | **8 (8–8)** | 5 wrong→right, 0 lost, p = 0.063 (within noise by the rule: too few questions) |
+| — adversarial (3) | 3 / 3 | 3 / 3 | |
+| answered when it should decline (implied set · Spanish-record set) | 1 · 0 | 1 · 0 | unchanged |
+
+- Implied facts: right answers say "Probably France, because … Paris (said 2023-01-23) … the country comes from general
+  knowledge", confidence 0.3–0.6. The two still wrong: "who is Anthony?" (the record holds one shared event) and
+  "what state did Nate visit?" (no line about a trip). The adversarial miss is "did Caroline make the bowl?",
+  answered "no, Melanie did" on both sides — right, but the abstention grading wants a decline.
+- English over Spanish: answers quote the Spanish turn and translate it. The temporal miss gives "about 20 May" for
+  "the Saturday before 25 May"; the multi-hop miss lists two of the shared things.
+- Questions picked by rule, not by result: implied — round-robin across conversations in qid order, every adversarial
+  question whose prompt changed, the first single-hop and multi-hop; Spanish record — the first questions of each
+  category in conv-30, and in conv-26 the first of each category whose evidence is all in Spanish sessions.
+- **Plan calls: 296** (9 translations, 287 answers and judgments — a dev answer with nothing to ground on makes no
+  call).
+
+*Review of #390 (same day):* on a record in both languages the nearest passages always exist, so an English question
+about something never said ("what is the name of my hamster?") went by meaning onto unrelated Spanish turns with the
+record-language note. The path now needs the nearest other-language passage to score at least a per-model floor
+(`RECORD_FLOORS`, EmbeddingGemma 2: 0.72). Set on this fixture: the nearest Spanish passage of 24 never-said questions
+(12 a bank) scored 0.635–0.717; answerable questions 0.625–0.821, p50 0.74, 70 % at or above 0.72 (adversarial 72 %).
+No floor separates them cleanly, so it sits above every never-said one: all 24 now read exactly as on dev, and the
+answerable ones below it lose the path (retrieval above: 56 → 46 and 105 → 94). The note now also says a line that
+does not mean what is asked is no answer. Re-measured (3 runs a side, 99 plan calls), the 10 questions above plus two
+never-said questions and two more adversarial ones:
+
+| | dev | after the floor | compare |
+|---|---|---|---|
+| English over Spanish, 14 questions (7 adversarial or never said) | 7 (7–7) | **11 (11–11)** | 4 gained, 0 lost, p = 0.125 (within noise: too few) |
+| — answerable (7) | 0 | **4** | conv-26:q082 fell below the floor and reads as on dev |
+| — adversarial and never said (7) | 7 / 7 | 7 / 7 | answered when it should decline: 0 → 0 |
+
+**Plan calls in all: 395** (296 above, 99 for the review).
+
+**Still open.** The owner's sets (coordinator, `--compare`): every Spanish question's prompt changed (the turn
+ranking), and his conversations are largely Spanish. The Spanish-record sets are small; a larger run would settle
+p < 0.05.

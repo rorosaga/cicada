@@ -18,7 +18,11 @@ enum MessagesReadError: Error, LocalizedError, Equatable {
 /// chats (`chat.style` 43) are left out of this slice. For a TICKED chat only: each message row's id, guid, time,
 /// direction, `text` and `attributedBody` (the archived words, sent as base64 for the backend to decode), its
 /// reaction/event columns, its edit and unsend times, and its attachments' *names* and types — never
-/// `attachment.filename` (a path) and never an attachment's bytes. No other column, no other chat.
+/// `attachment.filename` (a path) and never an attachment's bytes. No other column, no other chat. Since 2026-10-20
+/// (what made it a conversation): a tapback's target and emoji (`associated_message_guid`, `associated_message_emoji`),
+/// an inline reply's target (`thread_originator_guid`) and whether an attachment is a sticker (`is_sticker`) — ids
+/// and a flag, each read only where this Mac's `chat.db` has the column (`PRAGMA table_info`), so an older macOS
+/// still syncs without them.
 ///
 /// **Which chats.** The Settings list is the `listLimit` most recent chats; a ticked chat is read by its own id
 /// (`conversations(ids:)`), whatever its rank, so a quiet chat that falls below the list's cap never stops syncing.
@@ -137,12 +141,17 @@ struct MessagesReader: Sendable {
             lastActivity: int(row["last"]).flatMap(date), fromMe: fromMe, fromThem: fromThem)
     }
 
-    /// The rows past the cursor's ROWID, plus `recheck` already-posted rows whose edit or unsend changed.
-    static func rowsSQL(recheck: Int) -> String {
+    /// The optional `message` columns a pass reads when this Mac's database has them — ids and an emoji, never words.
+    static let optionalMessageColumns = ["associated_message_guid", "associated_message_emoji", "thread_originator_guid"]
+
+    /// The rows past the cursor's ROWID, plus `recheck` already-posted rows whose edit or unsend changed. `extra` names
+    /// the optional columns this database has (`optionalMessageColumns`).
+    static func rowsSQL(recheck: Int, extra: [String] = []) -> String {
         let changed = recheck > 0 ? " OR m.ROWID IN (\(Array(repeating: "?", count: recheck).joined(separator: ", ")))" : ""
+        let optional = extra.filter(optionalMessageColumns.contains).map { "m.\($0) AS \($0), " }.joined()
         return """
             SELECT m.ROWID AS rowid, m.guid AS guid, m.date AS date, m.is_from_me AS is_from_me, m.text AS text,
-                   m.attributedBody AS attributed_body,
+                   m.attributedBody AS attributed_body, \(optional)
                    COALESCE(m.associated_message_type, 0) AS associated_message_type, COALESCE(m.item_type, 0) AS item_type,
                    COALESCE(m.is_system_message, 0) AS is_system_message, COALESCE(m.date_edited, 0) AS date_edited,
                    COALESCE(m.date_retracted, 0) AS date_retracted
@@ -187,7 +196,11 @@ struct MessagesReader: Sendable {
             }
             changed = stamps.filter { cursor.edits[$0.key] != $0.value }.keys.sorted()
             recheck = Array(changed.prefix(batchLimit))
-            rows = try db.query(Self.rowsSQL(recheck: recheck.count) + " LIMIT \(batchLimit)",
+            let messageColumns = try Self.columns(of: "message", in: db)
+            let stickerColumn = try Self.columns(of: "attachment", in: db).contains("is_sticker")
+            rows = try db.query(Self.rowsSQL(recheck: recheck.count,
+                                             extra: Self.optionalMessageColumns.filter(messageColumns.contains))
+                                + " LIMIT \(batchLimit)",
                                 binds: [.int(conversation.chatRowId), .int(cursor.rowid)] + recheck.map { .int($0) },
                                 base64Blobs: ["attributed_body"])
             let ids = rows.compactMap { Self.int($0["rowid"]) }
@@ -195,7 +208,8 @@ struct MessagesReader: Sendable {
                 let marks = Array(repeating: "?", count: ids.count).joined(separator: ", ")
                 let found = try db.query(
                     "SELECT j.message_id AS message, a.transfer_name AS name, a.mime_type AS mime, a.uti AS uti, "
-                    + "COALESCE(a.total_bytes, 0) AS bytes FROM attachment a "
+                    + "COALESCE(a.total_bytes, 0) AS bytes"
+                    + (stickerColumn ? ", COALESCE(a.is_sticker, 0) AS sticker" : "") + " FROM attachment a "
                     + "JOIN message_attachment_join j ON j.attachment_id = a.ROWID "
                     + "WHERE j.message_id IN (\(marks)) ORDER BY j.message_id, a.ROWID",
                     binds: ids.map { .int($0) })
@@ -205,6 +219,7 @@ struct MessagesReader: Sendable {
                                                "totalBytes": Self.int(att["bytes"]) ?? 0]
                     if let mime = att["mime"] as? String { item["mimeType"] = mime }
                     if let uti = att["uti"] as? String { item["uti"] = uti }
+                    if (Self.int(att["sticker"]) ?? 0) != 0 { item["isSticker"] = true }
                     attachments[message, default: []].append(item)
                 }
             }
@@ -234,6 +249,12 @@ struct MessagesReader: Sendable {
             ]
             if let text = row["text"] as? String { message["text"] = text }
             if let body = row["attributed_body"] as? String { message["attributedBody"] = body }
+            // A tapback's target and emoji, an inline reply's target: ids, never words (2026-10-20).
+            for (column, key) in [("associated_message_guid", "associatedMessageGuid"),
+                                  ("associated_message_emoji", "associatedMessageEmoji"),
+                                  ("thread_originator_guid", "threadOriginatorGuid")] {
+                if let value = row[column] as? String, !value.isEmpty { message[key] = value }
+            }
             messages.append(message)
         }
         let body: [String: Any] = [
@@ -247,6 +268,11 @@ struct MessagesReader: Sendable {
     }
 
     // MARK: helpers
+
+    /// The column names of one of `chat.db`'s tables, so a column a newer macOS added is read only where it exists.
+    static func columns(of table: String, in db: SQLiteReadOnly) throws -> Set<String> {
+        Set(try db.query("PRAGMA table_info(\(table))", binds: []).compactMap { $0["name"] as? String })
+    }
 
     static func int(_ value: Any?) -> Int64? {
         switch value {

@@ -47,8 +47,9 @@ struct WikiArticle: Sendable, Equatable {
     var isEmpty: Bool { complete && rows.isEmpty }
 
     /// The sections that already have their own surface: the Summary is the header's (R-DG15), the Description a
-    /// media page's card. The same pair `EntityDetailCard` used to strip before rendering.
-    static let ownSurfaces: Set<String> = ["## Summary", "## Description"]
+    /// media page's card, the Looks the card's own tiles (owner 2026-10-20: drawn from the looks, `PageLooksSection`,
+    /// not from the markdown that lists them for git and agents).
+    static let ownSurfaces: Set<String> = ["## Summary", "## Description", "## Looks"]
 
     /// Sections whose heading is a container, not a title (G194 articles): `## Article` holds the page's prose sections
     /// under `### ` titles, right below the header's lead. Its own heading row is not drawn and its titles are drawn

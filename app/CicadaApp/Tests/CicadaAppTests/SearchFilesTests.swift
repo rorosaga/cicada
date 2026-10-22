@@ -50,31 +50,37 @@ final class SearchFilesTests: XCTestCase {
         for row in Self.everyRow() { assertPlain(row.detail); row.button.map { assertPlain($0) }; row.help.map { assertPlain($0) } }
     }
 
-    func testAdvancedIsExemptButStillProviderNeutral() {
-        // The version names and the rebuild live behind Advanced; the account sheet names the person's own account.
-        for text in [Copy.SearchModel.title, Copy.SearchModel.pickerHelp, Copy.SearchModel.usesOther,
-                     Copy.SearchModel.sheetTitle, Copy.SearchModel.installHelp, Copy.SearchFiles.rebuildTitle] {
+    /// Settings defaults (owner 2026-10-22): the page has no Advanced — no version picker, no account sheet, no
+    /// rebuild — and the words the version logic still uses stay provider-neutral.
+    func testThereIsNoAdvancedAndTheVersionWordsStayNeutral() throws {
+        let page = try String(contentsOf: Self.source("Views/Settings/SearchFilesView.swift"), encoding: .utf8)
+        for gone in ["DisclosureGroup", "PillPicker(", "LargerSearchModelSheet", "rebuildSearchIndex", "SettingsRow(.searchModel",
+                     "SettingsRow(.searchIndex"] {
+            XCTAssertFalse(page.contains(gone), gone)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: Self.source("Views/Settings/LargerSearchModelSheet.swift").path))
+        for text in [Copy.SearchModel.usesOther, Copy.SearchModel.anotherModel] {
             for name in ["Gemma", "Google", "Core ML", "Neural Engine"] { XCTAssertFalse(text.contains(name), text) }
         }
-        XCTAssertTrue(Copy.SearchModel.sheetWhy.contains("Hugging Face"), "the account's site, named where it is used")
-        XCTAssertTrue(Copy.SearchModel.sheetTokenUse.contains("isn't saved"))
     }
 
     func testTheHiddenSearchKeywordsAreKept() {
         let all = SettingsIndex.staticEntries + SettingsIndex.pageEntries
         let page = all.filter { $0.section == .searchFiles }
         let keywords = Set(page.flatMap(\.keywords))
-        for kept in ["index", "model", "embedding", "embeddings", "semantic", "vectors", "rebuild", "search", "find"] {
+        // "rebuild" left with the rebuild row (settings defaults, owner 2026-10-22); the rest land on the meaning row.
+        for kept in ["index", "model", "embedding", "embeddings", "semantic", "vectors", "search", "find"] {
             XCTAssertTrue(keywords.contains(kept), "\(kept) was a keyword of the old Memory rows")
         }
         XCTAssertEqual(SettingsIndex.search("embeddings", in: all).first?.entry.id, .searchMeaning)
         XCTAssertEqual(SettingsIndex.search("images", in: all).first?.entry.id, .searchImages)
         XCTAssertEqual(SettingsIndex.search("add a folder", in: all).first?.entry.id, .searchFolders)
-        XCTAssertTrue(SettingsIndex.search("rebuild", in: all).contains { $0.entry.id == .searchIndex })
+        XCTAssertEqual(SettingsIndex.search("search version", in: all).first?.entry.id, .searchMeaning,
+                       "the version is the meaning row's one choice now")
         XCTAssertTrue(SettingsIndex.search("look through", in: all).contains { $0.entry.id == .page(.searchFiles) },
                       "the page title finds the page")
-        for id in [SettingsRowID.searchModel, .searchIndex] {
-            XCTAssertEqual(SettingsIndex.entry(for: id, in: all)?.anchor, .searchAdvanced, "\(id.rawValue) opens Advanced")
+        for gone in ["searchModel", "searchIndex", "searchAdvanced"] {
+            XCTAssertNil(SettingsIndex.entry(for: SettingsRowID(gone), in: all), gone)
         }
     }
 
@@ -111,8 +117,6 @@ final class SearchFilesTests: XCTestCase {
         XCTAssertFalse(folderPart.contains(".buttonStyle(.borderedProminent)"))
         // DR-7: a failure is never drawn in danger.
         XCTAssertFalse(folderPart.contains("CicadaTheme.danger"))
-        let sheet = try String(contentsOf: Self.source("Views/Settings/LargerSearchModelSheet.swift"), encoding: .utf8)
-        XCTAssertFalse(sheet.contains("CicadaTheme.danger"))
     }
 
     static func source(_ path: String) -> URL {
@@ -260,7 +264,12 @@ final class SearchFilesTests: XCTestCase {
         XCTAssertEqual(row?.action, .fetchMeaning(Self.sharper))
         let larger = SearchUnderstanding.meaning(Self.status(model: Self.large, sharperOffered: false, largeOffered: true), sleeping: false)
         XCTAssertEqual(larger?.detail, Copy.SearchFiles.meaningMissingLarger)
-        XCTAssertNil(larger?.button, "the larger version needs the account sheet, under Advanced")
+        XCTAssertNil(larger?.button, "no sharper version on offer: a fact, no button")
+        // Settings defaults (owner 2026-10-22): no account sheet in the app, so the way out is the sharper version.
+        let offered = SearchUnderstanding.meaning(Self.status(model: Self.large, largeOffered: true), sleeping: false)
+        XCTAssertEqual(offered?.detail, Copy.SearchFiles.meaningMissingLarger)
+        XCTAssertEqual(offered?.button, Copy.SearchFiles.turnOn)
+        XCTAssertEqual(offered?.action, .fetchMeaning(Self.sharper))
     }
 
     // MARK: Review fixes (B1, B2 and the 409)
@@ -273,14 +282,12 @@ final class SearchFilesTests: XCTestCase {
         let confirm = SearchModelLogic.confirmation(for: Self.sharper, in: status)
         XCTAssertTrue(confirm.contains("585 MB"), "the size before the click: \(confirm)")
         XCTAssertFalse(Copy.SearchModel.usesNowBetterHere("Built in", better: "Sharper").contains("download it once"))
+        // The version picker left the page (settings defaults, owner 2026-10-22): the one install the page sends is the
+        // meaning row's own button, which names what it does and its size before the click.
         let page = try String(contentsOf: Self.source("Views/Settings/SearchFilesView.swift"), encoding: .utf8)
-        let pick = try XCTUnwrap(page.components(separatedBy: "private func pick(").dropFirst().first?
-            .components(separatedBy: "private func confirmDownload(").first)
-        XCTAssertFalse(pick.contains("installEmbeddingModel"), "a pick sends no install request")
-        XCTAssertTrue(pick.contains("pendingDownload = id"))
-        let confirmBody = try XCTUnwrap(page.components(separatedBy: "private func confirmDownload(").dropFirst().first?
-            .components(separatedBy: "private func send(").first)
-        XCTAssertTrue(confirmBody.contains("installEmbeddingModel"), "only the explicit Download sends it")
+        XCTAssertFalse(page.contains("private func pick("))
+        XCTAssertEqual(page.components(separatedBy: "installEmbeddingModel(").count - 1, 1)
+        XCTAssertTrue(page.contains("case .fetchMeaning(let id):"))
     }
 
     /// B2 — a failed re-read on the default view is the page's own sentence, whatever the backend's diagnostic said.

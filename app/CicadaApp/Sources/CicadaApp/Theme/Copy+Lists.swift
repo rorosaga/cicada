@@ -51,6 +51,9 @@ extension Copy {
         static func entityRow(type: String, name: String, open: Bool) -> String {
             open ? "Open: \(type), \(name)" : "\(type), \(name)"
         }
+        /// Owner ruling 2026-10-20 — a page only an import made, not mentioned yet: said to VoiceOver,
+        /// since the row's dimming alone is a look.
+        static let quiet = "Saved, not talked about yet"
 
         // The Feed
         static let kind = "Kind"
@@ -99,6 +102,8 @@ extension Copy {
         static func savedCount(_ n: Int) -> String { "\(UsageFormat.count(n)) saved" }
         static let expanded = "Expanded"
         static let collapsed = "Collapsed"
+        /// VoiceOver's name for a transclusion's fold: the chevron alone names nothing.
+        static func embeddedPage(_ name: String) -> String { "Embedded page, \(name)" }
         static let shareOfEntities = "share of entities written"
         static func connected(_ n: Int) -> String { "\(UsageFormat.count(n)) connected" }
         static func sourcesBack(_ n: Int) -> String { "‹ \(UsageFormat.count(n)) \(n == 1 ? "source" : "sources")" }

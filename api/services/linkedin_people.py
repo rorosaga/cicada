@@ -50,7 +50,6 @@ import io
 import json
 import os
 import re
-import tempfile
 import zipfile
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
@@ -59,7 +58,8 @@ from urllib.parse import urlparse
 
 from loguru import logger
 
-from api.services import bank_index, episode_scrub, evidence, fact_sources, markdown_parser, page_lock, text_fold
+from api.services import (bank_index, episode_scrub, evidence, fact_sources, markdown_parser, page_lock,
+                          people_directory)
 from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
 
 CHANNEL_ID = "linkedin-connections"
@@ -89,6 +89,9 @@ MATCH_ALIAS = "alias"
 #: The matches that are the person's connection beyond doubt: their link may draw the page's photo before they take it.
 CONFIDENT_MATCHES = frozenset({MATCH_LINK, MATCH_NAME})
 SLEEP_REFUSAL = "Cicada is tidying up your memory right now — add your LinkedIn connections again in a minute."
+#: The forget's 409 while Sleep holds the pages (its tail may be reading the kept export).
+FORGET_SLEEP_REFUSAL = ("Cicada is tidying up your memory right now — forget your kept connections again in a "
+                        "minute.")
 _DATE_FORMATS = ("%d %b %Y", "%d %B %Y", "%Y-%m-%d", "%d-%b-%y", "%d-%b-%Y", "%m/%d/%y", "%m/%d/%Y")
 _SLUG_RE = re.compile(r"[^/?#\s]{1,100}")
 
@@ -311,8 +314,7 @@ class _Index:
     listed_by_others: dict[str, set[str]] = field(default_factory=dict)  # page → slugs a non-Cicada source lists
 
 
-def _fold(text) -> str:
-    return " ".join(text_fold.words(str(text or "")))
+_fold = people_directory.fold
 
 
 def _owner_ids(memory_path: Path) -> set[str]:
@@ -379,10 +381,7 @@ def _vouched(source: dict) -> bool:
 
 
 def _name_keys(c: Connection) -> set[str]:
-    first, last = _fold(c.first), _fold(c.last)
-    if not first or not last:
-        return set()
-    return {f"{first} {last}", f"{last} {first}"}
+    return people_directory.name_keys(c.first, c.last)
 
 
 def basis(idx: _Index, entity_id: str, c: Connection) -> str | None:
@@ -600,19 +599,13 @@ def import_connections(memory_path: Path, data: bytes, filename: str = "", *, ex
 
 
 def directory_path(bank: str) -> Path:
-    """``$CICADA_HOME/people/<bank>/linkedin-connections.json``. Pure: a read never conjures a folder (the
-    ``contacts_local.photo_path`` rule) — :func:`save_directory` creates it."""
-    root = Path(os.environ.get("CICADA_HOME") or str(Path.home() / ".cicada")).expanduser()
-    return root / "people" / (bank or "default") / DIRECTORY_FILE
+    """``$CICADA_HOME/people/<bank>/linkedin-connections.json`` (`people_directory`). Pure: a read never conjures a
+    folder — :func:`save_directory` creates it."""
+    return people_directory.path(bank, DIRECTORY_FILE)
 
 
 def load_directory(bank: str) -> dict:
-    path = directory_path(bank)
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    return people_directory.load_json(bank, DIRECTORY_FILE)
 
 
 def save_directory(bank: str, connections: list[Connection], day: str) -> bool:
@@ -621,45 +614,23 @@ def save_directory(bank: str, connections: list[Connection], day: str) -> bool:
     held = load_directory(bank)
     if str(held.get("exported_on") or "") > day:
         return False
-    path = directory_path(bank)
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    os.chmod(path.parent.parent, 0o700)
     payload = {"v": 1, "exported_on": day, "imported_at": datetime.now().astimezone().isoformat(timespec="seconds"),
                "connections": [c.to_dict() for c in connections]}
-    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}-", dir=str(path.parent))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False)
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+    people_directory.save_json(bank, DIRECTORY_FILE, payload)
     return True
 
 
-def forget(bank: str) -> None:
-    """A bank moved to the trash takes its kept connections with it: the names outlive no bank, and a new bank of the
-    same name never inherits them. Never raises."""
-    import shutil
-
-    folder = directory_path(bank).parent
-    try:
-        if folder.is_dir() and not folder.is_symlink():
-            shutil.rmtree(folder)
-    except OSError as exc:
-        logger.warning(f"LinkedIn connections: the trashed bank's directory was not removed ({type(exc).__name__})")
+def forget_directory(bank: str) -> int:
+    """The person's "Forget kept connections" (review of #391): this bank's kept export is deleted, so Sleep's rematch
+    and nothing else ever reads it again. What earlier matches wrote on pages stays. Returns how many were kept."""
+    kept = status(bank)["connections"]
+    directory_path(bank).unlink(missing_ok=True)
+    return int(kept or 0)
 
 
-def rename(old: str, new: str) -> None:
-    """A renamed bank keeps its connections (the directory is keyed by the bank's folder name). Never raises; a
-    folder already under the new name is left as it is."""
-    src, dst = directory_path(old).parent, directory_path(new).parent
-    try:
-        if src.is_dir() and not src.is_symlink() and not dst.exists():
-            src.rename(dst)
-    except OSError as exc:
-        logger.warning(f"LinkedIn connections: the renamed bank's directory was not moved ({type(exc).__name__})")
+#: A bank's trash and rename take the whole people directory along (`people_directory`), Contacts' waiting cards too.
+forget = people_directory.forget
+rename = people_directory.rename
 
 
 def status(bank: str) -> dict:

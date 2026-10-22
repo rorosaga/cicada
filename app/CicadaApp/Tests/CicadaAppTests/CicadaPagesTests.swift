@@ -6,8 +6,11 @@ final class CicadaPagesTests: XCTestCase {
     func testTheCicadaGroupReadsInTheDesignsOrder() {
         // Search & files (owner, 2026-10-14) sits between Privacy & data and Memory.
         XCTAssertEqual(SettingsGroup.cicada.sections, [.general, .you, .privacy, .searchFiles, .memory, .sleep])
-        XCTAssertEqual(SettingsGroup.enginesAndKeys.sections, [.engines, .plansAndKeys, .advanced])
-        for section in [SettingsSection.you, .privacy, .searchFiles, .memory, .advanced] {
+        // Settings defaults (owner 2026-10-22): Advanced is gone; Engines & keys is the engine and the sign-ins.
+        XCTAssertEqual(SettingsGroup.enginesAndKeys.sections, [.engines, .plansAndKeys])
+        XCTAssertNil(SettingsSection(rawValue: "advanced"))
+        XCTAssertEqual(SettingsSection.restored(from: "advanced"), .general, "a saved Advanced reopens on General")
+        for section in [SettingsSection.you, .privacy, .searchFiles, .memory] {
             XCTAssertLessThanOrEqual(section.subtitle.count, 60)
             XCTAssertFalse(section.subtitle.lowercased().contains(section.title.lowercased()))
         }
@@ -42,20 +45,11 @@ final class CicadaPagesTests: XCTestCase {
         XCTAssertEqual(full.envOverrides, ["CICADA_LLM_MODE"])
     }
 
-    func testSettingsFileSourcesDecodeAndReadInWords() throws {
-        let body = #"{"sleep":{"status":"idle","stage":0,"totalStages":5},"inbox":{"total":0,"byKind":{}},"episodes":{"unprocessed":0},"settings":{"file":"api/.env","fromFile":["CICADA_AGENT_MAX_CONCURRENCY","CICADA_PAGE_ARTICLES_ENABLED"],"fromEnvironment":["CICADA_MEMORY_PATH"],"replacedByEnvironment":["CICADA_MEMORY_PATH"],"effective":{"agentMaxConcurrency":10,"sleepResolveConcurrency":10,"summarySynthesisEnabled":true,"pageArticlesEnabled":false}}}"#
+    /// The Settings file's wire still decodes (`/status` sends it for the CLI); nothing in the app shows it any more.
+    func testSettingsFileSourcesStillDecode() throws {
+        let body = #"{"sleep":{"status":"idle","stage":0,"totalStages":5},"inbox":{"total":0,"byKind":{}},"episodes":{"unprocessed":0},"settings":{"file":"api/.env","fromFile":["CICADA_AGENT_MAX_CONCURRENCY"],"fromEnvironment":[],"replacedByEnvironment":[]}}"#
         let status = try JSONDecoder().decode(StatusSnapshot.self, from: Data(body.utf8))
-        let sources = try XCTUnwrap(status.settings)
-        XCTAssertEqual(SettingsFileText.detail(sources), "api/.env — 2 settings read.")
-        XCTAssertEqual(SettingsFileText.lines(sources).map(\.name),
-                       ["CICADA_AGENT_MAX_CONCURRENCY", "CICADA_PAGE_ARTICLES_ENABLED", "CICADA_MEMORY_PATH"])
-        XCTAssertEqual(SettingsFileText.lines(sources).last?.note, "In api/.env, but the environment replaces it.")
-        XCTAssertEqual(SettingsFileText.effective(sources.effective),
-                       "In effect: 10 model calls at once · 10 name checks at once · summaries rewritten on · pages as articles off.")
-        let none = StatusSnapshot.SettingsSources(file: nil, fromFile: [], fromEnvironment: ["CICADA_HOME"])
-        XCTAssertEqual(SettingsFileText.detail(none), Copy.settingsFileNone)
-        XCTAssertTrue(SettingsFileText.lines(none).isEmpty)
-        XCTAssertNil(SettingsFileText.effective(nil))
+        XCTAssertEqual(status.settings?.fromFile, ["CICADA_AGENT_MAX_CONCURRENCY"])
     }
 
     func testBanksAndHealthDecodeTheirNewFieldsTolerantly() throws {
@@ -70,33 +64,16 @@ final class CicadaPagesTests: XCTestCase {
         XCTAssertEqual(trash.trashedTo, ".trash/scratch-20260923T100000Z")
     }
 
-    // MARK: Advanced — every switch the backend can report has plain words
-
-    func testEveryKnownEnvSwitchHasAMeaning() throws {
-        let py = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("api/services/env_overrides.py")
-        let text = try String(contentsOf: py, encoding: .utf8)
-        let known = text.components(separatedBy: "\"").filter { $0.hasPrefix("CICADA_") && !$0.contains("<") && !$0.contains("{") }
-        XCTAssertFalse(known.isEmpty)
-        for name in Set(known) {
-            XCTAssertNotNil(EnvOverrideCopy.meaning(name), "\(name) is reported by the backend but has no plain words")
-        }
-    }
-
     // MARK: Memory
 
-    func testMaintenanceLinesSayWhatHappenedInWords() {
-        XCTAssertEqual(MemoryMaintenanceText.index(SearchIndexStatus(state: "building", builtAt: nil, documents: nil)),
-                       "Getting search ready for the first time…")
-        XCTAssertEqual(MemoryMaintenanceText.index(SearchIndexStatus(state: "unavailable", builtAt: nil, documents: nil)),
-                       "Not available on this Mac — search still works from your pages.")
-        XCTAssertTrue((MemoryMaintenanceText.index(SearchIndexStatus(state: "ready", builtAt: nil, documents: 1200)) ?? "").hasPrefix("Up to date"))
-        XCTAssertEqual(MemoryMaintenanceText.links(EnrichLinksReport(summarized: 3, remaining: 12), locale: Locale(identifier: "en_US")),
-                       "Described 3 links · 12 still to go")
-        XCTAssertEqual(MemoryMaintenanceText.links(EnrichLinksReport(), locale: Locale(identifier: "en_US")),
-                       "Nothing to fetch — every saved link has a description.")
+    /// Settings defaults (owner 2026-10-22): Memory keeps How things fade; the link-preview button left (Sleep's
+    /// tail describes saved links on every run).
+    func testMemoryKeepsOnlyHowThingsFade() throws {
+        let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first { $0.path.hasSuffix("Views/Settings/MemoryView.swift") })
+        let memory = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertTrue(memory.contains("FadePaceCard()"))
+        XCTAssertFalse(memory.contains("SettingsRow("), "no maintenance button on Memory")
+        XCTAssertFalse(memory.contains("APIClient"), "Memory starts no backend job")
     }
 
     /// R-O17 — the dedup sweep has no row until its endpoint stops blocking the

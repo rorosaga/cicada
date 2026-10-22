@@ -17,6 +17,8 @@ from pathlib import Path
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "dev" / "auto-update.sh"
+INSTALLER = SCRIPT.parent / "install-auto-update.sh"
+UNAME_STUB = '[ "$1" = "-s" ] && { echo "$UNAME_S"; exit 0; }\nexec /usr/bin/uname "$@"\n'
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -55,6 +57,8 @@ class Rig:
         (self.repo / "logs").mkdir()
         (self.repo / "logs/.gitignore").write_text("*\n")
         _stub(self.repo / "app/CicadaApp/install_app.sh", 'echo "install_app $*" >> "$CALLS"\n')
+        _stub(self.repo / "scripts/sync-server-env.sh",
+              'echo "sync-server-env $*" >> "$CALLS"\n[ -z "$SYNC_FAILS" ] || exit 1\n')
         _git(self.repo, "add", "-A")
         _git(self.repo, "commit", "-q", "-m", "base")
         _git(self.repo, "push", "-q", "origin", "dev")
@@ -63,6 +67,19 @@ class Rig:
         _stub(self.bin / "launchctl", 'echo "launchctl $*" >> "$CALLS"\nexit 0\n')
         _stub(self.bin / "uv", 'echo "uv $*" >> "$CALLS"\nexit 0\n')
         _stub(self.bin / "pgrep", "exit 1\n")
+        # The OS is the rig's choice, not the runner's: CI runs these on Linux.
+        self.os_name = "Darwin"
+        _stub(self.bin / "uname", UNAME_STUB)
+        self.unit_loaded = True
+        # `systemctl --user cat` prints the unit install-backend-service.sh writes (its port and home); a
+        # restart fails when RESTART_FAILS is set; a sync stub fails when SYNC_FAILS is set.
+        _stub(self.bin / "systemctl", 'echo "systemctl $*" >> "$CALLS"\n'
+                                      'case " $* " in *" cat "*) [ -n "$UNIT_LOADED" ] || exit 1\n'
+                                      '  printf \'# unit\\nExecStart="/v/python" -m uvicorn api.main:app'
+                                      ' --host 127.0.0.1 --port %s\\nEnvironment="CICADA_HOME=%s"\\n\' '
+                                      '"$UNIT_PORT" "$UNIT_HOME" ;;\n'
+                                      '*" restart "*) [ -z "$RESTART_FAILS" ] || exit 1 ;; esac\n'
+                                      'exit 0\n')
         _stub(self.bin / "curl", '''
             echo "curl $*" >> "$CALLS"
             [ -n "$CURL_EXIT" ] && exit "$CURL_EXIT"
@@ -100,8 +117,12 @@ class Rig:
         env = {**os.environ, "PATH": f"{self.bin}:/usr/bin:/bin:/usr/sbin:/sbin:{os.environ['PATH']}",
                "CALLS": str(self.calls), "STATUS_FILE": str(self.status_file), "CICADA_HOME": str(self.home),
                "CICADA_PORT": "49177", "CURL_EXIT": self.curl_exit,
-               "HTTP_500": "1" if self.http_500 else "", **extra_env}
+               "HTTP_500": "1" if self.http_500 else "", "UNAME_S": self.os_name,
+               "UNIT_LOADED": "1" if self.unit_loaded else "", "UNIT_PORT": "49177",
+               "UNIT_HOME": str(self.home), **extra_env}
         env.pop("CICADA_AUTOUPDATE_FORCE", None) if "CICADA_AUTOUPDATE_FORCE" not in extra_env else None
+        for k in [k for k, v in env.items() if v is None]:   # run(CICADA_PORT=None) unsets it
+            del env[k]
         return subprocess.run(["bash", str(self.repo / "scripts/dev/auto-update.sh")], cwd=self.repo, env=env,
                               capture_output=True, text=True, timeout=60)
 
@@ -300,3 +321,201 @@ def test_dependency_file_change_restarts(rig):
     rig.run()
     assert "uv sync" in rig.called()
     assert "kickstart -k" in rig.called()
+
+
+# --- Linux (a headless server, G181): the systemd user unit, no app -----------------------------------------------
+
+
+@pytest.fixture
+def linux(rig):
+    rig.os_name = "Linux"
+    return rig
+
+
+def test_linux_restarts_the_systemd_unit_not_launchd(linux):
+    new = linux.push_change("api/app.py")
+    linux.sleep_status()
+    assert linux.run().returncode == 0
+    assert linux.head() == new
+    called = linux.called()
+    assert "systemctl --user restart cicada-backend.service" in called
+    assert "launchctl" not in called
+    assert "backend restarted" in linux.log()
+    assert linux.stamp() == new
+
+
+def test_linux_never_builds_the_app(linux):
+    new = linux.push_change("app/CicadaApp/x.swift")
+    linux.sleep_status()
+    assert linux.run().returncode == 0
+    assert "install_app" not in linux.called()
+    assert "systemctl --user restart" not in linux.called()
+    assert linux.stamp() == new
+    assert "no app on Linux" in linux.log()
+
+
+def test_linux_names_the_unit_from_the_environment(linux):
+    linux.push_change("mcp/server.py")
+    linux.sleep_status()
+    linux.run(CICADA_BACKEND_UNIT="other.service")
+    assert "systemctl --user restart other.service" in linux.called()
+
+
+def test_linux_without_the_unit_restarts_nothing(linux):
+    new = linux.push_change("api/app.py")
+    linux.unit_loaded = False
+    linux.sleep_status()
+    assert linux.run().returncode == 0
+    assert "restart" not in linux.called()
+    assert linux.stamp() == new
+
+
+def test_linux_server_venv_keeps_its_shape(linux):
+    """A venv without sentence-transformers (install-server.sh's) re-syncs through sync-server-env.sh."""
+    linux.push_change("api/uv.lock")
+    linux.sleep_status()
+    linux.run()
+    assert "sync-server-env -q" in linux.called()
+    assert "uv sync" not in linux.called()
+
+
+def test_linux_full_venv_uses_uv_sync(linux):
+    (linux.repo / "api/.venv/lib/python3.12/site-packages/sentence_transformers").mkdir(parents=True)
+    linux.push_change("api/uv.lock")
+    linux.sleep_status()
+    linux.run()
+    assert "uv sync -q" in linux.called()
+    assert "sync-server-env" not in linux.called()
+
+
+def test_linux_still_waits_out_sleep(linux):
+    linux.push_change("api/app.py")
+    linux.sleep_status(status="running")
+    _assert_deferred(linux)
+    assert "systemctl --user restart" not in linux.called()
+
+
+def test_linux_non_runtime_merge_never_restarts(linux):
+    new = linux.push_change("docs/b.md")
+    linux.sleep_status()
+    assert linux.run().returncode == 0
+    assert "systemctl --user restart" not in linux.called()
+    assert linux.stamp() == new
+
+
+def _curl_line(rig: Rig) -> str:
+    return [ln for ln in rig.called().splitlines() if ln.startswith("curl")][0]
+
+
+def test_linux_asks_the_port_and_home_the_backend_unit_names(linux, tmp_path):
+    """A server on another port must be asked on that port, or a running Sleep reads as 'nothing listening'."""
+    other_home = tmp_path / "unit-home"
+    other_home.mkdir()
+    (other_home / "api_token").write_text("unit-tok\n")
+    linux.sleep_status(status="running")
+    linux.push_change("api/app.py")
+    linux.run(CICADA_PORT=None, CICADA_HOME=None, UNIT_PORT="18123", UNIT_HOME=str(other_home))
+    curl = _curl_line(linux)
+    assert "127.0.0.1:18123/sleep/status" in curl and "Bearer unit-tok" in curl
+    assert "deferred: Sleep is running" in linux.log()
+    assert linux.head() == linux.base
+
+
+def test_linux_environment_port_wins_over_the_unit(linux):
+    linux.sleep_status()
+    linux.run(UNIT_PORT="18123")
+    assert "127.0.0.1:49177/sleep/status" in _curl_line(linux)
+
+
+def test_a_mac_never_reads_a_unit(rig):
+    rig.sleep_status()
+    rig.run(CICADA_PORT=None)
+    assert "systemctl" not in rig.called()
+    assert "127.0.0.1:8000/sleep/status" in _curl_line(rig)
+
+
+def test_linux_failed_sync_keeps_the_stamp_and_the_next_tick_retries(linux):
+    new = linux.push_change("api/uv.lock")
+    linux.sleep_status()
+    out = linux.run(SYNC_FAILS="1")
+    assert out.returncode == 1
+    assert linux.head() == new, "the code still fast-forwards"
+    assert linux.stamp() == linux.base
+    assert "systemctl --user restart" not in linux.called(), "new code on old dependencies is not started"
+    assert "fail: sync-server-env.sh" in linux.log() and "the next tick retries" in linux.log()
+    assert linux.run().returncode == 0
+    assert linux.called().count("sync-server-env -q") == 2
+    assert "systemctl --user restart cicada-backend.service" in linux.called()
+    assert linux.stamp() == new
+
+
+def test_linux_failed_restart_keeps_the_stamp(linux):
+    new = linux.push_change("api/app.py")
+    linux.sleep_status()
+    assert linux.run(RESTART_FAILS="1").returncode == 1
+    assert linux.stamp() == linux.base
+    assert "fail: restart cicada-backend.service" in linux.log()
+    assert linux.run().returncode == 0
+    assert linux.stamp() == new
+
+
+# --- the installer: launchd on a Mac, a systemd user timer on Linux -----------------------------------------------
+
+
+def _installer(tmp_path: Path, os_name: str, *args: str) -> tuple[subprocess.CompletedProcess, Path, Path]:
+    repo = tmp_path / "repo"
+    (repo / "scripts/dev").mkdir(parents=True, exist_ok=True)
+    shutil.copy(INSTALLER, repo / "scripts/dev/install-auto-update.sh")
+    bin_ = tmp_path / "bin"
+    bin_.mkdir(exist_ok=True)
+    calls = tmp_path / "calls.log"
+    for tool in ("systemctl", "launchctl"):
+        _stub(bin_ / tool, f'echo "{tool} $*" >> "$CALLS"\nexit 0\n')
+    _stub(bin_ / "uname", UNAME_STUB)
+    _stub(bin_ / "uv", "exit 0\n")
+    home = tmp_path / "home"
+    home.mkdir(exist_ok=True)
+    units = tmp_path / "units"
+    env = {**os.environ, "PATH": f"{bin_}:/usr/bin:/bin", "HOME": str(home), "CALLS": str(calls),
+           "UNAME_S": os_name, "SYSTEMD_USER_DIR": str(units)}
+    out = subprocess.run(["bash", str(repo / "scripts/dev/install-auto-update.sh"), *args], env=env,
+                         capture_output=True, text=True, timeout=30)
+    return out, units, calls
+
+
+def test_installer_on_linux_writes_a_five_minute_persistent_user_timer(tmp_path):
+    out, units, calls = _installer(tmp_path, "Linux")
+    assert out.returncode == 0, out.stderr
+    timer = (units / "cicada-dev-autoupdate.timer").read_text()
+    service = (units / "cicada-dev-autoupdate.service").read_text()
+    assert "OnCalendar=*:0/5" in timer and "Persistent=true" in timer and "WantedBy=timers.target" in timer
+    repo = (tmp_path / "repo").resolve()
+    assert "Type=oneshot" in service
+    assert f"ExecStart=/bin/bash {repo}/scripts/dev/auto-update.sh" in service
+    assert f"PATH={tmp_path / 'bin'}:/usr/local/bin" in service   # uv's folder is on the job's PATH
+    log = calls.read_text()
+    assert "systemctl --user enable --now cicada-dev-autoupdate.timer" in log
+    assert "launchctl" not in log
+    assert not (tmp_path / "home/Library").exists()
+
+
+def test_installer_on_linux_uninstalls(tmp_path):
+    _installer(tmp_path, "Linux")
+    out, units, calls = _installer(tmp_path, "Linux", "--uninstall")
+    assert out.returncode == 0, out.stderr
+    assert not (units / "cicada-dev-autoupdate.timer").exists()
+    assert not (units / "cicada-dev-autoupdate.service").exists()
+    assert "systemctl --user disable --now cicada-dev-autoupdate.timer" in calls.read_text()
+
+
+def test_installer_on_a_mac_keeps_the_launchd_job(tmp_path):
+    out, units, calls = _installer(tmp_path, "Darwin")
+    assert out.returncode == 0, out.stderr
+    plist = (tmp_path / "home/Library/LaunchAgents/com.cicada.dev-autoupdate.plist").read_text()
+    assert "<integer>300</integer>" in plist
+    assert "launchctl bootstrap" in calls.read_text()
+    assert "systemctl" not in calls.read_text()
+    assert not units.exists()
+    out, _, _ = _installer(tmp_path, "Darwin", "--uninstall")
+    assert out.returncode == 0
+    assert not (tmp_path / "home/Library/LaunchAgents/com.cicada.dev-autoupdate.plist").exists()

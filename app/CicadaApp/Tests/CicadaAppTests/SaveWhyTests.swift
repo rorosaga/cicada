@@ -116,21 +116,17 @@ final class SaveWhyTests: XCTestCase {
     }
 
     /// G191 v3 — one tap and leaving is an answer: the panel waits for more (no linger that closes it under the
-    /// person's hand) and a click elsewhere keeps the tap.
+    /// person's hand) and a click elsewhere keeps the tap. 2026-10-19: a tap stops every timer.
     func testOneTapAndLeavingIsAnAnswer() {
         var s = panel()
         XCTAssertEqual(SaveWhyPanelState.opening(), [.startTimer(SaveWhyPolicy.askTimeout)])
-        XCTAssertEqual(s.send(.tapReason("design")), [.startTimer(SaveWhyPolicy.answerIdle)])
+        XCTAssertEqual(s.send(.tapReason("design")), [.stopTimer])
         XCTAssertEqual(s.phase, .answered)
-        XCTAssertEqual(s.send(.timeout), [], "the question's own timer no longer closes a chosen answer")
+        XCTAssertEqual(s.send(.timeout), [], "no timer closes a touched panel")
         let answer = SavedWhyAnswer(reasons: ["design"])
         XCTAssertEqual(s.send(.clickOutside), [.post(answer), .close])
         XCTAssertEqual(s.phase, .closed(.answered(answer)))
         XCTAssertEqual(s.send(.tapReason("product")), [], "a closed panel ignores everything")
-        var idle = panel()
-        _ = idle.send(.tapReason("technique"))
-        XCTAssertEqual(idle.send(.idleElapsed), [.post(SavedWhyAnswer(reasons: ["technique"])), .close],
-                       "the idle timeout keeps what was chosen")
     }
 
     /// G191 v3 — the chips are toggles: any number on, in the panel's order whatever the tap order; a second tap
@@ -144,9 +140,9 @@ final class SaveWhyTests: XCTestCase {
         XCTAssertTrue(s.isSelected(reason: "product"))
         _ = s.send(.tapReason("product"))
         _ = s.send(.tapReason("read_later"))
-        XCTAssertEqual(s.send(.tapReason("design")), [.startTimer(SaveWhyPolicy.askTimeout)],
-                       "nothing chosen again: back to asking, on the question's own timer")
+        XCTAssertEqual(s.send(.tapReason("design")), [], "nothing chosen again: asking, but touched — no timer")
         XCTAssertEqual(s.phase, .asking)
+        XCTAssertEqual(s.send(.timeout), [], "a panel the person touched never times out")
     }
 
     /// G191 v3 — the words are always there: typing waits longer, Return (or Save) sends taps and words together,
@@ -154,8 +150,7 @@ final class SaveWhyTests: XCTestCase {
     func testWordsAndTapsGoTogetherOnSaveAndOnLeaving() {
         var s = panel()
         _ = s.send(.tapReason("design"))
-        XCTAssertEqual(s.send(.draftChanged("  the   onboarding flow and much more text ")),
-                       [.startTimer(SaveWhyPolicy.writingIdle)])
+        XCTAssertEqual(s.send(.draftChanged("  the   onboarding flow and much more text ")), [])
         XCTAssertEqual(s.draft.count, 20, "capped at the backend's maxText")
         XCTAssertTrue(s.isWriting)
         XCTAssertEqual(s.send(.submit),
@@ -425,12 +420,14 @@ final class SaveWhyTests: XCTestCase {
         outbox.hold(.init(url: "https://beta.example/b", answer: SavedWhyAnswer(reasons: ["product"]),
                           at: now.addingTimeInterval(-25 * 3600)))
         let api = FakeSavedWhyAPI()
-        await api.fail(with: [APIError.httpError(404, "That link isn't saved yet")])
+        await api.fail(with: [APIError.httpError(422, "Unknown reason")])
         let center = SaveWhyCenter(prefs: SaveWhyPrefs(defaults: defaults), api: api, now: { [now] in now })
         await center.retryHeld()
-        XCTAssertEqual(center.heldCount, 0, "404 drops the first; the second is over a day old")
+        XCTAssertEqual(center.heldCount, 0, "422 drops the first; the second is over a day old")
         let posts = await api.posts
         XCTAssertTrue(posts.isEmpty)
+        // 2026-10-19: a 404 is "not saved yet" — kept for the next sync, never dropped.
+        XCTAssertEqual(SaveWhyOutbox.verdict(for: APIError.httpError(404, "")), .waitForSync)
         XCTAssertEqual(SaveWhyOutbox.verdict(for: APIError.serverUnreachable), .hold)
         XCTAssertEqual(SaveWhyOutbox.verdict(for: URLError(.cannotConnectToHost)), .hold)
         XCTAssertEqual(SaveWhyOutbox.verdict(for: APIError.httpError(422, "")), .drop)

@@ -1,0 +1,51 @@
+#!/bin/sh
+# Cicada's Claude Code plugin: run one of Cicada's own hooks with the hook's stdin, unchanged.
+#
+#   cicada-hook capture|recall --harness claude-code
+#
+# Which Cicada runs it, in order: the source checkout named in the plugin's settings (cicada_repo: a developer
+# build, its api/.venv), else the Cicada app's launcher in $CICADA_HOME/bin (a release, G182). With neither, one line
+# on stderr and exit 0: a hook never blocks a session, and nothing reaches stdout (a SessionStart or
+# UserPromptSubmit hook's stdout becomes the agent's context). The scripts it runs keep every capture rail
+# themselves: CICADA_CAPTURE=off (Cicada's own spawns), one episode per session, the transcript read by the backend
+# only under the harness root (G105).
+name="${1:-}"
+case "$name" in
+  capture|recall) shift ;;
+  *) echo "cicada plugin: usage: cicada-hook capture|recall [args]" >&2; exit 0 ;;
+esac
+
+# Recall off — the plugin's Remember automatically setting, or CICADA_RECALL=off (the person's switch everywhere else,
+# which recall.py also honours): the recall hooks do nothing. Capture is unaffected.
+if [ "$name" = recall ]; then
+  case "$(printf '%s' "${CLAUDE_PLUGIN_OPTION_RECALL:-true}" | tr '[:upper:]' '[:lower:]')" in
+    false|0|off|no) exit 0 ;;
+  esac
+  case "$(printf '%s' "${CICADA_RECALL:-}" | tr '[:upper:]' '[:lower:]')" in
+    off) exit 0 ;;
+  esac
+fi
+
+repo="${CLAUDE_PLUGIN_OPTION_CICADA_REPO:-}"
+case "$repo" in
+  '${'*) repo="" ;;                      # an unset option left as written
+  "~") repo="$HOME" ;;
+  "~/"*) repo="$HOME/${repo#\~/}" ;;
+esac
+
+if [ -n "$repo" ]; then
+  py="$repo/api/.venv/bin/python"
+  script="$repo/api/hooks/$name.py"
+  if [ -x "$py" ] && [ -f "$script" ]; then
+    exec "$py" "$script" "$@"
+  fi
+  echo "cicada plugin: no set-up Cicada checkout at $repo (run its ./install.sh, or clear cicada_repo to use the app)" >&2
+  exit 0
+fi
+
+launcher="${CICADA_HOME:-$HOME/.cicada}/bin/cicada-hook"
+if [ -x "$launcher" ]; then
+  exec "$launcher" "$name" "$@"
+fi
+echo "cicada plugin: Cicada isn't installed here (no $launcher). Open the Cicada app once, or set cicada_repo to a checkout." >&2
+exit 0

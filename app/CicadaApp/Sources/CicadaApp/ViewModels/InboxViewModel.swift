@@ -42,6 +42,21 @@ final class InboxViewModel {
     /// R-DI19 — the page's selection, kept across page switches, reset by a bank switch.
     var columns = InboxColumns()
 
+    /// Say it once (review of #363) — the questions with a half-typed answer in one of their fields (Other…, a free
+    /// answer, a name, the review's field). Inbox clicked again in the rail never closes a question or ends a review
+    /// while one holds a draft: the person's words are not thrown away by a navigation click.
+    private(set) var drafts: Set<String> = []
+    var hasDraft: Bool { !drafts.isEmpty }
+
+    /// A field reports its text; empty (or only whitespace) clears the question's draft.
+    func noteDraft(_ id: String, _ text: String) {
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if drafts.contains(id) { drafts.remove(id) }
+        } else if !drafts.contains(id) {
+            drafts.insert(id)
+        }
+    }
+
     var visible: [InboxItem] { InboxColumns.visible(items, filter: columns.kindFilter) }
     var openItem: InboxItem? { columns.openId.flatMap { id in items.first { $0.id == id } } }
     var held: ResolveGrace? { store.currentHeld }

@@ -46,9 +46,22 @@ def parse_day(value) -> date | None:
 
 
 def episode_day(episode: dict) -> date | None:
-    """The conversation's own day: its ``timestamp``, else the date in its id — ``_claim_date``'s rule, so the prose
-    and the claims a conversation yields never disagree about when it was said."""
-    return parse_day(episode.get("timestamp")) or parse_day(episode.get("id"))
+    """The conversation's own day: its ``timestamp`` in the person's zone, else the date in its id — the one rule
+    Sleep dates a conversation by (``entity_extractor._claim_date``, a page's ``created``/``last_referenced``), so the
+    prose and the claims a conversation yields never disagree about when it was said.
+
+    Ruling 34 (2026-10-22): the person's day, never a UTC stamp's first ten characters — words said at 00:27 in Madrid
+    are stored at 22:27 UTC the day before (:func:`episode_ids.local_day`). The id's day is only the fallback: an id is
+    never renamed, and one a hook minted before the ruling carries the UTC day."""
+    return stamp_day(episode.get("timestamp")) or parse_day(episode.get("id"))
+
+
+def stamp_day(value) -> date | None:
+    """A stored episode stamp (``timestamp``, a turn's ``ts``) as the day it was said in the person's zone
+    (:func:`episode_ids.local_day`, ruling 34); a bare ``YYYY-MM-DD`` is that day. ``None`` when unreadable."""
+    from api.services import episode_ids
+
+    return episode_ids.local_day(value)
 
 
 def is_old(day: date | None, today: date) -> bool:

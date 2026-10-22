@@ -27,7 +27,8 @@ final class CitedSpanTests: XCTestCase {
         XCTAssertNotNil(runs[1].swiftUI.underlineStyle)
         XCTAssertNotNil(runs[2].swiftUI.backgroundColor)
         XCTAssertNil(runs[2].swiftUI.underlineStyle)
-        XCTAssertNotEqual(runs[1].swiftUI.backgroundColor, runs[2].swiftUI.backgroundColor, "wash vs washSoft")
+        // Every cited span is as findable as the current one (review of #383): the current is told by its underline.
+        XCTAssertEqual(runs[1].swiftUI.backgroundColor, runs[2].swiftUI.backgroundColor, "wash vs washSoft")
     }
 
     /// R-DI11 / DR-57 — a mention found by name is emphasised and never washed; `reveal` fades the wash.

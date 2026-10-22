@@ -1,7 +1,7 @@
 import asyncio
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
 
 from api.config import Settings, get_settings
 from api.models.schemas import CheckCensus, InboxItem, InboxResolveRequest, SettledCheck
@@ -86,10 +86,7 @@ async def undo_settled(item_id: str, settings: Settings = Depends(get_settings))
     except web_settle.NotSettleable as exc:
         raise HTTPException(404, str(exc)) from exc
     web_settle.record_event(memory_path, action="undo", item_id=item_id, entity_id=None, by_kind="person")
-    try:
-        await state_dictionary.refresh_and_commit(memory_path, settings)
-    except Exception:  # noqa: BLE001 — the projection never fails the person's undo
-        pass
+    await state_dictionary.refresh_admitted(memory_path, settings)   # admitted; skipped while Sleep holds the pages
     return {"status": "reopened", "id": target}
 
 
@@ -134,10 +131,7 @@ async def _undo_sleep_settle(item_id: str, settings: Settings) -> dict:
     except inbox_tend.NotUndoable as exc:
         raise HTTPException(409 if "changed" in str(exc) or "moved" in str(exc) else 404, str(exc)) from exc
     inbox_tend.record_undo(memory_path, item_id, out.get("rec") or {})
-    try:
-        await state_dictionary.refresh_and_commit(memory_path, settings)
-    except Exception:  # noqa: BLE001 — the projection never fails the person's undo
-        pass
+    await state_dictionary.refresh_admitted(memory_path, settings)   # admitted; skipped while Sleep holds the pages
     return {"status": "reopened", "id": target}
 
 
@@ -157,13 +151,36 @@ async def tidy_inbox(
 
     if write_admission.probe():
         raise HTTPException(409, inbox_service.SLEEP_BUSY)
-    if inbox_tend.tidy_status()["running"]:
+    from api.services import web_lookup
+
+    if inbox_tend.tidy_status()["running"] or web_lookup.sweep_running():
         raise HTTPException(409, "The inbox is already being tidied.")
     if dry_run:
         return await inbox_tend.tidy(settings.memory_path, settings, dry_run=True, limit=limit, judge=judge)
     if not inbox_tend.start_tidy(settings.memory_path, settings, limit=limit, judge=judge):
         raise HTTPException(409, "The inbox is already being tidied.")
     return {"status": "started"}
+
+
+@router.post("/inbox/tidy/apply")
+async def tidy_apply_vetted(payload: dict = Body(...), settings: Settings = Depends(get_settings)):
+    """Owner rule 2026-10-20 — the vetted apply: settle exactly the rows a coordinator kept from a trace
+    (``api/scripts/inbox_tidy_trace.py``), each as the dry run decided it, through the person's own resolver as Sleep's
+    undoable commit, one at a time under the bank's write admission. A row whose question or pages moved since the
+    trace is left as it is (``changed``); one asking for anything the rules never ask is ``refused``. Answers per id
+    and counts — no text. 409 while Sleep runs or a tidy, a sweep or another apply is running."""
+    from api.services import inbox_tend, web_lookup, write_admission
+
+    rows = payload.get("decisions") if isinstance(payload, dict) else None
+    if not isinstance(rows, list) or not rows:
+        raise HTTPException(422, "Send {\"decisions\": [...]}: the trace rows to apply.")
+    if len(rows) > inbox_tend.MAX_VETTED:
+        raise HTTPException(422, f"At most {inbox_tend.MAX_VETTED} decisions at once.")
+    if write_admission.probe():
+        raise HTTPException(409, inbox_service.SLEEP_BUSY)
+    if inbox_tend.tidy_status()["running"] or web_lookup.sweep_running():
+        raise HTTPException(409, "The inbox is already being tidied.")
+    return await inbox_tend.apply_vetted(settings.memory_path, settings, rows)
 
 
 @router.get("/inbox/tidy")
@@ -173,6 +190,43 @@ async def tidy_status(settings: Settings = Depends(get_settings)):
     from api.services import inbox_tend
 
     return inbox_tend.tidy_status(settings.memory_path)
+
+
+@router.post("/inbox/web-check")
+async def web_check_sweep(
+    dry_run: bool = Query(True, alias="dryRun"),
+    limit: Optional[int] = Query(None, ge=1),
+    include_recent: bool = Query(False, alias="includeRecent"),
+    settings: Settings = Depends(get_settings),
+):
+    """Owner ruling 2026-10-19 — the one-off sweep: the backlog's questions about public things (a tool, a company, a
+    concept, a film, a paper, a dataset — never a person, the person's files, projects or life) looked up on the web
+    with the engine a run you start would use, and settled when a search answers them, each with its link and quote and
+    undoable under "Settled by a check". ``dryRun`` (the default) writes nothing and answers COUNTS: the census of what
+    a lookup may answer and why the rest stays, then what the lookups would settle — never a title, a name or any text.
+    ``limit`` caps the lookups (one engine call each). A real run starts in the background, each settle under the bank's
+    write admission with its own commit, and ``GET /inbox/web-check`` reports it. 409 while Sleep runs or a sweep or a
+    tidy is running."""
+    from api.services import inbox_tend, web_lookup, write_admission
+
+    if write_admission.probe():
+        raise HTTPException(409, inbox_service.SLEEP_BUSY)
+    if web_lookup.sweep_running() or inbox_tend.tidy_status()["running"]:
+        raise HTTPException(409, "The inbox is already being tidied.")
+    if dry_run:
+        return await web_lookup.sweep(settings.memory_path, settings, dry_run=True, limit=limit,
+                                      include_recent=include_recent)
+    if not web_lookup.start_sweep(settings.memory_path, settings, limit=limit, include_recent=include_recent):
+        raise HTTPException(409, "The inbox is already being tidied.")
+    return {"status": "started"}
+
+
+@router.get("/inbox/web-check")
+async def web_check_status():
+    """The running (or last) sweep's counts — ids never, text never."""
+    from api.services import web_lookup
+
+    return web_lookup.sweep_status()
 
 
 @router.post("/inbox/{item_id}/resolve")

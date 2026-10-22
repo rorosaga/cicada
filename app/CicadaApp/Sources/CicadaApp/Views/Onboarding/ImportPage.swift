@@ -178,7 +178,7 @@ struct ImportPage: View {
     private func providerRow(_ vendor: ChatVendor) -> some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             VendorMark(vendor: vendor, size: CicadaTheme.scaled(16))
-            Text(vendor.title).font(CicadaTheme.font(size: 13, weight: .medium)).foregroundStyle(CicadaTheme.textPrimary)
+            Text(vendor.title).font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.textPrimary)
             Text(Copy.importWait(vendor)).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
             Spacer(minLength: CicadaTheme.spacingSM)
             TextButton(title: Copy.importSeeHow) { onSeeHow(vendor) }
@@ -237,7 +237,7 @@ struct ImportPrivacyBanner: View {
 
     private var words: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(Copy.importPrivateLead).font(CicadaTheme.font(size: 13, weight: .medium))
+            Text(Copy.importPrivateLead).font(CicadaTheme.rowFont)
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
             Text(Copy.importPrivateTail).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)

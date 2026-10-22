@@ -76,7 +76,7 @@ struct CalendarRow: View {
                                    systemFallback: OriginIconography.symbol(for: "calendar-local"))
             VStack(alignment: .leading, spacing: 2) {
                 Text(Copy.calendarAppTitle)
-                    .font(CicadaTheme.font(size: 13, weight: .medium))
+                    .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                 Text(CalendarRowText.line(reader.status, channel: channel, now: Date()))
                     .font(CicadaTheme.captionFont)

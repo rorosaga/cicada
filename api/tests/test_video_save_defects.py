@@ -106,8 +106,11 @@ def test_the_librarians_external_name_is_a_value_the_schema_accepts(srv):
     prop = {t["name"]: t for t in server.TOOLS}["cicada_write_claim"]["inputSchema"]["properties"]["observer"]
     assert "enum" not in prop, "JSON Schema ANDs an enum with a pattern"
     pattern = re.compile(prop["pattern"])
-    for ok in ("owner", "agent", "external", "external:bob-example", owner_identity.LEGACY_OBSERVER):
+    for ok in ("owner", "agent", "external", "external:bob-example"):
         assert pattern.fullmatch(ok), ok
+    # Hyrum audit A11: the legacy observer value is accepted by the tool, never advertised in its schema.
+    assert not pattern.fullmatch(owner_identity.LEGACY_OBSERVER)
+    assert server.mcp_tools.observer_accepted(owner_identity.LEGACY_OBSERVER)
     for bad in ("External", "external:", "external:Bob Example", "user", "external:" + "x" * 65):
         assert not pattern.fullmatch(bad), bad
     assert "external:<name>" in prop["description"]

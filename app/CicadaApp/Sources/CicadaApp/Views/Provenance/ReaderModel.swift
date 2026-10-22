@@ -426,6 +426,8 @@ enum ReaderHeader {
     /// it was; anything else says nothing rather than guess.
     static func captureLine(_ doc: EpisodeText) -> String? {
         if doc.isPage { return nil }
+        // Ruling 32 — a relayed conversation: the person's side came through the app's model.
+        if doc.relay != nil { return Copy.Provenance.relayHonesty }
         // G162 — a watch record says how the agent said it read the video, and that Cicada saw no frames itself.
         if let watch = doc.watch { return Copy.Videos.watchRecord(basis: watch.basis, engine: watch.engine) }
         if doc.captureKind == hookCaptureKind { return Copy.Provenance.captureHonesty }
@@ -440,6 +442,7 @@ enum ReaderHeader {
     /// G181 phase 3 — `device` is the word for where it came from (`DeviceDirectory.label`), last and quiet.
     static func meta(_ doc: EpisodeText, device: String? = nil, locale: Locale = .autoupdatingCurrent,
                      timeZone: TimeZone = .autoupdatingCurrent) -> String {
+        if ReaderChat.isChat(doc) { return chatMeta(doc, device: device) }
         var parts: [String] = []
         if doc.isPage {
             parts.append(Copy.Provenance.fromThePage)
@@ -460,7 +463,38 @@ enum ReaderHeader {
         return parts.joined(separator: " · ")
     }
 
+    /// A chat's meta line (owner 2026-10-19, "say each thing once"): no day — the day separators say it — and no turn
+    /// count — the messages are on screen, and a gap note may say how many were not kept. The agent is named here
+    /// unless the capture line or the relay label already names the vendor; the device last.
+    static func chatMeta(_ doc: EpisodeText, device: String? = nil) -> String {
+        var parts: [String] = []
+        let vendorNamedElsewhere = doc.relay != nil || (doc.origin?.hasSuffix("-export") ?? false)
+        if !vendorNamedElsewhere, let line = ModelNames.agentLine(
+            agent: EvidenceSpeaker.agentName(harness: doc.harness, origin: doc.origin),
+            harness: doc.harness, model: doc.agent?.model, effort: doc.agent?.effort) {
+            parts.append(line)
+        }
+        if let device { parts.append(Copy.Devices.from(device)) }
+        return parts.joined(separator: " · ")
+    }
+
+    /// The header's title. A chat drops a trailing " · YYYY-MM-DD" a writer put in it ("Messages with Sam ·
+    /// 2026-10-18"): its day separators already say the day. A document keeps its title as stored.
+    static func title(_ doc: EpisodeText) -> String {
+        guard ReaderChat.isChat(doc),
+              let range = doc.title.range(of: #"\s+·\s+\d{4}-\d{2}-\d{2}$"#, options: .regularExpression),
+              range.lowerBound > doc.title.startIndex else { return doc.title }
+        return String(doc.title[..<range.lowerBound])
+    }
+
     /// The mark to draw: the harness, else the origin, else nothing known.
+    /// Owner 2026-10-20 — a saved link's episode wears its own site's mark (`SavedLinkMark`, asked by the episode's id);
+    /// nil for a page (its own picture) and for every episode the backend named no site for.
+    static func siteMark(_ doc: EpisodeText) -> SavedLinkMarkModel.Mark? {
+        guard !doc.isPage, let site = doc.site, SavedLinkMarkModel.applies(site: site) else { return nil }
+        return SavedLinkMarkModel.mark(site: site, host: site, title: doc.title, door: .episode(doc.episode))
+    }
+
     static func markOrigin(harness: String?, origin: String?) -> String {
         if let h = harness, !h.isEmpty { return h }
         if let o = origin, !o.isEmpty { return o }

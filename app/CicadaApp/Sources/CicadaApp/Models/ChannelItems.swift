@@ -4,7 +4,7 @@ import Foundation
 /// body; for Contacts the matched page's name and nothing from the card. `day` is an absolute `YYYY-MM-DD` (DR-58: the
 /// relative word is made when read).
 struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
-    enum Kind: String, Sendable { case episode, media, page, unknown }
+    enum Kind: String, Sendable { case episode, media, page, chat, unknown }
 
     let kind: Kind
     let id: String
@@ -19,13 +19,24 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
     var site: String? = nil
     /// Sources v3 — the newest answer to "What made you save this?" (G191), when the person gave one.
     var why: ChannelItemWhy? = nil
+    /// Sources v4 — a Messages sitting's chat: who it is with and its photo's hash (the row's face). Nil elsewhere.
+    var chat: ChannelItemChat? = nil
+    /// Sources v4 — a watched day's video count (the row opens to that day's videos). Nil for every other row.
+    var videos: Int? = nil
+    /// Sources v4 (review of #358) — a Messages chat's sitting count (the row opens to its sittings).
+    var sittings: Int? = nil
+    /// marks-2 (owner 2026-10-20) — a saved YouTube video: the row draws its still, asked by this page's id
+    /// (`GET /sources/saved/{id}/still`). Nil for every other row and from an older backend.
+    var video: Bool? = nil
 
-    enum CodingKeys: String, CodingKey { case kind, id, title, day, left, host, site, why }
+    enum CodingKeys: String, CodingKey { case kind, id, title, day, left, host, site, why, chat, videos, sittings, video }
 
     init(kind: Kind, id: String, title: String, day: String? = nil, left: String? = nil, host: String? = nil,
-         site: String? = nil, why: ChannelItemWhy? = nil) {
+         site: String? = nil, why: ChannelItemWhy? = nil, chat: ChannelItemChat? = nil, videos: Int? = nil,
+         video: Bool? = nil) {
         self.kind = kind; self.id = id; self.title = title; self.day = day; self.left = left
-        self.host = host; self.site = site; self.why = why
+        self.host = host; self.site = site; self.why = why; self.chat = chat; self.videos = videos
+        self.video = video
     }
 
     init(from decoder: Decoder) throws {
@@ -39,6 +50,10 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         host = try? c.decodeIfPresent(String.self, forKey: .host)
         site = try? c.decodeIfPresent(String.self, forKey: .site)
         why = try? c.decodeIfPresent(ChannelItemWhy.self, forKey: .why)
+        chat = try? c.decodeIfPresent(ChannelItemChat.self, forKey: .chat)
+        videos = try? c.decodeIfPresent(Int.self, forKey: .videos)
+        sittings = try? c.decodeIfPresent(Int.self, forKey: .sittings)
+        video = try? c.decodeIfPresent(Bool.self, forKey: .video)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -51,7 +66,19 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         try c.encodeIfPresent(host, forKey: .host)
         try c.encodeIfPresent(site, forKey: .site)
         try c.encodeIfPresent(why, forKey: .why)
+        try c.encodeIfPresent(chat, forKey: .chat)
+        try c.encodeIfPresent(videos, forKey: .videos)
+        try c.encodeIfPresent(sittings, forKey: .sittings)
+        try c.encodeIfPresent(video, forKey: .video)
     }
+}
+
+/// Sources v4 — the chat a Messages row came from: the app's conversation hash, who it is with, and the stored
+/// photo's hash when the chat shares one (`GET /sources/messages/chats/{id}/photo?v=`).
+struct ChannelItemChat: Codable, Hashable, Sendable {
+    let id: String
+    let label: String
+    var photo: String? = nil
 }
 
 /// Sources v3 — why the person saved a link, as a row shows it: the reasons they tapped ("The design") and their own
@@ -116,7 +143,7 @@ enum CapturedItemRoute: Equatable {
         case .episode: return .reader(episode: item.id, title: item.title)
         case .media: return .feed(mediaEntityId: item.id)
         case .page: return .entity(item.id)
-        case .unknown: return nil
+        case .chat, .unknown: return nil   // a chat opens in place to its sittings (`ChatSittingsRow`)
         }
     }
 }
@@ -194,18 +221,26 @@ enum SavedItemText {
         return text.isEmpty ? nil : text
     }
 
-    /// Which mark the row draws: the site's own key when the row has one — `SiteIcon` then shows the site's own icon
-    /// (asked of that site only, owner ruling 2026-10-19), a bundled family mark, or a monogram of the site — else a
-    /// monogram of the host or the title. Never the browser's mark: the row is the site, not where it was saved from.
-    enum Mark: Equatable {
-        case site(key: String, label: String)
-        case monogram(String)
+    /// Which mark the row draws — the shared rule (`SavedLinkMarkModel`, owner 2026-10-20): the site's own key when
+    /// the row has one, asked by the media page's id — or, for a saved link Sleep has not made a page of yet, by its
+    /// episode's id (marks-2: that row asked nothing and drew a letter); else a monogram of the host or the title.
+    /// Never the browser's mark: the row is the site, not where it was saved from.
+    static func mark(_ item: ChannelItem) -> SavedLinkMarkModel.Mark {
+        SavedLinkMarkModel.mark(site: item.site, host: item.host, title: item.title, door: door(item))
     }
 
-    static func mark(_ item: ChannelItem) -> Mark {
-        let label = (item.host?.isEmpty == false ? item.host : nil) ?? item.title
-        if let key = item.site, !key.isEmpty { return .site(key: key, label: label) }
-        return .monogram(SiteMonogram.letter(label))
+    static func door(_ item: ChannelItem) -> SavedLinkMarkModel.Door? {
+        switch item.kind {
+        case .media: .media(item.id)
+        case .episode: .episode(item.id)
+        default: nil
+        }
+    }
+
+    /// marks-2 — a saved YouTube video's row draws its still (asked by its page's id), not the site's mark.
+    static func stillPath(_ item: ChannelItem) -> String? {
+        guard item.kind == .media, item.video == true else { return nil }
+        return SourcePictures.savedStillPath(mediaId: item.id)
     }
 
     /// The row's day — "Today", "Yesterday", a weekday this week, else "Oct 3" — with the full date as its `.help`

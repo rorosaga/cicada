@@ -254,6 +254,17 @@ final class MessagesWatcher {
 
     func cancel() { running?.cancel() }
 
+    /// The person's "Read again" (2026-10-20): every ticked conversation of this memory from its first message, so the
+    /// sittings saved before reactions, replies, edits and attachments were kept get them. The backend merges by
+    /// message; where no word moved it writes beside the words only, so Sleep reads nothing again. Never automatic.
+    func readAgain() async throws -> String {
+        guard !tickedIds.isEmpty else { throw BrowserImportActions.ImportActionError.failed(Copy.Messages.tickFirst) }
+        if let running { _ = await running.result }
+        let bank = self.bank()
+        for id in tickedIds { save(MessagesCursor(), bank: bank, id: id) }
+        return try await run(force: true).get()
+    }
+
     @discardableResult
     func run(force: Bool) async -> Result<String, Error> {
         let bank = self.bank()

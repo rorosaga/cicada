@@ -13,7 +13,9 @@ id rule (max-suffix+1 per local directory), the read-modify-write state files an
 
 **Nothing listens beyond loopback.** The service binds `127.0.0.1` only. Reaching it from another machine is an
 overlay the person runs and Cicada never configures: on a tailnet, `tailscale serve --bg --https=443
-http://127.0.0.1:8000` (tailnet only; never `funnel`), or an SSH tunnel. The API token is still required on every
+http://127.0.0.1:8000` (tailnet only; never `funnel`), or an SSH tunnel. **The one public exception is not this
+port (ruling 32, owner 2026-10-19):** to let claude.ai or ChatGPT sign in, the person may funnel the G135 remote
+listener (`127.0.0.1:8765`, MCP and OAuth only — `network.md`), never the API. The API token is still required on every
 route but `/healthz`, and `/healthz` without the token says only `status`, `version` and the bank ids — the memory's
 path, its counts and the index's state need the token (owner decision 3, 2026-10-16: through the overlay, any device
 on the tailnet could otherwise read the server's account name from the path; `auth.bearer_admits`; the CLI's 21a probe,
@@ -131,6 +133,12 @@ A user unit stops at logout unless lingering is on. The script checks `loginctl 
 The script creates no credential. The backend writes `~/.cicada/api_token` (0600) on first start. A metered key for
 scheduled Sleep goes in `~/.cicada/secrets.env`, written by the person.
 
+**A developer server that follows `dev`:** `scripts/dev/install-auto-update.sh` installs the same 5-minute auto-update
+the Mac's developer checkout runs, as a systemd user timer (`cicada-dev-autoupdate.timer`, `Persistent=true`): it
+fast-forwards the checkout to `origin/dev`, re-syncs the venv in its own shape and restarts `cicada-backend.service`,
+never under a running Sleep (`scripts/dev/README.md`). Developer tooling only; a person's server follows releases by
+re-running the install line.
+
 `make doctor` (`scripts/doctor.sh`) checks `systemctl --user is-active cicada-backend.service` on Linux in place of
 the launchd agent. Where there is no `make` (a minimal server) or no Makefile (a Homebrew keg), `install.sh` names
 `bash <repo>/scripts/doctor.sh` as the next step instead (`doctor_hint`).
@@ -154,10 +162,12 @@ The same layout as on a Mac, created by the backend and the CLI. The ones that m
 The schedule runs inside the backend (APScheduler, `sleep_scheduler`), from the bank's `sleep_schedule.yaml`, so it
 needs no app and no timer unit. A run the person starts (`cicada sleep start`, or a client's click) may use a plan.
 **A scheduled run uses a plan only when the person said so** (TODO ruling 4b, owner 2026-10-16: "The server should be
-allowed to use plans too. Just have to set them up somehow"; "Yeah chat too"): the machine's switch, off by default,
-is `cicada sleep schedule --use-plan on|off` here and Settings → Sleep → *Scheduled runs may use my plan* in the app,
-and saying it once is where it is said that nightly runs then count against the plan's limits. Otherwise a server
-Sleeps on its schedule with a metered key in its `secrets.env` or a local model (`capture-and-sleep.md`).
+allowed to use plans too. Just have to set them up somehow"; "Yeah chat too"): the machine's switch — **on unless the
+person turned it off** (ruling 4c, 2026-10-19) — is `cicada sleep schedule --use-plan on|off` here and Settings → Sleep →
+*Scheduled runs may use my plan* in the app, beside the words that nightly runs count against the plan's limits. With
+it off, a server Sleeps on its schedule with a local model, or with a metered key only when the person chose it as
+Sleep's engine (`cicada sleep engine --mode byok`; ruling 31: Auto never falls to a key by itself;
+`capture-and-sleep.md`).
 
 ### Setting a plan up on a server
 
@@ -204,7 +214,7 @@ when it was last used; `cicada device revoke <id>` ends it at once. The master t
 leaves the server, and a device token can neither issue nor revoke one.
 
 **On the client** (the person's Mac, say), two settings and nothing else — set by the person, or (phase 3) by the
-app on the person's click in Settings → General, which puts `$CICADA_HOME/api_base` in place when Cicada next opens
+app on the person's click in Settings → Devices, which puts `$CICADA_HOME/api_base` in place when Cicada next opens
 and writes `device_token`, both 0600:
 
 - `CICADA_API_BASE` — the address the person's own overlay gives the server (`https://…` for any host; plain `http://`
@@ -213,7 +223,7 @@ and writes `device_token`, both 0600:
 
 A Linux client gets the code, the hooks and the command with the server's own one line, run with `CICADA_API_BASE`
 exported (`install.sh` then installs no backend; the summary names the device token, not a master token). On a Mac,
-the app's Settings → General → *A server*, or Homebrew's `cicada-setup` with `CICADA_API_BASE` set.
+the app's Settings → Devices → *A server*, or Homebrew's `cicada-setup` with `CICADA_API_BASE` set.
 
 Unset, every client behaves exactly as on one machine. Set, the machine holds no bank — and gets none: `install.sh`
 on a client makes no memory folder, writes no `CICADA_MEMORY_PATH` and registers the MCP server without one (owner
@@ -227,7 +237,7 @@ server's own address — an `http://` base the server sends to `https://` is the
 
 | Client | What it does with a base set |
 |---|---|
-| Claude Code / Codex Stop hook | Reads the session here with Cicada's own extractor and posts the scrubbed, capped turns to `/capture/session`; ids are minted on the server (one episode per session). A server that is away: the post waits in `~/.cicada/spool/capture/` and a later firing sends it (`capture-and-sleep.md`) |
+| Claude Code / Codex Stop hook | Reads the session here with Cicada's own extractor and posts the scrubbed, capped turns to `/capture/session`; ids are minted on the server (one episode per session). A server that is away: the post waits in `~/.cicada/spool/capture/` and a later firing — or any MCP call or command that reaches the server — sends it (`capture-and-sleep.md`, "What waits goes only where it was meant" below) |
 | Cursor / Gemini CLI hooks | Post turns to `/capture/turn` as before, spooled in order when the server is away |
 | Recall hooks (SessionStart, UserPromptSubmit) | Ask the server's `/capture/hook-context` |
 | stdio MCP server | Every tool runs on the server through `POST /tools/call` (the same bodies); pictures named by path are read here and sent as base64; `cicada_repo_context` probes git here (`mcp.md`) |
@@ -238,14 +248,47 @@ kept by a rename). `/healthz` reports the ids, a client pins the server's active
 mutating request names both (`X-Cicada-Bank`, `X-Cicada-Bank-Id`), so a write meant for one memory never lands in
 another that happens to share a bank name. Ruling 21a's check compares these ids (path only when a side has none).
 
+**What waits goes only where it was meant (G202, 2026-10-22).** The two-device test found a session split across
+two memories: a hook's capture waiting offline was delivered to whichever server the client pointed at next. Now:
+
+- Each hook spool entry names its **target** — the address (`runtime_layout.api_base`) and, once heard, the bank id the
+  server's capture answer gave (`bankId`, kept per address in `spool/capture/.servers`). A flush sends only the entries
+  for the address in use; a resend carries `bank_id`, and `/capture/session` and `/capture/turn` refuse it with 409
+  `bank_mismatch` only when no bank of that server's memory has the id — the address now leads to another memory. A
+  bank switch on the server itself files the resend where a live capture of the same session goes (a session is never
+  split between two banks of one memory). Entries for another server wait, never dropped; the hook's log line says how
+  many and for which host. A session keeps one entry per server. An entry from before (no target) goes where the
+  client points, as it did.
+- A refused entry is **held** for its own memory (review of #408): counted as waiting for another memory, never in
+  front of this server's turns, retried at most every 10 minutes; the address's remembered bank is forgotten, and a
+  turn queued behind waiting turns is stamped only after they were flushed, so new captures never carry a refused
+  bank. The next capture that lands teaches the address its bank again.
+- The app's outbox posts carry the same target (`base`, `bankId` beside the bank's name); a flush sends only this
+  connection's, and every write on a server names `X-Cicada-Bank-Id` (ids learned from `/banks`). This Mac sends names
+  only, as before.
+- Waiting captures are said: `cicada status` (client and local) and Settings → Devices count the hooks' spool and the
+  outbox, for this server and for a server this machine no longer uses. A successful stdio MCP call (in the background)
+  or `cicada` command flushes what waits for its server, not only a hook's next firing.
+- The handshake's Now line names the bank as the roster does (`default`, never the folder) and, on a client,
+  `on <host>` (host and port only); a running MCP session whose server or bank changed says so once, in one line, on its
+  next reply (`tool_client.where_changed`).
+
+Not fixed here: a device on claims and commits (G181's open item), queued MCP/CLI writes while the server is away, and
+two primaries (G132: both mint the same episode ids and both call their bank `default`, and nothing warns).
+
 **What did not change.** Only the server commits (one git writer per bank); the server binds 127.0.0.1; reach is the
 person's overlay; no installer creates, copies or logs a credential; the demo guard and the split-brain rule are the
 server's, per request. The G135 remote listener is still the door for apps off the person's devices, never trusted to
-edit a page.
+edit a page. **Sign-in on a server with no app (ruling 32):** an app's sign-in waits for a yes the app would give; on a
+headless server the person gives it on the server itself, through the loopback API with the token —
+with the code the app's sign-in page shows: `POST http://127.0.0.1:8000/remote/oauth/match` with `{"userCode": "<code>"}`
+(and `-H "Authorization: Bearer $(cat ~/.cicada/api_token)"`) says who it is and where it returns, and
+`POST …/remote/oauth/approve` with `{"userCode": "<code>", "scopes": ["search","read","record"], "expiresInDays": 30}`
+approves it; `GET …/remote/oauth/requests` lists what waits (times only) and `…/requests/deny-all` clears it.
 
 ## The Mac app as a client (phase 3)
 
-Settings → General → *Where your memory lives*: **This Mac** (as always) or **A server** — the address the person's
+Settings → Devices → *Where your memory lives*: **This Mac** (as always) or **A server** — the address the person's
 overlay gives the server and this device's token from `cicada device add`. Nothing is written until the server
 answers: `GET /healthz` (open) proves it is Cicada, `GET /devices` with the token proves the token and names this
 device. Then the app writes `device_token` and the address to `$CICADA_HOME/api_base.next` (0600) and offers *Restart
@@ -267,7 +310,7 @@ On a server the app:
   elsewhere;
 - sends the readers' bytes (bookmarks, Safari tabs, Notes, watched folders, Calendar, Contacts, tab groups, YouTube
   history, Messages, Wispr Flow) to the server, and keeps a post the server did not take in `$CICADA_HOME/spool/app/`
-  (`ReaderOutbox`: 0700/0600, named by route + memory + body hash, ≤ 200 posts / 64 MB / 7 days; no answer, 401/403,
+  (`ReaderOutbox`: 0700/0600, named by route + memory (server, bank name and id, G202) + body hash, ≤ 200 posts / 64 MB / 7 days; no answer, 401/403,
   409 and 5xx wait, 400/404/405/413/422 are dropped; a stopped run's post — the person's Cancel, or a bank switch
   replacing a reader's run (G183(d)) — never waits). A newer post on the same route and memory never overtakes one
   that waits: those go first, and while one still cannot land the newer waits behind it (a snapshot replayed late would
@@ -279,8 +322,9 @@ On a server the app:
   path and the server's dedup makes a resend harmless;
 - refuses the demo (`ServerLinkError.demoStaysLocal`, before any request): a demo is a This Mac thing.
 
-**Settings → Devices** (Customize, after From anywhere): *This app* — "Your memory lives on <host>", reachable or not
-and as of when (`/healthz`, every 30 s while open), and how many captures wait on this Mac — and *Your devices*: each
+**Settings → Devices** (Customize, after From anywhere): *Where your memory lives* — the choice above and, only while
+this app runs on a server, "This app is using <host> now.", reachable or not and as of when (`/healthz`, every 30 s
+while open), and how many captures wait on this Mac (the outbox and the hooks' spool, G202) — plus, on either mode, those kept for a server this Mac no longer uses — and *Your devices*: each
 device's name, when it was added and last seen, and *this Mac* on its own row. On This Mac (the master token) the page
 adds a device (its token shown once, with where it goes) and revokes one; on a server's client it reads the list and
 names the two commands to run on the server (ruling 28.1). Not a Store domain: `/devices` is outside every bank.
@@ -299,7 +343,7 @@ On This Mac, what this Mac wrote says nothing. The bank picker's menu says *on <
 | Claude Code and Codex on the server, captured by their Stop hook | Claude Code and Codex on a client, read there, posted as turns |
 | Cursor and Gemini CLI on the server (`/capture/turn`) | The same hooks on a client, spooled when the server is away |
 | The CLI and stdio MCP on the server | The stdio MCP and the CLI on a client, through the server |
-| Scheduled Sleep on a metered key, a local model, or the person's plan when they allow it (ruling 4b) | The app (Settings → General → A server), its readers and their outbox |
+| Scheduled Sleep on a metered key, a local model, or the person's plan when they allow it (ruling 4b) | The app (Settings → Devices → A server), its readers and their outbox |
 | The G135 remote listener, behind the person's overlay | Settings → Devices, and the device on every conversation and save |
 
 Known limits of phase 2: the skills tools (`cicada_skills`, `skills list|propose|create`) act on the server's agent

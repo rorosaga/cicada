@@ -78,11 +78,13 @@ class _Judge:
         self.peak = 0
         self.delay = delay
         self.fail_on = fail_on
+        self.calls = 0   # one per call, a batch counting once
 
     async def __call__(self, new_name, new_type, new_description, existing_name, existing_type, existing_body,
                        settings, **extra):
+        self.calls += 1
         self.pairs.append((new_name, existing_name))
-        if self.fail_on is not None and len(self.pairs) == self.fail_on:
+        if self.fail_on is not None and self.calls == self.fail_on:
             raise engine_errors.EngineThrottled("synthetic plan limit")
         self.inflight += 1
         self.peak = max(self.peak, self.inflight)
@@ -91,6 +93,20 @@ class _Judge:
         finally:
             self.inflight -= 1
         return self.verdict(new_name, existing_name)
+
+    async def batch(self, new_name, new_type, new_description, entries, settings, **extra):
+        """Several candidates in one call (`_llm_judge_batch`): every pair seen, one slot in flight."""
+        self.calls += 1
+        self.pairs.extend((new_name, e["name"]) for e in entries)
+        if self.fail_on is not None and self.calls == self.fail_on:
+            raise engine_errors.EngineThrottled("synthetic plan limit")
+        self.inflight += 1
+        self.peak = max(self.peak, self.inflight)
+        try:
+            await asyncio.sleep(self.delay)
+        finally:
+            self.inflight -= 1
+        return [self.verdict(new_name, e["name"]) for e in entries]
 
 
 @pytest.fixture
@@ -106,6 +122,7 @@ def bank(tmp_path, monkeypatch):
 def _run(bank, monkeypatch, concurrency, *, judge=None, cancel_check=None, batch=None):
     judge = judge or _Judge()
     monkeypatch.setattr(er, "_llm_judge_same_entity", judge)
+    monkeypatch.setattr(er, "_llm_judge_batch", judge.batch)
     pages, extracted = batch or _bank_and_batch()
     out = asyncio.run(er.resolve(extracted, pages, _settings(bank, concurrency), cancel_check=cancel_check))
     return out, judge
@@ -141,7 +158,7 @@ def test_a_plan_limit_still_raises_out_of_resolve_and_starts_nothing_more(bank, 
     with pytest.raises(engine_errors.EngineThrottled):
         _run(bank, monkeypatch, 3, judge=judge)
     # At most the calls already in flight when the limit came back finish; nothing new is started.
-    assert len(judge.pairs) <= 5 + 3 < len(full.pairs)
+    assert judge.calls <= 5 + 3 < full.calls
     assert judge.inflight == 0, "no judgment is left running behind the pause"
     assert sorted((bank / "inbox").iterdir()) == filed, "a paused batch files nothing"
 
@@ -256,3 +273,35 @@ def test_alias_candidates_decide_exactly_as_the_serial_loop(bank, monkeypatch):
     assert any(serial["name_to_id"].get(a) == a for a in acronyms), "and some get their own page"
     assert _signature(concurrent) == _signature(serial)
     assert sorted(concurrent_judge.pairs) == sorted(serial_judge.pairs)
+
+
+def test_a_names_candidates_go_to_the_judge_together(bank, monkeypatch):
+    """2026-10-20: one call weighs up to `JUDGE_BATCH` of a name's candidates, in judging order; a `same` in a call
+    stops the name there, and the first `same` in order is the match — as the one-by-one loop chose."""
+    pages = [_page(f"Alpha {w.title()}", "tool") for w in WORDS[1:9]]          # 8 same-type pages sharing "alpha"
+    extracted = [{"episode_id": "ep_2026-10-01_001", "relationships": [],
+                  "entities": [_entity("Alpha", "tool", "ep_2026-10-01_001")]}]
+    out, judge = _run(bank, monkeypatch, 1, judge=_Judge(verdict=lambda *a: "different"), batch=(pages, extracted))
+    assert judge.calls == 2 and len(judge.pairs) == 8                 # 6 + 2, every page weighed
+    assert out["name_to_id"].get("alpha") is None or out["name_to_id"]["alpha"] == "alpha"
+
+    def same_at(*names):
+        return lambda new, existing: "same" if existing in names else "different"
+
+    out, judge = _run(bank, monkeypatch, 1, judge=_Judge(verdict=same_at("Alpha Delta", "Alpha Fjord")),
+                      batch=(pages, extracted))
+    assert judge.calls == 1, "a same in the first call stops the name"
+    assert out["name_to_id"]["alpha"] == "alpha-delta", "the first same in judging order wins"
+
+
+@pytest.mark.parametrize("concurrency", [1, 4])
+def test_batched_judging_decides_as_one_pair_a_call(bank, monkeypatch, concurrency):
+    """The same verdict per pair gives the same changes whether the judge is asked one pair or six a call."""
+    one, one_judge = None, None
+    monkeypatch.setattr(er, "JUDGE_BATCH", 1)
+    one, one_judge = _run(bank, monkeypatch, concurrency)
+    monkeypatch.setattr(er, "JUDGE_BATCH", 6)
+    batched, batched_judge = _run(bank, monkeypatch, concurrency)
+    assert _signature(batched) == _signature(one)
+    assert batched_judge.calls < one_judge.calls
+    assert set(one_judge.pairs) <= set(batched_judge.pairs), "every pair asked before is still weighed"

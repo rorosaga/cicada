@@ -31,9 +31,21 @@ final class PileRenderTests: XCTestCase {
         // A mark's bundled logo reads the Store; an offscreen one with nothing in it (never a real bank).
         .environment(Store(cache: SnapshotCache(root: FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)), api: FakeSyncAPI()))
+        // Drawn into a pinned 8-bit sRGB bitmap, never `renderer.cgImage`: that picks its output format from the
+        // content, and an installed app's icon (a plate's mark — Messages, Notes, Chrome) arrives as extended-range
+        // 16-bit, which turns the whole render into 16-bit ITU-R 2100 PQ. Read back to 8-bit sRGB, the chat spine's
+        // 0x097FFD returned as 0x0A7FFD — one red step, on whichever Mac had those apps' icons in that format
+        // (first seen 2026-10-22, the day after a macOS point update). The sheet is 8-bit sRGB (`SpriteSheets`, and
+        // `BookArt` composes each book in an 8-bit sRGB context), so drawing it here, nearest-neighbour at a whole
+        // cell, is an identity: the expected value is the sheet's own pixel on any machine, whatever its icons.
         let renderer = ImageRenderer(content: room)
         renderer.scale = 1
-        return try XCTUnwrap(renderer.cgImage)
+        let context = try XCTUnwrap(CGContext(
+            data: nil, width: Int(layout.size.width), height: Int(layout.size.height), bitsPerComponent: 8,
+            bytesPerRow: 0, space: try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB)),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        renderer.render { _, draw in draw(context) }
+        return try XCTUnwrap(context.makeImage())
     }
 
     func test_eachBookIsItsSheetsPixelsOnTheLattice_dayAndNight() throws {

@@ -195,6 +195,9 @@ enum Copy {
         case "codex-cli": "Codex (your ChatGPT plan)"
         case "ollama": "Ollama (on this Mac)"
         case "litellm": "API key"
+        // 2026-10-19: Auto found no plan and no local model, and an API key reads only when chosen.
+        case "none": "No engine yet"
+        case "auto": "Auto"
         default: id
         }
     }
@@ -203,8 +206,8 @@ enum Copy {
     /// spends, who starts it, and what a throttle does. Not "free" — plan
     /// quota is a real budget, just not a dollar one.
     static let sleepEngineExplainer =
-        "Sleep runs through the `claude` CLI on your plan: it spends plan quota, not money. "
-        + "Only when you start a cycle yourself — or on the schedule, if you allow it in Settings → Sleep — and if the "
+        "Sleep runs on your Claude plan through Claude Code: it spends plan quota, not money. "
+        + "When you start a cycle yourself, and on the schedule unless you turn that off in Settings → Sleep; if the "
         + "plan throttles it stops cleanly with the queue intact."
 
     // MARK: Engines (Track E — R-E4, R-E13, R-E24, R-E28)
@@ -227,6 +230,9 @@ enum Copy {
         "If ChatGPT says code sign-in is turned off, turn on device code sign-in in your "
         + "ChatGPT account's security settings, then try again."
     static let chatgptSignOutTitle = "Sign out of ChatGPT in Cicada?"
+    /// The command it runs is not named (settings defaults, owner 2026-10-22); what it does to Claude Code is.
+    static let claudeSignOutExplainer =
+        "This signs Claude Code out on this Mac too. It will ask you to sign in again next time you open it."
     static let chatgptSignOutExplainer =
         "Cicada's ChatGPT sign-in is its own. Codex in your terminal stays signed in."
     static let keepGoingOnExtraUsage = "Keep going on extra usage"

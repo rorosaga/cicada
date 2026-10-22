@@ -5,6 +5,8 @@ Built on `day_one`, never `demo`, so the later event writers (T5+) can never
 change these lists."""
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from _demo_scenario import day_one
@@ -20,9 +22,11 @@ def _s7(bank):
     return next(p.stem for p in (bank / "episodes").glob("*.md") if "Yesterday Hana" in p.read_text())
 
 
-def test_claims_about_finds_the_reverse_claims_naming_a_project(bank):
-    hits = search_index.claims_about(bank, ["rover-arm-project", "Rover Arm Project"])
-    assert hits is not None
+def test_claim_rows_hold_the_reverse_claims_naming_a_project(bank):
+    rows = search_index.claim_rows(bank)
+    assert rows is not None and [ref for ref, _ in rows] == sorted(ref for ref, _ in rows)
+    hits = [(ref, json.loads(p)) for ref, items in rows for obj, p in items
+            if obj.lower().replace(" ", "-") == "rover-arm-project"]
     assert any(ref == "bob-example" and p["predicate"] == "works-on" for ref, p in hits)
     assert any(ref == "pick-and-place-demo" and p["predicate"] == "part-of" for ref, p in hits)
 
@@ -35,12 +39,8 @@ def test_pages_citing_lists_every_page_with_a_span_into_the_episode(bank):
 def test_both_answer_none_while_no_usable_index_exists(bank, monkeypatch):
     s7 = _s7(bank)
     monkeypatch.setattr(search_index, "ensure_fresh", lambda *a, **k: "building")
-    assert search_index.claims_about(bank, ["rover-arm-project"]) is None
+    assert search_index.claim_rows(bank) is None
     assert search_index.pages_citing(bank, s7) is None
-
-
-def test_no_usable_name_is_an_empty_list(bank):
-    assert search_index.claims_about(bank, ["", "  "]) == []
 
 
 def test_pages_citing_many_agrees_with_one_at_a_time(bank, monkeypatch):

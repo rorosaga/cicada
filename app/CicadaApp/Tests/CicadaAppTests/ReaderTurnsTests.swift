@@ -269,8 +269,13 @@ final class ReaderTurnsTests: XCTestCase {
     }
 
     func testTheMetaLineNamesTheAgentTheDayAndTheTurns() {
-        XCTAssertEqual(ReaderHeader.meta(conversation(), locale: us, timeZone: utc),
-                       "Claude Code · Sep 3, 2026 · 2 turns")
+        // A chat says the agent only: its day separators carry the day and its messages are on screen (2026-10-19).
+        XCTAssertEqual(ReaderHeader.meta(conversation(), locale: us, timeZone: utc), "Claude Code")
+        // A document keeps agent, day and count.
+        let doc = EpisodeText(episode: "ep_2026-09-03_005", text: "a note from the session",
+                              timestamp: "2026-09-03T10:00:00+00:00", harness: "claude-code",
+                              turns: [EpisodeTurn(index: 1, start: 0, contentStart: 0, end: 23)])
+        XCTAssertEqual(ReaderHeader.meta(doc, locale: us, timeZone: utc), "Claude Code · Sep 3, 2026 · 1 turn")
         let page = EpisodeText(episode: "media-example-com", kind: "page", text: "t",
                                turns: [EpisodeTurn(index: 1, start: 0, contentStart: 0, end: 1, role: "page")])
         XCTAssertEqual(ReaderHeader.meta(page, locale: us, timeZone: utc), Copy.Provenance.fromThePage)

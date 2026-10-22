@@ -530,9 +530,12 @@ async def _backfill_links_safely(memory_path: Path, settings: Settings, *, user_
     zero-LLM work (§2a reuse, junk) nothing is resolved and the run is
     authored ``cicada`` (fix round 1, M1: an idle cycle must not touch the
     connections registry for nothing). Only with a fetch or recon candidate
-    is ``engine_select.resolve_settings`` consulted — a scheduled cycle gets
-    byok before the registry is touched; a user-triggered one may probe
-    cache-first. ``CICADA_ALLOW_CONNECTOR_FETCH`` gates ONLY this unattended
+    is ``engine_select.resolve_settings`` consulted, with ``user_triggered``
+    passed through: a scheduled cycle reaches a plan (a cache-first sign-in
+    check, never a model call) only through the person's "Scheduled runs may
+    use my plan" switch — on unless they turned it off (ruling 4c) — and
+    otherwise gets the key they chose, the local model, or no engine, never a
+    metered key by itself (ruling 31). ``CICADA_ALLOW_CONNECTOR_FETCH`` gates ONLY this unattended
     step's default fetch (opt-out, the connector contract — G71 final review
     H2); reuse and recon are never gated; the maintenance endpoint is never
     gated at all.
@@ -1092,6 +1095,40 @@ async def _rematch_linkedin_safely(memory_path: Path) -> None:
         await asyncio.to_thread(linkedin_people.restore, memory_path, report)
 
 
+async def _rematch_contacts_safely(memory_path: Path) -> None:
+    """Owner ruling 2026-10-20 (the LinkedIn pattern) — the address-book cards waiting outside the bank against
+    tonight's pages: a person who got a page since the last Contacts sync gains their card's sources and photo
+    (`contacts_local.rematch`), and the card stops waiting. Engine-free, no fetch, in its own `cicada` commit; pages
+    dirty before it ran are skipped, a failed commit undoes what it wrote. Writes nothing when no card waits. Never
+    raises."""
+    from api.services import contacts_local, people_directory
+
+    if not people_directory.path(memory_path.name, contacts_local.WAITING_FILE).exists():
+        return
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Contacts rematch skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    try:
+        report = await asyncio.to_thread(contacts_local.rematch, memory_path, skip=skip)
+    except Exception as exc:
+        logger.warning(f"Contacts rematch failed: {type(exc).__name__}")
+        return
+    if not report.paths or not (memory_path / ".git").exists():
+        return
+    try:
+        async with _lock:
+            await git_service.commit_paths(memory_path, contacts_local.commit_message(report, date.today()),
+                                           report.paths)
+        logger.info(f"Contacts rematch: {len(report.paths)} page(s) enriched")   # counts only — never a name
+    except Exception as exc:
+        logger.warning(f"Contacts rematch commit failed — undoing: {type(exc).__name__}")
+        await asyncio.to_thread(contacts_local.restore, memory_path, report)
+
+
 async def _site_sources_safely(memory_path: Path) -> None:
     """G61 S3-b — propose an official site from what a page already says (its `website` claim, a `## Links` host that
     is its own name) and confirm proposed sites on Cicada's OWN rail (`link_enrichment.fetch_identity`): at most
@@ -1280,8 +1317,8 @@ async def _run_engine_independent_tail(
     sweeper — but it writes media pages, and on a half-written cycle those
     writes would sit on the dirty tree the NEXT ``_finalize`` sweeps under
     that cycle's model. ``user_triggered`` is threaded through only for the
-    backfill's lazy engine resolution (R10): a scheduled cycle must resolve
-    byok without ever probing the plan — TODO.md ruling 4.
+    backfill's lazy engine resolution (R10): a scheduled cycle reaches a plan
+    only through the person's switch — TODO.md rulings 4, 4c and 31.
 
     G133: ``_resolve_papers_safely`` shares this branch — it writes paper pages
     (scoped commits), and the fetch half is gated by
@@ -1325,6 +1362,8 @@ async def _run_engine_independent_tail(
         await _link_sources_safely(memory_path)
         # LinkedIn connections kept outside the bank, matched against tonight's pages — before any poll's `git add -A`.
         await _rematch_linkedin_safely(memory_path)
+        # Contacts cards waiting outside the bank, matched against tonight's pages (owner ruling 2026-10-20) — the same slot.
+        await _rematch_contacts_safely(memory_path)
         from api.services import demo_guard
 
         if demo_guard.is_demo(memory_path):
@@ -2478,6 +2517,15 @@ async def _run_stages(
     # cold-cache fallback.
     if decay_only:
         pass   # no episode is read, so no engine is asked
+    elif engine_select.no_engine(settings):
+        # Ruling 2026-10-19: Auto found no plan and no local model, and an API key reads only when the person chose
+        # it — so nothing is read and nothing is spent. Stopped before Stage 1, said in words, the queue intact.
+        detail = str(settings.no_engine_reason)
+        logger.error(f"Sleep cycle {cycle_id} stopped before Stage 1 — no engine")
+        _state.engine_detail = engine_why
+        _state.error = detail
+        _state.progress = f"Failed: {detail}"
+        return _StageOutcome(stop=sleep_drain.DrainStop("engine", detail))
     elif _state.last_engine == "claude-cli":
         ok, detail = await _probe_engine_cheaply(settings)
         _state.engine_detail = detail

@@ -86,7 +86,7 @@ struct IntegrationsView: View {
                 case .failed(let message):
                     HStack(spacing: CicadaTheme.spacingSM) {
                         Image(systemName: "exclamationmark.triangle")
-                            .font(CicadaTheme.font(size: 12))
+                            .font(CicadaTheme.icon(.inline))
                             .foregroundStyle(CicadaTheme.danger)
                         Text(message)
                             .font(CicadaTheme.bodyFont)
@@ -153,7 +153,7 @@ struct IntegrationsView: View {
             }
             VStack(spacing: 2) {
                 ForEach(0..<3, id: \.self) { _ in
-                    RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                    CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                         .fill(CicadaTheme.surface)
                         .frame(height: CicadaTheme.scaled(44))
                 }
@@ -396,7 +396,7 @@ private struct IntegrationHarnessRow: View {
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(source.label)
-                    .font(CicadaTheme.font(size: 13, weight: .medium))
+                    .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                 Text("Captured automatically — no setup needed")
                     .font(CicadaTheme.captionFont)
@@ -431,7 +431,7 @@ private struct IntegrationExportOnlyRow: View {
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(tile.title)
-                    .font(CicadaTheme.font(size: 13, weight: .medium))
+                    .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                 Text("Import only — no standing connection")
                     .font(CicadaTheme.captionFont)

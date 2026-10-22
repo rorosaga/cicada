@@ -35,7 +35,7 @@ import os
 import re
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
 
@@ -219,6 +219,84 @@ def utc_now_iso() -> str:
     both, so a reader never has to know which writer produced the file.
     """
     return datetime.now(timezone.utc).isoformat()
+
+
+#: The widest UTC offset a zone has (UTC+14 / UTC-12, with room), in minutes: a posted offset outside it is ignored.
+MAX_UTC_OFFSET_MINUTES = 14 * 60
+
+
+def id_day(stamp: str | datetime | None = None, *, utc_offset_minutes: int | None = None) -> str:
+    """The day an episode id carries (ruling 34, 2026-10-22): the conversation's first moment as a calendar day in
+    the person's zone — this machine's, or the UTC offset a client posted with the turns (G181: a server elsewhere
+    mints the id, and its own zone is not the person's) — never the UTC day.
+
+    ``stamp`` is the conversation's first moment, ISO-8601 (``Z`` or an offset; a naive one is this machine's local
+    time, as every legacy writer meant it) or a ``datetime``; absent or unreadable, now. An id once minted is never
+    renamed: this decides only new ids."""
+    moment: datetime | None = stamp if isinstance(stamp, datetime) else None
+    if moment is None and stamp:
+        try:
+            moment = datetime.fromisoformat(str(stamp).strip().replace("Z", "+00:00"))
+        except ValueError:
+            moment = None
+    if moment is None:
+        moment = datetime.now(timezone.utc)
+    try:
+        if isinstance(utc_offset_minutes, int) and not isinstance(utc_offset_minutes, bool) \
+                and abs(utc_offset_minutes) <= MAX_UTC_OFFSET_MINUTES:
+            return moment.astimezone(timezone(timedelta(minutes=utc_offset_minutes))).date().isoformat()
+        return moment.astimezone().date().isoformat()
+    except (ValueError, OverflowError, OSError):
+        return moment.date().isoformat()
+
+
+def local_day(raw) -> date | None:
+    """The day a stored stamp was said, as the person counts days (ruling 34, 2026-10-22) — the one reading rule
+    beside :func:`id_day`'s minting rule. Any stored shape: a naive legacy stamp (this machine's local time, as its
+    writer meant it), ``Z``, ``+00:00``, a YAML ``datetime``, or a bare ``YYYY-MM-DD`` (already a day, kept as it is),
+    in this machine's zone. Never the first ten characters of a UTC stamp: words said at 00:27 in Madrid are stored
+    on the previous UTC day. ``None`` when unreadable — nothing is guessed."""
+    if isinstance(raw, datetime):
+        moment = raw
+    elif isinstance(raw, date):
+        return raw
+    else:
+        text = str(raw or "").strip()
+        if len(text) == 10:
+            try:
+                return date.fromisoformat(text)
+            except ValueError:
+                return None
+        key = timestamp_sort_key(text or None)
+        if not key:
+            return None
+        try:
+            moment = datetime.fromisoformat(key)
+        except ValueError:
+            return None
+    try:
+        return moment.astimezone().date()
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def zone_offset_minutes(zone_name, at: datetime | None = None) -> int | None:
+    """A client's IANA zone name (``Europe/Madrid``) as its UTC offset in minutes at ``at`` (now by default), east
+    positive — what :func:`id_day` takes. ``None`` for anything that is not a known zone, or an offset outside
+    :data:`MAX_UTC_OFFSET_MINUTES`: a hint, never a reason to fail a capture."""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    name = zone_name.strip() if isinstance(zone_name, str) else ""
+    if not name or len(name) > 64:
+        return None
+    try:
+        offset = (at or datetime.now(timezone.utc)).astimezone(ZoneInfo(name)).utcoffset()
+    except (ZoneInfoNotFoundError, ValueError, OSError):
+        return None
+    if offset is None:
+        return None
+    minutes = int(offset.total_seconds() // 60)
+    return minutes if abs(minutes) <= MAX_UTC_OFFSET_MINUTES else None
 
 
 def utc_now_seconds() -> str:

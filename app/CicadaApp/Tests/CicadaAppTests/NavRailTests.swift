@@ -26,10 +26,9 @@ final class NavRailTests: XCTestCase {
         XCTAssertEqual(RailItem.shortcut(for: .inbox), "⌘6")
         XCTAssertEqual(RailItem.shortcut(for: .sources), "⌘7")
         XCTAssertEqual(RailItem.shortcut(for: .projects), "⌘8", "the eighth page, after Sources — no shortcut moved")
-        XCTAssertEqual(RailItem.shortcut(for: .looks), "⌘9", "the ninth page, after Projects — no shortcut moved")
         XCTAssertEqual(RailItem.key(for: .graph), KeyEquivalent("2"))
         XCTAssertEqual(RailItem.shortcut(for: .sleep), "⌘5", "Sleep kept its digit when the Feed folded into it")
-        XCTAssertEqual(AppTab.allCases.last, .looks)
+        XCTAssertEqual(AppTab.allCases.last, .projects, "Looks went on 2026-10-20; nothing before it moved")
         XCTAssertEqual(RailItem.key(for: .skills), KeyEquivalent("4"))
         XCTAssertEqual(RailItem.shortcut(for: .skills), "⌘4")
     }

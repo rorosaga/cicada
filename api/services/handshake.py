@@ -70,7 +70,8 @@ from api.services.auth import cicada_home
 # 16: owner 2026-10-14 — item 2: questions come up naturally (`mode="ask"`), answers already given are recorded
 #     with the person's words (`quote`), the inbox is listed on request (`mode="list"`).
 # 17: G198 — item 4 names cicada_edit_page (a page's words and aliases); one past both 16s (it and natural questions).
-CONTRACT_VERSION = 17
+# 18: ruling 34 (G162 F1) — a video hand-back carries its lease_token.
+CONTRACT_VERSION = 18
 MAX_TOKENS = 1800
 VARIANTS = ("claude-code", "codex", "generic")
 
@@ -93,7 +94,9 @@ REMOTE_VARIANT = "remote"
 # 9: G61 S3-a — the source sentence, each tool only where the connection holds it.
 # 10: G61 S3 — the same sentence, only where the connection holds the queue and cicada_record_check.
 # 11: owner 2026-10-14 — the inbox item says mode="ask"/"list" (questions come up naturally).
-REMOTE_CONTRACT_VERSION = 11
+# 12: ruling 32 (owner 2026-10-19) — a connection that can capture is asked to relay every turn.
+# 13: ruling 34 (G162 F1) — a video hand-back carries its lease_token.
+REMOTE_CONTRACT_VERSION = 13
 # The runtime replaces this with a freshly minted handle AFTER the cache read,
 # so one cached primer serves every conversation of a tool set.
 CONVERSATION_SLOT = "{{conversation}}"
@@ -126,7 +129,7 @@ def _remote_video_queue(tools: frozenset[str]) -> str:
         return (" When the person asks you to work their video queue (or hands you a Cicada prompt for it), "
                 "`cicada_video_claim` takes the videos they asked you to read or watch; repeat it until it "
                 "returns nothing, record each one, and hand one back with "
-                "`cicada_video_claim(release=[{url, code, reason}])`."
+                "`cicada_video_claim(release=[{url, lease_token, code, reason}])`."
                 + (" `cicada_video_queue` lists them without taking any." if "cicada_video_queue" in tools else ""))
     if "cicada_video_queue" in tools:
         return " `cicada_video_queue` lists the videos the person asked an agent to read or watch."
@@ -135,6 +138,11 @@ def _remote_video_queue(tools: frozenset[str]) -> str:
 
 def _remote_contract(tools: frozenset[str], reading: bool = False) -> str:
     items: list[str] = []
+    if "cicada_capture_turns" in tools:
+        # Ruling 32: an app with no hook is captured through its own model, every turn, verbatim.
+        items.append("Capture every turn: before you answer, call `cicada_capture_turns(message, previous_reply)` "
+                     "with the person's message word for word and your previous reply word for word — this is how "
+                     "the conversation is kept. Never summarise either.")
     reads = [text for tool, text in (
         ("cicada_recall", "`cicada_recall(query)` at the start of a topic"),
         ("cicada_recall_detail", "`cicada_recall_detail(entity_id)` for a page"),
@@ -234,7 +242,7 @@ _PRELUDE = {
         "## Claude Code\n"
         "- Your session id is stamped on every episode you save; this conversation is resumable later with "
         "`claude --resume <id>`.\n"
-        "- The `cicada` skill (~/.claude/skills/cicada) is the long-form policy; this text is the contract."
+        "{skill}"
     ),
     "codex": (
         "## Codex\n"
@@ -249,6 +257,42 @@ _PRELUDE = {
         "- The tools are the whole interface; nothing needs a file on disk."
     ),
 }
+
+# Where Claude Code finds the `cicada` skill (#357): the plugin carries it as `cicada:cicada`; `install.sh --skill` (or
+# the Skills page) copies it to ~/.claude/skills/cicada; with neither there is no policy file to point at. The line
+# names only the one that is there, so an agent never looks for a skill that is not installed.
+CLAUDE_SKILL_LINES = {
+    "plugin": "- The `cicada:cicada` skill (from the Cicada plugin) is the long-form policy; this text is the contract.",
+    "file": "- The `cicada` skill (~/.claude/skills/cicada) is the long-form policy; this text is the contract.",
+    "none": "- This text is the contract; no separate policy file is installed.",
+}
+
+
+def claude_skill(home: Path | None = None) -> str:
+    """``plugin`` | ``file`` | ``none``: which `cicada` skill Claude Code has. The plugin wins when it is on (enabled,
+    installed and able to run a Cicada — ``registry.plugin_state``, the test install.sh uses), since install.sh then
+    leaves the skill to it. Reads Claude Code's settings and plugin list (never a transcript) and one ``isfile``."""
+    from api.hooks import registry as hook_registry
+    from api.services import skill_folders
+
+    home = Path(home) if home is not None else skill_catalog.agent_home()
+    try:
+        if hook_registry.plugin_state(home / ".claude" / "settings.json", runtime_layout.cicada_home())[0] == "on":
+            return "plugin"
+    except Exception as exc:  # noqa: BLE001 — an unreadable settings file is no plugin, never a failed handshake
+        logger.debug(f"handshake: plugin state unread ({type(exc).__name__})")
+    try:
+        return "file" if skill_folders.has_skill("claude-code", "cicada", home) else "none"
+    except OSError as exc:  # a skills folder it may not read is no skill, never a failed handshake or SessionStart note
+        logger.debug(f"handshake: skill folder unread ({type(exc).__name__})")
+        return "none"
+
+
+def _prelude(variant: str, skill: str) -> str:
+    text = _PRELUDE[variant]
+    return text.replace("{skill}", CLAUDE_SKILL_LINES.get(skill, CLAUDE_SKILL_LINES["file"])) \
+        if variant == "claude-code" else text
+
 
 # Item 2 (owner, 2026-10-14, amends the G75/G115 discipline below): questions come up only when the
 # conversation is about them (`mode="ask"`, the server-side gate in `inbox_ask_gate`), are woven in by the
@@ -282,7 +326,7 @@ _CONTRACT = (
     "`cicada_save_url` for a link; after watching a video the person saved, `cicada_record_watch(url, summary, "
     "excerpts=[{t, quote}], basis)` — short timestamped quotes, never the transcript, `basis` being "
     "`transcript`, `frames` or `both`. For the person's video queue, `cicada_video_claim` takes videos to "
-    "watch (repeat until empty; hand one back with `cicada_video_claim(release=[{url, code, reason}])`). "
+    "watch (repeat until empty; hand one back with `cicada_video_claim(release=[{url, lease_token, code, reason}])`). "
     "When the person says what they "
     "did, got, started or finished in a project, record it with `cicada_note_progress(project, kind, summary, "
     "status, evidence)`. When the person asks to put something in the backlog (or to keep it for later), file it "
@@ -423,7 +467,7 @@ def _holds_read_scope(tools: frozenset[str]) -> bool:
 
 
 def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str | None = None,
-               personal: bool = True, raw: bool = True) -> str:
+               personal: bool = True, raw: bool = True, server: str | None = None) -> str:
     """``remote`` (G135 R-R15) drops what a caller off this Mac must not see
     or cannot act on: the `GET /state` hint (a loopback endpoint) and every
     repo path. Repo paths never leave the Mac. Stdio output is unchanged.
@@ -446,15 +490,20 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
     ``raw`` (G141 R-PJ23, R-PJB18): whether a remote caller holds
     ``cicada_sources``. Without it a project's ``now`` that is the person's
     own words (``verbatim``) reads "a note of yours" — the same line the
-    ``sources`` scope draws for every other verbatim word of theirs."""
+    ``sources`` scope draws for every other verbatim word of theirs.
+
+    ``bank`` is the bank's name as the roster says it (G202, D6: `default`, never the folder `memory`), and wins over
+    the name ``_state.md`` recorded; ``server`` (a client's host, never a path or a token) says where it lives, so two
+    servers' primers never read the same to an agent."""
     tz_line = f"- Their timezone: {tz}." if tz and personal else None
+    where = f"Bank `{bank}`" + (f" on {server}" if server else "")
     if state is None and remote:
-        head = f"## Now\n- Bank `{bank}` has no now-view yet; the contract above still applies."
+        head = f"## Now\n- {where} has no now-view yet; the contract above still applies."
         return head + (f"\n{tz_line}" if tz_line else "")
     if state is None:
         head = (
             "## Now\n"
-            f"- Bank `{bank}` has no `_state.md` yet — run a Sleep cycle or `GET /state?refresh=true` "
+            f"- {where} has no `_state.md` yet — run a Sleep cycle or `GET /state?refresh=true` "
             "to generate the now-view; the contract above still applies."
         )
         return head + (f"\n{tz_line}" if tz_line else "")
@@ -463,7 +512,7 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
     inb = state.get("inbox") or {}
     lines = [
         "## Now",
-        f"- Bank `{state.get('bank', bank)}` · engine {eng.get('engine')} ({eng.get('model') or 'unset'}) · "
+        f"- {where} · engine {eng.get('engine')} ({eng.get('model') or 'unset'}) · "
         f"inbox: {inb.get('pending', 0)} pending · Sleep queue {slp.get('queue_depth', 0)} · "
         f"last Sleep {slp.get('last_at') or 'never'} · as of {state.get('generated_at')}",
     ]
@@ -521,10 +570,11 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
 
 def _assemble(state: dict | None, variant: str, bank: str, tz: str | None = None,
               bridges: tuple[str, ...] = (), reading: bool = False, methods: tuple[str, ...] = (),
-              reading_tools: str | None = None) -> str:
+              reading_tools: str | None = None, skill: str = "file", server: str | None = None) -> str:
     capabilities = _CAPABILITIES + "".join(f"\n{line}" for line in bridges) + "".join(f"\n{line}" for line in methods)
     contract = _CONTRACT + (f"\n{_reading_item(reading_tools)}" if reading else "")
-    return "\n\n".join([_WHAT, _PRELUDE[variant], contract, _now_block(state, bank, tz=tz), capabilities])
+    return "\n\n".join([_WHAT, _prelude(variant, skill), contract, _now_block(state, bank, tz=tz, server=server),
+                        capabilities])
 
 
 def _fit(assemble, state: dict | None, max_tokens: int = MAX_TOKENS) -> str:
@@ -555,8 +605,13 @@ def _fit(assemble, state: dict | None, max_tokens: int = MAX_TOKENS) -> str:
 
 def build(state: dict | None, *, variant: str, bank: str, tz: str | None = None,
           bridges: tuple[str, ...] = (), reading: bool = False, methods: tuple[str, ...] = (),
-          reading_tools: str | None = None, max_tokens: int = MAX_TOKENS) -> str:
-    """Pure: the primer for a parsed state (or none) and a variant.
+          reading_tools: str | None = None, max_tokens: int = MAX_TOKENS, skill: str = "file",
+          server: str | None = None) -> str:
+    """Pure: the primer for a parsed state (or none) and a variant. ``server``: the host a client reaches this
+    bank on (G202, D6), named on the Now line; None on the bank's own machine.
+
+    ``skill`` (#357) is ``claude_skill()``'s answer, which ``load_or_build`` reads: the claude-code prelude names the
+    plugin's `cicada:cicada`, the ~/.claude/skills copy, or no policy file. Other variants ignore it.
 
     ``max_tokens`` (G110): what ``_fit`` aims at — ``MAX_TOKENS`` less the
     SessionStart reserve when a continuity block will ride in the same note.
@@ -592,8 +647,8 @@ def build(state: dict | None, *, variant: str, bank: str, tz: str | None = None,
     variant = variant if variant in VARIANTS else "generic"
     bridges = tuple(bridges)[: skill_catalog.MAX_BRIDGE_LINES]
     methods = tuple(methods)[: skill_catalog.MAX_METHOD_LINES]
-    return _fit(lambda st: _assemble(st, variant, bank, tz, bridges, reading, methods, reading_tools), state,
-                max_tokens)
+    return _fit(lambda st: _assemble(st, variant, bank, tz, bridges, reading, methods, reading_tools, skill, server),
+                state, max_tokens)
 
 
 # G180: the `cicada` command line's primer. NOT a member of `VARIANTS` (those share one MCP
@@ -645,12 +700,13 @@ def _cli_contract(commands: frozenset[str]) -> str:
     return "## Contract\n" + "\n".join(f"{i}. {text}" for i, text in enumerate(items, 1))
 
 
-def build_cli(state: dict | None, *, commands: frozenset[str], bank: str, tz: str | None = None) -> str:
+def build_cli(state: dict | None, *, commands: frozenset[str], bank: str, tz: str | None = None,
+              server: str | None = None) -> str:
     """The primer `cicada handshake` prints (G180): what Cicada is, how to call it from a shell,
     the commands it holds, and the bank's now-view — within the same token aim as every primer."""
     commands = frozenset(commands)
     return _fit(lambda st: "\n\n".join([_WHAT, _CLI_PRELUDE, _cli_contract(commands),
-                                          _now_block(st, bank, tz=tz)]), state)
+                                          _now_block(st, bank, tz=tz, server=server)]), state)
 
 
 def build_remote(state: dict | None, *, tools: frozenset[str], bank: str, tz: str | None = None,
@@ -688,6 +744,7 @@ def _state_age_hours(state: dict | None) -> int | None:
 def load_or_build(
     memory_path: Path, client_name: str | None = None, *, variant: str | None = None,
     tools: frozenset[str] | None = None, cache_dir: Path | None = None, reserve: int = 0,
+    bank_name: str | None = None, server: str | None = None,
 ) -> tuple[str, dict]:
     """The primer for this bank + client, from cache when the state file is unchanged.
 
@@ -706,8 +763,17 @@ def load_or_build(
     SessionStart note — the local primer is fitted to ``MAX_TOKENS - reserve``,
     and the reserve is part of the cache key and file name. Remote primers
     ignore it.
+
+    ``bank_name`` (G202, D6): the bank's name as the caller's roster pinned it; else the roster's name for
+    ``memory_path`` (``bank_registry.name_of``), never the folder's. ``server``: the host a client reached this bank
+    on (the tool door passes it), named on the Now line. Both are part of the cache key.
     """
+    from api.services import bank_registry
+
     memory_path = Path(memory_path)
+    bank = bank_name or bank_registry.name_of(memory_path)
+    server = server.strip()[:255] if isinstance(server, str) and server.strip() else None
+    where_key = hashlib.sha256(f"{bank}\0{server or ''}".encode("utf-8")).hexdigest()[:8]
     path = state_dictionary.state_path(memory_path)
     try:
         st = path.stat()
@@ -729,8 +795,8 @@ def load_or_build(
             raise ValueError("the remote handshake needs the connection's tools")
         tool_key = hashlib.sha256(",".join(sorted(tools)).encode("utf-8")).hexdigest()[:12]
         cache_name = f"remote-{tool_key}"
-        key = f"r{REMOTE_CONTRACT_VERSION}:{cache_name}:{stamp}:{tz_key}:{reading_key}"
-        make = lambda st: build_remote(st, tools=frozenset(tools), bank=memory_path.name, tz=tz, reading=reading)  # noqa: E731
+        key = f"r{REMOTE_CONTRACT_VERSION}:{cache_name}:{stamp}:{tz_key}:{reading_key}:{where_key}"
+        make = lambda st: build_remote(st, tools=frozenset(tools), bank=bank, tz=tz, reading=reading)  # noqa: E731
     else:
         variant = variant if variant in VARIANTS else variant_for(client_name)
         # G138 R-O28: only the claude-code and codex variants ever carry a
@@ -744,17 +810,20 @@ def load_or_build(
         # follows, it must say the same thing (the queue tool's reply swaps the phrase the same way).
         reading_tools = (agent_methods.tool_phrase("reading", voice="reply")
                          if any(m.startswith("- Reading pages:") for m in methods) else None)
+        # #357: which `cicada` skill Claude Code has is in the text, so in the key.
+        skill = claude_skill() if variant == "claude-code" else "-"
         cache_name = variant
         # The bridge set is part of the text, so it is part of the key: installing
         # or removing a bridged skill must never serve yesterday's primer.
-        key = f"{CONTRACT_VERSION}:{variant}:{stamp}:{tz_key}:{skill_catalog.fingerprint(bridges)}:{reading_key}:{skill_catalog.fingerprint(methods)}:{hashlib.sha256((reading_tools or '').encode('utf-8')).hexdigest()[:6]}"
+        key = f"{CONTRACT_VERSION}:{variant}:sk-{skill}:{stamp}:{tz_key}:{skill_catalog.fingerprint(bridges)}:{reading_key}:{skill_catalog.fingerprint(methods)}:{hashlib.sha256((reading_tools or '').encode('utf-8')).hexdigest()[:6]}"
+        key += f":{where_key}"
         reserve = max(0, int(reserve or 0))
         if reserve:
             key += f":rv{reserve}"
             cache_name = f"{variant}.rv{reserve}"
         make = lambda st: build(  # noqa: E731
-            st, variant=variant, bank=memory_path.name, tz=tz, bridges=bridges, reading=reading, methods=methods,
-            reading_tools=reading_tools, max_tokens=MAX_TOKENS - reserve)
+            st, variant=variant, bank=bank, tz=tz, bridges=bridges, reading=reading, methods=methods,
+            reading_tools=reading_tools, max_tokens=MAX_TOKENS - reserve, skill=skill, server=server)
     cache_dir = Path(cache_dir) if cache_dir is not None else _cache_dir()
     cache_file = cache_dir / f"{memory_path.name}.{cache_name}.json"
     state = state_dictionary.read_state(memory_path)

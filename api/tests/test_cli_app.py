@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import threading
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -64,7 +65,8 @@ def fake_backend(memory_root: str, routes: dict | None = None, *, health_delay: 
             pass
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    # `shutdown()` waits for the loop's next poll: the default 0.5 s was most of every test here (suite cut 2).
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
     thread.start()
     try:
         server.seen = seen
@@ -75,12 +77,19 @@ def fake_backend(memory_root: str, routes: dict | None = None, *, health_delay: 
         server.server_close()
 
 
+@pytest.fixture(scope="module")
+def _template(tmp_path_factory):
+    """The synthetic bank, built (files + git) once for the module; `env` hands each test its own copy."""
+    return _bank(tmp_path_factory.mktemp("cli-app-template"), git=True)
+
+
 @pytest.fixture
-def env(tmp_path, monkeypatch):
+def env(tmp_path, monkeypatch, _template):
     from api.config import Settings, get_settings
 
     before = Settings.model_config.get("env_file")
-    memory = _bank(tmp_path, git=True)
+    memory = tmp_path / _template.name
+    shutil.copytree(_template, memory, symlinks=True)
     monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
     monkeypatch.delenv("CICADA_MEMORY_ROOT", raising=False)
     monkeypatch.setenv("CICADA_PORT", str(free_port()))
@@ -484,8 +493,10 @@ def test_the_person_s_own_terminal_is_not_an_agent_shell(env):
 WRITES = [["feed", "add", "https://example.com/feed.xml"], ["sleep", "stop"], ["bank", "create", "beta"]]
 
 
-@pytest.mark.parametrize("argv", WRITES, ids=lambda a: " ".join(a[:2]))
-def test_a_slow_backend_serving_another_root_receives_no_write(env, monkeypatch, capsys, tmp_path, argv):
+# The two slow-backend guards wait out a real 1.5 s health answer twice, so each checks one write (suite cut 2): the
+# guard is one function for every write, and `…never_confirms…` below still walks every write in `WRITES`.
+def test_a_slow_backend_serving_another_root_receives_no_write(env, monkeypatch, capsys, tmp_path):
+    argv = ["bank", "create", "beta"]
     elsewhere = tmp_path / "somewhere-else"
     elsewhere.mkdir()
     with _backend(env, monkeypatch, health_delay=1.5, health_root=str(elsewhere)) as server:
@@ -494,8 +505,8 @@ def test_a_slow_backend_serving_another_root_receives_no_write(env, monkeypatch,
     assert server.seen == []                       # the POST never left this process
 
 
-@pytest.mark.parametrize("argv", WRITES, ids=lambda a: " ".join(a[:2]))
-def test_a_slow_backend_that_confirms_the_root_on_the_second_ask_gets_the_write(env, monkeypatch, capsys, argv):
+def test_a_slow_backend_that_confirms_the_root_on_the_second_ask_gets_the_write(env, monkeypatch, capsys):
+    argv = ["feed", "add", "https://example.com/feed.xml"]
     with _backend(env, monkeypatch, health_delay=1.5) as server:
         code, out = _run(argv, capsys)
     assert code == 0 and out["ok"] is True, out

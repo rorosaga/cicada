@@ -12,8 +12,9 @@ from loguru import logger
 from thefuzz import fuzz
 
 from api.config import Settings
-from api.services import (agent_engine, correspondents, engine_errors, entity_body, fact_policy, json_parse,
-                          owner_identity, promotion, role_people, section_provenance)
+from api.services import (agent_engine, contacts_local, correspondents, engine_errors, entity_body, entity_types,
+                          fact_policy, json_parse, owner_identity, people_directory, promotion, quiet_pages,
+                          role_people, section_provenance)
 from api.services.clarification_manager import (
     CONFIDENCE_THRESHOLD,
     ClarificationManager,
@@ -223,6 +224,14 @@ async def resolve(
     pending_actions: list[tuple[Callable, tuple, dict]] = []
     promoted_pending: list[str] = []
     cancelled = False
+    # Owner ruling 2026-10-20: the address-book cards that matched no page wait outside the bank; a first mention that
+    # names exactly one of them in full is enough to promote, and the page is born under the card's name.
+    waiting_cards = _waiting_cards(settings)
+    existing_ids = {str(e.get("id")) for e in existing}
+    person_keys = _person_page_keys(existing) if waiting_cards.cards else set()
+    episode_kind = (quiet_pages.episode_lookup(Path(settings.memory_path)) if waiting_cards.cards
+                    else (lambda _episode: None))
+    card_creates: dict[str, str] = {}   # card id -> the page this batch is creating for it
 
     # A self-reference's facts are the owner's: they land on the owner page, under
     # its own name and type (a "User" concept must not retype or rename it). With
@@ -367,6 +376,20 @@ async def resolve(
                 or linked_to_existing
                 or any(promotion.substantive(e) for e in (entity, *siblings))
             )
+            card = None if ambiguous_match else _card_for(entity, siblings, waiting_cards, person_keys, episode_kind,
+                                                          memory_path=Path(settings.memory_path))
+            if card is not None and str(card["id"]) in card_creates:
+                # A second spelling of a name this batch already gave a card's page to ("Example Bob"): the same page.
+                card_page = card_creates[str(card["id"])]
+                name_to_id[name_lower] = card_page
+                for incoming in (entity, *siblings):
+                    _merge_into_create(resolved_creates[card_page], incoming)
+                continue
+            if card is not None:
+                card_page = sanitize_id(contacts_local.card_name(card))
+                if card_page in existing_ids or card_page in resolved_creates:
+                    card = None   # the card's name is already another page's id: an ordinary name, by the usual rule
+            should_promote = should_promote or card is not None
 
             if ambiguous_match:
                 pending_actions.append((
@@ -376,7 +399,9 @@ async def resolve(
                 ))
 
             if should_promote and not ambiguous_match:
-                entity_id = sanitize_id(name)
+                if card is not None:
+                    entity = _card_entity(entity, card)
+                entity_id = sanitize_id(entity["name"] if card is not None else name)
                 name_to_id[name_lower] = entity_id
                 resolved_creates[entity_id] = {
                     "id": entity_id,
@@ -391,6 +416,11 @@ async def resolve(
                     "untimed": bool(entity.get("untimed")),
                     "trigger": "sleep/promotion",
                 }
+                if card is not None:
+                    # Stage 5 writes the card's sources and photo on the page it creates (`contacts_local.seed_page`).
+                    resolved_creates[entity_id]["contacts_card"] = card
+                    card_creates[str(card["id"])] = entity_id
+                    name_to_id[entity["name"].lower()] = entity_id
                 for sibling in siblings:
                     _merge_into_create(resolved_creates[entity_id], sibling)
                 if pending_entry is not None:
@@ -421,10 +451,10 @@ async def resolve(
                             "uncertainty_type": _infer_uncertainty_type(entity),
                             "suggested_classification": (
                                 f"{entity.get('type', 'concept')} — "
-                                f"{(entity.get('description') or '')[:120]}"
+                                f"{_effective_summary(entity)[:120]}"
                             ),
                             "suggested_confidence": confidence,
-                            "source_context": entity.get("description", "") or "",
+                            "source_context": _effective_summary(entity),
                             "source_episode_timestamp": entity.get("source_episode_timestamp"),
                         },
                     ))
@@ -450,6 +480,12 @@ async def resolve(
 
     if progress_callback is not None and not cancelled:
         progress_callback(total_names, total_names)
+    for change in resolved_creates.values():
+        if change.get("contacts_card"):
+            # A merged spelling never renames it: a page born from a card carries the card's name.
+            change["entity"]["name"] = contacts_local.card_name(change["contacts_card"])
+    if card_creates:
+        logger.info(f"Stage 2: {len(card_creates)} page(s) promoted on a waiting card's first mention")  # never a name
     resolved = list(resolved_updates.values()) + list(resolved_creates.values())
 
     # Resolve relationships — only keep edges where both endpoints survived promotion
@@ -718,6 +754,110 @@ async def match_existing(
     if match is not None and match["decision"] == "same" and match["candidate"].get("source") == "existing":
         return match["candidate"]["id"]
     return None
+
+
+def _waiting_cards(settings: Settings) -> "contacts_local.WaitingIndex":
+    """This bank's waiting address-book cards (`contacts_local.waiting_index`): empty with no bank path, on a demo bank,
+    or when nothing waits — and never an error, a read failure only means no card promotes tonight."""
+    memory_path = getattr(settings, "memory_path", None)
+    if memory_path is None:
+        return contacts_local.WaitingIndex()
+    try:
+        return contacts_local.waiting_index(Path(memory_path))
+    except Exception as exc:  # noqa: BLE001 — the directory is outside the bank and disposable
+        logger.warning(f"Stage 2: waiting cards unreadable ({type(exc).__name__})")
+        return contacts_local.WaitingIndex()
+
+
+def _person_page_keys(existing: list[dict]) -> set[str]:
+    """Every folded name and alias an existing person page holds: a card whose name one of them already carries is that
+    page's (the sync or the tail's rematch matches it), never the seed of a second one."""
+    keys: set[str] = set()
+    for e in existing:
+        fm = e.get("frontmatter") or {}
+        if fm.get("type") != "person" or fm.get("status") == "dropped":
+            continue
+        for label in [fm.get("name") or str(e.get("id") or "").replace("-", " "), *(fm.get("aliases") or [])]:
+            if key := people_directory.fold(label):
+                keys.add(key)
+    return keys
+
+
+#: Episodes whose text is a title or an item list, never a turn the person typed — a tab group's tab titles, a
+#: calendar's event titles. A body with no turn markers is never a person's turn here anyway (`_said_in_person_turn`);
+#: these are refused by name too, so a marker-shaped title can never pass.
+CARD_REFUSED_SOURCES = frozenset({"tab-group", "calendar", "calendar-local"})
+
+
+def _said_in_person_turn(memory_path: Path | None, episode_id: str, card: dict) -> bool:
+    """Did the person themselves say this card's full name — in a MARKED turn of theirs (``user:`` or a meeting's
+    ``speaker:``)? Not a reply of the agent's, not a relayed turn (``evidence_kind: assistant``, ruling 32), and not a
+    document with no turn markers, which `promotion.exchanges` reads as the person's own writing (a tab group, a
+    calendar, a feed item, a note): a card promotes only on the person's own words (owner ruling 2026-10-20)."""
+    from api.services import bank_index, evidence
+
+    if memory_path is None or not str(episode_id or "").startswith("ep_"):
+        return False
+    entry = bank_index.file(memory_path, "episodes", f"{episode_id}.md")
+    if entry is None:
+        return False
+    fm = entry.frontmatter or {}
+    if str(fm.get("source") or "") in CARD_REFUSED_SOURCES or str(fm.get("origin") or "") in CARD_REFUSED_SOURCES:
+        return False
+    try:
+        text = entry.body()
+    except Exception:
+        return False
+    keys = contacts_local.name_keys(card.get("given_name"), card.get("family_name"))
+    for turn in evidence.turns(text, override=fm.get("evidence_kind")):
+        if turn.marker is None or turn.role not in promotion.PERSON_KINDS:
+            continue
+        said = f" {people_directory.fold(text[turn.content_start:turn.end])} "
+        if any(f" {key} " in said for key in keys):
+            return True
+    return False
+
+
+def _card_for(entity: dict, siblings: list[dict], waiting: "contacts_local.WaitingIndex",
+              person_keys: set[str], episode_kind: Callable[[str], str | None], *,
+              memory_path: Path | None = None) -> dict | None:
+    """The ONE waiting card this person mention names in full (owner ruling 2026-10-20), or None.
+
+    Only a ``person`` mention the person made in their own words: Stage 1 measured it named by a person
+    (``named_by_person``), in a conversation (not a save, a watch or a check: `quiet_pages.episode_kind`), and the
+    card's full name stands in one of the person's own marked turns (:func:`_said_in_person_turn` — never an agent's
+    reply, a relayed turn, a tab title or a calendar entry). Never one titled by a relation to the owner
+    (`role_people` — a person known only as "my partner" is never named from a card without the person's words); the
+    mention's own name or an alias must be a card's given + family name in either order (`WaitingIndex.match`: never a
+    one-part name, never a name two cards share); and no existing person page may hold that name already (two pages,
+    or a card that is some page's)."""
+    if not waiting.cards:
+        return None
+    group = (entity, *siblings)
+    if any(entity_types.in_set(e.get("type")) != "person" or e.get(role_people.UNNAMED_KEY) for e in group):
+        return None
+    labels = [label for e in group for label in [e.get("name"), *(e.get("aliases") or [])] if label]
+    card = waiting.match(labels)
+    if card is None:
+        return None
+    if contacts_local.name_keys(card.get("given_name"), card.get("family_name")) & person_keys:
+        return None
+    spoken = [e for e in group if e.get("named_by_person")
+              and episode_kind(str(e.get("source_episode") or "")) == quiet_pages.CONVERSATION]
+    if not any(_said_in_person_turn(memory_path, str(e.get("source_episode") or ""), card) for e in spoken):
+        return None
+    return card
+
+
+def _card_entity(entity: dict, card: dict) -> dict:
+    """The mention, renamed to the card's name; the name the conversation used is kept as an alias when it differs."""
+    name = contacts_local.card_name(card)
+    aliases = [a for a in entity.get("aliases") or [] if a]
+    said = str(entity.get("name") or "")
+    if said and people_directory.fold(said) != people_directory.fold(name) and said not in aliases:
+        aliases.append(said)
+    aliases = [a for a in aliases if people_directory.fold(a) != people_directory.fold(name)]
+    return {**entity, "name": name, "aliases": aliases}
 
 
 def _specificity_key(entity: dict) -> tuple[int, int, float]:
@@ -1106,7 +1246,7 @@ def _create_duplicate_clarification(
             ),
             suggested_confidence=float(entity.get("confidence", 0.0) or 0.0),
             source_context=(
-                (entity.get("description") or "").strip()
+                _effective_summary(entity)
                 or f"Could not safely decide whether this refers to {candidate_name}."
             ),
             source_episode_timestamp=entity.get("source_episode_timestamp"),
@@ -1137,7 +1277,7 @@ def _candidate_description(candidate: dict) -> str:
     if candidate["source"] == "existing":
         return candidate["data"].get("body", "") or ""
     entity = candidate["data"].get("entity", {}) or {}
-    description = (entity.get("description") or "").strip()
+    description = _effective_summary(entity)
     history = entity.get("history_entries", []) or []
     if history:
         lines = []
@@ -1362,6 +1502,124 @@ async def _llm_judge_same_entity(
         return "unsure"
 
 
+#: How many of one name's candidates one judge call weighs (2026-10-20). A name that shares a common word ("model",
+#: "google", a first name) with many same-type pages used to cost one call per page, ~85 % of a night's calls ending
+#: in "different"; now its candidates go to the judge together, in their judging order, at most this many a call.
+#: A lone candidate keeps the one-pair prompt (`_DISAMBIG_PROMPT`) byte for byte.
+JUDGE_BATCH = 6
+
+_DISAMBIG_BATCH_PROMPT = """You are deciding whether a new entity entry from a personal knowledge graph refers to the same real-world thing as any of the existing entries listed below.
+
+Each existing entry has a name that overlaps the new one (for example a bare first name and that same first name with a surname), or lists the new name among its other names, but was built from different conversations, so you need to look at the descriptions and decide, for each existing entry on its own, whether merging the new entry into it would be correct.
+
+NEW ENTRY (B)
+Name: {new_name}
+Type: {new_type}
+Description:
+{new_description}{new_connections}
+
+EXISTING ENTRIES (each one is an A, judged on its own against B)
+{entries}
+Guidelines:
+- Say SAME only when the descriptions clearly point at the same real person, project, company, concept, tool, deadline, skill, or location. Shared last names alone are not enough. Shared first names alone are definitely not enough.
+- Say SAME when one description is a vague subset of the other and nothing in either description contradicts the merge.
+- Say DIFFERENT when the descriptions place the entities in clearly different contexts (different roles, different companies, different cities) or when one description is empty and the names don't obviously line up.
+- Say UNSURE when there is overlap in the name tokens but the descriptions are too weak to merge safely. If you are hesitating, return UNSURE.
+- If the type fields disagree (e.g. person vs project), they are not the same.
+
+Respond with JSON only, one decision for every existing entry, in the order given:
+{{"decisions": [{{"entry": 1, "decision": "same" | "different" | "unsure", "reason": "one short sentence"}}]}}
+"""
+
+_BATCH_ENTRY = """[{index}] Name: {name}
+Type: {type}
+{alias_note}Description:
+{body}
+"""
+
+#: `_ALIAS_NOTE` for one entry of a batch.
+_BATCH_ALIAS_NOTE = ('Note: this entry already lists "{new_name}" among the other names it goes by (its aliases), so '
+                     "the names need not share a word. That is a lead, not proof: acronyms, short forms and first "
+                     "names are often shared by different things. Say SAME only when B's description and connections "
+                     "fit this entry's; say DIFFERENT when they point at something else; say UNSURE when there is too "
+                     "little to tell.\n")
+
+
+def _batch_decisions(parsed: dict, count: int) -> list[str]:
+    """One decision per entry from a batch answer, lined up by `json_parse.numbered_rows` (the numbers exactly 1..n,
+    or no numbers and exactly n rows). An answer that does not line up is ``unsure`` for every entry, and a row whose
+    decision is not one of the three words is ``unsure`` — the reading an unreadable one-pair answer gets; never a
+    decision read against the wrong candidate."""
+    rows = json_parse.numbered_rows(parsed.get("decisions") if isinstance(parsed, dict) else None, count, "entry")
+    if rows is None:
+        return ["unsure"] * count
+    words = {"same", "different", "unsure"}
+    return [d if (d := str(row.get("decision", "")).strip().lower()) in words else "unsure" for row in rows]
+
+
+async def _llm_judge_batch(
+    new_name: str,
+    new_type: str,
+    new_description: str,
+    entries: list[dict],
+    settings: Settings,
+    *,
+    new_connections: str = "",
+) -> list[str]:
+    """One LLM call over several existing entries: ``same``, ``different`` or ``unsure`` for each, in order.
+
+    ``entries``: ``{name, type, body, alias}`` per candidate, the body already chosen as the one-pair call would
+    (`_alias_page_context` for an alias candidate). Each entry is cut as the one-pair prompt cuts it and an alias
+    entry carries the alias note; a type that disagrees is ``different`` without asking, as there."""
+    from api.services.claims import strip_claims_block
+
+    decisions: list[str | None] = [
+        "different" if new_type and e["type"] and new_type.lower() != str(e["type"]).lower() else None
+        for e in entries]
+    asked = [i for i, d in enumerate(decisions) if d is None]
+    if not asked:
+        return [str(d) for d in decisions]
+    blocks = []
+    for number, i in enumerate(asked, start=1):
+        entry = entries[i]
+        blocks.append(_BATCH_ENTRY.format(
+            index=number, name=entry["name"], type=entry["type"] or "unknown",
+            alias_note=_BATCH_ALIAS_NOTE.format(new_name=new_name) if entry.get("alias") else "",
+            body=strip_claims_block(entry["body"] or "")[:2000] or "(empty)"))
+    prompt = _DISAMBIG_BATCH_PROMPT.format(
+        new_name=new_name,
+        new_type=new_type or "unknown",
+        new_description=(new_description or "")[:1500] or "(empty)",
+        new_connections=f"\nConnections in its conversations:\n{new_connections[:800]}" if new_connections else "",
+        entries="\n".join(blocks),
+    )
+    disambig_model = (
+        getattr(settings, "litellm_disambiguation_model", "") or settings.litellm_model
+    )
+    try:
+        from api.services.providers import resolve_llm_fn
+
+        llm_fn = resolve_llm_fn(
+            settings, model=disambig_model, completion=litellm.acompletion, stage="disambiguation"
+        )
+        response = await llm_fn(
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            extra_body={"reasoning": {"enabled": False}},  # as the one-pair call: a judgment, no chain of thought
+            timeout=120,
+        )
+        answered = _batch_decisions(json_parse.parse_json_object(response.choices[0].message.content or "{}"),
+                                    len(asked))
+    except engine_errors.EngineError:
+        raise  # G74(a): an engine failure is never a model's uncertainty
+    except Exception as e:
+        logger.debug(f"Disambiguation judge failed for {new_name} against {len(asked)} pages: {e}")
+        answered = ["unsure"] * len(asked)
+    for i, decision in zip(asked, answered):
+        decisions[i] = decision
+    return [str(d) for d in decisions]
+
+
 def _existing_llm_candidates(
     new_entity: dict, existing_by_name: dict[str, dict], aliases: dict[str, list[dict]] | None = None,
 ) -> list[dict]:
@@ -1430,47 +1688,73 @@ async def _judge_candidates(
     stop: Callable[[], bool] | None = None,
     connections: str = "",
 ) -> list[tuple[dict, str]]:
-    """Judge ``candidates`` in order, one call each, stopping at the first ``same``.
+    """Judge ``candidates`` in order, up to ``JUDGE_BATCH`` of them a call, stopping after the first call (or cached
+    decision) that says ``same``.
 
-    Returns ``(candidate, decision)`` per candidate judged. ``gate`` bounds the
-    calls in flight across every name ``resolve`` is judging; ``stop`` is polled
-    before each call so a cancel or a plan limit starts nothing new. A candidate an
-    alias brought is judged with the alias note, the page's context first
-    (``_alias_page_context``) and the name's ``connections`` in the batch."""
+    Returns ``(candidate, decision)`` per candidate judged, in order — always a prefix of ``candidates``, which may
+    run past the first ``same`` within its call (`_pick_match` takes the first). ``gate`` bounds the calls in flight
+    across every name ``resolve`` is judging; ``stop`` is polled before each call so a cancel or a plan limit starts
+    nothing new. A candidate an alias brought is judged with the alias note, the page's context first
+    (``_alias_page_context``) and the name's ``connections`` in the batch. A call over one candidate is the one-pair
+    judge (`_llm_judge_same_entity`), over several `_llm_judge_batch`."""
     new_name = new_entity.get("name") or ""
     new_name_lower = new_name.lower()
     new_type = (new_entity.get("type") or "concept").lower()
-    new_description = new_entity.get("description") or ""
+    # What the extraction said about the name: Stage 1 fills `summary`; `description` is a legacy field it almost
+    # never fills (1 of 79 entities on the synthetic night, 2026-10-20), so the judge used to read "(empty)" for B.
+    new_description = _effective_summary(new_entity)
     judged: list[tuple[dict, str]] = []
-    for candidate in candidates:
-        cache_key = (new_name_lower, candidate["id"])
-        if cache_key in cache:
-            decision = cache[cache_key]
-        else:
-            if stop is not None and stop():
+    index = 0
+    while index < len(candidates):
+        cached = cache.get((new_name_lower, candidates[index]["id"]))
+        if cached is not None:
+            judged.append((candidates[index], cached))
+            index += 1
+            if cached == "same":
                 break
-            kwargs = dict(
-                new_name=new_name,
-                new_type=new_type,
-                new_description=new_description,
-                existing_name=_candidate_display_name(candidate),
-                existing_type=_candidate_type(candidate),
-                existing_body=_candidate_description(candidate),
-                settings=settings,
-            )
-            if candidate.get("alias"):
-                kwargs.update(existing_body=_alias_page_context(candidate["data"]), recorded_alias=True,
-                              new_connections=connections)
-            if gate is None:
-                decision = await _llm_judge_same_entity(**kwargs)
-            else:
-                async with gate:
-                    if stop is not None and stop():  # stopped while waiting for a slot
-                        break
-                    decision = await _llm_judge_same_entity(**kwargs)
-            cache[cache_key] = decision
-        judged.append((candidate, decision))
-        if decision == "same":
+            continue
+        chunk: list[dict] = []
+        while (index + len(chunk) < len(candidates) and len(chunk) < JUDGE_BATCH
+               and (new_name_lower, candidates[index + len(chunk)]["id"]) not in cache):
+            chunk.append(candidates[index + len(chunk)])
+        if stop is not None and stop():
+            break
+
+        async def ask(chunk=chunk) -> list[str]:
+            if len(chunk) == 1:
+                candidate = chunk[0]
+                kwargs = dict(
+                    new_name=new_name,
+                    new_type=new_type,
+                    new_description=new_description,
+                    existing_name=_candidate_display_name(candidate),
+                    existing_type=_candidate_type(candidate),
+                    existing_body=_candidate_description(candidate),
+                    settings=settings,
+                )
+                if candidate.get("alias"):
+                    kwargs.update(existing_body=_alias_page_context(candidate["data"]), recorded_alias=True,
+                                  new_connections=connections)
+                return [await _llm_judge_same_entity(**kwargs)]
+            entries = [{"name": _candidate_display_name(c), "type": _candidate_type(c), "alias": bool(c.get("alias")),
+                        "body": _alias_page_context(c["data"]) if c.get("alias") else _candidate_description(c)}
+                       for c in chunk]
+            return await _llm_judge_batch(
+                new_name, new_type, new_description, entries, settings,
+                new_connections=connections if any(c.get("alias") for c in chunk) else "")
+
+        if gate is None:
+            decisions = await ask()
+        else:
+            async with gate:
+                if stop is not None and stop():  # stopped while waiting for a slot
+                    break
+                decisions = await ask()
+        for candidate, decision in zip(chunk, decisions):
+            cache[(new_name_lower, candidate["id"])] = decision
+            judged.append((candidate, decision))
+        index += len(chunk)
+        if "same" in decisions:
             break
     return judged
 

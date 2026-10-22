@@ -101,7 +101,8 @@ enum FindServerRows {
                 rows.append(FindRow(key: FindRowKey(kind: .conversation, id: key), group: .conversations,
                                     title: hit.name, titleRanges: bold(hit.name),
                                     snippet: hit.snippet.isEmpty ? nil : hit.snippet, snippetRanges: hit.snippetOffsets,
-                                    mark: .origin(hit.harness ?? hit.origin ?? "unknown"),
+                                    mark: SavedLinkMarkModel.mark(hit).map(FindMark.savedLink)
+                                        ?? .origin(hit.harness ?? hit.origin ?? "unknown"),
                                     trailing: date(hit.timestamp), speaker: speaker(hit.evidenceKind, origin: hit.origin), score: hit.score,
                                     destination: .conversation(target),
                                     secondary: .conversations(harness: hit.harness, origin: hit.origin, query: nil)))

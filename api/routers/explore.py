@@ -14,6 +14,7 @@ hand-off prompt to copy for their agent. Their agent does the rest through the M
 * ``POST /explore/look`` — "Save its look" on one saved link (looks v2): a design visit for it joins the run (or starts
   one of its own), and the answer carries the hand-off prompt. The person's agent captures the page and its computed
   type and colours, and the landing picture becomes a Look — even when the look has not changed (``save_look``).
+  ``subject`` (owner 2026-10-20) names the page the person pasted the link on: the Look goes on that page.
 * ``GET /explore/prompt`` — the hand-off prompt again ("Copy for an agent", to add another worker).
 * ``GET /explore/captures/{entity_id}`` — every dated capture of one saved page, newest first, for the link renderer;
   ``…/{capture_id}/thumb`` serves the thumbnail from the bank, ``…/{capture_id}/image/{kind}`` a full image from the
@@ -185,6 +186,8 @@ async def post_explore_batch(body: StartBody, settings: Settings = Depends(get_s
 class LookBody(CamelModel):
     entity_id: str | None = None
     url: str | None = None
+    #: The page the person asked from (owner 2026-10-20: a pasted link on a page) — the Look goes on it.
+    subject: str | None = None
 
 
 def _look(memory_path, body: LookBody) -> dict:
@@ -195,7 +198,13 @@ def _look(memory_path, body: LookBody) -> dict:
         raise explore_queue.QueueError("That link can't be explored: it isn't saved, or it is left out of exploring "
                                        "(a private workspace, a video, a paper, or set to Never explore).")
     site = found[0]
-    out = explore_queue.ask(memory_path, [{"key": site.key, "site": site.site}], asked="look",
+    subject = str(body.subject or "").strip() or None
+    if subject is not None:
+        from api.services import design_refs
+
+        if not design_refs.page_exists(memory_path, subject):
+            raise explore_queue.QueueError("That page isn't in memory, so the look can't go on it.")
+    out = explore_queue.ask(memory_path, [{"key": site.key, "site": site.site, "subject": subject}], asked="look",
                             started_by={"kind": "person"}, holding=_holding)
     waiting = sum(1 for r in explore_queue.view(memory_path)["items"] if r["state"] in ("queued", "claimed"))
     return {"key": site.key, "mediaEntityId": site.entity_id, "joined": out["joined"], "paused": bool(out["paused"]),

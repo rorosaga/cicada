@@ -55,7 +55,7 @@ def test_build_carries_contract_state_and_capabilities(tmp_path):
     assert "in your own words" in text and "quote=<their exact words>" in text and 'mode="list"' in text
     assert "skip=true" in text and "Never guess an answer" in text
     assert "Recommended option" not in text and "quote the Cause" not in text
-    assert handshake.CONTRACT_VERSION == 17, ("G140 named its tools (3), bridge lines joined (G138, 4), then G141 named "
+    assert handshake.CONTRACT_VERSION == 18, ("G140 named its tools (3), bridge lines joined (G138, 4), then G141 named "
                                              "cicada_project (5) and cicada_note_progress (6); G149 item 8 (the "
                                              "From Cicada note) and G150's backlog tools both took 7 on parallel "
                                              "branches, so the merge moves past both (8, R-H13); G166's reading "
@@ -63,7 +63,7 @@ def test_build_carries_contract_state_and_capabilities(tmp_path):
                                              "merge of both moves past it (11); G61 S3-a names the source tools (12); G61 S3 the check (13); "
                                              "G110 names cicada_continue (14), optional State guidance (15); "
                                              "questions come up naturally (16); G198 names cicada_edit_page, merged "
-                                             "past both 16s (17)")
+                                             "past both 16s (17); ruling 34's video hand-back names its lease_token (18)")
     assert "cicada_edit_page(subject, reason, edits)" in text
     assert "cicada_write_claim" in text and "evidence" in text and "sources" in text
     assert state_dictionary.WORLD_FACTS_NOTE in text
@@ -88,6 +88,75 @@ def test_variants_share_the_contract_and_differ_only_in_the_prelude(tmp_path):
     assert "~/.claude/skills/cicada" in texts["claude-code"]
     for t in texts.values():
         assert len(t) // 4 <= handshake.MAX_TOKENS
+
+
+def _claude_home(tmp_path, *, plugin: bool = False, skill_file: bool = False) -> Path:
+    from api.services import skill_catalog
+
+    home = skill_catalog.agent_home()
+    (home / ".claude" / "plugins").mkdir(parents=True, exist_ok=True)
+    if plugin:
+        (home / ".claude" / "settings.json").write_text(json.dumps({"enabledPlugins": {"cicada@cicada": True}}))
+        (home / ".claude" / "plugins" / "installed_plugins.json").write_text(
+            json.dumps({"plugins": {"cicada@cicada": [{"scope": "user"}]}}))
+        launcher = tmp_path / "home" / "bin" / "cicada-hook"       # the app's launcher: the plugin can run a Cicada
+        launcher.parent.mkdir(parents=True, exist_ok=True)
+        launcher.write_text("#!/bin/sh\n")
+        launcher.chmod(0o755)
+    if skill_file:
+        (home / ".claude" / "skills" / "cicada").mkdir(parents=True, exist_ok=True)
+        (home / ".claude" / "skills" / "cicada" / "SKILL.md").write_text("---\nname: cicada\n---\n")
+    return home
+
+
+@pytest.mark.parametrize("plugin, skill_file, expected", [
+    (True, False, "plugin"),
+    (True, True, "plugin"),        # install.sh leaves the skill to an on plugin; an older copy is its warning
+    (False, True, "file"),
+    (False, False, "none"),
+])
+def test_the_claude_code_prelude_names_the_skill_that_is_installed(tmp_path, plugin, skill_file, expected):
+    """#357: with the plugin the skill is `cicada:cicada`; a handshake naming ~/.claude/skills/cicada sent the agent
+    looking for a file that is not there."""
+    _claude_home(tmp_path, plugin=plugin, skill_file=skill_file)
+    assert handshake.claude_skill() == expected
+    memory = _with_state(tmp_path)
+    text, _meta = handshake.load_or_build(memory, "claude-code", cache_dir=tmp_path / "cache")
+    assert handshake.CLAUDE_SKILL_LINES[expected] in text
+    assert ("cicada:cicada" in text) == (expected == "plugin")
+    assert ("~/.claude/skills/cicada" in text) == (expected == "file")
+    assert len(text) // 4 <= handshake.MAX_TOKENS
+
+
+def test_an_enabled_plugin_that_runs_nothing_is_not_the_skill(tmp_path, monkeypatch):
+    _claude_home(tmp_path, plugin=True)
+    (tmp_path / "home" / "bin" / "cicada-hook").unlink()
+    assert handshake.claude_skill() == "none"
+
+
+def test_an_unreadable_skills_folder_is_no_skill_never_a_failed_handshake(tmp_path, monkeypatch):
+    _claude_home(tmp_path, skill_file=True)
+    real = Path.is_file
+
+    def denied(self):
+        if self.name == "SKILL.md":
+            raise PermissionError(13, "Permission denied")
+        return real(self)
+
+    monkeypatch.setattr(Path, "is_file", denied)
+    assert handshake.claude_skill() == "none"
+    memory = _with_state(tmp_path)
+    text, _meta = handshake.load_or_build(memory, "claude-code", cache_dir=tmp_path / "cache")
+    assert handshake.CLAUDE_SKILL_LINES["none"] in text
+
+
+def test_installing_the_plugin_never_serves_yesterdays_primer(tmp_path):
+    memory = _with_state(tmp_path)
+    cache = tmp_path / "cache"
+    before, _ = handshake.load_or_build(memory, "claude-code", cache_dir=cache)
+    _claude_home(tmp_path, plugin=True)
+    after, meta = handshake.load_or_build(memory, "claude-code", cache_dir=cache)
+    assert "cicada:cicada" not in before and "cicada:cicada" in after and meta["cached"] is False
 
 
 def test_no_state_degrades_to_the_static_contract(tmp_path):

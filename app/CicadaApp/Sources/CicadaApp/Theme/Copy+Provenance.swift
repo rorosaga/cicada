@@ -58,6 +58,12 @@ extension Copy {
         static let close = "Close the conversation"
         static let back = "Back to the previous conversation"
         static func citedPassage(_ text: String) -> String { "Cited passage: \(text)" }
+        /// The quiet marker beside a chat message that holds a cited passage (2026-10-20): one word on screen, the
+        /// whole thought for VoiceOver — the span landed on, or another this conversation's citations name.
+        static let citedMarker = "Cited"
+        static let citedHere = "Cited here"
+        static let alsoCitedHere = "Also cited here"
+        static let citedMarkerHelp = "Words from this message are cited by what Cicada noted"
 
         // MARK: The Reader as a column (DS-2 Task 4, R-DI6)
 
@@ -73,6 +79,63 @@ extension Copy {
         static func turnLabel(speaker: String, turn n: Int, text: String) -> String {
             "\(rotorLabel(speaker: speaker, turn: n)): \(text)"
         }
+        // MARK: The Reader as a chat (owner, 2026-10-19)
+
+        static let today = "Today"
+        static let yesterday = "Yesterday"
+        /// Ruling 32 — a relayed person's turn: on their side, never "You"; `app` is the person's own app.
+        static func relayedBy(_ app: String?) -> String { "Relayed by \(app ?? "an app")" }
+        /// The capture line over a relayed conversation (the app is named once, on the person's first run).
+        static let relayHonesty = "Relayed by the app's model as you talked, so your side may not be word for word."
+        static let showMore = "Show more"
+        static let showLess = "Show less"
+        static let showMoreHelp = "Show the whole message"
+        static let showLessHelp = "Fold this message back"
+        /// A chat message's words for VoiceOver and the rotors: who, when, what — no turn number (the layout has none).
+        static func chatRotorLabel(speaker: String, time: String?) -> String {
+            [speaker, time].compactMap { $0 }.joined(separator: ", ")
+        }
+        static func chatLabel(speaker: String, time: String?, text: String) -> String {
+            "\(chatRotorLabel(speaker: speaker, time: time)): \(text)"
+        }
+
+        // MARK: What made it a conversation (2026-10-20): reactions, replies, attachments, edits, unsends
+
+        static let edited = "Edited"
+        static let chatSomeone = "Someone"
+        static let earlierMessage = "Replying to an earlier message"
+        static func replyingTo(_ who: String, excerpt: String?) -> String {
+            guard let excerpt, !excerpt.isEmpty else { return "Replying to \(who)" }
+            return "Replying to \(who): \u{201C}\(excerpt)\u{201D}"
+        }
+        static let replyHelp = "Go to the message this replies to"
+        static func unsent(_ who: String) -> String { who == Copy.you ? "You unsent a message" : "\(who) unsent a message" }
+        static func forwardedFrom(_ who: String) -> String { "Forwarded from \(who)" }
+        /// A reaction chip's hover: who reacted, and with what — "Sam reacted ❤️", "You and Sam reacted 👍".
+        static func reacted(_ who: [String], emoji: String) -> String {
+            let names = who.count <= 1 ? (who.first ?? Copy.you)
+                : who.dropLast().joined(separator: ", ") + " and " + (who.last ?? "")
+            return "\(names) reacted \(emoji)"
+        }
+        static func ranCode(_ n: Int) -> String { n == 1 ? "Ran code" : "Ran code \(n) times" }
+        static func attachmentKind(_ kind: String, generated: Bool) -> String {
+            if generated { return kind == "image" ? "Generated image" : "Generated file" }
+            switch kind {
+            case "image": return "Image"
+            case "video": return "Video"
+            case "audio": return "Audio"
+            case "sticker": return "Sticker"
+            default: return "File"
+            }
+        }
+        /// An attachment chip's words: its kind, then its name and size when known — "Image · photo.jpg · 1 MB".
+        static func attachment(kind: String, name: String, size: Int?, generated: Bool) -> String {
+            var parts = [attachmentKind(kind, generated: generated)]
+            if !name.isEmpty { parts.append(name) }
+            if let size, size > 0 { parts.append(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)) }
+            return parts.joined(separator: " · ")
+        }
+
         /// "Noted" row's who-line when the belief was since replaced.
         static func notCurrent(_ label: String) -> String { "\(label) · \(noLongerCurrent)" }
         /// The header mark's hover — an id only ever in `.help` (DR-54).

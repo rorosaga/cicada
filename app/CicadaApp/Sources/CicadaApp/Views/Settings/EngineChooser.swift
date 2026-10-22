@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// The G122 engine-and-model picker, as a row of cards with
+/// The G122 engine picker, as a row of cards with
 /// real marks (R-E4): Auto, Claude plan, ChatGPT plan, OpenRouter, Ollama, API key — the
 /// six candidates `GET /sleep/engine` probes (`auto`, `agent`, `codex`, `openrouter`,
 /// `local`, `byok`; OpenRouter is `byok` under the hood, R-AG12), each deciding its own selectability and caption through
-/// `EngineOption` (R-E25), a model field whose shape depends on which
-/// candidate is selected, the Claude plan's extra-usage switch (R-E13), and both ruling-4 previews rendered side by side so a
+/// `EngineOption` (R-E25), the one step a chosen card still needs (a key, or a command — never a model id), the Claude
+/// plan's extra-usage switch (R-E13), and both ruling-4 previews rendered side by side so a
 /// prefs-chosen "agent" that silently degrades to `litellm` on the nightly
 /// schedule is visible rather than a surprise. Never a price, never a token
 /// count anywhere in this chooser (G124) — the wire models it reads
@@ -20,6 +20,16 @@ import SwiftUI
 /// Extracted for G139 (R-O8) so Settings → Engines and onboarding render one
 /// component: `EngineCard` is this chooser in a glass card.
 struct EngineChooser: View {
+    /// Settings → Engines, Auto first (settings defaults pass 2, owner 2026-10-22; ruling 31): the page opens on what
+    /// Auto — or the person's own choice — uses now, in words (`EngineHeadline`), and every other engine waits under
+    /// *Use a different engine* (DR-39, per viewer). Onboarding's Who reads keeps the full row of cards (false).
+    var foldsOtherEngines = false
+
+    /// DR-39 — per viewer, never synced: a person who opened the other engines finds them open next time.
+    static let othersOpenKey = "cicada.engines.othersOpen"
+    @AppStorage(EngineChooser.othersOpenKey) private var othersOpen = false
+    @Environment(SettingsFocus.self) private var focus: SettingsFocus?
+
     @Environment(SleepEngineViewModel.self) private var vm
     /// R-E24: the Plans & keys POWERS line follows this card's choice, and
     /// `/connections` is not a `/sync/version` component — so a mode change
@@ -32,7 +42,6 @@ struct EngineChooser: View {
 
     /// R-AG12 — the selected CARD, not the mode: OpenRouter and the API key are both `byok`.
     @State private var selectedCard: String = "auto"
-    @State private var selectedModel: String = ""
     @State private var loadedOnce = false
     /// Set when the person starts an OpenRouter sign-in (or pastes its key) HERE, so the card is
     /// chosen once the key lands — and only then; a sign-in finished on Plans & keys chooses nothing.
@@ -64,6 +73,13 @@ struct EngineChooser: View {
             syncFromResponse()
         }
         .onChange(of: vm.response) { _, _ in syncFromResponse() }
+        // A search hit on the engine choice opens the fold, so the cards it names are on screen (R-O6). A response
+        // already loaded (the Sleep page read it) is the choice from the first frame, not after the reload.
+        .onAppear {
+            syncFromResponse()
+            openOthersIfLanded()
+        }
+        .onChange(of: focus?.landedNonce ?? 0) { _, _ in openOthersIfLanded() }
         .onChange(of: openRouterConnected) { _, connected in
             guard connected else { return }
             Task { @MainActor in await openRouterDidConnect() }
@@ -85,7 +101,6 @@ struct EngineChooser: View {
         guard let card = vm.response?.candidates.first(where: { $0.id == "openrouter" }),
               let write = EngineWrite.choosing(card, current: selectedCard) else { return }
         selectedCard = card.id
-        selectedModel = write.model ?? ""
         commit(write)
     }
 
@@ -96,19 +111,151 @@ struct EngineChooser: View {
     private func syncFromResponse() {
         guard let response = vm.response else { return }
         selectedCard = response.selected
-        selectedModel = response.model
+    }
+
+    private func openOthersIfLanded() {
+        guard foldsOtherEngines, focus?.landed == .engineChoice else { return }
+        othersOpen = true
     }
 
     @ViewBuilder
     private func content(for response: SleepEngineResponse) -> some View {
         if response.isPinnedByEnvironment {
+            pinnedNote(response)
+        }
+        // One landing place for the engine choice, folded or not (`SettingsRowLintTests`).
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            if foldsOtherEngines {
+                foldedChoice(response)
+            } else {
+                cardGrid(response, candidates: response.candidates)
+                openRouterPrompt(response)
+            }
+        }
+        .settingsRow(.engineChoice)
+
+        leavesMacNote(for: response)
+
+        if !foldsOtherEngines { signInHint(response) }
+
+        if let candidate = response.candidates.first(where: { $0.id == selectedCard }) {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                // Folded, the headline already says the chosen card's state in words.
+                if !foldsOtherEngines { stateLine(for: candidate) }
+                connectionStep(for: candidate)
+            }
+        }
+
+        if EngineOption.showsOverageToggle(selectedMode: selectedCard) {
+            overageToggle(response)
+                .settingsRow(.engineOverage)
+        }
+
+        if let preview = response.preview {
+            previewSection(preview)
+                .settingsRow(.enginePreview)
+        }
+    }
+
+    /// The environment fixes the engine: said in words, with where to change it — the docs page, never the variable
+    /// (settings defaults pass 2; #405 review).
+    private func pinnedNote(_ response: SleepEngineResponse) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
             Text(Copy.EngineMenu.pinnedByEnvironment(response.mode))
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+            SettingsHelpLink(url: Copy.SettingsHelp.engineFixed)
+                .font(CicadaTheme.captionFont)
         }
+    }
+
+    /// Auto first: the headline (what reads now and why), *Back to Auto* for a person whose stored choice is
+    /// another engine, and the other cards under one fold.
+    @ViewBuilder
+    private func foldedChoice(_ response: SleepEngineResponse) -> some View {
+        let headline = EngineHeadline.of(response)
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
+                headlineMark(headline.mark)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(headline.title)
+                        .font(CicadaTheme.rowFont)
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                    Text(headline.line)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if headline.isAuto {
+                        Text(Copy.EngineHeadline.rule)
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if headline.needsSignIn {
+                        SettingsInlineLink(section: .plansAndKeys, label: Copy.plansAndKeys)
+                            .font(CicadaTheme.captionFont)
+                    }
+                }
+                Spacer(minLength: 0)
+                if let write = EngineHeadline.backToAuto(response) {
+                    NeutralButton(title: Copy.EngineHeadline.backToAuto, size: .compact) {
+                        selectedCard = "auto"
+                        commit(write)
+                    }
+                    .help(Copy.EngineHeadline.backToAutoHelp)
+                }
+            }
+            DisclosureGroup(isExpanded: $othersOpen) {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+                    cardGrid(response, candidates: EngineHeadline.otherCandidates(response.candidates))
+                    openRouterPrompt(response)
+                    signInHint(response)
+                }
+                .padding(.top, CicadaTheme.spacingSM)
+            } label: {
+                Text(Copy.EngineHeadline.differentEngine)
+                    .font(CicadaTheme.rowFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func headlineMark(_ id: String) -> some View {
+        let size = CicadaTheme.scaled(28)
+        if let logo = EngineOption.logoName(for: id) {
+            LogoImage.platformTile(name: logo, size: size, systemFallback: EngineOption.symbol(for: id))
+        } else {
+            Image(systemName: EngineOption.symbol(for: id))
+                .font(CicadaTheme.font(size: 14, weight: .medium))
+                .foregroundStyle(CicadaTheme.accent)
+                .frame(width: size, height: size)
+                .background(CicadaTheme.shape(size * 0.2).fill(CicadaTheme.surfaceElevated))
+        }
+    }
+
+    @ViewBuilder
+    private func openRouterPrompt(_ response: SleepEngineResponse) -> some View {
+        if let openRouter = response.candidates.first(where: { $0.id == "openrouter" }), !openRouter.connected {
+            openRouterSignIn
+        }
+    }
+
+    @ViewBuilder
+    private func signInHint(_ response: SleepEngineResponse) -> some View {
+        if let hint = EngineOption.signInHint(response.candidates) {
+            HStack(spacing: CicadaTheme.spacingXS) {
+                Text(hint).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                SettingsInlineLink(section: .plansAndKeys, label: Copy.plansAndKeys)
+                    .font(CicadaTheme.captionFont)
+            }
+        }
+    }
+
+    private func cardGrid(_ response: SleepEngineResponse, candidates: [SleepEngineCandidate]) -> some View {
         EngineCardGrid(minimum: CicadaTheme.scaled(112), spacing: CicadaTheme.spacingSM) {
-            ForEach(response.candidates) { candidate in
+            ForEach(candidates) { candidate in
                 EngineOptionCard(
                     candidate: candidate,
                     isSelected: candidate.id == selectedCard,
@@ -120,39 +267,6 @@ struct EngineChooser: View {
                     tag: EngineOption.isLocal(candidate.id) ? Copy.engineLocalTag : nil
                 ) { select(candidate) }
             }
-        }
-        .settingsRow(.engineChoice)
-
-        if let openRouter = response.candidates.first(where: { $0.id == "openrouter" }), !openRouter.connected {
-            openRouterSignIn
-        }
-
-        leavesMacNote(for: response)
-
-        if let hint = EngineOption.signInHint(response.candidates) {
-            HStack(spacing: CicadaTheme.spacingXS) {
-                Text(hint).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
-                SettingsInlineLink(section: .plansAndKeys, label: Copy.plansAndKeys)
-                    .font(CicadaTheme.captionFont)
-            }
-        }
-
-        if let candidate = response.candidates.first(where: { $0.id == selectedCard }) {
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                stateLine(for: candidate)
-                modelField(for: candidate)
-            }
-            .settingsRow(.engineModel)
-        }
-
-        if EngineOption.showsOverageToggle(selectedMode: selectedCard) {
-            overageToggle(response)
-                .settingsRow(.engineOverage)
-        }
-
-        if let preview = response.preview {
-            previewSection(preview)
-                .settingsRow(.enginePreview)
         }
     }
 
@@ -223,7 +337,6 @@ struct EngineChooser: View {
     private func select(_ candidate: SleepEngineCandidate) {
         guard let write = EngineWrite.choosing(candidate, current: selectedCard) else { return }
         selectedCard = candidate.id
-        selectedModel = write.model ?? ""
         commit(write)
     }
 
@@ -254,63 +367,24 @@ struct EngineChooser: View {
 
     @ViewBuilder
     private func stateLine(for candidate: SleepEngineCandidate) -> some View {
-        if let detail = candidate.detail, !detail.isEmpty {
+        if let detail = EngineOption.stateLine(for: candidate), !detail.isEmpty {
             Text(detail)
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
         }
     }
 
-    /// The model field's shape depends entirely on which candidate is
-    /// selected — a plan's model (the Claude aliases, or the ChatGPT plan's
-    /// live `model/list`, default first), a local Ollama tag, OpenRouter's model id
-    /// (a text field with a tested default; no catalog fetch), or the API key's provider
-    /// picker (R-AG11), which writes that provider's default model.
+    /// What the chosen card still needs from the person, and nothing else (settings defaults, owner 2026-10-22):
+    /// the API key card's provider and its key (R-AG11), or the one command that puts a model on this Mac. There is
+    /// no model picker here — each engine runs its own default, a model the person already chose keeps being used,
+    /// and the Sleep page's engine menu is where a model is switched (owner, 2026-09-23).
     @ViewBuilder
-    private func modelField(for candidate: SleepEngineCandidate) -> some View {
+    private func connectionStep(for candidate: SleepEngineCandidate) -> some View {
         switch candidate.id {
-        case "agent", "codex":
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                if !candidate.models.isEmpty {
-                    Picker("Model", selection: modelBinding(for: candidate)) {
-                        ForEach(candidate.models, id: \.self) { model in
-                            Text(model).tag(model)
-                        }
-                    }
-                    .labelsHidden()
-                }
-                TextField("Model id", text: freeTextModelBinding(for: candidate))
-                    .textFieldStyle(.roundedBorder)
-                    .font(CicadaTheme.captionFont)
-                    .onSubmit { commit(EngineWrite(mode: EngineWrite.mode(of: candidate), model: selectedModel)) }
-            }
         case "local":
-            let guideState = OllamaGuideState.from(candidate: candidate)
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                if !candidate.models.isEmpty {
-                    Picker("Model", selection: modelBinding(for: candidate)) {
-                        ForEach(candidate.models, id: \.self) { model in
-                            Text(model).tag(model)
-                        }
-                    }
-                    .labelsHidden()
-                }
-                if let command = guideState.command {
-                    CommandBox(command: command)
-                }
+            if let command = OllamaGuideState.from(candidate: candidate).command {
+                CommandBox(command: command)
             }
-        case "openrouter":
-            // R-AG12 — a model edit writes `byok`, never `mode: candidate.id` (a 422); the server
-            // pins the judge to the same model (R-AG13).
-            TextField(Copy.openRouterModel, text: freeTextModelBinding(for: candidate))
-                .textFieldStyle(.roundedBorder)
-                .font(CicadaTheme.captionFont)
-                .onSubmit {
-                    let id = EngineOption.openRouterModelID(selectedModel)
-                    if let write = EngineWrite.model(id, mode: "byok", current: vm.response?.model ?? "") {
-                        commit(write)
-                    }
-                }
         case "byok":
             if let response = vm.response { providerPicker(response) }
         default:
@@ -373,26 +447,10 @@ struct EngineChooser: View {
                       let write = EngineOption.providerWrite(provider, selectedCard: selectedCard,
                                                              currentModel: response.model) else { return }
                 selectedCard = "byok"
-                selectedModel = write.model ?? ""
                 providerKeyDraft = ""
                 commit(write)
             }
         )
-    }
-
-    private func modelBinding(for candidate: SleepEngineCandidate) -> Binding<String> {
-        Binding(
-            get: { selectedModel },
-            set: { newValue in
-                let write = EngineWrite.model(newValue, mode: EngineWrite.mode(of: candidate), current: selectedModel)
-                selectedModel = newValue
-                if let write { commit(write) }
-            }
-        )
-    }
-
-    private func freeTextModelBinding(for candidate: SleepEngineCandidate) -> Binding<String> {
-        Binding(get: { selectedModel }, set: { selectedModel = $0 })
     }
 
     @ViewBuilder
@@ -422,7 +480,9 @@ struct EngineChooser: View {
     static func previewRow(_ preview: SleepEnginePreview, label: String) -> some View {
         HStack(spacing: CicadaTheme.spacingXS) {
             LogoImage.platformTile(name: EngineOption.previewMark(engine: preview.engine, model: preview.model) ?? "",
-                                   size: CicadaTheme.scaled(16), systemFallback: "key.fill")
+                                   size: CicadaTheme.scaled(16),
+                                   // A key run wears the key; Auto with no engine yet wears Auto's own sparkle.
+                                   systemFallback: preview.engine == "litellm" ? "key.fill" : EngineOption.symbol(for: "auto"))
             Text(Self.previewLine(preview, label: label))
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
@@ -439,13 +499,14 @@ struct EngineChooser: View {
     }
 
     /// Pure formatter shared by both preview lines above —
-    /// `"<label>: <engine word> · <model>"` — unit-tested directly
+    /// `"<label>: <engine word>"`, never the model id (settings defaults, owner 2026-10-22: Settings shows who reads,
+    /// not a model's id; the Sleep page's engine menu still names the model) — unit-tested directly
     /// (`EngineCardTests.testPreviewLineFormatting`) without standing up a
     /// view. The engine half is exactly `Copy.engineLabel`'s mapping
     /// (`claude-cli|codex-cli|ollama|litellm`), never a fresh coinage — except a key run
     /// through OpenRouter, which names OpenRouter (`EngineOption.previewName`, R-AG12).
     static func previewLine(_ preview: SleepEnginePreview, label: String) -> String {
-        "\(label): \(EngineOption.previewName(engine: preview.engine, model: preview.model)) · \(preview.model)"
+        "\(label): \(EngineOption.previewName(engine: preview.engine, model: preview.model))"
     }
 }
 
@@ -483,7 +544,7 @@ struct EngineOptionCard: View {
                 mark
                 HStack(spacing: CicadaTheme.spacingXS) {
                     Text(candidate.label)
-                        .font(CicadaTheme.font(size: 13, weight: .medium))
+                        .font(CicadaTheme.rowFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(1)
                     if let tag { Tag(text: tag) }
@@ -509,11 +570,11 @@ struct EngineOptionCard: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(CicadaTheme.spacingSM)
             .background(
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                     .fill(isHovered && isSelectable ? CicadaTheme.surfaceHover : CicadaTheme.surface)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                     .stroke(isSelected ? CicadaTheme.accent : CicadaTheme.border, lineWidth: isSelected ? 2 : 1)
             )
         }
@@ -535,7 +596,7 @@ struct EngineOptionCard: View {
                 .font(CicadaTheme.font(size: 14, weight: .medium))
                 .foregroundStyle(CicadaTheme.accent)
                 .frame(width: markSize, height: markSize)
-                .background(RoundedRectangle(cornerRadius: markSize * 0.2).fill(CicadaTheme.surfaceElevated))
+                .background(CicadaTheme.shape(markSize * 0.2).fill(CicadaTheme.surfaceElevated))
         }
     }
 }

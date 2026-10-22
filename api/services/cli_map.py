@@ -151,7 +151,8 @@ ROWS: tuple[Row, ...] = (
         (_p("item"), _p("note"), _f("status")), mutates=True),
     Row(("design", "save"), "cicada_save_design", "Save a look the person likes: a screenshot, its link, the note.",
         (_p("note"), _f("url"), _f("image_path"), _f("image_base64"), _f("title"), _f("snippets", "json"),
-         _f("tags", "list", flag_name="tag"), _f("region", "json"), _f("tokens", "json")), mutates=True),
+         _f("tags", "list", flag_name="tag"), _f("region", "json"), _f("tokens", "json"), _f("subject")),
+        mutates=True),
     Row(("design", "search"), "cicada_design_search", "The person's saved looks, by words or by a picture.",
         (_f("query"), _f("image_path"), _f("image_base64"), _f("limit", "int"))),
     # The Skills page (2026-10-15): an agent reads, asks and drafts; installing is the person's (`skills add`).
@@ -171,7 +172,7 @@ ROWS: tuple[Row, ...] = (
         (_p("url"), _f("note")), mutates=True),
     Row(("video", "record"), "cicada_record_watch", "Record a watched video: summary and short quotes.",
         (_p("url"), _p("summary"), _f("excerpts", "json"), _f("chapters", "json"), _f("basis"), _f("engine"),
-         _f("duration")), mutates=True),
+         _f("duration"), _f("lease_token")), mutates=True),
     Row(("video", "queue"), "cicada_video_queue", "Videos the person asked to have watched.", (_f("limit", "int"),)),
     Row(("video", "claim"), "cicada_video_claim", "Take videos from the queue to watch.",
         (_f("limit", "int"), _f("release", "json")), mutates=True),

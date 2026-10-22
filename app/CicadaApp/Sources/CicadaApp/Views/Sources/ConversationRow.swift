@@ -13,6 +13,10 @@ struct ConversationRow: View {
     /// Non-nil where the host can navigate to an entity; `nil` in the popover,
     /// where the chips are plain capsules.
     var onSelectEntity: ((String) -> Void)?
+    /// Sources v4 (owner 2026-10-19: each row repeated "claude-code · 1 episode") — inside one harness's own list the
+    /// harness is the page's header and a session is one episode (G104), so the row says neither: its title, its age
+    /// and the pages it wrote. The popover, which mixes harnesses, keeps both.
+    var inSourceList = false
 
     /// How many entity chips one row shows before the rest fold into
     /// "+N more". The backend already caps `entityIds`
@@ -33,23 +37,25 @@ struct ConversationRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 Text(conversation.displayTitle)
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(1)
 
                 HStack(spacing: CicadaTheme.spacingXS) {
-                    badge(harnessLabel)
+                    if !inSourceList { badge(harnessLabel) }
                     // `model` is a RESERVED wire field — the backend sends null
                     // until engine calls carry session refs (G49), so this
                     // badge is deliberately dormant rather than removed.
                     if let model = conversation.model, !model.isEmpty { badge(model) }
-                    Text("\(UsageFormat.count(conversation.episodeCount)) episode"
-                         + (conversation.episodeCount == 1 ? "" : "s"))
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                    if conversation.entityCount > 0 {
+                    if !inSourceList || conversation.episodeCount > 1 {
+                        Text("\(UsageFormat.count(conversation.episodeCount)) episode"
+                             + (conversation.episodeCount == 1 ? "" : "s"))
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                    }
+                    if conversation.entityCount > 0 && !inSourceList {
                         badge("\(UsageFormat.count(conversation.entityCount)) entit"
                               + (conversation.entityCount == 1 ? "y" : "ies"))
                     }
@@ -77,7 +83,7 @@ struct ConversationRow: View {
         }
         .padding(CicadaTheme.spacingSM)
         .background(
-            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+            CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                 .fill(isSelected ? CicadaTheme.surfaceElevated : CicadaTheme.surfaceHover.opacity(0.4))
         )
         .accessibilityElement(children: .contain)
@@ -99,9 +105,9 @@ struct ConversationRow: View {
                 // Deliberately NOT a button: there is no id behind it to open.
                 if plan.hidden > 0 {
                     Text("+\(UsageFormat.count(plan.hidden)) more")
-                        .font(CicadaTheme.font(size: 11))
+                        .font(CicadaTheme.captionFont)
                         .lineLimit(1)
-                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .padding(.horizontal, CicadaTheme.spacingSM).padding(.vertical, 3)
                         .background(CicadaTheme.surfaceHover)
                         .foregroundStyle(CicadaTheme.textTertiary)
                         .clipShape(Capsule())
@@ -114,9 +120,9 @@ struct ConversationRow: View {
     @ViewBuilder
     private func entityChip(_ entityId: String) -> some View {
         let label = Text(entityId)
-            .font(CicadaTheme.font(size: 11))
+            .font(CicadaTheme.captionFont)
             .lineLimit(1)
-            .padding(.horizontal, 8).padding(.vertical, 3)
+            .padding(.horizontal, CicadaTheme.spacingSM).padding(.vertical, 3)
             .background(CicadaTheme.accent.opacity(0.10))
             .foregroundStyle(CicadaTheme.accent)
             .clipShape(Capsule())

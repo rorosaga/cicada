@@ -6,7 +6,9 @@ screenshot, from the bank) and ``GET /design/{id}/type/{n}`` (type specimen ``n`
 component, plus the image model's state) — no ``VersionVector`` mapping, so nothing has to ship beside it.
 
 Writes: ``POST /design`` (a screenshot the app captured, or one dropped or pasted, with the page's link, their note
-and any snippets they selected) and ``DELETE /design/{id}``. Each is committed alone, trigger ``user/companion_app``,
+and any snippets they selected; ``entity`` the page it was dropped on), ``PUT /design/{id}/entity`` (put a look on the
+page of the thing it shows, or take it off — owner 2026-10-20), ``PATCH /design/{id}`` (the person's own words on it) and ``DELETE /design/{id}``. A look on a page writes that
+page's ``## Looks`` section in the same page-lock section as the record, and the two commit together. Each is committed alone, trigger ``user/companion_app``,
 answers 409 while Sleep holds the pages (the write admission, G183) and 409 in a demo bank (a screenshot is capture:
 ``demo_guard``). The palette is read from the pixels **before** the admission is taken, so Sleep never waits on a
 decode. **Looks v2:** an agent that saves through this door names itself (``author``, a harness id such as
@@ -14,6 +16,7 @@ decode. **Looks v2:** an agent that saves through this door names itself (``auth
 "Noted by <agent>", never as the person's words. ``tokens`` carries the page's computed type and colour roles
 (``design_tokens``), validated with bounds; a token out of bounds is dropped, never a failed save.
 
+``GET /design/{id}/similar`` answers the looks most like one (its stored picture vector, else its look words).
 ``POST /design/search`` takes words, an example picture, or both, and answers with the board re-ranked
 (``design_index``): it writes only the derived index outside the bank. A POST so the words never reach an access log;
 nothing here logs them.
@@ -192,7 +195,7 @@ def _specimens(ref: design_refs.Reference) -> list[DesignSpecimen]:
     return out
 
 
-def _summary(ref: design_refs.Reference) -> DesignRefSummary:
+def _summary(ref: design_refs.Reference, memory_path=None) -> DesignRefSummary:
     kind, _ = git_service.author_identity(ref.added_by)
     note_kind, _ = git_service.author_identity(ref.note_by)
     image = None
@@ -208,13 +211,15 @@ def _summary(ref: design_refs.Reference) -> DesignRefSummary:
                               role=c.get("role") if c.get("role") in design_tokens.COLOR_ROLES else None,
                               declared=bool(c.get("declared"))) for c in ref.palette],
         look=ref.look, fonts=design_refs.fonts(ref), tags=ref.tags,
-        note_preview=note[:160] + ("…" if len(note) > 160 else ""), entity=ref.entity,
+        note_preview=note[:160] + ("…" if len(note) > 160 else ""),
+        # The page the look shows (owner 2026-10-20) — only one that is there: a look whose page went is unattached.
+        entity=ref.entity if memory_path is None or design_refs.page_exists(memory_path, ref.entity) else None,
         note_by=ref.note_by, note_by_kind="user" if ref.note_by == design_refs.USER else
         (note_kind if note_kind != "user" else "harness"))
 
 
-def _full(ref: design_refs.Reference) -> DesignRefModel:
-    return DesignRefModel(**_summary(ref).model_dump(by_alias=False), note=ref.note,
+def _full(ref: design_refs.Reference, memory_path=None) -> DesignRefModel:
+    return DesignRefModel(**_summary(ref, memory_path).model_dump(by_alias=False), note=ref.note,
                           snippets=[DesignSnippet(**s) for s in ref.snippets], tokens=ref.tokens or {},
                           computed=ref.computed or {}, type_roles=_type_roles(ref), colour_roles=_colour_roles(ref),
                           specimens=_specimens(ref), path=ref.path)
@@ -243,7 +248,7 @@ async def design_board(request: Request, response: Response, settings: Settings 
 
     def build() -> DesignBoard:
         refs = design_refs.list_refs(mp)
-        return DesignBoard(refs=[_summary(r) for r in refs], vision=_vision(),
+        return DesignBoard(refs=[_summary(r, mp) for r in refs], vision=_vision(),
                            indexed_images=design_index.status(mp)["images"])
 
     return await run_in_threadpool(build)
@@ -258,7 +263,7 @@ async def design_ref(ref_id: str, request: Request, response: Response, settings
     ref = await run_in_threadpool(design_refs.get_ref, mp, ref_id)
     if ref is None:
         raise HTTPException(404, "No such reference on your board.")
-    return _full(ref)
+    return _full(ref, mp)
 
 
 @router.get("/design/{ref_id}/image")
@@ -314,14 +319,37 @@ def _author(raw: str | None, via: str | None) -> str:
     return design_refs.resolve_author(name or design_refs.USER, via)
 
 
-async def _commit(memory_path, paths: list[str], action: str, author: str = design_refs.USER) -> None:
+def _commit_sync(memory_path, paths: list[str], action: str, author: str = design_refs.USER) -> None:
+    """The write's own commit — called inside the same page-lock section as the write (a look on a page writes the
+    page's ``## Looks`` section too), so no other writer's commit can carry it."""
+    if not paths:
+        return
     trigger = TRIGGER if author == design_refs.USER else "agent/rest_api"
     message = design_refs.commit_message(paths, action=action, subject="Design reference", trigger=trigger,
                                          day=datetime.now(timezone.utc).date().isoformat(), author=author)
     try:
-        await git_service.commit_paths(memory_path, message, sorted(set(paths)))
+        git_service.commit_paths_sync(memory_path, message, sorted(set(paths)))
     except Exception as exc:  # noqa: BLE001 — the write stands; a later writer's commit picks it up
         logger.warning(f"design commit skipped: {type(exc).__name__}")
+
+
+def _tracked_sync(memory_path, paths: list[str]) -> list[str]:
+    """The removed paths git knows (``git add`` refuses a pathspec that matches nothing) plus every file still there."""
+    import subprocess
+
+    out = []
+    for rel in paths:
+        if (memory_path / rel).exists():
+            out.append(rel)
+            continue
+        try:
+            done = subprocess.run(["git", "-C", str(memory_path), "ls-files", "--", rel], capture_output=True,
+                                  text=True, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if done.stdout.strip():
+            out.append(rel)
+    return out
 
 
 @router.post("/design", response_model=DesignRefModel)
@@ -329,7 +357,7 @@ async def add_design_ref(image: UploadFile = File(...), url: str | None = Form(N
                          note: str | None = Form(None), snippets: str | None = Form(None),
                          tags: str | None = Form(None), via: str | None = Form(None),
                          author: str | None = Form(None), tokens: str | None = Form(None),
-                         settings: Settings = Depends(get_settings)):
+                         entity: str | None = Form(None), settings: Settings = Depends(get_settings)):
     mp = settings.memory_path
     if demo_guard.is_demo(mp):
         raise HTTPException(409, demo_guard.REFUSAL)
@@ -347,18 +375,29 @@ async def add_design_ref(image: UploadFile = File(...), url: str | None = Form(N
         raise HTTPException(400, f"The tokens couldn't be read: {_problems[0]}.")
     declared = design_refs.declared_colours(snippet_list, computed)
     look = await asyncio.to_thread(design_refs.read_look, data, declared)   # the decode, before the admission
+    subject = str(entity or "").strip() or None
+    if subject is not None and not design_refs.page_exists(mp, subject):
+        raise HTTPException(404, "That page isn't in memory, so the look can't go on it.")
+
+    def write() -> dict:
+        from api.services import page_lock
+
+        with page_lock.page_lock(mp):
+            result = design_refs.add_ref(
+                mp, image=data, url=url, title=title, note=note, snippets=snippet_list, tags=tag_list,
+                via=via or "drop", author=writer, look=look, computed=computed, entity=subject)
+            if result["action"] == "added":
+                _commit_sync(mp, [p for p in result["paths"] if p], "created", author=result["ref"].added_by)
+            return result
 
     async def store() -> DesignRefModel:
         async with _write_lock:
-            result = await asyncio.to_thread(
-                design_refs.add_ref, mp, image=data, url=url, title=title, note=note, snippets=snippet_list,
-                tags=tag_list, via=via or "drop", author=writer, look=look, computed=computed)
+            result = await asyncio.to_thread(write)
             if result["action"] == "duplicate":
                 raise HTTPException(409, result["error"])
             if result["action"] != "added":
                 raise HTTPException(400, result.get("error") or "That couldn't be saved.")
-            await _commit(mp, result["paths"], "created", author=result["ref"].added_by)
-            return _full(result["ref"])
+            return _full(result["ref"], mp)
 
     out = await write_admission.run_admitted(mp, store, refuse=lambda: SleepWriting(BUSY))
     design_index.refresh_in_background(mp)
@@ -371,16 +410,100 @@ async def remove_design_ref(ref_id: str, settings: Settings = Depends(get_settin
     mp = settings.memory_path
     if demo_guard.is_demo(mp):
         raise HTTPException(409, demo_guard.REFUSAL)
+    def remove() -> dict:
+        from api.services import page_lock
+
+        with page_lock.page_lock(mp):
+            result = design_refs.remove_ref(mp, ref_id, author=design_refs.USER)
+            if result["action"] == "removed":
+                _commit_sync(mp, _tracked_sync(mp, result["paths"]), "deleted")
+            return result
+
     async with _write_lock:
-        result = await asyncio.to_thread(design_refs.remove_ref, mp, ref_id, author=design_refs.USER)
+        result = await asyncio.to_thread(remove)
         if result["action"] == "not_found":
             raise HTTPException(404, result["error"])
         if result["action"] != "removed":
             raise HTTPException(400, result.get("error") or "That couldn't be removed.")
-        tracked = [p for p in result["paths"] if await git_service.is_tracked(mp, p)]
-        if tracked:
-            await _commit(mp, tracked, "deleted")
     return {"removed": ref_id}
+
+
+class EditBody(CamelModel):
+    """The person's own words on a look: any of the three; a field left out is left as it is."""
+    title: str | None = None
+    url: str | None = None
+    note: str | None = None
+
+
+@router.patch("/design/{ref_id}", response_model=DesignRefModel)
+@write_admission.route(refuse=lambda: SleepWriting(BUSY))
+async def edit_design_ref(ref_id: str, body: EditBody, settings: Settings = Depends(get_settings)):
+    """What the person liked, the look's name and its link (owner 2026-10-20) — committed alone, as the person, with
+    the page the look is on when its ``## Looks`` line changes."""
+    from api.services import page_lock
+
+    mp = settings.memory_path
+    if demo_guard.is_demo(mp):
+        raise HTTPException(409, demo_guard.REFUSAL)
+    given = body.model_dump(exclude_unset=True, by_alias=False)
+
+    def run() -> dict:
+        with page_lock.page_lock(mp):
+            result = design_refs.update_ref(mp, ref_id, **given)
+            if result.get("paths"):
+                _commit_sync(mp, result["paths"], "updated")
+            return result
+
+    async with _write_lock:
+        result = await asyncio.to_thread(run)
+    if result["action"] == "not_found":
+        raise HTTPException(404, result["error"])
+    if result["action"] == "error":
+        raise HTTPException(422, result["error"])
+    if result["action"] == "updated":
+        design_index.refresh_in_background(mp)
+    return _full(result["ref"], mp)
+
+
+class AttachBody(CamelModel):
+    entity: str | None = None
+
+
+@router.put("/design/{ref_id}/entity", response_model=DesignRefModel)
+@write_admission.route(refuse=lambda: SleepWriting(BUSY))
+async def attach_design_ref(ref_id: str, body: AttachBody, settings: Settings = Depends(get_settings)):
+    """Put a look on the page of the thing it shows, or take it off (``entity`` null) — the person's move, committed
+    alone with the record and both pages' ``## Looks`` sections (owner 2026-10-20)."""
+    from api.services import page_lock
+
+    mp = settings.memory_path
+    if demo_guard.is_demo(mp):
+        raise HTTPException(409, demo_guard.REFUSAL)
+    def run() -> dict:
+        with page_lock.page_lock(mp):
+            result = design_refs.attach(mp, ref_id, body.entity, author=design_refs.USER)
+            if result.get("paths"):
+                _commit_sync(mp, result["paths"], "updated")
+            return result
+
+    async with _write_lock:
+        result = await asyncio.to_thread(run)
+        if result["action"] == "not_found":
+            raise HTTPException(404, result["error"])
+        if result["action"] == "error":
+            raise HTTPException(422, result["error"])
+    return _full(result["ref"], mp)
+
+
+@router.get("/design/{ref_id}/similar", response_model=DesignSearchResult)
+async def similar_design(ref_id: str, settings: Settings = Depends(get_settings)):
+    """Looks like this one (its stored picture vector, else its look words), itself left out."""
+    if design_refs.get_ref(settings.memory_path, ref_id) is None:
+        raise HTTPException(404, "No such reference on your board.")
+    embed = sleep_cycle.get_sleep_state().status != "running"
+    out = await asyncio.to_thread(design_index.similar, settings.memory_path, ref_id, embed=embed)
+    return DesignSearchResult(results=[DesignHit(**r) for r in out["results"]], mode=out["mode"],
+                              missing=out["missing"])
 
 
 @router.post("/design/search", response_model=DesignSearchResult)

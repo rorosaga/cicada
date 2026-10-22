@@ -58,6 +58,19 @@ protocol DevicesAPI: Sendable {
     func fetchHealth() async throws -> HealthSnapshot
     func outboxCount() async -> Int
     func flushOutbox() async -> ReaderOutbox.FlushResult
+    /// D3 (G202): what waits on this Mac — the readers' outbox and the hooks' spool — for the server in use (`here`)
+    /// and for one this Mac no longer uses (`elsewhere`).
+    func waitingCaptures() async -> CaptureWait
+}
+
+/// What waits on this Mac to be sent (D3, G202), counted by the server it was meant for.
+struct CaptureWait: Equatable, Sendable {
+    var here = 0
+    var elsewhere = 0
+}
+
+extension DevicesAPI {
+    func waitingCaptures() async -> CaptureWait { CaptureWait(here: await outboxCount()) }
 }
 
 extension APIClient: DevicesAPI {
@@ -68,6 +81,13 @@ extension APIClient: DevicesAPI {
     }
 
     func outboxCount() async -> Int { await outbox.count() }
+
+    func waitingCaptures() async -> CaptureWait {
+        let base: String? = connection.isServer ? baseURL : nil
+        let app = await outbox.waiting(for: base)
+        let hooks = HookSpool.waiting(cicadaHome: cicadaHome, base: base)
+        return CaptureWait(here: app.here + hooks.here, elsewhere: app.elsewhere + hooks.elsewhere)
+    }
 }
 
 // MARK: - Where it came from
@@ -149,6 +169,8 @@ final class DevicesPageModel {
     private(set) var lastCheckedAt: Date?
     private(set) var lastReachableAt: Date?
     private(set) var waiting = 0
+    /// Captures waiting on this Mac for a server it no longer uses (D1/D2/D3, G202): kept, sent only there.
+    private(set) var waitingElsewhere = 0
     private(set) var problem: String?
     var created: DeviceCreated?
 
@@ -164,9 +186,11 @@ final class DevicesPageModel {
     /// issuing and revoking are acts of the person on the server).
     var canManage: Bool { !connection.isServer }
 
-    var connectionLine: String {
+    /// The running connection, named only when it is not this Mac: on This Mac the choice above it already says so
+    /// (DR-38), and a server picked but not yet used must not read as the one in use.
+    var connectionLine: String? {
         switch connection.mode {
-        case .thisMac: Copy.Devices.connectionThisMac
+        case .thisMac: nil
         case .server(let url): Copy.Devices.connectionServer(url.host ?? url.absoluteString)
         case .invalid: Copy.Devices.connectionInvalid
         }
@@ -195,7 +219,13 @@ final class DevicesPageModel {
         } catch {
             loadFailed = true
         }
-        waiting = connection.isServer ? await api.outboxCount() : 0
+        await countWaiting()
+    }
+
+    private func countWaiting() async {
+        let wait = await api.waitingCaptures()
+        waiting = connection.isServer ? wait.here : 0
+        waitingElsewhere = wait.elsewhere
     }
 
     func add(name: String) async {
@@ -223,7 +253,7 @@ final class DevicesPageModel {
 
     func sendNow() async {
         _ = await api.flushOutbox()
-        waiting = await api.outboxCount()
+        await countWaiting()
     }
 
     func detail(_ device: DeviceRecord, at date: Date, locale: Locale = .autoupdatingCurrent) -> String {
@@ -268,7 +298,7 @@ enum DevicesText {
     }
 }
 
-// MARK: - Settings → General: choosing a server
+// MARK: - Settings → Devices: choosing a server
 
 /// What a candidate server said before anything is saved.
 enum ServerCheck: Equatable {

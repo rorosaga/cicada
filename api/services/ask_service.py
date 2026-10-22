@@ -158,12 +158,19 @@ def _wants_history(query: str) -> bool:
     Explicit past/change language or an as-of date also permits labeled history.
     No interpretation here ever converts a closed claim back into a current one.
     """
-    return bool(re.search(
+    if re.search(
         r"\b(history|historical|past|previously|previous|earlier|formerly|former|before|"
         r"used to|as of|back then|changed?|happened|was|were|did|had|"
         r"yesterday|last (?:week|month|year)|in \d{4})\b",
         query, re.IGNORECASE,
-    ))
+    ):
+        return True
+    # Spanish (2026-10-20), only for a Spanish question ("era" and a word ending in "-ó" are English words too —
+    # review of #385): the same cues, and a preterite's stressed "-ó" ("¿qué investigó …?", "¿cuándo cenó …?").
+    return ask_sources.question_language(query) == "es" and bool(re.search(
+        r"\b(historia|pasad[oa]|antes|anterior(?:mente)?|sol[ií]a|cambi[oó]|pas[oó]|ocurri[oó]|fue|fueron|era|eran|"
+        r"estaba|hab[ií]a|hizo|tuvo|ayer|la semana pasada|el mes pasado|el a[nñ]o pasado|en \d{4}|\w{2,}ó)\b",
+        query, re.IGNORECASE))
 
 
 def _claim_context(claim, all_claims) -> dict:
@@ -369,7 +376,7 @@ def _retrieved_entities(memory_path: Path, hits: list[dict], *, include_history:
             continue
         page_claims = parse_claims(loaded["body"])
         eligible = [c for c in page_claims if not is_record(c) and (include_history or is_current(c) or (is_event(c) and not c.superseded_by))]
-        terms = _focus(text_fold.subject_terms(query), [loaded])
+        terms = _focus(ask_sources.question_terms(query), [loaded])
         eligible.sort(key=lambda c: -len(terms & text_fold.subject_terms(f"{c.text} {c.predicate} {c.object}")))
         if include_history:
             current = [c for c in eligible if is_current(c)]
@@ -457,19 +464,26 @@ def _focus(terms: set[str], entities: list[dict]) -> set[str]:
     return (terms - names) or terms
 
 
-def _said_days(rows) -> str:
+def _said_days(rows, memory_path: Path | None = None) -> str:
     """``said 2023-08-11, 2023-09-30`` — the days of the conversations a page line came from (its provenance rows),
-    the latest two; empty when the line cites none."""
-    days = sorted({d for d in (ask_sources.episode_day(getattr(ev, "episode", "")) for ev in rows or []) if d})
+    the latest two, each the day it was said in the person's zone (ruling 34); empty when the line cites none."""
+    days = sorted({d for d in (ask_sources.said_day(memory_path, getattr(ev, "episode", "")) for ev in rows or [])
+                   if d})
     return ("said " + ", ".join(days[-2:])) if days else ""
 
 
-def _page_lines(ent: dict, terms: set[str], budget: int) -> tuple[str, list]:
+def _page_lines(ent: dict, terms: set[str], budget: int, similar=None,
+                memory_path: Path | None = None) -> tuple[str, list]:
     """What of a page's prose fits ``budget``, item by item (``section_provenance.scan``): the article's lead, then
     the items sharing the most of the question's words, in page order under their section, each with the days it
     was said. Returns ``(text, pointers)`` — the pointers (``ask_sources.Pointer``) are where the chosen items came
     from, weighted by the question's words each shares (0 for none), for :mod:`ask_sources` and the citation. A page
-    with no canonical section falls back to its paragraphs."""
+    with no canonical section falls back to its paragraphs.
+
+    ``similar`` (a count or a list about this page's subject, :attr:`ask_sources.Searched.similar`): the budget the
+    question's words leave is filled with the items nearest the question by the search model — "what activities
+    does <name> do" shares no word with "went camping at the beach", and a list is the page's whole inventory, not
+    the lines that repeat the question. Their conversations lead to WHAT WAS SAID like any chosen item's."""
     if budget <= 0:
         return "", []
     body = ent.get("body", "") or ""
@@ -510,6 +524,16 @@ def _page_lines(ent: dict, terms: set[str], budget: int) -> tuple[str, list]:
             continue
         chosen.add(i)
         used += min(len(rows[i]["text"]), _PARAGRAPH_CHARS) + 24
+    near: set[int] = set()
+    if similar is not None and used < budget:
+        rest = [i for i in range(len(rows)) if i not in chosen and rows[i]["section"] != "links"]
+        scores = similar([rows[i]["text"] for i in rest])
+        for score, i in sorted(zip(scores, rest), key=lambda x: (-x[0], x[1])):
+            if used >= budget or score <= 0:
+                break
+            chosen.add(i)
+            near.add(i)
+            used += min(len(rows[i]["text"]), _PARAGRAPH_CHARS) + 24
     lines: list[str] = []
     found: list = []
     section = None
@@ -519,15 +543,30 @@ def _page_lines(ent: dict, terms: set[str], budget: int) -> tuple[str, list]:
             section = row["section"]
             lines.append(f"{_SECTION_LABELS[section]}:")
         limit = _LEAD_CHARS if i == lead and row["score"] <= 0 else _PARAGRAPH_CHARS
-        said = "" if section == "history" else _said_days(row["evidence"])
+        said = "" if section == "history" else _said_days(row["evidence"], memory_path)
         lines.append(f"- {'[' + said + '] ' if said else ''}{_clip(row['text'], limit)}")
         # Every chosen item's conversations ground the page's citation; only the ones sharing the question's words
         # (weight > 0) lead to WHAT WAS SAID (``ask_sources.gather`` skips weight 0).
-        found += ask_sources.pointers(row["evidence"], row["score"], text_fold.subject_terms(row["text"]))
+        found += ask_sources.pointers(row["evidence"], row["score"] or (1 if i in near else 0),
+                                      text_fold.subject_terms(row["text"]))
     return "\n".join(lines), found
 
 
 _ENVELOPE = frozenset({"id", "current", "validity", "valid_from", "valid_to", "text"})
+
+
+def _asked_page(ent: dict, query: str, asked) -> bool:
+    """Whether a count or a list is about this page's subject: the question names it (its name or an alias, as
+    words). A first-person question does not make the person's own page its subject — that page holds a whole life,
+    and the pages and conversations the question's words find are where its list is."""
+    if asked is None:
+        return False
+    words = set(text_fold.words(query))
+    for name in (ent.get("entity_name"), *(ent.get("aliases") or [])):
+        own = set(text_fold.words(str(name or ""))) - text_fold.SUBJECT_STOPWORDS
+        if own and own <= words:
+            return True
+    return False
 
 
 def _ground(grounds: dict[str, int], pointed: list) -> None:
@@ -564,6 +603,160 @@ def _conversation_refs(excerpts: list) -> dict[str, dict]:
     return out
 
 
+#: The most days the time block lists (the conversations shown rarely span more).
+_TIME_DAYS = 12
+
+
+def _time_block(query: str, searched, shown: list, memory_path: Path | None = None) -> str:
+    """TIME BETWEEN THE CONVERSATIONS (2026-10-20): for a question about two moments, or one that asks how much time
+    passed ("how many days ago", "how many months since"), every distinct local day a shown line was said, numbered
+    from the earliest (so any gap is a subtraction), today's number, and for each end the day of its own best turn
+    and the exact gap — computed here, never left to the model to estimate (the owner's hard set: a "178–208 day"
+    range, 16 for 17). Empty for any other question."""
+    from datetime import date
+
+    ends = [p for p in (getattr(searched, "ends", None) or []) if p.episode]
+    if not ends and not ask_sources.asks_elapsed(query):
+        return ""
+
+    # Every distinct day a shown turn was said, as the local calendar day (the day `current_day` counts in): a turn
+    # at 01:30 local is stored on the previous UTC day, and a session resumed days later has turns on several days.
+    shown_days: set[date] = set()
+    by_episode: dict[str, date] = {}
+    printed: dict[date, set[str]] = {}   # a local day → the dates its lines carry above, when they differ
+    for e in shown:
+        d = ask_sources.local_day(e.stamp or e.day)
+        if d is not None:
+            shown_days.add(d)
+            by_episode.setdefault(e.episode, d)
+            if e.day and e.day != d.isoformat():
+                printed.setdefault(d, set()).add(e.day)
+    end_days = [(p, ask_sources.local_day(p.stamp) if p.stamp else
+                 (by_episode.get(p.episode) or ask_sources.local_day(ask_sources.said_day(memory_path, p.episode))))
+                for p in ends]
+    must = {d for _, d in end_days if d}
+    days = sorted(shown_days | must)
+    if not days:
+        return ""
+    if len(days) > _TIME_DAYS:   # the ends' days always stay
+        days = sorted(must | set([d for d in days if d not in must][: max(0, _TIME_DAYS - len(must))]))
+    today = current_day()
+    origin = days[0]
+
+    def spell(n: int) -> str:
+        weeks, rest = divmod(abs(n), 7)
+        def unit(k: int, word: str) -> str:
+            return f"{k} {word}" + ("" if k == 1 else "s")
+
+        return (f"{unit(n, 'day')} (= {unit(weeks, 'week')} {unit(rest, 'day')}, about {abs(n) / 30.44:.1f} months)"
+                if abs(n) >= 7 else unit(n, "day"))
+
+    lines = ["TIME BETWEEN THE CONVERSATIONS (computed from the dates of the lines shown above, each the local day "
+             "it was said, not by a model — use these numbers, never estimate a gap they give):"]
+    lines += [f"- {d.isoformat()} = day {(d - origin).days}"
+              + (f" (lines dated {', '.join(sorted(printed[d]))} above: their stored UTC date)" if d in printed else "")
+              for d in days]
+    lines.append(f"- {today.isoformat()} (the current local day) = day {(today - origin).days}")
+    if ends:
+        lines.append("The question asks about more than one moment. The conversation that best matches each one's "
+                     "words (a best match, not proof — use it only if its lines plainly speak of that moment, rule "
+                     "11):")
+        prev = None
+        for i, (p, d) in enumerate(end_days):
+            when = d.isoformat() if d else "an undated day"
+            after = ""
+            if prev is not None and d is not None and prev != d:
+                gap = (d - prev).days
+                after = f" — {spell(abs(gap))} {'after' if gap > 0 else 'before'} the one above"
+            lines.append(f"- \"{p.label}\": [{p.episode}], said {when}{after}")
+            prev = d or prev
+        if len({p.episode for p, _ in end_days}) < len(end_days):
+            lines.append("Two moments share one conversation: each is dated by its own line in it.")
+    lines.append("A day here is when the conversation was held. When a line places its event relative to that day "
+                 "(\"yesterday\", \"last week\", \"two days ago\"), shift the event by that much and say so; when "
+                 "the lines show another conversation to be one of the moments, use its day the same way. Days "
+                 "between two days = the difference of their day numbers; say whether you count the last day.")
+    return "\n".join(lines)
+
+
+#: How many of a page's shown claims the search model may lead to their conversations, for a question by meaning.
+_NEAR_CLAIMS = 4
+#: Of a page's claims, the first this many are scored — about what its claim budget shows.
+_NEAR_SCAN = 24
+
+#: 2026-10-20 (G148): a question asking for a judgement ("would <name> likely …", "what might …", "¿es probable
+#: que …?") was declined as a missing fact — 37 of 42 LoCoMo open-domain misses said memory doesn't state it,
+#: although the record gave grounds. Only for such a question (ask_sources.asks_inference); a question asking for a
+#: recorded fact keeps rule 1.
+_INFERENCE_NOTE = (
+    "THIS QUESTION ASKS FOR A JUDGEMENT (what is likely, would or might be), not only for a recorded fact. Rule 1's "
+    "\"never guess\" is about facts; a judgement is reasoned from them. When the context bears on it — what the people "
+    "said they like, do, plan, value, own, where they go, how they reacted — give the most likely answer and mark it "
+    "as an inference: \"Probably …, because …\", naming the lines it rests on and their days. General knowledge may "
+    "connect what the record says to the question's terms (a city's state or country, what a described thing is "
+    "commonly called, what suits an interest) — say when you use it — but never supplies a fact about the people. "
+    "Do not stop at \"memory doesn't say\": say what it does not state, then still give the likely answer. Only when "
+    "nothing in the context bears on the question say that it can't be judged. Keep confidence below 0.7 for an "
+    "inference.")
+
+#: 2026-10-20 (G148, gap 1): a question worded as a fact whose answer the record only implies ("does <name> live in
+#: <state>?", "which US state …", "what is the card game <name> was talking about?") was declined as missing — 31 of
+#: the 48 LoCoMo open-domain questions the judgement note leaves out are of these shapes (ask_sources.asks_implied).
+#: Stricter than the judgement note: a stated fact still wins, and a loose link is still a decline.
+_IMPLIED_NOTE = (
+    "THIS QUESTION ASKS FOR A FACT THE RECORD MAY HOLD ONLY BY IMPLICATION (a yes or no about someone, a state, "
+    "country or holiday, an age, a preference, the common name of something described). When a line states it, "
+    "answer from that line. When none states it but the lines plainly imply it — a city or place whose state or "
+    "country is common knowledge, a day that falls on a known holiday, a described game or work with a well-known "
+    "name, what someone's own words and doings show about them — give that answer marked as an inference: "
+    "\"Probably …, because …\", naming the lines it rests on and their days. General knowledge may make that link "
+    "(say so) but never supplies a fact about the people. The inference must be about whom the question names: what "
+    "the lines say of someone else is theirs, not the asked person's — say whose it is instead of transferring it. "
+    "When the lines only touch the subject loosely, or not at all, say what memory does not hold, as rule 1 says. "
+    "Keep confidence below 0.7 for an inference.")
+
+#: 2026-10-20 (G148): the owner's Spanish questions answered half as often as their English counterparts.
+_SPANISH_NOTE = (
+    "The question is in Spanish; the memory may record its subject in English, in Spanish or in both. A line answers "
+    "it when it means the same thing in either language (\"grupo de apoyo\" is a support group) — never decline for "
+    "a word that appears only in translation. Answer in Spanish, quoting the record's own words as they were said.")
+
+
+#: 2026-10-20 (G148 gap 2): an English question over conversations held in Spanish (ask_sources.record_language).
+_RECORD_LANGUAGE_NOTE = (
+    "Some of the conversations in memory are held in {language}, not in the question's language. A line answers the "
+    "question when it means the same thing in either language (\"grupo de apoyo\" is a support group; a group, job, "
+    "event, place or title named in translation is the same thing): a word that appears only in translation is no "
+    "reason to decline, and a line that does not mean what the question asks is no answer — when none does, say what "
+    "memory does not hold. Answer in the question's language, quoting the record's own words as they were said.")
+_LANGUAGE_NAMES = {"es": "Spanish", "en": "English"}
+
+
+def _near_claims(rows: list, claims: list, similar) -> set[int]:
+    """The indexes of the :data:`_NEAR_CLAIMS` shown claims nearest the question by the search model (``similar``,
+    :attr:`ask_sources.Searched.similar`) — for a question whose words are not the record's, so its claims share none
+    of them. Empty when nothing scores."""
+    n = min(len(rows), len(claims), _NEAR_SCAN)
+    if not n:
+        return set()
+    texts = [" ".join(str(x or "") for x in (getattr(r, "text", ""), getattr(r, "predicate", ""),
+                                             getattr(r, "object", ""))) for r in rows[:n]]
+    scores = similar(texts)
+    ranked = sorted((i for i in range(n) if scores[i] > 0), key=lambda i: (-scores[i], i))
+    return set(ranked[:_NEAR_CLAIMS])
+
+
+def _person_names(entities: list[dict]) -> set[str]:
+    """The folded words of the names and aliases of the person pages in front of the model — who a yes or no can be
+    about (:func:`ask_sources.asks_implied`)."""
+    out: set[str] = set()
+    for ent in entities:
+        if str(ent.get("type") or "") == "person":
+            for name in (ent.get("entity_name"), *(ent.get("aliases") or [])):
+                out |= set(text_fold.words(str(name or "")))
+    return out
+
+
 def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None = None,
                   source_words: bool = False, owner_name: str | None = None,
                   searched: "ask_sources.Searched | None" = None, shown: dict | None = None) -> str:
@@ -572,7 +765,14 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
     verbatim words (a remote connector without ``sources``). ``searched`` (with ``source_words`` only) adds OTHER
     CONVERSATIONS: the turns of the conversations the question's own words find, past what the pages point at;
     ``shown`` receives ``{"conversations": {episode_id: {title, day}}}`` for them."""
-    terms = _focus(text_fold.subject_terms(query), [e for e in entities if not e.get("linked_from")])
+    terms = _focus(ask_sources.question_terms(query), [e for e in entities if not e.get("linked_from")])
+    enumerate_ = getattr(searched, "shape", None) == ask_sources.SHAPE_ENUMERATE
+    inference = ask_sources.asks_inference(query)
+    implied = ask_sources.asks_implied(query, _person_names(entities))
+    # 2026-10-20: a question in another language than the record shares no word with it — the search model ranks
+    # the page's claims and items instead, and each leads to the turn that told it (ask_sources.by_meaning).
+    meaning = bool(getattr(searched, "meaning", False))
+    asked = ask_sources.asked_about(query, owner_name) if (enumerate_ or inference or implied) else None
     blocks: list[str] = []
     people: list[dict] = []
     found: list = []
@@ -587,6 +787,8 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
         # The conversations behind what this page put in front of the model, by the question's words they share:
         # what its citation names (`_cited_episodes`), never every conversation that ever touched the page.
         grounds: dict[str, int] = {}
+        similar = searched.similar if searched is not None and rank < _FULL_BUDGET_PAGES else None
+        near_claims = _near_claims(rows, ent.get("claims", []), similar) if meaning and similar is not None else set()
         for i, claim in enumerate(ent.get("claims", [])):
             line = "claim: " + json.dumps(_compact(claim), ensure_ascii=False)
             if len(line) > remaining:
@@ -596,12 +798,13 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
             if i < len(rows):
                 row = rows[i]
                 words = text_fold.subject_terms(f"{row.text} {row.predicate} {row.object}")
-                weight = len(terms & words)
+                weight = len(terms & words) or (1 if i in near_claims else 0)
                 pointed = ask_sources.pointers(row.evidence, weight, words)
                 _ground(grounds, pointed)
                 if weight:
                     found += pointed
-        prose, pointed = _page_lines(ent, terms, int(_PROSE_CHARS * scale))
+        similar = similar if (meaning or _asked_page(ent, query, asked)) else None
+        prose, pointed = _page_lines(ent, terms, int(_PROSE_CHARS * scale), similar, memory_path)
         _ground(grounds, pointed)
         found += [p for p in pointed if p.weight > 0]
         ent["grounding"] = grounds
@@ -619,7 +822,11 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
     excerpts: list = []
     if source_words and memory_path is not None and found:
         try:
-            excerpts = ask_sources.gather(memory_path, query, found, owner_name=owner_name, terms=terms)
+            excerpts = ask_sources.gather(memory_path, query, found, owner_name=owner_name, terms=terms,
+                                          follow=meaning,
+                                          **({"breadth": True, "max_episodes": ask_sources.ENUM_EPISODES,
+                                              "max_excerpts": ask_sources.BREADTH_EXCERPTS,
+                                              "total_chars": ask_sources.BREADTH_CHARS} if enumerate_ else {}))
             said = ask_sources.render(excerpts)
         except Exception as exc:  # noqa: BLE001 — the words are context; their absence never fails an answer
             logger.debug(f"ask source words skipped ({type(exc).__name__})")
@@ -648,11 +855,37 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
                        "in all; each names its conversation's id and day, oldest first. Count each distinct event "
                        "once — the same event told in two conversations is one — add what the entities above show, "
                        "and say the count covers what memory shows")
+            if meaning:
+                how += ("; the question's words are not the record's (another language, or other words), so lines "
+                        "were also found by meaning: a line is about the question only when it means what the "
+                        "question asks")
+            elif getattr(searched, "adds", False):
+                how += ("; after the lines its words found, a few may have been found by meaning: a line is about "
+                        "the question only when it means what the question asks")
+            if getattr(searched, "ends", None):
+                how += ("; the question asks about more than one moment, so each was searched for on its own words "
+                        "and its best conversation leads; TIME BETWEEN THE CONVERSATIONS below dates them")
             context += ("\n\nOTHER CONVERSATIONS (word for word, found by searching every conversation for the "
                         "question's words; no page above cites these lines, so they may be about something else; "
                         f"{how}):\n" + ask_sources.render(more, with_episode=True))
+    else:
+        more = []
+    if source_words:
+        timing = _time_block(query, searched, excerpts + more, memory_path)
+        if timing:
+            context += "\n\n" + timing
+    notes = ""
+    if ask_sources.question_language(query) == "es":
+        notes += _SPANISH_NOTE + "\n\n"
+    elif getattr(searched, "record_lang", ""):
+        language = _LANGUAGE_NAMES.get(searched.record_lang, "another language")
+        notes += _RECORD_LANGUAGE_NOTE.format(language=language) + "\n\n"
+    if inference:
+        notes += _INFERENCE_NOTE + "\n\n"
+    elif implied:
+        notes += _IMPLIED_NOTE + "\n\n"
     return (
-        f"QUESTION:\n{query}\n\n"
+        f"QUESTION:\n{query}\n\n{notes}"
         f"CURRENT LOCAL DAY: {current_day().isoformat()}\n"
         f"RETRIEVED MEMORY CONTEXT ({len(entities)} entities):\n\n{context}"
     )
@@ -750,7 +983,7 @@ def _linked_people(memory_path: Path, entities: list[dict], query: str, people: 
     if people is None or not people.pages:
         return []
     shown = {e["entity_id"] for e in entities}
-    terms = text_fold.subject_terms(query)
+    terms = ask_sources.question_terms(query)
     found: dict[str, dict] = {}
 
     def note(person_id: str | None, source: dict, line: str, order: int) -> None:
@@ -878,13 +1111,15 @@ def _gap_response(query: str) -> dict:
     }
 
 
-def _default_llm_fn(settings: Settings | None = None) -> LlmFn:
+def _default_llm_fn(settings: Settings | None = None, *, extra_body: dict | None = None) -> LlmFn:
     """Production LLM call: litellm JSON-mode per Settings, via the provider
     seam. ``settings`` (R-E23): the router passes the copy
     ``engine_select.resolve_settings`` returned, so Ask runs on the engine
     chosen in Settings → Engines; ``None`` keeps the env resolution MCP's
     ``cicada_ask`` still uses this round (Track R adopts this seam when it
-    moves the tool bodies into ``mcp_tools``)."""
+    moves the tool bodies into ``mcp_tools``). ``extra_body`` rides every
+    call unchanged — the answer eval pins the plan's ``--effort`` through it
+    (``benchmarks/answer_eval.py --effort``); production passes none."""
     import litellm
 
     from api.config import get_settings
@@ -900,6 +1135,7 @@ def _default_llm_fn(settings: Settings | None = None) -> LlmFn:
                 {"role": "user", "content": prompt},
             ],
             response_format={"type": "json_object"},
+            **({"extra_body": extra_body} if extra_body is not None else {}),
         )
         return response.choices[0].message.content or ""
 

@@ -203,6 +203,7 @@ def test_the_reading_options_fixture_is_the_servers_wire(tmp_path):
     defaults = client.get("/sleep/run-options").json()
     custom = client.put("/sleep/run-options", json={"batchSize": 10, "continueAfterReset": True, "reservePct": 20}).json()
     assert defaults["continueAfterReset"] is False and defaults["reservePct"] is None
+    assert defaults["scheduledUsePlan"] is True   # ruling 4b, amended 2026-10-19: on by default
     _write_or_compare("sleep-run-options.json", {"defaults": defaults, "custom": custom})
 
 

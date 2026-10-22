@@ -26,6 +26,13 @@ final class FakeContactsAPI: ContactsSyncAPI {
     private(set) var payloads: [ContactsSyncPayload] = []
     /// The bank each post named (`BankScope.origin`, G183(d)).
     private(set) var banks: [String?] = []
+    private(set) var forgets = 0
+    /// The connection each forget ended (review of #393).
+    private(set) var forgotConnections: [String?] = []
+    func forgetWaitingContacts(connection: String?) async throws {
+        forgets += 1
+        forgotConnections.append(connection)
+    }
     func syncLocalContacts(_ payload: ContactsSyncPayload) async throws -> ContactsSyncResult {
         payloads.append(payload)
         banks.append(BankScope.origin)
@@ -92,6 +99,46 @@ final class ContactsReaderTests: XCTestCase {
         XCTAssertEqual(r.status, .denied)
         XCTAssertFalse(r.enabled)
         XCTAssertEqual(api.payloads.count, 0)
+        await r.forgetTask?.value
+        XCTAssertEqual(api.forgets, 1, "access refused: nothing kept from the address book waits")
+    }
+
+    /// Review of #391: Disconnect deletes the cards waiting for a first mention, and so does access taken away later.
+    func testDisconnectAndLostAccessForgetTheWaitingCards() async {
+        let store = FakeContactStore()
+        let api = FakeContactsAPI()
+        let r = reader(store, api, defaults())
+        await r.connect()
+        XCTAssertEqual(api.forgets, 0)
+        r.disconnect()
+        await r.forgetTask?.value
+        XCTAssertEqual(api.forgets, 1)
+        await r.connect()
+        store.accessValue = .denied
+        await r.syncNow()
+        await r.forgetTask?.value
+        XCTAssertEqual(r.status, .denied)
+        XCTAssertEqual(api.forgets, 2)
+    }
+
+    /// Review of #393: each Connect mints a connection id, every sync carries it, and the forget names the one it ends —
+    /// so the backend drops a sync of that connection still in flight. A reconnect is a new connection.
+    func testSyncsCarryTheConnectionAndTheForgetEndsIt() async {
+        let store = FakeContactStore()
+        let api = FakeContactsAPI()
+        let r = reader(store, api, defaults())
+        await r.connect()
+        let first = try? XCTUnwrap(api.payloads.first?.connection)
+        XCTAssertNotNil(first)
+        r.disconnect()
+        await r.forgetTask?.value
+        XCTAssertEqual(api.forgotConnections, [first])
+        await r.connect()
+        let second = api.payloads.last?.connection
+        XCTAssertNotNil(second)
+        XCTAssertNotEqual(second, first, "a reconnect is a new connection")
+        let json = String(decoding: try! JSONEncoder().encode(ContactsSyncPayload(contacts: [])), as: UTF8.self)
+        XCTAssertFalse(json.contains("connection"), "no id, no key")
     }
 
     func testSyncNowAfterAccessWasTakenAwaySaysSoInWords() async {

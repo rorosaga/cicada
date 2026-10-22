@@ -22,7 +22,7 @@ struct TextButton: View {
                 Text(title)
                 if let keyHint { KeyHint(keyHint) }
             }
-            .font(inline ? CicadaTheme.font(size: 12, weight: .medium) : CicadaTheme.font(size: 13))
+            .font(inline ? CicadaTheme.metaMediumFont : CicadaTheme.bodyFont)
             .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
             .padding(.horizontal, CicadaTheme.scaled(inline ? 6 : 10))
             .frame(height: CicadaTheme.scaled(inline ? 22 : Self.height))

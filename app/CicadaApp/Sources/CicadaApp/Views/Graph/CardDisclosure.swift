@@ -13,23 +13,7 @@ struct CardDisclosure<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Button { isOpen.toggle() } label: {
-                HStack(spacing: CicadaTheme.scaled(6)) {
-                    Image(systemName: isOpen ? "chevron.down" : "chevron.right")
-                        .font(CicadaTheme.font(size: 10, weight: .semibold))
-                        .frame(width: CicadaTheme.scaled(10))
-                        .accessibilityHidden(true)
-                    Text(title).foregroundStyle(CicadaTheme.textSecondary)
-                    if !isOpen, let summary {
-                        Text(summary).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
-                    }
-                }
-                .font(CicadaTheme.metaMediumFont)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.cicadaPlain)
-            .accessibilityAddTraits(.isHeader)
-            .accessibilityValue(isOpen ? "Open" : "Closed")
+            DisclosureHeader(title: title, summary: summary, isOpen: isOpen) { isOpen.toggle() }
             if isOpen { content() }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -42,6 +26,8 @@ enum CardSections {
     static let beliefsKey = "cicada.card.beliefsOpen"
     static let provenanceKey = "cicada.card.provenanceOpen"
     static let connectionsKey = "cicada.card.connectionsOpen"
+    /// A page with no looks yet: the Looks section's ways to add one (owner 2026-10-20).
+    static let looksKey = "cicada.card.looksOpen"
 }
 
 /// A section reading its data, said in words beside a small spinner (DR-32's rule: never a blank).

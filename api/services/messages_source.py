@@ -24,12 +24,19 @@ the agent-reply rule of G105, named by the conversation's name in the episode's 
 (a person, or not yet known) is ``speaker:<label>:``, the meeting rule (G134). Changing the mark re-renders every
 stored sitting of that conversation in place, from the stored episodes — nothing is re-read from the Mac.
 
-**Edits, unsends, reactions, attachments.** An edited message replaces its words in place (the sitting is re-queued);
-an unsent one leaves its sitting (a sitting left empty is tombstoned, never unlinked). Tapbacks are skipped, not kept
-as a note: a tapback row is the *reactor's* row quoting the other side's words ("Loved “…”"), so keeping it would put
-the agent's words under the person's marker. An attachment is named (``[image: <file name>]``), never read; its
-U+FFFC placeholder is dropped. A message's line breaks are folded to spaces, so nothing inside a message can open a
-turn. Every body is scrubbed by the stager (R-N3; writer ``imessage``). No LLM anywhere here.
+**Edits, unsends, reactions, replies, attachments** (2026-10-20, :mod:`turn_extras`). An edited message replaces its
+words in place (the sitting is re-queued) and is marked ``edited``; an unsent one leaves the words — its text is never
+kept — and stays only as WHERE it was and who sent it (``unsent_turns``), so the Reader can say "Unsent"; a sitting
+left with nothing said is tombstoned, never unlinked. A tapback (``associated_message_type`` 2000–2007 adds, 3000–3007
+removes, 1000 a placed sticker; ``associated_message_guid`` names its target) is never a turn: a tapback row is the
+*reactor's* row quoting the other side's words ("Loved “…”"), so its text is never read — only who reacted and with
+what lands on the target message's ``reactions``, one per reactor (a new one replaces theirs, a removal drops it), and
+a reaction to a message that is not stored is counted and dropped. An inline reply (``thread_originator_guid``)
+points at its target turn, or at its key when the target is in another sitting. An attachment is named
+(``[image: <file name>]`` in the words, as before) and described beside them (kind, name, size, type) — never read,
+never a path; its U+FFFC placeholder is dropped. A message's line breaks are folded to spaces, so nothing inside a
+message can open a turn. Every body and every extra is scrubbed by the stager (R-N3; writer ``imessage``). No LLM
+anywhere here.
 """
 
 from __future__ import annotations
@@ -44,7 +51,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from api.services import agent_detectors, episode_ids, episode_staging, evidence, markdown_parser, typedstream
+from api.services import (agent_detectors, episode_ids, episode_staging, evidence, markdown_parser, turn_extras,
+                          typedstream)
 from api.services.agent_detectors import Actor, ConversationMeta
 from api.services.episode_staging import EpisodeDraft, Turn
 from api.services.id_utils import sanitize_id
@@ -214,16 +222,46 @@ class Message:
     key: str              # a short hash of the message's guid: its identity across passes and devices
     ts: str               # aware UTC
     from_me: bool
-    text: str             # one line, folded — before the stager's scrub
+    text: str             # one line, folded — before the stager's scrub; empty for an unsent message
     edited: bool = False
     attachments: int = 0
     order: int = 0        # the row's own order (ROWID), or its stored position
+    #: Unsent by its sender: kept only as a position, never its words.
+    unsent: bool = False
+    #: The key of the message this one replies to inline.
+    reply_to: str | None = None
+    #: ``[{kind, name, size?, mime?}]`` — never a path, never a byte.
+    files: list[dict] = field(default_factory=list)
+    #: ``[{from_me, kind, emoji?}]``, one per reactor, in the order they reacted.
+    reactions: list[dict] = field(default_factory=list)
+
+
+@dataclass
+class Reaction:
+    """A tapback row: who reacted to which message with what — never the row's words."""
+    target: str           # the target message's key
+    from_me: bool
+    kind: str             # one of `turn_extras.REACTION_KINDS`
+    emoji: str | None
+    remove: bool
+    ts: str
+    order: int
+
+
+#: ``associated_message_type`` → kind: 2000–2007 add a tapback, 3000–3007 remove it; 1000 is a sticker placed on a
+#: message.
+REACTION_TYPES = {0: "love", 1: "like", 2: "dislike", 3: "laugh", 4: "emphasize", 5: "question", 6: "emoji",
+                  7: "sticker"}
+PLACED_STICKER = 1000
 
 
 @dataclass
 class Counts:
     seen: int = 0
     reactions: int = 0
+    reactions_kept: int = 0
+    reactions_orphaned: int = 0
+    replies: int = 0
     events: int = 0
     empty: int = 0
     unsent: int = 0
@@ -273,14 +311,54 @@ def _attachment_name(att: dict) -> str:
     return name[:ATTACHMENT_NAME_CAP] or "unnamed"
 
 
+def _target_key(value) -> str | None:
+    """A tapback's or reply's target guid — ``p:<part>/<guid>``, ``bp:<guid>`` or bare — as a message key."""
+    raw = str(value or "").strip()
+    if raw.startswith("bp:"):
+        raw = raw[3:]
+    elif raw.startswith("p:") and "/" in raw:
+        raw = raw.split("/", 1)[1]
+    return message_key(raw) if raw else None
+
+
+def reaction_from_row(row: dict, ts: str) -> Reaction | None:
+    """A tapback row as who reacted with what; ``None`` for an associated row that is not one (its text is never
+    read either way)."""
+    kind_code = _int(row.get("associated_message_type"))
+    target = _target_key(row.get("associated_message_guid"))
+    if target is None:
+        return None
+    if kind_code == PLACED_STICKER:
+        kind, remove = "sticker", False
+    elif 2000 <= kind_code <= 2007 or 3000 <= kind_code <= 3007:
+        kind, remove = REACTION_TYPES[kind_code % 1000], kind_code >= 3000
+    else:
+        return None
+    emoji = " ".join(str(row.get("associated_message_emoji") or "").split())[:turn_extras.EMOJI_CAP] or None
+    if kind != "emoji":
+        emoji = turn_extras.REACTION_EMOJI.get(kind)
+    return Reaction(target=target, from_me=bool(row.get("is_from_me")), kind=kind, emoji=emoji, remove=remove,
+                    ts=ts, order=_int(row.get("rowid")))
+
+
+def _file(att: dict) -> dict:
+    entry = {"kind": "sticker" if att.get("is_sticker") else _attachment_word(att), "name": _attachment_name(att)}
+    if (size := _int(att.get("total_bytes"))) > 0:
+        entry["size"] = size
+    if mime := str(att.get("mime_type") or "").strip().lower():
+        entry["mime"] = mime
+    return entry
+
+
 def _fold(text: str) -> str:
     line = " ".join(str(text or "").split())
     return line if len(line) <= MESSAGE_CAP else line[: MESSAGE_CAP - 1].rstrip() + "…"
 
 
-def message_from_row(row: dict, counts: Counts) -> tuple[str, Message | None]:
-    """``(verdict, message)``: ``kept`` with the message, ``unsent`` with its key only (``Message.text`` empty), or a
-    skip verdict — ``reaction`` | ``event`` | ``empty`` | ``invalid``."""
+def message_from_row(row: dict, counts: Counts) -> tuple[str, Message | Reaction | None]:
+    """``(verdict, item)``: ``kept`` with the message, ``unsent`` with its placeholder (``Message.unsent``, no words),
+    ``reaction`` with the tapback (or ``None`` for an associated row that is not one), or a skip verdict —
+    ``event`` | ``empty`` | ``invalid``."""
     guid = str(row.get("guid") or "").strip()
     ts = apple_time(row.get("date"))
     if not guid or ts is None:
@@ -291,7 +369,7 @@ def message_from_row(row: dict, counts: Counts) -> tuple[str, Message | None]:
         return "event", None
     if _int(row.get("associated_message_type")) != 0:
         counts.reactions += 1
-        return "reaction", None
+        return "reaction", reaction_from_row(row, ts)
     key = message_key(guid)
     text = str(row.get("text") or "")
     if not typedstream.visible_text(text) and row.get("attributed_body"):
@@ -310,16 +388,22 @@ def message_from_row(row: dict, counts: Counts) -> tuple[str, Message | None]:
     # macOS keeps an unsent message's row with its words gone and `date_edited` set; `date_retracted` where present.
     if retracted or (edited and not words and not attachments):
         counts.unsent += 1
-        return "unsent", Message(key=key, ts=ts, from_me=bool(row.get("is_from_me")), text="")
+        return "unsent", Message(key=key, ts=ts, from_me=bool(row.get("is_from_me")), text="", unsent=True,
+                                 order=_int(row.get("rowid")))
     named = [f"[{_attachment_word(a)}: {_attachment_name(a)}]" for a in attachments[:10]]
     if not words and not named:
         counts.empty += 1
         return "empty", None
     counts.attachments += len(named)
     counts.edited += int(edited)
+    reply = _target_key(row.get("thread_originator_guid"))
+    if reply == key:
+        reply = None
+    counts.replies += int(reply is not None)
     line = _fold(" ".join([words] + named if words else named))
     return "kept", Message(key=key, ts=ts, from_me=bool(row.get("is_from_me")), text=line, edited=edited,
-                           attachments=len(named), order=_int(row.get("rowid")))
+                           attachments=len(named), order=_int(row.get("rowid")), reply_to=reply,
+                           files=[_file(a) for a in attachments[:10]])
 
 
 # --- Stored sittings ------------------------------------------------------------------------------------------------
@@ -348,9 +432,15 @@ def stored_sitting(entry: episode_staging.IndexEntry) -> Sitting | None:
     parsed = markdown_parser.parse(entry.path)   # the sidecar is the file's, never the header cache's
     body = parsed.body
     stamps = evidence.turn_stamps(parsed.frontmatter)
+    extras = turn_extras.by_offset(parsed.frontmatter)
     lines = body.split("\n") if body else []
     if len(lines) != len(keys):
         return None
+    starts: dict[int, str] = {}
+    offset = 0
+    for line, key in zip(lines, keys):
+        starts[offset] = str(key)
+        offset += len(line) + 1
     messages: list[Message] = []
     offset = 0
     previous: str | None = None
@@ -360,10 +450,35 @@ def stored_sitting(entry: episode_staging.IndexEntry) -> Sitting | None:
         ts = episode_staging.normalise_timestamp((stamps.get(offset) or {}).get("ts")) or previous
         if not sep or not ts or marker not in ("user", "assistant") and not marker.startswith("speaker:"):
             return None
-        messages.append(Message(key=str(key), ts=ts, from_me=marker == "user", text=text, order=i))
+        # Odd positions for what was said, even ones for an unsent message before it: same-second ties keep order.
+        message = Message(key=str(key), ts=ts, from_me=marker == "user", text=text, order=2 * i + 1)
+        _restore_extras(message, extras.get(offset) or {}, starts)
+        messages.append(message)
         previous = ts
         offset += len(line) + 1
+    for gone in turn_extras.unsent(parsed.frontmatter):
+        ts = episode_staging.normalise_timestamp(gone.get("ts"))
+        if not gone.get("ref") or not ts:
+            continue
+        before = sum(1 for at in starts if at < int(gone["at"]))
+        messages.append(Message(key=str(gone["ref"]), ts=ts, from_me=gone.get("speaker") == "user", text="",
+                                unsent=True, order=2 * before))
     return Sitting(source_id=str(entry.fm.get("source_id")), messages=messages)
+
+
+def _restore_extras(message: Message, stored: dict, starts: dict[int, str]) -> None:
+    """A stored turn's extras back onto its message, so a pass that rebuilds the sitting keeps them."""
+    message.edited = stored.get("edited") is True
+    message.files = [f for f in stored.get("attachments") or [] if isinstance(f, dict)]
+    message.attachments = len(message.files)
+    reply = stored.get("reply_to")
+    if isinstance(reply, int) and not isinstance(reply, bool):
+        message.reply_to = starts.get(reply)
+    elif isinstance(reply, dict) and reply.get("ref"):
+        message.reply_to = str(reply["ref"])
+    message.reactions = [{"from_me": r.get("by") == "user", "kind": r.get("kind"),
+                          **({"emoji": r["emoji"]} if r.get("emoji") else {})}
+                         for r in stored.get("reactions") or [] if isinstance(r, dict) and r.get("kind")]
 
 
 def _split_speaker(line: str) -> tuple[str, str, str]:
@@ -394,16 +509,38 @@ def _title(actor: Actor, first_ts: str) -> str:
 
 
 def sitting_draft(cid: str, source_id: str, messages: list[Message], actor: Actor, service: str) -> EpisodeDraft:
+    """One sitting's episode: a line per message said, and beside the words (`turn_extras`) each message's reactions,
+    reply target, attachments and edit, and where an unsent message was. ``messages`` are in order; at least one was
+    said."""
     counterpart = _counterpart_marker(actor)
-    turns = [Turn(m.text, "user" if m.from_me else counterpart, m.ts) for m in messages]
-    first, last = messages[0].ts, messages[-1].ts
+    spoken = [m for m in messages if not m.unsent]
+    index_of = {m.key: i for i, m in enumerate(spoken)}
+    turns: list[Turn] = []
+    unsent: list[dict] = []
+    for m in messages:
+        marker = "user" if m.from_me else counterpart
+        if m.unsent:
+            unsent.append({"before": len(turns), "speaker": marker, "ts": m.ts, "ref": m.key})
+            continue
+        extras: dict = {}
+        if m.reactions:
+            extras["reactions"] = [{"by": "user" if r.get("from_me") else counterpart, "kind": r.get("kind"),
+                                    **({"emoji": r["emoji"]} if r.get("emoji") else {})} for r in m.reactions]
+        if m.reply_to:
+            extras["reply_to"] = index_of[m.reply_to] if m.reply_to in index_of else {"ref": m.reply_to}
+        if m.files:
+            extras["attachments"] = m.files
+        if m.edited:
+            extras["edited"] = True
+        turns.append(Turn(m.text, marker, m.ts, extras=extras or None))
+    first, last = spoken[0].ts, spoken[-1].ts
     return EpisodeDraft(
         title=_title(actor, first), source_id=source_id, source_updated_at=last, timestamp=first,
-        original_date=first[:10], source=SOURCE, origin=ORIGIN, turns=turns,
+        original_date=episode_ids.id_day(first), source=SOURCE, origin=ORIGIN, turns=turns, unsent=unsent,
         extra={"conversation": cid, "service": service, "correspondent": actor.to_dict(),
-               "message_count": len(messages), "from_person": sum(1 for m in messages if m.from_me),
+               "message_count": len(spoken), "from_person": sum(1 for m in spoken if m.from_me),
                "sitting_first_at": first, "sitting_last_at": last,
-               "message_keys": [m.key for m in messages]},
+               "message_keys": [m.key for m in spoken]},
         writer=SCRUB_WRITER,
     )
 
@@ -413,8 +550,14 @@ def _conversation_entries(index: dict, cid: str) -> dict[str, episode_staging.In
     return {sid: e for sid, e in index.items() if sid.startswith(prefix) and not e.fm.get("source_deleted_at")}
 
 
+def _keys(entry: episode_staging.IndexEntry) -> set[str]:
+    """Every message a stored sitting holds: those said, and those unsent where they were."""
+    return set(entry.fm.get("message_keys") or []) | {str(u["ref"]) for u in turn_extras.unsent(entry.fm)
+                                                       if u.get("ref")}
+
+
 def _touches(entry: episode_staging.IndexEntry, incoming: list[Message], gap: timedelta) -> bool:
-    keys = set(entry.fm.get("message_keys") or [])
+    keys = _keys(entry)
     try:
         lo = _instant(str(entry.fm.get("sitting_first_at"))) - gap
         hi = _instant(str(entry.fm.get("sitting_last_at"))) + gap
@@ -423,15 +566,48 @@ def _touches(entry: episode_staging.IndexEntry, incoming: list[Message], gap: ti
     return any(m.key in keys or lo <= _instant(m.ts) <= hi for m in incoming)
 
 
-def plan_sittings(cid: str, stored: list[Sitting], incoming: list[Message], unsent: set[str],
-                  gap: timedelta = SITTING_GAP, reserved: frozenset[str] = frozenset()
+def apply_reactions(by_key: dict[str, Message], reactions: list[Reaction], counts: Counts | None = None) -> None:
+    """Each tapback onto its message, in the order they were made: one reaction per reactor (a new one replaces
+    theirs), a removal drops theirs of that kind. A reaction to a message that is not here, or was unsent, is dropped."""
+    for r in sorted(reactions, key=lambda r: (_instant(r.ts), r.order)):
+        target = by_key.get(r.target)
+        if target is None or target.unsent:
+            if counts is not None:
+                counts.reactions_orphaned += 1
+            continue
+        if r.remove:
+            target.reactions = [x for x in target.reactions
+                                if not (bool(x.get("from_me")) == r.from_me and x.get("kind") == r.kind)]
+        else:
+            target.reactions = [x for x in target.reactions if bool(x.get("from_me")) != r.from_me] + [
+                {"from_me": r.from_me, "kind": r.kind, **({"emoji": r.emoji} if r.emoji else {})}]
+        if counts is not None:
+            counts.reactions_kept += 1
+
+
+def _nearest_run(runs: list[list[Message]], message: Message) -> list[Message]:
+    """The run whose span holds ``message``'s time, else the one whose nearest edge is closest (the earlier on a tie)."""
+    at = _instant(message.ts)
+
+    def distance(run: list[Message]) -> float:
+        said = [m for m in run if not m.unsent]
+        lo, hi = _instant(said[0].ts), _instant(said[-1].ts)
+        return 0.0 if lo <= at <= hi else min(abs((at - lo).total_seconds()), abs((at - hi).total_seconds()))
+
+    return min(runs, key=distance)
+
+
+def plan_sittings(cid: str, stored: list[Sitting], incoming: list[Message], reactions: list[Reaction] = (),
+                  gap: timedelta = SITTING_GAP, reserved: frozenset[str] = frozenset(), counts: Counts | None = None
                   ) -> tuple[list[tuple[str, list[Message]]], list[str]]:
     """``([(source_id, messages)], tombstoned source ids)`` for the stored sittings an update touches.
 
-    Incoming messages replace stored ones with the same key (an edit), unsent keys leave, and the union is split
-    again. A resulting sitting keeps the key of the earliest stored sitting it holds messages of — so a sitting whose
-    first message was unsent, or that a late message bridged to the next, keeps its episode; a stored sitting left
-    with no messages, or absorbed into another, is tombstoned."""
+    Incoming messages replace stored ones with the same key (an edit keeps its reactions; an unsend becomes a
+    placeholder with no words), the reactions land on their messages, and what was said is split again — each unsent
+    placeholder then joins the sitting nearest it in time, so it never bridges two. A resulting
+    sitting keeps the key of the earliest stored sitting it holds messages of — so a sitting whose first message was
+    unsent, or that a late message bridged to the next, keeps its episode; a stored sitting left with nothing said,
+    or absorbed into another, is tombstoned."""
     by_key: dict[str, Message] = {}
     owner: dict[str, str] = {}
     for sitting in stored:
@@ -440,20 +616,30 @@ def plan_sittings(cid: str, stored: list[Sitting], incoming: list[Message], unse
             owner[m.key] = sitting.source_id
     for m in incoming:
         if m.key in by_key:
-            m.order = by_key[m.key].order
+            old = by_key[m.key]
+            m.order = old.order
+            if not m.unsent and not m.reactions:
+                m.reactions = old.reactions
         by_key[m.key] = m
-    for key in unsent:
-        by_key.pop(key, None)
+    apply_reactions(by_key, list(reactions), counts)
     planned: list[tuple[str, list[Message]]] = []
     used: set[str] = set()
     stored_order = [s.source_id for s in stored]
-    for run in split_sittings(list(by_key.values()), gap):
-        mine = [sid for sid in stored_order if sid not in used and any(owner.get(m.key) == sid for m in run)]
-        sid = mine[0] if mine else f"{SOURCE_PREFIX}{cid}:{run[0].key}"
+    # Sittings split on what was SAID; an unsent message then joins its neighbour's, so a placeholder in a silence
+    # never bridges two sittings (a "Read again" re-posting an old unsend must not merge two stored episodes).
+    said = split_sittings([m for m in by_key.values() if not m.unsent], gap)
+    for gone in (m for m in by_key.values() if m.unsent):
+        if said:
+            _nearest_run(said, gone).append(gone)
+    for run in said:
+        run.sort(key=lambda m: (_instant(m.ts), m.order))
+        spoken = [m for m in run if not m.unsent]
+        mine = [sid for sid in stored_order if sid not in used and any(owner.get(m.key) == sid for m in spoken)]
+        sid = mine[0] if mine else f"{SOURCE_PREFIX}{cid}:{spoken[0].key}"
         # A fresh key never lands on a sitting this pass could not rebuild (``reserved``): that episode is left as it
         # is rather than overwritten with only the new messages.
         if sid in used or (not mine and sid in reserved):
-            sid = f"{SOURCE_PREFIX}{cid}:{run[0].key}-{len(planned) + 1}"
+            sid = f"{SOURCE_PREFIX}{cid}:{spoken[0].key}-{len(planned) + 1}"
         used.add(sid)
         planned.append((sid, run))
     gone = [s for s in stored_order if s not in used]
@@ -494,20 +680,19 @@ def _stage(drafts: list[EpisodeDraft], episodes_dir: Path, index: dict[str, epis
 # --- Ingest ---------------------------------------------------------------------------------------------------------
 
 
-def _messages(rows: list, counts: Counts) -> tuple[list[Message], set[str]]:
+def _messages(rows: list, counts: Counts) -> tuple[list[Message], list[Reaction]]:
+    """The posted rows as messages (a later row for the same key wins: an edit, an unsend) and tapbacks."""
     kept: dict[str, Message] = {}
-    unsent: set[str] = set()
+    reactions: list[Reaction] = []
     for row in rows:
         if not isinstance(row, dict):
             continue
-        verdict, message = message_from_row(row, counts)
-        if verdict == "kept" and message is not None:
-            kept[message.key] = message
-            unsent.discard(message.key)
-        elif verdict == "unsent" and message is not None:
-            unsent.add(message.key)
-            kept.pop(message.key, None)
-    return list(kept.values()), unsent
+        verdict, item = message_from_row(row, counts)
+        if verdict in ("kept", "unsent") and isinstance(item, Message):
+            kept[item.key] = item
+        elif verdict == "reaction" and isinstance(item, Reaction):
+            reactions.append(item)
+    return list(kept.values()), reactions
 
 
 def ingest(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict:
@@ -535,13 +720,13 @@ def ingest(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict
     meta = conversation_meta(conversation)
     actor = actor_for(settings, cid, meta)
     counts = Counts()
-    incoming, unsent = _messages(rows, counts)
+    incoming, reactions = _messages(rows, counts)
+    targets = {r.target for r in reactions}
     episodes_dir = memory_path / "episodes"
     with episode_staging.STAGE_LOCK:
         index, _ = episode_staging.scan(episodes_dir)
         mine = _conversation_entries(index, cid)
-        touched = [e for e in mine.values()
-                   if _touches(e, incoming, SITTING_GAP) or set(e.fm.get("message_keys") or []) & unsent]
+        touched = [e for e in mine.values() if _touches(e, incoming, SITTING_GAP) or _keys(e) & targets]
         stored: list[Sitting] = []
         unreadable: set[str] = set()
         for e in sorted(touched, key=lambda e: str(e.fm.get("sitting_first_at") or "")):
@@ -550,10 +735,12 @@ def ingest(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict
                 stored.append(sitting)
             else:
                 unreadable.add(str(e.fm.get("source_id")))
-        planned, gone = plan_sittings(cid, stored, incoming, unsent, reserved=frozenset(unreadable))
+        planned, gone = plan_sittings(cid, stored, incoming, reactions, reserved=frozenset(unreadable), counts=counts)
         drafts = [sitting_draft(cid, sid, msgs, actor, service) for sid, msgs in planned]
         staged, recorded = _stage(drafts, episodes_dir, index, deleted=gone, bank=bank)
-    return {"conversation": cid, "messages_seen": counts.seen, "kept": len(incoming), "reactions": counts.reactions,
+    return {"conversation": cid, "messages_seen": counts.seen, "kept": sum(1 for m in incoming if not m.unsent),
+            "reactions": counts.reactions, "reactions_kept": counts.reactions_kept,
+            "reactions_orphaned": counts.reactions_orphaned, "replies": counts.replies,
             "events": counts.events, "empty": counts.empty, "unsent": counts.unsent, "edited": counts.edited,
             "attachments": counts.attachments, "decoded": counts.decoded, "sittings": len(planned),
             "created": staged.created, "updated": staged.updated, "skipped": staged.skipped,
@@ -575,7 +762,7 @@ def reattribute(memory_path: Path, cid: str, *, bank: str | None = None) -> dict
         drafts = []
         for e in mine.values():
             sitting = stored_sitting(e)
-            if sitting is None or not sitting.messages:
+            if sitting is None or not any(not m.unsent for m in sitting.messages):
                 continue
             stored_actor = e.fm.get("correspondent") if isinstance(e.fm.get("correspondent"), dict) else {}
             name = entry.get("name") or str(stored_actor.get("name") or "")
@@ -585,7 +772,8 @@ def reattribute(memory_path: Path, cid: str, *, bank: str | None = None) -> dict
                 version=(_int(str(stored_actor["detector"]).partition("@")[2]) if stored_actor.get("detector") else None),
                 signal=stored_actor.get("signal"))
             actor = agent_detectors.resolve_actor(name, entry.get("actor"), detection)
-            drafts.append(sitting_draft(cid, sitting.source_id, sitting.messages, actor,
+            ordered = sorted(sitting.messages, key=lambda m: (_instant(m.ts), m.order))
+            drafts.append(sitting_draft(cid, sitting.source_id, ordered, actor,
                                         str(e.fm.get("service") or entry.get("service") or "iMessage")))
         staged, recorded = _stage(drafts, episodes_dir, mine, bank=bank)
     return {"updated": staged.updated, "recorded": recorded, "skipped": staged.skipped - recorded,

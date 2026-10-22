@@ -52,8 +52,7 @@ struct BeliefRow: View {
         .padding(.leading, CicadaTheme.scaled(10))
         .padding(.trailing, CicadaTheme.spacingXS)
         .padding(.vertical, CicadaTheme.spacingSM)
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering ? CicadaTheme.bgHover : Color.clear))
-        .onHover { hovering = $0 }
+        .rowHover($hovering)
     }
 
     /// The episodes of the chips the run draws: all of them once expanded, else the first `visibleLimit`.

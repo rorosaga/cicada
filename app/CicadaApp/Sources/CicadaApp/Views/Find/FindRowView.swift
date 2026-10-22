@@ -27,10 +27,10 @@ struct FindRowView: View {
         }
         .padding(.horizontal, CicadaTheme.spacingMD)
         .padding(.vertical, CicadaTheme.spacingSM)
-        .background(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
-            .fill(selected || hovered ? CicadaTheme.surfaceHover : Color.clear))
+        // DR-48 — the palette's rows are rows: the selected one `bgSelected`, a hovered one `bgHover` (both read
+        // `bgHover` until round 2, so the ⏎ target and the pointer's row looked the same).
+        .rowHover($hovered, selected: selected)
         .contentShape(Rectangle())
-        .onHover { hovered = $0 }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(FindRowText.accessibilityLabel(row))
         .accessibilityHint(FindRowText.primaryVerb(row.destination))
@@ -43,16 +43,12 @@ struct FindRowView: View {
                 Text("Was").font(CicadaTheme.font(size: 10, weight: .semibold)).foregroundStyle(CicadaTheme.textTertiary)
             }
             Text(ExcerptText.attributed(row.title, bold: row.titleRanges))
-                .font(CicadaTheme.font(size: 13, weight: .medium))
+                .font(CicadaTheme.rowFont)
                 .foregroundStyle(row.history == nil ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
                 .lineLimit(1)
-            if let badge = row.badge {
-                Text(badge)
-                    .font(CicadaTheme.font(size: 10))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .padding(.horizontal, CicadaTheme.spacingXS)
-                    .background(Capsule().fill(CicadaTheme.surfaceHover))
-            }
+            // DR-44 — the row's type is the one pill, `Tag` (round 3, 2026-10-20: it was a 10 pt capsule of its own in
+            // the hover fill, so on a hovered row it vanished into the row).
+            if let badge = row.badge { Tag(text: badge) }
             if let history = row.history {
                 Text(history).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
             }
@@ -92,6 +88,8 @@ struct FindMarkView: View {
             EntityPicture(id: id, name: name, type: type, size: 20)
         case .origin(let origin):
             OriginMark(origin: origin, size: CicadaTheme.scaled(20))
+        case .savedLink(let site):
+            SavedLinkMark(mark: site, size: .row)
         case .symbol(let name):
             Image(systemName: name)
                 .font(CicadaTheme.font(size: 13))

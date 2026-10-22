@@ -38,7 +38,11 @@ def _split(value: str | None) -> set[str] | None:
 #
 # "+previews" (spelled before "+source-links", which a test pins as the tail): a media node's `picture` is now Cicada's
 # stored preview (`/entities/{id}/preview?v=…`), no longer the provider's URL — no component moved, so the bump does.
-NODE_SHAPE = "aliases+f1-facets+pictures+previews+source-links"
+#
+# Owner ruling 2026-10-20: "+quiet" (spelled before "+source-links", the pinned tail) — a node gained `quiet` (a page only
+# an import made, not yet mentioned; `quiet_pages`). Derived from the entity files the ETag already covers, so no
+# component moved: the bump is what makes every client take one 200.
+NODE_SHAPE = "aliases+f1-facets+pictures+previews+quiet+source-links"
 
 
 @router.get("/graph", response_model=GraphResponse)
