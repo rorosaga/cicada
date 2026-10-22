@@ -317,7 +317,7 @@ def drafts_for_file(folder: dict, relpath: str, text: str, *, mtime_iso: str, sh
         episode_staging.EpisodeDraft(
             title=f"{label} › {relpath}" + (f" › {heading}" if heading else ""),
             source_id=base if not slug else f"{base}#{slug}",
-            source_updated_at=mtime_iso, timestamp=mtime_iso, original_date=mtime_iso[:10],
+            source_updated_at=mtime_iso, timestamp=mtime_iso, original_date=episode_ids.id_day(mtime_iso),
             source=ORIGIN, origin=ORIGIN, body=section, extra=dict(extra),
             queue_for_sleep=authorship == "user", content_sha=sha, writer="folder",
         )

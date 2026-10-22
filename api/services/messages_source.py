@@ -536,7 +536,7 @@ def sitting_draft(cid: str, source_id: str, messages: list[Message], actor: Acto
     first, last = spoken[0].ts, spoken[-1].ts
     return EpisodeDraft(
         title=_title(actor, first), source_id=source_id, source_updated_at=last, timestamp=first,
-        original_date=first[:10], source=SOURCE, origin=ORIGIN, turns=turns, unsent=unsent,
+        original_date=episode_ids.id_day(first), source=SOURCE, origin=ORIGIN, turns=turns, unsent=unsent,
         extra={"conversation": cid, "service": service, "correspondent": actor.to_dict(),
                "message_count": len(spoken), "from_person": sum(1 for m in spoken if m.from_me),
                "sitting_first_at": first, "sitting_last_at": last,

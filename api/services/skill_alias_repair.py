@@ -68,7 +68,7 @@ from typing import Callable
 from loguru import logger
 
 from api.services import (
-    alias_policy, claims, episode_time, git_service, markdown_parser, page_lock, write_admission,
+    alias_policy, claims, episode_time, git_service, markdown_parser, page_lock, source_dates, write_admission,
 )
 from api.services.skill_tag import is_agent_skill
 
@@ -187,8 +187,8 @@ def _episode_day(memory_path: Path, ep_id: str) -> str | None:
         return None
     if not episode_time.counts_as_activity(fm):
         return None
-    stamp = str(fm.get("timestamp") or "")[:10]
-    return stamp if re.fullmatch(r"\d{4}-\d{2}-\d{2}", stamp) else None
+    said = source_dates.stamp_day(fm.get("timestamp"))   # ruling 34: the person's day, not the UTC one
+    return said.isoformat() if said is not None else None
 
 
 def _ground_skill(memory_path: Path, rel: str, fm: dict, body: str, pages: dict[str, tuple[dict, str]],

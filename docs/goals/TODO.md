@@ -8,6 +8,21 @@
 
 ## Current state and evidence
 
+- **2026-10-22 — Sleep dates a conversation by its local day; relayed turns take ChatGPT's zone (ruling 34 follow-up;
+  branch `fix/sleep-local-day`).** One reading rule, `episode_ids.local_day` (any stored stamp → the day it was said in
+  this machine's zone; `ask_sources.local_day` and `change_timeline` now call it). Sleep's day attribution goes through
+  it: `source_dates.episode_day` (the Stage 1 date note, `source_episode_day`, prose repair), a claim's `valid_from`
+  (`entity_extractor._claim_date`, papers), a page's `created`/`last_referenced`/new-mention day
+  (`conflict_resolver._said_day_string`) and the two repairs that date episodes. No decay arithmetic changed. Found on the
+  way: `link_enrichment` dated a `recommends` claim `ep_YYYY-MM` (the episode id's first ten characters), now the day
+  it was said; and four writers still minted ids from a UTC stamp (Messages, Wispr meetings and notes, watched folders,
+  `watch_record`), now `id_day`. Relay: ChatGPT sends `_meta["openai/userLocation"].timezone` with every tool call; the
+  listener reads only that IANA name (never the city or coordinates; nothing stored or logged) and passes the offset to
+  `cicada_capture_turns` — no tool argument added, no schema change. claude.ai sends no zone, and a model is never asked
+  to guess one, so its relayed ids take the server's zone. Left, with reasons (`capture-and-sleep.md`): the id-day
+  readers inside decay (`latest_said`, `mention_weeks`, `inbox_tend._said`), Wispr dictation's UTC-day source key,
+  Messages' titles, and every `[:10]` on a stored day field, telemetry (UTC by design) or git dates. Tests:
+  `test_sleep_local_day.py`.
 - **2026-10-22 — the dev auto-update runs on a Linux server too (G181; branch `feat/linux-dev-autoupdate`).**
   `scripts/dev/install-auto-update.sh` branches on `uname`: on Linux it writes a systemd user timer
   (`cicada-dev-autoupdate.timer`, `OnCalendar=*:0/5`, `Persistent=true`) and its oneshot service; `--uninstall` removes
@@ -1325,7 +1340,9 @@ A whole row moves to DONE only after its remaining implementation and required a
     id readers follow this; Sleep's own dating still takes a conversation's day from the first ten characters of its UTC
     timestamp (`source_dates.episode_day`, used by `entity_extractor`), so words said just after local midnight are
     still dated a day early there — the same rule applies to it — and the remote connector's relay
-    (`cicada_capture_turns`) posts no offset, so its ids take the server's zone.
+    (`cicada_capture_turns`) posts no offset, so its ids take the server's zone. **Done (2026-10-22, `fix/sleep-local-day`):**
+    Sleep dates through `source_dates.episode_day` / `episode_ids.local_day`; a relayed turn from ChatGPT takes the
+    `timezone` its `_meta` hint carries; claude.ai sends none, so its relayed ids keep the server's zone.
 35. **The skill lifecycle: candidates in Cicada, a small proven set in the harness, retired when the model catches up
     (owner question 2026-10-22, decided by the acting owner under the standing go; G112, G201).** The owner's worry:
     "as Claude Code and the models improve, a skill that once patched a gap starts pulling agents back to outdated

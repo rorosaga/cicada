@@ -1421,4 +1421,6 @@ the CLI.
   destructive and not open-world: an app that confirms writes (ChatGPT) asks the person, who can allow it always.
   `REMOTE_CONTRACT_VERSION` 12 puts "Capture every turn" first in the remote contract, only where the connection holds
   the tool (R12 per scope set). What it writes and why it is never the person's own words: `capture-and-sleep.md`,
-  "Hookless apps, through the remote connector".
+  "Hookless apps, through the remote connector". Its schema takes no zone: the listener reads the IANA `timezone` of
+  the `openai/userLocation` hint ChatGPT puts in a call's `_meta` (only that field) so the episode id carries the
+  person's day (ruling 34); claude.ai sends none, and its relayed ids take the server's zone.

@@ -1060,7 +1060,7 @@ def _new_mention_day(change: dict, known: set[str], untimed: frozenset[str]) -> 
     stamps = list(change.get("source_episode_timestamps") or [])
     days: list[str] = []
     if episodes and len(stamps) == len(episodes):
-        days = [d for ep, ts in zip(episodes, stamps) if ep in fresh and (d := _extract_date_string(ts))]
+        days = [d for ep, ts in zip(episodes, stamps) if ep in fresh and (d := _said_day_string(ts))]
     if days:
         return max(days)
     return decay_policy.latest_said(fresh) or _latest_change_date(change)
@@ -1365,12 +1365,21 @@ def _extract_date_string(value: str | None) -> str | None:
         return None
 
 
+def _said_day_string(stamp) -> str | None:
+    """A conversation's stored ``timestamp`` as the day it was said in the person's zone (``source_dates.stamp_day``,
+    ruling 34) — never the first ten characters of a UTC stamp, which dated words said just after local midnight a day
+    early. A page's ``created`` and ``last_referenced`` (and so where decay counts from) take their day from here;
+    the decay arithmetic itself is unchanged. ``None`` when unreadable."""
+    day = source_dates.stamp_day(stamp) if stamp else None
+    return day.isoformat() if day is not None else None
+
+
 def _latest_change_date(change: dict) -> str | None:
     dates = [
-        _extract_date_string(ts)
+        _said_day_string(ts)
         for ts in list(change.get("source_episode_timestamps", []) or [])
     ]
-    fallback = _extract_date_string(change.get("source_episode_timestamp"))
+    fallback = _said_day_string(change.get("source_episode_timestamp"))
     if fallback:
         dates.append(fallback)
     dates = [d for d in dates if d]
@@ -1384,8 +1393,8 @@ def _change_dates(change: dict) -> list[str]:
     the stored timestamps cover a change built without them. Prompt-only: ``last_referenced``/``created`` still
     come from the timestamps alone (``_latest_change_date``)."""
     dates = [_extract_date_string(d) for d in list(change.get("source_episode_days", []) or [])]
-    dates += [_extract_date_string(ts) for ts in list(change.get("source_episode_timestamps", []) or [])]
-    dates.append(_extract_date_string(change.get("source_episode_timestamp")))
+    dates += [_said_day_string(ts) for ts in list(change.get("source_episode_timestamps", []) or [])]
+    dates.append(_said_day_string(change.get("source_episode_timestamp")))
     return sorted({d for d in dates if d})
 
 
@@ -1397,10 +1406,10 @@ def _days_line(days) -> str:
 
 def _earliest_change_date(change: dict) -> str | None:
     dates = [
-        _extract_date_string(ts)
+        _said_day_string(ts)
         for ts in list(change.get("source_episode_timestamps", []) or [])
     ]
-    fallback = _extract_date_string(change.get("source_episode_timestamp"))
+    fallback = _said_day_string(change.get("source_episode_timestamp"))
     if fallback:
         dates.append(fallback)
     dates = [d for d in dates if d]

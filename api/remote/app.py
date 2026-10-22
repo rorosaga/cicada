@@ -141,6 +141,14 @@ def client_name(body: bytes) -> str | None:
     return None
 
 
+def _meta(params) -> dict | None:
+    """A request's client-sent ``_meta`` as a dict (the SDK hands it over as a mapping or a model), else ``None``."""
+    meta = getattr(params, "meta", None)
+    if meta is not None and not isinstance(meta, dict) and hasattr(meta, "model_dump"):
+        meta = meta.model_dump(by_alias=True)
+    return meta if isinstance(meta, dict) else None
+
+
 def _bearer(value: str | None) -> str:
     value = (value or "").strip()
     return value[7:].strip() if value.lower().startswith("bearer ") else ""
@@ -295,8 +303,15 @@ def build_app(store: remote_store.ConnectorStore | None = None, *, runtime: Remo
         return types.ListToolsResult(tools=[_tool(d) for d in remote_tools.tool_defs_for(_caller(ctx).scopes)])
 
     async def call_tool(ctx, params) -> types.CallToolResult:
+        # Ruling 34: a relayed turn's day follows the zone hint the app sent, when it sent one (`relay_capture`).
+        offset = None
+        if params.name == "cicada_capture_turns":
+            from api.services import relay_capture
+
+            offset = relay_capture.offset_from_meta(_meta(params))
         text, status = await anyio.to_thread.run_sync(
-            partial(runtime.call, _caller(ctx), params.name, dict(params.arguments or {})), limiter=limiter)
+            partial(runtime.call, _caller(ctx), params.name, dict(params.arguments or {}), utc_offset_minutes=offset),
+            limiter=limiter)
         return types.CallToolResult(content=[types.TextContent(type="text", text=text)], is_error=status != "ok")
 
     async def protected_resource(request: Request) -> Response:

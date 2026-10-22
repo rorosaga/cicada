@@ -796,15 +796,10 @@ async def extract(
 
 
 def _claim_date(timestamp: str | None, episode_id: str) -> str:
-    """A YYYY-MM-DD date from the episode timestamp, falling back to its id."""
-    ts = str(timestamp or "").strip()
-    if len(ts) >= 10 and ts[4:5] == "-" and ts[7:8] == "-":
-        return ts[:10]
-    # episode ids are ep_YYYY-MM-DD_NNN — recover the date head if present.
-    import re
-
-    m = re.search(r"(\d{4}-\d{2}-\d{2})", episode_id or "")
-    return m.group(1) if m else ""
+    """A claim's ``valid_from``: the conversation's day in the person's zone (``source_dates.episode_day``, ruling
+    34) — its timestamp, falling back to the date in its id; ``""`` when neither dates it."""
+    day = source_dates.episode_day({"timestamp": timestamp, "id": episode_id})
+    return day.isoformat() if day is not None else ""
 
 
 def _emit_claim_id(subject: str, predicate: str, obj: str, valid_from: str) -> str:

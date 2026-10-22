@@ -744,12 +744,12 @@ def write_note_episode(memory_path: Path, text: str, *, origin: str, title: str,
     instant: two identical notes on two days are two episodes, never a dedup.
     `key` (an inbox item id) is appended when a caller can answer several items in
     one second, so their notes never share a `source_id` (G141 final review)."""
-    from api.services import episode_staging
+    from api.services import episode_ids, episode_staging
 
     instant = when_mod.utc_z(now)
     draft = episode_staging.EpisodeDraft(
         title=title, source_id=f"companion-app:{instant}" + (f":{key}" if key else ""), timestamp=instant,
-        original_date=now.date().isoformat(),
+        original_date=episode_ids.id_day(now),   # ruling 34: the local day, whatever zone `now` carries
         source="companion_app", origin=origin, turns=[episode_staging.Turn(text=text, speaker="user", ts=instant)],
         queue_for_sleep=False, processed_by="user", writer="companion_app")
     result = episode_staging.stage([draft], Path(memory_path) / "episodes", bank=Path(memory_path).name)
