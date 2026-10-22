@@ -238,3 +238,24 @@ def test_the_dry_run_lists_each_pair_and_writes_nothing(bank, capsys):
     assert {(r["page"], r["holder"], r["kind"]) for r in rows} == {
         ("bexample", "bob-example", "alias"), ("pending:asample (Ann Sample)", "ann-sample", "named_handle")}
     assert sorted((p.name, p.stat().st_mtime_ns) for p in bank.rglob("*") if p.is_file()) == before
+
+
+def test_a_duplicate_question_about_a_parked_name_stays_live_until_its_line_goes(bank):
+    """Stage 2 asks "is <name> the same as <page>?" about a name it parked below the promotion bar. The inbox read and
+    Sleep's tending used to read the missing page as "no longer in your memory" and retire it the same night."""
+    from api.services import inbox_service, inbox_tend
+
+    (bank / "entities" / "bob-example.md").write_text("---\nname: Bob Example\ntype: person\n---\n## Summary\nx\n")
+    pending_store.upsert(bank, PendingEntity(name="bexample", type="person", description="",
+                                             source_episode="ep_2026-10-01_001", confidence=0.4, tags=[],
+                                             history_entries=[]))
+    assert inbox_service._subject_gone(bank, "bexample", "merge_suggestion") is False
+    fm = {"kind": "merge_suggestion", "status": "pending", "entity_id": "bexample", "entity_name": "bexample",
+          "merge_target_hint": "bob-example", "uncertainty_type": "Possible duplicate of Bob Example"}
+    path = bank / "inbox" / "inbox-001.md"
+    markdown_parser.write(path, fm, "Bob Example links the x account “bexample”.")
+    decision, _ = inbox_tend.policy(bank, path, fm)
+    assert decision is None or decision.rule != "subject_gone"
+
+    pending_store.save(bank, [])
+    assert inbox_service._subject_gone(bank, "bexample", "merge_suggestion") is True

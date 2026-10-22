@@ -304,6 +304,12 @@ def _subject_gone(memory_path: Path, entity_id: str, kind: str) -> bool:
         return False
     filepath = resolve_entity_file(memory_path, entity_id)
     if filepath is None:
+        if kind == "merge_suggestion":
+            # G209: Stage 2 asks "is <name> the same as <page>?" about a name it parked below the promotion bar —
+            # no page yet, still in memory. Gone only once its pending line is too.
+            from api.services import pending_store
+
+            return sanitize_id(entity_id) not in pending_store.waiting_ids(memory_path)
         return kind != "clarification"
     # The page's header through `bank_index` (mtime-gated): a warm process re-parses no page that did not move
     # (inbox lag, 2026-10-17). A malformed or vanished page is `None` — fail open, as a parse error always was.
