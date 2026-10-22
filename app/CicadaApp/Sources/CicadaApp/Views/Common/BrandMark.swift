@@ -23,6 +23,10 @@ enum BrandMark {
         switch name {
         case "claude-code": Composition(file: "claude", badge: .terminal)
         case "claude-desktop": Composition(file: "claude", badge: nil)
+        // G217 (owner 2026-10-22): one mark per provider umbrella. Codex and ChatGPT are OpenAI's products and draw
+        // its mark; Gemini CLI draws Gemini's. The logical names stay, so no caller changes.
+        case "codex", "chatgpt": Composition(file: "openai", badge: nil)
+        case "gemini-cli": Composition(file: "gemini", badge: nil)
         default: Composition(file: name, badge: nil)
         }
     }
