@@ -409,7 +409,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /intake/import": (CAPTURE, None),
     "PUT /agent-methods": (HELD, "api.services.skill_pages.ensure"),
     "POST /agent-methods/skills/{skill}/page": (HELD, "api.services.skill_pages.ensure"),
-    "POST /sources/save": (ADMITTED, None),
+    "POST /sources/save": (ADMITTED, "api.routers.sources._save_source"),   # G212: wrapped by its Idempotency-Key
     "POST /sources/saved-why": (ADMITTED, None),       # G191: the answer on the link's episode, committed alone
     "PUT /sources/saved-why": (ADMITTED, None),        # G191 v3: the person's edit of one answer, committed alone
     "POST /sources/bookmarks/remove": (ADMITTED, None),   # G191 v3: the page archived, the episode tombstoned
@@ -460,7 +460,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "PUT /sources/messages/photos": (OUTSIDE, None),           # 2026-10-16: a chat's shared photo, a cache outside every bank
     "POST /capture/telegram": (INTAKE, None),
     "POST /capture/transcript": (CAPTURE, None),
-    "POST /capture/turn": (CAPTURE, None),   # capture-everywhere: the same writer as the Stop hook
+    "POST /capture/turn": (CAPTURE, None),
+    "POST /capture/note": (CAPTURE, None),   # G212: a note a device sent, staged like every source-keyed capture   # capture-everywhere: the same writer as the Stop hook
     "POST /capture/session": (CAPTURE, None),   # G181 phase 2: a session read on its own machine, the same writer
     "POST /tools/call": (DOOR, None),
     "POST /v1/{op}": (REMOTE, None),

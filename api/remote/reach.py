@@ -105,6 +105,67 @@ def detect(port: int, *, which=shutil.which, run=subprocess.run, exists=_is_exec
     return Reach("funnel-on" if url else "no-funnel", url, ngrok)
 
 
+@dataclass(frozen=True)
+class TailnetBackend:
+    """Where a device on the person's tailnet reaches the BACKEND (G212, owner 2026-10-22) — read from the same one
+    ServeConfig read as :func:`detect`, never by starting or changing anything."""
+    tailscale: str            # "missing" | "stopped" | "running"
+    url: str | None           # an https serve of the backend port, tailnet-only (never a funnelled one)
+    public: bool = False      # the backend port is FUNNELLED: a public door the headless rail forbids; never used
+
+
+#: The https port Cicada suggests for serving the backend to the tailnet: 443 is where the G135 listener's funnel goes
+#: (a port is either served or funnelled, never both), and 8443 is free for a tailnet-only serve.
+BACKEND_SERVE_HTTPS_PORT = 8443
+
+
+def serve_command(port: int) -> str:
+    """The command the PERSON runs to give their tailnet the backend (Cicada never runs it, G132 (c))."""
+    return f"tailscale serve --bg --https={BACKEND_SERVE_HTTPS_PORT} {port}"
+
+
+def serve_url_for_port(status: dict, port: int) -> tuple[str | None, bool]:
+    """``(url, funnelled)``: an https serve whose ``/`` proxies to ``port`` on loopback. A tailnet-only serve is the
+    url; one the ServeConfig also funnels is reported as ``funnelled`` with no url — the backend never has a public
+    port (G181), so a QR never carries one."""
+    configs = [status] + [v for v in _dict(status.get("Foreground")).values() if isinstance(v, dict)]
+    funnelled = False
+    for config in configs:
+        allowed = _dict(config.get("AllowFunnel"))
+        for hostport, web in _dict(config.get("Web")).items():
+            root = _dict(_dict(_dict(web).get("Handlers")).get("/"))
+            if not _proxies_to(str(root.get("Proxy") or ""), port):
+                continue
+            if allowed.get(hostport):
+                funnelled = True
+                continue
+            host, _, https_port = hostport.rpartition(":")
+            if host:
+                return (f"https://{host}" if https_port in ("443", "") else f"https://{host}:{https_port}"), False
+    return None, funnelled
+
+
+def tailnet_backend(port: int, *, which=shutil.which, run=subprocess.run, exists=_is_executable) -> TailnetBackend:
+    """One bounded, read-only ``tailscale funnel status --json`` (2 s) — the local daemon's own ServeConfig, the read
+    :func:`detect` already makes for `GET /remote/status`. No second command and no LocalAPI socket: the ServeConfig is
+    the only answer that proves a URL actually reaches the backend, and the self DNS name alone would put an address
+    in a QR that leads nowhere until the person serves the port."""
+    tailscale = find_tool("tailscale", which=which, exists=exists) or (
+        TAILSCALE_APP_CLI if exists(TAILSCALE_APP_CLI) else None)
+    if not tailscale:
+        return TailnetBackend("missing", None)
+    try:
+        done = run([tailscale, "funnel", "status", "--json"], capture_output=True, text=True, timeout=2.0,
+                   check=False)
+        status = json.loads(done.stdout or "{}") if done.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        status = None
+    if not isinstance(status, dict):
+        return TailnetBackend("stopped", None)
+    url, funnelled = serve_url_for_port(status, port)
+    return TailnetBackend("running", url, funnelled)
+
+
 def probe(base_url: str, *, fetch=None, timeout: float = 3.0) -> bool:
     """Is Cicada really answering at ``base_url``? A GET of the public
     protected-resource metadata: no token, no redirects, no proxy env, 3 s.

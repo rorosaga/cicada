@@ -321,8 +321,9 @@ ROWS: tuple[Row, ...] = (
     _app(("device", "revoke"), "Revoke a device's token at once.", (_p("device_id"),), via="backend", mutates=True,
          person=True),
     # G212 (2026-10-22): a one-time code a new device trades once for its own token (`POST /pair`).
-    _app(("device", "pair"), "Show a one-time code (and its QR payload) a new device trades for its own token.",
-         (_f("url"),), via="backend", mutates=True, person=True),
+    _app(("device", "pair"), "Show a one-time code (and its QR payload) a new device trades for its own token "
+         "(--kind capture for a phone, the default; full for a computer).",
+         (_f("url"), _f("kind")), via="backend", mutates=True, person=True),
     # G213 (2026-10-22): a token for an agent that speaks HTTP, not MCP, and the paragraph to give it.
     _app(("agent", "add"), "Make a token for a personal agent on the HTTP agent API, and the paragraph to give it.",
          (_p("agent_name"), _f("scope", "list"), _f("days", "int"), _f("url")), via="backend", mutates=True,

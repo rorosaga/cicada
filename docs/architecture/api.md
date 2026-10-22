@@ -123,6 +123,38 @@ spent by the first redeem in the statement that checks it, is kept only as its s
 bank (`NO_BANK_WRITE`). **Hyrum, mode A:** stable — the paths, `qr`'s three keys and `v: 1`, the code's alphabet and
 `XXXX-XXXX` spelling, `state`'s four words; not stable — the 10-minute life, the five-code cap, the rate.
 
+**A phone is capture-only; the QR knows this machine's tailnet name (G212, owner 2026-10-22).**
+- **Kinds.** `POST /devices/pairing` takes `kind: "capture"` (the default — a phone) or `"full"` (another computer);
+  the answer adds `kind` and the pairing and device wires carry it. `cicada device add` and `POST /devices` issue
+  `full`, as before; a store from before the column reads every device as `full`. A **capture** token reaches exactly
+  `POST /sources/save`, `POST /capture/note` and `GET /capture/mine` (`auth.CAPTURE_ROUTES`, exact paths) — every
+  other route, the device routes included, is 403 "this device may only send captures" — and `/healthz` gives it the
+  open answer (status, version, bank ids; never the memory's path or counts). So a phone validates its token with
+  `GET /capture/mine`, not `GET /devices`.
+- **The QR's `url`.** `qr` is still exactly `{v: 1, url, code}`. With no `url` in the request the backend fills it from
+  the person's own `tailscale serve` of the backend port: one bounded (2 s), read-only `tailscale funnel status
+  --json` — the same ServeConfig read `GET /remote/status` already makes, no new command, no LocalAPI socket
+  (`reach.tailnet_backend`). The ServeConfig is the only local answer that proves an address reaches the backend; the
+  machine's DNS name alone would put a URL in the QR that leads nowhere until the port is served. A serve that is also
+  **funnelled** is never used (`reach.public: true`): the backend has no public port (G181). The answer's `reach`
+  (`{tailscale, url, public, serveCommand}`, null when the request named a `url`) says what the person would run when
+  nothing serves the port: `tailscale serve --bg --https=8443 <port>` — tailnet only, 8443 because 443 is where the
+  G135 listener's funnel goes and a port is served or funnelled, never both. Cicada never runs it.
+- **A thought in the person's words: `POST /capture/note`** `{text, title?, id?}` (demo-gated, Awake: no Sleep gate, no
+  model). One `user:` turn — the person's own words, never `origin: mcp` — staged through `episode_staging` (scrub,
+  one writer, `source_id` `note:<device>:<id>`), queued for Sleep, `device` stamped; `origin: phone` from a capture
+  device, `note` from any other token. Its identity is `id`, else the `Idempotency-Key`, else the words themselves.
+  Answers `{status: created|updated|unchanged, episodeId}`. Links stay on `POST /sources/save` `{url, note?}`.
+- **`GET /capture/mine`** (a device token): the asking device's newest captures, at most 20 of the newest 500
+  episodes — `{captures: [{id, title, timestamp, processed, url}]}`, never a body, never another device's.
+- **`Idempotency-Key`** on `POST /sources/save` and `POST /capture/note`: a resend with the same key gets the first
+  answer and writes nothing (`idempotency`). Measured on a scratch server: a link with a note resent **without** a key
+  writes one more "Note on …" episode; with the key, none. Keys are scoped to the sender (`device:<id>` or `server`)
+  and the route, kept as sha256 with the answer's JSON in `$CICADA_HOME/idempotency/keys.db` (outside every bank),
+  for 24 h; only a 2xx is kept, so a refused save (Sleep, a bad link) runs again.
+- **Hyrum, mode A:** stable — the two kind words, `CAPTURE_ROUTES`' three routes, `qr`'s keys, `reach`'s four keys,
+  the note and mine shapes, the header name; not stable — the 24 h TTL, the 20/500 limits, the suggested 8443.
+
 **The agent API (G213, 2026-10-22).** For an agent that speaks HTTP but not MCP. `POST /v1/<op>` with
 `Authorization: Bearer <connector token>` and a JSON object body; operations `recall`, `ask`, `page`, `timeline`,
 `project`, `save_note`, `save_url`, `write_claim`, `retract_claim`, `inbox`, `resolve_inbox` — each one remote tool

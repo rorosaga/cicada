@@ -8,6 +8,8 @@ pinned to or checked against a bank (``bank_binding.NO_BANK_WRITE``). The token 
 """
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
@@ -98,6 +100,9 @@ class PairingCreateRequest(BaseModel):
     #: Where the new device will reach this server — the person's overlay address (`https://…`, or `http://` to a
     #: loopback address only, the client rule of ruling 28). Carried in the QR; never fetched. Omit and the app fills it.
     url: str | None = Field(None, max_length=300)
+    #: What the device it mints may do (owner 2026-10-22): ``capture`` — a phone: send links and notes and read back
+    #: its own captures, nothing else (the default); ``full`` — another computer, as `cicada device add` issues.
+    kind: Literal["capture", "full"] = "capture"
 
 
 class PairRequest(BaseModel):
@@ -122,13 +127,27 @@ def _pair_url(raw: str | None) -> str | None:
 
 
 @router.post("/devices/pairing", status_code=201)
-async def create_pairing(req: PairingCreateRequest):
+async def create_pairing(req: PairingCreateRequest, settings: Settings = Depends(get_settings)):
+    """A one-time code. ``qr`` stays exactly ``{v: 1, url, code}`` (the phone app decodes it). With no ``url`` given,
+    the backend fills it with this machine's tailnet address for the backend's port when — and only when — the
+    person's own ``tailscale serve`` already proves one (``reach.tailnet_backend``: one bounded, read-only ServeConfig
+    read, the one `GET /remote/status` makes); otherwise ``url`` is null and ``reach`` says what the person would run.
+    A funnelled backend port is never put in a QR (G181: the backend has no public port)."""
     url = _pair_url(req.url)
+    reach_info = None
+    if url is None:
+        from api.remote import reach
+
+        found = await run_in_threadpool(reach.tailnet_backend, settings.port)
+        url = found.url
+        reach_info = {"tailscale": found.tailscale, "url": found.url, "public": found.public,
+                      "serveCommand": None if found.url else reach.serve_command(settings.port)}
     try:
-        pairing, code = await run_in_threadpool(device_tokens.store().create_pairing)
+        pairing, code = await run_in_threadpool(lambda: device_tokens.store().create_pairing(kind=req.kind))
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
-    return {"pairing": pairing.wire(), "code": code, "qr": {"v": 1, "url": url, "code": code}}
+    return {"pairing": pairing.wire(), "code": code, "kind": pairing.kind, "reach": reach_info,
+            "qr": {"v": 1, "url": url, "code": code}}
 
 
 @router.get("/devices/pairing/{pairing_id}")

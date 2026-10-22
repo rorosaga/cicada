@@ -45,8 +45,11 @@ def _backend(calls, *, down=False, paired=True):
         if path == "/remote/status":
             return {"tailscale": "funnel-on", "effectiveUrl": "https://cicada.example.ts.net"}
         if path == "/devices/pairing":
+            # The server fills the QR with its tailnet serve when the person gave no url (G212).
             return {"pairing": {"id": "ab12cd34", "state": "waiting"}, "code": "ABCD-EFGH",
-                    "qr": {"v": 1, "url": (body or {}).get("url"), "code": "ABCD-EFGH"}}
+                    "kind": (body or {}).get("kind"),
+                    "qr": {"v": 1, "url": (body or {}).get("url") or "https://mac.example.ts.net:8443",
+                           "code": "ABCD-EFGH"}}
         if path.startswith("/devices/pairing/"):
             return {"pairing": {"state": "paired" if paired else "waiting"},
                     "device": {"id": "zz99yy88", "name": "Example Phone"} if paired else None}
@@ -67,11 +70,13 @@ def test_without_a_terminal_it_reports_and_writes_nothing():
 
 def test_each_step_runs_only_on_a_yes_and_runs_what_it_showed():
     calls, ran = [], []
-    ui = Scripted([True, True, "", True, "Texting Agent"])
+    ui = Scripted([True, True, True, True, "Texting Agent"])
     result = cli_setup.run_setup(call=_backend(calls), ui=ui, run=lambda argv: ran.append(argv) or 0)
     assert ran == [ARGV]
     assert result.data["connected"] == ["example-agent"]
-    assert result.data["pairing"]["qr"]["url"] == "https://cicada.example.ts.net"
+    assert result.data["pairing"]["qr"]["url"] == "https://mac.example.ts.net:8443"
+    pairing_call = next(c for c in calls if c[1] == "/devices/pairing")
+    assert pairing_call[2] == {"kind": "capture"}   # never the listener's public address
     assert result.data["pairing"]["paired"]["name"] == "Example Phone"
     token_call = next(c for c in calls if c[1] == "/agent-api/tokens")
     assert token_call[2]["name"] == "Texting Agent" and token_call[2]["baseUrl"] == "https://cicada.example.ts.net"
@@ -104,7 +109,8 @@ def test_flags_run_their_step_without_a_terminal():
                                  agent_name="Texting Agent", url="https://other.example.ts.net")
     posted = [c for c in calls if c[0] == "POST"]
     assert [c[1] for c in posted] == ["/devices/pairing", "/agent-api/tokens"]
-    assert posted[0][2] == {"url": "https://other.example.ts.net"}
+    assert posted[0][2] == {"kind": "capture"}   # --url is the agent's (public) address, never the QR's
+    assert posted[1][2]["baseUrl"] == "https://other.example.ts.net"
     assert result.data["pairing"]["paired"] is None   # no wait without a terminal
 
 

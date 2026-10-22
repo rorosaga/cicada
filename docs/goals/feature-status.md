@@ -18,8 +18,8 @@ Status, in order: `proposed` → `building` (a branch exists) → `PR #n` (open 
 | [G209](memory-evolution.md#g209) | Duplicate people: in-cycle aliases, "same person?" questions | building | — | 2026-10-22 |
 | [G210](memory-evolution.md#g210) | Recall shows how old a belief is | proposed | — | 2026-10-22 |
 | [G141](memory-evolution.md#g141) | Projects born from a repository or the person's words; standard sections (cited as G211) | proposed | — | 2026-10-22 |
-| [G212](memory-evolution.md#g212) | Devices: each machine by its own name, connected status, easy pairing (backend #425/#424 merged; app: Sleep's machines strip with per-machine queues, PR #428; Settings → Devices and pairing by UI-A) | PR #428 | [#425](https://github.com/rorosaga/cicada/pull/425), [#428](https://github.com/rorosaga/cicada/pull/428) | 2026-10-22 |
-| [G213](memory-evolution.md#g213) | HTTP API for agents without MCP; `cicada setup` | proposed | — | 2026-10-22 |
+| [G212](memory-evolution.md#g212) | Devices: each machine by its own name, connected status, easy pairing (backend #425/#424 merged; app: Sleep's machines strip with per-machine queues, PR #428; Settings → Devices and pairing by UI-A; phone = capture-only token, tailnet URL in the QR, `/capture/note`, `Idempotency-Key` in feat/phone-pairing) | PR #428 | [#425](https://github.com/rorosaga/cicada/pull/425), [#428](https://github.com/rorosaga/cicada/pull/428) | 2026-10-22 |
+| [G213](memory-evolution.md#g213) | HTTP API for agents without MCP; `cicada setup` | merged | [#424](https://github.com/rorosaga/cicada/pull/424) | 2026-10-22 |
 | [G135](memory-evolution.md#g135) | Phones through the Claude, ChatGPT and Gemini apps (cited as G214) | proposed | — | 2026-10-22 |
 | [G91](memory-evolution.md#g91) | `cicada-app`: phone capture app, paired as a device (cited as G214) | building | — | 2026-10-22 |
 | [G216](memory-evolution.md#g216) | Recall stays under the harness's result cap | merged | #418 | 2026-10-22 |
