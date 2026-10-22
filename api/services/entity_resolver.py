@@ -335,6 +335,8 @@ async def resolve(
                 existing_by_name=existing_by_name,
                 created_by_id=resolved_creates,
             )
+            if match is None:
+                match = _answered_match(entity, aliases)
             if match is not None and lookahead is not None:
                 lookahead.discard(done_names)
             if match is None:
@@ -386,9 +388,14 @@ async def resolve(
                 continue
 
             ambiguous_match = match is not None and match["decision"] == "unsure"
+            if ambiguous_match and _said_different(settings.memory_path, name, match["candidate"]["id"]):
+                # The person already said these are different: the name goes on by the usual rule (its own page or
+                # a pending line), never held back by a question that will not be asked again.
+                match, ambiguous_match = None, False
             if match is None and (entity.get("type") or "").lower() == "person":
                 # G209: a new name that another person page links as its account is asked about, not given a page.
-                linked = [(pid, kind) for pid, kind in person_index.holders_of(name) if kind.startswith("profile:")]
+                linked = [(pid, kind) for pid, kind in person_index.holders_of(name)
+                          if kind.startswith("profile:") and not _said_different(settings.memory_path, name, pid)]
                 if linked:
                     pid, kind = linked[0]
                     match = {"decision": "unsure", "candidate": {"source": "existing", "id": pid,
@@ -1182,6 +1189,30 @@ def _fold_pending(change: dict, line: PendingEntity) -> None:
         _append_change_source(change, {"source_episode": episode,
                                        "source_episode_timestamp": record.get("timestamp"),
                                        "source_episode_day": record.get("day")})
+
+
+def _answered_match(entity: dict, aliases: dict[str, list[dict]]) -> dict | None:
+    """G209: the page the person said this name is. Their merge answer recorded the name among the page's aliases and
+    left its note (`person_leads.answered_same`): the person's own word, so the name goes there with no judge and no
+    question. Same type only; two pages carrying the answer for one name is no answer."""
+    name = entity.get("name") or ""
+    new_type = (entity.get("type") or "concept").lower()
+    holders = [page for page in aliases.get(person_leads.handle_key(name), ())
+               if str((page.get("frontmatter") or {}).get("type") or "concept").lower() == new_type
+               and person_leads.answered_same(page, name)]
+    if len(holders) != 1:
+        return None
+    return {"decision": "same", "candidate": {"source": "existing", "id": holders[0]["id"], "data": holders[0]}}
+
+
+def _said_different(memory_path, name: str, page_id: str) -> bool:
+    """The person answered that ``name`` and ``page_id`` are not the same (`merge_rejections`)."""
+    from api.services import merge_rejections
+
+    try:
+        return merge_rejections.is_rejected(Path(memory_path), sanitize_id(name), page_id)
+    except Exception:
+        return False
 
 
 def _named_handle_lines(memory_path) -> dict[str, list[PendingEntity]]:

@@ -1423,6 +1423,12 @@ Nothing here settles who a person is (ruling 29): every lead ends in the person'
 a name still parked below the promotion bar is live while its pending line exists (`inbox_service._subject_gone`,
 `pending_store.waiting_ids`). Before 2026-10-22 it was read as "no longer in your memory", hidden from the inbox and
 retired by Sleep's tending the same night. That predated G209 and also hit Stage 2's own `unsure` duplicates.
+**The person's answer sticks (review of #421).** A "same" answer on a name with no page adds the name to the target's
+aliases and takes its pending line (a line still holding claims stays until they are written there). Stage 2 then reads
+the answer's note on the page (`person_leads.answered_same`) as the person's own verdict: the name goes to that page,
+with no judge and no question. A "different" answer (`merge_rejections`) drops that page from both the lead and the
+judge's `unsure`, so the name promotes or parks by the usual rule and is never held back by a question that will not be
+asked again.
 `python -m api.scripts.person_leads_dry_run --bank <path> [--json]` lists every lead for a bank: page↔page, a parked
 name another page carries, and a parked `handle (Full Name)` line with its page. Each lead shows whether its question is
 open or was answered "different". It writes nothing. Proven on a scratch bank (plan, haiku): four conversations naming

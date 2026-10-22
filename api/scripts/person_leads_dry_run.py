@@ -7,8 +7,11 @@ among its aliases), ``profile:<site>`` (the holder links that account; the other
 parked below the promotion bar, ``pending:<name>``), ``named_handle`` (a pending line parked as
 "handle (Full Name)" whose full name has a page, which the next Sleep that hears the name folds in). Each lead also
 says whether a "Possible duplicate" question is already open for the pair, or the person already said they are
-different. Sleep raises the question for a lead the next time either page is mentioned; nothing here asks, merges or
-writes. Output carries page ids and names from the bank, so it stays on the person's machine. Exit 0 done, 2 not a bank.
+different. What Sleep does with each, the next time a conversation names it: a page↔page lead raises the question
+when either page is mentioned; a parked name another page links as an account raises it when that name is mentioned
+again; a parked name another page lists as an alias goes to the alias judge when mentioned again (``same`` merges,
+``unsure`` asks, ``different`` leaves it parked or promotes it); a ``handle (Full Name)`` line folds in when the full
+name is mentioned. Nothing here asks, merges or writes. Output carries page ids and names from the bank, so it stays on the person's machine. Exit 0 done, 2 not a bank.
 """
 from __future__ import annotations
 

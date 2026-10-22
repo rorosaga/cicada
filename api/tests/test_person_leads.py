@@ -265,3 +265,101 @@ def test_a_duplicate_question_about_a_parked_name_stays_live_until_its_line_goes
 
     pending_store.save(bank, [])
     assert inbox_service._subject_gone(bank, "bexample", "merge_suggestion") is True
+
+
+# ---------- the person's answer sticks (review of #421, blocker 1) ----------
+
+class _AnswerSettings:
+    def __init__(self, memory_path):
+        self.memory_path = memory_path
+        self.inbox_defer_days = 30
+        self.litellm_model = "test-model"
+        self.inbox_stale_after_days = 90
+
+
+def _git(bank, *args):
+    import subprocess
+
+    return subprocess.run(["git", "-C", str(bank), *args], check=True, capture_output=True, text=True).stdout
+
+
+def _pages_on_disk(bank):
+    out = []
+    for path in sorted((bank / "entities").glob("*.md")):
+        parsed = markdown_parser.parse(path)
+        out.append({"id": path.stem, "frontmatter": parsed.frontmatter, "body": parsed.body})
+    return out
+
+
+@pytest.fixture
+def answered_bank(bank):
+    """A person page linking an X account, a name equal to its handle parked below promotion, and the lead's question."""
+    markdown_parser.write(bank / "entities" / "bob-example.md",
+                          {"name": "Bob Example", "type": "person", "status": "active", "confidence": 0.8},
+                          "## Summary\nA synthetic person.\n\n## Links\n- [X](https://x.com/bexample)\n")
+    pending_store.upsert(bank, PendingEntity(name="bexample", type="person", description="",
+                                             source_episode="ep_2026-10-01_001", confidence=0.7, tags=[],
+                                             history_entries=[]))
+    for args in (["init", "-q"], ["config", "user.email", "t@example.com"], ["config", "user.name", "t"]):
+        _git(bank, *args)
+    return bank
+
+
+def _ask_then_commit(bank, monkeypatch):
+    result = _resolve(bank, monkeypatch, _pages_on_disk(bank), [_mention("bexample", 1)], _Judge())
+    assert _creates(result) == []
+    [item] = sorted((bank / "inbox").glob("inbox-*.md"))
+    _git(bank, "add", "-A")
+    _git(bank, "commit", "-q", "-m", "seed")
+    return item.stem
+
+
+def _answer(bank, item_id, **request):
+    from api.models.schemas import InboxResolveRequest
+    from api.services import inbox_service
+
+    return asyncio.run(inbox_service.resolve(item_id, InboxResolveRequest(**request), _AnswerSettings(bank)))
+
+
+def test_a_same_answer_on_a_name_with_no_page_makes_it_the_pages_name_and_is_never_asked_again(answered_bank,
+                                                                                                 monkeypatch):
+    bank = answered_bank
+    item = _ask_then_commit(bank, monkeypatch)
+    _answer(bank, item, action="merge", merge_target="bob-example")
+
+    page = markdown_parser.parse(bank / "entities" / "bob-example.md")
+    assert "bexample" in page.frontmatter["aliases"]
+    assert person_leads.answered_same({"body": page.body}, "bexample")
+    assert pending_store.load(bank) == []                       # the parked line left with the answer
+    assert "pending_entities.jsonl" in _git(bank, "show", "--name-only", "--format=", "HEAD~1") + \
+        _git(bank, "show", "--name-only", "--format=", "HEAD")
+    assert _questions(bank) == []
+
+    # The next Sleep that hears the name sends it to the page the person named: no judge, no question.
+    judge = _Judge("unsure")
+    result = _resolve(bank, monkeypatch, _pages_on_disk(bank),
+                      [_mention("bexample", 2), _mention("bexample", 3)], judge)
+    assert judge.calls == []
+    assert [(c["id"], c["action"]) for c in result["changes"]] == [("bob-example", "update")]
+    assert _questions(bank) == []
+
+
+def test_a_different_answer_lets_the_name_promote_by_the_usual_rule(answered_bank, monkeypatch):
+    bank = answered_bank
+    item = _ask_then_commit(bank, monkeypatch)
+    _answer(bank, item, action="reject")
+
+    result = _resolve(bank, monkeypatch, _pages_on_disk(bank),
+                      [_mention("bexample", 2), _mention("bexample", 3)], _Judge())
+    assert _creates(result) == ["bexample"]                     # no longer held back by a question never asked again
+    assert _questions(bank) == []
+
+
+def test_a_judge_unsure_on_a_pair_the_person_rejected_no_longer_strands_the_name(bank, monkeypatch):
+    from api.services import merge_rejections
+
+    pages = [_page("Bob Example", aliases=["bexample"])]
+    merge_rejections.add_rejected(bank, "bexample", "bob-example")
+    result = _resolve(bank, monkeypatch, pages, [_mention("bexample", 1), _mention("bexample", 2)], _Judge("unsure"))
+    assert _creates(result) == ["bexample"]
+    assert _questions(bank) == []

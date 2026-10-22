@@ -221,6 +221,21 @@ class PersonIndex:
         return out
 
 
+_ANSWERED = re.compile(r"_Resolved ambiguous mention '(.+?)' into this entity\._")
+
+
+def answered_note(mention: str) -> str:
+    """The line a person's "same" answer leaves on the page it merged a mention into (``inbox_service``)."""
+    return f"_Resolved ambiguous mention '{mention}' into this entity._"
+
+
+def answered_same(page: dict, name: str) -> bool:
+    """Did the person answer that ``name`` is this page? Their merge answer left :func:`answered_note` in its body: the
+    person's own word on the record (ruling 29), so Stage 2 sends the name there and never asks again."""
+    key = handle_key(name)
+    return any(handle_key(m) == key for m in _ANSWERED.findall(str(page.get("body") or "")))
+
+
 def lead_reason(lead: Lead, holder_name: str) -> str:
     """The question's context in words: what on the record made the two pages meet."""
     if lead.kind == "alias":
