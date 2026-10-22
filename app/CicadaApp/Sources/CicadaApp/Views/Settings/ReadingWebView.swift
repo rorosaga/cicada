@@ -231,7 +231,8 @@ final class ReadingAgentModel {
 /// the choices are still the person's to make ahead, and a search hit or link on one opens the fold.
 struct ReadingWebView: View {
     @State private var model = ReadingAgentModel()
-    @State private var methodsOpen = false
+    /// DR-39 — per viewer, never synced, like Plans & keys' key-card fold.
+    @AppStorage("cicada.reading.methodsOpen") private var methodsOpen = false
     @State private var showSheet = false
     /// The site whose switch raised the sheet: it rides the "Turn on" call.
     @State private var pendingSite: String?
