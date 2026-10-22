@@ -1341,8 +1341,9 @@ A whole row moves to DONE only after its remaining implementation and required a
     proven on in a sidecar beside its evals (`evals/proven.json`), not in `SKILL.md`, which stays portable. When
     either changes, Cicada reruns that skill's evals with and without it (scheduled, on the plan per ruling 4c, one
     batch per change); if the baseline is now within the spread of the skill, the inbox asks to retire it, one tap,
-    undoable. Never retired without the person. **4 — The usage signal** comes from the harness, not the model: the
-    Stop hook already keeps each agent turn's model and effort (ruling 11); it also keeps the names of skills that
+    undoable. Never retired without the person. **4 — The usage signal** comes from the harness, not the model (amends the capture rail and ruling 11; the
+    implementing PR adds the rail line to CLAUDE.md): the Stop hook already keeps each agent turn's model and effort
+    (ruling 11); it also keeps the names of skills that
     turn invoked — names only, no arguments or output — and the telemetry ledger counts fires (ids and enums only). A
     promoted skill unfired for 8 weeks gets a retire suggestion; a "keep" answer counts like a decay keep (`kept_on`),
     so a rarely needed but critical skill (a release procedure) is asked once, not every week. **5 — Two kinds.**
