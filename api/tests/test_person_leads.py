@@ -363,3 +363,39 @@ def test_a_judge_unsure_on_a_pair_the_person_rejected_no_longer_strands_the_name
     result = _resolve(bank, monkeypatch, pages, [_mention("bexample", 1), _mention("bexample", 2)], _Judge("unsure"))
     assert _creates(result) == ["bexample"]
     assert _questions(bank) == []
+
+
+# ---------- W1 (benchmarks/newuser, 2026-10-22): a held name whose alias is exactly one person page ----------
+
+
+def test_a_held_full_name_whose_alias_is_a_page_born_in_the_same_run_is_asked_about(bank, monkeypatch):
+    """The live failure: "Teodor Brandt" (aliases Teo, tbrandt) was said once and held, while "Teo", said in two other
+    conversations, got a page in the same batch — two records of one person, and the page asking for the full name.
+    Specific names are judged first, so the page did not exist yet when the full name was held."""
+    extracted = [_mention("Teodor Brandt", 1, aliases=["Teo", "tbrandt"]), _mention("Teo", 2), _mention("Teo", 3)]
+    result = _resolve(bank, monkeypatch, [], extracted, _Judge("different"))
+    assert _creates(result) == ["teo"]
+    assert _questions(bank) == [("merge_suggestion", "teodor-brandt", "teo")]
+
+
+def test_a_name_held_by_an_earlier_run_meets_the_page_its_alias_names(bank, monkeypatch):
+    pending_store.upsert(bank, PendingEntity(
+        name="Teodor Brandt", type="person", description="", source_episode="ep_2026-09-30_001", confidence=0.5,
+        tags=[], history_entries=[], aliases=["Teo"],
+        heard_in=[{"episode": "ep_2026-09-30_001", "timestamp": "2026-09-30T12:00:00Z", "day": "2026-09-30"}]))
+    _resolve(bank, monkeypatch, [_page("Teo")], [_mention("Ann Sample", 1)], _Judge("different"))
+    assert _questions(bank) == [("merge_suggestion", "teodor-brandt", "teo")]
+
+
+def test_an_alias_naming_two_person_pages_asks_nothing(bank, monkeypatch):
+    extracted = [_mention("Teodor Brandt", 1, aliases=["Teo", "Sam Reyes"])]
+    _resolve(bank, monkeypatch, [_page("Teo"), _page("Sam Reyes")], extracted, _Judge("different"))
+    assert _questions(bank) == []
+
+
+def test_a_held_name_is_never_merged_on_its_alias_alone(bank, monkeypatch):
+    extracted = [_mention("Teodor Brandt", 1, aliases=["Teo"])]
+    result = _resolve(bank, monkeypatch, [_page("Teo")], extracted, _Judge("different"))
+    assert "teodor brandt" not in result["name_to_id"]
+    assert all(c["id"] != "teo" or c["action"] != "update" or c["entity"].get("name") != "Teodor Brandt"
+               for c in result["changes"])

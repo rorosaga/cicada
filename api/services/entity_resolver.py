@@ -252,6 +252,7 @@ async def resolve(
     person_index = person_leads.PersonIndex(existing)
     lead_pairs: set[tuple[str, str]] = set()
     named_handle_lines = _named_handle_lines(settings.memory_path)
+    held_people: list[tuple[dict, list[dict]]] = []   # person names this batch held below the bar (W1, below)
 
     # A self-reference's facts are the owner's: they land on the owner page, under
     # its own name and type (a "User" concept must not retype or rename it). With
@@ -503,6 +504,8 @@ async def resolve(
                     promoted_pending.append(name)
             else:
                 confidence = float(entity.get("confidence", 0.3) or 0.3)
+                if (entity.get("type") or "").lower() == "person" and not ambiguous_match:
+                    held_people.append((entity, siblings))
                 # A placeholder person is asked for a name once it has a page (`role_people`), never "Who or
                 # what is Partner?" — whose answer would become the page's prose, not its name.
                 if confidence < CONFIDENCE_THRESHOLD and not ambiguous_match and not entity.get(role_people.UNNAMED_KEY):
@@ -550,6 +553,9 @@ async def resolve(
             change["entity"]["name"] = contacts_local.card_name(change["contacts_card"])
     if card_creates:
         logger.info(f"Stage 2: {len(card_creates)} page(s) promoted on a waiting card's first mention")  # never a name
+    if not cancelled:
+        pending_actions.extend(_held_alias_questions(held_people, existing, resolved_creates, clarifier,
+                                                     settings.memory_path))
     resolved = list(resolved_updates.values()) + list(resolved_creates.values())
     for raw, full in named_handles.items():
         if full in name_to_id and raw not in name_to_id:
@@ -1253,6 +1259,68 @@ def _fold_named_handle_lines(change: dict, name_lower: str, lines: dict[str, lis
         _fold_pending(change, renamed)
         name_to_id.setdefault(line.name.lower(), change["id"])
         promoted_pending.append(line.name)
+
+
+def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: list[dict],
+                          resolved_creates: dict[str, dict], clarifier: ClarificationManager,
+                          memory_path) -> list[tuple[Callable, tuple, dict]]:
+    """W1 (benchmarks/newuser, 2026-10-22; G209): a person name held below the promotion bar — this batch's, or a line
+    an earlier run parked — whose recorded alias is the name of exactly one person page (on disk, or born in this
+    batch) raises the "Possible duplicate of …" question. Never a merge: who a person is takes the person's own answer
+    (ruling 29). An alias two pages answer to asks nothing; a pair the person said were different is never asked.
+
+    Specific names are judged first, so a full name said once ("Teodor Brandt", aliases "Teo", "tbrandt") is held
+    before the short name its other conversations promote ("Teo") has a page — the two never met."""
+    pages: dict[str, list[tuple[str, str]]] = {}
+    for page in existing:
+        fm = page.get("frontmatter") or {}
+        if str(fm.get("type") or "").lower() == "person" and page.get("id"):
+            pages.setdefault(person_leads.handle_key(person_leads.page_name(page)), []).append(
+                (str(page["id"]), person_leads.page_name(page)))
+    for pid, change in resolved_creates.items():
+        entity = change.get("entity") or {}
+        if str(entity.get("type") or "").lower() == "person":
+            pages.setdefault(person_leads.handle_key(entity.get("name") or ""), []).append(
+                (pid, str(entity.get("name") or pid)))
+
+    from api.services import pending_store
+
+    held: dict[str, tuple[str, set[str], dict]] = {}
+    for entity, siblings in held_people:
+        name = str(entity.get("name") or "").strip()
+        names = {a for e in (entity, *siblings) for a in (e.get("aliases") or []) if str(a).strip()}
+        held[person_leads.handle_key(name)] = (name, names, entity)
+    try:
+        lines = pending_store.load(Path(memory_path)) if memory_path else []
+    except Exception:  # noqa: BLE001 — an unreadable store holds nothing to ask about
+        lines = []
+    for line in lines:
+        if str(line.type or "").lower() == "person" and person_leads.handle_key(line.name) not in held:
+            held[person_leads.handle_key(line.name)] = (
+                line.name, set(line.aliases or []),
+                {"name": line.name, "source_episode": line.source_episode, "confidence": line.confidence})
+
+    actions: list[tuple[Callable, tuple, dict]] = []
+    for key, (name, aliases, entity) in held.items():
+        hits = {hit for alias in aliases if person_leads.handle_key(alias) != key
+                for hit in pages.get(person_leads.handle_key(alias), [])}
+        if len({pid for pid, _ in hits}) != 1:
+            continue
+        pid, page_name = next(iter(hits))
+        if _said_different(memory_path, name, pid):
+            continue
+        said = sorted(a for a in aliases if person_leads.handle_key(a) == person_leads.handle_key(page_name))
+        actions.append((clarifier.create, (), {
+            "entity_name": name,
+            "source_episode": entity.get("source_episode", ""),
+            "uncertainty_type": f"Possible duplicate of {page_name}",
+            "suggested_classification": f"person — could refer to the same person as {page_name}",
+            "suggested_confidence": float(entity.get("confidence", 0.0) or 0.0),
+            "source_context": f"A conversation also called {name} “{said[0] if said else page_name}”, "
+                              f"the name {page_name}'s page carries.",
+            "source_episode_timestamp": entity.get("source_episode_timestamp"),
+        }))
+    return actions
 
 
 def _create_lead_clarification(clarifier: ClarificationManager, lead: "person_leads.Lead",
