@@ -15,11 +15,13 @@ from an identifier **already on that person's page or the person's own record**:
   identified agent's, with no fact attached or a profile predicate — never a link Stage 5.56 attached from a claim's
   cited words, never Cicada's own writers); best-ranked first (`fact_sources.rank`).
 
-- **an X or LinkedIn profile link among the page's `sources:`** (owner 2026-10-09, the one exception to the ToS rail's
+- **an X, Instagram or LinkedIn profile link among the page's `sources:`** (owner 2026-10-09, the one exception to the ToS rail's
   "never through someone else's service") — `https://x.com/<handle>` (or twitter.com) and
   `https://www.linkedin.com/in/<slug>`, profile URLs only, never a post or a company page — asked of the unavatar.io
-  avatar proxy, which is handed the handle. Behind its OWN gate, `CICADA_ALLOW_PERSON_PHOTO_PROXY`, **off by default**:
-  each lookup tells a third party whom the person knows. With it off, such a link is no identifier at all. A LinkedIn
+  avatar proxy, which is handed the handle. Behind its OWN gate, `CICADA_ALLOW_PERSON_PHOTO_PROXY` — **on by default
+  since ruling 36 D5** (owner 2026-10-22; off from 2026-10-09) — because each lookup tells a third party whom the person
+  knows, `off` still closes it, and with it off such a link is no identifier at all. Instagram joined the rung with D5
+  (`https://www.instagram.com/<handle>`, profile URLs only). A LinkedIn
   link the person's own connections export put on a page it matched confidently counts as given (owner 2026-10-17,
   :func:`is_own_account`); an alias-only match waits for the person to take it. At most
   :data:`PROXY_DAILY_BUDGET` lookups a UTC day across the install (the proxy's anonymous allowance), counted in
@@ -30,7 +32,7 @@ Never a name, an alias, a domain or a username guessed from either.
 
 **The ladder** (the owner's model, adapted): the person's own choice → the Contacts photo → the email's public photo
 (asked with ``d=404``, so a "no photo" answer is a 404, never a default image cached as a photo) → the GitHub avatar →
-the X photo → the LinkedIn photo (both with ``fallback=false``, unavatar's documented "404 on a miss") → the monogram. `entity_picture.resolve` holds the precedence; this module answers its `profile` rung's availability
+the X photo → the Instagram photo → the LinkedIn photo (each with ``fallback=false``, unavatar's documented "404 on a miss") → the monogram. `entity_picture.resolve` holds the precedence; this module answers its `profile` rung's availability
 (read-only, from the cache index) and does the one fetch, on demand, when the app asks `GET /entities/{id}/photo`.
 
 **The fetch** — fixed URL shapes, `https` only, every hop (redirects followed by hand, at most 3) checked against
@@ -91,18 +93,26 @@ GRAVATAR = "gravatar"
 GITHUB = "github"
 X = "x"
 LINKEDIN = "linkedin"
-PROXIED = frozenset({X, LINKEDIN})
+INSTAGRAM = "instagram"
+PROXIED = frozenset({X, INSTAGRAM, LINKEDIN})
 _URLS = {
     GRAVATAR: "https://gravatar.com/avatar/{value}?s=" + str(SIZE) + "&d=404",
     GITHUB: "https://github.com/{value}.png?size=" + str(SIZE),
     X: "https://unavatar.io/x/{value}?fallback=false",
     LINKEDIN: "https://unavatar.io/linkedin/user:{value}?fallback=false",
+    INSTAGRAM: "https://unavatar.io/instagram/{value}?fallback=false",
 }
 _X_HANDLE_RE = re.compile(r"[A-Za-z0-9_]{1,15}")
 _X_RESERVED = frozenset({
     "home", "explore", "notifications", "messages", "i", "settings", "search", "intent", "share", "hashtag", "compose",
     "login", "logout", "signup", "tos", "privacy", "about", "jobs", "download", "following", "followers", "lists",
     "bookmarks", "communities", "premium", "account",
+})
+_INSTAGRAM_RE = re.compile(r"[A-Za-z0-9._]{1,30}")
+#: First path segments of instagram.com that are pages of the site, not an account.
+_INSTAGRAM_RESERVED = frozenset({
+    "p", "reel", "reels", "tv", "stories", "explore", "accounts", "direct", "about", "developer", "legal", "privacy",
+    "terms", "web", "challenge", "emails", "session", "help", "press", "api", "static",
 })
 _LINKEDIN_SLUG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{2,99}")
 _EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
@@ -196,14 +206,26 @@ def linkedin_slug(ref) -> str | None:
     return parts[1]
 
 
-_PARSERS = {GITHUB: github_username, X: x_handle, LINKEDIN: linkedin_slug}
+def instagram_handle(ref) -> str | None:
+    """The handle of an Instagram profile URL (`https://www.instagram.com/<handle>`) — None for a post, a reel, a site
+    page, another host, or anything else (ruling 36 D5, 2026-10-22)."""
+    parts = _profile_parts(ref, ("instagram.com", "www.instagram.com"))
+    if not parts or len(parts) != 1:
+        return None
+    name = parts[0]
+    if name.lower() in _INSTAGRAM_RESERVED or _INSTAGRAM_RE.fullmatch(name) is None or name.strip(".") != name:
+        return None
+    return name
+
+
+_PARSERS = {GITHUB: github_username, X: x_handle, INSTAGRAM: instagram_handle, LINKEDIN: linkedin_slug}
 
 
 #: The predicates that say "this link is the person's own account" — the only ones a profile link may carry (none at all
 #: also counts). None of them is a `world` or `artifact` predicate, so a link Stage 5.56 attaches from a claim's cited
 #: words (always under that claim's own predicate) can never qualify; a test pins that.
 PROFILE_PREDICATES = frozenset({"profile", "identity", "account", "handle", "social", "github", "x", "twitter",
-                                "linkedin"})
+                                "linkedin", "instagram", "scholar", "orcid"})
 #: The person may also file their own profile link as their `website`.
 _PERSON_PREDICATES = PROFILE_PREDICATES | {"website"}
 #: Machine writers that never speak for the person's identity: Cicada's own syncs and an unidentified proposal.
@@ -221,6 +243,8 @@ def is_own_account(source: dict) -> bool:
     from api.services import fact_sources, linkedin_people
 
     predicate = str(source.get("predicate") or "").strip().lower()
+    if fact_sources.is_proposed(source):
+        return False   # ruling 36 D5: inferred from the record, not yet taken by the person — never a face
     if fact_sources.trusted(source):
         return not predicate or predicate in _PERSON_PREDICATES
     who = str(source.get("added_by") or "").strip().lower()
@@ -261,7 +285,7 @@ def candidates(fm: dict, *, owner: dict | None = None, proxy: bool | None = None
             out.append(Candidate(GRAVATAR, digest))
     from api.services import fact_sources
 
-    providers = [GITHUB] + ([X, LINKEDIN] if (proxy_allowed() if proxy is None else proxy) else [])
+    providers = [GITHUB] + ([X, INSTAGRAM, LINKEDIN] if (proxy_allowed() if proxy is None else proxy) else [])
     for provider in providers:
         for source in fact_sources.rank(fm.get("sources"), None, match=_matcher(provider)):
             out.append(Candidate(provider, _PARSERS[provider](source["ref"])))
@@ -293,8 +317,9 @@ def fetch_allowed() -> bool:
 
 
 def proxy_allowed() -> bool:
-    """The X/LinkedIn proxy: its own gate, OFF by default (owner 2026-10-09) — and never past the other two."""
-    own = os.environ.get(PROXY_GATE_ENV, "off").strip().lower() in {"on", "1", "true"}
+    """The X/Instagram/LinkedIn proxy: its own gate, ON by default since ruling 36 D5 (owner 2026-10-22: "photo gate
+    ON"; it was off from 2026-10-09) — ``off`` still turns it off — and never past the other two."""
+    own = os.environ.get(PROXY_GATE_ENV, "on").strip().lower() not in {"off", "0", "false"}
     return own and fetch_allowed()
 
 

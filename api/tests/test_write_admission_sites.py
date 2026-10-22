@@ -460,8 +460,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "PUT /sources/messages/photos": (OUTSIDE, None),           # 2026-10-16: a chat's shared photo, a cache outside every bank
     "POST /capture/telegram": (INTAKE, None),
     "POST /capture/transcript": (CAPTURE, None),
-    "POST /capture/turn": (CAPTURE, None),
-    "POST /capture/note": (CAPTURE, None),   # G212: a note a device sent, staged like every source-keyed capture   # capture-everywhere: the same writer as the Stop hook
+    "POST /capture/turn": (CAPTURE, None),   # capture-everywhere: the same writer as the Stop hook
+    "POST /capture/note": (CAPTURE, None),   # G212: a note a device sent, staged like every source-keyed capture
     "POST /capture/session": (CAPTURE, None),   # G181 phase 2: a session read on its own machine, the same writer
     "POST /tools/call": (DOOR, None),
     "POST /v1/{op}": (REMOTE, None),
@@ -555,6 +555,8 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_record_refresh": (ADMITTED, "record_refresh"),
     # G71 (2026-10-16): Watch later saves media pages, history writes day episodes — committed alone, in one hold.
     "cicada_record_youtube_list": (ADMITTED, "record_youtube_list"),
+    # G206 (2026-10-22): saved posts become media pages and their episodes — committed alone, in one hold.
+    "cicada_record_saved_list": (ADMITTED, "record_saved_list"),
     # 2026-10-16: one person's LinkedIn profile — an episode and their page, committed alone, in one hold.
     "cicada_record_profile": (ADMITTED, "record_profile"),
     # G110: reads the bank's transcript episodes only (projection + paging); its metadata index and session registry

@@ -105,10 +105,11 @@ RULES: dict[str, str] = {
     "in_passing": "Mentioned once in passing; nothing ties it to your life",
     "newest_words": "Your newest words on it say this",
     "own_settings": "About Cicada's own settings, which Cicada already knows: Settings shows them",
+    "named_account": "You gave this link for them in your own words",
 }
 #: The rules that read only the bank: re-run inside each settle, which goes ahead only when they still agree.
 ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "one_off", "newest_evidence",
-                         "multi_valued", "in_passing", "newest_words", "own_settings"})
+                         "multi_valued", "in_passing", "newest_words", "own_settings", "named_account"})
 #: The judged kinds (owner, 2026-10-17: the inbox keeps only what genuinely needs the person).
 JUDGED_KINDS = frozenset({"merge_suggestion", "conflict", "normalization", "decay"})
 MAX_REASON_CHARS = 160
@@ -538,6 +539,12 @@ def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
                         guard=_guard(memory_path, str(fm.get("entity_id") or ""))), ""
     if page_state == "unreadable":
         return None, "unreadable_page"   # never retired on a read error: the person (or a repair) looks at it
+    if kind == "clarification" and str(fm.get("asks") or "") == "sources":
+        # G61 "Where to check" (ruling 36 D5): only the person's own located words giving that very link for this page
+        # settle it; nothing else (no engine, no other rule) ever reads it.
+        from api.services import source_proposals
+
+        return source_proposals.settle_rule(memory_path, item_id, fm)
     if kind in ("conflict", "clarification"):
         from api.services import web_settle
 
@@ -1359,8 +1366,8 @@ def touched(memory_path: Path, episodes: list[dict], items: list[tuple[Path, dic
     convos = [(eid, lines) for eid, lines in convos if eid and lines]
     for path, fm, _body in items:
         kind = str(fm.get("kind") or "")
-        if kind not in CONVERSATION_KINDS or _blocked(fm, today):
-            continue   # taken back, or put off by the person: never touched
+        if kind not in CONVERSATION_KINDS or _blocked(fm, today) or str(fm.get("asks") or "") == "sources":
+            continue   # taken back, or put off by the person (a where-to-check question: its own rule only)
         full = inbox_ask_gate.with_page_names(memory_path, fm)
         cited = None
         for eid, lines in convos:
@@ -2268,6 +2275,7 @@ VETTED_RULES: dict[str, tuple[frozenset[str] | None, frozenset]] = {
     "judged_archive": (frozenset({"decay"}), frozenset({"archive"})),
     "judged_keep": (frozenset({"decay"}), frozenset({"keep_active"})),
     "said_on_record": (RECORD_KINDS, frozenset({"resolve", "answer"})),
+    "named_account": (frozenset({"clarification"}), frozenset({"resolve"})),
 }
 #: The rules an engine read: only these may carry the judging model and its engine as the commit's author.
 VETTED_ENGINE_RULES = frozenset({"judged_same", "judged_different", "judged_fold", "judged_conflict",
@@ -2484,6 +2492,9 @@ def vetted_decision(memory_path: Path, row: dict) -> tuple[Decision, str | None]
         raise Unvetted("bad_rule")
     if str(fm.get("asks") or "") == "name" and rule != "said_on_record":
         raise Unvetted("the_persons")   # who someone is: only the person's own words (ruling 29, role_people)
+    if (str(fm.get("asks") or "") == "sources") != (rule == "named_account") and rule != "subject_gone":
+        # Where to check (ruling 36 D5): only its own rule settles it, and its rule settles nothing else.
+        raise Unvetted("the_persons" if str(fm.get("asks") or "") == "sources" else "bad_rule")
     request = plan.get("request")
     if request is not None and not isinstance(request, dict):
         raise Unvetted("bad_request")

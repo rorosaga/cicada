@@ -6,7 +6,7 @@ time and writes nothing — not a second episode, not a second "Note on …". Me
 note wrote one extra note episode.
 
 Keys live outside every bank, in ``$CICADA_HOME/idempotency/keys.db`` (0700/0600, sqlite), scoped to who sent them
-(the device's id, or ``server`` for the server's own token) and the route, and are forgotten after a day — long
+(the device's id, or ``server`` for the server's own token), the bank (its id) and the route, and are forgotten after a day — long
 enough for an offline queue's retries, short enough to keep nothing about what was saved: a row is the scope, the
 route, the key's sha256, the status and the answer's JSON (ids and titles, no request body). A request with no key
 runs as before. A key the client reuses for a different request gets the first answer — the key is the client's
@@ -115,6 +115,12 @@ async def run_once(scope: str, route: str, key: str | None, work, *, now=time.ti
 
 
 def scope_of(request) -> str:
-    """Who a key belongs to: the device whose token signed the request, else the server's own token."""
+    """Who a key belongs to and where it was written: the device whose token signed the request (else the server's
+    own token) and the bank the request is pinned to (its id) — so a resend after a bank switch runs in the bank now
+    open instead of answering with the other bank's episode id."""
+    from api.services import bank_registry
+
     device = getattr(request.state, "device", None)
-    return f"device:{device.id}" if device is not None else "server"
+    who = f"device:{device.id}" if device is not None else "server"
+    pin = bank_registry.pinned_bank()
+    return f"{who}|bank:{pin.id if pin is not None and pin.id else '-'}"

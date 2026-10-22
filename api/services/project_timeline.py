@@ -38,8 +38,8 @@ from api.models.schemas import (
     TimelineFact, TimelineItem, TimelineParticipant, TimelineQuote, TimelineWindow,
 )
 from api.services import (
-    bank_index, claim_expiry, entity_body, episode_time, evidence, inbox_context, project_state,
-    search_index, session_stats, turn_authorship, when,
+    bank_index, claim_expiry, entity_body, episode_time, evidence, inbox_context, project_birth, project_sections,
+    project_state, search_index, session_stats, turn_authorship, when,
 )
 from api.services.claim_reconciler import is_human
 from api.services.claims import (
@@ -56,7 +56,9 @@ from api.services.transclusion_resolver import claim_to_model
 # and a cluster group at most GROUP_CAP names no page holds yet.
 # g141-4 (2026-10-19): a list row's `activity` is the window's first day only — the bar's start, the one thing the
 # list draws from it; the detail keeps the series.
-PROJECT_SHAPE = "g141-4"
+# g141-5 (2026-10-22, ruling 36 D4): a row says its `origin`; the detail adds `origin`, the six standard `sections` and
+# `people`.
+PROJECT_SHAPE = "g141-5"
 TREE_DEPTH = 2
 MAX_SCAN_PAGES = 200          # §6.6: raw scans are capped; hitting the cap sets `partial`
 COMMONS_DEGREE = 12           # R-PJ20
@@ -1373,6 +1375,7 @@ def build(memory_path: Path, project_id: str, *, tz_name: str | None, since: str
     next_slug = project_state.next_slug([m.model_dump(by_alias=True) for m in milestones])
     targets = [m.target for m in milestones if m.target]
     days = [i.day for i in items if i.day]
+    persons = project_sections.people(around, bank.type_of, bank.name, owner=owner)
     ref = ProjectRef(id=root, name=bank.name(root), one_liner=_one_liner(bank, root), parent=parent,
                      children=tree[1:], status=str(fm.get("status") or "active"), created=created)
     return ProjectTimeline(
@@ -1389,7 +1392,12 @@ def build(memory_path: Path, project_id: str, *, tz_name: str | None, since: str
         median_gap_days=project_state.median_gap(moment_days),
         cluster=_cluster(bank, tree, around, _commons(bank, around), pending_names),
         conversations=_conversations(bank, core),
-        partial=bank.partial)
+        partial=bank.partial,
+        # Ruling 36 D4: where it came from, and the six sections every project shares.
+        origin=project_birth.wire(memory_path, root, fm),
+        sections=project_sections.build(memory_path, root, bank.body(root), items=items, milestones=milestones,
+                                        persons=persons),
+        people=persons)
 
 
 def now_next(memory_path: Path, project_id: str) -> tuple[dict | None, dict | None]:
@@ -1585,7 +1593,7 @@ def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: 
         rows.append(ProjectRow(
             id=root, name=bank.name(root), one_liner=_one_liner(bank, root), parent=parent, children=tree[1:],
             status=str(fm.get("status") or "active"), created=_day(fm.get("created")),
-            planned=bool(milestones), last_moment_day=days[-1] if days else None,
+            origin=project_birth.recorded_kind(fm), planned=bool(milestones), last_moment_day=days[-1] if days else None,
             median_gap_days=project_state.median_gap(days),
             open_threads=_threads(bank, root, events)[:THREADS_IN_ROW], milestones=shown,
             # The row's bar starts at the window's first day — all the list shows of the density (the detail

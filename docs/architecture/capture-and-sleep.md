@@ -321,7 +321,10 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   promotion*); Sleep's engine-free tail matches the cards still waiting against the night's pages
   (`_rematch_contacts_safely` → `contacts_local.rematch`, right after the LinkedIn rematch; its own `cicada` commit,
   `sleep/contacts`; dirty pages skipped; undone on a failed commit; never the owner's page, never a demo bank), and a
-  matched card stops waiting. **Stopping Contacts forgets them (review of #391):** Disconnect, or the app finding
+  matched card stops waiting. Right after it, the tail's **Where to check** step (`_where_to_check_safely` →
+  `source_proposals.propose`, ruling 36 D5, 2026-10-22) proposes the profile links and own repositories already on the
+  record as sources and keeps one question per page about them — engine-free, no fetch, its own `cicada` commit
+  (`sleep/where-to-check`), dirty pages skipped, undone on a failed commit (`storage.md`, "Where to check"). **Stopping Contacts forgets them (review of #391):** Disconnect, or the app finding
   access refused or taken away in System Settings, calls `DELETE /sources/contacts-local/waiting`, which deletes every
   bank's `contacts.json` and thumbnails (Contacts is app-wide; token-gated like every route; counts only), so no first
   mention and no tail rematch uses a card again; what matched pages already gained stays. LinkedIn's kept export has
@@ -1164,6 +1167,26 @@ Home's "Last read" shows the last batch's pages. Details' last-cycle figures —
 Entities are NOT extracted from every mention — that pollutes the graph. First mention stays in the
 vector index only; promotion needs **2+ separate conversations**, OR substantive discussion (>3
 exchanges) in one, OR an explicit link to an existing high-confidence entity.
+
+**A project is born from a repository or the person's words, never from this rule (ruling 36 D4, G141,
+2026-10-22; `api/services/project_birth.py`).** For a `project` mention the rungs below do not apply. Stage 1 computes,
+on the conversation it read (no model), a `project_birth` record and drops any the model's JSON carried:
+- **repo** — the episode is a harness session the hook observed in a git checkout (`workspace_identity` with a
+  `family_hash`, bound to the stored `project_dir` by its `cwd_hash`; G110 D2), and the mention's name or an alias,
+  folded (case, accents, punctuation), is the checkout's folder name: the last component of `project_dir`, or the one
+  before a `.worktrees`/`worktrees` folder. Read from the two stored strings only — the backend never opens, stats or
+  runs git in the path, and **no remote is read** (D2 allows the hook only the `rev-parse` pair, so the remote the
+  ruling's text mentions is not available; the folder name stands in for it, disclosed).
+- **words** — one sentence of a person's own turn (`user`, or a meeting `speaker`) names it within five words of
+  *project* (or *proyecto*, *projet*, *Projekt*, *progetto*, *projeto*, plurals), inside one clause (no comma, colon,
+  semicolon or parenthesis between them), outside a recorded gap; kept as a span `{start, end, hash, kind}` into the
+  episode, never a copy (G118). A name that itself contains "project" does not call itself one.
+Stage 2 promotes a `project` exactly when one of the batch's extractions of that name carries a record (the oldest
+conversation's wins); everything else, however often mentioned, waits on its pending line like any name below the bar.
+Stage 5 writes the record once, as the page's `born:` frontmatter (`storage.md`). A watched folder the person named as
+a project (`folder_source.ensure_project`) is born `{origin: words, via: folder}`. Pages that existed before the rule are
+never archived or deleted for it; `python -m api.scripts.project_origins_dry_run --bank <path> [--json] [--quotes]` lists
+each with the origin the bank can show and why, read only, for the owner before any review list is raised.
 
 **The bar is measured, not guessed (page quality, 2026-10-09; `api/services/promotion.py`).** A clean run of 296
 conversations wrote 70% of its 3,588 pages from one conversation (median 85 words, 3 facts): a function in the

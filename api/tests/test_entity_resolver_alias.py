@@ -147,7 +147,7 @@ def test_an_alias_two_pages_share_puts_both_in_front_of_the_judge(bank, monkeypa
 def test_an_alias_held_by_a_page_of_another_type_is_no_candidate(bank, monkeypatch):
     pages = [_page("Garnet Harbor Inc", "company", aliases=["GHI"])]
     judge = _Judge({"Garnet Harbor Inc": "same"})
-    out = _resolve(bank, monkeypatch, pages, _batch("GHI", "project", episodes=(1, 2)), judge)
+    out = _resolve(bank, monkeypatch, pages, _batch("GHI", "tool", episodes=(1, 2)), judge)
     assert judge.pairs == []
     assert out["name_to_id"]["ghi"] == "ghi"
 

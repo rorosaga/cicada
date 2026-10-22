@@ -38,7 +38,7 @@ from api.config import Settings, get_settings
 from api.routers.capture import refuse_capture_into_demo
 from api.services import (
     logo_service, media_ingestor, reading_asks, reading_hosts, reading_prompt, reading_queue, reading_service,
-    reading_settings, sync_service, youtube_lists,
+    reading_settings, saved_lists, sync_service, youtube_lists,
 )
 
 router = APIRouter()
@@ -59,6 +59,9 @@ class SettingsUpdate(BaseModel):
     #: G71 (2026-10-16): a patch ``{watch_later|history: bool}`` — the YouTube lists the person's own agent keeps
     #: current from their signed-in browser. Turning one on lifts a ``needs_login`` pause (Try again).
     youtubeLists: dict[str, bool] | None = None
+    #: G206 (2026-10-22): a patch ``{x|instagram|linkedin: bool}`` — the saved lists on those sites the person's own
+    #: agent keeps current from their signed-in browser (the Sources page's switch). Turning one on lifts its pause.
+    savedLists: dict[str, bool] | None = None
 
 
 class AskRequest(BaseModel):
@@ -75,6 +78,8 @@ def _settings_body(memory_path=None) -> dict:
     if memory_path is not None:
         # G71: when each YouTube list was last read for this memory, and whether the lists are paused.
         body["youtube"] = youtube_lists.status(memory_path)
+        # G206: the same for each saved list on X, Instagram and LinkedIn, with the day's bounded read count.
+        body["saved"] = saved_lists.status(memory_path)
     return body
 
 
@@ -101,7 +106,7 @@ async def put_reading_settings(update: SettingsUpdate, settings: Settings = Depe
         reading_settings.update(
             agent_enabled_=update.agentEnabled, acknowledge=update.acknowledge, sites=update.sites,
             surfaced=surfaced, explore_signed_in_=update.exploreSignedIn, never_explore_=update.neverExplore,
-            youtube_lists_=update.youtubeLists)
+            youtube_lists_=update.youtubeLists, saved_lists_=update.savedLists)
     except reading_settings.SettingsError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     for site, on in (update.sites or {}).items():
@@ -109,6 +114,8 @@ async def put_reading_settings(update: SettingsUpdate, settings: Settings = Depe
             reading_queue.resume_site(memory_path, site)
     if update.youtubeLists and any(update.youtubeLists.values()):
         youtube_lists.resume()
+    if update.savedLists and any(update.savedLists.values()):
+        saved_lists.resume([k for k, on in update.savedLists.items() if on])
     return _settings_body(memory_path)
 
 

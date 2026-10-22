@@ -286,9 +286,59 @@ def _fallback_title(url: str) -> str:
     vid = _youtube_video_id(parsed)
     if vid:
         return vid
+    post = _walled_post_title(parsed)
+    if post:
+        return post
+    return _segment_title(parsed, url)
+
+
+def _segment_title(parsed, url: str) -> str:
     seg = parsed.path.strip("/").split("/")[-1] if parsed.path.strip("/") else ""
     seg = seg.replace("-", " ").replace("_", " ").strip()
     return seg or (parsed.hostname or url)
+
+
+_X_POST_PATH = re.compile(r"^/(?P<user>[A-Za-z0-9_]{1,15})/status/\d+(?:/|$)")
+_IG_POST_PATH = re.compile(r"^/(?:[A-Za-z0-9._]{1,30}/)?(?P<kind>p|reel|tv)/[A-Za-z0-9_-]+(?:/|$)")
+_LI_UPDATE_PATH = re.compile(r"^/feed/update/urn:li:[A-Za-z]+:\d+(?:/|$)")
+
+
+def _walled_post_title(parsed) -> str | None:
+    """A post on a walled site, titled from its URL alone (the backend never fetches the page, R-RW4): a saved X post
+    was titled by its numeric status id (2026-10-22). It reads "Post by @<user>" until an agent reads the post."""
+    host = (parsed.hostname or "").lower()
+
+    def on(*domains: str) -> bool:
+        return any(host == d or host.endswith("." + d) for d in domains)
+
+    path = parsed.path or ""
+    if on("x.com", "twitter.com"):
+        found = _X_POST_PATH.match(path)
+        if found and found.group("user").lower() != "i":
+            return f"Post by @{found.group('user')}"
+        if re.match(r"^/i(?:/web)?/status/\d+(?:/|$)", path):
+            return "Post on X"
+        return None
+    if on("instagram.com"):
+        found = _IG_POST_PATH.match(path)
+        if found:
+            return "Instagram reel" if found.group("kind") == "reel" else "Instagram post"
+        return None
+    if on("linkedin.com") and _LI_UPDATE_PATH.match(path):
+        return "LinkedIn post"
+    return None
+
+
+def is_placeholder_title(url: str, title) -> bool:
+    """Is ``title`` only what the URL gave — today's fallback, or the bare last segment pages saved before the walled
+    titles carry (an X status id)? A title the person, the reader or a provider gave is never one."""
+    title = str(title or "")
+    if not title:
+        return True
+    if title == _fallback_title(url):
+        return True
+    parsed = urlparse(url if "://" in url else "https://" + url)
+    return _walled_post_title(parsed) is not None and title == _segment_title(parsed, url)
 
 
 # --- Enrichment (async, graceful offline fallback) ---

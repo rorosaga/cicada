@@ -166,9 +166,10 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
                         }}}},
           ("subject", "claim_id", "reason"), read_only=False, idempotent=True),
     _tool("cicada_add_source",
-          "Record where a fact about a page can be checked — a web page or an app the person named, or plain "
-          "words saying where to look — when there is no new fact to write. Only a source the person gave you "
-          "or one you opened for them, never one you guessed or searched for. Cicada fetches nothing when you "
+          "Where to check: a link where the current state of this thing can be checked — a profile, a personal site, a publication list, a repository or any page; Cicada re-checks it on a schedule and agents check it before answering about the thing. Record one — a web page or an app the person named, or plain "
+          "words saying where to look — when there is no new fact to write. Directly only for a source the person "
+          "gave you or one you opened for them; one you found yourself goes in with `inferred: true` and waits for "
+          "the person's yes. Never a link guessed from a name. Cicada fetches nothing when you "
           "add one. Files and folders on the person's computer can only be added in the Cicada app.",
           {"subject": {"type": "string", "description": "The page the fact is on, for example 'bob-example'."},
            "ref": {"type": "string", "maxLength": 2048, "description": "An http(s) link, an app's name, or plain words."},
@@ -179,7 +180,18 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
            "kind": {"type": "string", "enum": ["url", "note", "app"],
                     "description": "Optional: what the ref is; inferred when left out."},
            "entity": {"type": "string",
-                      "description": "Optional: the id of an existing page that knows more about this source."}},
+                      "description": "Optional: the id of an existing page that knows more about this source."},
+           "inferred": {"type": "boolean",
+                        "description": "Optional: true when you found it yourself rather than the person naming it; "
+                                       "it is kept as a proposal the person confirms."},
+           "evidence": {"type": "array", "maxItems": 3,
+                        "description": "Optional, with `inferred`: where you saw it, as exact words from a saved "
+                                       "episode.",
+                        "items": {"type": "object", "required": ["episode", "quote"], "properties": {
+                            "episode": {"type": "string", "description": "The episode id."},
+                            "quote": {"type": "string",
+                                      "description": "The exact words, copied verbatim (at most 240 characters)."},
+                        }}}},
           ("subject", "ref"), read_only=False, idempotent=True),
     _tool("cicada_change_source",
           "Correct or remove a source this connection added because it stopped being relevant or turned out "

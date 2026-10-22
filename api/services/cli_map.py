@@ -117,7 +117,8 @@ ROWS: tuple[Row, ...] = (
         (_p("subject"), _f("observer"), _f("context"), _f("history", "bool"))),
     Row(("source", "list"), "cicada_sources", "Where a page's facts can be checked.", (_p("entity_id"),)),
     Row(("source", "add"), "cicada_add_source", "Record where a fact can be checked.",
-        (_p("subject"), _p("ref"), _f("predicate"), _f("access"), _f("kind"), _f("entity")), mutates=True),
+        (_p("subject"), _p("ref"), _f("predicate"), _f("access"), _f("kind"), _f("entity"), _f("inferred", "bool"),
+         _f("evidence", "json")), mutates=True),
     Row(("source", "change"), "cicada_change_source", "Fix or drop a source you added.",
         (_p("subject"), _p("ref"), _p("action"), _f("predicate"), _f("reason"), _f("new_ref"),
          _f("new_predicate"), _f("access"), _f("entity")), mutates=True),
@@ -202,6 +203,9 @@ ROWS: tuple[Row, ...] = (
     # G71 (2026-10-16): a proposed spelling, not exposed — the agent reads the lists in the person's browser.
     Row(("read", "youtube"), "cicada_record_youtube_list", "Record what the person's YouTube list showed.",
         (_p("list"), _p("outcome"), _f("videos", "json"), _f("via")), mutates=True),
+    # G206 (2026-10-22): a proposed spelling, not exposed — the agent reads the lists in the person's browser.
+    Row(("read", "saved"), "cicada_record_saved_list", "Record what the person's saved list on a site showed.",
+        (_p("platform"), _p("outcome"), _f("items", "json"), _f("via")), mutates=True),
     # 2026-10-16 (the linkedin-people skill): a proposed spelling, not exposed — the agent reads in the person's browser.
     Row(("read", "profile"), "cicada_record_profile", "Record what one person's LinkedIn profile shows now.",
         (_p("entity_id"), _p("url"), _p("outcome"), _f("company"), _f("position"), _f("quotes", "json"),

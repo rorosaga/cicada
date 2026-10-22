@@ -149,8 +149,8 @@ bank (`NO_BANK_WRITE`). **Hyrum, mode A:** stable — the paths, `qr`'s three ke
   episodes — `{captures: [{id, title, timestamp, processed, url}]}`, never a body, never another device's.
 - **`Idempotency-Key`** on `POST /sources/save` and `POST /capture/note`: a resend with the same key gets the first
   answer and writes nothing (`idempotency`). Measured on a scratch server: a link with a note resent **without** a key
-  writes one more "Note on …" episode; with the key, none. Keys are scoped to the sender (`device:<id>` or `server`)
-  and the route, kept as sha256 with the answer's JSON in `$CICADA_HOME/idempotency/keys.db` (outside every bank),
+  writes one more "Note on …" episode; with the key, none. Keys are scoped to the sender (`device:<id>` or `server`),
+  the pinned bank's id (a replay after a bank switch runs in the bank now open) and the route, kept as sha256 with the answer's JSON in `$CICADA_HOME/idempotency/keys.db` (outside every bank),
   for 24 h; only a 2xx is kept, so a refused save (Sleep, a bad link) runs again.
 - **Hyrum, mode A:** stable — the two kind words, `CAPTURE_ROUTES`' three routes, `qr`'s keys, `reach`'s four keys,
   the note and mine shapes, the header name; not stable — the 24 h TTL, the 20/500 limits, the suggested 8443.
@@ -290,7 +290,7 @@ saving it answers) and answers with `history`. The app reaches both through `Sto
 (no `VersionVector` mapping, fetched on demand like provenance). A timeline item carries at most
 12 participants plus `participantsTotal`, and a cluster group at most 8 names no page holds yet
 (round 4 D6). A list row's `activity` is the window's first day only — the row bar's start, all the list draws from it;
-the detail keeps the series (`PROJECT_SHAPE` g141-4, 2026-10-19: 40 % of the list's body at 700 projects). The person's writes (G141 PJ-3b) —
+the detail keeps the series (`PROJECT_SHAPE` g141-4, 2026-10-19: 40 % of the list's body at 700 projects). g141-5 (2026-10-22, ruling 36 D4): a row carries `origin` (`repo` | `words` | null — read from the page alone, no conversation), the detail `origin` {kind, stored, why, day, episode, quote, repoName, via}, the six standard `sections` (`project_sections.SECTIONS`: overview · timeline · done · expected · design · people; each {key, title, writtenBy, entries ≤ 40 + more, markdown}) and `people` (every linked person page). The person's writes (G141 PJ-3b) —
 `POST /projects/{id}/milestones`, `PATCH /projects/{id}/milestones/{slug}`, `POST /projects/{id}/happenings`
 (the Log: one time phrase becomes the day, a companion episode keeps the words), `POST
 /projects/{id}/threads/{claim_id}` and `POST /projects/{id}/withdraw` (happenings only) — answer **409**

@@ -198,3 +198,38 @@ def test_keys_are_per_sender_and_live_outside_the_bank(server, tmp_path):
     assert one["episodeId"] != two["episodeId"]
     assert (tmp_path / "home" / "idempotency" / "keys.db").exists()
     assert not any("idempotency" in str(p) for p in memory.rglob("*"))
+
+
+def test_a_replay_after_a_bank_switch_runs_in_the_bank_now_open(tmp_path, monkeypatch):
+    """Keys are scoped by bank too: the same key after a switch never answers with the other bank's episode id."""
+    from api import config
+    from api.main import app
+    from api.services import bank_registry
+
+    root = tmp_path / "bank-root"
+    root.mkdir()
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(root))
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("CICADA_API_AUTH", "on")
+    monkeypatch.delenv("CICADA_API_TOKEN", raising=False)
+    monkeypatch.setattr(reach, "tailnet_backend", lambda port, **kw: reach.TailnetBackend("missing", None))
+    config.get_settings.cache_clear()
+    bank_registry.scaffold_bank(root)
+    bank_registry.create_bank(root, "beta", seed_owner=False)
+    from api.services.auth import get_token
+
+    master = get_token()
+    try:
+        with TestClient(app) as client:
+            _, _, token = _pair(client, master)
+            headers = {**_auth(token), "Idempotency-Key": "phone-item-9"}
+            first = client.post("/capture/note", json={"text": "Before the switch."}, headers=headers).json()
+            assert client.post("/banks/beta/activate", headers=_auth(master)).status_code == 200
+            again = client.post("/capture/note", json={"text": "Before the switch."}, headers=headers).json()
+            beta = bank_registry.bank_dir(root, "beta")
+            assert again["status"] == "created"
+            assert (beta / "episodes" / f"{again['episodeId']}.md").exists()
+            replay = client.post("/capture/note", json={"text": "Before the switch."}, headers=headers).json()
+            assert replay == again and first["episodeId"]
+    finally:
+        config.get_settings.cache_clear()

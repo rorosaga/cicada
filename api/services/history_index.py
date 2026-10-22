@@ -36,7 +36,8 @@ HISTORY_SOURCE = "watch-history"
 HISTORY_PREFIX = "watch-history:"
 MONTH_SOURCE = "watch-history-month"
 MONTH_PREFIX = "watch-history-month:"
-#: Origins only a platform's saved list writes (an export archive, or the person's agent reading Watch later).
+#: Origins only a platform's saved list writes (an export archive, or the person's agent reading Watch later or,
+#: G206, a saved list on X, Instagram or LinkedIn — ``saved_lists``, which files X under the archive's ``Bookmarks``).
 LIST_ORIGINS = frozenset({"youtube-playlist", "instagram-saved", "tiktok-saved", "x-likes", "linkedin-saved"})
 #: Origins a connector shares with an export: the export's rows are told apart by the folder its reader names
 #: (the Reddit connector files under ``r/<sub>``, the X connector under no folder).
