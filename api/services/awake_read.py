@@ -57,6 +57,9 @@ IMPORT_READ_MAX = 5
 READS_PER_HOUR = 20
 #: How long a job waits before trying again when Sleep, a re-embed or the admission held it back.
 RETRY_S = 120.0
+#: A job held back this many times is dropped (a switch that never comes, a night-long drain): Sleep's own index
+#: sync and its reading cover the conversation anyway.
+MAX_TRIES = 30
 STORE_DIR = ".awake"
 ENDED_EVENTS = frozenset({"SessionEnd", "session_end", "sessionend"})
 
@@ -90,6 +93,7 @@ class _Job:
     episode: str = field(compare=False)
     kind: str = field(compare=False)          # "index" | "read"
     settings: object = field(compare=False, default=None)
+    tries: int = field(compare=False, default=0)
 
 
 class _Queue:
@@ -191,8 +195,8 @@ def run_job(job: _Job) -> str:
         outcome = index_now(bank, job.episode, settings=job.settings)
     else:
         outcome = asyncio.run(quick_read(bank, job.episode, settings=job.settings))
-    if outcome in ("sleep_running", "reindexing", "admission"):
-        QUEUE.put(_Job(time.monotonic() + RETRY_S, job.bank, job.episode, job.kind, job.settings))
+    if outcome in ("sleep_running", "reindexing", "admission") and job.tries + 1 < MAX_TRIES:
+        QUEUE.put(_Job(time.monotonic() + RETRY_S, job.bank, job.episode, job.kind, job.settings, job.tries + 1))
     logger.debug(f"awake_read: {job.kind} → {outcome}")
     return outcome
 
@@ -354,15 +358,16 @@ async def quick_read(memory_path: Path, episode_id: str, *, settings=None, extra
             kept.append(claim)
         else:
             held_counts[claim.subject] = held_counts.get(claim.subject, 0) + 1
-    held = []
+    held, held_ids = [], set()
     for result in extracted:
         for ent in result.get("entities", []) or []:
             name = str((ent or {}).get("name") or "").strip()
             if not name:
                 continue
             pid = resolve(name)
-            if pid in page_ids:
+            if pid in page_ids or pid in held_ids:
                 continue
+            held_ids.add(pid)
             held.append({"name": name, "type": str(ent.get("type") or ""), "id": pid,
                          "claims": held_counts.get(pid, 0)})
     record = {

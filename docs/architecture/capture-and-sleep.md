@@ -733,6 +733,43 @@ extractor keeps crosses the wire:
   never flushes (it holds the person's message). Bounded at 2,000 entries / 128 MiB, oldest dropped and counted in
   the log. The recall hooks read the same base and token; they do not spool (a read).
 
+**After capture: the awake read (G207, ruling 36 D2, 2026-10-22).** A captured conversation is usable before Sleep
+reads it, through a separate job that never runs inside the capture write. `/capture/transcript`, `/capture/session`
+and `/capture/turn`, the relay (`cicada_capture_turns`) and an inline import call `awake_read.after_capture` /
+`after_import` once their writer has returned. That call only queues a job on one daemon worker
+(`cicada-awake-read`), keyed by bank, episode and kind, so a burst of turns debounces into one job. Only a `created`
+or `updated` write queues anything. A job held back by Sleep, a re-embed or the admission is retried after
+`RETRY_S` (120 s).
+
+- **Step 0, no model** (`index_now`): `INDEX_SETTLE_S` (3 s) after the capture, the episode's passages are embedded
+  into the episode table (`vector_index.index_episode_stems`). That is a targeted upsert: the same cut and model as
+  the table holds, no other episode's rows touched, and a table it cannot diff (another model, another width) is
+  `skipped`, never rebuilt from part of the bank. It does not run while Sleep runs, while a search-model re-embed is
+  running, waiting or due (`embedding_models.pending_switch`), with a hosted embedder (`runs_on_device`), or in a
+  demo bank. The word index needs no job: it is fresh on every read (`search_index.ensure_fresh`, a 1 s TTL).
+- **Step 1, the quick read** (`quick_read`): when the conversation ends. A Stop fires every turn, so "ends" means a
+  `SessionEnd` flush (`ENDED_S`, 5 s), an import of at most `IMPORT_READ_MAX` (5) conversations, or `QUIET_S`
+  (600 s) with no new capture; a relayed conversation has no end event and waits for the quiet window. The read is
+  Stage 1's own extractor (`entity_extractor.extract(..., stage="quick_read")`), run once, with the person's engine
+  resolved like a scheduled run (`resolve_settings(user_triggered=False)`, rulings 4 and 31) and its small model
+  (`agent_disambiguation_model` / `codex_disambiguation_model` / `litellm_disambiguation_model`). It keeps only the
+  claims whose subject is a page that exists (the pages' names and aliases, plus the owner's self-references,
+  through `claim_pipeline.subject_resolver`). A name with no page is *held* in the record for Sleep's promotion,
+  never minted and never parked in `pending_store` (Sleep reads the conversation itself, so nothing is counted
+  twice). The output is one provisional record, `<bank>/.awake/<episode>.json` (`storage.md`). It is written under
+  `write_admission.admitted`, off the event loop, never across the model call, and not at all when Sleep read the
+  episode meanwhile. The same body revision is never read twice. At most `READS_PER_HOUR` (20) reads per process;
+  past that a conversation waits for Sleep, which is logged. Nothing provisional writes a page, a claims fence, a
+  pending line or a commit.
+- **Sleep settles** (`awake_read.settle`, right after `_mark_episodes_processed`): each provisional claim of a
+  retired episode is **confirmed** (the same deterministic claim id is now on its page), **corrected** (the page
+  holds a claim from that conversation with the same subject and predicate) or **dropped**. The counts are logged as
+  numbers only, then the record is deleted. A record whose episode was edited again stays for the run that reads
+  the new revision.
+- **`CICADA_AWAKE_READ`** = `off` | `index` (step 0) | `on` (steps 0 and 1). When unset: step 0, plus step 1 when
+  `awake_read.QUICK_READ_DEFAULT` says so. There is no Settings switch (owner D2). The suite's conftest sets `off`.
+  The default was decided by `benchmarks/awake_bench.py` (the numbers are in the PR and below).
+
 ### Sleep — 5-stage nightly batch
 1. **Entity & relationship extraction** — LLM over episode chunks, structured output.
 2. **Entity resolution & dedup** — exact name, fuzzy match, embedding similarity, LLM disambiguation

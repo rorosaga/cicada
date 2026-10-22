@@ -105,6 +105,17 @@ def test_off_queues_nothing(bank, monkeypatch):
     assert awake_read.QUEUE.jobs == {}
 
 
+def test_a_held_back_job_is_retried_then_dropped(bank, awake_on, monkeypatch):
+    monkeypatch.setattr(awake_read._Queue, "_loop", lambda self: None)
+    monkeypatch.setattr(awake_read, "index_now", lambda *a, **k: "reindexing")
+    job = awake_read._Job(0.0, str(bank), "ep_2026-10-22_001", "index")
+    assert awake_read.run_job(job) == "reindexing"
+    again = awake_read.QUEUE.jobs.pop((str(bank), "ep_2026-10-22_001", "index"))
+    assert again.tries == 1 and again.due > time.monotonic() + awake_read.RETRY_S - 5
+    awake_read.run_job(awake_read._Job(0.0, str(bank), "ep_2026-10-22_001", "index", tries=awake_read.MAX_TRIES - 1))
+    assert awake_read.QUEUE.jobs == {}
+
+
 def test_a_big_import_is_indexed_not_read(bank, awake_on, monkeypatch):
     monkeypatch.setattr(awake_read._Queue, "_loop", lambda self: None)
     ids = [f"ep_2026-10-22_{i:03d}" for i in range(awake_read.IMPORT_READ_MAX + 1)]

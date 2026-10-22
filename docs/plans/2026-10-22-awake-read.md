@@ -105,6 +105,13 @@ prompt). There are 3 repeats, and a repeat redoes the quick reads. Reported per 
 and the quick read's calls and tokens per conversation. **Step 1 defaults on only if (c)'s mean beats both (a)'s
 and (b)'s by more than the larger spread.**
 
+**Amendment (2026-10-22, written after the first smoke run and before any repeat).** The smoke run put (b) at
+12/12, a ceiling: with only 6 new conversations, recall's 3 excerpt slots hold every one of them, so the set cannot
+show whether step 1 helps. A **hard variant** adds `--distractors 30`: thirty other unslept conversations from the
+same day that name the same pages and share the questions' words, like a real day of captures. **The default rule
+reads the hard variant.** Step 1 is on only if (c) beats (b) there by more than the larger min–max, and (c) is not
+below (b) on the easy set.
+
 ## Verify
 
 verify-cicada on a scratch bank: a hook-path capture (`cv capture`, two sessions naming `alpha-project`), then
