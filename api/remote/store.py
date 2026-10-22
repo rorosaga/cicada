@@ -86,7 +86,7 @@ def _row(row: sqlite3.Row) -> catalog.Connector:
         scopes=catalog.clean_scopes((row["scopes"] or "").split(",")),
         created_at=row["created_at"], expires_at=row["expires_at"], revoked_at=row["revoked_at"],
         last_used_at=row["last_used_at"], last_client=row["last_client"], use_count=int(row["use_count"] or 0),
-        auth="oauth" if "auth" in row.keys() and row["auth"] == "oauth" else "link",
+        auth=(row["auth"] if "auth" in row.keys() and row["auth"] in ("oauth", "api") else "link"),
     )
 
 
@@ -136,7 +136,11 @@ class ConnectorStore:
         secret = secrets.token_urlsafe(32)
         # An OAuth connector has no link secret at all: its stored hash is a value no sha256 can equal, so no
         # `cic_rc_` token ever reaches it; its app holds access and refresh tokens instead (`api/remote/oauth.py`).
-        token_hash = _hash(secret) if auth == "link" else "oauth:" + secrets.token_hex(16)
+        if auth not in ("link", "oauth", "api"):
+            raise ValueError(f"unknown auth {auth!r}")
+        if auth == "api" and not "".join(ch for ch in (label or "") if ch.isprintable()).strip():
+            raise ValueError("Name the agent this token is for.")
+        token_hash = _hash(secret) if auth in ("link", "api") else "oauth:" + secrets.token_hex(16)
         with self._db() as db:
             while True:
                 connector_id = "".join(secrets.choice(_ID_ALPHABET) for _ in range(8))
@@ -146,9 +150,10 @@ class ConnectorStore:
                 "INSERT INTO connectors (id, label, app, scopes, token_hash, created_at, expires_at, auth) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (connector_id, _clean_label(label, app), app, ",".join(sorted(clean)), token_hash, _iso(now),
-                 _iso(now + timedelta(days=expires_in_days)), "oauth" if auth == "oauth" else "link"),
+                 _iso(now + timedelta(days=expires_in_days)), auth),
             )
-        return self.get(connector_id), (f"cic_rc_{connector_id}_{secret}" if auth == "link" else "")
+        token = {"link": f"cic_rc_{connector_id}_{secret}", "api": f"cic_api_{connector_id}_{secret}"}.get(auth, "")
+        return self.get(connector_id), token
 
     def create_oauth(self, *, app: str, label: str | None, scopes, expires_in_days: int,
                      now: datetime | None = None) -> catalog.Connector:
@@ -173,7 +178,18 @@ class ConnectorStore:
         but dead token (the gate needs the id for the ledger); ``(None,
         "malformed"|"unknown")`` otherwise. A wrong secret for a real id is
         ``unknown`` — the gate says nothing more to a stranger."""
-        match = catalog.TOKEN_RE.match(token or "")
+        return self._verify(token, catalog.TOKEN_RE, ("link",), now)
+
+    def verify_agent(self, token: str | None, now: datetime | None = None) -> tuple[catalog.Connector | None, str]:
+        """G213: the `/v1` agent API's check — an agent token (``cic_api_``) or a link connector's secret
+        (``cic_rc_``), in :meth:`verify`'s vocabulary. A signed-in app's ``cic_at_`` is the listener's to check
+        (its audience is the public base)."""
+        if (token or "").startswith("cic_api_"):
+            return self._verify(token, catalog.API_TOKEN_RE, ("api",), now)
+        return self._verify(token, catalog.TOKEN_RE, ("link",), now)
+
+    def _verify(self, token, pattern, kinds, now):
+        match = pattern.match(token or "")
         if not match:
             return None, "malformed"
         connector_id, secret = match.groups()
@@ -182,6 +198,9 @@ class ConnectorStore:
         if row is None or not hmac.compare_digest(row["token_hash"], _hash(secret)):
             return None, "unknown"
         connector = _row(row)
+        if connector.auth not in kinds:
+            # An agent token never opens `/mcp`, and a `cic_rc_` spelling of an agent row's secret is no key either.
+            return None, "unknown"
         state = connector.state(now or _now())
         return connector, ("ok" if state == "active" else state)
 
@@ -202,6 +221,8 @@ class ConnectorStore:
             raise ValueError(state)
         if connector.auth == "oauth":
             raise ValueError("signed in")  # its app refreshes its own tokens; there is no link to rotate
+        if connector.auth == "api":
+            raise ValueError("an agent token")  # revoke it and issue a new one (G213)
         secret = secrets.token_urlsafe(32)
         with self._db() as db:
             db.execute("UPDATE connectors SET token_hash=? WHERE id=?", (_hash(secret), connector_id))

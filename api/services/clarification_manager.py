@@ -170,13 +170,24 @@ class ClarificationManager:
 
     # ---------- Organic resolution ----------
 
-    def check_organic_resolution(self, entity_name: str, confidence: float) -> bool:
-        """Remove a pending clarification for ``entity_name`` if confidence is high enough."""
+    def check_organic_resolution(self, entity_name: str, confidence: float, merged_into: str | None = None) -> bool:
+        """Remove a pending clarification for ``entity_name`` if confidence is high enough.
+
+        ``merged_into``: the page Stage 2 just matched the name to. A "Possible duplicate" question is answered by that
+        only when it is the page the question proposed (G209): a name that matched its own page leaves the question
+        "is it the same as that other page?" open, as it was."""
         if confidence < ORGANIC_RESOLUTION_THRESHOLD:
             return False
         existing = self._existing_for(entity_name)
         if not existing:
             return False
+        if merged_into is not None:
+            try:
+                fm = markdown_parser.parse(existing).frontmatter
+            except Exception:
+                fm = {}
+            if fm.get("kind") == "merge_suggestion" and str(fm.get("merge_target_hint") or "") != merged_into:
+                return False
         try:
             existing.unlink()
             logger.info(

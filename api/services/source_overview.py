@@ -199,6 +199,7 @@ HARNESS_LABELS = {
     "vscode": "VS Code",
     "gemini-cli": "Gemini CLI",
     "remote-app": "Other remote app",
+    "agent-api": "Agents over HTTP",   # G213: an agent token's episodes (`catalog.API_HARNESS`)
     "unknown": "Other agents",
 }
 UNKNOWN = "unknown"

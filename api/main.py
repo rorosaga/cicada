@@ -17,6 +17,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from api.config import get_settings
 from api.routers import (
+    agent_api,
     agent_methods,
     agents,
     ask,
@@ -313,3 +314,4 @@ app.include_router(explore.router, tags=["explore"])
 app.include_router(embeddings.router, tags=["embeddings"])
 app.include_router(devices.router, tags=["devices"])
 app.include_router(tools.router, tags=["tools"])
+app.include_router(agent_api.router, tags=["agent-api"])

@@ -68,7 +68,10 @@ This file only adds the traversal notes below.
 ## Two-pass recall (small-model friendly)
 1. `cicada_recall(query)` — Pass 1. Returns concise entity summaries plus an
    open question only when the query is about that question's own subject.
-   Read the summaries and the "Related" list.
+   Read the summaries and the "Related" list. Each heading says when the page
+   was last said and its state (`last said 3 weeks ago on <day> · fading`); a
+   page silent for months is a dated belief, so say how old it is before you
+   lean on it. A "Changed recently" line says the day a fact was superseded.
 2. `cicada_recall_detail(entity_id)` — Pass 2. Returns the FULL entity page for
    the most relevant hit. Use this only when you need the complete body/history,
    not a summary.

@@ -94,6 +94,13 @@ READ_TOOLS = frozenset({"cicada_recall", "cicada_open_hub", "cicada_recall_detai
                         "cicada_ask", "cicada_backlog", "cicada_reading_queue", "cicada_video_queue"})
 
 TOKEN_RE = re.compile(r"^cic_rc_([a-z0-9]{8})_([A-Za-z0-9_-]{43})$")
+#: G213: an agent token — a connector row made for an agent that speaks HTTP, not MCP (`auth == "api"`). It opens the
+#: `/v1` agent API only (on the backend's port and on this listener), never `/mcp`; the same scopes, expiry and revoke.
+API_TOKEN_RE = re.compile(r"^cic_api_([a-z0-9]{8})_([A-Za-z0-9_-]{43})$")
+#: What every agent token's episodes stamp as `harness` (an enum, so the telemetry rule holds); the agent's own name
+#: rides as `Cicada-Author: api:<name>` (`Connector.author`).
+API_HARNESS = "agent-api"
+API_AUTHOR_PREFIX = "api:"
 PRM_PATH = "/.well-known/oauth-protected-resource"
 DEFAULT_PORT = 8765
 EXPIRY_CHOICES = (7, 30, 90)
@@ -150,12 +157,25 @@ class Connector:
     last_client: str | None = None
     use_count: int = 0
     #: How the app holds it: ``link`` (a shown-once ``cic_rc_`` secret) or ``oauth`` (ruling 32: the app signed
-    #: in through Cicada's authorization server and holds short-lived access and rotating refresh tokens).
+    #: in through Cicada's authorization server and holds short-lived access and rotating refresh tokens), or ``api``
+    #: (G213: a shown-once ``cic_api_`` secret for an agent that speaks HTTP; it opens `/v1` only).
     auth: str = "link"
 
     @property
     def harness(self) -> str:
+        if self.auth == "api":
+            return API_HARNESS
         return (APPS.get(self.app) or APPS["other"]).harness
+
+    @property
+    def author(self) -> str | None:
+        """G213: an agent token's ``Cicada-Author`` — ``api:`` and the agent's name as the person typed it, reduced to
+        ``[a-z0-9-]`` (at most 32), so a commit says which agent wrote it. ``None`` for every other connector: its
+        author is its harness, as before."""
+        if self.auth != "api":
+            return None
+        slug = re.sub(r"[^a-z0-9]+", "-", self.label.casefold()).strip("-")[:32].strip("-")
+        return API_AUTHOR_PREFIX + (slug or "agent")
 
     def state(self, now: datetime | None = None) -> str:
         if self.revoked_at:

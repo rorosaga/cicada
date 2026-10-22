@@ -101,7 +101,8 @@ async def put_settings(req: RemoteSettingsIn) -> RemoteStatusOut:
 
 @router.get("/connectors", response_model=list[RemoteConnectorOut])
 def list_connectors() -> list[RemoteConnectorOut]:
-    return [_out(c) for c in store.ConnectorStore().list()]
+    # G213: an agent token lives in the same table but is listed at `GET /agent-api/tokens`, never as a connector.
+    return [_out(c) for c in store.ConnectorStore().list() if c.auth != "api"]
 
 
 @router.post("/connectors", response_model=RemoteConnectorCreatedOut)

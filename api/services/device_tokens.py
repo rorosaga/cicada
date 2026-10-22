@@ -32,7 +32,7 @@ import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from api.services.auth import cicada_home
@@ -54,6 +54,24 @@ CREATE TABLE IF NOT EXISTS devices (
     last_used_at TEXT,
     use_count INTEGER NOT NULL DEFAULT 0
 )"""
+#: G212: one-time pairing codes. A code is the credential a new device (a phone, another machine) trades ONCE for its
+#: own device token; only its sha256 is kept, it lives ten minutes, and it is spent by the first redeem that names it.
+_PAIRING_SCHEMA = """
+CREATE TABLE IF NOT EXISTS pairings (
+    id TEXT PRIMARY KEY,
+    code_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    cancelled_at TEXT,
+    device_id TEXT
+)"""
+#: Unambiguous when read off a screen or typed: no I, L, O, 0 or 1. 31 symbols, 8 of them: about 40 bits — with a
+#: ten-minute life, single use and a wrong-code bucket at the door, out of reach of guessing.
+CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+CODE_LENGTH = 8
+PAIRING_TTL_S = 600
+MAX_OPEN_PAIRINGS = 5
 
 
 @dataclass(frozen=True)
@@ -116,6 +134,7 @@ class DeviceStore:
         with self._db() as db:
             db.execute("PRAGMA journal_mode=WAL")
             db.execute(_SCHEMA)
+            db.execute(_PAIRING_SCHEMA)
 
     @contextmanager
     def _db(self):
@@ -183,6 +202,101 @@ class DeviceStore:
         with self._db() as db:
             db.execute("UPDATE devices SET revoked_at=COALESCE(revoked_at, ?) WHERE id=?", (_now(), device_id))
         return self.get(device_id)
+
+
+    # ── G212: pairing ──────────────────────────────────────────────────────────
+
+    def create_pairing(self, *, now: datetime | None = None) -> tuple[Pairing, str]:
+        """A one-time code for a new device, shown on the person's own screen (a QR or the letters). Returns the
+        pairing and the code — the code is in this one answer only. At most five wait at a time."""
+        now = now or datetime.now(timezone.utc)
+        stamp = now.replace(microsecond=0).isoformat()
+        with self._db() as db:
+            open_count = db.execute(
+                "SELECT COUNT(*) FROM pairings WHERE used_at IS NULL AND cancelled_at IS NULL AND expires_at > ?",
+                (stamp,)).fetchone()[0]
+            if open_count >= MAX_OPEN_PAIRINGS:
+                raise ValueError("Five pairing codes already wait; cancel one or let it expire.")
+            code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
+            while True:
+                pairing_id = "".join(secrets.choice(_ID_ALPHABET) for _ in range(8))
+                if db.execute("SELECT 1 FROM pairings WHERE id=?", (pairing_id,)).fetchone() is None:
+                    break
+            expires = (now + timedelta(seconds=PAIRING_TTL_S)).replace(microsecond=0).isoformat()
+            db.execute("INSERT INTO pairings (id, code_hash, created_at, expires_at) VALUES (?, ?, ?, ?)",
+                       (pairing_id, _hash(normalize_code(code)), stamp, expires))
+        return self.pairing(pairing_id, now=now), f"{code[:4]}-{code[4:]}"
+
+    def pairing(self, pairing_id: str, *, now: datetime | None = None) -> Pairing | None:
+        with self._db() as db:
+            row = db.execute("SELECT * FROM pairings WHERE id=?", (pairing_id,)).fetchone()
+        return _pairing(row, now or datetime.now(timezone.utc)) if row else None
+
+    def cancel_pairing(self, pairing_id: str) -> Pairing:
+        if not ID_RE.match(pairing_id or "") or self.pairing(pairing_id) is None:
+            raise KeyError(pairing_id)
+        with self._db() as db:
+            db.execute("UPDATE pairings SET cancelled_at=COALESCE(cancelled_at, ?) WHERE id=? AND used_at IS NULL",
+                       (_now(), pairing_id))
+        return self.pairing(pairing_id)
+
+    def redeem(self, code: str, name: str, *, now: datetime | None = None) -> tuple[Device, str]:
+        """Spend a code: the device the new machine named is issued its own token. ``KeyError`` for a code that
+        matches nothing waiting — unknown, used, cancelled and expired all look the same to the asker. The code is
+        spent in the same statement that checks it, so two redeems of one code make one device."""
+        clean = clean_name(name)
+        normal = normalize_code(code)
+        if len(normal) != CODE_LENGTH or any(ch not in CODE_ALPHABET for ch in normal):
+            raise KeyError("code")
+        stamp = (now or datetime.now(timezone.utc)).replace(microsecond=0).isoformat()
+        with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            spent = db.execute(
+                "UPDATE pairings SET used_at=? WHERE code_hash=? AND used_at IS NULL AND cancelled_at IS NULL "
+                "AND expires_at > ?", (stamp, _hash(normal), stamp)).rowcount
+            if spent != 1:
+                raise KeyError("code")
+            row = db.execute("SELECT id FROM pairings WHERE code_hash=?", (_hash(normal),)).fetchone()
+            secret = secrets.token_urlsafe(32)
+            while True:
+                device_id = "".join(secrets.choice(_ID_ALPHABET) for _ in range(8))
+                if db.execute("SELECT 1 FROM devices WHERE id=?", (device_id,)).fetchone() is None:
+                    break
+            db.execute("INSERT INTO devices (id, name, token_hash, created_at) VALUES (?, ?, ?, ?)",
+                       (device_id, clean, _hash(secret), _now()))
+            db.execute("UPDATE pairings SET device_id=? WHERE id=?", (device_id, row["id"]))
+        return self.get(device_id), f"{PREFIX}{device_id}_{secret}"
+
+
+@dataclass(frozen=True)
+class Pairing:
+    id: str
+    created_at: str
+    expires_at: str
+    state: str   # waiting | paired | cancelled | expired
+    device_id: str | None = None
+
+    def wire(self) -> dict:
+        return {"id": self.id, "createdAt": self.created_at, "expiresAt": self.expires_at, "state": self.state,
+                "deviceId": self.device_id}
+
+
+def normalize_code(raw: str | None) -> str:
+    """What a person may type or a QR may carry — any case, with a dash or spaces — reduced to the code itself."""
+    return "".join(ch for ch in str(raw or "").upper() if ch.isalnum())
+
+
+def _pairing(row: sqlite3.Row, now: datetime) -> Pairing:
+    if row["used_at"]:
+        state = "paired"
+    elif row["cancelled_at"]:
+        state = "cancelled"
+    elif datetime.fromisoformat(row["expires_at"]) <= now:
+        state = "expired"
+    else:
+        state = "waiting"
+    return Pairing(id=row["id"], created_at=row["created_at"], expires_at=row["expires_at"], state=state,
+                   device_id=row["device_id"])
 
 
 def store() -> DeviceStore:

@@ -375,7 +375,8 @@ def _classify_author_kind(author: str) -> str:
         return "system"
     if author == UNKNOWN_AUTHOR:
         return "unknown"
-    if author == LEGACY_AGENT_AUTHOR or author in _harness_authors():
+    if author == LEGACY_AGENT_AUTHOR or author in _harness_authors() or author.startswith("api:"):
+        # G213: `api:<name>` is an agent on the HTTP agent API, named by the token the person made for it.
         return HARNESS_KIND
     return "model"
 

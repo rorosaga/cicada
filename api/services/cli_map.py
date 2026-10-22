@@ -321,6 +321,19 @@ ROWS: tuple[Row, ...] = (
     _app(("device", "list"), "Your devices, and whether each one's token still works.", via="backend"),
     _app(("device", "revoke"), "Revoke a device's token at once.", (_p("device_id"),), via="backend", mutates=True,
          person=True),
+    # G212 (2026-10-22): a one-time code a new device trades once for its own token (`POST /pair`).
+    _app(("device", "pair"), "Show a one-time code (and its QR payload) a new device trades for its own token.",
+         (_f("url"),), via="backend", mutates=True, person=True),
+    # G213 (2026-10-22): a token for an agent that speaks HTTP, not MCP, and the paragraph to give it.
+    _app(("agent", "add"), "Make a token for a personal agent on the HTTP agent API, and the paragraph to give it.",
+         (_p("agent_name"), _f("scope", "list"), _f("days", "int"), _f("url")), via="backend", mutates=True,
+         person=True),
+    # G213 (owner 2026-10-22): look at this machine, then confirm each step — agents, a device, an agent's token.
+    _app(("setup",), "Find what is on this machine and connect it, one confirmed step at a time.",
+         (_f("url"), _f("pair", "bool"), _f("agent")), via="backend", mutates=True, person=True),
+    _app(("agent", "list"), "The agents holding an agent-API token, and whether each still works.", via="backend"),
+    _app(("agent", "revoke"), "Revoke an agent's token at once.", (_p("agent_id"),), via="backend", mutates=True,
+         person=True),
 )
 
 
