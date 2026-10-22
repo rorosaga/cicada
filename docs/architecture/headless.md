@@ -133,6 +133,12 @@ A user unit stops at logout unless lingering is on. The script checks `loginctl 
 The script creates no credential. The backend writes `~/.cicada/api_token` (0600) on first start. A metered key for
 scheduled Sleep goes in `~/.cicada/secrets.env`, written by the person.
 
+**A developer server that follows `dev`:** `scripts/dev/install-auto-update.sh` installs the same 5-minute auto-update
+the Mac's developer checkout runs, as a systemd user timer (`cicada-dev-autoupdate.timer`, `Persistent=true`): it
+fast-forwards the checkout to `origin/dev`, re-syncs the venv in its own shape and restarts `cicada-backend.service`,
+never under a running Sleep (`scripts/dev/README.md`). Developer tooling only; a person's server follows releases by
+re-running the install line.
+
 `make doctor` (`scripts/doctor.sh`) checks `systemctl --user is-active cicada-backend.service` on Linux in place of
 the launchd agent. Where there is no `make` (a minimal server) or no Makefile (a Homebrew keg), `install.sh` names
 `bash <repo>/scripts/doctor.sh` as the next step instead (`doctor_hint`).
