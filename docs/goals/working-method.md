@@ -116,6 +116,13 @@ waiting on a remote pasteboard item's data), every such test waits forever: `Clu
 `142` means the pasteboard does not answer. The person restarts it (`launchctl kickstart -k gui/$(id -u)/com.apple.pboard`,
 or logs out and back in); a worker never kills a process it did not start.
 
+**No Swift expression near the type checker's limit (2026-10-22).** The 0.6.0 release build failed on the CI runner
+("unable to type-check this expression in reasonable time", `SaveWhyPanel.swift`) while the same commit built on a
+faster Mac: the limit is time, so an expression a dev Mac solves in about a second can fail there. `Package.swift` now
+passes `-warn-long-expression-type-checking=150` to the app target, so every build warns on an expression over 150 ms;
+a warning there is fixed before release by typed locals, a split modifier chain or an extracted subview (pure refactor).
+To list function bodies too: `swift build -c release -Xswiftc -Xfrontend -Xswiftc -warn-long-function-bodies=300`.
+
 **A Swift test never reads the machine's locale or lets a render pick its own pixel format (2026-10-22).** Four classes
 failed on a Mac set to a non-US region at a commit that had passed: three asserted "Oct 2" through a formatter that read
 `Locale.current` ("2 Oct" there). The product is right to follow the reader's locale; the formatter takes

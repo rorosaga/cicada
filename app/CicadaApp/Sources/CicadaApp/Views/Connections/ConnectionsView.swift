@@ -24,34 +24,11 @@ struct ConnectionsView: View {
         (all.filter { !$0.isKeyBased || $0.connected }, all.filter { $0.isKeyBased && !$0.connected })
     }
 
+    // `body` is split into `refreshButton`, `pageContent`, `cards` and the dialog's words: as one expression it sat
+    // near what the type checker solves in reasonable time on a slower release runner.
     var body: some View {
-        SettingsPage(section: .plansAndKeys, trailing: AnyView(
-            Button { Task { await viewModel.load(fresh: true) } } label: { Image(systemName: "arrow.clockwise") }
-                .help("Check again")
-        )) {
-            if let err = viewModel.errorMessage {
-                Text(err).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.statusColor(for: .decaying))
-            }
-            if viewModel.isLoading {
-                ProgressView().frame(maxWidth: .infinity, alignment: .center)
-            } else {
-                let groups = Self.split(viewModel.connections)
-                VStack(spacing: CicadaTheme.spacingMD) {
-                    ForEach(groups.open) { c in card(c) }
-                    if !groups.folded.isEmpty {
-                        DisclosureGroup(isExpanded: $keysOpen) {
-                            VStack(spacing: CicadaTheme.spacingMD) {
-                                ForEach(groups.folded) { c in card(c) }
-                            }
-                            .padding(.top, CicadaTheme.spacingSM)
-                        } label: {
-                            Text(Copy.useAnAPIKeyInstead)
-                                .font(CicadaTheme.rowFont)
-                                .foregroundStyle(CicadaTheme.textSecondary)
-                        }
-                    }
-                }
-            }
+        SettingsPage(section: .plansAndKeys, trailing: refreshButton) {
+            pageContent
         }
         .onAppear { openKeysIfLanded() }
         .onChange(of: focus?.landedNonce ?? 0) { _, _ in openKeysIfLanded() }
@@ -64,19 +41,69 @@ struct ConnectionsView: View {
         .onDisappear { viewModel.stopPolling() }
         // R-E28: signing out of ChatGPT runs `codex logout` in Cicada's own
         // Codex home only, so the dialog says the terminal's Codex is untouched.
-        .confirmationDialog(confirmDisconnect?.id == "chatgpt-plan"
-                                ? Copy.chatgptSignOutTitle
-                                : "Disconnect \(confirmDisconnect?.label ?? "")?",
-                            isPresented: Binding(get: { confirmDisconnect != nil }, set: { if !$0 { confirmDisconnect = nil } }),
-                            presenting: confirmDisconnect) { c in
-            Button(c.id == "chatgpt-plan" ? Copy.signOut : "Disconnect", role: .destructive) {
+        .confirmationDialog(disconnectTitle, isPresented: disconnectPresented, presenting: confirmDisconnect) { c in
+            Button(Self.disconnectAction(c), role: .destructive) {
                 Task { await viewModel.logout(c.id) }
             }
         } message: { c in
-            Text(c.id == "claude-plan"
-                 ? Copy.claudeSignOutExplainer
-                 : c.id == "chatgpt-plan" ? Copy.chatgptSignOutExplainer : Copy.keyRemovedFromMac)
+            Text(Self.disconnectMessage(c))
         }
+    }
+
+    private var refreshButton: AnyView {
+        AnyView(
+            Button { Task { await viewModel.load(fresh: true) } } label: { Image(systemName: "arrow.clockwise") }
+                .help("Check again")
+        )
+    }
+
+    @ViewBuilder private var pageContent: some View {
+        if let err = viewModel.errorMessage {
+            Text(err).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.statusColor(for: .decaying))
+        }
+        if viewModel.isLoading {
+            ProgressView().frame(maxWidth: .infinity, alignment: .center)
+        } else {
+            cards(Self.split(viewModel.connections))
+        }
+    }
+
+    private func cards(_ groups: (open: [ConnectionStatus], folded: [ConnectionStatus])) -> some View {
+        VStack(spacing: CicadaTheme.spacingMD) {
+            ForEach(groups.open) { c in card(c) }
+            if !groups.folded.isEmpty {
+                DisclosureGroup(isExpanded: $keysOpen) {
+                    VStack(spacing: CicadaTheme.spacingMD) {
+                        ForEach(groups.folded) { c in card(c) }
+                    }
+                    .padding(.top, CicadaTheme.spacingSM)
+                } label: {
+                    Text(Copy.useAnAPIKeyInstead)
+                        .font(CicadaTheme.rowFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                }
+            }
+        }
+    }
+
+    private var disconnectTitle: String {
+        confirmDisconnect?.id == "chatgpt-plan"
+            ? Copy.chatgptSignOutTitle
+            : "Disconnect \(confirmDisconnect?.label ?? "")?"
+    }
+
+    private var disconnectPresented: Binding<Bool> {
+        Binding(get: { confirmDisconnect != nil }, set: { if !$0 { confirmDisconnect = nil } })
+    }
+
+    private static func disconnectAction(_ c: ConnectionStatus) -> String {
+        c.id == "chatgpt-plan" ? Copy.signOut : "Disconnect"
+    }
+
+    private static func disconnectMessage(_ c: ConnectionStatus) -> String {
+        c.id == "claude-plan"
+            ? Copy.claudeSignOutExplainer
+            : c.id == "chatgpt-plan" ? Copy.chatgptSignOutExplainer : Copy.keyRemovedFromMac
     }
 
     private func card(_ c: ConnectionStatus) -> some View {

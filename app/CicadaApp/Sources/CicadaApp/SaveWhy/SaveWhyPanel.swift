@@ -388,13 +388,20 @@ struct SaveWhyChipRows: Layout {
     var lineSpacing: CGFloat
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
-        let rows = SaveWhyPanelLayout.rows(widths: sizes.map(\.width), available: proposal.width ?? .infinity,
-                                           spacing: spacing)
-        let width = rows.map { row in row.map { sizes[$0].width }.reduce(0, +) + spacing * CGFloat(row.count - 1) }
-            .max() ?? 0
-        let height = rows.map { row in row.map { sizes[$0].height }.max() ?? 0 }.reduce(0, +)
-            + lineSpacing * CGFloat(max(0, rows.count - 1))
+        // Typed sub-expressions: written as two chained one-liners, this sat at the type checker's limit and a
+        // slower release runner gave up on it ("unable to type-check this expression in reasonable time").
+        let sizes: [CGSize] = subviews.map { $0.sizeThatFits(.unspecified) }
+        let widths: [CGFloat] = sizes.map(\.width)
+        let available: CGFloat = proposal.width ?? .infinity
+        let rows: [[Int]] = SaveWhyPanelLayout.rows(widths: widths, available: available, spacing: spacing)
+        let rowWidths: [CGFloat] = rows.map { (row: [Int]) -> CGFloat in
+            let chips: CGFloat = row.map { sizes[$0].width }.reduce(0, +)
+            return chips + spacing * CGFloat(row.count - 1)
+        }
+        let rowHeights: [CGFloat] = rows.map { (row: [Int]) -> CGFloat in row.map { sizes[$0].height }.max() ?? 0 }
+        let width: CGFloat = rowWidths.max() ?? 0
+        let gaps: CGFloat = lineSpacing * CGFloat(max(0, rows.count - 1))
+        let height: CGFloat = rowHeights.reduce(0, +) + gaps
         return CGSize(width: width, height: height)
     }
 

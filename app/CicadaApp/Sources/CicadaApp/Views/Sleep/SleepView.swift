@@ -296,6 +296,12 @@ struct SleepView: View {
     }
 
     private func lifecycle(_ content: some View, page: SleepPageModel) -> some View {
+        reconciles(followsRun(loads(content)))
+    }
+
+    /// The page's loads and Sleep's running → idle edge — split from `lifecycle`, whose one modifier chain sat near
+    /// what the type checker solves in reasonable time on a slower release runner.
+    private func loads(_ content: some View) -> some View {
         content
         // Keyed on the Store's newest Sleep time and Sleep's state too: a cycle this page did not start (a scheduled
         // drain, the CLI) that moves or finishes while it is open reruns this, so Past reads' Last cycle rereads what it
@@ -349,6 +355,11 @@ struct SleepView: View {
                 }
             }
         }
+    }
+
+    /// The pause, Waiting's rows and an open run's detail follow the run while the page is open.
+    private func followsRun(_ content: some View) -> some View {
+        content
         // Sleep page v5 — a pause appears, is armed or is cleared with no status change (H3): the status refetch is
         // app-wide (`Store.onSleepPausedChanged`, wired in `CicadaApp`); the page only announces a pause (A11).
         .onChange(of: store.sleepEvent?.paused) { old, new in
@@ -364,6 +375,12 @@ struct SleepView: View {
             guard let id = detailRunId else { return }
             Task { @MainActor in await sleepVM.loadRunDetail(id, freshness: detailRunFreshness) }
         }
+    }
+
+    /// The history and the live unprocessed count reconcile the page (split from `followsRun` for the type checker,
+    /// like `loads`).
+    private func reconciles(_ content: some View) -> some View {
+        content
         .onChange(of: sleepVM.history) { _, history in
             if room.resolveCompletion(history: history) != nil { celebrateCompletion() }
         }

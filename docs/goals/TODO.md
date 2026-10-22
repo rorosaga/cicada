@@ -8,6 +8,15 @@
 
 ## Current state and evidence
 
+- **2026-10-22 — the 0.6.0 release build type-checks on the runner (branch `fix/release-typecheck`).** Release run
+  39714438472 failed: `SaveWhyPanel.swift:394` "unable to type-check this expression in reasonable time" on the
+  macos-26 runner (it built on the dev Mac). A release build with `-warn-long-expression-type-checking=150` and
+  `-warn-long-function-bodies=300` listed 15 warnings in 10 functions; each was split with typed locals, smaller modifier chains or extracted
+  helpers, no behaviour or layout change (`SaveWhyChipRows`, `PersonBeliefs.newestFirst`, `fetchConsumption`, the
+  `CicadaApp` scene body, `ContentView.body`, `ConnectionsView.body`, `SleepView.lifecycle`, `NeutralButton`,
+  `InboxQuestionList`, `ReadingWebView`). Worst before: one expression 2,112 ms, a body 11,770 ms; after: no expression
+  over 75 ms, no body over 249 ms (same Mac, release build). `Package.swift` now warns on any expression over 150 ms
+  (`working-method.md`).
 - **2026-10-22 — four Swift test classes no longer depend on the machine (branch `fix/tests-environment`).**
   `AskConversationsTests`, `BookmarksV4Tests` and `ProjectsListTests` asserted US dates through formatters that read
   the runner's locale; `AskConversationRow.day`, `Copy.Bookmarks.noLongerIn`/`shortDay` and
