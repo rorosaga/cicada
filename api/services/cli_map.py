@@ -327,6 +327,9 @@ ROWS: tuple[Row, ...] = (
     _app(("agent", "add"), "Make a token for a personal agent on the HTTP agent API, and the paragraph to give it.",
          (_p("agent_name"), _f("scope", "list"), _f("days", "int"), _f("url")), via="backend", mutates=True,
          person=True),
+    # G213 (owner 2026-10-22): look at this machine, then confirm each step — agents, a device, an agent's token.
+    _app(("setup",), "Find what is on this machine and connect it, one confirmed step at a time.",
+         (_f("url"), _f("pair", "bool"), _f("agent")), via="backend", mutates=True, person=True),
     _app(("agent", "list"), "The agents holding an agent-API token, and whether each still works.", via="backend"),
     _app(("agent", "revoke"), "Revoke an agent's token at once.", (_p("agent_id"),), via="backend", mutates=True,
          person=True),

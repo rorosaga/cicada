@@ -27,6 +27,7 @@ import asyncio
 import json
 import os
 import re
+import sys
 import time
 import uuid
 from dataclasses import dataclass
@@ -1415,6 +1416,21 @@ def cmd_agent_revoke(boot, args) -> Result:
                   data=answer, warnings=_warn(boot))
 
 
+def cmd_setup(boot, args) -> Result:
+    require_person("Setting up Cicada")
+    from api import cli_setup
+
+    def send(method, path, body=None):
+        return call(boot, method, path, body=body, bank_header=False) if method != "GET" else call(boot, method, path)
+
+    interactive = sys.stdin.isatty() and sys.stderr.isatty()
+    result = cli_setup.run_setup(call=send, ui=cli_setup.Ui(interactive), url=getattr(args, "url", None),
+                                 pair_now=True if getattr(args, "pair", None) else None,
+                                 agent_name=getattr(args, "agent", None) or None)
+    result.warnings = _warn(boot) + list(result.warnings)
+    return result
+
+
 COMMANDS = {
     "page list": cmd_page_list, "page history": cmd_page_history, "page decay": cmd_page_decay,
     "graph": cmd_graph, "find": cmd_find,
@@ -1436,6 +1452,7 @@ COMMANDS = {
     "skills publish": cmd_skills_publish,
     "device add": cmd_device_add, "device list": cmd_device_list, "device revoke": cmd_device_revoke,
     "device pair": cmd_device_pair,
+    "setup": cmd_setup,
     "agent add": cmd_agent_add, "agent list": cmd_agent_list, "agent revoke": cmd_agent_revoke,
 }
 

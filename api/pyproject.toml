@@ -20,8 +20,11 @@ dependencies = [
     "pypdfium2>=4.30",
     "python-multipart>=0.0.24",
     "pyyaml>=6.0.3",
+    # `cicada setup` (G213, owner 2026-10-22): the spinner, checklist and prompts. Imported only by that command.
+    "questionary>=2.0",
     # A site's SVG icon, sanitised then drawn to a PNG in a locked-down child (api/services/svg_raster.py, 2026-10-20).
     "resvg-py>=0.5.0",
+    "rich>=13.7",
     "sentence-transformers>=5.0.0",
     "sqlite-vec>=0.1.9",
     "thefuzz[speedup]>=0.22.1",

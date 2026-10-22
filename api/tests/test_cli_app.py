@@ -330,6 +330,7 @@ PERSON_ARGV = {
     "device revoke": ["device", "revoke", "ab12cd34"],
     "device pair": ["device", "pair"],
     "agent add": ["agent", "add", "Texting Agent"],
+    "setup": ["setup"],
     "agent revoke": ["agent", "revoke", "ab12cd34"],
     "engine connect": ["engine", "connect", "claude-plan"],
 }
