@@ -74,7 +74,8 @@ from api.services.auth import cicada_home
 # 18: ruling 34 (G162 F1) — a video hand-back carries its lease_token.
 # 19: G200 A7 — the Capabilities block names no HTTP route (no MCP agent can call one), and a `desktop` variant for a
 #     chat app that cannot resume (`variant_for` matches exact client names, never a substring).
-CONTRACT_VERSION = 19
+# 20: G61 "Where to check" (ruling 36 D5) — item 4 defines it and names `inferred` / `evidence` on cicada_add_source.
+CONTRACT_VERSION = 20
 MAX_TOKENS = 1800
 VARIANTS = ("claude-code", "codex", "desktop", "generic")
 
@@ -99,7 +100,8 @@ REMOTE_VARIANT = "remote"
 # 11: owner 2026-10-14 — the inbox item says mode="ask"/"list" (questions come up naturally).
 # 12: ruling 32 (owner 2026-10-19) — a connection that can capture is asked to relay every turn.
 # 13: ruling 34 (G162 F1) — a video hand-back carries its lease_token.
-REMOTE_CONTRACT_VERSION = 13
+# 14: G61 "Where to check" (ruling 36 D5) — the sources item defines it and names `inferred` / `evidence`.
+REMOTE_CONTRACT_VERSION = 14
 # The runtime replaces this with a freshly minted handle AFTER the cache read,
 # so one cached primer serves every conversation of a tool set.
 CONVERSATION_SLOT = "{{conversation}}"
@@ -198,7 +200,8 @@ def _remote_contract(tools: frozenset[str], reading: bool = False) -> str:
                      "`cicada_retract_claim(subject, claim_id, reason)`; it stays in history with your reason.")
     if "cicada_add_source" in tools:
         # G61 S3-a: a page holds many sources; named only where the tools exist (R12).
-        text = "Where a fact can be checked is a source: `cicada_add_source` only when the person names it"
+        text = ("Where to check is a link where a page's current state can be checked (a profile, a site, a repo): "
+                "`cicada_add_source` when the person names it, with `inferred: true` and `evidence` when you found it")
         if "cicada_change_source" in tools:
             text += "; `cicada_change_source` to fix or drop one this connection added"
         items.append(text + ".")
@@ -345,8 +348,9 @@ _CONTRACT = (
     "4. Write facts as claims: `cicada_write_claim(subject, predicate, object, evidence=[{episode, quote}], "
     "sources=[url])` — quote the exact words you relied on, give `sources` for anything you looked up, and "
     "`expected_end` when the fact states an end; withdraw a claim you wrote that proved wrong with "
-    "`cicada_retract_claim(subject, claim_id, reason)`. Sources: "
-    "`cicada_add_source` for one the person names; `cicada_change_source` to fix or drop your own. Fix a "
+    "`cicada_retract_claim(subject, claim_id, reason)`. Where to check (links to re-check a page by): "
+    "`cicada_add_source` for one the person names, `inferred=true` + `evidence` for one you found; "
+    "`cicada_change_source` to fix or drop your own. Fix a "
     "page's text: `cicada_edit_page(subject, reason, edits)`.\n"
     f"5. {state_dictionary.WORLD_FACTS_NOTE}\n"
     "6. Ask before assuming: a pending clarification on an entity you are about to use means the person has "

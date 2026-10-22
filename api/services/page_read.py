@@ -124,16 +124,17 @@ def _write_episode(memory_path: Path, target: Target, body: str, session_fm: dic
 
 
 def _apply_title(memory_path: Path, target: Target, title: str) -> bool:
-    """A page saved without a fetch is titled by its URL's last segment (an X
-    status id, say). The agent saw the real title: it replaces the slug, and ONLY
+    """A page saved without a fetch is titled from its URL ("Post by @<user>" for
+    an X post; before 2026-10-22, its bare status id). The agent saw the real title: it replaces the slug, and ONLY
     the slug — a title the person, the reader or a provider gave is never
     overwritten. Both places that hold it move together (the index's ``title``
     is what the Feed lists)."""
     idx = media_ingestor.load_url_index(memory_path)
     entry = idx.get(media_ingestor.url_hash(target.url))
-    slug = media_ingestor._fallback_title(target.url)
-    if not isinstance(entry, dict) or str(entry.get("title") or "") != slug:
+    if not isinstance(entry, dict) or not entry.get("title") \
+            or not media_ingestor.is_placeholder_title(target.url, entry.get("title")):
         return False
+    slug = str(entry["title"])
     entry["title"] = title
     media_ingestor.save_url_index(memory_path, idx)
     page = memory_path / "entities" / f"{target.entity_id}.md"

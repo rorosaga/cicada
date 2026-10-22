@@ -371,11 +371,15 @@ def test_a_linkedin_slug_comes_only_from_an_in_profile_url():
         assert person_photo.linkedin_slug(refused) is None, refused
 
 
-def test_the_proxy_gate_is_off_by_default_and_needs_the_others(monkeypatch):
+def test_the_proxy_gate_is_on_by_default_its_off_switch_works_and_it_needs_the_others(monkeypatch):
+    # Ruling 36 D5 (owner 2026-10-22: "photo gate ON"); it was off by default from 2026-10-09.
     monkeypatch.delenv("CICADA_ALLOW_PERSON_PHOTO_PROXY", raising=False)
     monkeypatch.setenv("CICADA_ALLOW_LOGO_FETCH", "on")
     monkeypatch.setenv("CICADA_ALLOW_PERSON_PHOTO_FETCH", "on")
-    assert person_photo.fetch_allowed() and not person_photo.proxy_allowed(), "off by default"
+    assert person_photo.fetch_allowed() and person_photo.proxy_allowed(), "on by default"
+    for off in ("off", "0", "false", "OFF"):
+        monkeypatch.setenv("CICADA_ALLOW_PERSON_PHOTO_PROXY", off)
+        assert not person_photo.proxy_allowed(), off
     monkeypatch.setenv("CICADA_ALLOW_PERSON_PHOTO_PROXY", "on")
     assert person_photo.proxy_allowed()
     monkeypatch.setenv("CICADA_ALLOW_PERSON_PHOTO_FETCH", "off")

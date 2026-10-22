@@ -153,7 +153,7 @@
       "summary": "Your agent turns an audio or video file into text, with who said what.",
       "why": "For your own recordings of meetings and calls, so what was said can be kept.",
       "publisher": "OpenAI", "sourceUrl": "https://github.com/openai/skills/tree/main/skills/.curated/transcribe",
-      "licence": "Apache-2.0", "mark": "codex", "symbol": "waveform.and.mic",
+      "licence": "Apache-2.0", "mark": "openai", "symbol": "waveform.and.mic",
       "pin": {"repo": "openai/skills", "ref": "main", "sha": "49f948faa9258a0c61caceaf225e179651397431",
               "path": "skills/.curated/transcribe", "skillMdSha256": "f530021da9f377362ee4214e0bc689cbb5404640d2eb88ee272d51d61f530a09"},
       "agents": {"codex": {"method": "skills-cli"}},

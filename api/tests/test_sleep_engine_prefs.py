@@ -214,10 +214,12 @@ def test_openrouter_is_a_byok_card_that_needs_a_key(client):
     assert body["selected"] == body["mode"] == "byok"
 
 
-def test_the_picker_lists_six_providers_and_which_have_a_key(client, monkeypatch):
+def test_the_picker_lists_its_providers_and_which_have_a_key(client, monkeypatch):
     monkeypatch.setenv("GROQ_API_KEY", "gsk-EXAMPLE")   # has_secret reads the environment; undone after the test
     providers = client.get("/sleep/engine").json()["providers"]
-    assert [p["id"] for p in providers] == ["anthropic", "openai", "gemini", "xai", "groq", "mistral"]
+    # Ruling 36 D1 added Fireworks, DeepInfra and Together (#425); the route serves `byok.PICKER` in its order.
+    assert [p["id"] for p in providers] == ["anthropic", "openai", "gemini", "xai", "groq", "mistral",
+                                            "fireworks", "deepinfra", "together"]
     groq = next(p for p in providers if p["id"] == "groq")
     assert (groq["hasKey"], groq["connectionId"], groq["defaultModel"]) == (True, "byok-groq", "groq/openai/gpt-oss-120b")
     assert all("EXAMPLE" not in str(p) for p in providers)

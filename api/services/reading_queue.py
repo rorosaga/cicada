@@ -404,6 +404,10 @@ def counts(memory_path: Path, *, warm_only: bool = False, include_words_origin: 
     # G71 (2026-10-16): a YouTube list the person asked their agent to keep current is an ask of theirs too — one
     # small file, no bank read, so the hook's budget never meets it.
     asks += len(youtube_lists.due(memory_path))
+    # G206 (2026-10-22): a saved list on X, Instagram or LinkedIn the person turned on, the same way.
+    from api.services import saved_lists
+
+    asks += len(saved_lists.due(memory_path))
     if not reading_settings.allowed_sites():
         return asks, 0
     if warm_only and not bank_index.is_warm(memory_path, "entities"):

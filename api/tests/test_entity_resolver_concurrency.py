@@ -182,10 +182,10 @@ def test_a_name_that_matches_an_in_cycle_create_spends_no_lookahead_call(bank, m
     """"Alpha Bravo Hub" direct-matches the in-cycle create "Alpha Bravo Hubs" (fuzzy > 85): the serial loop
     never judged it, and the lookahead must not judge it either."""
     history = {"mention_exchanges": 4, "named_by_person": True}  # promoted on its one conversation
-    pages = [_page("Alpha Cobalt", "project")]
+    pages = [_page("Alpha Cobalt", "tool")]
     extracted = [{"episode_id": "ep_2026-10-01_001", "relationships": [], "entities": [
-        _entity("Alpha Bravo Hubs", "project", "ep_2026-10-01_001", **history),
-        _entity("Alpha Bravo Hub", "project", "ep_2026-10-01_001"),
+        _entity("Alpha Bravo Hubs", "tool", "ep_2026-10-01_001", **history),
+        _entity("Alpha Bravo Hub", "tool", "ep_2026-10-01_001"),
     ]}]
     out, judge = _run(bank, monkeypatch, 4, judge=_Judge(verdict=lambda *a: "different"), batch=(pages, extracted))
     assert judge.pairs == [("Alpha Bravo Hubs", "Alpha Cobalt")]

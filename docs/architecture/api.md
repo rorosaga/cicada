@@ -258,7 +258,7 @@ saving it answers) and answers with `history`. The app reaches both through `Sto
 (no `VersionVector` mapping, fetched on demand like provenance). A timeline item carries at most
 12 participants plus `participantsTotal`, and a cluster group at most 8 names no page holds yet
 (round 4 D6). A list row's `activity` is the window's first day only — the row bar's start, all the list draws from it;
-the detail keeps the series (`PROJECT_SHAPE` g141-4, 2026-10-19: 40 % of the list's body at 700 projects). The person's writes (G141 PJ-3b) —
+the detail keeps the series (`PROJECT_SHAPE` g141-4, 2026-10-19: 40 % of the list's body at 700 projects). g141-5 (2026-10-22, ruling 36 D4): a row carries `origin` (`repo` | `words` | null — read from the page alone, no conversation), the detail `origin` {kind, stored, why, day, episode, quote, repoName, via}, the six standard `sections` (`project_sections.SECTIONS`: overview · timeline · done · expected · design · people; each {key, title, writtenBy, entries ≤ 40 + more, markdown}) and `people` (every linked person page). The person's writes (G141 PJ-3b) —
 `POST /projects/{id}/milestones`, `PATCH /projects/{id}/milestones/{slug}`, `POST /projects/{id}/happenings`
 (the Log: one time phrase becomes the day, a companion episode keeps the words), `POST
 /projects/{id}/threads/{claim_id}` and `POST /projects/{id}/withdraw` (happenings only) — answer **409**

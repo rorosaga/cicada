@@ -14,7 +14,7 @@ from tqdm import tqdm
 
 from api.config import Settings
 from api.services import (correspondents, decay_policy, engine_errors, entity_types, episode_time, evidence, fact_policy,
-                          promotion, section_provenance, source_dates)
+                          project_birth, promotion, section_provenance, source_dates)
 from api.services.json_parse import parse_json_object
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
@@ -669,6 +669,16 @@ async def extract(
                         narration += len(facts) - len(kept)
                         entity["key_facts"] = kept
                     entity["mention_exchanges"], entity["named_by_person"] = promotion.measure(entity, units)
+                    sanitize_entity_type(entity)
+                    entity.pop("project_birth", None)   # computed here from the conversation, never the model's to say
+                    if entity.get("type") == "project":
+                        # Ruling 36 D4: where this conversation could give the project its page (`project_birth`).
+                        born = project_birth.at_extraction(
+                            entity, episode_id=ep_id, frontmatter=episode, text=content,
+                            day=ep_day.isoformat() if ep_day and not untimed else None,
+                            override=episode.get("evidence_kind"), gaps=gaps)
+                        if born is not None:
+                            entity["project_birth"] = born
                     section_provenance.attach(entity, ep_id, content)
                     entity["source_episode"] = ep_id
                     entity["source_episode_timestamp"] = None if untimed else episode.get("timestamp")

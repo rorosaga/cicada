@@ -149,6 +149,17 @@ trailers) and dedup hold.
   withdraw a claim you wrote with `cicada_retract_claim`.
 - An open question the person just answered -> `cicada_resolve_inbox`.
 
+## Where to check
+Where to check is a link where the current state of a thing can be checked — a
+profile, a personal site, a publication list, a repository or any page; Cicada
+re-checks it on a schedule and agents check it before answering about the thing.
+- The person names one ("her site is …") -> `cicada_add_source(subject, ref)`.
+- You find one yourself, in a conversation or your own research (their GitHub
+  in a pasted message, a lab page listing them) -> `cicada_add_source(subject,
+  ref, inferred=true, evidence=[{episode, quote}])`. It waits for the person's
+  one-tap yes before Cicada trusts it, draws their picture from it or re-checks
+  it. Never a link guessed from a name.
+
 ## Memory directory layout (read-only orientation)
     <memory root>/            ~/cicada/memory unless CICADA_MEMORY_PATH names another
       banks.yaml              which bank is active

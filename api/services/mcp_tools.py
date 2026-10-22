@@ -780,7 +780,7 @@ def reading_queue(ctx: ToolContext, limit=None) -> str:
             continue
         # A title came from a third-party page: one line, scrubbed, so it can never forge a row.
         title = episode_scrub.scrub(" ".join(str(e.title or "").split()))[0]
-        title_part = f" \u2014 {title[:80]}" if title and title != media_ingestor._fallback_title(e.url) else ""
+        title_part = f" \u2014 {title[:80]}" if title and not media_ingestor.is_placeholder_title(e.url, title) else ""
         how = f"asked {e.since}" if e.origin == "ask" else "a site the person allowed"
         rows.append(f"{len(rows) + 1}. {e.url} ({reading_hosts.display_host(e.host)}, {how}){title_part}")
     # G71 (2026-10-16): the YouTube lists the person asked their agent to keep current, when due. Stdio only — the
@@ -789,6 +789,11 @@ def reading_queue(ctx: ToolContext, limit=None) -> str:
 
     yt_lines = ([] if ctx.is_remote else
                 youtube_lists.queue_lines(memory_path, can_record=ctx.can("cicada_record_youtube_list")))
+    # G206 (2026-10-22): a saved list on X, Instagram or LinkedIn the person turned on, the same way and seat.
+    from api.services import saved_lists
+
+    if not ctx.is_remote:
+        yt_lines += saved_lists.queue_lines(memory_path, can_record=ctx.can("cicada_record_saved_list"))
     yt_text = "\n".join(yt_lines)
     if not rows:
         return yt_text or "Nothing is waiting: no link is waiting for an agent to read right now."
@@ -1541,6 +1546,142 @@ def record_youtube_list(ctx: ToolContext, list_name: str, outcome: str, videos=N
                                    author=ctx.author, session=ctx.session_id)
     extra = f" {dropped} row(s) were not YouTube video pages and were left out." if dropped else ""
     return f"Recorded the person's YouTube {label}. {said}{extra}"
+
+
+#: At most this many items in one ``cicada_record_saved_list`` call (a few screens of a list, never a whole archive).
+MAX_SAVED_LIST_ITEMS = 200
+#: A post's words as the list shows them: a title's share and a description's (the X archive's own bounds).
+SAVED_TITLE_MAX = 80
+SAVED_TEXT_MAX = 500
+SAVED_LIST_SLEEPING = ("Not recorded: Cicada is consolidating memory right now, and this list is written into it. "
+                       "Nothing was saved. Keep what you read and record it with `cicada_record_saved_list` when "
+                       "Cicada has finished.")
+
+
+def _ask_sign_in_for_list(ctx: ToolContext, memory_path: Path, platform) -> None:
+    """G205: a login wall on a saved list becomes one agent request in the person's Inbox — "<Agent> is asking you to
+    sign in to x.com, to read your bookmarks". The Inbox kind ships with G205 (``agent_requests``); until it is on
+    this branch this is a no-op, and the pause and the tool's reply stand either way."""
+    try:
+        from api.services import agent_live, agent_requests
+    except ImportError:
+        return
+    try:
+        agent_requests.ask(memory_path, agent=agent_live.agent_for(ctx.harness, ctx.client_name),
+                           site=platform.site, reason=platform.reason)
+    except Exception:  # noqa: BLE001 — never fails the record
+        pass
+
+
+def _one_line(value, limit: int) -> str:
+    words = episode_scrub.scrub(" ".join(str(value or "").split()))[0]
+    return (words[:limit].rstrip() + "…") if len(words) > limit else words
+
+
+@_holding_pages
+def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None, via: str | None = None) -> str:
+    """``cicada_record_saved_list`` (G206, redesign 2026-10-22): what the person's own agent read on their saved list
+    on X (Bookmarks), Instagram (Saved) or LinkedIn (Saved posts), in their signed-in browser, after the person turned
+    that list on.
+
+    Refusals, in order, write nothing: a demo bank, agent reading off, an unknown platform or outcome, a list the
+    person has not turned on, the day's reads spent. ``needs_login`` / ``blocked`` pause that list for a week (no bank
+    write) and ask the person to sign in (G205); ``failed`` is noted. A ``read``: each post becomes a save where saved
+    links go (``media_ingestor``, one ``url_index`` row per post with its other spellings as aliases — a post saved
+    before by an archive, a connector or a link is a duplicate, never a second page), under the list's own origin, so
+    it is indexed and never read by a model (ruling 30). Nothing is fetched. Committed as the harness."""
+    from api.services import media_ingestor, reading_settings, saved_lists
+    from api.services.media_ingestor import MediaMeta, PreparedItem, RawItem
+
+    memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    if not reading_settings.agent_enabled():
+        return _READING_OFF
+    key = str(platform or "").strip().lower()
+    if key not in saved_lists.PLATFORMS:
+        return Reply("Error: platform must be x, instagram or linkedin.", code="invalid_arguments")
+    outcome = str(outcome or "").strip().lower()
+    if outcome not in saved_lists.OUTCOMES:
+        return Reply(f"Error: outcome must be one of {', '.join(saved_lists.OUTCOMES)}.", code="invalid_arguments")
+    p = saved_lists.PLATFORMS[key]
+    if not saved_lists.allowed(key):
+        return Reply(f"Not recorded: the person has not asked their agent to keep their saved {p.name} posts current "
+                     "(Sources). Nothing was read into memory.", code="refused")
+    if outcome in saved_lists.PAUSING:
+        saved_lists.note(memory_path, key, outcome)
+        _ask_sign_in_for_list(ctx, memory_path, p)
+        return (f"Recorded: {p.name} needs the person to sign in (or blocked the page). Stop: do not sign in, type "
+                f"credentials or try another route. Their {p.name} list is paused for a week, or until the person "
+                "signs in and says so in Cicada.")
+    if outcome == "failed":
+        saved_lists.note(memory_path, key, outcome)
+        return "Recorded: the read failed. Nothing was written; the list is offered again later."
+    rows = items if isinstance(items, list) else []
+    if not rows:
+        return Reply("Error: a read needs `items` — the posts the list showed, each {url, author, text}. Record "
+                     "`failed` if the page showed none.", code="invalid_arguments")
+    if len(rows) > MAX_SAVED_LIST_ITEMS:
+        return Reply(f"Error: at most {MAX_SAVED_LIST_ITEMS} items in one call; record the rest in a second call.",
+                     code="invalid_arguments")
+    if saved_lists.reads_today(memory_path) >= saved_lists.DAILY_READS:
+        return Reply(f"Not recorded: {saved_lists.DAILY_READS} saved-list reads have been recorded today, the most "
+                     "Cicada takes in a day. Nothing was saved; the list is offered again tomorrow.", code="refused")
+    if ctx.sleep_answer:
+        return SAVED_LIST_SLEEPING
+    idx = media_ingestor.load_url_index(memory_path)
+    created = duplicates = listed = dropped = 0
+    seen: set[str] = set()
+    paths: list[str] = []
+    for row in rows:
+        row = row if isinstance(row, dict) else {}
+        found = saved_lists.canonical(key, row.get("url"))
+        if found is None:
+            dropped += 1
+            continue
+        url, aliases = found
+        if url in seen:
+            continue
+        seen.add(url)
+        text = _one_line(row.get("text"), SAVED_TEXT_MAX)
+        author = _one_line(row.get("author"), 60)
+        if key == "x" and author and not author.startswith("@") and " " not in author:
+            author = "@" + author
+        title = (_one_line(text, SAVED_TITLE_MAX) if text
+                 else f"Post by {author}" if author else media_ingestor._fallback_title(url))
+        # The list's own origin and folder make the save index-only (`history_index.kind`): no note, no reason —
+        # the post's words are the post's, never the person's.
+        item = RawItem(url=url, title=title, folder=p.folder, origin=p.origin, aliases=list(aliases),
+                       preview=text or None, defer_enrich=True)
+        meta = MediaMeta(title=title, description=text, site=media_ingestor._site_of(url),
+                         media_type=media_ingestor._classify(url))
+        res = media_ingestor.write_prepared(PreparedItem(item, meta), memory_path, idx, append_list=True)
+        if res.status == "created":
+            created += 1
+            paths += [f"entities/{res.media_entity_id}.md", f"episodes/{res.episode_id}.md"]
+        else:
+            duplicates += 1
+            if res.collection_added:
+                listed += 1
+                paths.append(f"entities/{res.media_entity_id}.md")
+    index_file = memory_path / "sources" / "url_index.json"
+    index_changed = False
+    if created or duplicates:
+        before_index = index_file.read_bytes() if index_file.is_file() else None
+        media_ingestor.save_url_index(memory_path, idx)
+        index_changed = (index_file.read_bytes() if index_file.is_file() else None) != before_index
+    if index_changed:
+        paths.append("sources/url_index.json")
+    saved_lists.note(memory_path, key, "read", items=len(seen))
+    if paths:
+        lines = ([f"sources/url_index.json: updated (trigger: {ctx.trigger})"] if index_changed else []) + (
+            [f"{created} saved {p.name} post(s) (trigger: {ctx.trigger})"] if created else []) + (
+            [f"{listed} saved link(s) now list {p.name} {p.label} (trigger: {ctx.trigger})"] if listed else [])
+        agent_commits.commit_write(memory_path, subject=ctx.commit_subject, lines=lines, paths=paths,
+                                   author=ctx.author, session=ctx.session_id)
+    extra = f" {dropped} row(s) were not {p.name} posts and were left out." if dropped else ""
+    return (f"Recorded the person's {p.name} {p.label}. {created} new post(s) saved; {duplicates} already in memory. "
+            f"Saved posts are kept for lookup, not read.{extra}")
 
 
 PROFILE_SLEEPING = ("Not recorded: Cicada is consolidating memory right now, and this profile is written into it. "
@@ -3129,7 +3270,8 @@ def _remote_local_ref(ctx: ToolContext, *refs: str | None) -> bool:
 
 @_holding_pages
 def add_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None = None,
-               access: str | None = None, kind: str | None = None, entity: str | None = None) -> str:
+               access: str | None = None, kind: str | None = None, entity: str | None = None,
+               inferred: bool = False, evidence=None) -> str:
     """Record WHERE a fact can be checked when there is no claim to write — "the
     person told me the team page lists this" (G61 phase 2 S1, spec §5.3, plan R-AC31).
 
@@ -3148,6 +3290,12 @@ def add_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None =
     about it — a page that does not exist drops the link, never the source.
     Cicada fetches nothing. Replies name no other tool: a remote caller may not
     hold it.
+
+    G61 "Where to check" (ruling 36 D5): ``inferred`` is an agent's own finding — on the record or in its research —
+    rather than the person's word. It lands as a PROPOSAL (``proposed: true``): never trusted, never the person's own
+    account for a picture, never re-checked, until the person takes it from the page's question (Sleep writes one per
+    page). A profile link is stored in its one canonical form. ``evidence`` (``[{episode, quote}]``) is located and
+    kept as a span; words that cannot be found are dropped and the proposal is still written.
     """
     from api.services import fact_sources, markdown_parser
     from api.services.id_utils import resolve_entity_file, sanitize_id
@@ -3185,13 +3333,22 @@ def add_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None =
         except fact_sources.InvalidSource as exc:
             link_note = f" The link to a page was left out: {exc}."
     origin = ctx.claim_origin if ctx.is_remote else None
+    proposal_evidence = None
+    if inferred:
+        from api.services import source_proposals
+
+        if (profile := source_proposals.profile_of(ref_text)) is not None:
+            ref_text = profile[1]
+            predicate_slug = predicate_slug or profile[0]
+        proposal_evidence = _proposal_evidence(memory_path, evidence)
     before_fm = markdown_parser.parse(page).frontmatter
     before = len(fact_sources.as_sources(before_fm.get("sources")))
     was_removed = fact_sources.removed_note(before_fm, ref_text, predicate_slug)
     try:
         entry = fact_sources.add_source(memory_path, entity_id, ref_text, kind=kind_value,
                                         predicate=predicate_slug, added_by=ctx.author, access=access_value,
-                                        origin=origin, entity=link, via_agent=True)
+                                        origin=origin, entity=link, via_agent=True, proposed=bool(inferred),
+                                        evidence=proposal_evidence)
     except fact_sources.InvalidSource as exc:
         return Reply(f"Nothing added — {exc}.", code="refused")
     if entry is None:
@@ -3207,8 +3364,34 @@ def add_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None =
         author=ctx.author, session=ctx.session_id,
     )
     back = f" It was put back: {was_removed}." if was_removed else ""
+    if entry.get(fact_sources.PROPOSED):
+        return (f"Proposed {entry['ref']} as where to check {entity_id}{what}. It waits for the person's yes: until "
+                f"then nothing is trusted, drawn or re-checked from it.{back}{link_note}")
     return (f"Added {entry['ref']} as where to check {entity_id}{what}. "
             f"The person sees it on the page, marked as yours.{back}{link_note}")
+
+
+def _proposal_evidence(memory_path: Path, raw) -> dict | None:
+    """The first of an inferred source's ``[{episode, quote}]`` that is found in its episode, as a span
+    (``{episode, start, end, kind}``, G118: offsets, never a copy). None when none is found — provenance never blocks
+    the proposal."""
+    from api.services import evidence as evidence_mod
+
+    if not isinstance(raw, list):
+        return None
+    for item in raw[:3]:
+        if not isinstance(item, dict):
+            continue
+        episode, quote = str(item.get("episode") or "").strip(), str(item.get("quote") or "").strip()[:240]
+        if not episode.startswith("ep_") or not quote:
+            continue
+        try:
+            ev = evidence_mod.verify(memory_path, episode, quote)
+        except Exception:  # noqa: BLE001 — an odd id is no evidence
+            continue
+        if ev is not None and ev.is_span():
+            return {"episode": ev.episode, "start": ev.start, "end": ev.end, "kind": ev.kind}
+    return None
 
 
 @_holding_pages

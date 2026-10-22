@@ -580,9 +580,10 @@ def test_the_primer_names_the_source_tools_and_every_argument_is_in_the_schema()
     schemas = {t["name"]: set(t["inputSchema"].get("properties", {})) for t in stdio_server().TOOLS}
     for variant in handshake.VARIANTS:
         text = handshake.build(None, variant=variant, bank="memory")
-        assert "`cicada_add_source` for one the person names; `cicada_change_source` to fix or drop your own" in text
+        assert ("Where to check (links to re-check a page by): `cicada_add_source` for one the person names, "
+                "`inferred=true` + `evidence` for one you found; `cicada_change_source` to fix or drop your own") in text
         assert {"subject", "ref", "predicate", "action", "reason"} <= schemas["cicada_change_source"]
-        assert {"subject", "ref", "predicate"} <= schemas["cicada_add_source"]
+        assert {"subject", "ref", "predicate", "inferred", "evidence"} <= schemas["cicada_add_source"]
         assert len(text) // 4 <= handshake.MAX_TOKENS
     from itertools import combinations
 

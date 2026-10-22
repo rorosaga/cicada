@@ -76,6 +76,8 @@ NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_rep
                           # G71 (2026-10-16): the person's YouTube lists, read in their own browser session by a local
                           # agent — the same seat as a tracked source's re-check.
                           "cicada_record_youtube_list",
+                          # G206 (2026-10-22): the person's saved lists on X, Instagram and LinkedIn — the same seat.
+                          "cicada_record_saved_list",
                           # 2026-10-16: one person's LinkedIn profile, read in the person's own browser session by a
                           # local agent the person asked — the same seat.
                           "cicada_record_profile",
