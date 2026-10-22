@@ -3201,6 +3201,10 @@ def _get_unprocessed_episodes(
             "gaps": evidence.gap_ranges(fm, content) if with_body else (),
             # G179: who the other side of a message conversation is (an agent's turns are never the person's).
             "correspondent": fm.get("correspondent") if isinstance(fm.get("correspondent"), dict) else None,
+            # Ruling 36 D4: the hook's own observation of the checkout a harness session ran in (`project_birth`
+            # reads the two stored values; nothing opens the path).
+            "project_dir": fm.get("project_dir") if isinstance(fm.get("project_dir"), str) else None,
+            "workspace_identity": fm.get("workspace_identity") if isinstance(fm.get("workspace_identity"), dict) else None,
         })
     # Order by INSTANT, not by string (G114 R2): a bank holds legacy
     # naive-local stamps beside `Z` and `+00:00` UTC ones, and a lexical sort

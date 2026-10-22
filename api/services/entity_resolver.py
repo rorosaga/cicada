@@ -13,8 +13,8 @@ from thefuzz import fuzz
 
 from api.config import Settings
 from api.services import (agent_engine, contacts_local, correspondents, engine_errors, entity_body, entity_types,
-                          fact_policy, json_parse, owner_identity, people_directory, person_leads, promotion,
-                          quiet_pages, role_people, section_provenance)
+                          fact_policy, json_parse, owner_identity, people_directory, person_leads, project_birth,
+                          promotion, quiet_pages, role_people, section_provenance)
 from api.services.clarification_manager import (
     CONFIDENCE_THRESHOLD,
     ClarificationManager,
@@ -441,6 +441,11 @@ async def resolve(
                 if card_page in existing_ids or card_page in resolved_creates:
                     card = None   # the card's name is already another page's id: an ordinary name, by the usual rule
             should_promote = should_promote or card is not None
+            # Ruling 36 D4 (G141): a project is born from a repository the person works in or their own words calling
+            # it one (`project_birth`), never from the rule above alone; below it, it stays a mention.
+            birth = project_birth.birth_of(entity, siblings)
+            if (entity.get("type") or "").lower() == "project":
+                should_promote = birth is not None
 
             if ambiguous_match and match.get("lead") is not None:
                 pending_actions.append((_create_lead_clarification, (),
@@ -471,6 +476,8 @@ async def resolve(
                     "untimed": bool(entity.get("untimed")),
                     "trigger": "sleep/promotion",
                 }
+                if birth is not None and (entity.get("type") or "").lower() == "project":
+                    resolved_creates[entity_id]["project_birth"] = birth
                 if card is not None:
                     # Stage 5 writes the card's sources and photo on the page it creates (`contacts_local.seed_page`).
                     resolved_creates[entity_id]["contacts_card"] = card

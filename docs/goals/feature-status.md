@@ -17,7 +17,7 @@ Status, in order: `proposed` → `building` (a branch exists) → `PR #n` (open 
 | [G61](memory-evolution.md#g61) | Update sources: sources on people, inferred proposals, a better name (cited as G208) | building | — | 2026-10-22 |
 | [G209](memory-evolution.md#g209) | Duplicate people: in-cycle aliases, "same person?" questions | building | — | 2026-10-22 |
 | [G210](memory-evolution.md#g210) | Recall shows how old a belief is | proposed | — | 2026-10-22 |
-| [G141](memory-evolution.md#g141) | Projects born from a repository or the person's words; standard sections (cited as G211) | proposed | — | 2026-10-22 |
+| [G141](memory-evolution.md#g141) | Projects born from a repository or the person's words; standard sections (cited as G211) | building (backend done; SwiftUI page needs a Mac) | — | 2026-10-22 |
 | [G212](memory-evolution.md#g212) | Devices: each machine by its own name, connected status, easy pairing | proposed | — | 2026-10-22 |
 | [G213](memory-evolution.md#g213) | HTTP API for agents without MCP; `cicada setup` | proposed | — | 2026-10-22 |
 | [G135](memory-evolution.md#g135) | Phones through the Claude, ChatGPT and Gemini apps (cited as G214) | proposed | — | 2026-10-22 |

@@ -929,6 +929,12 @@ Round 4 (C2–C4):
   capped at 52, and unioned by a merge (`decay_policy.merged_keeps`). Not an episode id and never read as one.
 - `paths:` (G133) — on a `project` page a watched folder anchors: `[{path, device}]`, where that
   folder lives on which Mac. For display and relink only; the backend never opens it.
+- `born:` (G141, ruling 36 D4) — on a `project` page, where it came from, written once where the page is born and
+  never rewritten: `{origin: repo|words, day, episode, repo?: {name, family}, span?: {start, end, hash, kind},
+  via?: folder}`. `repo.family` is the hook's `family_hash` (a hash, never a path); `span` points into the episode's
+  evidence text and is read back only while `evidence.span_status` says current or grown (`project_birth.quote`).
+  A page without it (older than the rule) is classified on read (`project_birth.classify`: a declared `repos:` →
+  repo, `paths:`/`folder` → words, then the cited conversations) and never rewritten for it (`capture-and-sleep.md`).
 - `media.kind: paper` + `paper:` (G133) — a paper page: `arxiv_id`, `doi`, `authors`, `published`,
   `venue`, `sections`, and `metadata_status` once a lookup failed. The ids are the identity
   (`media-arxiv-<id>` / `media-doi-<hash>`); the abstract is a `describes` claim from

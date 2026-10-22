@@ -1698,7 +1698,51 @@ class TimelineWindow(CamelModel):
     end: Optional[str] = None
 
 
+class ProjectOrigin(CamelModel):
+    """Where a project page came from (ruling 36 D4, `project_birth`): ``kind`` is ``repo`` | ``words`` | None
+    (neither — consolidation alone made it, or nothing on the record shows which). ``stored`` = the page carries its
+    birth record; else it is derived on read. ``quote`` is the person's own sentence for ``words`` while the
+    conversation still holds it; ``via`` is ``folder`` (a watched folder they named) or ``declared`` (a repository
+    they declared on the page)."""
+    kind: Optional[str] = None
+    stored: bool = False
+    why: str = ""
+    day: Optional[str] = None
+    episode: Optional[str] = None
+    quote: Optional[str] = None
+    repo_name: Optional[str] = None
+    via: Optional[str] = None
+
+
+class ProjectSectionEntry(CamelModel):
+    kind: str                    # item | milestone | backlog | person | look
+    ref: str                     # an item id, a milestone slug, a backlog item id, a page id, a look record id
+    text: str = ""
+    day: Optional[str] = None
+    status: Optional[str] = None
+
+
+class ProjectSection(CamelModel):
+    """One of the standard sections every project shares (`project_sections.SECTIONS`), in their order. ``written_by``
+    names the writers of what it shows; ``markdown`` is the page's own prose for overview and design."""
+    key: str                     # overview | timeline | done | expected | design | people
+    title: str
+    written_by: list[str] = []
+    entries: list[ProjectSectionEntry] = []
+    markdown: Optional[str] = None
+    more: int = 0
+
+
+class ProjectPerson(CamelModel):
+    id: str
+    name: str
+    role: str = ""
+    count: int = 0
+    last_seen: Optional[str] = None
+
+
 class ProjectRow(ProjectRef):
+    origin: Optional[str] = None  # repo | words, from the birth record or a declaration; None = not on record
     planned: bool = False
     last_moment_day: Optional[str] = None
     median_gap_days: Optional[float] = None
@@ -1730,6 +1774,9 @@ class ProjectTimeline(CamelModel):
     cluster: ProjectCluster = Field(default_factory=ProjectCluster)
     conversations: list[TimelineConversation] = []
     partial: bool = False
+    origin: ProjectOrigin = Field(default_factory=ProjectOrigin)
+    sections: list[ProjectSection] = []
+    people: list[ProjectPerson] = []
 
 
 # G141 PJ-3b (§5.3) — the person's writes from the Projects page. Every day on
