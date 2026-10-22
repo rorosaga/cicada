@@ -80,10 +80,9 @@ final class AppRouter {
         activateMainWindow()
     }
 
-    /// G217 — where a chat export and an agent's conversations live. The Agents sidebar page is UI-A's (G217); until
-    /// it lands this opens Settings → Agents, and the swap is this one line.
+    /// G217 — where a chat export and an agent's conversations live: the Agents sidebar page.
     func routeToAgents() {
-        _ = openSettings(.agents)
+        routeToPage(.agents)
     }
 
     /// Sets both fields together, for the same reason `routeToAddSource`

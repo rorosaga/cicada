@@ -987,7 +987,7 @@ agent reads (`agent_methods`), not an install.
 - **Sources is the one catalogue** (`SourceCatalog`, pure; `SourceCatalogViews`). Every way in, on or off, grouped
   *Accounts and browser* (X, YouTube, Instagram, LinkedIn, Reddit, Pinterest, TikTok) · *This Mac* (Calendar, Contacts,
   Messages, each browser on this Mac, Apple Notes, Folders, Wispr Flow once present) · *Exports* (Files and links; Chat
-  exports, which point at their agent — `AppRouter.routeToAgents`, Settings → Agents until UI-A's Agents page lands) ·
+  exports, which point at their agent — `AppRouter.routeToAgents`, the Agents page) ·
   *Feeds* (RSS, Calendar feeds, Telegram), then *Agents' conversations* for an overview harness row no entry speaks for.
   A row is a `LogoTile` (through the `SourceLogoTile` adapter: an origin key or an umbrella logo slug in), the name, the
   last sync only while on, and a dot with one word: **Connected · Needs sign-in · Off** (`SourceCatalog.status`: a

@@ -113,14 +113,3 @@ extension Copy {
         }
     }
 }
-
-/// ISO-8601 timestamps from the backend, with or without fractional seconds.
-enum ISODate {
-    static func parse(_ raw: String) -> Date? {
-        let plain = ISO8601DateFormatter()
-        if let date = plain.date(from: raw) { return date }
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: raw)
-    }
-}
