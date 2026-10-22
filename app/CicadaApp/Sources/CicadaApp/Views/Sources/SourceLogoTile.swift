@@ -1,9 +1,7 @@
 import SwiftUI
 
-/// G217 — the one adapter every Sources, Inbox and Sleep mark goes through on this branch. Today it draws the existing
-/// `LogoImage.platformTile` (the installed app's icon, else the bundled mark, else a symbol, in a ringed tile); once
-/// UI-A's `LogoTile` lands, `body` becomes that one call and nothing else moves (ruling 36: one logo tile; a dated
-/// departure from DR-52's bare mark, decided by the owner 2026-10-22).
+/// G217 — the one adapter every Sources and Inbox mark goes through: an origin key (or an umbrella's logo slug) in,
+/// UI-A's `LogoTile` out (ruling 36: one logo tile, every mark the same size and style).
 struct SourceLogoTile: View {
     enum Size {
         /// 36 pt tile, 26 pt mark (a row, a detail head).
@@ -11,12 +9,6 @@ struct SourceLogoTile: View {
         /// 24 pt tile for dense lists and chips.
         case dense
 
-        var points: CGFloat {
-            switch self {
-            case .row: 36
-            case .dense: 24
-            }
-        }
     }
 
     /// An `OriginIconography` key.
@@ -25,23 +17,13 @@ struct SourceLogoTile: View {
     /// A provider umbrella's logo slug (`GET /providers`, an agent request's `logo`), drawn before the origin's.
     var logo: String? = nil
 
-    /// The bundled file an umbrella slug draws today (the umbrella set is UI-A's; until it lands, OpenAI wears the
-    /// ChatGPT mark and Anthropic the Claude one).
-    static func bundledName(forLogo slug: String) -> String {
-        switch slug {
-        case "openai": "chatgpt"
-        case "anthropic": "claude"
-        case "google": "gemini"
-        default: slug
-        }
-    }
-
     var body: some View {
-        LogoImage.platformTile(name: logo.map(Self.bundledName(forLogo:)) ?? OriginIconography.logoName(for: origin) ?? "",
-                               bundleId: OriginIconography.appBundleId(for: origin),
-                               size: CicadaTheme.scaled(size.points),
-                               systemFallback: OriginIconography.symbol(for: origin))
-            .accessibilityHidden(true)
+        // G217 — UI-A's one `LogoTile` (cherry-picked from feat/ui-settings-agents): the installed app's icon, else the
+        // umbrella's bundled mark, else a symbol, 26 pt in a 36 pt ringed tile (dense: 18 in 24).
+        LogoTile(logo: logo ?? OriginIconography.logoName(for: origin),
+                 bundleId: OriginIconography.appBundleId(for: origin),
+                 density: size == .row ? .regular : .dense,
+                 systemFallback: OriginIconography.symbol(for: origin))
     }
 }
 

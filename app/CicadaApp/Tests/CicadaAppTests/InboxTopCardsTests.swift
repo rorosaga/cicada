@@ -57,3 +57,21 @@ final class InboxTopCardsTests: XCTestCase {
         XCTAssertEqual(LinkKindGlyph.symbol("something-new"), "globe")
     }
 }
+
+/// G61 — the entity card's chip row shows taken links only; a waiting proposal and a note do not make a chip.
+final class WhereToCheckChipsTests: XCTestCase {
+    func testOnlyLinksThatAreNotWaitingBecomeChips() throws {
+        let json = """
+        {"entityId": "bob-example", "sources": [
+          {"ref": "https://github.com/bob-example", "kind": "url", "addedBy": "user", "addedAt": "2026-10-22",
+           "linkKind": "github", "label": "github.com/bob-example", "proposed": false},
+          {"ref": "https://x.com/bob-example", "kind": "url", "addedBy": "cicada", "addedAt": "2026-10-22",
+           "linkKind": "x", "proposed": true},
+          {"ref": "Ask bob-example", "kind": "note", "addedBy": "user", "addedAt": "2026-10-22"}]}
+        """
+        let list = try JSONDecoder().decode(EntitySourceList.self, from: Data(json.utf8))
+        let chips = WhereToCheckChips.chips(list.sources)
+        XCTAssertEqual(chips.map(\.ref), ["https://github.com/bob-example"])
+        XCTAssertNil(chips.first?.iconSite, "a person's page never carries a site icon (G159)")
+    }
+}

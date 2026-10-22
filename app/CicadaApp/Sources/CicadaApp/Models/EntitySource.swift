@@ -29,6 +29,13 @@ struct EntitySource: Codable, Identifiable, Hashable {
     var trusted: Bool?
     /// A proposed site Cicada read and judged thin: "not confirmed yet" (`{at, outcome}`).
     var checked: Verified?
+    /// G61 "Where to check" (#422, ruling 36 D5) — inferred from the record and waiting for the person; what the link
+    /// is (`github`, `x`, `website`, …), its words, and the site key the page's icon route serves (nil on a person's
+    /// page, G159). All optional: an older backend sends none.
+    var proposed: Bool?
+    var linkKind: String?
+    var label: String?
+    var iconSite: String?
 
     var isOfficialSite: Bool { (predicate ?? "").lowercased() == "website" }
     /// A proposed official site nobody vouched for: the card offers "Use this site".
