@@ -72,6 +72,11 @@ async def call_tool(req: ToolCallRequest, request: Request, settings: Settings =
     state = tool_door.SessionState(skipped_inbox_ids=set(req.state.skipped_inbox_ids),
                                    state_hint_sent=req.state.state_hint_sent,
                                    listed_revisions=dict(req.state.listed_revisions))
+    from api.services import agent_live, agent_seen
+
+    # G217: last seen without telemetry — the agent by its catalog id, the device by its token's id.
+    await asyncio.to_thread(agent_seen.stamp_agent, agent_live.agent_for(caller.harness, caller.client_name),
+                            via="tool", device=device.id if device is not None else None)
     ctx = tool_door.context(memory_path=memory_path, bank_name=bank_name, caller=caller, state=state,
                             surface=req.surface, device_id=device.id if device is not None else None,
                             backend_url=runtime_layout.local_backend_url({"CICADA_PORT": str(settings.port)}),

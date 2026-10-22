@@ -374,7 +374,7 @@ async def sleep_queue(
 
 
 #: Bumped when a row of `GET /sleep/episodes` gains a field or changes for the same files (folded into its ETag).
-EPISODES_SHAPE = "episodes-2"   # episodes-2: `site` (owner 2026-10-20)
+EPISODES_SHAPE = "episodes-3"   # episodes-3: `device` (G212); episodes-2: `site` (owner 2026-10-20)
 
 
 @router.get("/sleep/episodes", response_model=list[EpisodeQueueItem])
@@ -424,6 +424,7 @@ async def sleep_episodes(
                 copy_value=value or ep["id"],
                 changed_at=episode_copy.changed_at(fm) or ep["timestamp"],
                 site=reading_hosts.mark_key(url) if (url := channel_items.saved_episode_url(fm)) else None,
+                device=str(fm.get("device") or "") or None,
             )
         )
     return items

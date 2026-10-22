@@ -167,6 +167,45 @@ name a `cicada_…` tool; `llms.txt` maps each to its operation), `data`'s shape
   0600): `runtime_layout._raw_base` and its stdlib twin `hook_client.raw_base` read the file only from the real
   environment or one that names its own `CICADA_HOME`, so a test's bare dict never reaches a home.
 
+**The connection model's routes (G217, G205, G212, G50/G215; 2026-10-22).** Backend only; the app's redesign reads them.
+- `GET /providers` — the one table (`agent_catalog`): `{providers: [{id, label, logo, tier, ways: [{id, label, connects,
+  tier, clients, setup, remoteApp, pill, note}], intelligence: [{connection, label, kind, note}], later}], pills,
+  featured}`. One umbrella per provider, one logo slug each (the shared logo set's); `connects` ⊆ `stdio hooks remote rest
+  messages export`; `setup` ids are `GET /agents/setup` harness ids; `intelligence.connection` is a `GET /connections` id.
+  Static per release, no ETag. **Stable:** `providers[].id`, `ways[].id` (they are `/agents/live` ids), `logo` slugs,
+  the `connects` words. **Not stable:** order, labels, notes, tier-3 rows.
+- `GET /agents/live` now answers every tracked way (`agent_catalog.TRACKED`): the eleven pills first in their old order
+  and spelling, then the rest (tier 2 and 3); a non-pill way also lights `other`, as an unmatched client always did. A
+  fourth signal, the last-seen registry `$CICADA_HOME/agents/seen.db` (`agent_seen`: catalog id, device id, `mcp|tool|
+  remote`, times, a call count — never a raw client string, query or path), is stamped by the stdio server on
+  `initialize` and every call and by `POST /tools/call`, at most once a minute per process, so detection survives
+  `CICADA_TELEMETRY=off`. Row shape unchanged (`via` stays `mcp|remote|config`).
+- `GET /devices/status` — `{devices: [{id, name, role: server|device, current, connected, how, lastSeenAt, queue}],
+  connectedWithinSeconds}`: this server first, named by its own Computer Name (macOS `scutil`, else the host name),
+  then each active device token by the name the person gave it. `how` is read from the device's last request
+  (`agent_seen.how_from_request`: a Tailscale Serve header or tailnet address → `tailscale`, another private address →
+  `lan`, a device token on loopback → `ssh`), stamped in `auth.require_token` once a minute. `queue` = that machine's
+  episodes still waiting for Sleep (`device` frontmatter; none = this server). Device tokens may read it. No ETag.
+- **Agent requests (G205).** `POST /agent-requests {site, reason?, agent?, kind?: "sign_in"}` → 201 `{id, kind, agent,
+  agentName, umbrella, logo, site, reason, createdAt, notification: {id, title, body, openUrl}}`; 422 for a non-host
+  site or an unknown kind; 409 in a demo bank. A `needs_login` from `cicada_record_read` or `cicada_record_check` files
+  one too, naming the agent. Stored in `$CICADA_HOME/agent_requests/<bank>.json` (outside every bank, flock + atomic
+  replace, 14-day expiry, one open request per agent·site·reason). `GET /inbox` serves them first as `kind:
+  "agent_request"` with `request` set and options `done` / `dismiss`; `POST /inbox/{req-…}/resolve` with `optionKey`
+  `done` lifts the site's `needs_login` pause, `dismiss` only closes it — never a bank write, no Sleep gate, 403 when
+  `via: "agent"` or a relayed quote rides along. Never served in a demo bank; agents never see the kind
+  (`APP_ONLY_INBOX_KINDS`). The requests file's mtime folds into the `inbox` sync component only once one exists, so
+  `/inbox`'s ETag moves with it and a bank that never had one keeps its old stamp.
+- **Keys are checked before they are saved (G50/G215).** `PUT /connections/byok-<p>/key {key, check?: true}` first makes
+  one free, authenticated GET of the provider's own model list (OpenRouter: its key endpoint) on a fixed host
+  (`key_check.PROBES`), 6 s, through `net_guard`, nothing logged: 422 "This key was refused by <brand>" (401/403; 400 for
+  xAI and Gemini, measured) and nothing saved; 503 when the provider could not be reached — the app offers `check:
+  false`, "Save without checking". A key card's status adds `keyHint` ("…1234"; no route returns a key), `keyStore`
+  (`file` | `environment`), `verifiedAt` (`$CICADA_HOME/key_checks.json`, names and times) and `termsNote`. New cards:
+  `byok-fireworks`, `byok-deepinfra`, `byok-together`. The xAI default moved off the retired `grok-4-1-fast-*` to
+  `xai/grok-4.20-0309-non-reasoning`, priced by `price_supplement` (a row LiteLLM 1.83.4 lacks, with its basis; a newer
+  table wins).
+
 **Bank identity (G181 phase 2).** Every bank's `banks.yaml` record carries a random `id`, minted by the backend at
 startup (`bank_registry.ensure_bank_ids`, which persists a legacy root's synthesized registry with no change to
 resolution), by `create_bank` and by `duplicate_bank` (a copy is another bank); a rename keeps it. `GET /healthz`
@@ -199,7 +238,7 @@ new site capture gives a bookmark's row its thumbnail), so `VersionVector` maps 
 bookmark has left, read from the bookmark seen-set's `left` map. That file (`sources/bookmark_seen.json`) is not `*.md`, so
 the `sources` component's directory fingerprint never saw it — it now rides the component by its own mtime (client
 mapping unchanged: `sources` → `.sources`). `GET /sources/channels/{id}/items` for a bookmark channel also lists the links
-that left the browser, each with `left` (shape `g161-2`). Sources v3 (2026-10-19, shape `g161-3`): a saved link's row adds `host`, `site` and `why` (the newest *Ask why* answer, read only for the page served), and a channel-less saved import is listed by its Sources row id; `GET /sources/overview` rows carry `intent` (`saved` | `captured`, ETag shape `overview-v3`; `app.md`, "Sources page — v3"). `GET /sources/saved/{media_entity_id}/site-icon` serves a saved link's own site icon, asked of that site only (owner ruling 2026-10-19; `storage.md`); 404 = draw the monogram; `GET /sources/saved/episodes/{episode_id}/site-icon` serves the same for a Waiting row of a saved link with no page yet (2026-10-20), and `GET /sources` items carry `siteKey` (shape `site-key-1`), `GET /sleep/episodes` rows `site` (`episodes-2`) — client mappings unchanged, both are in-memory reads. Sources v4 (2026-10-19, shapes `g161-4` / `overview-v4`): an overview row adds `waiting`, `faces` and `facesMore`, and its ETag folds in `photos` (a chat face carries its photo's hash) — `VersionVector` maps `photos` to `.sourcesOverview` in the same PR; a list row drops a trailing " · <its day>", a Messages row carries `chat`, a watched day `videos` (month summaries unlisted). Review of #358 (shape `g161-5`): Messages lists one row per chat (`kind: chat`, `sittings`), a saved row's faces come from the set its list lists and only while its count is above zero, and the items ETag folds in `photos` too (`messages_photos.stamp` hashes every stored photo). New: `GET /sources/watch-history/days/{episode}` (a day's videos, ETag, not a Store domain), `GET /sources/watch-history/days/{episode}/videos/{video_id}/thumbnail`, `GET /sources/saved/{media_entity_id}/still` (marks-2: a saved YouTube video's still by its page's id, the same store; items shape `g161-6` adds `video` on such a row and `host`/`site` on a saved link's waiting episode row; the overview's ETag folds the `siteIcons` sync component — the own-site icon index, mapped by `VersionVector` to `.sourcesOverview` in the same PR — because a saved row's faces put cached icons first), `GET /sources/messages/chats/{conversation}/sittings` (ETag, not a Store domain) and `GET /sources/messages/chats/{conversation}/photo` (404 = no picture; `storage.md`). `POST /sources/sync-bookmarks` gained `leftMarked`;
+that left the browser, each with `left` (shape `g161-2`). Sources v3 (2026-10-19, shape `g161-3`): a saved link's row adds `host`, `site` and `why` (the newest *Ask why* answer, read only for the page served), and a channel-less saved import is listed by its Sources row id; `GET /sources/overview` rows carry `intent` (`saved` | `captured`, ETag shape `overview-v3`; `app.md`, "Sources page — v3"). `GET /sources/saved/{media_entity_id}/site-icon` serves a saved link's own site icon, asked of that site only (owner ruling 2026-10-19; `storage.md`); 404 = draw the monogram; `GET /sources/saved/episodes/{episode_id}/site-icon` serves the same for a Waiting row of a saved link with no page yet (2026-10-20), and `GET /sources` items carry `siteKey` (shape `site-key-1`), `GET /sleep/episodes` rows `site` (`episodes-2`) and `device`, the device id that posted it, null for this server (`episodes-3`, G212: the Sleep page's machines strip) — client mappings unchanged, both are in-memory reads. Sources v4 (2026-10-19, shapes `g161-4` / `overview-v4`): an overview row adds `waiting`, `faces` and `facesMore`, and its ETag folds in `photos` (a chat face carries its photo's hash) — `VersionVector` maps `photos` to `.sourcesOverview` in the same PR; a list row drops a trailing " · <its day>", a Messages row carries `chat`, a watched day `videos` (month summaries unlisted). Review of #358 (shape `g161-5`): Messages lists one row per chat (`kind: chat`, `sittings`), a saved row's faces come from the set its list lists and only while its count is above zero, and the items ETag folds in `photos` too (`messages_photos.stamp` hashes every stored photo). New: `GET /sources/watch-history/days/{episode}` (a day's videos, ETag, not a Store domain), `GET /sources/watch-history/days/{episode}/videos/{video_id}/thumbnail`, `GET /sources/saved/{media_entity_id}/still` (marks-2: a saved YouTube video's still by its page's id, the same store; items shape `g161-6` adds `video` on such a row and `host`/`site` on a saved link's waiting episode row; the overview's ETag folds the `siteIcons` sync component — the own-site icon index, mapped by `VersionVector` to `.sourcesOverview` in the same PR — because a saved row's faces put cached icons first), `GET /sources/messages/chats/{conversation}/sittings` (ETag, not a Store domain) and `GET /sources/messages/chats/{conversation}/photo` (404 = no picture; `storage.md`). `POST /sources/sync-bookmarks` gained `leftMarked`;
 `removalsProposed` stays on the wire and is always 0 for bookmarks. `GET /sources/saved-why/options` serves the four
 reasons and an always-empty `projects`; `POST`/`PUT /sources/saved-why` still accept a retired reason (`technique`) and a
 project (an edit may keep an archived one).

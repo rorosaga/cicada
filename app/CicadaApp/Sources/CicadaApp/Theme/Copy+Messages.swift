@@ -20,7 +20,7 @@ extension Copy {
         }
         static let choose = "Choose…"
         static let chooseHelp = "Pick which conversations Cicada reads"
-        static let syncNow = "Sync now"
+        static let syncNow = "Refresh"
         static let tryAgain = "Try again"
         static let done = "Done"
         static let loading = "Looking for conversations…"

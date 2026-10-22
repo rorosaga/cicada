@@ -214,13 +214,13 @@ final class SourcesV2Tests: XCTestCase {
     /// the empty state. A rendered-view test cannot see "the button is only in
     /// the `rows.isEmpty` branch", so this reads the source.
     func testAddASourceLivesInTheHeaderAndIsPresentedExactlyOnce() throws {
+        // G217 (ruling 36 D6): the page IS the one catalogue — the header keeps a labelled add (a file or an export),
+        // and the old grid's sheet is presented nowhere on it.
         let page = try sourceFile("Views/Sources/SourcesPageView.swift")
-        XCTAssertTrue(page.contains("Copy.addASource"),
+        XCTAssertTrue(page.contains("PageAddButton("),
                       "the header lost its affordance — F2 all over again")
-        XCTAssertEqual(page.components(separatedBy: "AddSourceSheet(").count - 1, 1,
-                       "exactly one presenter of the sheet on this page")
-        XCTAssertTrue(page.contains("initialTile: nil"),
-                      "R-S9 — the header opens the catalog ROOT, not a staged tile")
+        XCTAssertEqual(page.components(separatedBy: "AddSourceSheet(").count - 1, 0,
+                       "one catalogue: no second one presented from this page")
         XCTAssertFalse(page.contains("routeToAddSource"),
                        "R-S9 — no bounce to the Feed tab just to show a sheet")
     }
@@ -230,9 +230,9 @@ final class SourcesV2Tests: XCTestCase {
     /// a reviewer removing `EmptyStateView`'s action "because the header has one
     /// now" is a regression, not a tidy-up.
     func testTheEmptyStateKeepsItsOwnWayIn() throws {
-        let grid = try sourceFile("Views/Sources/SourcesColumns.swift")   // Sources v3: the root is rows
-        XCTAssertTrue(grid.contains("actionLabel: \"Add a source\""))
-        XCTAssertTrue(grid.contains("settingsSection: .integrations"))
+        // G217: the root is the catalogue — every way in, on or off — so it is never empty; each row is a way in.
+        let grid = try sourceFile("Views/Sources/SourcesColumns.swift")
+        XCTAssertTrue(grid.contains("SourceCatalogList(rows: catalog, style: .wide"))
     }
 
     /// The detail page's window is the backend's OWN `ACTIVITY_DAYS`

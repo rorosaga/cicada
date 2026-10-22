@@ -286,10 +286,11 @@ private struct PlatformTile: View {
     let systemFallback: String
 
     /// 8pt at the reference 40pt size, scaling proportionally either way.
-    private var cornerRadius: CGFloat { size * 0.2 }
+    private var cornerRadius: CGFloat { size * 0.25 }
     private var markSize: CGFloat { Self.markSize(for: size) }
 
-    static func markSize(for size: CGFloat) -> CGFloat { size * 0.6 }
+    /// G217: the same 26-in-36 proportion as `LogoTile`, so a platform tile and a connection tile read alike.
+    static func markSize(for size: CGFloat) -> CGFloat { size * 26 / 36 }
 
     var body: some View {
         ZStack {

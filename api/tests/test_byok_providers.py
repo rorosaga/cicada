@@ -37,10 +37,16 @@ def test_no_settings_file_or_inherited_value_turns_the_fetch_back_on():
 
 
 def test_every_default_is_a_model_litellm_knows_with_structured_output():
+    from api.services import price_supplement
+
+    price_supplement.apply(litellm)   # what the backend does at start (api/main.py) and every price reader
     for p in byok.PROVIDERS:
         info = _known(p.default_model)
         assert info is not None, p.default_model
-        assert info.get("mode") == "chat" and info.get("supports_response_schema"), p.default_model
+        assert info.get("mode") == "chat", p.default_model
+        # Structured output: the table's flag, or a host named (with its basis) for documenting JSON mode — the
+        # only structured output Cicada's engine sends (`response_format: json_object`).
+        assert info.get("supports_response_schema") or p.id in byok.JSON_MODE_ONLY, p.default_model
         # Priced, so the engine card's list price and a cycle's cost line have a figure to show.
         assert info.get("input_cost_per_token") and info.get("output_cost_per_token"), p.default_model
 
@@ -70,7 +76,8 @@ def test_a_model_the_table_does_not_list_costs_unknown_end_to_end():
 
 
 def test_the_picker_order_and_openrouter_is_its_own_card():
-    assert [p.id for p in byok.PICKER] == ["anthropic", "openai", "gemini", "xai", "groq", "mistral"]
+    assert [p.id for p in byok.PICKER] == ["anthropic", "openai", "gemini", "xai", "groq", "mistral",
+                                           "fireworks", "deepinfra", "together"]
     assert byok.provider("openrouter").connection_id == "byok-openrouter"
     assert list(byok.BYOK_PROVIDERS)[:4] == ["openai", "anthropic", "openrouter", "gemini"]   # card order kept
 
@@ -160,3 +167,29 @@ def test_the_providers_charge_wins_over_the_tables_estimate():
     assert telemetry.cost_from_response(_TableOnly()) == (0.003, "table")
     assert telemetry.cost_from_response(object()) == (None, None)
     assert set(telemetry.COST_SOURCES) == {"provider", "table"}
+
+
+def test_the_xai_default_is_a_current_id_priced_with_its_basis():
+    """providers-2 §1.4 (2026-10-22): `grok-4-1-fast-*` is off xAI's models page and catalogued as retired."""
+    from api.services import price_supplement
+
+    assert "grok-4-1-fast" not in byok.provider("xai").default_model
+    row, basis = price_supplement.ROWS[byok.provider("xai").default_model]
+    assert "docs.x.ai" in basis and row["input_cost_per_token"] and row["output_cost_per_token"]
+
+
+def test_a_supplement_row_never_overrides_a_price_litellm_ships(monkeypatch):
+    from api.services import price_supplement
+
+    class Fake:
+        model_cost = {"xai/grok-4.20-0309-non-reasoning": {"input_cost_per_token": 9.0}}
+        registered: dict = {}
+
+        @classmethod
+        def register_model(cls, rows):
+            cls.registered.update(rows)
+
+    monkeypatch.setattr(price_supplement, "_applied", False)
+    price_supplement.apply(Fake)
+    assert "xai/grok-4.20-0309-non-reasoning" not in Fake.registered
+    monkeypatch.setattr(price_supplement, "_applied", False)

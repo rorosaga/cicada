@@ -140,14 +140,14 @@ struct SourceDetailHead: View {
             Spacer(minLength: CicadaTheme.spacingSM)
             if let channel {
                 if channel.actions.contains("sync"), let localSources {
-                    actionButton("Sync now") {
+                    actionButton("Refresh") {
                         try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources,
                                                       calendar: calendarReader, tabGroups: tabGroups,
                                                       contacts: contacts, messages: messages, watchHistory: watchHistory)
                     }
                 }
                 if channel.actions.contains("poll") {
-                    actionButton("Poll now") { try await ChannelActions.poll(channel.id) }
+                    actionButton("Refresh") { try await ChannelActions.poll(channel.id) }
                 }
             }
             if let label = SourceDetailText.consolidate(waiting: source.waiting, total: totalWaiting, running: running) {

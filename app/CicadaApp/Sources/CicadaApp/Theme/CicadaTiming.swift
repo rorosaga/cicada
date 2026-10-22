@@ -25,6 +25,9 @@ enum CicadaTiming {
     /// Round-4 D5 — how long a Copy button reads "Copied" before it reads Copy again (`CommandBox`'s 1.5 s). A
     /// confirmation's dwell, not motion, so Reduce Motion leaves it alone.
     static let copiedConfirmation: TimeInterval = 1.5
+    /// G212 — how often the Sleep page asks `GET /devices/status` while it shows (a machine is "connected" within ten
+    /// minutes of its last request, so a half-minute poll is plenty). A wait, not motion.
+    static let machinePoll: TimeInterval = 30
     /// How long a toast (`Store.toast`) stays before it clears itself.
     static let toastDwell: TimeInterval = 4
 }

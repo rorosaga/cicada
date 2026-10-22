@@ -83,6 +83,10 @@ def estimate_cost(
     if cost_fn is None:
         import litellm
 
+        from api.services import price_supplement
+
+        price_supplement.apply(litellm)
+
         cost_fn = litellm.cost_per_token
     candidates = [model]
     if "/" in model:
