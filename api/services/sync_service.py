@@ -187,6 +187,12 @@ def components(memory_path: Path, *, sleep_state=None, reuse: dict | None = None
         # Cheap: today's date is enough to force a re-validate once a day: the
         # exact remind_after value doesn't matter, only that "today" advanced.
         inbox_component += f":{date.today().isoformat()}"
+    from api.services import agent_requests
+
+    if (requests_mtime := agent_requests.mtime(mp)) is not None:
+        # G205: agent requests live outside the bank; a bank that never had one keeps its old stamp (and ETags).
+        # Requests expire after days, not seconds, so today's date covers an expiry with nothing written.
+        inbox_component += f":r{requests_mtime:.6f}:{date.today().isoformat()}"
     return {
         "entities": bank_index.dir_fingerprint(mp / "entities"),
         "edges": f"{file_mtime(mp / 'graph_edges.yaml'):.6f}",

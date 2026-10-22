@@ -73,7 +73,7 @@ from urllib.parse import quote
 import yaml
 
 from api.hooks import registry as hook_registry
-from api.services import runtime_layout, harness_integrations
+from api.services import agent_catalog, harness_integrations, runtime_layout
 from api.services.connections import base
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -101,15 +101,13 @@ class Agent:
 #: ``~/.hermes/skills`` and OpenClaw ``~/.openclaw/skills`` (their docs; neither reads another's). Gemini CLI stays
 #: listed (``~/.gemini/skills`` and the shared folder) but, like every agent here, shows only when it is installed.
 #: The owner: "Gemini isn't a relevant provider for us right now. More relevant are Hermes and other personal agents."
-AGENTS: tuple[Agent, ...] = (
-    Agent("claude-code", "Claude Code", ".claude", ".claude/skills"),
-    Agent("codex", "Codex", ".codex", ".codex/skills", (".agents/skills",)),
-    Agent("cursor", "Cursor", ".cursor", ".cursor/skills", (".agents/skills", ".claude/skills", ".codex/skills")),
-    Agent("opencode", "OpenCode", ".config/opencode", ".config/opencode/skills", (".claude/skills", ".agents/skills")),
-    Agent("hermes", "Hermes", ".hermes", ".hermes/skills"),
-    Agent("openclaw", "OpenClaw", ".openclaw", ".openclaw/skills"),
-    Agent("gemini-cli", "Gemini CLI", ".gemini", ".gemini/skills", (".agents/skills",)),
-)
+#: G217: the labels and folders come from the one table (``agent_catalog``); this tuple only fixes the Skills page's
+#: order, which predates the table.
+_SKILL_AGENT_ORDER = ("claude-code", "codex", "cursor", "opencode", "hermes", "openclaw", "gemini-cli")
+_SKILL_LABELS = {"gemini-cli": "Gemini CLI"}   # the Skills page's name, kept (the table says "Gemini CLI / Antigravity")
+AGENTS: tuple[Agent, ...] = tuple(
+    Agent(w.id, _SKILL_LABELS.get(w.id, w.label), w.home, w.skills, w.reads)
+    for w in (agent_catalog.way(i) for i in _SKILL_AGENT_ORDER))
 
 Runner = Callable[..., Awaitable[base.CliResult]]
 

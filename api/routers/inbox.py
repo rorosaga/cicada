@@ -23,12 +23,15 @@ async def list_inbox(
     # on `VersionVector`'s `entities`/`episodes` mappings — lands in the same
     # commit; without it SnapshotCache serves stale context until the inbox
     # itself changes.
+    # G205: agent requests (outside the bank) fold into the `inbox` component's stamp, so this ETag moves with them.
     etag = sync_service.etag_for(settings.memory_path, "inbox", "entities", "episodes", extra=kind or "")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     # Off the event loop (inbox lag, 2026-10-17): the read parses every inbox file and the pages they name, and a
     # synchronous call here held every other request — the SSE stream, the other panes — behind it.
     items = await asyncio.to_thread(inbox_service.load_inbox, settings.memory_path)
+    # G205: requests sit above the questions.
+    items = await asyncio.to_thread(inbox_service.agent_request_items, settings.memory_path) + items
     if kind:
         wanted = {k.strip() for k in kind.split(",") if k.strip()}
         items = [i for i in items if i.kind.value in wanted]
@@ -235,4 +238,40 @@ async def resolve_inbox(
     request: InboxResolveRequest,
     settings: Settings = Depends(get_settings),
 ):
+    from api.services import agent_requests
+
+    if agent_requests.is_request_id(item_id):
+        # G205: an agent request is the person's tap alone, never a bank write, so no Sleep gate. An agent may not
+        # answer it for them (its tools never see it; this refuses one that tries).
+        if (request.via or "").strip().lower() == "agent" or request.relayed_by or request.quote:
+            raise HTTPException(403, "An agent request is the person's to answer, in the app.")
+        action = (request.option_key or request.action or "").strip().lower()
+        try:
+            done = await asyncio.to_thread(agent_requests.resolve, settings.memory_path, item_id, action)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if done is None:
+            raise HTTPException(404, f"Inbox item {item_id} not found")
+        return done
     return await inbox_service.resolve(item_id, request, settings)
+
+
+@router.post("/agent-requests", status_code=201)
+async def file_agent_request(payload: dict = Body(...), settings: Settings = Depends(get_settings)):
+    """G205's REST door: an agent that cannot use Cicada's MCP tools asks the person to sign in to a site so it can
+    read a page. ``{"site": "example.com", "reason": "to read the post you talked about", "agent": "<catalog id>"}``;
+    ``agent`` is display only (an unknown id is "An agent"). One open request per (agent, site, reason). Answers the
+    request with the notification the app posts. Never into a demo bank (409)."""
+    from api.services import agent_requests, demo_guard
+
+    if not isinstance(payload, dict):
+        raise HTTPException(422, "Send {\"site\": ..., \"reason\": ...}.")
+    if demo_guard.is_demo(settings.memory_path):
+        raise HTTPException(409, "This is the demo bank; requests go to your own memory.")
+    kind = str(payload.get("kind") or "sign_in")
+    row = await asyncio.to_thread(agent_requests.ask, settings.memory_path, agent=str(payload.get("agent") or "") or None,
+                                  site=str(payload.get("site") or ""), reason=payload.get("reason"), kind=kind)
+    if row is None:
+        raise HTTPException(422, f"'site' must be a host name (like example.com) and 'kind' one of "
+                                 f"{', '.join(agent_requests.KINDS)}.")
+    return {"id": row["id"], **agent_requests.wire(row)}

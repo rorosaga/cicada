@@ -123,6 +123,11 @@ async def complete(nonce: str, code: str, *, post: PostJson | None = None, now: 
     if not isinstance(key, str) or not key.strip():
         raise ExchangeError("no key in the response")
     secrets.set_secret(byok.provider("openrouter").env, key.strip())
+    # OpenRouter itself minted this key in the exchange: that is the check (G50/G215).
+    from datetime import datetime, timezone
+
+    secrets.mark_verified(byok.provider("openrouter").env,
+                          datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
 
 
 class OpenRouterAdapter(byok.ByokAdapter):

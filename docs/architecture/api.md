@@ -167,6 +167,45 @@ name a `cicada_…` tool; `llms.txt` maps each to its operation), `data`'s shape
   0600): `runtime_layout._raw_base` and its stdlib twin `hook_client.raw_base` read the file only from the real
   environment or one that names its own `CICADA_HOME`, so a test's bare dict never reaches a home.
 
+**The connection model's routes (G217, G205, G212, G50/G215; 2026-10-22).** Backend only; the app's redesign reads them.
+- `GET /providers` — the one table (`agent_catalog`): `{providers: [{id, label, logo, tier, ways: [{id, label, connects,
+  tier, clients, setup, remoteApp, pill, note}], intelligence: [{connection, label, kind, note}], later}], pills,
+  featured}`. One umbrella per provider, one logo slug each (the shared logo set's); `connects` ⊆ `stdio hooks remote rest
+  messages export`; `setup` ids are `GET /agents/setup` harness ids; `intelligence.connection` is a `GET /connections` id.
+  Static per release, no ETag. **Stable:** `providers[].id`, `ways[].id` (they are `/agents/live` ids), `logo` slugs,
+  the `connects` words. **Not stable:** order, labels, notes, tier-3 rows.
+- `GET /agents/live` now answers every tracked way (`agent_catalog.TRACKED`): the eleven pills first in their old order
+  and spelling, then the rest (tier 2 and 3); a non-pill way also lights `other`, as an unmatched client always did. A
+  fourth signal, the last-seen registry `$CICADA_HOME/agents/seen.db` (`agent_seen`: catalog id, device id, `mcp|tool|
+  remote`, times, a call count — never a raw client string, query or path), is stamped by the stdio server on
+  `initialize` and every call and by `POST /tools/call`, at most once a minute per process, so detection survives
+  `CICADA_TELEMETRY=off`. Row shape unchanged (`via` stays `mcp|remote|config`).
+- `GET /devices/status` — `{devices: [{id, name, role: server|device, current, connected, how, lastSeenAt, queue}],
+  connectedWithinSeconds}`: this server first, named by its own Computer Name (macOS `scutil`, else the host name),
+  then each active device token by the name the person gave it. `how` is read from the device's last request
+  (`agent_seen.how_from_request`: a Tailscale Serve header or tailnet address → `tailscale`, another private address →
+  `lan`, a device token on loopback → `ssh`), stamped in `auth.require_token` once a minute. `queue` = that machine's
+  episodes still waiting for Sleep (`device` frontmatter; none = this server). Device tokens may read it. No ETag.
+- **Agent requests (G205).** `POST /agent-requests {site, reason?, agent?, kind?: "sign_in"}` → 201 `{id, kind, agent,
+  agentName, umbrella, logo, site, reason, createdAt, notification: {id, title, body, openUrl}}`; 422 for a non-host
+  site or an unknown kind; 409 in a demo bank. A `needs_login` from `cicada_record_read` or `cicada_record_check` files
+  one too, naming the agent. Stored in `$CICADA_HOME/agent_requests/<bank>.json` (outside every bank, flock + atomic
+  replace, 14-day expiry, one open request per agent·site·reason). `GET /inbox` serves them first as `kind:
+  "agent_request"` with `request` set and options `done` / `dismiss`; `POST /inbox/{req-…}/resolve` with `optionKey`
+  `done` lifts the site's `needs_login` pause, `dismiss` only closes it — never a bank write, no Sleep gate, 403 when
+  `via: "agent"` or a relayed quote rides along. Never served in a demo bank; agents never see the kind
+  (`APP_ONLY_INBOX_KINDS`). The requests file's mtime folds into the `inbox` sync component only once one exists, so
+  `/inbox`'s ETag moves with it and a bank that never had one keeps its old stamp.
+- **Keys are checked before they are saved (G50/G215).** `PUT /connections/byok-<p>/key {key, check?: true}` first makes
+  one free, authenticated GET of the provider's own model list (OpenRouter: its key endpoint) on a fixed host
+  (`key_check.PROBES`), 6 s, through `net_guard`, nothing logged: 422 "This key was refused by <brand>" (401/403; 400 for
+  xAI and Gemini, measured) and nothing saved; 503 when the provider could not be reached — the app offers `check:
+  false`, "Save without checking". A key card's status adds `keyHint` ("…1234"; no route returns a key), `keyStore`
+  (`file` | `environment`), `verifiedAt` (`$CICADA_HOME/key_checks.json`, names and times) and `termsNote`. New cards:
+  `byok-fireworks`, `byok-deepinfra`, `byok-together`. The xAI default moved off the retired `grok-4-1-fast-*` to
+  `xai/grok-4.20-0309-non-reasoning`, priced by `price_supplement` (a row LiteLLM 1.83.4 lacks, with its basis; a newer
+  table wins).
+
 **Bank identity (G181 phase 2).** Every bank's `banks.yaml` record carries a random `id`, minted by the backend at
 startup (`bank_registry.ensure_bank_ids`, which persists a legacy root's synthesized registry with no change to
 resolution), by `create_bank` and by `duplicate_bank` (a copy is another bank); a rename keeps it. `GET /healthz`

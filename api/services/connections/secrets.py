@@ -77,6 +77,68 @@ def remove_secret(name: str) -> None:
     values.pop(name, None)
     _write(values)
     os.environ.pop(name, None)
+    mark_verified(name, None)
+
+
+# --- G50/G215: what the key card may show about a key — never the key ---------------------------------------------
+
+CHECKS_FILE_NAME = "key_checks.json"
+
+
+def where(name: str) -> str | None:
+    """``file`` when the key Cicada uses is the one in ``secrets.env``, ``environment`` when the backend inherited a
+    different value from a shell export (which wins, ``load_secrets``), ``None`` when there is no key."""
+    value = (os.environ.get(name) or "").strip()
+    if not value:
+        return None
+    return "file" if _read().get(name) == value else "environment"
+
+
+def hint(name: str) -> str | None:
+    """The last four characters, after an ellipsis — the only part of a key any answer carries. A key of eight
+    characters or fewer shows none of itself."""
+    value = (os.environ.get(name) or "").strip()
+    if not value:
+        return None
+    return f"…{value[-4:]}" if len(value) > 8 else "…"
+
+
+def _checks_path() -> Path:
+    return cicada_home() / CHECKS_FILE_NAME
+
+
+def _read_checks() -> dict[str, str]:
+    import json
+
+    try:
+        data = json.loads(_checks_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+
+
+def mark_verified(name: str, when: str | None) -> None:
+    """Record (or, with ``None``, forget) when the provider last accepted ``name``'s key. Names and times only."""
+    import json
+
+    checks = _read_checks()
+    if when is None:
+        if name not in checks:
+            return
+        checks.pop(name)
+    else:
+        checks[name] = when
+    path = _checks_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".key_checks-", text=True)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump(checks, fh)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+
+
+def verified_at(name: str) -> str | None:
+    return _read_checks().get(name)
 
 
 def has_secret(name: str) -> bool:

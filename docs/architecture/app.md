@@ -878,8 +878,13 @@ neutral glyph Integrations' "Other agents" wears, DR-52; Settings-only, so onboa
 *Copy and send this to your agent* → Confirm, with its own "Do it by hand" `mcpServers` snippet; its ✓ lights for a
 local `initialize` from a client that names itself but matches no other pill (`agent_live.agent_for` → `other`; the
 release smoke test is excluded). `GET /agents/live` lights a pill's ✓ from the local handshake ledger
-rows, a used connector (`last_used_at`) or the agent's own config — no subprocess, never `~/Library`, never
+rows, the last-seen registry (`agent_seen`, G217: survives telemetry off), a used connector (`last_used_at`) or the agent's own config — no subprocess, never `~/Library`, never
 `~/.claude.json`; polled every 3 s while the page is visible.
+**Wire for the redesign (G217/G205/G212/G50, 2026-10-22; app not built yet):** `GET /providers` is the one table the
+Agents and Intelligence pages draw (umbrella, logo slug, ways, plans and keys); `/agents/live` adds rows for every
+tracked way after the eleven pills; `GET /devices/status` names each machine by its own name with `connected`, `how` and
+`queue`; an `agent_request` inbox item carries `request.notification` for a Mac notification; key cards carry `keyHint`,
+`keyStore`, `verifiedAt`, `termsNote`, and a 503 from `PUT …/key` means offer "Save without checking" (`api.md`).
 
 **The Skills page (owner 2026-10-15, third take).** At ⌘4 since ⌘ map A (2026-10-16). **Its top row is every other
 page's (owner 2026-10-20):** the tabs Installed · Discover · Drafts sit in the eyebrow row, then Check for updates and a

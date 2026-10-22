@@ -389,14 +389,15 @@ def served_counts(memory_path: Path) -> tuple[int, dict[str, int]]:
     ``"decay"`` default; a malformed file is absent from both paths.
     """
     today = str(date.today())
-    total = 0
-    by_kind: Counter = Counter()
+    requests = len(agent_request_items(memory_path))
+    total = requests
+    by_kind: Counter = Counter({"agent_request": requests} if requests else {})
     for f in bank_index.files(memory_path, "inbox"):
         if not f.stem.startswith("inbox-"):
             continue
         fm = f.frontmatter
         if "kind" not in fm:
-            items = load_inbox(memory_path)
+            items = agent_request_items(memory_path) + load_inbox(memory_path)
             return len(items), dict(Counter(i.kind.value for i in items))
         kind = str(fm["kind"])
         if _hidden(
@@ -407,6 +408,17 @@ def served_counts(memory_path: Path) -> tuple[int, dict[str, int]]:
         total += 1
         by_kind[kind] += 1
     return total, dict(by_kind)
+
+
+def agent_request_items(memory_path: Path) -> list[InboxItem]:
+    """G205: the open agent requests (``agent_requests``, outside the bank) as inbox items, newest first. Never in a
+    demo bank: a real request must not show in the demo's screenshots."""
+    from api.services import agent_requests, demo_guard
+
+    if demo_guard.is_demo(memory_path):
+        return []
+    rows = sorted(agent_requests.open_requests(memory_path), key=lambda r: str(r.get("created_at") or ""), reverse=True)
+    return [InboxItem(**agent_requests.as_inbox_item(r)) for r in rows]
 
 
 def load_inbox(memory_path: Path, *, include_deferred: bool = False) -> list[InboxItem]:
