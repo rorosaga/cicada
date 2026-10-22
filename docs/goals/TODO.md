@@ -440,6 +440,7 @@ These are attached to permanent rows instead of becoming a second queue. Older d
 
 - **G106/G19:** confirm remaining client/backend ID sanitizer parity and wikilink navigation outside a WindowGroup.
 - **G109:** graph physics phases/visual fit check; re-check historical WKWebView remount claims against the merged audit fixes.
+- **G162 (model check 2026-10-22):** F1-F3 in the queue's lease lifecycle are open with xfail-strict repros (`api/tests/test_video_queue_formal.py`) and proposed fixes; F4 (an active session keeps its leases) is the owner's call. Any change to `video_queue.py` runs `.claude/skills/verify-video-queue/run.sh`.
 - **G162:** `/live/<id>` normalization changes need URL-index migration; unprobed player providers stay unverified; do not assemble third-party widget HTML or bypass an origin restriction. **G11:** verify the disclosed duplicate direct-file preview/hero player.
 - **G135/G177/G183:** current remote/local write races and fail-open commit probes; check scope isolation, timeout behavior and source permissions. **G61:** source entry identity, check-date/predicate invalidation and save-time fetch limits against the current common fetch guard.
 - **G130/G137/G184:** zoom/sidebar clamp, pixel-size alignment and active-run animation energy. Nightcap/time-of-day absence are superseded by shipped G176 art. DS-3c card Esc and Settings folder popover seams remain current-code checks.
