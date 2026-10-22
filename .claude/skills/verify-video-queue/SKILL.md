@@ -223,8 +223,10 @@ When a covered definition changes on purpose:
   stopped at a 15-minute cap on 2026-10-22 after 12,923,785 distinct states with no violation and 3.6 million
   states still queued (before ruling 34; not rerun since). The rest of `--deep` finishes; before ruling 34
   `code-ids-restart` and `fixed-ids-restart` took 339,464 states, about 12 s each, and `fixed-churn` 22,903,520
-  states, about 4 minutes with four workers. `run.sh`'s `EXPECT_DEEP` minimums are 0 until someone runs `--deep`
-  on the ruling-34 model and records them. The one-video argument below is what the default run rests on.
+  states, about 4 minutes with four workers. On the ruling-34 model (the lease cap adds a field), `code-ids-restart`
+  and `fixed-ids-restart` take 887,240 states, about a minute each, and `code-churn` (P2 on the fixed code)
+  97,464,544 states, 21 minutes with four workers, no violation; `fixed-churn` and `deep-safety` have not been rerun
+  and keep a minimum of 0. The one-video argument below is what the default run rests on.
 - **Why one video is enough.** Every property is about one video, and every step changes a row as a function of
   that row alone, with two exceptions. A call that refreshes the caller's other leases does, on one video, what a
   claim that finds nothing does. The orphan drop needs a non-empty snapshot that lacks the key, so its checks keep

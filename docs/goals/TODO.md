@@ -37,7 +37,8 @@
   `{url, code, reason}` release still parses and answers with what to pass; the person's hand-off prompt names no
   token (ruling 12) and points at the claim reply. Model: `code-*` checks run the fixed code; each finding's check
   runs it with that one fix removed and still fails; three new breaks (`release_ignores_token`, `no_lease_cap`,
-  `record_ignores_token`) are caught by `able_to_fail.py` (12 of 12). `run.sh`: 33 of 33 as expected.
+  `record_ignores_token`) are caught by `able_to_fail.py` (12 of 12). `run.sh`: 33 of 33 as expected; `--only
+  code-churn` (P2, no lost row, on the fixed code) passes at 97,464,544 states in 21 minutes with four workers.
 - **2026-10-22 — the dev auto-update runs on a Linux server too (G181; branch `feat/linux-dev-autoupdate`).**
   `scripts/dev/install-auto-update.sh` branches on `uname`: on Linux it writes a systemd user timer
   (`cicada-dev-autoupdate.timer`, `OnCalendar=*:0/5`, `Persistent=true`) and its oneshot service; `--uninstall` removes

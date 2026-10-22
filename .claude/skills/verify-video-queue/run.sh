@@ -61,7 +61,7 @@ break-f2_credit_stale|NoLostRow|
 EXPECT_DEEP="
 code-ids-restart|pass|798000
 fixed-ids-restart|pass|798000
-code-churn|pass|0
+code-churn|pass|87700000
 fixed-churn|pass|0
 deep-safety|pass|0
 "
