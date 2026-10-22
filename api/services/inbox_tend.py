@@ -666,12 +666,20 @@ def _saved_item(ep_fm: dict, spans) -> bool:
     from a saving door (its origin or source) or carries the page's ``url``."""
     if any(getattr(t, "marker", None) is not None for t in spans):
         return False
+    return bool(ep_fm.get("url")) or any(saved_origin(ep_fm.get(k)) for k in ("origin", "source"))
+
+
+def saved_origin(tag) -> bool:
+    """Whether an episode's ``origin`` or ``source`` is a saving door (a bookmark, a saved post, a feed, a history):
+    what came through it is the saved page's text, not something the person said."""
     from api.services import source_overview
 
+    t = str(tag or "").strip().lower()
+    if not t:
+        return False
     saved = set(_SAVED_ORIGINS)
     saved |= {o for spec in source_overview.CATALOG if spec.kind in ("browser", "social", "feed") for o in spec.origins}
-    tags = {str(ep_fm.get(k) or "").strip().lower() for k in ("origin", "source")} - {""}
-    return bool(ep_fm.get("url")) or any(t in saved or t.endswith(_SAVED_SUFFIXES) for t in tags)
+    return t in saved or t.endswith(_SAVED_SUFFIXES)
 
 
 _CODE_SHAPE = re.compile(r"\w_\w|::|\(\)|->|^[$@]\w|^--?\w|^`.+`$")
