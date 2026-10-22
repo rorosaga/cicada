@@ -21,7 +21,7 @@ def home(tmp_path, monkeypatch):
 def test_byok_ids_and_labels():
     ids = {byok.ByokAdapter(p).id for p in byok.BYOK_PROVIDERS}
     assert ids == {"byok-openai", "byok-anthropic", "byok-openrouter", "byok-gemini",
-                   "byok-xai", "byok-groq", "byok-mistral"}
+                   "byok-xai", "byok-groq", "byok-mistral", "byok-fireworks", "byok-deepinfra", "byok-together"}
     assert byok.ByokAdapter("openai").label == "OpenAI API key"
 
 

@@ -222,3 +222,9 @@ async def require_token(
         device_tokens.store().touch(device.id)
     except Exception:  # noqa: BLE001 - a usage stamp never fails a request
         pass
+    from api.services import agent_seen
+
+    # G212: how the device reached this server (loopback = its tunnel, a tailnet address or Serve header = Tailscale),
+    # read from the request alone. Throttled to a write a minute; never fails a request.
+    agent_seen.stamp_device(device.id, agent_seen.how_from_request(
+        peer=request.client.host if request.client else None, headers=request.headers, device=True))
