@@ -8,6 +8,18 @@
 
 ## Current state and evidence
 
+- **2026-10-22 — ready for background agents: every verify recipe driven, the plan token only in the engine's child,
+  CI on `dev`, a neutral bank identity (G203; branch `agent-ready-ci`).** The 19 recipes in
+  `.claude/skills/verify-cicada/features/` that had never run were driven with `cv` on scratch banks: 4 worked as
+  written, 11 were wrong (request shapes, selectors, a CLI step that is person-only, Ask needing `--search-model`) and
+  are fixed, and 4 now say which part cannot be driven and give the nearest check (the video lease lifecycle, a site
+  exploration, the remote listener and OAuth, the bank menu without focus). One product defect found: G204 (`cicada_write_claim` names an
+  id that is not on the page when it folds into Sleep's claim). `cv` no longer puts `CLAUDE_CODE_OAUTH_TOKEN` in the
+  scratch backend's env: a 0600 file in the run dir, read into the engine's `claude` child by `plan-claude`, deleted and
+  masked at cleanup (`cv selftest` 85/85). `.github/workflows/dev-ci.yml` runs the backend crucial tier on pushes and
+  PRs to `dev` (258 passed on `ubuntu-latest`). A bank with no configured git identity commits as
+  `Cicada <cicada@localhost>` instead of the account's guessed name and host. Evidence:
+  `~/cicada-harness-run-2026-10-22/round2-agents/`.
 - **2026-10-22 — the 0.6.0 release build type-checks on the runner (branch `fix/release-typecheck`).** Release run
   39714438472 failed: `SaveWhyPanel.swift:394` "unable to type-check this expression in reasonable time" on the
   macos-26 runner (it built on the dev Mac). A release build with `-warn-long-expression-type-checking=150` and

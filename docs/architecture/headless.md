@@ -196,11 +196,20 @@ says so and names the pages it found, never a keyless call.
 
 ## Commits with no git identity
 
-A fresh server has no `user.name`/`user.email`, and git refuses to commit. `git_service.ensure_commit_identity_sync`,
-called by `bank_registry.scaffold_bank` (every startup and every new bank), sets a repo-local
-`Cicada <cicada@localhost>` **only when git resolves no identity**. It never overrides one that resolves (environment,
-global or system) and never writes `~/.gitconfig`. `install.sh`'s first commit does the same. Who wrote a change is
-the `Cicada-Author` trailer's job, not git's author field, so nothing about provenance changes.
+A fresh server has no `user.name`/`user.email`, and git refuses to commit; a fresh Mac has none either, and git guesses
+one from the account (its full name and `user@hostname`), so every commit of a bank handed to someone else would carry
+both (G203). `git_service.ensure_commit_identity_sync`, called by `bank_registry.scaffold_bank` (every startup and every
+new bank), sets a repo-local `Cicada <cicada@localhost>` **only when no identity is configured**: it asks git with
+`user.useConfigOnly=true`, so a guessed identity counts as none. It never overrides a configured one (environment, the
+bank's own config, global or system), never writes `~/.gitconfig` and never rewrites a commit already made: a bank's
+older commits keep the author they were made under. `install.sh`'s first commit asks the same way. Who wrote a change
+is the `Cicada-Author` trailer's job, not git's author field, so nothing about provenance changes (the readers are in
+`storage.md`, "Git — versioning and provenance").
+
+**A verify run on a headless host (2026-10-22).** The verify skill (`.claude/skills/verify-cicada/`) runs Sleep on the
+plan through `claude`. On a Linux host with no keychain the plan signs in through `CLAUDE_CODE_OAUTH_TOKEN`: export it
+in the shell that runs `cv launch`, and `cv` hands it to the engine's `claude` child alone, through a 0600 file in the
+run dir, never the scratch backend's environment; `cv cleanup` deletes the file and masks the value in the evidence.
 
 ## Clients on other machines (phase 2)
 

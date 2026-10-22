@@ -17,11 +17,14 @@ A dropped or imported file (a chat export, a platform's saved list, a folder) is
 Preconditions:
 
 - A run is up and `$CV doctor` is all `ok` (backend, scratch root, plan).
-- A synthetic export file under the run dir (never a real export).
+- A synthetic export under the run dir, never a real one: `api/tests/_intake_fixtures.py`'s `claude_conversations()` written as `<run>/fixtures/conversations.json` (two `alpha-project` check-ins).
 
-- **CLI.** Run `$CV cli -- import <run>/fixtures/export.json`. A job id, then episodes in `$CV bank ls`.
-- **Sniff.** `POST /intake/sniff` with the file's bytes, through the app's drop, names the vendor.
+- **Preview (CLI).** Run `$CV cli -- import --preview <run>/fixtures/conversations.json`. `claude: 2 new, 0 grown, 0 already here`.
+- **Import (CLI).** `$CV cli -- import <file>` answers that importing acts as the person and changes nothing (exit 1). That is the rail.
+- **Sniff and import (the app's drop route).** `curl -F file=@<file> -H "Authorization: Bearer $(cat <run>/cicada-home/api_token)" http://127.0.0.1:<port>/intake/sniff` names `vendor: claude` with the counts and titles; the same against `/intake/import` stages them (`episodesStaged: 2`). `cv api` sends JSON only, so these multipart routes go through curl with the run's token and port (`run.json`).
+- **Stored.** `$CV bank ls | grep '^episodes/'`. Two episodes dated by the conversations' own days.
 
 ## Gotchas
 
-- Never import the person's real exports into a verify run; build a small synthetic one.
+- Never import the person's real exports into a verify run.
+- `$CV bank ls | grep episodes/` also lists the demo bank's episodes once the demo has been opened; anchor the pattern.
