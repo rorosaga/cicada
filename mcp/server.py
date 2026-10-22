@@ -1158,8 +1158,15 @@ def _handshake_text(*, delivery: str) -> str:
     from api.services import handshake
 
     if runtime_layout.is_client():
-        # G181 phase 2: the primer is built where the bank is.
-        return str(_remote_call("cicada_handshake", {}, {"delivery": delivery}).get("text") or "")
+        # G181 phase 2: the primer is built where the bank is; G202 (D6): it names the server by the host this
+        # machine reaches it on — never a path or a token.
+        from api.services import tool_client
+
+        try:
+            server = tool_client.host_of(runtime_layout.api_base())
+        except ValueError:
+            server = None       # an unusable address: the call below says so in words
+        return str(_remote_call("cicada_handshake", {}, {"delivery": delivery, "server": server}).get("text") or "")
     memory_path = get_memory_path()
     text, meta = handshake.load_or_build(memory_path, CLIENT_INFO.get("name"))
     handshake.record(delivery, meta, bank=memory_path.name, harness=SESSION.harness,
@@ -1330,15 +1337,19 @@ def handle_tool(name: str, arguments: dict) -> str:
     if runtime_layout.is_client():
         # G181 phase 2: a server elsewhere holds the bank; nothing below may touch a local one.
         return _client_tool(name, arguments)
-    from api.services import cli_map
+    from api.services import cli_map, tool_client
 
+    # D7 (G202): this session was a server's client a call ago (the app moved `api_base`): say so, once.
+    notice = tool_client.where_changed((tool_client.THIS_MACHINE, "", ""))
     row = cli_map.by_tool().get(name)
     if row is not None and row.mutates:
         # Owner, 2026-10-16 (backend hunt): an edit already uncommitted on a page this write takes is committed
         # apart, first, never under this agent's name (`agent_commits.setting_apart`, as the inbox routes do).
         with agent_commits.setting_apart(get_memory_path()):
-            return _handle_local_tool(name, arguments)
-    return _handle_local_tool(name, arguments)
+            text = _handle_local_tool(name, arguments)
+    else:
+        text = _handle_local_tool(name, arguments)
+    return f"{notice}\n\n{text}" if notice and isinstance(text, str) else text
 
 
 def _handle_local_tool(name: str, arguments: dict) -> str:

@@ -166,6 +166,31 @@ final class OutboxLanesTests: XCTestCase {
         XCTAssertEqual(left, ["alpha-1", "alpha-2"], "skipped, kept, in order")
     }
 
+    /// G202 (D2): a flush for one server sends only the posts read for it; the same memory name on another server is
+    /// another lane, and its posts wait for their own server.
+    func testAFlushForOneServerNeverSendsAnotherServersPosts() async throws {
+        let outbox = ReaderOutbox(folder: ReaderOutbox.folder(cicadaHome: home))
+        try await outbox.put(method: "POST", path: "/sources/sync-notes", body: Data("a".utf8), bank: "default",
+                             bankId: "id-a", base: "https://a.example.ts.net")
+        try await outbox.put(method: "POST", path: "/sources/sync-notes", body: Data("b".utf8), bank: "default",
+                             bankId: "id-b", base: "https://b.example.ts.net")
+        try await outbox.put(method: "POST", path: "/sources/sync-notes", body: Data("legacy".utf8), bank: "default")
+        let sent = SentLog()
+        let result = await outbox.flush(for: "https://b.example.ts.net/") { entry in
+            await sent.add(String(decoding: entry.body, as: UTF8.self))
+            return 200
+        }
+        let order = await sent.items
+        XCTAssertEqual(Set(order), ["b", "legacy"], "a post with no server goes where the app points, as before")
+        XCTAssertEqual(result, ReaderOutbox.FlushResult(sent: 2, dropped: 0, waiting: 0))
+        let left = await outbox.waiting(for: "https://b.example.ts.net")
+        XCTAssertTrue(left == (0, 1))
+        XCTAssertNotEqual(ReaderOutbox.lane(ReaderOutbox.Entry(method: "POST", path: "/p", body: Data(), bank: "default",
+                                                               queuedAt: Date(), base: "https://a.example.ts.net")),
+                          ReaderOutbox.lane(ReaderOutbox.Entry(method: "POST", path: "/p", body: Data(), bank: "default",
+                                                               queuedAt: Date(), base: "https://b.example.ts.net")))
+    }
+
     func testNoAnswerOrARefusedTokenStillStopsEverything() async throws {
         let outbox = ReaderOutbox(folder: ReaderOutbox.folder(cicadaHome: home))
         try await put(outbox, "alpha-1", bank: "alpha", at: 1)

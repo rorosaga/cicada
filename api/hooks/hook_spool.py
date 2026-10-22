@@ -14,6 +14,16 @@ a session is skipped, a turn holds the turns behind it. A session's resend first
 stale snapshot from a replaced file. Bounded: past :data:`MAX_ENTRIES` or :data:`MAX_BYTES` the oldest entries are
 dropped and counted in the log — never their content. Nothing here holds a token; the body is the same scrubbed,
 capped payload the hook would have sent.
+
+**Each entry names the memory it was captured for** (D1 of the 2026-10-22 two-device test, G202): ``target`` is the
+server's address (``runtime_layout.api_base``, normalised) and, when this machine has heard it, the id of the bank
+that server last filed this machine's captures in (``.servers``, learned from each answer's ``bankId``). A flush
+sends only the entries whose address is the one this machine points at now; the rest wait, never dropped, and are
+counted apart (``waiting``) so the hook's log, ``cicada status`` and the app's Devices page can say so. A resend
+carries the entry's bank id in its body (``bank_id``), and the server refuses it (409 ``bank_mismatch``) when the bank
+it would file it in is another one — so a capture waiting for one memory never lands in another, even behind the same
+address (an SSH tunnel's local port pointed at a second server). An entry written before targets existed (``v`` 1)
+names nothing and goes to whichever server answers, as it always did.
 """
 from __future__ import annotations
 
@@ -25,6 +35,7 @@ import secrets
 import time
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlsplit
 
 MAX_ENTRIES = 2000
 MAX_BYTES = 128 * 1024 * 1024
@@ -43,39 +54,140 @@ def spool_dir(home: Path) -> Path:
     return path
 
 
-def _name(key: str | None) -> str:
+#: Which bank each server last filed this machine's captures in: ``{normalised base: bank id}`` (0600). Not an entry:
+#: its name never ends in ``.json``.
+SERVERS_FILE = ".servers"
+
+
+def same_server(a: str | None, b: str | None) -> bool:
+    """Two addresses name the same server: scheme and host compared without case, a trailing slash ignored."""
+    return bool(a) and bool(b) and _norm(a) == _norm(b)
+
+
+def _norm(base: str) -> str:
+    try:
+        parts = urlsplit(str(base).strip())
+    except ValueError:
+        return str(base).strip()
+    return f"{parts.scheme.lower()}://{parts.netloc.lower()}{parts.path.rstrip('/')}"
+
+
+def host_of(base: str | None) -> str:
+    """What a log line or a status line may say about a server: its host (and port), never a path or a credential."""
+    try:
+        parts = urlsplit(str(base or ""))
+        host = parts.hostname or ""
+        return f"{host}:{parts.port}" if host and parts.port else host or "another server"
+    except ValueError:
+        return "another server"
+
+
+def _read_servers(home: Path) -> dict:
+    try:
+        data = json.loads((spool_dir(home) / SERVERS_FILE).read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def bank_for(home: Path, base: str | None) -> str | None:
+    """The bank this server last filed this machine's captures in, or None when it never said."""
+    if not base:
+        return None
+    value = _read_servers(home).get(_norm(base))
+    return value if isinstance(value, str) and value else None
+
+
+def remember_bank(home: Path, base: str | None, bank_id) -> None:
+    """A capture landed and the server named its bank (``bankId``): later entries for this server carry it."""
+    if not base or not isinstance(bank_id, str) or not bank_id or len(bank_id) > 128:
+        return
+    servers = _read_servers(home)
+    if servers.get(_norm(base)) == bank_id:
+        return
+    servers[_norm(base)] = bank_id
+    folder = spool_dir(home)
+    tmp = folder / f".servers.{secrets.token_hex(4)}.tmp"
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            os.write(fd, json.dumps(servers).encode("utf-8"))
+        finally:
+            os.close(fd)
+        os.replace(tmp, folder / SERVERS_FILE)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+def target_for(home: Path, base: str | None) -> dict | None:
+    """What a new entry names: the server it was meant for and, when known, that server's bank."""
+    if not base:
+        return None
+    return {"base": base, "bank_id": bank_for(home, base)}
+
+
+def _target_of(entry: dict) -> dict | None:
+    target = entry.get("target") if isinstance(entry, dict) else None
+    return target if isinstance(target, dict) and isinstance(target.get("base"), str) and target["base"] else None
+
+
+def _for(target: dict | None, base: str | None) -> bool:
+    """Whether an entry may go to ``base``: one that names no server (written before targets, or while no address was
+    set) goes wherever this machine points; one that names a server goes only there."""
+    return target is None or base is None or same_server(target["base"], base)
+
+
+def _name(key: str | None, target: dict | None = None) -> str:
     if key:
-        return "s-" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:24] + ".json"
+        scope = ""
+        if target and target.get("base"):
+            scope = "\0" + _norm(target["base"]) + "\0" + str(target.get("bank_id") or "")
+        return "s-" + hashlib.sha256((key + scope).encode("utf-8")).hexdigest()[:24] + ".json"
     return f"t-{time.time_ns():020d}-{secrets.token_hex(3)}.json"
 
 
-def put(home: Path, route: str, body: dict, *, key: str | None = None, transcript_path: str | None = None) -> int:
-    """Keep one post for later; returns how many old entries the bounds dropped."""
+def put(home: Path, route: str, body: dict, *, key: str | None = None, transcript_path: str | None = None,
+        target: dict | None = None) -> int:
+    """Keep one post for later, for the server ``target`` names; returns how many old entries the bounds dropped. A
+    session keeps one entry per server: a newer snapshot for the same server replaces it, one for another server
+    waits beside it."""
     folder = spool_dir(home)
-    entry = {"v": 1, "route": route, "body": body, "key": key, "transcript_path": transcript_path,
-             "queued_at": time.time()}
+    entry = {"v": 2, "route": route, "body": body, "key": key, "transcript_path": transcript_path,
+             "queued_at": time.time(), "target": target}
     data = json.dumps(entry).encode("utf-8")
-    target = folder / _name(key)
-    tmp = folder / f".{target.name}.{secrets.token_hex(4)}.tmp"
+    path = folder / _name(key, target)
+    tmp = folder / f".{path.name}.{secrets.token_hex(4)}.tmp"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
         os.write(fd, data)
     finally:
         os.close(fd)
-    os.replace(tmp, target)
-    return _trim(folder, keep=target.name)
+    os.replace(tmp, path)
+    return _trim(folder, keep=path.name)
 
 
-def drop(home: Path, key: str) -> None:
-    """A session's newer post landed: the waiting older one is obsolete."""
-    try:
-        (spool_dir(home) / _name(key)).unlink()
-    except OSError:
-        pass
+def drop(home: Path, key: str, base: str | None = None, bank_ids=()) -> None:
+    """A session's newer post landed on ``base``: the older one waiting for that server (filed for one of
+    ``bank_ids``, or for no bank in particular) is obsolete, and so is one written before targets existed. One
+    waiting for another server, or for another of this server's banks, stays: it was never sent where it was meant."""
+    folder = spool_dir(home)
+    names = {_name(key)}
+    if base:
+        names |= {_name(key, {"base": base, "bank_id": b}) for b in (None, *bank_ids)}
+    for name in names:
+        try:
+            (folder / name).unlink()
+        except OSError:
+            pass
 
 
 def entries(home: Path) -> list[Path]:
-    folder = spool_dir(home)
+    folder = Path(home) / "spool" / "capture"
+    if not folder.is_dir():
+        return []          # a read never makes the folder: a machine that never spooled keeps no spool
     found = []
     for p in folder.glob("*.json"):
         try:
@@ -92,8 +204,44 @@ def pending(home: Path) -> int:
         return 0
 
 
-def has_turns(home: Path) -> bool:
-    return any(p.name.startswith("t-") for p in entries(home))
+def _read(path: Path) -> dict | None:
+    try:
+        entry = json.loads(path.read_text(encoding="utf-8"))
+        return entry if isinstance(entry, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def waiting(home: Path, base: str | None) -> dict:
+    """What waits, by the server it was meant for: ``{"here": n, "elsewhere": {host: n}}``. ``here`` is what a flush to
+    ``base`` would send; ``base`` None (this machine is no client now) makes every entry ``elsewhere``, an entry that
+    names no server under ``""``. Counts only; nothing of a body is read out."""
+    here, elsewhere = 0, {}
+    try:
+        paths = entries(home)
+    except OSError:
+        return {"here": 0, "elsewhere": {}}
+    for path in paths:
+        target = _target_of(_read(path) or {})
+        if base is not None and _for(target, base):
+            here += 1
+            continue
+        host = host_of(target["base"]) if target else ""
+        elsewhere[host] = elsewhere.get(host, 0) + 1
+    return {"here": here, "elsewhere": elsewhere}
+
+
+def pending_for(home: Path, base: str | None) -> int:
+    """How many entries a flush to ``base`` would try."""
+    return waiting(home, base)["here"]
+
+
+def has_turns(home: Path, base: str | None = None) -> bool:
+    """A per-turn post waits for ``base`` (any server when None): a new turn for it queues behind."""
+    for path in entries(home):
+        if path.name.startswith("t-") and (base is None or _for(_target_of(_read(path) or {}), base)):
+            return True
+    return False
 
 
 def _trim(folder: Path, *, keep: str) -> int:
@@ -122,22 +270,25 @@ def _trim(folder: Path, *, keep: str) -> int:
 
 
 def flush(home: Path, send: Callable[[str, dict], int | None], *, deadline: float,
-          keep: Callable[[int | None], bool], size_of: Callable[[str | None, int], int]) -> tuple[int, int, int]:
-    """Send waiting posts oldest first until one does not land or the budget ends. ``send(route, body)`` returns the
-    HTTP status or None. ``(sent, dropped_as_final, left)``. One flusher at a time (a non-blocking ``flock``): a
-    second hook firing meanwhile leaves the queue to the first."""
-    sent = final = 0
+          keep: Callable[[int | None], bool], size_of: Callable[[str | None, int], int],
+          base: str | None = None) -> tuple[int, int, int]:
+    """Send the posts waiting for ``base`` oldest first until one does not land or the budget ends; posts meant for
+    another server are never sent here (``base`` None: every post, the behaviour before targets). ``send(route,
+    body)`` returns the HTTP status or None. ``(sent, dropped_as_final, left for base)``. One flusher at a time (a
+    non-blocking ``flock``): a second hook firing meanwhile leaves the queue to the first."""
     folder = spool_dir(home)
+    left = (lambda: pending_for(home, base)) if base is not None else (lambda: pending(home))
     try:
         lock_fd = os.open(folder / ".flush.lock", os.O_WRONLY | os.O_CREAT, 0o600)
     except OSError:
-        return 0, 0, pending(home)
+        return 0, 0, left()
     try:
         try:
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
-            return 0, 0, pending(home)
-        return _flush_locked(home, send, deadline=deadline, keep=keep, size_of=size_of)
+            return 0, 0, left()
+        sent, final = _flush_locked(home, send, deadline=deadline, keep=keep, size_of=size_of, base=base)
+        return sent, final, left()
     finally:
         os.close(lock_fd)
 
@@ -149,7 +300,7 @@ def flush(home: Path, send: Callable[[str, dict], int | None], *, deadline: floa
 _STOP_ALL = (None, 401, 403)
 
 
-def _flush_locked(home, send, *, deadline, keep, size_of) -> tuple[int, int, int]:
+def _flush_locked(home, send, *, deadline, keep, size_of, base) -> tuple[int, int]:
     sent = final = 0
     turns_waiting = False
     for path in entries(home):
@@ -168,6 +319,11 @@ def _flush_locked(home, send, *, deadline, keep, size_of) -> tuple[int, int, int
             except OSError:
                 pass
             continue
+        target = _target_of(entry)
+        if not _for(target, base):
+            continue               # meant for another server: it waits for that one (D1, G202)
+        if target and target.get("bank_id") and isinstance(body, dict):
+            body["bank_id"] = target["bank_id"]   # the server refuses it if it would file it in another bank
         if entry.get("key") and isinstance(body, dict) and "transcript_bytes" in body:
             body["transcript_size"] = size_of(entry.get("transcript_path"), int(body.get("transcript_bytes") or 0))
         status = send(route, body)
@@ -185,4 +341,4 @@ def _flush_locked(home, send, *, deadline, keep, size_of) -> tuple[int, int, int
                 path.unlink()
         except OSError:
             pass
-    return sent, final, pending(home)
+    return sent, final

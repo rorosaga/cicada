@@ -245,6 +245,14 @@ class _nolock:
         return False
 
 
+def _server(options: dict) -> str | None:
+    """The host the client reached this server on (G202, D6), for the primer's Now line: a short name, no path."""
+    value = options.get("server") if isinstance(options, dict) else None
+    if not isinstance(value, str) or not value.strip() or len(value) > 255 or "/" in value or "@" in value:
+        return None
+    return value.strip()
+
+
 def _run(tool, args, *, ctx, state, surface, options, root, memory_path, bank_name):
     if tool in DISPATCH:
         if tool == "cicada_recall_detail" and surface == "cli" and options.get("whole") is not None:
@@ -260,11 +268,12 @@ def _run(tool, args, *, ctx, state, surface, options, root, memory_path, bank_na
             names = frozenset(r.name for r in cli_map.exposed())
             tz = options.get("tz") if isinstance(options.get("tz"), str) else None
             text = handshake.build_cli(state_dictionary.read_state(memory_path), commands=names,
-                                       bank=bank_name or memory_path.name, tz=tz)
+                                       bank=bank_name or memory_path.name, tz=tz, server=_server(options))
             handshake.record("cli", {"variant": handshake.CLI_VARIANT}, bank=memory_path.name, harness=ctx.harness)
             return Answer(text=text, data={"tokens_est": len(text) // 4})
         delivery = options.get("delivery") if options.get("delivery") in ("initialize", "tool") else "tool"
-        text, meta = handshake.load_or_build(memory_path, ctx.client_name)
+        text, meta = handshake.load_or_build(memory_path, ctx.client_name, bank_name=bank_name,
+                                             server=_server(options))
         handshake.record(delivery, meta, bank=memory_path.name, harness=ctx.harness,
                          client_name=ctx.client_name or None)
         return text

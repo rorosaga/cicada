@@ -56,8 +56,16 @@ _CREDIT_WORDS = ("insufficient_quota", "exceeded your current quota", "credit", 
 _lock = threading.Lock()
 
 
-def sentence(kind: str, environ=os.environ) -> str:
-    text = _SENTENCES[kind]
+def machine_word(platform: str | None = None) -> str:
+    """What the copy calls the machine the memory runs on (G202, D5): "this Mac" on a Mac, "this server" anywhere else
+    — a Linux server's Sleep warning never says "this Mac"."""
+    import sys
+
+    return "this Mac" if (platform or sys.platform) == "darwin" else "this server"
+
+
+def sentence(kind: str, environ=os.environ, platform: str | None = None) -> str:
+    text = _SENTENCES[kind].replace("this Mac", machine_word(platform))
     if not runtime_layout.is_release(environ) and kind in _CHECKOUT_HINTS:
         return f"{text} {_CHECKOUT_HINTS[kind]}"
     return text

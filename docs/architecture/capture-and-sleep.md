@@ -719,8 +719,11 @@ extractor keeps crosses the wire:
   bytes than stored while the client's file (stat'ed when it sends) holds at least that much is `superseded`; a file
   that really shrank is still captured.
 - **The spool** (`hook_spool.py`, `$CICADA_HOME/spool/capture/`, 0700/0600): a post that does not land (no answer,
-  401/403, 409, 5xx) is kept; 400/404/413/422 are dropped (a resend cannot fix them). A session keeps one entry, its
-  newest (posts are cumulative); a live post that lands deletes it. Each firing that lands then flushes the rest,
+  401/403, 409, 5xx) is kept; 400/404/413/422 are dropped (a resend cannot fix them). Each entry names its target
+  — the server's address and, once heard, the bank id a capture answer gave — and is sent only there, carrying
+  `bank_id` so the server refuses it for another bank (G202; `headless.md`). A session keeps one entry per server, its
+  newest (posts are cumulative); a live post that lands deletes the one for that server and bank. A successful MCP
+  call or `cicada` command also flushes what waits for its server. Each firing that lands then flushes the rest,
   oldest first, inside the hook's 4 s client budget (under its registered 5 s; a SessionEnd flush never flushes), one
   flusher at a time (`flock`), refreshing a session's `transcript_size` from its file. No answer or a refused token
   (401/403) stops the flush; any other answer that is not final (a 5xx, a 409) is about that post: a session's entry

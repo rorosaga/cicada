@@ -13,6 +13,8 @@ import os
 /// rather than misfiled.
 enum BankScope {
     static let header = "X-Cicada-Bank"
+    /// G181 phase 2 / G202 — the bank's identity, sent beside its name by a client of a server.
+    static let idHeader = "X-Cicada-Bank-Id"
 
     @TaskLocal static var origin: String?
 

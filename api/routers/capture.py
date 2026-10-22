@@ -253,6 +253,22 @@ class SessionCaptureRequest(BaseModel):
     #: positive), so a new episode's id carries the person's day, not this server's. Absent: this server's zone.
     utc_offset_minutes: int | None = Field(None, ge=-episode_ids.MAX_UTC_OFFSET_MINUTES,
                                            le=episode_ids.MAX_UTC_OFFSET_MINUTES)
+    #: G202 (D1), additive: a spooled resend names the bank it was captured for (the ``bankId`` an earlier answer
+    #: gave); when the bank this post would be filed in is another one, it is refused (409 ``bank_mismatch``) and the
+    #: client keeps it waiting. Absent (every live post): filed where a capture goes now, as before.
+    bank_id: str | None = Field(None, max_length=128)
+
+
+def _filed_in(settings: Settings, target, claimed: str | None) -> str | None:
+    """The id of the bank a capture is filed in; ``bank_binding.BankMismatch`` (409 ``bank_mismatch``, nothing read
+    or written) when a resend names another (G202, D1). The demo redirect counts: the id is the bank written."""
+    from api.services import bank_binding
+
+    filed = bank_registry.bank_id(settings.memory_root, target.name) if target is not None else None
+    if claimed and claimed != filed:
+        raise bank_binding.BankMismatch()
+    return filed
+
 
 
 @router.post("/capture/session")
@@ -264,6 +280,7 @@ async def capture_session_endpoint(req: SessionCaptureRequest, request: Request,
     episode per session, ids minted here, the same demo redirect and answers. The device that signed the post
     (its token, ``request.state.device``) is recorded on the episode."""
     target = bank_registry.capture_bank(settings.memory_root)
+    filed = _filed_in(settings, target, req.bank_id)
     memory_path = target.path if target is not None else settings.memory_path
     device = getattr(request.state, "device", None)
 
@@ -285,7 +302,7 @@ async def capture_session_endpoint(req: SessionCaptureRequest, request: Request,
         logger.info(f"capture: the demo bank is open — saved the {req.harness} session into '{target.name}'")
     return {"status": result.status, "episodeId": result.episode_id, "turnsUser": result.turns_user,
             "turnsAssistant": result.turns_assistant, "summary": result.summary, "bank": target.name,
-            "redirectedFrom": target.redirected_from}
+            "bankId": filed, "redirectedFrom": target.redirected_from}
 
 
 class PostedTurn(BaseModel):
@@ -312,6 +329,10 @@ class TurnCaptureRequest(BaseModel):
     #: positive), so a new episode's id carries the person's day, not this server's. Absent: this server's zone.
     utc_offset_minutes: int | None = Field(None, ge=-episode_ids.MAX_UTC_OFFSET_MINUTES,
                                            le=episode_ids.MAX_UTC_OFFSET_MINUTES)
+    #: G202 (D1), additive: a spooled resend names the bank it was captured for (the ``bankId`` an earlier answer
+    #: gave); when the bank this post would be filed in is another one, it is refused (409 ``bank_mismatch``) and the
+    #: client keeps it waiting. Absent (every live post): filed where a capture goes now, as before.
+    bank_id: str | None = Field(None, max_length=128)
 
 
 @router.post("/capture/turn")
@@ -323,6 +344,7 @@ async def capture_turn_endpoint(req: TurnCaptureRequest, settings: Settings = De
     turn is saved into the real bank left most recently and the response names
     it; with no real bank, ``409`` and nothing is written."""
     target = bank_registry.capture_bank(settings.memory_root)
+    filed = _filed_in(settings, target, req.bank_id)
     memory_path = target.path if target is not None else settings.memory_path
 
     def _capture():
@@ -342,7 +364,8 @@ async def capture_turn_endpoint(req: TurnCaptureRequest, settings: Settings = De
     if target.redirected_from:
         logger.info(f"capture: the demo bank is open — saved the {req.harness} turn into '{target.name}'")
     return {"status": result.status, "episodeId": result.episode_id, "turnsUser": result.turns_user,
-            "turnsAssistant": result.turns_assistant, "bank": target.name, "redirectedFrom": target.redirected_from}
+            "turnsAssistant": result.turns_assistant, "bank": target.name, "bankId": filed,
+            "redirectedFrom": target.redirected_from}
 
 
 class HookContextRequest(BaseModel):

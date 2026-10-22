@@ -131,6 +131,13 @@ struct DevicesSettingsView: View {
             // DR-38: one card says where the memory lives. The running connection's status joins it only on a server.
             SettingsGroupCard(header: Copy.Devices.whereGroup) {
                 MemoryHomeSetting()
+                if model.connectionLine == nil, model.waitingElsewhere > 0 {
+                    // G202: captures left for a server this Mac used before (DR-38: said in the card that says where).
+                    SettingsDivider()
+                    Text(Copy.Devices.waitingElsewhere(model.waitingElsewhere))
+                        .font(CicadaTheme.captionFont.monospacedDigit())
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                }
                 if let line = model.connectionLine {
                     SettingsDivider()
                     SettingsRow(.devicesConnection, title: line, detail: model.connection.invalidReason) {
@@ -194,6 +201,11 @@ struct DevicesSettingsView: View {
                             Task { await model.sendNow() }
                         }
                     }
+                }
+                if model.waitingElsewhere > 0 {
+                    Text(Copy.Devices.waitingElsewhere(model.waitingElsewhere))
+                        .font(CicadaTheme.captionFont.monospacedDigit())
+                        .foregroundStyle(CicadaTheme.textSecondary)
                 }
             }
         }
