@@ -3099,7 +3099,8 @@ def _remote_local_ref(ctx: ToolContext, *refs: str | None) -> bool:
 
 @_holding_pages
 def add_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None = None,
-               access: str | None = None, kind: str | None = None, entity: str | None = None) -> str:
+               access: str | None = None, kind: str | None = None, entity: str | None = None,
+               inferred: bool = False, evidence=None) -> str:
     """Record WHERE a fact can be checked when there is no claim to write — "the
     person told me the team page lists this" (G61 phase 2 S1, spec §5.3, plan R-AC31).
 
@@ -3118,6 +3119,12 @@ def add_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None =
     about it — a page that does not exist drops the link, never the source.
     Cicada fetches nothing. Replies name no other tool: a remote caller may not
     hold it.
+
+    G61 "Where to check" (ruling 36 D5): ``inferred`` is an agent's own finding — on the record or in its research —
+    rather than the person's word. It lands as a PROPOSAL (``proposed: true``): never trusted, never the person's own
+    account for a picture, never re-checked, until the person takes it from the page's question (Sleep writes one per
+    page). A profile link is stored in its one canonical form. ``evidence`` (``[{episode, quote}]``) is located and
+    kept as a span; words that cannot be found are dropped and the proposal is still written.
     """
     from api.services import fact_sources, markdown_parser
     from api.services.id_utils import resolve_entity_file, sanitize_id
@@ -3155,13 +3162,22 @@ def add_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None =
         except fact_sources.InvalidSource as exc:
             link_note = f" The link to a page was left out: {exc}."
     origin = ctx.claim_origin if ctx.is_remote else None
+    proposal_evidence = None
+    if inferred:
+        from api.services import source_proposals
+
+        if (profile := source_proposals.profile_of(ref_text)) is not None:
+            ref_text = profile[1]
+            predicate_slug = predicate_slug or profile[0]
+        proposal_evidence = _proposal_evidence(memory_path, evidence)
     before_fm = markdown_parser.parse(page).frontmatter
     before = len(fact_sources.as_sources(before_fm.get("sources")))
     was_removed = fact_sources.removed_note(before_fm, ref_text, predicate_slug)
     try:
         entry = fact_sources.add_source(memory_path, entity_id, ref_text, kind=kind_value,
                                         predicate=predicate_slug, added_by=ctx.author, access=access_value,
-                                        origin=origin, entity=link, via_agent=True)
+                                        origin=origin, entity=link, via_agent=True, proposed=bool(inferred),
+                                        evidence=proposal_evidence)
     except fact_sources.InvalidSource as exc:
         return Reply(f"Nothing added — {exc}.", code="refused")
     if entry is None:
@@ -3177,8 +3193,34 @@ def add_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None =
         author=ctx.author, session=ctx.session_id,
     )
     back = f" It was put back: {was_removed}." if was_removed else ""
+    if entry.get(fact_sources.PROPOSED):
+        return (f"Proposed {entry['ref']} as where to check {entity_id}{what}. It waits for the person's yes: until "
+                f"then nothing is trusted, drawn or re-checked from it.{back}{link_note}")
     return (f"Added {entry['ref']} as where to check {entity_id}{what}. "
             f"The person sees it on the page, marked as yours.{back}{link_note}")
+
+
+def _proposal_evidence(memory_path: Path, raw) -> dict | None:
+    """The first of an inferred source's ``[{episode, quote}]`` that is found in its episode, as a span
+    (``{episode, start, end, kind}``, G118: offsets, never a copy). None when none is found — provenance never blocks
+    the proposal."""
+    from api.services import evidence as evidence_mod
+
+    if not isinstance(raw, list):
+        return None
+    for item in raw[:3]:
+        if not isinstance(item, dict):
+            continue
+        episode, quote = str(item.get("episode") or "").strip(), str(item.get("quote") or "").strip()[:240]
+        if not episode.startswith("ep_") or not quote:
+            continue
+        try:
+            ev = evidence_mod.verify(memory_path, episode, quote)
+        except Exception:  # noqa: BLE001 — an odd id is no evidence
+            continue
+        if ev is not None and ev.is_span():
+            return {"episode": ev.episode, "start": ev.start, "end": ev.end, "kind": ev.kind}
+    return None
 
 
 @_holding_pages

@@ -703,6 +703,35 @@ Round 4 (C2–C4):
   reason, answer, entity_id, entity_name, predicate, evidence?: {episode, start, end}}` — a span into the person's words,
   never a copy — committed in the resolver's own commit, which is what `inbox_tend.undo` reverses (three-way); the
   question returns with `sleep_settle: undone`.
+  **Where to check (G61, G208, ruling 36 D5, 2026-10-22).** The name sources carry in every surface: *a link where the
+  current state of this thing can be checked — a profile, a personal site, a publication list, a repository or any
+  page; Cicada re-checks it on a schedule and agents check it before answering about the thing.* The key stays
+  `sources:`. **Proposals:** an entry inferred rather than named carries `proposed: true` and `evidence` (`{episode,
+  start, end, kind?}` — a span, never a copy — or `{page: true}`); `fact_sources.is_proposed` is the one test. A
+  proposal is never trusted, never the person's own account (`person_photo.is_own_account`), never tracked
+  (`source_refresh.tracked`); taking it (`accepted`, from the question or the card's `sources/change`) drops `proposed`
+  and keeps `evidence`. Two writers: an agent's `cicada_add_source(inferred=true, evidence=[{episode, quote}])` (`mcp.md`;
+  a profile ref stored in its canonical form, the quote located or dropped) and **Sleep's tail step**
+  `source_proposals.propose` (`_where_to_check_safely`, after the LinkedIn and Contacts rematches, before any poll):
+  engine-free, no fetch, per active page — a **person** page's GitHub, X, Instagram, LinkedIn, Google Scholar or ORCID
+  profile URL (`source_proposals.profile_of`, one canonical form each) written in the page's own text, or in a line of
+  the person's OWN turn (`user`, not an agent's saved note) in one of the page's newest 40 conversations that also
+  names the page; a **project/tool** page's GitHub repository whose name is the page's own. Never a URL from a name,
+  never a handle off a saved post's path. Skipped when the ref (in any spelling of the same profile) is already a source
+  or in `sources_removed` under any fact, or past a cap; ≤ 4 a page a run; pages dirty before the run are skipped; one
+  `cicada` commit `Where to check <date>` (trigger `sleep/where-to-check`), restored on a failed commit. **One question
+  per page:** `kind: clarification`, `asks: sources`, `refs: [...]` (every waiting proposal, an agent's too), options
+  `yes` / `no`, `required_input: choice`; the step rewrites `refs` when they change and removes the question when none
+  waits, so it is idempotent. **The answer** (`inbox_service._resolve_where_to_check`): `yes` takes each listed proposal
+  still waiting; `no` (or a dismiss) removes each with a `user` tombstone, so nothing proposes it again; `skip` writes
+  nothing; committed as the person's answer. **Sleep settles it only by ruling 29** (`inbox_tend` rule `named_account`,
+  engine-free): every listed link waits on the page with evidence that is the person's own located line, naming the
+  page and carrying that very link; anything else is `person_only` (no engine, no record read, no trace row may settle
+  it). **Wire:** `GET /entities/{id}/sources` adds `proposed`, `evidence`, and — derived for the card's chip row —
+  `linkKind` (`github | x | instagram | linkedin | scholar | orcid | repo | contacts | website | app | path | note`,
+  `source_proposals.link_kind`), `label` and `iconSite` (the site key `…/sources/icon/{site}` serves, null wherever that
+  route 404s — always on a person's page, G159). A dry run (`scripts/where_to_check_dry_run.py --memory <bank>
+  [--summary]`) lists what the step would propose, reading files only.
 - `website` (G61 S3-b) — the official-site ROLE: a `sources:` entry with `predicate: website`, many allowed. Stage 1 may
   propose ONE for a `company`, `tool` or `project` (an optional `website` field on the extracted entity;
   `site_sources.sanitize_website` keeps only an https origin of a public host that is not a platform (`PLATFORM_HOSTS`:
@@ -881,8 +910,9 @@ Round 4 (C2–C4):
   name|link`, owner 2026-10-17; an alias-only match waits for the person to take it) — otherwise never Cicada's own
   writers, an unidentified proposal, an "Only I know" note, or a link Stage
   5.56 attached from a claim's cited words (always under a `world`/`artifact` predicate, which no profile predicate
-  is; a test pins it) — then, only while `CICADA_ALLOW_PERSON_PHOTO_PROXY` is on (off by
-  default, owner 2026-10-09), an X profile link and a LinkedIn `/in/` link, asked through the avatar proxy within an
+  is; a test pins it), and never a proposal still waiting for the person (`proposed: true`, "Where to check" below) —
+  then, while `CICADA_ALLOW_PERSON_PHOTO_PROXY` is on (on by default since ruling 36 D5, 2026-10-22; off from
+  2026-10-09), an X profile link, an Instagram profile link (D5) and a LinkedIn `/in/` link, asked through the avatar proxy within an
   install-wide daily budget (`network.md`). Fetched once, on demand, by `GET /entities/{id}/photo` (never by
   `/graph`, never by Sleep) and cached at `$CICADA_HOME/pictures/<bank>/people/<id>.<png|jpg>` with `meta.json`
   (`{key, fetched_at, miss, transient, ext, sha}`; `key` is a hash over the identifiers, so the email's hash is never

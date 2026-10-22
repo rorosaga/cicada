@@ -154,7 +154,8 @@ DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
     "cicada_retract_claim": lambda c, a: mcp_tools.retract_claim(c, _s(a, "subject"), _s(a, "claim_id"),
                                                                  _s(a, "reason"), a.get("evidence")),
     "cicada_add_source": lambda c, a: mcp_tools.add_source(c, _s(a, "subject"), _s(a, "ref"), a.get("predicate"),
-                                                           a.get("access"), a.get("kind"), a.get("entity")),
+                                                           a.get("access"), a.get("kind"), a.get("entity"),
+                                                           bool(a.get("inferred", False)), a.get("evidence")),
     "cicada_change_source": lambda c, a: mcp_tools.change_source(
         c, _s(a, "subject"), _s(a, "ref"), a.get("predicate"), _s(a, "action"), a.get("reason"), a.get("new_ref"),
         a.get("new_predicate"), a.get("access"), a.get("entity")),

@@ -55,7 +55,7 @@ def test_build_carries_contract_state_and_capabilities(tmp_path):
     assert "in your own words" in text and "quote=<their exact words>" in text and 'mode="list"' in text
     assert "skip=true" in text and "Never guess an answer" in text
     assert "Recommended option" not in text and "quote the Cause" not in text
-    assert handshake.CONTRACT_VERSION == 19, ("G140 named its tools (3), bridge lines joined (G138, 4), then G141 named "
+    assert handshake.CONTRACT_VERSION == 20, ("G140 named its tools (3), bridge lines joined (G138, 4), then G141 named "
                                              "cicada_project (5) and cicada_note_progress (6); G149 item 8 (the "
                                              "From Cicada note) and G150's backlog tools both took 7 on parallel "
                                              "branches, so the merge moves past both (8, R-H13); G166's reading "

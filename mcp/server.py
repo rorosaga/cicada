@@ -750,7 +750,7 @@ TOOLS = [
     },
     {
         "name": "cicada_add_source",
-        "description": "Record WHERE a fact about a page can be checked — a web page, an app, a file or plain words the PERSON gave you ('the team page lists who works there') — when there is no new fact to write. Only a source the person named or one you already opened for them, never one you guessed or searched for. This is not cicada_sources, which lists the conversations a page was built from. With a fact to record, pass `sources` on cicada_write_claim instead. Cicada fetches nothing when you add one.",
+        "description": "Where to check: a link where the current state of this thing can be checked — a profile, a personal site, a publication list, a repository or any page; Cicada re-checks it on a schedule and agents check it before answering about the thing. Record one — a web page, an app, a file or plain words the PERSON gave you ('the team page lists who works there') — when there is no new fact to write. Directly only for a source the person named or one you already opened for them. One you found on the record or in your own research (their GitHub in a conversation, a lab page listing them) goes in with `inferred: true` and `evidence`: it waits for the person's yes before Cicada trusts it, draws a picture from it or re-checks it. Never a link guessed from a name. This is not cicada_sources, which lists the conversations a page was built from. With a fact to record, pass `sources` on cicada_write_claim instead. Cicada fetches nothing when you add one.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -760,6 +760,11 @@ TOOLS = [
                 "access": {"type": "string", "enum": ["public", "signed_in", "local", "unknown"], "description": "Optional: 'public' when anyone can open it, 'signed_in' when it needs the person's login, 'local' for a file or repo on this Mac. Left out, Cicada infers it."},
                 "kind": {"type": "string", "enum": ["url", "path", "note", "app", "repo"], "description": "Optional: what the ref is. Left out, Cicada infers url, path or note; say 'app' or 'repo' yourself."},
                 "entity": {"type": "string", "description": "Optional: the id of an existing page that knows more about this source (a saved profile or article, a folder page). Never creates a page; a page that does not exist leaves the link out."},
+                "inferred": {"type": "boolean", "description": "Optional: true when you inferred it (found it on the record or in research) rather than the person naming it. It is kept as a proposal the person confirms with one tap."},
+                "evidence": {"type": "array", "maxItems": 3, "description": "Optional, with `inferred`: where you saw it — the exact words from a saved episode, verified and stored as offsets, never copied.",
+                             "items": {"type": "object", "required": ["episode", "quote"], "properties": {
+                                 "episode": {"type": "string", "description": "The episode id."},
+                                 "quote": {"type": "string", "description": "The exact words, copied verbatim (at most 240 characters)."}}}},
             },
             "required": ["subject", "ref"],
         },
@@ -1538,6 +1543,8 @@ def _handle_local_tool(name: str, arguments: dict) -> str:
             arguments.get("access"),
             arguments.get("kind"),
             arguments.get("entity"),
+            bool(arguments.get("inferred", False)),
+            arguments.get("evidence"),
         )
     elif name == "cicada_change_source":
         return handle_change_source(
@@ -1684,8 +1691,9 @@ def handle_retract_claim(subject, claim_id, reason, evidence=None) -> str:
     return mcp_tools.retract_claim(_ctx(), subject, claim_id, reason, evidence)
 
 
-def handle_add_source(subject, ref, predicate=None, access=None, kind=None, entity=None) -> str:
-    return mcp_tools.add_source(_ctx(), subject, ref, predicate, access, kind, entity)
+def handle_add_source(subject, ref, predicate=None, access=None, kind=None, entity=None, inferred=False,
+                      evidence=None) -> str:
+    return mcp_tools.add_source(_ctx(), subject, ref, predicate, access, kind, entity, inferred, evidence)
 
 
 def handle_change_source(subject, ref, predicate=None, action="", reason=None, new_ref=None,

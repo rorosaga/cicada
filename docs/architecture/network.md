@@ -76,15 +76,18 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   time being a transient miss; the body streamed and cut past 512 KB; kept only as a
   PNG or JPEG of 16–1024 px by its bytes (SVG refused whatever its header). `d=404` makes "no photo" a 404, so no
   default image is cached as a photo.
-- **`CICADA_ALLOW_PERSON_PHOTO_PROXY=on`** (owner 2026-10-09, **off by default**) is the ToS rail's one exception: a
-  person's photo through the unavatar.io avatar proxy, from an X or LinkedIn profile link already in the person page's
-  `sources:` (`https://x.com/<handle>` or twitter.com, one path segment; `https://www.linkedin.com/in/<slug>` — never a
-  post, a company page or a guess). LinkedIn needs a login, so the proxy scrapes on Cicada's behalf; the owner chose
+- **`CICADA_ALLOW_PERSON_PHOTO_PROXY`** (owner 2026-10-09; **on by default since ruling 36 D5, 2026-10-22** — the
+  owner: "photo gate ON"; `off` still closes it) is the ToS rail's one exception: a
+  person's photo through the unavatar.io avatar proxy, from an X, Instagram or LinkedIn profile link already in the
+  person page's `sources:` and given as their own account (`https://x.com/<handle>` or twitter.com, one path segment;
+  `https://www.instagram.com/<handle>`, one path segment, D5; `https://www.linkedin.com/in/<slug>` — never a post, a
+  company page, a guess, or a link Cicada or an agent only proposed and the person has not taken). LinkedIn needs a login, so the proxy scrapes on Cicada's behalf; the owner chose
   that knowingly, and the person turns it on knowingly: each lookup tells a third party whom they know. It never runs
   past the two gates above. **What leaves the Mac, exactly:** the handle or slug, to unavatar.io only —
-  `https://unavatar.io/x/<handle>?fallback=false` and `https://unavatar.io/linkedin/user:<slug>?fallback=false` — with
+  `https://unavatar.io/x/<handle>?fallback=false`, `https://unavatar.io/instagram/<handle>?fallback=false` and
+  `https://unavatar.io/linkedin/user:<slug>?fallback=false` — with
   the same fixed User-Agent, no cookie, no credential, no name and no page text; and, as with any request, the Mac's
-  network address. Asked only after the email and GitHub rungs miss, X before LinkedIn. `fallback=false` is unavatar's
+  network address. Asked only after the email and GitHub rungs miss, X, then Instagram, then LinkedIn. `fallback=false` is unavatar's
   documented "404 when there is no avatar", so a default image is never cached as a photo. Every hop must stay on
   `unavatar.io` (a redirect elsewhere is refused and remembered as a miss) and pass `net_guard`; the same 4 s, 512 KB
   and raster-only rules. At most 25 lookups a UTC day across the install (the proxy's anonymous allowance per IP),

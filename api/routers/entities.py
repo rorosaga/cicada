@@ -840,7 +840,14 @@ async def update_entity_repos(
 
 
 def _sources_payload(memory_path: Path, entity_id: str) -> EntitySourceList:
+    from api.services import reading_hosts, source_proposals
+
     rows = []
+    entity_path = memory_path / "entities" / f"{entity_id}.md"
+    try:
+        page_type = str(markdown_parser.parse(entity_path).frontmatter.get("type") or "").strip().lower()
+    except Exception:  # noqa: BLE001 — an unreadable page draws no mark
+        page_type = "person"
     for s in fact_sources.list_sources(memory_path, entity_id):
         # A link to a page that is gone (deleted, merged away, dropped) reads as no link.
         s["entity"] = fact_sources.linked_entity(memory_path, s, self_id=entity_id)
@@ -854,6 +861,14 @@ def _sources_payload(memory_path: Path, entity_id: str) -> EntitySourceList:
             s.pop("refresh", None)
         if not isinstance(s.get("recheck_days"), int):
             s.pop("recheck_days", None)
+        # G61 "Where to check" (ruling 36 D5): the chip row's words, derived; the icon by the existing icon rule only.
+        s["proposed"] = fact_sources.is_proposed(s)
+        if not isinstance(s.get("evidence"), dict):
+            s.pop("evidence", None)
+        s["link_kind"], s["label"] = source_proposals.link_kind(s)
+        site = reading_hosts.site_of(str(s.get("ref") or "")) if str(s.get("kind") or "") == "url" else ""
+        s["icon_site"] = (site if site and s["trusted"] and page_type not in ("person", "media")
+                          and reading_hosts.valid_site_key(site) and reading_hosts.icon_host(site) else None)
         rows.append(EntitySource(**s))
     return EntitySourceList(entity_id=entity_id, sources=rows)
 

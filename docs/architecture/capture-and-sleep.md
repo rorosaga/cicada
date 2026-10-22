@@ -321,7 +321,10 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   promotion*); Sleep's engine-free tail matches the cards still waiting against the night's pages
   (`_rematch_contacts_safely` → `contacts_local.rematch`, right after the LinkedIn rematch; its own `cicada` commit,
   `sleep/contacts`; dirty pages skipped; undone on a failed commit; never the owner's page, never a demo bank), and a
-  matched card stops waiting. **Stopping Contacts forgets them (review of #391):** Disconnect, or the app finding
+  matched card stops waiting. Right after it, the tail's **Where to check** step (`_where_to_check_safely` →
+  `source_proposals.propose`, ruling 36 D5, 2026-10-22) proposes the profile links and own repositories already on the
+  record as sources and keeps one question per page about them — engine-free, no fetch, its own `cicada` commit
+  (`sleep/where-to-check`), dirty pages skipped, undone on a failed commit (`storage.md`, "Where to check"). **Stopping Contacts forgets them (review of #391):** Disconnect, or the app finding
   access refused or taken away in System Settings, calls `DELETE /sources/contacts-local/waiting`, which deletes every
   bank's `contacts.json` and thumbnails (Contacts is app-wide; token-gated like every route; counts only), so no first
   mention and no tail rematch uses a card again; what matched pages already gained stays. LinkedIn's kept export has

@@ -260,11 +260,14 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   path on every plan run plus a one-off backlog sweep, and Cicada's own settings are never asked (27b, 2026-10-19). **A tracked source's
   dated re-check does (ruling 26):** a new dated fact; the newest evidence wins, even over the person's own words; the same
   day or undated asks once; dead = two failed visits a week apart; walled pages only by the person's agent (`storage.md`).
+  **Where to check (ruling 36 D5, 2026-10-22):** an agent (`inferred`) or Sleep's engine-free step may PROPOSE a link
+  already on the record — never one guessed from a name; a proposal is never trusted, drawn or re-checked until the
+  person takes it, one question per page, settled by Sleep only on the person's own located words (`storage.md`).
 - **Pictures:** one precedence (the person's choice → Contacts photo → the photo a ticked Messages chat shares → a
   person's public-profile photo → a brand's logo → a media thumbnail → a monogram). **A logo comes only from a trusted
   `website` source — never a domain guessed from a name; a person never gets a logo and no service is sent a person's name (G146/G159).** A saved link's own site may show its own icon, asked of that site only (or the icon host its homepage declares, 2026-10-20; an SVG icon only sanitised and drawn to a PNG out of process, never served as SVG, 2026-10-20), on the person's view (owner 2026-10-19; `storage.md`); a watched or saved YouTube video its still, from YouTube's own host for that id only, on the same terms (2026-10-19). A person's photo is asked only
   with an identifier already on the page or record and given as their own account — the owner's hashed email, a GitHub,
-  X or LinkedIn profile link (owner, 2026-10-09; `network.md`); a LinkedIn link from the person's connections counts as given
+  X, Instagram or LinkedIn profile link (owner, 2026-10-09; Instagram, D5), never a proposal the person has not taken (`network.md`); a LinkedIn link from the person's connections counts as given
   on a confident match, never an alias-only one (owner 2026-10-17). The photo a chat shares in Messages is its page's
   picture everywhere — ticked chats only, read by the app from a copy, kept outside every bank, linked by the chat's
   correspondent record, gone on untick (owner 2026-10-16, `storage.md`).
@@ -377,7 +380,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **The ToS rail — not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never behind auth. Consent
   interstitials and login walls are classified and retired **without a byte fetched**. **A block is never retried with
   different headers.** No scraping behind authentication, ever. **One dated exception (owner, 2026-10-09):** a person's
-  photo through unavatar.io from an X or LinkedIn link already on their page, behind its own gate, off by default.
+  photo through unavatar.io from an X, Instagram or LinkedIn link already on their page, behind its own gate — on by
+  default since ruling 36 D5 (2026-10-22), `off` still closes it.
 - **Credentials** live in `~/.cicada/secrets.env` (0600) — never in a bank, never logged.
 - **Headless (G181):** a server is its bank's one writer and binds 127.0.0.1 only; reach from another machine is an
   overlay the person runs (never a public port, never funnel — only the G135 listener may be, by the person, ruling 32), and no installer creates or copies a credential (`headless.md`).

@@ -736,6 +736,17 @@ class EntitySource(CamelModel):
     tracked: Optional[bool] = None
     refresh_checker: Optional[str] = None
     refresh_due: Optional[str] = None
+    # G61 "Where to check" (ruling 36 D5, 2026-10-22): an entry inferred from the record that waits for the person
+    # (`proposed`) and where it was found (`evidence`: `{episode, start, end}` or `{page: true}`, offsets never a
+    # copy); and, derived at read for the card's chip row, what the link is (`linkKind`: github | x | instagram |
+    # linkedin | scholar | orcid | repo | contacts | website | app | path | note), its words (`label`) and the site
+    # key `GET /entities/{id}/sources/icon/{site}` serves for it (`iconSite`, null when that route would 404 —
+    # always on a person's page, G159).
+    proposed: bool = False
+    evidence: Optional[dict] = None
+    link_kind: Optional[str] = None
+    label: Optional[str] = None
+    icon_site: Optional[str] = None
 
 
 class SourceRefreshRequest(CamelModel):

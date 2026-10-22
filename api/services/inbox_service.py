@@ -1206,6 +1206,8 @@ async def _route_resolution(kind: str, path, parsed, request, settings, item_id:
         )
     elif kind == "clarification" and str(parsed.frontmatter.get("asks") or "") == "name":
         entity_id, skipped, extra_lines = await _resolve_name(path, parsed, request, settings)
+    elif kind == "clarification" and str(parsed.frontmatter.get("asks") or "") == "sources":
+        entity_id, skipped, extra_lines = await _resolve_where_to_check(path, parsed, request, settings)
     elif kind in ("clarification", "merge_suggestion"):
         entity_id, skipped, extra_lines = await _resolve_clarification(
             path, parsed, request, settings
@@ -2309,6 +2311,35 @@ async def _resolve_name(path, parsed, request, settings) -> tuple[str, bool, lis
              for rel in outcome.paths if rel != f"entities/{outcome.page_id}.md"]
     lines += [f"{rel}: created (trigger: {trigger})" for rel in outcome.suggested]
     return outcome.page_id, False, lines
+
+
+async def _resolve_where_to_check(path, parsed, request, settings) -> tuple[str, bool, list[str]]:
+    """G61 "Where to check" (ruling 36 D5): "Are these <name>'s own accounts?" (``asks: sources``). ``yes`` takes
+    every link the question lists that still waits on the page (``accepted`` — their own account for a picture, a
+    tracked source for ruling 26); ``no`` or a dismiss removes them, remembered as the person's removal, so no writer
+    proposes them again. A link the person already took or removed on the page is left as it is. ``skip`` writes
+    nothing. Returns ``(page id, skipped, manifest lines)``."""
+    from api.services import source_proposals
+
+    fm = parsed.frontmatter
+    page_id = str(fm.get("entity_id", "") or "")
+    action = (request.action or "").strip().lower()
+    key = (request.option_key or "").strip()
+    if action == "skip":
+        return page_id, True, []
+    if key == source_proposals.YES and action in ("resolve", "answer", ""):
+        take = True
+    elif key == source_proposals.NO or action == "dismiss":
+        take = False
+    else:
+        raise HTTPException(400, "Choose yes or no.")
+    if not (settings.memory_path / "entities" / f"{page_id}.md").is_file():
+        raise HTTPException(404, f"The page this question was about is gone ({page_id})")
+    refs = [str(r) for r in fm.get("refs") or []]
+    # In this thread, holding the page lock (re-entrant within a thread: Sleep's settle already holds it here).
+    source_proposals.answer(settings.memory_path, page_id, refs, take)
+    path.unlink()
+    return page_id, False, []
 
 
 # ---------- G198: an agent's proposed page edit ----------
