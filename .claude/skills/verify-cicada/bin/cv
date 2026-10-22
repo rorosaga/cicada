@@ -22,6 +22,7 @@ import subprocess
 import sys
 import threading
 import time
+import unittest.mock
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -157,11 +158,17 @@ def save(run: dict) -> None:
     tmp.replace(path)
 
 
+# Passed through only when the caller's shell has it, and never written to run.json, evidence or a log: the plan's
+# headless sign-in (`claude setup-token`), the one way Sleep reaches the plan on a Linux box with no keychain.
+PASSTHROUGH_SECRETS = ("CLAUDE_CODE_OAUTH_TOKEN",)
+
+
 def env_for(run: dict, *, extra: dict | None = None) -> dict:
     """The one environment every process of a run gets. Nothing from the caller's shell leaks through except PATH,
-    the temp dir, the locale and the user name."""
+    the temp dir, the locale, the user name and PASSTHROUGH_SECRETS."""
     base = {k: os.environ[k] for k in ("PATH", "TMPDIR", "LANG", "LC_ALL", "TERM", "USER", "LOGNAME")
             if k in os.environ}
+    base.update({k: os.environ[k] for k in PASSTHROUGH_SECRETS if os.environ.get(k)})
     base.update(run["env"])
     if extra:
         base.update(extra)
@@ -993,6 +1000,15 @@ def selftest_guards() -> list[tuple]:
             ok = not want
         rows.append((ok, f"evidence name {name!r}", "kept" if want else "refused", ""))
     shutil.rmtree(evid, ignore_errors=True)
+    fake = {"env": {"HOME": "/scratch"}}
+    with unittest.mock.patch.dict(os.environ, {"CLAUDE_CODE_OAUTH_TOKEN": "cv-selftest-not-a-token"}):
+        passed = env_for(fake).get("CLAUDE_CODE_OAUTH_TOKEN") == "cv-selftest-not-a-token"
+    rows.append((passed and "CLAUDE_CODE_OAUTH_TOKEN" not in fake["env"], "env passes CLAUDE_CODE_OAUTH_TOKEN",
+                 "passed, not in run.json", ""))
+    with unittest.mock.patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+        absent = "CLAUDE_CODE_OAUTH_TOKEN" not in env_for(fake)
+    rows.append((absent, "env without CLAUDE_CODE_OAUTH_TOKEN", "absent", ""))
     for run_id, want in (("my-check.2", True), ("a_b", False), ("a\n", False), ("..", False), ("a/b", False),
                          ("", False)):
         rows.append((valid_run_id(run_id) == want, f"run id {run_id!r}", "accepted" if want else "refused", ""))
