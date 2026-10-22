@@ -45,8 +45,13 @@ members, `cicada get <name>`) resolves through `search_index.entity_names` — t
 `(mtime_ns, size)` did not move, a parse for the ones that did — with a stem match winning over a name match; the inbox
 block's causes parse only the pages they land on; and `litellm` is imported only when a model is called. Measured on a
 synthetic 3,600-page / 1,500-episode bank with a model-free embedder: 2.15 s → 0.45 s median per fresh-process call,
-warm 0.35–1.0 s → 0.08 s, byte-identical replies (2026-10-09). The top three pages carry a bounded
-"Changed recently" block (claims closed in the last 30 days, ≤ 5 lines);
+warm 0.35–1.0 s → 0.08 s, byte-identical replies (2026-10-09). **Each page's heading says its age and state, never a
+raw confidence (G210, 2026-10-22):** `### <name> (<type>, last said 3 weeks ago on <day> · fading)`
+(`entity_bands.said_line`: today, yesterday, N days under two weeks, N weeks under two months, N months under two years,
+then years; `active`/`fading`/`archived`; no day, only the state). Confidence still ranks nothing. The top three pages
+carry a bounded "Changed recently" block (claims closed in the last 30 days, ≤ 5 lines), each line saying the day the
+fact stopped: `"X" — superseded on <day> by "Y"`, `ended on <day> (its stated end)`, `withdrawn on <day> by …`,
+`closed on <day>`;
 `cicada_get_perspective(history=true)` lists every earlier claim. **`cicada_timeline(since)`**
 answers "what changed" from the commit manifests on demand — ids and counts only, nothing stored,
 `read` scope remotely. **`cicada_record_watch`** records what an agent's own tools saw in a saved

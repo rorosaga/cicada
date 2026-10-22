@@ -18,7 +18,8 @@ from datetime import date
 
 from api.services.source_dates import OLD_AFTER_DAYS
 
-__all__ = ["OLD_AFTER_DAYS", "bands", "confidence_band", "fade_pace", "last_mentioned", "strict_day"]
+__all__ = ["OLD_AFTER_DAYS", "age_words", "bands", "confidence_band", "fade_pace", "last_mentioned", "said_line",
+           "state_word", "strict_day"]
 
 CONFIDENCE_STEPS = ((0.85, "very"), (0.6, "fairly"), (0.4, "unsure"))
 VERY_SLOWLY_MAX = 0.0125
@@ -80,3 +81,42 @@ def bands(*, confidence, rate_per_week, last_referenced, today: date) -> dict:
     day = last_mentioned(last_referenced, today)
     return {"confidence": confidence_band(confidence), "fade_pace": fade_pace(rate_per_week),
             "last_mentioned": day.isoformat() if day else None}
+
+
+#: A page's status in the words recall shows an agent (G210); an unknown status is shown as written.
+STATE_WORDS = {"active": "active", "decaying": "fading", "archived": "archived", "dropped": "dropped"}
+
+
+def state_word(status) -> str:
+    text = str(status or "").strip().lower()
+    return STATE_WORDS.get(text, text or "unknown")
+
+
+def age_words(day: date, today: date) -> str:
+    """How long ago ``day`` was, in words: ``today``, ``yesterday``, ``N days ago`` (under two weeks), ``N weeks ago``
+    (under two months), ``N months ago`` (under two years), else ``N years ago``. A day after ``today`` has no age."""
+    days = (today - day).days
+    if days < 0:
+        return ""
+    if days == 0:
+        return "today"
+    if days == 1:
+        return "yesterday"
+    if days < 14:
+        return f"{days} days ago"
+    if days < 60:
+        return f"{days // 7} weeks ago"
+    if days < 730:
+        return f"{max(2, days // 30)} months ago"
+    return f"{days // 365} years ago"
+
+
+def said_line(*, last_referenced, status, today: date) -> str:
+    """Recall's word for a page's age and state (G210): ``last said 3 weeks ago on 2026-10-01 · fading``. Confidence
+    is not shown and ranks nothing ("Confidence does not rank recall"); a page with no day says its state alone."""
+    day = strict_day(str(last_referenced)) if last_referenced is not None else None
+    state = state_word(status)
+    if day is None:
+        return state
+    ago = age_words(day, today)
+    return f"last said {ago} on {day.isoformat()} · {state}" if ago else f"last said on {day.isoformat()} · {state}"

@@ -1394,6 +1394,48 @@ usually 1 call; one that shares a word and names its alias holder usually costs 
 holder is judged first. A judge call with no alias candidate gets the prompt it always got, byte for byte. Link recon
 (`match_existing`) does not read aliases.
 
+**One person, one page: leads, never merges (G209, 2026-10-22).** A live bank held one person three times: a
+full-name page already listing a handle as an alias, a page titled by the handle (both born in one Sleep run), and
+a pending line `handle (Full Name)`. Measured there: 14 of 277 person pages carried a name that another person page
+listed as an alias. Four gaps caused it, each closed:
+- **In-cycle alias parity.** `_created_llm_candidates` reads an in-cycle create's aliases the way
+  `_existing_llm_candidates` reads a page's. A same-type create listing the name is judged first, with the alias
+  note, the create's other names (`_alias_context`) and the name's batch connections. A name with no shared word now
+  meets the create, where before it got no candidate at all. Same rule as on disk: `same` merges, `unsure` asks.
+- **An exact page no longer hides the alias.** When a name matches its own person page and another person page lists
+  that name as an alias or links it as an account, Stage 2 files "Possible duplicate of …" with no model call
+  (`person_leads.PersonIndex.leads_for`, `_create_lead_clarification`). The context says the lead in words ("<holder>
+  already lists "<name>" among the other names it goes by"). The mention is still credited to its own page: it is
+  never a merge. A pair the person called different (`merge_rejections`) is never asked again. A mention of the name
+  closes an open duplicate question only when it merged into the page that question proposed
+  (`check_organic_resolution(merged_into=)`).
+- **A linked account is a lead.** A profile link on a person page (`x.com/<h>`, its `/status/` posts,
+  `github.com/<h>` but not a repository under it, `instagram.com/<h>`, `linkedin.com/in/<h>`, in `sources:` or in the
+  body) makes a new person name equal to that handle a question, never a page: the name parks as a pending line, and the
+  question context names the account. A handle is never derived from a name; it must already be written on the page.
+- **`Full Name (handle)` / `handle (Full Name)`** in a person extraction (`person_leads.split_named_handle`: one side a
+  handle, `@x` or one lowercase token that is not a relation word, and the other two or more words) is keyed by the
+  full name with the handle as its alias. The raw spelling still resolves edges and claims (`name_to_id`). A pending
+  line parked under that spelling folds into the page the full name resolves to, with its text, credits and held claims,
+  and leaves the store through `promoted_pending`.
+
+Nothing here settles who a person is (ruling 29): every lead ends in the person's question. A duplicate question about
+a name still parked below the promotion bar is live while its pending line exists (`inbox_service._subject_gone`,
+`pending_store.waiting_ids`). Before 2026-10-22 it was read as "no longer in your memory", hidden from the inbox and
+retired by Sleep's tending the same night. That predated G209 and also hit Stage 2's own `unsure` duplicates.
+**The person's answer sticks (review of #421).** A "same" answer on a name with no page adds the name to the target's
+aliases and takes its pending line (a line still holding claims stays until they are written there). Stage 2 then reads
+the answer's note on the page (`person_leads.answered_same`) as the person's own verdict: the name goes to that page,
+with no judge and no question. A "different" answer (`merge_rejections`) drops that page from both the lead and the
+judge's `unsure`, so the name promotes or parks by the usual rule and is never held back by a question that will not be
+asked again.
+`python -m api.scripts.person_leads_dry_run --bank <path> [--json]` lists every lead for a bank: page↔page, a parked
+name another page carries, and a parked `handle (Full Name)` line with its page. Each lead shows whether its question is
+open or was answered "different". It writes nothing. Proven on a scratch bank (plan, haiku): four conversations naming
+`<person-a>`, `<person-a> (<handle-a>)` and `@<handle-a>` in one batch. Before, they made two pages and no question;
+after, they make one page, because haiku judged the alias `same`. An agent-added X profile link plus two conversations
+naming that handle raised "Is <handle> the same as <person>?", which the inbox served after Sleep.
+
 **A reference is not recorded as a new alias (2026-10-08, narrowed in fix round 1).** An alias is another NAME for the
 thing; a phrase that only points at it inside one conversation ("the lock", "this project", "la base") is not.
 `alias_policy.is_reference` is deliberately narrow: two or more words, all lowercase, no digit, the first an article or

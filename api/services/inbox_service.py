@@ -304,6 +304,12 @@ def _subject_gone(memory_path: Path, entity_id: str, kind: str) -> bool:
         return False
     filepath = resolve_entity_file(memory_path, entity_id)
     if filepath is None:
+        if kind == "merge_suggestion":
+            # G209: Stage 2 asks "is <name> the same as <page>?" about a name it parked below the promotion bar —
+            # no page yet, still in memory. Gone only once its pending line is too.
+            from api.services import pending_store
+
+            return sanitize_id(entity_id) not in pending_store.waiting_ids(memory_path)
         return kind != "clarification"
     # The page's header through `bank_index` (mtime-gated): a warm process re-parses no page that did not move
     # (inbox lag, 2026-10-17). A malformed or vanished page is `None` — fail open, as a parse error always was.
@@ -2601,9 +2607,25 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
 
         if not rename:
             # Survivor == existing target: absorb the mention into the target.
-            note = f"\n\n_Resolved ambiguous mention '{mention}' into this entity._"
+            from api.services import pending_store, person_leads
+
+            note = "\n\n" + person_leads.answered_note(mention)
             new_body = append_note(target.body, note)
+            pageless = bool(mention) and (not entity_id or resolve_entity_file(settings.memory_path, entity_id) is None)
+            if pageless:
+                # G209: a name still below the promotion bar has no page to fold. The answer makes it one of the target's
+                # names, and Stage 2 reads the note above as the person's own verdict, so the name lands here from now
+                # on instead of being asked about again.
+                names = [str(a) for a in target.frontmatter.get("aliases") or [] if str(a).strip()]
+                own = str(target.frontmatter.get("name") or "")
+                if mention.lower() != own.lower() and all(a.lower() != mention.lower() for a in names):
+                    target.frontmatter["aliases"] = [*names, mention]
             markdown_parser.write(target_path, target.frontmatter, new_body)
+            # Its pending line leaves the store; a line still holding claims stays until Stage 2 resolves the name to
+            # this page and Stage 5.56 writes them here (`pending_store.take`).
+            taken = pageless and pending_store.take(settings.memory_path, mention)[1]
+            store_lines = ([f"{pending_store.PENDING_STORE_FILE}: updated (trigger: inbox/merge_suggestion/resolved:merge)"]
+                           if taken else [])
             # A question asked about a PAGE (a placeholder person named in the inbox, `role_people.answer_name`,
             # flagged `fold_page`) folds that page into the target through the one merge primitive — its claims,
             # sources and references follow. Any other item was asked about a mention: a page promoted under that
@@ -2622,7 +2644,7 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 return target_path.stem, False, _merge_manifest(merged["paths"],
                                                                 removed=f"entities/{mention_path.stem}.md")
             path.unlink()
-            entity_id = target_path.stem
+            return target_path.stem, False, store_lines
         else:
             # Survivor == the cleaner mention: keep the cleaner name/id.
             survivor_path = target_path.parent / f"{survivor_slug}.md"

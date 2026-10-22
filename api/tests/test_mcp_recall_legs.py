@@ -117,12 +117,12 @@ def test_recall_fuses_with_the_one_rrf():
     assert mcp._rrf_fuse is search_service.rrf_fuse, "the stdio server keeps re-exporting the name"
 
 
-def test_a_replaced_value_reads_was_until_now(bank):
+def test_a_replaced_value_says_the_day_it_was_superseded(bank):
     _page(bank, "alpha-project", "Alpha Project", etype="project",
           claims=_closed_pair("alpha-project", "sqlite", "duckdb", _ago(5)))
     search_index.ensure_fresh(bank, wait=True)
     assert _changes(mcp.handle_recall("alpha project")) == [
-        f'- `alpha-project` uses: was "sqlite" until {_ago(5)} → now "duckdb"']
+        f'- `alpha-project` uses: "sqlite" — superseded on {_ago(5)} by "duckdb"']
 
 
 def test_history_is_bounded_per_page_and_by_age(bank):
