@@ -37,7 +37,7 @@ from typing import Callable
 
 from api.services import agent_commits, agentic_write, demo_guard, episode_ids, episode_scrub, search_service
 # One fence rule for every frontmatter reader (L final review, finding 2).
-from api.services import bank_index, link_views, markdown_parser, page_lock, search_index, write_admission
+from api.services import bank_index, entity_bands, link_views, markdown_parser, page_lock, search_index, write_admission
 # One header and pair of markers for text the caller did not write (R-R29, G200 A9), re-exported for the bodies here.
 from api.services.tool_contract import FENCE_CLOSE, FENCE_OPEN, REFERENCE_HEADER  # noqa: F401
 
@@ -3667,16 +3667,15 @@ def _render_entity_summary(entities_dir: Path, hit: dict, *, ranked_ids: frozens
 
     name = str(fm.get("name", eid.replace("-", " ")))
     etype = str(fm.get("type", "unknown"))
-    status = str(fm.get("status", "unknown"))
-    confidence = fm.get("confidence", 0)
-    if isinstance(confidence, float):
-        confidence = round(confidence, 2)      # Hyrum audit A1: two places, as the hub line and the perspective show
+    # G210: when it was last said and its state, in words — never the raw confidence, which ranks nothing here.
+    said = entity_bands.said_line(last_referenced=fm.get("last_referenced"), status=fm.get("status"),
+                                  today=date.today())
     related = fm.get("related", []) or []
 
     truncated = _type_aware_truncate(body, etype)
 
     lines = [
-        f"### {name} ({etype}, confidence: {confidence}, status: {status})",
+        f"### {name} ({etype}, {said})",
     ]
     call = more_call(eid) if more_call else None
     if related:
@@ -3822,18 +3821,22 @@ def _event_closed_note(old, page: list) -> str:
 
 def _history_line(eid: str, old, page: list) -> str:
     """One closed claim as a dated line — supermemory's "old versions
-    included", done as data: ``was X until D → now Y`` (R3 P4c)."""
+    included", done as data (R3 P4c), each saying on which day it stopped
+    being current (G210): ``"X" — superseded on D by "Y"``."""
     head = f"- `{eid}` {old.predicate or 'claim'}:"
     was = f'"{_clip(old.object or old.text)}"'
+    on = str(old.valid_to or "")[:10]
     new = {c.id: c for c in page}.get(old.superseded_by or "")
     if new is not None and _is_record(new):
-        return f"{head} {was} withdrawn {old.valid_to} by {new.authored_by or 'an agent'} — {_clip(new.text, 160)}"
+        return f"{head} {was} — withdrawn on {on} by {new.authored_by or 'an agent'}: {_clip(new.text, 160)}"
     if not old.superseded_by and _ended_at_stated_end(old):
-        return f"{head} {was} ended {old.valid_to} (its stated end)"
+        return f"{head} {was} — ended on {on} (its stated end)"
     from api.services.claims import is_current
     if new is not None and is_current(new) and new.predicate == old.predicate:
-        return f'{head} was {was} until {old.valid_to} → now "{_clip(new.object or new.text)}"'
-    return f"{head} was {was} until {old.valid_to}"
+        return f'{head} {was} — superseded on {on} by "{_clip(new.object or new.text)}"'
+    if old.superseded_by:
+        return f"{head} {was} — superseded on {on}"
+    return f"{head} {was} — closed on {on}"
 
 
 def _recent_changes(entities_dir: Path, hits: list[dict], today: date) -> list[str]:
