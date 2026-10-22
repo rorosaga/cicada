@@ -55,6 +55,9 @@ enum CicadaMotion {
     /// an emphasis lingers so the eye can find the row, not a transition
     /// between two layouts — the 400 ms budget is for the latter.
     static let rowHighlightHold: TimeInterval = 1.2
+    /// A Settings landing scrolls again after this wait, never animated: a page whose cards arrive after the first
+    /// layout (Agents' setup steps) pushes a lower row away from where the first scroll left it (Hyrum audit B11).
+    static let settingsLandingSettle: TimeInterval = 0.4
     static let rowHighlightFadeDuration: TimeInterval = 0.6
 
     /// DR-22 / R-F2 (R-DS14) — the rail's first tooltip waits, the next opens at once while

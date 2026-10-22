@@ -126,10 +126,14 @@ struct SettingsScroll<Content: View>: View {
 
     private func scroll(_ proxy: ScrollViewProxy) {
         guard let focus, let target = focus.scrollTarget else { return }
+        let nonce = focus.landedNonce
         Task { @MainActor in
             await Task.yield()   // after this layout pass, so the row exists
             proxy.scrollTo(target, anchor: .center)
             focus.consumeScroll()
+            // Content that loads after the first layout can push the row off screen; a second landing wins.
+            try? await Task.sleep(for: .seconds(CicadaMotion.settingsLandingSettle))
+            if focus.landedNonce == nonce, focus.landed == target { proxy.scrollTo(target, anchor: .center) }
         }
     }
 }
