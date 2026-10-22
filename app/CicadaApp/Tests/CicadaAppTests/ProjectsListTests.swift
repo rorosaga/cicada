@@ -119,11 +119,15 @@ final class ProjectsListTests: XCTestCase {
         let rover = try XCTUnwrap(lines.first { $0.id == "rover-arm-project" })
         XCTAssertEqual(ProjectsModel.standing(rover, today: today, locale: us), "Next · First grasp, Oct 1")
         XCTAssertEqual(ProjectsModel.oneLine(rover.row), "A small arm that picks parts off a tray.")
-        XCTAssertEqual(ProjectsModel.accessibilityLabel(rover, today: today),
+        XCTAssertEqual(ProjectsModel.accessibilityLabel(rover, today: today, locale: us),
                        "Rover Arm Project, Next · First grasp, Oct 1, 1 part, Collapsed")
+        // VoiceOver hears the row in the same locale it shows: a Mac in Spain (here en_GB) reads "1 Oct".
+        XCTAssertEqual(ProjectsModel.accessibilityLabel(rover, today: today, locale: Locale(identifier: "en_GB")),
+                       "Rover Arm Project, Next · First grasp, 1 Oct, 1 part, Collapsed")
         let garden = try XCTUnwrap(lines.first { $0.id == "garden-sensor-project" })
         XCTAssertEqual(ProjectsModel.standing(garden, today: today, locale: us), "Heard 9 days ago")
-        XCTAssertEqual(ProjectsModel.accessibilityLabel(garden, today: today), "Garden Sensor Project, Heard 9 days ago")
+        XCTAssertEqual(ProjectsModel.accessibilityLabel(garden, today: today, locale: us),
+                       "Garden Sensor Project, Heard 9 days ago")
 
         let past = ProjectsModel.entries(try rows(), tab: .past, query: "", today: today).compactMap(\.line)
         XCTAssertEqual(ProjectsModel.standing(try XCTUnwrap(past.first), today: today, locale: us), "",

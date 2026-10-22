@@ -75,12 +75,15 @@ final class AskConversationsTests: XCTestCase {
     func testARowIsNamedByTitleAndDayNeverByItsId() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
-        calendar.locale = Locale(identifier: "en_US")
         let now = calendar.date(from: DateComponents(year: 2026, month: 10, day: 19))!
-        XCTAssertEqual(AskConversationRow.day("2026-10-02", now: now, calendar: calendar), "Oct 2")
-        XCTAssertEqual(AskConversationRow.day("2025-03-14", now: now, calendar: calendar), "Mar 14, 2025")
-        XCTAssertEqual(AskConversationRow.day("", now: now, calendar: calendar), "")
-        XCTAssertEqual(AskConversationRow.day("2026-13-40", now: now, calendar: calendar), "", "never a raw string")
+        // The locale is pinned here, never the runner's: a Mac in Spain reads "2 Oct", and so does this test's en_GB.
+        let us = Locale(identifier: "en_US"), gb = Locale(identifier: "en_GB")
+        XCTAssertEqual(AskConversationRow.day("2026-10-02", now: now, calendar: calendar, locale: us), "Oct 2")
+        XCTAssertEqual(AskConversationRow.day("2025-03-14", now: now, calendar: calendar, locale: us), "Mar 14, 2025")
+        XCTAssertEqual(AskConversationRow.day("2026-10-02", now: now, calendar: calendar, locale: gb), "2 Oct")
+        XCTAssertEqual(AskConversationRow.day("2025-03-14", now: now, calendar: calendar, locale: gb), "14 Mar 2025")
+        XCTAssertEqual(AskConversationRow.day("", now: now, calendar: calendar, locale: us), "")
+        XCTAssertEqual(AskConversationRow.day("2026-13-40", now: now, calendar: calendar, locale: us), "", "never a raw string")
 
         let titled = AskConversation(episodeId: "ep_2026-10-02_003", title: "Planning alpha-project", day: "2026-10-02")
         XCTAssertEqual(AskConversationRow.title(titled), "Planning alpha-project")

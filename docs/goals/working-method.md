@@ -116,6 +116,16 @@ waiting on a remote pasteboard item's data), every such test waits forever: `Clu
 `142` means the pasteboard does not answer. The person restarts it (`launchctl kickstart -k gui/$(id -u)/com.apple.pboard`,
 or logs out and back in); a worker never kills a process it did not start.
 
+**A Swift test never reads the machine's locale or lets a render pick its own pixel format (2026-10-22).** Four classes
+failed on a Mac set to a non-US region at a commit that had passed: three asserted "Oct 2" through a formatter that read
+`Locale.current` ("2 Oct" there). The product is right to follow the reader's locale; the formatter takes
+`locale: Locale = .autoupdatingCurrent` (the `UsageFormat.count` convention) and the test passes `en_US` and also
+asserts `en_GB`, so the seam is proved on any host. The fourth compared exact pixels from `ImageRenderer.cgImage`, which
+chooses its output from the content: an installed app's icon (a book plate's mark) arrives as 16-bit extended-range
+(first seen the day after a macOS point update), the whole render became 16-bit ITU-R 2100 PQ, and the read back to
+8-bit sRGB moved one channel by one step. A pixel-exact test draws through `renderer.render` into its own 8-bit sRGB `CGContext`
+(`PileRenderTests.render`). Neither failure is a baseline; both are fixed.
+
 ### Rails that override convenience
 
 - **Privacy.** Nothing personal in `docs/goals/`, plans, commit messages or PR bodies: no other

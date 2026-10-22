@@ -76,7 +76,11 @@ final class BookmarksV4Tests: XCTestCase {
         var utc = Calendar(identifier: .gregorian)
         utc.timeZone = TimeZone(identifier: "UTC")!
         let left = [BookmarkLeft(browser: "Chrome", channel: "chrome-bookmarks", since: "2026-10-15T08:00:00.123456+00:00")]
-        XCTAssertEqual(Copy.Bookmarks.noLongerIn(left, calendar: utc), "No longer in Chrome since Oct 15")
+        // The locale is pinned, never the runner's: a Mac in Spain reads "15 Oct", and so does en_GB here.
+        XCTAssertEqual(Copy.Bookmarks.noLongerIn(left, calendar: utc, locale: Locale(identifier: "en_US")),
+                       "No longer in Chrome since Oct 15")
+        XCTAssertEqual(Copy.Bookmarks.noLongerIn(left, calendar: utc, locale: Locale(identifier: "en_GB")),
+                       "No longer in Chrome since 15 Oct")
         XCTAssertNil(Copy.Bookmarks.noLongerIn([]))
 
         let json: [String: Any] = [
