@@ -176,7 +176,7 @@ async def post_explore_batch(body: StartBody, settings: Settings = Depends(get_s
     if demo_guard.is_demo(memory_path):
         raise HTTPException(409, demo_guard.REFUSAL)
     if not reading_settings.agent_enabled():
-        raise HTTPException(409, "Turn on \"Let an agent read pages for you\" in Settings, Reading the web, first.")
+        raise HTTPException(409, "Turn on \"Let an agent read pages for you\" in Reading in your browser (the Sources page) first.")
     try:
         return await run_in_threadpool(_start, memory_path, body)
     except explore_queue.QueueError as exc:
@@ -217,7 +217,7 @@ async def post_explore_look(body: LookBody, settings: Settings = Depends(get_set
     if demo_guard.is_demo(memory_path):
         raise HTTPException(409, demo_guard.REFUSAL)
     if not reading_settings.agent_enabled():
-        raise HTTPException(409, "Turn on \"Let an agent read pages for you\" in Settings, Reading the web, first.")
+        raise HTTPException(409, "Turn on \"Let an agent read pages for you\" in Reading in your browser (the Sources page) first.")
     ok, why = explore_skill.verified()
     if not ok:
         raise HTTPException(409, f"Exploring can't start: {why}.")

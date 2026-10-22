@@ -1083,8 +1083,8 @@ def _wait_page(handle: str, user_code: str, client: Client | None, redirect_uri:
     refresh = f"<meta http-equiv=\"refresh\" content=\"{WAIT_REFRESH_S};url=/authorize/wait?r={html.escape(handle)}\">"
     return _page(
         "Type this code in Cicada",
-        f"To let the app you are connecting reach your memory, open Cicada on your Mac — Settings, Agents, From "
-        f"anywhere — and type this code there. This page then sends you back to {host} by itself. If you didn't "
+        f"To let the app you are connecting reach your memory, open Cicada on your Mac — Settings, Devices, Apps "
+        f"outside this machine — and type this code there. This page then sends you back to {host} by itself. If you didn't "
         "start this, close this page: nothing happens without the code.",
         extra_head=refresh, body_html=f"<div class=\"code\">{html.escape(user_code)}</div>")
 

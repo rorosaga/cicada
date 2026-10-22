@@ -37,6 +37,7 @@ struct AgentsSidebarPage: View {
             if let umbrella = open {
                 AgentDetailColumn(umbrella: umbrella, summary: AgentSummary.of(umbrella, live: live,
                                                                                sources: store.sourcesOverview.value ?? []),
+                                  live: live,
                                   backLabel: plan.listHidden ? Copy.AgentsPage.back : nil,
                                   onClose: { selected = nil })
                     .id(umbrella.id)
@@ -65,8 +66,8 @@ struct AgentsSidebarPage: View {
                         Button { selected = umbrella.id } label: {
                             ConnectionLine(logo: umbrella.logo, name: umbrella.label, systemFallback: "sparkles",
                                            detail: summary.line(now: Date()),
-                                           status: (summary.connected ? Copy.Status.connected : Copy.Status.off,
-                                                    summary.connected), detailLines: 1) { EmptyView() }
+                                           status: (summary.presence().word, summary.presence().on),
+                                           detailLines: 1) { EmptyView() }
                                 .background(selected == umbrella.id ? CicadaTheme.bgSelected : Color.clear)
                                 .contentShape(Rectangle())
                         }
@@ -148,13 +149,21 @@ struct AgentSummary: Equatable {
         return out
     }
 
-    /// "on this machine · 3 min ago · 12 conversations" — each part only when known.
+    /// Connected when seen just now; Set up when configured, with conversations, or seen before; else Not set up.
+    func presence(now: Date = Date()) -> Copy.Presence {
+        Copy.Presence.of(seen: lastSeen, configured: connected, conversations: conversations, now: now)
+    }
+
+    /// "on this machine · 3 min ago · 12 conversations", or "… · last seen Oct 21 · …" — each part only when known.
     func line(now: Date) -> String {
         var parts: [String] = []
         let whereWord = via.flatMap { $0 == "remote" ? Copy.AgentsPage.connectsWord("remote") : Copy.AgentsPage.connectsWord("stdio") }
             ?? connects.first.flatMap(Copy.AgentsPage.connectsWord)
         if let whereWord { parts.append(whereWord) }
-        if let lastSeen { parts.append(Copy.AgentsPage.seen(lastSeen, now: now)) }
+        if let lastSeen {
+            parts.append(presence(now: now) == .connected ? Copy.AgentsPage.seen(lastSeen, now: now)
+                                                          : Copy.AgentsPage.lastSeen(lastSeen))
+        }
         if conversations > 0 { parts.append(Copy.AgentsPage.conversations(conversations)) }
         return parts.joined(separator: " · ")
     }
@@ -173,12 +182,31 @@ struct AgentSummary: Equatable {
 private struct AgentDetailColumn: View {
     let umbrella: ProviderUmbrella
     let summary: AgentSummary
+    let live: [AgentLiveRow]
     let backLabel: String?
     let onClose: () -> Void
 
     @Environment(AppRouter.self) private var router: AppRouter?
     @State private var editors = PageEditorsModel()
     @State private var copied = false
+    /// The connect steps the old Agents settings page drew (Connect for me, Open in Cursor, the copied prompt, the commands),
+    /// for the product chosen below (install.md and `make doctor` name them).
+    @State private var setup = AgentsSetupModel()
+    @State private var product: String?
+    @State private var linkFor: RemoteApp?
+    private let runtime = CicadaRuntime.current
+
+    /// The catalog's pills this umbrella's products are (Claude Code, the Claude app …), else Another agent for a
+    /// product that connects through the generic prompt.
+    private var entries: [AgentCatalogEntry] {
+        var out: [AgentCatalogEntry] = []
+        for way in umbrella.ways {
+            let entry = AgentCatalog.entry(for: way.id) ?? (way.setup.contains("other") ? AgentCatalog.entry(for: "other") : nil)
+            if let entry, !out.contains(where: { $0.id == entry.id }) { out.append(entry) }
+        }
+        return out
+    }
+    private var entry: AgentCatalogEntry? { entries.first { $0.id == product } ?? entries.first }
 
     private var setupHarness: String? { umbrella.ways.lazy.compactMap(\.setup.first).first }
     private var exportTile: AddSourceTile? {
@@ -236,8 +264,42 @@ private struct AgentDetailColumn: View {
                         .settingsCardSurface()
                     }
                 }
+                if let entry {
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                        if entries.count > 1 {
+                            Picker(Copy.AgentsPage.products, selection: Binding(get: { entry.id },
+                                                                               set: { product = $0 })) {
+                                ForEach(entries, id: \.id) { Text($0.name).tag($0.id) }
+                            }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+                            .fixedSize()
+                        }
+                        AgentSetupSteps(
+                            entry: entry,
+                            steps: AgentSteps.steps(for: entry, setups: setup.setups,
+                                                    wiring: setup.wiring?.agents.first { $0.id == entry.id },
+                                                    live: live.first { $0.id == entry.id },
+                                                    remoteReady: setup.remote?.enabled == true
+                                                        && setup.remote?.effectiveUrl != nil),
+                            header: AgentSteps.header(for: entry, wiring: setup.wiring?.agents.first { $0.id == entry.id }),
+                            honesty: AgentSteps.honesty(for: entry),
+                            connected: live.contains { $0.id == entry.id && $0.connected },
+                            binaries: Set(setup.wiring?.agents.compactMap(\.binary) ?? []),
+                            runtime: runtime,
+                            memoryRoot: setup.memoryRoot,
+                            deeplink: AgentSetupCatalog.all(runtime: runtime, memoryRoot: setup.memoryRoot)
+                                .first { $0.id == entry.id }?.deeplink?.url,
+                            onConnected: { Task { await setup.refreshWiring() } },
+                            onOpenFromAnywhere: { router?.openSettings(.devices, row: .fromAnywhere) },
+                            onCreateLink: { linkFor = $0 })
+                    }
+                    .padding(CicadaTheme.spacingMD)
+                    .settingsCardSurface()
+                    .task(id: entry.id) { await setup.select(entry) }
+                }
                 HStack(spacing: CicadaTheme.spacingSM) {
-                    if let harness = setupHarness {
+                    if entry == nil, let harness = setupHarness {
                         NeutralButton(title: copied ? Copy.AgentsPage.copied : Copy.AgentsPage.copyPrompt,
                                       systemImage: "doc.on.doc", size: .compact) { copySetup(harness) }
                     }
@@ -253,6 +315,10 @@ private struct AgentDetailColumn: View {
             .padding(.bottom, CicadaTheme.spacingXL)
         }
         .task { await editors.load() }
+        .task { await setup.load() }
+        .sheet(item: $linkFor) { app in
+            NewConnectorSheet(initialApp: app) { linkFor = nil }
+        }
     }
 
     private func copySetup(_ harness: String) {

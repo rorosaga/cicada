@@ -3,12 +3,15 @@
 ``$CICADA_HOME/reading.json`` (0600, atomic write) — the same home as
 ``owner.json`` and ``connections.json`` — holds:
 
-* ``agent`` — the master switch, "Let an agent read pages for you". Off by
-  default; while it is off ``cicada_reading_queue`` returns nothing, the tools
+* ``agent`` — the master switch, "Let an agent read pages for you". **On by
+  default behind the consent sheet** (owner decision 2026-10-22, ruling 36 D6):
+  stored only when the person turns it off, and it counts only once the current
+  first-use sheet is accepted (``agent_ack``) — until then nothing reads, as
+  before. While it is off ``cicada_reading_queue`` returns nothing, the tools
   refuse, and contract item 9 is not in the primer.
 * ``agent_sites`` — ``{site: day}``: the sites the person let an agent read with
   their own browser (owner, 2026-09-30: there is no pre-picked list; a site is
-  surfaced on Settings, Reading the web, when Cicada's own reader could not
+  surfaced on Reading in your browser (the Sources page) when Cicada's own reader could not
   read a page of it, and the person turns each on). A standing permission,
   granted per site (``reading_hosts.site_of``); it only counts while the master
   switch is on. Empty by default. The earlier ``agent_hosts`` key is ignored by
@@ -91,7 +94,8 @@ def mtime() -> float:
 
 
 def agent_enabled() -> bool:
-    return _load().get("agent") is True and ack_current()
+    """On unless the person turned it off — and never before the current sheet is accepted (the ack gate)."""
+    return _load().get("agent") is not False and ack_current()
 
 
 def allowed_sites() -> dict[str, str]:
@@ -253,7 +257,11 @@ def update(*, agent_enabled_: bool | None = None, acknowledge: bool = False, sit
         if agent_enabled_ and not _ack_ok(data):
             raise SettingsError(
                 "Read the sheet and tick I understand before turning this on. Nothing was changed.")
-        data["agent"] = bool(agent_enabled_)
+        # Stored only when off: on is the default once the sheet is accepted (2026-10-22).
+        if agent_enabled_:
+            data.pop("agent", None)
+        else:
+            data["agent"] = False
     if sites:
         wants_on = [str(k) for k, v in sites.items() if v]
         if wants_on and not _ack_ok(data):

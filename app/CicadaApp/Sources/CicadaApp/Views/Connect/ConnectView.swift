@@ -354,7 +354,7 @@ struct ConnectView: View {
                 SettingsDivider()
                 // G166 — reading pages with an agent has its own page; this is the way there from Agents.
                 SettingsRow(.agentsReading, title: Copy.Reading.agentsRowTitle, detail: Copy.Reading.agentsRowDetail) {
-                    SettingsInlineLink(home: .page(.sources), label: Copy.Reading.pageTitle)
+                    SettingsInlineLink(home: .readingInBrowser, label: Copy.Reading.pageTitle)
                 }
             }
         }

@@ -201,7 +201,7 @@ final class ExploreTests: XCTestCase {
         XCTAssertTrue(Copy.Reading.sheetExploring.contains("signed-in session"))
         XCTAssertTrue(Copy.Reading.sheetExploring.contains("your account"))
         // D6: the explore switches left Settings with Reading the web; their anchors land on the Sources page.
-        XCTAssertEqual(SettingsIndex.retiredRows[.readingExploreSignedIn], .page(.sources))
-        XCTAssertEqual(SettingsIndex.retiredRows[.readingNeverExplore], .page(.sources))
+        XCTAssertEqual(SettingsIndex.retiredRows[.readingExploreSignedIn], .readingInBrowser)
+        XCTAssertEqual(SettingsIndex.retiredRows[.readingNeverExplore], .readingInBrowser)
     }
 }

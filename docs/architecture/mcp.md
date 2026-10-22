@@ -201,7 +201,7 @@ read on the Sleep tail (`network.md`); a login-walled one (LinkedIn and the like
 without a machine-readable fact are the person's own agent's, through two stdio-only tools on a small lease queue outside
 every bank (`$CICADA_HOME/refresh_queue/<bank>.json`, the explore queue's rules: one live lease per site across every
 agent, 15 minutes, a wall pauses the site a week). **`cicada_refresh_claim(limit?, release?)`** leases due sources (default
-1, ≤ 5) only while agent reading is on and acknowledged, the site is turned on in Reading the web, not Never explore, and —
+1, ≤ 5) only while agent reading is on and acknowledged, the site is turned on in Reading in your browser, not Never explore, and —
 for a walled page — the signed-in session is allowed (ruling 25 D2); it lists what memory holds now for that fact.
 `release` hands one back (`needs_login | blocked` pause the site; `failed | skipped`). **`cicada_record_refresh(entity_id,
 source, lease_token, outcome, predicate?, value?, ended?, quotes?, captured_at?, summary?, via?)`** records `read` (the
@@ -382,9 +382,11 @@ contacted, not even for its favicon; a 404 is retried once with `www.`, only a s
 service is told the site's name (the registrable domain, never a saved subdomain), under `CICADA_ALLOW_LOGO_FETCH`.
 **The app half (G166).** `VersionVector.mapping["reading"] = [.sources]`, so an agent's outcome (an ask-store write, no
 bank write) refreshes Sleep › Saved over SSE; `MediaFeedItem.read` (`MediaReadState`, decoded leniently — an older backend, or
-a value this build cannot read, drops the block and never the row). **the Sources page** (`SettingsSection.reading`,
-in Customize after Integrations; `ReadingWebView`, `ReadingAgentModel`; not a Store domain — fetched when the page opens and
-answered by every write) has three groups. *With an agent*: "Let an agent read pages for you", off by default; turning it on
+a value this build cannot read, drops the block and never the row). **Reading in your browser** (a sheet from the Sources page's
+header since D6, `ReadingInBrowserSheet` around `ReadingWebView`; `ReadingAgentModel`; not a Store domain — fetched when it opens and
+answered by every write) has three groups. *With an agent*: "Let an agent read pages for you" — **on by default behind the
+first-use sheet** (owner 2026-10-22: `reading_settings` stores only an off, and nothing reads until the current sheet is
+accepted); turning it on
 raises `SettingsSheet`'s first-use sheet (what asking does, that Cicada only asks, Cicada's instruction to the agent — no
 credentials typed, nothing posted, messaged or changed — with the honest limit that it can't see or enforce what happens in
 the browser, the sites' terms, an "I understand" that must be ticked, DR-41 — **no site picker**) and nothing changes until "Turn on", which sends the acknowledgement in one
@@ -422,7 +424,7 @@ as "<agent> noted: …". No line says "in your browser" of what an agent did, or
 **YouTube lists (G71 / G166, owner 2026-10-16: "the agent being able to go to youtube using the browser to monitor
 stuff … like for youtube watch later/history").** The third door onto the watch record (`capture-and-sleep.md`, *Watch
 history*), on this section's rails: Cicada never spawns a browser, never signs in and never fetches either page; it only
-offers. **Consent:** agent reading on (its sheet acknowledged) AND the person turned the list on in Reading the web
+offers. **Consent:** agent reading on (its sheet acknowledged) AND the person turned the list on in Reading in your browser
 (`reading.json` `youtube_lists`, `{watch_later|history: day}`, off by default, refused without a current acknowledgement). The switch is a **standing ask for exactly that page**, not
 a site grant: it never lets a wall page of youtube.com, or any other page of it, be recorded — the one dated exception
 to "only a link the person asked about, or a wall page of a site they allowed" (owner 2026-10-16, CLAUDE.md's rail). **The offer** (`youtube_lists.py`; state in
@@ -479,7 +481,7 @@ at once on Sources and stoppable in one tap (`POST /explore/stop`: waiting sites
 never opens a browser and never schedules an agent.
 - **The candidates** (`explore_candidates.py`): saved links minus `reading_hosts.classify`'s refusals (secrets, local,
   AI apps, videos, papers, redirectors), private workspaces, junk/archived pages, walled sites the person has not turned
-  on in Reading the web, and **Never explore** sites. Depth comes from the person's reason (D4; slice 2 below).
+  on in Reading in your browser, and **Never explore** sites. Depth comes from the person's reason (D4; slice 2 below).
 - **Depth follows the person's reason (slice 2, owner 2026-10-14 evening; `explore_plan.py`).** By default a visit is
   the saved page alone: a viewport, a thumbnail and the metadata. The reason is read deterministically — **no model in
   the backend** — from G191's `saved_why.reasons` ids and project, the person's own words (`saved_why.text`, a

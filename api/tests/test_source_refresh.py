@@ -445,7 +445,7 @@ def test_due_route_lists_who_works_each_without_fetching(reading, no_network, mo
         config.get_settings.cache_clear()
     assert body["counts"] == {"tracked": 2, "dead": 0, "due": 2, "cicada": 1, "agent": 1, "agentReady": 0}
     agent_row = next(r for r in body["items"] if r["checker"] == "agent")
-    assert "Reading the web" in agent_row["waitingFor"]
+    assert "Reading in your browser" in agent_row["waitingFor"]
 
 
 def test_the_sleep_tail_step_is_behind_the_connector_gate_and_commits_alone(reading, monkeypatch):

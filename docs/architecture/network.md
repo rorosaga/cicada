@@ -33,7 +33,7 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   LaunchAgent plist sets it; `install.sh` never rewrites a plist behind a running backend, so an
   older plist needs the key added by hand.
 - **`CICADA_ALLOW_LOGO_FETCH=off`** disables logo fetching entirely, and media previews with it (below). The test suite runs that way
-  and injects fetchers instead. It also gates the icons of the sites Settings, Reading the web, lists (G166): those
+  and injects fetchers instead. It also gates the icons of the sites Reading in your browser (the Sources page) lists (G166): those
   come from the icon service only and the login-walled site is never contacted for its favicon (nor, since
   `fetch_logo` skips its first two rungs for a walled host, is a company or tool page's logo domain when it is one).
   It also gates a saved link's own site icon (owner ruling 2026-10-19; everywhere a saved link is drawn, 2026-10-20):
@@ -305,7 +305,7 @@ added: the backend and the MCP server never open a site (`test_explore_tools.py`
 through the whole flow), so none of the three gates applies to it, and the connector gate is untouched. The person's own
 agent visits each saved site **in their everyday signed-in Chrome session by default** (owner D2, amended): every
 capture is marked `signed_in: true`, and the person's accounts carry the terms-of-service risk (the v3 acknowledgement
-says so, D3). A switch in Settings, Reading the web, turns that off: the agent then explores in a private, cookie-less
+says so, D3). A switch in Reading in your browser (the Sources page) turns that off: the agent then explores in a private, cookie-less
 `Target.createBrowserContext` the script creates and disposes of (verified drivable through browser-harness in a test
 Chrome; an agent that cannot open one hands the site back as `skipped`, never falling back to the signed-in session).
 The ToS rail's spirit binds the script: a wall or captcha is recorded `needs_login`/`blocked` with no screenshot and

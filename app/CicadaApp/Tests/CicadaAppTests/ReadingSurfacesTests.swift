@@ -92,7 +92,7 @@ final class ReadingSurfacesTests: XCTestCase {
         let sections = try source("Views/Home/HomeSections.swift")
         // Owner 2026-10-14 — HomeView places the blocks in `HomeArrangement`'s order.
         XCTAssertTrue(try source("Views/Home/HomeView.swift").contains("ReadingSitesSection()"))
-        XCTAssertTrue(sections.contains("router.open(SettingsIndex.retiredRows[.readingSites]"), "D6: to the Sources page")
+        XCTAssertTrue(sections.contains("router.open(.readingInBrowser)"), "the Sources page's reading sheet")
         let needsYou = try XCTUnwrap(sections.range(of: "struct NeedsYouSection").map { sections[$0.lowerBound...] })
         let end = try XCTUnwrap(needsYou.range(of: "// MARK: - Needs your browser"))
         XCTAssertFalse(needsYou[..<end.lowerBound].contains("ReadingSitesCache"),
@@ -290,9 +290,9 @@ final class ReadingSurfacesTests: XCTestCase {
 
     func testAgentsPageLinksToReadingNotTheGroup() throws {
         let connect = try source("Views/Connect/ConnectView.swift")
-        XCTAssertTrue(connect.contains("SettingsInlineLink(home: .page(.sources)"))
+        XCTAssertTrue(connect.contains("SettingsInlineLink(home: .readingInBrowser"))
         XCTAssertFalse(connect.contains("ReadingAgentGroup"))
-        XCTAssertEqual(SettingsIndex.retiredRows[.agentsReading], .page(.sources))
+        XCTAssertEqual(SettingsIndex.retiredRows[.agentsReading], .readingInBrowser)
     }
 
     /// The surviving raw values never moved (D6 kept general, you, sleep, devices and privacy; `intelligence` is new);

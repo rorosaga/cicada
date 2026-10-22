@@ -91,4 +91,36 @@ final class ConnectionModelTests: XCTestCase {
         XCTAssertEqual(LogoTile.tileSide(.dense), CicadaTheme.scaled(24))
         for slug in LogoSet.all { XCTAssertTrue(LogoImage.exists(name: slug), slug) }
     }
+
+    /// Fix round 2026-10-22: Connected when seen just now; Set up when configured, with conversations, or seen
+    /// before (its line then says the day); Not set up otherwise — for agents and paired devices alike.
+    func testPresenceIsConnectedSetUpOrNotSetUp() {
+        let now = Date()
+        XCTAssertEqual(Copy.Presence.of(seen: now.addingTimeInterval(-60), configured: false, conversations: 0, now: now),
+                       .connected)
+        XCTAssertEqual(Copy.Presence.of(seen: nil, configured: false, conversations: 14, now: now), .setUp,
+                       "an agent with captured conversations is never Off")
+        XCTAssertEqual(Copy.Presence.of(seen: now.addingTimeInterval(-86_400), configured: false, conversations: 0,
+                                        now: now), .setUp)
+        XCTAssertEqual(Copy.Presence.of(seen: nil, configured: true, conversations: 0, now: now), .setUp)
+        XCTAssertEqual(Copy.Presence.of(seen: nil, configured: false, conversations: 0, now: now), .notSetUp)
+        XCTAssertEqual(Copy.Presence.setUp.word, "Set up")
+        XCTAssertEqual(Copy.Presence.notSetUp.word, "Not set up")
+        XCTAssertFalse(Copy.Presence.setUp.on)
+
+        let umbrella = ProviderUmbrella(id: "anthropic", label: "Anthropic", logo: "claude",
+                                        ways: [ProviderWay(id: "claude-code", label: "Claude Code", connects: ["stdio"])])
+        let source = try? JSONDecoder().decode(SourceOverview.self, from: Data(
+            #"{"id":"harness:claude-code","label":"Claude Code","kind":"agent","mark":"claude-code","conversations":14,"episodes":14,"entities":0,"items":0,"connected":true,"actions":[],"origins":[],"harness":"claude-code","activity":{},"intent":"captured"}"#.utf8))
+        if let source {
+            XCTAssertEqual(AgentSummary.of(umbrella, live: [], sources: [source]).presence(now: now), .setUp)
+        }
+        XCTAssertEqual(AgentSummary.of(umbrella, live: [], sources: []).presence(now: now), .notSetUp)
+
+        let device = DeviceStatusRow(deviceId: "d1", name: "Studio laptop", connected: false,
+                                     lastSeenAt: "2026-10-20T10:00:00Z")
+        XCTAssertEqual(DevicesSettingsView.presence(device, now: now), .setUp)
+        XCTAssertTrue(DevicesSettingsView.detail(device, now: now).hasPrefix("last seen "))
+        XCTAssertEqual(DevicesSettingsView.presence(DeviceStatusRow(deviceId: "d2", name: "New"), now: now), .notSetUp)
+    }
 }

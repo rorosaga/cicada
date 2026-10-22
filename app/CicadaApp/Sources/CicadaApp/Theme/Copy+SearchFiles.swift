@@ -119,8 +119,8 @@ extension Copy {
                 : "Find looks by what they show, not only by your notes. A one-time download that stays on this Mac."
         }
         static let imagesTurnOnHelp = "Downloads image understanding once. It stays on this Mac; your screenshots never leave it."
-        static let imagesWaitsForMeaning = "Find looks by what they show, not only by your notes. Builds on Understand what you mean."
-        static let imagesWaitsHelp = "Turn on Understand what you mean first — images build on it."
+        static let imagesWaitsForMeaning = "Find looks by what they show. Needs the sharper search above first."
+        static let imagesWaitsHelp = "Turn on the sharper search above first — images build on it."
         static let imagesWaitsForDownload = "Waits for the download above."
         static let imagesWaitsForDownloadHelp = "One download at a time — this one starts when the one above finishes."
         static let imagesOn = "Looks are found by what they show."

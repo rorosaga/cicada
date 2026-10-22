@@ -57,9 +57,12 @@ def test_off_by_default_needs_the_sheet_and_counts_only_while_agent_reading_is_o
         reading_settings.update(acknowledge=True, youtube_lists_={"liked": True})   # not a list
     reading_settings.update(acknowledge=True, youtube_lists_={"watch_later": True})
     assert reading_settings.snapshot()["youtubeLists"]["watchLater"] is True
-    assert not youtube_lists.allowed("watch_later")                          # master switch still off
-    reading_settings.update(agent_enabled_=True)
+    # Agent reading is on by default once the sheet is accepted (2026-10-22); the person's off still wins.
     assert youtube_lists.allowed("watch_later") and not youtube_lists.allowed("history")
+    reading_settings.update(agent_enabled_=False)
+    assert not youtube_lists.allowed("watch_later")                          # master switch off
+    reading_settings.update(agent_enabled_=True)
+    assert youtube_lists.allowed("watch_later")
 
 
 # --- the offer -----------------------------------------------------------------------------------------------------

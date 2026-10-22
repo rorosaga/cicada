@@ -136,8 +136,8 @@ struct DevicesSettingsView: View {
                             if index > 0 { SettingsDivider() }
                             ConnectionLine(logo: nil, name: row.name, systemFallback: Self.symbol(row),
                                            detail: Self.detail(row, now: context.date),
-                                           status: (row.connected ? Copy.Status.connected : Copy.Status.off,
-                                                    row.connected)) {
+                                           status: (Self.presence(row, now: context.date).word,
+                                                    Self.presence(row, now: context.date).on)) {
                                 if model.canManage, let id = row.deviceId, !row.current {
                                     TextButton(title: Copy.DevicesPage.revoke, inline: true) { pendingRevoke = row }
                                         .accessibilityIdentifier("devices.revoke.\(id)")
@@ -227,12 +227,20 @@ struct DevicesSettingsView: View {
         return "laptopcomputer"
     }
 
-    /// "Tailscale · 3 min ago · 2 waiting" — how, when, and what waits; each part only when known.
+    /// The agents' rule (fix round 2026-10-22): the backend's own *connected* (seen within its window) is Connected; a
+    /// paired device seen before is Set up; one never seen is Not set up.
+    static func presence(_ row: DeviceStatusRow, now: Date) -> Copy.Presence {
+        if row.connected { return .connected }
+        return row.lastSeenAt != nil ? .setUp : .notSetUp
+    }
+
+    /// "Tailscale · 3 min ago · 2 waiting", or "… · last seen Oct 21" — how, when, and what waits; each part only
+    /// when known.
     static func detail(_ row: DeviceStatusRow, now: Date) -> String {
         var parts: [String] = []
         if let how = ConnectionModelText.how(row.how) { parts.append(how) }
         if !row.isServer, let seen = row.lastSeenAt.flatMap(ISODate.parse) {
-            parts.append(Copy.AgentsPage.seen(seen, now: now))
+            parts.append(row.connected ? Copy.AgentsPage.seen(seen, now: now) : Copy.AgentsPage.lastSeen(seen))
         }
         if row.queue > 0 { parts.append(Copy.DevicesPage.waiting(row.queue)) }
         return parts.joined(separator: " · ")

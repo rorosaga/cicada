@@ -163,3 +163,17 @@ def test_a_corrupt_file_reads_as_off():
     reading_settings.path().parent.mkdir(parents=True, exist_ok=True)
     reading_settings.path().write_text("{not json")
     assert reading_settings.snapshot()["agentEnabled"] is False
+
+
+def test_reading_is_on_by_default_only_behind_the_current_sheet(tmp_path, monkeypatch):
+    """Owner 2026-10-22: on by default — but nothing reads until the current first-use sheet is accepted, and the
+    person's off is stored and kept."""
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    assert reading_settings.agent_enabled() is False, "no sheet accepted yet: the ack gate holds"
+    reading_settings.update(acknowledge=True)
+    assert reading_settings.agent_enabled() is True
+    reading_settings.update(agent_enabled_=False)
+    assert reading_settings.agent_enabled() is False
+    reading_settings.update(agent_enabled_=True)
+    assert reading_settings.agent_enabled() is True
+    assert "agent" not in reading_settings._load(), "on is the default, so it is not stored"

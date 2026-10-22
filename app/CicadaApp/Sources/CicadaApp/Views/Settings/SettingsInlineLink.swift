@@ -31,8 +31,8 @@ struct SettingsInlineLink: View {
             } else {
                 SettingsSectionLink(section: section, row: row, label: label)
             }
-        case let .page(tab):
-            Button { router?.routeToPage(tab) } label: { Text("\(label) ›") }
+        case .page, .readingInBrowser:
+            Button { router?.open(home) } label: { Text("\(label) ›") }
                 .buttonStyle(.cicadaPlain)
                 .foregroundStyle(CicadaTheme.accentText)
         }

@@ -70,7 +70,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         "engines": .settings(.intelligence, .engineChoice),
         "searchFiles": .settings(.privacy, .searchMeaning),
         "integrations": .page(.sources),
-        "reading": .page(.sources),
+        "reading": .readingInBrowser,
         "agents": .page(.agents),
         "skills": .page(.skills),
     ]
@@ -90,10 +90,12 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     }
 }
 
-/// Where a retired Settings page lives now: a row on a surviving section, or a sidebar page (D6).
+/// Where a retired Settings page lives now: a row on a surviving section, a sidebar page (D6), or the Sources page's
+/// *Reading in your browser* sheet (Reading the web's switches, 2026-10-22 fix round).
 enum SettingsHome: Equatable {
     case settings(SettingsSection, SettingsRowID?)
     case page(AppTab)
+    case readingInBrowser
 
     /// The row a retired page's anchor became, when it became a row.
     var row: SettingsRowID? {

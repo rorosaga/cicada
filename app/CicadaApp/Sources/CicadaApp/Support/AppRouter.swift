@@ -310,7 +310,18 @@ final class AppRouter {
         switch home {
         case let .settings(section, row): openSettings(section, row: row)
         case let .page(tab): routeToPage(tab)
+        case .readingInBrowser: routeToReadingInBrowser()
         }
+    }
+
+    /// The Sources page with its *Reading in your browser* sheet open (Reading the web's switches since D6).
+    var pendingReadingSheet = false
+
+    func routeToReadingInBrowser() {
+        closeSettings()
+        pendingTab = .sources
+        pendingReadingSheet = true
+        activateMainWindow()
     }
 
     /// Close Settings and show a sidebar page — Sources, Agents or Skills, where three retired Settings pages went.

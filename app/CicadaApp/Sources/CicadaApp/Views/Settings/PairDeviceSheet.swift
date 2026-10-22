@@ -8,10 +8,10 @@ import SwiftUI
 /// sheet; expired offers a new code; closing while it waits cancels the code (`DELETE /devices/pairing/{id}`). The
 /// master token's alone — a server's client never shows the button (`DevicesPageModel.canManage`).
 ///
-/// The address in the QR: none yet. `POST /pair` is served on the backend's own port, which binds 127.0.0.1 (G181);
-/// the G135 listener's public address (`GET /remote/status`) does not serve it, so putting that address in the QR
-/// would send the new device to a door that answers 404. Until the backend reports an overlay address for its own
-/// port, the QR carries the code and the other device asks for the address — said in words under the code.
+/// The address in the QR is the backend's to fill (owner 2026-10-22: this machine's Tailscale name for the backend
+/// port, when the backend can tell it); the app sends none. `POST /pair` is served on the backend's own port, which
+/// binds 127.0.0.1 (G181) — the G135 listener's public address does not serve it, so the app never guesses one. With an
+/// address the sheet says it and "Scan with Cicada on your phone"; without one, one line says which address to type.
 struct PairDeviceSheet: View {
     var onClose: () -> Void
 
@@ -36,10 +36,14 @@ struct PairDeviceSheet: View {
                             .font(CicadaTheme.font(size: 28, weight: .semibold).monospacedDigit())
                             .foregroundStyle(CicadaTheme.textPrimary)
                             .textSelection(.enabled)
-                        Text(Copy.DevicesPage.noAddress)
+                        // The QR carries this machine's tailnet address when the backend could tell it (the agent-API
+                        // worker's change); then the address is said and scanning is enough. Else one line says
+                        // which address to type.
+                        Text(created.qr.url ?? Copy.DevicesPage.noAddress)
                             .font(CicadaTheme.captionFont)
                             .foregroundStyle(CicadaTheme.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
                         if state == "waiting", let expires = created.pairing.expiresAt.flatMap(ISODate.parse) {
                             Text(Copy.DevicesPage.expires(expires))
                                 .font(CicadaTheme.captionFont.monospacedDigit())
@@ -53,9 +57,11 @@ struct PairDeviceSheet: View {
                         }
                     }
                 }
-                Text(Copy.DevicesPage.pairHint)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
+                if created.qr.url != nil {
+                    Text(Copy.DevicesPage.pairScan)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                }
             } else if problem == nil {
                 ProgressView().controlSize(.small)
             }

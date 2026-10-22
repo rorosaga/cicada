@@ -62,7 +62,7 @@ def _detail_without_price_note(ch: dict) -> str:
     """X's ``PRICE_NOTE`` ("~$0.001/read · pay-per-use", `x.py:79`) is a PRICE,
     not a count, and it legitimately contains a decimal — strip it first or the
     grouping regex below flags the one string this rule was never about. (It
-    reaches the Sources page, not the Sources page; the 2026-09-03 G124
+    reaches the Sources page's channel detail line; the 2026-09-03 G124
     ruling is about the app's own surfaces, and this change adds no new one.)"""
     detail = ch.get("detail") or ""
     for adapter in ADAPTERS.values():

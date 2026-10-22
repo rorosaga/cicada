@@ -87,11 +87,11 @@ enum SettingsIndex {
         .engineAsk: .settings(.intelligence, .engineChoice),
         .searchFolders: .page(.sources),
         .calendarApp: .page(.sources), .contactsApp: .page(.sources), .saveWhy: .page(.sources),
-        .readingAgent: .page(.sources), .readingExploreSignedIn: .page(.sources), .readingNeverExplore: .page(.sources),
-        .readingMethods: .page(.sources), .watchingMethods: .page(.sources), .readingSites: .page(.sources),
-        .readingYouTube: .page(.sources),
+        .readingAgent: .readingInBrowser, .readingExploreSignedIn: .readingInBrowser, .readingNeverExplore: .readingInBrowser,
+        .readingMethods: .readingInBrowser, .watchingMethods: .readingInBrowser, .readingSites: .readingInBrowser,
+        .readingYouTube: .readingInBrowser,
         .agentsCloud: .settings(.devices, .fromAnywhere), .agentsSkill: .page(.skills),
-        .agentsAutoRecall: .page(.agents), .agentsEditors: .page(.agents), .agentsReading: .page(.sources),
+        .agentsAutoRecall: .page(.agents), .agentsEditors: .page(.agents), .agentsReading: .readingInBrowser,
         .commandLineTool: .page(.agents),
     ]
 

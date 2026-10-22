@@ -12,6 +12,33 @@ extension Copy {
         static let seen = "Seen"
         static let waiting = "Waiting"
         static let paired = "Paired"
+        /// 2026-10-22 fix round: configured or used before, not seen just now (grey).
+        static let setUp = "Set up"
+        static let notSetUp = "Not set up"
+    }
+
+    /// The one status rule for an agent or a paired device (fix round 2026-10-22): *Connected* (green) when seen
+    /// within the backend's window; *Set up* (grey) when configured, when it brought conversations, or when it was
+    /// ever seen — its line then says when; *Not set up* otherwise.
+    enum Presence: Equatable {
+        case connected, setUp, notSetUp
+
+        static let recentSeconds: TimeInterval = 600
+
+        static func of(seen: Date?, configured: Bool, conversations: Int, now: Date = Date()) -> Presence {
+            if let seen, now.timeIntervalSince(seen) <= recentSeconds { return .connected }
+            return configured || conversations > 0 || seen != nil ? .setUp : .notSetUp
+        }
+
+        var word: String {
+            switch self {
+            case .connected: Status.connected
+            case .setUp: Status.setUp
+            case .notSetUp: Status.notSetUp
+            }
+        }
+
+        var on: Bool { self == .connected }
     }
 
     enum Intelligence {
@@ -65,12 +92,13 @@ extension Copy {
         static let pair = "Pair a device"
         static let revoke = "Revoke"
         static let pairTitle = "Pair a device"
-        static let pairHint = "Scan with Cicada on the other device, or type the code."
+        static let pairScan = "Scan with Cicada on your phone"
         static let newCode = "Make a new code"
         static let cancel = "Cancel"
         static let tooMany = "Five codes already wait. Cancel one first."
         static let expired = "This code expired."
-        static let noAddress = "Type this machine's address on the device."
+        /// While the QR carries no address (the backend could not tell this machine's tailnet name).
+        static let noAddress = "On the device, type the address you reach this Mac at, e.g. its Tailscale name."
         static let apps = "Apps outside this machine"
         static func waiting(_ n: Int) -> String { n == 1 ? "1 waiting" : "\(n) waiting" }
         static func expires(_ date: Date) -> String {
@@ -100,6 +128,10 @@ extension Copy {
         static func conversations(_ n: Int) -> String { n == 1 ? "1 conversation" : "\(n) conversations" }
         static func seen(_ date: Date, now: Date = Date()) -> String {
             RelativeDateTimeFormatter().localizedString(for: date, relativeTo: now)
+        }
+        /// "last seen Oct 21" — the day, for a row that is set up but not connected now.
+        static func lastSeen(_ date: Date) -> String {
+            "last seen \(date.formatted(.dateTime.month(.abbreviated).day()))"
         }
         static func connectsWord(_ raw: String) -> String? {
             switch raw {

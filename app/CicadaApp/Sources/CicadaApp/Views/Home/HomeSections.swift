@@ -318,7 +318,7 @@ struct ReadingSitesSection: View {
         .task(id: store.sources.loadedAt) { await cache.refresh() }
     }
 
-    private func open() { router.open(SettingsIndex.retiredRows[.readingSites] ?? .page(.sources)) }
+    private func open() { router.open(.readingInBrowser) }
 }
 
 // MARK: - Last read

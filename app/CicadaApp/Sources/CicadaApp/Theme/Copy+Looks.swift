@@ -72,7 +72,7 @@ extension Copy {
         static func pictureDownload(_ bytes: Int, includesMeaning: Bool = false) -> String {
             let mb = max(1, Int((Double(bytes) / 1_000_000).rounded()))
             return includesMeaning
-                ? "A one-time download of about \(mb) MB, which also sets up Understand what you mean. It stays on this Mac; your screenshots never leave it."
+                ? "A one-time download of about \(mb) MB, which also sets up the sharper search. It stays on this Mac; your screenshots never leave it."
                 : "A one-time download of about \(mb) MB. It stays on this Mac; your screenshots never leave it."
         }
         static let turnOn = "Turn on"

@@ -85,6 +85,9 @@ final class SettingsAnchorsTests: XCTestCase {
                 XCTAssertTrue([AppTab.sources, .agents, .skills].contains(tab), raw)
                 XCTAssertEqual(landing.section, .general, "the panel cannot show a page; it opens General")
                 XCTAssertNil(landing.row)
+            case .readingInBrowser:
+                XCTAssertEqual(raw, "reading", "Reading the web's switches, in the Sources page's sheet")
+                XCTAssertEqual(landing.section, .general)
             }
         }
         // B1's three keep the old header's anchor.
@@ -117,6 +120,9 @@ final class SettingsAnchorsTests: XCTestCase {
         router.open(.page(.agents))
         XCTAssertFalse(router.settingsOpen)
         XCTAssertEqual(router.pendingTab, .agents)
+        router.open(.readingInBrowser)
+        XCTAssertEqual(router.pendingTab, .sources)
+        XCTAssertTrue(router.pendingReadingSheet, "the Sources page opens Reading in your browser")
         router.open(.settings(.intelligence, .plansAndKeys))
         XCTAssertTrue(router.settingsOpen)
         XCTAssertEqual(router.pendingSettings?.section, .intelligence)

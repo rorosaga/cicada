@@ -8,6 +8,10 @@ extension Copy {
     enum Reading {
         // MARK: the Sources page
         static let pageTitle = "Reading the web"
+        /// 2026-10-22 fix round: the Sources page's one row that opens Reading the web's switches in a sheet.
+        static let inBrowserTitle = "Reading in your browser"
+        static let inBrowserHelp = "Whether your agent may read pages in your browser for you, and which"
+        static let done = "Done"
         static let pageSubtitle = "Which sites your own agent may read for you, and how it reads them."
         static let withAgentGroup = "With an agent"
         // G71 (2026-10-16): the YouTube lists the person's own agent keeps current from their signed-in browser.

@@ -45,11 +45,21 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
 - **Devices:** `GET /devices/status` rows — the server by its Computer Name, never "this Mac" — each a dot and one word,
   how it connects, last seen and its waiting count, Revoke; *Pair a device* (`PairDeviceSheet`) draws the
   `POST /devices/pairing` code as a CoreImage QR (level M) with the code beside it, polls every 2 s, cancels on close.
-  The QR carries no address yet: `/pair` is served on the backend's own port, not the G135 listener's public one.
+  The QR's `url` is the backend's to fill (this machine's Tailscale name for the backend port, when it can tell); the
+  app sends none. With it the sheet says the address and "Scan with Cicada on your phone"; without it, one line says
+  which address to type.
   *Memory on* and the folded *Apps outside this machine* (the remote connector, `page:remote`) follow.
 - **Privacy & data** gains Search & memory's one row (*Search runs on this Mac* and the sharper-model download); the
   fade card shows only while it holds a suggestion or a chosen pace. Watched folders are sources (`WatchedFoldersGroup`
   is kept whole for the Sources page).
+- **Reading in your browser** (fix round 2026-10-22): Reading the web's switches — the master switch (on by default
+  behind the versioned first-use sheet), the signed-in session (ruling 25), the YouTube lists, Never explore, how the
+  agent reads and watches, the sites — in one sheet from the Sources page's header (`ReadingInBrowserSheet`); the
+  retired `reading` section and its rows open it (`SettingsHome.readingInBrowser`, `AppRouter.routeToReadingInBrowser`).
+- **Status words** (fix round): *Connected* (green) when seen within the backend's window, *Set up* (grey) when
+  configured, with conversations or seen before — the line then says "last seen <day>" — else *Not set up*
+  (`Copy.Presence`), for agents and paired devices alike. An agent's detail draws the connect steps (`AgentSetupSteps`:
+  Connect for me, Open in Cursor, the copied prompt) for the product picked among its umbrella's.
 - **Sleep:** the study room's preview first, the hours, then the scenery's source (the weather sentence in one line) and
   the mascot.
 - **Agents page** (`AgentsSidebarPage`): one row per umbrella from `/providers` — `LogoTile` · name · where · last seen

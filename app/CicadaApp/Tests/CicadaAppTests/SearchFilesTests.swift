@@ -143,8 +143,8 @@ final class SearchFilesTests: XCTestCase {
         let v = try JSONDecoder().decode(DesignVision.self, from: Data(#"{"supported": true, "downloadBytes": 894000000, "includesText": true}"#.utf8))
         XCTAssertTrue(v.includesText)
         XCTAssertTrue(Copy.Looks.pictureDownload(v.downloadBytes, includesMeaning: true).contains("894 MB"))
-        XCTAssertTrue(Copy.Looks.pictureDownload(v.downloadBytes, includesMeaning: true).contains("Understand what you mean"))
-        XCTAssertFalse(Copy.Looks.pictureDownload(309_000_000).contains("Understand what you mean"))
+        XCTAssertTrue(Copy.Looks.pictureDownload(v.downloadBytes, includesMeaning: true).contains("sharper search"))
+        XCTAssertFalse(Copy.Looks.pictureDownload(309_000_000).contains("sharper search"))
         for text in [Copy.Looks.pictureOff, Copy.Looks.pictureUnsupported, Copy.Looks.pictureMissing] {
             XCTAssertFalse(text.lowercased().contains("model"), text)
             XCTAssertFalse(text.lowercased().contains("picture"), "images everywhere, Looks included: \(text)")

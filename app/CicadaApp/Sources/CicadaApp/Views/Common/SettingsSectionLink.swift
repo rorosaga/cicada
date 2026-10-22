@@ -54,6 +54,7 @@ struct SettingsSectionLink<Label: View>: View {
         switch home {
         case let .settings(section, _): "\(Copy.settings) — \(section.title)"
         case let .page(tab): tab.title
+        case .readingInBrowser: Copy.Reading.inBrowserTitle
         }
     }
 

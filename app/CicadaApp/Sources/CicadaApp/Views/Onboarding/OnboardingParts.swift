@@ -45,7 +45,7 @@ struct OnboardingPointerLine: View {
             Text(lead).foregroundStyle(CicadaTheme.textSecondary)
             switch home {
             case let .settings(section, row): SettingsSectionLink(section: section, row: row, label: label)
-            case .page:
+            case .page, .readingInBrowser:
                 Button { router?.open(home) } label: { Text(label).foregroundStyle(CicadaTheme.accentText) }
                     .buttonStyle(.cicadaPlain)
             }

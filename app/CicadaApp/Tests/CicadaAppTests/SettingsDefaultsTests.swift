@@ -149,12 +149,13 @@ final class SettingsDefaultsTests: XCTestCase {
     /// D6 (2026-10-22): the trust controls that left Settings with their page keep a home there — the Agents page
     /// (page edits, remembers automatically), the Sources page (reading, bookmarks' why, Calendar, Contacts).
     func testEveryTrustControlThatLeftSettingsHasAHome() {
-        let moved: [(SettingsRowID, AppTab)] = [
-            (.agentsEditors, .agents), (.agentsAutoRecall, .agents), (.commandLineTool, .agents),
-            (.readingAgent, .sources), (.readingExploreSignedIn, .sources), (.saveWhy, .sources),
-            (.calendarApp, .sources), (.contactsApp, .sources),
+        let moved: [(SettingsRowID, SettingsHome)] = [
+            (.agentsEditors, .page(.agents)), (.agentsAutoRecall, .page(.agents)), (.commandLineTool, .page(.agents)),
+            (.readingAgent, .readingInBrowser), (.readingExploreSignedIn, .readingInBrowser),
+            (.readingYouTube, .readingInBrowser), (.readingNeverExplore, .readingInBrowser),
+            (.saveWhy, .page(.sources)), (.calendarApp, .page(.sources)), (.contactsApp, .page(.sources)),
         ]
-        for (row, tab) in moved { XCTAssertEqual(SettingsIndex.retiredRows[row], .page(tab), row.rawValue) }
+        for (row, home) in moved { XCTAssertEqual(SettingsIndex.retiredRows[row], home, row.rawValue) }
     }
 
     func testPrivacyStillExportsDeletesAndRemovesKeys() throws {

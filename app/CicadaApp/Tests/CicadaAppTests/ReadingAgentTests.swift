@@ -406,10 +406,10 @@ final class ReadingAgentTests: XCTestCase {
     /// saved section land on the Sources page.
     func testReadingTheWebLandsOnTheSourcesPage() {
         XCTAssertNil(SettingsSection(rawValue: "reading"))
-        XCTAssertEqual(SettingsSection.retired["reading"], .page(.sources))
+        XCTAssertEqual(SettingsSection.retired["reading"], .readingInBrowser)
         for id in [SettingsRowID.readingAgent, .readingMethods, .watchingMethods, .readingSites] {
             XCTAssertFalse(SettingsIndex.staticIDs.contains(id))
-            XCTAssertEqual(SettingsIndex.retiredRows[id], .page(.sources))
+            XCTAssertEqual(SettingsIndex.retiredRows[id], .readingInBrowser)
         }
     }
 
