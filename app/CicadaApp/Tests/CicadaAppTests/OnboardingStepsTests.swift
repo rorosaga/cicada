@@ -237,6 +237,23 @@ final class OnboardingStepsTests: XCTestCase {
         XCTAssertFalse(DoneLine.readsNow(brought: true, canReadNow: false))
     }
 
+    /// Re-review 2026-10-22: a read started now on a key the person chose is said in words, with the provider's name.
+    func testDoneNamesTheKeyANowReadBills() {
+        let preview = SleepEnginePreview(engine: "litellm", model: "openai/gpt-x", why: "")
+        let response = SleepEngineResponse(mode: "byok", model: "openai/gpt-x", disambiguationModel: "", source: "prefs",
+                                           candidates: [],
+                                           preview: SleepEnginePreviews(manual: preview, scheduled: preview),
+                                           selected: "byok", provider: "openai",
+                                           providers: [SleepEngineProvider(id: "openai", label: "OpenAI",
+                                                                           connectionId: "byok-openai", hasKey: true,
+                                                                           defaultModel: "openai/gpt-x", keyUrl: "")])
+        XCTAssertEqual(DoneLine.nowKey(response), "OpenAI")
+        XCTAssertEqual(DoneLine.tail(brought: true, canReadNow: true, scheduleLoaded: true,
+                                     honesty: honesty("manual", engine: "litellm"), nowKey: "OpenAI"),
+                       "It reads what you brought in now, on your OpenAI key.")
+        XCTAssertNil(DoneLine.nowKey(self.response(selected: "auto", engine: "claude-cli")), "a plan is no key")
+    }
+
     // MARK: Words (the brief's bar: under 40 words a step; Agents and Sources add one name per row or tile)
 
     func testEachStepsFixedWordsStayUnderForty() {

@@ -290,21 +290,38 @@ enum SourceTiles {
 /// schedule's own time when a schedule can read, "now" only when something came in and an engine can read it, else
 /// Read now on Home. Never a promise the schedule does not keep (`OnboardingScheduleLine`'s old lesson).
 enum DoneLine {
-    static func line(brought: Bool, canReadNow: Bool, scheduleLoaded: Bool, honesty: HonestyInputs) -> String {
+    /// `nowKey`: the key provider a run started now would bill (the person's own chosen key, e.g. "OpenAI"), said in
+    /// words beside "now" — never a metered read the line leaves unnamed (re-review, 2026-10-22).
+    static func line(brought: Bool, canReadNow: Bool, scheduleLoaded: Bool, honesty: HonestyInputs,
+                     nowKey: String? = nil) -> String {
         Copy.doneLead + (tail(brought: brought, canReadNow: canReadNow, scheduleLoaded: scheduleLoaded,
-                              honesty: honesty).map { " " + $0 } ?? "")
+                              honesty: honesty, nowKey: nowKey).map { " " + $0 } ?? "")
     }
 
-    static func tail(brought: Bool, canReadNow: Bool, scheduleLoaded: Bool, honesty: HonestyInputs) -> String? {
+    static func tail(brought: Bool, canReadNow: Bool, scheduleLoaded: Bool, honesty: HonestyInputs,
+                     nowKey: String? = nil) -> String? {
         let now = brought && canReadNow
-        guard scheduleLoaded else { return now ? Copy.doneImportsNow : nil }
+        let nowLine = nowKey.map(Copy.doneImportsNowOnKey) ?? Copy.doneImportsNow
+        guard scheduleLoaded else { return now ? nowLine : nil }
         let when = ScheduleHonesty.scheduledCanRead(honesty) ? ScheduleHonesty.whenPhrase(honesty.schedule) : nil
         switch (when, now) {
-        case let (when?, true): return Copy.doneScheduledAndNow(when)
+        case let (when?, true):
+            return nowKey.map { Copy.doneScheduledAndNowOnKey(when, $0) } ?? Copy.doneScheduledAndNow(when)
         case let (when?, false): return Copy.doneScheduled(when)
-        case (nil, true): return Copy.doneImportsNow
+        case (nil, true): return nowLine
         case (nil, false): return Copy.doneReadNow
         }
+    }
+
+    /// The key provider a run started now bills, when it reads on a key (`litellm`): the provider's own name.
+    static func nowKey(_ response: SleepEngineResponse?) -> String? {
+        guard let response, response.preview?.manual.engine == "litellm" else { return nil }
+        let id = response.provider ?? byokFallback(response)
+        return response.providers.first { $0.id == id }?.label ?? id
+    }
+
+    private static func byokFallback(_ response: SleepEngineResponse) -> String? {
+        EngineOption.runsOnOpenRouter(response.preview?.manual.model) ? "openrouter" : nil
     }
 
     /// Open Cicada reads once now when the person brought something in and an engine can read it (owner 2026-10-22) —

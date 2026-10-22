@@ -213,7 +213,8 @@ struct OnboardingView: View {
         let honesty = HonestyInputs.from(schedule: sleepVM.schedule, response: engineVM.response,
                                          connections: store.connections.value ?? [])
         return DoneLine.line(brought: DoneLine.brought(snapshots), canReadNow: DoneLine.canReadNow(engineVM.response),
-                             scheduleLoaded: sleepVM.scheduleLoaded, honesty: honesty)
+                             scheduleLoaded: sleepVM.scheduleLoaded, honesty: honesty,
+                             nowKey: DoneLine.nowKey(engineVM.response))
     }
 
     // MARK: Welcome and Done

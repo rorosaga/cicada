@@ -162,6 +162,11 @@ extension Copy {
     /// The owner's words (2026-10-22): "Cicada reads tonight, and now for what you brought in".
     static func doneScheduledAndNow(_ when: String) -> String { "It reads \(when), and now for what you brought in." }
     static let doneImportsNow = "It reads what you brought in now."
+    /// The same "now", when it runs on a key the person chose — named, never left unsaid (re-review 2026-10-22).
+    static func doneImportsNowOnKey(_ provider: String) -> String { "It reads what you brought in now, on your \(provider) key." }
+    static func doneScheduledAndNowOnKey(_ when: String, _ provider: String) -> String {
+        "It reads \(when), and now, on your \(provider) key, for what you brought in."
+    }
     static let doneReadNow = "Read now on Home builds your first pages."
 
     /// Buttons, titles and one-line captions — ≤ 60 characters (CopyConstantsTests).
@@ -185,6 +190,6 @@ extension Copy {
     /// Longer sentences — the vocabulary rule only.
     static var onboardingSentences: [String] {
         [importDoneOnce, importLockedHelp, importNeedsAccess, seeHowClaudeHonest, seeHowChatGPTHonest,
-         seeHowGeminiHonest, agentStepAlsoRecalls, agentStepRecallHow, welcomeDropsWaiting(1), welcomeDropsWaiting(3), welcomeLine, doneScheduledAndNow("tonight at 3:00")]
+         seeHowGeminiHonest, agentStepAlsoRecalls, agentStepRecallHow, welcomeDropsWaiting(1), welcomeDropsWaiting(3), welcomeLine, doneScheduledAndNow("tonight at 3:00"), doneImportsNowOnKey("OpenAI"), doneScheduledAndNowOnKey("tonight at 3:00", "OpenAI")]
     }
 }

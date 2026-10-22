@@ -249,25 +249,60 @@ class _Prefs(_FakeRegistry):
             entry[key] = value
 
 
+class _Cli:
+    """A stand-in for the CLI runner: an answer per command (`claude` / `codex`), recorded."""
+
+    def __init__(self, claude=(0, '{"loggedIn": false}'), codex=(1, "")):
+        self.answers = {"claude": claude, "codex": codex}
+        self.ran: list[str] = []
+
+    def __call__(self, argv, *, stdin=None, timeout=None, cwd=None):
+        from api.services.connections.base import CliResult
+
+        self.ran.append(argv[0])
+        rc, out = self.answers[argv[0]]
+        return CliResult(rc, out, "")
+
+
+def _retire(settings, reg, cli):
+    return asyncio.run(engine_select.retire_auto_local_rung(settings, reg, runner=cli))
+
+
 def test_a_person_reading_through_a_local_model_under_auto_keeps_it_as_a_recorded_choice():
     reg = _Prefs(connected={"ollama-local"})
-    assert asyncio.run(engine_select.retire_auto_local_rung(Settings(), reg)) == "kept_local"
+    assert _retire(Settings(), reg, _Cli()) == "kept_local"
     entry = reg.prefs()["sleep-engine"]
     assert entry["mode"] == "local" and entry[engine_select.AUTO_LOCAL_RECORD_KEY]["outcome"] == "kept_local"
     assert asyncio.run(engine_select.resolve_llm_mode(Settings(), reg, user_triggered=True))[0] == "local"
-    assert asyncio.run(engine_select.retire_auto_local_rung(Settings(), reg)) is None, "once"
+    assert _retire(Settings(), reg, _Cli()) is None, "once"
 
 
-def test_the_one_time_step_never_adopts_a_local_model_beside_a_plan_or_later():
-    with_plan = _Prefs(connected={"ollama-local", "claude-plan"})
-    assert asyncio.run(engine_select.retire_auto_local_rung(Settings(), with_plan)) == "checked"
+def test_a_timed_out_plan_probe_never_pins_a_signed_in_person_to_local():
+    """Re-review 2026-10-22: at boot the Claude cache is cold; a `claude auth status` that times out (rc 124) or prints
+    nothing readable is not "signed out". The mode and the record stay untouched, so the next start asks again."""
+    for claude in [(124, ""), (0, ""), (0, "not json")]:
+        reg = _Prefs(connected={"ollama-local"})
+        assert _retire(Settings(), reg, _Cli(claude=claude)) is None, claude
+        assert reg.prefs().get("sleep-engine", {}) == {}, claude
+    reg = _Prefs(connected={"ollama-local"})
+    assert _retire(Settings(), reg, _Cli(codex=(124, ""))) is None
+    assert reg.prefs().get("sleep-engine", {}) == {}
+
+
+def test_the_one_time_step_never_adopts_a_local_model_beside_a_plan():
+    with_plan = _Prefs(connected={"ollama-local"})
+    assert _retire(Settings(), with_plan, _Cli(claude=(0, '{"loggedIn": true}'))) == "checked"
     assert "mode" not in with_plan.prefs()["sleep-engine"]
+    codex = _Prefs(connected={"ollama-local"})
+    assert _retire(Settings(), codex, _Cli(codex=(0, "Logged in"))) == "checked"
+    # No local model running: nothing recorded and no plan CLI spawned (it may start after Cicada at login).
+    cli = _Cli()
     without = _Prefs(connected=set())
-    assert asyncio.run(engine_select.retire_auto_local_rung(Settings(), without)) == "checked"
-    without._connected = {"ollama-local"}
-    assert asyncio.run(engine_select.retire_auto_local_rung(Settings(), without)) is None, "a later install is not adopted"
+    assert _retire(Settings(), without, cli) is None
+    assert without.prefs().get("sleep-engine", {}) == {} and cli.ran == []
     pinned = _Prefs(connected={"ollama-local"})
-    assert asyncio.run(engine_select.retire_auto_local_rung(Settings(llm_mode="auto"), pinned)) is None
+    assert _retire(Settings(llm_mode="auto"), pinned, _Cli()) is None
+
 
 
 def test_by_default_a_scheduled_cycle_reads_with_the_plan():

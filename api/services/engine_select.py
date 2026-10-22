@@ -44,6 +44,7 @@ then resolves exactly as one the person starts would. It is the guard's only oth
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime
 
 from loguru import logger
@@ -575,13 +576,45 @@ async def resolve_llm_mode(
 AUTO_LOCAL_RECORD_KEY = "auto_local_retired"
 
 
-async def retire_auto_local_rung(settings, registry) -> str | None:
+def _claude_signed_in_definitely(runner, timeout: float) -> bool | None:
+    """``claude auth status --json`` read for a DEFINITE answer: True signed in on the plan, False not installed or
+    signed out, ``None`` when the probe timed out, failed or printed something unreadable — never a guess."""
+    result = runner(["claude", "auth", "status", "--json"], stdin=None, timeout=timeout, cwd=None)
+    if result.rc == 127:
+        return False
+    if result.rc == 124:
+        return None
+    try:
+        info = json.loads((result.stdout or "").strip())
+    except ValueError:
+        return None
+    if not isinstance(info, dict):
+        return None
+    return bool(info.get("loggedIn"))
+
+
+def _codex_signed_in_definitely(runner, timeout: float) -> bool | None:
+    """``codex login status`` for a DEFINITE answer (rc 0 signed in, 127 not installed, a timeout is ``None``)."""
+    result = runner(["codex", "login", "status"], stdin=None, timeout=timeout, cwd=None)
+    if result.rc == 124:
+        return None
+    if result.rc == 127:
+        return False
+    return result.rc == 0
+
+
+async def retire_auto_local_rung(settings, registry, *, runner=None, timeout: float = 20.0) -> str | None:
     """Ruling 36 D1, once per install: Auto no longer reaches a local model. A person whose Auto read through one —
-    nothing chosen, no plan connected, a local model running — keeps reading with it: their choice becomes an explicit
+    nothing chosen, no plan signed in, a local model running — keeps reading with it: their choice becomes an explicit
     ``local``, recorded (``AUTO_LOCAL_RECORD_KEY``, ``kept_local``) so Settings → Intelligence says so in one line,
-    never silently. Everyone else only gets the record, so a local model installed later is never adopted. Returns
-    ``"kept_local"``, ``"checked"``, or ``None`` when it had already run or the engine is pinned by the environment.
-    Never raises: a failure leaves the record unwritten and the next start tries again."""
+    never silently. A person with a plan signed in gets a ``checked`` record, so their local model is never adopted later.
+
+    It writes only on a DEFINITE answer (re-review, 2026-10-22): the local model's own short probe, then both plans'
+    status commands at the full 20 s (`agent_engine.probe`'s default, off the boot path — the lifespan runs this as a
+    background task). A cold-cache plan probe that times out or cannot be read must never pin a signed-in person to
+    `local` for good, so any unsure answer returns without a record and the next start asks again. Returns
+    ``"kept_local"``, ``"checked"``, or ``None`` (already done, pinned by the environment, or not sure yet). Never
+    raises."""
     try:
         entry = registry.prefs().get(SLEEP_ENGINE_PREF_KEY) or {}
         if entry.get(AUTO_LOCAL_RECORD_KEY):
@@ -591,10 +624,22 @@ async def retire_auto_local_rung(settings, registry) -> str | None:
         outcome = "checked"
         if configured_mode(settings, registry) == "auto":
             # The local model first: a short HTTP probe, so a machine without one never spawns a plan's CLI here.
-            if await _connected(registry, OLLAMA_CONNECTION_ID) and not (
-                    await _connected(registry, CLAUDE_CONNECTION_ID) or await _connected(registry, CODEX_CONNECTION_ID)):
-                registry.set_pref(SLEEP_ENGINE_PREF_KEY, "mode", "local")
-                outcome = "kept_local"
+            local = await _connected(registry, OLLAMA_CONNECTION_ID)
+            if not local:
+                # Not running now (or unsure): it may simply start after Cicada at login, so nothing is recorded and
+                # the next start asks again — no plan CLI is spawned on a machine without a local model.
+                return None
+            if local:
+                from api.services import agent_engine
+
+                run = runner or agent_engine._default_runner()
+                claude = await asyncio.to_thread(_claude_signed_in_definitely, run, timeout)
+                codex = await asyncio.to_thread(_codex_signed_in_definitely, run, timeout)
+                if claude is None or codex is None:
+                    return None
+                if not (claude or codex):
+                    registry.set_pref(SLEEP_ENGINE_PREF_KEY, "mode", "local")
+                    outcome = "kept_local"
         registry.set_pref(SLEEP_ENGINE_PREF_KEY, AUTO_LOCAL_RECORD_KEY,
                           {"outcome": outcome, "on": datetime.now().date().isoformat()})
         return outcome
