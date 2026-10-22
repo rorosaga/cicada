@@ -169,6 +169,21 @@ def test_a_passed_due_is_asked_once_and_cleared_when_a_milestone_replaces_it(ban
     assert not (bank / item).exists()
 
 
+def test_the_card_names_its_thread(bank):
+    """Owner decision A (2026-10-22): the card's body says which thread it asks about — the claim's own words and why
+    now — never only "a follow-up on a quiet thread or a milestone" (benchmarks/newuser: a stranger could not tell
+    what "How did it go?" was about)."""
+    _project(bank, "orchard-c-project")
+    three = _overdue(bank, "orchard-c-project", 3)
+    due = _due_project(bank, "orchard-f-project", 10)
+    _propose(bank)
+    by_claim = {fm["claim_id"]: (bank / "inbox" / name).read_text() for name, fm in _open(bank).items()}
+    camera = by_claim[_camera(bank).id]
+    assert CAMERA in camera and "quiet for" in camera and followups.BODY not in camera
+    assert "planned for" in by_claim[three]
+    assert f"Orchard demo due {d(-10)}" in by_claim[due] and "no word since" in by_claim[due]
+
+
 def test_one_per_project_three_in_the_bank_and_a_deferred_item_still_counts(bank):
     for pid, quiet in (("orchard-g-project", 30), ("orchard-h-project", 25), ("orchard-i-project", 22)):
         _project(bank, pid)

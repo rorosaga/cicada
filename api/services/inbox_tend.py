@@ -94,6 +94,7 @@ RULES: dict[str, str] = {
     "judged_same": "Both pages describe the same thing",
     "judged_different": "The two pages describe different things",
     "spelling_fold": "The two labels differ only in spelling",
+    "seed_fold": "Cicada's own word list says the two labels mean the same",
     "one_off": "Mentioned once and nothing else rests on it",
     "newest_evidence": "Your newest dated statement settles it",
     "multi_valued": "Both can be true at once: every value was already kept",
@@ -108,7 +109,7 @@ RULES: dict[str, str] = {
     "named_account": "You gave this link for them in your own words",
 }
 #: The rules that read only the bank: re-run inside each settle, which goes ahead only when they still agree.
-ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "one_off", "newest_evidence",
+ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "seed_fold", "one_off", "newest_evidence",
                          "multi_valued", "in_passing", "newest_words", "own_settings", "named_account"})
 #: The judged kinds (owner, 2026-10-17: the inbox keeps only what genuinely needs the person).
 JUDGED_KINDS = frozenset({"merge_suggestion", "conflict", "normalization", "decay"})
@@ -367,7 +368,24 @@ def _normalization_rule(item_id: str, fm: dict) -> tuple[Decision | None, str]:
     if _spelling(raw) and _spelling(raw) == _spelling(canonical):
         return Decision(item_id, "normalization", "spelling_fold", {"action": "resolve", "option_key": "0"},
                         answer=f"{raw} is {canonical}"), ""
+    if _shipped_fold(raw, canonical):
+        # Owner decision A (2026-10-22): a fold from Cicada's own shipped seed is curated, like an ending — Sleep
+        # settles it, undoable; only a fold the bank learned asks.
+        return Decision(item_id, "normalization", "seed_fold", {"action": "resolve", "option_key": "0"},
+                        answer=f"{raw} is {canonical}"), ""
     return None, "needs_judge"   # the judge folds only a same meaning; a changed meaning stays
+
+
+def _shipped_fold(raw: str, canonical: str) -> bool:
+    """Whether the predicate seed Cicada ships (its ``synonyms``, never a bank's own map) folds ``raw`` into
+    ``canonical``. ``inverse_pairs`` flip a direction and are not folds."""
+    from api.services import predicates
+
+    synonyms = predicates._load_seed_map().get("synonyms") or {}
+    slug = predicates._slugify_predicate
+    want = slug(raw)
+    return bool(want) and any(slug(str(k)) == want and slug(str(v)) == slug(canonical)
+                              for k, v in synonyms.items() if isinstance(synonyms, dict))
 
 
 def _decay_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | None, str]:
@@ -2281,6 +2299,7 @@ VETTED_RULES: dict[str, tuple[frozenset[str] | None, frozenset]] = {
     "own_settings": (frozenset({"conflict", "clarification"}), frozenset({None})),
     "same_spelling": (frozenset({"merge_suggestion"}), frozenset({"merge"})),
     "spelling_fold": (frozenset({"normalization"}), frozenset({"resolve"})),
+    "seed_fold": (frozenset({"normalization"}), frozenset({"resolve"})),
     "one_off": (frozenset({"decay"}), frozenset({"archive"})),
     "newest_evidence": (frozenset({"conflict"}), frozenset({"resolve"})),
     "multi_valued": (frozenset({"conflict"}), frozenset({"dismiss"})),
