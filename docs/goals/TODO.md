@@ -6,11 +6,11 @@
 
 [Feature status: one line per feature](feature-status.md) · [Implementation review: every G ID](BACKLOG_IMPLEMENTATION_REVIEW.md) · [Active reasoning by priority](memory-evolution.md) · [Completed work](DONE.md) · [Reference context / original prompts](BACKLOG_CONTEXT.md) · [Working method](working-method.md) · [Cognition comparison](../research/2026-10-06-agent-memory-repo.md) · [Source/video gaps](../research/2026-10-06-source-refresh-and-video-gaps.md) · [Provider/source modularity](../specs/2026-10-06-provider-and-ingestion-modularity.md) · [Benchmark rebuild](../specs/2026-10-06-system-benchmark-rebuild.md)
 
-**Pick up here (2026-10-22, redesign):** read ruling 36 (the owner's answers D1–D6 to the redesign proposal), then [`feature-status.md`](feature-status.md) for what is building. Branches in flight: `feat/awake-read` (G207), `fix/people-dedup` (G209), `feat/update-sources` (G61); queued: connection model and providers (G217, G50), agent API (G213), app (G217's pages, needs a Mac). **Waiting on the owner:** whether G213's HTTP API may ride the G135 listener (an amendment to "serves only MCP"), whether ruling 4c's scheduled-plan switch stays on for new installs, and whether the quick read (G207) on a plan obeys that switch.
+**Pick up here (2026-10-22, redesign):** read ruling 36 (the owner's answers D1–D6 to the redesign proposal), then [`feature-status.md`](feature-status.md) for what is building. Branches in flight: `feat/awake-read` (G207), `fix/people-dedup` (G209), `feat/update-sources` (G61); queued: connection model and providers (G217, G50), agent API (G213), app (G217's pages, needs a Mac). **Decided after review (2026-10-22, in ruling 36):** a new install's Auto uses a signed-in plan, a key offered as an equal option; ruling 4c stays and the quick read follows it; G213's API rides the G135 listener; "Where to check" as one grouped inbox review; `rich` + `questionary` approved. Nothing waits on the owner from this ruling.
 
 ## Current state and evidence
 
-- **2026-10-22 — the redesign's decisions recorded (ruling 36; branch `docs/redesign-2026-10-22`).** The owner's answers D1–D6 are ruling 36: a key secured properly or the person's own Claude Code / Codex, never a local default (amends ruling 31); a quick read after each conversation, on by default only if measured better (amends the capture rail); the agent tiers plus an HTTP API for agents without MCP (where it is served is the owner's call); projects from a repository or the person's words; the person's-photo gate on with sources on people; Settings in six. Backlog: new G205–G207, G209, G210, G212, G213, G216 (done, #418) and G217 (the connection model — the briefs' "G204" was taken); G208, G211, G214, G215 fold into G61, G141, G91 + G135, G50 as redirects. `feature-status.md` tracks each line.
+- **2026-10-22 — the redesign's decisions recorded (ruling 36; branch `docs/redesign-2026-10-22`).** The owner's answers D1–D6 are ruling 36: a key secured properly or the person's own Claude Code / Codex, never a local default (amends ruling 31); a quick read after each conversation, on by default only if measured better (amends the capture rail); the agent tiers plus an HTTP API for agents without MCP, served on the G135 listener; projects from a repository or the person's words; the person's-photo gate on with sources on people; Settings in six. Backlog: new G205–G207, G209, G210, G212, G213, G216 (done, #418) and G217 (the connection model — the briefs' "G204" was taken); G208, G211, G214, G215 fold into G61, G141, G91 + G135, G50 as redirects. `feature-status.md` tracks each line.
 - **2026-10-22 — the MCP error and argument contract (branch `mcp-error-contract`; G199, G200 A7/A9, Hyrum audit
   A1/A4/A6).** Both doors check a call against the schema they advertise, once, before a body runs
   (`tool_contract.check`): a bad argument answers `isError: true` with ``Invalid arguments: `<field>` …`` naming every
@@ -1507,7 +1507,8 @@ A whole row moves to DONE only after its remaining implementation and required a
     sidecar in place; the cap of 12 if the owner's proven set outgrows it with evals still winning.
 36. **The redesign: three nouns, the person's own engine, a quick read after each conversation, more doors for agents
     (owner, 2026-10-22; answers D1–D6 to the acting owner's redesign proposal, plus extra answers; amends ruling 31, the
-    capture rail "No LLM at capture time", and the default of the 2026-10-09 person's-photo exception; G217, G50, G61,
+    capture rail "No LLM at capture time", the default of the 2026-10-09 person's-photo exception, and the G135
+    listener's "serves only MCP"; G217, G50, G61,
     G91, G135, G139, G141, G166, G205–G213, G216).** The proposal (kept outside the repo, with its six research
     reports: plans and keys, harnesses, the app inventory, memory quality, agents/API/phone, Supermemory) organised
     everything that connects to Cicada as three nouns — **Sources** feed it, **Intelligence** consolidates it,
@@ -1526,16 +1527,18 @@ A whole row moves to DONE only after its remaining implementation and required a
     first-class path, equal to a plan in onboarding and Settings → Intelligence, verified before it is saved, and held
     "properly" (today a 0600 `~/.cicada/secrets.env`; the secure store is G50's open item). Added keys: the OpenAI
     platform key, and Gemini or Google Vertex once the difference is verified (G50). **What stays:** ruling 31's core —
-    no metered key nobody chose; a key reads only when chosen; `engine_select.SUBSCRIPTION_MODES` the one guard. Ruling
-    4c (scheduled runs may use the plan, on by default) is **not** changed: the proposal recommended turning it off,
-    the owner's answer did not take that up, so it stands until the owner says otherwise. **Why plans stay the
-    person's choice.** Anthropic's legal and compliance page (code.claude.com/docs/en/legal-and-compliance, fetched
+    no metered key nobody chose; a key reads only when chosen; `engine_select.SUBSCRIPTION_MODES` the one guard.
+    **What a new install starts on (owner, 2026-10-22, answering the review of #420):** with nothing chosen, Auto uses
+    the person's plan if they are signed in — Claude Code, then Codex — so ruling 31's plan-first Auto stays, minus the
+    local rung; onboarding offers an API key as an equal option, and because Anthropic's terms leave the plan a grey
+    zone, that step says in words what will run. **Ruling 4c stays** (owner, same answer): scheduled runs may use the
+    plan, on by default for new installs too. **Why a plan is offered, and said in words.** Anthropic's legal and compliance page (code.claude.com/docs/en/legal-and-compliance, fetched
     2026-10-22) says developers building products "should use API key authentication" and may not "route requests
     through Free, Pro, or Max plan credentials on behalf of their users", and also that nothing prevents "an end user
     from signing in to the unmodified Claude Code binary with their own Claude subscription". Cicada spawns the
     person's own unmodified `claude`, never sees or stores its token, and bills the person's own limits — between the
-    two sentences; offering it only as the person's explicit choice, beside an equally easy key, means a block
-    strands nobody. OpenAI documents "Sign in with ChatGPT" for Codex and access tokens "for trusted scripts,
+    two sentences; saying in words what runs, beside an equally easy key, means the person knows the choice and a
+    block strands nobody. OpenAI documents "Sign in with ChatGPT" for Codex and access tokens "for trusted scripts,
     schedulers", so the Codex path is the friendlier of the two. **Grok (xAI) subscriptions:** RESEARCH — nothing is
     built until a documented way for a person's own subscription to run an unattended job exists. Revisit if Anthropic
     or OpenAI changes those terms, or if a person with only a plan is blocked.
@@ -1554,8 +1557,8 @@ A whole row moves to DONE only after its remaining implementation and required a
     rate of the provisional claims); if it does not, it does not ship — there is no switch either way. Cost basis: Sleep
     makes about 15 model calls per conversation (measured 2026-10-21); the quick read is one call, about 6k tokens in
     and 1k out under Cicada's caps — about 1¢ per conversation on a key at $1/$5 per million (an assumed small-model
-    price, to be checked), and plan usage on a plan. **Open for the owner:** whether the quick read on a plan obeys
-    ruling 4c's switch like a scheduled run (G207 proposes yes, since nobody started it).
+    price, to be checked), and plan usage on a plan. **On a plan it follows ruling 4c's switch** like a scheduled run,
+    since nobody started it (owner, 2026-10-22, answering the review of #420).
     **D3 — Agents: the featured nine, the popular second tier, the personal agents, and an HTTP API for agents that
     cannot use MCP.** Owner: "yes go with recommended but also keep the actual popular ones. There is a lot of movement
     in the personal agent space like muse, grokbot, instinct, dots (openai), i would lean into these too." With a
@@ -1564,15 +1567,16 @@ A whole row moves to DONE only after its remaining implementation and required a
     **Tier 1** (logo, setup prompt, live detection) stays the existing nine (`agent_live.FEATURED`). **Tier 2** (logo,
     the generic setup prompt, detection by `clientInfo`): VS Code/Copilot, Gemini/Antigravity CLI, Zed, Cline, Goose,
     Windsurf (now Devin Desktop), Kiro, Warp, Amp. **Personal agents** reach Cicada through three doors, never one
-    integration each: the G135 connector (Grok Bot, Poke, the Claude, ChatGPT and Gemini apps, Meta's Muse by URL),
+    integration each: the G135 connector (Grok Bot, Poke, the Claude, ChatGPT and Gemini apps, Meta's Muse by URL, OpenAI's Dots through the ChatGPT connector),
     the HTTP API (agents that only speak HTTP), and Messages (a texted agent, G179). Product facts for these are
     reported by press and vendor blogs, not first-party docs, and are re-checked before any copy ships. **The HTTP
     API (G213)** is a thin mirror of the bodies `/tools/call` already runs, with OpenAPI and an `llms.txt`, authorised
-    by a G135 connector token with its scopes and provenance (a remote claim is never the person's own words). **Not
-    decided here — the owner's decision:** whether that API may ride the G135 listener, which by rail "serves only
-    MCP". Cloud agents can reach only a public URL, so without that amendment the API serves only agents that can
-    reach the backend (this machine, the person's overlay). **The CLI** gains `cicada setup` (detect, confirm, a
-    checklist, a non-TTY path); the dependency pair it needs is the owner's call (G213).
+    by a G135 connector token with its scopes and provenance (a remote claim is never the person's own words). **It rides
+    the G135 listener, behind the same tokens** (owner, 2026-10-22, answering the review of #420) — this amends the
+    remote-connector rail's "serves only MCP": cloud agents reach only a public URL, and the listener is the one door
+    the person may make public. The G213 PR changes that rail line in CLAUDE.md. **The CLI** gains a Vercel-style
+    `cicada setup` (detect, confirm, a checklist, a non-TTY path) with `rich` and `questionary` as dependencies,
+    approved by the owner the same day (G213).
     **D4 — A project is born from a repository, or from the person's own words.** Owner: "agree with the recommended.
     Projects tho can as you say be started from just me talking to claude about something that spans outside software
     only, so its able to track knowledge on it over the different conversations and stuff. … Design stuff can be
@@ -1594,8 +1598,10 @@ A whole row moves to DONE only after its remaining implementation and required a
     it fetches nothing: measured, 0 of 277 person pages carry a source and 276 show initials. Agents and Cicada may
     propose a source by inference, with the evidence that names it; a proposal is not trusted — no picture, no
     refresh — until the person takes it or their own located words name the account (ruling 29). Contacts count as a
-    source ("Sources also should include contacts, run tests for that too"). The new name and the agent-facing
-    definition are G61's.
+    source ("Sources also should include contacts, run tests for that too"). **The name is "Where to check"** (owner,
+    2026-10-22); the agent-facing definition is G61's. Proposals arrive as **one grouped inbox review** ("Confirm N
+    links"), never one question per page — a dry run on the owner's bank would have added 36 questions to an inbox of
+    218 (owner, same answer).
     **D6 — Settings in six; Sources and Agents become pages; Devices shows what is connected.** Owner: "yeah that makes
     sense and adding status stuff like to see if my server or other box is connected that's great. Also the connection
     has to be clear, it must be setup easily enough like claude does it in their apps. … something like that with just

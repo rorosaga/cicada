@@ -211,8 +211,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   2026-10-19; `SUBSCRIPTION_MODES` the one guard); on a metered engine it spends with no limit Cicada sets, said in words.
   **Plan-first engines (ruling 31, 2026-10-19):** the default is Auto — Claude plan, ChatGPT plan — and never
   a metered key nobody chose: no engine is said in words, and a key (OpenRouter included) reads only when chosen.
-  **Ruling 36 D1 (2026-10-22):** a key secured properly or the person's own Claude Code / Codex, their choice; a local
-  model runs only when chosen, never as Auto's rung. Continue-after-reset is opt-in,
+  **Ruling 36 D1 (owner, 2026-10-22):** with nothing chosen, Auto uses a signed-in plan (Claude Code, then Codex) and
+  says in words what runs; a key secured properly is an equal option; a local model runs only when chosen, never as Auto's rung. Continue-after-reset is opt-in,
   off (ruling 15). A scheduled time the Mac slept or was off through runs once, after a short settle, as a scheduled
   run — never over a pause or a running cycle (`sleep_catch_up`, owner 2026-10-19, `features.md`).
 - **The write window (G177):** `sleep_cycle.is_writing()` is the one predicate behind every "Sleep is running" refusal,
