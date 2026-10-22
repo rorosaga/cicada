@@ -4,8 +4,8 @@ import Foundation
 /// how well search understands what it finds. The owner's brief: "without mentioning embeddings. All of this
 /// technical stuff had to be abstracted." Every string a person sees on the page by default is in `defaultVisible`,
 /// which `SearchFilesTests.testDefaultVisibleWordsAreNeverTechnical` holds to the page's bar (no model, embedding,
-/// index, vector, token, runtime or checksum). *Advanced* (`Copy.SearchModel`, the rebuild row) is exempt; the hidden
-/// Settings-search keywords stay technical on purpose so a technical search still lands here.
+/// index, vector, token, runtime or checksum). There is no *Advanced* any more (settings defaults, owner 2026-10-22):
+/// the version picker and the rebuild left the app for `cicada index`. The hidden Settings-search keywords stay technical on purpose so a technical search still lands here.
 ///
 /// Honest state over the mock (REVIEW §5): a folder today is read into memory (G133), so a row says *Kept in memory*
 /// and counts notes — never a kind count or a search-only depth that nothing computes yet (G195). *Understand images*
@@ -88,7 +88,7 @@ extension Copy {
                 ? "This memory was set up for sharper search on another Mac. Until you download it here (about \(megabytes(bytes))), search matches your words only."
                 : "This memory was set up for sharper search on another Mac. Until you download it here, search matches your words only."
         }
-        static let meaningMissingLarger = "This memory was set up for the larger version on another Mac. Until you get it here under Advanced, search matches your words only."
+        static let meaningMissingLarger = "This memory was set up for the larger version on another Mac, so search here matches your words only. Turn on the sharper version to search by meaning on this Mac."
         static func downloading(_ step: String) -> String { "\(step). You can close Settings; it keeps going." }
         static let gettingReady = "Getting ready. You can close Settings; it keeps going."
         static func rereading(done: Int, total: Int) -> String {
@@ -116,17 +116,11 @@ extension Copy {
         /// One line under the two rows: what leaves the Mac (nothing) — true of today's folders and downloads.
         static let privacyLine = "Folders are read on this Mac, and everything search downloads stays here."
 
-        // MARK: Advanced (exempt from the plain-words lint: the version names and the rebuild live here)
-        static let advanced = "Advanced"
-        static let rebuildTitle = "Rebuild search"
-        static let rebuildNow = "Rebuild now"
-        static let rebuildCost = "Rebuilding costs only time."
-
         // MARK: Pointers from elsewhere
         static let integrationsLinkLead = "Folders are in"
         static let folderNotSetUpHere = "This folder isn't set up on this Mac yet — open \(pointer) to finish."
 
-        /// Every sentence the page shows before Advanced is opened, with sample arguments — the lint's input.
+        /// Every sentence the page shows, with sample arguments — the lint's input.
         static let defaultVisible: [String] = [
             sidebar, pageTitle, subtitle,
             foldersGroup, checkingFolders, foldersEmptyTitle, foldersEmptyDetail, addFolder, addFolderDetail, addFolderDemoHelp,
@@ -140,7 +134,7 @@ extension Copy {
             rereading(done: 1, total: 3), rereading(done: 0, total: 0), waitsForSleep, switchesAtNextSleep, loadFailed,
             imagesOffer(bytes: 309_000_000), imagesOffer(bytes: 0), imagesTurnOnHelp, imagesWaitsForMeaning,
             imagesWaitsHelp, imagesWaitsForDownload, imagesWaitsForDownloadHelp, imagesOn, imagesUnsupported,
-            privacyLine, advanced, downloadRunningHelp, rereadFailed, integrationsLinkLead, folderNotSetUpHere,
+            privacyLine, downloadRunningHelp, rereadFailed, integrationsLinkLead, folderNotSetUpHere,
         ]
     }
 }

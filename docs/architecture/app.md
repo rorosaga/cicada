@@ -162,8 +162,8 @@ on the rail's surface (owner 2026-10-07): `CicadaTheme.titlebarBackground(for:)`
 `RailCornerSnapshotTests` writes it offscreen on request. **Settings is a panel inside this window (DR-33)**: ⌘,
 (`ShellCommands`, which opens the window first if none is) and the gear open it over a scrim — 880 × 620 at 1×,
 inset ≥ 40 pt — with a `bgPane` sidebar that starts with a `CicadaSearchField` and groups its rows as Cicada ·
-Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General · You · Privacy & data · Memory · Sleep;
-Customize: Integrations · Reading the web · Agents · From anywhere · Devices · Skills; Engines & keys: Engines · Plans & keys · Advanced — and each
+Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General · You · Privacy & data · Search & files · Memory · Sleep;
+Customize: Integrations · Reading the web · Agents · From anywhere · Devices · Skills; Engines & keys: Engines · Plans & keys — and each
 page's own header with an `esc` keycap and a close ×. It is modal: the shell under it is inert, ⌘K waits, Esc and a
 scrim click close it. `AppRouter.openSettings(_:row:)` is the one door (`SettingsSectionLink`, the gear, ⌘,), every
 hand-off to a page closes it, and `cicada.settingsSection` is only its remembered selection — the `Settings{}` scene
@@ -171,10 +171,22 @@ and its cross-window seeds are gone. Privacy & data exports a bank and moves one
 switches banks (that is the command bar's); Memory has no "Look for duplicates" yet (R-O17) — the dedup endpoint
 now runs off the event loop and commits what it merges (G183(e)), so the button is the remaining half. Memory also holds
 G147's *How things fade*: pace suggestions from the person's own "Still tracking…?" answers
-(Apply · Not now — the latter per viewer) and each chosen per-type pace (Reset). Advanced lists the environment
-switches by name (G139) and, under *Settings file* (2026-10-13, `SettingsFileText`), whether a developer checkout's
-`api/.env` was read, which settings it set, which the environment replaced with another value, and the pace and page-writing values in
-effect — from `/status`'s `settings` block (`api.md`), names only. Search is `SettingsIndex` over `QuickMatch` — the
+(Apply · Not now — the latter per viewer) and each chosen per-type pace (Reset). **Settings defaults (owner
+2026-10-22: "Remove all those environment variables and stuff in the settings page. Let's just work towards the good
+defaults").** No Settings page shows an environment variable, a settings file, a home-relative path, a raw model id or a
+maintenance button; `SettingsDefaultsTests` holds that and holds every data, privacy, consent and trust control drawn
+and found by search. Advanced is gone (its backend status, MCP command, token path, environment switches and
+*Settings file*); a saved `"advanced"` selection reopens on General. Engines has no model picker or model-id field
+(each engine runs its own default, a model already chosen keeps being used, and the Sleep page's engine menu is where a
+model is switched); its preview lines say who reads, never the model. Search & files has no Advanced (version picker,
+larger-version account sheet, *Rebuild search*); Memory has no *Fetch link previews* (Sleep's tail describes saved
+links every run); Agents has no `make install` card; Plans & keys folds the key cards nobody has saved a key in under
+*Use an API key instead* (DR-39, per viewer `cicada.plansAndKeys.keysOpen`). Privacy names the memory folder in words
+(Show in Finder opens it), and keys, tokens and the pinned engine are said in words, never a path or a variable. Every
+value already set (`api/.env`, the environment, the bank's prefs, `~/.cicada`, UserDefaults) is still honoured; the
+routes, `GET /status`'s `envOverrides` and `settings` blocks (`api.md`) and the `cicada` commands (`cicada sleep engine
+--model`, `cicada index use|install|rebuild`) stay for developers. The full control table is in PR #405 and
+`docs/research/2026-10-22-hyrum-audit.md`. Search is `SettingsIndex` over `QuickMatch` — the
 palette's one ranker — and landing always selects, scrolls, washes (the selected fill and the focus ring) and
 announces the row (G139). `SettingsSection` raw values did not move. General's appearance offers System, which
 follows the Mac's own light/dark through one app-scope observer (`ThemeStore.observeSystemAppearance`). General (F-10:
@@ -198,7 +210,7 @@ suffix), the pictures/logos stores and every reader's cursor or last-synced sign
 per connection, so a server is sent what it has not had and This Mac's keys are unchanged byte for byte. On a server
 the app starts no backend, stops a background service left from This Mac (`BackendAgentService.stopForServer`:
 `launchctl bootout`, plist kept), *Keep memory working* says it is not needed, an update repairs no service, the demo is
-refused before any request (`ServerLinkError.demoStaysLocal`), and Advanced's token row names `device_token`; a reader's
+refused before any request (`ServerLinkError.demoStaysLocal`); a reader's
 post the server did not take waits in `ReaderOutbox` (`$CICADA_HOME/spool/app/`; a newer post on its route waits
 behind it, never overtakes it) and is flushed when the event stream connects, lane by lane (route + memory: another
 memory's refused post waits without blocking the active memory's — owner decision 6, 2026-10-16; no answer or a
@@ -2078,24 +2090,21 @@ mentioning embeddings". `SearchFilesView`, top to bottom:
   served and the app now decodes (`EmbeddingVisionState`; nil from an older backend hides the row). `install.part`
   (`text`|`vision`|`larger`) puts a step on the right row.
 - One privacy line ("Folders are read on this Mac, and everything search downloads stays here.").
-- **Advanced**, collapsed by default and remembered per viewer (`cicada.searchFiles.advancedOpen`, DR-39): *Search
-  version* — the `PillPicker` of the catalog's labels (*Sharper*, *Built in*, and *Larger* only where Sharper can't run
-  or the bank already uses it) with its detail line (`SearchModelLogic.detail`). A selection is never the consent: picking
-a version not on this Mac sends nothing and raises a confirm that names its size (`SearchModelRoute.confirmDownload`,
-`SearchModelLogic.confirmation`), and only its *Download* button starts the download; picking *Larger* opens
-  `LargerSearchModelSheet` (the terms are accepted on Hugging Face with the person's own account, so a read-only key from
-  that account downloads it once; the key rides one request body, is cleared from the view at once and is never
-  stored); and *Rebuild search* (the old Search index row; costs only time, no confirmation, TODO ruling 3). Version
-  names appear here and nowhere else.
+- No *Advanced* (settings defaults, owner 2026-10-22). The *Search version* picker, the larger version's account sheet
+  and *Rebuild search* left the app: *Understand what you mean* is the one choice, a version already chosen keeps being
+  used, and the index rebuilds itself. On the command line: `cicada index use <model>`, `cicada index install <model>`
+  (the larger version's account key), `cicada index rebuild`. A memory built with the larger version elsewhere says so
+  and offers *Turn on* for the sharper version, so the row is never a dead end. `SearchModelLogic` keeps the picker's
+  rules (a pick is never the consent; the size is said first) pure and tested, unread by the page but `pollInterval`.
 A failed re-read on the default view is the page's own sentence, never the backend's diagnostic; *Turn on* is dimmed
 with the reason while any download runs (the Looks shortcut included), never an enabled click that answers 409.
 `SearchFilesTests.testDefaultVisibleWordsAreNeverTechnical` holds every default-visible string (`Copy.SearchFiles.
 defaultVisible` and every state the two rows can render) free of model, embedding, index, vector, token, runtime and
-checksum; Advanced is exempt; the hidden Settings-search keywords keep every technical word so "embeddings" still lands
-on *Understand what you mean* and "rebuild" opens Advanced (`SettingsIndex`, anchors on `.searchAdvanced`). The backend
+checksum; the hidden Settings-search keywords keep the technical words so "embeddings", "index" or "search version"
+still land on *Understand what you mean* (`SettingsIndex`). The backend
 writes its catalog labels, steps and errors in the same words (`api/tests/test_search_words_are_plain.py`). Folder
-channels index on this page, and a saved folder row opens it (`ChannelActions.settingsSection`). **Memory** keeps *Fetch
-link previews* and *How things fade*. Not yet (G195): the search-only depth, kinds per folder, reading N of M files and
+channels index on this page, and a saved folder row opens it (`ChannelActions.settingsSection`). **Memory** keeps *How things
+fade*. Not yet (G195): the search-only depth, kinds per folder, reading N of M files and
 the idle/on-power pause — none is rendered until something computes it.
 
 ---

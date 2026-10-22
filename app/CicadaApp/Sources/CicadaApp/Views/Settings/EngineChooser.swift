@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// The G122 engine-and-model picker, as a row of cards with
+/// The G122 engine picker, as a row of cards with
 /// real marks (R-E4): Auto, Claude plan, ChatGPT plan, OpenRouter, Ollama, API key — the
 /// six candidates `GET /sleep/engine` probes (`auto`, `agent`, `codex`, `openrouter`,
 /// `local`, `byok`; OpenRouter is `byok` under the hood, R-AG12), each deciding its own selectability and caption through
-/// `EngineOption` (R-E25), a model field whose shape depends on which
-/// candidate is selected, the Claude plan's extra-usage switch (R-E13), and both ruling-4 previews rendered side by side so a
+/// `EngineOption` (R-E25), the one step a chosen card still needs (a key, or a command — never a model id), the Claude
+/// plan's extra-usage switch (R-E13), and both ruling-4 previews rendered side by side so a
 /// prefs-chosen "agent" that silently degrades to `litellm` on the nightly
 /// schedule is visible rather than a surprise. Never a price, never a token
 /// count anywhere in this chooser (G124) — the wire models it reads
@@ -32,7 +32,6 @@ struct EngineChooser: View {
 
     /// R-AG12 — the selected CARD, not the mode: OpenRouter and the API key are both `byok`.
     @State private var selectedCard: String = "auto"
-    @State private var selectedModel: String = ""
     @State private var loadedOnce = false
     /// Set when the person starts an OpenRouter sign-in (or pastes its key) HERE, so the card is
     /// chosen once the key lands — and only then; a sign-in finished on Plans & keys chooses nothing.
@@ -85,7 +84,6 @@ struct EngineChooser: View {
         guard let card = vm.response?.candidates.first(where: { $0.id == "openrouter" }),
               let write = EngineWrite.choosing(card, current: selectedCard) else { return }
         selectedCard = card.id
-        selectedModel = write.model ?? ""
         commit(write)
     }
 
@@ -96,7 +94,6 @@ struct EngineChooser: View {
     private func syncFromResponse() {
         guard let response = vm.response else { return }
         selectedCard = response.selected
-        selectedModel = response.model
     }
 
     @ViewBuilder
@@ -140,9 +137,8 @@ struct EngineChooser: View {
         if let candidate = response.candidates.first(where: { $0.id == selectedCard }) {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 stateLine(for: candidate)
-                modelField(for: candidate)
+                connectionStep(for: candidate)
             }
-            .settingsRow(.engineModel)
         }
 
         if EngineOption.showsOverageToggle(selectedMode: selectedCard) {
@@ -223,7 +219,6 @@ struct EngineChooser: View {
     private func select(_ candidate: SleepEngineCandidate) {
         guard let write = EngineWrite.choosing(candidate, current: selectedCard) else { return }
         selectedCard = candidate.id
-        selectedModel = write.model ?? ""
         commit(write)
     }
 
@@ -261,56 +256,17 @@ struct EngineChooser: View {
         }
     }
 
-    /// The model field's shape depends entirely on which candidate is
-    /// selected — a plan's model (the Claude aliases, or the ChatGPT plan's
-    /// live `model/list`, default first), a local Ollama tag, OpenRouter's model id
-    /// (a text field with a tested default; no catalog fetch), or the API key's provider
-    /// picker (R-AG11), which writes that provider's default model.
+    /// What the chosen card still needs from the person, and nothing else (settings defaults, owner 2026-10-22):
+    /// the API key card's provider and its key (R-AG11), or the one command that puts a model on this Mac. There is
+    /// no model picker here — each engine runs its own default, a model the person already chose keeps being used,
+    /// and the Sleep page's engine menu is where a model is switched (owner, 2026-09-23).
     @ViewBuilder
-    private func modelField(for candidate: SleepEngineCandidate) -> some View {
+    private func connectionStep(for candidate: SleepEngineCandidate) -> some View {
         switch candidate.id {
-        case "agent", "codex":
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                if !candidate.models.isEmpty {
-                    Picker("Model", selection: modelBinding(for: candidate)) {
-                        ForEach(candidate.models, id: \.self) { model in
-                            Text(model).tag(model)
-                        }
-                    }
-                    .labelsHidden()
-                }
-                TextField("Model id", text: freeTextModelBinding(for: candidate))
-                    .textFieldStyle(.roundedBorder)
-                    .font(CicadaTheme.captionFont)
-                    .onSubmit { commit(EngineWrite(mode: EngineWrite.mode(of: candidate), model: selectedModel)) }
-            }
         case "local":
-            let guideState = OllamaGuideState.from(candidate: candidate)
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                if !candidate.models.isEmpty {
-                    Picker("Model", selection: modelBinding(for: candidate)) {
-                        ForEach(candidate.models, id: \.self) { model in
-                            Text(model).tag(model)
-                        }
-                    }
-                    .labelsHidden()
-                }
-                if let command = guideState.command {
-                    CommandBox(command: command)
-                }
+            if let command = OllamaGuideState.from(candidate: candidate).command {
+                CommandBox(command: command)
             }
-        case "openrouter":
-            // R-AG12 — a model edit writes `byok`, never `mode: candidate.id` (a 422); the server
-            // pins the judge to the same model (R-AG13).
-            TextField(Copy.openRouterModel, text: freeTextModelBinding(for: candidate))
-                .textFieldStyle(.roundedBorder)
-                .font(CicadaTheme.captionFont)
-                .onSubmit {
-                    let id = EngineOption.openRouterModelID(selectedModel)
-                    if let write = EngineWrite.model(id, mode: "byok", current: vm.response?.model ?? "") {
-                        commit(write)
-                    }
-                }
         case "byok":
             if let response = vm.response { providerPicker(response) }
         default:
@@ -373,26 +329,10 @@ struct EngineChooser: View {
                       let write = EngineOption.providerWrite(provider, selectedCard: selectedCard,
                                                              currentModel: response.model) else { return }
                 selectedCard = "byok"
-                selectedModel = write.model ?? ""
                 providerKeyDraft = ""
                 commit(write)
             }
         )
-    }
-
-    private func modelBinding(for candidate: SleepEngineCandidate) -> Binding<String> {
-        Binding(
-            get: { selectedModel },
-            set: { newValue in
-                let write = EngineWrite.model(newValue, mode: EngineWrite.mode(of: candidate), current: selectedModel)
-                selectedModel = newValue
-                if let write { commit(write) }
-            }
-        )
-    }
-
-    private func freeTextModelBinding(for candidate: SleepEngineCandidate) -> Binding<String> {
-        Binding(get: { selectedModel }, set: { selectedModel = $0 })
     }
 
     @ViewBuilder
@@ -439,13 +379,14 @@ struct EngineChooser: View {
     }
 
     /// Pure formatter shared by both preview lines above —
-    /// `"<label>: <engine word> · <model>"` — unit-tested directly
+    /// `"<label>: <engine word>"`, never the model id (settings defaults, owner 2026-10-22: Settings shows who reads,
+    /// not a model's id; the Sleep page's engine menu still names the model) — unit-tested directly
     /// (`EngineCardTests.testPreviewLineFormatting`) without standing up a
     /// view. The engine half is exactly `Copy.engineLabel`'s mapping
     /// (`claude-cli|codex-cli|ollama|litellm`), never a fresh coinage — except a key run
     /// through OpenRouter, which names OpenRouter (`EngineOption.previewName`, R-AG12).
     static func previewLine(_ preview: SleepEnginePreview, label: String) -> String {
-        "\(label): \(EngineOption.previewName(engine: preview.engine, model: preview.model)) · \(preview.model)"
+        "\(label): \(EngineOption.previewName(engine: preview.engine, model: preview.model))"
     }
 }
 

@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// G50 — one card per provider connection. Subscriptions are probed through the
-/// vendor CLI (Cicada never holds a token); API keys go to ~/.cicada/secrets.env.
+/// vendor CLI (Cicada never holds a token); API keys go to `secrets.env` in Cicada's home (never named on screen).
 ///
 /// Credentials only (G139, R-O9): the plan, its sign-in and the keys. Engine
 /// choice lives on Engines — the Max tier picker (a cost-estimate control, K4)
@@ -12,6 +12,17 @@ struct ConnectionsView: View {
     @State private var keyDrafts: [String: String] = [:]
     @State private var confirmDisconnect: ConnectionStatus?
     @State private var terminalFallback = false
+    @Environment(SettingsFocus.self) private var focus: SettingsFocus?
+    /// DR-39 — per viewer, never synced: a person who opened the key cards finds them open next time.
+    @AppStorage(Self.keysOpenKey) private var keysOpen = false
+
+    static let keysOpenKey = "cicada.plansAndKeys.keysOpen"
+
+    /// Settings defaults (owner 2026-10-22; ruling 31, plans first; Hyrum B10): the plans, the local model and any
+    /// key already saved stay open; a key nobody has saved waits under one fold. Same cards, same routes, same files.
+    static func split(_ all: [ConnectionStatus]) -> (open: [ConnectionStatus], folded: [ConnectionStatus]) {
+        (all.filter { !$0.isKeyBased || $0.connected }, all.filter { $0.isKeyBased && !$0.connected })
+    }
 
     var body: some View {
         SettingsPage(section: .plansAndKeys, trailing: AnyView(
@@ -24,24 +35,26 @@ struct ConnectionsView: View {
             if viewModel.isLoading {
                 ProgressView().frame(maxWidth: .infinity, alignment: .center)
             } else {
+                let groups = Self.split(viewModel.connections)
                 VStack(spacing: CicadaTheme.spacingMD) {
-                    ForEach(viewModel.connections) { c in
-                        ConnectionCard(
-                            connection: c,
-                            keyDraft: Binding(get: { keyDrafts[c.id, default: ""] }, set: { keyDrafts[c.id] = $0 }),
-                            pendingLogin: viewModel.pendingLogin?.connectionId == c.id ? viewModel.pendingLogin : nil,
-                            awaitingTerminal: viewModel.awaitingTerminal == c.id,
-                            awaitingBrowser: viewModel.awaitingBrowser == c.id,
-                            terminalFallback: terminalFallback,
-                            onConnect: { Task { await connect(c) } },
-                            onDisconnect: { confirmDisconnect = c },
-                            onSaveKey: { Task { await viewModel.saveKey(c.id, key: keyDrafts[c.id, default: ""]); keyDrafts[c.id] = "" } }
-                        )
-                        .settingsRow(.connection(c.id))
+                    ForEach(groups.open) { c in card(c) }
+                    if !groups.folded.isEmpty {
+                        DisclosureGroup(isExpanded: $keysOpen) {
+                            VStack(spacing: CicadaTheme.spacingMD) {
+                                ForEach(groups.folded) { c in card(c) }
+                            }
+                            .padding(.top, CicadaTheme.spacingSM)
+                        } label: {
+                            Text(Copy.useAnAPIKeyInstead)
+                                .font(CicadaTheme.rowFont)
+                                .foregroundStyle(CicadaTheme.textSecondary)
+                        }
                     }
                 }
             }
         }
+        .onAppear { openKeysIfLanded() }
+        .onChange(of: focus?.landedNonce ?? 0) { _, _ in openKeysIfLanded() }
         // No `.task { load() }`: `ConnectionsViewModel` is a thin projection
         // over `Store.connections`, already hydrated + kept live by the
         // Store — this section renders instantly from the snapshot on revisit.
@@ -61,9 +74,30 @@ struct ConnectionsView: View {
             }
         } message: { c in
             Text(c.id == "claude-plan"
-                 ? "Runs `claude auth logout`. Claude Code will ask you to sign in again next time you open it."
-                 : c.id == "chatgpt-plan" ? Copy.chatgptSignOutExplainer : "Removes the key from ~/.cicada/secrets.env.")
+                 ? Copy.claudeSignOutExplainer
+                 : c.id == "chatgpt-plan" ? Copy.chatgptSignOutExplainer : Copy.keyRemovedFromMac)
         }
+    }
+
+    private func card(_ c: ConnectionStatus) -> some View {
+        ConnectionCard(
+            connection: c,
+            keyDraft: Binding(get: { keyDrafts[c.id, default: ""] }, set: { keyDrafts[c.id] = $0 }),
+            pendingLogin: viewModel.pendingLogin?.connectionId == c.id ? viewModel.pendingLogin : nil,
+            awaitingTerminal: viewModel.awaitingTerminal == c.id,
+            awaitingBrowser: viewModel.awaitingBrowser == c.id,
+            terminalFallback: terminalFallback,
+            onConnect: { Task { await connect(c) } },
+            onDisconnect: { confirmDisconnect = c },
+            onSaveKey: { Task { await viewModel.saveKey(c.id, key: keyDrafts[c.id, default: ""]); keyDrafts[c.id] = "" } }
+        )
+        .settingsRow(.connection(c.id))
+    }
+
+    /// A search hit on a folded key card opens the fold, so the row it names is on screen (R-O6).
+    private func openKeysIfLanded() {
+        guard let id = focus?.landed?.item(of: "connection") else { return }
+        if Self.split(viewModel.connections).folded.contains(where: { $0.id == id }) { keysOpen = true }
     }
 
     private func connect(_ c: ConnectionStatus) async {
@@ -132,7 +166,7 @@ private struct ConnectionCard: View {
                 Text(account).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
                     .privacySensitive()
             }
-            if let detail = connection.detail, !connection.connected {
+            if let detail = ConnectionsView.unconnectedDetail(connection) {
                 Text(detail).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
             }
 
@@ -226,5 +260,17 @@ private struct ConnectionCard: View {
                     .buttonStyle(.borderedProminent)
             }
         }
+    }
+}
+
+extension ConnectionsView {
+    /// The line under a card that is not connected. A key card's backend sentence names the secrets file's path and
+    /// the variable the key is exported as — right for `cicada engine list`, too technical for Settings (settings
+    /// defaults, owner 2026-10-22) — so the app says where the key goes in words; every other card keeps the
+    /// backend's own sentence.
+    static func unconnectedDetail(_ connection: ConnectionStatus) -> String? {
+        guard !connection.connected else { return nil }
+        if connection.login?.mode == "key" { return Copy.keyCardDetail }
+        return connection.detail
     }
 }

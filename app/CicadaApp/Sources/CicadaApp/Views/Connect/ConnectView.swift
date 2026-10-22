@@ -267,7 +267,6 @@ enum AgentSetupCatalog {
 /// hosts them too; this page only owns the fetches.
 struct ConnectView: View {
     private let runtime = CicadaRuntime.current
-    private var home: String { runtime.codeRoot.path }
     @State private var agents: [AgentSetup] = []
     /// The live backend's own configured memory root, once `/healthz`
     /// answers (G88 follow-up). This is the single source of truth for
@@ -313,24 +312,8 @@ struct ConnectView: View {
 
     var body: some View {
         SettingsPage(section: .agents) {
-            // G182 — a release installs nothing by hand: the app carries its backend, so `make install` is a
-            // checkout's step only.
-            if !runtime.isRelease {
-                SettingsGroupCard(header: Copy.agentsInstallGroup) {
-                    SettingsRow(.agentsInstall, title: Copy.agentsInstallTitle, detail: Copy.agentsInstallDetail) {
-                        EmptyView()
-                    } below: {
-                        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                            CommandBox(command: "cd \(SnippetEscape.shell(home)) && make install")
-                            Text(Copy.agentsHomeCaption(home))
-                                .font(CicadaTheme.captionFont)
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .privacySensitive()
-                        }
-                    }
-                }
-            }
+            // Settings defaults (owner 2026-10-22): no `make install` card. Installing is the installer's job
+            // (`install.sh`, or a release app that carries its own backend, G182); Settings never shows a shell step.
             SettingsGroupCard(header: Copy.agentsYourAgents, trailingHeader: Copy.agentsConnectedSummary(live.connectedCount)) {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
                     AgentSelector(entries: AgentCatalog.all, selection: $selected, connected: live.connected,

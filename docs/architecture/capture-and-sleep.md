@@ -1069,7 +1069,7 @@ an unclassified extraction rejection retains its legacy call retry. Calls outsid
 is sorted (`engine_cause`, text first, then litellm's class names) into a spending or credit limit reached, a refused
 key, an unknown model, or a rate limit, and the stop's sentence — the drain's, the paused record's and `error` — says
 that cause and its fix in provider-neutral words: raise the key's limit or add credit with the provider; check the key
-in Settings → Plans & keys; check the model id in Settings → Engines; continue later. A scheduled run that ruling 4
+in Settings → Plans & keys; choose another engine in Settings → Engines, or change the model where it was set (Settings no longer edits a model id, 2026-10-22); continue later. A scheduled run that ruling 4
 kept off the plan (`engine_select.SCHEDULE_DEGRADED`) also names *Scheduled runs may use my plan* in Settings → Sleep
 as a fix — named, never flipped (ruling 4b). The provider's raw text never reaches the wire. A cause outranks G117's
 "no engine chosen" guess (a refused key on such an install names both doors); no recognised cause keeps the generic

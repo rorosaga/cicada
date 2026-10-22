@@ -144,8 +144,8 @@ a litellm upgrade. A model the table does not list still runs; on OpenRouter its
 and the Usage aggregates, never `$0` (ruling 12).
 
 **The Neural Engine search model's download (owner 2026-10-09).** EmbeddingGemma 2 (`api/services/model_fetch.py`) is
-fetched only when the person asks: *Turn on* beside *Understand what you mean* in Settings → Search & files, or the
-*Download* in the confirm a *Sharper* pick under its Advanced raises — a selection alone never downloads
+fetched only when the person asks: *Turn on* beside *Understand what you mean* in Settings → Search & files (the version picker and its confirm left the
+app on 2026-10-22; `cicada index install` is the other door) — a selection alone never downloads
 (`POST /embeddings/install` with `model`; the size is stated before the click from
 the pins, `downloadBytes`), `make embedding-model-gemma2`, or `install.sh` on macOS 15+ — never on a schedule, never by Sleep,
 never by the backend on its own. It reads one pinned revision of `FluidInference/embeddinggemma-2-coreml` from

@@ -1,8 +1,10 @@
 """G139 — which environment switches steer this backend, by NAME only.
 
-Settings → Advanced lists them because several silently outrank what the app
-chooses — `CICADA_LLM_MODE` pins the engine even on the schedule (TODO ruling
-4's one exception) — and Privacy & data shows the three outbound gates.
+`GET /status` and the startup log list them because several silently outrank
+what the app chooses — `CICADA_LLM_MODE` pins the engine even on the schedule
+(TODO ruling 4's one exception) — and Privacy & data shows the three outbound
+gates as On/Off. The app's Settings no longer lists the names (settings
+defaults, owner 2026-10-22); the Engines page says a pin in words.
 Names only, never values (R-O22): a value can be a secret (`CICADA_API_TOKEN`)
 or a path that names the owner, and "this is set" is all the app needs.
 """

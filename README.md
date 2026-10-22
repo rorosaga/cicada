@@ -189,7 +189,8 @@ your own life. Re-open it any time from Settings → General → "Run setup agai
 
 `api/.env` is a source checkout's settings file. The backend reads it from its own folder, whatever directory it
 starts in, after a restart. A variable set in the backend's environment, such as its LaunchAgent plist, wins over the
-file. Settings → Advanced lists which settings came from the file and which the environment replaced with another value.
+file. `GET /status` (its `settings` block) and the backend's startup log list which settings came from the file and
+which the environment replaced with another value; the app's Settings never shows them.
 
 The engine is Auto unless you choose another (Settings → Engines, or pin it in `api/.env`):
 

@@ -42,6 +42,18 @@
   `benchmarks/hard_questions` read the stamp in the person's zone; ids are never renamed. The golden fixture did not
   change. Left for G199 proper: `isError` for refusals, `structuredContent`, validating every argument. Found, not in
   scope: Sleep's `source_dates.episode_day` still dates a conversation by its UTC stamp's first ten characters.
+- **2026-10-22 — Settings works toward good defaults (owner: "Remove all those environment variables and stuff in the
+  settings page. Let's just work towards the good defaults"; G139; branch `feat/settings-defaults`).** No Settings page
+  shows an environment variable, a settings file, a home path, a raw model id or a maintenance button. Cut: Advanced
+  (whole section; a saved selection opens General), Engines' model picker and model-id fields (each engine's default;
+  a model already chosen keeps running; the Sleep page's menu still switches a listed model), the model id in Settings'
+  preview lines, Search & files' Advanced (version picker, account sheet, rebuild), Memory's *Fetch link previews*
+  (Sleep's tail does it every run) and Agents' `make install` card. Folded: unsaved API key cards under *Use an API key
+  instead*. Said in words: the memory folder, where keys and tokens live, the pinned engine, the server pin, and
+  `engine_cause`'s unknown-model fix. Every stored value is still honoured; routes, `/status` and the `cicada` commands
+  are unchanged. Every data, privacy, consent and trust control stays drawn and searchable
+  (`SettingsDefaultsTests`). Detail: `app.md` (Settings), the Hyrum audit's B rows. Pick up: review; B-model's
+  "built elsewhere" inference on a fresh bank is still open.
 - **2026-10-21 — the seven backend failures on dev before 0.6.0 (branch `fix/suite-0.6`).** The full suite on
   `24a419a7` gave 7 failed, 10,864 passed. Two were code: the entity card opened the claims ledger through
   `quiet_pages.page_is_quiet` (#391) because `bank_index.file` parsed with the ledger fold — it now reads the header

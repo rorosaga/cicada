@@ -204,7 +204,8 @@ through `Settings`. `GET /status` carries `settings`: `file` (`"api/.env"` or nu
 memory path or the app-spawned developer backend's copy of the file, counts as from the file) — `CICADA_` names only,
 never a value — and `effective`, the four values Sleep's pace and page
 writing turn on (`agentMaxConcurrency`, `sleepResolveConcurrency`, `summarySynthesisEnabled`, `pageArticlesEnabled`).
-The backend logs the same names once at startup. Settings → Advanced shows them (`app.md`).
+The backend logs the same names once at startup. No Settings page shows them since 2026-10-22 (settings defaults,
+`app.md`): they are a developer's to read, here and in that log.
 
 **`GET /sleep/episodes` (2026-10-19)** answers a bare list of episode rows, as before. With no query it is every
 episode (the original shape, kept for any client still asking); `processed=false` is only the waiting ones — what the
