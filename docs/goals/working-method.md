@@ -110,8 +110,9 @@ app or backend.
 
 **CI on `dev` (2026-10-22).** `.github/workflows/dev-ci.yml` runs the backend half of the crucial tier on every push to
 `dev` and every PR into it: `ubuntu-latest`, Python 3.12.11 (the version `api/.venv` runs), `uv sync --frozen` from
-`api/uv.lock`, then `make test-crucial-backend`; actions pinned to commit SHAs, 20-minute timeout, a newer push cancels
-the older run. A red check on a background agent's PR means a rail's guard broke on a clean Linux box; read it before
+`api/uv.lock`, then `make test-crucial-backend`; actions pinned to commit SHAs (Node 24 releases), checkout without
+persisted credentials, 20-minute timeout; a newer push to a PR cancels its older run, while every commit on `dev` keeps
+its own result. A red check on a background agent's PR means a rail's guard broke on a clean Linux box; read it before
 reviewing the diff. The Swift half needs a Mac and stays a local step. **Cost:** the repo is public, so GitHub-hosted
 standard runners cost nothing; the run is ~1.5 min, most of it the lock's wheels (torch among them, from PyPI each
 time). **Known flaky or machine-bound in the tier:** none on the first runs (258 passed on the runner and on the Mac,

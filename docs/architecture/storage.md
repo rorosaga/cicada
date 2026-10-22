@@ -1456,8 +1456,8 @@ Cicada-Session: <id>
 ```
 
 **Git's author field is not provenance (G203, 2026-10-22).** A bank commits under whatever identity git is configured
-with, else under the neutral `Cicada <cicada@localhost>` that `ensure_commit_identity_sync` sets in the bank (never a
-guess from the account; `headless.md`, "Commits with no git identity"). Who wrote a change is read only from the
+with, and the half nobody configured is the neutral `Cicada` / `cicada@localhost` that `ensure_commit_identity_sync` sets in
+the bank whenever it becomes active (never a guess from the account; `headless.md`, "Commits with no git identity"). Who wrote a change is read only from the
 trailers. Every reader of a bank's history today takes the trailers and none takes `%an`/`%ae`: the page history and
 blame (`git_service._parse_authors`, `page_blame`, G198), the contributors view and its calendar
 (`get_contributors`, `consumption_stats`), claim recovery (`claim_recovery`, `%(trailers:key=Cicada-Author)`), the

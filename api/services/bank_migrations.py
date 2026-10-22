@@ -49,6 +49,15 @@ def run_bank_migrations(memory_path) -> dict:
     """
     memory_path = Path(memory_path)
 
+    # G203: before any migration commits, a bank switched to at runtime gets the neutral commit identity a boot-time
+    # bank gets from `scaffold_bank` (two `git var` calls when one is configured; never raises).
+    from api.services import git_service
+
+    try:
+        git_service.ensure_commit_identity_sync(memory_path)
+    except git_service.GitError as exc:
+        logger.warning(f"bank: could not set a fallback commit identity: {exc}")
+
     # One-time migration of legacy nudges/clarifications into inbox/.
     moved = migrate_to_inbox(memory_path)
     if moved:

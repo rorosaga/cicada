@@ -159,16 +159,18 @@ def save(run: dict) -> None:
 
 
 # The plan's headless sign-in (`claude setup-token`), the one way Sleep reaches the plan on a Linux box with no
-# keychain. Never in any process's environment but the engine's `claude` child: launch copies the caller's value into
-# a 0600 file in the run dir, `plan-claude` reads it into that child's env alone, and cleanup deletes it and masks
-# any copy of the value in the evidence. run.json and the backend's env carry only the file's path.
+# keychain. `cv` takes it out of its own environment as it starts, so no child of `cv` (the backend, MCP, the CLI,
+# git, ps, lsof, the app build) inherits it. `launch` writes the value to a 0600 file in the run dir once run.json
+# exists (so `cleanup` can always remove it), the run's env carries only the file's path, and `plan-claude` reads it
+# into the engine's `claude` child alone. `cleanup` deletes the file and masks any copy of the value in the evidence
+# and the run's logs.
 PLAN_TOKEN_VAR = "CLAUDE_CODE_OAUTH_TOKEN"
 PLAN_TOKEN_FILE = "secrets/claude-oauth-token"
 MASK = "<masked CLAUDE_CODE_OAUTH_TOKEN>"
+CALLER_PLAN_TOKEN = os.environ.pop(PLAN_TOKEN_VAR, "").strip()
 
 
-def write_plan_token(rdir: Path) -> Path | None:
-    value = os.environ.get(PLAN_TOKEN_VAR, "").strip()
+def write_plan_token(rdir: Path, value: str = CALLER_PLAN_TOKEN) -> Path | None:
     if not value:
         return None
     path = rdir / PLAN_TOKEN_FILE
@@ -180,13 +182,15 @@ def write_plan_token(rdir: Path) -> Path | None:
 
 
 def mask_plan_token(rdir: Path, evid: Path) -> int:
-    """Delete the run's token file; replace any copy of its value under the evidence dir. Returns files masked."""
+    """Delete the run's token file; replace any copy of its value under the evidence dir and the run's logs (kept by
+    `cleanup --keep-state`). Returns files masked."""
     path = rdir / PLAN_TOKEN_FILE
     if not path.exists():
         return 0
     value = path.read_text().strip()
     masked = 0
-    for f in (p for p in evid.rglob("*") if p.is_file() and not p.is_symlink()):
+    files = [p for root in (evid, rdir / "logs") for p in root.rglob("*") if p.is_file() and not p.is_symlink()]
+    for f in files:
         data = f.read_bytes()
         if value and value.encode() in data:
             f.write_bytes(data.replace(value.encode(), MASK.encode()))
@@ -333,7 +337,7 @@ def cmd_launch(args) -> None:
     for sub in ("home", "cicada-home", "memory", "logs", "bin"):
         (rdir / sub).mkdir()
     evid.mkdir(parents=True, exist_ok=True)
-    token_file = write_plan_token(rdir)
+    token_file = rdir / PLAN_TOKEN_FILE if CALLER_PLAN_TOKEN else None
     py = python_for(checkout)
     state = tree_state(checkout)
     run = {
@@ -358,6 +362,7 @@ def cmd_launch(args) -> None:
         },
     }
     save(run)
+    write_plan_token(rdir)
     if args.search_model:
         cache = RUN_ROOT / "_cache/release"
         cache.mkdir(parents=True, exist_ok=True)
@@ -1040,22 +1045,34 @@ def selftest_guards() -> list[tuple]:
     fake = {"env": {"HOME": "/scratch", "CICADA_VERIFY_PLAN_TOKEN_FILE": "/run/secrets/claude-oauth-token"}}
     with unittest.mock.patch.dict(os.environ, {PLAN_TOKEN_VAR: "cv-selftest-not-a-token"}):
         built = env_for(fake)
+    probe = subprocess.run([sys.executable, "-c", (
+        "import importlib.machinery, importlib.util, os, subprocess, sys\n"
+        "loader = importlib.machinery.SourceFileLoader('cv_probe', sys.argv[1])\n"
+        "mod = importlib.util.module_from_spec(importlib.util.spec_from_loader('cv_probe', loader))\n"
+        "loader.exec_module(mod)\n"
+        "child = subprocess.run(['/usr/bin/env'], capture_output=True, text=True).stdout\n"
+        "print(mod.CALLER_PLAN_TOKEN == 'cv-selftest-not-a-token', 'cv-selftest-not-a-token' in child)"),
+        str(Path(__file__).resolve())], capture_output=True, text=True,
+        env={"PATH": os.environ["PATH"], PLAN_TOKEN_VAR: "cv-selftest-not-a-token"})
+    rows.append((probe.stdout.split() == ["True", "False"], "cv keeps the token but no child of cv inherits it",
+                 "removed", probe.stdout.strip() or probe.stderr.strip()[-80:]))
     rows.append((PLAN_TOKEN_VAR not in built and "cv-selftest-not-a-token" not in json.dumps(built),
                  "run env never carries CLAUDE_CODE_OAUTH_TOKEN", "absent", ""))
     tdir = Path(os.environ.get("TMPDIR", "/tmp")) / f"cv-selftest-token-{os.getpid()}"
     (tdir / "evidence").mkdir(parents=True)
-    with unittest.mock.patch.dict(os.environ, {PLAN_TOKEN_VAR: "cv-selftest-not-a-token"}):
-        tfile = write_plan_token(tdir)
+    tfile = write_plan_token(tdir, "cv-selftest-not-a-token")
     mode = tfile.stat().st_mode & 0o777 if tfile else None
     rows.append((mode == 0o600, "token file is 0600", "0600", oct(mode) if mode else "not written"))
     (tdir / "evidence/leak.txt").write_text("before cv-selftest-not-a-token after")
+    (tdir / "logs").mkdir()
+    (tdir / "logs/backend.log").write_text("cv-selftest-not-a-token\n")
     masked = mask_plan_token(tdir, tdir / "evidence")
-    clean = "cv-selftest-not-a-token" not in (tdir / "evidence/leak.txt").read_text()
-    rows.append((masked == 1 and clean and not (tdir / PLAN_TOKEN_FILE).exists(),
-                 "cleanup masks the token in evidence and deletes the file", "masked", ""))
-    with unittest.mock.patch.dict(os.environ, {}, clear=False):
-        os.environ.pop(PLAN_TOKEN_VAR, None)
-        rows.append((write_plan_token(tdir) is None, "no token in the caller: no file", "absent", ""))
+    clean = all("cv-selftest-not-a-token" not in f.read_text() for f in (tdir / "evidence/leak.txt",
+                                                                         tdir / "logs/backend.log"))
+    rows.append((masked == 2 and clean and not (tdir / PLAN_TOKEN_FILE).exists(),
+                 "cleanup masks the token in evidence and logs and deletes the file", "masked", ""))
+    rows.append((write_plan_token(tdir, "") is None, "no token in the caller: no file", "absent", ""))
+    rows.append(selftest_early_launch_failure(tdir))
     shutil.rmtree(tdir, ignore_errors=True)
     for run_id, want in (("my-check.2", True), ("a_b", False), ("a\n", False), ("..", False), ("a/b", False),
                          ("", False)):
@@ -1068,6 +1085,25 @@ def selftest_guards() -> list[tuple]:
         rows.append((is_real_state(str(REAL_HOME / rel)) == want, f"leak check ~/{rel}", "flagged" if want else "ignored",
                      ""))
     return rows
+
+
+def selftest_early_launch_failure(tdir: Path) -> tuple:
+    """`launch` dies before run.json exists (a checkout with no venv): no token file may be left behind, since
+    `cleanup` refuses a run dir without run.json."""
+    fake, root = tdir / "fake-checkout", tdir / "root"
+    for rel in ("api/main.py", "mcp/server.py", "app/CicadaApp/bundle.sh", "VERSION"):
+        (fake / rel).parent.mkdir(parents=True, exist_ok=True)
+        (fake / rel).write_text("0.0.0\n" if rel == "VERSION" else "")
+    subprocess.run(["git", "init", "-q", str(fake)], capture_output=True)
+    env = {"PATH": os.environ["PATH"], "TMPDIR": str(tdir), "HOME": str(tdir), "CICADA_VERIFY_ROOT": str(root),
+           PLAN_TOKEN_VAR: "cv-selftest-early-token"}
+    res = subprocess.run([sys.executable, str(Path(__file__).resolve()), "launch", "--run-id", "early",
+                          "--checkout", str(fake), "--evidence", str(tdir / "early-evidence")],
+                         env=env, capture_output=True, text=True)
+    left = [p for p in tdir.rglob("*") if p.is_file() and "cv-selftest-early-token" in p.read_text(errors="ignore")]
+    ok = res.returncode != 0 and "no Python venv" in res.stderr and not left
+    return (ok, "launch failing before run.json leaves no token file", "none left",
+            ", ".join(str(p.relative_to(tdir)) for p in left) or res.stderr.strip()[-80:])
 
 
 def cmd_selftest(args) -> None:

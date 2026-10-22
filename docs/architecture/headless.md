@@ -198,11 +198,15 @@ says so and names the pages it found, never a keyless call.
 
 A fresh server has no `user.name`/`user.email`, and git refuses to commit; a fresh Mac has none either, and git guesses
 one from the account (its full name and `user@hostname`), so every commit of a bank handed to someone else would carry
-both (G203). `git_service.ensure_commit_identity_sync`, called by `bank_registry.scaffold_bank` (every startup and every
-new bank), sets a repo-local `Cicada <cicada@localhost>` **only when no identity is configured**: it asks git with
-`user.useConfigOnly=true`, so a guessed identity counts as none. It never overrides a configured one (environment, the
-bank's own config, global or system), never writes `~/.gitconfig` and never rewrites a commit already made: a bank's
-older commits keep the author they were made under. `install.sh`'s first commit asks the same way. Who wrote a change
+both (G203). `git_service.ensure_commit_identity_sync` runs for every bank that becomes active: `scaffold_bank` (startup
+and every new or copied bank) and `run_bank_migrations` (every runtime switch, the demo's two doors included, before any
+migration commits). It fills, in the bank's own config, **only the half nobody configured** with the neutral value
+(`user.name Cicada`, `user.email cicada@localhost`). Each half is asked of git with `user.useConfigOnly=true` and the
+other half stood in, so a guessed half counts as missing; `EMAIL` counts as a configured email, since git honours it.
+A configured half is the person's choice and stays: a global `user.name` with no email commits as that name with the
+neutral email, rather than having the name hidden in this bank. It never writes `~/.gitconfig` and never rewrites a
+commit already made: a bank's older commits keep the author they were made under. `install.sh`'s first commit asks the
+same way, half by half. Who wrote a change
 is the `Cicada-Author` trailer's job, not git's author field, so nothing about provenance changes (the readers are in
 `storage.md`, "Git — versioning and provenance").
 

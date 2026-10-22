@@ -46,12 +46,13 @@ kills only pids it recorded whose command line still carries the marker it recor
 Observed 2026-10-22: a scratch `HOME` (or `CLAUDE_CONFIG_DIR`) makes `claude auth status` report `loggedIn: false`,
 which is why `plan-claude` exists. The backend's documented headless path, `CLAUDE_CODE_OAUTH_TOKEN` from
 `claude setup-token`, also works without the real HOME, but minting that token is the person's step, never an agent's.
-When the caller's shell has `CLAUDE_CODE_OAUTH_TOKEN` (a headless Linux run), `launch` copies its value into a 0600
-file in the run dir (`secrets/claude-oauth-token`) and the run's env carries only that file's path
-(`CICADA_VERIFY_PLAN_TOKEN_FILE`). `plan-claude` reads it into the engine's `claude` child alone, the way it gives that
-child the real HOME on a Mac: the backend, the MCP server and the CLI never hold the value, and it is never in
-`run.json` or a log. `cleanup` deletes the file and masks any copy of the value it finds under the evidence dir.
-`cv selftest` proves each step against a stand-in token.
+When the caller's shell has `CLAUDE_CODE_OAUTH_TOKEN` (a headless Linux run), `cv` takes it out of its own environment
+as it starts, so none of its children (the backend, the MCP server, the CLI, git, the app build) inherits it. Once
+`run.json` exists, `launch` writes the value into a 0600 file in the run dir (`secrets/claude-oauth-token`), and the
+run's env carries only that file's path (`CICADA_VERIFY_PLAN_TOKEN_FILE`). `plan-claude` reads it into the engine's
+`claude` child alone, the way it gives that child the real HOME on a Mac. `cleanup` deletes the file and masks any
+copy of the value under the evidence dir and the run's `logs/` (which `--keep-state` keeps). `cv selftest` proves each
+step against a stand-in token, including a `launch` that dies before `run.json`.
 
 ## Launch
 

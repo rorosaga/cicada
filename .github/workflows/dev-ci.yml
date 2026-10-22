@@ -14,17 +14,21 @@ permissions:
   contents: read
 
 concurrency:
-  group: dev-ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push to a PR supersedes its older run. A push to dev groups by commit, so no dev commit's run is cancelled
+  # or dropped as a superseded pending run: each keeps its own result.
+  group: dev-ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   crucial-backend:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
-      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+      - uses: astral-sh/setup-uv@eb1897b8dc4b5d5bfe39a428a8f2304605e0983c # v7.0.0
         with:
           python-version: "3.12.11"
 

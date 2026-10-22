@@ -304,7 +304,7 @@ else
   step "git init memory + initial commit"
   # G181: a fresh server has no git identity and git refuses to commit; the bank (only) gets a placeholder one,
   # the same as the backend's git_service.ensure_commit_identity_sync. A resolving identity is never overridden.
-  run sh -c "cd '$MEMORY_PATH' && git init -q && { { git -c user.useConfigOnly=true var GIT_AUTHOR_IDENT && git -c user.useConfigOnly=true var GIT_COMMITTER_IDENT; } >/dev/null 2>&1 || { git config user.name Cicada && git config user.email cicada@localhost; }; } && git add -A && git commit -q -m 'Initial Cicada memory' --allow-empty"
+  run sh -c "cd '$MEMORY_PATH' && git init -q && { { git -c user.useConfigOnly=true -c user.email=probe@cicada.invalid var GIT_AUTHOR_IDENT && git -c user.useConfigOnly=true -c user.email=probe@cicada.invalid var GIT_COMMITTER_IDENT; } >/dev/null 2>&1 || git config user.name Cicada; } && { [ -n \"\$EMAIL\" ] || { git -c user.useConfigOnly=true -c user.name=probe var GIT_AUTHOR_IDENT && git -c user.useConfigOnly=true -c user.name=probe var GIT_COMMITTER_IDENT; } >/dev/null 2>&1 || git config user.email cicada@localhost; } && git add -A && git commit -q -m 'Initial Cicada memory' --allow-empty"
   ok "memory git repo initialized"
 fi
 fi

@@ -21,7 +21,19 @@ Preconditions:
 
 - **Preview (CLI).** Run `$CV cli -- import --preview <run>/fixtures/conversations.json`. `claude: 2 new, 0 grown, 0 already here`.
 - **Import (CLI).** `$CV cli -- import <file>` answers that importing acts as the person and changes nothing (exit 1). That is the rail.
-- **Sniff and import (the app's drop route).** `curl -F file=@<file> -H "Authorization: Bearer $(cat <run>/cicada-home/api_token)" http://127.0.0.1:<port>/intake/sniff` names `vendor: claude` with the counts and titles; the same against `/intake/import` stages them (`episodesStaged: 2`). `cv api` sends JSON only, so these multipart routes go through curl with the run's token and port (`run.json`).
+- **Sniff and import (the app's drop route).** `cv api` sends JSON only, so these multipart routes go through curl. Keep
+  the run's token out of every argv: write it into a 0600 header file with the shell's own `printf`, then point curl at
+  the file.
+
+  ```sh
+  RUN=$CICADA_VERIFY_RUN; PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['port'])" "$RUN/run.json")
+  (umask 077; { printf 'Authorization: Bearer '; cat "$RUN/cicada-home/api_token"; } > "$RUN/auth.header")
+  curl -s -H @"$RUN/auth.header" -F file=@"$RUN/fixtures/conversations.json" "http://127.0.0.1:$PORT/intake/sniff"
+  curl -s -H @"$RUN/auth.header" -F file=@"$RUN/fixtures/conversations.json" "http://127.0.0.1:$PORT/intake/import"
+  ```
+
+  The sniff names `vendor: claude` with the counts and titles; the import stages them (`episodesStaged: 2`). The header
+  file lives in the run dir, which `cv cleanup` deletes.
 - **Stored.** `$CV bank ls | grep '^episodes/'`. Two episodes dated by the conversations' own days.
 
 ## Gotchas
