@@ -8,6 +8,17 @@
 
 ## Current state and evidence
 
+- **2026-10-22 — Settings in eleven sections (Hyrum audit B1, with B11, B12, B23; G139; branch `settings-regroup`).**
+  Memory's one card joined Search & files (now *Search & memory*), From anywhere joined Devices (now *Devices &
+  access*), Plans & keys closes Engines. Each moved page is a group under its old header anchor (`page:memory`,
+  `page:remote`, `page:plansAndKeys`); `SettingsSection.retired` opens a saved selection, the old `agentsMode` and a ⌘K
+  recent on the new home, never General. General has one *Getting started* card; the command-line tool is on Agents;
+  Reading folds its method pickers while off. Every "Settings → <old section>" in app copy, backend sentences and docs
+  says the new path; `SettingsAnchorsTests` fails if an entry, deep link, retired value or pointer stops resolving.
+  Found on the way: a query with a bare "&" ("Plans & keys", "Privacy & data") matched nothing (`QuickMatch.tokens`
+  now drops punctuation-only words), and a landing below late-loading cards stopped short (one unanimated re-scroll
+  after `settingsLandingSettle`). Presentation only. Not done: B5 (shared step renderer). Pass 2's "B1 is the owner's
+  call" stands as the merge gate. Detail: `app.md` (Settings), the audit's *B1 as built*.
 - **2026-10-22 — the 0.6.0 release build type-checks on the runner (branch `fix/release-typecheck`).** Release run
   39714438472 failed: `SaveWhyPanel.swift:394` "unable to type-check this expression in reasonable time" on the
   macos-26 runner (it built on the dev Mac). A release build with `-warn-long-expression-type-checking=150` and

@@ -322,7 +322,7 @@ On a server the app:
   path and the server's dedup makes a resend harmless;
 - refuses the demo (`ServerLinkError.demoStaysLocal`, before any request): a demo is a This Mac thing.
 
-**Settings → Devices** (Customize, after From anywhere): *Where your memory lives* — the choice above and, only while
+**Settings → Devices & access** (Customize, after Agents; From anywhere is its last group since the Hyrum audit's B1): *Where your memory lives* — the choice above and, only while
 this app runs on a server, "This app is using <host> now.", reachable or not and as of when (`/healthz`, every 30 s
 while open), and how many captures wait on this Mac (the outbox and the hooks' spool, G202) — plus, on either mode, those kept for a server this Mac no longer uses — and *Your devices*: each
 device's name, when it was added and last seen, and *this Mac* on its own row. On This Mac (the master token) the page
