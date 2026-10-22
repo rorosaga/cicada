@@ -182,6 +182,8 @@ def test_a_new_name_another_page_links_as_its_account_is_asked_about_not_given_a
     result = _resolve(bank, monkeypatch, pages, [_mention("bexample", 1), _mention("bexample", 2)], _Judge())
     assert _creates(result) == []
     assert _questions(bank) == [("merge_suggestion", "bexample", "bob-example")]
+    body = markdown_parser.parse(next((bank / "inbox").glob("inbox-*.md"))).body
+    assert body == "Bob Example links the x account “bexample”."
 
 
 def test_a_named_handle_mention_lands_on_the_full_name_page_with_the_handle_as_alias(bank, monkeypatch):

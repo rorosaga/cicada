@@ -388,10 +388,13 @@ async def resolve(
             ambiguous_match = match is not None and match["decision"] == "unsure"
             if match is None and (entity.get("type") or "").lower() == "person":
                 # G209: a new name that another person page links as its account is asked about, not given a page.
-                linked = [pid for pid, kind in person_index.holders_of(name) if kind.startswith("profile:")]
+                linked = [(pid, kind) for pid, kind in person_index.holders_of(name) if kind.startswith("profile:")]
                 if linked:
-                    holder = person_index.by_id[linked[0]]
-                    match = {"decision": "unsure", "candidate": {"source": "existing", "id": linked[0], "data": holder}}
+                    pid, kind = linked[0]
+                    match = {"decision": "unsure", "candidate": {"source": "existing", "id": pid,
+                                                                 "data": person_index.by_id[pid]},
+                             "lead": person_leads.Lead(page=sanitize_id(name), holder=pid, kind=kind,
+                                                       key=person_leads.handle_key(name))}
                     ambiguous_match = True
 
             # New entity — the promotion rule, measured (`promotion`): 2+ conversations
@@ -432,7 +435,11 @@ async def resolve(
                     card = None   # the card's name is already another page's id: an ordinary name, by the usual rule
             should_promote = should_promote or card is not None
 
-            if ambiguous_match:
+            if ambiguous_match and match.get("lead") is not None:
+                pending_actions.append((_create_lead_clarification, (),
+                                        {"clarifier": clarifier, "lead": match["lead"], "index": person_index,
+                                         "entity": entity}))
+            elif ambiguous_match:
                 pending_actions.append((
                     _create_duplicate_clarification,
                     (),
@@ -1215,12 +1222,13 @@ def _create_lead_clarification(clarifier: ClarificationManager, lead: "person_le
     """The "Possible duplicate of …" question a G209 lead raises: the page carrying the name (``lead.page``) against
     the page that lists it (``lead.holder``), the lead in words as its context. Never a merge; a pair the person
     already said were different is never asked again (`ClarificationManager.create`)."""
-    page = index.by_id.get(lead.page) or {}
+    page = index.by_id.get(lead.page)
     holder = index.by_id.get(lead.holder) or {}
     holder_name = person_leads.page_name(holder)
     try:
         clarifier.create(
-            entity_name=person_leads.page_name(page),
+            # A name still below the promotion bar has no page: the question is about the name as it was said.
+            entity_name=person_leads.page_name(page) if page is not None else str(entity.get("name") or lead.key),
             source_episode=entity.get("source_episode", ""),
             uncertainty_type=f"Possible duplicate of {holder_name}",
             suggested_classification=f"person — could refer to the same person as {holder_name}",
