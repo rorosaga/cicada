@@ -250,10 +250,16 @@ struct ReadingWebView: View {
         }
         // R-O5 — while the skill's detail is open, Esc goes back to this page instead of closing the panel.
         .onChange(of: openSkill?.id, initial: true) { _, open in
-            focus?.escapeBack = open == nil ? nil : { closeSkill() }
+            focus?.escapeBack = escapeBack(skillOpen: open != nil)
         }
         .onChange(of: focus?.landedNonce ?? 0) { _, _ in openSkill = nil }
         .onDisappear { focus?.escapeBack = nil }
+    }
+
+    /// Esc's "back" while a skill's detail is open — a typed helper, so `body` stays inside the type checker's
+    /// release-build budget.
+    private func escapeBack(skillOpen: Bool) -> (() -> Void)? {
+        skillOpen ? { closeSkill() } : nil
     }
 
     /// Back from a skill's detail: an install or a copied prompt may have changed what is installed, so both lists

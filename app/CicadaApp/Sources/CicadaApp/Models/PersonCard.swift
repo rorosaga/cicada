@@ -240,10 +240,12 @@ enum PersonBeliefs {
     /// Already-current beliefs, newest first. Each key is read once, not once per comparison (88 ms → a few on an
     /// owner-sized page); ties keep page order, as the old comparison sort happened to for this data.
     static func newestFirst(_ current: [Claim]) -> [Claim] {
-        current.enumerated()
-            .map { (key: key($0.element), index: $0.offset, claim: $0.element) }
-            .sorted { $0.key != $1.key ? $0.key > $1.key : $0.index < $1.index }
-            .map(\.claim)
+        typealias Keyed = (key: String, index: Int, claim: Claim)
+        let keyed: [Keyed] = current.enumerated().map { (key: key($0.element), index: $0.offset, claim: $0.element) }
+        let sorted: [Keyed] = keyed.sorted { (a: Keyed, b: Keyed) -> Bool in
+            a.key != b.key ? a.key > b.key : a.index < b.index
+        }
+        return sorted.map(\.claim)
     }
 
     private static func key(_ claim: Claim) -> String {

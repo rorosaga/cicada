@@ -51,18 +51,8 @@ struct InboxQuestionList: View {
                 VStack(spacing: style == .triage ? CicadaTheme.scaled(RowMetrics.twoLineGap) : 0) {
                     if style == .wide, let header { header }
                     ForEach(entries) { entry in
-                        Group {
-                            switch entry {
-                            case .item(let item):
-                                InboxRow(item: item, style: style, slots: slots, selected: item.id == openId,
-                                         now: now) { open(item) }
-                            case .undo(let held, let item):
-                                InboxUndoRow(held: held, item: item, style: style,
-                                             shortcutEnabled: undoShortcut, onUndo: undo)
-                                    .transition(.opacity.animation(CicadaMotion.undoFade(reduceMotion: reduceMotion)))
-                            }
-                        }
-                        .id(entry.id)
+                        Group { row(entry, slots: slots, now: now) }
+                            .id(entry.id)
                     }
                     if style == .wide, let footer { footer }
                 }
@@ -91,6 +81,19 @@ struct InboxQuestionList: View {
             return .handled
         }
         .onExitCommand { escape() }
+    }
+
+    /// One entry's row — split out of `body`, which sat near the type checker's release-build budget.
+    @ViewBuilder private func row(_ entry: InboxRowEntry, slots: InboxRowSlots, now: Date) -> some View {
+        switch entry {
+        case .item(let item):
+            InboxRow(item: item, style: style, slots: slots, selected: item.id == openId,
+                     now: now) { open(item) }
+        case .undo(let held, let item):
+            InboxUndoRow(held: held, item: item, style: style,
+                         shortcutEnabled: undoShortcut, onUndo: undo)
+                .transition(.opacity.animation(CicadaMotion.undoFade(reduceMotion: reduceMotion)))
+        }
     }
 }
 

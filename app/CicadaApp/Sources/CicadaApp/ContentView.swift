@@ -127,41 +127,7 @@ struct ContentView: View {
     }
 
     var body: some View {
-        lifecycleStage
-        // G162 — the video reads follow what their ETags fold (a 304 costs nothing); a cache no page has asked of
-        // stays unread until a page that shows it appears. A bank switch keeps what was asked (`wantsReads`).
-        .onChange(of: store.version) { old, new in
-            guard VideoRefresh.shouldRevalidate(old: old, new: new), videoStateCache.wantsReads else { return }
-            Task { await videoStateCache.revalidate() }
-        }
-        // G166 exploring — "Picked up" and each recorded capture show within a second of the queue file or a capture
-        // record moving (the `exploreQueue` and `captures` components); unread until Sources asks.
-        .onChange(of: store.version) { old, new in
-            guard ExploreRefresh.shouldRevalidate(old: old, new: new), exploreCache.wantsReads else { return }
-            Task { await exploreCache.revalidate() }
-        }
-        // The engine choice changed somewhere else (or a run started or ended on another engine): the Sleep page's
-        // button, lamp and answers follow it without a revisit.
-        .onChange(of: store.version) { old, new in
-            guard SleepEngineRefresh.shouldReload(old: old, new: new, loaded: sleepEngineVM.response != nil,
-                                                  saving: sleepEngineVM.isSaving) else { return }
-            Task { await sleepEngineVM.load() }
-        }
-        // A cached hover preview has no validator, so any change to the
-        // bank's episodes or entities forgets them (final review): `/inbox`
-        // ETags over inbox + entities + episodes, so its snapshot landing a
-        // new value is the one Store signal that covers an episode rewritten
-        // in place (G104) as well as a page re-enriched; the graph covers
-        // entities on its own. A 304 leaves `loadedAt` alone, so an idle
-        // sync never empties the cache.
-        .onChange(of: store.inbox.loadedAt) { _, _ in provenanceCache.forgetSpans() }
-        // G166 — a link an agent found behind a login wall is announced once, wherever the person is; the row in
-        // the Feed keeps the flag. The first look after launch or a bank switch announces nothing.
-        .onChange(of: store.sources.loadedAt) { _, _ in noteReadWalls() }
-        .onChange(of: store.bank) { _, _ in seenWalls = nil }
-        .onChange(of: store.graph.loadedAt) { _, _ in provenanceCache.forgetSpans() }
-        .onChange(of: store.banks.loadedAt) { _, _ in evaluateFirstRun() }
-        .onChange(of: store.graph.loadedAt) { _, _ in evaluateFirstRun() }
+        refreshStage
         .onChange(of: selectedTab) { _, newValue in
             selectedTabRaw = newValue.rawValue
             // Bug 3 / G108 — a different tab drops the entity card's stale
@@ -207,6 +173,46 @@ struct ContentView: View {
         // aside so the person sees the sentence instead of an overlay
         // covering it (the Ask sheet did the same before G136).
         .onChange(of: provenance.revision) { _, _ in if paletteOpen { closePalette() } }
+    }
+
+    /// The caches and the first-run check follow the Store — split out of `body`, whose one modifier chain took the
+    /// type checker several seconds in a release build (the 0.6.0 runner gave up on a smaller one elsewhere).
+    private var refreshStage: some View {
+        lifecycleStage
+        // G162 — the video reads follow what their ETags fold (a 304 costs nothing); a cache no page has asked of
+        // stays unread until a page that shows it appears. A bank switch keeps what was asked (`wantsReads`).
+        .onChange(of: store.version) { old, new in
+            guard VideoRefresh.shouldRevalidate(old: old, new: new), videoStateCache.wantsReads else { return }
+            Task { await videoStateCache.revalidate() }
+        }
+        // G166 exploring — "Picked up" and each recorded capture show within a second of the queue file or a capture
+        // record moving (the `exploreQueue` and `captures` components); unread until Sources asks.
+        .onChange(of: store.version) { old, new in
+            guard ExploreRefresh.shouldRevalidate(old: old, new: new), exploreCache.wantsReads else { return }
+            Task { await exploreCache.revalidate() }
+        }
+        // The engine choice changed somewhere else (or a run started or ended on another engine): the Sleep page's
+        // button, lamp and answers follow it without a revisit.
+        .onChange(of: store.version) { old, new in
+            guard SleepEngineRefresh.shouldReload(old: old, new: new, loaded: sleepEngineVM.response != nil,
+                                                  saving: sleepEngineVM.isSaving) else { return }
+            Task { await sleepEngineVM.load() }
+        }
+        // A cached hover preview has no validator, so any change to the
+        // bank's episodes or entities forgets them (final review): `/inbox`
+        // ETags over inbox + entities + episodes, so its snapshot landing a
+        // new value is the one Store signal that covers an episode rewritten
+        // in place (G104) as well as a page re-enriched; the graph covers
+        // entities on its own. A 304 leaves `loadedAt` alone, so an idle
+        // sync never empties the cache.
+        .onChange(of: store.inbox.loadedAt) { _, _ in provenanceCache.forgetSpans() }
+        // G166 — a link an agent found behind a login wall is announced once, wherever the person is; the row in
+        // the Feed keeps the flag. The first look after launch or a bank switch announces nothing.
+        .onChange(of: store.sources.loadedAt) { _, _ in noteReadWalls() }
+        .onChange(of: store.bank) { _, _ in seenWalls = nil }
+        .onChange(of: store.graph.loadedAt) { _, _ in provenanceCache.forgetSpans() }
+        .onChange(of: store.banks.loadedAt) { _, _ in evaluateFirstRun() }
+        .onChange(of: store.graph.loadedAt) { _, _ in evaluateFirstRun() }
     }
 
     /// The two layers that cover the whole window — the ⌘K palette and the Settings panel
