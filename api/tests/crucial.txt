@@ -172,3 +172,7 @@ test_fetch_embedding_model.py::test_the_release_build_and_the_checkout_share_one
 
 ## CLAUDE.md stays under its size limit and every architecture doc exists
 test_claude_md_size.py
+
+## Where to check (ruling 36 D5): a proposal is never trusted, drawn or re-checked; Sleep settles it only on the person's own located words
+test_where_to_check.py::test_a_profile_in_the_pages_own_text_is_proposed_untrusted_with_one_question_and_no_face
+test_where_to_check.py::test_without_the_persons_own_words_naming_it_nothing_is_settled

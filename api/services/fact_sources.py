@@ -80,6 +80,9 @@ MAX_TOMBSTONES = 20
 MAX_REASON_CHARS = 160
 REMOVED_KEY = "sources_removed"
 REMOTE_PREFIX = "remote:"
+#: G61 "Where to check" (ruling 36 D5, 2026-10-22): an entry an agent or Sleep inferred from the record, waiting for the
+#: person. Never trusted, never "their own account", never re-checked, until the person takes it (``accepted``).
+PROPOSED = "proposed"
 _UNSET = object()
 MAX_CITED_URLS = 3
 # The capture writers' URL shape (`telegram_capture._URL_RE`), trailing
@@ -123,6 +126,8 @@ def _apply_persons_fields(source: dict, access: str | None, accepted: bool | Non
         changed = True
     if accepted and str(source.get("added_by") or USER) != USER and not source.get("accepted"):
         source["accepted"] = True
+        # G61 "Where to check" (ruling 36 D5): a proposal the person takes is theirs now; its evidence stays.
+        source.pop(PROPOSED, None)
         changed = True
     if only_me and source.get("kind") == KIND_NOTE and not source.get("only_me"):
         source["only_me"] = True
@@ -174,6 +179,11 @@ def list_sources(memory_path: Path, entity_id: str) -> list[dict]:
     except Exception:
         return []
     return as_sources(fm.get("sources"))
+
+
+def is_proposed(source: dict) -> bool:
+    """An inferred entry still waiting for the person (ruling 36 D5)."""
+    return bool(source.get(PROPOSED)) and not trusted(source)
 
 
 def trusted(source: dict) -> bool:
@@ -444,6 +454,8 @@ def add_source(
     origin: str | None = None,
     entity: str | None = None,
     via_agent: bool = False,
+    proposed: bool = False,
+    evidence: dict | None = None,
 ) -> dict | None:
     """Append one source to the entity's ``sources:`` key. Idempotent on
     ``(ref, predicate)``.
@@ -470,6 +482,10 @@ def add_source(
     knows more about it (:func:`resolve_entity_link`); ``via_agent`` says the
     caller is an MCP agent, which the tombstone treats differently from a
     machine writer (:func:`is_tombstoned`).
+
+    ``proposed`` (ruling 36 D5) marks an entry inferred from the record rather than named by the person: it is kept
+    as a proposal (``proposed: true``, with ``evidence`` — ``{episode, start, end}`` or ``{page: true}``) until the
+    person takes it. Never on the person's own add.
 
     Raises :class:`InvalidSource` for a value the record does not allow; returns
     ``None`` when the ref is blank or the entity does not exist.
@@ -529,6 +545,10 @@ def add_source(
         entry["entity"] = entity_id_link
     if only_me:
         entry["only_me"] = True
+    if proposed and not by_person:
+        entry[PROPOSED] = True
+        if isinstance(evidence, dict) and evidence:
+            entry["evidence"] = dict(evidence)
 
     fm["sources"] = existing + [entry]
     markdown_parser.write(path, fm, parsed.body)

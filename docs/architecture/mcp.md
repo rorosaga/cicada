@@ -113,7 +113,16 @@ fact can be checked when there is no claim to write — only a source the person
 agent guessed; it is not `cicada_sources` (conversations). `record` scope remotely, where a path, a
 repo or `access: local` is refused; it commits alone under the harness. `cicada_write_claim(sources=)`
 takes a string or `{ref, access}`. Since G61 S3-a (contract 12, remote 9) the primer names it, and takes an optional
-`entity` (an existing page that knows more about the source). **`cicada_change_source(subject, ref, predicate, action,
+`entity` (an existing page that knows more about the source). **Where to check (ruling 36 D5, contract 20, remote 14,
+2026-10-22):** the tool, the primer and the skill carry one definition — *a link where the current state of this thing
+can be checked — a profile, a personal site, a publication list, a repository or any page; Cicada re-checks it on a
+schedule and agents check it before answering about the thing* — and the tool takes `inferred: true` with `evidence:
+[{episode, quote}]` (≤ 3, the first located one kept as a span) for a source the agent found itself, on the record or
+in research. That lands as a proposal (`proposed: true`, `storage.md` "Where to check"): untrusted, no picture, no
+re-check, joined to the page's one question on the next Sleep; the reply says it waits for the person's yes. A profile
+ref is stored in its canonical form with its kind as the predicate when none is given. The direct add (the person
+named it) is unchanged. The CLI table's proposed `source add` row (`cli_map`, not exposed yet) names both arguments,
+so the CLI↔MCP parity test holds when it ships. **`cicada_change_source(subject, ref, predicate, action,
 reason, new_ref?, new_predicate?, access?, entity?)`** corrects (`update`) or removes (`remove`, `reason` required) a source
 the caller added — keyed `(ref, predicate)`; `record` scope remotely, a remote caller never names a path, a repo or `access:
 local`; refused with nothing written in a demo bank, while Sleep runs, for no such page or key, for an entry that is not the

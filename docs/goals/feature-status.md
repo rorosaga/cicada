@@ -14,7 +14,7 @@ Status, in order: `proposed` → `building` (a branch exists) → `PR #n` (open 
 | [G205](memory-evolution.md#g205) | Agent requests: one Inbox kind and a notification (backend #425 merged; app: Inbox card, I signed in / Not now, Mac notification asked in words, PR #428) | PR #428 | [#425](https://github.com/rorosaga/cicada/pull/425), [#428](https://github.com/rorosaga/cicada/pull/428) | 2026-10-22 |
 | [G206](memory-evolution.md#g206) | Saved lists on X, LinkedIn, Instagram through the person's browser (app: Instagram on Sources with its reading switch, honest that the reader is coming, PR #428; backend still proposed) | proposed | [#428](https://github.com/rorosaga/cicada/pull/428) | 2026-10-22 |
 | [G207](memory-evolution.md#g207) | A quick read after each conversation; recall sees today | building | — | 2026-10-22 |
-| [G61](memory-evolution.md#g61) | Update sources: sources on people, inferred proposals, a better name (cited as G208) (backend #422; app: grouped Where-to-check review card and the entity card's chips, PR #428) | building | #422, [#428](https://github.com/rorosaga/cicada/pull/428) | 2026-10-22 |
+| [G61](memory-evolution.md#g61) | Where to check (was "update sources"): sources on people, inferred proposals, one grouped review, Instagram photos (cited as G208) | PR #422 | [#422](https://github.com/rorosaga/cicada/pull/422) | 2026-10-22 |
 | [G209](memory-evolution.md#g209) | Duplicate people: in-cycle aliases, "same person?" questions | building | — | 2026-10-22 |
 | [G210](memory-evolution.md#g210) | Recall shows how old a belief is | proposed | — | 2026-10-22 |
 | [G141](memory-evolution.md#g141) | Projects born from a repository or the person's words; standard sections (cited as G211) | proposed | — | 2026-10-22 |

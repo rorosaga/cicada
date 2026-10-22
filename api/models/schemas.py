@@ -736,6 +736,17 @@ class EntitySource(CamelModel):
     tracked: Optional[bool] = None
     refresh_checker: Optional[str] = None
     refresh_due: Optional[str] = None
+    # G61 "Where to check" (ruling 36 D5, 2026-10-22): an entry inferred from the record that waits for the person
+    # (`proposed`) and where it was found (`evidence`: `{episode, start, end}` or `{page: true}`, offsets never a
+    # copy); and, derived at read for the card's chip row, what the link is (`linkKind`: github | x | instagram |
+    # linkedin | scholar | orcid | repo | contacts | website | app | path | note), its words (`label`) and the site
+    # key `GET /entities/{id}/sources/icon/{site}` serves for it (`iconSite`, null when that route would 404 —
+    # always on a person's page, G159).
+    proposed: bool = False
+    evidence: Optional[dict] = None
+    link_kind: Optional[str] = None
+    label: Optional[str] = None
+    icon_site: Optional[str] = None
 
 
 class SourceRefreshRequest(CamelModel):
@@ -2331,6 +2342,22 @@ class InboxFold(CamelModel):
     example: Optional[str] = None      # the anchor claim's sentence, clipped
 
 
+class WhereToCheckRow(CamelModel):
+    """One waiting link of a where-to-check item (G61, owner 2026-10-22)."""
+
+    id: str
+    page: str
+    page_name: str = ""
+    page_type: str = ""
+    ref: str
+    predicate: str = ""
+    link_kind: str = "website"
+    label: str = ""
+    added_by: str = ""
+    # `{episode, start, end, kind?}` (a span into the person's or an agent's words) or `{page: true}`.
+    evidence: Optional[dict] = None
+
+
 class AgentRequestNotification(CamelModel):
     """G205: what the app posts as a Mac notification — ids and the agent's own words, never episode text."""
 
@@ -2390,6 +2417,12 @@ class InboxItem(CamelModel):
     # A clarification that asks for a person's name (``"name"``, `role_people`): the app draws a name field and
     # "I'd rather not say"; an older build sees its option and Other… and still answers it. Null otherwise.
     asks: Optional[str] = None
+    # G61 "Where to check" (`asks: "sources"`, owner 2026-10-22): the links waiting, one row each — `{id, page,
+    # pageName, pageType, ref, predicate, linkKind, label, addedBy, evidence?}` — answered one by one with
+    # `row: <id>` on resolve, or all at once without it; `review` marks the ONE grouped review (a one-row item without
+    # it is one Sleep may settle on the person's own words). Additive: an older build draws the yes/no options.
+    rows: Optional[list[WhereToCheckRow]] = None
+    review: bool = False
     # G115 Phase 1 — all additive so an older app build still decodes.
     entity_type: Optional[str] = None
     source_episode: Optional[str] = None
@@ -2441,6 +2474,9 @@ class InboxResolveRequest(CamelModel):
     # The backend refuses such a caller an answer only the person gives (a proposed page edit). Defense in depth: the
     # tool refuses first; a process that skips the tool can write the bank's files anyway.
     via: Optional[str] = None
+    # G61 "Where to check" (owner 2026-10-22): the one row of a where-to-check review this answer is about (its `id`);
+    # absent, `yes`/`no` answers every row of the item.
+    row: Optional[str] = None
 
 
 class SettledCheck(CamelModel):
