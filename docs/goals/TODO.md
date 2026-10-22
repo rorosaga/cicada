@@ -8,6 +8,13 @@
 
 ## Current state and evidence
 
+- **2026-10-22 — the dev auto-update runs on a Linux server too (G181; branch `feat/linux-dev-autoupdate`).**
+  `scripts/dev/install-auto-update.sh` branches on `uname`: on Linux it writes a systemd user timer
+  (`cicada-dev-autoupdate.timer`, `OnCalendar=*:0/5`, `Persistent=true`) and its oneshot service; `--uninstall` removes
+  either platform's job. `auto-update.sh` on Linux keeps every guard (on `dev`, clean, ff-only, waits out Sleep, the
+  installed stamp), restarts `cicada-backend.service` (`CICADA_BACKEND_UNIT`) when runtime code moved, re-syncs a server
+  venv through `sync-server-env.sh` (a full venv with `uv sync`), and has no app to build. macOS unchanged.
+  `api/tests/test_dev_auto_update.py` stubs `uname` (CI runs on Linux) and covers both.
 - **2026-10-21 — the seven backend failures on dev before 0.6.0 (branch `fix/suite-0.6`).** The full suite on
   `24a419a7` gave 7 failed, 10,864 passed. Two were code: the entity card opened the claims ledger through
   `quiet_pages.page_is_quiet` (#391) because `bank_index.file` parsed with the ledger fold — it now reads the header

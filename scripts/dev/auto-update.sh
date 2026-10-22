@@ -5,6 +5,13 @@
 # if it was running). A developer convenience, run every few minutes by the
 # launchd job `scripts/dev/install-auto-update.sh` installs — never by the app.
 #
+# On Linux (a headless server, G181) the same script runs from a systemd user
+# timer the same installer writes: it restarts the systemd user unit
+# `scripts/install-backend-service.sh` installs (`CICADA_BACKEND_UNIT`, default
+# cicada-backend.service) instead of the launchd agent, keeps the venv's shape
+# (a server env stays a server env: `scripts/sync-server-env.sh`), and has no
+# app to build — the stamp moves once the backend side is done.
+#
 # It never touches work in progress: it does nothing unless this checkout is ON
 # `dev`, has no tracked changes, and can fast-forward. Untracked files are fine.
 # It also waits out Sleep, but only what is in flight: while the backend reports a
@@ -19,6 +26,7 @@
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO" || exit 1
+OS_NAME="$(uname -s)"
 LOG_DIR="$REPO/logs"
 mkdir -p "$LOG_DIR"
 log() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >> "$LOG_DIR/auto-update.log"; }
@@ -84,6 +92,27 @@ log "update ${installed:0:7} -> ${target:0:7}"
 known=1
 { [ -n "$installed" ] && git cat-file -e "$installed^{commit}" 2>/dev/null; } || known=0
 moved() { [ "$known" = 0 ] || ! git diff --quiet "$installed" "$target" -- "$@"; }
+
+if [ "$OS_NAME" = "Linux" ]; then
+  # A venv without the larger search model's runtime was made by sync-server-env.sh
+  # (install-server.sh, Homebrew); a full `uv sync` would pull torch and CUDA into it.
+  if moved api/pyproject.toml api/uv.lock; then
+    if compgen -G "api/.venv/lib/python*/site-packages/sentence_transformers" >/dev/null; then
+      log "python deps may have changed: uv sync"
+      (cd api && uv sync -q) >> "$LOG_DIR/auto-update.log" 2>&1 || log "fail: uv sync"
+    else
+      log "python deps may have changed: sync-server-env.sh"
+      bash scripts/sync-server-env.sh -q >> "$LOG_DIR/auto-update.log" 2>&1 || log "fail: sync-server-env.sh"
+    fi
+  fi
+  unit="${CICADA_BACKEND_UNIT:-cicada-backend.service}"
+  if moved api ":(exclude)api/tests" mcp && systemctl --user cat "$unit" >/dev/null 2>&1; then
+    systemctl --user restart "$unit" && log "backend restarted"
+  fi
+  echo "$target" > "$STAMP"
+  log "no app on Linux; installed stamp moved to ${target:0:7}"
+  exit 0
+fi
 
 if moved api/pyproject.toml api/uv.lock; then
   log "python deps may have changed: uv sync"
