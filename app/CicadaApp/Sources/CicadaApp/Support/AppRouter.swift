@@ -67,9 +67,23 @@ final class AppRouter {
     /// the Feed folded into it (2026-10-16).
     func routeToAddSource(_ tile: AddSourceTile) {
         closeSettings()
-        pendingTab = .sleep
+        // G217 — the tile's entry in the one catalogue (the Sources page), which opens its flow.
+        pendingTab = .sources
         pendingAddSource = tile
         activateMainWindow()
+    }
+
+    /// G217 — the one catalogue of ways in is the Sources page (ruling 36 D6).
+    func routeToSources() {
+        closeSettings()
+        pendingTab = .sources
+        activateMainWindow()
+    }
+
+    /// G217 — where a chat export and an agent's conversations live. The Agents sidebar page is UI-A's (G217); until
+    /// it lands this opens Settings → Agents, and the swap is this one line.
+    func routeToAgents() {
+        _ = openSettings(.agents)
     }
 
     /// Sets both fields together, for the same reason `routeToAddSource`
