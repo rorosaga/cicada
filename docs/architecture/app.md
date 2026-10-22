@@ -848,6 +848,16 @@ A first read shows `ListSkeleton`; a failed one `ListErrorCard` with Retry. The 
 opens `AddSkillSheet` (the SKILL.md, the files with scripts called out, the commit; Install installs exactly that); an
 agent's request is one line above the table; tabs Installed · Discover (the catalog) · Drafts (agents' drafts and what
 Sleep noticed). The page opening re-checks for updates only past an hour.
+**Plugins, kinds and weight (G201 slice (a), TODO ruling 35, 2026-10-22).** The table gains a **Kind** column: one quiet
+word — *About you*, *Generic*, *Not sure* — on a `TextButton` pull-down (`SkillKindMenu`, the Agents cell's pattern,
+DR-40) whose choice goes to `PUT /skills/kinds`; "your choice" marks one the person set. Drafts and *Noticed by Sleep*
+rows carry the same menu. Under the table, **Plugins** (`SkillPluginsGroup`, `SectionLabel` DR-20/DR-47, one line under
+it saying plugins are turned on and off in Claude Code) lists each Claude Code plugin read-only on the table's columns —
+its name and "v1.2.0 · marketplace", the agent, and *On* / *Off* / *Per project* — then its skills indented, each with
+its kind and "you run it" for a skill only the person starts; nothing there toggles. Above the table one meta line gives
+the weight ("Loaded every session: Claude Code 14 skills, about 1,200 tokens · …", `SkillPluginWords.weight`), its
+basis on hover — DR-59's dated exception for an estimated token count (ruling 35 §6). Plugin rows are not selectable and
+show only in the full-width table. Tests: `SkillsPageTests` (decode, words, a kind flip sends the row's key).
 
 **Settings → Skills (G138).** A reviewed catalog (`api/data/recommended_skills.json`: source,
 licence, the reviewed commit and SKILL.md hash, needs, agents, a terms note, the Cicada tool it

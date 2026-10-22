@@ -5486,6 +5486,13 @@ _SKILL_ACTIONS = ("install", "update", "on", "off", "refresh")
 _SKILL_DIRECT = ("on", "off", "refresh")
 
 
+def _kind_words(row: dict) -> str:
+    """``about-you``, ``generic`` or ``kind unknown`` — and whose word it is when the person chose it."""
+    kind = row.get("kind") or "unknown"
+    word = "kind unknown" if kind == "unknown" else kind
+    return word + (" (the person's choice)" if row.get("kindBy") == "person" else "")
+
+
 def _skill_line(row: dict) -> list[str]:
     on = [a["label"] for a in row["agents"] if a["state"] == "on"]
     through = [a["label"] for a in row["agents"] if a["state"] == "through"]
@@ -5495,6 +5502,8 @@ def _skill_line(row: dict) -> list[str]:
     bits.append(("in " + ", ".join(on)) if on else "in no agent's own folder")
     if through:
         bits.append("also seen by " + ", ".join(through))
+    if row.get("kind"):
+        bits.append(_kind_words(row))
     lines = [f"- {row['name']} — {_one_line(row['description'], 160)}", "  " + " · ".join(bits)]
     tool = row.get("tool") or {}
     if tool.get("text") == "older":
@@ -5531,15 +5540,29 @@ def skills(ctx: ToolContext) -> str:
     if data["suggested"]:
         lines += ["", "Suggested by Cicada, not installed: " + "; ".join(
             f"{s['id']} ({_one_line(s.get('summary') or '', 80)})" for s in data["suggested"][:8])]
+    plugins = data.get("plugins") or []
+    if plugins:
+        lines += ["", "Claude Code plugins (read-only: the person turns them on or off in Claude Code with /plugin):"]
+        for p in plugins:
+            state = {True: "on", False: "off"}.get(p.get("enabled"), "switched per project")
+            head = f"- {p['id']}" + (f" {p['version']}" if p.get("version") else "") + f" · {state}"
+            names = ", ".join(s["name"] + (" (the person runs it)" if s.get("userOnly") else "")
+                              for s in p.get("skills") or [])
+            lines.append(head + (f" · skills: {names}" if names else " · no skills"))
+    weight = (data.get("weight") or {}).get("agents") or []
+    if weight:
+        lines += ["", "Loaded every session (estimate, characters/4 of names and descriptions): " + "; ".join(
+            f"{w['label']} {w['skills']} skill(s), ~{w['descriptionTokens']} tokens" for w in weight) + "."]
     if data["drafts"]:
         lines += ["", "Made by agents, held until the person publishes them: " + ", ".join(
-            f"{d['name']} (by {d['authorLabel']})" for d in data["drafts"])]
+            f"{d['name']} (by {d['authorLabel']}, {_kind_words(d)})" for d in data["drafts"])]
     if data["requests"]:
         lines += ["", f"Waiting for the person on the Skills page: {len(data['requests'])} request(s)."]
     lines += ["", "To ask for an install or update: cicada_propose_skill. To write a new skill for a workflow: "
                   "cicada_create_skill. You never install third-party code yourself through Cicada."]
     return Reply("\n".join(lines), data={"installed": [r["name"] for r in data["installed"]],
-                                         "requests": len(data["requests"])})
+                                         "requests": len(data["requests"]),
+                                         "plugins": [p["id"] for p in plugins]})
 
 
 def propose_skill(ctx: ToolContext, action, source=None, name=None, agents=None, reason=None) -> str:

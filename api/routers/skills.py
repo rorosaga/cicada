@@ -193,6 +193,22 @@ async def discard(name: str) -> dict:
     return {"name": name, "discarded": True}
 
 
+class KindBody(CamelModel):
+    key: str
+    kind: str | None = None
+
+
+@router.put("/skills/kinds")
+async def set_kind(body: KindBody) -> dict:
+    """The person flips a skill's kind (TODO ruling 35 §5): ``about-you``, ``generic`` or ``unknown``; ``null`` clears
+    it back to Cicada's rule. The key is the row's ``kindKey``. Written outside every bank (``skill_store``)."""
+    try:
+        await run_in_threadpool(skill_store.set_kind, body.key, body.kind)
+    except skill_store.StoreError as exc:
+        raise _refuse(exc) from None
+    return {"key": body.key, "kind": body.kind}
+
+
 @router.post("/skills/requests/{request_id}/dismiss")
 async def dismiss(request_id: str) -> dict:
     return {"id": request_id, "dismissed": skill_store.close_request(request_id)}

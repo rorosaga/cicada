@@ -18,6 +18,19 @@
   Follow-up (review of #400): on Linux the stamp moves only when the sync and the restart both worked (a failure
   retries next tick), and the Sleep check asks the port and home the backend unit names. the dev server runs it
   (`cicada-dev-autoupdate.timer`, first run 2026-10-22 moved the stamp to d25ba62).
+- **2026-10-22 — the Skills inventory sees Claude Code's plugins and tags every skill's kind (G201 slice (a), TODO
+  ruling 35; branch `feat/skills-see-plugins`).** `skill_plugins` reads Claude Code's installed plugins read-only from
+  its own files (`installed_plugins.json` v2 and the older shapes, the user `enabledPlugins`, each plugin's manifest and
+  its skills' SKILL.md frontmatter, `disable-model-invocation` included); missing or corrupt files are an empty answer,
+  an install path outside `.claude/plugins` or a manifest path out of the plugin is never followed, a project-scoped
+  switch is null (its project's settings are never opened), and nothing toggles a plugin (`canToggle: false`).
+  `skill_kind` tags every skill without a model: third-party and plugin skills `generic`, a candidate (noticed, held,
+  drafted, published draft) `about-you` when its evidence pages or `[[links]]` name a person or project page or the
+  owner's, else `unknown`; the person's flip is `PUT /skills/kinds`, stored by `skill_store.set_kind` in
+  `$CICADA_HOME/skills/kinds.json`. `GET /skills` and `cicada_skills` gain `plugins`, `kind*` and `weight` (additive;
+  per agent the skills loaded and an estimate of description tokens, characters/4, no cap enforced). The Skills page
+  shows a Kind column, the Plugins group and one weight line (DR-59's dated exception, ruling 35 §6). Tests:
+  `test_skill_plugins.py`, `SkillsPageTests`. Pick up: slice (b), the Stop hook keeping the names of invoked skills.
 - **2026-10-21 — the seven backend failures on dev before 0.6.0 (branch `fix/suite-0.6`).** The full suite on
   `24a419a7` gave 7 failed, 10,864 passed. Two were code: the entity card opened the claims ledger through
   `quiet_pages.page_is_quiet` (#391) because `bank_index.file` parsed with the ledger fold — it now reads the header

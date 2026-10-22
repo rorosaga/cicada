@@ -9,11 +9,12 @@ refresh, removal or publish writes goes through this module — the backend's ro
 - ``$CICADA_HOME/skills/library/<name>/`` — Cicada's own pinned copy of each skill it installed, so turning one on
   for another agent later needs no fetch, and a skill turned off everywhere keeps its row;
 - ``$CICADA_HOME/skills/drafts/<name>/`` — skills an agent made, held until the person publishes them (G112);
-- ``$CICADA_HOME/skills/{requests,updates,onboarding}.json`` — agents' asks, the last update check, the onboarding
-  answer; ``removed/`` — anything Cicada took out of an agent's folder that it had not written itself, kept so it
+- ``$CICADA_HOME/skills/{requests,updates,onboarding,kinds}.json`` — agents' asks, the last update check, the
+  onboarding answer, the person's own kind for a skill (TODO ruling 35 §5, G201); ``removed/`` — anything Cicada took out of an agent's folder that it had not written itself, kept so it
   can be put back (a turn-off or a refresh never destroys the person's own copy).
 
-**What it never writes:** a bank, an agent's settings or hooks (a skill is text an agent loads when it chooses; a
+**What it never writes:** a bank, a Claude Code plugin's folder or switch (``skill_plugins`` only reads them), an
+agent's settings or hooks (a skill is text an agent loads when it chooses; a
 hook runs on every turn, and stays the person's own install), or anything through a symlink — a linked skill folder
 (``npx skills`` links agents to ``~/.agents/skills``) is unlinked, never followed.
 
@@ -30,6 +31,7 @@ import contextlib
 import fcntl
 import json
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -537,3 +539,42 @@ def save_onboarding(install: list[str], declined: list[str]) -> dict:
     with _locked():
         _write_json(state_dir() / "onboarding.json", data)
     return data
+
+
+# --------------------------------------------------------------------------- kinds (TODO ruling 35 §5, G201)
+
+#: A key is ``<group>:<name>`` (``skill_kind.key``); the file holds at most this many choices.
+MAX_KINDS = 1000
+_KIND_KEY = re.compile(r"^(installed|plugin|draft|noticed):[A-Za-z0-9][A-Za-z0-9._@/ -]{0,255}$")
+
+
+def kinds() -> dict[str, str]:
+    """The person's own kind choices, ``{key: kind}`` (``kinds.json``); anything unreadable is no choice."""
+    from api.services import skill_kind
+
+    data = _read_json(state_dir() / "kinds.json", {}).get("kinds")
+    if not isinstance(data, dict):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(k, str) and v in skill_kind.KINDS}
+
+
+def set_kind(key: str, kind: str | None) -> dict[str, str]:
+    """The person flips a skill's kind (``about-you`` / ``generic`` / ``unknown``); ``None`` clears it back to the rule.
+    Outside every bank, beside the other skill state; one lock, an atomic write."""
+    from api.services import skill_kind
+
+    key = str(key or "").strip()
+    if not _KIND_KEY.match(key):
+        raise StoreError("That isn't a skill this page lists.")
+    if kind is not None and kind not in skill_kind.KINDS:
+        raise StoreError(f"A skill's kind is one of {', '.join(skill_kind.KINDS)}.")
+    with _locked():
+        current = kinds()
+        if kind is None:
+            current.pop(key, None)
+        else:
+            current[key] = kind
+            if len(current) > MAX_KINDS:
+                raise StoreError("Too many saved kinds; clear a few first.")
+        _write_json(state_dir() / "kinds.json", {"kinds": current, "updatedAt": now_iso()})
+    return current

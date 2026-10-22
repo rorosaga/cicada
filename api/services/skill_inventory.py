@@ -6,6 +6,11 @@ Read-only and derived per request, never persisted (``skill_store`` writes; this
 network state it shows is the last check ``skill_store.updates()`` saved — the fetch itself is
 ``check_updates``, which runs only when the person clicks or the page opens (``routers/skills.py``).
 
+Since G201 slice (a) (TODO ruling 35, 2026-10-22) it also shows Claude Code's installed **plugins** and the skills each
+ships (``skill_plugins``, read-only from Claude Code's own files), every skill's **kind** (``skill_kind``: about-you,
+generic or unknown, the person's choice winning), and the installed set's **weight** per agent: how many skills it
+loads and an estimate of the tokens their names and descriptions take every session.
+
 Source, in order of trust: Cicada's own marker (it wrote the folder, so it knows the repo and the commit); the
 library; the `npx skills` lock (``~/.agents/.skill-lock.json``: repo, ref, folder, when installed); a catalog entry
 naming the folder; otherwise the skill is "local" — on this Mac, origin unknown.
@@ -17,7 +22,8 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import skill_catalog, skill_folders, skill_sources, skill_store, skill_tools
+from api.services import (skill_catalog, skill_folders, skill_kind, skill_plugins, skill_sources, skill_store,
+                          skill_tools)
 
 KINDS = skill_catalog.KINDS
 NOTICED_MAX = 20
@@ -234,6 +240,8 @@ async def snapshot(*, base: Path | None = None, bank: Path | None = None, run_to
     tool_names = {n for n in names if (by_dir.get(n) or {}).get("tool")}
     versions = await skill_tools.tool_versions() if run_tools and tool_names else None
 
+    personal = skill_kind.Personal(bank)
+    chosen = skill_store.kinds()
     rows = []
     for name in names:
         mine = [c for c in copies if c.name == name]
@@ -267,6 +275,7 @@ async def snapshot(*, base: Path | None = None, bank: Path | None = None, run_to
             "tool": tool_view,
             "permissions": await _permissions(entry, tool_view) if (entry and run_tools) else None,
             "catalogId": (entry or {}).get("id"),
+            **_kind_fields(skill_kind.key("installed", name), _installed_rule(src, text, personal), chosen),
             "details": {
                 "folders": [{"path": f"~/{c.root}/{c.name}", "linked": c.linked,
                              "byCicada": bool(c.marker) and c.cicadas} for c in mine],
@@ -275,7 +284,14 @@ async def snapshot(*, base: Path | None = None, bank: Path | None = None, run_to
                 "excerpt": excerpt(text),
             },
         }
+        row["_load"] = _load(name, meta)
         rows.append(row)
+
+    plugin_rows = [_plugin_view(p, chosen) for p in skill_plugins.read(base)] \
+        if any(a.id == skill_plugins.HARNESS for a in agents) else []
+    weights = weight(rows, plugin_rows, agents)
+    for row in rows:
+        row.pop("_load", None)
 
     installed_names = set(names)
     plugin_ids = skill_catalog.claude_plugin_ids(base)
@@ -296,8 +312,10 @@ async def snapshot(*, base: Path | None = None, bank: Path | None = None, run_to
         "agents": [{"id": a.id, "label": a.label, "folder": f"~/{a.own}"} for a in agents],
         "installed": rows,
         "suggested": suggested,
-        "drafts": [_draft_view(d) for d in skill_store.drafts()],
-        "noticed": noticed(bank) if bank else [],
+        "drafts": [_draft_view(d, personal, chosen) for d in skill_store.drafts()],
+        "noticed": noticed(bank, chosen, personal) if bank else [],
+        "plugins": plugin_rows,
+        "weight": weights,
         "requests": [{**r, "authorLabel": skill_catalog_label(str(r.get("author") or ""))}
                      for r in skill_store.requests()],
         "checkedAt": checked_at,
@@ -352,35 +370,116 @@ def _own_suggestion(name: str) -> dict:
             "licence": "MIT", "symbol": "sparkles", "method": "own"}
 
 
-def _draft_view(draft: dict) -> dict:
+def _draft_view(draft: dict, personal: skill_kind.Personal | None = None, chosen: dict | None = None) -> dict:
+    rule = skill_kind.candidate(skill_kind.links(draft.get("text", "")), personal or skill_kind.Personal(None))
     return {"name": draft["name"], "description": draft.get("description", ""), "author": draft.get("author"),
             "authorLabel": skill_catalog_label(str(draft.get("author") or "an agent")),
             "reason": draft.get("reason"), "created": draft.get("created"), "updated": draft.get("updated"),
-            "revision": draft.get("revision"), "state": "held", "text": draft.get("text", "")}
+            "revision": draft.get("revision"), "state": "held", "text": draft.get("text", ""),
+            **_kind_fields(skill_kind.key("draft", draft["name"]), rule, chosen or {})}
 
 
-def noticed(bank: Path) -> list[dict]:
+def noticed(bank: Path, chosen: dict | None = None, personal: skill_kind.Personal | None = None) -> list[dict]:
     """Skills Sleep noticed in this bank (G112): the held ones (one conversation so far) and the skill pages. Read
-    only; turning one into an installable skill is G112's compiler, not built yet."""
+    only; turning one into an installable skill is G112's compiler, not built yet. Each carries its kind
+    (``skill_kind``: about-you when its evidence pages name the person's people, projects or own page)."""
     from api.services import bank_index, skill_hold, skill_tag
 
+    chosen = chosen if chosen is not None else skill_store.kinds()
+    personal = personal or skill_kind.Personal(bank)
     out = []
     try:
         for held in skill_hold.load(bank)[:NOTICED_MAX]:
             out.append({"id": held.slug, "name": held.name, "description": skill_folders.one_line(held.description),
-                        "state": "held", "conversations": 1})
+                        "state": "held", "conversations": 1,
+                        **_kind_fields(skill_kind.key("noticed", held.slug),
+                                       skill_kind.candidate(held.evidence_ids, personal), chosen)})
         for f in bank_index.files(bank, "entities"):
             fm = f.frontmatter
             if fm.get("type") != "skill" or fm.get("status") not in (None, "active") or skill_tag.is_agent_skill(fm):
                 continue
             out.append({"id": f.stem, "name": str(fm.get("name") or f.stem),
                         "description": skill_folders.one_line(fm.get("summary") or fm.get("description") or ""),
-                        "state": "page", "conversations": len(fm.get("source_episodes") or [])})
+                        "state": "page", "conversations": len(fm.get("source_episodes") or []),
+                        **_kind_fields(skill_kind.key("noticed", f.stem),
+                                       skill_kind.candidate(list(fm.get("related") or [])
+                                                            + skill_kind.links(f.body()), personal), chosen)})
             if len(out) >= NOTICED_MAX:
                 break
     except Exception as exc:  # noqa: BLE001 — a bank problem never empties the Skills page
         logger.warning(f"skill_inventory: noticed skills skipped ({type(exc).__name__})")
     return out
+
+
+# --------------------------------------------------------------------------- kinds, plugins, weight (G201 slice (a))
+
+#: The weight's estimate: a token is about four characters of English (said as an estimate wherever it shows).
+CHARS_PER_TOKEN = 4
+WEIGHT_BASIS = ("An estimate: the characters of each loaded skill's name and description, divided by 4. A skill only "
+                "the person can run (disable-model-invocation) loads no description.")
+
+
+def _kind_fields(key: str, rule: str, chosen: dict) -> dict:
+    kind, by = skill_kind.resolve(rule, chosen.get(key))
+    return {"kind": kind, "kindBy": by, "kindKey": key}
+
+
+def _installed_rule(src: dict, text: str, personal: skill_kind.Personal) -> str:
+    """A published draft is a candidate (its own links decide); everything else by where it came from."""
+    origin = str(src.get("origin") or "local")
+    if origin == "draft":
+        return skill_kind.candidate(skill_kind.links(text), personal)
+    return skill_kind.by_origin(origin)
+
+
+def _user_only(meta: dict) -> bool:
+    flag = meta.get("disable-model-invocation")
+    return flag is True or str(flag).strip().lower() == "true"
+
+
+def _load(name: str, meta: dict) -> dict:
+    """What one skill costs every session: its name and whole description, unless only the person can run it."""
+    user_only = _user_only(meta)
+    description = " ".join(str(meta.get("description") or "").split())
+    chars = 0 if user_only else len(str(meta.get("name") or name)) + len(description)
+    return {"chars": chars, "userOnly": user_only}
+
+
+def _plugin_view(plugin: skill_plugins.Plugin, chosen: dict) -> dict:
+    skills = []
+    for s in plugin.skills:
+        k = skill_kind.key("plugin", f"{plugin.id}/{s.name}")
+        skills.append({"name": s.name, "description": skill_folders.one_line(s.description), "userOnly": s.user_only,
+                       **_kind_fields(k, skill_kind.GENERIC, chosen),
+                       "_chars": 0 if s.user_only else len(s.name) + len(s.description)})
+    note = skill_plugins.NOTE if plugin.scope in ("user", "") else skill_plugins.PROJECT_NOTE
+    return {"id": plugin.id, "name": plugin.name, "marketplace": plugin.marketplace, "version": plugin.version,
+            "scope": plugin.scope or None, "enabled": plugin.enabled, "installedAt": plugin.installed_at or None,
+            "updatedAt": plugin.updated_at or None, "harness": skill_plugins.HARNESS, "canToggle": False,
+            "note": note, "skills": skills}
+
+
+def weight(rows: list[dict], plugins: list[dict], agents: list) -> dict:
+    """Per agent on this Mac: the skills it loads (its own folder and the folders it also reads, plus — for Claude
+    Code — the skills of every plugin switched on) and the estimated tokens of their descriptions. No cap is enforced
+    here (ruling 35 §6 asks past 12 per harness; that ask is slice (d)). Pops each plugin skill's private ``_chars``."""
+    plugin_chars = {}
+    for plugin in plugins:
+        on = plugin.get("enabled") is True
+        for s in plugin["skills"]:
+            chars = s.pop("_chars", 0)
+            if on:
+                plugin_chars.setdefault(plugin["id"], []).append((s["userOnly"], chars))
+    out = []
+    for agent in agents:
+        loaded = [r["_load"] for r in rows if any(a["id"] == agent.id and a["state"] != "off" for a in r["agents"])]
+        from_plugins = [x for v in plugin_chars.values() for x in v] if agent.id == skill_plugins.HARNESS else []
+        user_only = sum(1 for x in loaded if x["userOnly"]) + sum(1 for u, _ in from_plugins if u)
+        chars = sum(x["chars"] for x in loaded) + sum(c for _, c in from_plugins)
+        out.append({"id": agent.id, "label": agent.label, "skills": len(loaded) + len(from_plugins),
+                    "fromPlugins": len(from_plugins), "userOnly": user_only,
+                    "descriptionTokens": -(-chars // CHARS_PER_TOKEN)})
+    return {"agents": out, "basis": WEIGHT_BASIS, "estimate": True}
 
 
 async def check_updates(*, base: Path | None = None) -> dict:

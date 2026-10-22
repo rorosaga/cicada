@@ -565,7 +565,9 @@ Mocks reach every variant and state through the "Preview states" menu. The app r
 - A question is stated once per surface.
 - No prices, token counts or "$" anywhere except the Sleep page's Past reads run detail and engine menu (ruling of
   2026-09-03, narrowed 2026-09-28, surface renamed 2026-10-16, §9); there a figure carries its basis in words and a
-  percentage its noun.
+  percentage its noun. **Dated exception (TODO ruling 35 §6, 2026-10-22):** the Skills page's one weight line may say
+  an estimated token count for the skills each agent loads every session — "about N tokens", its basis on hover; never
+  a price.
 
 ---
 

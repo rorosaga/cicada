@@ -116,4 +116,5 @@ private final class SnapshotSkillsAPI: SkillsAPI, @unchecked Sendable {
     func skillJob(_ id: String) async throws -> SkillJob { SkillJob(id: id, kind: "update", label: "x", state: "done") }
     func skillsOnboarding() async throws -> SkillsOnboardingOffer { SkillsOnboardingOffer() }
     func answerSkillsOnboarding(install: [String], agents: [String]) async throws -> SkillJob? { nil }
+    func setSkillKind(key: String, kind: String?) async throws {}
 }

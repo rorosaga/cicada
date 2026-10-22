@@ -14,8 +14,14 @@ struct SkillsPageData: Decodable, Equatable, Sendable {
     var checkedAt: String?
     var uv = UvInfo()
     var jobs: [SkillJob] = []
+    /// Claude Code's plugins and the skills each ships, read-only (G201 slice (a), TODO ruling 35).
+    var plugins: [SkillPlugin] = []
+    /// What each agent loads every session, as an estimate (ruling 35 §6).
+    var weight = SkillsWeight()
 
-    enum CodingKeys: String, CodingKey { case agents, installed, suggested, drafts, noticed, requests, checkedAt, uv, jobs }
+    enum CodingKeys: String, CodingKey {
+        case agents, installed, suggested, drafts, noticed, requests, checkedAt, uv, jobs, plugins, weight
+    }
 
     init() {}
 
@@ -30,6 +36,103 @@ struct SkillsPageData: Decodable, Equatable, Sendable {
         checkedAt = c.lenient(.checkedAt)
         uv = c.lenient(.uv, UvInfo())
         jobs = c.lenient(.jobs, [])
+        plugins = c.lenient(.plugins, [])
+        weight = c.lenient(.weight, SkillsWeight())
+    }
+}
+
+/// A skill's kind (TODO ruling 35 §5): `about-you`, `generic` or `unknown`; `kindBy` is `person` when the person chose
+/// it, and `kindKey` is what a flip sends back (`PUT /skills/kinds`).
+struct SkillKind: Equatable, Sendable {
+    var kind = "unknown"
+    var by = "cicada"
+    var key = ""
+
+    static let choices = ["about-you", "generic", "unknown"]
+}
+
+/// One plugin Claude Code records as installed. Cicada never toggles one (`canToggle` is always false; `note` says
+/// where the person does it).
+struct SkillPlugin: Decodable, Equatable, Sendable, Identifiable {
+    struct Skill: Decodable, Equatable, Sendable, Identifiable {
+        var name = ""
+        var description = ""
+        /// `disable-model-invocation`: only the person runs it.
+        var userOnly = false
+        var kind = SkillKind()
+
+        var id: String { name }
+
+        enum CodingKeys: String, CodingKey { case name, description, userOnly, kind, kindBy, kindKey }
+
+        init(name: String, kind: String = "generic") {
+            self.name = name
+            self.kind = SkillKind(kind: kind, by: "cicada", key: "plugin:x/\(name)")
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            name = c.lenient(.name, "")
+            description = c.lenient(.description, "")
+            userOnly = c.lenient(.userOnly, false)
+            kind = SkillKind(kind: c.lenient(.kind, "generic"), by: c.lenient(.kindBy, "cicada"),
+                             key: c.lenient(.kindKey, ""))
+        }
+    }
+
+    var id: String
+    var name: String
+    var marketplace = ""
+    var version = ""
+    var scope: String?
+    /// The user settings' switch; nil when Claude Code keeps it elsewhere (a project's settings).
+    var enabled: Bool?
+    var canToggle = false
+    var note: String?
+    var skills: [Skill] = []
+
+    enum CodingKeys: String, CodingKey { case id, name, marketplace, version, scope, enabled, canToggle, note, skills }
+
+    init(id: String, name: String, version: String = "", enabled: Bool? = nil, skills: [Skill] = []) {
+        self.id = id; self.name = name; self.version = version; self.enabled = enabled; self.skills = skills
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.lenient(.id, "")
+        name = c.lenient(.name, id)
+        marketplace = c.lenient(.marketplace, "")
+        version = c.lenient(.version, "")
+        scope = c.lenient(.scope)
+        enabled = c.lenient(.enabled)
+        canToggle = c.lenient(.canToggle, false)
+        note = c.lenient(.note)
+        skills = c.lenient(.skills, [])
+    }
+}
+
+/// `weight`: per agent, the skills it loads and the estimated tokens of their names and descriptions.
+struct SkillsWeight: Decodable, Equatable, Sendable {
+    struct Agent: Decodable, Equatable, Sendable, Identifiable {
+        var id = ""
+        var label = ""
+        var skills = 0
+        var fromPlugins = 0
+        var userOnly = 0
+        var descriptionTokens = 0
+    }
+
+    var agents: [Agent] = []
+    var basis = ""
+
+    enum CodingKeys: String, CodingKey { case agents, basis }
+
+    init(agents: [Agent] = [], basis: String = "") { self.agents = agents; self.basis = basis }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        agents = c.lenient(.agents, [])
+        basis = c.lenient(.basis, "")
     }
 }
 
@@ -172,11 +275,13 @@ struct InstalledSkill: Decodable, Equatable, Sendable, Identifiable {
     var permissions: SkillPermissions?
     var catalogId: String?
     var details = SkillDetails()
+    var kind = SkillKind()
 
     var id: String { name }
 
     enum CodingKeys: String, CodingKey {
         case name, title, description, source, version, update, status, agents, tool, permissions, catalogId, details
+        case kind, kindBy, kindKey
     }
 
     init(name: String, title: String) { self.name = name; self.title = title }
@@ -195,6 +300,8 @@ struct InstalledSkill: Decodable, Equatable, Sendable, Identifiable {
         permissions = c.lenient(.permissions)
         catalogId = c.lenient(.catalogId)
         details = c.lenient(.details, SkillDetails())
+        kind = SkillKind(kind: c.lenient(.kind, "unknown"), by: c.lenient(.kindBy, "cicada"),
+                         key: c.lenient(.kindKey, ""))
     }
 }
 
@@ -246,8 +353,23 @@ struct SkillDraft: Decodable, Equatable, Sendable, Identifiable {
     var reason: String?
     var updated: String?
     var text = ""
+    var kind = SkillKind()
 
     var id: String { name }
+
+    enum CodingKeys: String, CodingKey { case name, description, authorLabel, reason, updated, text, kind, kindBy, kindKey }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        description = try c.decode(String.self, forKey: .description)
+        authorLabel = try c.decode(String.self, forKey: .authorLabel)
+        reason = c.lenient(.reason)
+        updated = c.lenient(.updated)
+        text = try c.decode(String.self, forKey: .text)
+        kind = SkillKind(kind: c.lenient(.kind, "unknown"), by: c.lenient(.kindBy, "cicada"),
+                         key: c.lenient(.kindKey, ""))
+    }
 }
 
 struct NoticedSkill: Decodable, Equatable, Sendable, Identifiable {
@@ -256,6 +378,20 @@ struct NoticedSkill: Decodable, Equatable, Sendable, Identifiable {
     var description = ""
     var state = "held"
     var conversations = 0
+    var kind = SkillKind()
+
+    enum CodingKeys: String, CodingKey { case id, name, description, state, conversations, kind, kindBy, kindKey }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        description = try c.decode(String.self, forKey: .description)
+        state = try c.decode(String.self, forKey: .state)
+        conversations = try c.decode(Int.self, forKey: .conversations)
+        kind = SkillKind(kind: c.lenient(.kind, "unknown"), by: c.lenient(.kindBy, "cicada"),
+                         key: c.lenient(.kindKey, ""))
+    }
 }
 
 struct SkillRequest: Decodable, Equatable, Sendable, Identifiable {

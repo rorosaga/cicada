@@ -310,11 +310,35 @@ folder its docs name and the folders it also reads; an agent with none is left o
 table, the MCP schema's agent enum and the app (through `GET /skills`) all derive from it, and an agent whose home
 folder is missing is hidden (`test_the_agent_list_is_one_place`). The rest: (`test_only_skill_store_writes_into_an_agents_
 skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME/skills/{library,drafts,removed}` plus
-`requests.json`, `updates.json`, `onboarding.json`; write admission classes every route `OUTSIDE`.
+`requests.json`, `updates.json`, `onboarding.json`, `kinds.json`; write admission classes every route `OUTSIDE`.
 - `GET /skills` — installed rows (source, version, `status` — `update|refresh|current|local|unchecked` —, update with
   `from` and its `changes`, agents, tool, permissions, details with an instructions `excerpt`),
   `suggested` (catalog, with `method` `tool|copy|manual|own`), `drafts`, `noticed` (the bank's held and page skills,
-  G112), `requests`, `checkedAt`, `uv`, `jobs`. No ETag: not a Store domain.
+  G112), `requests`, `checkedAt`, `uv`, `jobs`. No ETag: not a Store domain. **Additive since G201 slice (a)** (TODO
+  ruling 35, 2026-10-22): every installed, draft, noticed and plugin skill carries `kind` (`about-you|generic|unknown`),
+  `kindBy` (`person|cicada`) and `kindKey`; `plugins` lists Claude Code's installed plugins (`id` `name@marketplace`,
+  `name`, `marketplace`, `version`, `scope`, `enabled` true/false/null, `installedAt`, `updatedAt`, `harness`,
+  `canToggle: false`, `note`, and `skills` — `name`, one-line `description`, `userOnly` for
+  `disable-model-invocation`); `weight` is `{agents: [{id, label, skills, fromPlugins, userOnly,
+  descriptionTokens}], basis, estimate: true}`. Field order is not a contract.
+- **Plugins (`skill_plugins`), read-only.** From Claude Code's own files under the agent home:
+  `.claude/plugins/installed_plugins.json` (v2 `{version, plugins: {id: [entries]}}`, and the older flat shapes), the
+  user `settings.json`'s `enabledPlugins`, each plugin's `.claude-plugin/plugin.json`, and its skills' SKILL.md
+  frontmatter (`skills/` plus the manifest's own `./` paths). The user-scope entry wins; a project-scoped install's
+  switch lives in that project's settings, which the backend never opens, so its `enabled` is null and its `note` says
+  so. An `installPath` outside `.claude/plugins` and a manifest path that escapes the plugin are never followed; a
+  missing or corrupt file is an empty answer, never an error. Shown only when Claude Code is on this Mac. Cicada never
+  installs, removes or toggles a plugin.
+- **Kinds (`skill_kind`), no model call.** Third-party text (a plugin, GitHub, `npx skills`, the catalog, a tool) and
+  Cicada's own bundles are `generic`; a candidate (a held or page skill Sleep noticed, an agent's draft, a published
+  draft) is `about-you` when its evidence pages (`related`, a held line's `evidence_ids`) or its text's `[[links]]`
+  name a `person` or `project` page or the owner's page, else `unknown`; a local skill folder of unknown origin is
+  `unknown`. `PUT /skills/kinds {key, kind}` (`kind` null clears) stores the person's choice in
+  `$CICADA_HOME/skills/kinds.json` through `skill_store.set_kind`, the one writer; it wins over the rule.
+- **Weight.** Per agent on this Mac: the skills it loads (its own folder and the folders it also reads; for Claude
+  Code also every switched-on plugin's skills) and `descriptionTokens`, an estimate — the characters of each loaded
+  skill's name and description divided by 4 (a `userOnly` skill loads no description). No cap is enforced (ruling 35
+  §6's ask past 12 is slice (d)).
 - `POST /skills/check {auto}` — fetches upstream: a repo-folder skill's newest commits that touched its folder
   (against the commit recorded at install) or a tool's/tag's newer releases, each with its `changes` (≤ 20, titles and
   cut notes) and a compare or release link. `auto` (the page opening) only past an hour; a click past a minute.
