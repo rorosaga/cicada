@@ -65,3 +65,30 @@ with no app").
 - The app renews its own access. To end it, **Revoke** it under *Connectors* — it stops at once.
 - The older secret link (`…/c/<token>/mcp`, from *New connector*) still works for apps without sign-in; prefer
   sign-in where the app supports it, since a link is a password in a URL.
+
+## Personal agents that cannot use MCP (the agent API, G213)
+
+Some personal agents can make an HTTP request but cannot add an MCP server. For those, Cicada has a small HTTP API
+(`POST /v1/recall`, `/v1/save_note`, `/v1/write_claim`, …) described for agents at `/v1/llms.txt` and
+`/v1/openapi.json`. It is on the same public address as above (the listener, step 2) and on the backend's own port for
+an agent on your own machines.
+
+1. Make a token for the agent, named after it, on the machine Cicada runs on: `cicada agent add "<name>"` (or
+   `POST /agent-api/tokens` with the server's own token; a button in the app comes later). It is shown once, scoped (search, read and record by
+   default), expires in 7, 30 or 90 days, and you can revoke it at any time.
+2. Give the agent the paragraph Cicada prints with it. It says where Cicada is, which header to send, and to read
+   `llms.txt` first. Everything the agent saves is marked as written by that agent, and a fact it records is never
+   stored as your own words.
+
+Which door fits which agent (reported by vendor blogs and press as of 2026-10-22; re-check before relying on it):
+
+| Agent | Door |
+|---|---|
+| Poke | The connector (step 3): it adds a remote MCP URL in its settings. |
+| Grok Bot (xAI) | The connector by its public URL; the agent API if it is asked to build a client instead. |
+| Meta Muse | The agent API: ask it to build a connector from `<address>/v1/openapi.json` and give it the token. It runs in Meta's cloud, so only the public address works. |
+| Instinct | The agent API: it says it cannot plug into MCP but can work with an API. Give it the paragraph by message. |
+| Dots (OpenAI) | Through ChatGPT's own connectors (step 3) until OpenAI documents a Dots connector; the agent API if it can call one. |
+
+A cloud agent can only reach a public address (a Funnel or ngrok URL); a tailnet-only address works only for agents
+running on your own devices.

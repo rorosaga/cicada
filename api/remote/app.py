@@ -38,8 +38,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse, Response
 from starlette.routing import Route
 
-from api.remote import catalog, oauth as remote_oauth, store as remote_store, tools as remote_tools
-from api.remote.runtime import RemoteRuntime
+from api.remote import agent_api, catalog, oauth as remote_oauth, store as remote_store, tools as remote_tools
+from api.remote.runtime import RemoteRuntime, shared as shared_runtime
 from api.services import telemetry, tool_contract
 
 MAX_BODY_BYTES = 1_048_576
@@ -200,16 +200,20 @@ async def _buffer(receive):
 
 class RemoteGate:
     def __init__(self, app, *, store: remote_store.ConnectorStore, limits: Limits,
-                 oauth: remote_oauth.OAuthServer | None = None) -> None:
+                 oauth: remote_oauth.OAuthServer | None = None, runtime: RemoteRuntime | None = None,
+                 limiter=None) -> None:
         self.app, self.store, self.limits = app, store, limits
         self.oauth = oauth
+        self.runtime = runtime
+        self.limiter = limiter
         self._denials: dict[tuple[str, str], float] = {}
 
-    def _verify(self, token: str, base: str | None) -> tuple[catalog.Connector | None, str]:
-        """A signed-in app's access token (``cic_at_``), else a link connector's secret (``cic_rc_``)."""
+    def _verify(self, token: str, base: str | None, *, agent: bool = False) -> tuple[catalog.Connector | None, str]:
+        """A signed-in app's access token (``cic_at_``), else a link connector's secret (``cic_rc_``) — and, on the
+        agent API only (``agent``), an agent token (``cic_api_``, G213), which never opens ``/mcp``."""
         if token.startswith("cic_at_") and self.oauth is not None:
             return self.oauth.verify_access(token, base)
-        return self.store.verify(token)
+        return self.store.verify_agent(token) if agent else self.store.verify(token)
 
     def _note_denial(self, connector: catalog.Connector | None, reason: str) -> None:
         """At most one `connector_auth` row per (connector, reason) per hour —
@@ -249,11 +253,19 @@ class RemoteGate:
             response = await self.oauth.handle(Request(scope, receive))
             await response(scope, receive, send)
             return
-        if path != "/mcp":
+        agent = path in agent_api.DOC_PATHS or path == "/v1/me" or path.startswith("/v1/")
+        if path != "/mcp" and not (agent and self.runtime is not None):
             await PlainTextResponse("Not found", status_code=404)(scope, receive, send)
             return
         base = remote_oauth.public_base(Request(scope)) if self.oauth is not None else None
-        connector, reason = self._verify(_bearer(headers.get("authorization")), base)
+        if path in agent_api.DOC_PATHS:
+            # G213 (owner 2026-10-22, ruling 36): the agent API's two documents, static, at the public address.
+            doc_base = base or ("https://" + headers.get("host", "localhost"))
+            response = (JSONResponse(agent_api.openapi(doc_base)) if path.endswith(".json")
+                        else PlainTextResponse(agent_api.llms_txt(doc_base)))
+            await response(scope, receive, send)
+            return
+        connector, reason = self._verify(_bearer(headers.get("authorization")), base, agent=agent)
         if reason != "ok":
             self._note_denial(connector, reason)
             response = unauthorized(reason, base) if self.limits.allow_failed_auth() else _too_many(60)
@@ -267,9 +279,27 @@ class RemoteGate:
         if body is None:
             await PlainTextResponse("Request body too large", status_code=413)(scope, receive, send)
             return
+        if agent:
+            self.store.touch(connector.id)
+            await self._agent(scope, receive, send, self.store.get(connector.id) or connector, path, body)
+            return
         self.store.touch(connector.id, client=client_name(body))
         scope["cicada.connector"] = self.store.get(connector.id) or connector
         await self.app(scope, receive, send)
+
+    async def _agent(self, scope, receive, send, connector: catalog.Connector, path: str, body: bytes) -> None:
+        """G213 on the listener: the same operations, envelope and status codes as the backend's ``/v1``."""
+        method = scope.get("method")
+        if path == "/v1/me":
+            response = (JSONResponse(agent_api.me(connector)) if method == "GET"
+                        else PlainTextResponse("Method not allowed", status_code=405))
+        elif method != "POST":
+            response = PlainTextResponse("Method not allowed", status_code=405)
+        else:
+            status, payload, extra = await anyio.to_thread.run_sync(
+                partial(agent_api.call, self.runtime, connector, path[len("/v1/"):], body), limiter=self.limiter)
+            response = JSONResponse(payload, status_code=status, headers=extra or None)
+        await response(scope, receive, send)
 
 
 def _tool(definition: dict) -> types.Tool:
@@ -296,7 +326,7 @@ def build_app(store: remote_store.ConnectorStore | None = None, *, runtime: Remo
     connector store's file (ruling 32)."""
     store = store or remote_store.ConnectorStore()
     oauth = oauth or remote_oauth.OAuthServer(store.path, connectors=store)
-    runtime = runtime or RemoteRuntime()
+    runtime = runtime or shared_runtime()
     limiter = anyio.CapacityLimiter(THREADS)
 
     async def list_tools(ctx, params) -> types.ListToolsResult:
@@ -342,4 +372,4 @@ def build_app(store: remote_store.ConnectorStore | None = None, *, runtime: Remo
         custom_starlette_routes=[Route(catalog.PRM_PATH, protected_resource),
                                  Route(catalog.PRM_PATH + "/mcp", protected_resource)],
     )
-    return RemoteGate(inner, store=store, limits=limits or Limits(), oauth=oauth)
+    return RemoteGate(inner, store=store, limits=limits or Limits(), oauth=oauth, runtime=runtime, limiter=limiter)

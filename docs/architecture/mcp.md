@@ -1213,7 +1213,11 @@ tunnel; `runtime_layout.api_base`), this machine holds no bank. Unset, every doo
   `feed list`, a platform export's import) refuses `on_server` (exit 1). With the server unreachable every command but
   `status` refuses `backend_down` (exit 6); a refused token is `unauthorized`.
 - **Devices** (`cicada device add <name>|list|revoke <id>`, person-only, `via="backend"`, run on the server): the
-  token is printed once; only its hash is kept (`api.md`, "Device tokens").
+  token is printed once; only its hash is kept (`api.md`, "Device tokens"). `cicada device pair [--url <address>]`
+  (G212) prints a one-time code and its QR payload for a new device (`api.md`, "Pairing a device").
+- **Agents on the HTTP agent API** (`cicada agent add <name> [--scope …] [--days 7|30|90] [--url <address>]|list|revoke
+  <id>`, G213, person-only, `via="backend"`): prints the paragraph to give the agent, token inside, once (`api.md`,
+  "The agent API").
 
 **The CLI (G180, TODO ruling 21; plan revision 3, build unit 1, 2026-10-07).** `cicada` is a second, thin door onto the
 same bodies as the MCP server, for agents with a shell: they run a command and read `--help` only when they need it,

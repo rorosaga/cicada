@@ -109,6 +109,46 @@ it. `/devices*` touch no bank (`bank_binding.NO_BANK_WRITE`). On the client the 
 stdio MCP server and the CLI; the base URL is `CICADA_API_BASE` (`runtime_layout.api_base`: https, or http to a
 loopback tunnel only). No installer creates, copies or logs either.
 
+**Pairing a device with a one-time code (G212, 2026-10-22).** `POST /devices/pairing` (master token only, under
+`/devices`; body `{url?}`) answers 201 `{pairing: {id, createdAt, expiresAt, state, deviceId}, code, qr: {v: 1, url,
+code}}` — the app draws `qr` as a QR code (JSON, compact) and shows `code` (`XXXX-XXXX`, 31 unambiguous symbols, no
+I/L/O/0/1) beside it. `url` is where the new device will reach this server (https, or http to loopback only — the
+client rule; never fetched; null when omitted). The new device posts `POST /pair` `{code, name}` — an **open** path,
+the code being its credential, any case, dash optional — and gets 201 `{device, token}`: its own `cic_dev_` token,
+named by what the device reports (`clean_name`), exactly as `POST /devices` issues one. A code lives 10 minutes, is
+spent by the first redeem in the statement that checks it, is kept only as its sha256 (`devices.db`, table
+`pairings`), and at most five wait at once (409 past that). Unknown, used, cancelled and expired codes are one 404;
+`/pair` answers at most ten a minute (429). `GET /devices/pairing/{id}` says `waiting | paired | cancelled | expired`
+(and the device once paired, so the app closes its QR); `DELETE /devices/pairing/{id}` cancels. All outside every
+bank (`NO_BANK_WRITE`). **Hyrum, mode A:** stable — the paths, `qr`'s three keys and `v: 1`, the code's alphabet and
+`XXXX-XXXX` spelling, `state`'s four words; not stable — the 10-minute life, the five-code cap, the rate.
+
+**The agent API (G213, 2026-10-22).** For an agent that speaks HTTP but not MCP. `POST /v1/<op>` with
+`Authorization: Bearer <connector token>` and a JSON object body; operations `recall`, `ask`, `page`, `timeline`,
+`project`, `save_note`, `save_url`, `write_claim`, `retract_claim`, `inbox`, `resolve_inbox` — each one remote tool
+(`api/remote/agent_api.OPS`), its arguments the remote schema's minus `conversation`, run through the shared
+`RemoteRuntime` (scopes, G199 contract, Sleep and demo gates, the daily `ask` cap, fenced reads, `connector:` and
+`origin: remote:<id>` provenance, one ids-only `remote_call` row). Every answer is `{text, isError, code, data}`:
+200 (isError true for a body's refusal), 400 `invalid_arguments`, 401 `invalid_token`, 403 `denied` / `origin`,
+404 `unknown_operation`, 409 `sleep_writing` (with `Retry-After`) / `demo`, 413 `too_large`, 429 `capped` /
+`rate_limited`, 500 `error` (the class only). `GET /v1/me` names the token, its scopes, expiry and operations;
+`GET /v1/openapi.json` (OpenAPI 3.1, generated from the remote schemas) and `GET /v1/llms.txt` = `GET /llms.txt`
+describe it and are open. `/v1/*` sits outside the app-wide bearer check (`auth._OpenPaths`) and checks its own:
+**only a connector token** — the master token and a device token are the person's machines, an agent is not, so both
+are 401 there. Any `Origin` is refused. The same API rides the G135 listener (`network.md`).
+**Agent tokens:** `POST /agent-api/tokens` `{name, scopes?, expiresInDays?, baseUrl?}` (master only:
+`MASTER_ONLY_WRITE_PREFIXES`) makes a connector row with `auth: "api"` and answers once `{token, agent, prompt,
+baseUrl}` — `cic_api_<id>_<secret>`, scoped (default `search`/`read`/`record`), expiring 7/30/90, revocable at
+`DELETE /agent-api/tokens/{id}`, listed at `GET /agent-api/tokens` and never in `GET /remote/connectors`; `prompt` is
+the one paragraph the person gives the agent (base URL, the header, "read llms.txt first"). It opens `/v1` only,
+never `/mcp`, and is never rotated (revoke and make a new one). Its writes carry `harness: agent-api` (an enum, for
+frontmatter and the ledger) and `Cicada-Author: api:<name>` (the agent's name as the person typed it, `[a-z0-9-]`,
+≤ 32), a `harness` contributor. **Why the connector token, not a device token:** a device counts as local (ruling 28:
+the G198 trust list, every route); a third-party agent must be scoped, expiring and never the person's own words —
+exactly a connector. **Hyrum, mode A:** stable — the paths, operation and argument names, the envelope's four keys,
+the status codes and their `code` words, the `cic_api_` prefix, `api:` authors; not stable — reply wording (which may
+name a `cicada_…` tool; `llms.txt` maps each to its operation), `data`'s shape, the documents' prose, the rate limits.
+
 **Phase 3 (G181, 2026-10-16): the app as a client, and where memory came from.**
 - `GET /devices` is open to a device token too (read-only: `auth._DEVICE_READABLE`), so the app's Settings → Devices & access
   can show the person their devices from any of them; each row adds `current` (the device whose token asked). Issuing

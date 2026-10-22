@@ -360,6 +360,10 @@ NONE = "none: reads or computes; writes nothing"
 DOOR = ("door: runs one MCP tool's own body for another of the person's machines (G181 phase 2) — each tool is "
         "classified in TOOLS below and takes its own admission there, as a stdio call would")
 
+#: G213: the agent API — one remote tool per operation, through `RemoteRuntime.call`, which holds the bank's admission
+#: for a write itself (shown by `test_a_remote_write_answers_busy_inside_admission`).
+REMOTE = "remote: runs one remote tool through RemoteRuntime.call, which takes admission for a write itself"
+
 ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /ask": (NONE, None),
     "POST /inbox/{item_id}/resolve": (ADMITTED, "api.services.inbox_service.resolve"),
@@ -459,6 +463,12 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /capture/turn": (CAPTURE, None),   # capture-everywhere: the same writer as the Stop hook
     "POST /capture/session": (CAPTURE, None),   # G181 phase 2: a session read on its own machine, the same writer
     "POST /tools/call": (DOOR, None),
+    "POST /v1/{op}": (REMOTE, None),
+    "POST /agent-api/tokens": (OUTSIDE, None),
+    "DELETE /agent-api/tokens/{token_id}": (OUTSIDE, None),
+    "POST /devices/pairing": (OUTSIDE, None),
+    "DELETE /devices/pairing/{pairing_id}": (OUTSIDE, None),
+    "POST /pair": (OUTSIDE, None),
     "POST /devices": (OUTSIDE, None),
     "DELETE /devices/{device_id}": (OUTSIDE, None),
     "POST /capture/hook-context": (OUTSIDE, None),   # G110: may refresh the continuity index in $CICADA_HOME
