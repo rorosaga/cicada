@@ -10,6 +10,12 @@
 
 ## Current state and evidence
 
+- **2026-10-22 — the new user, second pass (G148, G209, G141; ruling 37; branch `fix/new-user-memory-2`).** Ruling 37
+  (owner): a fold from the shipped seed settles by rule and a follow-up names its thread; a new save is dated when it
+  was saved. Also from the newuser write-ups: a held full name whose alias is exactly one person page asks "same
+  person?" (W1, never a merge); a project mention whose alias names one project page updates it (W2); "New project
+  with X: name" counts as the person's words (W3); the D4 gate reads the type a create writes (W4). Numbers on the
+  G148 row and in the PR.
 - **2026-10-22 — the new-user benchmark and what it fixed (G148; branch `fix/new-user-memory`).** `benchmarks/newuser`
   loads an invented person through the real doors onto a verify-cicada scratch backend, sleeps once (plan, haiku) and
   asks 25 questions over MCP stdio; rerun it before each release (its README). Branch base 23.0/25 → 24.0/25 (three
@@ -1628,3 +1634,16 @@ A whole row moves to DONE only after its remaining implementation and required a
     link or post, attach a note, pair the phone as a device), is started (G91). Every feature's status is tracked in
     [`feature-status.md`](feature-status.md), one line per row. **Revisit** D1 on a change in either vendor's terms;
     D2's default if a later measurement reverses the first; D5 if a fetched photo is ever shown on the wrong person.
+37. **The new user's inbox and saved items (owner, 2026-10-22; answers to the benchmarks/newuser report, W5 and W8;
+    amends ruling 29's fold rule and the G99d dating of saves).** **A — a fold Cicada ships settles by rule.** A
+    "Confirm a predicate fold" question whose fold is listed in the shipped predicate seed (`synonyms`) is curated, like
+    an ending: Sleep settles it (`seed_fold`, engine-free, undoable under "Settled by Sleep"); only a fold the bank
+    learned still reaches the judge or the person. A follow-up card's body names its thread: the page, the claim's own
+    words and why it is asked now. **B — a saved item is dated when it was saved.** A NEW save's or import's episode
+    takes the save's own instant (`added_at`), else noon UTC of its day (`saved_at`), never later than now, as its
+    `timestamp` and id day — as a calendar event takes its start (#435); a save with no recorded date keeps the day
+    Cicada took it in; existing episodes are never renamed (ruling 34). **Why.** On the synthetic new user (counts only,
+    `benchmarks/newuser`): the first inbox was three or four fold questions about the seed's own synonyms and one
+    unexplained "How did it go?"; bookmarks saved in August read as saved on the import day. **Revisit** A if the
+    person undoes `seed_fold` settles often (`GET /consumption/feedback`'s `sleepSettles`); B if a source's recorded
+    save date proves unreliable.

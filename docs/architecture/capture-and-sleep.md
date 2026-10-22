@@ -1234,10 +1234,15 @@ on the conversation it read (no model), a `project_birth` record and drops any t
   ruling's text mentions is not available; the folder name stands in for it, disclosed).
 - **words** — one sentence of a person's own turn (`user`, or a meeting `speaker`) names it within five words of
   *project* (or *proyecto*, *projet*, *Projekt*, *progetto*, *projeto*, plurals), inside one clause (no comma, colon,
-  semicolon or parenthesis between them), outside a recorded gap; kept as a span `{start, end, hash, kind}` into the
+  semicolon or parenthesis between them — except one colon after the project word's clause that introduces the name,
+  "New project with Teo: fernpost", W3 2026-10-22), outside a recorded gap; kept as a span `{start, end, hash, kind}` into the
   episode, never a copy (G118). A name that itself contains "project" does not call itself one.
 Stage 2 promotes a `project` exactly when one of the batch's extractions of that name carries a record (the oldest
 conversation's wins); everything else, however often mentioned, waits on its pending line like any name below the bar.
+"A project" is the type the create will write (`_written_type`: a sibling's `project` overrides a `concept` when the
+payloads merge), never only the chosen mention's (W4). A project mention with no match whose recorded alias names
+exactly one project page — on disk, else born this batch — is that page's update, not a held birth (W2; ruling 36 D4
+governs new pages only).
 Stage 5 writes the record once, as the page's `born:` frontmatter (`storage.md`). A watched folder the person named as
 a project (`folder_source.ensure_project`) is born `{origin: words, via: folder}`. Pages that existed before the rule are
 never archived or deleted for it; `python -m api.scripts.project_origins_dry_run --bank <path> [--json] [--quotes]` lists
@@ -1496,6 +1501,12 @@ listed as an alias. Four gaps caused it, each closed:
   full name with the handle as its alias. The raw spelling still resolves edges and claims (`name_to_id`). A pending
   line parked under that spelling folds into the page the full name resolves to, with its text, credits and held claims,
   and leaves the store through `promoted_pending`.
+
+- **A held name meets the page its alias names (W1, benchmarks/newuser 2026-10-22).** Specific names are judged
+  first, so a full name said once (aliases the short name and a handle) is held before the short name its other
+  conversations promote has a page. After the loop, every held person name — this batch's and the pending store's —
+  whose recorded alias is the name of exactly one person page raises "Possible duplicate of …"
+  (`_held_alias_questions`); an alias two pages answer to asks nothing.
 
 Nothing here settles who a person is (ruling 29): every lead ends in the person's question. A duplicate question about
 a name still parked below the promotion bar is live while its pending line exists (`inbox_service._subject_gone`,
