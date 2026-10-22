@@ -164,9 +164,11 @@ final class DevicesPageModel {
     /// issuing and revoking are acts of the person on the server).
     var canManage: Bool { !connection.isServer }
 
-    var connectionLine: String {
+    /// The running connection, named only when it is not this Mac: on This Mac the choice above it already says so
+    /// (DR-38), and a server picked but not yet used must not read as the one in use.
+    var connectionLine: String? {
         switch connection.mode {
-        case .thisMac: Copy.Devices.connectionThisMac
+        case .thisMac: nil
         case .server(let url): Copy.Devices.connectionServer(url.host ?? url.absoluteString)
         case .invalid: Copy.Devices.connectionInvalid
         }
@@ -268,7 +270,7 @@ enum DevicesText {
     }
 }
 
-// MARK: - Settings → General: choosing a server
+// MARK: - Settings → Devices: choosing a server
 
 /// What a candidate server said before anything is saved.
 enum ServerCheck: Equatable {

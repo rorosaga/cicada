@@ -249,7 +249,7 @@
   the `dev` URLs in `headless.md`. Pick up: review; after the release, run the curl line on a real server; the website's
   `install.sh` should hand Linux to `install-server.sh` (RELEASING.md).
 - **2026-10-16 — headless server, phase 3: the Mac app as a server's client, and Settings → Devices (G181, branch
-  `feat/headless-app`, not merged).** Settings → General → *Where your memory lives*: This Mac or a server (address +
+  `feat/headless-app`, not merged).** Settings → General → *Where your memory lives* (on Settings → Devices since the settings audit, 2026-10-22): This Mac or a server (address +
   device token, checked before anything is written; `$CICADA_HOME/api_base` + `device_token`, used from the next
   launch, and the hooks/MCP/CLI on the Mac follow the same file). On a server the app starts no backend, keeps its
   caches and reader cursors per connection, queues reader posts in `$CICADA_HOME/spool/app` and flushes them when the

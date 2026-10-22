@@ -40,7 +40,8 @@ struct SettingsSleepView: View {
 
     var body: some View {
         SettingsPage(section: .sleep) {
-            SettingsGroupCard(header: Copy.runsGroup) {
+            // DR-38: the card's one row is already titled Runs, so the card carries no header repeating it.
+            SettingsGroupCard {
                 // The four pills sit in the row's below slot, not beside the
                 // detail: next to a multi-word sentence ("Starts about 10
                 // minutes after…") they truncated or squeezed the title
@@ -97,11 +98,8 @@ struct SettingsSleepView: View {
                         .foregroundStyle(CicadaTheme.textSecondary)
                 }
             }
-            ScenerySettings(mood: deriveSleepPageMood(status: sleepVM.status,
-                                                    debt: resolveSleepDebt(sse: nil, status: sleepVM.status),
-                                                    justFinishedAt: nil), lampLit: sleepVM.schedule.enabled)
-            MascotSettings()
-            SettingsGroupCard(header: Copy.sleepEngineGroup) {
+            // DR-38: the card's one row is already titled Engine, as Runs is.
+            SettingsGroupCard {
                 SettingsRow(.sleepEngine, title: Copy.sleepEngineRowTitle,
                             control: { SettingsInlineLink(section: .engines, label: Copy.changeInEngines) },
                             below: {
@@ -113,6 +111,11 @@ struct SettingsSleepView: View {
                     }
                 })
             }
+            // The study room's look comes after what Sleep does (settings audit 2026-10-22).
+            ScenerySettings(mood: deriveSleepPageMood(status: sleepVM.status,
+                                                    debt: resolveSleepDebt(sse: nil, status: sleepVM.status),
+                                                    justFinishedAt: nil), lampLit: sleepVM.schedule.enabled)
+            MascotSettings()
         }
         .task {
             guard !loadedOnce else { return }

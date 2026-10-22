@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// G181 phase 3 — Settings → General's *Where your memory lives*: This Mac or A server (address + this device's token).
+/// G181 phase 3 — Settings → Devices' *Where your memory lives* (on General until the settings audit, 2026-10-22):
+/// This Mac or A server (address + this device's token).
 ///
 /// A change is checked against the server before anything is written (`ServerProbe`: `/healthz` says it is Cicada,
 /// `/devices` with the token says the token is good and names this device), then saved to `$CICADA_HOME/api_base` and
@@ -109,8 +110,9 @@ struct MemoryHomeSetting: View {
 
 /// G181 phase 3 — Settings → Devices (owner 2026-10-16: "a page in settings … where I can see the synced devices").
 ///
-/// Two cards: *This app* — where this app's memory lives, whether the server answers and as of when, and how many
-/// captures wait on this Mac for it — and *Your devices*: each device the person issued a token for, when it was added
+/// Two cards: *Where your memory lives* — the choice (`MemoryHomeSetting`) and, only while this app runs on a server,
+/// which server it uses, whether it answers and as of when, and how many captures wait on this Mac for it — and
+/// *Your devices*: each device the person issued a token for, when it was added
 /// and last seen, Revoke. On This Mac (the master token) the page adds a device, showing its token once, and revokes
 /// one; on a server's client it reads the list and says the two commands to run on the server (ruling 28.1). Not a
 /// Store domain (`/devices` is outside every bank): read on appear and every 30 s while the page is open, kept in
@@ -123,29 +125,15 @@ struct DevicesSettingsView: View {
 
     var body: some View {
         SettingsPage(section: .devices) {
-            SettingsGroupCard(header: Copy.Devices.connectionGroup) {
-                SettingsRow(.devicesConnection, title: model.connectionLine,
-                            detail: model.connection.invalidReason) {
-                    EmptyView()
-                } below: {
-                    TimelineView(.everyMinute) { context in
-                        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                            if let line = model.statusLine(at: context.date) {
-                                Text(line)
-                                    .font(CicadaTheme.captionFont.monospacedDigit())
-                                    .foregroundStyle(model.reachable == false ? CicadaTheme.danger : CicadaTheme.textSecondary)
-                            }
-                            if model.waiting > 0 {
-                                HStack(spacing: CicadaTheme.spacingSM) {
-                                    Text(Copy.Devices.waiting(model.waiting))
-                                        .font(CicadaTheme.captionFont.monospacedDigit())
-                                        .foregroundStyle(CicadaTheme.textSecondary)
-                                    TextButton(title: Copy.Devices.sendNow, inline: true) {
-                                        Task { await model.sendNow() }
-                                    }
-                                }
-                            }
-                        }
+            // DR-38: one card says where the memory lives. The running connection's status joins it only on a server.
+            SettingsGroupCard(header: Copy.Devices.whereGroup) {
+                MemoryHomeSetting()
+                if let line = model.connectionLine {
+                    SettingsDivider()
+                    SettingsRow(.devicesConnection, title: line, detail: model.connection.invalidReason) {
+                        EmptyView()
+                    } below: {
+                        connectionStatus
                     }
                 }
             }
@@ -183,6 +171,28 @@ struct DevicesSettingsView: View {
             Button(Copy.Devices.cancel, role: .cancel) { pendingRevoke = nil }
         } message: {
             Text(Copy.Devices.revokeMessage)
+        }
+    }
+
+    private var connectionStatus: some View {
+        TimelineView(.everyMinute) { context in
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                if let line = model.statusLine(at: context.date) {
+                    Text(line)
+                        .font(CicadaTheme.captionFont.monospacedDigit())
+                        .foregroundStyle(model.reachable == false ? CicadaTheme.danger : CicadaTheme.textSecondary)
+                }
+                if model.waiting > 0 {
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        Text(Copy.Devices.waiting(model.waiting))
+                            .font(CicadaTheme.captionFont.monospacedDigit())
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                        TextButton(title: Copy.Devices.sendNow, inline: true) {
+                            Task { await model.sendNow() }
+                        }
+                    }
+                }
+            }
         }
     }
 

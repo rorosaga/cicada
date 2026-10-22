@@ -13,7 +13,8 @@ import SwiftUI
 /// Scene (round-4 D4, G144) retired with the painted art (owner 2026-10-16): it picked a painting, and none is left.
 ///
 /// F-10 (round-4 T-Home, R-HO16) groups the page as *Look* (Appearance · Text size), *Startup* (Open Cicada at
-/// login · Show in menu bar) and *When Cicada is closed* (Keep memory working), then Setup. Text size stays in Look — F-10 omits it, and removing
+/// login · Show in menu bar) and *When Cicada is closed* (Keep memory working), then Setup. *Where your memory lives*
+/// moved to Devices (settings audit 2026-10-22): one place for where this app's memory is and which devices reach it. Text size stays in Look — F-10 omits it, and removing
 /// a working control needs the owner's word. Show in menu bar (`MenuBarPreference`) hides the bookworm without tearing
 /// it down; the app keeps its Dock icon, so hiding it never strands Cicada. The rows never promise what the app does not
 /// do (R-FA7): the login row says the quiet start R-OB18 built, and 'calendar polls keep going' is not used — the
@@ -103,16 +104,16 @@ struct SettingsGeneralView: View {
                         .labelsHidden()
                 }
             }
-            // G181 phase 3 — This Mac or a server; the choice is used when Cicada opens again.
-            SettingsGroupCard(header: Copy.Devices.whereGroup) {
-                MemoryHomeSetting()
-            }
             SettingsGroupCard(header: Copy.whenClosedGroup) {
                 // G181 phase 3 — on a server nothing runs on this Mac for the memory, so nothing is offered.
                 let onServer = ServerConnection.current.isServer
                 SettingsRow(.backgroundService, title: Copy.keepMemoryWorking,
                             detail: onServer ? Copy.Devices.backgroundNotNeeded : Copy.backgroundDetail(backendAgent.state)) {
-                    if !onServer { BackgroundServiceButton() }
+                    if onServer {
+                        SettingsInlineLink(section: .devices, row: .memoryHome, label: Copy.Devices.whereGroup)
+                    } else {
+                        BackgroundServiceButton()
+                    }
                 } below: {
                     if !onServer && BackgroundServiceButton.showsCommand(backendAgent.state) {
                         CommandBox(command: backendAgent.display)

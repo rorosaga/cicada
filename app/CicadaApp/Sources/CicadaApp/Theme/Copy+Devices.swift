@@ -1,11 +1,11 @@
 import Foundation
 
-/// G181 phase 3 — the words for where memory lives (Settings → General) and for the person's devices (Settings →
+/// G181 phase 3 — the words for where memory lives and for the person's devices (Settings →
 /// Devices). DR-59: sentence case, plain verbs. Provider-neutral (owner 2026-09-30): an overlay is "your own private
 /// network", never a product's name — the person's own address is the only name shown.
 extension Copy {
     enum Devices {
-        // MARK: Settings → General — where your memory lives
+        // MARK: Settings → Devices — where your memory lives
         static let whereGroup = "Where your memory lives"
         static let modeTitle = "Memory on"
         static let thisMac = "This Mac"
@@ -58,11 +58,10 @@ extension Copy {
 
         // MARK: Settings → Devices
         static let sidebar = "Devices"
-        static let subtitle = "Which of your devices reach your memory, and where it lives"
-        static let connectionGroup = "This app"
+        static let subtitle = "Which of your devices reach your memory"
         static let devicesGroup = "Your devices"
-        static let connectionThisMac = "Your memory lives on this Mac."
-        static func connectionServer(_ host: String) -> String { "Your memory lives on \(host)." }
+        static let connectionIndexTitle = "Server connection"
+        static func connectionServer(_ host: String) -> String { "This app is using \(host) now." }
         static let connectionInvalid = "The server address isn't valid, so nothing is sent anywhere."
         static func reachable(_ checked: String) -> String { "Reachable · checked \(checked)" }
         static func unreachable(_ since: String?) -> String {
@@ -93,7 +92,7 @@ extension Copy {
         static let cancel = "Cancel"
         static let done = "Done"
         static let shownOnceTitle = "Copy this token now"
-        static let shownOnceDetail = "It is shown once. On that device, open Cicada → Settings → General → A server, and "
+        static let shownOnceDetail = "It is shown once. On that device, open Cicada → Settings → Devices → A server, and "
             + "paste this address and token. For agents without the app, put the token in ~/.cicada/device_token "
             + "(mode 0600) and set CICADA_API_BASE."
         static let copy = "Copy"

@@ -123,7 +123,7 @@ loopback tunnel only). No installer creates, copies or logs either.
   the save's episode; `SHAPE` `device-1` moves the ETag once, and the app's `SnapshotCache.schema` is 3 in the same
   change), `GET /entities/{id}/provenance` conversations (`device`, the newest one in the group) and
   `GET /episodes/{id}/text` (`device`). The last two are not Store domains.
-- `CICADA_API_BASE`, else the app's `$CICADA_HOME/api_base` (written only on the person's click in Settings → General,
+- `CICADA_API_BASE`, else the app's `$CICADA_HOME/api_base` (written only on the person's click in Settings → Devices,
   0600): `runtime_layout._raw_base` and its stdlib twin `hook_client.raw_base` read the file only from the real
   environment or one that names its own `CICADA_HOME`, so a test's bare dict never reaches a home.
 

@@ -429,6 +429,7 @@ final class HeadlessAppTests: XCTestCase {
         XCTAssertTrue(onMac.canManage)
         XCTAssertEqual(onMac.waiting, 0)
         XCTAssertNil(onMac.statusLine(at: now))
+        XCTAssertNil(onMac.connectionLine, "on This Mac the choice already says where the memory lives (DR-38)")
         await onMac.add(name: "  desk ")
         XCTAssertEqual(api.created, ["desk"])
         XCTAssertEqual(onMac.created?.token, "cic_dev_new00000_" + String(repeating: "y", count: 43))
@@ -467,7 +468,7 @@ final class HeadlessAppTests: XCTestCase {
         XCTAssertEqual(directory.label(for: nil), Copy.Devices.thisServer)
     }
 
-    // MARK: Settings → General
+    // MARK: Settings → Devices (where your memory lives)
 
     @MainActor
     func testChoosingAServerIsCheckedBeforeAnythingIsWritten() async {
