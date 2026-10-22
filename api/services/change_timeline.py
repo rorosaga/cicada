@@ -156,7 +156,7 @@ def collect(memory_path: Path, since: date, until: date, *,
             r.conversations.update(m.sessions)
             r.authors += [a for a in m.authors if a not in r.authors]
             for e in m.entities:
-                if e["action"] == "created":
+                if e["action"] in git_service.CREATED_ACTIONS:
                     r.created.append(e["id"])
                 else:
                     r.updated += 1
@@ -193,7 +193,7 @@ def collect(memory_path: Path, since: date, until: date, *,
             continue
         d = _local_day(fm.get("timestamp"))
         if d is not None and since <= d <= until:
-            row(d).captured[str(fm.get("origin") or fm.get("harness") or "unknown")] += 1
+            row(d).captured[str(fm.get("origin") or fm.get("harness") or fm.get("source") or "unknown")] += 1
     return [days[d] for d in sorted(days, reverse=True) if not days[d].empty()]
 
 

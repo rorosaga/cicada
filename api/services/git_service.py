@@ -1591,13 +1591,18 @@ def _cycle_kind(subject: str) -> str | None:
     return None
 
 
+#: The action words a manifest line uses for a page that commit made: ``create`` is what Sleep writes (the change's own
+#: action, ``sleep_cycle._finalize``); ``created`` what other writers and older commits wrote.
+CREATED_ACTIONS = frozenset({"create", "created"})
+
+
 def _entry_from(commit_hash: str, date: str, subject: str, body: str) -> SleepHistoryEntry:
     m = parse_cycle_body(subject, body)
     return SleepHistoryEntry(
         commit_hash=commit_hash, date=date, message=subject, files_changed=m.files, engine=m.engine,
         kind=_cycle_kind(subject) or "sleep",
-        entities_created=sum(1 for e in m.entities if e["action"] == "created"),
-        entities_updated=sum(1 for e in m.entities if e["action"] != "created"),
+        entities_created=sum(1 for e in m.entities if e["action"] in CREATED_ACTIONS),
+        entities_updated=sum(1 for e in m.entities if e["action"] not in CREATED_ACTIONS),
         episodes=len(m.episodes), sessions=len(m.sessions), authors=m.authors,
     )
 
