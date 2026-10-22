@@ -58,7 +58,8 @@ from typing import Callable
 import yaml
 from loguru import logger
 
-from api.services import claims_ledger, correspondents, decay_policy, entity_body, episode_time, markdown_parser
+from api.services import (claims_ledger, correspondents, decay_policy, entity_body, episode_time, markdown_parser,
+                          source_dates)
 from api.services.claims import Claim, parse_claims, strip_claims_block, write_claims
 
 TRIGGER = "maintenance/correspondent-split"
@@ -145,6 +146,12 @@ def _day(value) -> str:
     return text[:10] if len(text) >= 10 and text[4:5] == "-" else ""
 
 
+def _said(fm: dict, episode_id: str) -> str:
+    """The day a conversation was said, in the person's zone (``source_dates.episode_day``, ruling 34)."""
+    said = source_dates.episode_day({"timestamp": fm.get("timestamp"), "id": str(episode_id)})
+    return said.isoformat() if said is not None else ""
+
+
 def conversations(memory_path: Path) -> dict[str, Conversation]:
     """Every message conversation whose newest sitting names a decided correspondent, with all its episode ids."""
     found: dict[str, tuple[str, correspondents.Identity | None, set[str], dict[str, str]]] = {}
@@ -160,7 +167,7 @@ def conversations(memory_path: Path) -> dict[str, Conversation]:
         stamp = str(fm.get("timestamp") or "")
         newest, ident, eps, days = found.get(cid, ("", None, set(), {}))
         eps.add(ep_id)
-        days[ep_id] = _day(fm.get("timestamp")) or _day(ep_id[3:])
+        days[ep_id] = _said(fm, ep_id)
         if stamp >= newest:
             newest, ident = stamp, correspondents.identity(record)
         found[cid] = (newest, ident, eps, days)
@@ -176,7 +183,7 @@ def _episode_day(memory_path: Path, episode_id: str) -> str:
         fm = {}
     if not episode_time.counts_as_activity(fm):
         return ""
-    return _day(fm.get("timestamp")) or _day(str(episode_id)[3:])
+    return _said(fm, episode_id)
 
 
 def _load_pages(memory_path: Path) -> list[dict]:

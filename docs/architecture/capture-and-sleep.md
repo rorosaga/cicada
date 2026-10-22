@@ -211,13 +211,23 @@ the final reply sits, and Cursor's may be null, while the posted strings already
 - **Every writer mints ids through one rule** (G114, `api/services/episode_ids.py`):
   `next_episode_id` is max-suffix+1 per date (a count-based rule collides after any gap), and timestamps are aware UTC from
   `episode_ids.utc_now_iso` — never a naive local time with a `Z` appended. **The date in an id is the conversation's
-  local day** (ruling 34, 2026-10-22): the person's zone at its first turn, never the UTC day. Every writer already
-  took the local day except the two hook writers, which sliced the UTC stamp; `transcript_capture.write_session` (Claude
-  Code, Codex, `/capture/turn`, relayed turns) and `telegram_capture` now mint through `episode_ids.id_day`, in this
-  machine's zone or, for a client of a server elsewhere, the `utc_offset_minutes` its hook posts (below). An id is never
+  local day** (ruling 34, 2026-10-22): the person's zone at its first turn, never the UTC day. The two hook writers
+  sliced the UTC stamp; `transcript_capture.write_session` (Claude Code, Codex, `/capture/turn`, relayed turns) and
+  `telegram_capture` now mint through `episode_ids.id_day`, in this machine's zone or, for a client of a server
+  elsewhere, the `utc_offset_minutes` its hook posts (below). The follow-up (2026-10-22) found four more writers slicing
+  a UTC stamp and moved them to `id_day` too: Messages sittings, Wispr Flow meetings and notes, watched folders
+  (`original_date`, the day `episode_staging` mints from) and `watch_record`; the companion app's Log note takes
+  `id_day(now)`. Wispr dictation days stay keyed by their UTC day (`wispr:dictation:<day>` is the staging source key:
+  re-keying would split a day already captured into a second episode). **Relayed turns** take the zone the app sends:
+  ChatGPT puts a coarse `openai/userLocation` in each tool call's `_meta`, whose `timezone` (an IANA name — nothing else
+  of it is read, stored or logged) `relay_capture.offset_from_meta` turns into the offset; claude.ai sends no zone and a
+  model is never asked to guess one, so its relayed ids take this server's zone. An id is never
   renamed, so a hook capture minted before 2026-10-22 between local midnight and the UTC one keeps the UTC day; the readers
   that took the day from the id (`ask_sources.said_day`, `benchmarks/hard_questions`) read the episode's `timestamp` in the
-  person's zone instead, and `ask` dates each line by the local day its turn was said. Legacy files are not
+  person's zone instead, and `ask` dates each line by the local day its turn was said. **One reading rule:**
+  `episode_ids.local_day` reads any stored stamp (naive legacy = this machine's time, `Z`, `+00:00`, a YAML datetime, a
+  bare day) as the day it was said in this machine's zone; `ask_sources.local_day` and `change_timeline` call it, and
+  Sleep dates every conversation through it (*Dates in the prompts*, below). Legacy files are not
   migrated: readers accept both shapes and the queue sorts by `timestamp_sort_key`. A processed
   episode carries `processed_by` (`sleep` vs `agent`) so a flipped flag is distinguishable from a
   consolidation. `processed_by` also takes `user` — a companion note the person wrote in the app
@@ -871,8 +881,9 @@ G148 usage/locate-rate pilot; the reasoning-only slice does not authorize that s
 **Dates in the prompts (G194 A1, 2026-10-07).** Every model call that writes about a conversation is told when it was
 said and what day it is now (`api/services/source_dates.py`).
 - **Stage 1.** Every chunk, and its one retry, opens with Cicada's date note, after the gap note when there is one. The
-  note gives the conversation's own day (its `timestamp`, else the date in its id: the same rule as a claim's
-  `valid_from`) and today, which is fixed once per `extract()` run. For a conversation older than `OLD_AFTER_DAYS` (90),
+  note gives the conversation's own day (its `timestamp` read in the person's zone by `episode_ids.local_day`, else the
+  date in its id: `source_dates.episode_day`, the same rule as a claim's `valid_from` and a page's `created` and
+  `last_referenced`, ruling 34 — words said at 00:27 local are never dated the UTC day before) and today, which is fixed once per `extract()` run. For a conversation older than `OLD_AFTER_DAYS` (90),
   the note names the month and year to write it as of. An undated conversation gets no note, and nothing is guessed.
   A memory export entry gets `source_dates.summary_note` instead: its date is when the summary was edited, never a
   day to date a fact to, and nothing in it is written as current or recent (the 90-day rule does not apply).
@@ -1735,6 +1746,17 @@ watermark (one no charge has covered — every live mention) revives it (`max(cu
 since the read-on-time ruling an active page below 0.6 is raised too — and `active`) and restarts its clock when it
 was said: the gap until Cicada read it is proven silence, charged once by the pass that settles it, never below where
 the page stood before the mention (`confidence_before_mention`, kept only until then; never on an evergreen page).
+**The day it was said** (ruling 34, follow-up 2026-10-22) is the conversation's local day: a page's `created`,
+`last_referenced` and new-mention day come from its conversations' timestamps through `source_dates.stamp_day`
+(`conflict_resolver._said_day_string`), a claim's `valid_from` through `source_dates.episode_day`. Only that attribution
+moved — no rate, floor, cap or watermark rule changed. A claim id hashes its `valid_from`, so re-reading a conversation
+said between local and UTC midnight mints a new id for the same belief; Stage 3 recognises a re-read by what the claim
+says, not only its id (`claim_reconciler._reread_twin`: closed, not withdrawn, same slot and object, and every
+conversation it was heard in already cited), so a closed claim stays closed and an ending is never recorded twice. A claim's *said* day (`decay_policy.latest_said`, `mention_weeks`,
+`inbox_tend._said`) still reads its episode ids' day: local for every id minted since 2026-10-22, at most one day early
+for a hook capture minted before it in the window between local and UTC midnight (left: it needs a header read per
+episode inside the decay pass; the trigger is a page seen fading a day early).
+
 **Read on time** (owner 2026-10-16): a conversation dated *before* the watermark and read late — a newly connected
 source's history, an export imported after the page was known — counts as if Cicada had read it the day it was said.
 Its source and its week count at once; the newest such conversation the page does not already credit is kept in

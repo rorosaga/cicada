@@ -340,7 +340,7 @@ def meeting_draft(item: dict, todos: list[dict], owner_names: set[str]) -> tuple
         title=" ".join(str(row["title"] or "").split()) or "Meeting",
         source_id=f"wispr:meeting:{meeting_id}",
         source_updated_at=_ts(row["modifiedAt"]) or created, timestamp=created,
-        original_date=created[:10] if created else None, source=ORIGIN, origin=ORIGIN, turns=turns,
+        original_date=episode_ids.id_day(created) if created else None, source=ORIGIN, origin=ORIGIN, turns=turns,
         extra={"wispr_kind": "meeting",
                "participants": _names(row["participantNames"]) or sorted(set(speaker_map.values())),
                "consent": "unknown", "meeting_ended_at": _ts(row["endedAt"])},
@@ -358,7 +358,7 @@ def note_draft(raw: dict) -> EpisodeDraft | None:
     return EpisodeDraft(
         title=" ".join(str(row["title"] or "").split()) or "Wispr Flow note",
         source_id=f"wispr:note:{note_id}", source_updated_at=_ts(row["modifiedAt"]) or created,
-        timestamp=created, original_date=created[:10] if created else None, source=ORIGIN, origin=ORIGIN,
+        timestamp=created, original_date=episode_ids.id_day(created) if created else None, source=ORIGIN, origin=ORIGIN,
         body=body, extra={"wispr_kind": "note"}, writer="wispr-flow",
     )
 

@@ -295,7 +295,10 @@ class RemoteRuntime:
             sleep_holding=self._sleep_running,
         )
 
-    def call(self, connector: catalog.Connector, tool: str, arguments: dict | None) -> tuple[str, str]:
+    def call(self, connector: catalog.Connector, tool: str, arguments: dict | None, *,
+             utc_offset_minutes: int | None = None) -> tuple[str, str]:
+        """``utc_offset_minutes`` (ruling 34) is the person's UTC offset when the calling app sent a zone hint with the
+        request (``relay_capture.offset_from_meta``); only ``cicada_capture_turns`` reads it."""
         writes = tool in catalog.WRITE_TOOLS and _writes_bank(tool, arguments)
         # Resolved ONCE: admitted, gated, written, committed and named to the backend (G183 rounds 1–2).
         memory_path, bank_name = self._resolve_bank()
@@ -306,13 +309,15 @@ class RemoteRuntime:
         held = writes and tool not in SELF_ADMITTED
         try:
             with write_admission.shared(memory_path) if held else contextlib.nullcontext():
-                return self._call(connector, tool, arguments, writes, memory_path, bank_name)
+                return self._call(connector, tool, arguments, writes, memory_path, bank_name,
+                                  utc_offset_minutes=utc_offset_minutes)
         except write_admission.SleepHolding:
             self._record(connector, tool, "busy", BUSY_TEXT, memory_path)
             return BUSY_TEXT, "busy"
 
     def _call(self, connector: catalog.Connector, tool: str, arguments: dict | None,
-              writes: bool, memory_path: Path, bank_name: str | None = None) -> tuple[str, str]:
+              writes: bool, memory_path: Path, bank_name: str | None = None, *,
+              utc_offset_minutes: int | None = None) -> tuple[str, str]:
         today = self._today()
         if tool not in catalog.tool_names_for(connector.scopes):
             text, status = DENIED_TEXT, "denied"
@@ -325,7 +330,8 @@ class RemoteRuntime:
             text, status = CAPPED_TEXT, "capped"
         else:
             try:
-                text, status = self._run(connector, tool, dict(arguments or {}), today, memory_path, bank_name), "ok"
+                text, status = self._run(connector, tool, dict(arguments or {}), today, memory_path, bank_name,
+                                         utc_offset_minutes=utc_offset_minutes), "ok"
             except write_admission.SleepHolding:
                 raise   # the window opened during a self-admitted tool's fetch: `call` answers busy
             except Exception as exc:  # noqa: BLE001 — never a stack trace to a cloud app
@@ -335,7 +341,7 @@ class RemoteRuntime:
         return text, status
 
     def _run(self, connector: catalog.Connector, tool: str, args: dict, today: str, memory_path: Path,
-             bank_name: str | None = None) -> str:
+             bank_name: str | None = None, *, utc_offset_minutes: int | None = None) -> str:
         if tool == "cicada_handshake":
             primer, meta = handshake.load_or_build(
                 memory_path, variant=handshake.REMOTE_VARIANT, tools=catalog.tool_names_for(connector.scopes))
@@ -350,7 +356,7 @@ class RemoteRuntime:
 
             with self._write_lock:
                 text = relay_capture.capture_turns(ctx, args.get("message"), args.get("previous_reply"),
-                                                   app=connector.app)
+                                                   app=connector.app, utc_offset_minutes=utc_offset_minutes)
         elif tool in catalog.WRITE_TOOLS:
             with self._write_lock:
                 text = _DISPATCH[tool](ctx, args)

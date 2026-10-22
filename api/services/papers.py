@@ -51,6 +51,7 @@ from api.services import (
     graph_builder,
     markdown_parser,
     media_ingestor,
+    source_dates,
 )
 from api.services.claims import (
     Claim,
@@ -722,7 +723,9 @@ def _reconcile_locked(memory_path: Path, folder: dict, *, touched: dict[str, str
             by_page.setdefault(eid, []).append(c)
         previous = set(cites.get(sid, []))
         authorship = str(fm.get("authorship") or "user")
-        valid_from = str(fm.get("timestamp") or "")[:10] or today
+        # Ruling 34: the conversation's day in the person's zone, never a UTC stamp's first ten characters.
+        said = source_dates.stamp_day(fm.get("timestamp"))
+        valid_from = said.isoformat() if said is not None else today
         for eid in sorted(previous | set(by_page)):
             desired = desired_claims(
                 entity_id=eid, citations=by_page.get(eid, []), episode_id=ep_id, text=text,

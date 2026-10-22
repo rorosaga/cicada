@@ -183,6 +183,15 @@ def _build_describes_claim(media_id: str, text: str, episode: str, today: str, m
     )
 
 
+def _said_on(memory_path: Path, episode_id) -> str:
+    """The day the conversation that shared a link was said, in the person's zone (ruling 34): the episode's
+    ``timestamp``, else its id's day; ``""`` when neither dates it. Before 2026-10-22 this was ``str(ep)[:10]`` of the
+    episode id — ``ep_2026-10`` — so a ``recommends`` claim's ``valid_from`` was never a day."""
+    from api.services import ask_sources
+
+    return ask_sources.said_day(memory_path, str(episode_id or ""))
+
+
 def _build_recommends_claim(
     person_id: str, media_id: str, title: str, url: str, episode_date: str, today: str, model: str
 ) -> Claim:
@@ -547,7 +556,7 @@ async def enrich_media_links(
                 if not person_fp.exists():
                     continue
                 rec = _build_recommends_claim(
-                    person_id, media_id, title, url, str(ep)[:10] if ep else today, today, model
+                    person_id, media_id, title, url, _said_on(memory_path, ep) or today, today, model
                 )
                 _append_claim(person_fp, rec)
                 _add_transclusion(person_fp, "Recommended links", media_id)

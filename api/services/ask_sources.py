@@ -124,31 +124,10 @@ class Excerpt:
 def local_day(raw):
     """A stored stamp of any shape (naive local, ``Z``, ``+00:00``, a bare day, a YAML ``datetime``) as the LOCAL
     calendar day it was said — the day ``claims.current_day`` counts in (a turn at 01:30 in Madrid is stored on the
-    previous UTC day). ``None`` when unreadable."""
-    from datetime import date, datetime
-
+    previous UTC day). ``None`` when unreadable. The rule is :func:`episode_ids.local_day` (ruling 34)."""
     from api.services import episode_ids
 
-    if isinstance(raw, datetime):
-        dt = raw
-    else:
-        text = str(raw or "").strip()
-        if len(text) == 10:
-            try:
-                return date.fromisoformat(text)
-            except ValueError:
-                return None
-        key = episode_ids.timestamp_sort_key(text or None)
-        if not key:
-            return None
-        try:
-            dt = datetime.fromisoformat(key)
-        except ValueError:
-            return None
-    try:
-        return dt.astimezone().date()
-    except (ValueError, OverflowError, OSError):
-        return None
+    return episode_ids.local_day(raw)
 
 
 def _clip_around(text: str, at: int | None, limit: int) -> str:

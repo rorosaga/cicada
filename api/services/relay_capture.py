@@ -49,7 +49,30 @@ def _keep_replies() -> bool:
         return True
 
 
-def capture_turns(ctx: mcp_tools.ToolContext, message, previous_reply=None, *, app: str | None = None) -> str:
+#: The one zone hint a hookless app is documented to send with a tool call (ruling 34): ChatGPT's Apps SDK puts a coarse
+#: ``openai/userLocation`` object in the request's ``_meta``, whose ``timezone`` is an IANA name. claude.ai sends none.
+ZONE_HINT_KEY = "openai/userLocation"
+
+
+def offset_from_meta(meta) -> int | None:
+    """The person's UTC offset in minutes now, from a tool call's ``_meta`` zone hint; ``None`` without one.
+
+    Only the zone name is read — never the city, region or coordinates beside it — and nothing of it is stored or
+    logged: it decides which day a new relayed episode's id carries and nothing else. A hint, never a reason to refuse
+    a capture: an unknown zone is ``None`` and the id takes this server's zone, as before."""
+    from api.services import episode_ids
+
+    if not isinstance(meta, dict):
+        return None
+    hint = meta.get(ZONE_HINT_KEY)
+    return episode_ids.zone_offset_minutes(hint.get("timezone")) if isinstance(hint, dict) else None
+
+
+def capture_turns(ctx: mcp_tools.ToolContext, message, previous_reply=None, *, app: str | None = None,
+                  utc_offset_minutes: int | None = None) -> str:
+    """``utc_offset_minutes`` (ruling 34): the person's offset when the app sent a zone hint (:func:`offset_from_meta`),
+    so a new relayed episode's id carries their day; without one (claude.ai sends none, and a model's guess is never
+    taken) the id takes this server's zone."""
     memory_path = ctx.memory_path()
     text = message if isinstance(message, str) else ""
     if not text.strip():
@@ -62,7 +85,8 @@ def capture_turns(ctx: mcp_tools.ToolContext, message, previous_reply=None, *, a
         memory_path, harness=ctx.harness, session_id=ctx.session_id, turns=turns,
         keep_assistant=_keep_replies(), bank=memory_path.name,
         bank_paths=None,  # a relayed conversation is no workspace session: the continuity registry stays out
-        relay={"app": app, "connector": ctx.connector_id, "channel": CHANNEL})
+        relay={"app": app, "connector": ctx.connector_id, "channel": CHANNEL},
+        utc_offset_minutes=utc_offset_minutes)
     if result.status == "refused":
         reason = result.reason or "refused"
         if reason == "demo_bank":

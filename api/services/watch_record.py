@@ -155,7 +155,7 @@ def _write_episode(memory_path: Path, target: Target, body: str, session_fm: dic
             return f.stem, True
     episodes_dir = memory_path / "episodes"
     episodes_dir.mkdir(parents=True, exist_ok=True)
-    episode_id = episode_ids.next_episode_id(episodes_dir, (at or "")[:10] or datetime.now().strftime("%Y-%m-%d"))
+    episode_id = episode_ids.next_episode_id(episodes_dir, episode_ids.id_day(at))   # ruling 34: the local day
     frontmatter = {
         "id": episode_id,
         "timestamp": at or episode_ids.utc_now_iso(),
