@@ -15,6 +15,9 @@
   installed stamp), restarts `cicada-backend.service` (`CICADA_BACKEND_UNIT`) when runtime code moved, re-syncs a server
   venv through `sync-server-env.sh` (a full venv with `uv sync`), and has no app to build. macOS unchanged.
   `api/tests/test_dev_auto_update.py` stubs `uname` (CI runs on Linux) and covers both.
+  Follow-up (review of #400): on Linux the stamp moves only when the sync and the restart both worked (a failure
+  retries next tick), and the Sleep check asks the port and home the backend unit names. the dev server runs it
+  (`cicada-dev-autoupdate.timer`, first run 2026-10-22 moved the stamp to d25ba62).
 - **2026-10-21 — the seven backend failures on dev before 0.6.0 (branch `fix/suite-0.6`).** The full suite on
   `24a419a7` gave 7 failed, 10,864 passed. Two were code: the entity card opened the claims ledger through
   `quiet_pages.page_is_quiet` (#391) because `bank_index.file` parsed with the ledger fold — it now reads the header
