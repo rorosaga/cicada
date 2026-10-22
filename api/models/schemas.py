@@ -3150,6 +3150,9 @@ class EpisodeQueueItem(CamelModel):
     # `channel_items.saved_episode_url`), the name its row's site mark is drawn under; None for every other episode. The icon itself is asked by the episode's id
     # (`GET /sources/saved/episodes/{id}/site-icon`), never by this name.
     site: Optional[str] = None
+    # G212 — the device id that posted it (`device` frontmatter, G181 phase 3; None = this server), so the Sleep page's
+    # machines strip opens each machine's own queue. An id, never a name (`GET /devices/status` names it).
+    device: Optional[str] = None
 
 
 SCHEDULE_MODES = ("manual", "daily", "interval", "after_import")

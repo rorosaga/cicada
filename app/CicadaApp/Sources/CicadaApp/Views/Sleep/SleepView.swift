@@ -227,6 +227,10 @@ struct SleepView: View {
     /// ladder). Page-local `@State`: a tab switch tears it down, so an answer
     /// never outlives the visit it was asked in.
     @State private var room = RoomModel()
+    /// G212 — the machines under the room (`GET /devices/status`, polled while the page shows) and the one whose queue
+    /// Waiting shows (nil: every machine's).
+    @State private var machines: [MachineStatus] = []
+    @State private var openMachine: String?
 
     private static let tabsAnchor = "sleep.tabs"
     private static let topAnchor = "sleep.top"
@@ -293,6 +297,13 @@ struct SleepView: View {
         .onChange(of: videoRows.map(\.id)) { _, ids in run.reconcile(present: Set(ids)) }
         // G162 — the video states the rows, the strip and the run read (a 304 costs nothing).
         .task { await videoCache.refresh() }
+        // G212 — the machines strip, asked while the page shows; a failed poll keeps the last answer.
+        .task {
+            while !Task.isCancelled {
+                if let list = try? await APIClient.shared.fetchMachineStatus() { machines = list.devices }
+                try? await Task.sleep(for: .seconds(CicadaTiming.machinePoll))
+            }
+        }
     }
 
     private func lifecycle(_ content: some View, page: SleepPageModel) -> some View {
@@ -517,7 +528,9 @@ struct SleepView: View {
         let rowInset = ListInsets.of(.wide).leading
         switch tab {
         case .waiting:
-            SleepWaitingList(page: page, liveness: liveness, episodes: sleepVM.queuedEpisodes,
+            SleepWaitingList(page: page, liveness: liveness,
+                             episodes: MachinesStrip.episodes(sleepVM.queuedEpisodes,
+                                                              machine: machines.first { $0.id == openMachine }),
                              onSelectEntity: onSelectEntity, room: room, queue: sleepVM.queue,
                              showsRun: showsRunBlock(page), runPaused: sleepVM.isPaused,
                              ownerReady: ownerReady(page), onRetryParked: retryParked,
@@ -1086,6 +1099,14 @@ struct SleepView: View {
                       onWhatChanged: room.recentCycleCommit == nil ? nil : { showWhatChanged() },
                       reachable: liveness == .live, cell: cell)
                 .accessibilitySortPriority(RoomA11yOrder.room)
+
+            // G212 — each machine by its own name, how it connects and what waits; a click opens its queue below.
+            MachinesStripView(machines: machines, selected: openMachine) { machine in
+                Instant.run {
+                    openMachine = machine?.id
+                    if machine != nil { selectTab(.waiting) }
+                }
+            }
 
             // Everything under the room, one centred group in the 760 pt column (2026-10-16).
             SleepRoomColumn(page: page, status: status, answers: answers, room: room,
