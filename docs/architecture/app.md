@@ -185,7 +185,7 @@ links every run); Agents has no `make install` card; Plans & keys folds the key 
 (Show in Finder opens it), and keys, tokens and the pinned engine are said in words, never a path or a variable. Every
 value already set (`api/.env`, the environment, the bank's prefs, `~/.cicada`, UserDefaults) is still honoured; the
 routes, `GET /status`'s `envOverrides` and `settings` blocks (`api.md`) and the `cicada` commands (`cicada sleep engine
---model`, `cicada index use|install|rebuild`) stay for developers. The full control table is in PR #<this PR> and
+--model`, `cicada index use|install|rebuild`) stay for developers. The full control table is in PR #405 and
 `docs/research/2026-10-22-hyrum-audit.md`. Search is `SettingsIndex` over `QuickMatch` — the
 palette's one ranker — and landing always selects, scrolls, washes (the selected fill and the focus ring) and
 announces the row (G139). `SettingsSection` raw values did not move. General's appearance offers System, which
