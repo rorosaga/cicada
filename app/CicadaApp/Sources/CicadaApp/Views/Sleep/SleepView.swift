@@ -271,7 +271,7 @@ struct SleepView: View {
         // feed line about a moment that has passed (Z-B11). On the page, not the room: the room may have scrolled away.
         .onChange(of: page.mood.caseName) { _, _ in room.dismissSlot() }
         .sheet(isPresented: $showAddSheet) {
-            AddSourceSheet(initialTile: sheetTile) { showAddSheet = false }
+            AddSourceSheet(initialTile: sheetTile, onClose: { showAddSheet = false }, flowOnly: sheetTile != nil)
         }
     }
 
@@ -760,7 +760,13 @@ struct SleepView: View {
         }
     }
 
+    /// G217 — one catalogue: the bare `+` / ⌘N opens the Sources page (where every way in is listed); a hand-off
+    /// naming one tile still opens that tile's flow here, alone (`flowOnly`).
     private func openSheet(_ tile: AddSourceTile?) {
+        guard let tile else {
+            appRouter.routeToSources()
+            return
+        }
         sheetTile = tile
         showAddSheet = true
     }

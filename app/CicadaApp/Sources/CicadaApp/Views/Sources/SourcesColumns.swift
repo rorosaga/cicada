@@ -4,6 +4,8 @@ import SwiftUI
 enum SourcesSelection: Hashable {
     case source(String)
     case contributor(String)
+    /// G217 — a catalogue entry (`SourceCatalogEntry.id`).
+    case entry(String)
 }
 
 /// Sources v3 (owner 2026-10-19: "The first screen answers 'where did my stuff come from'") — the page's two groups,
@@ -49,9 +51,11 @@ enum SourcesModel {
     }
 
     /// Everything the detail column can still show — a selection outside it has left the data (R-DL6).
-    static func present(rows: [SourceOverview], contributors: [Contributor]) -> Set<SourcesSelection> {
+    static func present(rows: [SourceOverview], contributors: [Contributor],
+                        catalog: [SourceCatalogRow] = []) -> Set<SourcesSelection> {
         Set(rows.map { SourcesSelection.source($0.id) })
             .union(contributors.map { SourcesSelection.contributor($0.author) })
+            .union(catalog.map { SourcesSelection.entry($0.id) })
     }
 
     /// DR-25 — "Sources · 7 connected", whatever is open. Sources v4 (review of #358): the position and the group
@@ -97,6 +101,8 @@ enum SourceListText {
 /// *Statistics*, holding who wrote the memory and the counts (remembered on the old `cicada.usageMode` key, DR-39).
 struct SourcesOverviewColumn: View {
     let rows: [SourceOverview]
+    /// G217 — the one catalogue the root draws.
+    var catalog: [SourceCatalogRow] = []
     let hasLoaded: Bool
     let onOpen: (SourcesSelection) -> Void
     var onSelectEntity: ((String) -> Void)?
@@ -107,24 +113,16 @@ struct SourcesOverviewColumn: View {
     @Environment(IntakeRouter.self) private var intake
 
     var body: some View {
-        let groups = SourceIntentGroups.group(rows)
         ScrollView {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXL) {
                 // G166 exploring — the run's one line of progress, Stop and Copy for an agent, while a run exists.
                 if exploreCache.showsCard { ExploreRunCard() }
                 if !hasLoaded {
                     skeleton
-                } else if rows.isEmpty {
-                    // Track I T5 (R-IA27) — the empty page takes a dropped export itself.
-                    EmptyStateView(
-                        title: "Nothing here yet",
-                        message: Copy.emptySourcesMessage,
-                        actionLabel: "Add a source",
-                        settingsSection: .integrations,
-                        onDropFiles: { intake.accept(urls: $0, from: .emptyState(.sources)) }
-                    )
                 } else {
-                    SourceGroupsList(groups: groups, style: .wide, liveness: liveness, open: onOpen)
+                    // G217 — every way in, on or off, so the page is never empty (a dropped export lands on the window's
+                    // own intake, and on Files and links).
+                    SourceCatalogList(rows: catalog, style: .wide, open: onOpen)
                 }
                 statistics
             }
@@ -199,7 +197,7 @@ struct SourceGroupsList: View {
 
 /// STATE 1 / 2 — the same two groups as rows beside the open source.
 struct SourcesListColumn: View {
-    let groups: [SourceIntentGroups.Group]
+    let catalog: [SourceCatalogRow]
     let style: ColumnPlan.ListStyle
     let selection: SourcesSelection?
     let open: (SourcesSelection) -> Void
@@ -211,10 +209,7 @@ struct SourcesListColumn: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                SourceGroupsList(groups: groups, style: style, selection: selection,
-                                 liveness: { SourceLiveness.of(row: $0, channel: nil,
-                                                               watch: $0.channelId.flatMap { watcher.state(for: $0) }) },
-                                 open: open)
+                SourceCatalogList(rows: catalog, style: style, selection: selection, open: open)
                     .padding(ListInsets.of(style))
             }
             .onChange(of: selection) { _, s in

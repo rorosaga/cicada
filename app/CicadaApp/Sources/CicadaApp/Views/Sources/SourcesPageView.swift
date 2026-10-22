@@ -17,8 +17,11 @@ struct SourcesPageView: View {
     @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var columns = ListColumns<SourcesSelection>()
-    /// R-S7/R-S9 — the catalog ROOT opens here, in place; `AddSourceSheet` owns its own state.
-    @State private var showAddSheet = false
+    /// G217 — the sites an agent may read, for the accounts' per-site control (in memory, not a Store domain).
+    @State private var reading = SiteReadingModel()
+    /// The browsers on this Mac (one Launch Services pass per appearance, never per body evaluation).
+    @State private var browsers = BrowserInventory.empty
+    @Environment(LocalSourceWatcher.self) private var localSources
     /// G166 exploring — the Explore sheet; the run card sits atop the grid.
     @State private var showExploreSheet = false
     @Environment(ExploreCache.self) private var exploreCache
@@ -26,64 +29,89 @@ struct SourcesPageView: View {
 
     private var rows: [SourceOverview] { SourceOverview.gridOrder(store.sourcesOverview.value ?? []) }
 
+    /// G217 — the one catalogue, every way in with its status (`SourceCatalog`).
+    private var catalog: [SourceCatalogRow] {
+        let overview = store.sourcesOverview.value ?? []
+        let channels = store.channels.value ?? []
+        let entries = SourceCatalog.entries(
+            browsers: BrowserRows.shown(inventory: browsers, channels: channels),
+            wisprPresent: localSources.wisprInstalled || channels.contains { $0.id == LocalSourceWatcher.wisprChannel },
+            overview: overview)
+        return SourceCatalog.rows(entries: entries, channels: channels, overview: overview,
+                                  readableSites: reading.readable)
+    }
+
     var body: some View {
         let rows = self.rows
-        let groups = SourceIntentGroups.group(rows)
+        let catalog = self.catalog
         let segments = ContributorShare.segments(contributorsVM.contributors)
-        let order = SourcesModel.order(groups: groups)
+        let order = catalog.map { SourcesSelection.entry($0.id) }
         let detailOpen = columns.openId.map {
-            SourcesModel.present(rows: rows, contributors: contributorsVM.contributors).contains($0)
+            SourcesModel.present(rows: rows, contributors: contributorsVM.contributors, catalog: catalog).contains($0)
         } ?? false
         ProgressiveColumns(hasDetail: detailOpen, hasTrailing: provenance.isPresented,
                            navWidth: ShellMetrics.navWidth(labelled: labelledSidebar)) { plan in
-            EyebrowRow(eyebrow: SourcesModel.eyebrow(groups: groups, open: detailOpen ? columns.openId : nil),
+            EyebrowRow(eyebrow: Eyebrow.text(Copy.sources, Copy.Catalog.eyebrow(SourceCatalog.connectedCount(catalog))),
                        horizontalPadding: !detailOpen && !provenance.isPresented ? plan.gutter : CicadaTheme.spacingXL) {
-                // R-S7 / §10 — the way in lives in the eyebrow row at all times, as a neutral button (DR-40).
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    if !exploreCache.isGone {
-                        NeutralButton(title: Copy.Explore.button, systemImage: "safari", size: .compact,
-                                      help: Copy.Explore.buttonHelp) { showExploreSheet = true }
-                    }
-                    PageAddButton(title: Copy.addASource, help: Copy.Lists.addSourceHelp) { showAddSheet = true }
+                // G217 — the page IS the catalogue, so it no longer adds through a second one (the "Add a source" sheet's
+                // grid); Explore saved sites keeps its door (DR-40).
+                if !exploreCache.isGone {
+                    NeutralButton(title: Copy.Explore.button, systemImage: "safari", size: .compact,
+                                  help: Copy.Explore.buttonHelp) { showExploreSheet = true }
                 }
             }
         } list: { plan in
             if plan.listStyle == .wide {
-                SourcesOverviewColumn(rows: rows, hasLoaded: store.sourcesOverview.value != nil,
+                SourcesOverviewColumn(rows: rows, catalog: catalog,
+                                      hasLoaded: store.sourcesOverview.value != nil || store.channels.value != nil,
                                       onOpen: { select($0) }, onSelectEntity: onSelectEntity)
             } else {
-                SourcesListColumn(groups: groups, style: plan.listStyle,
+                SourcesListColumn(catalog: catalog, style: plan.listStyle,
                                   selection: columns.openId, open: { select($0) },
                                   move: { move($0, order: order) }, escape: { escape() })
                     .focused($focus, equals: .list)
             }
         } detail: { plan in
-            detail(plan, rows: rows, segments: segments)
+            detail(plan, rows: rows, catalog: catalog, segments: segments)
         } trailing: { _ in
             ReaderColumn().focused($focus, equals: .reader)
         }
         .background(CicadaTheme.bgBase)
         // Presented in place (R-S9): the header means the catalog root, not one staged tile, so no bounce to the Feed.
-        .sheet(isPresented: $showAddSheet) {
-            AddSourceSheet(initialTile: nil) { showAddSheet = false }
-        }
         .sheet(isPresented: $showExploreSheet) {
             ExploreSheet { showExploreSheet = false }
         }
+        .environment(reading)
         .task { await exploreCache.refresh() }
+        .task { await reading.load() }
+        .task { browsers = await Task.detached(priority: .userInitiated) { BrowserInventory.live() }.value }
+        .onAppear { consumeAddSource() }
+        .onChange(of: router.pendingAddSource) { _, _ in consumeAddSource() }
         // Track Z §7.1 — a Sleep spine's "Open in Sources ›" lands here with the tab switch.
         .onAppear { openPendingSource() }
         .onChange(of: router.pendingSourceDetail) { _, _ in openPendingSource() }
         // Sources v3 — Sources clicked again in the sidebar: back to the root, like a tab bar.
         .onRailReselect(.sources, router: router) { popToRoot() }
         .onChange(of: rows.map(\.id)) { _, _ in reconcile() }
+        .onChange(of: catalog.map(\.id)) { _, _ in reconcile() }
         .onChange(of: contributorsVM.contributors.map(\.author)) { _, _ in reconcile() }
     }
 
     @ViewBuilder
-    private func detail(_ plan: ColumnPlan, rows: [SourceOverview], segments: [ContributorShare.Segment]) -> some View {
-        let back = plan.listHidden ? rows.count : nil
+    private func detail(_ plan: ColumnPlan, rows: [SourceOverview], catalog: [SourceCatalogRow],
+                        segments: [ContributorShare.Segment]) -> some View {
+        let back = plan.listHidden ? catalog.count : nil
         switch columns.openId {
+        case .entry(let id)?:
+            if let row = catalog.first(where: { $0.id == id }) {
+                SourceCatalogDetail(row: row, hiddenListCount: back, onShowList: { showList() },
+                                    onClose: { close() }, onSelectEntity: onSelectEntity)
+                    .id(row.id)
+                    .focusable()
+                    .focusEffectDisabled()
+                    .onExitCommand { escape() }
+                    .focused($focus, equals: .detail)
+            }
         case .source(let id)?:
             if let source = rows.first(where: { $0.id == id }) {
                 // G136 R-SU18 — one identity per source, so a hand-off rebuilds the conversation list.
@@ -171,12 +199,23 @@ struct SourcesPageView: View {
     }
 
     private func reconcile() {
-        columns.reconcile(present: SourcesModel.present(rows: rows, contributors: contributorsVM.contributors))
+        columns.reconcile(present: SourcesModel.present(rows: rows, contributors: contributorsVM.contributors,
+                                                        catalog: catalog))
     }
 
     /// Track Z §7.1 — a source id that no longer resolves leaves the grid showing rather than guessing a neighbour.
+    /// G217 — an overview id lands on the catalogue entry that speaks for it, when one does.
     private func openPendingSource() {
-        guard let id = router.consumeSourceDetail(), rows.contains(where: { $0.id == id }) else { return }
-        Instant.run { columns.open(.source(id)) }
+        guard let id = router.consumeSourceDetail(), let row = rows.first(where: { $0.id == id }) else { return }
+        let entry = catalog.first { SourceCatalog.overviewRow(for: $0.entry, in: [row]) != nil }
+        Instant.run { columns.open(entry.map { .entry($0.id) } ?? .source(id)) }
+    }
+
+    /// G217 — a hand-off naming one tile (Settings' old Integrations rows, a walkthrough) opens that tile's entry.
+    private func consumeAddSource() {
+        guard let tile = router.pendingAddSource,
+              let entry = catalog.first(where: { $0.entry.tile == tile }) else { return }
+        router.consumeAddSource()
+        Instant.run { columns.open(.entry(entry.id)) }
     }
 }

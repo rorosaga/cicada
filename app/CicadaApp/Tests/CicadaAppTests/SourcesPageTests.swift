@@ -171,8 +171,8 @@ final class SourcesPageTests: XCTestCase {
     // MARK: - Track D: status light + quick action
 
     func testQuickActionPrefersSyncOverPollAndIsNilOtherwise() {
-        XCTAssertEqual(SourceCard.quickAction(for: SourceOverview(id: "safari-bookmarks", label: "Safari", kind: .browser, actions: ["sync"])), "Sync now")
-        XCTAssertEqual(SourceCard.quickAction(for: SourceOverview(id: "rss", label: "RSS", kind: .feed, actions: ["poll", "manage"])), "Poll now")
+        XCTAssertEqual(SourceCard.quickAction(for: SourceOverview(id: "safari-bookmarks", label: "Safari", kind: .browser, actions: ["sync"])), "Refresh")
+        XCTAssertEqual(SourceCard.quickAction(for: SourceOverview(id: "rss", label: "RSS", kind: .feed, actions: ["poll", "manage"])), "Refresh")
         XCTAssertNil(SourceCard.quickAction(for: SourceOverview(id: "x", label: "X", kind: .social, actions: ["connect"])))
         XCTAssertNil(SourceCard.quickAction(for: SourceOverview(id: "harness:claude-code", label: "Claude Code", kind: .harness)),
                      "a harness row has no channel actions at all")

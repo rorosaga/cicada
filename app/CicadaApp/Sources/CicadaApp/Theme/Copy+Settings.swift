@@ -208,7 +208,7 @@ extension Copy {
         return "Calendar synced · \(UsageFormat.count(events, locale: locale)) \(events == 1 ? "event" : "events")"
     }
     static let calendarConnect = "Connect"
-    static let calendarSyncNow = "Sync now"
+    static let calendarSyncNow = "Refresh"
     static let calendarDisconnect = "Disconnect"
     static let openPrivacySettings = "Open Privacy Settings"
     static let calendarStopTitle = "Stop reading your calendars?"

@@ -84,7 +84,7 @@ struct ConnectorSetupPanel: View {
 
                 if status.connected {
                     HStack(spacing: CicadaTheme.spacingSM) {
-                        Button("Sync now") { Task { await syncNow() } }
+                        Button("Refresh") { Task { await syncNow() } }
                             .buttonStyle(.borderedProminent)
                             .disabled(busy)
                         Button("Disconnect", role: .destructive) { Task { await disconnect() } }

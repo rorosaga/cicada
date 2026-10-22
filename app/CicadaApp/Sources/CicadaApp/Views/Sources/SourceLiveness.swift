@@ -41,7 +41,7 @@ struct SourceLiveness: Equatable {
         switch state {
         case .watching: "Watching"
         case .syncing: "Syncing…"
-        case .behind: "Behind — sync now"
+        case .behind: "Behind — refresh"
         case .blocked: detail.map { "Can't read — \($0)" } ?? "Can't read"
         case .failed: detail.map { "Sync failed — \($0)" } ?? "Sync failed"
         case .captured: "Captured by hook"
