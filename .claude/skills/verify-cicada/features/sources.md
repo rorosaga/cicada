@@ -18,10 +18,11 @@ Preconditions:
 
 - A run is up and `$CV doctor` is all `ok` (backend, scratch root, plan).
 
-- **Overview.** Run `$CV api GET /sources/overview`. Counts per channel; the captured Cursor conversations appear.
-- **Add.** Run `$CV mcp call cicada_add_source '{"subject": "alpha-project", "ref": "https://example.com/alpha"}'` (full shape: `$CV mcp schema cicada_add_source`), then `$CV api GET /entities/alpha-project/sources`.
-- **App.** `vclick 'button.*Description: Sources,'`, `$CV app shot sources`.
+- **Overview.** Run `$CV api GET /sources/overview`. One row per channel; the captured Cursor conversations are `harness:cursor` with their counts.
+- **Add.** Run `$CV mcp call cicada_add_source '{"subject": "alpha-project", "ref": "https://example.com/alpha"}'`, then `$CV api GET /entities/alpha-project/sources`. The ref, `addedBy: verify`, not trusted.
+- **App.** `vclick 'button.*Description: Sources,'`, `$CV app shot sources`. `Saved by you` and `Captured for you`, Cursor with its conversation count.
 
 ## Gotchas
 
 - Feed polling and site checks fetch the web; the verify run gates them off. A check that reports `fetch disabled` is the gate, not a bug.
+- `cicada_sources` is the conversations behind a page, not this list; it takes other arguments.
