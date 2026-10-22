@@ -279,7 +279,7 @@ holding the pages** (`ToolContext.pages_held()`, asked lazily), so a drain canno
 lapsed lease is due, the `videoQueue` stamp also carries that hold bit (`<mtime>:<due>:<held>`), so the hold ending moves
 the component the app follows with nothing written. `VideoStateCache.reset()` on a bank switch keeps what a page asked
 for (`asked`), and the switch reads the new bank at once.
-`record_watch` credits the queue whether or not its bank commit ran. **No batch cap** (a hand-off takes every selected
+`record_watch` credits the queue whether or not its bank commit ran. The lease lifecycle is model-checked by `.claude/skills/verify-video-queue` (run it on any change to the queue, the record credit or caller session ids). **No batch cap** (a hand-off takes every selected
 video; the queue file's ceiling is 2,000 rows) and **no site list** (any saved video can be queued; a login wall is handed
 back and surfaced). The hand-off prompt (`video_prompt.py`, ≤ 1,200 characters) is provider-neutral, names no browser
 route by default, and carries the browser permission only while the single reading permission is on; the seam for "how
