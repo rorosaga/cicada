@@ -48,7 +48,7 @@ final class SettingsAuditMovesTests: XCTestCase {
     func testAskLivesInTheEngineCardOnEngines() throws {
         let engines = try source("Views/Settings/EnginesView.swift")
         let card = try XCTUnwrap(engines.range(of: "header: Copy.enginesChooseGroup")).lowerBound
-        let chooser = try XCTUnwrap(engines.range(of: "EngineChooser()", range: card..<engines.endIndex)).lowerBound
+        let chooser = try XCTUnwrap(engines.range(of: "EngineChooser(", range: card..<engines.endIndex)).lowerBound
         let ask = try XCTUnwrap(engines.range(of: "SettingsRow(.engineAsk,")).lowerBound
         let nextCard = try XCTUnwrap(engines.range(of: "SettingsGroupCard(", range: chooser..<engines.endIndex)).lowerBound
         XCTAssertTrue(card < chooser && chooser < ask && ask < nextCard, "Ask sits under the chooser, in its card")

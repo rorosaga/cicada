@@ -92,8 +92,13 @@ struct PrivacyView: View {
                 }
             }
             SettingsGroupCard {
+                // Settings defaults pass 2: the ledger is switched where the backend starts, never here; the row's one
+                // link says where (the docs page that names the step).
                 SettingsRow(.telemetry, title: Copy.telemetryTitle,
-                            detail: status?.telemetry.map { $0 == "off" ? Copy.telemetryOff : Copy.telemetryOn })
+                            detail: status?.telemetry.map { $0 == "off" ? Copy.telemetryOff : Copy.telemetryOn }) {
+                    SettingsHelpLink(url: Copy.SettingsHelp.usageLedger,
+                                     label: Copy.SettingsHelp.usageLedgerLink(off: status?.telemetry == "off"))
+                }
                 SettingsDivider()
                 SettingsRow(.credentials, title: Copy.credentialsTitle, detail: Copy.credentialsDetail) {
                     Button(Copy.removeAllKeys, role: .destructive) { confirmRemoveKeys = true }

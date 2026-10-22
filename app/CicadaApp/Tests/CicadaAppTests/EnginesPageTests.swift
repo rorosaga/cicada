@@ -20,7 +20,7 @@ final class EnginesPageTests: XCTestCase {
 
     func testTheChooserIsTheOnePickerAndOnboardingStillEmbedsTheCard() throws {
         XCTAssertTrue(try source("Views/Settings/EngineCard.swift").contains("EngineChooser()"))
-        XCTAssertTrue(try source("Views/Settings/EnginesView.swift").contains("EngineChooser()"))
+        XCTAssertTrue(try source("Views/Settings/EnginesView.swift").contains("EngineChooser(foldsOtherEngines: true)"))
         XCTAssertFalse(try source("Views/Settings/SettingsSleepView.swift").contains("EngineCard("),
                        "Sleep shows one read-only engine line now (A3)")
         // Track I part b retired `FirstRunSheet`: the Welcome embeds the card's

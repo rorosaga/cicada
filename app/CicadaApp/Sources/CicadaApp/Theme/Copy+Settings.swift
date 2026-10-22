@@ -107,7 +107,8 @@ extension Copy {
 
     // MARK: Engines (A3, R-O8)
     static let engines = "Engines"
-    static let enginesSubtitle = "Which model does Cicada's thinking."
+    /// Settings defaults, pass 2 (owner 2026-10-22): what the page is for, in plain words, naming no provider or model.
+    static let enginesSubtitle = "What Cicada reads your conversations with."
     static let settingsEngines = "\(settings) → \(engines)"
     static let enginesChooseGroup = "Engine"
     /// The heading over the one switch that only matters on the API key card.
@@ -389,4 +390,47 @@ extension Copy {
     static let whereDoIGetOne = "Where do I get one?"
     static let keySave = "Save"
     static let keyProvider = "Provider"
+
+    // MARK: Engines — Auto first (settings defaults pass 2, owner 2026-10-22; ruling 31)
+    /// Auto is the default and the visible state: the page says what it uses now and why, and every other engine
+    /// waits under one fold (DR-39). A name appears only as the person's own connection (copy rail).
+    enum EngineHeadline {
+        static let auto = "Auto"
+        static func usingPlan(_ label: String) -> String { "Using your \(label) — you're signed in." }
+        static func usingLocal(_ label: String) -> String { "Using \(label) on this Mac — no plan is signed in." }
+        static let usingKey = "Using your API key."
+        static let nothingYet = "Nothing to read with yet. Sign in to a plan and Auto uses it."
+        static let rule = "Auto uses a plan you're signed in to first, then a model running on this Mac. "
+            + "It never uses an API key you didn't choose."
+        static let chosen = "You chose this engine instead of Auto."
+        static let backToAuto = "Back to Auto"
+        static let backToAutoHelp = "Let Cicada pick: your plan first, then a model on this Mac"
+        static let differentEngine = "Use a different engine"
+    }
+
+    // MARK: Plans & keys status lines, in words (settings defaults pass 2)
+    /// The backend's adapter sentences name a CLI, a local address or a file; `cicada engine list` keeps them. The
+    /// app says the same state in words (`ConnectionWords`).
+    enum ConnectionLine {
+        static let claudeSignedIn = "Signed in through Claude Code on this Mac. Cicada asks it to do the reading and never sees your password or token."
+        static let claudeSignedOut = "Not signed in on this Mac."
+        static let chatgptSignedIn = "Signed in with Cicada's own ChatGPT sign-in on this Mac, separate from Codex in your terminal. Cicada never sees your password or token."
+        static let localReady = "Runs on this Mac, free."
+        static let localNotRunning = "Not running on this Mac. Install Ollama from ollama.com and open it."
+        static let localNoModel = "Running, but its model isn't on this Mac yet."
+        static let keySaved = "Your key is saved on this Mac, readable only by you. Each use is billed to it."
+        static let openRouterNoKey = "Sign in with OpenRouter, or paste a key. It stays on this Mac, readable only by you."
+    }
+
+    // MARK: How to change what Cicada's setup fixes (settings defaults pass 2)
+    /// A value set outside the app is honoured and said in words; how to change it lives in one docs page, linked —
+    /// never a variable's name on the page.
+    enum SettingsHelp {
+        static let howToChange = "How to change this"
+        static let page = "https://github.com/rorosaga/cicada/blob/main/docs/settings-outside-the-app.md"
+        static let engineFixed = URL(string: page + "#the-engine-is-fixed")!
+        static let serverFixed = URL(string: page + "#where-your-memory-lives-is-fixed")!
+        static let usageLedger = URL(string: page + "#the-usage-ledger")!
+        static func usageLedgerLink(off: Bool) -> String { off ? "How to turn it on" : "How to turn it off" }
+    }
 }

@@ -42,6 +42,21 @@ enum EngineOption {
         }
     }
 
+    /// The chosen card's state under the onboarding row, in words (settings defaults pass 2): the backend's
+    /// sentence names a local address or a CLI command (right for `cicada engine list`), so the two cards whose
+    /// sentence does say their state here; every other card keeps the backend's own words.
+    static func stateLine(for candidate: SleepEngineCandidate) -> String? {
+        switch candidate.id {
+        case "local":
+            if !candidate.available { return Copy.ConnectionLine.localNotRunning }
+            return candidate.connected ? nil : Copy.ConnectionLine.localNoModel
+        case "agent" where candidate.available && !candidate.connected:
+            return Copy.ConnectionLine.claudeSignedOut
+        default:
+            return candidate.detail
+        }
+    }
+
     static func connectionId(for candidateId: String) -> String? {
         switch candidateId {
         case "agent": "claude-plan"
@@ -158,6 +173,65 @@ enum EngineOption {
         if let pick { return pick }
         if case .ready(let id) = readiness { return id }
         return nil
+    }
+}
+
+/// Settings → Engines, Auto first (settings defaults pass 2, owner 2026-10-22; ruling 31): the page opens on one
+/// sentence saying what reads now and why, and every other engine waits under *Use a different engine*. Pure, so
+/// every state is tested without a view.
+struct EngineHeadline: Equatable {
+    /// "Auto", or the chosen card's own label.
+    let title: String
+    /// What it uses now, in words.
+    let line: String
+    /// The card whose mark the headline wears (Auto's own sparkle when Auto found nothing).
+    let mark: String
+    let isAuto: Bool
+    /// Auto found nothing it may read with: the line points at signing in.
+    var needsSignIn = false
+
+    static func of(_ response: SleepEngineResponse) -> EngineHeadline {
+        let candidates = response.candidates
+        func label(_ id: String) -> String? { candidates.first { $0.id == id }?.label }
+        guard response.selected == "auto" else {
+            let card = candidates.first { $0.id == response.selected }
+            let title = card?.label ?? response.selected
+            let facts = [card.flatMap { EngineOption.costModel(for: $0.id) }, card.map { EngineOption.caption(for: $0) }]
+                .compactMap { $0 }
+            return EngineHeadline(title: title, line: facts.isEmpty ? Copy.EngineHeadline.chosen : facts.joined(separator: " · "),
+                                  mark: response.selected, isAuto: false)
+        }
+        let engine = response.preview?.manual.engine ?? "none"
+        let model = response.preview?.manual.model
+        switch engine {
+        case "claude-cli", "codex-cli":
+            let id = engine == "claude-cli" ? "agent" : "codex"
+            return EngineHeadline(title: Copy.EngineHeadline.auto,
+                                  line: Copy.EngineHeadline.usingPlan(label(id) ?? Copy.engineLabel(engine)),
+                                  mark: id, isAuto: true)
+        case "ollama":
+            return EngineHeadline(title: Copy.EngineHeadline.auto,
+                                  line: Copy.EngineHeadline.usingLocal(label("local") ?? "the local model"),
+                                  mark: "local", isAuto: true)
+        case "litellm":
+            return EngineHeadline(title: Copy.EngineHeadline.auto, line: Copy.EngineHeadline.usingKey,
+                                  mark: EngineOption.runsOnOpenRouter(model) ? "openrouter" : "byok", isAuto: true)
+        default:
+            return EngineHeadline(title: Copy.EngineHeadline.auto, line: Copy.EngineHeadline.nothingYet,
+                                  mark: "auto", isAuto: true, needsSignIn: true)
+        }
+    }
+
+    /// The cards under the fold: every engine but Auto, which the headline already is.
+    static func otherCandidates(_ candidates: [SleepEngineCandidate]) -> [SleepEngineCandidate] {
+        candidates.filter { $0.id != "auto" }
+    }
+
+    /// The write *Back to Auto* sends: Auto, with no model (each engine runs its own default). Nil when Auto is
+    /// already the choice, or the environment fixes the engine (a write would change nothing, 409).
+    static func backToAuto(_ response: SleepEngineResponse) -> EngineWrite? {
+        guard response.selected != "auto", !response.isPinnedByEnvironment else { return nil }
+        return EngineWrite(mode: "auto", model: nil)
     }
 }
 
