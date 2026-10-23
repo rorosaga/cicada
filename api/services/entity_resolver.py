@@ -1669,7 +1669,7 @@ def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: 
     before the short name its other conversations promote ("Teo") has a page — the two never met.
 
     A held full name with no alias that names a page asks the same question when its given name is the whole title of
-    exactly one person page ("Priya Nandakumar" held, a page titled "Priya"; benchmarks/newuser, 2026-10-23) and no
+    exactly one person page ("Bea Example" held, a page titled "Bea"; benchmarks/newuser, 2026-10-23) and no
     other person page's name begins with that word — two Sams ask nothing. Never the owner's page or a page titled by
     a relation (`role_people`), never a name that has a page of its own."""
     pages: dict[str, list[tuple[str, str]]] = {}
@@ -1741,7 +1741,7 @@ def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: 
 
 
 def _name_words(name: str) -> list[str]:
-    """The words of a person's name as written ("Priya Nandakumar", "Anne-Marie O'Neil"), folded; ``[]`` for anything
+    """The words of a person's name as written ("Bea Example", "Anne-Marie O'Neil"), folded; ``[]`` for anything
     else — a handle, a lowercase phrase, a parenthesis, a digit."""
     words = str(name or "").split()
     for word in words:
