@@ -464,6 +464,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /capture/transcript": (CAPTURE, None),
     "POST /capture/turn": (CAPTURE, None),   # capture-everywhere: the same writer as the Stop hook
     "POST /capture/note": (CAPTURE, None),   # G212: a note a device sent, staged like every source-keyed capture
+    # G91 (ruling 38): a device's shared photo or file — its episode staged like a note, its bytes outside every bank.
+    "POST /capture/file": (CAPTURE, None),
     "POST /capture/session": (CAPTURE, None),   # G181 phase 2: a session read on its own machine, the same writer
     "POST /tools/call": (DOOR, None),
     "POST /v1/{op}": (REMOTE, None),

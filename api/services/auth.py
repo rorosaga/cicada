@@ -175,9 +175,10 @@ _MASTER_ONLY_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH"})
 
 
 #: G212 (owner 2026-10-22): everything a capture-only device token (a paired phone's) may reach — send a link with a
-#: note, send a note, read back its own recent captures. Exact paths, never prefixes; `/healthz` is open to anyone.
-#: Every other route answers 403 to it, the device routes included.
-CAPTURE_ROUTES = frozenset({("POST", "/sources/save"), ("POST", "/capture/note"), ("GET", "/capture/mine")})
+#: note, send a note, send a photo or a file (G91, ruling 38, 2026-10-23), read back its own recent captures. Exact
+#: paths, never prefixes; `/healthz` is open to anyone. Every other route answers 403 to it, the device routes included.
+CAPTURE_ROUTES = frozenset({("POST", "/sources/save"), ("POST", "/capture/note"), ("POST", "/capture/file"),
+                            ("GET", "/capture/mine")})
 
 
 def _master_only(path: str, method: str = "GET") -> bool:

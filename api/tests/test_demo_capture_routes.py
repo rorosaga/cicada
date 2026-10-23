@@ -64,6 +64,8 @@ GATED = {
     ("POST", "/reading/asks"): "/reading/asks",
     # G212: a note a paired device sends, staged into the active bank.
     ("POST", "/capture/note"): "/capture/note",
+    # G91 (ruling 38): a photo or file a paired device sends — its episode into the active bank.
+    ("POST", "/capture/file"): "/capture/file",
     # G166: "Add to your graph" writes a skill page into the bank.
     ("POST", "/agent-methods/skills/{skill}/page"): "/agent-methods/skills/browser-harness/page",
 }
