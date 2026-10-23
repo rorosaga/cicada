@@ -10,6 +10,19 @@
 
 ## Current state and evidence
 
+- **2026-10-23 — the new user, third pass (G148, G209; PR #442, branch `fix/newuser-memory-3`).** A drop ends the project's
+  qualified and related uses of the tool, not only a plain `uses` (seed `endings.uses.also_ends`,
+  `EndingFn.ended_by`); a held full name whose given name is one person page's whole title asks "same person?"
+  (`entity_resolver._given_name_pages`, W1's cap and `merge_rejections`); `## Related` names each link by the newest
+  open claim behind it, not the first edge ever extracted (`conflict_resolver.related_edges`, refreshed by the claim
+  pass). newuser: 24, 23.5, 24 of 25 by hand over three Sleeps (baseline 24). **Open for the owner:** one Sleep in five
+  put the drop on the person's page, so the project's uses stayed current — closing a project's belief from an ending
+  said about the person would be a new cross-subject rule. Evidence: `~/cicada-verify-evidence/nu3-*`.
+
+- **2026-10-23 — something never called a project gets a page (G141; D4 amendment in ruling 36; PR #441,
+  branch `fix/project-fallback-page`).** The judge joins the spellings of one thing with no birth; over the promotion bar
+  read across them, one `concept` page marked `proposed_type: project`; a later birth retypes it in place with `born`.
+  newuser: the canoe has one page; 24/25 by hand ×3, as the baseline.
 - **2026-10-22 — the new user, second pass (G148, G209, G141; ruling 37; branch `fix/new-user-memory-2`).** Ruling 37
   (owner): a fold from the shipped seed settles by rule and a follow-up names its thread; a new save is dated when it
   was saved. Also from the newuser write-ups: a held full name whose alias is exactly one person page asks "same
@@ -36,11 +49,10 @@
   same way on both. The primer (contract 19) names no HTTP route and picks its variant by exact client name, with a
   `desktop` variant for `claude-ai`. Recall's state cursor says `pending_as_of` / `refresh_with`; confidence shows two
   places; `cicada_recall_detail` drops five bookkeeping keys and never ends a part inside a fence it can avoid. The
-  golden fixture now pins whole `tools/call` results. **Dated follow-up: the leniency ships in exactly one release, the
-  first after v0.6.0 (which predates it) — 0.7.0 by the minor bumps since 0.4.0 — and the release after it refuses a
-  digit, decimal or `"true"`/`"false"` string where the schema says a number or boolean:** remove the lenient branches
-  in `tool_contract._value`. `test_mcp_error_contract.test_the_leniency_ships_in_exactly_one_release` fails on any
-  later `VERSION`, and on a patch release first (0.6.1 must move `LENIENT_RELEASE` to itself). Review fix round: a
+  golden fixture now pins whole `tools/call` results. **The leniency shipped in 0.7.0 only and ended in 0.7.1
+  (#445):** a digit, decimal or `"true"`/`"false"` string where the schema says a number or boolean
+  is refused on both doors like any other wrong type (`invalid_arguments`, the sentence saying to send it without
+  quotes); the lenient branches in `tool_contract._value` and the dating test are gone. Review fix round: a
   read reply is fenced whatever its code, with Cicada's own directions outside the markers (`Reply.framed`); a recall
   with stored words is never `empty_graph`; enums match without case; tolerated values (`engine`, `basis`, shot kinds,
   roles) have no enum; a release batch keeps its good rows; every door logs the failing file:line, no message; the
@@ -1601,6 +1613,21 @@ A whole row moves to DONE only after its remaining implementation and required a
     conversation, software or not, that something is a project. Consolidation alone never mints one. Every project
     carries the same standard sections (timeline, done, expected, design, people involved — each person linked).
     Existing projects with neither origin go to one review list after a dry run the owner reads (G141).
+    **D4 amendment (owner, 2026-10-23) — something never called a project falls back to a concept page.** Owner:
+    something the person never calls a project should fall back to another page type, so it shows in the app; a
+    *project* page still needs a repo or the person's own words, and D4 stays as written for projects. **Why:** on
+    `benchmarks/newuser` the persona builds a cedar-strip canoe over five conversations and never says "project"; the
+    canoe had no page at all, its facts held under five project-typed spellings ("Cedar-strip canoe", "Canoe", "Boat
+    hull build", "Hull build project", "Boat hull"), and Ask answered from the conversations while the app showed
+    nothing. **The rule:** a project mention with no birth is weighed by the judge (never an alias alone, 2026-10-08)
+    against the project and fallback pages and the other such names; the spellings judged the same are one group and
+    the ordinary promotion rule is read over the group (2+ conversations between them, or one substantive or linked);
+    over it, ONE page typed `concept` (the closed set's general type; no 11th type) and marked
+    `proposed_type: project`; below it, held as before. A later birth — the person's own words or a repository —
+    makes that same page the project with `born` (`project_birth.retype_on_birth`); a project page, or a page born with
+    any other type, is never retyped or archived by this; held births keep working as before
+    (`capture-and-sleep.md`, "The fallback page"). **Revisit** if the fallback pages turn out to be mostly things the
+    person would not want a page for (the inbox's dismissals of them), or if the judge joins two different things.
     **D5 — People's photos from X and LinkedIn: the gate turns on, shipped with sources on people (amends the
     2026-10-09 exception's "off by default").** Owner: "yes go with recommended, but also i think this update sources
     (maybe come up with a better name), is of extreme importance, so any agent and cicada as well can provide/have a

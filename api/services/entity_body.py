@@ -758,7 +758,8 @@ def family_counts(labels, normalize=None) -> dict[str, int]:
     return counts
 
 
-def _rolled_up(pairs: list[tuple[str, str]], id_types: dict[str, str], normalize=None) -> str:
+def _rolled_up(pairs: list[tuple[str, str]], id_types: dict[str, str], normalize=None,
+               ended: frozenset[str] = frozenset()) -> str:
     """A hub page's Related (owner page, 2026-10-14; families and the reviews of 2026-10-14): never more than
     :data:`RELATED_MAX` lines, family lines included. In order of right:
 
@@ -771,17 +772,27 @@ def _rolled_up(pairs: list[tuple[str, str]], id_types: dict[str, str], normalize
     Everything else is one line per family of meaning, the people who did not fit on a "people" line, each with the
     latest few names. Related is a view of ``graph_edges.yaml`` (rebuilt on every write), so nothing is lost: each
     rolled-up link is still an edge, still on the linked page's own Related and in its family line, and its claims,
-    with their evidence, are still this page's (its ledger, ``claims_ledger``)."""
+    with their evidence, are still this page's (its ledger, ``claims_ledger``).
+
+    ``ended`` (lowercased names, 2026-10-23): links whose every claim is closed (``conflict_resolver.related_edges``).
+    They come after every current link for a kept line and count as the oldest in a family line's "latest" — a job
+    left never takes a line from one held now."""
     family = {v: relation_family(v, normalize) for v in {v for _n, v in pairs if v}}
+    if ended:   # the oldest first: "latest" below is the end of the list, "earliest" its start
+        is_ended = {(n, v): n.lower() in ended for n, v in pairs}
+        by_age = [p for p in pairs if is_ended[p]] + [p for p in pairs if not is_ended[p]]
+    else:
+        is_ended, by_age = {}, pairs
     counts: dict[str, int] = {}
     for _n, v in pairs:
         if v:
             counts[family[v]] = counts.get(family[v], 0) + 1
     strong = [(n, v) for n, v in pairs if v and family[v] == "strong"]
-    weak = [(n, v) for n, v in pairs if v and family[v] != "strong"
+    strong = [p for p in strong if not is_ended.get(p)] + [p for p in strong if is_ended.get(p)]
+    weak = [(n, v) for n, v in by_age if v and family[v] != "strong"
             and not (family[v] in ACTIVITY_FAMILIES and counts[family[v]] > RELATION_FAMILY_MAX)]
     taken = set(strong) | set(weak)
-    people = [(n, v) for n, v in pairs if (n, v) not in taken and id_types.get(n.lower()) == "person"]
+    people = [(n, v) for n, v in by_age if (n, v) not in taken and id_types.get(n.lower()) == "person"]
     people_set = set(people)
 
     def plan(budget: int) -> tuple[set, dict[str, list[str]]]:
@@ -794,7 +805,7 @@ def _rolled_up(pairs: list[tuple[str, str]], id_types: dict[str, str], normalize
             keep += people[-room:]
         kept = set(keep)
         rolled: dict[str, list[str]] = {}
-        for name, verb in pairs:
+        for name, verb in by_age:
             if (name, verb) not in kept:
                 key = "people" if (name, verb) in people_set else (family[verb] if verb else "")
                 rolled.setdefault(key, []).append(name)
@@ -863,7 +874,10 @@ def render_related(related_slugs: list[str], edges: list[dict], id_to_name: dict
     unique = {name.lower() for name, _ in pairs}
     if len(unique) > RELATED_MAX:
         types = {str(id_to_name.get(i, i)).lower(): str(t) for i, t in (id_to_type or {}).items()}
-        return _rolled_up(pairs, types, normalize)
+        # A link whose every claim is closed (`ended` on its edge, `conflict_resolver.related_edges`) yields its line.
+        ended = frozenset(str(id_to_name.get(t, t.replace("-", " ").title())).lower()
+                          for t in (str(e.get("target", "")).strip() for e in edges or [] if e.get("ended")) if t)
+        return _rolled_up(pairs, types, normalize, ended)
     return _related_bullets(pairs)
 
 

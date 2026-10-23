@@ -4,6 +4,7 @@ import asyncio
 import functools
 import re
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -14,7 +15,7 @@ from thefuzz import fuzz
 from api.config import Settings
 from api.services import (agent_engine, contacts_local, correspondents, engine_errors, entity_body, entity_types,
                           fact_policy, json_parse, owner_identity, people_directory, person_leads, project_birth,
-                          promotion, quiet_pages, role_people, section_provenance)
+                          promotion, quiet_pages, role_people, section_provenance, text_fold)
 from api.services.clarification_manager import (
     CONFIDENCE_THRESHOLD,
     ClarificationManager,
@@ -305,6 +306,44 @@ async def resolve(
         if person_leads.handle_key(name_lower) in aliases or person_leads.handle_key(name_lower) in batch_aliases
     }
 
+    def hold(name: str, entity: dict, siblings: list[dict], ambiguous_match: bool) -> None:
+        """A name below the bar: asked about when its confidence is low, and parked as one pending line."""
+        confidence = float(entity.get("confidence", 0.3) or 0.3)
+        if (entity.get("type") or "").lower() == "person" and not ambiguous_match:
+            held_people.append((entity, siblings))
+        # A placeholder person is asked for a name once it has a page (`role_people`), never "Who or
+        # what is Partner?" — whose answer would become the page's prose, not its name.
+        if confidence < CONFIDENCE_THRESHOLD and not ambiguous_match and not entity.get(role_people.UNNAMED_KEY):
+            pending_actions.append((
+                clarifier.create,
+                (),
+                {
+                    "entity_name": name,
+                    "source_episode": entity.get("source_episode", ""),
+                    "uncertainty_type": _infer_uncertainty_type(entity),
+                    "suggested_classification": (
+                        f"{entity.get('type', 'concept')} — "
+                        f"{_effective_summary(entity)[:120]}"
+                    ),
+                    "suggested_confidence": confidence,
+                    "source_context": _effective_summary(entity),
+                    "source_episode_timestamp": entity.get("source_episode_timestamp"),
+                },
+            ))
+
+        if indexer is not None:
+            # One pending line per name: what every mention said rides on it
+            # (the line keeps the strongest mention's episode, as before).
+            parked = entity
+            for sibling in siblings:
+                parked = _merge_entity_payload(parked, sibling)
+            pending_actions.append((
+                indexer.index_pending_entity,
+                (_pending_line(name, entity, parked, siblings, confidence),),
+                {},
+            ))
+
+    unborn: list[_Unborn] = []   # project names with no birth, decided after the loop (`_settle_unborn`)
     total_names = len(ordered_entities)
     if progress_callback is not None:
         progress_callback(0, total_names)
@@ -364,6 +403,14 @@ async def resolve(
                         entity, [alias_page], llm_match_cache, settings,
                         gate=lookahead.gate if lookahead is not None else None,
                         connections=connections.get(name_lower, "")))
+                if match is None and project_birth.birth_of(entity, siblings) is not None:
+                    # Owner 2026-10-23 (review of #441): a mention WITH a birth may be the thing a fallback page already
+                    # holds under another spelling ("Canoe restoration" against a page whose name shares no word with
+                    # it). Weighed against every fallback page as `_settle_unborn` weighs a name with no birth —
+                    # aliases count, no shared word needed, the judge decides — so the birth retypes that page in
+                    # place instead of minting a second page beside it.
+                    match = await _fallback_match(entity, siblings, existing, resolved_creates, resolved_updates,
+                                                  llm_match_cache, settings, cancel_check)
             if match is not None and match["decision"] == "same":
                 candidate = match["candidate"]
                 name_to_id[name_lower] = candidate["id"]
@@ -387,6 +434,8 @@ async def resolve(
                     else:
                         _merge_into_create(resolved_creates[candidate["id"]], incoming)
                 change = (resolved_updates if candidate["source"] == "existing" else resolved_creates)[candidate["id"]]
+                if _is_fallback(candidate):
+                    _settle_fallback(change, project_birth.birth_of(entity, siblings))
                 _fold_named_handle_lines(change, name_lower, named_handle_lines, name_to_id, promoted_pending)
                 if candidate["source"] == "existing" and _candidate_type(candidate) == "person":
                     # G209: a page that matched by name still meets the page that carries that name as an alias or
@@ -459,13 +508,21 @@ async def resolve(
             # W4: the gate reads the type the create will WRITE — a sibling's "project" overrides a "concept" when the
             # payloads merge (`_merge_entity_payload`), so a page was once written as a project with no birth.
             if _written_type(entity, siblings) == "project":
+                if birth is None and not ambiguous_match:
+                    # Owner 2026-10-23 (amends D4): no birth, so never a project page — but one thing said under
+                    # several names is one thing. Decided after this loop, over every spelling the judge joins
+                    # (`_settle_unborn`): a fallback page over the bar, a held mention below it.
+                    unborn.append(_Unborn(name=name, key=name_lower, entity=entity, siblings=siblings,
+                                          pending=pending_entry, heard=heard_now | heard_before,
+                                          passes=should_promote))
+                    continue
                 should_promote = birth is not None
 
             if ambiguous_match and match.get("lead") is not None:
                 pending_actions.append((_create_lead_clarification, (),
                                         {"clarifier": clarifier, "lead": match["lead"], "index": person_index,
                                          "entity": entity}))
-            elif ambiguous_match:
+            elif ambiguous_match and not match.get("quiet"):
                 pending_actions.append((
                     _create_duplicate_clarification,
                     (),
@@ -477,19 +534,7 @@ async def resolve(
                     entity = _card_entity(entity, card)
                 entity_id = sanitize_id(entity["name"] if card is not None else name)
                 name_to_id[name_lower] = entity_id
-                resolved_creates[entity_id] = {
-                    "id": entity_id,
-                    "action": "create",
-                    "entity": entity,
-                    "existing": None,
-                    "source_episode": entity.get("source_episode", ""),
-                    "source_episodes": [entity.get("source_episode", "")] if entity.get("source_episode") else [],
-                    "source_episode_timestamp": entity.get("source_episode_timestamp"),
-                    "source_episode_timestamps": [entity.get("source_episode_timestamp")] if entity.get("source_episode_timestamp") else [],
-                    "source_episode_days": _source_days(entity),
-                    "untimed": bool(entity.get("untimed")),
-                    "trigger": "sleep/promotion",
-                }
+                resolved_creates[entity_id] = _create_change(entity_id, entity)
                 if birth is not None and _written_type(entity, siblings) == "project":
                     resolved_creates[entity_id]["project_birth"] = birth
                 if card is not None:
@@ -516,40 +561,7 @@ async def resolve(
                     # promotes it again with everything it heard.
                     promoted_pending.append(name)
             else:
-                confidence = float(entity.get("confidence", 0.3) or 0.3)
-                if (entity.get("type") or "").lower() == "person" and not ambiguous_match:
-                    held_people.append((entity, siblings))
-                # A placeholder person is asked for a name once it has a page (`role_people`), never "Who or
-                # what is Partner?" — whose answer would become the page's prose, not its name.
-                if confidence < CONFIDENCE_THRESHOLD and not ambiguous_match and not entity.get(role_people.UNNAMED_KEY):
-                    pending_actions.append((
-                        clarifier.create,
-                        (),
-                        {
-                            "entity_name": name,
-                            "source_episode": entity.get("source_episode", ""),
-                            "uncertainty_type": _infer_uncertainty_type(entity),
-                            "suggested_classification": (
-                                f"{entity.get('type', 'concept')} — "
-                                f"{_effective_summary(entity)[:120]}"
-                            ),
-                            "suggested_confidence": confidence,
-                            "source_context": _effective_summary(entity),
-                            "source_episode_timestamp": entity.get("source_episode_timestamp"),
-                        },
-                    ))
-
-                if indexer is not None:
-                    # One pending line per name: what every mention said rides on it
-                    # (the line keeps the strongest mention's episode, as before).
-                    parked = entity
-                    for sibling in siblings:
-                        parked = _merge_entity_payload(parked, sibling)
-                    pending_actions.append((
-                        indexer.index_pending_entity,
-                        (_pending_line(name, entity, parked, siblings, confidence),),
-                        {},
-                    ))
+                hold(name, entity, siblings, ambiguous_match)
 
     finally:
         if lookahead is not None:
@@ -557,6 +569,11 @@ async def resolve(
             await lookahead.close()
     if lookahead is not None and lookahead.error is not None and not cancelled:
         raise lookahead.error  # a plan limit met ahead of the loop is still the batch's pause
+    if unborn and not cancelled:
+        cancelled = await _settle_unborn(
+            unborn, existing=existing, resolved_updates=resolved_updates, resolved_creates=resolved_creates,
+            name_to_id=name_to_id, pending_actions=pending_actions, promoted_pending=promoted_pending,
+            clarifier=clarifier, hold=hold, cache=llm_match_cache, settings=settings, cancel_check=cancel_check)
 
     if progress_callback is not None and not cancelled:
         progress_callback(total_names, total_names)
@@ -568,7 +585,7 @@ async def resolve(
         logger.info(f"Stage 2: {len(card_creates)} page(s) promoted on a waiting card's first mention")  # never a name
     if not cancelled:
         pending_actions.extend(_held_alias_questions(held_people, existing, resolved_creates, clarifier,
-                                                     settings.memory_path))
+                                                     settings.memory_path, owner_page_id=owner_page_id))
     resolved = list(resolved_updates.values()) + list(resolved_creates.values())
     for raw, full in named_handles.items():
         if full in name_to_id and raw not in name_to_id:
@@ -1104,6 +1121,24 @@ def _source_days(entity: dict) -> list[str]:
     return [str(day)] if day else []
 
 
+def _create_change(entity_id: str, entity: dict) -> dict:
+    """A promotion's create, credited with its first mention."""
+    return {
+        "id": entity_id,
+        "action": "create",
+        "entity": entity,
+        "existing": None,
+        "source_episode": entity.get("source_episode", ""),
+        "source_episodes": [entity.get("source_episode", "")] if entity.get("source_episode") else [],
+        "source_episode_timestamp": entity.get("source_episode_timestamp"),
+        "source_episode_timestamps": ([entity.get("source_episode_timestamp")]
+                                      if entity.get("source_episode_timestamp") else []),
+        "source_episode_days": _source_days(entity),
+        "untimed": bool(entity.get("untimed")),
+        "trigger": "sleep/promotion",
+    }
+
+
 def _merge_into_create(change: dict, incoming: dict) -> None:
     """Fold one more extraction into an in-cycle create: its payload and its credit."""
     change["entity"] = _merge_entity_payload(change.get("entity", {}) or {}, incoming)
@@ -1196,11 +1231,9 @@ def _pending_line(name: str, entity: dict, parked: dict, siblings: list[dict], c
     )
 
 
-def _fold_pending(change: dict, line: PendingEntity) -> None:
-    """Fold a pending line into the create its promotion made: its text through the
-    same seam a same-name extraction uses, and one source credit per conversation
-    it heard the name in (its timestamp and day, when the line kept them)."""
-    payload = {
+def _pending_payload(line: PendingEntity) -> dict:
+    """What a pending line held, as an extraction payload."""
+    return {
         "name": line.name, "type": line.type, "confidence": line.confidence,
         "summary": line.summary or line.description, "description": line.description,
         "key_facts": list(line.key_facts), "links": list(line.links),
@@ -1208,7 +1241,13 @@ def _fold_pending(change: dict, line: PendingEntity) -> None:
         "tags": list(line.tags or []), "history_entries": list(line.history_entries or []),
         section_provenance.INPUTS: list(line.item_inputs),
     }
-    change["entity"] = _merge_entity_payload(change.get("entity", {}) or {}, payload)
+
+
+def _fold_pending(change: dict, line: PendingEntity) -> None:
+    """Fold a pending line into the create its promotion made: its text through the
+    same seam a same-name extraction uses, and one source credit per conversation
+    it heard the name in (its timestamp and day, when the line kept them)."""
+    change["entity"] = _merge_entity_payload(change.get("entity", {}) or {}, _pending_payload(line))
     records = {str(r.get("episode")): r for r in line.heard_in if isinstance(r, dict) and r.get("episode")}
     for episode in line.episodes():
         record = records.get(episode, {})
@@ -1284,6 +1323,305 @@ def _written_type(entity: dict, siblings) -> str:
     return kind or "concept"
 
 
+@dataclass
+class _Unborn:
+    """A name Stage 1 called a project that nothing gave a birth (`_settle_unborn`): one of this batch's names with
+    its same-name ``siblings`` and its ``pending`` line, or a line an earlier batch parked (``stored``). ``heard`` is
+    every conversation it came up in; ``passes`` says it clears the promotion bar on its own."""
+
+    name: str
+    key: str
+    entity: dict
+    siblings: list[dict]
+    pending: PendingEntity | None
+    heard: set[str]
+    passes: bool
+    stored: bool = False
+
+    def mentions(self) -> tuple[dict, ...]:
+        return () if self.stored else (self.entity, *self.siblings)
+
+    def names(self) -> list[str]:
+        out = [self.name]
+        for e in (self.entity, *self.siblings):
+            out += [str(a) for a in e.get("aliases") or [] if str(a).strip()]
+        return out
+
+    def episodes(self) -> set[str]:
+        out = {str(e.get("source_episode")) for e in self.mentions() if e.get("source_episode")}
+        return out | set(self.pending.episodes() if self.pending is not None else ())
+
+
+#: How many candidates one name with no birth is weighed against after the loop (`_settle_unborn`): two judge calls.
+MAX_UNBORN_CANDIDATES = 2 * 6
+
+
+def _settle_fallback(change: dict, birth) -> None:
+    """A change that lands on a fallback page (owner 2026-10-23): with a birth it becomes the project — the birth rides
+    to Stage 5, which writes ``born`` once and retypes the page on disk (`project_birth.retype_on_birth`), and a create
+    in this batch drops its marker; without one the page keeps its type whatever the mention said."""
+    if isinstance(birth, dict):
+        prior = change.get("project_birth")
+        change["project_birth"] = project_birth.birth_of({"project_birth": birth},
+                                                         [{"project_birth": prior}] if isinstance(prior, dict) else [])
+        change.pop(project_birth.PROPOSED_KEY, None)
+    kind = "project" if isinstance(change.get("project_birth"), dict) else project_birth.FALLBACK_TYPE
+    change["entity"] = {**(change.get("entity") or {}), "type": kind}
+
+
+def _unborn_group_candidate(index: int, members: list[_Unborn]) -> dict:
+    payload: dict = {}
+    for m in members:
+        for incoming in (*m.mentions(), *((_pending_payload(m.pending),) if m.stored and m.pending else ())):
+            payload = _merge_entity_payload(payload, incoming) if payload else dict(incoming)
+    payload["type"] = "project"
+    return {"source": "unborn", "id": f"unborn:{members[0].key}", "data": {"entity": payload}, "index": index}
+
+
+_EPISODE_DAY = re.compile(r"^ep_(\d{4})-?(\d{2})-?(\d{2})")
+
+
+def _line_recency(line: _Unborn) -> str:
+    """The latest day a parked line heard its name, as an ISO string ("" when it kept none)."""
+    days = [str(r.get("timestamp") or r.get("day") or "") for r in (line.pending.heard_in if line.pending else [])
+            if isinstance(r, dict)]
+    for ep in line.episodes():
+        m = _EPISODE_DAY.match(ep)
+        if m:
+            days.append(f"{m.group(1)}-{m.group(2)}-{m.group(3)}")
+    return max(days, default="")
+
+
+def _page_candidates(existing: list[dict], resolved_creates: dict[str, dict],
+                     resolved_updates: dict[str, dict]) -> list[tuple[dict, list[str], set[str], str]]:
+    """The pages a name with no birth may already be: every project page and fallback page on disk (not dropped), and
+    every project this batch created — as ``(candidate, names, cited conversations, latest mention)``."""
+    out = []
+    for page in existing:
+        fm = page.get("frontmatter") or {}
+        candidate = {"source": "existing", "id": page["id"], "data": page}
+        if "project" not in _candidate_types(candidate) or str(fm.get("status") or "active") == "dropped":
+            continue
+        cited = {str(e) for e in fm.get("source_episodes") or []} | set(
+            (resolved_updates.get(page["id"]) or {}).get("source_episodes") or [])
+        out.append((candidate, [str(fm.get("name") or page["id"]), *_page_aliases(page)], cited,
+                    str(fm.get("last_referenced") or "")))
+    for pid, change in resolved_creates.items():
+        candidate = {"source": "created", "id": pid, "data": change}
+        if "project" not in _candidate_types(candidate):
+            continue
+        entity = change.get("entity") or {}
+        out.append((candidate, [str(entity.get("name") or pid), *(str(a) for a in entity.get("aliases") or [])],
+                    set(change.get("source_episodes") or []), str(change.get("source_episode_timestamp") or "")))
+    return out
+
+
+def _unborn_candidates(u: _Unborn, groups: list[list[_Unborn]], pages, stored: dict[str, _Unborn],
+                       memory_path) -> list[dict]:
+    """What one name with no birth is weighed against, in this order, at most ``MAX_UNBORN_CANDIDATES``: what shares
+    a conversation with it (this batch's other such names, project and fallback pages), then what shares a word or an
+    alias (those, and the lines an earlier batch parked), then this batch's other such names, then the other pages and
+    parked lines, latest mention first. A candidate that shares no word with it is judged with ``_UNSHARED_NOTE``; a
+    page the person said is a different thing is never brought."""
+    episodes, names = u.episodes(), u.names()
+    keys = {person_leads.handle_key(n) for n in names}
+
+    def shares_word(other: list[str]) -> bool:
+        return (any(_share_content_token(a, b) for a in names for b in other)
+                or bool(keys & {person_leads.handle_key(n) for n in other}))
+
+    tiers: list[list[dict]] = [[], [], [], []]
+    late: list[tuple[str, dict]] = []
+
+    def place(candidate: dict, other: list[str], cited: set[str], recency: str, *, group: bool = False) -> None:
+        candidate["names"] = other
+        if episodes & cited:
+            tiers[0].append({**candidate, "shared": True})
+        elif shares_word(other):
+            tiers[1].append({**candidate, "shared": True})
+        elif group:
+            tiers[2].append(candidate)
+        else:
+            late.append((recency, candidate))
+
+    for i, members in enumerate(groups):
+        place(_unborn_group_candidate(i, members), [n for m in members for n in m.names()],
+              set().union(*(m.episodes() for m in members)), "", group=True)
+    for candidate, other, cited, recency in pages:
+        if not _said_different(memory_path, u.name, candidate["id"]):
+            place(dict(candidate), other, cited, recency)
+    for line in stored.values():
+        place({"source": "held", "id": f"held:{line.key}", "data": {"entity": line.entity}, "line": line.key},
+              line.names(), line.episodes(), _line_recency(line))
+    tiers[3] = [c for _, c in sorted(late, key=lambda pair: pair[0], reverse=True)]
+    out = [c for tier in tiers for c in tier][:MAX_UNBORN_CANDIDATES]
+    for c in out:
+        if not shares_word(c.pop("names")):
+            c["note"] = _UNSHARED_NOTE
+    return out
+
+
+async def _judge_shared_first(entity: dict, candidates: list[dict], cache: dict, settings: Settings,
+                              stop: Callable[[], bool] | None = None) -> list[tuple[dict, str]]:
+    """What shares a word or a conversation is judged in a call of its own, before the pairs with no lead: in one
+    crowded call the newuser canoe's two spellings stayed apart, though the judge joins them alone every time."""
+    judged = await _judge_candidates(entity, [c for c in candidates if c.get("shared")], cache, settings, stop=stop)
+    if not any(decision == "same" for _, decision in judged):
+        judged += await _judge_candidates(entity, [c for c in candidates if not c.get("shared")], cache, settings,
+                                          stop=stop)
+    return judged
+
+
+async def _fallback_match(entity: dict, siblings: list[dict], existing: list[dict], resolved_creates: dict[str, dict],
+                          resolved_updates: dict[str, dict], cache: dict, settings: Settings,
+                          cancel_check: Callable[[], bool] | None = None) -> dict | None:
+    """The fallback page (on disk, or made in this batch) a project mention with a birth is judged the same as, or
+    unsure about; ``None`` when it is none of them. The candidates are `_unborn_candidates`' over fallback pages only:
+    aliases count, no shared word is needed, a page the person said is different is never brought, and "different"
+    is final. An unsure verdict on a pair with no shared word or conversation is marked ``quiet``: the name is held,
+    and no question is raised (as in `_settle_unborn`)."""
+    pages = [p for p in _page_candidates(existing, resolved_creates, resolved_updates) if _is_fallback(p[0])]
+    if not pages:
+        return None
+    u = _Unborn(name=str(entity.get("name") or ""), key=str(entity.get("name") or "").lower(), entity=entity,
+                siblings=list(siblings), pending=None, heard=set(), passes=False)
+    candidates = _unborn_candidates(u, [], pages, {}, Path(settings.memory_path))
+    judged = await _judge_shared_first({**entity, "type": "project"}, candidates, cache, settings, cancel_check)
+    match = _pick_match(u.name, judged)
+    if match is not None and match["decision"] == "unsure" and not match["candidate"].get("shared"):
+        match["quiet"] = True
+    return match
+
+
+async def _settle_unborn(
+    unborn: list[_Unborn], *, existing: list[dict], resolved_updates: dict[str, dict],
+    resolved_creates: dict[str, dict], name_to_id: dict[str, str], pending_actions: list, promoted_pending: list[str],
+    clarifier: ClarificationManager, hold: Callable, cache: dict, settings: Settings,
+    cancel_check: Callable[[], bool] | None = None,
+) -> bool:
+    """Owner 2026-10-23 (amends ruling 36 D4): what becomes of this batch's project names that nothing gave a birth.
+
+    A project page still needs a repository or the person's own words. But the same thing said under several names —
+    a canoe, its hull, the hull build — is one thing, so each name is first weighed by the judge (never by an alias
+    alone, owner 2026-10-08) against the fallback pages already on disk, the other such names in this batch and the
+    lines an earlier batch parked (`_unborn_candidates`). A name judged the same as a page — a project page, on disk
+    or born in this batch, or a fallback page — lands on it (a mention needs no birth to join a page). The
+    names judged the same as each other form one group, and the ordinary promotion rule is read over the whole group:
+    2+ conversations between them, or one name clearing the bar on its own (more than 3 exchanges with the person's
+    own words, a link the person made). A group over the bar gets ONE fallback page — a concept marked
+    ``proposed_type: project``, under the name heard in the most conversations — carrying every member's mentions,
+    pending lines and held claims. A group below it is held, each name as its own line, as before.
+
+    Returns True when a cancel stopped it (the caller then discards the batch, as for any cancel)."""
+    from api.services import pending_store
+
+    memory_path = Path(settings.memory_path)
+    threshold = settings.sleep_promotion_threshold
+    existing_ids = {str(e.get("id")) for e in existing}
+    pages = _page_candidates(existing, resolved_creates, resolved_updates)
+    taken = {u.key for u in unborn} | {str(n).lower() for n in promoted_pending} | set(name_to_id)
+    stored: dict[str, _Unborn] = {}
+    try:
+        lines = pending_store.load(memory_path)
+    except Exception:
+        lines = []
+    for line in lines:
+        key = line.name.lower()
+        if str(line.type or "").lower() != "project" or line.correspondent or key in taken or key in stored:
+            continue
+        stored[key] = _Unborn(name=line.name, key=key, entity={**_pending_payload(line), "type": "project"},
+                              siblings=[], pending=line, heard=set(line.episodes()) or {f"(unrecorded) {key}"},
+                              passes=False, stored=True)
+
+    groups: list[list[_Unborn]] = []
+    on_page: dict[str, tuple[dict, list[_Unborn]]] = {}
+    for u in unborn:
+        if cancel_check is not None and cancel_check():
+            return True
+        candidates = _unborn_candidates(u, groups, pages, stored, memory_path)
+        judged = await _judge_shared_first({**u.entity, "type": "project"}, candidates, cache, settings, cancel_check)
+        if cancel_check is not None and cancel_check():
+            return True
+        match = _pick_match(u.name, judged)
+        candidate = match["candidate"] if match is not None else None
+        if match is not None and match["decision"] == "same":
+            if candidate["source"] in ("existing", "created"):
+                on_page.setdefault(candidate["id"], (candidate, []))[1].append(u)
+            elif candidate["source"] == "unborn":
+                groups[candidate["index"]].append(u)
+            else:   # a line an earlier batch parked: the two are one group from now on
+                groups.append([stored.pop(candidate["line"]), u])
+            continue
+        unsure_pages = [c for c, decision in judged if decision == "unsure" and c["source"] in ("existing", "created")]
+        if unsure_pages:
+            # Unsure about a page: held — never a second page beside the one it may be (as in the loop) — and asked
+            # only when the two share a word or a conversation. A pair with no lead at all ("Epoxy workshop" against
+            # "Cedar-strip canoe") is no question for the person: the name waits, and its next mention is judged again.
+            asked = next((c for c in unsure_pages if c.get("shared")), None)
+            if asked is not None:
+                pending_actions.append((_create_duplicate_clarification, (),
+                                        {"clarifier": clarifier, "entity": u.entity, "candidate": asked}))
+            hold(u.name, u.entity, u.siblings, True)
+            continue
+        groups.append([u])
+
+    def credit(change: dict, m: _Unborn, page_id: str) -> None:
+        if m.pending is not None:
+            _fold_pending(change, m.pending)
+            promoted_pending.append(m.pending.name)
+        name_to_id[m.key] = page_id
+        pending_actions.append((clarifier.check_organic_resolution, (),
+                                {"entity_name": m.name, "confidence": float(m.entity.get("confidence", 0.0) or 0.0),
+                                 **({"merged_into": page_id} if page_id in existing_ids else {})}))
+
+    for page_id, (candidate, members) in on_page.items():
+        for m in members:
+            for incoming in m.mentions():
+                if candidate["source"] == "existing":
+                    _merge_into_update(resolved_updates, candidate["data"], incoming)
+                else:
+                    _merge_into_create(resolved_creates[page_id], incoming)
+            change = (resolved_updates if candidate["source"] == "existing" else resolved_creates)[page_id]
+            credit(change, m, page_id)
+            if _is_fallback(candidate):
+                _settle_fallback(change, None)
+
+    made = 0
+    for members in groups:
+        heard = set().union(*(m.heard for m in members))
+        if not (any(m.passes for m in members) or len(heard) >= threshold):
+            for m in members:
+                if not m.stored:
+                    hold(m.name, m.entity, m.siblings, False)
+            continue
+        rep = max(members, key=lambda m: (len(m.heard), not m.stored, _specificity_key(m.entity)))
+        entity_id = sanitize_id(rep.name)
+        if entity_id in existing_ids or entity_id in resolved_creates:
+            for m in members:   # that id is another page's: never folded into by its spelling
+                if not m.stored:
+                    hold(m.name, m.entity, m.siblings, False)
+            continue
+        change = _create_change(entity_id, dict(rep.entity) if not rep.stored else {
+            "name": rep.name, "type": "project", "confidence": rep.entity.get("confidence", 0.5)})
+        for m in members:
+            for incoming in m.mentions():
+                if incoming is not rep.entity:
+                    _merge_into_create(change, incoming)
+            credit(change, m, entity_id)
+        # The page keeps the name it was heard by most (a merge would take the longest spelling, "Hull build project");
+        # every other spelling the judge joined is an alias, so the next one is brought to the judge by it.
+        others = [m.name for m in members if m is not rep]
+        change["entity"] = {**change["entity"], "name": rep.name,
+                            "aliases": _union_text(change["entity"].get("aliases"), others)}
+        change[project_birth.PROPOSED_KEY] = "project"
+        _settle_fallback(change, None)
+        resolved_creates[entity_id] = change
+        made += 1
+    logger.info(f"Stage 2: {len(unborn)} project name(s) with no birth → {len(groups)} group(s), {made} fallback "
+                f"page(s), {sum(len(m) for _, m in on_page.values())} onto existing pages")   # counts, never names
+    return False
+
+
 def _project_alias_candidate(entity: dict, siblings, existing_by_name: dict[str, dict],
                              created_by_id: dict[str, dict]) -> dict | None:
     """The judge's candidate for a project mention whose recorded alias is the name (or an alias) of exactly ONE
@@ -1298,7 +1636,7 @@ def _project_alias_candidate(entity: dict, siblings, existing_by_name: dict[str,
         fm = data.get("frontmatter") or {}
         keys = {person_leads.handle_key(fm.get("name") or data["id"])} | {
             person_leads.handle_key(a) for a in (fm.get("aliases") or []) if str(a).strip()}
-        if _candidate_type(candidate) == "project" and names & keys:
+        if "project" in _candidate_types(candidate) and names & keys:
             hits[data["id"]] = candidate
     if not hits:
         for pid, change in created_by_id.items():
@@ -1306,7 +1644,7 @@ def _project_alias_candidate(entity: dict, siblings, existing_by_name: dict[str,
             created = change.get("entity") or {}
             keys = {person_leads.handle_key(created.get("name") or pid)} | {
                 person_leads.handle_key(a) for a in (created.get("aliases") or []) if str(a).strip()}
-            if _candidate_type(candidate) == "project" and names & keys:
+            if "project" in _candidate_types(candidate) and names & keys:
                 hits[pid] = candidate
     if len(hits) != 1:
         return None
@@ -1320,7 +1658,7 @@ MAX_HELD_ALIAS_QUESTIONS = 3
 
 def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: list[dict],
                           resolved_creates: dict[str, dict], clarifier: ClarificationManager,
-                          memory_path) -> list[tuple[Callable, tuple, dict]]:
+                          memory_path, *, owner_page_id: str | None = None) -> list[tuple[Callable, tuple, dict]]:
     """W1 (benchmarks/newuser, 2026-10-22; G209): a person name held below the promotion bar — this batch's, or a line
     an earlier run parked — whose recorded alias is the name of exactly one person page (on disk, or born in this
     batch) raises the "Possible duplicate of …" question. Never a merge: who a person is takes the person's own answer
@@ -1328,7 +1666,12 @@ def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: 
     never asked. At most ``MAX_HELD_ALIAS_QUESTIONS`` questions about a name with no page are open at once.
 
     Specific names are judged first, so a full name said once ("Teodor Brandt", aliases "Teo", "tbrandt") is held
-    before the short name its other conversations promote ("Teo") has a page — the two never met."""
+    before the short name its other conversations promote ("Teo") has a page — the two never met.
+
+    A held full name with no alias that names a page asks the same question when its given name is the whole title of
+    exactly one person page ("Bea Example" held, a page titled "Bea"; benchmarks/newuser, 2026-10-23) and no
+    other person page's name begins with that word — two Sams ask nothing. Never the owner's page or a page titled by
+    a relation (`role_people`), never a name that has a page of its own."""
     pages: dict[str, list[tuple[str, str]]] = {}
     for page in existing:
         fm = page.get("frontmatter") or {}
@@ -1340,6 +1683,7 @@ def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: 
         if str(entity.get("type") or "").lower() == "person":
             pages.setdefault(person_leads.handle_key(entity.get("name") or ""), []).append(
                 (pid, str(entity.get("name") or pid)))
+    given_pages = _given_name_pages(existing, resolved_creates, owner_page_id)
 
     from api.services import pending_store
 
@@ -1366,6 +1710,10 @@ def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: 
     for key, (name, aliases, entity) in held.items():
         hits = {hit for alias in aliases if person_leads.handle_key(alias) != key
                 for hit in pages.get(person_leads.handle_key(alias), [])}
+        by_given = False
+        if not hits and key not in pages:
+            hit = given_pages.get(_given_name(name) or "")
+            hits, by_given = ({hit}, True) if hit is not None else (hits, False)
         if len({pid for pid, _ in hits}) != 1:
             continue
         pid, page_name = next(iter(hits))
@@ -1376,17 +1724,64 @@ def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: 
                 continue
             room -= 1
         said = sorted(a for a in aliases if person_leads.handle_key(a) == person_leads.handle_key(page_name))
+        context = (f"A conversation named {name} in full; {page_name}'s page carries only the given name."
+                   if by_given else
+                   f"A conversation also called {name} “{said[0] if said else page_name}”, "
+                   f"the name {page_name}'s page carries.")
         actions.append((clarifier.create, (), {
             "entity_name": name,
             "source_episode": entity.get("source_episode", ""),
             "uncertainty_type": f"Possible duplicate of {page_name}",
             "suggested_classification": f"person — could refer to the same person as {page_name}",
             "suggested_confidence": float(entity.get("confidence", 0.0) or 0.0),
-            "source_context": f"A conversation also called {name} “{said[0] if said else page_name}”, "
-                              f"the name {page_name}'s page carries.",
+            "source_context": context,
             "source_episode_timestamp": entity.get("source_episode_timestamp"),
         }))
     return actions
+
+
+def _name_words(name: str) -> list[str]:
+    """The words of a person's name as written ("Bea Example", "Anne-Marie O'Neil"), folded; ``[]`` for anything
+    else — a handle, a lowercase phrase, a parenthesis, a digit."""
+    words = str(name or "").split()
+    for word in words:
+        bare = re.sub(r"['’.\-]", "", word)
+        if not bare.isalpha() or not word[0].isupper():
+            return []
+    return [text_fold.fold(word) for word in words]
+
+
+def _given_name(name: str) -> str | None:
+    """A full name's given name, folded: the first of two to four name words; ``None`` for a one-word name."""
+    words = _name_words(name)
+    return words[0] if 2 <= len(words) <= 4 else None
+
+
+def _given_name_pages(existing: list[dict], resolved_creates: dict[str, dict],
+                      owner_page_id: str | None) -> dict[str, tuple[str, str]]:
+    """Folded given name -> ``(page id, title)`` of the ONE person page titled by that word alone, on disk or born in
+    this batch, when no other person page's name begins with it. The owner's page and a page titled by a relation
+    (`role_people`) never count."""
+    titled: dict[str, set[tuple[str, str]]] = {}
+    starts: dict[str, set[str]] = {}
+    rows = [(str(page.get("id") or ""), page.get("frontmatter") or {}, person_leads.page_name(page))
+            for page in existing]
+    rows += [(pid, change.get("entity") or {}, str((change.get("entity") or {}).get("name") or pid))
+             for pid, change in resolved_creates.items()]
+    for pid, fm, title in rows:
+        if not pid or str(fm.get("type") or "").lower() != "person":
+            continue
+        if (pid == owner_page_id or fm.get("owner") or fm.get(role_people.UNNAMED_KEY)
+                or role_people.parse(title, bare=True)):
+            continue
+        words = _name_words(title)
+        if not words:
+            continue
+        starts.setdefault(words[0], set()).add(pid)
+        if len(words) == 1:
+            titled.setdefault(words[0], set()).add((pid, title))
+    return {word: next(iter(hits)) for word, hits in titled.items()
+            if len(hits) == 1 and starts.get(word) == {next(iter(hits))[0]}}
 
 
 def _open_held_duplicates(memory_path: Path, page_ids: set[str]) -> int:
@@ -1571,6 +1966,25 @@ def _candidate_type(candidate: dict) -> str:
     return str(entity.get("type", "concept")).lower()
 
 
+def _is_fallback(candidate: dict) -> bool:
+    """A fallback page (owner 2026-10-23, `project_birth.PROPOSED_KEY`): on disk, or created in this batch."""
+    if candidate["source"] == "existing":
+        return project_birth.proposed(candidate["data"].get("frontmatter"))
+    return candidate["source"] == "created" and project_birth.proposed(candidate["data"])
+
+
+def _candidate_types(candidate: dict) -> frozenset[str]:
+    """The types a candidate is judged as: its own, and ``project`` for a fallback page — Stage 1 called its thing a
+    project, so a later project mention of the same thing meets it at the judge instead of minting a second page."""
+    own = _candidate_type(candidate)
+    return frozenset((own, "project")) if _is_fallback(candidate) else frozenset((own,))
+
+
+def _judge_type(candidate: dict, new_type: str) -> str:
+    """The type the judge is shown for a candidate weighed against a ``new_type`` mention."""
+    return new_type if new_type in _candidate_types(candidate) else _candidate_type(candidate)
+
+
 def _candidate_description(candidate: dict) -> str:
     if candidate["source"] == "existing":
         return candidate["data"].get("body", "") or ""
@@ -1740,6 +2154,14 @@ _ALIAS_NOTE = """
 Entity A's page already lists "{new_name}" among the other names it goes by (its aliases), so the names need not share a word. That is a lead, not proof: acronyms, short forms and first names are often shared by different things. Say SAME only when B's description and connections fit A's; say DIFFERENT when they point at something else; say UNSURE when there is too little to tell.
 """
 
+# Owner 2026-10-23 (`_settle_unborn`): something the person works on but never called a project is often named
+# differently in each conversation — the whole, a part, a stage of it — so the judge weighs those names together even
+# when they share no word, and is told that this is no lead either way.
+_UNSHARED_NOTE = ("Note: these names share no word. That is no lead either way: a person often names one endeavour "
+                  "differently in different conversations (the whole, a part of it, a stage of it). Say SAME only "
+                  "when both descriptions clearly point at the same endeavour; say DIFFERENT when they describe two; "
+                  "say UNSURE when there is too little to tell.\n")
+
 
 async def _llm_judge_same_entity(
     new_name: str,
@@ -1752,8 +2174,11 @@ async def _llm_judge_same_entity(
     *,
     recorded_alias: bool = False,
     new_connections: str = "",
+    note: str = "",
 ) -> str:
     """One LLM call: same, different, or unsure.
+
+    ``note``: a candidate's own note, said where the alias note goes (``_UNSHARED_NOTE``).
 
     ``recorded_alias``: the page already lists ``new_name`` among its aliases —
     the prompt says so, and that an alias is a lead, not proof
@@ -1770,7 +2195,7 @@ async def _llm_judge_same_entity(
         new_name=new_name,
         new_type=new_type or "unknown",
         new_description=(new_description or "")[:1500] or "(empty)",
-        alias_note=_ALIAS_NOTE.format(new_name=new_name) if recorded_alias else "",
+        alias_note=_ALIAS_NOTE.format(new_name=new_name) if recorded_alias else ("\n" + note if note else ""),
         new_connections=f"\nConnections in its conversations:\n{new_connections[:800]}" if new_connections else "",
     )
     # Stage 2 disambiguation has its own dedicated model so we can route the
@@ -1894,7 +2319,8 @@ async def _llm_judge_batch(
         entry = entries[i]
         blocks.append(_BATCH_ENTRY.format(
             index=number, name=entry["name"], type=entry["type"] or "unknown",
-            alias_note=_BATCH_ALIAS_NOTE.format(new_name=new_name) if entry.get("alias") else "",
+            alias_note=(_BATCH_ALIAS_NOTE.format(new_name=new_name) if entry.get("alias")
+                        else str(entry.get("note") or "")),
             body=strip_claims_block(entry["body"] or "")[:2000] or "(empty)"))
     prompt = _DISAMBIG_BATCH_PROMPT.format(
         new_name=new_name,
@@ -1946,7 +2372,7 @@ def _existing_llm_candidates(
     candidates: list[dict] = []
     for page in (aliases or {}).get(person_leads.handle_key(new_name), ()) if new_name else ():
         candidate = {"source": "existing", "id": page["id"], "data": page, "alias": True}
-        if _candidate_type(candidate) == new_type:
+        if new_type in _candidate_types(candidate):
             candidates.append(candidate)
     if not new_name or not _name_tokens(new_name):
         return candidates
@@ -1956,7 +2382,7 @@ def _existing_llm_candidates(
         if existing_data["id"] in held:
             continue
         candidate = {"source": "existing", "id": existing_data["id"], "data": existing_data}
-        if _candidate_type(candidate) != new_type:
+        if new_type not in _candidate_types(candidate):
             continue
         existing_display = _candidate_display_name(candidate)
         if not _share_content_token(new_name, existing_display):
@@ -1984,7 +2410,7 @@ def _created_llm_candidates(new_entity: dict, created_by_id: dict[str, dict]) ->
     for candidate_id, create_change in created_by_id.items():
         listed = (create_change.get("entity") or {}).get("aliases") or []
         candidate = {"source": "created", "id": candidate_id, "data": create_change, "alias": True}
-        if (_candidate_type(candidate) == new_type
+        if (new_type in _candidate_types(candidate)
                 and any(person_leads.handle_key(a) == new_key for a in listed if str(a).strip())):
             candidates.append(candidate)
     if not _name_tokens(new_name):
@@ -1995,7 +2421,7 @@ def _created_llm_candidates(new_entity: dict, created_by_id: dict[str, dict]) ->
             continue
         candidate = {"source": "created", "id": candidate_id, "data": create_change}
         existing_display = _candidate_display_name(candidate)
-        if _candidate_type(candidate) != new_type:
+        if new_type not in _candidate_types(candidate):
             continue
         if not _share_content_token(new_name, existing_display):
             continue
@@ -2055,15 +2481,18 @@ async def _judge_candidates(
                     new_type=new_type,
                     new_description=new_description,
                     existing_name=_candidate_display_name(candidate),
-                    existing_type=_candidate_type(candidate),
+                    existing_type=_judge_type(candidate, new_type),
                     existing_body=_candidate_description(candidate),
                     settings=settings,
                 )
                 if candidate.get("alias"):
                     kwargs.update(existing_body=_alias_context(candidate), recorded_alias=True,
                                   new_connections=connections)
+                elif candidate.get("note"):
+                    kwargs.update(note=candidate["note"])
                 return [await _llm_judge_same_entity(**kwargs)]
-            entries = [{"name": _candidate_display_name(c), "type": _candidate_type(c), "alias": bool(c.get("alias")),
+            entries = [{"name": _candidate_display_name(c), "type": _judge_type(c, new_type),
+                        "alias": bool(c.get("alias")), **({"note": c["note"]} if c.get("note") else {}),
                         "body": _alias_context(c) if c.get("alias") else _candidate_description(c)}
                        for c in chunk]
             return await _llm_judge_batch(

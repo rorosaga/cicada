@@ -1238,7 +1238,29 @@ on the conversation it read (no model), a `project_birth` record and drops any t
   "New project with Teo: fernpost", W3 2026-10-22), outside a recorded gap; kept as a span `{start, end, hash, kind}` into the
   episode, never a copy (G118). A name that itself contains "project" does not call itself one.
 Stage 2 promotes a `project` exactly when one of the batch's extractions of that name carries a record (the oldest
-conversation's wins); everything else, however often mentioned, waits on its pending line like any name below the bar.
+conversation's wins); everything else is never a project page.
+**The fallback page (owner 2026-10-23, amends D4; `entity_resolver._settle_unborn`).** A project mention with no record
+and no match is decided after the per-name loop, so the thing shows in the app without breaking D4. Each such name is
+weighed by the judge — never by an alias alone — against what it may already be: the project pages on disk and born this
+batch, the fallback pages, this batch's other unborn names and the project lines an earlier batch parked
+(`_unborn_candidates`: what shares a conversation first, then a word or alias, then the rest, latest first, at most 12;
+a pair sharing no word gets a note saying that is no lead either way). "Same" as a page makes it that page's update; the
+names judged the same as each other form one group, and **the ordinary rule is read over the group**: 2+ conversations
+between its names, or one name substantive or linked on its own. A group over the bar gets ONE page under the name heard
+in the most conversations, the other spellings as aliases, every member's pending line and held claims folded in, typed
+`concept` — the closed set's general type, the only one of the ten that holds an endeavour that is not a person,
+organisation, place, tool, skill or folder — and marked `proposed_type: project`. A group below the bar is held, each
+name on its own line, as before. "Unsure" against a page holds the name (never a second page beside it) and asks the
+person only when the two share a word or a conversation — the first newuser run asked "Is Epoxy & fiberglass workshop
+the same as Cedar-strip canoe?", a pair with no lead, which is no question for a stranger. A later mention judged the
+same as a fallback page lands on it (`_candidate_types` lets a project mention meet the page at the judge); one that
+carries a birth rides to Stage 5, which makes **the same page** the project — `type: project`, `born:` written once, the
+marker gone (`project_birth.retype_on_birth`, only on a `concept` carrying the marker and no `born`; a project page or a
+page born with another type is never retyped). A mention with a birth that the loop matched to nothing is weighed
+against every fallback page the same way (`_fallback_match`: aliases count, no shared word needed, the judge decides,
+a rejected pair never brought), so "Canoe restoration" retypes a page named "Hull build project" that lists "Canoe"
+instead of minting a project beside it (review of #441). A birth inside the batch that creates a fallback page makes it
+a project from the start.
 "A project" is the type the create will write (`_written_type`: a sibling's `project` overrides a `concept` when the
 payloads merge), never only the chosen mention's (W4). A project mention with no match whose recorded alias names
 exactly one project page — on disk, else born this batch — brings that page to the judge (W2): "same" makes it the
@@ -1511,6 +1533,14 @@ listed as an alias. Four gaps caused it, each closed:
   no page are open at once (`MAX_HELD_ALIAS_QUESTIONS`), so a first Sleep over a long pending store never floods the
   inbox; dismissing a "Possible duplicate" card records the pair in `_merge_rejected.yaml`, like "not the same", so
   the line re-read from the store is not asked again.
+- **A held full name meets the page its given name titles (benchmarks/newuser 2026-10-23).** A held name with no alias
+  that names a page asks the same question when it is a full name as written (two to four capitalised name words, no
+  handle, digit or parenthesis), it has no page of its own, and its given name (folded) is the whole title of exactly
+  one person page while no other person page's name begins with that word (`_given_name_pages`): "<given> <surname>"
+  held beside a page titled "<given>" asks; two pages for one given name ("<given>", "<given> <other-surname>") ask
+  nothing. The owner's page and a page titled by a relation (`role_people`) never count. Same cap, same
+  `merge_rejections`, never a merge; the card says the conversation named the full name and the page carries only
+  the given name.
 
 Nothing here settles who a person is (ruling 29): every lead ends in the person's question. A duplicate question about
 a name still parked below the promotion bar is live while its pending line exists (`inbox_service._subject_gone`,
@@ -1791,7 +1821,19 @@ constraining the prose; git is the safety net, the claims and the dated timeline
   objects — the same rule orders the ledger's spill and the article's inputs. Each rolled-up
   link is still an edge, still on the linked page's own Related (inbound edges are mirrored there), and its claims
   are still the owner's, in the page's ledger. Per-conversation activity is not a fact about the person: its home
-  is the linked page, the claims ledger and the timeline, not the person's article or its Related. A page with a stamped article is
+  is the linked page, the claims ledger and the timeline, not the person's article or its Related.
+  **Each link is named by what is true now** (`conflict_resolver.related_edges`, benchmarks/newuser 2026-10-23, on
+  every page, hub or not): `graph_edges.yaml` keeps every relationship ever extracted and never closes one, and the
+  first edge used to name a link for good, so after a job change the person's page read "<old employer> — works at"
+  and "<new employer> — interviewing with" though the claims said otherwise. Each label is now read against the claims
+  on the page the edge starts from (this page's, or the other page's for an inbound edge) with that object and the
+  label's normalized predicate: the newest open one names the link; with none open, the first label no claim speaks
+  to, as before; a link whose every label's claims are closed keeps its first label marked "(until <day>)" and goes
+  after the rest. An event (born closed) and a withdrawal record never count as an ending (R-PJ3). On a hub, an ended
+  link yields every kept line to a current one and counts as the oldest in its family line's "latest". No link is dropped, confidence plays no part, and a page with no claims renders as it did. Stage 5
+  rebuilds Related before the batch's claims exist, so the claim pass renames the links of each page whose claims it
+  changes from the claims it writes (`conflict_resolver.refresh_related`, only the Related block); an inbound link on
+  the other page follows at that page's next write. A page with a stamped article is
   never handed to the orientation or legacy rewrite, whatever the settings: both replace the lead the writer owns; an
   inbox answer on it takes the fallback append.
 - **Inputs**, numbered: the record after this update's deterministic union (`f` facts with the days their rows'
