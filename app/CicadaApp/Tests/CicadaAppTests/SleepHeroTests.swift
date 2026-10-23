@@ -31,12 +31,12 @@ final class SleepHeroTests: XCTestCase {
         XCTAssertEqual(sleepDebtBracketText(.sleeping(stage: 2), debt: nil), "[ sleeping · stage 2 of 5 ]")
         XCTAssertEqual(sleepDebtBracketText(.digesting, debt: nil), "[ digesting ]")
         XCTAssertEqual(sleepDebtBracketText(.happy, debt: nil), "[ caught up ]")
-        XCTAssertEqual(sleepDebtBracketText(.curious(count: 47), debt: nil), "[ 47 episodes behind ]")
-        XCTAssertEqual(sleepDebtBracketText(.curious(count: 1), debt: nil), "[ 1 episode behind ]")
+        XCTAssertEqual(sleepDebtBracketText(.curious(count: 47), debt: nil), "[ 47 conversations behind ]")
+        XCTAssertEqual(sleepDebtBracketText(.curious(count: 1), debt: nil), "[ 1 conversation behind ]")
         XCTAssertEqual(sleepDebtBracketText(.hungry, debt: debtView(unprocessedCount: 30)),
-                       "[ 30 episodes behind — overdue ]")
+                       "[ 30 conversations behind — overdue ]")
         XCTAssertEqual(sleepDebtBracketText(.hungry, debt: debtView(unprocessedCount: 1)),
-                       "[ 1 episode behind — overdue ]")
+                       "[ 1 conversation behind — overdue ]")
         XCTAssertEqual(sleepDebtBracketText(.hungry, debt: debtView(unprocessedCount: 0)),
                        "[ overdue — hasn't consolidated in a while ]")
         XCTAssertEqual(sleepDebtBracketText(.hungry, debt: nil),
@@ -246,8 +246,9 @@ final class SleepHeroTests: XCTestCase {
     func test_theRestedMeterIsASentence() {
         XCTAssertEqual(HeroMeter.rested(pct: 100).sentence(unprocessed: 0, mood: .happy),
                        "Fully rested — nothing is waiting.")
+        // Looks pass 2: the hero already says "overdue"; the readout never says it again.
         XCTAssertEqual(HeroMeter.rested(pct: 0).sentence(unprocessed: 40, mood: .hungry),
-                       "Rested 0% — the backlog is overdue.")
+                       "Rested 0% — based on how much is waiting, and for how long.")
         XCTAssertEqual(HeroMeter.rested(pct: 40).sentence(unprocessed: 3, mood: .reading),
                        "Rested 40% — based on how much is waiting, and for how long.")
         XCTAssertEqual(HeroMeter.reading(read: 2, total: 3).sentence(unprocessed: 3, mood: .sleeping(stage: 1)),

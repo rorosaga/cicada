@@ -124,6 +124,12 @@ class EpisodeDraft:
     #: Messages the sender unsent, by position only — ``[{before: turn index, speaker, ts?, ref?}]`` — never words
     #: (`turn_extras.UNSENT_KEY`).
     unsent: list[dict] = field(default_factory=list)
+    #: The draft's ``timestamp`` is authoritative for an episode already staged under its ``source_id``: when the stored
+    #: one names another moment, it is moved in place and the episode re-queued (2026-10-23 — a writer whose date
+    #: parser had failed stamped the import time). The id is never renamed (ruling 34), so its day may stay the
+    #: import's; everything that dates an episode reads ``timestamp``. Off by default: a writer whose first stamp is
+    #: deliberate (a future calendar event, dated the day Cicada learned of it) keeps it.
+    redate: bool = False
 
 
 @dataclass
@@ -179,7 +185,21 @@ def normalise_timestamp(ts) -> str | None:
 
 
 def draft_from_export(episode: dict) -> EpisodeDraft:
-    """The chat importers' dict shape as a draft (G20 callers unchanged)."""
+    """The chat importers' dict shape as a draft (G20 callers unchanged). A document export (G219: a Notion page)
+    carries ``body`` instead of ``messages``, with its own scrub ``writer`` and frontmatter ``extra``."""
+    if episode.get("body") is not None:
+        return EpisodeDraft(
+            title=episode.get("title") or "",
+            source_id=episode.get("source_id"),
+            source_updated_at=episode.get("source_updated_at"),
+            timestamp=episode.get("timestamp"),
+            original_date=episode.get("original_date"),
+            source=episode.get("source", "unknown"),
+            origin=episode.get("origin"),
+            body=str(episode["body"]),
+            writer=str(episode.get("writer") or "import"),
+            extra=dict(episode.get("extra") or {}),
+        )
     return EpisodeDraft(
         title=episode.get("title") or "",
         source_id=episode.get("source_id"),
@@ -611,6 +631,36 @@ def revise_section(path: Path, heading: str, build, *, writer: str, bank: str | 
         return True
 
 
+def _moved(stored, wanted) -> bool:
+    """Whether ``wanted`` names another moment than ``stored`` (both readable, aware); never for an unreadable one —
+    ``None``, a naive or unparseable string, or any other value answers ``False``.
+
+    A pure comparison of two frontmatter values, so it takes no lock: it reads nothing from disk, and the write it
+    gates (:func:`_redate`) takes the episode's own lock. (#447 put ``_under_episode_lock`` here, which locks
+    ``Path(<first argument>).parent`` — for a timestamp that is the working directory, and ``None`` raised.)"""
+    try:
+        old, new = _when(normalise_timestamp(stored)), _when(normalise_timestamp(wanted))
+    except Exception:  # noqa: BLE001 — an unreadable stored value is "not moved", never a failed sync
+        return False
+    return old is not None and new is not None and old != new
+
+
+@_under_episode_lock
+def _redate(path: Path, draft: EpisodeDraft, stamps: list[dict]) -> None:
+    """``EpisodeDraft.redate``: the episode's moment moves to the draft's, in place — same file, same id (ruling 34),
+    re-queued so Sleep reads it on its true day; the turns' times are the draft's too. The moment it replaced is kept
+    as ``redated_from``. Frontmatter only: the body and ``content_hash`` are untouched, so every G118 evidence span
+    into this episode stays ``current`` (the ``turns`` sidecar is outside the hash, R-PB4)."""
+    parsed = markdown_parser.parse(path)
+    fm = dict(parsed.frontmatter)
+    fm["redated_from"] = fm.get("timestamp")
+    fm["timestamp"] = draft.timestamp
+    fm["processed"] = False
+    fm.pop("processed_by", None)
+    set_turn_stamps(fm, stamps)
+    markdown_parser.write(path, fm, parsed.body)
+
+
 @_under_episode_lock
 def _restamp(path: Path, draft: EpisodeDraft) -> None:
     parsed = markdown_parser.parse(path)
@@ -795,7 +845,8 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
             same_body = entry.fm.get("content_hash") in (digest, legacy)
             same_meta = (entry.fm.get("evidence_kind") == draft.extra.get("evidence_kind")
                          and not entry.fm.get("source_deleted_at"))
-            if same_body and same_meta:
+            redated = draft.redate and _moved(entry.fm.get("timestamp"), draft.timestamp)
+            if same_body and same_meta and not redated:
                 if draft.content_sha and entry.fm.get("content_sha") != draft.content_sha:
                     # An unchanged H2 section of an edited file: its words did not
                     # move, but the file's hash did. Restamp it (no re-queue) or a
@@ -826,6 +877,10 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
                     update_in_place(entry.path, draft, body, digest, stamps)
                 known_hashes.add(digest)
                 entry.fm["content_hash"] = digest
+            if redated:
+                if write:
+                    _redate(entry.path, draft, stamps)
+                entry.fm["timestamp"] = draft.timestamp
             entry.fm["evidence_kind"] = draft.extra.get("evidence_kind")
             entry.fm.pop("source_deleted_at", None)
             _mark(result, "updated", sid, entry, episodes_dir)

@@ -100,6 +100,12 @@ def observed_repo(frontmatter: dict) -> dict | None:
     return {"family": seen["family_hash"], "names": names} if names else None
 
 
+def name_folds(entity: dict) -> set[str]:
+    """The folded names (:func:`fold`) a repository named for ``entity`` could carry — the keys :func:`repo_match`
+    compares, for a caller matching many episodes against many pages at once."""
+    return {f for f in (fold(n) for n in _names(entity)) if len(f) >= 2}
+
+
 def repo_match(entity: dict, frontmatter: dict) -> dict | None:
     """``{name, family}`` when the entity is the repository this episode was captured in."""
     repo = observed_repo(frontmatter)

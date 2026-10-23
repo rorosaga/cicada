@@ -108,6 +108,21 @@ final class AgentQuickSetupTests: XCTestCase {
         XCTAssertEqual(AgentQuickSetup.actions(catalogId: "other", setup: prompt, wiring: nil), [.copyPrompt("Hi")])
     }
 
+    /// 2026-10-23: a Codex already on (recall and autosave) is offered only its missing AGENTS.md step; any other
+    /// leftover step on a wired agent is still never offered (re-running `mcp add` fails, R-IA15).
+    func testAWiredCodexIsOfferedOnlyTheAgentsMdStep() {
+        let block = AgentWiringStep(step: "agents-md", display: "registry.py agents-md-install …", argv: ["/py"],
+                                    touches: ["~/.codex/AGENTS.md"])
+        let flush = AgentWiringStep(step: "flush", display: "registry.py install …", argv: ["/py"], touches: [])
+        let wired = AgentWiring(id: "codex", installed: true, binary: "/bin/codex", recall: "on", autosave: "on",
+                                connect: [block], detail: nil, flushOn: [flush])
+        XCTAssertEqual(AgentQuickSetup.actions(catalogId: "codex", setup: nil, wiring: wired), [.connectForMe([block])])
+        let mcp = AgentWiringStep(step: "mcp", display: "codex mcp add cicada …", argv: ["/bin/codex"], touches: [])
+        let other = AgentWiring(id: "codex", installed: true, binary: "/bin/codex", recall: "on", autosave: "on",
+                                connect: [mcp, block], detail: nil)
+        XCTAssertEqual(AgentQuickSetup.actions(catalogId: "codex", setup: nil, wiring: other), [])
+    }
+
     /// G110 gate A — the capture flush (`flushOn`) rides with a Connect the app is already running, never on its own:
     /// an agent already on is shown nothing new, and an older backend (no `flushOn`) decodes to no flush.
     func testTheCaptureFlushRidesWithConnectOnly() throws {

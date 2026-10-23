@@ -41,7 +41,24 @@ struct SourcesPageView: View {
             wisprPresent: localSources.wisprInstalled || channels.contains { $0.id == LocalSourceWatcher.wisprChannel },
             overview: overview)
         return SourceCatalog.rows(entries: entries, channels: channels, overview: overview,
-                                  readableSites: reading.readableSites)
+                                  readableSites: reading.readableSites, localReaders: localReaders,
+                                  savedListsOn: reading.savedListsOn)
+    }
+
+    @Environment(CalendarReader.self) private var calendarReader: CalendarReader?
+    @Environment(ContactsReader.self) private var contactsReader: ContactsReader?
+    @Environment(RemindersReader.self) private var remindersReader: RemindersReader?
+    @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
+    @Environment(WatchHistoryWatcher.self) private var watchHistory: WatchHistoryWatcher?
+    @Environment(BrowserWatcher.self) private var browserWatcher: BrowserWatcher?
+    @Environment(AppleNotesWatcher.self) private var notesWatcher: AppleNotesWatcher?
+    @Environment(TraceRecorder.self) private var traceRecorder: TraceRecorder?
+
+    /// Which of this Mac's readers are on (2026-10-23): a reader turned off here reads Off, whatever it synced before.
+    private var localReaders: [String: Bool] {
+        LocalReaders.on(calendar: calendarReader, contacts: contactsReader, tabGroups: tabGroups,
+                        watchHistory: watchHistory, browsers: browserWatcher, notes: notesWatcher,
+                        traces: traceRecorder, reminders: remindersReader)
     }
 
     var body: some View {
@@ -59,9 +76,10 @@ struct SourcesPageView: View {
                 // G217 — the page IS the catalogue, so it no longer adds through a second one (the "Add a source" sheet's
                 // grid); Explore saved sites keeps its door (DR-40).
                 HStack(spacing: CicadaTheme.spacingSM) {
-                    TextButton(title: Copy.Reading.inBrowserTitle, help: Copy.Reading.inBrowserHelp) {
-                        showReadingSheet = true
-                    }
+                    // Looks pass 2 (2026-10-23): text alone in a row of bordered buttons read as a label. It opens a
+                    // sheet of switches as Explore opens its own, so it is the same kind of button (DR-40); same words.
+                    NeutralButton(title: Copy.Reading.inBrowserTitle, systemImage: "globe", size: .compact,
+                                  help: Copy.Reading.inBrowserHelp) { showReadingSheet = true }
                     if !exploreCache.isGone {
                         NeutralButton(title: Copy.Explore.button, systemImage: "safari", size: .compact,
                                       help: Copy.Explore.buttonHelp) { showExploreSheet = true }

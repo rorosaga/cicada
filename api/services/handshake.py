@@ -75,7 +75,9 @@ from api.services.auth import cicada_home
 # 19: G200 A7 — the Capabilities block names no HTTP route (no MCP agent can call one), and a `desktop` variant for a
 #     chat app that cannot resume (`variant_for` matches exact client names, never a substring).
 # 20: G61 "Where to check" (ruling 36 D5) — item 4 defines it and names `inferred` / `evidence` on cicada_add_source.
-CONTRACT_VERSION = 20
+# 21: the codex prelude names Codex's own capture hook and the ~/.codex/AGENTS.md block `cicada setup` writes (it
+#     no longer asks an agent to set an MCP env it cannot reach).
+CONTRACT_VERSION = 21
 MAX_TOKENS = 1800
 VARIANTS = ("claude-code", "codex", "desktop", "generic")
 
@@ -252,9 +254,8 @@ _PRELUDE = {
     ),
     "codex": (
         "## Codex\n"
-        "- Set `CICADA_SESSION_ID` (and `CICADA_SESSION_HARNESS=codex`) in the MCP env so your episodes group as "
-        "one conversation; Codex sessions are not resumable from Cicada.\n"
-        "- AGENTS.md points here; there is no separate policy file."
+        "- Codex's own hook saves each session as one conversation; Codex sessions are not resumable from Cicada.\n"
+        "- The Cicada block in ~/.codex/AGENTS.md points here; there is no separate policy file."
     ),
     "desktop": (
         "## Desktop app\n"

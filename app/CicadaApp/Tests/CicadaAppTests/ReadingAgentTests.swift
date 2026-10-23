@@ -321,6 +321,40 @@ final class ReadingAgentTests: XCTestCase {
 
     final class Box<T> { var value: T; init(_ value: T) { self.value = value } }
 
+    /// Review of #448 (G206) — the first-use sheet raised by a saved list's switch turns on agent reading and that list
+    /// in one call, and never writes a `sites` grant: a saved list is a standing ask for one page, never the site.
+    @MainActor
+    func testASavedListsFirstUseTurnOnWritesTheListAndNeverASiteGrant() async {
+        let sent = Box<[(Bool?, [String: Bool]?, Bool)]>([])
+        let saved = Box<[([String: Bool], Bool)]>([])
+        var d = deps(sent: sent)
+        d.writeSaved = { lists, enable in
+            saved.value.append((lists, enable))
+            var next = ReadingSettingsResponse(agentEnabled: true, ackCurrent: true)
+            next.savedLists = lists
+            return next
+        }
+        let model = ReadingAgentModel(deps: d)
+        await model.load()
+        let ok = await model.setSavedList("instagram", true, acknowledge: true)
+        XCTAssertTrue(ok)
+        XCTAssertTrue(sent.value.isEmpty, "no `sites` write at all")
+        XCTAssertEqual(saved.value.count, 1)
+        XCTAssertEqual(saved.value[0].0, ["instagram": true])
+        XCTAssertTrue(saved.value[0].1, "agent reading on, with the acknowledgement, in the same call")
+        XCTAssertTrue(model.settings?.allowedSites.isEmpty ?? false)
+        XCTAssertEqual(model.savedListsOn, ["instagram"])
+    }
+
+    func testTheSavedListBodyCarriesNoSitesEntry() {
+        let body = APIClient.readingSettingsBody(agentEnabled: true, acknowledge: true, savedLists: ["instagram": true])
+        XCTAssertNil(body["sites"])
+        XCTAssertEqual(Set(body.keys), ["agentEnabled", "acknowledge", "savedLists"])
+        XCTAssertEqual(body["savedLists"] as? [String: Bool], ["instagram": true])
+        XCTAssertEqual(Set(APIClient.readingSettingsBody(savedLists: ["x": false]).keys), ["savedLists"],
+                       "a list flipped while reading is on sends the list alone")
+    }
+
     @MainActor
     func testTurningItOnSendsTheAcknowledgementAndTheSiteInOneCall() async {
         let sent = Box<[(Bool?, [String: Bool]?, Bool)]>([])

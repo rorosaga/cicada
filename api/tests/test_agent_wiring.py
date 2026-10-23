@@ -98,7 +98,7 @@ def test_an_unparseable_settings_file_is_invalid_and_never_touched(tmp_path):
     settings.write_text("{not json", encoding="utf-8")
     row = _row(_probe(tmp_path), "codex")
     assert row["autosave"] == "invalid", "F8: registry.status alone would have said 'off'"
-    assert [s["step"] for s in row["connect"]] == ["mcp"] and "valid JSON" in row["detail"]
+    assert [s["step"] for s in row["connect"]] == ["mcp", "agents-md"] and "valid JSON" in row["detail"]
     assert settings.read_text(encoding="utf-8") == "{not json"
 
 

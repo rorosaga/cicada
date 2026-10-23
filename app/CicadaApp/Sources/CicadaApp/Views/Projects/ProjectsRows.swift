@@ -60,7 +60,8 @@ struct ProjectsListColumn: View {
                         case .failed(let message):
                             ListErrorCard(title: Copy.Projects.loadFailedTitle, message: message, retry: retry)
                         case .empty:
-                            EmptyStateView(title: Copy.Projects.emptyTitle, message: Copy.Projects.emptyMessage)
+                            EmptyStateView(systemImage: "point.topleft.down.to.point.bottomright.curvepath",
+                                           title: Copy.Projects.emptyTitle, message: Copy.Projects.emptyMessage)
                         case .tabEmpty:
                             note(tab == .past ? Copy.Projects.nonePast : Copy.Projects.noneCurrent)
                         case .noMatch:

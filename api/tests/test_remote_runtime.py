@@ -405,7 +405,9 @@ def test_stdio_inbox_ids_take_the_same_shape(memory):
     assert sent == ["/inbox/inbox-005/resolve"]
 
 
-@pytest.mark.parametrize("raw, expected", [(None, 6), (3, 3), (10_000, 12), (-5, 1), ("7", 7)])
+# 0.7.1 (#445) ended G199's one-release leniency: a spelled number ("7") is refused at the door, never read as 7 —
+# it is in the refusal test below. The clamp is for real integers.
+@pytest.mark.parametrize("raw, expected", [(None, 6), (3, 3), (7, 7), (10_000, 12), (-5, 1)])
 def test_ask_top_k_is_clamped_before_either_path(runtime, monkeypatch, raw, expected):
     seen = []
     monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: (_ for _ in ()).throw(OSError("offline")))
@@ -416,7 +418,7 @@ def test_ask_top_k_is_clamped_before_either_path(runtime, monkeypatch, raw, expe
     assert seen == [expected]
 
 
-@pytest.mark.parametrize("raw", ["abc", 1e400, 2.5, True])
+@pytest.mark.parametrize("raw", ["abc", "7", 1e400, 2.5, True])
 def test_ask_top_k_that_is_not_an_integer_is_refused_at_the_door(runtime, monkeypatch, raw):
     """G199: the schema says integer; a non-integer is refused before the body runs (it used to read as 6)."""
     seen = []

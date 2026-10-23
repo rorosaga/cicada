@@ -2,18 +2,20 @@ import SwiftUI
 import XCTest
 @testable import CicadaApp
 
-/// Onboarding v2 (2026-10-22) — five steps, one frame, a visible Skip on the working steps, and the keyboard never
-/// animates.
+/// Onboarding v2 (2026-10-22) — six steps since *Meet your bookworm* (owner 2026-10-23), one frame, a visible Skip on
+/// the working steps and the worm's, and the keyboard never animates.
 final class OnboardingPagesTests: XCTestCase {
-    func testFiveStepsInTheFlowsOrderWithTheSplitFrameAndSkipOnTheWorkingSteps() {
-        XCTAssertEqual(OnboardingPage.allCases, [.welcome, .intelligence, .agents, .sources, .done])
-        XCTAssertEqual(OnboardingPage.allCases.map(\.step), [1, 2, 3, 4, 5])
+    func testSixStepsInTheFlowsOrderWithTheSplitFrameAndSkipOnTheWorkingSteps() {
+        XCTAssertEqual(OnboardingPage.allCases, [.welcome, .intelligence, .agents, .sources, .menuBar, .done])
+        XCTAssertEqual(OnboardingPage.allCases.map(\.step), [1, 2, 3, 4, 5, 6])
         XCTAssertEqual(OnboardingPage.stepCount, OnboardingPage.allCases.count)
         XCTAssertEqual(OnboardingPage.welcome.next, .intelligence)
-        XCTAssertEqual(OnboardingPage.sources.next, .done)
+        XCTAssertEqual(OnboardingPage.sources.next, .menuBar, "the worm's step follows Sources: it counts what came in")
+        XCTAssertEqual(OnboardingPage.menuBar.next, .done)
+        XCTAssertEqual(OnboardingPage.done.previous, .menuBar)
         XCTAssertNil(OnboardingPage.done.next)
         XCTAssertEqual(OnboardingPage.allCases.filter(\.isSplit), [.intelligence, .agents, .sources])
-        XCTAssertEqual(OnboardingPage.allCases.filter(\.skippable), [.intelligence, .agents, .sources])
+        XCTAssertEqual(OnboardingPage.allCases.filter(\.skippable), [.intelligence, .agents, .sources, .menuBar])
     }
 
     /// Hyrum mode B — every step name either flow could have stored maps to a step that exists, and each new step
@@ -25,6 +27,8 @@ final class OnboardingPagesTests: XCTestCase {
         XCTAssertEqual(OnboardingPage(stored: "skills"), .sources)
         XCTAssertEqual(OnboardingPage(stored: "keepRunning"), .done)
         XCTAssertEqual(OnboardingPage(stored: "ready"), .done)
+        XCTAssertEqual(OnboardingPage(stored: "menuBar"), .menuBar)
+        XCTAssertEqual(OnboardingPage(stored: "done"), .done, "a step stored before the worm's step still lands on Done")
         XCTAssertNil(OnboardingPage(stored: "3"), "a raw number is never a step")
         XCTAssertNil(OnboardingPage(stored: ""))
     }

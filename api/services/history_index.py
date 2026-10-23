@@ -36,6 +36,10 @@ HISTORY_SOURCE = "watch-history"
 HISTORY_PREFIX = "watch-history:"
 MONTH_SOURCE = "watch-history-month"
 MONTH_PREFIX = "watch-history-month:"
+#: ``source`` of an activity-traces day summary (G218, ``trace_memory``): counted, index-only unless the person turned
+#: on "Learn from traces" when it was written (``learn_from_traces`` in its frontmatter) — the one model read traces get.
+TRACES_SOURCE = "traces-day"
+TRACES_PREFIX = "traces-day:"
 #: Origins only a platform's saved list writes (an export archive, or the person's agent reading Watch later or,
 #: G206, a saved list on X, Instagram or LinkedIn — ``saved_lists``, which files X under the archive's ``Bookmarks``).
 LIST_ORIGINS = frozenset({"youtube-playlist", "instagram-saved", "tiktok-saved", "x-likes", "linkedin-saved"})
@@ -67,6 +71,8 @@ def kind(fm: dict | None) -> str | None:
         return "history"
     if source == MONTH_SOURCE or sid.startswith(MONTH_PREFIX):
         return "month"
+    if source == TRACES_SOURCE or sid.startswith(TRACES_PREFIX):
+        return None if fm.get("learn_from_traces") is True else "traces"
     origin = str(fm.get("origin") or "")
     if any(fm.get(key) for key in PERSON_KEYS):
         return None

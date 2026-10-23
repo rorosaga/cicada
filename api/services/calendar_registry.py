@@ -40,7 +40,7 @@ import inspect
 import json
 import os
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlparse
@@ -345,13 +345,30 @@ def _episode_body(event: ICSEvent, calendar_url: str) -> str:
     return "\n".join(lines)
 
 
+def _begun_at(event: ICSEvent, now: datetime) -> datetime | None:
+    """When a new episode for this event is dated: its start once it has begun, else ``None`` (the day Cicada learned
+    of it) — read on time (owner 2026-10-16), the rule `calendar_local._happened` applies to the Calendar app's events.
+    2026-10-23: a subscribed calendar dated every event the day it was polled, so a first poll's past month read as a
+    month of mentions today. A naive start (an all-day date, a floating time) is this machine's local time."""
+    raw = (event.dtstart_iso or "").strip()
+    try:
+        moment = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.astimezone()
+    moment = moment.astimezone(timezone.utc)
+    return moment if moment <= now else None
+
+
 def _write_calendar_episode(episodes_dir: Path, event: ICSEvent, calendar_url: str) -> str:
     episodes_dir.mkdir(parents=True, exist_ok=True)
-    ep_date = datetime.now().strftime("%Y-%m-%d")
+    begun = _begun_at(event, datetime.now(timezone.utc))
+    ep_date = episode_ids.id_day(begun) if begun else datetime.now().strftime("%Y-%m-%d")
     episode_id = episode_ids.next_episode_id(episodes_dir, ep_date)
     # Aware UTC (G114 R2) — the old naive `now` + a bare "Z" suffix stamped
     # LOCAL time and labelled it UTC, off by the machine's offset.
-    timestamp = episode_ids.utc_now_iso()
+    timestamp = begun.isoformat() if begun else episode_ids.utc_now_iso()
 
     body = episode_scrub.scrub_body(_episode_body(event, calendar_url), writer="calendar", bank=episodes_dir.parent.name)
     content_hash = hashlib.sha256(_event_key(event).encode()).hexdigest()[:12]
@@ -469,7 +486,11 @@ async def _default_fetch(url: str) -> str:
     Only ever invoked when the network gate is open."""
     import httpx
 
-    async with httpx.AsyncClient(follow_redirects=True) as client:
+    from api.services import net_guard
+
+    # Every hop through the SSRF guard, as `feed_registry._default_fetch` (2026-10-23).
+    async with httpx.AsyncClient(follow_redirects=True,
+                                 event_hooks={"request": [net_guard.httpx_request_guard]}) as client:
         resp = await client.get(url, timeout=10.0)
         resp.raise_for_status()
         return resp.text

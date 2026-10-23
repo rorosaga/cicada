@@ -45,6 +45,8 @@ GATED = {
     # G71 (2026-10-16): the YouTube videos watched in Chrome — day episodes.
     ("POST", "/sources/watch-history/sync"): "/sources/watch-history/sync",
     ("POST", "/sources/contacts-local/sync"): "/sources/contacts-local/sync",
+    # G219: Apple Reminders — the ticked lists, episodes only.
+    ("POST", "/sources/reminders-local/sync"): "/sources/reminders-local/sync",
     # 2026-10-16: LinkedIn connections — the import writes person pages; the preview is pointless into a demo bank.
     ("POST", "/sources/linkedin-connections/preview"): "/sources/linkedin-connections/preview",
     ("POST", "/sources/linkedin-connections/import"): "/sources/linkedin-connections/import",
@@ -64,6 +66,8 @@ GATED = {
     ("POST", "/reading/asks"): "/reading/asks",
     # G212: a note a paired device sends, staged into the active bank.
     ("POST", "/capture/note"): "/capture/note",
+    # G91 (ruling 38): a photo or file a paired device sends — its episode into the active bank.
+    ("POST", "/capture/file"): "/capture/file",
     # G166: "Add to your graph" writes a skill page into the bank.
     ("POST", "/agent-methods/skills/{skill}/page"): "/agent-methods/skills/browser-harness/page",
 }
@@ -83,6 +87,14 @@ HANDLED_ELSEWHERE = {
         "stores the secret in ~/.cicada/secrets.env; only restamps the bank's sync_state.json, no content",
     ("POST", "/sources/connectors/{connector_id}/authorize"): "returns a sign-in link, takes nothing in",
     ("PUT", "/reading/settings"): "a machine-wide setting (~/.cicada/reading.json); writes no bank",
+    ("POST", "/sources/saved-why/suggest"):
+        "G191 v7: scores the reason bank against a link with the installed search model; reads no bank, writes nothing",
+    **{(method, f"/sources/traces/{path}"):
+       "G218: activity traces live in $CICADA_HOME/traces, outside every bank; trace_memory.promote writes nothing "
+       "into a demo bank (test_trace_routes.py)"
+       for method, path in [("PUT", "settings"), ("POST", "on"), ("POST", "off"), ("POST", "pause"),
+                            ("POST", "sync"), ("POST", "frames"), ("POST", "search"), ("POST", "forget"),
+                            ("POST", "wipe")]},
     ("PUT", "/agent-methods"):
         "a machine-wide choice (~/.cicada/agent_methods.json); the skill page beside it is guarded by "
         "demo_guard inside skill_pages.ensure and reports `demo` without writing (test_agent_methods_rest.py)",

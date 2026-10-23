@@ -91,6 +91,7 @@ enum BackendAgentPolicy {
         var env = base
         for key in AgentConnect.scrubbedKeys { env.removeValue(forKey: key) }
         env["CICADA_CAPTURE"] = "off"
+        env["CICADA_RECALL"] = "off"
         env["CICADA_REPO"] = installRoot.standardizedFileURL.path
         env["CICADA_MEMORY_PATH"] = memoryRoot
         env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"

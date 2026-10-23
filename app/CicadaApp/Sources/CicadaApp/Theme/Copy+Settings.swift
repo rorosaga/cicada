@@ -189,7 +189,7 @@ extension Copy {
     static let calendarAppTitle = "Calendar on this Mac"
     /// Never "Nothing leaves this Mac": events become episodes, and Sleep, Ask or a remote connector can send those to
     /// a cloud engine — that sentence is Ollama's alone (`honestyOllama`). Final review of round 4, finding 4.
-    static let calendarOff = "Not connected — Connect asks macOS to share your calendars with Cicada."
+    static let calendarOff = "Connect asks macOS to share your calendars with Cicada."
     static let calendarDenied = "Calendar access is off for Cicada — turn it on in System Settings → Privacy & Security → Calendars, then Connect again."
     static let calendarSyncing = "Syncing…"
     /// DR-21 — the count through `UsageFormat.count`, in the locale the row was asked for.
@@ -214,6 +214,34 @@ extension Copy {
     static let calendarStopTitle = "Stop reading your calendars?"
     static let calendarStopDetail = "Events already in your memory stay there."
     static let calendarStop = "Stop reading"
+
+    // MARK: Sources → Reminders (G219)
+    static let remindersTitle = "Reminders"
+    /// macOS has no read-only grant for reminders: the prompt asks for full access, so the row says so before it.
+    static let remindersOff = "Connect asks macOS to share your reminders with Cicada. macOS only offers full access; "
+        + "Cicada only reads, and never changes a reminder."
+    static let remindersDenied = "Reminders access is off for Cicada — turn it on in System Settings → Privacy & "
+        + "Security → Reminders, then Connect again."
+    static let remindersNoLists = "Tick the lists Cicada should read. Nothing is read until you do."
+    static func remindersSynced(_ when: String, reminders: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "Synced \(when) · \(reminders == 1 ? "1 reminder" : "\(UsageFormat.count(reminders, locale: locale)) reminders")"
+    }
+    static let remindersNotReady = "Your reminders aren't ready to read yet — Cicada will try again."
+    static let remindersSyncFailed = "Couldn't sync your reminders. Cicada will try again."
+    static let remindersNeedsUpdate = "This version of Cicada's background service can't read reminders yet — update "
+        + "Cicada."
+    static let remindersConnectFirst = "Connect Reminders on the Sources page first — Cicada reads it only after you do."
+    static let remindersStopTitle = "Stop reading your reminders?"
+    static let remindersStopDetail = "Reminders already in your memory stay there."
+    static let remindersListsHeader = "Lists to read"
+    static let remindersShared = "Others add to it"
+    static let remindersSharedHelp = "Items in this list are read as someone else's words, never yours."
+    static let remindersReads = "Open reminders, and those completed in the last 90 days. Cicada never writes back."
+    static func remindersSyncedSummary(_ reminders: Int?, locale: Locale = .autoupdatingCurrent) -> String {
+        guard let reminders else { return "Reminders synced" }
+        return "Reminders synced · \(UsageFormat.count(reminders, locale: locale)) "
+            + (reminders == 1 ? "reminder" : "reminders")
+    }
 
     // MARK: Search (design §2.4)
     static let searchSettings = "Search settings"
@@ -295,7 +323,7 @@ extension Copy {
     static let transcriptsShort = "Read only for your words and the agent's final answer."
     static let bankActive = "Active"
     static func bankCounts(entities: Int, episodes: Int) -> String {
-        "\(UsageFormat.count(entities)) \(entities == 1 ? "entity" : "entities") · \(UsageFormat.count(episodes)) \(episodes == 1 ? "episode" : "episodes")"
+        "\(UsageFormat.count(entities)) \(entities == 1 ? "entity" : "entities") · \(UsageFormat.count(episodes)) \(episodes == 1 ? "conversation" : "conversations")"
     }
     static let exportMenu = "Export…"
     static func exportingBank(_ name: String) -> String { "Exporting \(name)…" }

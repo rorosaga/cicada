@@ -92,7 +92,7 @@ private func lastTimeRung(_ ctx: RoomContext) -> SentenceLine? {
     let n = count(last.episodes, ctx)
     let tail = "+\(count(last.created, ctx)) new · \(count(last.updated, ctx)) updated"
         + (last.durationText.map { ", in \($0)" } ?? "") + "."
-    return SentenceLine(lead: "Last time I read \(n) \(last.episodes == 1 ? "episode" : "episodes").",
+    return SentenceLine(lead: "Last time I read \(n) \(last.episodes == 1 ? "conversation" : "conversations").",
                         numeral: n, tail: tail, action: .openDetails(.pastNights))
 }
 

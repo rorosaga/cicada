@@ -150,8 +150,11 @@ final class TourController {
         offerPending = false
     }
 
+    /// Any start answers Home's offer: the demo starts the tour on its own (`autoStart`), not through `requestStart`, so
+    /// the offer sat under the running tour and was still asking after Skip tour (looks pass 2, 2026-10-23).
     func start(bank: String) {
         pendingStart = false
+        offerPending = false
         self.bank = bank
         index = 0
         arrival &+= 1
@@ -183,6 +186,7 @@ final class TourController {
     func finish() {
         index = nil
         bank = nil
+        offerPending = false
         TourMemory.markDone(defaults)
     }
 

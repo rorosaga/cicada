@@ -31,8 +31,9 @@ struct AgentsSidebarPage: View {
             EyebrowRow(eyebrow: Copy.AgentsPage.title) {
                 PageAddButton(title: Copy.AgentsPage.addToken, help: Copy.AgentsPage.addToken) { adding = true }
             }
-        } list: { _ in
-            list.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        } list: { plan in
+            list(narrow: plan.listStyle != .wide)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } detail: { plan in
             if let umbrella = open {
                 AgentDetailColumn(umbrella: umbrella, summary: AgentSummary.of(umbrella, live: live,
@@ -56,7 +57,7 @@ struct AgentsSidebarPage: View {
             }
     }
 
-    private var list: some View {
+    private func list(narrow: Bool) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -67,7 +68,7 @@ struct AgentsSidebarPage: View {
                             ConnectionLine(logo: umbrella.logo, name: umbrella.label, systemFallback: "sparkles",
                                            detail: summary.line(now: Date()),
                                            status: (summary.presence().word, summary.presence().on),
-                                           detailLines: 1) { EmptyView() }
+                                           detailLines: 1, statusBelowName: narrow) { EmptyView() }
                                 .background(selected == umbrella.id ? CicadaTheme.bgSelected : Color.clear)
                                 .contentShape(Rectangle())
                         }
@@ -105,7 +106,11 @@ struct AgentsSidebarPage: View {
                 }
                 .settingsCardSurface()
             }
-            .padding(CicadaTheme.spacingGutter)
+            // The list starts under the eyebrow like every list page's (looks pass: a 40 pt top inset left a hole).
+            .padding(narrow ? ListInsets.of(.triage)
+                            : EdgeInsets(top: 0, leading: CicadaTheme.spacingGutter, bottom: CicadaTheme.spacingGutter,
+                                         trailing: CicadaTheme.spacingGutter))
+            .padding(.top, CicadaTheme.spacingSM)
             .frame(maxWidth: CicadaTheme.scaled(760), alignment: .leading)
         }
     }

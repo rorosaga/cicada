@@ -68,10 +68,20 @@ class Row:
     person: bool = False
     #: One of the app's commands (G180 parity): listed by `cicada commands`, kept out of the agent skill's table.
     app: bool = False
+    #: The `/v1` operation's name when it is not the command spelled with underscores (G213, ruling 38): only the
+    #: eleven operations shipped before `/v1` was generated from this table, frozen as they were (Hyrum).
+    api_op: str | None = None
 
     @property
     def name(self) -> str:
         return " ".join(self.command)
+
+    @property
+    def operation(self) -> str:
+        """This tool's `/v1` operation (`POST /v1/<operation>`) — served only when the tool is remote
+        (`api/remote/agent_api.OPS`): ``source add`` → ``source_add``, ``inbox record-check`` →
+        ``inbox_record_check``."""
+        return self.api_op or "_".join(self.command).replace("-", "_")
 
 
 def _p(prop: str, kind: str = "str") -> Arg:
@@ -99,13 +109,13 @@ ROWS: tuple[Row, ...] = (
         (_p("entity_id"), _f("start", "int")),
         options=(Option("--from", "int", "First line to show (1-based)."),
                  Option("--count", "int", "How many lines to show."),
-                 Option("--line-numbers", "bool", "Prefix each line with its number.")), exposed=True),
+                 Option("--line-numbers", "bool", "Prefix each line with its number.")), exposed=True, api_op="page"),
     Row(("project",), "cicada_project", "Where one project stands.",
         (_p("project"), _f("since"), _f("tz")), exposed=True),
     Row(("continue",), "cicada_continue", "Where the work in this folder stopped.",
         (_f("session"), _f("before")), exposed=True),
     Row(("save",), "cicada_save_episode", "Stage a note for the next Sleep (content `-` reads stdin).",
-        (_p("content"), _f("title")), mutates=True, exposed=True),
+        (_p("content"), _f("title")), mutates=True, exposed=True, api_op="save_note"),
     Row(("handshake",), "cicada_handshake", "The contract and the current state, for an agent arriving cold.",
         exposed=True),
     # --- slice 2 (proposed spellings) ----------------------------------------------
@@ -125,19 +135,20 @@ ROWS: tuple[Row, ...] = (
     Row(("claim", "add"), "cicada_write_claim", "Write a belief with its evidence.",
         (_p("subject"), _p("predicate"), _p("object"), _f("observer"), _f("confidence", "float"),
          _f("context"), _f("source_episode"), _f("force_new_entity", "bool"), _f("sources", "json"),
-         _f("evidence", "json"), _f("expected_end")), mutates=True),
+         _f("evidence", "json"), _f("expected_end")), mutates=True, api_op="write_claim"),
     Row(("claim", "retract"), "cicada_retract_claim", "Withdraw a claim you wrote; it stays as history.",
-        (_p("subject"), _p("claim_id"), _p("reason"), _f("evidence", "json")), mutates=True),
+        (_p("subject"), _p("claim_id"), _p("reason"), _f("evidence", "json")), mutates=True,
+        api_op="retract_claim"),
     # G198: a page's words or aliases, with a reason that becomes the commit message (a proposal when not trusted).
     Row(("page", "edit"), "cicada_edit_page", "Fix a page's words or aliases, with your reason.",
         (_p("subject"), _p("reason"), _f("edits", "json"), _f("section"), _f("text"),
          _f("add_aliases", "list", flag_name="add-alias"), _f("remove_aliases", "list", flag_name="remove-alias"),
          _f("evidence", "json"), _f("resolves", "json")), mutates=True),
     Row(("inbox", "list"), "cicada_check_nudges", "Questions Cicada has for the person on a topic.",
-        (_f("mode"), _f("topic"), _f("entity_ids", "list", flag_name="entity-id"))),
+        (_f("mode"), _f("topic"), _f("entity_ids", "list", flag_name="entity-id")), api_op="inbox"),
     Row(("inbox", "resolve"), "cicada_resolve_inbox", "Record the person's own answer to a question.",
         (_p("id"), _f("option_key"), _f("answer"), _f("defer", "bool"), _f("remind_days", "int"),
-         _f("skip", "bool"), _f("reject", "bool"), _f("quote")), mutates=True),
+         _f("skip", "bool"), _f("reject", "bool"), _f("quote")), mutates=True, api_op="resolve_inbox"),
     Row(("inbox", "record-check"), "cicada_record_check", "Report what a source check found.",
         (_p("item_id"), _p("source"), _p("outcome"), _f("option_key"), _f("proposed_value"),
          _f("quotes", "json"), _f("summary"), _f("via")), mutates=True),
@@ -170,7 +181,7 @@ ROWS: tuple[Row, ...] = (
     Row(("episodes", "mark"), "cicada_mark_processed", "Mark consolidated conversations, revision-checked.",
         (_p("episode_ids", "list"), _f("revisions", "pairs", flag_name="rev")), mutates=True),
     Row(("link", "save"), "cicada_save_url", "Save a link for the person.",
-        (_p("url"), _f("note")), mutates=True),
+        (_p("url"), _f("note")), mutates=True, api_op="save_url"),
     Row(("video", "record"), "cicada_record_watch", "Record a watched video: summary and short quotes.",
         (_p("url"), _p("summary"), _f("excerpts", "json"), _f("chapters", "json"), _f("basis"), _f("engine"),
          _f("duration"), _f("lease_token")), mutates=True),
@@ -456,6 +467,16 @@ def by_name() -> dict[str, Row]:
 
 def by_tool() -> dict[str, Row]:
     return {r.tool: r for r in ROWS if r.tool}
+
+
+def read_only_tools() -> frozenset[str]:
+    """**The one list of tools that only read** — every row whose tool changes nothing (``mutates=False``). The stdio
+    server's ``readOnlyHint`` comes from here (``mcp/server.py``), and ``test_tool_annotations`` holds the remote
+    catalog's ``READ_TOOLS`` / ``WRITE_TOOLS`` and the remote definitions to it, so no door marks a write read-only.
+    A cache outside every bank (a primer, a derived index), an ids-only ledger row or this process's own memory is
+    not a write; the bank, the inbox, a queue lease or the person's agent folders are (2026-10-23: Codex asked for
+    approval on every ``cicada_continue`` because only the remote list was annotated)."""
+    return frozenset(r.tool for r in ROWS if r.tool and not r.mutates)
 
 
 def exposed_tools() -> frozenset[str]:

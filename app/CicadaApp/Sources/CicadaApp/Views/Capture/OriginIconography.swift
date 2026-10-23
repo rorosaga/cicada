@@ -49,6 +49,8 @@ enum OriginIconography {
         "contacts-local",
         // G179: a ticked Messages conversation, one episode per sitting (`messages_source.ORIGIN`).
         "imessage",
+        // G219: a ticked Reminders list's reminder, and a Notion export's page or row.
+        "reminders-local", "notion-export",
         // G135 R-R26: a remote connector's app, as its episodes stamp it
         "claude-web", "chatgpt", "perplexity", "claude-code-remote",
         "codex-remote", "vscode", "remote-app",
@@ -92,6 +94,8 @@ enum OriginIconography {
         case "calendar": "Calendar"
         case "calendar-local": "Calendar"
         case "contacts-local": "Contacts"
+        case "reminders-local": "Reminders"
+        case "notion-export": "Notion"
         case "imessage": "Messages"
         case "apple-notes": "Apple Notes"
         case "share-sheet": "Share Sheet"
@@ -130,6 +134,9 @@ enum OriginIconography {
         // (a vault is a folder, so its episodes are `folder`).
         case "obsidian": "Obsidian"
         case "unknown": "Unknown"
+        // 2026-10-23: a note typed on a paired phone (`/capture/note`) or another device.
+        case "phone": "Phone"
+        case "note": "Notes from your devices"
         // Defensive aliases only — see the type doc above.
         case "reddit": "Reddit"
         case "x": "X"
@@ -160,6 +167,8 @@ enum OriginIconography {
         // `calendar-local` too, else the Sources grid (which passes a channel id through) draws a tray.
         case "calendar", "calendar-local": "calendar"
         case "contacts-local": "person.crop.circle"
+        case "reminders-local": "checklist"
+        case "notion-export": "doc.text"
         case "imessage": "message.fill"
         case "apple-notes": "note.text"
         case "share-sheet": "square.and.arrow.up"
@@ -182,8 +191,12 @@ enum OriginIconography {
         case "gemini-cli", "opencode", "hermes", "openclaw": "terminal"
         case "folder": "folder"
         case "wispr-flow": "waveform"
+        // G218 — activity traces (no episode carries it; its Sources row does).
+        case "traces": "timeline.selection"
         case "obsidian": "doc.text"
         case "unknown": "questionmark.circle"
+        case "phone": "iphone"
+        case "note": "note.text"
         // G135 R-R26 — the fallback when no mark ships (Perplexity and "Other"
         // by R-R34; any of them if a bundled PNG ever goes missing).
         // Grok (R-AG9): no sourced xAI mark yet, so it stays on the glyph.
@@ -314,6 +327,8 @@ enum OriginIconography {
         // Round 4 (G154) — Cicada reads the Contacts app's own store, so the app is here; Apple's marks are never
         // committed (Track L).
         case "contacts-local": "com.apple.AddressBook"
+        // G219 — Cicada reads the Reminders app's own store, so the app is here; Apple's marks are never committed.
+        case "reminders-local": "com.apple.reminders"
         // G179 — Cicada reads the Messages app's own database, so the app is here; Apple's marks are never committed.
         case "imessage": "com.apple.MobileSMS"
         default: nil

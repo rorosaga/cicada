@@ -58,11 +58,17 @@ from api.services.transclusion_resolver import claim_to_model
 # list draws from it; the detail keeps the series.
 # g141-5 (2026-10-22, ruling 36 D4): a row says its `origin`; the detail adds `origin`, the six standard `sections` and
 # `people`.
-PROJECT_SHAPE = "g141-5"
+# g141-6 (2026-10-23): `lastRepoDay` — the newest day an agent session ran in the project's repository (the hook's own
+# observation); its days count as activity in `momentDays`, and a moment needs the project discussed in substance.
+PROJECT_SHAPE = "g141-6"
 TREE_DEPTH = 2
 MAX_SCAN_PAGES = 200          # §6.6: raw scans are capped; hitting the cap sets `partial`
 COMMONS_DEGREE = 12           # R-PJ20
 FACTS_SHOWN = 3               # §6.1: 3 facts, then "+N facts"
+#: A conversation-day is a moment of the project only when the project is discussed there in substance (2026-10-23):
+#: at least this many of its claims are about the project, or they are at least SUBSTANTIVE_SHARE of what was said.
+SUBSTANTIVE_CLAIMS = 2
+SUBSTANTIVE_SHARE = 1 / 4
 GROUP_CAP = 8                 # §6.4
 PARTICIPANTS_SHOWN = 12       # round 4 D6: a happening citing 622 papers beachballed the app (R4B-1)
 ACTIVITY_DAYS = 120           # §10.1: ending at the last activity day, never "the last 120 days"
@@ -237,6 +243,7 @@ class _Bank:
         self._direct: dict[str, str] = {}
         self._reverse: dict[str, tuple[str | None, bool]] = {}
         self._ep_convs: dict[str, tuple[tuple[str, str]] | None] = {}
+        self._repo_sessions: list[tuple[str, frozenset[str], tuple[str, ...]]] | None = None
         self.scanned = 0
         self.partial = False
         self.transcript_exists = transcript_exists or session_stats.default_transcript_exists
@@ -246,6 +253,31 @@ class _Bank:
     def fm(self, eid: str) -> dict:
         f = self.entities.get(eid)
         return dict(f.frontmatter or {}) if f else {}
+
+    def repo_sessions(self) -> list[tuple[str, frozenset[str], tuple[str, ...]]]:
+        """``(family, folded repository names, local days)`` of every episode captured in a checkout the hook
+        observed (``project_birth.observed_repo``), once per request: the days are the session's first and last
+        turn, so a session resumed for days counts on the day it was last worked in. Frontmatter only — the backend
+        never looks at the checkout itself (D2)."""
+        if self._repo_sessions is None:
+            out = []
+            for f in self.episodes.values():
+                fm = f.frontmatter or _EMPTY
+                if "workspace_identity" not in fm:
+                    continue
+                repo = project_birth.observed_repo(fm)
+                if repo is None:
+                    continue
+                days = []
+                for key in ("timestamp", "last_turn_at"):
+                    instant = when.parse_instant(fm.get(key))
+                    if instant is not None:
+                        days.append(when.local_day(instant, self.tz).isoformat())
+                if days:
+                    names = frozenset(project_birth.fold(n) for n in repo["names"])
+                    out.append((str(repo["family"]), names, tuple(sorted(set(days)))))
+            self._repo_sessions = out
+        return self._repo_sessions
 
     def _fm(self, eid: str) -> dict:
         """`fm` without the copy, for this class's own reads (the list asks for every page's type and status)."""
@@ -508,6 +540,26 @@ def _anchor(bank: _Bank, claim: Claim) -> _Anchor | None:
         day = _day(claim.valid_from)
         return _Anchor(ep, day, None, "day", span) if day else None
     return _Anchor(ep, when.local_day(instant, bank.tz).isoformat(), when.utc_z(instant), basis, span)
+
+
+def _repo_days(bank: _Bank, tree: list[str]) -> set[str]:
+    """The local days an agent session ran in the repository of a tree page: the repository the page was born from
+    (its ``born`` family) or one named for it (``project_birth.repo_match``'s name rule). A session in the repository
+    is the project being worked on, said or not (2026-10-23: a project developed every day read "planned" because
+    the live session was not consolidated yet)."""
+    sessions = bank.repo_sessions()
+    if not sessions:
+        return set()
+    days: set[str] = set()
+    for page in tree:
+        fm = bank._fm(page)
+        born = fm.get("born") if isinstance(fm.get("born"), dict) else {}
+        family = str(((born or {}).get("repo") or {}).get("family") or "")
+        folds = project_birth.name_folds({"name": fm.get("name") or page, "aliases": fm.get("aliases") or []})
+        for fam, names, seen in sessions:
+            if (family and fam == family) or (names & folds):
+                days.update(seen)
+    return days
 
 
 def _parents(bank: _Bank) -> tuple[dict[str, str], dict[str, list[str]]]:
@@ -776,40 +828,65 @@ def _participants(bank: _Bank, root: str, owner: str | None,
     return out
 
 
-def _lead_key(tree: list[str], owner: str | None):
+def _lead_key(tree: list[str], owner: str | None, core: set[str] = frozenset()):
+    """A moment's facts in order: the claims about the project first (2026-10-23: the owner's page was an equal, so
+    "<owner> syncs a drive" led a moment of a project the conversation named once), then the person's own words,
+    then the longest span."""
     def key(row):
         c, page, a = row
         span = a.span
         subject = c.subject if c.subject else page
-        return (0 if span is not None and span.kind == "user" else 1,
+        return (0 if c.id in core else 1,
+                0 if span is not None and span.kind == "user" else 1,
                 0 if subject in tree or subject == owner or page in tree or page == owner else 1,
                 -((span.end - span.start) if span is not None else 0), c.id)
     return key
 
 
+def _substantive(core_count: int, total: int) -> bool:
+    """Whether a conversation-day discusses the project in substance: :data:`SUBSTANTIVE_CLAIMS` claims about it, or
+    at least :data:`SUBSTANTIVE_SHARE` of what was said there (a short conversation about it is one claim of two)."""
+    return core_count >= SUBSTANTIVE_CLAIMS or (core_count > 0 and core_count >= SUBSTANTIVE_SHARE * max(total, 1))
+
+
 def _moments(bank: _Bank, root: str, tree: list[str], owner: str | None,
-             rows: list[tuple[Claim, str, _Anchor]], suppressed: set[str], commons: set[str]) -> list[TimelineItem]:
+             rows: list[tuple[Claim, str, _Anchor]], suppressed: set[str], commons: set[str],
+             core: set[str] = frozenset()) -> list[TimelineItem]:
     """Claims grouped by (anchor episode, local day) — one moment per
     conversation per day — widened by span co-citation (R-PJB20) so the
-    moment carries what the conversation said around the project too."""
+    moment carries what the conversation said around the project too.
+
+    2026-10-23 (live test): a moment is listed only where the project is discussed in substance (``_substantive``
+    over ``core``, the claims about the project itself — §6.1 layers a and b): a conversation of two hundred facts
+    that names the project once, or one only a member page's claims reach, is not the project's history. Its claims
+    lead the moment's facts, so the line and its quote say what was said about the project."""
     groups: dict[tuple[str, str], list[tuple[Claim, str, _Anchor]]] = {}
     for c, page, a in rows:
         if a.episode and a.episode in suppressed:
             continue
         groups.setdefault((a.episode or "", a.day), []).append((c, page, a))
     items: list[TimelineItem] = []
-    bank.prefetch_citing(sorted({ep for ep, _ in groups if ep}))
+    bank.prefetch_citing(sorted({key[0] for key, group in groups.items()
+                                 if key[0] and any(c.id in core for c, _, _ in group)}))
     for (ep, day), group in sorted(groups.items()):
+        about = sum(1 for c, _, _ in group if c.id in core)
+        if not about:
+            continue
+        said = len(group)
         if ep:
             have = {c.id for c, _, _ in group}
             for page, c in bank.co_cited(ep):
-                if c.id in have or page in commons or is_event(c):
+                if c.id in have or is_event(c):
                     continue
                 a = _anchor(bank, c)
                 if a is not None and a.episode == ep and a.day == day:
                     have.add(c.id)
-                    group.append((c, page, a))
-        group.sort(key=_lead_key(tree, owner))
+                    said += 1
+                    if page not in commons:
+                        group.append((c, page, a))
+        if not _substantive(about, said):
+            continue
+        group.sort(key=_lead_key(tree, owner, core))
         lead, lead_page, lead_anchor = group[0]
         facts = [_fact(bank, page, c) for c, page, _ in group]
         pages = {page for _, page, _ in group}
@@ -1352,7 +1429,7 @@ def build(memory_path: Path, project_id: str, *, tz_name: str | None, since: str
     events = _events(bank, tree, owner)
     # §4.4: a derived moment steps aside for the event that cites its episode.
     suppressed = {e.episode for c, _ in events for e in c.evidence if e.is_span()}
-    moments = _moments(bank, root, tree, owner, rows, suppressed, commons)
+    moments = _moments(bank, root, tree, owner, rows, suppressed, commons, core_ids)
     happenings = [_happening(bank, owner, c, page) for c, page in events if c.predicate == HAPPENED]
     milestones = _milestones(bank, tree)
     linked, pending_names = _event_members(bank, tree, owner, events)
@@ -1368,7 +1445,12 @@ def build(memory_path: Path, project_id: str, *, tz_name: str | None, since: str
         items = [i for i in items if i.day is None or i.day >= since_day]
     order = {"happening": 0, "moment": 1, "history": 2, "created": 3}
     items.sort(key=lambda i: (i.day is None, "" if i.day is None else _neg(i.day), order[i.kind], i.id))
-    moment_days = sorted({m.day for m in moments if m.day} | {h.day for h in happenings if h.day})
+    # Activity (2026-10-23): every day a claim about the project was said (the list's rule, R-PJB19 — a moment may now
+    # be too thin to list, its day still counts), a happening's day, and every day an agent session ran in its
+    # repository, consolidated or not.
+    repo_days = _repo_days(bank, tree)
+    moment_days = sorted({a.day for c, _, a in rows if c.id in core_ids and a.day}
+                         | {h.day for h in happenings if h.day} | repo_days)
     core = [c for c, _, _ in rows if c.id in core_ids] + [c for c, _ in events]
     done = [h for h in happenings if h.state == "done" and h.day]
     activity = _activity(bank, core)
@@ -1389,6 +1471,7 @@ def build(memory_path: Path, project_id: str, *, tz_name: str | None, since: str
                        max(moments, key=lambda m: (m.day or "", m.at or "", m.id), default=None)),
         pending=_pending(bank, tree), milestones=milestones, items=items, activity=activity,
         moment_days=moment_days, last_moment_day=moment_days[-1] if moment_days else None,
+        last_repo_day=max(repo_days) if repo_days else None,
         median_gap_days=project_state.median_gap(moment_days),
         cluster=_cluster(bank, tree, around, _commons(bank, around), pending_names),
         conversations=_conversations(bank, core),
@@ -1583,8 +1666,9 @@ def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: 
         # An event's day is when it happened (`valid_from`), not the day of the
         # episode it cites — the detail's rule for `momentDays`, kept here so
         # list and detail agree (R-PJB19). A milestone is a plan, not activity.
+        repo_days = _repo_days(bank, tree)
         days = sorted({d for c in claims if not is_event(c) and (d := _anchor_day(bank, c))}
-                      | {d for c, _ in events if c.predicate == HAPPENED and (d := _day(c.valid_from))})
+                      | {d for c, _ in events if c.predicate == HAPPENED and (d := _day(c.valid_from))} | repo_days)
         milestones = _milestones(bank, tree)
         progress = project_state.progress([m.model_dump(by_alias=True) for m in milestones])
         shown = [m.model_copy(update={"chain": []}) for m in
@@ -1594,6 +1678,7 @@ def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: 
             id=root, name=bank.name(root), one_liner=_one_liner(bank, root), parent=parent, children=tree[1:],
             status=str(fm.get("status") or "active"), created=_day(fm.get("created")),
             origin=project_birth.recorded_kind(fm), planned=bool(milestones), last_moment_day=days[-1] if days else None,
+            last_repo_day=max(repo_days) if repo_days else None,
             median_gap_days=project_state.median_gap(days),
             open_threads=_threads(bank, root, events)[:THREADS_IN_ROW], milestones=shown,
             # The row's bar starts at the window's first day — all the list shows of the density (the detail

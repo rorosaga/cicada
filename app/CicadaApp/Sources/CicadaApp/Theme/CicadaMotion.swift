@@ -161,6 +161,26 @@ enum CicadaMotion {
         reduceMotion ? reducedFadeDuration : notchShrinkDuration
     }
 
+    /// G191 v7 — the field growing a line as the words wrap or break (owner 2026-10-23: "vertically expand smoothly").
+    /// Shorter than a key repeat, so the growth never trails the typing. Not a keyboard command (DR-60 lists those):
+    /// the content's own size changing; height is movement, so none under Reduce Motion (DR-66; `SaveWhyField`).
+    static let fieldGrowDuration: TimeInterval = 0.12
+    /// G191 v7 — the suggested reasons arriving under the fixed row once the link is known: the card makes room and the
+    /// chips fade in (owner: "more options that appear smoothly").
+    static let suggestInDuration: TimeInterval = 0.2
+
+    static func fieldGrow(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : CicadaCurve.out(fieldGrowDuration)
+    }
+    /// The card making room for the suggestions: movement, so none under Reduce Motion.
+    static func suggestGrow(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : CicadaCurve.out(suggestInDuration)
+    }
+    /// The suggestions' own fade: DR-66's short fade under Reduce Motion.
+    static func suggestFade(reduceMotion: Bool) -> Animation {
+        reduceMotion ? fade : CicadaCurve.out(suggestInDuration)
+    }
+
     /// STATE 0 → 1 by pointer: the list's width on the drawer curve. Width is movement, so nil under
     /// Reduce Motion.
     static func columns(reduceMotion: Bool) -> Animation? {
@@ -277,6 +297,34 @@ extension CicadaMotion {
     static func walkthroughOverlay(reduceMotion: Bool) -> Animation {
         reduceMotion ? fade : CicadaCurve.ease(cardFadeDuration)
     }
+}
+
+// MARK: - Meet the bookworm (onboarding, owner 2026-10-23)
+
+/// The onboarding step that shows the menu-bar worm big (`MenuBarStep`) and its flight into the menu bar
+/// (`MenuBarFlight`). Like See how's camera, a demonstration at reading pace — a dated DR-61 exception (DESIGN_RULES §9,
+/// 2026-10-23): the count is the lesson and the flight shows *where it went*, not a transition between two layouts.
+/// Under Reduce Motion the count is drawn at its end and the flight is a fade of the status item (DR-66); ⏎ never
+/// animates (DR-60). The sprite's own frames keep their sheet timings (ruling 18).
+extension CicadaMotion {
+    /// One step of the count going up: twelve steps read as "things arriving" in about two seconds.
+    static let wormCountTick: TimeInterval = 0.18
+    /// The pause before the count starts (the worm with nothing waiting), and after it lands on its number.
+    static let wormCountRest: TimeInterval = 1.2
+    static let wormCountHold: TimeInterval = 2.4
+    /// One stage dot of the illustrated Sleep that takes the number back down.
+    static let wormSleepTick: TimeInterval = 0.4
+    /// The count never takes more steps than this: a large number lands in evenly spaced jumps.
+    static let wormCountMaxSteps = 24
+
+    /// The worm shrinking and flying from the step to its place in the menu bar: long enough to follow with the eye.
+    static let wormFlightDuration: TimeInterval = 0.7
+    /// Reduce Motion: the status item fades in over DR-66's short fade.
+    static let wormRevealFadeDuration: TimeInterval = reducedFadeDuration
+
+    /// The flight's curve, CicadaCurve.inOut's control points as a Core Animation timing (the panel's frame is an
+    /// AppKit animation, not SwiftUI's).
+    static let wormFlightCurve: (Float, Float, Float, Float) = (0.77, 0, 0.175, 1)
 }
 
 // MARK: - The guided tour (G152)

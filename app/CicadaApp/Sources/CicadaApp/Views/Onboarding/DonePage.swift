@@ -26,14 +26,14 @@ struct DonePage: View {
                 .fixedSize(horizontal: false, vertical: true)
             quoteBlock
             HStack(spacing: CicadaTheme.spacingSM) {
-                TextButton(title: Copy.onboardingBack, action: onBack)
+                TextButton(title: Copy.onboardingBack, flushLeading: true, action: onBack)
                 Spacer()
                 PrimaryActionButton(title: Copy.onboardingOpenCicada, action: onOpen).disabled(busy)
                 KeyHint("⏎")
             }
         }
         .padding(CicadaTheme.spacingXL)
-        .floatingSurface(in: CicadaTheme.shape(CicadaTheme.radiusLarge))
+        .onboardingCard()
     }
 
     /// Words through `Copy`, never `Text("\(…)")`: Views/Onboarding/ is in `CountLiteralLintTests`' scope, and a year
@@ -48,7 +48,6 @@ struct DonePage: View {
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
         }
-        .padding(.leading, CicadaTheme.spacingMD)
         .accessibilityElement(children: .combine)
     }
 }

@@ -55,10 +55,22 @@ func queueRowWords(_ state: QueueRowState, locale: Locale = .autoupdatingCurrent
 ///
 /// It never invents a time it was not given: an unrecognized mode from a newer
 /// backend reads as "manual only" rather than as a schedule nobody configured.
-func scheduleSentence(_ schedule: ScheduleConfig) -> String {
+///
+/// Looks pass (2026-10-23): the time reads the way the next-run half beside it does, so one line never mixes two
+/// clocks (`nextRunWhen`; Settings → Sleep reads the same). Looks pass 2 (2026-10-23): both are the viewer's own
+/// clock (`clockTime`), so a 24-hour locale reads "03:00", never a hand-spelled "3:00 AM".
+func scheduleSentence(_ schedule: ScheduleConfig, locale: Locale = .current) -> String {
     switch schedule.mode {
     case "daily":
-        return String(format: "Every day at %02d:%02d", schedule.hour, schedule.minute)
+        var parts = DateComponents()
+        parts.hour = schedule.hour
+        parts.minute = schedule.minute
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
+        guard let date = calendar.date(from: parts) else {
+            return String(format: "Every day at %02d:%02d", schedule.hour, schedule.minute)
+        }
+        return "Every day at \(clockTime(date, locale: locale, timeZone: calendar.timeZone))"
     case "interval":
         return schedule.intervalHours == 1 ? "Every hour" : "Every \(schedule.intervalHours) h"
     case "after_import":
@@ -89,11 +101,23 @@ func scheduledEngineLine(preview: SleepEnginePreviews?) -> String? {
 func nextRunWhen(_ schedule: ScheduleConfig, nextSleepAt: String?,
                  locale: Locale = .current, timeZone: TimeZone = .current) -> String? {
     guard schedule.mode != "manual", let date = StatusSnapshot.parseDate(nextSleepAt) else { return nil }
+    let day = DateFormatter()
+    day.locale = locale
+    day.timeZone = timeZone
+    day.setLocalizedDateFormatFromTemplate("MMMd")
+    return "\(day.string(from: date)), \(clockTime(date, locale: locale, timeZone: timeZone))"
+}
+
+/// A time of day in the locale's own clock — its short time style, so a 24-hour locale (or the viewer's 24-hour
+/// switch, when `locale` is the current one) reads "03:00" and en_US reads "3:00 AM". ICU's narrow no-break space
+/// before AM/PM reads as a plain space, so the sentence matches what tests and copy spell.
+func clockTime(_ date: Date, locale: Locale, timeZone: TimeZone) -> String {
     let f = DateFormatter()
-    f.dateFormat = "MMM d, h:mm a"
     f.locale = locale
     f.timeZone = timeZone
-    return f.string(from: date)
+    f.dateStyle = .none
+    f.timeStyle = .short
+    return f.string(from: date).replacingOccurrences(of: "\u{202F}", with: " ")
 }
 
 /// "Manual only" / "Next run Sep 24, 3:00 AM" / "Next run after the next

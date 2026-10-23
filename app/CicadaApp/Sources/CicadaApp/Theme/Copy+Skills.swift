@@ -57,10 +57,9 @@ extension Copy {
         static let suggested = "Suggested"
         static let made = "Made by your agents"
         static let emptyInstalledTitle = "No skills yet"
-        /// Nothing sits below this line on Installed: the add field is above it, the suggestions are Discover's
-        /// (QA 2026-10-16 — it said "Add one below, or start with a suggestion").
-        static let emptyInstalledMessage = "Skills teach your agents to do something new. Paste one in the field "
-            + "above, or find one in Discover."
+        /// Nothing sits below this line on Installed, and the header field left on 2026-10-20 — *Add a skill* is the
+        /// way in now (looks pass 2026-10-23: it still said "Paste one in the field above").
+        static let emptyInstalledMessage = "Skills teach your agents something new. Add one, or find one in Discover."
 
         // A row
         static let updateAvailable = "Update available"

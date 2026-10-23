@@ -2,7 +2,7 @@ import SwiftUI
 
 /// F-09's first-time "Make it yours" (owner, round-4 decision 8; R-HO15) — Appearance where a person who has just finished setup will see them, once. The Welcome's Start arms it (`SetupRunner`
 /// calls `SetupEffects.armAppearanceTip` beside the plan's Getting started record; the demo plan has none, so it never
-/// does) and phase B's onboarding calls `arm()` when its last page closes. × and Hide both dismiss it for good; both
+/// does) and phase B's onboarding calls `arm()` when its last page closes. × dismisses it for good; both
 /// settings live on in Settings → General, which its foot links to. Per viewer, in defaults.
 ///
 /// Owner 2026-10-14 (Home review #4, the minimum): it never sits above Needs you (`HomeArrangement`), it lasts one
@@ -32,7 +32,8 @@ enum AppearanceTipPolicy {
     @MainActor static var hasRisenThisSession = false
 }
 
-/// F-09's card padding (R-HO15). It is a row of Home's column now, never beside it.
+/// F-09's card padding (R-HO15). It is a row of Home's column now, never beside it. The same 12 pt as every card on
+/// Home (`spacingMD`: the tour offer, the empty block, Getting started since the looks pass).
 enum AppearanceTipLayout {
     static let padding: CGFloat = 12
 }
@@ -65,7 +66,6 @@ struct AppearanceTip: View {
                        options: AppearancePreference.allCases.map { PillOption(value: $0, label: $0.label) },
                        compact: true)
             HStack(spacing: CicadaTheme.spacingXS) {
-                TextButton(title: Copy.tipHide) { dismissed = true }   // 32 pt, never the 22 pt inline form (DR-69)
                 Text(Copy.tipFindIt)
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)

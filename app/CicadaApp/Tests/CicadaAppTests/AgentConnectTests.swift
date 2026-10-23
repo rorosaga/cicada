@@ -60,6 +60,24 @@ final class AgentConnectTests: XCTestCase {
         }
     }
 
+    /// 2026-10-23 — Codex's SessionEnd flush asks for Codex's 3 s cap, and Cicada's block in `~/.codex/AGENTS.md`
+    /// is added by its own registry verb: both shapes run, nothing near them does.
+    func testCodexsFlushTimeoutAndAgentsMdBlockAreAllowedExactly() {
+        let dev = CicadaRuntime.developer(codeRoot: root)
+        let codexEnd = hookStep(settings: "/Users/x/.codex/hooks.json", harness: "codex", event: "SessionEnd").argv
+        XCTAssertTrue(AgentConnectPolicy.isAllowed(codexEnd + ["--timeout", "3"], runtime: dev, binaries: [claude]))
+        XCTAssertFalse(AgentConnectPolicy.isAllowed(codexEnd + ["--timeout", "60"], runtime: dev, binaries: [claude]))
+        XCTAssertFalse(AgentConnectPolicy.isAllowed(hookStep(event: "SessionEnd").argv + ["--timeout", "3"], runtime: dev,
+                                                    binaries: [claude]), "only Codex's file carries the cap")
+        let registry = [python, root.path + "/api/hooks/registry.py"]
+        XCTAssertTrue(AgentConnectPolicy.isAllowed(registry + ["agents-md-install", "--settings", "/Users/x/.codex/AGENTS.md"],
+                                                   runtime: dev, binaries: [claude]))
+        XCTAssertFalse(AgentConnectPolicy.isAllowed(registry + ["agents-md-install", "--settings", "/Users/x/.zshrc"],
+                                                    runtime: dev, binaries: [claude]))
+        XCTAssertFalse(AgentConnectPolicy.isAllowed(registry + ["agents-md-uninstall", "--settings", "/Users/x/.codex/AGENTS.md"],
+                                                    runtime: dev, binaries: [claude]))
+    }
+
     /// The hook command runs on every agent turn: it must be install.sh's
     /// `hook_command` exactly, for the harness its settings file belongs to.
     func testTheHookCommandMustBeInstallShsExactly() {

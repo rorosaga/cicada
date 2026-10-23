@@ -259,11 +259,9 @@ struct SkillsPageView: View {
     @ViewBuilder
     private func installed(_ data: SkillsPageData, style: ColumnPlan.ListStyle) -> some View {
         if data.installed.isEmpty && data.plugins.isEmpty {
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                Text(Copy.Skills.emptyInstalledTitle).font(CicadaTheme.bodyFont)
-                Text(Copy.Skills.emptyInstalledMessage).font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-            }
+            // DR-50 — the one empty state, with the rail's glyph (2026-10-22), like Graph, Inbox and Projects.
+            EmptyStateView(systemImage: "puzzlepiece.extension", title: Copy.Skills.emptyInstalledTitle,
+                           message: Copy.Skills.emptyInstalledMessage)
         } else if style == .wide {
             VStack(alignment: .leading, spacing: 0) {
                 if let line = SkillPluginWords.weight(data.weight) {

@@ -22,11 +22,33 @@ final class SleepQueueCardV3Tests: XCTestCase {
         XCTAssertEqual(Copy.nextRunManual, "Manual only")
     }
 
-    func test_scheduleSentence_dailyNamesTheZeroPaddedTime() {
-        XCTAssertEqual(scheduleSentence(ScheduleConfig(mode: "daily", hour: 2, minute: 0)),
+    /// Looks pass (2026-10-23): the same clock as the next-run half beside it, never "02:00" next to "3:00 AM".
+    func test_scheduleSentence_dailyNamesTheTimeLikeTheNextRun() {
+        let en = Locale(identifier: "en_US")
+        XCTAssertEqual(scheduleSentence(ScheduleConfig(mode: "daily", hour: 2, minute: 0), locale: en),
+                       "Every day at 2:00 AM")
+        XCTAssertEqual(scheduleSentence(ScheduleConfig(mode: "daily", hour: 23, minute: 45), locale: en),
+                       "Every day at 11:45 PM")
+    }
+
+    /// Looks pass 2 (review of #446): the viewer's own clock — a 24-hour locale never reads a hand-spelled "AM", and
+    /// the next-run half beside it uses the same clock.
+    func test_scheduleSentence_followsA24HourLocale() {
+        let de = Locale(identifier: "de_DE")
+        let gb = Locale(identifier: "en_GB")
+        XCTAssertEqual(scheduleSentence(ScheduleConfig(mode: "daily", hour: 2, minute: 0), locale: de),
                        "Every day at 02:00")
-        XCTAssertEqual(scheduleSentence(ScheduleConfig(mode: "daily", hour: 23, minute: 45)),
+        XCTAssertEqual(scheduleSentence(ScheduleConfig(mode: "daily", hour: 23, minute: 45), locale: gb),
                        "Every day at 23:45")
+        let utc = TimeZone(identifier: "UTC")!
+        let when = nextRunWhen(ScheduleConfig(mode: "daily", hour: 3, minute: 0), nextSleepAt: "2026-09-24T15:00:00Z",
+                               locale: gb, timeZone: utc)
+        XCTAssertTrue(when?.hasSuffix(", 15:00") == true, when ?? "nil")
+        XCTAssertFalse(when?.contains("PM") == true, when ?? "nil")
+        XCTAssertEqual(nextRunWhen(ScheduleConfig(mode: "daily", hour: 3, minute: 0),
+                                   nextSleepAt: "2026-09-24T15:00:00Z",
+                                   locale: Locale(identifier: "en_US"), timeZone: utc),
+                       "Sep 24, 3:00 PM")
     }
 
     func test_scheduleSentence_intervalPluralisesAndSaysHourAtOne() {

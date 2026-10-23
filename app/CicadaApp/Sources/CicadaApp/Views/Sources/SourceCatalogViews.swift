@@ -14,6 +14,68 @@ extension ReadingAgentModel {
         guard let settings, settings.agentEnabled else { return [] }
         return Set(settings.allowedSites.keys)
     }
+
+    /// G206 — the saved lists the person's agent keeps current: none while agent reading is off.
+    var savedListsOn: Set<String> {
+        guard let settings, settings.agentEnabled else { return [] }
+        return Set(settings.savedLists.filter { $0.value }.map { $0.key })
+    }
+}
+
+/// 2026-10-23 — which of this Mac's readers are on, for `SourceCatalog.status`. The backend knows a reader synced once,
+/// never that it was disconnected here (the flags are this Mac's), so a Calendar, Contacts, tab groups, YouTube history
+/// or a browser's bookmark watch turned off kept reading Connected while nothing more arrived. Each observable value is
+/// read so the row redraws when it flips. Messages and Wispr Flow are answered by the backend (their switches live in
+/// the bank's settings).
+@MainActor
+enum LocalReaders {
+    static func on(calendar: CalendarReader?, contacts: ContactsReader?, tabGroups: TabGroupWatcher?,
+                   watchHistory: WatchHistoryWatcher?, browsers: BrowserWatcher?,
+                   notes: AppleNotesWatcher?, traces: TraceRecorder? = nil,
+                   reminders: RemindersReader? = nil) -> [String: Bool] {
+        var on: [String: Bool] = [:]
+        // G218 — the recorder's own state: Connected only while it records.
+        if let traces { on[SourceCatalog.tracesId] = traces.isRecording }
+        // G219: on only while connected with at least one list ticked — nothing arrives otherwise.
+        if let reminders { on[RemindersReader.channel] = reminders.isOn }
+        if let calendar { on[CalendarRow.channelId] = calendarOn(calendar.status) }
+        if let contacts { on[ContactsReader.channel] = contacts.enabled }
+        if let tabGroups { on[TabGroupWatcher.channel] = tabGroups.enabled }
+        if let watchHistory { on[WatchHistoryWatcher.channel] = watchHistory.enabled }
+        if let notes { on[AppleNotesWatcher.channel] = notes.enabled }
+        if let browsers {
+            for (channel, _) in BrowserWatchPolicy.watched {
+                _ = browsers.states[channel]
+                on[channel] = browsers.isEnabled(channel)
+            }
+        }
+        return on
+    }
+
+    /// Looks pass 2 (2026-10-23) — Calendar's head and its row read one value: the reader's own status, the one the
+    /// row's line and buttons already follow (`CalendarRowText`). The head read `isEnabled` (a defaults flag, not
+    /// observed) beside it, so the two could say Connected and "Not connected" at once. Off and denied are off;
+    /// syncing, synced and a failed read are a connected reader (a failure says why in the row's line).
+    nonisolated static func calendarOn(_ status: CalendarReader.Status) -> Bool {
+        switch status {
+        case .off, .denied: false
+        case .syncing, .synced, .failed: true
+        }
+    }
+}
+
+/// Looks pass 2 (2026-10-23) — set by a source's detail, whose head already shows the source's mark and name: the
+/// source's own row inside it (`CalendarRow`, `ContactsRow`, `MessagesRow`, `WisprFlowRow`, a browser's row) then
+/// draws only its line and its buttons, never a second, smaller mark and the same name again (DR-38, DR-52).
+private struct SourceDetailHeadShownKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var sourceDetailHeadShown: Bool {
+        get { self[SourceDetailHeadShownKey.self] }
+        set { self[SourceDetailHeadShownKey.self] = newValue }
+    }
 }
 
 /// One catalogue row: tile · name (and when it last synced, only when on) · dot + one word. An Off row's word is its
@@ -28,7 +90,10 @@ struct SourceCatalogRowView: View {
     var body: some View {
         Button(action: open) {
             HStack(spacing: CicadaTheme.scaled(12)) {
-                SourceLogoTile(origin: row.entry.origin, size: style == .wide ? .row : .dense)
+                // Looks pass 2 (2026-10-23): one tile size for a two-line row, at the root and beside an open source
+                // alike (the list beside a detail drew 24 pt while the root, the detail head and onboarding drew 36);
+                // only the title-only row (36 pt tall, DR-34) keeps the dense tile.
+                SourceLogoTile(origin: row.entry.origin, size: SourceCatalogRowView.tileSize(style))
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                     Text(row.entry.title)
                         .font(CicadaTheme.font(size: 13, weight: selected || style == .wide ? .medium : .regular))
@@ -42,6 +107,7 @@ struct SourceCatalogRowView: View {
                             .lineLimit(1)
                     }
                 }
+                .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.textMaxWidth), alignment: .leading)   // DR-36
                 Spacer(minLength: CicadaTheme.spacingSM)
                 if style == .wide || style == .triage {
                     StatusWord(word: row.status.word, tone: row.status.tone)
@@ -55,6 +121,14 @@ struct SourceCatalogRowView: View {
                         selected: selected)
         .accessibilityLabel("\(row.entry.title), \(row.status.word)")
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    /// The tile a row wears: the detail head's and onboarding's 36 pt on every two-line row, 24 pt on a title-only row.
+    static func tileSize(_ style: ColumnPlan.ListStyle) -> SourceLogoTile.Size {
+        switch style {
+        case .wide, .triage: .row
+        case .titles, .hidden: .dense
+        }
     }
 }
 
@@ -98,6 +172,8 @@ struct SourceCatalogDetail: View {
     @Environment(ReadingAgentModel.self) private var reading
     /// The site whose switch raised the first-use sheet (acknowledgement not current).
     @State private var consentSite: String?
+    /// Whether that switch was the site's saved list (G206), so the sheet turns on the list, never the site.
+    @State private var consentSavedList = false
     @Environment(LocalSourceWatcher.self) private var localSources
     @State private var flowTile: AddSourceTile?
     @State private var browsers = BrowserInventory.empty
@@ -125,8 +201,9 @@ struct SourceCatalogDetail: View {
             .padding(.horizontal, CicadaTheme.spacingXL)
             .padding(.bottom, CicadaTheme.spacingMD)
             VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-                controls
+                controls.environment(\.sourceDetailHeadShown, true)
                 if let site = row.entry.site { readingToggle(site) }
+                if let site = row.entry.site, SourceCatalog.savedListSites.contains(site) { savedListToggle(site) }
             }
             .padding(.horizontal, CicadaTheme.spacingXL)
             .padding(.bottom, CicadaTheme.spacingLG)
@@ -142,7 +219,8 @@ struct SourceCatalogDetail: View {
         .task { await reading.loadSettings() }
         .sheet(isPresented: Binding(get: { consentSite != nil }, set: { if !$0 { consentSite = nil } })) {
             SettingsSheet(title: Copy.Reading.sheetTitle, onClose: { consentSite = nil }) {
-                ReadingFirstUseSheet(model: reading, site: consentSite, label: row.entry.title) { consentSite = nil }
+                ReadingFirstUseSheet(model: reading, site: consentSite, label: row.entry.title,
+                                     savedList: consentSavedList) { consentSite = nil }
             }
         }
         .task {
@@ -162,8 +240,12 @@ struct SourceCatalogDetail: View {
             CalendarRow(channel: mine.first)
         case ContactsReader.channel:
             ContactsRow(channel: mine.first)
+        case RemindersReader.channel:
+            RemindersRow(channel: mine.first)
         case MessagesWatcher.channel:
             MessagesRow(channel: mine.first)
+        case SourceCatalog.tracesId:
+            TracesControls()
         case LocalSourceWatcher.wisprChannel:
             WisprFlowRow(channel: mine.first)
         case "folders":
@@ -178,6 +260,16 @@ struct SourceCatalogDetail: View {
                 }
                 tileButton(Copy.Catalog.importFile)
             }
+        case AppleNotesWatcher.channel:
+            NotesControls()
+        case "telegram":
+            // 2026-10-23: the detail drew the channel's actions — Telegram has none — so it showed nothing at all.
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                Text(Copy.Catalog.telegramHonest)
+                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                tileButton(Copy.Catalog.howToSetUp)
+            }
         case "chat-exports":
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 Text(Copy.Catalog.chatExportsHere)
@@ -188,6 +280,14 @@ struct SourceCatalogDetail: View {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 IntakePanel(origin: .emptyState(.sources), compact: true)
                 tileButton(Copy.Catalog.importFile)
+            }
+        case "notion":
+            // G219 slice 1: the export's steps, then the one intake's drop (it reads the zip, previews it, imports).
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                Text(Copy.Catalog.notionHow)
+                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                IntakePanel(origin: .emptyState(.sources), compact: true)
             }
         default:
             if entry.id.hasPrefix(SourceCatalog.browserPrefix) {
@@ -205,7 +305,13 @@ struct SourceCatalogDetail: View {
                     tileButton(Copy.Catalog.importFile)
                 }
             } else if !mine.isEmpty {
-                ForEach(mine) { ChannelActionsBar(channel: $0, tile: entry.tile) }
+                // A feed's "manage" opens its tile's flow (the Subscribe field and the list) — 2026-10-23: the bar
+                // drew only Refresh, so RSS and Calendar feeds offered no way to add a feed at all.
+                ForEach(mine) { channel in
+                    ChannelActionsBar(channel: channel, tile: entry.tile,
+                                      flowTitle: channel.count > 0 ? Copy.Catalog.manage : verbTitle(entry.verb),
+                                      openFlow: entry.tile.map { tile in { flowTile = tile } })
+                }
             } else {
                 tileButton(verbTitle(entry.verb))
             }
@@ -245,12 +351,44 @@ struct SourceCatalogDetail: View {
         }
     }
 
+    /// G206 (#426) — the saved list the person's own agent keeps current from their signed-in browser (app.md's spec,
+    /// first slice, 2026-10-23: the switch and its off line). The backend refuses it while agent reading is off or
+    /// unacknowledged, so the first-use sheet comes first then; a refusal's sentence shows under the reading switch.
+    private func savedListToggle(_ site: String) -> some View {
+        let on = reading.savedListsOn.contains(site)
+        return VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            Toggle(isOn: Binding(get: { on }, set: { value in flipSavedList(site, on: value) })) {
+                Text(Copy.Catalog.readSavedList(site))
+                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            if !on {
+                Text(Copy.Catalog.savedListOff).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func flipSavedList(_ site: String, on: Bool) {
+        Task { @MainActor in
+            await reading.loadSettings()
+            if on, reading.needsFirstUseSheet || !(reading.settings?.agentEnabled ?? false) {
+                consentSavedList = true
+                consentSite = site
+            } else {
+                _ = await reading.setSavedList(site, on)
+            }
+        }
+    }
+
     /// Settings' rule (`ReadingWebView.flip`): turning a site on without a current acknowledgement raises the
     /// first-use sheet, and nothing changes until its "Turn on"; otherwise one call (`setSite`, never acknowledging).
     private func flip(_ site: String, on: Bool) {
         Task { @MainActor in
             await reading.loadSettings()
             if on, reading.needsFirstUseSheet {
+                consentSavedList = false
                 consentSite = site
             } else {
                 _ = await reading.setSite(site, allowed: on)
@@ -290,6 +428,10 @@ struct SourceCatalogDetail: View {
 struct ChannelActionsBar: View {
     let channel: SourceChannel
     var tile: AddSourceTile?
+    /// The words on the button that opens the source's own flow ("Add a feed", "Manage").
+    var flowTitle: String = Copy.Catalog.manage
+    /// Opens the source's own flow (a feed's Subscribe field and list): the channel's `manage` action.
+    var openFlow: (() -> Void)? = nil
 
     @Environment(Store.self) private var store
     @Environment(CalendarReader.self) private var calendarReader: CalendarReader?
@@ -315,8 +457,12 @@ struct ChannelActionsBar: View {
                                                            local: localSources, calendar: calendarReader,
                                                            tabGroups: tabGroups, contacts: contacts,
                                                            messages: messages, watchHistory: watchHistory) }
-                } else if channel.actions.contains("poll") {
+                } else if channel.actions.contains("poll"), channel.count > 0 {
+                    // Nothing subscribed is nothing to poll: the flow's button below is the one thing to do.
                     action { try await ChannelActions.poll(channel.id) }
+                }
+                if channel.actions.contains("manage"), let openFlow {
+                    NeutralButton(title: flowTitle, size: .compact) { openFlow() }
                 }
                 if channel.actions.contains("disconnect") {
                     NeutralButton(title: Copy.Catalog.manage, size: .compact) { showConnector = true }
@@ -324,6 +470,10 @@ struct ChannelActionsBar: View {
             }
             if let feedback {
                 Text(feedback).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+            } else if let error = channel.lastError, !error.isEmpty {
+                // Why nothing is arriving, in the backend's words (a feed this backend does not fetch, a failed sync).
+                Text(error).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .sheet(isPresented: $showConnector) {
@@ -339,6 +489,58 @@ struct ChannelActionsBar: View {
                 busy = true
                 defer { busy = false }
                 do { feedback = try await work() } catch { feedback = AddSourceSheet.friendlyError(error) }
+            }
+        }
+    }
+}
+
+/// Apple Notes' own control (2026-10-23): Connect reads every folder once (the one Automation prompt) and turns on
+/// keeping up; once on, Refresh reads now and Disconnect stops it (what came in stays). The detail drew only a bare
+/// Refresh before, on a source that never read again on its own.
+struct NotesControls: View {
+    @Environment(AppleNotesWatcher.self) private var notes
+    @Environment(Store.self) private var store
+    @State private var busy = false
+    @State private var feedback: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            Text(notes.enabled ? Copy.Catalog.notesOn : Copy.Catalog.notesOff)
+                .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: CicadaTheme.spacingSM) {
+                NeutralButton(title: notes.enabled ? Copy.Catalog.refresh : Copy.Catalog.connectNotes, size: .compact,
+                              isDisabled: busy) { read() }
+                if notes.enabled {
+                    NeutralButton(title: Copy.Catalog.disconnect, size: .compact) {
+                        notes.disconnect()
+                        feedback = nil
+                    }
+                }
+            }
+            if let line = feedback ?? failure {
+                Text(line).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// An unattended read that failed (Automation turned off, a demo memory open), in the reader's own words.
+    private var failure: String? {
+        if case .failed(let why) = notes.status { return why }
+        return nil
+    }
+
+    private func read() {
+        Task {
+            busy = true
+            defer { busy = false }
+            do {
+                let r = try await notes.syncNow()
+                feedback = "\(r.new) new · \(r.skipped) unchanged"
+                await store.refresh([.channels, .status, .sources])
+            } catch {
+                feedback = AddSourceSheet.friendlyError(error)
             }
         }
     }

@@ -132,10 +132,17 @@ misma vez veces ni ella ellos ellas usted ustedes algo
 
 
 def stem(word: str) -> str:
-    """A light English suffix fold, enough that "targets", "targeting" and "targeted" meet "target"."""
+    """A light English suffix fold, enough that "targets", "targeting" and "targeted" meet "target".
+
+    A silent final "e" goes too (2026-10-23): "released" folded to "releas" while "release" stayed "release", so the
+    claim "released version: 0.6.0" shared no word with "what is the latest release?" and Ask never offered it. Now
+    "release", "released", "releases" and "releasing" all fold to "releas" ("update", "change", "decide" alike)."""
     for suffix in ("ing", "ed", "es", "s"):
         if len(word) > len(suffix) + 3 and word.endswith(suffix):
-            return word[: -len(suffix)]
+            word = word[: -len(suffix)]
+            break
+    if len(word) > 4 and word.endswith("e"):
+        word = word[:-1]
     return word
 
 

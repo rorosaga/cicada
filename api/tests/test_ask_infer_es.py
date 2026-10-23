@@ -176,7 +176,8 @@ def test_the_question_language():
 
 
 def test_spanish_function_words_carry_no_subject_in_a_spanish_question_only():
-    assert ask_sources.question_terms("¿Cuándo fue Caroline al grupo de apoyo?") == {"caroline", "grupo", "apoyo"}
+    assert ask_sources.question_terms("¿Cuándo fue Caroline al grupo de apoyo?") == {
+        text_fold.stem("caroline"), "grupo", "apoyo"}
     assert ask_sources.question_terms("¿Con quién cenó Maria el 3 de mayo?") == {"ceno", "maria", "mayo"}
     # Review of #385: in English they are names and subjects, and the shared list is dev's.
     assert {"ella", "han", "como", "esa", "algo", "mas"} <= ask_sources.question_terms(

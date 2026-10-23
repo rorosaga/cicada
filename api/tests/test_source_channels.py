@@ -129,6 +129,61 @@ def test_telegram_channel_follows_the_env_flag_and_counts_episodes(tmp_path):
     assert ch["actions"] == []
 
 
+def test_a_telegram_token_with_nothing_arrived_is_not_a_connection(tmp_path):
+    """2026-10-23: the bot reaches Cicada only through a webhook on a public address Cicada never opens, so a token
+    alone said Connected over a channel nothing had ever come through."""
+    ch = _channels(tmp_path, telegram_enabled=True)["telegram"]
+    assert ch["connected"] is False
+    assert ch["detail"] == "Bot configured · no message has reached Cicada yet"
+    assert ch["count_noun"] is None
+
+
+def test_a_subscribed_feed_is_not_connected_while_this_backend_fetches_no_feeds(tmp_path):
+    """2026-10-23: with the opt-in feed gate off, a subscribed feed read Connected and nothing ever arrived — the row
+    now says why, in words the app shows under the feed's actions."""
+    from api.services import calendar_registry, channel_registry, feed_registry
+
+    feed_registry.subscribe_feed(tmp_path, "https://example.com/feed.xml")
+    calendar_registry.subscribe_calendar(tmp_path, "https://example.com/cal.ics")
+    chans = _channels(tmp_path, feed_fetch_allowed=False)
+    for cid in ("rss", "calendar"):
+        assert chans[cid]["connected"] is False
+        assert chans[cid]["count"] == 1, "the subscription is kept"
+        assert chans[cid]["last_error"] == channel_registry.FEED_FETCH_OFF
+        assert chans[cid]["detail"] == "Not fetched"
+    assert _channels(tmp_path, feed_fetch_allowed=True)["rss"]["connected"] is True
+    # Nothing subscribed says nothing either way.
+    assert _channels(tmp_path / "empty", feed_fetch_allowed=False)["rss"]["last_error"] is None
+
+
+def test_messages_is_not_connected_once_every_conversation_is_unticked(tmp_path):
+    """2026-10-23: unticking every chat stops every read (the backend refuses an unticked one), but the row kept
+    reading Connected from its last sync."""
+    from api.services import messages_source
+
+    cid = "a" * 32
+    messages_source.update_settings(tmp_path, conversation={"id": cid, "name": "Bob", "ticked": True})
+    sync_state.record_sync(tmp_path, messages_source.CHANNEL_ID, count=1, at="2026-10-22T10:00:00Z")
+    assert _channels(tmp_path)["imessage"]["connected"] is True
+    messages_source.update_settings(tmp_path, conversation={"id": cid, "ticked": False})
+    row = _channels(tmp_path)["imessage"]
+    assert row["connected"] is False
+    assert row["detail"] == "No conversation ticked"
+    assert row["count"] == 1 and row["last_sync"] == "2026-10-22T10:00:00Z", "what came in is kept"
+
+
+def test_wispr_flow_is_not_connected_once_turned_off(tmp_path):
+    from api.services import wispr_flow
+
+    wispr_flow.save_settings(tmp_path, enabled=True, include_dictation=False, owner_speaker_names=[])
+    sync_state.record_sync(tmp_path, wispr_flow.CHANNEL_ID, count=2, at="2026-10-22T10:00:00Z")
+    assert _channels(tmp_path)["wispr-flow"]["connected"] is True
+    wispr_flow.save_settings(tmp_path, enabled=False, include_dictation=False, owner_speaker_names=[])
+    row = _channels(tmp_path)["wispr-flow"]
+    assert row["connected"] is False
+    assert row["detail"] == "Turned off"
+
+
 def test_chat_export_channels_come_from_origin_counts(tmp_path):
     episodes = tmp_path / "episodes"
     episodes.mkdir(parents=True)
@@ -259,7 +314,7 @@ def test_channel_ids_now_include_all_three_connectors(client):
     assert ids == [
         "chat-export:claude", "chat-export:chatgpt", "chat-export:gemini", "chrome-bookmarks",
         "safari-bookmarks", "safari-tabs", "notes", "rss", "calendar", "pinterest", "reddit", "x",
-        "telegram", "files", "calendar-local", "contacts-local",
+        "telegram", "files", "calendar-local", "contacts-local", "reminders-local", "notion",
     ]
 
 
@@ -290,10 +345,13 @@ def test_channels_etag_recipe_is_unchanged_by_the_two_new_fields(client):
     r = c.get("/sources/channels")
     assert r.status_code == 200
     assert "countNoun" in r.json()["channels"][0]
+    from api.services import feed_registry
+
     tag = ",".join(f"{k}:{a.is_connected()}" for k, a in sorted(ADAPTERS.items()))
     expected = sync_service.etag_for(
         path, "sources", "episodes", "entities",
-        extra=f"{channel_registry.CHANNELS_SHAPE}|telegram:False|connectors:{tag}",
+        extra=(f"{channel_registry.CHANNELS_SHAPE}|telegram:False|connectors:{tag}"
+               f"|feeds:{feed_registry.fetch_allowed()}"),
     )
     assert r.headers["etag"] == expected
     assert c.get("/sources/channels", headers={"If-None-Match": expected}).status_code == 304
@@ -346,7 +404,7 @@ def test_get_sources_channels_returns_every_known_channel(client):
     assert ids == [
         "chat-export:claude", "chat-export:chatgpt", "chat-export:gemini", "chrome-bookmarks",
         "safari-bookmarks", "safari-tabs", "notes", "rss", "calendar", "pinterest", "reddit", "x",
-        "telegram", "files", "calendar-local", "contacts-local",
+        "telegram", "files", "calendar-local", "contacts-local", "reminders-local", "notion",
     ]
     assert all(ch["connected"] is False for ch in resp.json()["channels"])
 
@@ -385,7 +443,9 @@ def test_channels_etag_covers_the_telegram_flag(client, monkeypatch):
     resp = c.get("/sources/channels", headers={"If-None-Match": etag})
     assert resp.status_code == 200, "configuring Telegram must break the ETag"
     telegram = next(ch for ch in resp.json()["channels"] if ch["id"] == "telegram")
-    assert telegram["connected"] is True
+    # 2026-10-23: a token is not a connection — nothing has reached Cicada through the bot yet.
+    assert telegram["connected"] is False
+    assert telegram["detail"] == "Bot configured · no message has reached Cicada yet"
 
 
 def test_sync_state_rides_the_sources_version_component(client):

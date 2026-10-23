@@ -528,6 +528,12 @@ struct SavedWhyOptions: Codable, Equatable, Sendable {
     var reasons: [Reason] = []
     var projects: [Project] = []
     var maxText: Int = 500
+    /// G191 v7 — the reason bank the panel suggests a few from (`saved_why.MORE`), beside the fixed row. Empty from an
+    /// older backend, which would refuse a bank key: the panel then suggests nothing.
+    var more: [Reason] = []
+
+    /// Every reason the panel can hold a tap for, in the order an answer lists them: the fixed row, then the bank.
+    var order: [String] { reasons.map(\.key) + more.map(\.key) }
 
     /// G191 v4 — the four fixed reasons (`saved_why.REASONS` on the backend, same keys and words), so the panel can
     /// show at once before the backend's options arrive. The backend's list replaces it as soon as it answers.
@@ -537,6 +543,36 @@ struct SavedWhyOptions: Codable, Equatable, Sendable {
         .init(key: "read_later", label: "To read later"),
         .init(key: "someday", label: "Useful someday"),
     ], projects: [], maxText: 500)
+}
+
+extension SavedWhyOptions {
+    private enum CodingKeys: String, CodingKey { case reasons, projects, maxText, more }
+
+    /// Decoded field by field so a backend older than G191 v7 (no `more`) still decodes.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        reasons = try c.decodeIfPresent([Reason].self, forKey: .reasons) ?? []
+        projects = try c.decodeIfPresent([Project].self, forKey: .projects) ?? []
+        maxText = try c.decodeIfPresent(Int.self, forKey: .maxText) ?? 500
+        more = (try? c.decodeIfPresent([Reason].self, forKey: .more)) ?? []
+    }
+}
+
+/// G191 v7 — `POST /sources/saved-why/suggest`: how close each bank reason is to the saved link, by the search model
+/// only when it is already installed (`basis` `model`), else nothing (`none`) and the panel ranks on its own.
+struct SavedWhyModelScores: Codable, Equatable, Sendable {
+    struct Score: Codable, Equatable, Sendable {
+        let key: String
+        let score: Double
+    }
+    var basis: String = "none"
+    var scores: [Score] = []
+
+    /// The scores by key, or nil when no model scored the bank.
+    var byKey: [String: Double]? {
+        guard basis == "model", !scores.isEmpty else { return nil }
+        return Dictionary(scores.map { ($0.key, $0.score) }, uniquingKeysWith: { first, _ in first })
+    }
 }
 
 /// G191 — one answer as the source record carries it (`GET /sources` → `savedWhy` / `savedWhyHistory`): the reason
@@ -615,9 +651,13 @@ protocol SavedWhyAPI: Sendable {
     func saveWhy(url: String, answer: SavedWhyAnswer, at: Date, addedAt: String?) async throws
     /// 2026-10-19 — the star on a page already saved: change the answer said at `at` (`PUT /sources/saved-why`).
     func editSavedWhy(url: String, at: String, answer: SavedWhyAnswer) async throws -> SavedWhyReply
+    /// G191 v7 — the search model's similarity of each bank reason to the saved link, only when it is installed.
+    func savedWhySuggest(url: String, title: String) async throws -> SavedWhyModelScores
 }
 
 extension SavedWhyAPI {
+    func savedWhySuggest(url: String, title: String) async throws -> SavedWhyModelScores { SavedWhyModelScores() }
+
     /// A client that cannot edit (tests that never edit): refused as the backend refuses an unknown answer.
     func editSavedWhy(url: String, at: String, answer: SavedWhyAnswer) async throws -> SavedWhyReply {
         throw APIError.httpError(422, "editing is not supported here")
@@ -2453,6 +2493,12 @@ actor APIClient {
         try await get("/sources/saved-why/options")
     }
 
+    /// G191 v7 — the installed search model's similarity of each bank reason to this link (`basis: none` without it;
+    /// the backend never downloads the model for this). The title and link are never logged.
+    func savedWhySuggest(url: String, title: String) async throws -> SavedWhyModelScores {
+        try await post("/sources/saved-why/suggest", body: ["url": url, "title": title])
+    }
+
     /// G191 — the person's answer, attached by the backend to that bookmark's episode (`POST /sources/saved-why`).
     func saveWhy(url: String, answer: SavedWhyAnswer, at: Date, addedAt: String?) async throws {
         var body = answer.body
@@ -2569,6 +2615,12 @@ actor APIClient {
         try await postData("/sources/calendar-local/sync", json: try JSONEncoder().encode(payload))
     }
 
+    /// G219: `POST /sources/reminders-local/sync` — the ticked lists' open reminders plus those completed in the last
+    /// 90 days, read by the app through EventKit (`RemindersReader`); the backend stages, scrubs and tombstones them.
+    func syncLocalReminders(_ payload: RemindersSyncPayload) async throws -> RemindersSyncResult {
+        try await postData("/sources/reminders-local/sync", json: try JSONEncoder().encode(payload))
+    }
+
     /// G154: the whole address book, as names and which facts each card holds (never a value).
     func syncLocalContacts(_ payload: ContactsSyncPayload) async throws -> ContactsSyncResult {
         try await postData("/sources/contacts-local/sync", json: try JSONEncoder().encode(payload))
@@ -2596,6 +2648,87 @@ actor APIClient {
     /// G71 (2026-10-16): the YouTube visits read from Chrome's History — one day episode per day on the backend.
     func syncWatchHistory(_ payload: WatchHistoryPayload) async throws -> WatchHistorySyncResult {
         try await postData("/sources/watch-history/sync", json: try JSONEncoder().encode(payload))
+    }
+
+    // MARK: - Activity traces (G218)
+
+    /// Every traces call goes to This Mac's own backend only (`TraceBackendGate`): a client Mac's traces never leave it.
+    private func traceGate() throws {
+        guard TraceBackendGate.allows(connection) else { throw TraceBackendError.notThisMac }
+    }
+
+    func traceSettings() async throws -> TraceSettingsAnswer {
+        try traceGate()
+        return try await get("/sources/traces/settings")
+    }
+
+    func traceTurnOn(consentVersion: Int) async throws -> TraceSettingsAnswer {
+        try traceGate()
+        return try await post("/sources/traces/on", body: ["consent_version": consentVersion])
+    }
+
+    func traceTurnOff() async throws -> TraceSettingsAnswer {
+        try traceGate()
+        return try await post("/sources/traces/off")
+    }
+
+    func traceUpdate(_ patch: [String: TracePatchValue]) async throws -> TraceSettingsAnswer {
+        try traceGate()
+        return try await putData("/sources/traces/settings", json: try JSONEncoder().encode(patch))
+    }
+
+    func tracePause(until: String?) async throws -> TraceSettingsAnswer {
+        try traceGate()
+        return try await postData("/sources/traces/pause", json: try JSONEncoder().encode(["until": until]))
+    }
+
+    func traceSync(_ spans: [TraceSpan]) async throws -> TraceSyncResult {
+        try traceGate()
+        return try await postData("/sources/traces/sync", json: try JSONEncoder().encode(["spans": spans]))
+    }
+
+    func traceAddFrame(_ frame: TraceFramePost) async throws {
+        try traceGate()
+        struct Kept: Decodable { let id: String }
+        let _: Kept = try await postData("/sources/traces/frames", json: try JSONEncoder().encode(frame))
+    }
+
+    func traceTimeline(day: String) async throws -> TraceTimeline {
+        try traceGate()
+        return try await get("/sources/traces/timeline?day=\(day)")
+    }
+
+    func traceSearch(_ query: String) async throws -> [TraceSearchHit] {
+        try traceGate()
+        struct Hits: Decodable { let hits: [TraceSearchHit] }
+        let answer: Hits = try await postData("/sources/traces/search", json: try JSONEncoder().encode(["query": query]))
+        return answer.hits
+    }
+
+    func traceFrameImage(id: String) async throws -> Data {
+        try traceGate()
+        let request = makeRequest("/sources/traces/frames/\(id)", method: "GET", json: false)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        guard (200...299).contains(http.statusCode) else {
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        return data
+    }
+
+    func traceFrameText(id: String) async throws -> TraceFrameText {
+        try traceGate()
+        return try await get("/sources/traces/frames/\(id)/text")
+    }
+
+    func traceForget(minutes: Int) async throws {
+        try traceGate()
+        _ = try await post("/sources/traces/forget", body: ["minutes": minutes]) as Data
+    }
+
+    func traceWipe() async throws -> TraceSettingsAnswer {
+        try traceGate()
+        return try await post("/sources/traces/wipe", body: ["confirm": true])
     }
 
     // MARK: - Messages (G179)
@@ -3114,8 +3247,23 @@ actor APIClient {
     func setReadingSettings(agentEnabled: Bool? = nil, sites: [String: Bool]? = nil,
                             acknowledge: Bool = false, exploreSignedIn: Bool? = nil,
                             neverExplore: [String: Bool]? = nil,
-                            youtubeLists: [String: Bool]? = nil) async throws -> ReadingSettingsResponse {
+                            youtubeLists: [String: Bool]? = nil,
+                            savedLists: [String: Bool]? = nil) async throws -> ReadingSettingsResponse {
+        try await put("/reading/settings", body: Self.readingSettingsBody(
+            agentEnabled: agentEnabled, sites: sites, acknowledge: acknowledge, exploreSignedIn: exploreSignedIn,
+            neverExplore: neverExplore, youtubeLists: youtubeLists, savedLists: savedLists))
+    }
+
+    /// `PUT /reading/settings`' body, pure: only what the caller named rides it — a saved-list patch never carries a
+    /// `sites` grant (G206: a saved list is a standing ask for one page, never the site; review of #448).
+    nonisolated static func readingSettingsBody(agentEnabled: Bool? = nil, sites: [String: Bool]? = nil,
+                                                acknowledge: Bool = false, exploreSignedIn: Bool? = nil,
+                                                neverExplore: [String: Bool]? = nil,
+                                                youtubeLists: [String: Bool]? = nil,
+                                                savedLists: [String: Bool]? = nil) -> [String: Any] {
         var body: [String: Any] = [:]
+        // G206: a `{x|instagram|linkedin: Bool}` patch.
+        if let savedLists { body["savedLists"] = savedLists }
         // G71 (2026-10-16): a `{watch_later|history: Bool}` patch.
         if let youtubeLists { body["youtubeLists"] = youtubeLists }
         if let agentEnabled { body["agentEnabled"] = agentEnabled }
@@ -3124,7 +3272,7 @@ actor APIClient {
         if let neverExplore { body["neverExplore"] = neverExplore }
         if let sites { body["sites"] = sites }
         if acknowledge { body["acknowledge"] = true }
-        return try await put("/reading/settings", body: body)
+        return body
     }
 
     /// G198 — `GET /settings/editors`: the agents the person lets edit a page's words directly, and the local ones

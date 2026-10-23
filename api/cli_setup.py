@@ -6,8 +6,9 @@ word for word, and runs only on the person's yes:
 1. **Detect** (no writes): the Cicada server and its memory (`/healthz`), the agents on this machine and whether each
    reaches Cicada (`GET /agents/wiring`, the probe the Agents page shows), and a way in from outside — Tailscale,
    a Funnel address, ngrok (`GET /remote/status`, which detects and never changes a tunnel).
-2. **Connect agents**: for each installed agent that does not reach Cicada yet, the exact commands the app would run
-   after a click (`connect`, `display == shlex.join(argv)`), run here on a yes.
+2. **Connect agents**: for each installed agent with something left to wire, the exact commands the app would run
+   after a click (`connect`, `display == shlex.join(argv)`), run here on a yes — for Codex that includes Cicada's
+   marked block in `~/.codex/AGENTS.md` (2026-10-23), so Codex is told to use Cicada at all.
 3. **Pair a device** (G212): a one-time code and its QR payload (`POST /devices/pairing`), then a wait for the new
    device to pair, Ctrl-C to stop waiting.
 4. **Hand an agent the HTTP API** (G213): an agent token (`POST /agent-api/tokens`) and the paragraph to give it.
@@ -181,7 +182,9 @@ def connect_agents(found: Found, ui: Ui, run: Callable) -> list[str]:
     done: list[str] = []
     for agent in found.agents:
         steps = agent.get("connect") or []
-        if not agent.get("installed") or agent.get("recall") == "on" or not steps:
+        # 2026-10-23: whatever `connect` still lists runs on a yes, even for an agent that already reaches Cicada —
+        # a Codex wired before the AGENTS.md block gets only that step (the backend lists only what is missing).
+        if not agent.get("installed") or not steps:
             continue
         ui.say(f"\n[bold]{agent.get('id')}[/bold] — these commands connect it to Cicada:")
         for step in steps:

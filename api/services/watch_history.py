@@ -55,7 +55,8 @@ SOURCE_PREFIX = "watch-history:"
 SCRUB_WRITER = "watch-history"
 #: Which door a watch came through — frontmatter only (``via``), never in the body, so a second door that saw the
 #: same watch never re-queues the day.
-DOORS = ("takeout", "chrome", "agent", "export")
+#: ``traces`` (G218): a YouTube page activity traces saw in front, with how long (``dwell_s``).
+DOORS = ("takeout", "chrome", "agent", "export", "traces")
 #: A second watch of the same video this long after the last one kept is a re-watch, not a reload.
 REWATCH_GAP = timedelta(minutes=30)
 #: At most this many videos are kept for one day, and this many watch times per video.
@@ -85,6 +86,8 @@ class Watch:
     title: str = ""
     channel: str = ""
     door: str = ""
+    #: Seconds this video was in front that day, when a door can tell (activity traces, G218); 0 when it cannot.
+    dwell_s: int = 0
 
     @property
     def key(self) -> str:
@@ -282,11 +285,26 @@ def _rows_of(fm: dict) -> list[dict]:
                 times = [str(t) for t in (r.get("times") or []) if t]
                 # A day written before `seen` existed: its kept watches are the best raw record there is.
                 seen = [str(t) for t in (r.get("seen") or []) if t] or times
-                rows.append({"url": str(r["url"]), "title": str(r.get("title") or ""),
-                             "channel": str(r.get("channel") or ""), "times": times,
-                             "via": [str(v) for v in (r.get("via") or []) if str(v) in DOORS],
-                             "seen": _seen(seen)})
+                row = {"url": str(r["url"]), "title": str(r.get("title") or ""),
+                       "channel": str(r.get("channel") or ""), "times": times,
+                       "via": [str(v) for v in (r.get("via") or []) if str(v) in DOORS],
+                       "seen": _seen(seen)}
+                dwell = _dwell(r.get("dwell_s"))
+                if dwell:
+                    row["dwell_s"] = dwell
+                rows.append(row)
     return rows
+
+
+def _dwell(value) -> int:
+    """Seconds in front, bounded to a day; anything else is 0."""
+    if isinstance(value, bool):
+        return 0
+    try:
+        seconds = int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+    return seconds if 0 < seconds <= 86_400 else 0
 
 
 def merge(rows: list[dict], watches: list[Watch]) -> tuple[list[dict], int]:
@@ -314,6 +332,10 @@ def merge(rows: list[dict], watches: list[Watch]) -> tuple[list[dict], int]:
             row["channel"] = w.channel
         if w.door in DOORS and w.door not in row["via"]:
             row["via"] = sorted(row["via"] + [w.door])
+        # The day's dwell is counted whole by the door that knows it (traces re-count it from their store), so the
+        # larger figure is the truer one and any arrival order gives the same day.
+        if _dwell(w.dwell_s) > _dwell(row.get("dwell_s")):
+            row["dwell_s"] = _dwell(w.dwell_s)
     rows.sort(key=lambda r: (r["times"][0] if r["times"] else "9999", r["url"]))
     return rows, added
 
@@ -335,7 +357,9 @@ def render(platform: str, day: date, rows: list[dict]) -> str:
         title = r["title"] or r["url"].rsplit("=", 1)[-1]
         by = f" — {r['channel']}" if r["channel"] else ""
         again = f" (watched {len(r['times'])} times)" if len(r["times"]) > 1 else ""
-        lines.append(f"- {head}{title}{by}{again} · {r['url']}")
+        minutes = _dwell(r.get("dwell_s")) // 60
+        front = f" · {minutes} min on screen" if minutes else ""
+        lines.append(f"- {head}{title}{by}{again}{front} · {r['url']}")
     return "\n".join(lines)
 
 
@@ -666,11 +690,13 @@ _RELATIVE_YEAR = re.compile(r"\b(this|last)\s+year\b", re.IGNORECASE)
 
 
 def is_about_watching(query: str, memory_path: Path | None = None) -> bool:
-    """Is a question about watching? A watch verb or a platform name says so; otherwise only a channel the bank's
-    watch history actually holds, named whole in the question (``memory_path`` given). Never a bare "video" or
-    "channel"."""
+    """Is a question about watching? A watch verb or a platform name says so; a "video" asked about at a clock time
+    ("what was that video at 15:20", G218) too; otherwise only a channel the bank's watch history actually holds, named
+    whole in the question (``memory_path`` given). Never a bare "video" or "channel"."""
     q = query or ""
     if _WATCHING.search(q):
+        return True
+    if _VIDEO.search(q) and _clock_asked(q) is not None:
         return True
     if memory_path is None:
         return False
@@ -734,6 +760,12 @@ def lookup(memory_path: Path, query: str, *, limit: int = LOOKUP_LIMIT, today: d
         return []
     query = query or ""
     today = today or date.today()
+    # G218 (owner 2026-10-23: "what was that video at 15:20"): one day, and maybe a time of day, is answered from that
+    # day's watches, the nearest to the asked time first — never a range's table.
+    moment = asked_moment(query, today)
+    if moment is not None and not (_BETWEEN.search(query) or _SINCE.search(query) or _RECENT.search(query)
+                                   or _THIS_LAST.search(query)):
+        return _rows_at(memory_path, *moment, limit=limit)
     span = asked_span(query, today)
     asked = _asked_month(query, today) if span is None else None
     counting = span is not None or _first_last(query) is not None or bool(_COUNTING.search(query))
@@ -763,6 +795,89 @@ def lookup(memory_path: Path, query: str, *, limit: int = LOOKUP_LIMIT, today: d
             lines += [f"[{f.stem}] {ln}" for ln in body[:limit]]
         return lines
     return _matching_rows(memory_path, query, limit=limit)
+
+
+_VIDEO = re.compile(r"\b(videos?|clips?)\b", re.IGNORECASE)
+_CLOCK_24 = re.compile(r"\b([01]?\d|2[0-3])[:.h]([0-5]\d)\b")
+_CLOCK_12 = re.compile(r"\b(1[0-2]|0?[1-9])(?:[:.]([0-5]\d))?\s?([ap])\.?m\.?\b", re.IGNORECASE)
+_ISO_DAY = re.compile(r"\b(20\d\d-\d\d-\d\d)\b")
+_DAY_WORDS = re.compile(r"\b(today|tonight|this (?:morning|afternoon|evening)|yesterday|monday|tuesday|wednesday|"
+                        r"thursday|friday|saturday|sunday)\b", re.IGNORECASE)
+_WEEKDAY_NAMES = {name.casefold(): i for i, name in enumerate(_WEEKDAYS)}
+#: Watches this far from an asked time of day are listed after the near ones, never dropped.
+NEAR_MINUTES = 120
+
+
+def _clock_asked(query: str) -> int | None:
+    """The time of day a question names, as minutes after midnight (``15:20``, ``3:20 pm``, ``3pm``), or ``None``."""
+    m = _CLOCK_12.search(query or "")
+    if m:
+        hour = int(m.group(1)) % 12 + (12 if m.group(3).lower() == "p" else 0)
+        return hour * 60 + int(m.group(2) or 0)
+    m = _CLOCK_24.search(query or "")
+    if m and not _ISO_DAY.search(query[max(0, m.start() - 8):m.end() + 3]):
+        return int(m.group(1)) * 60 + int(m.group(2))
+    return None
+
+
+def asked_moment(query: str, today: date) -> tuple[date, int | None] | None:
+    """``(day, minutes after midnight or None)`` for a question about one day and maybe a time of day — today,
+    yesterday, a weekday (its latest, today included), an ISO date, or a time alone (today's). ``None`` otherwise."""
+    q = query or ""
+    clock = _clock_asked(q)
+    iso = _ISO_DAY.search(q)
+    word = _DAY_WORDS.search(q)
+    day: date | None = None
+    if iso:
+        try:
+            day = date.fromisoformat(iso.group(1))
+        except ValueError:
+            return None
+    elif word:
+        w = word.group(1).casefold()
+        if w == "yesterday":
+            day = today - timedelta(days=1)
+        elif w in _WEEKDAY_NAMES:
+            day = today - timedelta(days=(today.weekday() - _WEEKDAY_NAMES[w]) % 7)
+        else:
+            day = today
+    elif clock is not None:
+        day = today
+    if day is None:
+        return None
+    return day, clock
+
+
+def _rows_at(memory_path: Path, day: date, clock: int | None, *, limit: int) -> list[str]:
+    """That day's watched videos with their times (and, from activity traces, how long each was on screen); with an
+    asked time, the nearest first."""
+    rows = [r for r in _history_rows(memory_path) if r[1] == day]
+    if not rows:
+        return [f"No watched video is recorded on {day.isoformat()} ({_WEEKDAYS[day.weekday()]})."]
+
+    def distance(row) -> int:
+        if clock is None:
+            return 0
+        best = None
+        for t in row[6]:
+            at = parse_instant(t)
+            if at is None:
+                continue
+            local = at.astimezone()
+            minutes = abs(local.hour * 60 + local.minute - clock)
+            best = minutes if best is None else min(best, minutes)
+        return best if best is not None else 24 * 60
+
+    ranked = sorted(rows, key=lambda r: (distance(r), r[5], r[2]))
+    asked = f", nearest to {clock // 60:02d}:{clock % 60:02d} first" if clock is not None else ""
+    lines = [f"Watched on {day.isoformat()} ({_WEEKDAYS[day.weekday()]}){asked}:"]
+    for platform, _day, url, channel, title, _first, times, stem in ranked[:limit]:
+        at = ", ".join(c for c in (_clock(t) for t in times) if c)
+        by = f" — {channel}" if channel else ""
+        far = " (not near the asked time)" if clock is not None and distance((platform, _day, url, channel, title,
+                                                                                _first, times, stem)) > NEAR_MINUTES else ""
+        lines.append(f"{at or 'time unknown'} · {title or url}{by} ({PLATFORMS[platform]}){far} [{stem}]")
+    return lines
 
 
 def _query_tokens(query: str) -> set[str]:

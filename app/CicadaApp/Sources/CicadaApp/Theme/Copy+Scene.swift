@@ -28,8 +28,8 @@ extension Copy {
 
     // MARK: Make it yours (F-09, R-HO15)
     static let tipTitle = "Make it yours"
-    static let tipHide = "Hide"
-    static let tipFindIt = "— find it in"
+    /// The foot's one line (looks pass 2026-10-23): × dismisses; a second "Hide" said the same thing.
+    static let tipFindIt = "Also in"
     static let tipDismiss = "Hide this card"
 
     // MARK: Settings → General (F-10, R-HO16)
@@ -42,7 +42,7 @@ extension Copy {
     static let showInMenuBarDetail = "Sleep and your Inbox at a glance. Closing the window never stops Cicada."
 
     static let sceneLabels: [String] = [homeOpenInbox, homeMostly, homeNeedsYouCount(3), homeOriginCount("Chrome", 2_104),
-                                        tipTitle, tipHide, tipFindIt, tipDismiss,
+                                        tipTitle, tipFindIt, tipDismiss,
                                         lookGroup, startupGroup, whenClosedGroup, appearanceDetail, showInMenuBar]
     // `showInMenuBarDetail` is 71 characters — a sentence, not a label, so it is held to the sentence rules only.
     static let sceneSentences: [String] = [homeTodayAccessibility(2_540, origins: [("Chrome", 2_104)]),

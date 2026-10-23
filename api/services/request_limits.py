@@ -26,7 +26,13 @@ NAME_MAX = 255
 #: Messages photos are ≤ 128 px thumbnails, at most ``messages_photos.MAX_ITEMS`` of them.
 BODY_LIMITS: dict[str, int] = {
     "/capture/session": 8 * 1024 * 1024,
+    # G91 (ruling 38): a shared photo or file, ≤ 25 MB (`capture_files.MAX_BYTES`), plus its caption and the multipart
+    # framing — refused before FastAPI spools a single byte of a bigger one.
+    "/capture/file": 26 * 1024 * 1024,
     "/sources/messages/photos": 24 * 1024 * 1024,
+    # G218: at most 2,000 spans of short fields; one ≤ 2 MB screenshot as base64 plus its recognized text.
+    "/sources/traces/sync": 4 * 1024 * 1024,
+    "/sources/traces/frames": 4 * 1024 * 1024,
 }
 
 NAME_TOO_LONG = b'{"detail":"Not found: a name in this address is longer than any file name can be."}'

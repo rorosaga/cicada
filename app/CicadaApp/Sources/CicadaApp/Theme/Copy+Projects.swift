@@ -24,7 +24,9 @@ extension Copy {
         static let loadFailedTitle = "Couldn't load your projects"
         static let projectFailedTitle = "Couldn't open this project"
         static let emptyTitle = "No projects yet"
-        static let emptyMessage = "Projects appear once Cicada has heard about one in two conversations."
+        /// Ruling 36 D4: a project is born from a repository an agent worked in, or the person calling it one — never
+        /// from being heard twice (looks pass 2026-10-23: the old line described the retired rule).
+        static let emptyMessage = "Call something a project in a chat, or work on it in a repo with a connected agent."
         static let noneCurrent = "Nothing is in motion right now. What you worked on before is under Past."
         static let nonePast = "Nothing in the past yet."
         static let gone = "This project isn't in this bank any more."

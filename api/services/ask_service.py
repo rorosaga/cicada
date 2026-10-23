@@ -217,9 +217,12 @@ def _history_query(query: str) -> str:
 
 
 def _load_entity(memory_path: Path, entity_id: str) -> dict | None:
-    """Read an entity's markdown to back a citation. Returns None if missing."""
-    filepath = memory_path / "entities" / f"{entity_id}.md"
-    if not filepath.exists():
+    """Read an entity's markdown to back a citation. Returns None if missing — and for an id that is not one page
+    name (a separator, or a sentence longer than any file name: ``id_utils.is_page``)."""
+    from api.services.id_utils import bank_file, is_page
+
+    filepath = bank_file(memory_path / "entities", str(entity_id or ""))
+    if not is_page(filepath):
         return None
     try:
         parsed = markdown_parser.parse(filepath)
@@ -359,6 +362,59 @@ def _background(body: str, rows: list, *, include_history: bool) -> str:
     return "\n".join(s for s in sentences if not _repeats(s, obsolete))
 
 
+_LATEST = re.compile(
+    r"\b(latest|newest|most recent(?:ly)?|recent(?:ly)?|now|nowadays|current(?:ly)?|today|these days|right now|"
+    r"still|so far|yet|anymore|último|ultima|última|actual(?:mente)?|ahora|hoy|todav[ií]a)\b", re.IGNORECASE)
+_CLAIM_DAY = re.compile(r"(\d{4}-\d{2}-\d{2})")
+
+
+def _asks_latest(query: str) -> bool:
+    """The question asks for the state as it is now ("the latest release", "where does it stand now")."""
+    return bool(_LATEST.search(query or ""))
+
+
+def _claim_day(c) -> str:
+    """The day a claim was said, for ordering by recency: its ``valid_from`` when that is a day, else the day it was
+    recorded, else the day its id carries (``clm_2026-10-21_…``); ``""`` when none is known. A malformed
+    ``valid_from`` (``ep_2026-10``) is not a day."""
+    for value in (c.valid_from, c.recorded_at, c.id):
+        m = _CLAIM_DAY.search(str(value or ""))
+        if m:
+            return m.group(1)
+    return ""
+
+
+def _rank_claims(claims: list, terms: set[str], *, state: bool, latest: bool) -> list:
+    """The order a page's claims are offered to the model in before its budget cuts the list.
+
+    Words first, as before: the claims sharing the most of the question's words, newest first among equals. That
+    alone cut the newest fact (2026-10-23 live test: "what is the latest release?" on a page of 486 current claims got
+    "latest release: 0.3.1" and never "released version: 0.6.0", said two weeks later in other words). So for a
+    question about the state of things — any question without a past cue (``_wants_history``) — the claims that share
+    at least one of its words alternate with the same claims newest first, and the rest follow newest first: the newest
+    word on the subject always reaches the model, and rule 9 of the prompt says the later day is the current value.
+    ``latest`` (the question says "latest", "now", "current"…) puts the newest first. Confidence never ranks
+    (CLAUDE.md: confidence does not rank recall)."""
+    days = {id(c): _claim_day(c) for c in claims}
+    score = {id(c): len(terms & text_fold.subject_terms(f"{c.text} {c.predicate} {c.object}")) for c in claims}
+    newest = sorted(claims, key=lambda c: days[id(c)], reverse=True)
+    by_words = sorted(newest, key=lambda c: -score[id(c)])
+    if not state:
+        return by_words
+    relevant = [c for c in by_words if score[id(c)] > 0]
+    recent = [c for c in newest if score[id(c)] > 0]
+    first, second = (recent, relevant) if latest else (relevant, recent)
+    out: list = []
+    taken: set[int] = set()
+    for pair in zip(first, second):
+        for c in pair:
+            if id(c) not in taken:
+                taken.add(id(c))
+                out.append(c)
+    out += [c for c in newest if id(c) not in taken]
+    return out
+
+
 def _retrieved_entities(memory_path: Path, hits: list[dict], *, include_history: bool = False,
                         query: str = "") -> list[dict]:
     """Map retrieval hits to loaded entity records, de-duped, order preserved."""
@@ -377,7 +433,7 @@ def _retrieved_entities(memory_path: Path, hits: list[dict], *, include_history:
         page_claims = parse_claims(loaded["body"])
         eligible = [c for c in page_claims if not is_record(c) and (include_history or is_current(c) or (is_event(c) and not c.superseded_by))]
         terms = _focus(ask_sources.question_terms(query), [loaded])
-        eligible.sort(key=lambda c: -len(terms & text_fold.subject_terms(f"{c.text} {c.predicate} {c.object}")))
+        eligible = _rank_claims(eligible, terms, state=not include_history, latest=_asks_latest(query))
         if include_history:
             current = [c for c in eligible if is_current(c)]
             history = [c for c in eligible if not is_current(c)]
@@ -1142,6 +1198,61 @@ def _default_llm_fn(settings: Settings | None = None, *, extra_body: dict | None
     return _call
 
 
+#: The most pages the question's own names add to Ask's retrieval.
+_NAMED_PAGES = 3
+#: The most subject words of a question the name leg looks up (each one lexical query, ~ms on a warm index).
+_NAME_PROBES = 8
+
+
+def _named_pages(memory_path: Path, query: str) -> list[dict]:
+    """The live pages the question names by their whole name or an alias, as retrieval hits.
+
+    2026-10-23 (live test): Ask is claim-first — the vectors rank claims and each maps to its page — so a page whose
+    claims do not sit near the question in meaning can be missed although the question names it, while recall (whose
+    fused search has a lexical leg) finds it. This is recall's lexical leg (``search_service.lexical_entity_hits``:
+    names and aliases, word by word), kept to the hits whose name or an alias the question says in full, so a word
+    the question merely shares with a title never pulls a page in. Never raises: a missing index is one leg fewer."""
+    from api.services import search_service
+    from api.services.id_utils import bank_file, is_page
+
+    words = set(text_fold.words(query))
+    # The lexical search ANDs its words, so a whole question finds nothing; each subject word is asked on its own and
+    # the full-name check below keeps only the pages the question names.
+    probes = [w for w in dict.fromkeys(text_fold.words(query))
+              if len(w) >= 3 and w not in text_fold.SUBJECT_STOPWORDS and not w.isdigit()][:_NAME_PROBES]
+    hits: list[dict] = []
+    try:
+        for word in probes:
+            hits += search_service.lexical_entity_hits(Path(memory_path), word, top_k=8)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"ask name leg skipped ({type(exc).__name__})")
+        return []
+    hits = list({str(h.get("entity_id") or ""): h for h in hits}.values())
+    out: list[dict] = []
+    for hit in hits:
+        eid = str(hit.get("entity_id") or "")
+        path = bank_file(Path(memory_path) / "entities", eid)
+        if not eid or not is_page(path):
+            continue
+        try:
+            fm = markdown_parser.parse(path).frontmatter or {}
+        except Exception:  # noqa: BLE001 — an unreadable page is not named
+            continue
+        if str(fm.get("status") or "") == "dropped":
+            continue
+        for name in (fm.get("name"), *(fm.get("aliases") or []), eid.replace("-", " ")):
+            own = set(text_fold.words(str(name or ""))) - text_fold.SUBJECT_STOPWORDS
+            if own and own <= words:
+                out.append({"score": 1.0, "text": "", "metadata": {
+                    "entity_id": eid, "entity_name": str(fm.get("name") or eid),
+                    "type": str(fm.get("type") or "concept"), "status": str(fm.get("status") or "active"),
+                    "file_path": str(path)}})
+                break
+        if len(out) >= _NAMED_PAGES:
+            break
+    return out
+
+
 def _default_retrieve_fn(memory_path: Path) -> RetrieveFn:
     """The default retrieve seam — **claim-first** with an entity fallback (M5e)."""
     return build_claim_first_retrieve_fn(memory_path)
@@ -1230,22 +1341,46 @@ def build_claim_first_retrieve_fn(memory_path, *, embed_fn=None) -> RetrieveFn:
                 logger.debug(f"ask history index unavailable ({type(exc).__name__})")
 
         if not claim_hits:
-            # No claims in this bank (un-consolidated) — graceful entity fallback.
-            return indexer.search_entities(query, top_k=top_k)
+            # No claims in this bank (un-consolidated) — graceful entity fallback, after the pages the question names.
+            named = _named_pages(memory_path, query)
+            ids = {h["metadata"]["entity_id"] for h in named}
+            try:
+                found = indexer.search_entities(query, top_k=top_k) or []
+            except Exception as exc:  # noqa: BLE001 — no search model yet: the names still answer (words only)
+                if not named:
+                    raise
+                logger.debug(f"ask entity search unavailable ({type(exc).__name__})")
+                found = []
+            rest = [h for h in found if (h.get("metadata") or {}).get("entity_id") not in ids]
+            return (named + rest)[:top_k]
 
         # Map claim hits → subject-entity hits, preserving order + de-duping by
         # entity (keep the strongest-scoring claim per subject).
         out: list[dict] = []
         seen: set[str] = set()
         neighbours: list[str] = []
+        # The pages the question names (recall's lexical leg, kept to whole names): first, whatever the vectors ranked.
+        for named in _named_pages(memory_path, query):
+            if named["metadata"]["entity_id"] not in seen:
+                seen.add(named["metadata"]["entity_id"])
+                out.append(named)
         for hit in claim_hits:
-            mapped = _claim_hit_to_entity_hit(hit)
+            try:
+                mapped = _claim_hit_to_entity_hit(hit)
+            except Exception as exc:  # noqa: BLE001 — one unreadable hit never empties the retrieval (2026-10-23)
+                logger.debug(f"ask skipped a claim hit ({type(exc).__name__})")
+                continue
             if mapped is None:
                 continue
             eid = mapped["metadata"]["entity_id"]
             if eid not in seen:
                 seen.add(eid)
                 out.append(mapped)
+            else:
+                # A page the question named keeps its place and takes its best claim's provenance (the citation).
+                at = next((i for i, h in enumerate(out) if h["metadata"]["entity_id"] == eid), None)
+                if at is not None and not out[at]["metadata"].get("claim_id"):
+                    out[at] = {**mapped, "score": max(mapped["score"], out[at]["score"])}
             # 1-hop expansion: the claim's object node becomes a neighbour subject.
             obj = str(hit.get("metadata", {}).get("object", "") or "")
             if obj and obj not in neighbours:
@@ -1255,7 +1390,11 @@ def build_claim_first_retrieve_fn(memory_path, *, embed_fn=None) -> RetrieveFn:
         for obj in neighbours:
             if len(out) >= top_k:
                 break
-            eid = _subject_to_entity_id(obj)
+            try:
+                eid = _subject_to_entity_id(obj)
+            except Exception as exc:  # noqa: BLE001 — a claim's object is often a sentence, not a page
+                logger.debug(f"ask skipped a neighbour ({type(exc).__name__})")
+                continue
             if not eid or eid in seen:
                 continue
             seen.add(eid)

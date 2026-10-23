@@ -86,13 +86,13 @@ func bracketTail(_ state: BookwormState, debt: SleepDebtView?) -> String {
     case .happy:
         return "caught up"
     case .curious(let count):
-        return "episode\(count == 1 ? "" : "s") behind"
+        return "conversation\(count == 1 ? "" : "s") behind"
     case .reading:
         return "to read"
     case .hungry:
         let count = debt?.unprocessedCount ?? 0
         guard count > 0 else { return "overdue — hasn't consolidated in a while" }
-        return "episode\(count == 1 ? "" : "s") behind — overdue"
+        return "conversation\(count == 1 ? "" : "s") behind — overdue"
     case .error:
         return "last cycle failed"
     }
@@ -158,7 +158,8 @@ enum HeroMeter: Equatable {
             return "Read \(UsageFormat.count(read)) of \(UsageFormat.count(total)) so far."
         case .rested(let pct):
             if unprocessed == 0 { return "Fully rested — nothing is waiting." }
-            if case .hungry = mood { return "Rested \(pct)% — the backlog is overdue." }
+            // Looks pass 2 (2026-10-23): a hungry room's headline already says "N to read — overdue." above this
+            // readout, so the sentence says what the number is made of instead of saying "overdue" again (DR-38).
             return "Rested \(pct)% — based on how much is waiting, and for how long."
         }
     }

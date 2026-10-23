@@ -240,6 +240,8 @@ APP_SYNC_ROUTED = {
     "contacts-local",
     # G71 (2026-10-16): the YouTube videos watched in Chrome, once synced — `WatchHistoryWatcher` owns its `syncRoute`.
     "chrome-youtube-history",
+    # G219: always listed — the app's Reminders reader owns its `syncRoute`.
+    "reminders-local",
 }
 #: Round-4 rows the registry emits only once synced (R-SR15).
 ONCE_SYNCED = ("brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks", "chrome-tab-groups",

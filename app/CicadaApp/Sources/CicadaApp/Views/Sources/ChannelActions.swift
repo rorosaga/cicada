@@ -41,6 +41,8 @@ enum ChannelActions {
         case messages
         /// G71 (2026-10-16): the YouTube videos watched in Chrome, read on this Mac by `WatchHistoryWatcher`.
         case watchHistory
+        /// G219: the ticked Reminders lists, read on this Mac by `RemindersReader` only after Connect.
+        case remindersLocal
     }
 
     /// The browser rows whose files the app reads and posts (R1): iCloud tabs, then every supported browser's
@@ -62,6 +64,7 @@ enum ChannelActions {
         if channelId == ContactsReader.channel { return .contactsLocal }
         if channelId == MessagesWatcher.channel { return .messages }
         if channelId == WatchHistoryWatcher.channel { return .watchHistory }
+        if channelId == RemindersReader.channel { return .remindersLocal }
         if channelId.hasPrefix(folderPrefix), channelId.count > folderPrefix.count {
             return .folder(id: String(channelId.dropFirst(folderPrefix.count)))
         }
@@ -74,7 +77,7 @@ enum ChannelActions {
     /// sheet (L final review, finding 1).
     static func managesInIntegrations(_ channelId: String) -> Bool {
         switch syncRoute(for: channelId) {
-        case .folder, .wisprFlow, .tabGroups, .contactsLocal, .messages, .watchHistory: true
+        case .folder, .wisprFlow, .tabGroups, .contactsLocal, .messages, .watchHistory, .remindersLocal: true
         default: false
         }
     }
@@ -118,8 +121,9 @@ enum ChannelActions {
             }
             return try await BrowserImportActions.syncChannel(channelId, store: store)
         case .notes:
-            // The app reads Notes and the backend parses the dump (the ~/Library rail).
-            let r = try await AppleNotesReader.syncNow()
+            // The app reads Notes and the backend parses the dump (the ~/Library rail). Through the watcher, so the
+            // person's first read also turns on keeping up (2026-10-23).
+            let r = try await AppleNotesWatcher.shared.syncNow()
             return "\(r.new) new · \(r.skipped) unchanged"
         case .connector:
             return ConnectorSetupState.syncSummary(try await APIClient.shared.syncConnector(channelId))
@@ -164,6 +168,18 @@ enum ChannelActions {
                 throw BrowserImportActions.ImportActionError.failed(Copy.watchHistoryTurnOnFirst)
             }
             return try await watchHistory.syncNow()
+        case .remindersLocal:
+            // Never a first read from a card: Connect and a ticked list on the Sources page are the consent.
+            let reminders = RemindersReader.shared
+            guard reminders.isOn else { throw BrowserImportActions.ImportActionError.failed(Copy.remindersConnectFirst) }
+            await reminders.syncNow()
+            switch reminders.status {
+            case .failed(let why): throw BrowserImportActions.ImportActionError.failed(why)
+            case .denied, .noLists, .off:
+                throw BrowserImportActions.ImportActionError.failed(Copy.remindersConnectFirst)
+            case .synced(_, let n): return Copy.remindersSyncedSummary(n)
+            default: return Copy.remindersSyncedSummary(nil)
+            }
         case nil:
             throw BrowserImportActions.ImportActionError.failed("This source can't be synced from here.")
         }

@@ -1756,6 +1756,7 @@ class ProjectRow(ProjectRef):
     origin: Optional[str] = None  # repo | words, from the birth record or a declaration; None = not on record
     planned: bool = False
     last_moment_day: Optional[str] = None
+    last_repo_day: Optional[str] = None  # newest day an agent session ran in its repository (g141-6)
     median_gap_days: Optional[float] = None
     open_threads: list[OpenThread] = []
     milestones: list[MilestoneRow] = []
@@ -1781,6 +1782,7 @@ class ProjectTimeline(CamelModel):
     activity: list[ActivityDay] = []
     moment_days: list[str] = []
     last_moment_day: Optional[str] = None
+    last_repo_day: Optional[str] = None  # newest day an agent session ran in its repository (g141-6)
     median_gap_days: Optional[float] = None
     cluster: ProjectCluster = Field(default_factory=ProjectCluster)
     conversations: list[TimelineConversation] = []
@@ -3684,6 +3686,9 @@ class IntakeCounts(CamelModel):
     projects: int = 0
     prompts: int = 0
     items: int = 0
+    # G219: a Notion export's plain pages and database rows.
+    pages: int = 0
+    rows: int = 0
 
 
 class IntakeDelta(CamelModel):
@@ -3771,7 +3776,7 @@ class AgentWiringStep(CamelModel):
     ``display == shlex.join(argv)`` so the disclosure can never show one thing
     and run another; ``touches`` are ``~/``-relative (R-IA15)."""
 
-    step: Literal["mcp", "hook", "flush", "autorecall", "autorecall-off"]
+    step: Literal["mcp", "hook", "flush", "autorecall", "autorecall-off", "agents-md"]
     display: str
     argv: list[str]
     touches: list[str] = []
@@ -3799,6 +3804,9 @@ class AgentWiringRow(CamelModel):
     autorecall: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
     autorecall_on: list[AgentWiringStep] = []
     autorecall_off: list[AgentWiringStep] = []
+    # 2026-10-23, Codex only: Cicada's marked block in ``~/.codex/AGENTS.md`` (``on | off | stale | invalid``); while it
+    # is off or stale, ``connect`` carries the ``agents-md`` step that adds it.
+    agents_md: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
     # Integration support/evidence, separate from MCP registration and hook config. ``via: plugin`` (owner
     # 2026-10-19): Claude Code reaches Cicada through the Cicada plugin, which carries the server and every hook, so
     # the row is on and offers no argv.
@@ -4228,8 +4236,27 @@ class SavedWhyProject(CamelModel):
 
 class SavedWhyOptions(CamelModel):
     reasons: list[SavedWhyOption] = []
+    #: G191 v7 — the reason bank the panel suggests a few from; `reasons` stays the fixed row.
+    more: list[SavedWhyOption] = []
     projects: list[SavedWhyProject] = []
     max_text: int = 500
+
+
+class SavedWhySuggestRequest(CamelModel):
+    """G191 v7 — the saved link the panel asks the search model about (never stored, never logged)."""
+    url: str
+    title: str = ""
+
+
+class SavedWhySuggestScore(CamelModel):
+    key: str
+    score: float
+
+
+class SavedWhySuggestResponse(CamelModel):
+    #: `model` when the installed search model scored the bank, `none` when it is not installed.
+    basis: str = "none"
+    scores: list[SavedWhySuggestScore] = []
 
 
 class BookmarkFolderNode(CamelModel):
@@ -4605,6 +4632,51 @@ class CalendarLocalSyncRequest(CamelModel):
 
 
 class CalendarLocalSyncResponse(CamelModel):
+    created: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    tombstoned: int = 0
+    bank: str = ""
+
+
+class RemindersLocalList(CamelModel):
+    """One Reminders list the person ticked (G219). ``shared``: the person said others add to it, so its items are
+    never read as the person's own words."""
+
+    id: str
+    title: str = ""
+    account: Optional[str] = None
+    shared: bool = False
+
+
+class RemindersLocalReminder(CamelModel):
+    """One EventKit reminder (G219). ``id`` = ``calendarItemExternalIdentifier``. Every time is ISO-8601 with its
+    offset; ``due`` may be a bare date (an all-day due date)."""
+
+    id: str
+    list_id: str = ""
+    title: str = ""
+    notes: Optional[str] = None
+    url: Optional[str] = None
+    created: Optional[str] = None
+    last_modified: Optional[str] = None
+    completed: bool = False
+    completed_at: Optional[str] = None
+    due: Optional[str] = None
+    due_all_day: bool = False
+    priority: int = 0
+
+
+class RemindersLocalSyncRequest(CamelModel):
+    """``POST /sources/reminders-local/sync`` (G219). One request carries every open reminder of the lists it names
+    plus those completed since ``completed_since`` — a tombstone needs the complete set."""
+
+    completed_since: str
+    lists: list[RemindersLocalList] = []
+    reminders: list[RemindersLocalReminder] = []
+
+
+class RemindersLocalSyncResponse(CamelModel):
     created: int = 0
     updated: int = 0
     unchanged: int = 0

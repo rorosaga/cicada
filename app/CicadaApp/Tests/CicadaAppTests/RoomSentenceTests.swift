@@ -92,6 +92,9 @@ final class RoomSentenceTests: XCTestCase {
     func test_L9_L10_L11() {
         XCTAssertEqual(roomSentence(ctx(.hungry, debt: debt(0, hours: 80))).lead, "Nothing new to read.")
         XCTAssertEqual(roomSentence(ctx(.happy, debt: debt(0))).lead, "All caught up.")
+        XCTAssertEqual(roomSentence(ctx(.happy, debt: debt(0, hasRunBefore: false))).lead, "Nothing to read yet.",
+                       "L10b — a bank never read is not caught up")
+        XCTAssertEqual(roomSentence(ctx(.happy, debt: nil)).lead, "All caught up.", "an unloaded debt is no first run")
         XCTAssertEqual(roomSentence(ctx(.awake)).lead, "Listening.")
     }
 
@@ -132,8 +135,8 @@ final class RoomSentenceTests: XCTestCase {
         XCTAssertEqual(roomSentence(ctx(.reading, debt: debt(3, hasRunBefore: false))).tail,
                        "My first night. I'll read all of them, saving every 25.")
         XCTAssertEqual(roomSentence(ctx(.happy, debt: debt(0, hasRunBefore: false))).tail,
-                       "Nothing's been filed in this memory yet.")
-        XCTAssertNotEqual(roomSentence(ctx(.happy, debt: nil)).tail, "Nothing's been filed in this memory yet.",
+                       Copy.SleepV5.firstRunEmptyTail)
+        XCTAssertNotEqual(roomSentence(ctx(.happy, debt: nil)).tail, Copy.SleepV5.firstRunEmptyTail,
                           "an unloaded debt is never reported as a first night")
     }
 
@@ -161,7 +164,7 @@ final class RoomSentenceTests: XCTestCase {
         XCTAssertEqual(roomSentence(ctx(.happy, debt: debt(0))).tail, "Drop a file on me to add it to the pile.")
         XCTAssertNil(roomSentence(ctx(.happy, debt: debt(0))).mark)
         XCTAssertEqual(roomSentence(ctx(.happy, debt: debt(0, hasRunBefore: false))).tail,
-                       "Nothing's been filed in this memory yet.", "T9 before T13")
+                       Copy.SleepV5.firstRunEmptyTail, "T9 before T13")
         XCTAssertNil(roomSentence(ctx(.happy, debt: debt(0)) { $0.queueLoad = .loading }).tail,
                      "no invitation while the queue is still loading")
     }

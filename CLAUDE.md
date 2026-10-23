@@ -179,7 +179,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   keep a 2k head, agent final replies a 2k head+tail including a recorded non-speaker gap (G110 A2).
   Cursor and Gemini CLI hooks post the turn's own words to `/capture/turn` (same writer, caps, scrub and demo rule;
   no transcript read, `capture-and-sleep.md`). **One episode per session** (G104). Cicada's own `claude -p` / `codex exec` spawns run with
-  `CICADA_CAPTURE=off`. Stop is the trigger; PreCompact and SessionEnd run the same hook as a best-effort, idempotent
+  `CICADA_CAPTURE=off` and `CICADA_RECALL=off` (separate switches since 2026-10-23, `mcp.md`). Stop is the trigger; PreCompact and SessionEnd run the same hook as a best-effort, idempotent
   flush, each log line tagged with its event (G110 gate A). Over the session cap the head and the latest turns are kept
   around one marker line (G110 gate B2; its G104 costs in `capture-and-sleep.md`). Recall is the same move (G149): the
   SessionStart/UserPromptSubmit hooks inject Cicada's note; a note the harness records as a separate non-person record
@@ -291,6 +291,11 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   when the look changed, full images and page text outside every bank (`$CICADA_HOME/captures`); one writer (`site_captures`).
   Depth follows the person's reason through a plan Cicada computes with no model (`explore_plan`); each site's map is
   append-only in the bank beside its captures (`captures/_sites/`, one writer `site_map`; `storage.md`).
+- **Activity traces (G218, ruling 38):** off by default; the app alone captures (preflight-only permissions, Touch ID to
+  browse screenshots) and the backend keeps them sealed in `$CICADA_HOME/traces/` — outside every bank and git, never on
+  the network, a remote door or another device, 30-day timeline / 7-day screenshots, Wipe shreds the key; a trace is not
+  a mention; only the person's switches promote (YouTube views into the watch history; a counted day summary, the one
+  thing a model may read) (`storage.md`, `capture-and-sleep.md`).
 - **Design references (2026-10-14):** one markdown file plus its screenshot per look, in the bank, one writer
   (`design_refs`), never an entity page; palette and vectors are computed here, the index lives outside the bank.
   **Owner 2026-10-20:** a look lives on the page of the thing it shows — the record's `entity:` plus a `## Looks` section
@@ -330,6 +335,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **The remote connector (G135)** is off by default, serves only MCP and the G213 agent API (`/v1`, owner 2026-10-22,
   ruling 36 D3) on its own listener, through a tunnel **the person** runs; capability tokens are hashed, scoped (`sources` gates every verbatim word of the person's), expiring and
   revocable; a remote claim is never the person's own words.
+  `/v1` is generated from the remote tool table — one operation per remote tool, the 11 shipped names frozen, new ones
+  `cli_map`'s — with `/mcp`'s scopes and G199 contract; no third door (ruling 38, `api.md`).
   Apps sign in through the listener's own OAuth 2.1 server (ruling 32): consent only in the app, by typing the code the
   person's own page shows, never a click or the public page; PKCE S256, single-use codes, rotating refresh tokens, all
   hashed and mapped to connector rows; a self-registered app is never named by its claim (`network.md`).

@@ -19,6 +19,12 @@ Seven rails hold across all of them:
   Apple Notes is the same: the app runs the AppleScript as its own child `osascript`
   (`AppleNotesReader`, `NSAppleEventsUsageDescription`) and posts the dump to `POST /sources/sync-notes`,
   which 422s without one — run from the launchd backend, macOS asked whether "python3.12" may control Notes.
+  **Notes keeps up and is dated when written (2026-10-23).** `AppleNotesWatcher` reads after the person's own first
+  read (Connect, Refresh, onboarding's tick), then on launch, after a bank switch and every two hours — only while
+  Notes is already open, since `tell application "Notes"` would launch it; Disconnect stops it, deleting nothing. Each
+  record adds the modification date as AppleScript's locale-free `«class isot»` and the Mac's UTC offset, so
+  `notes_sync` dates the episode when the note was last written (read on time); the human `modified` string stays the
+  dedup key, and a 6-field record from an older app still parses and is dated now.
   `POST /sources/sync-bookmarks` likewise 422s without bookmark bytes (there is no local-file fallback), and no
   route stats a path the request names. Folders a page declares follow it too: `GET /entities/{id}/location`
   returns the path and the app lists it (`LocationLister`), a declared repo's git runs in the app (`GitRunner`,
@@ -283,7 +289,14 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   read-only by the app through a column whitelist (never audio, screenshots, accessibility or pasted
   text); meetings and notes by default, dictation only when the person turns it on. A meeting line is
   `speaker:<label>:` and counts as `user` evidence only when its label is one of the owner's listed
-  names. Apple Calendar (G142): the app reads EventKit after the one standard permission prompt and
+  names. **Wispr's own time shape (2026-10-23):** its database writes `2026-08-26 14:03:07.123 +00:00` (a space
+  before the offset, milliseconds), which `fromisoformat` refuses, so every meeting, note and dictation row was
+  dated the day it was imported (dictation rows were dropped outright); `wispr_flow._ts` reads that shape and its
+  variants (`T`, `Z`/`UTC`, `+0000`, no fraction, no offset = UTC). A meeting or note already staged on the wrong
+  day is moved in place on the next sync (`EpisodeDraft.redate`: same source key and file, `timestamp` moved,
+  `redated_from` kept, `processed: false`); its id keeps the day it was minted with (ruling 34 — never renamed), and
+  everything that dates an episode reads `timestamp`. `redate` is opt-in, so a writer whose first stamp is
+  deliberate (a future calendar event) keeps it. Apple Calendar (G142): the app reads EventKit after the one standard permission prompt and
   posts a rolling window to `POST /sources/calendar-local/sync` (one request = the whole window).
   `calendar_local.py` stages each event keyed `calendar-local:<id>`:
   - a new episode for an event that has already begun is dated its start (timestamp and id day; read on time,
@@ -296,7 +309,59 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   The app half: `CalendarReader` reads every calendar on the Mac through EventKit, only after Connect and
   macOS's full-access prompt, 30 days back to 60 ahead, and posts on launch, on `EKEventStoreChanged`
   (debounced), every 3 hours, after a bank switch and on Sync now; an empty read is never posted (it would
-  tombstone the window); Disconnect stops it and deletes nothing. ICS subscriptions are unchanged.
+  tombstone the window); Disconnect stops it and deletes nothing. A subscribed ICS calendar's event is dated the
+  same way since 2026-10-23 (`calendar_registry._begun_at`: its start once begun, else the day it was polled), and
+  its fetch goes through `net_guard` on every hop, as the RSS poll's does (`network.md`).
+  Apple Reminders (G219, the G142 path; one way, never written back — ruling 38): the app reads EventKit after the one
+  Reminders prompt (`requestFullAccessToReminders`; macOS has no read-only grant, so the row says "full access" before
+  it) and posts the lists the person ticked — nothing is pre-ticked, and nothing is read before a tick — to
+  `POST /sources/reminders-local/sync`: every open reminder of those lists plus those completed since `completedSince`
+  (the app sends 90 days). `reminders_local.py` stages each keyed `reminders-local:<calendarItemExternalIdentifier>`:
+  - the body holds the title, the list (and its account), the status, created, due (a bare day when it has no
+    time), priority, a link without its query, and the notes scrubbed then cut at 2,000 characters; the title is
+    scrubbed too;
+  - **dated when it happened:** a completed reminder at its completion, an open one at its creation, neither known the
+    day Cicada learned of it; the due date is a fact in the body and `reminder_due`, never the episode's date. A
+    reminder completed after it was first read moves to its completion in place (`EpisodeDraft.redate`; the id keeps
+    its first day, ruling 34);
+  - tombstoned only when its list is named, it was not posted, and it could have been — open when last read, or
+    completed on or after `completedSince`; one completed before that aged out of the read, not out of Reminders, and
+    is kept; an unticked list says nothing about its reminders;
+  - the person's own words (`evidence_kind: user`), except in a list the person marked "Others add to it", whose items
+    are `assistant` (never the person's own, the folder rule) with `reminder_list_shared: true`;
+  - a record, not a conversation (`inbox_tend.record_origin`, beside calendar entries): never a skill's grounding or
+    a conversation to pick up; turning a completed reminder into a done happening, or a dated one into a planned
+    milestone, is Sleep's reading of the episode (G141), never capture's;
+  - 413 above 5,000 reminders, 422 for a `completedSince` with no offset, 409 in a demo bank; one `user` commit per sync
+    (`capture/reminders`), scoped to what it wrote.
+  The app half (`RemindersReader`, `EventKitRemindersStore`): `CalendarReader`'s triggers (launch, a debounced
+  `EKEventStoreChanged`, every 3 hours, a bank switch, Refresh, a tick); a read whose ticked lists are not there is
+  never posted (it would tombstone them); unticking the last list posts nothing; Disconnect bumps a generation every
+  await re-checks, so a read in flight when the person pressed it never posts and never turns the row back on. **Not
+  built (slice):** a list the person names as a project's backlog mapping into G150 items with no model — the G219 row
+  holds the design.
+  A Notion export (G219 slice 1; ruling 38): the Markdown & CSV zip on the one intake (`/intake/sniff`,
+  `/intake/import`; `notion_export.looks_like` decides by names — most `.md`/`.csv` files carry Notion's 32-hex id, and
+  no chat export's files are present; part zips are read one level down). `notion_export.parse_zip` makes documents
+  (`body`, `evidence_kind: user`, origin `notion-export`, scrub writer `notion`; `episode_staging.draft_from_export`
+  takes a `body` beside `messages`): a plain page keyed `notion:<page id>` with its breadcrumb (`In: Parent › Child`),
+  links to other pages reduced to their words and embedded files left out (web links kept), a title over sub-pages and
+  nothing else skipped, a long page split by H2 like a watched folder's file (`notion:<id>#<slug>`). **One episode per
+  database row**, not per database: a row is one idea with its own date (dated by its *Created* property, else *Last
+  edited*; read on time), an edit re-queues that row alone, and a row maps one to one onto a backlog item later; the
+  CSV row (`_all.csv` preferred) gives every property and the row's own page its body, joined by title in the
+  database's folder (a title Notion cut in the file name matches by prefix); a CSV row with no page is kept, keyed
+  `notion:<database id>:<title hash>`. Rows sharing a title ("Untitled") each take the page whose own property block
+  agrees with the CSV row, and the page's own properties win, so a re-export in another order never swaps them. A
+  page with no date of its own (every plain page, a row with no Created / Last edited) is stamped the import day but
+  is **untimed**: source `notion-export-undated`, one of `episode_time.UNTIMED_SOURCES` (the memory-export rule), so
+  its facts are kept and nothing it mentions counts as mentioned that day; dated rows keep source `notion-export`. A
+  row whose *Created by* names someone other than the bank's owner is `assistant` (never the person's words); with no
+  owner name known, a database more than one person created is; a page or table with no *Created by* is the person's.
+  **What is read is bounded:** only `.md` and `.csv` members (16 MB each, 256 MB in all, checked on the declared size
+  and while reading), part zips one level down only (256 MB each, a zip inside a part never opened); everything left
+  out is a preview warning. A second import of the same zip skips everything (the stager's hash); an edited page
+  updates in place. A page missing from a later export is never tombstoned — an export can be one page's.
   Chrome's open tab groups (round 4, G160 first slice): the app reads the default profile's
   `Sessions/Session_<n>` (SNSS; only a clear version-3 file carrying its initial-state marker, never `Tabs_*`, never
   the encrypted directory; commands 25/27 and each member tab's current navigation — never the page state after its
@@ -548,8 +613,53 @@ API gives no one Watch later or watch history, so there are three doors, and the
 - **Door 3, the person's own agent (`mcp.md`, "YouTube lists").** It reads Watch later and the history page in the
   person's signed-in browser and records through `cicada_record_youtube_list`: Watch later rows as saves (a video
   already saved is a duplicate), history rows as days (the page's day).
+- **Door 4, activity traces (G218, below).** A YouTube page an allowed Chromium browser showed in front for at least 20 s
+  is a watch with `via: traces` and `dwell_s` (the day's seconds in front for that video, counted from the traces
+  store; the larger figure wins, so any arrival order gives the same day; the body says "N min on screen"). It covers
+  what door 2 misses: dwell, and a video watched with history off.
 - No model runs, nothing is fetched (titles and times come from the doors), every title is scrubbed (writer
   `watch-history`).
+
+**Activity traces (G218, ruling 38, owner 2026-10-23: "if right now I'm watching a YouTube video I didn't save or
+mention, I can in the future ask what that video was and get it from memory").** What was in front of the person on
+this Mac, with times — off by default, on only after the consent sheet (Sources → Traces), never ticked in onboarding.
+- **The app is the only capturer** (`app/CicadaApp/Sources/CicadaApp/Services/Traces/`, `TraceRecorder`): it alone
+  holds Accessibility and Screen Recording; the backend has neither and never will. Every OS call is behind a seam
+  (`TraceSystem.swift`) and every permission is read by preflight only (`AXIsProcessTrusted`,
+  `CGPreflightScreenCaptureAccess`, `AEDeterminePermissionToAutomateTarget(askUserIfNeeded: false)`); asking happens
+  only on the person's click (`PermissionDragHelper`, and the browser's own Automation prompt when they allow a browser).
+- **A focus span** `{id, start, end, bundle_id, app, title?, url?}` per stretch of one app/window/page in front. A look
+  every 5 s and on every app activation; a span ends on a change, idle ≥ 2 min (cut where input stopped), the locked
+  screen, secure input (a password field anywhere), a pause or an exclusion; under 2 s it is a flicker and dropped.
+  Titles come from Accessibility, never for chat and mail apps unless the person turns them on per app; a URL and a tab
+  title only from an allowed Chromium browser's front tab whose window `mode` is not incognito. A browser whose tab
+  cannot be verified (Safari, Firefox, Arc; Chromium without Automation) keeps its name and times only — and "browser"
+  means any app Launch Services registers to open `https:` links (`TraceBrowserRegistry`), not only the named ones, so
+  an unlisted beta or fork fails closed (review of #456, B3).
+- **Screenshots** (on with traces; their own switch; Screen Recording): event-driven — on a new span, at most one a
+  minute (`TraceFrameCadence.minGap` 60 s, so an alt-tab burst costs one frame), then one every 5 min while the same
+  span continues (`steadyInterval`); never while idle, locked or paused; only the **front window** of an app that may be
+  described (never the whole display, so nothing behind it — a private window included — is taken). The front window
+  is the first normal-layer window of that app in the window server's front-to-back list
+  (`CGWindowListCopyWindowInfo(.optionOnScreenOnly)`, `TraceWindowPick`), matched by id in ScreenCaptureKit — whose own
+  list is unordered and counts covered windows as on screen — and the frame is dropped when, after capture, another app
+  is in front or a browser's front tab changed or turned private (`TraceRecorder.stillShows`, B2). Downscaled to 1280
+  px at JPEG 0.6 (~100–200 KB; a heavy day ≤ 480 frames ≈ 70 MB, seven days ≈ 0.5 GB worst case). Text is recognized
+  **on this Mac** with Vision after capture, off the tick (a queue of at most 3 frames), and posted with the frame.
+- **Nothing, not even a title,** while off or paused (Pause from the menu bar: an hour, until tomorrow, until resumed),
+  locked, in a password field, for an excluded app or site, a password manager, Cicada itself or a private window.
+- **Nothing on the app's disk.** Spans wait in memory (≤ 500, posted once a minute) and frames in a queue of three;
+  with the backend away they wait and the oldest go, never spilled to a file (`ReaderOutbox` never queues a traces
+  route). On a server connection (G181) nothing is recorded: `TraceBackendGate` sends traces to This Mac's backend only.
+- **The backend parses and keeps** (`POST /sources/traces/sync`, `POST /sources/traces/frames`): `trace_store` re-applies
+  the policy and seals each record outside every bank (`storage.md`, "Activity traces"); `trace_memory` promotes only
+  what the person's switches allow — YouTube views into the watch history (door 4 above) and, behind "Keep a daily
+  summary in memory", a counted day summary (`source: traces-day`, index-only unless "Let Sleep learn from the
+  summary"). Both wait until a span is past the 15-minute forget window (B1). **No model at capture**; a model reads
+  traces only through that opt-in summary. A trace is not a mention.
+- **Agents:** no MCP tool, no Ask leg and no CLI read the store in v1 — Ask's raw-row lookup would put rows in front of
+  a model, which the rail forbids; "what was that video at 15:20" is answered through the watched day Ask and recall
+  already read. Remote doors and other devices never see traces.
 
 **Indexed, not consolidated (owner ruling 2026-10-18; G71, G94).** The owner's Takeout with history brought 45,879
 watches as 2,532 day episodes and 3,156 playlist saves, and every one was queued for a full Stage-1 read — hours of
@@ -1597,6 +1707,13 @@ type, an installed agent skill's page, a dropped page, or a page another change 
 `skills_detected` counts the grounded skills. No contradiction check runs on a skill update (owner ruling
 2026-10-09: no extra model call).
 The same repair script grounds the existing unsourced skill pages from the Sleep commit that created each one.
+**A summary that outlived its facts (W6, 2026-10-23).** Because the prose is written once, a skill born before a switch
+keeps describing the old stack ("<person-a> reviews the <tool> pull requests" after the project dropped the tool). Such a
+skill is left out of the handshake's *How to work with me* on the next cursor rebuild, which every Sleep runs
+(`skill_staleness`, `storage.md` "The handshake"), but the row never drops below three: the least stale stay,
+marked; only a belief an ending closes counts. No model call is added. Rewriting the summary instead would need
+Stage 4 to be shown the stale skills and allowed to replace their prose — a few hundred input tokens on the call it
+already makes, and a change to the "prose is not touched" rule above — and is not done.
 
 **A new skill page needs two conversations (owner ruling 2026-10-09).** The bar is entity promotion's. A skill
 `ground` finds in only one conversation is not written and not lost: `skill_grounding.settle` (Stage 5, after the

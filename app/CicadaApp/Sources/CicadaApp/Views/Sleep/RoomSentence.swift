@@ -257,6 +257,8 @@ private func sentenceLead(_ ctx: RoomContext) -> SentenceLine {
         if case .hungry = ctx.mood { return SentenceLine(lead: "Nothing new to read.") }        // L9
         return SentenceLine(lead: "Something new just arrived.")                                // L8b, Z-P6
     case .happy:
+        // L10b (looks pass 2026-10-23): a bank Sleep has never read is not "caught up" — nothing has arrived yet.
+        if ctx.debt?.hasRunBefore == false { return SentenceLine(lead: "Nothing to read yet.") }
         return SentenceLine(lead: "All caught up.")                                             // L10
     case .awake:
         return SentenceLine(lead: "Listening.")                                                 // L11
@@ -325,7 +327,7 @@ private func sentenceTail(_ ctx: RoomContext) -> SentenceTail? {
     let count = ctx.debt?.unprocessedCount ?? 0
     if ctx.debt?.hasRunBefore == false {                                                         // T8 / T9
         return SentenceTail(text: count > 0 ? Copy.SleepV5.firstNightTail(batchSize: ctx.batchSize, ctx.locale)
-                                            : "Nothing's been filed in this memory yet.")
+                                            : Copy.SleepV5.firstRunEmptyTail)
     }
     if case .hungry = ctx.mood, let hours = ctx.debt?.hoursSinceLastCycle, hours >= 48 {         // T10
         return SentenceTail(text: "It's been \(Int(hours / 24)) days.")

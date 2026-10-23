@@ -30,7 +30,8 @@ NOT_KNOWN = ("don't have", "do not have", "doesn't say", "does not say", "not re
              "no record", "not in the record", "not in memory", "doesn't record", "does not record",
              "no information", "not mentioned", "isn't mentioned", "can't find", "cannot find", "couldn't find",
              "nothing in", "no mention", "not stated", "isn't stated", "unknown", "not available", "doesn't mention",
-             "does not mention", "doesn't include", "does not include", "not enough", "no data")
+             "does not mention", "doesn't include", "does not include", "not enough", "no data", "does not contain",
+             "doesn't contain")
 
 
 def _env(run: dict, cwd: str | None) -> dict:

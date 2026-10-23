@@ -3,8 +3,10 @@ import SwiftUI
 /// F-08 — while the demo bank is active, a persistent bar at the foot of the page area: what this is, *Restart tour*,
 /// and the one big way back, *Finish setting up*. ContentView lays it out as a safe-area inset under the page and the
 /// Reader, so it never covers a row, and the tour's scrim (an overlay on the page area above it) never covers it
-/// (ruling R-DT8). A floating surface (DR-9/DR-10) whose one primary is *Finish setting up* (DR-40); nothing else on
-/// the bar is tinted (DR-5). Outside the demo it draws nothing and takes no space.
+/// (ruling R-DT8). A floating surface (DR-9/DR-10). *Finish setting up* is a neutral button since the looks pass
+/// (2026-10-23): the bar sits under every page, so an accent fill here was a second primary beside the page's own
+/// (Sleep's *Consolidate now*, DR-40's "at most one per surface"); nothing on the bar is tinted (DR-5). Outside the
+/// demo it draws nothing and takes no space.
 struct DemoBanner: View {
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
@@ -34,9 +36,8 @@ struct DemoBanner: View {
                 }
                 Spacer(minLength: CicadaTheme.spacingMD)
                 TextButton(title: Copy.Demo.restartTour, help: Copy.Demo.restartTourHelp) { tour.requestStart() }
-                PrimaryActionButton(title: Copy.Demo.finishSetup) { finish() }
-                    .disabled(leaving)
-                    .help(Copy.Demo.finishSetupHelp)
+                NeutralButton(title: Copy.Demo.finishSetup, size: .compact, isDisabled: leaving,
+                              help: Copy.Demo.finishSetupHelp) { finish() }
             }
             .padding(.horizontal, CicadaTheme.spacingLG)
             .padding(.vertical, CicadaTheme.spacingMD)

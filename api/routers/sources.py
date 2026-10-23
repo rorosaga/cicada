@@ -29,6 +29,8 @@ from api.models.schemas import (
     SavedWhyRecord,
     SavedWhyRequest,
     SavedWhyResponse,
+    SavedWhySuggestRequest,
+    SavedWhySuggestResponse,
     SourceChannel,
     SourceChannelsResponse,
     SourceListResponse,
@@ -386,8 +388,12 @@ async def ingest_rss(
             )
         import httpx
 
+        from api.services import net_guard
+
         try:
-            async with httpx.AsyncClient(follow_redirects=True) as client:
+            # Every hop through the SSRF guard, as the feed poll (2026-10-23).
+            async with httpx.AsyncClient(follow_redirects=True,
+                                         event_hooks={"request": [net_guard.httpx_request_guard]}) as client:
                 resp = await client.get(request.feed_url, timeout=10.0)
                 resp.raise_for_status()
                 xml = resp.text
@@ -615,9 +621,18 @@ SAVED_WHY_BUSY = "Sleep is updating your memory — your answer wasn't saved. Tr
 
 @router.get("/sources/saved-why/options", response_model=SavedWhyOptions)
 async def saved_why_options(settings: Settings = Depends(get_settings)) -> SavedWhyOptions:
-    """G191 — the one-tap answers to "What made you save this?": the fixed reasons plus up to three of the person's
-    live projects (open backlog first, then the most recently mentioned). Deterministic — no model call."""
+    """G191 — the one-tap answers to "What made you save this?": the four fixed reasons (v4), the bank the panel
+    suggests a few from (`more`, v7) and the cap on the words; `projects` always empty. Deterministic — no model call."""
     return SavedWhyOptions.model_validate(await run_in_threadpool(saved_why.options, settings.memory_path))
+
+
+@router.post("/sources/saved-why/suggest", response_model=SavedWhySuggestResponse)
+async def saved_why_suggest(request: SavedWhySuggestRequest) -> SavedWhySuggestResponse:
+    """G191 v7 — how close each reason in the bank is to the saved link's title and site, by the search model **only
+    when it is already installed** (never a download, never a metered service): `basis: none` otherwise, and the
+    panel ranks by the site and the person's past picks alone. Read-only, no model of a new kind, nothing logged."""
+    return SavedWhySuggestResponse.model_validate(
+        await run_in_threadpool(lambda: saved_why.model_scores(title=request.title, url=request.url)))
 
 
 @router.post("/sources/saved-why", response_model=SavedWhyResponse, dependencies=_DEMO_GATE)
@@ -1159,9 +1174,11 @@ async def sources_overview(
     # Sources v4: `photos` too — a Messages face carries its chat photo's hash (`messages_photos`, outside the bank).
     # marks-2: `siteIcons` too — a saved row's faces put sites with a cached own icon first (`VersionVector` maps it to
     # `.sourcesOverview` in the same PR).
+    feed_fetch = feed_registry.fetch_allowed()
     etag = sync_service.etag_for(
         memory_path, "sources", "episodes", "entities", "photos", "siteIcons",
-        extra=f"{source_overview.SHAPE}|telegram:{settings.telegram_enabled}|connectors:{connector_tag}",
+        extra=(f"{source_overview.SHAPE}|telegram:{settings.telegram_enabled}|connectors:{connector_tag}"
+               f"|feeds:{feed_fetch}"),
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
@@ -1171,6 +1188,7 @@ async def sources_overview(
             memory_path,
             telegram_enabled=settings.telegram_enabled,
             connectors_connected=connectors_connected,
+            feed_fetch_allowed=feed_fetch,
         )
         return source_overview.build_overview(memory_path, channels=channels)
 
@@ -1201,9 +1219,12 @@ async def list_source_channels(
     # "not connected" forever. `CHANNELS_SHAPE` covers the other case: the body
     # changing for the same files (a new always-listed row), round 4 final review #3.
     connector_tag = ",".join(f"{k}:{v}" for k, v in sorted(connectors_connected.items()))
+    # The feed gate is an env fact too: a feed row is connected only while feeds are fetched (2026-10-23).
+    feed_fetch = feed_registry.fetch_allowed()
     etag = sync_service.etag_for(
         memory_path, "sources", "episodes", "entities",
-        extra=f"{channel_registry.CHANNELS_SHAPE}|telegram:{settings.telegram_enabled}|connectors:{connector_tag}",
+        extra=(f"{channel_registry.CHANNELS_SHAPE}|telegram:{settings.telegram_enabled}|connectors:{connector_tag}"
+               f"|feeds:{feed_fetch}"),
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
@@ -1215,6 +1236,7 @@ async def list_source_channels(
         memory_path,
         telegram_enabled=settings.telegram_enabled,
         connectors_connected=connectors_connected,
+        feed_fetch_allowed=feed_fetch,
     )
     return SourceChannelsResponse(channels=[SourceChannel(**c) for c in channels])
 

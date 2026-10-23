@@ -191,7 +191,8 @@ struct BackgroundServiceButton: View {
         case .checking, .installing:
             ProgressView().controlSize(.small)
         case .running:
-            EmptyView()
+            // The row said nothing at all while it worked (looks pass 2026-10-23): a dot and one word, like Devices.
+            StatusDot(word: Copy.Status.on, on: true)
         }
     }
 }

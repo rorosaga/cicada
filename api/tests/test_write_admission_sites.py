@@ -419,6 +419,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/rss": (INTAKE, None),
     "POST /sources/sync-bookmarks": (INTAKE, None),
     "POST /sources/sync-bookmarks/fresh": (NONE, None),   # G191 live: the early look parses and reads the index
+    "POST /sources/saved-why/suggest": (NONE, None),      # G191 v7: scores the reason bank, writes nothing
     "POST /sources/watch-history/sync": (CAPTURE, None),  # G71: Chrome's YouTube history as day episodes
     "POST /sources/sync-safari-tabs": (INTAKE, None),
     "POST /sources/feeds": (REGISTRY, None),
@@ -445,6 +446,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "PUT /capture/local-source/wispr-flow/settings": (REGISTRY, None),
     "POST /capture/local-source/wispr-flow": (HELD, None),
     "POST /sources/calendar-local/sync": (CAPTURE, None),
+    "POST /sources/reminders-local/sync": (CAPTURE, None),   # G219: the ticked lists' reminders, episodes only
     "POST /sources/tab-groups/sync": (CAPTURE, None),
     "POST /sources/contacts-local/sync": (ADMITTED, None),
     "POST /sources/linkedin-connections/preview": (NONE, None),   # reads pages, writes nothing, keeps nothing
@@ -464,7 +466,23 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /capture/transcript": (CAPTURE, None),
     "POST /capture/turn": (CAPTURE, None),   # capture-everywhere: the same writer as the Stop hook
     "POST /capture/note": (CAPTURE, None),   # G212: a note a device sent, staged like every source-keyed capture
+    # G91 (ruling 38): a device's shared photo or file — its episode staged like a note, its bytes outside every bank.
+    "POST /capture/file": (CAPTURE, None),
     "POST /capture/session": (CAPTURE, None),   # G181 phase 2: a session read on its own machine, the same writer
+    # G218 activity traces: `trace_store` is the one writer of `$CICADA_HOME/traces/`, outside every bank.
+    "PUT /sources/traces/settings": (OUTSIDE, None),
+    "POST /sources/traces/on": (OUTSIDE, None),
+    "POST /sources/traces/off": (OUTSIDE, None),
+    "POST /sources/traces/pause": (OUTSIDE, None),
+    "POST /sources/traces/frames": (OUTSIDE, None),
+    "POST /sources/traces/forget": (OUTSIDE, None),
+    "POST /sources/traces/wipe": (OUTSIDE, None),     # what was already promoted stays the bank's, untouched
+    "POST /sources/traces/search": (NONE, None),      # a POST only so the words never reach an access log
+    # The spans go outside every bank; `trace_memory.promote` then writes EPISODES ONLY into the bank — watched days
+    # and their month rollups through `watch_history.record` (the writer `/sources/watch-history/sync` uses) and the
+    # day summary through `episode_staging.stage`, each under STAGE_LOCK + episode_lock — committed alone by
+    # `commit_paths_for`. Awake capture never takes admission (write_admission's rail); pinned in test_trace_routes.
+    "POST /sources/traces/sync": (CAPTURE, None),
     "POST /tools/call": (DOOR, None),
     "POST /v1/{op}": (REMOTE, None),
     "POST /agent-api/tokens": (OUTSIDE, None),

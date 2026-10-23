@@ -40,10 +40,13 @@ WRITERS = frozenset({
     "tab-groups",  # G160 (round 4): a Chrome tab group's name and its tabs' titles and links
     "video_queue",  # G162: a release reason an agent wrote for a video it could not do
     "note",  # G212: a note a paired device sent (`/capture/note`)
+    "file",  # G91: a photo or file a paired device sent (`/capture/file`) — its caption and name, a text file's words
     "saved-why",  # G191: the person's answer to "what made you save this?"
     "imessage",  # G179: a ticked Messages conversation's words, both sides
     "watch-history",  # G71 (2026-10-16): a watched video's title and channel, one day's episode
     "linkedin-connections",  # 2026-10-16: a connection's name, company and position; a profile read's quotes
+    "reminders",  # G219: a reminder's title and notes, from the lists the person ticked
+    "notion",  # G219: a Notion export's pages and database rows
 })
 
 # Secret shapes (G105 R6), moved verbatim from transcript_extract. Ordered

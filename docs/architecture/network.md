@@ -31,7 +31,10 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   do what the user just asked.
 - **`CICADA_ALLOW_FEED_FETCH`** gates RSS/ICS polling and is **opt-IN** (`=1`). A fresh install's
   LaunchAgent plist sets it; `install.sh` never rewrites a plist behind a running backend, so an
-  older plist needs the key added by hand.
+  older plist needs the key added by hand. While it is off a subscribed feed's Sources row is not connected and says
+  why (`channel_registry.FEED_FETCH_OFF`, 2026-10-23) — it read Connected over a poll that never ran. The feed poll,
+  the ICS poll and `POST /sources/rss`'s `feedUrl` fetch go through `net_guard` on every hop since 2026-10-23 (they
+  used a bare client, so a subscribed URL or a redirect could reach loopback, the LAN or a tailnet peer).
 - **`CICADA_ALLOW_LOGO_FETCH=off`** disables logo fetching entirely, and media previews with it (below). The test suite runs that way
   and injects fetchers instead. It also gates the icons of the sites Reading in your browser (the Sources page) lists (G166): those
   come from the icon service only and the login-walled site is never contacted for its favicon (nor, since

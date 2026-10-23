@@ -12,9 +12,10 @@ enum IntakeSummary {
         return parts.joined(separator: " · ")
     }
 
-    /// A Gemini entry is one prompt and its reply (R-IA14); everything else is a conversation.
+    /// A Gemini entry is one prompt and its reply (R-IA14); a Notion export's entry is a page (G219); everything else is
+    /// a conversation.
     static func noun(vendor: String?, count: Int) -> String {
-        let base = vendor == "gemini" ? "prompt" : "conversation"
+        let base = vendor == "gemini" ? "prompt" : vendor == "notion" ? "page" : "conversation"
         return count == 1 ? base : base + "s"
     }
 
@@ -72,6 +73,7 @@ enum IntakeSummary {
         case "claude": return "Claude history"
         case "chatgpt": return "ChatGPT history"
         case "gemini": return "Gemini activity"
+        case "notion": return "Notion pages"
         default: return "Chat history"
         }
     }
@@ -80,6 +82,12 @@ enum IntakeSummary {
         var parts: [String] = []
         let chats = p.counts.conversations + p.counts.prompts
         if chats > 0 { parts.append("\(UsageFormat.count(chats, locale: locale)) \(noun(vendor: p.vendor, count: chats))") }
+        if p.counts.pages > 0 {
+            parts.append("\(UsageFormat.count(p.counts.pages, locale: locale)) \(p.counts.pages == 1 ? "page" : "pages")")
+        }
+        if p.counts.rows > 0 {
+            parts.append("\(UsageFormat.count(p.counts.rows, locale: locale)) database \(p.counts.rows == 1 ? "row" : "rows")")
+        }
         if p.counts.memories + p.counts.projects > 0 {
             parts.append("\(UsageFormat.count(p.counts.memories + p.counts.projects, locale: locale)) notes Claude kept")
         }
@@ -102,6 +110,7 @@ enum IntakeSummary {
     /// The Sources card these will show under — the Sources page's own name for
     /// it (`SourceDisplayName`), so the two cannot disagree.
     static func sourcesName(origin: String?) -> String {
+        if origin == "notion-export" { return SourceDisplayName.of(id: "notion") }   // G219
         let channel = ChatVendor.allCases.first { $0.origin == origin }?.channelId ?? "files"
         return SourceDisplayName.of(id: channel)   // Views/Sources/SourceDisplayName.swift
     }

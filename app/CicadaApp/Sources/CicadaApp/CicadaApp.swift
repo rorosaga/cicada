@@ -18,6 +18,11 @@ final class FirstMouseAcceptingView: NSView {
 
 @main
 struct CicadaApp: App {
+    /// Owner 2026-10-23 — a fresh install's menu-bar worm waits for onboarding's *Meet your bookworm* step; every
+    /// earlier install keeps its worm (`MenuBarIntro`). The FIRST stored property, because stored properties are
+    /// initialised in declaration order before `init` runs, and several below write a `cicada.` key as they are built
+    /// (`ExportWaits`), which would make a fresh install look like an old one.
+    private let menuBarIntroAtLaunch = MenuBarIntro.prepareAtLaunch()
     /// Single source of truth for every screen (§5.1). Hydrated from disk on
     /// appear, then kept live by its `SyncEngine`. Every view model below is
     /// constructed in `init()` as a thin projection over this same instance
@@ -98,6 +103,10 @@ struct CicadaApp: App {
     /// Round-4 D2 (C6, C7): the Calendar app's events, read by the app through EventKit only after Connect in
     /// the Sources page, and posted to the backend (R-FA11).
     @State private var calendarReader = CalendarReader()
+    /// 2026-10-23: Apple Notes keeps up once the person's own first read turned it on (only while Notes is open).
+    @State private var notesWatcher = AppleNotesWatcher.shared
+    /// G219: the Reminders lists the person ticks, read by the app through EventKit only after Connect, one way.
+    @State private var remindersReader = RemindersReader.shared
     /// Round 4 (G160 first slice): Chrome's open tab groups, read by the app from its session file only after the
     /// person turns on their own switch (R-SR3), and posted per memory.
     @State private var tabGroups: TabGroupWatcher
@@ -110,6 +119,9 @@ struct CicadaApp: App {
     /// G179: the Messages conversations the person ticked, read by the app from `chat.db` (Full Disk Access) and posted
     /// per memory; nothing is read before a tick.
     @State private var messages: MessagesWatcher
+    /// G218 — activity traces: off until the person agrees to the consent sheet; then the app captures and This Mac's
+    /// backend keeps them sealed outside every bank. Never on a server connection.
+    @State private var traceRecorder = TraceRecorder.live()
     /// Track I T5 (design §5.1) — the one intake: a drop anywhere, the Dock,
     /// File → Import…, the menu-bar worm, an empty state and the `+` tiles all
     /// go through it, and its request counter owns `Store.intakeInFlight`.
@@ -329,6 +341,9 @@ struct CicadaApp: App {
             Task { await localSources.reload() }
             // Round-4 D2 — the new memory gets the calendar too (a demo's 409 is said in words).
             Task { await calendarReader.bankChanged() }
+            Task { await notesWatcher.bankChanged() }
+            // G219 — the new memory gets the ticked lists too (a demo's 409 is said in words).
+            Task { await remindersReader.bankChanged() }
             // G160 — the new memory gets the open groups too (its digest is its own).
             Task { await tabGroups.bankChanged() }
             // G71 — the new memory's YouTube history, past its own cursor.
@@ -373,10 +388,13 @@ struct CicadaApp: App {
             .environment(syncActivity)
             .environment(localSources)
             .environment(calendarReader)
+            .environment(notesWatcher)
+            .environment(remindersReader)
             .environment(tabGroups)
             .environment(watchHistory)
             .environment(contactsReader)
             .environment(messages)
+            .environment(traceRecorder)
             .environment(loginItems)
             .environment(backendAgent)
             .environment(updates)
@@ -384,6 +402,7 @@ struct CicadaApp: App {
             .environment(setupRunner)
             .environment(inventory)
             .environment(exportWaits)
+            .environment(menuBarManager)
     }
 
     /// What the window's `.onAppear` runs (unchanged; moved out of `body` for the type checker).
@@ -434,6 +453,8 @@ struct CicadaApp: App {
             await SavedBookmarkLookup.live(channel: channel, items: store.sources.value ?? [])
         }
         saveWhy.onNamed = { [bookmarkBubbles] item in bookmarkBubbles.bookmarkNamed(item) }
+        // G191 v7 — the person's earlier answers in the active memory rank the suggested reasons (nothing new stored).
+        saveWhy.pastPicks = { [store] in SaveWhySuggest.picks(from: store.sources.value ?? []) }
         bookmarkBubbles.start()
         // G191 v3 — the app's own diff needs a "before" for each watched browser: read once now, so the
         // first bookmark after launch is named from the file without waiting for the backend.
@@ -459,6 +480,10 @@ struct CicadaApp: App {
         // R-FA11 — reads only if the person connected before and macOS still says yes. A reopened
         // window runs this again: `arm()` is guarded, so that costs one catch-up sync and nothing more.
         calendarReader.start()
+        // Reads only if the person connected Notes before, and only while Notes is open.
+        notesWatcher.start()
+        // G219 — reads only if the person connected Reminders and ticked a list, and macOS still says yes.
+        remindersReader.start()
         // G160 (R-SR3) — reads only if the person turned the tab-groups switch on.
         tabGroups.start()
         // G71 — reads only if the person turned the YouTube history switch on.
@@ -467,6 +492,8 @@ struct CicadaApp: App {
         contactsReader.start()
         // G179 — reads only the conversations this memory has ticked.
         messages.start()
+        // G218 — records only if the person turned traces on (the backend holds that choice; no answer, no recording).
+        Task { await traceRecorder.start() }
         // R-IB22 — the export someone was waiting for arrived (a sniff
         // recognised its vendor): its wait, in the active memory, is done.
         intakeRouter.onVendorSniffed = { [exportWaits, store] vendor in
@@ -530,6 +557,20 @@ struct CicadaApp: App {
         }
         store.onBankChanged = { [sleepVM] in Task { @MainActor in await sleepVM.bankChanged() } }
         menuBarManager.sleepDoor = { [sleepVM] in sleepVM.door }
+        // Before `setup`, so a waiting worm's status item is never shown, not even for a frame.
+        menuBarManager.setIntroPhase(MenuBarIntro.phase())
+        // G218 — the menu says whether traces record (read as it opens) and pauses, resumes or forgets through the
+        // one recorder; off, nothing shows.
+        menuBarManager.traceMenu = { [traceRecorder] in TraceMenuState.of(traceRecorder) }
+        menuBarManager.onTraceAction = { [traceRecorder] action in
+            Task { @MainActor in
+                switch action {
+                case .pause(let choice): await traceRecorder.pause(choice)
+                case .resume: await traceRecorder.resume()
+                case .forget: try? await traceRecorder.forget(minutes: 15)
+                }
+            }
+        }
         menuBarManager.setup(
             onOpenApp: { [appRouter] in appRouter.showMainWindow() },
             onRunSleep: {

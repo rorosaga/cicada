@@ -127,7 +127,8 @@ bank (`NO_BANK_WRITE`). **Hyrum, mode A:** stable — the paths, `qr`'s three ke
 - **Kinds.** `POST /devices/pairing` takes `kind: "capture"` (the default — a phone) or `"full"` (another computer);
   the answer adds `kind` and the pairing and device wires carry it. `cicada device add` and `POST /devices` issue
   `full`, as before; a store from before the column reads every device as `full`. A **capture** token reaches exactly
-  `POST /sources/save`, `POST /capture/note` and `GET /capture/mine` (`auth.CAPTURE_ROUTES`, exact paths) — every
+  `POST /sources/save`, `POST /capture/note`, `POST /capture/file` (G91, ruling 38) and `GET /capture/mine`
+  (`auth.CAPTURE_ROUTES`, exact paths) — every
   other route, the device routes included, is 403 "this device may only send captures" — and `/healthz` gives it the
   open answer (status, version, bank ids; never the memory's path or counts). So a phone validates its token with
   `GET /capture/mine`, not `GET /devices`.
@@ -145,20 +146,63 @@ bank (`NO_BANK_WRITE`). **Hyrum, mode A:** stable — the paths, `qr`'s three ke
   one writer, `source_id` `note:<device>:<id>`), queued for Sleep, `device` stamped; `origin: phone` from a capture
   device, `note` from any other token. Its identity is `id`, else the `Idempotency-Key`, else the words themselves.
   Answers `{status: created|updated|unchanged, episodeId}`. Links stay on `POST /sources/save` `{url, note?}`.
+  **A voice note (G91, ruling 38, 2026-10-23):** `kind: "voice"` (default `"text"`) when the phone transcribed the
+  person's speech on the device — no audio is ever sent, and no model runs here; the episode records `note_kind:
+  voice` and its default title is "Voice note". A typed note records nothing new; an older server ignores the field.
+- **A photo or a file: `POST /capture/file`** (G91, ruling 38; demo-gated, Awake: no Sleep gate, no model reads the
+  file). Multipart: `file` plus `caption?` (the person's own words, ≤ 16k), `title?`, `id?`. Accepted by the bytes,
+  never the client's word: JPEG, PNG, HEIC (magic bytes), PDF (`%PDF-`), and plain text only when declared
+  `text/plain` or `.txt` **and** valid UTF-8 with no NUL — anything else is 415; past 25 MB is 413 (`capture_files.
+  MAX_BYTES`; `request_limits` refuses a declared body past 26 MB before it is spooled), empty is 400. Images are kept
+  exactly as sent, HEIC included: the server keeps no image library, a headless Linux host has no `sips`, and a
+  re-encode would lose the person's original for nothing capture needs.
+  - **Where the bytes live:** outside every bank and git repo, `$CICADA_HOME/files/<bank>/<sha256>.<ext>` (0700/0600,
+    content-addressed, written atomically before the episode), never served back. The rail is the one site captures
+    and Messages photos keep: pixels the scrub cannot clean never enter the bank, so **no thumbnail in the bank either**
+    (a site capture showing the person's account keeps even its thumbnail outside). A photo's EXIF stays with it.
+  - **What the bank holds:** one episode through `episode_staging` (scrub, one id rule, queued for Sleep, `device`
+    stamped, `source_id` `file:<device>:<id>`): a `user:` turn with the caption then `[image: <name>]` or
+    `[file: <name>]` (Messages' attachment shape), the file in `turn_extras` (name, size, type, never a path), and
+    `file: {kind: image|pdf|text, mime, name, size, sha256}`; a plain-text file's words are a second `user:` turn
+    (scrubbed, first 16k characters), as a shared text already is. `origin: phone` from a capture device,
+    `device-file` from any other token (its own Sources row, "Files from your devices"). Identity: `id`, else the
+    `Idempotency-Key`, else the bytes (the same file twice is one episode). Answers `{status, episodeId, file: {kind,
+    size, sha256}}`. Sleep reads the caption and a text file's words; describing a picture or reading a PDF's pages
+    is G195's and G91's later business.
 - **`GET /capture/mine`** (a device token): the asking device's newest captures, at most 20 of the newest 500
   episodes — `{captures: [{id, title, timestamp, processed, url}]}`, never a body, never another device's.
-- **`Idempotency-Key`** on `POST /sources/save` and `POST /capture/note`: a resend with the same key gets the first
+- **`Idempotency-Key`** on `POST /sources/save`, `POST /capture/note` and `POST /capture/file`: a resend with the same key gets the first
   answer and writes nothing (`idempotency`). Measured on a scratch server: a link with a note resent **without** a key
   writes one more "Note on …" episode; with the key, none. Keys are scoped to the sender (`device:<id>` or `server`),
   the pinned bank's id (a replay after a bank switch runs in the bank now open) and the route, kept as sha256 with the answer's JSON in `$CICADA_HOME/idempotency/keys.db` (outside every bank),
   for 24 h; only a 2xx is kept, so a refused save (Sleep, a bad link) runs again.
-- **Hyrum, mode A:** stable — the two kind words, `CAPTURE_ROUTES`' three routes, `qr`'s keys, `reach`'s four keys,
-  the note and mine shapes, the header name; not stable — the 24 h TTL, the 20/500 limits, the suggested 8443.
+- **Hyrum, mode A:** stable — the two kind words, `CAPTURE_ROUTES`' four routes (`/capture/file` added 2026-10-23, an
+  addition only: no route left the set), `qr`'s keys, `reach`'s four keys, the note and mine shapes, the note's two
+  `kind` words, the file route's form fields and answer keys, the episode's `file:` record keys, the header name; not
+  stable — the 24 h TTL, the 20/500 limits, the suggested 8443, the 25 MB cap, the `$CICADA_HOME/files` layout.
 
 **The agent API (G213, 2026-10-22).** For an agent that speaks HTTP but not MCP. `POST /v1/<op>` with
-`Authorization: Bearer <connector token>` and a JSON object body; operations `recall`, `ask`, `page`, `timeline`,
-`project`, `save_note`, `save_url`, `write_claim`, `retract_claim`, `inbox`, `resolve_inbox` — each one remote tool
-(`api/remote/agent_api.OPS`), its arguments the remote schema's minus `conversation`, run through the shared
+`Authorization: Bearer <connector token>` and a JSON object body. **Generated from the remote tool table (ruling 38,
+2026-10-23):** every `REMOTE_TOOLS` entry is exactly one operation unless `agent_api.EXCLUDED` names it with its reason
+(only `cicada_handshake`: `GET /v1/me` and `llms.txt` carry it), so the same token gives the same powers on `/mcp` and
+`/v1`, and the stdio-only tools (`continue`, `edit_page`, the saved-list and profile reads, explore, design, skills)
+stay off both. 27 operations. **Stable, frozen as #424 shipped them:** `recall`, `ask`, `page`, `timeline`,
+`project`, `save_note`, `save_url`, `write_claim`, `retract_claim`, `inbox`, `resolve_inbox` (`agent_api.STABLE`;
+`cli_map`'s `api_op` column spells the seven that are not their CLI command). **Added, each its `cli_map` command
+spelled with underscores (`Row.operation`):** `hub`, `perspective`, `source_list`, `source_add`, `source_change`,
+`progress_add`, `backlog_list`, `backlog_add`, `backlog_note`, `inbox_record_check`, `video_queue`, `video_claim`,
+`video_record`, `read_queue`, `read_record`, and `capture_turns` (remote-only, so named in
+`agent_api.REMOTE_ONLY_OPS`: a relayed turn is stored `evidence_kind: assistant` with `relay.connector`, never the
+person's own words). **One episode per conversation (ruling 32, G104):** `capture_turns` alone keeps the
+`conversation` argument on `/v1`. `"conversation": "new"` starts one — Cicada mints the handle (`mint_handle`) and
+answers it as `data.conversation` — and every later turn passes that handle back; a handle another token got (or any
+other string) is 400 `invalid_arguments`, nothing written, never merged into someone else's record. With no
+`conversation` a turn goes to the token's day bucket (`rc_<id>_<day>`) — the documented fallback, as on `/mcp` without
+a handle — so a caller relaying two conversations a day must start each with `"new"`. `test_agent_api.py` pins the operation set to
+`REMOTE_TOOLS − EXCLUDED`, the eleven names to their tools, each new name to its row, each operation's scope to
+`catalog.TOOL_SCOPE`, and `/v1/openapi.json`'s validity; a tool added to one table and not the other fails CI.
+Each operation is one remote tool (`api/remote/agent_api.OPS`), its arguments the remote schema's minus
+`conversation` (except `capture_turns`, above), run through the shared
 `RemoteRuntime` (scopes, G199 contract, Sleep and demo gates, the daily `ask` cap, fenced reads, `connector:` and
 `origin: remote:<id>` provenance, one ids-only `remote_call` row). Every answer is `{text, isError, code, data}`:
 200 (isError true for a body's refusal), 400 `invalid_arguments`, 401 `invalid_token`, 403 `denied` / `origin`,
@@ -167,7 +211,10 @@ bank (`NO_BANK_WRITE`). **Hyrum, mode A:** stable — the paths, `qr`'s three ke
 `GET /v1/openapi.json` (OpenAPI 3.1, generated from the remote schemas) and `GET /v1/llms.txt` = `GET /llms.txt`
 describe it and are open. `/v1/*` sits outside the app-wide bearer check (`auth._OpenPaths`) and checks its own:
 **only a connector token** — the master token and a device token are the person's machines, an agent is not, so both
-are 401 there. Any `Origin` is refused. The same API rides the G135 listener (`network.md`).
+are 401 there. Any `Origin` is refused. The same API rides the G135 listener (`network.md`). **No third door**
+(ruling 38): an MCP client uses `/mcp`; everything else uses `/v1` and `/v1/openapi.json`. A scope-denied or malformed
+call answers the same sentence and `code` on both doors (one `RemoteRuntime.call`, one `tool_contract`); `sources`
+gates every verbatim word on `/v1` as on `/mcp` (`ToolContext.raw_excerpts`).
 **Agent tokens:** `POST /agent-api/tokens` `{name, scopes?, expiresInDays?, baseUrl?}` (master only:
 `MASTER_ONLY_WRITE_PREFIXES`) makes a connector row with `auth: "api"` and answers once `{token, agent, prompt,
 baseUrl}` — `cic_api_<id>_<secret>`, scoped (default `search`/`read`/`record`), expiring 7/30/90, revocable at
@@ -273,7 +320,14 @@ mapping unchanged: `sources` → `.sources`). `GET /sources/channels/{id}/items`
 that left the browser, each with `left` (shape `g161-2`). Sources v3 (2026-10-19, shape `g161-3`): a saved link's row adds `host`, `site` and `why` (the newest *Ask why* answer, read only for the page served), and a channel-less saved import is listed by its Sources row id; `GET /sources/overview` rows carry `intent` (`saved` | `captured`, ETag shape `overview-v3`; `app.md`, "Sources page — v3"). `GET /sources/saved/{media_entity_id}/site-icon` serves a saved link's own site icon, asked of that site only (owner ruling 2026-10-19; `storage.md`); 404 = draw the monogram; `GET /sources/saved/episodes/{episode_id}/site-icon` serves the same for a Waiting row of a saved link with no page yet (2026-10-20), and `GET /sources` items carry `siteKey` (shape `site-key-1`), `GET /sleep/episodes` rows `site` (`episodes-2`) and `device`, the device id that posted it, null for this server (`episodes-3`, G212: the Sleep page's machines strip) — client mappings unchanged, both are in-memory reads. Sources v4 (2026-10-19, shapes `g161-4` / `overview-v4`): an overview row adds `waiting`, `faces` and `facesMore`, and its ETag folds in `photos` (a chat face carries its photo's hash) — `VersionVector` maps `photos` to `.sourcesOverview` in the same PR; a list row drops a trailing " · <its day>", a Messages row carries `chat`, a watched day `videos` (month summaries unlisted). Review of #358 (shape `g161-5`): Messages lists one row per chat (`kind: chat`, `sittings`), a saved row's faces come from the set its list lists and only while its count is above zero, and the items ETag folds in `photos` too (`messages_photos.stamp` hashes every stored photo). New: `GET /sources/watch-history/days/{episode}` (a day's videos, ETag, not a Store domain), `GET /sources/watch-history/days/{episode}/videos/{video_id}/thumbnail`, `GET /sources/saved/{media_entity_id}/still` (marks-2: a saved YouTube video's still by its page's id, the same store; items shape `g161-6` adds `video` on such a row and `host`/`site` on a saved link's waiting episode row; the overview's ETag folds the `siteIcons` sync component — the own-site icon index, mapped by `VersionVector` to `.sourcesOverview` in the same PR — because a saved row's faces put cached icons first), `GET /sources/messages/chats/{conversation}/sittings` (ETag, not a Store domain) and `GET /sources/messages/chats/{conversation}/photo` (404 = no picture; `storage.md`). `POST /sources/sync-bookmarks` gained `leftMarked`;
 `removalsProposed` stays on the wire and is always 0 for bookmarks. `GET /sources/saved-why/options` serves the four
 reasons and an always-empty `projects`; `POST`/`PUT /sources/saved-why` still accept a retired reason (`technique`) and a
-project (an edit may keep an archived one).
+project (an edit may keep an archived one). **G191 v7 (2026-10-23):** the options add `more`, the 38-reason bank the panel
+suggests from (`saved_why.MORE`; `reasons` is unchanged, so an older app shows the same four); a bank key is accepted and
+stored exactly like a fixed one (its key in `saved_why`, its label as the person's line in the section). The two sides
+share `api/tests/fixtures/saved_why_reasons.json`. New, read-only (`NONE` in the write-admission table):
+`POST /sources/saved-why/suggest` `{url, title}` → `{basis, scores[{key, score}]}` — cosine similarity of each bank
+reason to the link's title, host and path (never its query) by EmbeddingGemma **only when it is already installed**
+(`onnx_embedder.find(PREFERRED_ID)`; never a download, a bundled-model fallback or a metered embedding service), else
+`basis: none`. Nothing written, nothing logged.
 
 **G191 v3 bookmark writes** (both 409 in a demo bank and while Sleep holds the pages, both committed alone as
 `Cicada-Author: user`): `PUT /sources/saved-why` `{url, at, reasons[], project?, text?}` changes the one answer given at
@@ -290,7 +344,7 @@ saving it answers) and answers with `history`. The app reaches both through `Sto
 (no `VersionVector` mapping, fetched on demand like provenance). A timeline item carries at most
 12 participants plus `participantsTotal`, and a cluster group at most 8 names no page holds yet
 (round 4 D6). A list row's `activity` is the window's first day only — the row bar's start, all the list draws from it;
-the detail keeps the series (`PROJECT_SHAPE` g141-4, 2026-10-19: 40 % of the list's body at 700 projects). g141-5 (2026-10-22, ruling 36 D4): a row carries `origin` (`repo` | `words` | null — read from the page alone, no conversation), the detail `origin` {kind, stored, why, day, episode, quote, repoName, via}, the six standard `sections` (`project_sections.SECTIONS`: overview · timeline · done · expected · design · people; each {key, title, writtenBy, entries ≤ 40 + more, markdown}) and `people` (every linked person page). The person's writes (G141 PJ-3b) —
+the detail keeps the series (`PROJECT_SHAPE` g141-4, 2026-10-19: 40 % of the list's body at 700 projects). g141-5 (2026-10-22, ruling 36 D4): a row carries `origin` (`repo` | `words` | null — read from the page alone, no conversation), the detail `origin` {kind, stored, why, day, episode, quote, repoName, via}, the six standard `sections` (`project_sections.SECTIONS`: overview · timeline · done · expected · design · people; each {key, title, writtenBy, entries ≤ 40 + more, markdown}) and `people` (every linked person page). g141-6 (2026-10-23): a row and the detail carry `lastRepoDay` (the newest local day an agent session ran in the project's repository, from the hook's observation in episode frontmatter); `momentDays` / `lastMomentDay` are every day a claim about the project was said, a happening's day and those repository days (the list's rule, so list and detail agree, R-PJB19); a moment is listed only where the project is discussed in substance (`project_timeline._substantive`). The person's writes (G141 PJ-3b) —
 `POST /projects/{id}/milestones`, `PATCH /projects/{id}/milestones/{slug}`, `POST /projects/{id}/happenings`
 (the Log: one time phrase becomes the day, a companion episode keeps the words), `POST
 /projects/{id}/threads/{claim_id}` and `POST /projects/{id}/withdraw` (happenings only) — answer **409**

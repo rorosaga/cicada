@@ -381,4 +381,5 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     os.environ.setdefault("CICADA_CAPTURE", "off")
+    os.environ.setdefault("CICADA_RECALL", "off")
     raise SystemExit(main())

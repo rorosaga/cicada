@@ -49,7 +49,7 @@ struct IntelligenceStep: View {
     }
 
     private func keysToggle(_ title: String) -> some View {
-        TextButton(title: title, inline: true) { showsKeys.toggle() }
+        TextButton(title: title, inline: true, flushLeading: true) { showsKeys.toggle() }
     }
 
     /// Settings → Intelligence's own rows for one kind — never the local row (D1: local is never pitched).

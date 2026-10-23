@@ -18,12 +18,28 @@ final class SaveWhyNSPanel: NSPanel {
     /// remembers which app had it first, to give it back.
     var onTakingKey: (() -> Void)?
 
+    /// G191 v7 — the card's height from the window's top: the window is taller than the card (it never resizes while
+    /// the field grows), and the band below the card is clear. 0 until the view has laid out.
+    var cardHeight: CGFloat = 0
+    /// A click in that clear band: leaving, as a click anywhere else is. (macOS usually passes a click on a fully
+    /// transparent pixel to the window beneath; when it does not, this keeps the band from swallowing it silently.)
+    var onClickBelowCard: (() -> Void)?
+
     override func sendEvent(_ event: NSEvent) {
         if Self.isPersonsClick(event.type) {
+            if Self.isBelowCard(event.locationInWindow, windowHeight: frame.height, cardHeight: cardHeight) {
+                onClickBelowCard?()
+                return
+            }
             clickedInside = true
             if !isKeyWindow { onTakingKey?() }
         }
         super.sendEvent(event)
+    }
+
+    /// Whether a point (window coordinates, origin bottom-left) lies in the clear band under the card.
+    static func isBelowCard(_ point: CGPoint, windowHeight: CGFloat, cardHeight: CGFloat) -> Bool {
+        cardHeight > 0 && point.y < windowHeight - cardHeight - 1
     }
 
     static func isPersonsClick(_ type: NSEvent.EventType) -> Bool {
@@ -99,6 +115,10 @@ final class SaveWhyPanelController: SaveWhyPresenting {
             guard let self else { return }
             self.returnTo = self.frontmostPID() ?? self.returnTo
         }
+        panel.onClickBelowCard = { [weak center] in
+            let primary = NSScreen.screens.first?.frame.height ?? 0
+            center?.click(at: BookmarkBubblePolicy.windowListPoint(NSEvent.mouseLocation, primaryHeight: primary))
+        }
 
         // G191 live: the screen the bookmark was made on — the browser's front window, else the front app's — and
         // `NSScreen.main` only when neither is known (`SaveWhyScreen`). The notch is that screen's own.
@@ -118,10 +138,13 @@ final class SaveWhyPanelController: SaveWhyPresenting {
                                                             onFieldClick: { [weak self, weak center] in
             center?.input(.engage)
             self?.focusText()
-        }))
+        }, onCardHeight: { [weak panel] height in panel?.cardHeight = height }))
         panel.contentView = host
-        panel.setFrame(SaveWhyNotch.frame(screen: screenFrame, notch: notchRect, size: host.fittingSize),
-                       display: false)
+        // G191 v7: the window is as tall as the card can grow (the field at its cap, two rows of suggestions), clear
+        // below the card, so it never resizes while the person writes; the card's own shape grows inside it.
+        var size = host.fittingSize
+        size.height += SaveWhyField.growthReserve
+        panel.setFrame(SaveWhyNotch.frame(screen: screenFrame, notch: notchRect, size: size), display: false)
         panel.orderFrontRegardless()
         self.panel = panel
         // Next turn of the run loop, so the view has drawn the shape at rest and the spring has a start to leave.
@@ -211,8 +234,18 @@ struct SaveWhyPanelView: View {
     let notch: SaveWhyNotchModel
     /// A click in the field: make the panel key so the words go there.
     var onFieldClick: () -> Void = {}
+    /// G191 v7 — the card's laid-out height, so the window knows where its clear band starts.
+    var onCardHeight: (CGFloat) -> Void = { _ in }
     @FocusState private var textFocused: Bool
     @State private var draft = ""
+    /// The text area's width, measured once laid out: what the field's line count is measured against.
+    @State private var fieldWidth: CGFloat = 0
+
+    /// The lines the field shows for what is written now (one to `SaveWhyField.maxLines`). The text system keeps a
+    /// little padding at each side of a line, so the words wrap a few points before the field's own width.
+    private var fieldLines: Int {
+        SaveWhyField.visibleLines(SaveWhyField.lineCount(draft, width: fieldWidth - SaveWhyField.linePadding))
+    }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Wide enough for the four reasons on one line at 1× (owner 2026-10-19: "The four options could all fit on a
@@ -223,7 +256,12 @@ struct SaveWhyPanelView: View {
     /// The bookworm's room-art size (64 × 48 at 1×, the sheet's own frame timings).
     static let mascotPoints: CGFloat = 48
 
+    /// Top-aligned in a window taller than the card (`SaveWhyField.growthReserve`), so the card grows downward.
     var body: some View {
+        panel.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    @ViewBuilder private var panel: some View {
         if let state = center.state {
             // Under Reduce Motion the shape is drawn grown and only fades (DR-66); otherwise it grows and shrinks.
             let progress: CGFloat = reduceMotion || notch.grown ? 1 : 0
@@ -245,6 +283,11 @@ struct SaveWhyPanelView: View {
                 }
                 .animation(notch.grown ? CicadaMotion.notchGrow(reduceMotion: reduceMotion)
                                        : CicadaMotion.notchShrink(reduceMotion: reduceMotion), value: notch.grown)
+                // G191 v7: the card — and the notch's shape with it — grows with the field and makes room for the
+                // suggestions; both in one frame under Reduce Motion (height is movement, DR-66).
+                .animation(CicadaMotion.fieldGrow(reduceMotion: reduceMotion), value: fieldLines)
+                .animation(CicadaMotion.suggestGrow(reduceMotion: reduceMotion), value: center.suggestions)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onCardHeight($0) }
                 .onChange(of: focus.ticket) { _, _ in textFocused = true }
                 // In the field however it got there: the person is about to write or dictate — no timer closes it.
                 .onChange(of: textFocused) { _, focused in if focused { center.input(.engage) } }
@@ -282,28 +325,50 @@ struct SaveWhyPanelView: View {
     }
 
     /// The four reasons on one line (owner 2026-10-19), wrapping into balanced rows only when a larger text size
-    /// leaves no room (`SaveWhyChipRows`). No project chips: the field is the "something else".
+    /// leaves no room (`SaveWhyChipRows`). No project chips: the field is the "something else". G191 v7: under them,
+    /// once the link is known, a few reasons from the bank suggested for it (`SaveWhySuggest`) — the card makes room
+    /// and they fade in; the fixed row never moves.
     private func reasons(_ state: SaveWhyPanelState) -> some View {
-        SaveWhyReasonChips(reasons: center.options.reasons, isSelected: { state.isSelected(reason: $0) }) {
-            center.input(.tapReason($0))
+        VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
+            SaveWhyReasonChips(reasons: center.options.reasons, isSelected: { state.isSelected(reason: $0) }) {
+                center.input(.tapReason($0))
+            }
+            if !center.suggestions.isEmpty {
+                SaveWhySuggestedChips(reasons: center.suggestions, isSelected: { state.isSelected(reason: $0) }) {
+                    center.input(.tapReason($0))
+                }
+            }
         }
     }
 
-    /// The field and Save, always there: a few words of the person's own, Return or Save to confirm.
+    /// The field and Save, always there: a few words of the person's own, Return or Save to confirm. G191 v7: the field
+    /// grows a line at a time as the words wrap or break (⌥⏎, the Mac's line break in a field) up to
+    /// `SaveWhyField.maxLines`, then scrolls inside; it eases (`CicadaMotion.fieldGrow`), in one frame under Reduce
+    /// Motion. The words are stored as they always were — whitespace folded to single spaces.
     private func words(_ state: SaveWhyPanelState) -> some View {
-        HStack(spacing: CicadaTheme.spacingSM) {
-            TextField(Copy.SaveWhy.placeholder, text: $draft)
+        let lineHeight = SaveWhyField.lineHeight()
+        let corner = (lineHeight + 2 * CicadaTheme.scaled(SaveWhyField.verticalInset)) / 2
+        let outline = CicadaTheme.shape(corner)
+        return HStack(alignment: .bottom, spacing: CicadaTheme.spacingSM) {
+            TextField(Copy.SaveWhy.placeholder, text: $draft, axis: .vertical)
+                .lineLimit(1...SaveWhyField.maxLines)
                 .textFieldStyle(.plain)
                 .font(CicadaTheme.metaFont)
                 .foregroundStyle(CicadaTheme.Notch.textPrimary)
                 .focused($textFocused)
-                .padding(.horizontal, CicadaTheme.scaled(10))
-                .padding(.vertical, CicadaTheme.scaled(6))
-                .background(Capsule().strokeBorder(textFocused ? CicadaTheme.Notch.chipSelectedRing
-                                                                : CicadaTheme.Notch.chipRing, lineWidth: 1))
-                .contentShape(Capsule())
+                .frame(height: SaveWhyField.textHeight(lines: fieldLines, lineHeight: lineHeight), alignment: .topLeading)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { fieldWidth = $0 }
+                .padding(.horizontal, CicadaTheme.scaled(SaveWhyField.horizontalInset))
+                .padding(.vertical, CicadaTheme.scaled(SaveWhyField.verticalInset))
+                .background(outline.strokeBorder(textFocused ? CicadaTheme.Notch.chipSelectedRing
+                                                              : CicadaTheme.Notch.chipRing, lineWidth: 1))
+                .contentShape(outline)
                 .simultaneousGesture(TapGesture().onEnded { onFieldClick() })
                 .onChange(of: draft) { _, text in center.send(.draftChanged(text)) }
+                // The panel's own words into the field: an answer filled in on a saved page (`adopt`), which arrives
+                // after the panel shows, and the cap (`maxText`). Before G191 v7 the field never showed them.
+                .onAppear { draft = state.draft }
+                .onChange(of: state.draft) { _, words in if words != draft { draft = words } }
                 .onSubmit { center.input(.submit) }
                 .accessibilityLabel(Copy.SaveWhy.wordsLabel)
             Button(Copy.SaveWhy.save) { center.input(.submit) }
@@ -378,6 +443,25 @@ struct SaveWhyReasonChips: View {
         }
         .buttonStyle(.cicadaPlain)
         .accessibilityAddTraits(selected ? [.isSelected, .isToggle] : [.isToggle])
+    }
+}
+
+/// G191 v7 — the reasons suggested for this link, drawn exactly as the fixed ones (the same toggle, so a suggested
+/// reason reads as one more choice, not a different kind of thing), fading in once as they arrive; the card's room for
+/// them eases separately (`CicadaMotion.suggestGrow`). Under Reduce Motion only the fade remains (DR-66).
+struct SaveWhySuggestedChips: View {
+    let reasons: [SavedWhyOptions.Reason]
+    let isSelected: (String) -> Bool
+    let onTap: (String) -> Void
+    @State private var shown = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        SaveWhyReasonChips(reasons: reasons, isSelected: isSelected, onTap: onTap)
+            .opacity(shown ? 1 : 0)
+            .onAppear { withAnimation(CicadaMotion.suggestFade(reduceMotion: reduceMotion)) { shown = true } }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(Copy.SaveWhy.suggestedLabel)
     }
 }
 

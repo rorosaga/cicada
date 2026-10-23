@@ -119,7 +119,7 @@ extension Copy {
     // MARK: Contacts (G154)
     static let contactsTitle = "Contacts"
     static let contactsMeta = "Enriches people Cicada already knows"
-    static let contactsOff = "Not connected — Connect asks macOS to share your contacts. Nobody new is ever added."
+    static let contactsOff = "Connect asks macOS to share your contacts. Nobody new is ever added."
     static let contactsDenied = "Contacts access is off for Cicada — turn it on in System Settings → Privacy & Security → Contacts, then Connect again."
     static let contactsEmpty = "No contacts to read yet"
     static let contactsReading = "Reading your contacts"

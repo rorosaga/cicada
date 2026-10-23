@@ -262,7 +262,9 @@ final class SaveWhyKeepsTests: XCTestCase {
             controller.focusText()
             XCTAssertFalse(panel.isKeyWindow, "never key before the person's click inside")
 
-            let click = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: CGPoint(x: 20, y: 20),
+            // Inside the card, near its top (G191 v7: the window is taller than the card; the band below is clear).
+            let inside = CGPoint(x: panel.frame.width / 2, y: panel.frame.height - 60)
+            let click = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: inside,
                                                          modifierFlags: [], timestamp: 0,
                                                          windowNumber: panel.windowNumber, context: nil,
                                                          eventNumber: 0, clickCount: 1, pressure: 1))
