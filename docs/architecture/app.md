@@ -1035,7 +1035,11 @@ agent reads (`agent_methods`), not an install.
   Refresh and Disconnect; `AppleNotesWatcher` keeps up every two hours while Notes is open); Telegram says plainly it
   needs a public address Cicada never opens, with *How to set it up* opening its steps (`~/.cicada/secrets.env`, not
   `api/.env`). The overview files a nil-origin save (a bookmarks file imported through Files and links) under Files &
-  links instead of a row called "unknown", and a phone's note reads *Phone*.
+  links instead of a row called "unknown", and a phone's note reads *Phone*. Live test, same day: YouTube claims the
+  overview's `youtube-history` and `youtube` rows, and an account's import that fed memory reads Connected (an overview
+  row no channel speaks for, so a reader turned off never returns through its episodes); a row's last sync is the newest
+  capture write (`captured_at` / `last_turn_at`), not a session's start; Instagram's line says what G206 shipped and a
+  saved list switched on reads Connected.
 - **Inbox top cards (G205, G61):** `agent_request` (`InboxKind.agentRequest`) and the grouped *Confirm N links* review
   (`asks: sources`, `review: true`) are cards above the questions, out of the list, its tabs and the quick review
   (`InboxViewModel.questions`). A request: the agent's tile, *Sign in to <site>*, whose and why, **I signed in**
@@ -1108,7 +1112,7 @@ the website's logo … Clicking again on Sources takes me back to the main Sourc
   row of a link Sleep has not made a page of yet asks by its episode (`SavedItemText.door`; the list names its site,
   `channel_items` `g161-6`). **A saved YouTube video's row draws its still** (`VideoStill`, the watched day's view, at
   64 × 36; `GET /sources/saved/{id}/still`, `SourcePictures.savedStillPath`), not the site's mark (owner 2026-10-20).
-- **Saved lists in your browser (G206, spec 2026-10-22 — not built; the backend is).** On a saved source's detail
+- **Saved lists in your browser (G206, spec 2026-10-22; first slice built 2026-10-23 on the catalogue's detail: the switch, its off line and the first-use sheet first — the last-read line and *Try again* are not built yet).** On a saved source's detail
   column for X, Instagram and LinkedIn, one row under the sync row: label "Read my <Bookmarks|Saved|Saved posts> in my
   browser" (`SectionLabel` above it reads *In your browser*, DR-20/47) with a `Toggle` bound to
   `GET /reading/settings` `savedLists.<site>` and written by `PUT /reading/settings {"savedLists": {"<site>": bool}}`
