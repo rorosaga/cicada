@@ -227,9 +227,8 @@ struct SleepView: View {
     /// ladder). Page-local `@State`: a tab switch tears it down, so an answer
     /// never outlives the visit it was asked in.
     @State private var room = RoomModel()
-    /// G212 — the machines under the room (`GET /devices/status`, polled while the page shows) and the one whose queue
-    /// Waiting shows (nil: every machine's).
-    @State private var machines: [MachineStatus] = []
+    /// G212 — the machine whose queue Waiting shows (nil: every machine's); the machines themselves are
+    /// `sleepVM.machines`, polled while the page shows.
     @State private var openMachine: String?
 
     private static let tabsAnchor = "sleep.tabs"
@@ -300,7 +299,7 @@ struct SleepView: View {
         // G212 — the machines strip, asked while the page shows; a failed poll keeps the last answer.
         .task {
             while !Task.isCancelled {
-                if let list = try? await APIClient.shared.fetchMachineStatus() { machines = list.devices }
+                await sleepVM.loadMachines()
                 try? await Task.sleep(for: .seconds(CicadaTiming.machinePoll))
             }
         }
@@ -528,7 +527,7 @@ struct SleepView: View {
         let rowInset = ListInsets.of(.wide).leading
         switch tab {
         case .waiting:
-            let machine = machines.first { $0.id == openMachine }
+            let machine = sleepVM.machines.first { $0.id == openMachine }
             let machineEpisodes = MachinesStrip.episodes(sleepVM.queuedEpisodes, machine: machine)
             SleepWaitingList(page: page, liveness: liveness, episodes: machineEpisodes,
                              machineRows: machine == nil ? nil
@@ -1104,7 +1103,7 @@ struct SleepView: View {
                 .accessibilitySortPriority(RoomA11yOrder.room)
 
             // G212 — each machine by its own name, how it connects and what waits; a click opens its queue below.
-            MachinesStripView(machines: machines, selected: openMachine) { machine in
+            MachinesStripView(machines: sleepVM.machines, selected: openMachine) { machine in
                 Instant.run {
                     openMachine = machine?.id
                     if machine != nil { selectTab(.waiting) }

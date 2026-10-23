@@ -22,6 +22,7 @@ final class SayItOnceTests: XCTestCase {
             (.clusters, "Views/Clusters/ClustersPage.swift"), (.skills, "Views/Skills/SkillsPage.swift"),
             (.sleep, "Views/Sleep/SleepView.swift"), (.inbox, "Views/Inbox/InboxPage.swift"),
             (.sources, "Views/Sources/SourcesPageView.swift"), (.projects, "Views/Projects/ProjectsPage.swift"),
+            (.agents, "Views/Agents/AgentsSidebarPage.swift"),
         ]
         XCTAssertEqual(Set(pages.map(\.0)), Set(AppTab.allCases), "every rail cell has a root to return to")
         for (tab, path) in pages {

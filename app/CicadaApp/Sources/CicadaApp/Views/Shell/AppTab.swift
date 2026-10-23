@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The eight primary views (the ninth, Looks, went on 2026-10-20: a look lives on the page of the thing it shows). Raw values are this tab's **stable identity** —
+/// The nine primary views (Looks went on 2026-10-20: a look lives on the page of the thing it shows; Agents took its ⌘9 on 2026-10-22). Raw values are this tab's **stable identity** —
 /// the persisted selection (`cicada.selectedTab`) and the ⌘-slot order in
 /// `allCases` — so a surviving tab's raw value must never move, even when its
 /// label changes.

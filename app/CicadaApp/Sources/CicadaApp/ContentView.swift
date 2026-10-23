@@ -305,14 +305,14 @@ struct ContentView: View {
         // The Welcome is an overlay, not a modal sheet, so without this the
         // shell under it stays live: Home's field takes keyboard focus and
         // swallows typing, Tab and VoiceOver reach the hidden rail and cards,
-        // ⌘1–8 switch a hidden tab, and in rerun mode Home's Esc answers before
+        // ⌘1–9 switch a hidden tab, and in rerun mode Home's Esc answers before
         // the Welcome's (I-b final review, finding 3). Inert while it shows.
         // R-DS25 — the page under the Settings panel never answers ⌘F.
         .environment(\.pageFindSuppressed, router.settingsOpen)
         // R-HO7 — Home's band rests while the Welcome covers it; the Welcome's own painting is in the overlay,
         // outside this environment.
         .environment(\.scenePaused, showFirstRun)
-        // R-DS21 — the Settings panel is modal the same way: ⌘1–8 and page controls are inert.
+        // R-DS21 — the Settings panel is modal the same way: ⌘1–9 and page controls are inert.
         .disabled(showFirstRun || router.settingsOpen)
         .accessibilityHidden(showFirstRun || router.settingsOpen)
         // Track I T5 (R-IA24) — drop anywhere: one window-level target, the veil
