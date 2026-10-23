@@ -10,7 +10,7 @@
 
 ## Current state and evidence
 
-- **2026-10-23 — the new user, third pass (G148, G209; branch `fix/newuser-memory-3`).** A drop ends the project's
+- **2026-10-23 — the new user, third pass (G148, G209; PR #442, branch `fix/newuser-memory-3`).** A drop ends the project's
   qualified and related uses of the tool, not only a plain `uses` (seed `endings.uses.also_ends`,
   `EndingFn.ended_by`); a held full name whose given name is one person page's whole title asks "same person?"
   (`entity_resolver._given_name_pages`, W1's cap and `merge_rejections`); `## Related` names each link by the newest
