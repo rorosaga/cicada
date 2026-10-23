@@ -276,10 +276,17 @@ def test_the_traces_path_imports_no_network_no_model_and_no_ledger(rel):
 
 def test_no_agent_door_reads_the_traces_store():
     """No MCP tool, no Ask, no remote listener, no /v1 reads traces in v1 (G218): only routers/traces.py and the
-    promotion do, and the store is imported by nothing else."""
+    promotion do, and the store is imported by nothing else.
+
+    The scan reads the repository's own tracked Python sources under ``api/`` and ``mcp/`` (the MCP server) — never a
+    virtualenv, ``__pycache__`` or anything else a checkout happens to hold (CI keeps its venv at ``api/.venv``)."""
+    listed = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z", "--", "api", "mcp"], capture_output=True,
+                            check=True).stdout.decode("utf-8").split("\0")
+    sources = [ROOT / rel for rel in listed if rel.endswith(".py")]
+    assert any(p.name == "mcp_tools.py" for p in sources) and any(p.parent.name == "remote" for p in sources)
     readers = set()
-    for path in (ROOT / "api").rglob("*.py"):
-        if "tests" in path.parts or path.name.startswith("trace_") or path.name == "traces.py":
+    for path in sources:
+        if "tests" in path.parts or path.name.startswith("trace_") or path.name == "traces.py" or not path.is_file():
             continue
         if {"trace_store", "trace_memory", "trace_keys", "trace_seal"} & {n.split(".")[-1] for n in _imports(path)}:
             readers.add(path.relative_to(ROOT).as_posix())
