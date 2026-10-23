@@ -216,8 +216,35 @@ def _ts(value) -> str | None:
     try:
         dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
-        return None
+        dt = _wispr_text_time(text)
+        if dt is None:
+            return None
     return episode_ids.to_utc_iso(dt)
+
+
+#: How Wispr Flow writes a time in its own database (2026-10-23, the owner's install): a space between date and time,
+#: milliseconds, and a SPACE before the offset — ``2026-08-26 14:03:07.123 +00:00``. `fromisoformat` refuses the space
+#: before the offset, so every meeting was dated the day it was imported. Also taken: no fraction, ``T``, ``Z`` or
+#: ``UTC``, an offset without its colon (``+0000``), and no offset at all (UTC, as Wispr stores it).
+_WISPR_TIME = re.compile(
+    r"(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)(\.\d{1,9})?\s*(Z|UTC|GMT|[+-]\d{2}:?\d{2})?",
+    re.IGNORECASE)
+
+
+def _wispr_text_time(text: str) -> datetime | None:
+    match = _WISPR_TIME.fullmatch(text)
+    if match is None:
+        return None
+    day, clock, fraction, zone = match.groups()
+    fraction = (fraction or "")[:7]          # fromisoformat takes at most microseconds
+    if not zone or zone.upper() in ("Z", "UTC", "GMT"):
+        offset = "+00:00"
+    else:
+        offset = zone if ":" in zone else f"{zone[:3]}:{zone[3:]}"
+    try:
+        return datetime.fromisoformat(f"{day}T{clock}{fraction}{offset}")
+    except ValueError:
+        return None
 
 
 def _turn_ts(value) -> str | None:
@@ -341,6 +368,7 @@ def meeting_draft(item: dict, todos: list[dict], owner_names: set[str]) -> tuple
         source_id=f"wispr:meeting:{meeting_id}",
         source_updated_at=_ts(row["modifiedAt"]) or created, timestamp=created,
         original_date=episode_ids.id_day(created) if created else None, source=ORIGIN, origin=ORIGIN, turns=turns,
+        redate=created is not None,
         extra={"wispr_kind": "meeting",
                "participants": _names(row["participantNames"]) or sorted(set(speaker_map.values())),
                "consent": "unknown", "meeting_ended_at": _ts(row["endedAt"])},
@@ -359,7 +387,7 @@ def note_draft(raw: dict) -> EpisodeDraft | None:
         title=" ".join(str(row["title"] or "").split()) or "Wispr Flow note",
         source_id=f"wispr:note:{note_id}", source_updated_at=_ts(row["modifiedAt"]) or created,
         timestamp=created, original_date=episode_ids.id_day(created) if created else None, source=ORIGIN, origin=ORIGIN,
-        body=body, extra={"wispr_kind": "note"}, writer="wispr-flow",
+        body=body, extra={"wispr_kind": "note"}, writer="wispr-flow", redate=created is not None,
     )
 
 

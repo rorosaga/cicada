@@ -124,6 +124,12 @@ class EpisodeDraft:
     #: Messages the sender unsent, by position only — ``[{before: turn index, speaker, ts?, ref?}]`` — never words
     #: (`turn_extras.UNSENT_KEY`).
     unsent: list[dict] = field(default_factory=list)
+    #: The draft's ``timestamp`` is authoritative for an episode already staged under its ``source_id``: when the stored
+    #: one names another moment, it is moved in place and the episode re-queued (2026-10-23 — a writer whose date
+    #: parser had failed stamped the import time). The id is never renamed (ruling 34), so its day may stay the
+    #: import's; everything that dates an episode reads ``timestamp``. Off by default: a writer whose first stamp is
+    #: deliberate (a future calendar event, dated the day Cicada learned of it) keeps it.
+    redate: bool = False
 
 
 @dataclass
@@ -612,6 +618,27 @@ def revise_section(path: Path, heading: str, build, *, writer: str, bank: str | 
 
 
 @_under_episode_lock
+def _moved(stored, wanted) -> bool:
+    """Whether ``wanted`` names another moment than ``stored`` (both readable, aware); never for an unreadable one."""
+    old, new = _when(normalise_timestamp(stored)), _when(normalise_timestamp(wanted))
+    return old is not None and new is not None and old != new
+
+
+@_under_episode_lock
+def _redate(path: Path, draft: EpisodeDraft, stamps: list[dict]) -> None:
+    """``EpisodeDraft.redate``: the episode's moment moves to the draft's, in place — same file, same id (ruling 34),
+    re-queued so Sleep reads it on its true day; the turns' times are the draft's too. The moment it replaced is kept
+    as ``redated_from``."""
+    parsed = markdown_parser.parse(path)
+    fm = dict(parsed.frontmatter)
+    fm["redated_from"] = fm.get("timestamp")
+    fm["timestamp"] = draft.timestamp
+    fm["processed"] = False
+    fm.pop("processed_by", None)
+    set_turn_stamps(fm, stamps)
+    markdown_parser.write(path, fm, parsed.body)
+
+
 def _restamp(path: Path, draft: EpisodeDraft) -> None:
     parsed = markdown_parser.parse(path)
     fm = dict(parsed.frontmatter)
@@ -795,7 +822,8 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
             same_body = entry.fm.get("content_hash") in (digest, legacy)
             same_meta = (entry.fm.get("evidence_kind") == draft.extra.get("evidence_kind")
                          and not entry.fm.get("source_deleted_at"))
-            if same_body and same_meta:
+            redated = draft.redate and _moved(entry.fm.get("timestamp"), draft.timestamp)
+            if same_body and same_meta and not redated:
                 if draft.content_sha and entry.fm.get("content_sha") != draft.content_sha:
                     # An unchanged H2 section of an edited file: its words did not
                     # move, but the file's hash did. Restamp it (no re-queue) or a
@@ -826,6 +854,10 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
                     update_in_place(entry.path, draft, body, digest, stamps)
                 known_hashes.add(digest)
                 entry.fm["content_hash"] = digest
+            if redated:
+                if write:
+                    _redate(entry.path, draft, stamps)
+                entry.fm["timestamp"] = draft.timestamp
             entry.fm["evidence_kind"] = draft.extra.get("evidence_kind")
             entry.fm.pop("source_deleted_at", None)
             _mark(result, "updated", sid, entry, episodes_dir)
