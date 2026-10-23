@@ -104,13 +104,13 @@ def test_a_real_claude_child_sees_the_scrubbed_env(fake_cli, monkeypatch):
 
 def test_a_real_codex_child_runs_in_cicadas_home(fake_cli, monkeypatch):
     read_seen = fake_cli("codex", "", watch=("CODEX_HOME", "CODEX_API_KEY",
-                                             "OPENAI_BASE_URL", "CICADA_CAPTURE"))
+                                             "OPENAI_BASE_URL", "CICADA_CAPTURE", "CICADA_RECALL"))
     monkeypatch.setenv("CODEX_API_KEY", "leak")
     monkeypatch.setenv("CODEX_HOME", "/nonexistent/not-cicadas")
     assert base.run_cli_sync(["codex", "login", "status"]).rc == 0
     [seen] = read_seen()
     assert seen["env"] == {"CODEX_HOME": str(base.codex_home()), "CODEX_API_KEY": None,
-                           "OPENAI_BASE_URL": None, "CICADA_CAPTURE": "off"}
+                           "OPENAI_BASE_URL": None, "CICADA_CAPTURE": "off", "CICADA_RECALL": "off"}
 
 
 def test_the_async_runner_scrubs_the_same_way(fake_cli, monkeypatch):

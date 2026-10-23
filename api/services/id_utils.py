@@ -119,6 +119,26 @@ def bank_file(directory: Path, stem: str) -> Path | None:
     return Path(directory) / f"{raw}.md"
 
 
+#: The longest file name the filesystems a bank lives on accept (APFS, ext4: 255 bytes).
+MAX_NAME_BYTES = 255
+
+
+def is_page(path: Path | None) -> bool:
+    """``path`` is an existing file — ``False``, never an error, for a name no filesystem can hold.
+
+    2026-10-23 (live test): a claim's object or a wikilink target is sometimes a whole sentence (a bookmark's
+    description, a pasted history list), and ``Path.exists()`` raises ``OSError: [Errno 63] File name too long``
+    for a component past 255 bytes instead of answering ``False``. Ask's retrieval resolved such an object as a page
+    and the error threw away every hit, so a page recall found was answered "no page exists"; Sleep's wikilink step
+    failed the same way. A name that long is never a page, so it is refused before the filesystem is asked."""
+    if path is None or len(path.name.encode("utf-8", "surrogatepass")) > MAX_NAME_BYTES:
+        return False
+    try:
+        return path.exists()
+    except (OSError, ValueError):
+        return False
+
+
 def _fold(name: str) -> str:
     return unicodedata.normalize("NFC", name).casefold()
 
@@ -208,11 +228,11 @@ def resolve_entity_file(memory_path: Path, name_or_slug: str) -> Path | None:
     entities_dir = Path(memory_path) / "entities"
 
     direct = bank_file(entities_dir, raw)  # never a path out of the bank
-    if direct is not None and direct.exists():
+    if is_page(direct):
         return on_disk(direct)
 
     sanitized = entities_dir / f"{sanitize_id(raw)}.md"
-    if sanitized.exists():
+    if is_page(sanitized):
         return on_disk(sanitized)
 
     # The case-insensitive stem match reads one cached index of the folder, not a fresh `glob` per call: a caller
@@ -294,9 +314,9 @@ def resolve_entity_id(
     # Fallback for files not covered by the index (e.g. a stem whose name
     # frontmatter is missing). Path.exists() is the last resort here.
     direct = bank_file(entities_dir, raw)
-    if direct is not None and direct.exists():
+    if is_page(direct):
         return direct.stem
     sanitized = entities_dir / f"{sanitize_id(raw)}.md"
-    if sanitized.exists():
+    if is_page(sanitized):
         return sanitized.stem
     return None

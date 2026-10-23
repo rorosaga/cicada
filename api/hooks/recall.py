@@ -24,8 +24,11 @@ UserPromptSubmit blocks the prompt and erases it). The one request has a
 0.9 s timeout, so the whole script stays under about a second; the backend
 holds itself to 300 ms and answers "nothing" past that (R-H6).
 
-``CICADA_CAPTURE=off`` (every CLI Cicada itself spawns, G105 R8) and
-``CICADA_RECALL=off`` (the person's switch) exit before any request. A Codex
+``CICADA_RECALL=off`` exits before any request: the person's switch, and every CLI Cicada itself spawns (with
+``CICADA_CAPTURE=off``, G105 R8). 2026-10-23: ``CICADA_CAPTURE=off`` alone no longer silences recall — capture and
+recall are different consents (saving a session vs. reading memory into it), so a test or worker session run with
+capture off can now show the start-of-session note, while Cicada's own spawns set both and stay silent on both
+(``connections.base.scrubbed_env``), so Sleep's own model calls never get memory injected. A Codex
 sub-agent's prompt (``agent_id`` set) is the parent agent talking, not the
 person, and is skipped (R-H15).
 
@@ -134,10 +137,9 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
             pass
     tag = f"{harness} ?"
     try:
-        for key in ("CICADA_CAPTURE", "CICADA_RECALL"):
-            if _off(environ, key):
-                _log(log_path, f"{tag} skipped: {key}=off")
-                return 0
+        if _off(environ, "CICADA_RECALL"):
+            _log(log_path, f"{tag} skipped: CICADA_RECALL=off")
+            return 0
         try:
             payload = json.loads(stdin.read() or "{}")
         except ValueError:

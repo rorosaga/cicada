@@ -55,7 +55,7 @@ def test_build_carries_contract_state_and_capabilities(tmp_path):
     assert "in your own words" in text and "quote=<their exact words>" in text and 'mode="list"' in text
     assert "skip=true" in text and "Never guess an answer" in text
     assert "Recommended option" not in text and "quote the Cause" not in text
-    assert handshake.CONTRACT_VERSION == 20, ("G140 named its tools (3), bridge lines joined (G138, 4), then G141 named "
+    assert handshake.CONTRACT_VERSION == 21, ("G140 named its tools (3), bridge lines joined (G138, 4), then G141 named "
                                              "cicada_project (5) and cicada_note_progress (6); G149 item 8 (the "
                                              "From Cicada note) and G150's backlog tools both took 7 on parallel "
                                              "branches, so the merge moves past both (8, R-H13); G166's reading "
@@ -87,7 +87,10 @@ def test_variants_share_the_contract_and_differ_only_in_the_prelude(tmp_path):
     texts = {v: handshake.build(state, variant=v, bank="memory") for v in handshake.VARIANTS}
     contracts = {v: t.split("## Contract", 1)[1] for v, t in texts.items()}
     assert len(set(contracts.values())) == 1
-    assert "CICADA_SESSION_ID" in texts["codex"] and "CICADA_SESSION_ID" in texts["generic"]
+    # 2026-10-23: Codex's own hook groups its sessions — an agent cannot set an MCP env — and its prelude names the
+    # AGENTS.md block `cicada setup` writes; the generic harness still names the variable.
+    assert "CICADA_SESSION_ID" not in texts["codex"] and "AGENTS.md" in texts["codex"]
+    assert "CICADA_SESSION_ID" in texts["generic"]
     assert "~/.claude/skills/cicada" in texts["claude-code"]
     for t in texts.values():
         assert len(t) // 4 <= handshake.MAX_TOKENS

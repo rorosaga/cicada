@@ -7,7 +7,7 @@
 # build, its api/.venv), else the Cicada app's launcher in $CICADA_HOME/bin (a release, G182). With neither, one line
 # on stderr and exit 0: a hook never blocks a session, and nothing reaches stdout (a SessionStart or
 # UserPromptSubmit hook's stdout becomes the agent's context). The scripts it runs keep every capture rail
-# themselves: CICADA_CAPTURE=off (Cicada's own spawns), one episode per session, the transcript read by the backend
+# themselves: CICADA_CAPTURE=off stops capture and CICADA_RECALL=off recall (Cicada's own spawns set both), one episode per session, the transcript read by the backend
 # only under the harness root (G105).
 name="${1:-}"
 case "$name" in

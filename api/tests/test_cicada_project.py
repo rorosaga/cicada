@@ -26,7 +26,8 @@ def _ctx(bank, *, remote_scopes=None):
 
 def test_the_local_reply_prints_both_date_forms_and_the_quote(bank):
     out = mcp_tools.project(_ctx(bank), "Rover Arm Project")
-    assert out.startswith("Rover Arm Project — planned · 0 of 4 milestones done · last activity today (2026-09-23)")
+    # 2026-10-23: the status is derived from activity, never "planned"; the milestone count is its own fact.
+    assert out.startswith("Rover Arm Project — active · last activity today (2026-09-23) · 0 of 4 milestones done")
     assert f"Next: Pick And Place Demo — {d(12)}, in 12 days" in out
     assert "Passed, no word on how it went: Arm assembled" in out
     assert "Waiting for Sleep: 1 conversation from today" in out

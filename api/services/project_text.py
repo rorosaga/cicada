@@ -278,6 +278,20 @@ def _backlog_line(items, can_backlog: bool) -> str | None:
     return line + (" — cicada_backlog(project) lists them all" if can_backlog else "")
 
 
+def status_word(timeline, state: dict) -> str:
+    """Where the project stands, from evidence (2026-10-23): ``active`` while its last activity — a claim about it, a
+    progress note, an agent session in its repository — is inside its quiet threshold (``project_state``'s section),
+    ``quiet`` past it, ``resting`` past 90 days, and the page's own ``fading`` / ``archived`` when decay has said so.
+    It used to print ``planned`` whenever the page had any milestone — a project worked on every day read "planned ·
+    0 of 1 milestones done" because one old deadline had passed; whether it has milestones is now its own fact."""
+    status = str(getattr(timeline.project, "status", "") or "active")
+    if status == "archived":
+        return "archived"
+    if status == "decaying":
+        return "fading"
+    return {"inMotion": "active", "quiet": "quiet"}.get(str(state.get("section") or ""), "resting")
+
+
 #: How a page is opened, as the MCP names it. The `cicada` command line passes its own spelling (G180).
 DETAIL_CALL = "cicada_recall_detail(entity_id)"
 
@@ -292,12 +306,14 @@ def render(timeline, state: dict, *, memory_path: Path, today: date, raw: bool, 
     open items in list order (G150), `can_backlog` the same gate for
     `cicada_backlog`."""
     lines: list[str] = []
-    head = f"{timeline.project.name} — {'planned' if state.get('planned') else 'unplanned'}"
+    head = f"{timeline.project.name} — {status_word(timeline, state)}"
+    if timeline.last_moment_day:
+        head += f" · last activity {rel(timeline.last_moment_day, today)}"
+        if getattr(timeline, "last_repo_day", None) == timeline.last_moment_day:
+            head += ", a session in its repository"
     if state.get("planned"):
         prog = state.get("progress") or {}
         head += f" · {prog.get('done', 0)} of {prog.get('total', 0)} milestones done"
-    if timeline.last_moment_day:
-        head += f" · last activity {rel(timeline.last_moment_day, today)}"
     lines.append(head)
     now_lines, quiet_lines = _thread_lines(timeline, state, memory_path=memory_path, today=today, raw=raw)
     lines += now_lines

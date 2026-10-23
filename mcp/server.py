@@ -1122,14 +1122,17 @@ TOOLS = [
 ]
 
 
-# Hyrum audit A10: a stdio read tool says so, from the one list of read tools the remote connector annotates with
-# (`api.remote.catalog.READ_TOOLS`), so the two doors cannot disagree on which tools only read. Additive: a tool that
-# already carries annotations keeps them.
+# Hyrum audit A10: a stdio read tool says so. 2026-10-23: from the one list the tool table owns
+# (`cli_map.read_only_tools()`, every row that does not mutate), not the remote connector's `READ_TOOLS` — that list
+# leaves out the stdio-only reads (`cicada_continue`, `cicada_repo_context`, `cicada_pending`, …), so Codex asked for
+# approval on each and `codex exec` refused them outright. `test_tool_annotations` holds every tool, both doors, to
+# it. Additive: a tool that already carries annotations keeps them.
 def _annotate_reads(tools: list[dict]) -> None:
-    from api.remote.catalog import READ_TOOLS
+    from api.services.cli_map import read_only_tools
 
+    reads = read_only_tools()
     for tool in tools:
-        if tool["name"] in READ_TOOLS:
+        if tool["name"] in reads:
             tool.setdefault("annotations", {}).setdefault("readOnlyHint", True)
 
 

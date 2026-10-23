@@ -458,6 +458,16 @@ def by_tool() -> dict[str, Row]:
     return {r.tool: r for r in ROWS if r.tool}
 
 
+def read_only_tools() -> frozenset[str]:
+    """**The one list of tools that only read** — every row whose tool changes nothing (``mutates=False``). The stdio
+    server's ``readOnlyHint`` comes from here (``mcp/server.py``), and ``test_tool_annotations`` holds the remote
+    catalog's ``READ_TOOLS`` / ``WRITE_TOOLS`` and the remote definitions to it, so no door marks a write read-only.
+    A cache outside every bank (a primer, a derived index), an ids-only ledger row or this process's own memory is
+    not a write; the bank, the inbox, a queue lease or the person's agent folders are (2026-10-23: Codex asked for
+    approval on every ``cicada_continue`` because only the remote list was annotated)."""
+    return frozenset(r.tool for r in ROWS if r.tool and not r.mutates)
+
+
 def exposed_tools() -> frozenset[str]:
     """The MCP tools a CLI caller holds — `ToolContext.available` for the CLI, so a reply
     never names an action the command line does not have."""

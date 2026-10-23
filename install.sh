@@ -49,6 +49,7 @@ CLAUDE_SKILLS_DIR="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
 CLAUDE_CLI="${CLAUDE_CLI:-claude}"
 CLAUDE_SETTINGS="${CLAUDE_SETTINGS:-$HOME/.claude/settings.json}"
 CODEX_HOOKS="${CODEX_HOOKS:-$HOME/.codex/hooks.json}"
+CODEX_AGENTS_MD="$(dirname "$CODEX_HOOKS")/AGENTS.md"
 CURSOR_HOOKS="${CURSOR_HOOKS:-$HOME/.cursor/hooks.json}"
 
 API_DIR="$REPO/api"
@@ -185,6 +186,7 @@ if [ "$DO_UNINSTALL" -eq 1 ]; then
     step "Removing the session-capture and recall hooks"
     run "$VENV_PY" "$HOOKS_REGISTRY" uninstall --settings "$CLAUDE_SETTINGS" || true
     [ -f "$CODEX_HOOKS" ] && { run "$VENV_PY" "$HOOKS_REGISTRY" uninstall --settings "$CODEX_HOOKS" || true; }
+    [ -f "$CODEX_AGENTS_MD" ] && { run "$VENV_PY" "$HOOKS_REGISTRY" agents-md-uninstall --settings "$CODEX_AGENTS_MD" || true; }
     [ -f "$CURSOR_HOOKS" ] && { run "$VENV_PY" "$CURSOR_REGISTRY" uninstall --settings "$CURSOR_HOOKS" || true; }
     ok "Capture and recall hooks removed (if they existed)"
   else
@@ -478,6 +480,13 @@ if command -v codex >/dev/null 2>&1; then
   else
     warn "Could not register the Codex hook in $CODEX_HOOKS"
   fi
+  # 2026-10-23: one marked block in Codex's own AGENTS.md tells it to use Cicada (idempotent; --uninstall removes it).
+  if run "$VENV_PY" "$HOOKS_REGISTRY" agents-md-install --settings "$CODEX_AGENTS_MD"; then
+    ok "Cicada block in $CODEX_AGENTS_MD (idempotent)"
+  else
+    # The registry printed why (a symlinked file, with the block to paste by hand; or markers that do not pair).
+    warn "Did not add the Cicada block to $CODEX_AGENTS_MD — the reason is above; the rest of the install goes on"
+  fi
 fi
 # G110 gate A: the same command under PreCompact and SessionEnd, as a best-effort
 # flush — Stop stays the trigger; a flush is idempotent and catches a turn the
@@ -491,7 +500,9 @@ for ev in PreCompact SessionEnd; do
     warn "Could not register the $ev capture flush in $CLAUDE_SETTINGS — fix the file and re-run ./install.sh"
   fi
   if command -v codex >/dev/null 2>&1; then
-    if run "$VENV_PY" "$HOOKS_REGISTRY" install --settings "$CODEX_HOOKS" --event "$ev" --command "$(hook_command codex)"; then
+    # Codex caps a SessionEnd hook at 3 s and warns on every start when asked for more.
+    codex_timeout=""; [ "$ev" = SessionEnd ] && codex_timeout="--timeout=3"
+    if run "$VENV_PY" "$HOOKS_REGISTRY" install --settings "$CODEX_HOOKS" --event "$ev" --command "$(hook_command codex)" $codex_timeout; then
       ok "Codex $ev capture flush registered in $CODEX_HOOKS"
     else
       warn "Could not register the Codex $ev capture flush in $CODEX_HOOKS"

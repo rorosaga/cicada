@@ -342,7 +342,8 @@ def run_repo_commands(path: str, *, timeout_s: float = 2.0) -> tuple[dict[str, d
     only drops its own key.
     """
     target = os.path.expanduser(str(path))
-    env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", "LC_ALL": "C", "LANG": "C", "CICADA_CAPTURE": "off"}
+    env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", "LC_ALL": "C", "LANG": "C", "CICADA_CAPTURE": "off",
+           "CICADA_RECALL": "off"}
     outputs: dict[str, dict] = {}
     for key, args in REPO_COMMANDS:
         try:

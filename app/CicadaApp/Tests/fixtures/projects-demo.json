@@ -26,6 +26,7 @@
     "followups": 0,
     "id": "pick-and-place-demo",
     "lastMomentDay": "2026-09-23",
+    "lastRepoDay": null,
     "medianGapDays": 28.0,
     "milestones": [
      {
@@ -76,6 +77,7 @@
     "followups": 1,
     "id": "rover-arm-project",
     "lastMomentDay": "2026-09-23",
+    "lastRepoDay": null,
     "medianGapDays": 10.0,
     "milestones": [
      {
@@ -170,6 +172,7 @@
     "followups": 0,
     "id": "alpha-project",
     "lastMomentDay": "2026-09-22",
+    "lastRepoDay": null,
     "medianGapDays": 4.0,
     "milestones": [],
     "name": "Alpha Project",
@@ -196,6 +199,7 @@
     "followups": 0,
     "id": "beta-project",
     "lastMomentDay": "2026-09-20",
+    "lastRepoDay": null,
     "medianGapDays": null,
     "milestones": [],
     "name": "Beta Project",
@@ -222,6 +226,7 @@
     "followups": 0,
     "id": "gamma-project",
     "lastMomentDay": "2026-09-18",
+    "lastRepoDay": null,
     "medianGapDays": null,
     "milestones": [],
     "name": "Gamma Project",
@@ -248,6 +253,7 @@
     "followups": 0,
     "id": "garden-sensor-project",
     "lastMomentDay": "2026-09-14",
+    "lastRepoDay": null,
     "medianGapDays": 21.5,
     "milestones": [],
     "name": "Garden Sensor Project",
@@ -269,6 +275,7 @@
     "followups": 0,
     "id": "delta-project",
     "lastMomentDay": null,
+    "lastRepoDay": null,
     "medianGapDays": null,
     "milestones": [],
     "name": "Delta Project",
@@ -290,6 +297,7 @@
     "followups": 0,
     "id": "epsilon-project",
     "lastMomentDay": null,
+    "lastRepoDay": null,
     "medianGapDays": null,
     "milestones": [],
     "name": "Epsilon Project",
@@ -311,6 +319,7 @@
     "followups": 0,
     "id": "eta-project",
     "lastMomentDay": null,
+    "lastRepoDay": null,
     "medianGapDays": null,
     "milestones": [],
     "name": "Eta Project",
@@ -332,6 +341,7 @@
     "followups": 0,
     "id": "iota-project",
     "lastMomentDay": null,
+    "lastRepoDay": null,
     "medianGapDays": null,
     "milestones": [],
     "name": "Iota Project",
@@ -353,6 +363,7 @@
     "followups": 0,
     "id": "kappa-project",
     "lastMomentDay": null,
+    "lastRepoDay": null,
     "medianGapDays": null,
     "milestones": [],
     "name": "Kappa Project",
@@ -374,6 +385,7 @@
     "followups": 0,
     "id": "lambda-project",
     "lastMomentDay": null,
+    "lastRepoDay": null,
     "medianGapDays": null,
     "milestones": [],
     "name": "Lambda Project",
@@ -395,6 +407,7 @@
     "followups": 0,
     "id": "mu-project",
     "lastMomentDay": null,
+    "lastRepoDay": null,
     "medianGapDays": null,
     "milestones": [],
     "name": "Mu Project",
@@ -416,6 +429,7 @@
     "followups": 0,
     "id": "theta-project",
     "lastMomentDay": null,
+    "lastRepoDay": null,
     "medianGapDays": null,
     "milestones": [],
     "name": "Theta Project",
@@ -437,6 +451,7 @@
     "followups": 0,
     "id": "zeta-project",
     "lastMomentDay": null,
+    "lastRepoDay": null,
     "medianGapDays": null,
     "milestones": [],
     "name": "Zeta Project",
@@ -747,6 +762,7 @@
     }
    ],
    "lastMomentDay": "2026-09-14",
+   "lastRepoDay": null,
    "medianGapDays": 21.5,
    "milestones": [],
    "momentDays": [
@@ -1436,134 +1452,6 @@
      "via": "lab-cluster-example"
     },
     {
-     "at": "2026-09-09T14:00:00Z",
-     "claim": null,
-     "conversation": {
-      "episodeId": "ep_2026-09-09_002",
-      "harness": null,
-      "id": null,
-      "origin": "telegram",
-      "resumable": false,
-      "title": "First grasp slipped"
-     },
-     "dateBasis": "episode",
-     "day": "2026-09-09",
-     "facts": [
-      {
-       "claimId": "clm_rover-arm-project_uses_ba39feed",
-       "now": null,
-       "object": "tool-example-e",
-       "phrase": "Rover Arm Project uses Tool Example E",
-       "predicate": "uses",
-       "state": "said",
-       "subject": "rover-arm-project",
-       "was": null
-      }
-     ],
-     "id": "m:ep_2026-09-09_002:2026-09-09",
-     "kind": "moment",
-     "moreFacts": 0,
-     "participants": [
-      {
-       "derived": false,
-       "id": "rover-arm-project",
-       "isOwner": false,
-       "name": "Rover Arm Project",
-       "role": null,
-       "surface": null,
-       "type": "project",
-       "url": null
-      },
-      {
-       "derived": false,
-       "id": "tool-example-e",
-       "isOwner": false,
-       "name": "Tool Example E",
-       "role": null,
-       "surface": null,
-       "type": "tool",
-       "url": null
-      }
-     ],
-     "participantsTotal": 2,
-     "project": null,
-     "quote": {
-      "end": 72,
-      "episode": "ep_2026-09-09_002",
-      "kind": "user",
-      "start": 27,
-      "status": "current"
-     },
-     "state": "said",
-     "text": "Rover Arm Project uses Tool Example E",
-     "verbatim": false,
-     "via": "rover-arm-project"
-    },
-    {
-     "at": "2026-08-30T13:00:00Z",
-     "claim": null,
-     "conversation": {
-      "episodeId": "ep_2026-08-30_002",
-      "harness": null,
-      "id": null,
-      "origin": "telegram",
-      "resumable": false,
-      "title": "Gripper camera"
-     },
-     "dateBasis": "episode",
-     "day": "2026-08-30",
-     "facts": [
-      {
-       "claimId": "clm_rover-arm-project_uses_a6fd3b48",
-       "now": null,
-       "object": "tool-example-f",
-       "phrase": "Rover Arm Project uses Tool Example F",
-       "predicate": "uses",
-       "state": "said",
-       "subject": "rover-arm-project",
-       "was": null
-      }
-     ],
-     "id": "m:ep_2026-08-30_002:2026-08-30",
-     "kind": "moment",
-     "moreFacts": 0,
-     "participants": [
-      {
-       "derived": false,
-       "id": "rover-arm-project",
-       "isOwner": false,
-       "name": "Rover Arm Project",
-       "role": null,
-       "surface": null,
-       "type": "project",
-       "url": null
-      },
-      {
-       "derived": false,
-       "id": "tool-example-f",
-       "isOwner": false,
-       "name": "Tool Example F",
-       "role": null,
-       "surface": null,
-       "type": "tool",
-       "url": null
-      }
-     ],
-     "participantsTotal": 2,
-     "project": null,
-     "quote": {
-      "end": 89,
-      "episode": "ep_2026-08-30_002",
-      "kind": "user",
-      "start": 6,
-      "status": "current"
-     },
-     "state": "said",
-     "text": "Rover Arm Project uses Tool Example F",
-     "verbatim": false,
-     "via": "rover-arm-project"
-    },
-    {
      "at": "2026-08-19T12:00:00Z",
      "claim": null,
      "conversation": {
@@ -1635,70 +1523,6 @@
      "text": "Cicada started tracking this",
      "verbatim": false,
      "via": null
-    },
-    {
-     "at": "2026-08-09T11:00:00Z",
-     "claim": null,
-     "conversation": {
-      "episodeId": "ep_2026-08-09_001",
-      "harness": null,
-      "id": null,
-      "origin": "telegram",
-      "resumable": false,
-      "title": "Arm assembled"
-     },
-     "dateBasis": "episode",
-     "day": "2026-08-09",
-     "facts": [
-      {
-       "claimId": "clm_rover-arm-project_uses_4f4061ad",
-       "now": null,
-       "object": "tool-example-d",
-       "phrase": "Rover Arm Project uses Tool Example D",
-       "predicate": "uses",
-       "state": "said",
-       "subject": "rover-arm-project",
-       "was": null
-      }
-     ],
-     "id": "m:ep_2026-08-09_001:2026-08-09",
-     "kind": "moment",
-     "moreFacts": 0,
-     "participants": [
-      {
-       "derived": false,
-       "id": "rover-arm-project",
-       "isOwner": false,
-       "name": "Rover Arm Project",
-       "role": null,
-       "surface": null,
-       "type": "project",
-       "url": null
-      },
-      {
-       "derived": false,
-       "id": "tool-example-d",
-       "isOwner": false,
-       "name": "Tool Example D",
-       "role": null,
-       "surface": null,
-       "type": "tool",
-       "url": null
-      }
-     ],
-     "participantsTotal": 2,
-     "project": null,
-     "quote": {
-      "end": 84,
-      "episode": "ep_2026-08-09_001",
-      "kind": "user",
-      "start": 42,
-      "status": "current"
-     },
-     "state": "said",
-     "text": "Rover Arm Project uses Tool Example D",
-     "verbatim": false,
-     "via": "rover-arm-project"
     },
     {
      "at": "2026-07-22T10:04:00Z",
@@ -1776,7 +1600,8 @@
     }
    ],
    "lastMomentDay": "2026-09-23",
-   "medianGapDays": 10.5,
+   "lastRepoDay": null,
+   "medianGapDays": 28.0,
    "milestones": [
     {
      "chain": [
@@ -1840,10 +1665,7 @@
    ],
    "momentDays": [
     "2026-07-22",
-    "2026-08-09",
     "2026-08-19",
-    "2026-08-30",
-    "2026-09-09",
     "2026-09-22",
     "2026-09-23"
    ],
@@ -2132,32 +1954,11 @@
        "text": "Lab Cluster Example hosts Pick And Place Demo"
       },
       {
-       "day": "2026-09-09",
-       "kind": "item",
-       "ref": "m:ep_2026-09-09_002:2026-09-09",
-       "status": "said",
-       "text": "Rover Arm Project uses Tool Example E"
-      },
-      {
-       "day": "2026-08-30",
-       "kind": "item",
-       "ref": "m:ep_2026-08-30_002:2026-08-30",
-       "status": "said",
-       "text": "Rover Arm Project uses Tool Example F"
-      },
-      {
        "day": "2026-08-19",
        "kind": "item",
        "ref": "m:ep_2026-08-19_001:2026-08-19",
        "status": "said",
        "text": "Pick And Place Demo part of Rover Arm Project"
-      },
-      {
-       "day": "2026-08-09",
-       "kind": "item",
-       "ref": "m:ep_2026-08-09_001:2026-08-09",
-       "status": "said",
-       "text": "Rover Arm Project uses Tool Example D"
       },
       {
        "day": "2026-07-22",
@@ -3287,6 +3088,7 @@
     }
    ],
    "lastMomentDay": "2026-09-23",
+   "lastRepoDay": null,
    "medianGapDays": 10.0,
    "milestones": [
     {

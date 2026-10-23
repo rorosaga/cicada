@@ -140,11 +140,11 @@ def installed_state(entry: dict, home: Path, plugin_ids: frozenset[str] | None =
 
 def install_plan(entry: dict, agent: str) -> dict[str, Any]:
     """The agent's own installer command for this entry — argv lists, never a
-    shell string. `CICADA_CAPTURE=off` rides on every plan (the app forces it
+    shell string. `CICADA_CAPTURE=off` and `CICADA_RECALL=off` ride on every plan (the app forces it
     again, R-O26)."""
     how = (entry.get("agents") or {}).get(agent) or {}
     pin = entry.get("pin") or {}
-    env = {"CICADA_CAPTURE": "off"}
+    env = {"CICADA_CAPTURE": "off", "CICADA_RECALL": "off"}
     method = how.get("method")
     if method == "plugin":
         return {"runnable": True, "env": env, "steps": [
