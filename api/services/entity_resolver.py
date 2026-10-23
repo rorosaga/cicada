@@ -403,6 +403,14 @@ async def resolve(
                         entity, [alias_page], llm_match_cache, settings,
                         gate=lookahead.gate if lookahead is not None else None,
                         connections=connections.get(name_lower, "")))
+                if match is None and project_birth.birth_of(entity, siblings) is not None:
+                    # Owner 2026-10-23 (review of #441): a mention WITH a birth may be the thing a fallback page already
+                    # holds under another spelling ("Canoe restoration" against a page whose name shares no word with
+                    # it). Weighed against every fallback page as `_settle_unborn` weighs a name with no birth —
+                    # aliases count, no shared word needed, the judge decides — so the birth retypes that page in
+                    # place instead of minting a second page beside it.
+                    match = await _fallback_match(entity, siblings, existing, resolved_creates, resolved_updates,
+                                                  llm_match_cache, settings, cancel_check)
             if match is not None and match["decision"] == "same":
                 candidate = match["candidate"]
                 name_to_id[name_lower] = candidate["id"]
@@ -514,7 +522,7 @@ async def resolve(
                 pending_actions.append((_create_lead_clarification, (),
                                         {"clarifier": clarifier, "lead": match["lead"], "index": person_index,
                                          "entity": entity}))
-            elif ambiguous_match:
+            elif ambiguous_match and not match.get("quiet"):
                 pending_actions.append((
                     _create_duplicate_clarification,
                     (),
@@ -1453,6 +1461,38 @@ def _unborn_candidates(u: _Unborn, groups: list[list[_Unborn]], pages, stored: d
     return out
 
 
+async def _judge_shared_first(entity: dict, candidates: list[dict], cache: dict, settings: Settings,
+                              stop: Callable[[], bool] | None = None) -> list[tuple[dict, str]]:
+    """What shares a word or a conversation is judged in a call of its own, before the pairs with no lead: in one
+    crowded call the newuser canoe's two spellings stayed apart, though the judge joins them alone every time."""
+    judged = await _judge_candidates(entity, [c for c in candidates if c.get("shared")], cache, settings, stop=stop)
+    if not any(decision == "same" for _, decision in judged):
+        judged += await _judge_candidates(entity, [c for c in candidates if not c.get("shared")], cache, settings,
+                                          stop=stop)
+    return judged
+
+
+async def _fallback_match(entity: dict, siblings: list[dict], existing: list[dict], resolved_creates: dict[str, dict],
+                          resolved_updates: dict[str, dict], cache: dict, settings: Settings,
+                          cancel_check: Callable[[], bool] | None = None) -> dict | None:
+    """The fallback page (on disk, or made in this batch) a project mention with a birth is judged the same as, or
+    unsure about; ``None`` when it is none of them. The candidates are `_unborn_candidates`' over fallback pages only:
+    aliases count, no shared word is needed, a page the person said is different is never brought, and "different"
+    is final. An unsure verdict on a pair with no shared word or conversation is marked ``quiet``: the name is held,
+    and no question is raised (as in `_settle_unborn`)."""
+    pages = [p for p in _page_candidates(existing, resolved_creates, resolved_updates) if _is_fallback(p[0])]
+    if not pages:
+        return None
+    u = _Unborn(name=str(entity.get("name") or ""), key=str(entity.get("name") or "").lower(), entity=entity,
+                siblings=list(siblings), pending=None, heard=set(), passes=False)
+    candidates = _unborn_candidates(u, [], pages, {}, Path(settings.memory_path))
+    judged = await _judge_shared_first({**entity, "type": "project"}, candidates, cache, settings, cancel_check)
+    match = _pick_match(u.name, judged)
+    if match is not None and match["decision"] == "unsure" and not match["candidate"].get("shared"):
+        match["quiet"] = True
+    return match
+
+
 async def _settle_unborn(
     unborn: list[_Unborn], *, existing: list[dict], resolved_updates: dict[str, dict],
     resolved_creates: dict[str, dict], name_to_id: dict[str, str], pending_actions: list, promoted_pending: list[str],
@@ -1499,14 +1539,7 @@ async def _settle_unborn(
         if cancel_check is not None and cancel_check():
             return True
         candidates = _unborn_candidates(u, groups, pages, stored, memory_path)
-        # What shares a word or a conversation is judged in a call of its own, before the pairs with no lead: in one
-        # crowded call the newuser canoe's two spellings stayed apart, though the judge joins them alone every time.
-        judged = await _judge_candidates({**u.entity, "type": "project"}, [c for c in candidates if c.get("shared")],
-                                         cache, settings, stop=cancel_check)
-        if not any(decision == "same" for _, decision in judged):
-            judged += await _judge_candidates({**u.entity, "type": "project"},
-                                              [c for c in candidates if not c.get("shared")], cache, settings,
-                                              stop=cancel_check)
+        judged = await _judge_shared_first({**u.entity, "type": "project"}, candidates, cache, settings, cancel_check)
         if cancel_check is not None and cancel_check():
             return True
         match = _pick_match(u.name, judged)

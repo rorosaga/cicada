@@ -1256,8 +1256,11 @@ the same as Cedar-strip canoe?", a pair with no lead, which is no question for a
 same as a fallback page lands on it (`_candidate_types` lets a project mention meet the page at the judge); one that
 carries a birth rides to Stage 5, which makes **the same page** the project — `type: project`, `born:` written once, the
 marker gone (`project_birth.retype_on_birth`, only on a `concept` carrying the marker and no `born`; a project page or a
-page born with another type is never retyped). A birth inside the batch that creates a fallback page makes it a project
-from the start.
+page born with another type is never retyped). A mention with a birth that the loop matched to nothing is weighed
+against every fallback page the same way (`_fallback_match`: aliases count, no shared word needed, the judge decides,
+a rejected pair never brought), so "Canoe restoration" retypes a page named "Hull build project" that lists "Canoe"
+instead of minting a project beside it (review of #441). A birth inside the batch that creates a fallback page makes it
+a project from the start.
 "A project" is the type the create will write (`_written_type`: a sibling's `project` overrides a `concept` when the
 payloads merge), never only the chosen mention's (W4). A project mention with no match whose recorded alias names
 exactly one project page — on disk, else born this batch — brings that page to the judge (W2): "same" makes it the

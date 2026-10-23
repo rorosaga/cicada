@@ -608,3 +608,52 @@ def test_unsure_against_a_page_that_shares_a_word_asks(canoe_page, monkeypatch):
     assert out["changes"] == []
     assert any("Strip canoe trailer" in t for t in _inbox_titles(memory))
 
+
+def _birth_mention(name: str) -> dict:
+    return _mention(name, EP_D, TS_D, f"My {name.lower()} project.",
+                    project_birth={**_BORN, "episode": EP_D, "day": "2026-10-23"})
+
+
+@pytest.fixture
+def restoration_is_the_canoe():
+    CANOE_NAMES.add("canoe restoration")
+    yield
+    CANOE_NAMES.discard("canoe restoration")
+
+
+def test_a_birth_spelling_sharing_a_word_only_with_an_alias_retypes_the_page(canoe_page, monkeypatch,
+                                                                             restoration_is_the_canoe):
+    """Review of #441: the page is named "Hull build project" with "Canoe" among its aliases; "Canoe restoration"
+    carries the person's words. It shares no word with the page's name, so the loop's judge never saw the page and a
+    second, project page was minted beside it. It is weighed against the fallback pages too: the same page, retyped."""
+    memory, page = canoe_page
+    assert "canoe" not in page["frontmatter"]["name"].lower()
+    assert any("canoe" in a.lower() for a in page["frontmatter"]["aliases"])
+    out = _resolve_canoe(memory, [{"episode_id": EP_D, "relationships": [],
+                                   "entities": [_birth_mention("Canoe restoration")]}], [page], monkeypatch)
+    assert [(c["action"], c["id"]) for c in out["changes"]] == [("update", page["id"])]
+    conflict_resolver.apply_changes(out["changes"], memory)
+    fm = markdown_parser.parse(memory / "entities" / f"{page['id']}.md").frontmatter
+    assert fm["type"] == "project" and fm["born"]["episode"] == EP_D
+    assert sorted(p.stem for p in (memory / "entities").glob("*.md")) == [page["id"]]
+
+
+def test_a_birth_spelling_the_judge_calls_different_is_its_own_project(canoe_page, monkeypatch):
+    memory, page = canoe_page
+    out = _resolve_canoe(memory, [{"episode_id": EP_D, "relationships": [],
+                                   "entities": [_birth_mention("Garden shed")]}], [page], monkeypatch)
+    assert [(c["action"], c["entity"]["type"]) for c in out["changes"]] == [("create", "project")]
+
+
+def test_a_birth_spelling_the_person_said_is_different_is_not_brought(canoe_page, monkeypatch,
+                                                                     restoration_is_the_canoe):
+    from api.services import merge_rejections
+
+    memory, page = canoe_page
+    merge_rejections.add_rejected(memory, "canoe-restoration", page["id"])
+    judged: list = []
+    out = _resolve_canoe(memory, [{"episode_id": EP_D, "relationships": [],
+                                   "entities": [_birth_mention("Canoe restoration")]}], [page], monkeypatch, judged)
+    assert not any(b == page["frontmatter"]["name"] for _a, b in judged)
+    assert not any(c["id"] == page["id"] for c in out["changes"])
+
