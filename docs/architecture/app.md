@@ -1929,8 +1929,10 @@ transform is an exact luminance inversion of a *monochrome* mark into its `-dark
 and every page in both themes (the ranked audit is outside the repo, with its shots). What it changed:
 - **Onboarding.** Welcome's and Done's card under the study room is ringed, never shadowed (`onboardingCard()`: it sits
   in the page, DR-9/DR-10). A text button that starts a column sets its words on the column's edge
-  (`TextButton(flushLeading:)`: Back, *Use an API key*, *Not you? Change*, *How to get an export*, and the entity card's
-  lone *Add a place to check*). Sources' tiles are one height (`OnboardingLayout.sourceTileHeight`, captions two lines);
+  (`TextButton(flushLeading:)`: Back, *Use an API key*, *Not you? Change*, *How to get an export*; the entity card's lone
+  *Add a place to check* sits in a scroll view, which reaches out by `TextButton.inset` instead, so its hover fill is not
+  clipped). A row of Sources' tiles is one height: at least `OnboardingLayout.sourceTileHeight`, growing with its
+  longest caption (never cut — a consent is read before the tick), and every tile in the row grows with it;
   Chat history wears a neutral glyph (any vendor's export lands there), and so does *Personal agents* (five agents, so no
   one agent's mark).
 - **Home's first run.** Getting started is the same grouped block as the tour offer and *Make it yours* (`glassCard`,
@@ -1949,12 +1951,35 @@ and every page in both themes (the ranked audit is outside the repo, with its sh
   white labels on the light canvas.
 - **Words.** The app says "conversation" where it said "episode" (Past reads, the bank menu and Privacy's bank list, the
   worm's answers and its value, the waiting line); the informational question no longer names its raw predicate; a daily
-  schedule reads "Every day at 3:00 AM", the next-run half's own clock; the demo bar is one line and its *Finish setting
+  schedule and the next-run half share the viewer's own clock (`clockTime`: the locale's short time style — "3:00 AM" in
+  en_US, "03:00" in a 24-hour locale; looks pass 2); the demo bar is one line and its *Finish setting
   up →* a neutral button, so a page's own primary is the only one (DR-40).
 - **Status.** Settings → General's *Keep memory working* shows a dot and "On" when it runs (it was a label with nothing
   beside it); Privacy's active bank and its three internet gates are dots and words, never the accent (DR-5).
 - **Past reads.** A run's changed pages are neutral `Tag`s with their names, as a batched run's detail draws them, not
   accent-coloured slugs (DR-44, DR-54, DR-56).
+
+**Looks pass 2 (2026-10-23; DESIGN_RULES §9).** The Sources page, which the first pass left to the connectors fix, and
+three of that pass's own leftovers:
+- **Sources, the list.** The root's rows run the page's width (as Inbox's and Clusters' do), so each dot-and-word status
+  trails on the eyebrow's trailing edge instead of floating at the 760 pt text cap; the name and line stay capped (DR-36).
+  Every two-line row wears the 36 pt `SourceLogoTile` (`.row`) at the root and beside an open source alike — the size the
+  detail head and onboarding draw — and only a title-only row the dense 24 pt (`SourceCatalogRowView.tileSize`).
+- **Sources, the header.** *Reading in your browser* is a compact `NeutralButton` with a `globe` glyph beside *Explore
+  saved sites* and *Import a file*; as bare text it read as a label (DR-40). Same words, help and sheet.
+- **Sources, the detail.** The head shows the source's mark, name and status once: the source's own row under it
+  (`CalendarRow`, `ContactsRow`, `MessagesRow`, `WisprFlowRow`, a browser's row) draws only its line and buttons when
+  `\.sourceDetailHeadShown` is set (`SourceCatalogDetail` sets it; `SourceRow(showsIdentity:)`), never a second, smaller
+  mark and the same name; sub-sources (tab groups, YouTube history) keep theirs. Calendar's head and row read one value,
+  the reader's status (`LocalReaders.calendarOn`: off and denied are Off), and the Off lines for Calendar and Contacts no
+  longer open with "Not connected —" under a head that says Off (DR-38). Messages' and Wispr Flow's buttons are
+  `NeutralButton`s, never native bordered ones (DR-40), with the same words.
+- **The tour offer** is answered by any start of the tour, the demo's own included, and by a finish or skip
+  (`TourController.start` / `finish`): it was still asking "Take a quick tour?" on Home after the demo's tour was skipped.
+- **Past reads' readout** never repeats the headline: a hungry room's sentence says what Rested n% is made of, not
+  "overdue" again (the hero says "N to read — overdue.").
+- **The entity card** leaves out an empty page block (no paper or media card, no hero, no article) instead of drawing it
+  empty with the column's spacing on both sides — about 50 pt of nothing above "What Cicada knows".
 
 **Design rules — Direction D, "Focus columns" (2026-09-23).** [`docs/design/DESIGN_RULES.md`](../../docs/design/DESIGN_RULES.md)
 is the binding target for every UI change: graphite neutrals, the system accent, SF Pro only, a 56 pt icon rail, a centred

@@ -158,7 +158,8 @@ enum HeroMeter: Equatable {
             return "Read \(UsageFormat.count(read)) of \(UsageFormat.count(total)) so far."
         case .rested(let pct):
             if unprocessed == 0 { return "Fully rested — nothing is waiting." }
-            if case .hungry = mood { return "Rested \(pct)% — the backlog is overdue." }
+            // Looks pass 2 (2026-10-23): a hungry room's headline already says "N to read — overdue." above this
+            // readout, so the sentence says what the number is made of instead of saying "overdue" again (DR-38).
             return "Rested \(pct)% — based on how much is waiting, and for how long."
         }
     }

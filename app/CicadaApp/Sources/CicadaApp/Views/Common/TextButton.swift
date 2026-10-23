@@ -20,7 +20,11 @@ struct TextButton: View {
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var inset: CGFloat { CicadaTheme.scaled(inline ? 6 : 10) }
+    private var inset: CGFloat { Self.inset(inline: inline) }
+
+    /// The words' inset inside the hover fill — what `flushLeading` pulls back, and what a host that clips (a scroll
+    /// view) reaches out by instead (`WhereToCheckChips`).
+    static func inset(inline: Bool) -> CGFloat { CicadaTheme.scaled(inline ? 6 : 10) }
 
     var body: some View {
         Button(action: action) {

@@ -6,36 +6,42 @@ import SwiftUI
 struct MessagesRow: View {
     let channel: SourceChannel?
     @Environment(MessagesWatcher.self) private var watcher
+    @Environment(\.sourceDetailHeadShown) private var headShown
     @State private var showPanel = false
     @State private var note: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: CicadaTheme.spacingMD) {
-                LogoImage.platformTile(name: OriginIconography.logoName(for: "imessage") ?? "",
-                                       bundleId: OriginIconography.appBundleId(for: "imessage"),
-                                       size: CicadaTheme.scaled(28),
-                                       systemFallback: OriginIconography.symbol(for: "imessage"))
+                // Looks pass 2: under a source detail's head the mark and name are already on screen (DR-38).
+                if !headShown {
+                    LogoImage.platformTile(name: OriginIconography.logoName(for: "imessage") ?? "",
+                                           bundleId: OriginIconography.appBundleId(for: "imessage"),
+                                           size: CicadaTheme.scaled(28),
+                                           systemFallback: OriginIconography.symbol(for: "imessage"))
+                }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(Copy.Messages.title)
-                        .font(CicadaTheme.rowFont)
-                        .foregroundStyle(CicadaTheme.textPrimary)
+                    if !headShown {
+                        Text(Copy.Messages.title)
+                            .font(CicadaTheme.rowFont)
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                    }
                     Text(MessagesRowText.line(ticked: watcher.tickedIds.count, status: watcher.status, note: note))
                         .font(CicadaTheme.captionFont)
                         .foregroundStyle(MessagesRowText.isProblem(watcher.status) ? CicadaTheme.danger
                                                                                      : CicadaTheme.textSecondary)
                 }
                 Spacer()
+                // DR-40: the page's own button kind, never a native bordered one (looks pass 2); same words, same help.
                 if !watcher.tickedIds.isEmpty {
-                    Button(Copy.Messages.syncNow) {
+                    NeutralButton(title: Copy.Messages.syncNow, size: .compact,
+                                  isDisabled: watcher.status == .syncing) {
                         Task { note = (try? await watcher.syncNow()) ?? nil }
                     }
-                    .buttonStyle(.bordered)
-                    .disabled(watcher.status == .syncing)
                 }
-                Button(Copy.Messages.choose) { showPanel = true }
-                    .buttonStyle(.bordered)
-                    .help(Copy.Messages.chooseHelp)
+                NeutralButton(title: Copy.Messages.choose, size: .compact, help: Copy.Messages.chooseHelp) {
+                    showPanel = true
+                }
             }
             // R-HS16 — a sheet, never a popover at the panel's edge.
             .sheet(isPresented: $showPanel) {
@@ -46,10 +52,10 @@ struct MessagesRow: View {
             }
             if channel?.connected == true {
                 CapturedItemsList(channel: MessagesWatcher.channel)
-                    .padding(.leading, CicadaTheme.scaled(28) + CicadaTheme.spacingMD)
+                    .padding(.leading, headShown ? 0 : CicadaTheme.scaled(28) + CicadaTheme.spacingMD)
             }
         }
-        .padding(.horizontal, CicadaTheme.spacingMD)
+        .padding(.horizontal, headShown ? 0 : CicadaTheme.spacingMD)
         .padding(.vertical, CicadaTheme.spacingSM)
         .settingsRow(.channel(MessagesWatcher.channel))
     }

@@ -74,8 +74,9 @@ struct SourcesStep: View {
                     // What a tick reads and the consent it leads to, visible before the click (fix round 2026-10-22).
                     if case .tick(let entry) = tile.kind,
                        let caption = SourceTiles.caption(entry, needsAccess: needsAccess.contains(entry.id)) {
+                        // Looks pass 2 (review of #446): never cut — a consent caption is read before the tick.
                         Text(caption).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
-                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     // The ring already says Off (DR-38): the word shows only when it says more, and keeps its
                     // line either way so every tile in a row stays one height.
@@ -85,8 +86,10 @@ struct SourcesStep: View {
                 }
             }
             .padding(CicadaTheme.spacingSM)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            .frame(height: CicadaTheme.scaled(OnboardingLayout.sourceTileHeight), alignment: .topLeading)
+            // A tile grows with its caption, and every tile in its row grows with it (the grid sizes a row by its tallest
+            // cell; `maxHeight: .infinity` fills that), so a row stays one height without cutting a word.
+            .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(OnboardingLayout.sourceTileHeight),
+                   maxHeight: .infinity, alignment: .topLeading)
             .background(state.ticked ? CicadaTheme.bgSelected : CicadaTheme.bgFocus,
                         in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
             .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))

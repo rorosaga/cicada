@@ -9,6 +9,7 @@ struct ContactsRow: View {
     let channel: SourceChannel?
     @Environment(ContactsReader.self) private var reader
     @Environment(SyncActivity.self) private var activity
+    @Environment(\.sourceDetailHeadShown) private var headShown
     @State private var confirmStop = false
 
     /// System Settings → Privacy & Security → Contacts.
@@ -19,12 +20,13 @@ struct ContactsRow: View {
             TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
                 SourceRow(model: ContactsRowText.model(reader.status, channel: channel,
                                                        run: activity.run(for: ContactsReader.channel)),
-                          now: context.date, onCancel: { activity.cancel(ContactsReader.channel) }) { actions }
+                          now: context.date, onCancel: { activity.cancel(ContactsReader.channel) },
+                          showsIdentity: !headShown) { actions }
             }
             // G161 — the people a card matched, by their page's name only (never a card's facts).
             if channel?.connected == true {
                 CapturedItemsList(channel: ContactsReader.channel)
-                    .padding(.leading, CicadaTheme.scaled(SourceRow<EmptyView>.markSize + 22))
+                    .padding(.leading, CicadaTheme.scaled(headShown ? 10 : SourceRow<EmptyView>.markSize + 22))
             }
         }
         .settingsRow(.contactsApp)

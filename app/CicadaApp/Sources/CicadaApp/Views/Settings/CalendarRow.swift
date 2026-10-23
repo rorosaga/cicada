@@ -42,6 +42,7 @@ enum CalendarRowText {
 struct CalendarRow: View {
     let channel: SourceChannel?
     @Environment(CalendarReader.self) private var reader
+    @Environment(\.sourceDetailHeadShown) private var headShown
     @State private var confirmStop = false
 
     /// C6's channel id, stamped by the backend track; the row that renders it and the lists that skip it share it.
@@ -56,7 +57,8 @@ struct CalendarRow: View {
             // G161 — the events Cicada brought in, by title and day.
             if channel?.connected == true {
                 CapturedItemsList(channel: Self.channelId)
-                    .padding(.leading, CicadaTheme.spacingMD + CicadaTheme.scaled(28) + CicadaTheme.spacingMD)
+                    .padding(.leading, headShown ? 0
+                             : CicadaTheme.spacingMD + CicadaTheme.scaled(28) + CicadaTheme.spacingMD)
             }
         }
         .settingsRow(.calendarApp)
@@ -70,14 +72,19 @@ struct CalendarRow: View {
 
     private var row: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
-            LogoImage.platformTile(name: "",
-                                   bundleId: OriginIconography.appBundleId(for: "calendar-local"),
-                                   size: CicadaTheme.scaled(28),
-                                   systemFallback: OriginIconography.symbol(for: "calendar-local"))
+            // Looks pass 2: under a source detail's head the mark and name are already on screen (DR-38).
+            if !headShown {
+                LogoImage.platformTile(name: "",
+                                       bundleId: OriginIconography.appBundleId(for: "calendar-local"),
+                                       size: CicadaTheme.scaled(28),
+                                       systemFallback: OriginIconography.symbol(for: "calendar-local"))
+            }
             VStack(alignment: .leading, spacing: 2) {
-                Text(Copy.calendarAppTitle)
-                    .font(CicadaTheme.rowFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
+                if !headShown {
+                    Text(Copy.calendarAppTitle)
+                        .font(CicadaTheme.rowFont)
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                }
                 Text(CalendarRowText.line(reader.status, channel: channel, now: Date()))
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CalendarRowText.isProblem(reader.status, channel: channel)
@@ -87,7 +94,7 @@ struct CalendarRow: View {
             Spacer()
             actions
         }
-        .padding(.horizontal, CicadaTheme.spacingMD)
+        .padding(.horizontal, headShown ? 0 : CicadaTheme.spacingMD)
         .padding(.vertical, CicadaTheme.spacingSM)
     }
 

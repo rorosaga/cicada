@@ -66,6 +66,7 @@ private struct BrowserSourceRow: View {
     let now: Date
     @Environment(BrowserWatcher.self) private var watcher
     @Environment(SyncActivity.self) private var activity
+    @Environment(\.sourceDetailHeadShown) private var headShown
     @State private var busy = false
     @State private var feedback: String?
 
@@ -75,7 +76,7 @@ private struct BrowserSourceRow: View {
         let watch = watcher.state(for: channelId)
         VStack(alignment: .leading, spacing: 2) {
             SourceRow(model: BrowserRows.model(spec, channel: channel, watch: watch, run: activity.run(for: channelId)),
-                      now: now, onCancel: { activity.cancel(channelId) }) {
+                      now: now, onCancel: { activity.cancel(channelId) }, showsIdentity: !headShown) {
                 action(BrowserRows.action(watch: watch, engine: spec.engine))
             }
             // R-D6 kept: the Full Disk Access fix sits where the read failed (Safari).
@@ -86,7 +87,7 @@ private struct BrowserSourceRow: View {
             // G161 — the bookmarks the last sync saw, by name.
             if channel?.connected == true {
                 CapturedItemsList(channel: channelId)
-                    .padding(.leading, CicadaTheme.scaled(SourceRow<EmptyView>.markSize + 22))
+                    .padding(.leading, CicadaTheme.scaled(headShown ? 10 : SourceRow<EmptyView>.markSize + 22))
             }
         }
         .settingsRow(.channel(channelId))

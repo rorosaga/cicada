@@ -116,23 +116,26 @@ struct SourcesOverviewColumn: View {
         ScrollView {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXL) {
                 // G166 exploring — the run's one line of progress, Stop and Copy for an agent, while a run exists.
-                if exploreCache.showsCard { ExploreRunCard() }
+                if exploreCache.showsCard { ExploreRunCard().frame(maxWidth: textCap, alignment: .leading) }
                 if !hasLoaded {
                     skeleton
                 } else {
                     // G217 — every way in, on or off, so the page is never empty (a dropped export lands on the window's
-                    // own intake, and on Files and links).
+                    // own intake, and on Files and links). Looks pass 2 (2026-10-23): the rows run the page's width, as
+                    // Inbox's and Clusters' do, so each status word trails on the eyebrow's trailing edge instead of
+                    // floating mid-row at the text cap (DR-36: a list may run wider; its text stays capped).
                     SourceCatalogList(rows: catalog, style: .wide, open: onOpen)
                 }
-                statistics
+                statistics.frame(maxWidth: textCap, alignment: .leading)
             }
-            .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.textMaxWidth), alignment: .leading)
             .padding(.horizontal, CicadaTheme.spacingGutter)
             .padding(.top, CicadaTheme.spacingSM)
             .padding(.bottom, CicadaTheme.scaled(72))
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
+
+    private var textCap: CGFloat { CicadaTheme.scaled(ColumnLayout.textMaxWidth) }
 
     private func liveness(_ row: SourceOverview) -> SourceLiveness {
         SourceLiveness.of(row: row, channel: nil, watch: row.channelId.flatMap { watcher.state(for: $0) })

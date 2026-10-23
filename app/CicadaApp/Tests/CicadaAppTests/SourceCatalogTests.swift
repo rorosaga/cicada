@@ -184,6 +184,34 @@ final class SourceCatalogTests: XCTestCase {
         XCTAssertEqual(old.savedLists, [:])
     }
 
+    /// Looks pass 2 (2026-10-23): Calendar's head and its row read the reader's one status — the row's own line says
+    /// "Connect asks macOS…" exactly when the head says Off.
+    func testCalendarsHeadAndRowReadOneStatus() {
+        let synced = [SourceChannel(id: "calendar-local", label: "Calendar", connected: true,
+                                    lastSync: "2026-10-22T10:00:00Z")]
+        let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
+        for (status, word) in [(CalendarReader.Status.off, SourceCatalogStatus.off), (.denied, .off),
+                               (.syncing, .connected), (.synced(at: .now, events: 3), .connected),
+                               (.failed("x"), .connected)] {
+            let on = ["calendar-local": LocalReaders.calendarOn(status)]
+            let r = SourceCatalog.rows(entries: entries, channels: synced, overview: [], readableSites: [],
+                                       localReaders: on)
+            XCTAssertEqual(row("calendar-local", in: r)?.status, word, "\(status)")
+        }
+        XCTAssertEqual(CalendarRowText.line(.off, channel: nil, now: .now), Copy.calendarOff)
+        XCTAssertFalse(Copy.calendarOff.contains("Not connected"), "the head already says Off (DR-38)")
+        XCTAssertFalse(Copy.contactsOff.contains("Not connected"), "the head already says Off (DR-38)")
+    }
+
+    /// Looks pass 2: one tile size for every two-line catalogue row, at the root and beside an open source — the
+    /// detail head's and onboarding's 36 pt; only the title-only row is dense.
+    func testOneTileSizeForTheList() {
+        XCTAssertEqual(SourceCatalogRowView.tileSize(.wide), .row)
+        XCTAssertEqual(SourceCatalogRowView.tileSize(.triage), .row)
+        XCTAssertEqual(SourceCatalogRowView.tileSize(.titles), .dense)
+        XCTAssertEqual(SourceCatalogRowView.tileSize(.hidden), .dense)
+    }
+
     func testSignInWordsAreReadFromTheFailure() {
         XCTAssertTrue(SourceCatalog.readsAsSignIn("401 Unauthorized"))
         XCTAssertFalse(SourceCatalog.readsAsSignIn("Timed out"))

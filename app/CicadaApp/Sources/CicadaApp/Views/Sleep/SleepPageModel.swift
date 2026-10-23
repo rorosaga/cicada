@@ -155,7 +155,7 @@ struct SleepPageModel: Equatable {
                                   stages: drain?.stages),
             schedule: schedule,
             lampLit: schedule.enabled,
-            scheduleText: scheduleSentence(schedule),
+            scheduleText: scheduleSentence(schedule, locale: locale),
             nextRunAt: nextRunWhen(schedule, nextSleepAt: nextSleepAt, locale: locale, timeZone: timeZone),
             nextRunText: nextRunSentence(schedule, nextSleepAt: nextSleepAt, locale: locale, timeZone: timeZone),
             manualEngine: enginePreview?.manual.engine,

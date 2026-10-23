@@ -33,10 +33,7 @@ enum LocalReaders {
                    watchHistory: WatchHistoryWatcher?, browsers: BrowserWatcher?,
                    notes: AppleNotesWatcher?) -> [String: Bool] {
         var on: [String: Bool] = [:]
-        if let calendar {
-            let status = calendar.status
-            on[CalendarRow.channelId] = calendar.isEnabled && status != .denied
-        }
+        if let calendar { on[CalendarRow.channelId] = calendarOn(calendar.status) }
         if let contacts { on[ContactsReader.channel] = contacts.enabled }
         if let tabGroups { on[TabGroupWatcher.channel] = tabGroups.enabled }
         if let watchHistory { on[WatchHistoryWatcher.channel] = watchHistory.enabled }
@@ -48,6 +45,31 @@ enum LocalReaders {
             }
         }
         return on
+    }
+
+    /// Looks pass 2 (2026-10-23) — Calendar's head and its row read one value: the reader's own status, the one the
+    /// row's line and buttons already follow (`CalendarRowText`). The head read `isEnabled` (a defaults flag, not
+    /// observed) beside it, so the two could say Connected and "Not connected" at once. Off and denied are off;
+    /// syncing, synced and a failed read are a connected reader (a failure says why in the row's line).
+    nonisolated static func calendarOn(_ status: CalendarReader.Status) -> Bool {
+        switch status {
+        case .off, .denied: false
+        case .syncing, .synced, .failed: true
+        }
+    }
+}
+
+/// Looks pass 2 (2026-10-23) — set by a source's detail, whose head already shows the source's mark and name: the
+/// source's own row inside it (`CalendarRow`, `ContactsRow`, `MessagesRow`, `WisprFlowRow`, a browser's row) then
+/// draws only its line and its buttons, never a second, smaller mark and the same name again (DR-38, DR-52).
+private struct SourceDetailHeadShownKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var sourceDetailHeadShown: Bool {
+        get { self[SourceDetailHeadShownKey.self] }
+        set { self[SourceDetailHeadShownKey.self] = newValue }
     }
 }
 
@@ -63,7 +85,10 @@ struct SourceCatalogRowView: View {
     var body: some View {
         Button(action: open) {
             HStack(spacing: CicadaTheme.scaled(12)) {
-                SourceLogoTile(origin: row.entry.origin, size: style == .wide ? .row : .dense)
+                // Looks pass 2 (2026-10-23): one tile size for a two-line row, at the root and beside an open source
+                // alike (the list beside a detail drew 24 pt while the root, the detail head and onboarding drew 36);
+                // only the title-only row (36 pt tall, DR-34) keeps the dense tile.
+                SourceLogoTile(origin: row.entry.origin, size: SourceCatalogRowView.tileSize(style))
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                     Text(row.entry.title)
                         .font(CicadaTheme.font(size: 13, weight: selected || style == .wide ? .medium : .regular))
@@ -77,6 +102,7 @@ struct SourceCatalogRowView: View {
                             .lineLimit(1)
                     }
                 }
+                .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.textMaxWidth), alignment: .leading)   // DR-36
                 Spacer(minLength: CicadaTheme.spacingSM)
                 if style == .wide || style == .triage {
                     StatusWord(word: row.status.word, tone: row.status.tone)
@@ -90,6 +116,14 @@ struct SourceCatalogRowView: View {
                         selected: selected)
         .accessibilityLabel("\(row.entry.title), \(row.status.word)")
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    /// The tile a row wears: the detail head's and onboarding's 36 pt on every two-line row, 24 pt on a title-only row.
+    static func tileSize(_ style: ColumnPlan.ListStyle) -> SourceLogoTile.Size {
+        switch style {
+        case .wide, .triage: .row
+        case .titles, .hidden: .dense
+        }
     }
 }
 
@@ -162,7 +196,7 @@ struct SourceCatalogDetail: View {
             .padding(.horizontal, CicadaTheme.spacingXL)
             .padding(.bottom, CicadaTheme.spacingMD)
             VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-                controls
+                controls.environment(\.sourceDetailHeadShown, true)
                 if let site = row.entry.site { readingToggle(site) }
                 if let site = row.entry.site, SourceCatalog.savedListSites.contains(site) { savedListToggle(site) }
             }

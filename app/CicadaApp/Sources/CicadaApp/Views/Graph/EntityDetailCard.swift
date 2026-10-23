@@ -321,7 +321,9 @@ struct EntityDetailCard: View {
                 WhereToCheckChips(entityId: entity.id, isCurrent: { [id = entity.id] in activeEntityId == id })
                     .id(entity.id)
             }
-            pageBlock
+            // Looks pass 2 (2026-10-23): a page with nothing to draw here is left out, not drawn empty — an empty article
+            // still took a slot and the column's spacing on both sides, about 50 pt of nothing above "What Cicada knows".
+            if !pageBlockIsEmpty { pageBlock }
             // Owner 2026-10-20 — a look lives on the page of the thing it shows: its tiles are the page's content when
             // it has some; with none, the ways to add one wait behind their own disclosure below (DR-39).
             if !isStub, showsLooks { looksSection }
@@ -812,6 +814,15 @@ struct EntityDetailCard: View {
     /// its Summary shows its beliefs as its content.
     private var showsBeliefs: Bool {
         entity.type != .media && !isStub && WikiArticleCache.shared.article(articleKey).isEmpty
+    }
+
+    /// Whether `pageBlock` would draw nothing: the rendered view of a loaded page with no paper or media card, no hero
+    /// and no article (the first screen is built synchronously, so an empty one is known now, never a guess).
+    private var pageBlockIsEmpty: Bool {
+        guard !showRawMarkdown, !isStub, paperDetail == nil else { return false }
+        if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper { return false }
+        if HeroPreview.hasPreviewableAsset(for: entity) { return false }
+        return WikiArticleCache.shared.article(articleKey).isEmpty
     }
 
     private var renderedMarkdownView: some View {

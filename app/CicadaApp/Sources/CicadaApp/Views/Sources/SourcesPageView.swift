@@ -73,9 +73,10 @@ struct SourcesPageView: View {
                 // G217 — the page IS the catalogue, so it no longer adds through a second one (the "Add a source" sheet's
                 // grid); Explore saved sites keeps its door (DR-40).
                 HStack(spacing: CicadaTheme.spacingSM) {
-                    TextButton(title: Copy.Reading.inBrowserTitle, help: Copy.Reading.inBrowserHelp) {
-                        showReadingSheet = true
-                    }
+                    // Looks pass 2 (2026-10-23): text alone in a row of bordered buttons read as a label. It opens a
+                    // sheet of switches as Explore opens its own, so it is the same kind of button (DR-40); same words.
+                    NeutralButton(title: Copy.Reading.inBrowserTitle, systemImage: "globe", size: .compact,
+                                  help: Copy.Reading.inBrowserHelp) { showReadingSheet = true }
                     if !exploreCache.isGone {
                         NeutralButton(title: Copy.Explore.button, systemImage: "safari", size: .compact,
                                       help: Copy.Explore.buttonHelp) { showExploreSheet = true }
