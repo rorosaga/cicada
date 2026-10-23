@@ -13,8 +13,11 @@ A project page is born from one of two things, never from consolidation alone:
 * A watched folder the person named in the app (``folder_source.ensure_project``) is the person's own words too: they
   typed the name. Its ``born`` says ``via: folder``.
 
-Everything else Stage 1 calls a project waits as a mention in the pending store, as any name below the promotion bar
-does (``pending_store``), until a repository or the person's words give it a page. Pages born before this rule are
+Everything else Stage 1 calls a project is never a project page. Below the promotion bar it waits as a mention in the
+pending store, as any name does (``pending_store``). Over the bar — counted over every spelling the judge says is the
+same thing — it gets a **fallback page** (owner 2026-10-23): a ``concept`` marked :data:`PROPOSED_KEY`, so it shows in
+the app; a later repository or the person's words make that page the project (:func:`retype_on_birth`), never a
+second page (``entity_resolver._settle_unborn``). Pages born before this rule are
 never archived or deleted for it: :func:`classify` says, per page, which origin the bank can show and why, and the
 dry run (``python -m api.scripts.project_origins``) lists them for the owner to read.
 
@@ -191,6 +194,39 @@ def birth_of(entity: dict, siblings=()) -> dict | None:
 def folder_birth(day: str) -> dict:
     """The person named a watched folder as a project in the app."""
     return {"origin": WORDS, "day": day, "via": "folder"}
+
+
+# --- the fallback page (owner 2026-10-23, amends D4) ----------------------------------------------------------------
+
+#: The frontmatter key a fallback page carries: Stage 1 called the thing a project, nothing gave it a birth, and it
+#: cleared the promotion bar, so it was written as :data:`FALLBACK_TYPE` instead of waiting unseen in the pending
+#: store. The key is what lets a later birth retype that page (:func:`retype_on_birth`) and lets a later project
+#: mention of the same thing be judged against it (``entity_resolver._candidate_types``).
+PROPOSED_KEY = "proposed_type"
+#: ``concept`` is the closed set's general type (``entity_types.FALLBACK``): of the ten, the only one that holds an
+#: endeavour that is not a person, organisation, place, tool, skill or folder — a canoe being built, a garden plan.
+FALLBACK_TYPE = "concept"
+
+
+def proposed(frontmatter: dict | None) -> bool:
+    """The page is a fallback page: written as a concept for a thing Stage 1 called a project."""
+    return str((frontmatter or {}).get(PROPOSED_KEY) or "").lower() == "project"
+
+
+def retype_on_birth(frontmatter: dict, birth) -> bool:
+    """A fallback page whose thing the person later calls a project in their own words (or a repository gives it):
+    the page becomes the project, its ``born`` written once and the marker gone. True when it changed.
+
+    Only a page this fallback wrote — a ``concept`` carrying :data:`PROPOSED_KEY` and no ``born`` — is ever retyped:
+    a project page, a page born with any other type, or one the person retyped by hand is left as it is."""
+    fm = frontmatter
+    if (not isinstance(birth, dict) or not proposed(fm) or str(fm.get("type") or "").lower() != FALLBACK_TYPE
+            or isinstance(fm.get("born"), dict)):
+        return False
+    fm["type"] = "project"
+    fm["born"] = birth
+    fm.pop(PROPOSED_KEY, None)
+    return True
 
 
 # --- reading it back ------------------------------------------------------------------------------------------------

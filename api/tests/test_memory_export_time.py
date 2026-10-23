@@ -236,9 +236,12 @@ def _write(bank, episodes, existing=()):
 
 def test_a_project_first_heard_in_a_memory_entry_stays_a_mention(bank):
     # Ruling 36 D4: a memory entry is the assistant's summary, never the person's words, and no repository: the
-    # project waits as a mention until a conversation gives it an origin (the next test).
-    assert _write(bank, [MEMORY]) == []
-    assert not (bank / "entities" / "alpha-project.md").exists()
+    # project is never a project page until a conversation gives it an origin (the next test). This bank's bar is one
+    # mention, so it is over it: a fallback concept page (owner 2026-10-23), never a project without `born`.
+    (change,) = _write(bank, [MEMORY])
+    assert change["entity"]["type"] == "concept" and "project_birth" not in change
+    fm = markdown_parser.parse(bank / "entities" / "alpha-project.md").frontmatter
+    assert fm["type"] == "concept" and fm["proposed_type"] == "project" and "born" not in fm
 
 
 def test_a_conversation_beside_it_in_the_batch_dates_the_page(bank):

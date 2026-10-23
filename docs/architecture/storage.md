@@ -975,6 +975,11 @@ Round 4 (C2–C4):
   evidence text and is read back only while `evidence.span_status` says current or grown (`project_birth.quote`).
   A page without it (older than the rule) is classified on read (`project_birth.classify`: a declared `repos:` →
   repo, `paths:`/`folder` → words, then the cited conversations) and never rewritten for it (`capture-and-sleep.md`).
+  A fallback page that a later birth retypes gets its `born:` then, the one time (`project_birth.retype_on_birth`).
+- `proposed_type: project` (owner 2026-10-23, amends D4) — on a `concept` page Sleep wrote for a thing Stage 1 called a
+  project that has no birth yet but cleared the promotion bar (the fallback page, `capture-and-sleep.md`). Read by the
+  judge (a later project mention meets the page) and by Stage 5, which removes it when a birth makes the page the
+  project; nothing else writes it.
 - `media.kind: paper` + `paper:` (G133) — a paper page: `arxiv_id`, `doi`, `authors`, `published`,
   `venue`, `sections`, and `metadata_status` once a lookup failed. The ids are the identity
   (`media-arxiv-<id>` / `media-doi-<hash>`); the abstract is a `describes` claim from
