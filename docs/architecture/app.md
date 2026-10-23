@@ -373,12 +373,13 @@ all three empty is one `HomeEmptyBlock` (*Choose a file…*), or nothing while G
 *Make it yours* (Appearance; `AppearanceTipPolicy`, per viewer; × closes it, its foot links Settings → General) is a row after
 Needs you for that one session; once hidden or seen it lives only in Settings.
 
-**Onboarding v2 (G92, G217, ruling 36; 2026-10-22; replaces G145's seven pages).** Five steps of one verb each in
+**Onboarding v2 (G92, G217, ruling 36; 2026-10-22; replaces G145's seven pages).** Six steps of one verb each in
 one full-window layer, raised by `FirstRunGate` (unknown is never empty; never over the demo) or by the one door,
 `OnboardingState.reset` + `AppRouter.requestFirstRun` (Settings → General's *Run setup again*, the demo's *Finish setting
-up*): **Welcome · Intelligence · Agents · Sources · Done** (`OnboardingPage`). Welcome and Done are the study room over a
+up*): **Welcome · Intelligence · Agents · Sources · Meet your bookworm · Done** (`OnboardingPage`; the worm's step since
+2026-10-23, below). Welcome and Done are the study room over a
 card (`OnboardingRoom`, the one illustration, DR-13; the worm's mood per step); the three working steps are the split
-frame — the room in its `bgPane` pane, the column with "Step n of 5 · k still coming in", *Set up later*, and a foot of
+frame — the room in its `bgPane` pane, the column with "Step n of 6 · k still coming in", *Set up later*, and a foot of
 Back, a visible **Skip** and the one primary Continue (⏎ never animates). What each step shows is pure data in
 `Support/OnboardingSteps.swift` (`OnboardingStepsTests`), each step's fixed words under 40.
 *Welcome*: the greeting (saved name, else the Mac account's, *Not you?* corrects it), one sentence, Continue — the owner
@@ -406,6 +407,26 @@ each tick tile shows what it reads and the consent it leads to before the click 
 idle line or a browser's reads, "Needs Full Disk Access" for a browser macOS hides),
 chat history takes a drop or the file panel, *How to get an export* opens `ExportWalkthroughSheet`. Nothing is pre-ticked
 or read before a tick (R-OB6, R-IB12).
+*Meet your bookworm* (`MenuBarStep`, owner 2026-10-23: "have the little worm with the number appear only after
+explaining it"): after Sources, because what Sources brings in is what the number counts, and right before Done, so the
+worm lands in the menu bar as setup closes. No room on this step: the menu bar's own 18 × 18 sprite with its code-drawn
+badge (`BookwormView(artSet: .small)`, 8 pt per art pixel, nearest-neighbour) stands where the room stands, over a ringed
+card — "Meet your bookworm" / "It lives in your menu bar." / "Its number is how many conversations are waiting to become
+memory." / "When Cicada sleeps, it reads them and the number goes down." — with Back, Skip and Continue (⏎). The number is
+the badge's own source, `StatusSnapshot.waitingForSleep`; the worm counts up to it when some already wait ("3 waiting
+now"), else to an example of 12 ("For example"), holds, shows Sleep's five stage dots and starts again
+(`MenuBarStepModel`, timings `CicadaMotion.wormCount…`, the sprite's own frames on their sheet timings, ruling 18). Reduce
+Motion holds it on its number. **The menu-bar item waits for this step** (`MenuBarIntro`, `cicada.menuBar.intro`:
+`waiting` | `done`, an absent key reads `done`): it is written `waiting` only at the launch of a fresh install (no
+`cicada.` key in the app's defaults — decided by `CicadaApp`'s first stored property, before any other writes one), so
+every earlier install keeps its worm and *Show in menu bar* (`cicada.menuBar.visible`) is untouched; the item shows when
+the switch is on and the intro is not waiting. Continue by pointer flies the worm into the menu bar (`MenuBarFlight`: a
+transient borderless non-activating `NSPanel` at `.mainMenu + 3`, born over the big worm and animated by AppKit to the
+status item's button frame in `wormFlightDuration`, a layer with nearest-neighbour filters, ordered out once the real
+item shows under it — a window cannot draw over the menu bar from inside its content); Reduce Motion fades the item in;
+⏎, Skip, *Set up later*, the demo and every other way out show it with no flight (`ContentView` on onboarding closing),
+and a first-run gate that settles with no onboarding coming lets it in at once. A status item macOS keeps off screen (a
+full menu bar) is shown without a flight.
 *Done* (`DonePage`): "You're set.", `DoneLine` — "Talk to your agent; Cicada remembers." plus the schedule's own time
 when a schedule can read (a new memory reads nightly, `features.md`) and "and now for what you brought in" when something
 came in during setup and an engine can read it, else "Read now on Home builds your first pages." — one `MemoryQuotes` line
@@ -413,7 +434,7 @@ came in during setup and an engine can read it, else "Read now on Home builds yo
 agents, offer the tour, Home). **Persisted values (Hyrum mode B):** `cicada.hasOnboarded.<bank>` unchanged; new `cicada.onboarding.step.<bank>`
 holds the step reached as a word, so a person who quits mid-way resumes there once their name is saved; finishing,
 *Set up later* and *Run setup again* clear it; `OnboardingPage(stored:)` maps the seven-step names (`import` → Sources,
-`whoReads` → Intelligence, `skills` → Sources, `keepRunning`/`ready` → Done). The old Skills step (`POST
+`whoReads` → Intelligence, `skills` → Sources, `keepRunning`/`ready` → Done; the worm's step stores `menuBar`). The old Skills step (`POST
 /skills/onboarding`) and Keep it running are gone from onboarding: skills install from the Skills page, and the login-item
 and menu-bar switches stay in Settings → General (Keep it running turned none on). The first-run empty states (Graph,
 Inbox, Home's all-empty block) lead with one SF Symbol (DR-50 amendment, 2026-10-22). Getting started continues on Home,
@@ -1817,7 +1838,8 @@ drawn in code — the badge counts **the conversations waiting for Sleep** up to
 13-pixel pill; owner 2026-10-19: "can we make it so it counts things to consolidate?" — it counted the inbox's questions
 from 2026-10-14). The count is `GET /status` `episodes.readable`, the count Sleep itself would read (`sleep_debt.readable_count`:
 not parked, not index-only history, ruling 30), refreshed through the `.status` domain the `episodes` component already
-maps to; an older backend's `unprocessed` stands in (`StatusSnapshot.waitingForSleep`). At 0 there is no badge. The mood
+maps to; an older backend's `unprocessed` stands in (`StatusSnapshot.waitingForSleep`). At 0 there is no badge. On a
+fresh install the item first appears through onboarding's *Meet your bookworm* (`MenuBarIntro`, above). The mood
 stays `.curious(count:)` — the sheet's "what's this?" beat at an unread pile — and never `.reading`, which in the menu
 bar would say Sleep is at work while nothing runs; `.happy` now reads "nothing waiting for Sleep". It is said in words
 (DR-69, DR-21): the header's "Curious — 12 conversations waiting for Sleep" and the status item's tooltip; the inbox

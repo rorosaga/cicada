@@ -58,6 +58,8 @@ struct ContentView: View {
     @Environment(VideoStateCache.self) private var videoStateCache
     @Environment(ExploreCache.self) private var exploreCache
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The menu-bar worm waits while onboarding has not introduced it (`MenuBarIntro`, owner 2026-10-23).
+    @Environment(MenuBarManager.self) private var menuBar: MenuBarManager?
     /// True while a file is dragged over the window — shows the drop veil (I1).
     @State private var dropTargeted = false
 
@@ -94,7 +96,12 @@ struct ContentView: View {
         // DR-42 (R-DI3) — the window closing sends a held answer now; the app lives on in the menu bar.
         .onDisappear { Task { await store.flushHeld() } }
         // R-IB15 — while the Welcome shows, every arrival is staged on it.
-        .onChange(of: showFirstRun) { _, showing in intake.welcomeActive = showing }
+        .onChange(of: showFirstRun) { _, showing in
+            intake.welcomeActive = showing
+            // Onboarding ended without passing the worm's step (Set up later, the demo, a rerun's Close, Open Cicada
+            // after a jump): the worm is let into the menu bar, with no flight. A no-op once it is already there.
+            if !showing { menuBar?.introduce(.instant) }
+        }
         // The roster resolving the active bank, and the graph snapshot landing
         // (from the on-disk cache or the network), are the two events that turn
         // an unknown input into a known one.
@@ -363,15 +370,22 @@ struct ContentView: View {
     /// re-evaluation firing under an open Welcome must not close it.
     private func evaluateFirstRun() {
         guard !showFirstRun else { return }
-        if FirstRunGate.shouldShow(
+        let shows = FirstRunGate.shouldShow(
             bankResolved: store.banks.value != nil,
             isOnboarded: OnboardingState.isOnboarded(bank: store.bank),
             graphLoaded: store.graph.value != nil,
             graphIsEmpty: store.graph.value?.nodes.hasNoContentBeyondOwner ?? false,
             isDemo: DemoMode.isActive(store.banks.value)
-        ) {
+        )
+        if shows {
             welcomeMode = .firstRun
             showFirstRun = true
+        } else if MenuBarIntro.settlesWithoutStep(bankResolved: store.banks.value != nil,
+                                                  graphLoaded: store.graph.value != nil,
+                                                  gateShows: false, onboardingShowing: showFirstRun) {
+            // A fresh install of this app on a memory that already has pages (or is onboarded, or is the demo): no
+            // onboarding is coming, so the waiting worm is let into the menu bar now.
+            menuBar?.introduce(.instant)
         }
     }
 

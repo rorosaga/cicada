@@ -100,8 +100,11 @@ struct BookwormSize: Equatable {
     let pixelScale: CGFloat
     let size: CGSize
 
-    static func resolve(pointSize: CGFloat, uiScale: CGFloat, latticeCell: CGFloat?) -> BookwormSize {
-        let set: BookwormArtSet = latticeCell != nil || pointSize >= 48 ? .room : .small
+    /// `set` forces a sheet set: onboarding's *Meet your bookworm* shows the menu bar's own 18 × 18 sprite big
+    /// (owner 2026-10-23), a whole number of points per art pixel like every other size.
+    static func resolve(pointSize: CGFloat, uiScale: CGFloat, latticeCell: CGFloat?,
+                        set forced: BookwormArtSet? = nil) -> BookwormSize {
+        let set: BookwormArtSet = forced ?? (latticeCell != nil || pointSize >= 48 ? .room : .small)
         let canvas = set == .room ? BookwormArt.roomFrame : BookwormArt.smallFrame
         let k = latticeCell ?? max(1, (pointSize * uiScale / canvas.height).rounded())
         return BookwormSize(set: set, pixelScale: k, size: CGSize(width: canvas.width * k, height: canvas.height * k))
