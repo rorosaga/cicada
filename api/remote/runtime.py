@@ -296,6 +296,10 @@ class RemoteRuntime:
         self._lock = threading.Lock()
         self._write_lock = threading.Lock()  # R-R28: one remote write at a time
 
+    def today(self) -> str:
+        """The day a call is bucketed in (injectable for tests); `/v1` mints a relayed conversation's handle with it."""
+        return self._today()
+
     def tool_context(self, connector: catalog.Connector, handle: str,
                      memory_path: Path | None = None, bank_name: str | None = None) -> mcp_tools.ToolContext:
         """``memory_path`` pins the bank for the whole call (G183 round 1): admission, the gate, every write and the

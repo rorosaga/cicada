@@ -156,9 +156,27 @@ bank (`NO_BANK_WRITE`). **Hyrum, mode A:** stable — the paths, `qr`'s three ke
   the note and mine shapes, the header name; not stable — the 24 h TTL, the 20/500 limits, the suggested 8443.
 
 **The agent API (G213, 2026-10-22).** For an agent that speaks HTTP but not MCP. `POST /v1/<op>` with
-`Authorization: Bearer <connector token>` and a JSON object body; operations `recall`, `ask`, `page`, `timeline`,
-`project`, `save_note`, `save_url`, `write_claim`, `retract_claim`, `inbox`, `resolve_inbox` — each one remote tool
-(`api/remote/agent_api.OPS`), its arguments the remote schema's minus `conversation`, run through the shared
+`Authorization: Bearer <connector token>` and a JSON object body. **Generated from the remote tool table (ruling 38,
+2026-10-23):** every `REMOTE_TOOLS` entry is exactly one operation unless `agent_api.EXCLUDED` names it with its reason
+(only `cicada_handshake`: `GET /v1/me` and `llms.txt` carry it), so the same token gives the same powers on `/mcp` and
+`/v1`, and the stdio-only tools (`continue`, `edit_page`, the saved-list and profile reads, explore, design, skills)
+stay off both. 27 operations. **Stable, frozen as #424 shipped them:** `recall`, `ask`, `page`, `timeline`,
+`project`, `save_note`, `save_url`, `write_claim`, `retract_claim`, `inbox`, `resolve_inbox` (`agent_api.STABLE`;
+`cli_map`'s `api_op` column spells the seven that are not their CLI command). **Added, each its `cli_map` command
+spelled with underscores (`Row.operation`):** `hub`, `perspective`, `source_list`, `source_add`, `source_change`,
+`progress_add`, `backlog_list`, `backlog_add`, `backlog_note`, `inbox_record_check`, `video_queue`, `video_claim`,
+`video_record`, `read_queue`, `read_record`, and `capture_turns` (remote-only, so named in
+`agent_api.REMOTE_ONLY_OPS`: a relayed turn is stored `evidence_kind: assistant` with `relay.connector`, never the
+person's own words). **One episode per conversation (ruling 32, G104):** `capture_turns` alone keeps the
+`conversation` argument on `/v1`. `"conversation": "new"` starts one — Cicada mints the handle (`mint_handle`) and
+answers it as `data.conversation` — and every later turn passes that handle back; a handle another token got (or any
+other string) is 400 `invalid_arguments`, nothing written, never merged into someone else's record. With no
+`conversation` a turn goes to the token's day bucket (`rc_<id>_<day>`) — the documented fallback, as on `/mcp` without
+a handle — so a caller relaying two conversations a day must start each with `"new"`. `test_agent_api.py` pins the operation set to
+`REMOTE_TOOLS − EXCLUDED`, the eleven names to their tools, each new name to its row, each operation's scope to
+`catalog.TOOL_SCOPE`, and `/v1/openapi.json`'s validity; a tool added to one table and not the other fails CI.
+Each operation is one remote tool (`api/remote/agent_api.OPS`), its arguments the remote schema's minus
+`conversation` (except `capture_turns`, above), run through the shared
 `RemoteRuntime` (scopes, G199 contract, Sleep and demo gates, the daily `ask` cap, fenced reads, `connector:` and
 `origin: remote:<id>` provenance, one ids-only `remote_call` row). Every answer is `{text, isError, code, data}`:
 200 (isError true for a body's refusal), 400 `invalid_arguments`, 401 `invalid_token`, 403 `denied` / `origin`,
@@ -167,7 +185,10 @@ bank (`NO_BANK_WRITE`). **Hyrum, mode A:** stable — the paths, `qr`'s three ke
 `GET /v1/openapi.json` (OpenAPI 3.1, generated from the remote schemas) and `GET /v1/llms.txt` = `GET /llms.txt`
 describe it and are open. `/v1/*` sits outside the app-wide bearer check (`auth._OpenPaths`) and checks its own:
 **only a connector token** — the master token and a device token are the person's machines, an agent is not, so both
-are 401 there. Any `Origin` is refused. The same API rides the G135 listener (`network.md`).
+are 401 there. Any `Origin` is refused. The same API rides the G135 listener (`network.md`). **No third door**
+(ruling 38): an MCP client uses `/mcp`; everything else uses `/v1` and `/v1/openapi.json`. A scope-denied or malformed
+call answers the same sentence and `code` on both doors (one `RemoteRuntime.call`, one `tool_contract`); `sources`
+gates every verbatim word on `/v1` as on `/mcp` (`ToolContext.raw_excerpts`).
 **Agent tokens:** `POST /agent-api/tokens` `{name, scopes?, expiresInDays?, baseUrl?}` (master only:
 `MASTER_ONLY_WRITE_PREFIXES`) makes a connector row with `auth: "api"` and answers once `{token, agent, prompt,
 baseUrl}` — `cic_api_<id>_<secret>`, scoped (default `search`/`read`/`record`), expiring 7/30/90, revocable at
