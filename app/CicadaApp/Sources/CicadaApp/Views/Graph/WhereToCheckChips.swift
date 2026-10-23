@@ -23,16 +23,22 @@ struct WhereToCheckChips: View {
     }
 
     var body: some View {
+        let empty = Self.chips(sources).isEmpty
+        // Looks pass 2 (review of #446): `flushLeading` pulled the button past the scroll view's own leading edge, which
+        // clips, so its hover fill was cut off there. The scroll view itself reaches out by the button's inset instead:
+        // the words still sit on the column's edge and the fill lies inside the scroll view, whole.
+        let pull = empty ? TextButton.inset(inline: false) : 0
         HStack(spacing: CicadaTheme.spacingXS) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: CicadaTheme.spacingXS) {
                     ForEach(Self.chips(sources)) { chip($0) }
                     // With no chips yet, a lone "Add" said nothing about what it adds (looks pass 2026-10-23).
-                    TextButton(title: Self.chips(sources).isEmpty ? Copy.WhereChips.add : Copy.WhereChips.addShort,
-                               help: Copy.WhereChips.add, flushLeading: Self.chips(sources).isEmpty) { adding = true }
+                    TextButton(title: empty ? Copy.WhereChips.add : Copy.WhereChips.addShort,
+                               help: Copy.WhereChips.add) { adding = true }
                         .popover(isPresented: $adding, arrowEdge: .bottom) { addField }
                 }
             }
+            .padding(.leading, -pull)
             IconButton(systemName: "questionmark.circle", help: Copy.WhereChips.fadeHelp) { showsFade = true }
                 .popover(isPresented: $showsFade, arrowEdge: .bottom) { fadeExplainer }
         }

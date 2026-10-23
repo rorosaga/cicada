@@ -140,6 +140,22 @@ final class TourTests: XCTestCase {
         XCTAssertTrue(tour.pendingStart)
     }
 
+    /// Looks pass 2 (2026-10-23): onboarding's offer was adopted, then the demo started the tour by itself; after
+    /// Skip tour, Home still asked "Take a quick tour?". A start answers the offer, and so does a finish or skip.
+    func testAnAutoStartedTourAnswersTheOffer() {
+        let tour = TourController(defaults: defaults)
+        TourOffer.request(defaults: defaults)
+        tour.adoptOffer()
+        XCTAssertTrue(tour.offerPending)
+        tour.autoStart(bank: "demo")
+        XCTAssertFalse(tour.offerPending, "the tour it offers is running")
+        tour.finish()
+        XCTAssertFalse(tour.offerPending, "skipped: nothing offers it again")
+        tour.offerPending = true
+        tour.finish()
+        XCTAssertFalse(tour.offerPending, "a finish clears an offer set any other way")
+    }
+
     func testTheDemoStartsItOncePerViewer() {
         let tour = TourController(defaults: defaults)
         XCTAssertFalse(tour.demoStarted)

@@ -12,20 +12,28 @@ struct SourceRow<Accessory: View>: View {
     var now: Date = Date()
     /// Present only where a stop means something; the × shows only while the run says it can be stopped.
     var onCancel: (() -> Void)? = nil
+    /// Looks pass 2 (2026-10-23): false under a source detail's head, which already shows this source's mark and name
+    /// (DR-38) — the row keeps what it reads, its line, its state and its action. Sub-sources (tab groups, YouTube
+    /// history) keep theirs: their names are not the head's.
+    var showsIdentity = true
     @ViewBuilder var accessory: () -> Accessory
 
     @State private var hovering = false
 
     var body: some View {
         HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
-            OriginMark(origin: model.origin, size: CicadaTheme.scaled(Self.markSize))
-                .markHover(hovering: hovering)
+            if showsIdentity {
+                OriginMark(origin: model.origin, size: CicadaTheme.scaled(Self.markSize))
+                    .markHover(hovering: hovering)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
-                    Text(model.title)
-                        .font(CicadaTheme.rowFont)
-                        .foregroundStyle(CicadaTheme.textPrimary)
-                        .lineLimit(1)
+                    if showsIdentity {
+                        Text(model.title)
+                            .font(CicadaTheme.rowFont)
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                            .lineLimit(1)
+                    }
                     if let meta = model.meta {
                         Text(meta)
                             .font(CicadaTheme.metaFont)

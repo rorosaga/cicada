@@ -189,7 +189,7 @@ extension Copy {
     static let calendarAppTitle = "Calendar on this Mac"
     /// Never "Nothing leaves this Mac": events become episodes, and Sleep, Ask or a remote connector can send those to
     /// a cloud engine — that sentence is Ollama's alone (`honestyOllama`). Final review of round 4, finding 4.
-    static let calendarOff = "Not connected — Connect asks macOS to share your calendars with Cicada."
+    static let calendarOff = "Connect asks macOS to share your calendars with Cicada."
     static let calendarDenied = "Calendar access is off for Cicada — turn it on in System Settings → Privacy & Security → Calendars, then Connect again."
     static let calendarSyncing = "Syncing…"
     /// DR-21 — the count through `UsageFormat.count`, in the locale the row was asked for.

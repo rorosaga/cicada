@@ -246,8 +246,9 @@ final class SleepHeroTests: XCTestCase {
     func test_theRestedMeterIsASentence() {
         XCTAssertEqual(HeroMeter.rested(pct: 100).sentence(unprocessed: 0, mood: .happy),
                        "Fully rested — nothing is waiting.")
+        // Looks pass 2: the hero already says "overdue"; the readout never says it again.
         XCTAssertEqual(HeroMeter.rested(pct: 0).sentence(unprocessed: 40, mood: .hungry),
-                       "Rested 0% — the backlog is overdue.")
+                       "Rested 0% — based on how much is waiting, and for how long.")
         XCTAssertEqual(HeroMeter.rested(pct: 40).sentence(unprocessed: 3, mood: .reading),
                        "Rested 40% — based on how much is waiting, and for how long.")
         XCTAssertEqual(HeroMeter.reading(read: 2, total: 3).sentence(unprocessed: 3, mood: .sleeping(stage: 1)),

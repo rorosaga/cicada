@@ -513,33 +513,39 @@ struct FolderManagePanel: View {
 struct WisprFlowRow: View {
     let channel: SourceChannel?
     @Environment(LocalSourceWatcher.self) private var localSources
+    @Environment(\.sourceDetailHeadShown) private var headShown
     @State private var showPanel = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: CicadaTheme.spacingMD) {
-                LogoImage.platformTile(name: OriginIconography.logoName(for: "wispr-flow") ?? "",
-                                       bundleId: OriginIconography.appBundleId(for: "wispr-flow"),
-                                       size: CicadaTheme.scaled(28),
-                                       systemFallback: OriginIconography.symbol(for: "wispr-flow"))
+                // Looks pass 2: under a source detail's head the mark and name are already on screen (DR-38).
+                if !headShown {
+                    LogoImage.platformTile(name: OriginIconography.logoName(for: "wispr-flow") ?? "",
+                                           bundleId: OriginIconography.appBundleId(for: "wispr-flow"),
+                                           size: CicadaTheme.scaled(28),
+                                           systemFallback: OriginIconography.symbol(for: "wispr-flow"))
+                }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Wispr Flow")
-                        .font(CicadaTheme.rowFont)
-                        .foregroundStyle(CicadaTheme.textPrimary)
+                    if !headShown {
+                        Text("Wispr Flow")
+                            .font(CicadaTheme.rowFont)
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                    }
                     Text(LocalSourceRowText.wisprLine(channel, settings: localSources.wisprSettings))
                         .font(CicadaTheme.captionFont)
                         .foregroundStyle(channel?.lastError != nil ? CicadaTheme.danger : CicadaTheme.textSecondary)
                 }
                 Spacer()
+                // DR-40: the page's own button kind, never a native bordered one (looks pass 2); same words.
                 if localSources.wisprSettings.enabled {
-                    Button("Sync now") { Task { await localSources.syncWisprNow() } }
-                        .buttonStyle(.bordered)
-                        .disabled(localSources.syncing.contains(LocalSourceWatcher.wisprChannel))
-                    Button("Manage") { showPanel = true }
-                        .buttonStyle(.bordered)
+                    NeutralButton(title: "Sync now", size: .compact,
+                                  isDisabled: localSources.syncing.contains(LocalSourceWatcher.wisprChannel)) {
+                        Task { await localSources.syncWisprNow() }
+                    }
+                    NeutralButton(title: "Manage", size: .compact) { showPanel = true }
                 } else {
-                    Button("Connect") { showPanel = true }
-                        .buttonStyle(.bordered)
+                    NeutralButton(title: "Connect", size: .compact) { showPanel = true }
                 }
             }
             // R-HS16 — a sheet, never a popover at the panel's edge.
@@ -552,10 +558,10 @@ struct WisprFlowRow: View {
             // G161 — the meetings and notes Wispr Flow brought in, by title.
             if channel?.connected == true {
                 CapturedItemsList(channel: LocalSourceWatcher.wisprChannel)
-                    .padding(.leading, CicadaTheme.scaled(28) + CicadaTheme.spacingMD)
+                    .padding(.leading, headShown ? 0 : CicadaTheme.scaled(28) + CicadaTheme.spacingMD)
             }
         }
-        .padding(.horizontal, CicadaTheme.spacingMD)
+        .padding(.horizontal, headShown ? 0 : CicadaTheme.spacingMD)
         .padding(.vertical, CicadaTheme.spacingSM)
     }
 }
