@@ -27,7 +27,7 @@ from __future__ import annotations
 import hashlib
 import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +43,12 @@ NOTES_INDEX_FILENAME = "notes_index.json"
 FIELD_SEP = "\x1e"
 RECORD_SEP = "\x1d"
 _EXPECTED_FIELDS = 6  # id, name, body, created, modified, folder
+#: 2026-10-23: the app adds two after the folder — the modification date as Notes' own locale-free ISO local time
+#: (AppleScript's ``«class isot»``) and the Mac's UTC offset in seconds — so a note is dated when it was written,
+#: never the day it was synced. `created`/`modified` stay the human strings: `modified` is the dedup key, and a new
+#: spelling would re-emit every note an older sync already kept. A 6-field record (an older app) still parses. The
+#: offset is today's, so a note from the other side of a daylight-saving change is an hour off (its day rarely moves).
+_DATED_FIELDS = 8
 
 # A note body beyond this is truncated before it becomes an episode — an
 # episode is a lightweight staging chunk, not a full document store; the Sleep
@@ -61,6 +67,8 @@ class NoteRecord:
     created: str
     modified: str
     folder: str
+    #: When the note was last modified, aware ISO-8601; '' when the app did not send it (an older app).
+    modified_at: str = ""
 
 
 def parse_notes_dump(raw: str) -> list[NoteRecord]:
@@ -79,10 +87,11 @@ def parse_notes_dump(raw: str) -> list[NoteRecord]:
         if not chunk.strip():
             continue
         fields = chunk.split(FIELD_SEP)
-        if len(fields) != _EXPECTED_FIELDS:
+        if len(fields) not in (_EXPECTED_FIELDS, _DATED_FIELDS):
             logger.debug(f"Skipping malformed note record ({len(fields)} field(s), expected {_EXPECTED_FIELDS})")
             continue
-        note_id, name, body, created, modified, folder = fields
+        note_id, name, body, created, modified, folder = fields[:_EXPECTED_FIELDS]
+        modified_at = _aware(*fields[_EXPECTED_FIELDS:]) if len(fields) == _DATED_FIELDS else ""
         records.append(NoteRecord(
             note_id=note_id.strip(),
             name=name.strip(),
@@ -90,8 +99,23 @@ def parse_notes_dump(raw: str) -> list[NoteRecord]:
             created=created.strip(),
             modified=modified.strip(),
             folder=folder.strip(),
+            modified_at=modified_at,
         ))
     return records
+
+
+def _aware(local_iso: str, offset_seconds: str) -> str:
+    """``2026-03-03T11:30:00`` + ``3600`` -> ``2026-03-03T10:30:00+00:00``; '' when either is unreadable or the moment
+    lies in the future (a clock the record cannot be dated by)."""
+    try:
+        naive = datetime.fromisoformat(local_iso.strip())
+        offset = timedelta(seconds=int(offset_seconds.strip()))
+    except (ValueError, OverflowError):
+        return ""
+    if naive.tzinfo is not None or abs(offset) > timedelta(hours=18):
+        return ""
+    moment = naive.replace(tzinfo=timezone(offset)).astimezone(timezone.utc)
+    return moment.isoformat() if moment <= datetime.now(timezone.utc) else ""
 
 
 def _note_key(note: NoteRecord) -> str:
@@ -152,11 +176,13 @@ def _episode_body(note: NoteRecord) -> str:
 
 def _write_note_episode(episodes_dir: Path, note: NoteRecord) -> str:
     episodes_dir.mkdir(parents=True, exist_ok=True)
-    ep_date = datetime.now().strftime("%Y-%m-%d")
+    # Read on time (owner 2026-10-16): a note is dated when it was last written, not the day it was synced — a first
+    # sync of a years-old library is never a library of mentions today. An older app sends no date: now, as before.
+    ep_date = episode_ids.id_day(note.modified_at) if note.modified_at else datetime.now().strftime("%Y-%m-%d")
     episode_id = episode_ids.next_episode_id(episodes_dir, ep_date)
     # Aware UTC (G114 R2) — the old naive `now` + a bare "Z" suffix stamped
     # LOCAL time and labelled it UTC, off by the machine's offset.
-    timestamp = episode_ids.utc_now_iso()
+    timestamp = note.modified_at or episode_ids.utc_now_iso()
 
     body = episode_scrub.scrub_body(_episode_body(note), writer="apple-notes", bank=episodes_dir.parent.name)
     content_hash = hashlib.sha256(f"{_note_key(note)}|{note.modified}".encode()).hexdigest()[:12]

@@ -16,6 +16,35 @@ extension ReadingAgentModel {
     }
 }
 
+/// 2026-10-23 — which of this Mac's readers are on, for `SourceCatalog.status`. The backend knows a reader synced once,
+/// never that it was disconnected here (the flags are this Mac's), so a Calendar, Contacts, tab groups, YouTube history
+/// or a browser's bookmark watch turned off kept reading Connected while nothing more arrived. Each observable value is
+/// read so the row redraws when it flips. Messages and Wispr Flow are answered by the backend (their switches live in
+/// the bank's settings).
+@MainActor
+enum LocalReaders {
+    static func on(calendar: CalendarReader?, contacts: ContactsReader?, tabGroups: TabGroupWatcher?,
+                   watchHistory: WatchHistoryWatcher?, browsers: BrowserWatcher?,
+                   notes: AppleNotesWatcher?) -> [String: Bool] {
+        var on: [String: Bool] = [:]
+        if let calendar {
+            let status = calendar.status
+            on[CalendarRow.channelId] = calendar.isEnabled && status != .denied
+        }
+        if let contacts { on[ContactsReader.channel] = contacts.enabled }
+        if let tabGroups { on[TabGroupWatcher.channel] = tabGroups.enabled }
+        if let watchHistory { on[WatchHistoryWatcher.channel] = watchHistory.enabled }
+        if let notes { on[AppleNotesWatcher.channel] = notes.enabled }
+        if let browsers {
+            for (channel, _) in BrowserWatchPolicy.watched {
+                _ = browsers.states[channel]
+                on[channel] = browsers.isEnabled(channel)
+            }
+        }
+        return on
+    }
+}
+
 /// One catalogue row: tile · name (and when it last synced, only when on) · dot + one word. An Off row's word is its
 /// verb as a neutral button would be too loud in a list of twenty, so the row opens the detail, where the verb is.
 struct SourceCatalogRowView: View {
@@ -178,6 +207,16 @@ struct SourceCatalogDetail: View {
                 }
                 tileButton(Copy.Catalog.importFile)
             }
+        case AppleNotesWatcher.channel:
+            NotesControls()
+        case "telegram":
+            // 2026-10-23: the detail drew the channel's actions — Telegram has none — so it showed nothing at all.
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                Text(Copy.Catalog.telegramHonest)
+                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                tileButton(Copy.Catalog.howToSetUp)
+            }
         case "chat-exports":
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 Text(Copy.Catalog.chatExportsHere)
@@ -205,7 +244,13 @@ struct SourceCatalogDetail: View {
                     tileButton(Copy.Catalog.importFile)
                 }
             } else if !mine.isEmpty {
-                ForEach(mine) { ChannelActionsBar(channel: $0, tile: entry.tile) }
+                // A feed's "manage" opens its tile's flow (the Subscribe field and the list) — 2026-10-23: the bar
+                // drew only Refresh, so RSS and Calendar feeds offered no way to add a feed at all.
+                ForEach(mine) { channel in
+                    ChannelActionsBar(channel: channel, tile: entry.tile,
+                                      flowTitle: channel.count > 0 ? Copy.Catalog.manage : verbTitle(entry.verb),
+                                      openFlow: entry.tile.map { tile in { flowTile = tile } })
+                }
             } else {
                 tileButton(verbTitle(entry.verb))
             }
@@ -290,6 +335,10 @@ struct SourceCatalogDetail: View {
 struct ChannelActionsBar: View {
     let channel: SourceChannel
     var tile: AddSourceTile?
+    /// The words on the button that opens the source's own flow ("Add a feed", "Manage").
+    var flowTitle: String = Copy.Catalog.manage
+    /// Opens the source's own flow (a feed's Subscribe field and list): the channel's `manage` action.
+    var openFlow: (() -> Void)? = nil
 
     @Environment(Store.self) private var store
     @Environment(CalendarReader.self) private var calendarReader: CalendarReader?
@@ -315,8 +364,12 @@ struct ChannelActionsBar: View {
                                                            local: localSources, calendar: calendarReader,
                                                            tabGroups: tabGroups, contacts: contacts,
                                                            messages: messages, watchHistory: watchHistory) }
-                } else if channel.actions.contains("poll") {
+                } else if channel.actions.contains("poll"), channel.count > 0 {
+                    // Nothing subscribed is nothing to poll: the flow's button below is the one thing to do.
                     action { try await ChannelActions.poll(channel.id) }
+                }
+                if channel.actions.contains("manage"), let openFlow {
+                    NeutralButton(title: flowTitle, size: .compact) { openFlow() }
                 }
                 if channel.actions.contains("disconnect") {
                     NeutralButton(title: Copy.Catalog.manage, size: .compact) { showConnector = true }
@@ -324,6 +377,10 @@ struct ChannelActionsBar: View {
             }
             if let feedback {
                 Text(feedback).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+            } else if let error = channel.lastError, !error.isEmpty {
+                // Why nothing is arriving, in the backend's words (a feed this backend does not fetch, a failed sync).
+                Text(error).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .sheet(isPresented: $showConnector) {
@@ -339,6 +396,58 @@ struct ChannelActionsBar: View {
                 busy = true
                 defer { busy = false }
                 do { feedback = try await work() } catch { feedback = AddSourceSheet.friendlyError(error) }
+            }
+        }
+    }
+}
+
+/// Apple Notes' own control (2026-10-23): Connect reads every folder once (the one Automation prompt) and turns on
+/// keeping up; once on, Refresh reads now and Disconnect stops it (what came in stays). The detail drew only a bare
+/// Refresh before, on a source that never read again on its own.
+struct NotesControls: View {
+    @Environment(AppleNotesWatcher.self) private var notes
+    @Environment(Store.self) private var store
+    @State private var busy = false
+    @State private var feedback: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            Text(notes.enabled ? Copy.Catalog.notesOn : Copy.Catalog.notesOff)
+                .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: CicadaTheme.spacingSM) {
+                NeutralButton(title: notes.enabled ? Copy.Catalog.refresh : Copy.Catalog.connectNotes, size: .compact,
+                              isDisabled: busy) { read() }
+                if notes.enabled {
+                    NeutralButton(title: Copy.Catalog.disconnect, size: .compact) {
+                        notes.disconnect()
+                        feedback = nil
+                    }
+                }
+            }
+            if let line = feedback ?? failure {
+                Text(line).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// An unattended read that failed (Automation turned off, a demo memory open), in the reader's own words.
+    private var failure: String? {
+        if case .failed(let why) = notes.status { return why }
+        return nil
+    }
+
+    private func read() {
+        Task {
+            busy = true
+            defer { busy = false }
+            do {
+                let r = try await notes.syncNow()
+                feedback = "\(r.new) new · \(r.skipped) unchanged"
+                await store.refresh([.channels, .status, .sources])
+            } catch {
+                feedback = AddSourceSheet.friendlyError(error)
             }
         }
     }

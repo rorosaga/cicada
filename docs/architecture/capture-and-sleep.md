@@ -19,6 +19,12 @@ Seven rails hold across all of them:
   Apple Notes is the same: the app runs the AppleScript as its own child `osascript`
   (`AppleNotesReader`, `NSAppleEventsUsageDescription`) and posts the dump to `POST /sources/sync-notes`,
   which 422s without one — run from the launchd backend, macOS asked whether "python3.12" may control Notes.
+  **Notes keeps up and is dated when written (2026-10-23).** `AppleNotesWatcher` reads after the person's own first
+  read (Connect, Refresh, onboarding's tick), then on launch, after a bank switch and every two hours — only while
+  Notes is already open, since `tell application "Notes"` would launch it; Disconnect stops it, deleting nothing. Each
+  record adds the modification date as AppleScript's locale-free `«class isot»` and the Mac's UTC offset, so
+  `notes_sync` dates the episode when the note was last written (read on time); the human `modified` string stays the
+  dedup key, and a 6-field record from an older app still parses and is dated now.
   `POST /sources/sync-bookmarks` likewise 422s without bookmark bytes (there is no local-file fallback), and no
   route stats a path the request names. Folders a page declares follow it too: `GET /entities/{id}/location`
   returns the path and the app lists it (`LocationLister`), a declared repo's git runs in the app (`GitRunner`,
@@ -303,7 +309,9 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   The app half: `CalendarReader` reads every calendar on the Mac through EventKit, only after Connect and
   macOS's full-access prompt, 30 days back to 60 ahead, and posts on launch, on `EKEventStoreChanged`
   (debounced), every 3 hours, after a bank switch and on Sync now; an empty read is never posted (it would
-  tombstone the window); Disconnect stops it and deletes nothing. ICS subscriptions are unchanged.
+  tombstone the window); Disconnect stops it and deletes nothing. A subscribed ICS calendar's event is dated the
+  same way since 2026-10-23 (`calendar_registry._begun_at`: its start once begun, else the day it was polled), and
+  its fetch goes through `net_guard` on every hop, as the RSS poll's does (`network.md`).
   Chrome's open tab groups (round 4, G160 first slice): the app reads the default profile's
   `Sessions/Session_<n>` (SNSS; only a clear version-3 file carrying its initial-state marker, never `Tabs_*`, never
   the encrypted directory; commands 25/27 and each member tab's current navigation — never the page state after its

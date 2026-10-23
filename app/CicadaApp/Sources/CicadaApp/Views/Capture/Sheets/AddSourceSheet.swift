@@ -751,7 +751,9 @@ struct AddSourceSheet: View {
 
     private var telegramInstructions: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Text("Create a bot with @BotFather, then set CICADA_TELEGRAM_BOT_TOKEN in api/.env and restart the backend. Forward it a link to save it, or send /note to capture a thought.")
+            // 2026-10-23: a release has no api/.env; the backend reads its credentials from ~/.cicada/secrets.env. The
+            // webhook needs a public address Cicada never opens, which the steps now say instead of leaving it out.
+            Text("Create a bot with @BotFather, add CICADA_TELEGRAM_BOT_TOKEN to ~/.cicada/secrets.env and restart the backend. Then point the bot's webhook at a public HTTPS address that reaches this Mac's /capture/telegram — Cicada doesn't open one for you. Forward the bot a link to save it, or send /note to capture a thought.")
                 .font(CicadaTheme.bodyFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -829,7 +831,7 @@ struct AddSourceSheet: View {
     private func syncNotes() async {
         busy = true
         do {
-            let r = try await AppleNotesReader.syncNow()
+            let r = try await AppleNotesWatcher.shared.syncNow()
             await finish("\(r.new) new · \(r.skipped) unchanged")
         } catch { fail(error) }
     }

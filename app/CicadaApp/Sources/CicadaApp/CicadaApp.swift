@@ -98,6 +98,8 @@ struct CicadaApp: App {
     /// Round-4 D2 (C6, C7): the Calendar app's events, read by the app through EventKit only after Connect in
     /// the Sources page, and posted to the backend (R-FA11).
     @State private var calendarReader = CalendarReader()
+    /// 2026-10-23: Apple Notes keeps up once the person's own first read turned it on (only while Notes is open).
+    @State private var notesWatcher = AppleNotesWatcher.shared
     /// Round 4 (G160 first slice): Chrome's open tab groups, read by the app from its session file only after the
     /// person turns on their own switch (R-SR3), and posted per memory.
     @State private var tabGroups: TabGroupWatcher
@@ -329,6 +331,7 @@ struct CicadaApp: App {
             Task { await localSources.reload() }
             // Round-4 D2 — the new memory gets the calendar too (a demo's 409 is said in words).
             Task { await calendarReader.bankChanged() }
+            Task { await notesWatcher.bankChanged() }
             // G160 — the new memory gets the open groups too (its digest is its own).
             Task { await tabGroups.bankChanged() }
             // G71 — the new memory's YouTube history, past its own cursor.
@@ -373,6 +376,7 @@ struct CicadaApp: App {
             .environment(syncActivity)
             .environment(localSources)
             .environment(calendarReader)
+            .environment(notesWatcher)
             .environment(tabGroups)
             .environment(watchHistory)
             .environment(contactsReader)
@@ -459,6 +463,8 @@ struct CicadaApp: App {
         // R-FA11 — reads only if the person connected before and macOS still says yes. A reopened
         // window runs this again: `arm()` is guarded, so that costs one catch-up sync and nothing more.
         calendarReader.start()
+        // Reads only if the person connected Notes before, and only while Notes is open.
+        notesWatcher.start()
         // G160 (R-SR3) — reads only if the person turned the tab-groups switch on.
         tabGroups.start()
         // G71 — reads only if the person turned the YouTube history switch on.

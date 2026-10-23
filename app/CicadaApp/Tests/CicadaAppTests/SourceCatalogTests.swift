@@ -72,6 +72,53 @@ final class SourceCatalogTests: XCTestCase {
         XCTAssertEqual(SourceCatalog.connectedCount(r), 0)
     }
 
+    /// 2026-10-23 — the backend knows a reader synced once, never that it was disconnected on this Mac: a Calendar,
+    /// Contacts, tab groups or bookmark watch turned off kept reading Connected while nothing more arrived.
+    func testAReaderTurnedOffOnThisMacReadsOffWhateverItSyncedBefore() {
+        let synced = [SourceChannel(id: "calendar-local", label: "Calendar", connected: true,
+                                    lastSync: "2026-10-22T10:00:00Z"),
+                      SourceChannel(id: "notes", label: "Apple Notes", connected: true, lastSync: "2026-10-22T10:00:00Z")]
+        let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
+        let off = SourceCatalog.rows(entries: entries, channels: synced, overview: [], readableSites: [],
+                                     localReaders: ["calendar-local": false, "notes": false])
+        XCTAssertEqual(row("calendar-local", in: off)?.status, .off)
+        XCTAssertEqual(row("notes", in: off)?.status, .off)
+        XCTAssertNil(SourceCatalog.line(row("calendar-local", in: off)!, now: .now), "no 'last synced' on an Off row")
+        let on = SourceCatalog.rows(entries: entries, channels: synced, overview: [], readableSites: [],
+                                    localReaders: ["calendar-local": true])
+        XCTAssertEqual(row("calendar-local", in: on)?.status, .connected)
+        XCTAssertEqual(row("notes", in: on)?.status, .connected, "a reader this page does not know is the backend's word")
+    }
+
+    /// A browser's row is Connected while any of its readers is on: bookmarks off, YouTube history on.
+    func testABrowserStaysConnectedWhileAnyOfItsReadersIsOn() {
+        let chrome = BrowserInventory.spec(id: "chrome")!
+        let channels = [SourceChannel(id: "chrome-bookmarks", label: "Chrome", connected: true),
+                        SourceChannel(id: WatchHistoryWatcher.channel, label: "YouTube", connected: true)]
+        let entries = SourceCatalog.entries(browsers: [chrome], wisprPresent: false, overview: [])
+        let rows = SourceCatalog.rows(entries: entries, channels: channels, overview: [], readableSites: [],
+                                      localReaders: ["chrome-bookmarks": false, WatchHistoryWatcher.channel: true])
+        XCTAssertEqual(row("browser:chrome", in: rows)?.status, .connected)
+        let none = SourceCatalog.rows(entries: entries, channels: channels, overview: [], readableSites: [],
+                                      localReaders: ["chrome-bookmarks": false, WatchHistoryWatcher.channel: false])
+        XCTAssertEqual(row("browser:chrome", in: none)?.status, .off)
+    }
+
+    /// 2026-10-23 — only a connector can need a sign-in: Notes' Automation refusal says "not authorized" and a folder's
+    /// failure may say "token", and neither is an account.
+    @MainActor func testOnlyAConnectorsFailureReadsAsNeedsSignIn() {
+        let r = rows(channels: [
+            SourceChannel(id: "notes", label: "Apple Notes", connected: true,
+                          lastError: "Not authorized to send Apple events to Notes."),
+            SourceChannel(id: "folder:abc", label: "Notes", connected: true, lastError: "token file unreadable"),
+            SourceChannel(id: "reddit", label: "Reddit", connected: true, lastError: "401 Unauthorized"),
+        ])
+        XCTAssertEqual(row("notes", in: r)?.status, .connected)
+        XCTAssertEqual(row("folders", in: r)?.status, .connected)
+        XCTAssertEqual(row("reddit", in: r)?.status, .needsSignIn)
+        XCTAssertEqual(SourceCatalog.signInChannels, ChannelActions.connectorChannels)
+    }
+
     func testSignInWordsAreReadFromTheFailure() {
         XCTAssertTrue(SourceCatalog.readsAsSignIn("401 Unauthorized"))
         XCTAssertFalse(SourceCatalog.readsAsSignIn("Timed out"))

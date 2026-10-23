@@ -74,8 +74,10 @@ CHANNEL_IDS = _NON_CONNECTOR_HEAD + tuple(ADAPTERS.keys()) + _NON_CONNECTOR_TAIL
 #: can be never. Same rule as `graph.NODE_SHAPE` / `git_service.AUTHOR_SHAPE`;
 #: "g142" is the always-listed Apple Calendar row (round 4 final review #3);
 #: "r4-sources" adds `parts` and the rows that appear once synced — round 4, R-SR14;
-#: "r4-contacts" is the always-listed Contacts row (G154) — its own PR, so its own bump (R-SR19).
-CHANNELS_SHAPE = "r4-contacts"
+#: "r4-contacts" is the always-listed Contacts row (G154) — its own PR, so its own bump (R-SR19);
+#: "connectors-honest" (2026-10-23): a feed row is connected only while feeds are fetched, Messages only while a
+#: conversation is ticked, Wispr Flow only while it is on, Telegram only once a message has arrived.
+CHANNELS_SHAPE = "connectors-honest"
 
 
 # R-S5 — there is deliberately no `_plural` here any more. It baked
@@ -114,20 +116,31 @@ def _latest(values: list[str | None]) -> str | None:
     return present[-1] if present else None
 
 
+#: What a subscribed feed row says while this backend does not fetch feeds (the opt-in gate, `network.md`): nothing
+#: will arrive, so the row is not connected and the person reads why — never "Connected" over a poll that never runs.
+FEED_FETCH_OFF = ("Feeds aren't fetched on this backend: it runs without CICADA_ALLOW_FEED_FETCH=1. The background "
+                  "service sets it; a backend started another way needs it added and a restart.")
+
+
 def _subscription_channel(
-    channel_id: str, label: str, records: list[dict], noun: str
+    channel_id: str, label: str, records: list[dict], noun: str, *, fetch_allowed: bool = True,
 ) -> dict:
     count = len(records)
     last = _latest([r.get("last_polled") for r in records if isinstance(r, dict)])
     detail = None
+    error = None
     if count:
         detail = f"polled {_short_date(last)}" if last else "not polled yet"
+        if not fetch_allowed:
+            error = FEED_FETCH_OFF
+            detail = "Not fetched"
     return {
         "id": channel_id,
         "label": label,
-        "connected": count > 0,
+        "connected": count > 0 and fetch_allowed,
         "count": count,
         "last_sync": last,
+        "last_error": error,
         "detail": detail,
         "count_noun": noun if count else None,
         # Every branch ships both keys, so a consumer never has to tell an
@@ -298,6 +311,7 @@ def build_channels(
     *,
     telegram_enabled: bool,
     connectors_connected: dict[str, bool] | None = None,
+    feed_fetch_allowed: bool = True,
 ) -> list[dict]:
     memory_path = Path(memory_path)
     state = sync_state.read_sync_state(memory_path)
@@ -335,16 +349,20 @@ def build_channels(
         "safari-tabs": _sync_channel("safari-tabs", "Safari iCloud tabs", state, "tab"),
         "notes": _sync_channel("notes", "Apple Notes", state, "note"),
         "rss": _subscription_channel(
-            "rss", "RSS feeds", feed_registry.list_feeds(memory_path), "feed"),
+            "rss", "RSS feeds", feed_registry.list_feeds(memory_path), "feed", fetch_allowed=feed_fetch_allowed),
         "calendar": _subscription_channel(
-            "calendar", "Calendars", calendar_registry.list_calendars(memory_path), "calendar"),
+            "calendar", "Calendars", calendar_registry.list_calendars(memory_path), "calendar",
+            fetch_allowed=feed_fetch_allowed),
         "telegram": {
             "id": "telegram",
             "label": "Telegram bot",
-            "connected": bool(telegram_enabled),
+            # 2026-10-23: a token alone is not a connection — the bot reaches Cicada only through a webhook on a
+            # public address Cicada never opens, so the row is connected once a message has actually arrived.
+            "connected": bool(telegram_enabled) and telegram_count > 0,
             "count": telegram_count,
             "last_sync": (by_origin.get("telegram") or {}).get("lastSeen") or None,
-            "detail": "Bot configured" if telegram_enabled else None,
+            "detail": ("Bot configured" if telegram_count else "Bot configured · no message has reached Cicada yet")
+            if telegram_enabled else None,
             # R-S5 reorders this one line — the client composes
             # "<count phrase> · <detail>", so a configured bot with captures
             # now reads "1 capture · Bot configured" rather than the reverse.
@@ -409,9 +427,23 @@ def build_channels(
                                    str(folder.get("label") or "Folder"), state, "note"))
     # G134: shown once the person turned it on (or it has ever synced), so an
     # unused note-taker is not a disconnected row on every install (R-LS25).
-    if wispr_flow.load_settings(memory_path)["enabled"] or state.get(wispr_flow.CHANNEL_ID):
-        rows.append(_local_channel(wispr_flow.CHANNEL_ID, "Wispr Flow", state, "capture"))
-    # G179: shown once a conversation is ticked (or it has ever synced) — an untouched Messages is no row.
-    if messages_source.any_ticked(memory_path) or state.get(messages_source.CHANNEL_ID):
-        rows.append(_local_channel(messages_source.CHANNEL_ID, messages_source.LABEL, state, "conversation"))
+    # 2026-10-23: turned off, it keeps its row and what came in, but is no longer connected — nothing more arrives.
+    wispr_on = bool(wispr_flow.load_settings(memory_path)["enabled"])
+    if wispr_on or state.get(wispr_flow.CHANNEL_ID):
+        rows.append(_switched(_local_channel(wispr_flow.CHANNEL_ID, "Wispr Flow", state, "capture"), on=wispr_on,
+                              off_detail="Turned off"))
+    # G179: shown once a conversation is ticked (or it has ever synced) — an untouched Messages is no row. With every
+    # conversation unticked nothing is read, so it is not connected (2026-10-23).
+    ticked = messages_source.any_ticked(memory_path)
+    if ticked or state.get(messages_source.CHANNEL_ID):
+        rows.append(_switched(_local_channel(messages_source.CHANNEL_ID, messages_source.LABEL, state, "conversation"),
+                              on=ticked, off_detail="No conversation ticked"))
     return rows
+
+
+def _switched(row: dict, *, on: bool, off_detail: str) -> dict:
+    """A local row whose reader the person can switch off from the bank's own settings: off, it is not connected and
+    says so, whatever synced before (the count and the last sync stay — what came in is kept)."""
+    if on:
+        return row
+    return {**row, "connected": False, "detail": off_detail, "count_noun": None}

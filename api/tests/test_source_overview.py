@@ -81,6 +81,19 @@ def test_source_key_routes_mcp_and_session_episodes_to_a_harness_row():
     assert source_overview.source_key({"origin": "youtube-history"}) == "youtube-history"
     assert source_overview.source_key({"origin": "mystery-app"}) == "origin:mystery-app"
     assert source_overview.source_key({}) == "origin:unknown"
+    # 2026-10-23: a bookmarks file imported through Files and links writes nil-origin saves; they read as a row called
+    # "unknown" until they joined the card that already counts their nil-origin pages.
+    assert source_overview.source_key({"source": "bookmark", "media_entity_id": "media-a"}) == "files"
+    assert source_overview.source_key({"origin": "phone"}) == "phone"
+    assert source_overview.source_key({"origin": "note"}) == "device-notes"
+
+
+def test_a_phone_note_reads_as_phone_never_its_raw_id(tmp_path):
+    memory = tmp_path / "memory"
+    memory.mkdir()
+    _episode(memory, "ep_2026-10-23_001", timestamp="2026-10-23T09:00:00+00:00", origin="phone")
+    row = _rows(memory)["phone"]
+    assert (row["label"], row["mark"], row["intent"]) == ("Phone", "phone", "captured")
 
 
 def test_harness_rows_count_conversations_episodes_and_entities(bank):
@@ -322,10 +335,13 @@ def test_overview_etag_recipe_is_unchanged_by_the_activity_field(client, bank):
     r = client.get("/sources/overview")
     assert r.status_code == 200
     assert "activity" in r.json()["sources"][0]
+    from api.services import feed_registry
+
     tag = ",".join(f"{k}:{a.is_connected()}" for k, a in sorted(ADAPTERS.items()))
     expected = sync_service.etag_for(
         bank, "sources", "episodes", "entities", "photos", "siteIcons",
-        extra=f"{source_overview.SHAPE}|telegram:False|connectors:{tag}",
+        extra=(f"{source_overview.SHAPE}|telegram:False|connectors:{tag}"
+               f"|feeds:{feed_registry.fetch_allowed()}"),
     )
     assert r.headers["etag"] == expected
     assert client.get("/sources/overview", headers={"If-None-Match": expected}).status_code == 304

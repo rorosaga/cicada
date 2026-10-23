@@ -117,6 +117,10 @@ CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("wispr-flow", "Wispr Flow", "voice", "wispr-flow", ("wispr-flow",), "wispr-flow"),
     SourceSpec("notes", "Apple Notes", "import", "apple-notes", ("apple-notes",), "notes"),
     SourceSpec("files", "Files & links", "import", "bookmark", ("saved-link",), "files"),
+    # 2026-10-23: a note typed on a paired phone (`/capture/note`, `origin: phone`) or another device (`note`), so
+    # neither reads as its raw id ("phone").
+    SourceSpec("phone", "Phone", "import", "phone", ("phone",), None),
+    SourceSpec("device-notes", "Notes from your devices", "import", "note", ("note",), None),
 )
 #: Sources v3 (owner 2026-10-19): "where did my stuff come from" — the sources whose items the person saved on purpose
 #: (a bookmark, a saved post, a pin, a Watch later, a link they pasted) are `saved`; everything Cicada captures on its
@@ -128,8 +132,9 @@ SAVED_SOURCES = frozenset({
 })
 INTENTS = ("saved", "captured")
 #: Folded into `/sources/overview`'s ETag: bump it when the body changes for the same bank files (v3: `intent`;
-#: v4: `waiting`, `faces`/`faces_more`, and check records left out).
-SHAPE = "overview-v4"
+#: v4: `waiting`, `faces`/`faces_more`, and check records left out; v5: a nil-origin save on Files & links, the Phone
+#: and device-notes rows).
+SHAPE = "overview-v5"
 
 #: Sources v4 (owner 2026-10-19: "I don't understand how Sleep is also a source on the page"). A check record is the
 #: episode Cicada writes as the citation for a question a check settled — `web_settle` (a web lookup Sleep or an agent
@@ -221,6 +226,11 @@ def source_key(fm: dict) -> str:
     if origin == folder_source.ORIGIN and fm.get("folder_id"):
         return folder_source.channel_id(str(fm["folder_id"]))
     if not origin:
+        # A save's episode written before origins were stamped, or from a bookmarks file imported through Files and
+        # links (2026-10-23: it read as a row called "unknown"): the Files & links card, where its nil-origin page is
+        # already counted (`_FILES_ORIGINS`).
+        if fm.get("media_entity_id"):
+            return "files"
         return f"origin:{UNKNOWN}"
     return _ORIGIN_TO_ID.get(origin, f"origin:{origin}")
 

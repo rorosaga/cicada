@@ -1023,6 +1023,19 @@ agent reads (`agent_methods`), not an install.
   on that tile's entry (was Sleep's sheet); a tile's flow still opens alone (`AddSourceSheet(flowOnly: true)`, leaving
   the flow closes it). *Sync now* / *Poll now* read **Refresh** everywhere on these surfaces. The `.source(id)`
   selection and `routeToSourceDetail` still open the v4 detail; an overview id lands on its catalogue entry.
+- **Connectors that say what they do (2026-10-23, `fix/sources-connectors`).** A row reads Connected only while
+  something will keep arriving: `SourceCatalog.status` takes `localReaders` (`LocalReaders.on`: Calendar, Contacts,
+  tab groups, YouTube history, each browser's bookmark watch and Apple Notes, by this Mac's own switches), so a reader
+  turned off here reads Off whatever it synced before; the backend answers Messages (no conversation ticked), Wispr
+  Flow (turned off), a feed while `CICADA_ALLOW_FEED_FETCH` is off (with `lastError` saying why) and Telegram (only
+  once a message arrived). Needs sign-in is a connector's alone (`signInChannels`: X, Reddit, Pinterest). In the
+  detail, a feed's `manage` opens its tile's flow (*Add a feed* / *Manage*: the Subscribe field and the list — the bar
+  drew only Refresh, so RSS and Calendar feeds could not be added), Refresh shows only with something to poll, and a
+  channel's `lastError` is the line under its actions; Apple Notes has its own control (`NotesControls`: Connect, then
+  Refresh and Disconnect; `AppleNotesWatcher` keeps up every two hours while Notes is open); Telegram says plainly it
+  needs a public address Cicada never opens, with *How to set it up* opening its steps (`~/.cicada/secrets.env`, not
+  `api/.env`). The overview files a nil-origin save (a bookmarks file imported through Files and links) under Files &
+  links instead of a row called "unknown", and a phone's note reads *Phone*.
 - **Inbox top cards (G205, G61):** `agent_request` (`InboxKind.agentRequest`) and the grouped *Confirm N links* review
   (`asks: sources`, `review: true`) are cards above the questions, out of the list, its tabs and the quick review
   (`InboxViewModel.questions`). A request: the agent's tile, *Sign in to <site>*, whose and why, **I signed in**

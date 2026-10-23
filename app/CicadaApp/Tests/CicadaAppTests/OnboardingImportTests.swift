@@ -31,10 +31,11 @@ final class OnboardingImportTests: XCTestCase {
                         .contains { $0.category == .voiceAndMeetings }, "Wispr Flow only once it is on this Mac")
     }
 
-    /// R-OB11 — Apple Notes reads once and is never promised to keep up.
-    func testAppleNotesIsAOneTimeReadAndSaysSo() throws {
+    /// R-OB11 — rows say what they do. Since 2026-10-23 Notes keeps up once read (`AppleNotesWatcher`, only while
+    /// Notes is open), so its tick is a switch; the idle line still promises nothing beyond the read it starts.
+    func testAppleNotesKeepsUpAndItsIdleLinePromisesOnlyTheRead() throws {
         let notes = try XCTUnwrap(ImportCatalog.entries(ImportContext()).first { $0.id == .app("notes") })
-        XCTAssertFalse(notes.keepsUp)
+        XCTAssertTrue(notes.keepsUp)
         XCTAssertFalse((notes.idleLine ?? "").lowercased().contains("keeps up"))
     }
 

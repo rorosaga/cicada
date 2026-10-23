@@ -41,5 +41,16 @@ extension Copy {
         static let chatExportsHere = "Each chat export sits on its agent's row."
         static let dropHint = "Drop an export or a bookmarks file here."
         static func eyebrow(_ connected: Int) -> String { "\(connected) connected" }
+
+        // 2026-10-23 — connectors that work, said as they work.
+        static let disconnect = "Disconnect"
+        static let howToSetUp = "How to set it up"
+        /// Apple Notes keeps up once read, and only while Notes is open (`AppleNotesWatcher`).
+        static let notesOff = "Cicada reads every folder once when you connect, then every two hours while Notes is "
+            + "open. macOS asks once whether Cicada may read Notes."
+        static let notesOn = "Reads new and edited notes every two hours while Notes is open."
+        /// Telegram reaches Cicada only through a webhook on a public address (`POST /capture/telegram`).
+        static let telegramHonest = "Telegram needs a public web address that reaches this Mac, and Cicada doesn't "
+            + "open one. A developer setup for now."
     }
 }

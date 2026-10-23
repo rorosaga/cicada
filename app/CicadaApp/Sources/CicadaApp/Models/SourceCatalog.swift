@@ -168,14 +168,23 @@ enum SourceCatalog {
                 "token", "auth"].contains { error.contains($0) }
     }
 
-    /// One entry's status: Needs sign-in when a channel's last failure says so; Connected when a channel is connected
-    /// (a folder channel for Folders, an allowed site for an account read in the browser, any conversation for an
-    /// agent's row); Off otherwise.
+    /// The channels a person signs in to (`ChannelActions.connectorChannels`). Only these can need a sign-in: a reader
+    /// on this Mac whose failure happens to say "not authorized" or "token" needs a permission or a retry, never an
+    /// account (2026-10-23).
+    static let signInChannels: Set<String> = ["pinterest", "reddit", "x"]
+
+    /// One entry's status: Needs sign-in when a connector's last failure says so; Connected when a channel is connected
+    /// and, for a reader this Mac runs, that reader is still on (`localReaders`: channel id → on; 2026-10-23 — a
+    /// Calendar disconnected here kept reading Connected, because the backend only knows it synced once); also a
+    /// folder channel for Folders, an allowed site for an account read in the browser, any conversation for an agent's
+    /// row; Off otherwise.
     static func status(for entry: SourceCatalogEntry, channels: [SourceChannel], overview: [SourceOverview],
-                       readableSites: Set<String>) -> SourceCatalogStatus {
+                       readableSites: Set<String>, localReaders: [String: Bool] = [:]) -> SourceCatalogStatus {
         let mine = channelsOf(entry, in: channels)
-        if mine.contains(where: { readsAsSignIn($0.lastError) }) { return .needsSignIn }
-        if mine.contains(where: \.connected) { return .connected }
+        if mine.contains(where: { signInChannels.contains($0.id) && readsAsSignIn($0.lastError) }) {
+            return .needsSignIn
+        }
+        if mine.contains(where: { $0.connected && localReaders[$0.id] != false }) { return .connected }
         if entry.overviewId != nil, overviewRow(for: entry, in: overview) != nil { return .connected }
         if entry.id == "chat-exports", mine.contains(where: { $0.count > 0 }) { return .connected }
         if let site = entry.site, entry.verb == .turnOn, readableSites.contains(site) { return .connected }
@@ -196,11 +205,11 @@ enum SourceCatalog {
     }
 
     static func rows(entries: [SourceCatalogEntry], channels: [SourceChannel], overview: [SourceOverview],
-                     readableSites: Set<String>) -> [SourceCatalogRow] {
+                     readableSites: Set<String>, localReaders: [String: Bool] = [:]) -> [SourceCatalogRow] {
         entries.map { entry in
             SourceCatalogRow(entry: entry,
                              status: status(for: entry, channels: channels, overview: overview,
-                                            readableSites: readableSites),
+                                            readableSites: readableSites, localReaders: localReaders),
                              lastSync: lastSync(for: entry, channels: channels, overview: overview))
         }
     }

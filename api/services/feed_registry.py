@@ -151,7 +151,12 @@ async def _default_fetch(url: str) -> str:
     ``POST /sources/rss``. Only ever invoked when the network gate is open."""
     import httpx
 
-    async with httpx.AsyncClient(follow_redirects=True) as client:
+    from api.services import net_guard
+
+    # Every hop through the SSRF guard (the network rails): a subscribed URL, or a redirect from it, never reaches this
+    # Mac's loopback, its LAN or a tailnet peer (2026-10-23: polling fetched any address).
+    async with httpx.AsyncClient(follow_redirects=True,
+                                 event_hooks={"request": [net_guard.httpx_request_guard]}) as client:
         resp = await client.get(url, timeout=10.0)
         resp.raise_for_status()
         return resp.text
