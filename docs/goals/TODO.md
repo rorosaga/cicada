@@ -10,10 +10,10 @@
 
 ## Current state and evidence
 
-- **2026-10-23 — something never called a project gets a page (G141; D4 amendment in ruling 36; branch
-  `fix/project-fallback-page`).** The judge joins the spellings of one thing with no birth; over the promotion bar
+- **2026-10-23 — something never called a project gets a page (G141; D4 amendment in ruling 36; PR #441,
+  branch `fix/project-fallback-page`).** The judge joins the spellings of one thing with no birth; over the promotion bar
   read across them, one `concept` page marked `proposed_type: project`; a later birth retypes it in place with `born`.
-  Numbers in the PR.
+  newuser: the canoe has one page; 24/25 by hand ×3, as the baseline.
 - **2026-10-22 — the new user, second pass (G148, G209, G141; ruling 37; branch `fix/new-user-memory-2`).** Ruling 37
   (owner): a fold from the shipped seed settles by rule and a follow-up names its thread; a new save is dated when it
   was saved. Also from the newuser write-ups: a held full name whose alias is exactly one person page asks "same
