@@ -283,7 +283,14 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   read-only by the app through a column whitelist (never audio, screenshots, accessibility or pasted
   text); meetings and notes by default, dictation only when the person turns it on. A meeting line is
   `speaker:<label>:` and counts as `user` evidence only when its label is one of the owner's listed
-  names. Apple Calendar (G142): the app reads EventKit after the one standard permission prompt and
+  names. **Wispr's own time shape (2026-10-23):** its database writes `2026-08-26 14:03:07.123 +00:00` (a space
+  before the offset, milliseconds), which `fromisoformat` refuses, so every meeting, note and dictation row was
+  dated the day it was imported (dictation rows were dropped outright); `wispr_flow._ts` reads that shape and its
+  variants (`T`, `Z`/`UTC`, `+0000`, no fraction, no offset = UTC). A meeting or note already staged on the wrong
+  day is moved in place on the next sync (`EpisodeDraft.redate`: same source key and file, `timestamp` moved,
+  `redated_from` kept, `processed: false`); its id keeps the day it was minted with (ruling 34 — never renamed), and
+  everything that dates an episode reads `timestamp`. `redate` is opt-in, so a writer whose first stamp is
+  deliberate (a future calendar event) keeps it. Apple Calendar (G142): the app reads EventKit after the one standard permission prompt and
   posts a rolling window to `POST /sources/calendar-local/sync` (one request = the whole window).
   `calendar_local.py` stages each event keyed `calendar-local:<id>`:
   - a new episode for an event that has already begun is dated its start (timestamp and id day; read on time,

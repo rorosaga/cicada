@@ -257,3 +257,82 @@ def test_the_route_defers_todos_while_sleep_runs(client, bank, monkeypatch):
     monkeypatch.setattr(sleep_cycle, "get_sleep_state", lambda: SimpleNamespace(status="idle"))
     r = client.post("/capture/local-source/wispr-flow", json=dict(body, meetings=[], todos=[])).json()
     assert (r["todoClaims"], r["todosPending"]) == (1, 0)
+
+
+# --- Wispr's own time shape (2026-10-23, the owner's install) -------------------------------------------------------
+
+
+#: Exactly how Wispr Flow's database writes a time: a space before the offset, milliseconds.
+WISPR_SHAPE = "2026-08-26 14:03:07.123 +00:00"
+
+
+@pytest.mark.parametrize("raw, expected", [
+    (WISPR_SHAPE, "2026-08-26T14:03:07.123000+00:00"),
+    ("2026-08-26 14:03:07 +00:00", "2026-08-26T14:03:07+00:00"),
+    ("2026-08-26 14:03:07.123+00:00", "2026-08-26T14:03:07.123000+00:00"),
+    ("2026-08-26 16:03:07.5 +0200", "2026-08-26T14:03:07.500000+00:00"),
+    ("2026-08-26T14:03:07.123456789Z", "2026-08-26T14:03:07.123456+00:00"),
+    ("2026-08-26 14:03:07 UTC", "2026-08-26T14:03:07+00:00"),
+    ("2026-08-26 14:03:07", "2026-08-26T14:03:07+00:00"),
+])
+def test_every_time_shape_wispr_writes_is_read(raw, expected):
+    assert wf._ts(raw) == expected
+
+
+def test_a_time_that_is_not_one_stays_unread():
+    assert wf._ts("garbage") is None
+    assert wf._ts("2026-08-26 14:03:07 +99") is None
+    assert wf._turn_ts("00:23:41") == "00:23:41", "an utterance offset is kept as it is"
+
+
+def test_a_meeting_in_wisprs_own_shape_is_dated_when_it_happened(bank):
+    """The owner's install: a meeting of 2026-08-26 landed dated the day it was imported, since `fromisoformat`
+    refuses the space before the offset."""
+    wf.ingest(bank, _payload(meetings=[_meeting(createdAt=WISPR_SHAPE, modifiedAt=WISPR_SHAPE)], notes=[]), _settings())
+    meeting = _by_source(bank)["wispr:meeting:m-1"]
+    assert meeting.frontmatter["timestamp"] == "2026-08-26T14:03:07.123000+00:00"
+    assert meeting.frontmatter["id"].startswith("ep_2026-08-2")
+
+
+def test_a_meeting_dated_the_import_day_is_redated_in_place_on_the_next_sync(bank, monkeypatch):
+    """The fix reaches meetings already imported: same source key, same file and id (ruling 34 — the id keeps the
+    day it was minted with), the timestamp moved, re-queued, never a second episode."""
+    monkeypatch.setattr(wf, "_wispr_text_time", lambda text: None)   # the parser as it was
+    wf.ingest(bank, _payload(meetings=[_meeting(createdAt=WISPR_SHAPE, modifiedAt=WISPR_SHAPE)], notes=[]), _settings())
+    before = _by_source(bank)["wispr:meeting:m-1"]
+    assert not str(before.frontmatter["timestamp"]).startswith("2026-08-26")
+    path = next((bank / "episodes").glob("ep_*.md"))
+    fm = dict(before.frontmatter, processed=True, processed_by="sleep")
+    markdown_parser.write(path, fm, before.body)
+
+    monkeypatch.undo()
+    report = wf.ingest(bank, _payload(meetings=[_meeting(createdAt=WISPR_SHAPE, modifiedAt=WISPR_SHAPE)], notes=[]),
+                       _settings())
+    assert (report["created"], report["updated"]) == (0, 1)
+    after = _by_source(bank)
+    assert list(after) == ["wispr:meeting:m-1"], "never a duplicate"
+    meeting = after["wispr:meeting:m-1"]
+    assert meeting.frontmatter["id"] == before.frontmatter["id"], "the id is never renamed"
+    assert meeting.frontmatter["timestamp"] == "2026-08-26T14:03:07.123000+00:00"
+    assert meeting.frontmatter["redated_from"] == before.frontmatter["timestamp"]
+    assert meeting.frontmatter["processed"] is False and "processed_by" not in meeting.frontmatter
+    assert meeting.body == before.body
+    # Settled: the next sync changes nothing.
+    again = wf.ingest(bank, _payload(meetings=[_meeting(createdAt=WISPR_SHAPE, modifiedAt=WISPR_SHAPE)], notes=[]),
+                      _settings())
+    assert (again["created"], again["updated"], again["skipped"]) == (0, 0, 1)
+
+
+def test_a_writer_that_does_not_ask_keeps_its_first_stamp(bank):
+    """`EpisodeDraft.redate` is opt-in: a future calendar event is dated the day Cicada learned of it and keeps that
+    stamp (calendar_local._happened); only a writer that knows its date was wrong moves it."""
+    from api.services import episode_staging as es
+
+    def draft(ts):
+        return es.EpisodeDraft(title="T", source_id="x:1", timestamp=ts, source="calendar-local",
+                               turns=[es.Turn("same words", "user")])
+
+    es.stage([draft("2026-10-23T10:00:00+00:00")], bank / "episodes")
+    result = es.stage([draft("2026-08-26T10:00:00+00:00")], bank / "episodes")
+    assert result.skipped == 1
+    assert _by_source(bank)["x:1"].frontmatter["timestamp"] == "2026-10-23T10:00:00+00:00"
