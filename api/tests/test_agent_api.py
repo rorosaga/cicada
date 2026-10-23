@@ -196,7 +196,8 @@ def test_the_documents_are_open_and_describe_every_operation(server):
     doc = client.get("/v1/openapi.json").json()
     assert doc["openapi"] == "3.1.0" and set(doc["paths"]) == {f"/v1/{op}" for op in agent_api.OPS} | {"/v1/me"}
     blob = json.dumps(doc)
-    assert "conversation" not in json.dumps([p["post"]["requestBody"] for k, p in doc["paths"].items() if "post" in p])
+    assert "conversation" not in json.dumps([p["post"]["requestBody"] for k, p in doc["paths"].items()
+                                             if "post" in p and k != "/v1/capture_turns"])
     assert "cicada_save_episode" not in blob   # tool names are spelled as this door's operations
 
 
@@ -382,7 +383,9 @@ def test_the_openapi_document_is_generated_and_valid():
             if verb == "post":
                 body = method["requestBody"]["content"]["application/json"]["schema"]
                 validator.check_schema(body)
-                assert body["type"] == "object" and "conversation" not in body.get("properties", {})
+                assert body["type"] == "object"
+                # Only a relayed turn names its conversation, minted by this door ("new"), never a handshake's.
+                assert ("conversation" in body.get("properties", {})) == (path == "/v1/capture_turns"), path
                 assert set(body.get("required", ())) <= set(body.get("properties", {})), path
             for response in method["responses"].values():
                 for content in response.get("content", {}).values():
@@ -417,22 +420,59 @@ def test_capture_turns_on_v1_is_relayed_never_the_person_s_own_words(server):
     client, master, memory = server
     made = _agent(client, master)
     token, cid = made["token"], made["agent"]["id"]
-    first = client.post("/v1/capture_turns", json={"message": "Remind me the canoe trip is in May."},
-                        headers=_auth(token))
-    assert first.status_code == 200 and first.json()["isError"] is False, first.text
-    episode_id = first.json()["data"]["episode_id"]
-    second = client.post("/v1/capture_turns", json={"message": "And pack the blue tent.",
-                                                    "previous_reply": "Noted: the canoe trip is in May."},
-                         headers=_auth(token))
-    assert second.json()["data"]["episode_id"] == episode_id, "one token's day is one conversation"
-    path = next(p for p in (memory / "episodes").glob("ep_*.md")
-                if markdown_parser.parse(p).frontmatter.get("id") == episode_id)
-    fm = markdown_parser.parse(path).frontmatter
-    assert fm["evidence_kind"] == "assistant" and fm["harness"] == catalog.API_HARNESS
-    assert fm["relay"]["connector"] == cid
+    def relay(message, conversation=None, previous=None):
+        body = {"message": message, **({"conversation": conversation} if conversation else {}),
+                **({"previous_reply": previous} if previous else {})}
+        answer = client.post("/v1/capture_turns", json=body, headers=_auth(token))
+        assert answer.status_code == 200 and answer.json()["isError"] is False, answer.text
+        return answer.json()["data"]
+
+    # Two conversations, each started with "new" and continued with its own handle: TWO episodes (G104, ruling 32).
+    a1 = relay("Remind me the canoe trip is in May.", "new")
+    b1 = relay("Unrelated: what was the name of that sqlite extension?", "new")
+    assert a1["conversation"] != b1["conversation"] and a1["episode_id"] != b1["episode_id"]
+    a2 = relay("And pack the blue tent.", a1["conversation"], "Noted: the canoe trip is in May.")
+    b2 = relay("Right, sqlite-vec.", b1["conversation"], "Was it sqlite-vec?")
+    assert a2["episode_id"] == a1["episode_id"] and a2["conversation"] == a1["conversation"]
+    assert b2["episode_id"] == b1["episode_id"] and a2["status"] == b2["status"] == "updated"
+    episodes = {markdown_parser.parse(p).frontmatter.get("id"): markdown_parser.parse(p)
+                for p in (memory / "episodes").glob("ep_*.md")}
+    from api.services.turn_capture import relay_match_key
+
+    for data, opener in ((a1, "Remind me the canoe trip is in May."),
+                         (b1, "Unrelated: what was the name of that sqlite extension?")):
+        page = episodes[data["episode_id"]]
+        fm = page.frontmatter
+        assert fm["evidence_kind"] == "assistant" and fm["harness"] == catalog.API_HARNESS
+        assert fm["relay"]["connector"] == cid and fm["session_id"] == data["conversation"]
+        assert fm["relay"]["first"] == relay_match_key(opener)   # an export of B upgrades B, not A
+    assert "blue tent" in episodes[a1["episode_id"]].body and "blue tent" not in episodes[b1["episode_id"]].body
+    # Without a conversation, the documented fallback: the token's day bucket.
+    fallback = relay("A turn with no conversation.")
+    assert fallback["conversation"] == f"rc_{cid}_{fallback['conversation'].rsplit('_', 1)[1]}"
+    assert fallback["episode_id"] not in (a1["episode_id"], b1["episode_id"])
     reader = _agent(client, master, name="Reader", scopes=("search",))["token"]
     denied = client.post("/v1/capture_turns", json={"message": "x"}, headers=_auth(reader))
     assert denied.status_code == 403 and denied.json()["code"] == "denied"
+
+
+def test_a_conversation_another_token_started_is_refused_never_merged(server):
+    client, master, memory = server
+    mine = _agent(client, master, name="Mine")["token"]
+    theirs = _agent(client, master, name="Theirs")["token"]
+    started = client.post("/v1/capture_turns", json={"message": "Their first turn.", "conversation": "new"},
+                          headers=_auth(theirs)).json()["data"]
+    before = sorted(p.name for p in (memory / "episodes").glob("ep_*.md"))
+    for foreign in (started["conversation"], "rc_zzzzzzzz_2026-10-23_0123abcd", "not-a-handle", 7):
+        answer = client.post("/v1/capture_turns", json={"message": "Into their record?", "conversation": foreign},
+                             headers=_auth(mine))
+        assert answer.status_code == 400 and answer.json()["code"] == "invalid_arguments", foreign
+        assert "conversation" in answer.json()["text"]
+    assert sorted(p.name for p in (memory / "episodes").glob("ep_*.md")) == before, "nothing written"
+    # The owner of the handle continues it.
+    again = client.post("/v1/capture_turns", json={"message": "Their second turn.",
+                                                   "conversation": started["conversation"]}, headers=_auth(theirs))
+    assert again.json()["data"]["episode_id"] == started["episode_id"]
 
 
 def test_the_sources_scope_gates_the_sources_operation(server):

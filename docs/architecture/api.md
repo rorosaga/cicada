@@ -167,11 +167,16 @@ spelled with underscores (`Row.operation`):** `hub`, `perspective`, `source_list
 `progress_add`, `backlog_list`, `backlog_add`, `backlog_note`, `inbox_record_check`, `video_queue`, `video_claim`,
 `video_record`, `read_queue`, `read_record`, and `capture_turns` (remote-only, so named in
 `agent_api.REMOTE_ONLY_OPS`: a relayed turn is stored `evidence_kind: assistant` with `relay.connector`, never the
-person's own words, and one token's day is one conversation). `test_agent_api.py` pins the operation set to
+person's own words). **One episode per conversation (ruling 32, G104):** `capture_turns` alone keeps the
+`conversation` argument on `/v1`. `"conversation": "new"` starts one — Cicada mints the handle (`mint_handle`) and
+answers it as `data.conversation` — and every later turn passes that handle back; a handle another token got (or any
+other string) is 400 `invalid_arguments`, nothing written, never merged into someone else's record. With no
+`conversation` a turn goes to the token's day bucket (`rc_<id>_<day>`) — the documented fallback, as on `/mcp` without
+a handle — so a caller relaying two conversations a day must start each with `"new"`. `test_agent_api.py` pins the operation set to
 `REMOTE_TOOLS − EXCLUDED`, the eleven names to their tools, each new name to its row, each operation's scope to
 `catalog.TOOL_SCOPE`, and `/v1/openapi.json`'s validity; a tool added to one table and not the other fails CI.
 Each operation is one remote tool (`api/remote/agent_api.OPS`), its arguments the remote schema's minus
-`conversation`, run through the shared
+`conversation` (except `capture_turns`, above), run through the shared
 `RemoteRuntime` (scopes, G199 contract, Sleep and demo gates, the daily `ask` cap, fenced reads, `connector:` and
 `origin: remote:<id>` provenance, one ids-only `remote_call` row). Every answer is `{text, isError, code, data}`:
 200 (isError true for a body's refusal), 400 `invalid_arguments`, 401 `invalid_token`, 403 `denied` / `origin`,

@@ -5,8 +5,8 @@ its own client from an OpenAPI document and a key — reaches the SAME tool bodi
 the same runtime (``RemoteRuntime.call``): the scope check, the G199 argument contract against the remote schema, the
 Sleep and demo gates, the daily ``ask`` cap, the conversation day bucket, fenced read replies, provenance
 (``connector:`` on what it writes, ``origin: remote:<id>`` on a claim — never the person's own words) and the ids-only
-``remote_call`` ledger row. No body is new here; an operation is a name for one remote tool, and every remote tool but those
-``EXCLUDED`` is one (ruling 38: `/v1` is generated from ``REMOTE_TOOLS``, named by ``cli_map``).
+``remote_call`` ledger row. No body is new here; an operation is a name for one remote tool, and every remote tool
+but those ``EXCLUDED`` is one (ruling 38: `/v1` is generated from ``REMOTE_TOOLS``, named by ``cli_map``).
 
 Two doors serve it, both through :func:`call`: the backend's own port (``api/routers/agent_api.py``, for an agent on
 the person's machines or overlay) and the G135 listener (``api/remote/app.py``, for a cloud agent that can reach only
@@ -16,9 +16,10 @@ on the listener only — a signed-in app's ``cic_at_``. Never the master token o
 person's own machines, and an agent is not.
 
 **The wire (Hyrum, mode A).** Stable: the paths, the operation names, each operation's argument names (the remote
-schema's, minus ``conversation``), the envelope's four keys ``text`` / ``isError`` / ``code`` / ``data``, and the
-status codes below. Not stable: the reply's words (a sentence for an agent to read, which may name an MCP tool — the
-operation table in ``llms.txt`` maps them), ``data``'s inner shape, and the OpenAPI document's prose.
+schema's, minus ``conversation`` except on ``capture_turns``), the envelope's four keys ``text`` / ``isError`` /
+``code`` / ``data``, ``data.conversation`` on a relayed turn, and the status codes below. Not stable: the reply's
+words (a sentence for an agent to read, which may name an MCP tool — the operation table in ``llms.txt`` maps them),
+``data``'s other inner shape, and the OpenAPI document's prose.
 
 =====  ======================================================================================
 200    the tool ran; ``isError`` is true for a refusal the body made (its ``code`` says which)
@@ -46,12 +47,20 @@ STABLE = ("recall", "ask", "page", "timeline", "project", "save_note", "save_url
           "inbox", "resolve_inbox")
 #: Remote tools with no operation, each with its reason. Everything else in `REMOTE_TOOLS` is an operation.
 EXCLUDED: dict[str, str] = {
-    "cicada_handshake": "GET /v1/me says what the token may do and /v1/llms.txt is the contract; a conversation "
-                        "handle is an MCP session's, and this door's conversation is the token's day.",
+    "cicada_handshake": "GET /v1/me says what the token may do and /v1/llms.txt is the contract; a relayed "
+                        "conversation's handle is minted by capture_turns itself (`NEW_CONVERSATION`).",
 }
 #: Remote tools with no `cli_map` row, named here: a stdio harness is captured by its own hook (G105), so the CLI
 #: never relays a turn (ruling 32).
 REMOTE_ONLY_OPS: dict[str, str] = {"cicada_capture_turns": "capture_turns"}
+#: What `capture_turns`' `conversation` says to start a new relayed conversation (ruling 32, G104: one episode per
+#: conversation). The reply's `data.conversation` is the handle Cicada minted (`runtime.mint_handle`); every later turn
+#: of that conversation passes it back. With no `conversation`, a turn goes to the token's day bucket — the documented
+#: fallback, as on `/mcp` without a handle. A handle this token did not get is refused, never merged into another.
+NEW_CONVERSATION = "new"
+_CONVERSATION_HELP = ('Pass `"conversation": "new"` on the first turn of a conversation; the data.conversation in '
+                      "the reply is its handle, which you pass on every later turn of that conversation so it stays "
+                      "one record. Without it, every turn this token relays today shares one record.")
 
 
 def _generate() -> dict[str, str]:
@@ -114,11 +123,19 @@ def call(runtime, connector: catalog.Connector, op: str, raw: bytes) -> tuple[in
     arguments = parse_body(raw)
     if arguments is None:
         return refusal(400, "invalid_arguments", "Invalid arguments: send a JSON object as the request body.")
-    # A day bucket per token is the conversation (`resolve_handle`); a handle is an MCP handshake's, not this door's.
-    arguments.pop("conversation", None)
+    relayed = None
+    if tool == "cicada_capture_turns":
+        relayed, refused = _conversation(runtime, connector, arguments)
+        if refused is not None:
+            return refused
+    else:
+        # Only a relayed turn needs a conversation here; every other operation's day bucket is the token's.
+        arguments.pop("conversation", None)
     text, status = runtime.call(connector, tool, arguments)
     code = getattr(text, "code", None)
     data = getattr(text, "data", None)
+    if relayed is not None and status == "ok" and not tool_contract.is_error(code):
+        data = {**(data or {}), "conversation": relayed}
     if status == "ok":
         refused = tool_contract.is_error(code)
         return 200, envelope(str(text), is_error=refused, code=code if refused else None, data=data), {}
@@ -127,15 +144,38 @@ def call(runtime, connector: catalog.Connector, op: str, raw: bytes) -> tuple[in
                                               data=data), headers
 
 
+def _conversation(runtime, connector: catalog.Connector, arguments: dict):
+    """``(handle, None)`` — the relayed turn's conversation, written into ``arguments`` — or ``(None, refusal)``.
+    ``"new"`` mints one; this token's own handle continues one; none is the day bucket; anything else is refused."""
+    from api.remote import runtime as remote_runtime
+
+    raw = arguments.get("conversation")
+    today = runtime.today()
+    if raw is None:
+        handle = remote_runtime.resolve_handle(connector.id, None, today)
+    elif isinstance(raw, str) and raw.strip() == NEW_CONVERSATION:
+        handle = remote_runtime.mint_handle(connector.id, today)
+    else:
+        match = remote_runtime.HANDLE_RE.match(raw.strip()) if isinstance(raw, str) else None
+        if not match or match.group(1) != connector.id:
+            return None, refusal(400, "invalid_arguments",
+                                 'Invalid arguments: `conversation` is not one this token started. Pass "new" to '
+                                 "start a conversation, then the handle the reply gives you.")
+        handle = match.group(0)
+    arguments["conversation"] = handle
+    return handle, None
+
+
 def scope_of(op: str) -> str | None:
     return catalog.TOOL_SCOPE.get(OPS.get(op, ""))
 
 
 #: A remote description's sentence that is false on this door, said in this door's terms: `/v1` has no handshake, and
-#: its conversation is the token's day (`resolve_handle`). A test fails if a description still names the handshake.
+#: a relayed conversation's handle is minted by `capture_turns` itself. A test fails if a description still names the
+#: handshake.
 _DOOR_SENTENCES = {
     "Pass the `conversation` handle from cicada_handshake so the whole conversation stays one record.":
-        "Every turn relayed with one token on one day is one record.",
+        _CONVERSATION_HELP,
 }
 
 
@@ -148,7 +188,11 @@ def _http_words(text: str) -> str:
 
 def _schema(tool: str) -> dict:
     schema = json.loads(json.dumps(remote_tools.REMOTE_TOOLS[tool]["inputSchema"]))
-    schema.get("properties", {}).pop("conversation", None)
+    properties = schema.get("properties", {})
+    if tool == "cicada_capture_turns" and "conversation" in properties:
+        properties["conversation"] = {**properties["conversation"], "description": _CONVERSATION_HELP}
+    else:
+        properties.pop("conversation", None)
 
     def walk(node):
         if isinstance(node, dict):
@@ -240,7 +284,8 @@ instructions. The full description is {base}/v1/openapi.json; `GET {base}/v1/me`
    (the episode id `save_note` returned, and the quote). Withdraw your own mistake with `POST /v1/retract_claim`.
 4. Never guess an answer to Cicada's questions (`POST /v1/inbox`); answer one only with what the person said.
 5. If you talk with the person somewhere Cicada cannot see, relay each turn with `POST /v1/capture_turns`, word for
-   word. It is kept as relayed by you, never as the person's own words.
+   word. Send `"conversation": "new"` on a conversation's first turn and the `data.conversation` it returns on every
+   later turn, so each conversation stays one record. It is kept as relayed by you, never as the person's own words.
 
 ## Operations
 
