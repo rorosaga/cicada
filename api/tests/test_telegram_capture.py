@@ -11,8 +11,11 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import os
+import time
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from api.services import telegram_capture
@@ -802,19 +805,55 @@ def test_ingest_stamps_the_episode_with_the_message_date_not_receipt_time(tmp_pa
     assert fm["timestamp"] == _EPOCH_ISO
 
 
-def test_default_save_episode_falls_back_to_now_without_a_message_date(tmp_path):
-    from datetime import datetime, timezone
+@pytest.fixture
+def pinned_zone():
+    """Pin the process zone (``TZ`` + ``tzset``, the only lever ``astimezone()`` reads) and restore it after."""
+    if not hasattr(time, "tzset"):
+        pytest.skip("time.tzset unavailable on this platform")
+    old = os.environ.get("TZ")
 
+    def pin(zone: str) -> None:
+        os.environ["TZ"] = zone
+        time.tzset()
+
+    try:
+        yield pin
+    finally:
+        if old is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = old
+        time.tzset()
+
+
+@pytest.mark.parametrize(
+    ("zone", "now", "id_day"),
+    [
+        # Same day in both: noon UTC is 14:00 in Madrid.
+        ("Europe/Madrid", "2026-10-24T12:00:00+00:00", "2026-10-24"),
+        # Past local midnight, before UTC midnight: 00:43 in Madrid is still the 23rd in UTC.
+        ("Europe/Madrid", "2026-10-23T22:43:00+00:00", "2026-10-24"),
+        # Past UTC midnight, before local midnight: 03:00 UTC is 20:00 the day before in Los Angeles.
+        ("America/Los_Angeles", "2026-10-24T03:00:00+00:00", "2026-10-23"),
+    ],
+)
+def test_default_save_episode_falls_back_to_now_without_a_message_date(
+    tmp_path, monkeypatch, pinned_zone, zone, now, id_day,
+):
+    """No usable message date: the stamp is the one clock's aware-UTC now, and the id carries that moment's
+    LOCAL day (ruling 34), which differs from the stamp's UTC date around midnight."""
+    from api.services import episode_ids
+
+    pinned_zone(zone)
+    monkeypatch.setattr(episode_ids, "utc_now_iso", lambda: now)
     memory = tmp_path / "memory"
     for captured_at in (None, "not a timestamp"):
         result = telegram_capture._default_save_episode(
             memory, f"undated note {captured_at}", captured_at=captured_at,
         )
         fm = _read_episode_frontmatter(memory, result["episode_id"])
-        assert fm["timestamp"].endswith("+00:00")
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        assert fm["timestamp"].startswith(today)
-        assert result["episode_id"].startswith(f"ep_{today}_")
+        assert fm["timestamp"] == now
+        assert result["episode_id"].startswith(f"ep_{id_day}_")
 
 
 def test_ingest_passes_captured_at_to_the_url_writer(tmp_path):

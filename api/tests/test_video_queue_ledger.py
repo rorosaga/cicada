@@ -3,7 +3,6 @@ consumption domain, and absent from every Usage view. Mirrors the reading ledger
 from __future__ import annotations
 
 import json
-from datetime import date
 
 import pytest
 
@@ -17,7 +16,8 @@ def _telemetry_on(monkeypatch):
 
 
 def _rows():
-    path = telemetry.ledger_file(f"{date.today():%Y-%m}", kind="video_queue")
+    # The ledger files by the UTC month of a row's stamp, not the local month.
+    path = telemetry.ledger_file(telemetry.now_iso()[:7], kind="video_queue")
     return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
 
@@ -72,7 +72,7 @@ def test_a_scrubbed_reason_leaves_a_capture_row_naming_the_writer_not_other(rig)
     mcp_tools.video_claim(ctx)
     secret = "sk-" + "a1b2c3d4e5f6a7b8c9d0e1f2"
     mcp_tools.video_claim(ctx, release=held(memory, [{"url": url_of("00"), "reason": f"token {secret}"}]))
-    path = telemetry.ledger_file(f"{date.today():%Y-%m}")
+    path = telemetry.ledger_file(telemetry.now_iso()[:7])
     rows = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
     capture = [r for r in rows if r["kind"] == "capture"]
     assert capture and capture[-1]["refs"]["writer"] == "video_queue"
