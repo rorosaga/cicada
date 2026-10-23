@@ -1533,6 +1533,14 @@ listed as an alias. Four gaps caused it, each closed:
   no page are open at once (`MAX_HELD_ALIAS_QUESTIONS`), so a first Sleep over a long pending store never floods the
   inbox; dismissing a "Possible duplicate" card records the pair in `_merge_rejected.yaml`, like "not the same", so
   the line re-read from the store is not asked again.
+- **A held full name meets the page its given name titles (benchmarks/newuser 2026-10-23).** A held name with no alias
+  that names a page asks the same question when it is a full name as written (two to four capitalised name words, no
+  handle, digit or parenthesis), it has no page of its own, and its given name (folded) is the whole title of exactly
+  one person page while no other person page's name begins with that word (`_given_name_pages`): "<given> <surname>"
+  held beside a page titled "<given>" asks; two pages for one given name ("<given>", "<given> <other-surname>") ask
+  nothing. The owner's page and a page titled by a relation (`role_people`) never count. Same cap, same
+  `merge_rejections`, never a merge; the card says the conversation named the full name and the page carries only
+  the given name.
 
 Nothing here settles who a person is (ruling 29): every lead ends in the person's question. A duplicate question about
 a name still parked below the promotion bar is live while its pending line exists (`inbox_service._subject_gone`,
@@ -1813,7 +1821,15 @@ constraining the prose; git is the safety net, the claims and the dated timeline
   objects — the same rule orders the ledger's spill and the article's inputs. Each rolled-up
   link is still an edge, still on the linked page's own Related (inbound edges are mirrored there), and its claims
   are still the owner's, in the page's ledger. Per-conversation activity is not a fact about the person: its home
-  is the linked page, the claims ledger and the timeline, not the person's article or its Related. A page with a stamped article is
+  is the linked page, the claims ledger and the timeline, not the person's article or its Related.
+  **Each link is named by what is true now** (`conflict_resolver.related_edges`, benchmarks/newuser 2026-10-23, on
+  every page, hub or not): `graph_edges.yaml` keeps every relationship ever extracted and never closes one, and the
+  first edge used to name a link for good, so after a job change the person's page read "<old employer> — works at"
+  and "<new employer> — interviewing with" though the claims said otherwise. Each label is now read against the claims
+  on the page the edge starts from (this page's, or the other page's for an inbound edge) with that object and the
+  label's normalized predicate: the newest open one names the link; with none open, the first label no claim speaks
+  to, as before; a link whose every label's claims are closed keeps its first label marked "(until <day>)" and goes
+  after the rest. No link is dropped, confidence plays no part, and a page with no claims renders as it did. A page with a stamped article is
   never handed to the orientation or legacy rewrite, whatever the settings: both replace the lead the writer owns; an
   inbox answer on it takes the fallback append.
 - **Inputs**, numbered: the record after this update's deterministic union (`f` facts with the days their rows'

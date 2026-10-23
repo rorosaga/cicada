@@ -15,7 +15,7 @@ from thefuzz import fuzz
 from api.config import Settings
 from api.services import (agent_engine, contacts_local, correspondents, engine_errors, entity_body, entity_types,
                           fact_policy, json_parse, owner_identity, people_directory, person_leads, project_birth,
-                          promotion, quiet_pages, role_people, section_provenance)
+                          promotion, quiet_pages, role_people, section_provenance, text_fold)
 from api.services.clarification_manager import (
     CONFIDENCE_THRESHOLD,
     ClarificationManager,
@@ -585,7 +585,7 @@ async def resolve(
         logger.info(f"Stage 2: {len(card_creates)} page(s) promoted on a waiting card's first mention")  # never a name
     if not cancelled:
         pending_actions.extend(_held_alias_questions(held_people, existing, resolved_creates, clarifier,
-                                                     settings.memory_path))
+                                                     settings.memory_path, owner_page_id=owner_page_id))
     resolved = list(resolved_updates.values()) + list(resolved_creates.values())
     for raw, full in named_handles.items():
         if full in name_to_id and raw not in name_to_id:
@@ -1658,7 +1658,7 @@ MAX_HELD_ALIAS_QUESTIONS = 3
 
 def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: list[dict],
                           resolved_creates: dict[str, dict], clarifier: ClarificationManager,
-                          memory_path) -> list[tuple[Callable, tuple, dict]]:
+                          memory_path, *, owner_page_id: str | None = None) -> list[tuple[Callable, tuple, dict]]:
     """W1 (benchmarks/newuser, 2026-10-22; G209): a person name held below the promotion bar — this batch's, or a line
     an earlier run parked — whose recorded alias is the name of exactly one person page (on disk, or born in this
     batch) raises the "Possible duplicate of …" question. Never a merge: who a person is takes the person's own answer
@@ -1666,7 +1666,12 @@ def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: 
     never asked. At most ``MAX_HELD_ALIAS_QUESTIONS`` questions about a name with no page are open at once.
 
     Specific names are judged first, so a full name said once ("Teodor Brandt", aliases "Teo", "tbrandt") is held
-    before the short name its other conversations promote ("Teo") has a page — the two never met."""
+    before the short name its other conversations promote ("Teo") has a page — the two never met.
+
+    A held full name with no alias that names a page asks the same question when its given name is the whole title of
+    exactly one person page ("Priya Nandakumar" held, a page titled "Priya"; benchmarks/newuser, 2026-10-23) and no
+    other person page's name begins with that word — two Sams ask nothing. Never the owner's page or a page titled by
+    a relation (`role_people`), never a name that has a page of its own."""
     pages: dict[str, list[tuple[str, str]]] = {}
     for page in existing:
         fm = page.get("frontmatter") or {}
@@ -1678,6 +1683,7 @@ def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: 
         if str(entity.get("type") or "").lower() == "person":
             pages.setdefault(person_leads.handle_key(entity.get("name") or ""), []).append(
                 (pid, str(entity.get("name") or pid)))
+    given_pages = _given_name_pages(existing, resolved_creates, owner_page_id)
 
     from api.services import pending_store
 
@@ -1704,6 +1710,10 @@ def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: 
     for key, (name, aliases, entity) in held.items():
         hits = {hit for alias in aliases if person_leads.handle_key(alias) != key
                 for hit in pages.get(person_leads.handle_key(alias), [])}
+        by_given = False
+        if not hits and key not in pages:
+            hit = given_pages.get(_given_name(name) or "")
+            hits, by_given = ({hit}, True) if hit is not None else (hits, False)
         if len({pid for pid, _ in hits}) != 1:
             continue
         pid, page_name = next(iter(hits))
@@ -1714,17 +1724,63 @@ def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: 
                 continue
             room -= 1
         said = sorted(a for a in aliases if person_leads.handle_key(a) == person_leads.handle_key(page_name))
+        context = (f"A conversation named {name} in full; {page_name}'s page carries only the given name."
+                   if by_given else
+                   f"A conversation also called {name} “{said[0] if said else page_name}”, "
+                   f"the name {page_name}'s page carries.")
         actions.append((clarifier.create, (), {
             "entity_name": name,
             "source_episode": entity.get("source_episode", ""),
             "uncertainty_type": f"Possible duplicate of {page_name}",
             "suggested_classification": f"person — could refer to the same person as {page_name}",
             "suggested_confidence": float(entity.get("confidence", 0.0) or 0.0),
-            "source_context": f"A conversation also called {name} “{said[0] if said else page_name}”, "
-                              f"the name {page_name}'s page carries.",
+            "source_context": context,
             "source_episode_timestamp": entity.get("source_episode_timestamp"),
         }))
     return actions
+
+
+def _name_words(name: str) -> list[str]:
+    """The words of a person's name as written ("Priya Nandakumar", "Anne-Marie O'Neil"), folded; ``[]`` for anything
+    else — a handle, a lowercase phrase, a parenthesis, a digit."""
+    words = str(name or "").split()
+    for word in words:
+        bare = re.sub(r"['’.\-]", "", word)
+        if not bare.isalpha() or not word[0].isupper():
+            return []
+    return [text_fold.fold(word) for word in words]
+
+
+def _given_name(name: str) -> str | None:
+    """A full name's given name, folded: the first of two to four name words; ``None`` for a one-word name."""
+    words = _name_words(name)
+    return words[0] if 2 <= len(words) <= 4 else None
+
+
+def _given_name_pages(existing: list[dict], resolved_creates: dict[str, dict],
+                      owner_page_id: str | None) -> dict[str, tuple[str, str]]:
+    """Folded given name -> ``(page id, title)`` of the ONE person page titled by that word alone, on disk or born in
+    this batch, when no other person page's name begins with it. The owner's page and a page titled by a relation
+    (`role_people`) never count."""
+    titled: dict[str, set[tuple[str, str]]] = {}
+    starts: dict[str, set[str]] = {}
+    rows = [(str(page.get("id") or ""), page.get("frontmatter") or {}, person_leads.page_name(page))
+            for page in existing]
+    rows += [(pid, change.get("entity") or {}, str((change.get("entity") or {}).get("name") or pid))
+             for pid, change in resolved_creates.items()]
+    for pid, fm, title in rows:
+        if not pid or str(fm.get("type") or "").lower() != "person":
+            continue
+        if pid == owner_page_id or fm.get(role_people.UNNAMED_KEY) or role_people.parse(title, bare=True):
+            continue
+        words = _name_words(title)
+        if not words:
+            continue
+        starts.setdefault(words[0], set()).add(pid)
+        if len(words) == 1:
+            titled.setdefault(words[0], set()).add((pid, title))
+    return {word: next(iter(hits)) for word, hits in titled.items()
+            if len(hits) == 1 and starts.get(word) == {next(iter(hits))[0]}}
 
 
 def _open_held_duplicates(memory_path: Path, page_ids: set[str]) -> int:

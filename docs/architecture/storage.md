@@ -301,8 +301,16 @@ seed ∪ bank, compared slugged, a label two canonicals claim ends nothing). Sta
 closes every open belief on that subject and object, dated when it was said and never before it opened — never the
 person's own statement under an agent's word, never one last said after the ending — and keeps the ending as closed
 history; with none open, a label that is a synonym ("previously worked at") is closed history and any other ("left")
-keeps its own label. `past` ("worked at", "interned at") reinforces an open place and never closes it; with none open
-it is closed history, never a current place. **Order never decides:** a mention said on or before a departure already on
+keeps its own label. **An `over` label also ends its canonical's relatives (2026-10-23, benchmarks/newuser):** the
+seed's `also_ends` under a canonical (for `uses`: `depends-on`, `backed-by`, `runs-on`, `hosted-on`, `deployed-on`,
+`stores-data-in`, `stores-in`, `authenticates-with`, `integrates-with`) and any object-qualified label of the canonical
+or of one of those (`uses-for-auth-and-data`, `stores-data-in-<x>-postgres`; the longest listed prefix decides,
+`EndingFn.ended_by`) close on the same subject and object under the same guards, each keeping its own predicate — so
+"dropped Supabase" ends "uses for auth and data Supabase" and "depends on Supabase" too, where it used to end only a
+plain `uses`. A predicate two canonicals list ends nothing; a relative said after the ending stays current (the newest
+dated statement wins, ruling 26), and one said before it, read after, is closed history like the canonical.
+`past` ("worked at", "interned at") reinforces an open place and never closes it — only the canonical itself, never a
+relative; with none open it is closed history, never a current place. **Order never decides:** a mention said on or before a departure already on
 the page (a "left" claim, or an ending record's own words) is kept as closed history, whatever order the claims are
 read in, and a re-read of a claim the page holds closed (same id, G104) only adds its sources — a page never holds one
 id twice. No fold question is raised for an ending. Stage 1's prompt says "works at" means current.

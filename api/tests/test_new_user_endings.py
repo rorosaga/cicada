@@ -95,3 +95,62 @@ def test_the_new_endings_are_unambiguous():
     for label in ("dropped", "stopped using", "no longer uses", "migrated off", "switched away from"):
         assert ending(label) is not None and ending(label).canonical == "uses", label
         assert ending(label).mode == predicates.ENDING_OVER, label
+
+
+def _open(memory: Path, page: str) -> set[tuple[str, str]]:
+    claims = parse_claims(markdown_parser.parse(memory / "entities" / f"{page}.md").body, strict=True)
+    return {(c.predicate, c.object) for c in claims if c.valid_to is None}
+
+
+def test_dropping_a_tool_ends_its_qualified_and_related_uses(tmp_path):
+    """2026-10-23 (benchmarks/newuser): "dropped <tool-a>" closed only a plain ``uses``; the project's "uses for auth and
+    data", "stores data in <tool-a> Postgres", "depends on" and "backed by" the same tool stayed current."""
+    memory = _bank(tmp_path)
+    _sleep(memory, "2026-08-28", 1, "alpha-project", [("uses for auth and data", "Tool Example"),
+                                                     ("stores data in Tool Example Postgres", "Tool Example"),
+                                                     ("tracks", "Tool Example"), ("uses", "Other Example")])
+    _sleep(memory, "2026-09-16", 2, "alpha-project", [("depends on", "Tool Example"), ("backed by", "Tool Example"),
+                                                     ("relies on", "Other Example")])
+    _sleep(memory, "2026-10-09", 3, "alpha-project", [("dropped", "Tool Example")])
+    assert _open(memory, PROJECT) == {("tracks", "tool-example"), ("uses", "other-example"),
+                                      ("depends-on", "other-example")}, \
+        "every use of the dropped tool ends; another tool, and a relation no ending lists, stay"
+    claims = parse_claims(markdown_parser.parse(memory / "entities" / f"{PROJECT}.md").body, strict=True)
+    closed = {c.predicate: c.valid_to for c in claims if c.object == "tool-example" and c.valid_to}
+    assert closed == {"uses-for-auth-and-data": "2026-10-09", "stores-data-in-tool-example-postgres": "2026-10-09",
+                      "depends-on": "2026-10-09", "backed-by": "2026-10-09", "uses": "2026-10-09"}, \
+        "each keeps its own predicate, closed the day it was dropped; the ending kept as history"
+
+
+def test_a_related_use_said_after_the_drop_stays_current(tmp_path):
+    """Ruling 26: the newest dated evidence wins — a dependency said after the drop is current again."""
+    memory = _bank(tmp_path)
+    _sleep(memory, "2026-08-28", 1, "alpha-project", [("depends on", "Tool Example")])
+    _sleep(memory, "2026-10-09", 2, "alpha-project", [("dropped", "Tool Example")])
+    _sleep(memory, "2026-10-15", 3, "alpha-project", [("depends on", "Tool Example")])
+    assert ("depends-on", "tool-example") in _open(memory, PROJECT)
+
+
+def test_an_older_related_use_read_after_the_drop_is_history(tmp_path):
+    """A drain reads in any order: a dependency said before the drop, read after it, is kept closed."""
+    memory = _bank(tmp_path)
+    _sleep(memory, "2026-08-28", 1, "alpha-project", [("uses", "Tool Example")])
+    _sleep(memory, "2026-10-09", 2, "alpha-project", [("dropped", "Tool Example")])
+    _sleep(memory, "2026-09-16", 3, "alpha-project", [("depends on", "Tool Example")])
+    assert ("depends-on", "tool-example") not in _open(memory, PROJECT)
+
+
+def test_a_past_tense_label_still_reinforces_only_its_own_predicate(tmp_path):
+    memory = _bank(tmp_path)
+    _sleep(memory, "2026-09-01", 1, "Bob Example", [("works with on mobile", "Carol Example")])
+    _sleep(memory, "2026-09-04", 2, "Bob Example", [("worked with", "Carol Example")])
+    assert ("works-with-on-mobile", "carol-example") in _open(memory, PERSON), "past tense never closes"
+
+
+def test_which_predicates_an_ending_also_ends():
+    ended_by = predicates.build_endings_fn(None).ended_by
+    for predicate in ("uses", "uses-for-sign-in", "depends-on", "backed-by", "stores-data-in-tool-example-postgres"):
+        assert ended_by(predicate) == "uses", predicate
+    assert ended_by("works-at-remotely") == "works-at"
+    for predicate in ("tracks", "user-of", "", "used-by"):
+        assert ended_by(predicate) is None, predicate

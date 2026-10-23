@@ -443,3 +443,67 @@ def test_one_sleep_raises_at_most_three_held_duplicate_questions(bank, monkeypat
 
     _resolve(bank, monkeypatch, pages, [_mention("Ann Sample", 2)], _Judge("different"))
     assert len(_questions(bank)) == 3                           # nothing more until one is answered
+
+
+# ---------- benchmarks/newuser, 2026-10-23: a held full name whose given name is one page's whole title ----------
+
+
+def _held(bank, name, aliases=()):
+    pending_store.upsert(bank, PendingEntity(
+        name=name, type="person", description="", source_episode="ep_2026-08-25_001", confidence=0.85,
+        tags=[], history_entries=[], aliases=list(aliases),
+        heard_in=[{"episode": "ep_2026-08-25_001", "timestamp": "2026-08-25T12:00:00Z", "day": "2026-08-25"}]))
+
+
+def test_a_held_full_name_whose_given_name_is_one_pages_title_is_asked_about(bank, monkeypatch):
+    """The live failure: "Bea Example" (the manager's full name, said once, no alias recorded) was held while a page
+    titled "Bea" existed, and nothing asked whether they were one person."""
+    _held(bank, "Bea Example")
+    result = _resolve(bank, monkeypatch, [_page("Bea")], [_mention("Ann Sample", 1)], _Judge("different"))
+    assert _questions(bank) == [("merge_suggestion", "bea-example", "bea")]
+    assert "bea example" not in result["name_to_id"], "asked, never merged"
+    [item] = sorted((bank / "inbox").glob("inbox-*.md"))
+    assert "Possible duplicate of Bea" in item.read_text()
+
+
+def test_a_full_name_said_this_batch_meets_the_given_name_page(bank, monkeypatch):
+    _resolve(bank, monkeypatch, [_page("Bea")], [_mention("Bea Example", 1, confidence=0.9)], _Judge("different"))
+    assert _questions(bank) == [("merge_suggestion", "bea-example", "bea")]
+
+
+@pytest.mark.parametrize("pages", [
+    [_page("Sam"), _page("Sam Okafor")],          # two Sams: the given name points at no one page
+    [_page("Sam"), {**_page("Sam"), "id": "sam-2"}],   # two pages titled by it
+    [_page("Sam Okafor")],                         # no page titled by the given name alone
+    [_page("Sam", etype="company")],               # not a person
+    [{**_page("Sam"), "frontmatter": {**_page("Sam")["frontmatter"], "owner": True}}],   # the owner's page
+])
+def test_a_given_name_shared_or_not_a_persons_title_asks_nothing(bank, monkeypatch, pages):
+    _held(bank, "Sam Reyes")
+    _resolve(bank, monkeypatch, pages, [_mention("Ann Sample", 1)], _Judge("different"))
+    assert _questions(bank) == []
+
+
+@pytest.mark.parametrize("held", ["sam_reyes", "Sam", "sam reyes", "Sam (unnamed)", "Sam 2"])
+def test_only_a_full_name_as_written_is_read_for_its_given_name(bank, monkeypatch, held):
+    _held(bank, held)
+    _resolve(bank, monkeypatch, [_page("Sam")], [_mention("Ann Sample", 1)], _Judge("different"))
+    assert _questions(bank) == []
+
+
+def test_a_given_name_pair_the_person_said_were_different_is_not_asked(bank, monkeypatch):
+    from api.services import merge_rejections
+
+    _held(bank, "Bea Example")
+    merge_rejections.add_rejected(bank, "bea-example", "bea")
+    _resolve(bank, monkeypatch, [_page("Bea")], [_mention("Ann Sample", 1)], _Judge("different"))
+    assert _questions(bank) == []
+
+
+def test_given_name_questions_share_the_cap_of_three(bank, monkeypatch):
+    firsts = ["Anna", "Beth", "Cleo", "Dana", "Ezra"]
+    for first in firsts:
+        _held(bank, f"{first} Example")
+    pages = [_page(first) for first in firsts]
+    _resolve(bank, monkeypatch, pages, [_mention("Ann Sample", 1)], _Judge("different"))
+    assert len(_questions(bank)) == er.MAX_HELD_ALIAS_QUESTIONS
