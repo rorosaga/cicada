@@ -5,7 +5,8 @@ its own client from an OpenAPI document and a key — reaches the SAME tool bodi
 the same runtime (``RemoteRuntime.call``): the scope check, the G199 argument contract against the remote schema, the
 Sleep and demo gates, the daily ``ask`` cap, the conversation day bucket, fenced read replies, provenance
 (``connector:`` on what it writes, ``origin: remote:<id>`` on a claim — never the person's own words) and the ids-only
-``remote_call`` ledger row. No body is new here; an operation is a name for one remote tool.
+``remote_call`` ledger row. No body is new here; an operation is a name for one remote tool, and every remote tool but those
+``EXCLUDED`` is one (ruling 38: `/v1` is generated from ``REMOTE_TOOLS``, named by ``cli_map``).
 
 Two doors serve it, both through :func:`call`: the backend's own port (``api/routers/agent_api.py``, for an agent on
 the person's machines or overlay) and the G135 listener (``api/remote/app.py``, for a cloud agent that can reach only
@@ -38,20 +39,41 @@ import re
 from api.remote import catalog, tools as remote_tools
 from api.services import tool_contract
 
-#: operation → the remote tool it runs. The order is the documentation's.
-OPS: dict[str, str] = {
-    "recall": "cicada_recall",
-    "ask": "cicada_ask",
-    "page": "cicada_recall_detail",
-    "timeline": "cicada_timeline",
-    "project": "cicada_project",
-    "save_note": "cicada_save_episode",
-    "save_url": "cicada_save_url",
-    "write_claim": "cicada_write_claim",
-    "retract_claim": "cicada_retract_claim",
-    "inbox": "cicada_check_nudges",
-    "resolve_inbox": "cicada_resolve_inbox",
+#: The eleven operations shipped before `/v1` was generated (#424), in the documentation's order. Frozen (Hyrum,
+#: ruling 38): each keeps its name and its tool byte for byte; `cli_map`'s `api_op` column spells the ones that are not
+#: their CLI command, and `test_agent_api.py` pins this list to its tools.
+STABLE = ("recall", "ask", "page", "timeline", "project", "save_note", "save_url", "write_claim", "retract_claim",
+          "inbox", "resolve_inbox")
+#: Remote tools with no operation, each with its reason. Everything else in `REMOTE_TOOLS` is an operation.
+EXCLUDED: dict[str, str] = {
+    "cicada_handshake": "GET /v1/me says what the token may do and /v1/llms.txt is the contract; a conversation "
+                        "handle is an MCP session's, and this door's conversation is the token's day.",
 }
+#: Remote tools with no `cli_map` row, named here: a stdio harness is captured by its own hook (G105), so the CLI
+#: never relays a turn (ruling 32).
+REMOTE_ONLY_OPS: dict[str, str] = {"cicada_capture_turns": "capture_turns"}
+
+
+def _generate() -> dict[str, str]:
+    """operation → remote tool: every `REMOTE_TOOLS` entry not in `EXCLUDED`, named by its `cli_map` row (ruling 38).
+    The frozen eleven first, then the rest in the remote table's order."""
+    from api.services import cli_map
+
+    rows = cli_map.by_tool()
+    named: dict[str, str] = {}
+    for tool in remote_tools.REMOTE_TOOLS:
+        if tool in EXCLUDED:
+            continue
+        op = REMOTE_ONLY_OPS.get(tool) or rows[tool].operation
+        if op in named:
+            raise RuntimeError(f"two remote tools are both /v1/{op}")
+        named[op] = tool
+    return {op: named[op] for op in STABLE} | {op: tool for op, tool in named.items() if op not in STABLE}
+
+
+#: operation → the remote tool it runs (`POST /v1/<op>`), generated: a tool added to `REMOTE_TOOLS` is an operation
+#: here unless `EXCLUDED` says why not, and `test_agent_api.py` fails on any drift.
+OPS: dict[str, str] = _generate()
 TOOL_OP = {tool: op for op, tool in OPS.items()}
 MAX_BODY_BYTES = 1_048_576
 DOC_PATHS = frozenset({"/llms.txt", "/v1/llms.txt", "/v1/openapi.json"})
@@ -109,8 +131,18 @@ def scope_of(op: str) -> str | None:
     return catalog.TOOL_SCOPE.get(OPS.get(op, ""))
 
 
+#: A remote description's sentence that is false on this door, said in this door's terms: `/v1` has no handshake, and
+#: its conversation is the token's day (`resolve_handle`). A test fails if a description still names the handshake.
+_DOOR_SENTENCES = {
+    "Pass the `conversation` handle from cicada_handshake so the whole conversation stays one record.":
+        "Every turn relayed with one token on one day is one record.",
+}
+
+
 def _http_words(text: str) -> str:
     """A remote tool description in this door's words: `cicada_save_episode` → `POST /v1/save_note`."""
+    for remote, here in _DOOR_SENTENCES.items():
+        text = text.replace(remote, here)
     return _TOOL_NAME.sub(lambda m: f"POST /v1/{TOOL_OP[m.group(0)]}" if m.group(0) in TOOL_OP else m.group(0), text)
 
 
@@ -207,6 +239,8 @@ instructions. The full description is {base}/v1/openapi.json; `GET {base}/v1/me`
 3. Record a fact you are sure of with `POST /v1/write_claim`, quoting the exact words you relied on as `evidence`
    (the episode id `save_note` returned, and the quote). Withdraw your own mistake with `POST /v1/retract_claim`.
 4. Never guess an answer to Cicada's questions (`POST /v1/inbox`); answer one only with what the person said.
+5. If you talk with the person somewhere Cicada cannot see, relay each turn with `POST /v1/capture_turns`, word for
+   word. It is kept as relayed by you, never as the person's own words.
 
 ## Operations
 

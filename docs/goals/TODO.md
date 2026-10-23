@@ -6,9 +6,16 @@
 
 [Feature status: one line per feature](feature-status.md) · [Implementation review: every G ID](BACKLOG_IMPLEMENTATION_REVIEW.md) · [Active reasoning by priority](memory-evolution.md) · [Completed work](DONE.md) · [Reference context / original prompts](BACKLOG_CONTEXT.md) · [Working method](working-method.md) · [Cognition comparison](../research/2026-10-06-agent-memory-repo.md) · [Source/video gaps](../research/2026-10-06-source-refresh-and-video-gaps.md) · [Provider/source modularity](../specs/2026-10-06-provider-and-ingestion-modularity.md) · [Benchmark rebuild](../specs/2026-10-06-system-benchmark-rebuild.md)
 
-**Pick up here (2026-10-22, redesign):** read ruling 36 (the owner's answers D1–D6 to the redesign proposal), then [`feature-status.md`](feature-status.md) for what is building. Branches in flight: `feat/awake-read` (G207), `fix/people-dedup` (G209), `feat/update-sources` (G61); queued: connection model and providers (G217, G50), agent API (G213), app (G217's pages, needs a Mac). **Decided after review (2026-10-22, in ruling 36):** a new install's Auto uses a signed-in plan, a key offered as an equal option; ruling 4c stays and the quick read follows it; G213's API rides the G135 listener; "Where to check" as one grouped inbox review; `rich` + `questionary` approved. Nothing waits on the owner from this ruling.
+**Pick up here (2026-10-22, redesign):** read ruling 36 (the owner's answers D1–D6 to the redesign proposal), then [`feature-status.md`](feature-status.md) for what is building. Branches in flight: `feat/awake-read` (G207), `fix/people-dedup` (G209), `feat/update-sources` (G61); queued: connection model and providers (G217, G50), agent API (G213), app (G217's pages, needs a Mac). **Decided after review (2026-10-22, in ruling 36):** a new install's Auto uses a signed-in plan, a key offered as an equal option; ruling 4c stays and the quick read follows it; G213's API rides the G135 listener; "Where to check" as one grouped inbox review; `rich` + `questionary` approved. Nothing waits on the owner from this ruling. **Ruling 38 (2026-10-23)** decides the follow-ups: `/v1` from the tool table (G213), a capture-only phone (G91), one-way syncs (G219), traces with screenshots (G218).
 
 ## Current state and evidence
+
+- **2026-10-23 — ruling 38 recorded; `/v1` generated from the remote tool table (G213; branch
+  `feat/v1-from-tool-table`).** The owner answered the four follow-up decisions (ruling 38: API, phone, syncs, traces
+  with screenshots). Built here: `agent_api.OPS` is generated from `REMOTE_TOOLS` minus `EXCLUDED` (only the
+  handshake), named by `cli_map` (`Row.operation`; an `api_op` column for the 11 frozen names) — 11 → 27 operations,
+  `capture_turns` relayed as `evidence_kind: assistant`; pinning tests for the set, the frozen names, scopes and
+  `openapi.json`. G91, G218 and G219 carry the ruling as their decision lines; their code is their own PRs.
 
 - **2026-10-23 — the owner's five follow-ups recorded (docs only; branch `docs/followups-2026-10-23`).** Phone
   sources extend **G91** (stays capture-only; next a device build, `/capture/file`, App Intents, on-device voice);
@@ -18,7 +25,7 @@
   EventKit, then Notion export and API, one-way, never write-back; pointers on G13 and G142); the "show me" skill is
   **G220** (the owner builds it; pointer on G138). Each row ends in its owner decisions with a recommended answer. The
   proposal, with prior-art sources, is kept outside the repo with the redesign research
-  (`followups-2026-10-23.md`). **Open for the owner:** the decisions on each row; G218 needs a ruling before any code.
+  (`followups-2026-10-23.md`). **Decided:** ruling 38 (2026-10-23) answers G91, G213, G218 and G219; G220 is the owner's.
 
 - **2026-10-23 — the new user, third pass (G148, G209; PR #442, branch `fix/newuser-memory-3`).** A drop ends the project's
   qualified and related uses of the tool, not only a plain `uses` (seed `endings.uses.also_ends`,
@@ -1684,3 +1691,30 @@ A whole row moves to DONE only after its remaining implementation and required a
     unexplained "How did it go?"; bookmarks saved in August read as saved on the import day. **Revisit** A if the
     person undoes `seed_fold` settles often (`GET /consumption/feedback`'s `sleepSettles`); B if a source's recorded
     save date proves unreliable.
+38. **The follow-ups: one API generated from the tool table, a capture-only phone, one-way syncs, traces with
+    screenshots (owner, 2026-10-23; answers to the four decisions in the follow-ups proposal, `followups-2026-10-23.md`,
+    kept outside the repo with the redesign research, recorded as rows by #451; G213, G91, G219, G218).**
+    **1 — API.** `/v1` is generated from the remote tool table: every `REMOTE_TOOLS` entry is one operation unless an
+    exclusion set names it with its reason (only `cicada_handshake`, carried by `GET /v1/me` and `llms.txt`), taking it
+    from 11 to 27 operations. The 11 shipped names are frozen byte for byte (Hyrum: existing callers keep working);
+    new operations are named from `cli_map`'s command (its `api_op` column holds only the frozen names). One G199
+    contract on every door — the same schema check, refusal sentences, `isError` codes and fencing as `/mcp`; every
+    token scope is enforced exactly as on `/mcp`, `sources` gating every verbatim word. `capture_turns` is on `/v1`
+    under `record`, stored as relayed (`evidence_kind: assistant`), never the person's own words. **No third door:**
+    MCP clients use `/mcp`; everything else `/v1` plus `/v1/openapi.json`, and no OpenAI-format tool list. Local-only
+    tools (`cicada_continue`, anything that reads `~/.claude`, the stdio-only set) stay off `/v1` as they are off
+    remote. A test pins the operation list to the remote tool table, so a tool added to one and not the other fails CI.
+    **2 — Phone.** Stays capture-only. It adds photos and files from the share sheet through one new capture route, and
+    voice notes are transcribed on the phone and sent as text (no audio leaves the phone; no model on the capture
+    path). Reading memory on the phone goes through the Claude and ChatGPT apps over the G135 connector, or a Shortcut
+    calling `/v1` with an agent token. The device build is signed with the owner's Apple team first; Android comes
+    later. **3 — Syncs.** Reminders first (the lists the person ticks; incomplete reminders and those completed in the
+    last 90 days), then Notion (its export first, then its API with a token scoped to the pages the person shares).
+    Both are one-way into Cicada and never write back. Then Obsidian, then Todoist. **4 — Activity traces (G218).** The
+    owner chose to include screenshots from the start, not as a later tier. It ships off by default, outside every
+    bank, encrypted at rest, never on the network, with one-click wipe and retention limits; the details are in the
+    G218 row and the traces PR. **Why.** The proposal measured two doors with one token giving different powers (11 of
+    28 remote tools on `/v1`), names that were not `cli_map`'s and no test pinning either set; the phone's read tab
+    would have put a wider token on the device most easily lost; a two-way sync is a second source of truth.
+    **Revisit** 1 if an operation ever has to differ between `/mcp` and `/v1`; 2 if the AI apps' connector reads prove
+    unusable on the phone; 3's order on a new user's measured intake; 4 only through the G218 row's own triggers.

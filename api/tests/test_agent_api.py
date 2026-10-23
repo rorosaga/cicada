@@ -162,7 +162,7 @@ def test_scopes_bound_the_operations(server):
     denied = client.post("/v1/save_note", json={"content": "x"}, headers=_auth(token))
     assert denied.status_code == 403 and denied.json()["code"] == "denied"
     me = client.get("/v1/me", headers=_auth(token)).json()
-    assert me["operations"] == ["recall"] and me["scopes"] == ["search"] and me["kind"] == "agent"
+    assert me["operations"] == ["recall", "hub"] and me["scopes"] == ["search"] and me["kind"] == "agent"
 
 
 def test_refusals_before_a_tool_runs(server):
@@ -232,7 +232,8 @@ def test_the_listener_serves_v1_with_the_same_envelope_and_never_mcp_to_an_agent
             ok = client.post("/v1/recall", json={"query": "alpha"}, headers=_auth(token))
             assert ok.status_code == 200 and set(ok.json()) == {"text", "isError", "code", "data"}
             assert client.get("/v1/me", headers=_auth(token)).json()["operations"] == [
-                "recall", "page", "timeline", "project", "inbox"]
+                "recall", "page", "timeline", "project", "inbox", "hub", "perspective", "video_queue", "read_queue",
+                "backlog_list"]
             assert client.post("/v1/save_note", json={"content": "x"}, headers=_auth(token)).status_code == 403
             assert "/v1/recall" in client.get("/v1/llms.txt").text
             mcp = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
@@ -299,3 +300,186 @@ def test_at_most_five_codes_wait(tmp_path):
         db.create_pairing()
     with pytest.raises(ValueError):
         db.create_pairing()
+
+
+# --- ruling 38: `/v1` generated from the remote tool table ------------------------------------------------------------
+
+#: The eleven operations #424 shipped, each with its tool — frozen byte for byte (Hyrum). Never edit this literal.
+SHIPPED = {"recall": "cicada_recall", "ask": "cicada_ask", "page": "cicada_recall_detail",
+           "timeline": "cicada_timeline", "project": "cicada_project", "save_note": "cicada_save_episode",
+           "save_url": "cicada_save_url", "write_claim": "cicada_write_claim",
+           "retract_claim": "cicada_retract_claim", "inbox": "cicada_check_nudges",
+           "resolve_inbox": "cicada_resolve_inbox"}
+
+
+def test_v1_is_the_remote_tool_table_minus_its_exclusions():
+    """A tool added to `REMOTE_TOOLS` and not to `/v1` (or the reverse) fails here, unless `EXCLUDED` says why."""
+    from api.remote.tools import REMOTE_TOOLS
+
+    assert set(agent_api.OPS.values()) == set(REMOTE_TOOLS) - set(agent_api.EXCLUDED)
+    assert len(agent_api.OPS) == len(set(agent_api.OPS.values())), "one operation per tool"
+    assert set(agent_api.EXCLUDED) <= set(REMOTE_TOOLS) and all(agent_api.EXCLUDED.values())
+    assert set(agent_api.EXCLUDED) == {"cicada_handshake"}
+    # Local-only tools stay off `/v1` as they are off remote: the workspace continuation, page edits, the saved lists.
+    assert not set(agent_api.OPS.values()) & catalog.NEVER_REMOTE
+    assert "cicada_continue" not in agent_api.OPS.values()
+
+
+def test_the_eleven_shipped_operations_are_frozen_and_listed_first():
+    assert {op: agent_api.OPS[op] for op in SHIPPED} == SHIPPED
+    assert list(agent_api.OPS)[:len(SHIPPED)] == list(SHIPPED) == list(agent_api.STABLE)
+
+
+def test_new_operations_take_the_cli_command_spelled_with_underscores():
+    from api.services import cli_map
+
+    rows = cli_map.by_tool()
+    new = {op: tool for op, tool in agent_api.OPS.items() if op not in SHIPPED}
+    for op, tool in new.items():
+        expected = agent_api.REMOTE_ONLY_OPS.get(tool) or "_".join(rows[tool].command).replace("-", "_")
+        assert op == expected, (op, tool)
+        assert rows.get(tool) is None or rows[tool].api_op is None, "only a frozen name overrides the command"
+    # Every override in the table is one of the eleven, and spells exactly its shipped name.
+    overrides = {r.api_op: r.tool for r in cli_map.rows() if r.api_op}
+    assert overrides.items() <= SHIPPED.items()
+    assert set(new) == {"hub", "perspective", "capture_turns", "source_add", "source_change", "video_record",
+                        "video_queue", "video_claim", "read_queue", "read_record", "inbox_record_check",
+                        "source_list", "progress_add", "backlog_list", "backlog_add", "backlog_note"}
+
+
+def test_each_operation_needs_exactly_its_tool_s_scope():
+    import itertools
+
+    for op, tool in agent_api.OPS.items():
+        assert agent_api.scope_of(op) == catalog.TOOL_SCOPE[tool] and catalog.TOOL_SCOPE[tool], op
+    assert agent_api.scope_of("capture_turns") == "record" and agent_api.scope_of("source_list") == "sources"
+    for n in range(len(catalog.SCOPES) + 1):
+        for scopes in itertools.combinations(catalog.SCOPES, n):
+            connector = catalog.Connector(id="abcdefgh", label="A", app="other", scopes=frozenset(scopes),
+                                          created_at="2026-10-23T00:00:00+00:00", auth="api")
+            allowed = catalog.tool_names_for(scopes)
+            assert agent_api.me(connector)["operations"] == [o for o, t in agent_api.OPS.items() if t in allowed]
+
+
+def test_the_openapi_document_is_generated_and_valid():
+    import jsonschema
+
+    doc = agent_api.openapi("https://cicada.example.ts.net")
+    json.loads(json.dumps(doc))   # plain JSON
+    assert doc["openapi"] == "3.1.0" and doc["info"]["title"] and doc["info"]["version"]
+    assert doc["servers"] == [{"url": "https://cicada.example.ts.net"}]
+    assert set(doc["paths"]) == {f"/v1/{op}" for op in agent_api.OPS} | {"/v1/me"}
+    ids = [method["operationId"] for item in doc["paths"].values() for method in item.values()]
+    assert len(ids) == len(set(ids)) == len(agent_api.OPS) + 1
+    schemes = doc["components"]["securitySchemes"]
+    assert all(name in schemes for req in doc["security"] for name in req)
+    validator = jsonschema.Draft202012Validator   # OpenAPI 3.1's schema dialect
+    for schema in doc["components"]["schemas"].values():
+        validator.check_schema(schema)
+    for path, item in doc["paths"].items():
+        for verb, method in item.items():
+            assert verb in ("get", "post") and method["responses"], path
+            if verb == "post":
+                body = method["requestBody"]["content"]["application/json"]["schema"]
+                validator.check_schema(body)
+                assert body["type"] == "object" and "conversation" not in body.get("properties", {})
+                assert set(body.get("required", ())) <= set(body.get("properties", {})), path
+            for response in method["responses"].values():
+                for content in response.get("content", {}).values():
+                    ref = content["schema"]["$ref"]
+                    assert ref.startswith("#/components/schemas/")
+                    assert ref.rsplit("/", 1)[1] in doc["components"]["schemas"]
+    # The door's own words: no MCP tool name and no handshake (this door has none).
+    blob = json.dumps(doc)
+    assert "cicada_" not in blob and "handshake" not in blob
+
+
+def test_the_new_operations_run_the_same_bodies_over_http(server):
+    client, master, _ = server
+    token = _agent(client, master, scopes=("search", "read", "record"))["token"]
+    hub = client.post("/v1/hub", json={"hub": "alpha"}, headers=_auth(token))
+    assert hub.status_code == 200 and set(hub.json()) == {"text", "isError", "code", "data"}
+    filed = client.post("/v1/backlog_add", json={"project": "alpha-project", "title": "Try the second index",
+                                                 "description": "Recall misses prefixes; a second index may help."},
+                        headers=_auth(token))
+    assert filed.status_code == 200 and filed.json()["isError"] is False, filed.text
+    listed = client.post("/v1/backlog_list", json={"project": "alpha-project"}, headers=_auth(token))
+    assert listed.status_code == 200 and listed.json()["isError"] is False
+    assert "second index" in listed.json()["text"] and "<<<cicada-reference" in listed.json()["text"]
+    # The G199 check is the remote schema's, on every new operation too.
+    bad = client.post("/v1/progress_add", json={"project": "alpha-project"}, headers=_auth(token))
+    assert bad.status_code == 400 and bad.json()["code"] == "invalid_arguments" and "kind" in bad.json()["text"]
+
+
+def test_capture_turns_on_v1_is_relayed_never_the_person_s_own_words(server):
+    from api.services import markdown_parser
+
+    client, master, memory = server
+    made = _agent(client, master)
+    token, cid = made["token"], made["agent"]["id"]
+    first = client.post("/v1/capture_turns", json={"message": "Remind me the canoe trip is in May."},
+                        headers=_auth(token))
+    assert first.status_code == 200 and first.json()["isError"] is False, first.text
+    episode_id = first.json()["data"]["episode_id"]
+    second = client.post("/v1/capture_turns", json={"message": "And pack the blue tent.",
+                                                    "previous_reply": "Noted: the canoe trip is in May."},
+                         headers=_auth(token))
+    assert second.json()["data"]["episode_id"] == episode_id, "one token's day is one conversation"
+    path = next(p for p in (memory / "episodes").glob("ep_*.md")
+                if markdown_parser.parse(p).frontmatter.get("id") == episode_id)
+    fm = markdown_parser.parse(path).frontmatter
+    assert fm["evidence_kind"] == "assistant" and fm["harness"] == catalog.API_HARNESS
+    assert fm["relay"]["connector"] == cid
+    reader = _agent(client, master, name="Reader", scopes=("search",))["token"]
+    denied = client.post("/v1/capture_turns", json={"message": "x"}, headers=_auth(reader))
+    assert denied.status_code == 403 and denied.json()["code"] == "denied"
+
+
+def test_the_sources_scope_gates_the_sources_operation(server):
+    client, master, _ = server
+    plain = _agent(client, master, name="Plain")["token"]
+    denied = client.post("/v1/source_list", json={"entity_id": "alpha-project"}, headers=_auth(plain))
+    assert denied.status_code == 403 and denied.json()["code"] == "denied"
+    trusted = _agent(client, master, name="Trusted", scopes=("search", "read", "record", "sources"))["token"]
+    allowed = client.post("/v1/source_list", json={"entity_id": "alpha-project"}, headers=_auth(trusted))
+    assert allowed.status_code == 200
+
+
+def test_both_doors_refuse_with_the_same_sentence_and_code(tmp_path, monkeypatch):
+    """One G199 contract and one scope check: the same token, the same refusal, on `/mcp` and on `/v1`."""
+    from api import config
+    from api.remote.app import build_app
+    from api.remote.runtime import DENIED_TEXT, RemoteRuntime
+
+    memory = _bank(tmp_path)
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
+    config.get_settings.cache_clear()
+    mcp_headers = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json",
+                   "Mcp-Protocol-Version": "2025-11-25"}
+    try:
+        db = remote_store.ConnectorStore()
+        _, token = db.create(app="other", label="Both", scopes=["search", "read"], expires_in_days=7)
+        app = build_app(db, runtime=RemoteRuntime(post=lambda p, d: {}, sleep_running=lambda: False))
+        with TestClient(app, base_url="https://cicada.example.ts.net") as client:
+            def mcp(name, arguments):
+                answer = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                                   "params": {"name": name, "arguments": arguments}},
+                                     headers={**mcp_headers, **_auth(token)})
+                return answer.json()["result"]
+
+            for op, tool, arguments in (("backlog_add", "cicada_add_backlog_item",
+                                         {"project": "alpha-project", "title": "t", "description": "d"}),
+                                        ("source_list", "cicada_sources", {"entity_id": "alpha-project"})):
+                over_mcp = mcp(tool, arguments)
+                over_v1 = client.post(f"/v1/{op}", json=arguments, headers=_auth(token))
+                assert over_mcp["isError"] is True and over_v1.json()["isError"] is True
+                assert over_mcp["content"][0]["text"] == over_v1.json()["text"] == DENIED_TEXT
+                assert over_v1.status_code == 403 and over_v1.json()["code"] == "denied"
+            over_mcp = mcp("cicada_backlog", {})
+            over_v1 = client.post("/v1/backlog_list", json={}, headers=_auth(token))
+            assert over_mcp["isError"] is True and over_v1.status_code == 400
+            assert over_mcp["content"][0]["text"] == over_v1.json()["text"]
+            assert over_mcp["structuredContent"]["code"] == over_v1.json()["code"] == "invalid_arguments"
+    finally:
+        config.get_settings.cache_clear()
