@@ -113,6 +113,10 @@ extension Copy {
         static let sheetExploring = "Exploring your saved sites opens each one in your browser, one after another, and keeps a dated picture of it. By default it uses your signed-in session, so sites see you as you; you can turn that off below. Some sites’ terms don’t allow automated visits: if a site objects, it is your account and your connection it objects to, not Cicada’s. You can mark any site Never explore."
         static let sheetSaferExport = "If a site offers a download of your own data, that is safer."
         static func sheetAlsoAllows(_ site: String) -> String { "This also lets an agent read pages from \(site)." }
+        /// G206 — the saved-list mode: one list, never the site's other pages.
+        static func sheetAlsoReadsList(_ site: String) -> String {
+            "This also lets your agent read your saved list on \(site) — that list only, no other page of the site."
+        }
         static let sheetUnderstand = "I understand"
         static let sheetNotNow = "Not now"
         static let sheetTurnOn = "Turn on"

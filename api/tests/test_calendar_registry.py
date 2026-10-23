@@ -658,3 +658,68 @@ def test_endpoint_subscribe_accepts_webcal_and_normalizes(tmp_path, monkeypatch)
     resp = client.post("/sources/calendars", json={"url": "webcal://a.example.com/cal.ics"})
     assert resp.status_code == 200, resp.text
     assert resp.json()["url"] == "https://a.example.com/cal.ics"
+
+
+# --- read on time and the SSRF guard (2026-10-23) ------------------------------------------------------------------
+
+
+def _event(start: str) -> "calendar_registry.ICSEvent":
+    return calendar_registry.ICSEvent(uid="evt-1", summary="Placeholder", dtstart_iso=start, dtend_iso=None,
+                                      all_day=False, location=None, description=None, sequence=0, recurring=False)
+
+
+def test_an_event_that_has_begun_is_dated_at_its_start_and_a_future_one_now(tmp_path):
+    """Read on time (owner 2026-10-16), as the Calendar app's events (`calendar_local._happened`): a first poll's past
+    month was a month of mentions the day it was polled."""
+    from api.services import markdown_parser
+
+    episodes = _memory(tmp_path) / "episodes"
+    past = calendar_registry._write_calendar_episode(episodes, _event("2026-03-02T09:00:00+00:00"), "https://a.example.com/c.ics")
+    fm = markdown_parser.parse(episodes / f"{past}.md").frontmatter
+    assert fm["timestamp"] == "2026-03-02T09:00:00+00:00"
+    assert past.startswith("ep_2026-03-0")
+    future = calendar_registry._write_calendar_episode(episodes, _event("2099-03-02T09:00:00+00:00"), "https://a.example.com/c.ics")
+    stamp = datetime.fromisoformat(markdown_parser.parse(episodes / f"{future}.md").frontmatter["timestamp"])
+    assert abs((datetime.now(timezone.utc) - stamp).total_seconds()) < 60
+
+
+def test_an_all_day_or_floating_start_is_this_machines_local_time():
+    begun = calendar_registry._begun_at(_event("2026-03-02"), datetime.now(timezone.utc))
+    assert begun is not None and begun.tzinfo is not None
+    assert begun == datetime(2026, 3, 2).astimezone().astimezone(timezone.utc)
+    assert calendar_registry._begun_at(_event("not a date"), datetime.now(timezone.utc)) is None
+
+
+def test_the_default_fetch_refuses_a_loopback_calendar(tmp_path, monkeypatch):
+    """The network rails: every server-side fetch goes through `net_guard`. The poll fetched any address, so a
+    subscribed (or redirected) URL could read this Mac's own services."""
+    import http.server
+    import threading
+
+    served: list[str] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            served.append(self.path)
+            body = ICS_BASIC.encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        memory = _memory(tmp_path)
+        url = f"http://127.0.0.1:{server.server_address[1]}/cal.ics"
+        calendar_registry.subscribe_calendar(memory, url)
+        result = asyncio.run(calendar_registry.poll_calendars(memory, allow_fetch=True))
+    finally:
+        server.shutdown()
+    assert [c["status"] for c in result["per_calendar"]] == ["error"]
+    assert "non-public" in result["per_calendar"][0]["error"]
+    assert served == [], "not one byte asked of a loopback address"
+    assert not list((memory / "episodes").glob("ep_*.md"))

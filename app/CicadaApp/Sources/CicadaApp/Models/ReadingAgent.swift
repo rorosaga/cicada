@@ -93,10 +93,13 @@ struct ReadingSettingsResponse: Decodable, Equatable {
     var youtubeLists: YouTubeListSwitches
     /// When each list was last read for this memory, and whether the lists are paused (a sign-in the agent lacked).
     var youtube: YouTubeListsStatus?
+    /// G206 (2026-10-22): `{x|instagram|linkedin: on}` — the saved lists the person asked their own agent to keep
+    /// current from their signed-in browser. Off, and absent from an older backend, by default.
+    var savedLists: [String: Bool] = [:]
 
     enum CodingKeys: String, CodingKey {
         case agentEnabled, allowedSites, ackedAt, ackCurrent, lastAgentRead, exploreSignedIn, neverExplore
-        case youtubeLists, youtube
+        case youtubeLists, youtube, savedLists
     }
 
     init(agentEnabled: Bool = false, allowedSites: [String: String] = [:], ackedAt: String? = nil,
@@ -125,6 +128,7 @@ struct ReadingSettingsResponse: Decodable, Equatable {
         neverExplore = (try? c.decode([String: String].self, forKey: .neverExplore)) ?? [:]
         youtubeLists = (try? c.decode(YouTubeListSwitches.self, forKey: .youtubeLists)) ?? YouTubeListSwitches()
         youtube = try? c.decodeIfPresent(YouTubeListsStatus.self, forKey: .youtube)
+        savedLists = (try? c.decode([String: Bool].self, forKey: .savedLists)) ?? [:]
     }
 }
 

@@ -422,3 +422,56 @@ def test_poll_feeds_records_unreachable_feed_error_and_continues(tmp_path, monke
     # last_polled is stamped even for the errored feed (we did attempt it).
     feeds = {f["url"]: f for f in feed_registry.list_feeds(memory)}
     assert feeds["https://unreachable.example.com/rss"]["last_polled"] is not None
+
+
+def test_the_default_fetch_refuses_a_loopback_feed_and_a_redirect_inward(tmp_path, monkeypatch):
+    """The network rails (2026-10-23): every server-side fetch goes through `net_guard`, on every hop. The poll used a
+    bare client, so a subscribed URL, or a public feed redirecting inward, read this Mac's own services."""
+    import http.server
+    import threading
+
+    import httpx
+
+    served: list[str] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            served.append(self.path)
+            body = RSS_FEED_A.encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    inward = f"http://127.0.0.1:{server.server_address[1]}/feed.xml"
+    try:
+        memory = _memory(tmp_path)
+        feed_registry.subscribe_feed(memory, inward)
+        result = asyncio.run(feed_registry.poll_feeds(memory, allow_fetch=True))
+        assert [f["status"] for f in result["per_feed"]] == ["error"]
+        assert "non-public" in result["per_feed"][0]["error"]
+
+        # A public feed (DNS stands in a public address, conftest) answering with a redirect to loopback.
+        def public_redirects_inward(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(302, headers={"Location": inward})
+
+        real_client = httpx.AsyncClient
+
+        def client_with_transport(*args, **kwargs):
+            return real_client(*args, transport=httpx.MockTransport(public_redirects_inward), **kwargs)
+
+        monkeypatch.setattr(httpx, "AsyncClient", client_with_transport)
+        refused = None
+        try:
+            asyncio.run(feed_registry._default_fetch("https://feeds.example.com/rss"))
+        except Exception as exc:  # noqa: BLE001 - the guard's refusal, whatever httpx wraps it in
+            refused = exc
+        assert refused is not None and "non-public" in str(refused), "a redirect inward was followed"
+    finally:
+        server.shutdown()
+    assert served == [], "not one byte asked of a loopback address"

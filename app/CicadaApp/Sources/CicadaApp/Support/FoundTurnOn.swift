@@ -70,11 +70,12 @@ enum AppSourceDrivers {
                 isOn: { calendar.isEnabled })
         }
         if let local, let store {
+            // 2026-10-23: Notes keeps up once read (`AppleNotesWatcher`, only while Notes is open), so its tick is a
+            // switch like the others: untick stops it.
             out[Self.notes] = AppSourceDriver(
                 start: { try await ChannelActions.sync(Self.notes, store: store, local: local) },
-                stop: {},
-                isOn: { store.channels.value?.first { $0.id == Self.notes }?.connected == true },
-                keepsUp: false)
+                stop: { AppleNotesWatcher.shared.disconnect() },
+                isOn: { AppleNotesWatcher.shared.enabled })
         }
         if let local {
             out[Self.wispr] = AppSourceDriver(

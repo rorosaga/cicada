@@ -41,7 +41,21 @@ struct SourcesPageView: View {
             wisprPresent: localSources.wisprInstalled || channels.contains { $0.id == LocalSourceWatcher.wisprChannel },
             overview: overview)
         return SourceCatalog.rows(entries: entries, channels: channels, overview: overview,
-                                  readableSites: reading.readableSites)
+                                  readableSites: reading.readableSites, localReaders: localReaders,
+                                  savedListsOn: reading.savedListsOn)
+    }
+
+    @Environment(CalendarReader.self) private var calendarReader: CalendarReader?
+    @Environment(ContactsReader.self) private var contactsReader: ContactsReader?
+    @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
+    @Environment(WatchHistoryWatcher.self) private var watchHistory: WatchHistoryWatcher?
+    @Environment(BrowserWatcher.self) private var browserWatcher: BrowserWatcher?
+    @Environment(AppleNotesWatcher.self) private var notesWatcher: AppleNotesWatcher?
+
+    /// Which of this Mac's readers are on (2026-10-23): a reader turned off here reads Off, whatever it synced before.
+    private var localReaders: [String: Bool] {
+        LocalReaders.on(calendar: calendarReader, contacts: contactsReader, tabGroups: tabGroups,
+                        watchHistory: watchHistory, browsers: browserWatcher, notes: notesWatcher)
     }
 
     var body: some View {

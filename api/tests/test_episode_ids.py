@@ -119,10 +119,11 @@ def _calendar_episode(tmp_path):
 
     episodes = _memory(tmp_path) / "episodes"
     event = calendar_registry.ICSEvent(
-        uid="evt-1", summary="Placeholder event", dtstart_iso="2026-07-14T10:00:00+00:00",
-        dtend_iso="2026-07-14T11:00:00+00:00", all_day=False, location=None, description=None, sequence=0,
+        uid="evt-1", summary="Placeholder event", dtstart_iso="2099-07-14T10:00:00+00:00",
+        dtend_iso="2099-07-14T11:00:00+00:00", all_day=False, location=None, description=None, sequence=0,
         recurring=False)
-    # Straight through the writer: no ICS window filtering, so nothing here is date-baked.
+    # Straight through the writer: no ICS window filtering, so nothing here is date-baked. A future event — one that
+    # has begun is dated at its start (read on time, test_calendar_registry), never now.
     return episodes / f"{calendar_registry._write_calendar_episode(episodes, event, 'https://a.example.com/cal.ics')}.md"
 
 

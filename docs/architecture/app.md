@@ -1023,6 +1023,23 @@ agent reads (`agent_methods`), not an install.
   on that tile's entry (was Sleep's sheet); a tile's flow still opens alone (`AddSourceSheet(flowOnly: true)`, leaving
   the flow closes it). *Sync now* / *Poll now* read **Refresh** everywhere on these surfaces. The `.source(id)`
   selection and `routeToSourceDetail` still open the v4 detail; an overview id lands on its catalogue entry.
+- **Connectors that say what they do (2026-10-23, `fix/sources-connectors`).** A row reads Connected only while
+  something will keep arriving: `SourceCatalog.status` takes `localReaders` (`LocalReaders.on`: Calendar, Contacts,
+  tab groups, YouTube history, each browser's bookmark watch and Apple Notes, by this Mac's own switches), so a reader
+  turned off here reads Off whatever it synced before; the backend answers Messages (no conversation ticked), Wispr
+  Flow (turned off), a feed while `CICADA_ALLOW_FEED_FETCH` is off (with `lastError` saying why) and Telegram (only
+  once a message arrived). Needs sign-in is a connector's alone (`signInChannels`: X, Reddit, Pinterest). In the
+  detail, a feed's `manage` opens its tile's flow (*Add a feed* / *Manage*: the Subscribe field and the list — the bar
+  drew only Refresh, so RSS and Calendar feeds could not be added), Refresh shows only with something to poll, and a
+  channel's `lastError` is the line under its actions; Apple Notes has its own control (`NotesControls`: Connect, then
+  Refresh and Disconnect; `AppleNotesWatcher` keeps up every two hours while Notes is open); Telegram says plainly it
+  needs a public address Cicada never opens, with *How to set it up* opening its steps (`~/.cicada/secrets.env`, not
+  `api/.env`). The overview files a nil-origin save (a bookmarks file imported through Files and links) under Files &
+  links instead of a row called "unknown", and a phone's note reads *Phone*. Live test, same day: YouTube claims the
+  overview's `youtube-history` and `youtube` rows, and an account's import that fed memory reads Connected (an overview
+  row no channel speaks for, so a reader turned off never returns through its episodes); a row's last sync is the newest
+  capture write (`captured_at` / `last_turn_at`), not a session's start; Instagram's line says what G206 shipped and a
+  saved list switched on reads Connected.
 - **Inbox top cards (G205, G61):** `agent_request` (`InboxKind.agentRequest`) and the grouped *Confirm N links* review
   (`asks: sources`, `review: true`) are cards above the questions, out of the list, its tabs and the quick review
   (`InboxViewModel.questions`). A request: the agent's tile, *Sign in to <site>*, whose and why, **I signed in**
@@ -1095,7 +1112,7 @@ the website's logo … Clicking again on Sources takes me back to the main Sourc
   row of a link Sleep has not made a page of yet asks by its episode (`SavedItemText.door`; the list names its site,
   `channel_items` `g161-6`). **A saved YouTube video's row draws its still** (`VideoStill`, the watched day's view, at
   64 × 36; `GET /sources/saved/{id}/still`, `SourcePictures.savedStillPath`), not the site's mark (owner 2026-10-20).
-- **Saved lists in your browser (G206, spec 2026-10-22 — not built; the backend is).** On a saved source's detail
+- **Saved lists in your browser (G206, spec 2026-10-22; first slice built 2026-10-23 on the catalogue's detail: the switch, its off line and the first-use sheet first, whose Turn on then enables agent reading and that list in one call, never a `sites` grant — the last-read line and *Try again* are not built yet).** On a saved source's detail
   column for X, Instagram and LinkedIn, one row under the sync row: label "Read my <Bookmarks|Saved|Saved posts> in my
   browser" (`SectionLabel` above it reads *In your browser*, DR-20/47) with a `Toggle` bound to
   `GET /reading/settings` `savedLists.<site>` and written by `PUT /reading/settings {"savedLists": {"<site>": bool}}`

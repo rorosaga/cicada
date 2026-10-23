@@ -130,6 +130,9 @@ enum OriginIconography {
         // (a vault is a folder, so its episodes are `folder`).
         case "obsidian": "Obsidian"
         case "unknown": "Unknown"
+        // 2026-10-23: a note typed on a paired phone (`/capture/note`) or another device.
+        case "phone": "Phone"
+        case "note": "Notes from your devices"
         // Defensive aliases only — see the type doc above.
         case "reddit": "Reddit"
         case "x": "X"
@@ -184,6 +187,8 @@ enum OriginIconography {
         case "wispr-flow": "waveform"
         case "obsidian": "doc.text"
         case "unknown": "questionmark.circle"
+        case "phone": "iphone"
+        case "note": "note.text"
         // G135 R-R26 — the fallback when no mark ships (Perplexity and "Other"
         // by R-R34; any of them if a bundled PNG ever goes missing).
         // Grok (R-AG9): no sourced xAI mark yet, so it stays on the glyph.

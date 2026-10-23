@@ -75,9 +75,10 @@ enum ImportCatalog {
         out.append(ImportEntry(id: .app(AppSourceDrivers.contacts), category: .calendarAndContacts,
                                title: Copy.contactsTitle, origin: "contacts-local", meta: Copy.importContactsMeta,
                                idleLine: Copy.importContactsIdle))
+        // 2026-10-23: Notes keeps up once read (`AppleNotesWatcher`, every two hours while Notes is open), so its tick
+        // is a switch; the idle line still promises only what happens now (R-OB11, rows say what they do).
         out.append(ImportEntry(id: .app(AppSourceDrivers.notes), category: .notesAndFiles, title: Copy.importNotes,
-                               origin: "apple-notes", meta: Copy.importNotesMeta, idleLine: Copy.importNotesIdle,
-                               keepsUp: false))
+                               origin: "apple-notes", meta: Copy.importNotesMeta, idleLine: Copy.importNotesIdle))
         if context.wisprInstalled {
             out.append(ImportEntry(id: .app(AppSourceDrivers.wispr), category: .voiceAndMeetings, title: Copy.importWispr,
                                    origin: "wispr-flow",

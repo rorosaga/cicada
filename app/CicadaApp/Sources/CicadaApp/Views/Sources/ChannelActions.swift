@@ -118,8 +118,9 @@ enum ChannelActions {
             }
             return try await BrowserImportActions.syncChannel(channelId, store: store)
         case .notes:
-            // The app reads Notes and the backend parses the dump (the ~/Library rail).
-            let r = try await AppleNotesReader.syncNow()
+            // The app reads Notes and the backend parses the dump (the ~/Library rail). Through the watcher, so the
+            // person's first read also turns on keeping up (2026-10-23).
+            let r = try await AppleNotesWatcher.shared.syncNow()
             return "\(r.new) new · \(r.skipped) unchanged"
         case .connector:
             return ConnectorSetupState.syncSummary(try await APIClient.shared.syncConnector(channelId))

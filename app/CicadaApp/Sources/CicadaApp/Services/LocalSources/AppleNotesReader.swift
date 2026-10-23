@@ -22,9 +22,15 @@ enum AppleNotesReader {
     /// fld` is one Apple event for the whole folder, not five per note — a 217-note library blew a 30 s budget
     /// the other way), records gathered in a list and joined once (string concatenation is quadratic). A
     /// per-folder `try` skips a folder Notes cannot read; the inner `try` skips one unreadable note.
+    ///
+    /// After the folder, each record carries the modification date as `«class isot»` (a locale-free local ISO time —
+    /// the human date string above it reads differently in every locale) and the Mac's UTC offset in seconds, so the
+    /// backend dates a note when it was written (`notes_sync._DATED_FIELDS`, 2026-10-23); the human `modified` string
+    /// stays the backend's dedup key.
     static let script = """
     set FS to (ASCII character 30)
     set RS to (ASCII character 29)
+    set utcOffset to (time to GMT) as string
     set outList to {}
     tell application "Notes"
         repeat with acc in accounts
@@ -38,7 +44,7 @@ enum AppleNotesReader {
                     set mDates to modification date of every note of fld
                     repeat with i from 1 to count of noteIds
                         try
-                            set end of outList to (item i of noteIds as string) & FS & (item i of noteNames as string) & FS & (item i of noteBodies as string) & FS & (item i of cDates as string) & FS & (item i of mDates as string) & FS & folderName
+                            set end of outList to (item i of noteIds as string) & FS & (item i of noteNames as string) & FS & (item i of noteBodies as string) & FS & (item i of cDates as string) & FS & (item i of mDates as string) & FS & folderName & FS & ((item i of mDates) as «class isot» as string) & FS & utcOffset
                         end try
                     end repeat
                 end try

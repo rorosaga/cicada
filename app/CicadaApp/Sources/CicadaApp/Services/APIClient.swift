@@ -3114,8 +3114,23 @@ actor APIClient {
     func setReadingSettings(agentEnabled: Bool? = nil, sites: [String: Bool]? = nil,
                             acknowledge: Bool = false, exploreSignedIn: Bool? = nil,
                             neverExplore: [String: Bool]? = nil,
-                            youtubeLists: [String: Bool]? = nil) async throws -> ReadingSettingsResponse {
+                            youtubeLists: [String: Bool]? = nil,
+                            savedLists: [String: Bool]? = nil) async throws -> ReadingSettingsResponse {
+        try await put("/reading/settings", body: Self.readingSettingsBody(
+            agentEnabled: agentEnabled, sites: sites, acknowledge: acknowledge, exploreSignedIn: exploreSignedIn,
+            neverExplore: neverExplore, youtubeLists: youtubeLists, savedLists: savedLists))
+    }
+
+    /// `PUT /reading/settings`' body, pure: only what the caller named rides it — a saved-list patch never carries a
+    /// `sites` grant (G206: a saved list is a standing ask for one page, never the site; review of #448).
+    nonisolated static func readingSettingsBody(agentEnabled: Bool? = nil, sites: [String: Bool]? = nil,
+                                                acknowledge: Bool = false, exploreSignedIn: Bool? = nil,
+                                                neverExplore: [String: Bool]? = nil,
+                                                youtubeLists: [String: Bool]? = nil,
+                                                savedLists: [String: Bool]? = nil) -> [String: Any] {
         var body: [String: Any] = [:]
+        // G206: a `{x|instagram|linkedin: Bool}` patch.
+        if let savedLists { body["savedLists"] = savedLists }
         // G71 (2026-10-16): a `{watch_later|history: Bool}` patch.
         if let youtubeLists { body["youtubeLists"] = youtubeLists }
         if let agentEnabled { body["agentEnabled"] = agentEnabled }
@@ -3124,7 +3139,7 @@ actor APIClient {
         if let neverExplore { body["neverExplore"] = neverExplore }
         if let sites { body["sites"] = sites }
         if acknowledge { body["acknowledge"] = true }
-        return try await put("/reading/settings", body: body)
+        return body
     }
 
     /// G198 — `GET /settings/editors`: the agents the person lets edit a page's words directly, and the local ones

@@ -313,3 +313,54 @@ def test_exclusion_defaults_off(tmp_path, monkeypatch):
     dump = RECORD_SEP.join([_dump_record("n1", "a", "b", "Anything")])
     result = asyncio.run(notes_sync.sync_notes(tmp_path, dump=dump))
     assert result["new"] == 1 and result["excluded"] == 0
+
+
+# --- read on time (2026-10-23) -------------------------------------------------------------------------------------
+
+
+def _dated(note_id, name, modified_human, modified_iso, offset):
+    return FIELD_SEP.join([note_id, name, "body text", "Monday, March 2, 2026 at 10:00:00 AM", modified_human,
+                           "Notes", modified_iso, offset])
+
+
+def test_a_note_is_dated_when_it_was_last_modified_not_the_day_it_was_synced(tmp_path):
+    """Read on time (owner 2026-10-16): the app now sends the modification date as Notes' locale-free ISO local time
+    plus the Mac's UTC offset; a first sync of an old library was a library of mentions today."""
+    from api.services import markdown_parser
+
+    memory = _memory(tmp_path)
+    run(notes_sync.sync_notes(memory, dump=_dated(
+        "n1", "Old idea", "Tuesday, March 3, 2026 at 11:30:00 AM", "2026-03-03T11:30:00", "3600")))
+    (path,) = (memory / "episodes").glob("ep_*.md")
+    fm = markdown_parser.parse(path).frontmatter
+    assert fm["timestamp"] == "2026-03-03T10:30:00+00:00"
+    assert path.name.startswith("ep_2026-03-03_")
+
+
+def test_an_older_apps_six_field_record_still_parses_and_is_dated_now(tmp_path):
+    from datetime import datetime, timezone
+
+    from api.services import markdown_parser
+
+    memory = _memory(tmp_path)
+    run(notes_sync.sync_notes(memory, dump=_record("n1", "Plain", "x", "2026-03-02", "2026-03-03", "Notes")))
+    (path,) = (memory / "episodes").glob("ep_*.md")
+    stamp = datetime.fromisoformat(markdown_parser.parse(path).frontmatter["timestamp"])
+    assert abs((datetime.now(timezone.utc) - stamp).total_seconds()) < 60
+
+
+def test_the_human_modified_string_stays_the_dedup_key(tmp_path):
+    """An older sync kept `modified` as Notes' own words; the dated record keeps that key, so upgrading never
+    re-emits every note as edited."""
+    memory = _memory(tmp_path)
+    human = "Tuesday, March 3, 2026 at 11:30:00 AM"
+    run(notes_sync.sync_notes(memory, dump=_record("n1", "Same", "body text", "c", human, "Notes")))
+    out = run(notes_sync.sync_notes(memory, dump=_dated("n1", "Same", human, "2026-03-03T11:30:00", "3600")))
+    assert (out["new"], out["updated"], out["skipped"]) == (0, 0, 1)
+
+
+def test_an_unreadable_or_future_date_falls_back_to_now():
+    assert notes_sync._aware("not a date", "3600") == ""
+    assert notes_sync._aware("2026-03-03T11:30:00", "x") == ""
+    assert notes_sync._aware("2999-01-01T00:00:00", "0") == ""
+    assert notes_sync._aware("2026-03-03T11:30:00", "-18000") == "2026-03-03T16:30:00+00:00"
