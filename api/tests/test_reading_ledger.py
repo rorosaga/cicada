@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from datetime import date
 
 import pytest
 
@@ -17,7 +16,7 @@ def _telemetry_on(monkeypatch):
 
 
 def _rows():
-    month = f"{date.today():%Y-%m}"
+    month = telemetry.now_iso()[:7]  # the ledger files by the UTC month of a row's stamp, not the local month
     path = telemetry.ledger_file(month, kind="read_agent")
     return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
