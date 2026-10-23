@@ -563,8 +563,46 @@ API gives no one Watch later or watch history, so there are three doors, and the
 - **Door 3, the person's own agent (`mcp.md`, "YouTube lists").** It reads Watch later and the history page in the
   person's signed-in browser and records through `cicada_record_youtube_list`: Watch later rows as saves (a video
   already saved is a duplicate), history rows as days (the page's day).
+- **Door 4, activity traces (G218, below).** A YouTube page an allowed Chromium browser showed in front for at least 20 s
+  is a watch with `via: traces` and `dwell_s` (the day's seconds in front for that video, counted from the traces
+  store; the larger figure wins, so any arrival order gives the same day; the body says "N min on screen"). It covers
+  what door 2 misses: dwell, and a video watched with history off.
 - No model runs, nothing is fetched (titles and times come from the doors), every title is scrubbed (writer
   `watch-history`).
+
+**Activity traces (G218, ruling 38, owner 2026-10-23: "if right now I'm watching a YouTube video I didn't save or
+mention, I can in the future ask what that video was and get it from memory").** What was in front of the person on
+this Mac, with times — off by default, on only after the consent sheet (Sources → Traces), never ticked in onboarding.
+- **The app is the only capturer** (`app/CicadaApp/Sources/CicadaApp/Services/Traces/`, `TraceRecorder`): it alone
+  holds Accessibility and Screen Recording; the backend has neither and never will. Every OS call is behind a seam
+  (`TraceSystem.swift`) and every permission is read by preflight only (`AXIsProcessTrusted`,
+  `CGPreflightScreenCaptureAccess`, `AEDeterminePermissionToAutomateTarget(askUserIfNeeded: false)`); asking happens
+  only on the person's click (`PermissionDragHelper`, and the browser's own Automation prompt when they allow a browser).
+- **A focus span** `{id, start, end, bundle_id, app, title?, url?}` per stretch of one app/window/page in front. A look
+  every 5 s and on every app activation; a span ends on a change, idle ≥ 2 min (cut where input stopped), the locked
+  screen, secure input (a password field anywhere), a pause or an exclusion; under 2 s it is a flicker and dropped.
+  Titles come from Accessibility, never for chat and mail apps unless the person turns them on per app; a URL and a tab
+  title only from an allowed Chromium browser's front tab whose window `mode` is not incognito. A browser whose tab
+  cannot be verified (Safari, Firefox, Arc; Chromium without Automation) keeps its name and times only.
+- **Screenshots** (on with traces; their own switch; Screen Recording): event-driven — on a new span, at most one a
+  minute (`TraceFrameCadence.minGap` 60 s, so an alt-tab burst costs one frame), then one every 5 min while the same
+  span continues (`steadyInterval`); never while idle, locked or paused; only the **front window** of an app that may be
+  described (never the whole display, so nothing behind it — a private window included — is taken), downscaled to 1280
+  px at JPEG 0.6 (~100–200 KB; a heavy day ≤ 480 frames ≈ 70 MB, seven days ≈ 0.5 GB worst case). Text is recognized
+  **on this Mac** with Vision after capture, off the tick (a queue of at most 3 frames), and posted with the frame.
+- **Nothing, not even a title,** while off or paused (Pause from the menu bar: an hour, until tomorrow, until resumed),
+  locked, in a password field, for an excluded app or site, a password manager, Cicada itself or a private window.
+- **Nothing on the app's disk.** Spans wait in memory (≤ 500, posted once a minute) and frames in a queue of three;
+  with the backend away they wait and the oldest go, never spilled to a file (`ReaderOutbox` never queues a traces
+  route). On a server connection (G181) nothing is recorded: `TraceBackendGate` sends traces to This Mac's backend only.
+- **The backend parses and keeps** (`POST /sources/traces/sync`, `POST /sources/traces/frames`): `trace_store` re-applies
+  the policy and seals each record outside every bank (`storage.md`, "Activity traces"); `trace_memory` promotes only
+  what the person's switches allow — YouTube views into the watch history (door 4 above) and, behind "Keep a daily
+  summary in memory", a counted day summary (`source: traces-day`, index-only unless "Let Sleep learn from the
+  summary"). **No model at capture**; a model reads traces only through that opt-in summary. A trace is not a mention.
+- **Agents:** no MCP tool, no Ask leg and no CLI read the store in v1 — Ask's raw-row lookup would put rows in front of
+  a model, which the rail forbids; "what was that video at 15:20" is answered through the watched day Ask and recall
+  already read. Remote doors and other devices never see traces.
 
 **Indexed, not consolidated (owner ruling 2026-10-18; G71, G94).** The owner's Takeout with history brought 45,879
 watches as 2,532 day episodes and 3,156 playlist saves, and every one was queued for a full Stage-1 read — hours of

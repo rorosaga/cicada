@@ -78,6 +78,8 @@ enum SourceCatalog {
     static let browserPrefix = "browser:"
     /// `LocalSourceWatcher.wisprChannel` (main-actor isolated there).
     static let wisprChannel = "wispr-flow"
+    /// G218 — activity traces' entry, origin and `localReaders` key: recorded by the app, kept by This Mac's backend.
+    static let tracesId = "traces"
 
     /// The fixed entries. Browsers on this Mac and watched folders are added from what is present (`entries`).
     /// The Obsidian vault entry is gone for now (owner 2026-10-22); a vault is a folder.
@@ -104,6 +106,9 @@ enum SourceCatalog {
                            channels: [ContactsReader.channel], verb: .connect(Copy.Catalog.connectContacts)),
         SourceCatalogEntry(id: "imessage", group: .thisMac, title: "Messages", origin: "imessage",
                            channels: [MessagesWatcher.channel], verb: .connect(Copy.Catalog.chooseChats)),
+        // G218 — activity traces: no backend channel; its status is the recorder's (`localReaders[tracesId]`).
+        SourceCatalogEntry(id: tracesId, group: .thisMac, title: Copy.Traces.title, origin: tracesId, channels: [],
+                           verb: .connect(Copy.Traces.turnOn)),
         SourceCatalogEntry(id: "notes", group: .thisMac, title: "Apple Notes", origin: "apple-notes",
                            channels: ["notes"], tile: .appleNotes, verb: .connect(Copy.Catalog.connectNotes)),
         SourceCatalogEntry(id: "folders", group: .thisMac, title: Copy.Catalog.folders, origin: "folder",
@@ -189,6 +194,9 @@ enum SourceCatalog {
     static func status(for entry: SourceCatalogEntry, channels: [SourceChannel], overview: [SourceOverview],
                        readableSites: Set<String>, localReaders: [String: Bool] = [:],
                        savedListsOn: Set<String> = []) -> SourceCatalogStatus {
+        // G218 — traces read Connected only while the recorder records here; paused, off or on a server they read Off
+        // (ruling 36's three words; the detail's own line says "Paused until …").
+        if entry.id == tracesId { return localReaders[tracesId] == true ? .connected : .off }
         let mine = channelsOf(entry, in: channels)
         if mine.contains(where: { signInChannels.contains($0.id) && readsAsSignIn($0.lastError) }) {
             return .needsSignIn

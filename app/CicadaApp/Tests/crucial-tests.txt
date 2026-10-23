@@ -50,3 +50,8 @@ OnboardingPagesTests/testTheKeyboardNeverAnimatesAndThePointerRidesTheDrawer
 ## Copy is provider-neutral
 UpdateServiceTests/testUpdaterCopyIsProviderNeutral
 CommandLineToolTests/testTheCopyIsProviderNeutral
+
+## Activity traces (G218): nothing from an excluded app or while paused; no network or disk on the path
+TraceRecorderTests/testAnExcludedAppRecordsNothingNotEvenATitleOrAScreenshot
+TraceRecorderTests/testPausedNothingIsCapturedNotEvenATitle
+TraceNoNetworkTests

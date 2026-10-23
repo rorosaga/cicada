@@ -117,6 +117,9 @@ struct CicadaApp: App {
     /// G179: the Messages conversations the person ticked, read by the app from `chat.db` (Full Disk Access) and posted
     /// per memory; nothing is read before a tick.
     @State private var messages: MessagesWatcher
+    /// G218 — activity traces: off until the person agrees to the consent sheet; then the app captures and This Mac's
+    /// backend keeps them sealed outside every bank. Never on a server connection.
+    @State private var traceRecorder = TraceRecorder.live()
     /// Track I T5 (design §5.1) — the one intake: a drop anywhere, the Dock,
     /// File → Import…, the menu-bar worm, an empty state and the `+` tiles all
     /// go through it, and its request counter owns `Store.intakeInFlight`.
@@ -386,6 +389,7 @@ struct CicadaApp: App {
             .environment(watchHistory)
             .environment(contactsReader)
             .environment(messages)
+            .environment(traceRecorder)
             .environment(loginItems)
             .environment(backendAgent)
             .environment(updates)
@@ -481,6 +485,8 @@ struct CicadaApp: App {
         contactsReader.start()
         // G179 — reads only the conversations this memory has ticked.
         messages.start()
+        // G218 — records only if the person turned traces on (the backend holds that choice; no answer, no recording).
+        Task { await traceRecorder.start() }
         // R-IB22 — the export someone was waiting for arrived (a sniff
         // recognised its vendor): its wait, in the active memory, is done.
         intakeRouter.onVendorSniffed = { [exportWaits, store] vendor in
@@ -546,6 +552,18 @@ struct CicadaApp: App {
         menuBarManager.sleepDoor = { [sleepVM] in sleepVM.door }
         // Before `setup`, so a waiting worm's status item is never shown, not even for a frame.
         menuBarManager.setIntroPhase(MenuBarIntro.phase())
+        // G218 — the menu says whether traces record (read as it opens) and pauses, resumes or forgets through the
+        // one recorder; off, nothing shows.
+        menuBarManager.traceMenu = { [traceRecorder] in TraceMenuState.of(traceRecorder) }
+        menuBarManager.onTraceAction = { [traceRecorder] action in
+            Task { @MainActor in
+                switch action {
+                case .pause(let choice): await traceRecorder.pause(choice)
+                case .resume: await traceRecorder.resume()
+                case .forget: try? await traceRecorder.forget(minutes: 15)
+                }
+            }
+        }
         menuBarManager.setup(
             onOpenApp: { [appRouter] in appRouter.showMainWindow() },
             onRunSleep: {

@@ -30,4 +30,10 @@ enum CicadaTiming {
     static let machinePoll: TimeInterval = 30
     /// How long a toast (`Store.toast`) stays before it clears itself.
     static let toastDwell: TimeInterval = 4
+    /// G218 — how often `PermissionDragHelper` asks, by preflight only, whether the person has allowed the permission
+    /// yet. Gentle: a preflight is a cheap local read, and a second is quick enough that the panels close as the switch
+    /// flips. A wait, not motion.
+    static let permissionPoll: TimeInterval = 1
+    /// G218 — how long screenshots stay shown after Touch ID before they are dropped from memory and hidden again.
+    static let traceScreenshotsShown: TimeInterval = 300
 }

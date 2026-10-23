@@ -51,11 +51,13 @@ struct SourcesPageView: View {
     @Environment(WatchHistoryWatcher.self) private var watchHistory: WatchHistoryWatcher?
     @Environment(BrowserWatcher.self) private var browserWatcher: BrowserWatcher?
     @Environment(AppleNotesWatcher.self) private var notesWatcher: AppleNotesWatcher?
+    @Environment(TraceRecorder.self) private var traceRecorder: TraceRecorder?
 
     /// Which of this Mac's readers are on (2026-10-23): a reader turned off here reads Off, whatever it synced before.
     private var localReaders: [String: Bool] {
         LocalReaders.on(calendar: calendarReader, contacts: contactsReader, tabGroups: tabGroups,
-                        watchHistory: watchHistory, browsers: browserWatcher, notes: notesWatcher)
+                        watchHistory: watchHistory, browsers: browserWatcher, notes: notesWatcher,
+                        traces: traceRecorder)
     }
 
     var body: some View {

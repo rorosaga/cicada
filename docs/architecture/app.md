@@ -531,6 +531,38 @@ before the flip — see *Ask why* below.
 **Calendars, contacts & feeds** offers Calendar on this Mac and
 Contacts (G154), both app-owned rows.
 
+**Activity traces (G218, ruling 38, 2026-10-23).** Sources → This Mac → **Traces** (`SourceCatalog.tracesId`, after
+Messages, the `timeline.selection` symbol): Connected only while the recorder records — paused, off, a server connection
+and a failed read all read **Off** (ruling 36's three words), each with its own line in the controls ("Paused until
+3:40 PM.", "This Mac only…"). Off, the detail says what traces are and offers **Turn on…**, which opens
+`TracesConsentSheet`: what is recorded, where (this Mac only, encrypted, outside memory and its history, never sent),
+how long (timeline 30 days, screenshots and their text 7), what goes into memory (YouTube watches; a day summary only
+when asked), how to wipe, and the honest limit ("anything running as you on this Mac can read what you can"); *Turn on*
+posts the consent (`TraceRecorder.turnOn`), then two skippable steps — Accessibility (window titles) and Screen
+Recording (screenshots) — each through **`PermissionDragHelper(kind:)`**, the one reusable permission component
+(kinds `screenRecording`, `accessibility`, `fullDiskAccess` — the last for Messages and Safari, wiring a follow-up): a
+small non-activating floating panel with one line ("I need screen recording. Drag me into the Screen Recording list.")
+and *Open*, which deep-links `x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture` /
+`?Privacy_Accessibility` / `?Privacy_AllFiles`; a second card placed over System Settings (by its window bounds only)
+holding the app's icon and name as a draggable tile (the bundle URL as a file, the way Finder drags an app) and a
+near-miss hint ("Drag into 'Screen & System Audio Recording', not the audio-only list."); it polls the preflight only
+(`TracePermissionProbe` → `CGPreflightScreenCaptureAccess` / `AXIsProcessTrusted`, every `CicadaTiming.permissionPoll`,
+1 s) and closes itself and ticks the step on a grant — **no prompting API is ever called**. On, `TracesControls` holds
+the state line, Pause (1 hour · until tomorrow · until I resume) / Resume, *Forget the last 15 minutes*, *Wipe all
+traces…* (a destructive confirmation that says the key goes and memory keeps what was already added), the switches
+(screenshots, window titles, YouTube into the watch history, the day summary and, nested, "Let Sleep learn from the
+summary" with its plan-usage line), retention steppers that only shorten, the never-recorded apps (pick a running app
+or type an identifier; never prefilled) and sites (typed), the browsers whose address may be read (only names with an
+installed bundle id; turning one on is the one moment Cicada asks for Automation, `LiveTraceBrowserTabs.ask`, off the
+main thread — "Open Chrome, then ask again" when it is not running), titles allowed per chat app, and the days kept,
+size on disk and where the key is. *Browse traces…* opens `TracesTimelineView` (`TracesBrowserModel`): a day's spans
+and a search over titles, sites and screenshot text; screenshots and their text (search snippets included) only after
+**Touch ID or the login password** (`TraceAuthenticator`, LocalAuthentication), held in memory only and cleared on close
+or after `CicadaTiming.traceScreenshotsShown` (5 min). The menu bar shows "Recording traces" and Pause traces ▸ /
+Resume traces / Forget the last 15 minutes while traces are on (`MenuBarManager` `TraceMenuState`, read as the menu
+opens; no dot on the sprite, which would collide with the count badge). The recorder (`TraceRecorder`, environment,
+`start()` on launch) is described in `capture-and-sleep.md`, "Activity traces"; the store in `storage.md`.
+
 **Messages (G179, 2026-10-15).** Its panel's **Read again** (2026-10-20, shown while a chat is ticked) re-reads every
 ticked chat from its first message so sittings saved before reactions, replies, edits and attachments were kept get
 them (`MessagesWatcher.readAgain`; capture-and-sleep.md). Integrations → Messaging carries an app-owned **Messages** row (`MessagesRow`: the
