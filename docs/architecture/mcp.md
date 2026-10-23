@@ -1526,11 +1526,12 @@ OWN advertised table (stdio `TOOLS` in `mcp/server.py`, remote `REMOTE_TOOLS`), 
 - **Leniency kept, and said.** `null` for an optional argument is no argument. An argument the tool does not take is
   dropped with a `Note:` naming it (a stdio-trained agent's `quote` on the remote `cicada_resolve_inbox` is no longer
   lost in silence). `cicada_resolve_inbox` also takes `item_id` for `id`, unlisted (`ALIASES`; its sibling
-  `cicada_record_check` spells it so). **For one release only** — the first after v0.6.0, which shipped before this
-  code (`LENIENT_RELEASE`, 0.7.0 by the minor bumps since 0.4.0) — a digit string where the schema says integer, a
-  decimal string where it says number, or `"true"`/`"false"` where it says boolean, is read as that value with a
-  `Note:` saying the next release refuses it. `test_the_leniency_ships_in_exactly_one_release` fails if a patch
-  release comes first (it must move `LENIENT_RELEASE` to itself) and on any release after it.
+  `cicada_record_check` spells it so).
+- **A number or boolean spelled as a string is refused (since 0.7.1).** 0.7.0 alone read a digit string where the
+  schema says integer, a decimal string where it says number, or `"true"`/`"false"` where it says boolean, as that
+  value with a `Note:`; that leniency ended in 0.7.1. Such a string is now refused on both doors like any other wrong
+  type, with a hint to send it bare: ``Invalid arguments: `top_k` must be an integer (got the string "3"; send 3
+  without quotes).``
 - **The command line and `/tools/call` run no schema check** (their callers are argparse and Cicada's own stdio
   client, which checks first); the two cases that used to read wrong there are now refused or read right in the
   bodies themselves: an unreadable `since` (`tool_contract.since_problem`, the door's words) and a JSON `"false"` on
@@ -1580,7 +1581,7 @@ OWN advertised table (stdio `TOOLS` in `mcp/server.py`, remote `REMOTE_TOOLS`), 
   The primer names no HTTP route (`POST /conversations/{id}/resume`, `GET /episodes/{id}/span`, `GET /state` are gone):
   resume is the person's step, and a claim's span is shown by `cicada_sources`.
 - **The fixture.** `api/tests/fixtures/mcp_stdio_golden.json` pins whole `tools/call` results (`call_tool`), refusals
-  and the leniency note included; `api/tests/test_mcp_error_contract.py` holds the rest.
+  and the spelled-number refusal included; `api/tests/test_mcp_error_contract.py` holds the rest.
 
 ## The remote connector's sign-in and capture (ruling 32, owner 2026-10-19)
 

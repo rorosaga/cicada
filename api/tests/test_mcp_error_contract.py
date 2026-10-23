@@ -1,8 +1,9 @@
 """G199 / G200 A7, A9 / Hyrum audit A1, A4, A6: the MCP tool-call contract, on both doors.
 
 A refusal says so (`isError: true` with `structuredContent`), a bad argument is refused with its field named, an
-exception never carries Python's message, a digit string still reads as an integer for one release (with a note),
-a read reply is reference data on both doors, and the handshake picks its variant by exact client name.
+exception never carries Python's message, a digit, decimal or true/false string where the schema says a number or
+boolean is refused (0.7.0 alone read it, with a note; the leniency ended in 0.7.1), a read reply is reference data on
+both doors, and the handshake picks its variant by exact client name.
 """
 from __future__ import annotations
 
@@ -66,39 +67,24 @@ def test_each_kind_of_bad_argument_is_named():
                          "be a string (got 3); `skip` must be true or false (got 1); `query` is required.")
 
 
-def test_the_one_release_leniency_reads_digits_and_says_so():
-    schema = {"type": "object", "properties": {"top_k": {"type": "integer"}, "skip": {"type": "boolean"},
-                                               "since": {"type": "string"}}}
-    got = tool_contract.check("t", schema, {"top_k": " 5 ", "skip": "false", "since": None, "conversation": "rc_x"})
-    assert got.error is None and got.arguments == {"top_k": 5, "skip": False}
-    assert [w.split(" ")[0] for w in got.warnings] == ["`top_k`", "`skip`", "`conversation`"]
-    assert "refused from the next release" in got.warnings[0] and "not used" in got.warnings[2]
+def test_a_null_reads_as_not_given_and_an_unknown_argument_is_dropped_with_a_note():
+    schema = {"type": "object", "properties": {"top_k": {"type": "integer"}, "since": {"type": "string"}}}
+    got = tool_contract.check("t", schema, {"top_k": 5, "since": None, "conversation": "rc_x"})
+    assert got.error is None and got.arguments == {"top_k": 5}
+    assert got.warnings == ["`conversation` is not an argument of this tool; it was not used."]
 
 
-def _version(text: str) -> tuple[int, ...]:
-    return tuple(int(x) for x in text.split("+")[0].split("-")[0].split("."))
+#: G199: 0.7.0 alone read these as the value they spell; from 0.7.1 each is refused, naming the type and the fix.
+SPELLED = [("top_k", {"type": "integer"}, " 5 ", 'an integer (got the string " 5 "; send 5 without quotes)'),
+           ("confidence", {"type": "number"}, "0.8", 'a number (got the string "0.8"; send 0.8 without quotes)'),
+           ("skip", {"type": "boolean"}, "false", 'true or false (got the string "false"; send false without quotes)'),
+           ("skip", {"type": "boolean"}, "True", 'true or false (got the string "True"; send true without quotes)')]
 
 
-def test_the_leniency_ships_in_exactly_one_release():
-    """v0.6.0 shipped before the leniency, so the NEXT release ships it and the one after refuses."""
-    from api.version import read_version
-
-    now, before, lenient = (_version(v) for v in (read_version(), tool_contract.LAST_RELEASE_WITHOUT,
-                                                  tool_contract.LENIENT_RELEASE))
-    assert now >= before
-    assert not (before < now < lenient), (
-        f"G199: {read_version()} is the first release after {tool_contract.LAST_RELEASE_WITHOUT}, so it is the one "
-        "that ships the leniency: set tool_contract.LENIENT_RELEASE to it (and TODO.md's date line).")
-    assert now <= lenient, (
-        f"G199: {tool_contract.LENIENT_RELEASE} shipped the leniency; this release refuses a digit, decimal or "
-        "true/false string where the schema says a number or boolean. Remove the lenient branches in "
-        "tool_contract._value, this test, and the TODO.md line that dates them.")
-
-
-def test_a_decimal_string_reads_as_a_number_with_a_note():
-    got = tool_contract.check("t", {"type": "object", "properties": {"confidence": {"type": "number"}}},
-                              {"confidence": "0.8"})
-    assert got.error is None and got.arguments == {"confidence": 0.8} and "read as the number 0.8" in got.warnings[0]
+@pytest.mark.parametrize("prop, spec, sent, words", SPELLED, ids=["integer", "number", "false", "True"])
+def test_a_number_or_boolean_spelled_as_a_string_is_refused(prop, spec, sent, words):
+    got = tool_contract.check("t", {"type": "object", "properties": {prop: spec}}, {prop: sent})
+    assert got.error == f"Invalid arguments: `{prop}` must be {words}." and not got.warnings
 
 
 def test_an_unlisted_alias_reaches_its_argument():
@@ -159,13 +145,33 @@ def test_invalid_arguments_name_the_field_and_run_nothing(srv, monkeypatch):
     assert result["structuredContent"]["code"] == "invalid_arguments"
 
 
-def test_a_digit_string_is_read_with_a_note_outside_the_reference_block(srv, monkeypatch):
+def test_a_dropped_argument_is_noted_outside_the_reference_block(srv, monkeypatch):
     seen = []
     monkeypatch.setattr(srv, "handle_tool", lambda name, args: seen.append(args) or "an answer")
-    result = srv.call_tool("cicada_ask", {"query": "alpha", "top_k": "3"})
+    result = srv.call_tool("cicada_ask", {"query": "alpha", "top_k": 3, "conversation": "rc_x"})
     assert seen == [{"query": "alpha", "top_k": 3}] and "isError" not in result
     text = _text(result)
-    assert text.index(tool_contract.FENCE_CLOSE) < text.index("Note: `top_k` was sent as a string")
+    assert text.index(tool_contract.FENCE_CLOSE) < text.index("Note: `conversation` is not an argument")
+
+
+#: One call per kind the 0.7.0 leniency read, each on a tool both doors list: (tool, arguments, the refusal).
+DOOR_SPELLED = [
+    ("cicada_ask", {"query": "alpha", "top_k": "3"},
+     'Invalid arguments: `top_k` must be an integer (got the string "3"; send 3 without quotes).'),
+    ("cicada_write_claim", {"subject": "alpha-project", "predicate": "uses", "object": "x", "confidence": "0.8"},
+     'Invalid arguments: `confidence` must be a number (got the string "0.8"; send 0.8 without quotes).'),
+    ("cicada_resolve_inbox", {"id": "inbox-001", "skip": "true"},
+     'Invalid arguments: `skip` must be true or false (got the string "true"; send true without quotes).'),
+]
+
+
+@pytest.mark.parametrize("tool, arguments, sentence", DOOR_SPELLED, ids=[row[0] for row in DOOR_SPELLED])
+def test_stdio_refuses_a_spelled_number_or_boolean_and_runs_nothing(srv, monkeypatch, tool, arguments, sentence):
+    ran = []
+    monkeypatch.setattr(srv, "handle_tool", lambda *a: ran.append(a) or "ran")
+    result = srv.call_tool(tool, arguments)
+    assert ran == [] and result["isError"] is True and _text(result) == sentence
+    assert result["structuredContent"] == {"code": "invalid_arguments", "data": None, "message": sentence}
 
 
 def test_an_exception_never_carries_its_message(srv, monkeypatch):
@@ -199,6 +205,21 @@ def test_a_remote_refusal_is_flagged_with_its_code_over_http(memory, tmp_path):
     assert result["isError"] is True and result["content"][0]["text"] == tool_contract.reference(
         "Entity 'nobody-here' not found.")
     assert result["structuredContent"]["code"] == "not_found"
+
+
+@pytest.mark.parametrize("tool, arguments, sentence", DOOR_SPELLED, ids=[row[0] for row in DOOR_SPELLED])
+def test_remote_refuses_a_spelled_number_or_boolean_over_http(memory, tmp_path, tool, arguments, sentence):
+    ran = []
+    runtime = _remote(memory)
+    runtime._run = lambda *a, **k: ran.append(a) or "ran"
+    db = store.ConnectorStore(tmp_path / "remote" / "connectors.db")
+    _, token = db.create(app="claude", label="", scopes=list(catalog.SCOPES), expires_in_days=30)
+    call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}}
+    with TestClient(remote_app.build_app(db, runtime=runtime)) as c:
+        result = c.post(f"/c/{token}/mcp", json=call, headers=H).json()["result"]
+    assert ran == [] and result["isError"] is True and result["content"][0]["text"] == sentence
+    assert result["structuredContent"]["code"] == "invalid_arguments"
+    assert result["structuredContent"]["message"] == sentence
 
 
 # --- the tool door and the command line agree with the MCP doors ---------------------------------------------------
