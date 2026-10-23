@@ -127,7 +127,8 @@ bank (`NO_BANK_WRITE`). **Hyrum, mode A:** stable — the paths, `qr`'s three ke
 - **Kinds.** `POST /devices/pairing` takes `kind: "capture"` (the default — a phone) or `"full"` (another computer);
   the answer adds `kind` and the pairing and device wires carry it. `cicada device add` and `POST /devices` issue
   `full`, as before; a store from before the column reads every device as `full`. A **capture** token reaches exactly
-  `POST /sources/save`, `POST /capture/note` and `GET /capture/mine` (`auth.CAPTURE_ROUTES`, exact paths) — every
+  `POST /sources/save`, `POST /capture/note`, `POST /capture/file` (G91, ruling 38) and `GET /capture/mine`
+  (`auth.CAPTURE_ROUTES`, exact paths) — every
   other route, the device routes included, is 403 "this device may only send captures" — and `/healthz` gives it the
   open answer (status, version, bank ids; never the memory's path or counts). So a phone validates its token with
   `GET /capture/mine`, not `GET /devices`.
@@ -145,15 +146,40 @@ bank (`NO_BANK_WRITE`). **Hyrum, mode A:** stable — the paths, `qr`'s three ke
   one writer, `source_id` `note:<device>:<id>`), queued for Sleep, `device` stamped; `origin: phone` from a capture
   device, `note` from any other token. Its identity is `id`, else the `Idempotency-Key`, else the words themselves.
   Answers `{status: created|updated|unchanged, episodeId}`. Links stay on `POST /sources/save` `{url, note?}`.
+  **A voice note (G91, ruling 38, 2026-10-23):** `kind: "voice"` (default `"text"`) when the phone transcribed the
+  person's speech on the device — no audio is ever sent, and no model runs here; the episode records `note_kind:
+  voice` and its default title is "Voice note". A typed note records nothing new; an older server ignores the field.
+- **A photo or a file: `POST /capture/file`** (G91, ruling 38; demo-gated, Awake: no Sleep gate, no model reads the
+  file). Multipart: `file` plus `caption?` (the person's own words, ≤ 16k), `title?`, `id?`. Accepted by the bytes,
+  never the client's word: JPEG, PNG, HEIC (magic bytes), PDF (`%PDF-`), and plain text only when declared
+  `text/plain` or `.txt` **and** valid UTF-8 with no NUL — anything else is 415; past 25 MB is 413 (`capture_files.
+  MAX_BYTES`; `request_limits` refuses a declared body past 26 MB before it is spooled), empty is 400. Images are kept
+  exactly as sent, HEIC included: the server keeps no image library, a headless Linux host has no `sips`, and a
+  re-encode would lose the person's original for nothing capture needs.
+  - **Where the bytes live:** outside every bank and git repo, `$CICADA_HOME/files/<bank>/<sha256>.<ext>` (0700/0600,
+    content-addressed, written atomically before the episode), never served back. The rail is the one site captures
+    and Messages photos keep: pixels the scrub cannot clean never enter the bank, so **no thumbnail in the bank either**
+    (a site capture showing the person's account keeps even its thumbnail outside). A photo's EXIF stays with it.
+  - **What the bank holds:** one episode through `episode_staging` (scrub, one id rule, queued for Sleep, `device`
+    stamped, `source_id` `file:<device>:<id>`): a `user:` turn with the caption then `[image: <name>]` or
+    `[file: <name>]` (Messages' attachment shape), the file in `turn_extras` (name, size, type, never a path), and
+    `file: {kind: image|pdf|text, mime, name, size, sha256}`; a plain-text file's words are a second `user:` turn
+    (scrubbed, first 16k characters), as a shared text already is. `origin: phone` from a capture device,
+    `device-file` from any other token (its own Sources row, "Files from your devices"). Identity: `id`, else the
+    `Idempotency-Key`, else the bytes (the same file twice is one episode). Answers `{status, episodeId, file: {kind,
+    size, sha256}}`. Sleep reads the caption and a text file's words; describing a picture or reading a PDF's pages
+    is G195's and G91's later business.
 - **`GET /capture/mine`** (a device token): the asking device's newest captures, at most 20 of the newest 500
   episodes — `{captures: [{id, title, timestamp, processed, url}]}`, never a body, never another device's.
-- **`Idempotency-Key`** on `POST /sources/save` and `POST /capture/note`: a resend with the same key gets the first
+- **`Idempotency-Key`** on `POST /sources/save`, `POST /capture/note` and `POST /capture/file`: a resend with the same key gets the first
   answer and writes nothing (`idempotency`). Measured on a scratch server: a link with a note resent **without** a key
   writes one more "Note on …" episode; with the key, none. Keys are scoped to the sender (`device:<id>` or `server`),
   the pinned bank's id (a replay after a bank switch runs in the bank now open) and the route, kept as sha256 with the answer's JSON in `$CICADA_HOME/idempotency/keys.db` (outside every bank),
   for 24 h; only a 2xx is kept, so a refused save (Sleep, a bad link) runs again.
-- **Hyrum, mode A:** stable — the two kind words, `CAPTURE_ROUTES`' three routes, `qr`'s keys, `reach`'s four keys,
-  the note and mine shapes, the header name; not stable — the 24 h TTL, the 20/500 limits, the suggested 8443.
+- **Hyrum, mode A:** stable — the two kind words, `CAPTURE_ROUTES`' four routes (`/capture/file` added 2026-10-23, an
+  addition only: no route left the set), `qr`'s keys, `reach`'s four keys, the note and mine shapes, the note's two
+  `kind` words, the file route's form fields and answer keys, the episode's `file:` record keys, the header name; not
+  stable — the 24 h TTL, the 20/500 limits, the suggested 8443, the 25 MB cap, the `$CICADA_HOME/files` layout.
 
 **The agent API (G213, 2026-10-22).** For an agent that speaks HTTP but not MCP. `POST /v1/<op>` with
 `Authorization: Bearer <connector token>` and a JSON object body. **Generated from the remote tool table (ruling 38,

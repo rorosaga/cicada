@@ -17,7 +17,7 @@ import secrets as _secrets_mod
 import time
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile
 from loguru import logger
 from pydantic import BaseModel, Field, model_validator
 
@@ -447,8 +447,9 @@ async def hook_context_endpoint(req: HookContextRequest, settings: Settings = De
 
 
 # ── G212 (owner 2026-10-22): a paired phone's captures ─────────────────────────────────────────────────────────────
-# A phone paired as `capture` (`device_tokens.KINDS`) reaches only `/sources/save` (a link and its note), the note
-# route below, and its own recent captures (`auth.CAPTURE_ROUTES`). Both routes take any token; the list is a device's.
+# A phone paired as `capture` (`device_tokens.KINDS`) reaches only `/sources/save` (a link and its note), the note and
+# file routes below, and its own recent captures (`auth.CAPTURE_ROUTES`). The writes take any token; the list is a
+# device's.
 
 
 NOTE_MAX_CHARS = 16_000
@@ -463,6 +464,10 @@ class NoteCaptureRequest(BaseModel):
     #: one episode, staged by ``source_id``. With neither, the words themselves are the identity (the same words twice
     #: are kept once).
     id: str | None = Field(None, min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.:-]+$")
+    #: G91 (ruling 38): ``voice`` when the person spoke the note and their phone transcribed it on the device (no audio
+    #: is ever sent); recorded as ``note_kind: voice`` so a reader knows the words are a transcript. ``text`` (the
+    #: default) records nothing, so a typed note's episode is unchanged.
+    kind: Literal["text", "voice"] = "text"
 
 
 @router.post("/capture/note", dependencies=[Depends(refuse_capture_into_demo)])
@@ -492,15 +497,80 @@ async def capture_note(req: NoteCaptureRequest, request: Request, settings: Sett
         instant = when_mod.utc_z(now)
         origin = "phone" if device is not None and device.kind == "capture" else "note"
         draft = episode_staging.EpisodeDraft(
-            title=(req.title or "").strip() or "Note", source_id=f"note:{who}:{ident}", timestamp=instant,
+            title=(req.title or "").strip() or ("Voice note" if req.kind == "voice" else "Note"), source_id=f"note:{who}:{ident}", timestamp=instant,
             original_date=now.date().isoformat(), source=origin, origin=origin,
-            turns=[episode_staging.Turn(text=req.text, speaker="user", ts=instant)], writer="note")
+            turns=[episode_staging.Turn(text=req.text, speaker="user", ts=instant)], writer="note",
+            extra={"note_kind": "voice"} if req.kind == "voice" else {})
         result = await asyncio.to_thread(
             lambda: episode_staging.stage([draft], memory_path / "episodes", bank=memory_path.name))
         status = "created" if result.created else ("updated" if result.updated else "unchanged")
         return 200, {"status": status, "episodeId": result.episode_ids.get(draft.source_id)}
 
     _, body, _ = await idempotency.run_once(idempotency.scope_of(request), "/capture/note", key, work)
+    return body
+
+
+@router.post("/capture/file", dependencies=[Depends(refuse_capture_into_demo)])
+async def capture_file(
+    request: Request,
+    file: UploadFile = File(...),
+    caption: str | None = Form(None, max_length=16_000),
+    title: str | None = Form(None, max_length=200),
+    id: str | None = Form(None, min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.:-]+$"),
+    settings: Settings = Depends(get_settings),
+):
+    """A photo (JPEG, PNG, HEIC), a PDF or a plain-text file the person shared from another of their devices, with an
+    optional caption in **their own words** (G91, ruling 38). Multipart: ``file``, ``caption?``, ``title?``, ``id?``.
+
+    The bytes are kept outside every bank, content-addressed (``capture_files``: ``$CICADA_HOME/files/<bank>/``) and
+    never served back; the bank gets one episode — a ``user:`` turn with the caption and the file's name, plus a plain
+    text file's words — staged like every source-keyed capture (``episode_staging``: scrub, one id rule, queued for
+    Sleep). The type is read from the bytes, never the client's word (415 otherwise); past 25 MB is 413. Capture
+    (Awake): no Sleep gate, no model reads the file. ``device`` stamped; ``origin: phone`` from a capture-only phone,
+    ``device-file`` from any other token. Identity: ``id``, else the ``Idempotency-Key``, else the file's own bytes
+    (the same file twice is kept once); ``Idempotency-Key`` makes a resend the first answer."""
+    import hashlib
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from api.services import capture_files, episode_staging, idempotency, when as when_mod
+
+    data = await file.read(capture_files.MAX_BYTES + 1)
+    try:
+        accepted = capture_files.accept(data, file.content_type, file.filename)
+    except capture_files.Refused as refused:
+        raise HTTPException(status_code=refused.status, detail=str(refused)) from None
+    name = capture_files.clean_name(file.filename, accepted)
+    device = getattr(request.state, "device", None)
+    who = device.id if device is not None else "server"
+    key = idempotency.clean_key(request.headers.get(idempotency.HEADER))
+    ident = id or (hashlib.sha256(key.encode()).hexdigest()[:24] if key else "bytes-" + accepted.sha256[:24])
+    memory_path = Path(settings.memory_path)
+    file_record = capture_files.record(accepted, name)
+
+    async def work():
+        now = datetime.now(timezone.utc)
+        instant = when_mod.utc_z(now)
+        origin = "phone" if device is not None and device.kind == "capture" else "device-file"
+        texts = capture_files.turn_texts(accepted, name, caption)
+        attachment = {"kind": accepted.kind, "name": name, "size": accepted.size, "mime": accepted.mime}
+        turns = [episode_staging.Turn(text=texts[0], speaker="user", ts=instant, extras={"attachments": [attachment]})]
+        turns += [episode_staging.Turn(text=t, speaker="user", ts=instant) for t in texts[1:]]
+        draft = episode_staging.EpisodeDraft(
+            title=(title or "").strip() or capture_files.default_title(accepted, name),
+            source_id=f"file:{who}:{ident}", timestamp=instant, original_date=now.date().isoformat(),
+            source=origin, origin=origin, turns=turns, writer="file", extra={"file": file_record})
+
+        def write():
+            capture_files.keep(memory_path, data, accepted)   # the bytes first: an episode never names a missing file
+            return episode_staging.stage([draft], memory_path / "episodes", bank=memory_path.name)
+
+        result = await asyncio.to_thread(write)
+        status = "created" if result.created else ("updated" if result.updated else "unchanged")
+        return 200, {"status": status, "episodeId": result.episode_ids.get(draft.source_id),
+                     "file": {"kind": file_record["kind"], "size": accepted.size, "sha256": accepted.sha256}}
+
+    _, body, _ = await idempotency.run_once(idempotency.scope_of(request), "/capture/file", key, work)
     return body
 
 

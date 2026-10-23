@@ -121,6 +121,8 @@ CATALOG: tuple[SourceSpec, ...] = (
     # neither reads as its raw id ("phone").
     SourceSpec("phone", "Phone", "import", "phone", ("phone",), None),
     SourceSpec("device-notes", "Notes from your devices", "import", "note", ("note",), None),
+    # G91 (ruling 38): a photo or file sent to `/capture/file` by a device that is not a capture-only phone (`phone`).
+    SourceSpec("device-files", "Files from your devices", "import", "note", ("device-file",), None),
 )
 #: Sources v3 (owner 2026-10-19): "where did my stuff come from" — the sources whose items the person saved on purpose
 #: (a bookmark, a saved post, a pin, a Watch later, a link they pasted) are `saved`; everything Cicada captures on its
@@ -133,8 +135,8 @@ SAVED_SOURCES = frozenset({
 INTENTS = ("saved", "captured")
 #: Folded into `/sources/overview`'s ETag: bump it when the body changes for the same bank files (v3: `intent`;
 #: v4: `waiting`, `faces`/`faces_more`, and check records left out; v5: a nil-origin save on Files & links, the Phone
-#: and device-notes rows).
-SHAPE = "overview-v5"
+#: and device-notes rows; v6: the device-files row).
+SHAPE = "overview-v6"
 
 #: Sources v4 (owner 2026-10-19: "I don't understand how Sleep is also a source on the page"). A check record is the
 #: episode Cicada writes as the citation for a question a check settled — `web_settle` (a web lookup Sleep or an agent
