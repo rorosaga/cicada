@@ -446,6 +446,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "PUT /capture/local-source/wispr-flow/settings": (REGISTRY, None),
     "POST /capture/local-source/wispr-flow": (HELD, None),
     "POST /sources/calendar-local/sync": (CAPTURE, None),
+    "POST /sources/reminders-local/sync": (CAPTURE, None),   # G219: the ticked lists' reminders, episodes only
     "POST /sources/tab-groups/sync": (CAPTURE, None),
     "POST /sources/contacts-local/sync": (ADMITTED, None),
     "POST /sources/linkedin-connections/preview": (NONE, None),   # reads pages, writes nothing, keeps nothing

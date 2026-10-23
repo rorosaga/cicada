@@ -31,10 +31,13 @@ extension ReadingAgentModel {
 enum LocalReaders {
     static func on(calendar: CalendarReader?, contacts: ContactsReader?, tabGroups: TabGroupWatcher?,
                    watchHistory: WatchHistoryWatcher?, browsers: BrowserWatcher?,
-                   notes: AppleNotesWatcher?, traces: TraceRecorder? = nil) -> [String: Bool] {
+                   notes: AppleNotesWatcher?, traces: TraceRecorder? = nil,
+                   reminders: RemindersReader? = nil) -> [String: Bool] {
         var on: [String: Bool] = [:]
         // G218 — the recorder's own state: Connected only while it records.
         if let traces { on[SourceCatalog.tracesId] = traces.isRecording }
+        // G219: on only while connected with at least one list ticked — nothing arrives otherwise.
+        if let reminders { on[RemindersReader.channel] = reminders.isOn }
         if let calendar { on[CalendarRow.channelId] = calendarOn(calendar.status) }
         if let contacts { on[ContactsReader.channel] = contacts.enabled }
         if let tabGroups { on[TabGroupWatcher.channel] = tabGroups.enabled }
@@ -237,6 +240,8 @@ struct SourceCatalogDetail: View {
             CalendarRow(channel: mine.first)
         case ContactsReader.channel:
             ContactsRow(channel: mine.first)
+        case RemindersReader.channel:
+            RemindersRow(channel: mine.first)
         case MessagesWatcher.channel:
             MessagesRow(channel: mine.first)
         case SourceCatalog.tracesId:
@@ -275,6 +280,14 @@ struct SourceCatalogDetail: View {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 IntakePanel(origin: .emptyState(.sources), compact: true)
                 tileButton(Copy.Catalog.importFile)
+            }
+        case "notion":
+            // G219 slice 1: the export's steps, then the one intake's drop (it reads the zip, previews it, imports).
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                Text(Copy.Catalog.notionHow)
+                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                IntakePanel(origin: .emptyState(.sources), compact: true)
             }
         default:
             if entry.id.hasPrefix(SourceCatalog.browserPrefix) {

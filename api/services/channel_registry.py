@@ -19,6 +19,9 @@ only** — never from the transient result of a button press:
   videos memory's watch history holds
 * ``contacts-local`` -> macOS Contacts (G154), always listed; ``people`` rides ``parts``
 * ``imessage`` -> the Messages conversations the person ticked (G179), once one is ticked or it has synced
+* ``reminders-local`` -> Apple Reminders through EventKit (G219), always listed, after Contacts; whether the reader
+  is on (Connect, and at least one list ticked) is this Mac's own switch, so the app's catalogue answers Off
+* ``notion`` -> a Notion export imported through the one intake (G219), by origin count, like a chat export
 
 Pure filesystem + one env flag passed in by the router. No network, no LLM,
 never raises: a corrupt registry or a missing directory yields a
@@ -39,6 +42,7 @@ from api.services import (
     media_ingestor,
     messages_source,
     origin_stats,
+    reminders_local,
     sync_state,
     tab_groups,
     watch_history,
@@ -77,7 +81,8 @@ CHANNEL_IDS = _NON_CONNECTOR_HEAD + tuple(ADAPTERS.keys()) + _NON_CONNECTOR_TAIL
 #: "r4-contacts" is the always-listed Contacts row (G154) — its own PR, so its own bump (R-SR19);
 #: "connectors-honest" (2026-10-23): a feed row is connected only while feeds are fetched, Messages only while a
 #: conversation is ticked, Wispr Flow only while it is on, Telegram only once a message has arrived.
-CHANNELS_SHAPE = "connectors-honest"
+#: "g219" (2026-10-23): the always-listed Apple Reminders row and the Notion export row.
+CHANNELS_SHAPE = "g219"
 
 
 # R-S5 — there is deliberately no `_plural` here any more. It baked
@@ -403,6 +408,11 @@ def build_channels(
     # G154 (round 4, R-SR15): macOS Contacts — a standing connection the app reads and posts. Always listed, so
     # Integrations can offer Connect before the first sync; `people` (the pages it enriched) rides `parts`.
     rows.append(_local_channel(contacts_local.CHANNEL_ID, contacts_local.LABEL, state, "contact"))
+    # G219: Apple Reminders — a standing connection the app reads and posts (the ticked lists). Always listed, so the
+    # Sources page can offer Connect before the first sync.
+    rows.append(_local_channel(reminders_local.CHANNEL_ID, reminders_local.LABEL, state, "reminder"))
+    # G219: a Notion export, imported through the one intake — connected once an import fed memory, like a chat export.
+    rows.append(_origin_channel("notion", "Notion export", "notion-export", by_origin, "page"))
     # Round 4 (C9, R-SR15): a Chromium-family browser beyond Chrome gets its row
     # once it has synced — the app's `BrowserInventory` offers it before that, so
     # an install without Brave never carries a Brave row. Appended like every

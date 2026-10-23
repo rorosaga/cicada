@@ -72,6 +72,7 @@ from api.services import (
     bookmark_sync,
     calendar_local,
     contacts_local,
+    reminders_local,
     episode_scrub,
     fact_sources,
     folder_source,
@@ -109,6 +110,7 @@ _ORIGIN_CHANNELS = {
     "wispr-flow": (wispr_flow.ORIGIN,),
     "telegram": ("telegram",),
     "imessage": ("imessage",),
+    "notion": ("notion-export",),
 }
 #: A channel whose items are media pages, by the origins its catalog row owns.
 _MEDIA_CHANNELS = ("safari-tabs", "pinterest", "reddit", "x", "rss", "files")
@@ -136,7 +138,7 @@ def known(memory_path: Path, channel_id: str) -> bool:
     if (channel_id in CHANNEL_IDS or channel_id in _ORIGIN_CHANNELS or channel_id in _SAVED_SOURCE_ROWS
             or channel_id in _HISTORY_ROWS):
         return True
-    if channel_id in (calendar_local.CHANNEL_ID, contacts_local.CHANNEL_ID):
+    if channel_id in (calendar_local.CHANNEL_ID, contacts_local.CHANNEL_ID, reminders_local.CHANNEL_ID):
         return True
     if channel_id in {bookmark_sync.channel_for(b) for b in bookmark_sync.CHROMIUM_BROWSERS}:
         return True
@@ -372,6 +374,9 @@ def _collect(memory_path: Path, channel_id: str) -> list[dict]:
         return _episodes(memory_path, lambda fm: fm.get("origin") == "calendar", when_key="event_start")
     if channel_id == contacts_local.CHANNEL_ID:
         return _contacts(memory_path)
+    if channel_id == reminders_local.CHANNEL_ID:
+        return _episodes(memory_path,
+                         lambda fm: str(fm.get("source_id") or "").startswith(reminders_local.SOURCE_PREFIX))
     for browser in tab_groups.BROWSERS:
         if channel_id == tab_groups.channel_id(browser):
             prefix = f"{tab_groups.SOURCE_PREFIX}{browser}:"

@@ -215,6 +215,34 @@ extension Copy {
     static let calendarStopDetail = "Events already in your memory stay there."
     static let calendarStop = "Stop reading"
 
+    // MARK: Sources → Reminders (G219)
+    static let remindersTitle = "Reminders"
+    /// macOS has no read-only grant for reminders: the prompt asks for full access, so the row says so before it.
+    static let remindersOff = "Connect asks macOS to share your reminders with Cicada. macOS only offers full access; "
+        + "Cicada only reads, and never changes a reminder."
+    static let remindersDenied = "Reminders access is off for Cicada — turn it on in System Settings → Privacy & "
+        + "Security → Reminders, then Connect again."
+    static let remindersNoLists = "Tick the lists Cicada should read. Nothing is read until you do."
+    static func remindersSynced(_ when: String, reminders: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "Synced \(when) · \(reminders == 1 ? "1 reminder" : "\(UsageFormat.count(reminders, locale: locale)) reminders")"
+    }
+    static let remindersNotReady = "Your reminders aren't ready to read yet — Cicada will try again."
+    static let remindersSyncFailed = "Couldn't sync your reminders. Cicada will try again."
+    static let remindersNeedsUpdate = "This version of Cicada's background service can't read reminders yet — update "
+        + "Cicada."
+    static let remindersConnectFirst = "Connect Reminders on the Sources page first — Cicada reads it only after you do."
+    static let remindersStopTitle = "Stop reading your reminders?"
+    static let remindersStopDetail = "Reminders already in your memory stay there."
+    static let remindersListsHeader = "Lists to read"
+    static let remindersShared = "Others add to it"
+    static let remindersSharedHelp = "Items in this list are read as someone else's words, never yours."
+    static let remindersReads = "Open reminders, and those completed in the last 90 days. Cicada never writes back."
+    static func remindersSyncedSummary(_ reminders: Int?, locale: Locale = .autoupdatingCurrent) -> String {
+        guard let reminders else { return "Reminders synced" }
+        return "Reminders synced · \(UsageFormat.count(reminders, locale: locale)) "
+            + (reminders == 1 ? "reminder" : "reminders")
+    }
+
     // MARK: Search (design §2.4)
     static let searchSettings = "Search settings"
     static func noSettingsMatch(_ query: String) -> String { "No settings match \u{201C}\(query)\u{201D}" }

@@ -104,6 +104,10 @@ enum SourceCatalog {
                            channels: ["calendar-local"], verb: .connect(Copy.Catalog.connectCalendar)),
         SourceCatalogEntry(id: "contacts-local", group: .thisMac, title: "Contacts", origin: "contacts-local",
                            channels: [ContactsReader.channel], verb: .connect(Copy.Catalog.connectContacts)),
+        // G219: the lists the person ticks in Reminders, read by the app (`RemindersReader`), one way.
+        SourceCatalogEntry(id: RemindersReader.channel, group: .thisMac, title: Copy.remindersTitle,
+                           origin: RemindersReader.channel, channels: [RemindersReader.channel],
+                           verb: .connect(Copy.Catalog.connectReminders)),
         SourceCatalogEntry(id: "imessage", group: .thisMac, title: "Messages", origin: "imessage",
                            channels: [MessagesWatcher.channel], verb: .connect(Copy.Catalog.chooseChats)),
         // G218 — activity traces: no backend channel; its status is the recorder's (`localReaders[tracesId]`).
@@ -115,6 +119,9 @@ enum SourceCatalog {
                            channels: [], verb: .connect(Copy.Catalog.addFolder)),
         SourceCatalogEntry(id: "files", group: .exports, title: Copy.Catalog.filesAndLinks, origin: "bookmark",
                            channels: ["files"], tile: .bookmarksFile, verb: .importFile),
+        // G219 slice 1: a Notion export (Markdown & CSV) through the one intake.
+        SourceCatalogEntry(id: "notion", group: .exports, title: "Notion", origin: "notion-export",
+                           channels: ["notion"], verb: .importFile),
         SourceCatalogEntry(id: "chat-exports", group: .exports, title: Copy.Catalog.chatExports,
                            origin: "claude-export",
                            channels: ["chat-export:claude", "chat-export:chatgpt", "chat-export:gemini"],

@@ -702,12 +702,15 @@ def saved_origin(tag) -> bool:
 
 #: Calendar entries: an event's title is the calendar's words (``entity_resolver.CARD_REFUSED_SOURCES``' rule).
 _CALENDAR_ORIGINS = frozenset({"calendar", "calendar-local"})
+#: G219: a reminder is the person's own words but a list entry, not a conversation an agent can pick up or a skill's
+#: grounding — a record like a calendar entry.
+_RECORD_ORIGINS = _CALENDAR_ORIGINS | {"reminders-local"}
 
 
 def record_origin(tag) -> bool:
-    """A record, not a conversation: a saved item (:func:`saved_origin`) or a calendar entry. Neither grounds a skill
+    """A record, not a conversation: a saved item (:func:`saved_origin`), a calendar entry or a reminder. Neither grounds a skill
     nor is a conversation an agent can pick up (benchmarks/newuser, 2026-10-22)."""
-    return str(tag or "").strip().lower() in _CALENDAR_ORIGINS or saved_origin(tag)
+    return str(tag or "").strip().lower() in _RECORD_ORIGINS or saved_origin(tag)
 
 
 _CODE_SHAPE = re.compile(r"\w_\w|::|\(\)|->|^[$@]\w|^--?\w|^`.+`$")

@@ -56,7 +56,8 @@ enum IntegrationCategory: String, CaseIterable, Identifiable {
             return .socialAndSaved
         // Round-4 D2 (C6, R-FA13): `calendar-local` is the Calendar app read on this Mac, drawn by `CalendarRow`.
         // Round 4 (G154): `contacts-local` is the Mac's address book, drawn by `ContactsRow` beside the calendar.
-        case "rss", "calendar", "calendar-local", "contacts-local":
+        // G219: Reminders, drawn by `RemindersRow`, beside the calendar and contacts.
+        case "rss", "calendar", "calendar-local", "contacts-local", "reminders-local":
             return .feedsAndCalendars
         // G179: the Messages conversations the person ticked, drawn by `MessagesRow`.
         case "telegram", MessagesWatcher.channel:

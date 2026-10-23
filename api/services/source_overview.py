@@ -116,6 +116,11 @@ CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("imessage", "Messages", "messaging", "imessage", ("imessage",), "imessage"),
     SourceSpec("wispr-flow", "Wispr Flow", "voice", "wispr-flow", ("wispr-flow",), "wispr-flow"),
     SourceSpec("notes", "Apple Notes", "import", "apple-notes", ("apple-notes",), "notes"),
+    # G219: Apple Reminders (the person's own lists, read by the app) and a Notion export — the person's own words,
+    # so `import`, never a saving door (`inbox_tend.saved_origin` reads `browser`/`social`/`feed` as saved text).
+    SourceSpec("reminders-local", "Apple Reminders", "import", "reminders-local", ("reminders-local",),
+               "reminders-local"),
+    SourceSpec("notion", "Notion", "import", "notion-export", ("notion-export",), "notion"),
     SourceSpec("files", "Files & links", "import", "bookmark", ("saved-link",), "files"),
     # 2026-10-23: a note typed on a paired phone (`/capture/note`, `origin: phone`) or another device (`note`), so
     # neither reads as its raw id ("phone").
@@ -135,8 +140,8 @@ SAVED_SOURCES = frozenset({
 INTENTS = ("saved", "captured")
 #: Folded into `/sources/overview`'s ETag: bump it when the body changes for the same bank files (v3: `intent`;
 #: v4: `waiting`, `faces`/`faces_more`, and check records left out; v5: a nil-origin save on Files & links, the Phone
-#: and device-notes rows; v6: the device-files row).
-SHAPE = "overview-v6"
+#: and device-notes rows; v6: the device-files row; v7: Apple Reminders and Notion, G219).
+SHAPE = "overview-v7"
 
 #: Sources v4 (owner 2026-10-19: "I don't understand how Sleep is also a source on the page"). A check record is the
 #: episode Cicada writes as the citation for a question a check settled — `web_settle` (a web lookup Sleep or an agent

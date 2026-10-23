@@ -105,6 +105,8 @@ struct CicadaApp: App {
     @State private var calendarReader = CalendarReader()
     /// 2026-10-23: Apple Notes keeps up once the person's own first read turned it on (only while Notes is open).
     @State private var notesWatcher = AppleNotesWatcher.shared
+    /// G219: the Reminders lists the person ticks, read by the app through EventKit only after Connect, one way.
+    @State private var remindersReader = RemindersReader.shared
     /// Round 4 (G160 first slice): Chrome's open tab groups, read by the app from its session file only after the
     /// person turns on their own switch (R-SR3), and posted per memory.
     @State private var tabGroups: TabGroupWatcher
@@ -340,6 +342,8 @@ struct CicadaApp: App {
             // Round-4 D2 — the new memory gets the calendar too (a demo's 409 is said in words).
             Task { await calendarReader.bankChanged() }
             Task { await notesWatcher.bankChanged() }
+            // G219 — the new memory gets the ticked lists too (a demo's 409 is said in words).
+            Task { await remindersReader.bankChanged() }
             // G160 — the new memory gets the open groups too (its digest is its own).
             Task { await tabGroups.bankChanged() }
             // G71 — the new memory's YouTube history, past its own cursor.
@@ -385,6 +389,7 @@ struct CicadaApp: App {
             .environment(localSources)
             .environment(calendarReader)
             .environment(notesWatcher)
+            .environment(remindersReader)
             .environment(tabGroups)
             .environment(watchHistory)
             .environment(contactsReader)
@@ -477,6 +482,8 @@ struct CicadaApp: App {
         calendarReader.start()
         // Reads only if the person connected Notes before, and only while Notes is open.
         notesWatcher.start()
+        // G219 — reads only if the person connected Reminders and ticked a list, and macOS still says yes.
+        remindersReader.start()
         // G160 (R-SR3) — reads only if the person turned the tab-groups switch on.
         tabGroups.start()
         // G71 — reads only if the person turned the YouTube history switch on.
