@@ -1,23 +1,28 @@
 import CoreGraphics
 import SwiftUI
 
-/// Onboarding v2 (G217, G92, ruling 36 D1/D6; 2026-10-22) — five steps, one verb each, a visible Skip on the three
-/// working steps: Welcome · Intelligence · Agents · Sources · Done. *See how* is a sheet over Sources, never a step.
+/// Onboarding v2 (G217, G92, ruling 36 D1/D6; 2026-10-22) — six steps, one verb each, a visible Skip on the working
+/// steps: Welcome · Intelligence · Agents · Sources · Meet your bookworm · Done. *See how* is a sheet over Sources,
+/// never a step. *Meet your bookworm* (owner 2026-10-23) explains the menu-bar worm's number before the worm appears:
+/// it comes after Sources, because what Sources brings in is what the number counts, and right before Done, so the
+/// worm lands in the menu bar as setup closes (`MenuBarIntro`).
 /// It replaced the seven-step flow (Import, Agents, Skills, Who reads, Keep it running); `init(stored:)` maps every
 /// name either flow could have stored, so a person who quit mid-way on any build resumes on the nearest step.
 enum OnboardingPage: Int, CaseIterable, Comparable {
-    case welcome, intelligence, agents, sources, done
+    case welcome, intelligence, agents, sources, menuBar, done
 
-    static let stepCount = 5
+    static let stepCount = allCases.count
     static func < (a: OnboardingPage, b: OnboardingPage) -> Bool { a.rawValue < b.rawValue }
 
     var step: Int { rawValue + 1 }
     var next: OnboardingPage? { OnboardingPage(rawValue: rawValue + 1) }
     var previous: OnboardingPage? { OnboardingPage(rawValue: rawValue - 1) }
-    /// Welcome and Done are the room over a card; the working steps are the split frame, the room in its pane.
-    var isSplit: Bool { self != .welcome && self != .done }
-    /// The working steps carry a visible Skip (design-refs pattern 12): nothing on them is required.
-    var skippable: Bool { isSplit }
+    /// Welcome and Done are the room over a card, and *Meet your bookworm* the big menu-bar worm over a card; the
+    /// working steps are the split frame, the room in its pane.
+    var isSplit: Bool { self != .welcome && self != .done && self != .menuBar }
+    /// The working steps carry a visible Skip (design-refs pattern 12): nothing on them is required. The worm's step
+    /// too — skipping it still puts the worm in the menu bar, without the flight.
+    var skippable: Bool { isSplit || self == .menuBar }
 
     /// The name a step is stored under (`OnboardingState.savedStep`) — a word, never the raw value, so a reorder
     /// never moves a stored step.
@@ -27,6 +32,7 @@ enum OnboardingPage: Int, CaseIterable, Comparable {
         case .intelligence: "intelligence"
         case .agents: "agents"
         case .sources: "sources"
+        case .menuBar: "menuBar"
         case .done: "done"
         }
     }
@@ -40,6 +46,7 @@ enum OnboardingPage: Int, CaseIterable, Comparable {
         case "intelligence", "whoReads": self = .intelligence
         case "agents": self = .agents
         case "sources", "import", "skills": self = .sources
+        case "menuBar": self = .menuBar
         case "done", "ready", "keepRunning": self = .done
         default: return nil
         }
@@ -52,6 +59,8 @@ enum OnboardingPage: Int, CaseIterable, Comparable {
         case .welcome: .awake
         case .intelligence, .sources: .reading
         case .agents, .done: .happy
+        // No room on this step — the menu-bar worm itself is the picture; its mood is the illustration's.
+        case .menuBar: .happy
         }
     }
 }

@@ -271,7 +271,10 @@ final class OnboardingStepsTests: XCTestCase {
         let sources = words(frame + [Copy.importTitle, Copy.sourcesSubline, Copy.sourcesHowToExport])
         let done = words([Copy.readyTitle, Copy.doneLead, Copy.doneReadNow, Copy.onboardingBack,
                           Copy.onboardingOpenCicada])
-        for (name, n) in [("welcome", welcome), ("intelligence", intelligence), ("sources", sources), ("done", done)] {
+        let worm = words([Copy.MeetWorm.title, Copy.MeetWorm.subline, Copy.MeetWorm.number, Copy.MeetWorm.goesDown,
+                          Copy.MeetWorm.example, Copy.onboardingBack, Copy.onboardingSkip, Copy.onboardingContinue])
+        for (name, n) in [("welcome", welcome), ("intelligence", intelligence), ("sources", sources), ("worm", worm),
+                          ("done", done)] {
             XCTAssertLessThan(n, 40, "\(name): \(n) words")
         }
     }

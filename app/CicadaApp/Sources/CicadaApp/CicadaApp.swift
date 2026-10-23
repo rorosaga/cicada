@@ -18,6 +18,11 @@ final class FirstMouseAcceptingView: NSView {
 
 @main
 struct CicadaApp: App {
+    /// Owner 2026-10-23 — a fresh install's menu-bar worm waits for onboarding's *Meet your bookworm* step; every
+    /// earlier install keeps its worm (`MenuBarIntro`). The FIRST stored property, because stored properties are
+    /// initialised in declaration order before `init` runs, and several below write a `cicada.` key as they are built
+    /// (`ExportWaits`), which would make a fresh install look like an old one.
+    private let menuBarIntroAtLaunch = MenuBarIntro.prepareAtLaunch()
     /// Single source of truth for every screen (§5.1). Hydrated from disk on
     /// appear, then kept live by its `SyncEngine`. Every view model below is
     /// constructed in `init()` as a thin projection over this same instance
@@ -388,6 +393,7 @@ struct CicadaApp: App {
             .environment(setupRunner)
             .environment(inventory)
             .environment(exportWaits)
+            .environment(menuBarManager)
     }
 
     /// What the window's `.onAppear` runs (unchanged; moved out of `body` for the type checker).
@@ -536,6 +542,8 @@ struct CicadaApp: App {
         }
         store.onBankChanged = { [sleepVM] in Task { @MainActor in await sleepVM.bankChanged() } }
         menuBarManager.sleepDoor = { [sleepVM] in sleepVM.door }
+        // Before `setup`, so a waiting worm's status item is never shown, not even for a frame.
+        menuBarManager.setIntroPhase(MenuBarIntro.phase())
         menuBarManager.setup(
             onOpenApp: { [appRouter] in appRouter.showMainWindow() },
             onRunSleep: {

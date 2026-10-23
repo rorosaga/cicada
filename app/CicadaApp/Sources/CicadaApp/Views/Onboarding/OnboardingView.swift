@@ -2,7 +2,8 @@ import AppKit
 import SwiftUI
 
 /// Onboarding v2 (G217, G92, ruling 36; 2026-10-22; built on round 4 phase B, G145) — one full-window layer over the
-/// shell (R-IB11's placement kept), five steps of one verb each: Welcome and Done are the study room over a card; the
+/// shell (R-IB11's placement kept), six steps of one verb each: Welcome and Done are the study room over a card, and
+/// *Meet your bookworm* (owner 2026-10-23) the menu-bar worm over a card (`MenuBarStep`); the
 /// three working steps (Intelligence, Agents, Sources) are the split frame — the room in its pane (`OnboardingRoom`,
 /// the one illustration, DR-13), then the column: the topbar ("Step n of 5 · k still coming in", Set up later), the
 /// step, the foot (Back, a visible Skip, the one primary Continue with ⏎). It decides nothing itself: steps are
@@ -30,6 +31,9 @@ struct OnboardingView: View {
     @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
     @Environment(SleepEngineViewModel.self) private var engineVM
     @Environment(SleepViewModel.self) private var sleepVM
+    /// The menu-bar worm, introduced by *Meet your bookworm* (`MenuBarIntro`); optional, so a host without it (a test,
+    /// a preview) still draws the step.
+    @Environment(MenuBarManager.self) private var menuBar: MenuBarManager?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var page: OnboardingPage = .welcome
@@ -189,7 +193,7 @@ struct OnboardingView: View {
                         dropTargeted: dropTargeted,
                         needsAccess: Set(inventory.items.filter { $0.readiness == .needsPermission }.map(\.id)),
                         onTick: tick, onSeeHow: { seeHow = $0 })
-        case .welcome, .done: EmptyView()
+        case .welcome, .menuBar, .done: EmptyView()
         }
     }
 
@@ -229,8 +233,13 @@ struct OnboardingView: View {
                             waitingDrops: ownerSaved ? 0 : intake.welcomeDrops.count,
                             onGetStarted: { advance(.pointer) }, onSetUpLater: mode == .rerun ? closeRerun : setUpLater,
                             onTryDemo: tryDemo)
+            } else if page == .menuBar {
+                MenuBarStep(waiting: store.status.value?.waitingForSleep, busy: busy,
+                            onBack: { go(.sources, .pointer) },
+                            onSkip: { passMenuBarStep(.instant, .pointer) },
+                            onContinue: { frame in passMenuBarStep(frame.map { .fly(from: $0) } ?? .instant, .pointer) })
             } else {
-                DonePage(line: doneLine(snapshots), busy: busy, onBack: { go(.sources, .pointer) },
+                DonePage(line: doneLine(snapshots), busy: busy, onBack: { go(.menuBar, .pointer) },
                          onOpen: { advance(.pointer) })
             }
         }
@@ -242,10 +251,19 @@ struct OnboardingView: View {
             Spacer(minLength: CicadaTheme.spacingLG)
             // A short window first drops the room (art only, DR-13), then scrolls the card with its actions inside it —
             // never clipped (G130).
-            ViewThatFits(in: .vertical) {
-                VStack(spacing: CicadaTheme.scaled(OnboardingRoomLayout.cardGap)) { room; content }
-                content
-                ScrollView { content }.scrollBounceBehavior(.basedOnSize)
+            if page == .menuBar {
+                // The big menu-bar worm stands where the room stands (`MenuBarStep` draws it over its own card): no
+                // room on this step, so the worm is never one picture among two.
+                ViewThatFits(in: .vertical) {
+                    content
+                    ScrollView { content }.scrollBounceBehavior(.basedOnSize)
+                }
+            } else {
+                ViewThatFits(in: .vertical) {
+                    VStack(spacing: CicadaTheme.scaled(OnboardingRoomLayout.cardGap)) { room; content }
+                    content
+                    ScrollView { content }.scrollBounceBehavior(.basedOnSize)
+                }
             }
             Spacer(minLength: CicadaTheme.spacingLG)
         }
@@ -260,8 +278,18 @@ struct OnboardingView: View {
         switch page {
         case .welcome: getStarted(input)
         case .done: openCicada()
+        // ⏎ on the worm's step: the worm is simply there, never flown (DR-60).
+        case .menuBar: passMenuBarStep(.instant, input)
         default: if let next = page.next { go(next, input) }
         }
+    }
+
+    /// *Meet your bookworm* passed — Continue, ⏎ or Skip: the worm goes into the menu bar (flown only from a pointer's
+    /// Continue, faded under Reduce Motion) and Done follows at once, under the flight.
+    private func passMenuBarStep(_ reveal: MenuBarReveal, _ input: OnboardingInput) {
+        guard !busy else { return }
+        menuBar?.introduce(reveal.resolved(reduceMotion: reduceMotion))
+        go(.done, input)
     }
 
     private func go(_ target: OnboardingPage, _ input: OnboardingInput) {

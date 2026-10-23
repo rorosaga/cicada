@@ -15,12 +15,88 @@ final class MenuBarManager: NSObject {
 
     /// F-10's *Show in menu bar* (R-HO16): the status item stays built — its sprite, badge and menu keep updating — and
     /// only its visibility follows the switch, so turning it back on shows the current state at once.
-    private(set) var isVisible = true
+    /// Owner 2026-10-23: it also waits while onboarding has not introduced it (`MenuBarIntro`); the switch and the
+    /// intro are two inputs, and the item shows only when both allow it.
+    var isVisible: Bool { MenuBarIntro.shows(preference: preference, phase: introPhase) }
+    private var preference = true
+    /// `.waiting` from a fresh install's launch until onboarding's *Meet your bookworm* step is passed or skipped.
+    private(set) var introPhase: MenuBarIntro.Phase = .done
+    @ObservationIgnored private var flight: MenuBarFlight?
 
     func setVisible(_ visible: Bool) {
-        isVisible = visible
-        statusItem?.isVisible = visible
+        preference = visible
+        applyVisibility()
+    }
+
+    /// At launch, before `setup`: what `MenuBarIntro.prepareAtLaunch` read or wrote.
+    func setIntroPhase(_ phase: MenuBarIntro.Phase) {
+        introPhase = phase
+        applyVisibility()
+    }
+
+    private func applyVisibility() {
+        statusItem?.isVisible = isVisible
+        statusItem?.button?.alphaValue = 1
         restartAnimation()
+    }
+
+    /// The worm's frame on screen, rendered at `pointSize` — what the step's flight carries to the menu bar, so it lands
+    /// as the status item it becomes (the real state, not the step's illustration).
+    func currentImage(pointSize: CGFloat) -> NSImage {
+        BookwormRenderer.smallImage(state: state, frameStep: frameStep, pointSize: pointSize)
+    }
+
+    /// The intro is over: record it, and let the worm into the menu bar the way the caller asks — flown from the step
+    /// (Continue by pointer), faded in (Reduce Motion), or simply there (⏎, Skip, Set up later, the demo, a settled
+    /// gate). A second call, or a person whose switch is off, changes nothing on screen: the switch keeps the item
+    /// hidden, and an item already showing is never flown again.
+    func introduce(_ reveal: MenuBarReveal, defaults: UserDefaults = .standard) {
+        guard introPhase == .waiting else { return }
+        MenuBarIntro.finish(defaults)
+        introPhase = .done
+        guard preference, let item = statusItem, let button = item.button else { applyVisibility(); return }
+        switch reveal {
+        case .instant:
+            applyVisibility()
+        case .fade:
+            button.alphaValue = 0
+            item.isVisible = true
+            restartAnimation()
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = CicadaMotion.wormRevealFadeDuration
+                button.animator().alphaValue = 1
+            }
+        case .fly(let start):
+            // The item takes its place in the bar invisibly first, so AppKit lays it out and its frame is real.
+            button.alphaValue = 0
+            item.isVisible = true
+            restartAnimation()
+            let image = currentImage(pointSize: max(start.width, Self.spritePointSize))
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard let target = Self.landingRect(button: button),
+                      let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+                    button.alphaValue = 1
+                    return
+                }
+                let flight = MenuBarFlight()
+                self.flight = flight
+                flight.fly(image: cg, from: start, to: target) { [weak self] in
+                    button.alphaValue = 1
+                    self?.flight = nil
+                }
+            }
+        }
+    }
+
+    /// Where the sprite sits on screen inside the status item's button: its 18 × 18 image, centred. Nil when AppKit has
+    /// not placed the button on a screen (a full menu bar can hide it behind the notch) — the caller then just shows it.
+    private static func landingRect(button: NSStatusBarButton) -> CGRect? {
+        guard let window = button.window, window.screen != nil else { return nil }
+        let frame = window.convertToScreen(button.convert(button.bounds, to: nil))
+        guard frame.width > 0, frame.height > 0,
+              MenuBarFlight.landsOnMenuBar(frame, screens: NSScreen.screens.map(\.frame)) else { return nil }
+        return MenuBarFlight.centred(size: spritePointSize, in: frame)
     }
 
     /// A new skin can have different frame holds. Redraw immediately and restart its chained timer at its key frame.
@@ -102,6 +178,7 @@ final class MenuBarManager: NSObject {
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem?.button?.imagePosition = .imageOnly
+        // A fresh install's worm waits for onboarding's step (`MenuBarIntro`): never shown, not even for one frame.
         statusItem?.isVisible = isVisible
         transition(to: .awake)
         rebuildMenu()

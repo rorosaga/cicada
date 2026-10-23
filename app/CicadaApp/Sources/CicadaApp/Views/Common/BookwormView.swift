@@ -14,6 +14,9 @@ struct BookwormView: View {
     var transition: ActiveTransition? = nil
     var lighting: RoomLighting = .day
     var lampLit: Bool = false
+    /// Forces the sheet set (`BookwormSize.resolve`): `.small` draws the menu bar's sprite, badge and stage dots, at
+    /// any size.
+    var artSet: BookwormArtSet? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePaused) private var hostPaused
@@ -23,7 +26,8 @@ struct BookwormView: View {
 
     var body: some View {
         let mascot = MascotRegistry.resolve(mascotRaw)
-        let size = BookwormSize.resolve(pointSize: pointSize, uiScale: CicadaTheme.uiScale, latticeCell: latticeCell)
+        let size = BookwormSize.resolve(pointSize: pointSize, uiScale: CicadaTheme.uiScale, latticeCell: latticeCell,
+                                        set: artSet)
         let profile = SpritePlaybackProfile.of(reduceMotion: reduceMotion, lowPower: SceneStore.shared.lowPower)
         let paused = snapshotDate != nil || SceneRunPolicy.isPaused(windowVisible: windowVisible, hostPaused: hostPaused)
         let effective = pose.effective(for: state, reduceMotion: reduceMotion)
