@@ -631,10 +631,17 @@ def revise_section(path: Path, heading: str, build, *, writer: str, bank: str | 
         return True
 
 
-@_under_episode_lock
 def _moved(stored, wanted) -> bool:
-    """Whether ``wanted`` names another moment than ``stored`` (both readable, aware); never for an unreadable one."""
-    old, new = _when(normalise_timestamp(stored)), _when(normalise_timestamp(wanted))
+    """Whether ``wanted`` names another moment than ``stored`` (both readable, aware); never for an unreadable one —
+    ``None``, a naive or unparseable string, or any other value answers ``False``.
+
+    A pure comparison of two frontmatter values, so it takes no lock: it reads nothing from disk, and the write it
+    gates (:func:`_redate`) takes the episode's own lock. (#447 put ``_under_episode_lock`` here, which locks
+    ``Path(<first argument>).parent`` — for a timestamp that is the working directory, and ``None`` raised.)"""
+    try:
+        old, new = _when(normalise_timestamp(stored)), _when(normalise_timestamp(wanted))
+    except Exception:  # noqa: BLE001 — an unreadable stored value is "not moved", never a failed sync
+        return False
     return old is not None and new is not None and old != new
 
 
@@ -642,7 +649,8 @@ def _moved(stored, wanted) -> bool:
 def _redate(path: Path, draft: EpisodeDraft, stamps: list[dict]) -> None:
     """``EpisodeDraft.redate``: the episode's moment moves to the draft's, in place — same file, same id (ruling 34),
     re-queued so Sleep reads it on its true day; the turns' times are the draft's too. The moment it replaced is kept
-    as ``redated_from``."""
+    as ``redated_from``. Frontmatter only: the body and ``content_hash`` are untouched, so every G118 evidence span
+    into this episode stays ``current`` (the ``turns`` sidecar is outside the hash, R-PB4)."""
     parsed = markdown_parser.parse(path)
     fm = dict(parsed.frontmatter)
     fm["redated_from"] = fm.get("timestamp")
@@ -653,6 +661,7 @@ def _redate(path: Path, draft: EpisodeDraft, stamps: list[dict]) -> None:
     markdown_parser.write(path, fm, parsed.body)
 
 
+@_under_episode_lock
 def _restamp(path: Path, draft: EpisodeDraft) -> None:
     parsed = markdown_parser.parse(path)
     fm = dict(parsed.frontmatter)

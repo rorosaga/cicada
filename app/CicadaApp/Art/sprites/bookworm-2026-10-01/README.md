@@ -59,7 +59,7 @@ Partial `BUILDS` requests expand the saved-parts day worm/room prerequisites of 
 together in that order. Both `STAGE=all` and `STAGE=worm` refresh night sheets, export all 36 pairs, regenerate the
 manifest and run the full verifier/preview. Unknown stages/builders and any stale-sheet/verifier failure exit without
 `sprites: OK`. Night props rebuild their day sources/records from saved room parts before relighting; skyfx recreates the weather motion records before adding its six overlays. Registry part records have stable ordering. Run the control and
-repeated-builder regressions with `python3 tools/test_export_pipeline.py` and `python3 tools/check_builder_idempotence.py`. References in `reference/` are read-only. Historical `gui_*.lua` files
+repeated-builder regressions with `uv run --no-project --with pillow python tools/test_export_pipeline.py` and `python3 tools/check_builder_idempotence.py` (any Python with Pillow works; the manifest test reads the sheet contract through Pillow-based verifiers). References in `reference/` are read-only. Historical `gui_*.lua` files
 record earlier native Pencil corrections; the current pipeline runs headless and does not drive the owner's Aseprite.
 
 From this directory:

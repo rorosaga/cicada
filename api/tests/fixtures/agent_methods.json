@@ -72,7 +72,8 @@
       "claude-code": {
        "runnable": false,
        "env": {
-        "CICADA_CAPTURE": "off"
+        "CICADA_CAPTURE": "off",
+        "CICADA_RECALL": "off"
        },
        "steps": [],
        "prompt": "Set up the browser-harness skill for me, then stop. Follow the install steps in install.md of https://github.com/browser-use/browser-harness at tag v0.1.13, but install the reviewed version: `uv tool install --python 3.12 browser-harness==0.1.13`. Register the skill that `browser-harness skill` prints under the name browser-harness, with no trigger sentence: do not make it your default for other web tasks, I will ask for it when I want it. Ask me before you turn on screen recordings, and before anything that needs a browser setting or a macOS permission. Tell me when it is ready."
@@ -80,7 +81,8 @@
       "codex": {
        "runnable": false,
        "env": {
-        "CICADA_CAPTURE": "off"
+        "CICADA_CAPTURE": "off",
+        "CICADA_RECALL": "off"
        },
        "steps": [],
        "prompt": "Set up the browser-harness skill for me, then stop. Follow the install steps in install.md of https://github.com/browser-use/browser-harness at tag v0.1.13, but install the reviewed version: `uv tool install --python 3.12 browser-harness==0.1.13`. Register the skill that `browser-harness skill` prints under the name browser-harness, with no trigger sentence: do not make it your default for other web tasks, I will ask for it when I want it. Ask me before you turn on screen recordings, and before anything that needs a browser setting or a macOS permission. Tell me when it is ready."
@@ -145,7 +147,8 @@
       "claude-code": {
        "runnable": false,
        "env": {
-        "CICADA_CAPTURE": "off"
+        "CICADA_CAPTURE": "off",
+        "CICADA_RECALL": "off"
        },
        "steps": [],
        "prompt": "Set up the macos-harness skill for me, then stop. Follow the install steps in install.md of https://github.com/browser-use/macos-harness at tag v0.2.1, but install the reviewed version: `uv tool install --python 3.12 macos-harness==0.2.1`. Register the skill that `macos-harness skill` prints under the name macos-harness, with no trigger sentence: do not make it your default for other tasks, I will ask for it when I want it. It can control apps on this Mac: ask me before you request any macOS permission, and ask whether to run `macos-harness telemetry disable` (it sends anonymous usage counts otherwise). Tell me when it is ready."
@@ -153,7 +156,8 @@
       "codex": {
        "runnable": false,
        "env": {
-        "CICADA_CAPTURE": "off"
+        "CICADA_CAPTURE": "off",
+        "CICADA_RECALL": "off"
        },
        "steps": [],
        "prompt": "Set up the macos-harness skill for me, then stop. Follow the install steps in install.md of https://github.com/browser-use/macos-harness at tag v0.2.1, but install the reviewed version: `uv tool install --python 3.12 macos-harness==0.2.1`. Register the skill that `macos-harness skill` prints under the name macos-harness, with no trigger sentence: do not make it your default for other tasks, I will ask for it when I want it. It can control apps on this Mac: ask me before you request any macOS permission, and ask whether to run `macos-harness telemetry disable` (it sends anonymous usage counts otherwise). Tell me when it is ready."
@@ -253,7 +257,8 @@
       "claude-code": {
        "runnable": true,
        "env": {
-        "CICADA_CAPTURE": "off"
+        "CICADA_CAPTURE": "off",
+        "CICADA_RECALL": "off"
        },
        "steps": [
         {
@@ -283,6 +288,7 @@
        "runnable": true,
        "env": {
         "CICADA_CAPTURE": "off",
+        "CICADA_RECALL": "off",
         "DISABLE_TELEMETRY": "1",
         "DO_NOT_TRACK": "1"
        },
@@ -361,7 +367,8 @@
       "claude-code": {
        "runnable": false,
        "env": {
-        "CICADA_CAPTURE": "off"
+        "CICADA_CAPTURE": "off",
+        "CICADA_RECALL": "off"
        },
        "steps": [],
        "prompt": "Set up the browser-harness skill for me, then stop. Follow the install steps in install.md of https://github.com/browser-use/browser-harness at tag v0.1.13, but install the reviewed version: `uv tool install --python 3.12 browser-harness==0.1.13`. Register the skill that `browser-harness skill` prints under the name browser-harness, with no trigger sentence: do not make it your default for other web tasks, I will ask for it when I want it. Ask me before you turn on screen recordings, and before anything that needs a browser setting or a macOS permission. Tell me when it is ready."
@@ -369,7 +376,8 @@
       "codex": {
        "runnable": false,
        "env": {
-        "CICADA_CAPTURE": "off"
+        "CICADA_CAPTURE": "off",
+        "CICADA_RECALL": "off"
        },
        "steps": [],
        "prompt": "Set up the browser-harness skill for me, then stop. Follow the install steps in install.md of https://github.com/browser-use/browser-harness at tag v0.1.13, but install the reviewed version: `uv tool install --python 3.12 browser-harness==0.1.13`. Register the skill that `browser-harness skill` prints under the name browser-harness, with no trigger sentence: do not make it your default for other web tasks, I will ask for it when I want it. Ask me before you turn on screen recordings, and before anything that needs a browser setting or a macOS permission. Tell me when it is ready."
@@ -434,7 +442,8 @@
       "claude-code": {
        "runnable": false,
        "env": {
-        "CICADA_CAPTURE": "off"
+        "CICADA_CAPTURE": "off",
+        "CICADA_RECALL": "off"
        },
        "steps": [],
        "prompt": "Set up the macos-harness skill for me, then stop. Follow the install steps in install.md of https://github.com/browser-use/macos-harness at tag v0.2.1, but install the reviewed version: `uv tool install --python 3.12 macos-harness==0.2.1`. Register the skill that `macos-harness skill` prints under the name macos-harness, with no trigger sentence: do not make it your default for other tasks, I will ask for it when I want it. It can control apps on this Mac: ask me before you request any macOS permission, and ask whether to run `macos-harness telemetry disable` (it sends anonymous usage counts otherwise). Tell me when it is ready."
@@ -442,7 +451,8 @@
       "codex": {
        "runnable": false,
        "env": {
-        "CICADA_CAPTURE": "off"
+        "CICADA_CAPTURE": "off",
+        "CICADA_RECALL": "off"
        },
        "steps": [],
        "prompt": "Set up the macos-harness skill for me, then stop. Follow the install steps in install.md of https://github.com/browser-use/macos-harness at tag v0.2.1, but install the reviewed version: `uv tool install --python 3.12 macos-harness==0.2.1`. Register the skill that `macos-harness skill` prints under the name macos-harness, with no trigger sentence: do not make it your default for other tasks, I will ask for it when I want it. It can control apps on this Mac: ask me before you request any macOS permission, and ask whether to run `macos-harness telemetry disable` (it sends anonymous usage counts otherwise). Tell me when it is ready."

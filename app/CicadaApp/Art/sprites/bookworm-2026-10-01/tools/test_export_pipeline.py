@@ -1,5 +1,6 @@
 """Pipeline control regressions; fake Aseprite never edits the delivered art."""
 import contextlib
+import importlib.util
 import io
 import json
 import os
@@ -94,6 +95,12 @@ with open(os.environ['PIPELINE_TRACE'], 'a') as log:
         self.assertNotIn('sprites: OK', result.stdout)
 
     def test_manifest_uses_static_authoring_without_a_codex_executable(self):
+        # manifest.main() reads the sheet contract from verify_night/verify_room, which draw with Pillow. Say so
+        # instead of a ModuleNotFoundError deep in the import: the system python3 moves on its own (a Homebrew
+        # upgrade leaves Pillow behind in the previous version's site-packages).
+        if importlib.util.find_spec('PIL') is None:
+            self.fail(f'needs Pillow, which {sys.executable} lacks; run '
+                      '`uv run --no-project --with pillow python tools/test_export_pipeline.py`')
         with tempfile.TemporaryDirectory(dir=ART / 'qa', prefix='manifest-test-') as td:
             res = Path(td)
             for p in RES.iterdir():
