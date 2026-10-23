@@ -1499,8 +1499,14 @@ async def _settle_unborn(
         if cancel_check is not None and cancel_check():
             return True
         candidates = _unborn_candidates(u, groups, pages, stored, memory_path)
-        judged = await _judge_candidates({**u.entity, "type": "project"}, candidates, cache, settings,
-                                         stop=cancel_check)
+        # What shares a word or a conversation is judged in a call of its own, before the pairs with no lead: in one
+        # crowded call the newuser canoe's two spellings stayed apart, though the judge joins them alone every time.
+        judged = await _judge_candidates({**u.entity, "type": "project"}, [c for c in candidates if c.get("shared")],
+                                         cache, settings, stop=cancel_check)
+        if not any(decision == "same" for _, decision in judged):
+            judged += await _judge_candidates({**u.entity, "type": "project"},
+                                              [c for c in candidates if not c.get("shared")], cache, settings,
+                                              stop=cancel_check)
         if cancel_check is not None and cancel_check():
             return True
         match = _pick_match(u.name, judged)
@@ -1578,9 +1584,8 @@ async def _settle_unborn(
         _settle_fallback(change, None)
         resolved_creates[entity_id] = change
         made += 1
-    if made or on_page:
-        logger.info(f"Stage 2: {made} fallback page(s) for things never called a project, "
-                    f"{sum(len(m) for _, m in on_page.values())} mention(s) onto existing ones")   # counts, never names
+    logger.info(f"Stage 2: {len(unborn)} project name(s) with no birth → {len(groups)} group(s), {made} fallback "
+                f"page(s), {sum(len(m) for _, m in on_page.values())} onto existing pages")   # counts, never names
     return False
 
 
