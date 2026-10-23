@@ -39,7 +39,7 @@ struct SourcesStep: View {
                 Text(error).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            TextButton(title: Copy.sourcesHowToExport, inline: true) { onSeeHow(.claude) }
+            TextButton(title: Copy.sourcesHowToExport, inline: true, flushLeading: true) { onSeeHow(.claude) }
         }
         .task { await reading.loadSettings() }
         .sheet(item: $opened) { entry in
@@ -57,7 +57,12 @@ struct SourcesStep: View {
         return Button { press(tile) } label: {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 HStack(alignment: .top) {
-                    SourceLogoTile(origin: tile.origin)
+                    if tile.kind == .chats {
+                        // Any vendor's export lands here: a neutral glyph, never one vendor's mark (looks pass).
+                        LogoTile(logo: nil, systemFallback: "bubble.left.and.bubble.right")
+                    } else {
+                        SourceLogoTile(origin: tile.origin)
+                    }
                     Spacer(minLength: 0)
                     Image(systemName: state.ticked ? "checkmark.circle.fill" : "circle")
                         .font(CicadaTheme.font(size: 15))
@@ -70,8 +75,7 @@ struct SourcesStep: View {
                     if case .tick(let entry) = tile.kind,
                        let caption = SourceTiles.caption(entry, needsAccess: needsAccess.contains(entry.id)) {
                         Text(caption).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
-                            .lineLimit(3)
-                            .fixedSize(horizontal: false, vertical: true)
+                            .lineLimit(2)
                     }
                     // The ring already says Off (DR-38): the word shows only when it says more, and keeps its
                     // line either way so every tile in a row stays one height.
@@ -81,7 +85,8 @@ struct SourcesStep: View {
                 }
             }
             .padding(CicadaTheme.spacingSM)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .frame(height: CicadaTheme.scaled(OnboardingLayout.sourceTileHeight), alignment: .topLeading)
             .background(state.ticked ? CicadaTheme.bgSelected : CicadaTheme.bgFocus,
                         in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
             .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))

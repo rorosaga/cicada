@@ -253,13 +253,13 @@ final class SleepMoodTests: XCTestCase {
     }
 
     func test_bracketText_curious_pluralizesCorrectly() {
-        XCTAssertEqual(sleepDebtBracketText(.curious(count: 47), debt: nil), "[ 47 episodes behind ]")
-        XCTAssertEqual(sleepDebtBracketText(.curious(count: 1), debt: nil), "[ 1 episode behind ]")
+        XCTAssertEqual(sleepDebtBracketText(.curious(count: 47), debt: nil), "[ 47 conversations behind ]")
+        XCTAssertEqual(sleepDebtBracketText(.curious(count: 1), debt: nil), "[ 1 conversation behind ]")
     }
 
     func test_bracketText_hungry_withEpisodesQueued() {
         let debt = debtView(unprocessedCount: 30)
-        XCTAssertEqual(sleepDebtBracketText(.hungry, debt: debt), "[ 30 episodes behind — overdue ]")
+        XCTAssertEqual(sleepDebtBracketText(.hungry, debt: debt), "[ 30 conversations behind — overdue ]")
     }
 
     func test_bracketText_hungry_withNoEpisodesButLongGap() {

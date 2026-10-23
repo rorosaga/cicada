@@ -370,7 +370,7 @@ in words (`HomeFigures.lastRead`): "Looking up the last read…" while it loads;
 no read ran; a failed fetch falls back to the status's last read, or says "Couldn't look up the last read". An empty block is only its label and a note ("Needs you · nothing right now");
 all three empty is one `HomeEmptyBlock` (*Choose a file…*), or nothing while Getting started already says so. Every
 `InlineLink` hits 28 pt (layout-neutral, `LinkHitShape`). Right after onboarding ends (Open Cicada or *Set up later*),
-*Make it yours* (Appearance; `AppearanceTipPolicy`, per viewer) is a row after
+*Make it yours* (Appearance; `AppearanceTipPolicy`, per viewer; × closes it, its foot links Settings → General) is a row after
 Needs you for that one session; once hidden or seen it lives only in Settings.
 
 **Onboarding v2 (G92, G217, ruling 36; 2026-10-22; replaces G145's seven pages).** Five steps of one verb each in
@@ -1880,7 +1880,8 @@ writer's shape and committed as that writer commits, with `today` pinned; the on
 `demo_showcase.PUBLIC_URLS`, each with its licence. `/banks` rows carry `demo` (`demo_guard`, never the name);
 `POST /banks/demo` re-opens a demo that exists and `POST /banks/leave-demo` returns to the real bank left most recently
 (else `default`, else a new "My memory"). While the demo is active, `DemoBanner` — a floating bar laid out under the
-page area, never over a row — offers *Restart tour* and *Finish setting up →*, which leaves the demo and opens onboarding
+page area, never over a row — offers *Restart tour* and *Finish setting up →* (a neutral button since the looks pass, so
+the page's own primary stays the only one), which leaves the demo and opens onboarding
 through the one door (`OnboardingState.reset(bank:)` + `AppRouter.requestFirstRun()`). The guided tour (`TourController`,
 `TourLayer`) is six coach marks — the command bar, Home, the Inbox, a person card, Projects, Sleep — on floating
 surfaces over a scrim on the page area; Next (⏎) · Back (←) · Skip tour (Esc); it navigates through `AppRouter` and never
@@ -1906,6 +1907,37 @@ curvature instead, and `LogoAssetTests` names any opaque plate so another cannot
 keep passing the logical name, and no mark file is edited. Nominative use only — a vendor mark is never restyled or recoloured; the one permitted
 transform is an exact luminance inversion of a *monochrome* mark into its `-dark` sibling, which
 `LogoImage` picks under a dark theme. Drawn brand glyphs are gone and do not come back.
+
+**Looks pass (2026-10-23; DESIGN_RULES §9).** Before people other than the owner use the app, one sweep of first run
+and every page in both themes (the ranked audit is outside the repo, with its shots). What it changed:
+- **Onboarding.** Welcome's and Done's card under the study room is ringed, never shadowed (`onboardingCard()`: it sits
+  in the page, DR-9/DR-10). A text button that starts a column sets its words on the column's edge
+  (`TextButton(flushLeading:)`: Back, *Use an API key*, *Not you? Change*, *How to get an export*, and the entity card's
+  lone *Add a place to check*). Sources' tiles are one height (`OnboardingLayout.sourceTileHeight`, captions two lines);
+  Chat history wears a neutral glyph (any vendor's export lands there), and so does *Personal agents* (five agents, so no
+  one agent's mark).
+- **Home's first run.** Getting started is the same grouped block as the tour offer and *Make it yours* (`glassCard`,
+  12 pt inset, a 13 pt title; it was the focus card); the worm left its rows — the first-read line and the waiting line
+  carry Sleep's `moon` glyph (DR-13: never on a row). *Make it yours* has one way to close (×) and one foot line,
+  "Also in Settings → General".
+- **Empty and first-run states.** Skills' empty Installed tab is `EmptyStateView` with the rail's glyph and words that no
+  longer point at the header field that left on 2026-10-20; Projects' carries its glyph and says how a project is born
+  now (ruling 36 D4). A bank Sleep has never read says "Nothing to read yet." over "Talk to a connected agent, or drop a
+  file on me." (L10b), never "All caught up."
+- **The rail.** Agents' glyph is `powerplug` (the outline twin of the solid `cable.connector`, DR-53).
+- **Agents page.** The list starts under the eyebrow; beside an open agent, the list's status goes under the name
+  (`ConnectionLine(statusBelowName:)`), so no name is cut to "O…".
+- **Graph.** The theme reaches each page's own graph.js only once that page is ready (`Coordinator.themeCall()`, the A07
+  rule): gated on the app-wide ready flag, a second web view was sent `setTheme` before it existed and latched dark —
+  white labels on the light canvas.
+- **Words.** The app says "conversation" where it said "episode" (Past reads, the bank menu and Privacy's bank list, the
+  worm's answers and its value, the waiting line); the informational question no longer names its raw predicate; a daily
+  schedule reads "Every day at 3:00 AM", the next-run half's own clock; the demo bar is one line and its *Finish setting
+  up →* a neutral button, so a page's own primary is the only one (DR-40).
+- **Status.** Settings → General's *Keep memory working* shows a dot and "On" when it runs (it was a label with nothing
+  beside it); Privacy's active bank and its three internet gates are dots and words, never the accent (DR-5).
+- **Past reads.** A run's changed pages are neutral `Tag`s with their names, as a batched run's detail draws them, not
+  accent-coloured slugs (DR-44, DR-54, DR-56).
 
 **Design rules — Direction D, "Focus columns" (2026-09-23).** [`docs/design/DESIGN_RULES.md`](../../docs/design/DESIGN_RULES.md)
 is the binding target for every UI change: graphite neutrals, the system accent, SF Pro only, a 56 pt icon rail, a centred

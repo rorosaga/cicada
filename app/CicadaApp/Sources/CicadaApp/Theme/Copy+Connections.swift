@@ -6,6 +6,7 @@ import Foundation
 extension Copy {
     enum Status {
         static let connected = "Connected"
+        static let on = "On"
         static let off = "Off"
         static let saved = "Saved"
         static let active = "Active"

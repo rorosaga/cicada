@@ -65,7 +65,7 @@ enum AppTab: String, CaseIterable {
         case .sources: "tray.2"
         case .projects: "point.topleft.down.to.point.bottomright.curvepath"
         case .skills: "puzzlepiece.extension"
-        case .agents: "cable.connector"
+        case .agents: "powerplug"   // looks pass 2026-10-23: `cable.connector` is a solid glyph among outlines (DR-53)
         }
     }
 

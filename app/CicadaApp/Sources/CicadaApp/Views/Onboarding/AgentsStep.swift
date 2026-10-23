@@ -54,8 +54,9 @@ struct AgentsStep: View {
             VStack(alignment: .leading, spacing: 0) {
                 anotherAgent
                 SettingsDivider()
-                ConnectionLine(logo: "instinct", name: Copy.agentsPersonal, detail: Copy.agentsPersonalNames,
-                               detailLines: 1) {
+                // Five agents, so no one agent's mark speaks for them: a glyph, like "Another agent" (looks pass).
+                ConnectionLine(logo: nil, name: Copy.agentsPersonal, systemFallback: "person",
+                               detail: Copy.agentsPersonalNames, detailLines: 1) {
                     NeutralButton(title: Copy.AgentsPage.addToken, size: .compact) { addingToken = true }
                 }
             }

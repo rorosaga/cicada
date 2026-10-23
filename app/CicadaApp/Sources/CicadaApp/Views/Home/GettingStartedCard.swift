@@ -163,12 +163,12 @@ struct GettingStartedCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        // R-HS5 — C's focus-card material (DR-9, DR-10, §3.5): `bgFocus`, `radiusLarge`, a
-        // resting ring, 24/28 padding. Only the material moved; Track I's rulings are untouched.
-        .padding(EdgeInsets(top: CicadaTheme.spacingXL, leading: CicadaTheme.spacingCard,
-                            bottom: CicadaTheme.spacingCard, trailing: CicadaTheme.spacingCard))
-        .background(CicadaTheme.bgFocus, in: CicadaTheme.shape(CicadaTheme.radiusLarge))
-        .ringed(in: CicadaTheme.shape(CicadaTheme.radiusLarge))
+        // Looks pass (2026-10-23, §9) — one Home card: the same grouped block, 12 pt inset and 13 pt title as the tour
+        // offer, the empty block and Make it yours beside it (`glassCard`: `bgFocus`, `cornerRadius`, the resting
+        // ring). It was the focus card (R-HS5: `radiusLarge`, 24/28 inset, a 17 pt heading), so three stacked cards
+        // on a first Home drew three paddings and three title sizes.
+        .padding(CicadaTheme.spacingMD)
+        .glassCard()
         .animation(CicadaMotion.settle(reduceMotion: reduceMotion),
                    value: [done, showsPastChats, readiness == .needsChoice, asksSchedule, alsoFound.isEmpty])
         // The first time it is done: "You're set up." for this session, and the
@@ -228,7 +228,7 @@ struct GettingStartedCard: View {
     private var header: some View {
         HStack(spacing: CicadaTheme.spacingXS) {
             Text(Copy.gsTitle)
-                .font(CicadaTheme.headingFont)
+                .font(CicadaTheme.rowFont)
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityFocused($headingFocused)
@@ -398,7 +398,10 @@ struct GettingStartedCard: View {
     private func firstRead(_ step: FirstReadStep, readiness: EngineReadiness) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             HStack(spacing: CicadaTheme.spacingSM) {
-                BookwormView(state: step.worm, pointSize: 24)
+                // The worm stays in the study room (DR-13: never on a row); Sleep's own glyph says what this waits on.
+                Image(systemName: "moon")
+                    .font(CicadaTheme.icon(.list))
+                    .foregroundStyle(CicadaTheme.textTertiary)
                     .accessibilityHidden(true)   // the line beside it is its text twin
                 Text(step.line())
                     .font(CicadaTheme.bodyFont)

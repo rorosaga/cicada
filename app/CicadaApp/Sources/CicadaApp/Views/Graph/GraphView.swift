@@ -91,10 +91,15 @@ struct GraphView: NSViewRepresentable {
         // would not. Guarded on `isGraphReady` like every other push (before
         // that, graph.js has no `setTheme` yet) and latched on the
         // coordinator so an unrelated update never re-sends.
+        //
+        // Looks pass (2026-10-23): gated on THIS page's ready, never the view model's app-wide flag. Clusters and
+        // the Graph each own a web view; with the other one ready, a new page was sent `setTheme` before graph.js
+        // defined it, the call failed silently, and the latch then swallowed every later push — so a light window
+        // drew the dark palette's white labels on a light canvas. The page's own ready pushes `wantsTheme`.
         let theme = colorScheme == .light ? "light" : "dark"
-        if viewModel.isGraphReady, context.coordinator.lastTheme != theme {
-            context.coordinator.lastTheme = theme
-            webView.evaluateJavaScript("setTheme(\"\(theme)\")", completionHandler: nil)
+        context.coordinator.wantsTheme = theme
+        if let call = context.coordinator.themeCall() {
+            webView.evaluateJavaScript(call, completionHandler: nil)
         }
 
         // G123: land on a searched node (R-DG25 — the id is a JSON literal).
@@ -189,6 +194,8 @@ struct GraphView: NSViewRepresentable {
         /// Latched so a theme push happens once per actual flip, never on
         /// every unrelated `updateNSView` (R11).
         var lastTheme: String?
+        /// What `updateNSView` last asked for, pushed when this page reports ready (looks pass 2026-10-23).
+        var wantsTheme = "dark"
         /// DS-3a R-DG9 — the last open-entity id pushed to `setSelectedNode`, latched like `lastTheme`.
         var lastSelected: String?
         var hasPushedSelection = false
@@ -212,6 +219,7 @@ struct GraphView: NSViewRepresentable {
                     isGraphReady = true
                     viewModel.isGraphReady = true
                     pushGraphData()
+                    if let call = themeCall() { webView?.evaluateJavaScript(call, completionHandler: nil) }
                     if let call = activeCall(wanted: wantsActive) {
                         webView?.evaluateJavaScript(call, completionHandler: nil)
                     }
@@ -231,6 +239,14 @@ struct GraphView: NSViewRepresentable {
                     print("Graph JS error: \(detail)")
                 }
             }
+        }
+
+        /// The `setTheme` call to send, or nil, latching what it returns — only once this coordinator's own page is
+        /// ready, so a call can never reach a graph.js that does not define it yet (the A07 rule, for the theme).
+        func themeCall() -> String? {
+            guard isGraphReady, lastTheme != wantsTheme else { return nil }
+            lastTheme = wantsTheme
+            return "setTheme(\"\(wantsTheme)\")"
         }
 
         /// The `setGraphActive` call to send, or nil, latching what it returns. Gated on this coordinator's own

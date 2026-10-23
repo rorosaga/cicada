@@ -16,7 +16,7 @@ struct InformationalBody: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.scaled(RowMetrics.optionGap)) {
-            Text(Copy.Inbox.informational(item.predicate))
+            Text(Copy.Inbox.informational)
                 .font(CicadaTheme.detailBodyFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)

@@ -23,7 +23,7 @@ final class WormAnswersTests: XCTestCase {
     func test_readingAsksWhatWhenLastTimeAndYou() {
         let rungs = wormAnswers(ctx(.reading))
         XCTAssertEqual(rungs.map(\.lead), ["Waiting for a night.", "Next: Sep 24, 3:00 AM.",
-                                           "Last time I read 12 episodes.", "2 questions wait for you."])
+                                           "Last time I read 12 conversations.", "2 questions wait for you."])
         XCTAssertEqual(rungs[0].tail, "The oldest has waited 3 days.")
         XCTAssertEqual(rungs[2].tail, "+3 new · 5 updated, in 4 m 12 s.")
         XCTAssertEqual(rungs[2].action, .openDetails(.pastNights))
@@ -53,7 +53,7 @@ final class WormAnswersTests: XCTestCase {
         })
         XCTAssertFalse(noEpisodes.contains { $0.lead.hasPrefix("Last time") }, "0 is an older backend's unknown")
         let noDuration = wormAnswers(ctx(.happy) { $0.lastCycle = LastCycleFacts(episodes: 1, created: 0, updated: 2, durationText: nil) })
-        XCTAssertEqual(noDuration[2].lead, "Last time I read 1 episode.")
+        XCTAssertEqual(noDuration[2].lead, "Last time I read 1 conversation.")
         XCTAssertEqual(noDuration[2].tail, "+0 new · 2 updated.")
         XCTAssertEqual(wormAnswers(ctx(.happy) { $0.inboxTotal = 1 }).last?.lead, "1 question waits for you.")
     }
@@ -75,7 +75,7 @@ final class WormAnswersTests: XCTestCase {
         XCTAssertEqual(digesting.count, 2)
         let error = wormAnswers(ctx(.error) { $0.cycleError = "claude exited 1"; $0.lastEngine = "ollama" })
         XCTAssertEqual(error.map(\.lead), ["Reading stopped.", "It ran on Ollama (on this Mac).",
-                                           "Last time I read 12 episodes."])
+                                           "Last time I read 12 conversations."])
         XCTAssertEqual(error[0].action, .openDetails(.lastCycle))
         XCTAssertEqual(error[0].tail, "See what needs a fix in Past reads, then try again.")
         XCTAssertEqual(wormAnswers(ctx(.awake)).map(\.lead), ["I haven't heard from Cicada yet."])

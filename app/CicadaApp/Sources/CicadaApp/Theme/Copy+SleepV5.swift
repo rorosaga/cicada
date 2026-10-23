@@ -46,6 +46,9 @@ extension Copy {
         static let pausingLead = "Pausing."
         /// Never "nothing read is lost": without a journal the part in progress is read again.
         static let pausingTail = "Stopping at the next safe point. What is filed stays filed."
+        /// T9 with nothing waiting (looks pass 2026-10-23): under "Nothing to read yet." the old tail said "Nothing's
+        /// been filed in this memory yet" — the same nothing twice. This says where the first things come from.
+        static let firstRunEmptyTail = "Talk to a connected agent, or drop a file on me."
         static let pausedLead = "Paused."
         static func pausedByYouTail(filed: Int, frozen: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
             "\(filedOf(filed, frozen, locale)). The part it was reading is read again."

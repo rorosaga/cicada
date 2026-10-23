@@ -21,6 +21,16 @@ struct OnboardingHeadline: View {
     }
 }
 
+extension View {
+    /// Welcome's and Done's card under the study room (looks pass 2026-10-23): the focus card's material — `bgFocus`,
+    /// `radiusLarge`, the resting ring. It sits in the page, so it never floats: no shadow in light mode (DR-9, DR-10,
+    /// "depth is a ring").
+    func onboardingCard() -> some View {
+        background(CicadaTheme.shape(CicadaTheme.radiusLarge).fill(CicadaTheme.bgFocus))
+            .ringed(in: CicadaTheme.shape(CicadaTheme.radiusLarge))
+    }
+}
+
 /// "More sources any time on the Sources page" — a sentence ending in the one door into Settings
 /// (`SettingsSectionLink`, R-DS22), so a pointer never re-types a destination (G68 §2.8).
 struct OnboardingPointerLine: View {

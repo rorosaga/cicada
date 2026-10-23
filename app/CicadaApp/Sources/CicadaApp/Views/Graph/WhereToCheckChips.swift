@@ -27,7 +27,9 @@ struct WhereToCheckChips: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: CicadaTheme.spacingXS) {
                     ForEach(Self.chips(sources)) { chip($0) }
-                    TextButton(title: Copy.WhereChips.addShort, help: Copy.WhereChips.add) { adding = true }
+                    // With no chips yet, a lone "Add" said nothing about what it adds (looks pass 2026-10-23).
+                    TextButton(title: Self.chips(sources).isEmpty ? Copy.WhereChips.add : Copy.WhereChips.addShort,
+                               help: Copy.WhereChips.add, flushLeading: Self.chips(sources).isEmpty) { adding = true }
                         .popover(isPresented: $adding, arrowEdge: .bottom) { addField }
                 }
             }

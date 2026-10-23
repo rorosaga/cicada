@@ -175,7 +175,7 @@ struct BankSwitcher: View {
     static func label(name: String, entities: Int, episodes: Int) -> String {
         guard entities > 0 || episodes > 0 else { return name }
         func counted(_ n: Int, _ one: String, _ many: String) -> String { "\(UsageFormat.count(n)) \(n == 1 ? one : many)" }
-        return "\(name) (\(counted(entities, "entity", "entities")) · \(counted(episodes, "episode", "episodes")))"
+        return "\(name) (\(counted(entities, "entity", "entities")) · \(counted(episodes, "conversation", "conversations")))"
     }
 
     private func switchTo(_ name: String) {

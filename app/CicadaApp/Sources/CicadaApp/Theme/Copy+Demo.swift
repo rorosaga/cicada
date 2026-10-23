@@ -8,8 +8,8 @@ extension Copy {
         static let bannerTitle = "You're exploring a demo"
         /// F-08 said "nothing you do here is kept"; the demo keeps its own edits until it is deleted, so the sentence
         /// says what is true instead: none of it reaches the person's own memory (capture is refused into it, R-CS10).
-        static let bannerLine = "Made-up memories, with pictures, a video and a project to open. Nothing here is yours, "
-            + "and nothing you do here reaches your own memory."
+        /// Looks pass (2026-10-23): one line, down from 26 words — the pictures, the video and the project are on screen.
+        static let bannerLine = "Made-up memories. Nothing you do here reaches your own."
         static let restartTour = "Restart tour"
         static let restartTourHelp = "Walk through the pages again, from the search bar"
         static let finishSetup = "Finish setting up →"

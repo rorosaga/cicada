@@ -12,6 +12,9 @@ struct ConnectionLine<Trailing: View, Below: View>: View {
     var status: (word: String, on: Bool)? = nil
     var quiet = false
     var detailLines = 3
+    /// Looks pass (2026-10-23): in a narrow column (a list beside its detail) the dot and word go under the name, so
+    /// the name keeps the row's width — trailing, "Not set up" cut every name to "O…" at 280 pt.
+    var statusBelowName = false
     @ViewBuilder var trailing: () -> Trailing
     @ViewBuilder var below: () -> Below
 
@@ -25,7 +28,9 @@ struct ConnectionLine<Trailing: View, Below: View>: View {
                         .font(CicadaTheme.rowFont)
                         .foregroundStyle(quiet ? CicadaTheme.textSecondary : CicadaTheme.textPrimary)
                         .lineLimit(1)
-                    if let detail, !detail.isEmpty {
+                    if statusBelowName, let status {
+                        StatusDot(word: status.word, on: status.on)
+                    } else if let detail, !detail.isEmpty {
                         Text(detail)
                             .font(CicadaTheme.captionFont.monospacedDigit())
                             .foregroundStyle(CicadaTheme.textTertiary)
@@ -34,7 +39,7 @@ struct ConnectionLine<Trailing: View, Below: View>: View {
                     }
                 }
                 Spacer(minLength: CicadaTheme.spacingSM)
-                if let status { StatusDot(word: status.word, on: status.on) }
+                if let status, !statusBelowName { StatusDot(word: status.word, on: status.on) }
                 trailing()
             }
             below()
@@ -48,9 +53,10 @@ struct ConnectionLine<Trailing: View, Below: View>: View {
 extension ConnectionLine where Below == EmptyView {
     init(logo: String?, name: String, bundleId: String? = nil, systemFallback: String = LogoTile.monogramFallback, detail: String? = nil,
          status: (word: String, on: Bool)? = nil, quiet: Bool = false, detailLines: Int = 3,
-         @ViewBuilder trailing: @escaping () -> Trailing) {
+         statusBelowName: Bool = false, @ViewBuilder trailing: @escaping () -> Trailing) {
         self.init(logo: logo, name: name, bundleId: bundleId, systemFallback: systemFallback, detail: detail,
-                  status: status, quiet: quiet, detailLines: detailLines, trailing: trailing, below: { EmptyView() })
+                  status: status, quiet: quiet, detailLines: detailLines, statusBelowName: statusBelowName,
+                  trailing: trailing, below: { EmptyView() })
     }
 }
 
