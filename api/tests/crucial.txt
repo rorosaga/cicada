@@ -121,7 +121,8 @@ test_handshake_r12.py::test_every_argument_the_recall_note_names_is_in_the_schem
 test_mcp_error_contract.py::test_both_doors_refuse_the_same_bad_value
 test_mcp_error_contract.py::test_a_refusal_is_flagged_with_its_code
 test_mcp_error_contract.py::test_an_exception_never_carries_its_message
-test_mcp_error_contract.py::test_the_leniency_ships_in_exactly_one_release
+test_mcp_error_contract.py::test_stdio_refuses_a_spelled_number_or_boolean_and_runs_nothing
+test_mcp_error_contract.py::test_remote_refuses_a_spelled_number_or_boolean_over_http
 test_mcp_error_contract.py::test_an_empty_graph_recall_with_stored_words_is_an_answer_fenced_on_remote
 
 ## Privacy: the person's words need the `sources` scope; the query and the prompt are never logged

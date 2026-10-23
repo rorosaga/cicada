@@ -16,10 +16,11 @@ What a call is answered with:
 * **An exception** — ``Error: that didn't work (ValueError).``, the remote connector's shape since G135: the class
   name, never the message, which can carry a path or the caller's own words.
 
-Leniency kept for one release (TODO.md names the date it ends): a digit string where the schema says integer is
-read as that integer, and the reply says so. A ``null`` for an optional argument is read as no argument (clients
-send it for "not given"). An argument the tool does not take is dropped, and the reply says which, so a call that
-meant something by it learns it was not used.
+Leniency kept: a ``null`` for an optional argument is read as no argument (clients send it for "not given"). An
+argument the tool does not take is dropped, and the reply says which, so a call that meant something by it learns it
+was not used. A digit, decimal or ``"true"``/``"false"`` string where the schema says a number or boolean was read as
+that value in 0.7.0 only, with a note; from 0.7.1 it is refused like any other wrong type, and the refusal says to
+send the value without quotes.
 """
 from __future__ import annotations
 
@@ -31,14 +32,6 @@ from api.cli_types import REFUSAL_CODES
 #: Unlisted spellings a door also takes, per tool, mapped to the advertised argument (Hyrum audit A4: one inbox id is
 #: ``id`` in ``cicada_resolve_inbox`` and ``item_id`` in its sibling ``cicada_record_check``).
 ALIASES: dict[str, dict[str, str]] = {"cicada_resolve_inbox": {"item_id": "id"}}
-
-#: The one release that ships the leniency: a digit (or "true"/"false", or a decimal) string where the schema says
-#: integer (or boolean, or number) is read as that value, with a note. v0.6.0 shipped before this code, so it is the
-#: NEXT release — 0.7.0 by the minor bumps since 0.4.0 (`make release VERSION=x.y.z` picks the number). The release
-#: after it refuses one (TODO.md, G199). `test_the_leniency_ships_in_exactly_one_release` fails on any other
-#: released `VERSION`: a patch release first (0.6.1) has to move this to itself, and a later one has to remove it.
-LAST_RELEASE_WITHOUT = "0.6.0"
-LENIENT_RELEASE = "0.7.0"
 
 #: `since` on `cicada_timeline` and `cicada_project`: a date (YYYY-MM-DD) or a number of days back ("7", "7d").
 #: Anything else used to fall back to the default window without a word (Hyrum audit A3: "last tuesday").
@@ -58,6 +51,8 @@ def since_problem(raw) -> str | None:
     return f"Invalid arguments: `since` must be {_FORMS['since']} (got {_shown(raw)})."
 
 
+#: A string that spells a number or a boolean, refused where the schema wants the value itself; the refusal says to
+#: send it unquoted (0.7.0 read it with a note, G199).
 _DIGITS = re.compile(r"^\s*-?\d{1,15}\s*$")
 _DECIMAL = re.compile(r"^\s*-?(\d{1,15}(\.\d*)?|\.\d+)\s*$")
 
@@ -115,8 +110,21 @@ def _is(value, kind: str) -> bool:
     return True
 
 
+def _unquote(kinds: list, value) -> str:
+    """For a string that spells the number or boolean the schema wants: the hint to send it bare."""
+    if not isinstance(value, str):
+        return ""
+    bare = value.strip()
+    if "boolean" in kinds and bare.lower() in ("true", "false"):
+        bare = bare.lower()
+    elif not (("integer" in kinds and _DIGITS.match(value)) or ("number" in kinds and _DECIMAL.match(value))):
+        return ""
+    return f"; send {bare} without quotes"
+
+
 def _value(schema: dict, value, where: str, out: Checked):
-    """``value`` checked against ``schema``; returns the value to pass on (a coerced integer, a cleaned object)."""
+    """``value`` checked against ``schema``; returns the value to pass on (an integral float as an int, a cleaned
+    object)."""
     if "anyOf" in schema:
         for branch in schema["anyOf"]:
             trial = Checked()
@@ -129,26 +137,9 @@ def _value(schema: dict, value, where: str, out: Checked):
     kinds = schema.get("type")
     kinds = [kinds] if isinstance(kinds, str) else list(kinds or [])
     if kinds and not any(_is(value, k) for k in kinds):
-        if "integer" in kinds and isinstance(value, str) and _DIGITS.match(value):
-            number = int(value)
-            out.warnings.append(f"`{where}` was sent as a string; it was read as the integer {number}. Send a "
-                                f"number: a string here will be refused from the next release.")
-            value = number
-        elif "number" in kinds and isinstance(value, str) and _DECIMAL.match(value):
-            number = float(value)
-            out.warnings.append(f"`{where}` was sent as a string; it was read as the number {number:g}. Send a "
-                                f"number: a string here will be refused from the next release.")
-            value = number
-        elif "boolean" in kinds and isinstance(value, str) and value.strip().lower() in ("true", "false"):
-            # Read as written — `bool("false")` used to make it true — with the same one-release notice.
-            flag = value.strip().lower() == "true"
-            out.warnings.append(f"`{where}` was sent as a string; it was read as {_shown(flag)}. Send true or "
-                                f"false: a string here will be refused from the next release.")
-            value = flag
-        else:
-            wanted = " or ".join(_TYPE_WORDS.get(k, k) for k in kinds)
-            out.problems.append(f"`{where}` must be {wanted} (got {_shown(value)})")
-            return value
+        wanted = " or ".join(_TYPE_WORDS.get(k, k) for k in kinds)
+        out.problems.append(f"`{where}` must be {wanted} (got {_shown(value)}{_unquote(kinds, value)})")
+        return value
     if isinstance(value, float) and "integer" in kinds and value.is_integer() and "number" not in kinds:
         value = int(value)
     if "enum" in schema and value not in schema["enum"] and isinstance(value, str):
