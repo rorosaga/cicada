@@ -1771,7 +1771,8 @@ def _given_name_pages(existing: list[dict], resolved_creates: dict[str, dict],
     for pid, fm, title in rows:
         if not pid or str(fm.get("type") or "").lower() != "person":
             continue
-        if pid == owner_page_id or fm.get(role_people.UNNAMED_KEY) or role_people.parse(title, bare=True):
+        if (pid == owner_page_id or fm.get("owner") or fm.get(role_people.UNNAMED_KEY)
+                or role_people.parse(title, bare=True)):
             continue
         words = _name_words(title)
         if not words:
