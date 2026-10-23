@@ -41,7 +41,8 @@ struct SourcesPageView: View {
             wisprPresent: localSources.wisprInstalled || channels.contains { $0.id == LocalSourceWatcher.wisprChannel },
             overview: overview)
         return SourceCatalog.rows(entries: entries, channels: channels, overview: overview,
-                                  readableSites: reading.readableSites, localReaders: localReaders)
+                                  readableSites: reading.readableSites, localReaders: localReaders,
+                                  savedListsOn: reading.savedListsOn)
     }
 
     @Environment(CalendarReader.self) private var calendarReader: CalendarReader?

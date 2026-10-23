@@ -119,6 +119,54 @@ final class SourceCatalogTests: XCTestCase {
         XCTAssertEqual(SourceCatalog.signInChannels, ChannelActions.connectorChannels)
     }
 
+    /// 2026-10-23 (live test) — YouTube read Off over a Takeout import of thousands of playlist and watch-history
+    /// episodes: the entry named only Chrome's history channel, so it never saw the overview's own rows.
+    func testYouTubeIsConnectedByItsImportsAndListsThem() {
+        let overview = [SourceOverview(id: "youtube-history", label: "YouTube history", kind: .social, episodes: 2630,
+                                       lastActivityAt: "2026-10-22T10:00:00Z"),
+                        SourceOverview(id: "youtube", label: "YouTube", kind: .social, episodes: 3156)]
+        let r = rows(overview: overview)
+        XCTAssertEqual(row("youtube", in: r)?.status, .connected)
+        XCTAssertNotNil(row("youtube", in: r)?.lastSync, "its last activity is the line")
+        XCTAssertEqual(SourceCatalog.overviewRow(for: row("youtube", in: r)!.entry, in: overview)?.id, "youtube-history")
+        XCTAssertEqual(row("youtube", in: rows())?.status, .off, "nothing imported, nothing on: Off")
+    }
+
+    /// An import counts only for an account; a browser's own rows carry a channel, so a watch turned off on this Mac
+    /// never reads Connected through its episodes.
+    func testAnImportCountsForAnAccountButNeverRevivesAReaderTurnedOff() {
+        let chrome = BrowserInventory.spec(id: "chrome")!
+        let overview = [SourceOverview(id: "chrome-bookmarks", label: "Chrome bookmarks", kind: .browser, episodes: 40,
+                                       channelId: "chrome-bookmarks"),
+                        SourceOverview(id: "instagram", label: "Instagram", kind: .social, episodes: 3)]
+        let channels = [SourceChannel(id: "chrome-bookmarks", label: "Chrome", connected: true)]
+        let entries = SourceCatalog.entries(browsers: [chrome], wisprPresent: false, overview: overview)
+        let r = SourceCatalog.rows(entries: entries, channels: channels, overview: overview, readableSites: [],
+                                   localReaders: ["chrome-bookmarks": false])
+        XCTAssertEqual(row("browser:chrome", in: r)?.status, .off)
+        XCTAssertEqual(row("instagram", in: r)?.status, .connected)
+    }
+
+    /// G206 (#426) — a saved list the person's agent keeps current is a connection; the copy no longer says "coming".
+    func testASavedListOnIsConnectedAndTheInstagramCopySaysWhatExists() {
+        let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
+        let r = SourceCatalog.rows(entries: entries, channels: [], overview: [], readableSites: [],
+                                   savedListsOn: ["instagram", "x"])
+        XCTAssertEqual(row("instagram", in: r)?.status, .connected)
+        XCTAssertEqual(row("x", in: r)?.status, .connected)
+        XCTAssertEqual(row("linkedin", in: r)?.status, .off)
+        XCTAssertFalse(Copy.Catalog.instagramHonest.lowercased().contains("coming"))
+        XCTAssertEqual(SourceCatalog.savedListSites, ["x", "instagram", "linkedin"])
+    }
+
+    func testReadingSettingsDecodeTheSavedListsAndAnOlderBackendHasNone() throws {
+        let on = try JSONDecoder().decode(ReadingSettingsResponse.self, from: Data(
+            #"{"agentEnabled": true, "savedLists": {"x": false, "instagram": true, "linkedin": false}}"#.utf8))
+        XCTAssertEqual(on.savedLists["instagram"], true)
+        let old = try JSONDecoder().decode(ReadingSettingsResponse.self, from: Data(#"{"agentEnabled": true}"#.utf8))
+        XCTAssertEqual(old.savedLists, [:])
+    }
+
     func testSignInWordsAreReadFromTheFailure() {
         XCTAssertTrue(SourceCatalog.readsAsSignIn("401 Unauthorized"))
         XCTAssertFalse(SourceCatalog.readsAsSignIn("Timed out"))

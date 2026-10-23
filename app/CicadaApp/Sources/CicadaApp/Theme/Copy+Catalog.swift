@@ -36,8 +36,19 @@ extension Copy {
         static let whatCameIn = "What came in"
         static let reading = "Reading"
         static func readSite(_ name: String) -> String { "Your agent may read \(name) in your browser" }
-        /// G206 — honest about what exists: the permission is real, the saved-list reader is not built yet.
-        static let instagramHonest = "Saved posts through your browser are coming. Today, import a data export."
+        /// G206 (#426) — what exists: the person's own agent on this Mac reads the saved list in their signed-in browser
+        /// once its switch is on, at most 10 reads a day; or an export. (2026-10-23: it said "coming".)
+        static let instagramHonest = "Your own agent on this Mac can read your Saved posts in your signed-in browser — "
+            + "turn on the list below. Or import a data export."
+        static let savedListOff = "Your own agent reads this list in your signed-in browser, at most 10 times a day. "
+            + "Saved posts are kept for lookup, never read."
+        static func readSavedList(_ site: String) -> String {
+            switch site {
+            case "x": "Read my Bookmarks in my browser"
+            case "linkedin": "Read my Saved posts in my browser"
+            default: "Read my Saved in my browser"
+            }
+        }
         static let chatExportsHere = "Each chat export sits on its agent's row."
         static let dropHint = "Drop an export or a bookmarks file here."
         static func eyebrow(_ connected: Int) -> String { "\(connected) connected" }

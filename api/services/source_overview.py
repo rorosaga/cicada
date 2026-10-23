@@ -316,8 +316,13 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
         day = _activity_day(ts)
         if day is not None and window_start <= day <= window_end:
             state["activity"][day] = state["activity"].get(day, 0) + 1
-        if _sortable(ts) > _sortable(state["last_activity_at"]):
-            state["last_activity_at"] = ts
+        # The row's last activity is the newest capture WRITE, not the conversation's first moment (2026-10-23, live
+        # test: Claude Code read "1 day ago" right after a capture, since one session is one episode and its
+        # `timestamp` is when it began). `captured_at` is the capture writer's stamp on every create and update,
+        # `last_turn_at` the last kept turn's own time; the activity buckets above stay on `timestamp`.
+        latest = max((str(fm.get(k) or "") for k in ("timestamp", "captured_at", "last_turn_at")), key=_sortable)
+        if _sortable(latest) > _sortable(state["last_activity_at"]):
+            state["last_activity_at"] = latest
 
     # Final review M1: the `files` card must count what its page renders. The
     # page (ChannelSourceView.items) lists the Feed items whose page carries

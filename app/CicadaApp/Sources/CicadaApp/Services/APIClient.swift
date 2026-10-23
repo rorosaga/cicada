@@ -3114,8 +3114,11 @@ actor APIClient {
     func setReadingSettings(agentEnabled: Bool? = nil, sites: [String: Bool]? = nil,
                             acknowledge: Bool = false, exploreSignedIn: Bool? = nil,
                             neverExplore: [String: Bool]? = nil,
-                            youtubeLists: [String: Bool]? = nil) async throws -> ReadingSettingsResponse {
+                            youtubeLists: [String: Bool]? = nil,
+                            savedLists: [String: Bool]? = nil) async throws -> ReadingSettingsResponse {
         var body: [String: Any] = [:]
+        // G206: a `{x|instagram|linkedin: Bool}` patch.
+        if let savedLists { body["savedLists"] = savedLists }
         // G71 (2026-10-16): a `{watch_later|history: Bool}` patch.
         if let youtubeLists { body["youtubeLists"] = youtubeLists }
         if let agentEnabled { body["agentEnabled"] = agentEnabled }

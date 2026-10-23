@@ -29,6 +29,10 @@ final class ReadingAgentModel {
         var writeYouTube: @MainActor ([String: Bool]) async throws -> ReadingSettingsResponse = {
             try await APIClient.shared.setReadingSettings(youtubeLists: $0)
         }
+        /// G206 — a saved-list patch `{x|instagram|linkedin: true|false}` (the Sources page's switch, 2026-10-23).
+        var writeSaved: @MainActor ([String: Bool]) async throws -> ReadingSettingsResponse = {
+            try await APIClient.shared.setReadingSettings(savedLists: $0)
+        }
 
         @MainActor static var live: Deps {
             Deps(fetch: { try await APIClient.shared.fetchReadingSettings() },
@@ -79,6 +83,25 @@ final class ReadingAgentModel {
         defer { busy = false }
         do {
             settings = try await deps.writeNever([key: on])
+            note = nil
+            return true
+        } catch APIError.httpError(let code, let body) where code == 422 {
+            note = ProjectWriteFailure.detail(body) ?? Copy.Reading.saveFailed
+            return false
+        } catch {
+            note = Copy.Reading.saveFailed
+            return false
+        }
+    }
+
+    /// G206 — turn one site's saved list on or off. Refused (422, said in the backend's sentence) while agent reading is
+    /// off or its acknowledgement is not current; on again lifts a sign-in pause.
+    @discardableResult
+    func setSavedList(_ site: String, _ on: Bool) async -> Bool {
+        busy = true
+        defer { busy = false }
+        do {
+            settings = try await deps.writeSaved([site: on])
             note = nil
             return true
         } catch APIError.httpError(let code, let body) where code == 422 {

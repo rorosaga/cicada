@@ -14,6 +14,12 @@ extension ReadingAgentModel {
         guard let settings, settings.agentEnabled else { return [] }
         return Set(settings.allowedSites.keys)
     }
+
+    /// G206 — the saved lists the person's agent keeps current: none while agent reading is off.
+    var savedListsOn: Set<String> {
+        guard let settings, settings.agentEnabled else { return [] }
+        return Set(settings.savedLists.filter { $0.value }.map { $0.key })
+    }
 }
 
 /// 2026-10-23 — which of this Mac's readers are on, for `SourceCatalog.status`. The backend knows a reader synced once,
@@ -156,6 +162,7 @@ struct SourceCatalogDetail: View {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
                 controls
                 if let site = row.entry.site { readingToggle(site) }
+                if let site = row.entry.site, SourceCatalog.savedListSites.contains(site) { savedListToggle(site) }
             }
             .padding(.horizontal, CicadaTheme.spacingXL)
             .padding(.bottom, CicadaTheme.spacingLG)
@@ -286,6 +293,36 @@ struct SourceCatalogDetail: View {
             if let note = reading.note {
                 Text(note).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// G206 (#426) — the saved list the person's own agent keeps current from their signed-in browser (app.md's spec,
+    /// first slice, 2026-10-23: the switch and its off line). The backend refuses it while agent reading is off or
+    /// unacknowledged, so the first-use sheet comes first then; a refusal's sentence shows under the reading switch.
+    private func savedListToggle(_ site: String) -> some View {
+        let on = reading.savedListsOn.contains(site)
+        return VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            Toggle(isOn: Binding(get: { on }, set: { value in flipSavedList(site, on: value) })) {
+                Text(Copy.Catalog.readSavedList(site))
+                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            if !on {
+                Text(Copy.Catalog.savedListOff).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func flipSavedList(_ site: String, on: Bool) {
+        Task { @MainActor in
+            await reading.loadSettings()
+            if on, reading.needsFirstUseSheet || !(reading.settings?.agentEnabled ?? false) {
+                consentSite = site
+            } else {
+                _ = await reading.setSavedList(site, on)
             }
         }
     }

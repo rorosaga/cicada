@@ -88,6 +88,21 @@ def test_source_key_routes_mcp_and_session_episodes_to_a_harness_row():
     assert source_overview.source_key({"origin": "note"}) == "device-notes"
 
 
+def test_a_harness_rows_last_activity_is_its_newest_capture_write_not_the_sessions_start(tmp_path):
+    """2026-10-23 (live test): one session is one episode whose `timestamp` is when it began, so Claude Code read
+    "1 day ago" right after a capture updated yesterday's session. The newest write (`captured_at`) wins."""
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "episodes" / "ep_2026-10-22_001.md").write_text(
+        "---\nid: ep_2026-10-22_001\ntimestamp: '2026-10-22T08:00:00+00:00'\ntitle: T\nprocessed: false\n"
+        f"origin: claude-code\nsession_id: {UUID_A}\nharness: claude-code\n"
+        "captured_at: '2026-10-23T16:30:00+00:00'\nlast_turn_at: '2026-10-23T16:29:00+00:00'\n---\n\nbody",
+        encoding="utf-8")
+    row = _rows(memory)["harness:claude-code"]
+    assert row["last_activity_at"] == "2026-10-23T16:30:00+00:00"
+    assert row["activity"] == {} or "2026-10-22" in row["activity"], "the activity day stays the session's start"
+
+
 def test_a_phone_note_reads_as_phone_never_its_raw_id(tmp_path):
     memory = tmp_path / "memory"
     memory.mkdir()
