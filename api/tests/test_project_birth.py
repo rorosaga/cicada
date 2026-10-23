@@ -221,3 +221,138 @@ def test_the_timeline_wire_carries_origin_sections_and_people(tmp_path):
     assert wire["people"] == []
     rows = {r.id: r.origin for r in project_timeline.list_projects(memory, tz_name="UTC").projects}
     assert rows == {"alpha-project": None, "garden-plan": None, "delta-plan": None}   # nothing stored yet
+
+
+# --- benchmarks/newuser follow-up (2026-10-22): W2, W3, W4 ---------------------------------------------------------
+
+_BORN = {"origin": "words", "day": "2026-10-20", "episode": EP_A, "span": {"start": 0, "end": 1, "hash": "x",
+                                                                          "kind": "user"}}
+
+
+def _project_page(eid: str, name: str, aliases=()) -> dict:
+    return {"id": eid, "frontmatter": {"name": name, "type": "project", "status": "active", "confidence": 0.8,
+                                       "born": _BORN, **({"aliases": list(aliases)} if aliases else {})},
+            "body": f"## Summary\n{name} is a synthetic project."}
+
+
+def _resolve_with(memory, extracted, pages, monkeypatch, verdict="different"):
+    async def judge(*_a, **_k):
+        return verdict
+
+    async def batch(new_name, new_type, new_description, entries, settings, *, new_connections=""):
+        return [verdict for _ in entries]
+    monkeypatch.setattr(entity_resolver.SqliteVecIndexer, "_rebuild_pending_index", lambda self, entries: None)
+    monkeypatch.setattr(entity_resolver, "_llm_judge_same_entity", judge)
+    monkeypatch.setattr(entity_resolver, "_llm_judge_batch", batch)
+    return asyncio.run(entity_resolver.resolve(extracted, pages, _settings(memory)))
+
+
+def test_w2_an_alias_brings_the_project_page_to_the_judge_who_decides(tmp_path, monkeypatch):
+    """A later conversation named the canoe "Hull build" (alias "Cedar canoe"): it shares no word with the page, so
+    the judge never saw it, and the mention was held. The alias now brings the page to the judge (owner 2026-10-08:
+    "an alias brings its page to the judge, never a decision")."""
+    memory = _bank(tmp_path)
+    mention = _project("Hull build", EP_B, TS_B, aliases=["Cedar canoe"])
+    out = _resolve_with(memory, [{"episode_id": EP_B, "entities": [mention], "relationships": []}],
+                        [_project_page("cedar-canoe", "Cedar canoe")], monkeypatch, verdict="same")
+    assert [(c["action"], c["id"]) for c in out["changes"]] == [("update", "cedar-canoe")]
+    assert out["name_to_id"]["hull build"] == "cedar-canoe"
+
+
+def test_w2_an_alias_never_overrides_the_judges_different(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    mention = _project("Hull build", EP_B, TS_B, aliases=["Cedar canoe"])
+    out = _resolve_with(memory, [{"episode_id": EP_B, "entities": [mention], "relationships": []}],
+                        [_project_page("cedar-canoe", "Cedar canoe")], monkeypatch, verdict="different")
+    assert not any(c["id"] == "cedar-canoe" for c in out["changes"])
+    assert "hull build" not in out["name_to_id"]
+
+
+def test_w2_an_unsure_judge_asks_the_person(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    mention = _project("Hull build", EP_B, TS_B, aliases=["Cedar canoe"])
+    out = _resolve_with(memory, [{"episode_id": EP_B, "entities": [mention], "relationships": []}],
+                        [_project_page("cedar-canoe", "Cedar canoe")], monkeypatch, verdict="unsure")
+    assert out["changes"] == []
+    asked = [markdown_parser.parse(p).frontmatter for p in (memory / "inbox").glob("inbox-*.md")]
+    assert [(fm["kind"], fm["merge_target_hint"]) for fm in asked] == [("merge_suggestion", "cedar-canoe")]
+
+
+def test_w2_a_pair_the_person_said_were_different_is_not_brought(tmp_path, monkeypatch):
+    from api.services import merge_rejections
+
+    memory = _bank(tmp_path)
+    merge_rejections.add_rejected(memory, "hull-build", "cedar-canoe")
+    judged = []
+
+    async def judge(*_a, **k):
+        judged.append(k.get("existing_name"))
+        return "same"
+    monkeypatch.setattr(entity_resolver, "_llm_judge_same_entity", judge)
+    mention = _project("Hull build", EP_B, TS_B, aliases=["Cedar canoe"])
+    monkeypatch.setattr(entity_resolver.SqliteVecIndexer, "_rebuild_pending_index", lambda self, entries: None)
+    out = asyncio.run(entity_resolver.resolve([{"episode_id": EP_B, "entities": [mention], "relationships": []}],
+                                              [_project_page("cedar-canoe", "Cedar canoe")], _settings(memory)))
+    assert judged == [] and not any(c["id"] == "cedar-canoe" for c in out["changes"])
+
+
+def test_w2_a_project_mention_judged_the_same_as_a_project_page_updates_it(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    mention = _project("Canoe", EP_B, TS_B)
+    out = _resolve_with(memory, [{"episode_id": EP_B, "entities": [mention], "relationships": []}],
+                        [_project_page("cedar-canoe", "Cedar canoe")], monkeypatch, verdict="same")
+    assert [(c["action"], c["id"]) for c in out["changes"]] == [("update", "cedar-canoe")]
+
+
+def test_w2_an_alias_naming_two_project_pages_updates_neither(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    mention = _project("Hull build", EP_B, TS_B, aliases=["Cedar canoe", "Oak canoe"])
+    out = _resolve_with(memory, [{"episode_id": EP_B, "entities": [mention], "relationships": []}],
+                        [_project_page("cedar-canoe", "Cedar canoe"), _project_page("oak-canoe", "Oak canoe")],
+                        monkeypatch)
+    assert out["changes"] == []
+
+
+@pytest.mark.parametrize("text", [
+    "user: New project with Teo: fernpost, a tiny web app for the street.\n",
+    "user: My next project: fernpost.\n",
+])
+def test_w3_a_colon_after_the_project_word_introduces_its_name(text):
+    span = project_birth.said_project({"name": "fernpost"}, text)
+    assert span is not None and span.kind == "user"
+
+
+def test_w3_a_colon_that_starts_a_new_thought_still_does_not(tmp_path):
+    text = "user: fernpost: the project at work moved to a new building.\n"
+    assert project_birth.said_project({"name": "fernpost"}, text) is None
+
+
+def test_w4_a_page_written_as_a_project_needs_a_birth_whatever_type_the_chosen_mention_had(tmp_path, monkeypatch):
+    """A concept-typed mention and a project-typed one of the same name: the page was written as a project with no
+    `born` — the gate read only the mention it chose."""
+    memory = _bank(tmp_path)
+    concept = _project("Delta Plan", EP_A, TS_A)
+    concept["type"] = "concept"
+    project = _project("Delta Plan", EP_B, TS_B)
+    project["confidence"] = 0.6
+    out = _resolve_with(memory, [{"episode_id": EP_A, "entities": [concept], "relationships": []},
+                                 {"episode_id": EP_B, "entities": [project], "relationships": []}], [], monkeypatch)
+    for change in out["changes"]:
+        if change["action"] == "create" and (change["entity"].get("type") or "") == "project":
+            assert change.get("project_birth"), "a project page is never written without its birth"
+
+
+def test_w4_a_birth_on_the_project_sibling_reaches_the_page_the_concept_mention_starts(tmp_path, monkeypatch):
+    """The chosen mention is a concept, its project-typed sibling carries the birth: the page is written as a
+    project and must carry that `born` (review of #436: the birth was attached only when the chosen mention was)."""
+    memory = _bank(tmp_path)
+    concept = _project("Delta Plan", EP_A, TS_A)
+    concept["type"] = "concept"
+    project = _project("Delta Plan", EP_B, TS_B)
+    project["confidence"] = 0.6
+    project["project_birth"] = {**_BORN, "episode": EP_B, "day": "2026-10-21"}
+    out = _resolve_with(memory, [{"episode_id": EP_A, "entities": [concept], "relationships": []},
+                                 {"episode_id": EP_B, "entities": [project], "relationships": []}], [], monkeypatch)
+    [change] = [c for c in out["changes"] if c["action"] == "create"]
+    assert change["entity"]["type"] == "project"
+    assert change["project_birth"]["episode"] == EP_B

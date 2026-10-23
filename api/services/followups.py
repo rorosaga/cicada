@@ -51,6 +51,7 @@ class _Candidate:
     page: str          # the page that holds the claim — the item's `entity_id`
     predicate: str     # happened | milestone | due
     claim_id: str
+    why: str = field(default="", compare=False)   # why it is asked now, in words for the card's body
 
     @property
     def key(self) -> tuple[str, str, str]:
@@ -84,11 +85,13 @@ def _eligible(memory_path: Path, today: date, tz_name: str) -> list[tuple[str, l
             page = m.on or row.id
             if m.source == "milestone" and m.status == "planned":
                 if project_state.milestone_state(m.model_dump(by_alias=True), today)["followupEligible"]:
-                    overdue.append((m.target or "", _Candidate(page, "milestone", m.claim_id)))
+                    overdue.append((m.target or "", _Candidate(page, "milestone", m.claim_id,
+                                                               f"planned for {m.target}" if m.target else "planned")))
             elif m.source == "due" and m.status == "passed-no-word":
                 age = _days_since(m.target, today)
                 if age is not None and 0 < age <= PASSED_DUE_DAYS:
-                    passed.append((m.target or "", _Candidate(page, "due", m.claim_id)))
+                    passed.append((m.target or "", _Candidate(page, "due", m.claim_id,
+                                                              f"due {m.target}, no word since")))
         threads = project_timeline._threads(bank, row.id, project_timeline._events(bank, tree, owner))
         state = project_state.timeline_state({
             "status": row.status, "lastMomentDay": row.last_moment_day, "medianGapDays": row.median_gap_days,
@@ -96,7 +99,8 @@ def _eligible(memory_path: Path, today: date, tz_name: str) -> list[tuple[str, l
         quiet: list[tuple[int, _Candidate]] = []
         for t, s in zip(threads, state["threads"]):
             if s["followupEligible"]:
-                quiet.append((int(s["quietDays"] or 0), _Candidate(t.on or row.id, "happened", t.claim_id)))
+                days = int(s["quietDays"] or 0)
+                quiet.append((days, _Candidate(t.on or row.id, "happened", t.claim_id, f"quiet for {days} days")))
         candidates = ([c for _, c in sorted(overdue, key=lambda x: (x[0], x[1].claim_id))]
                       + [c for _, c in sorted(passed, key=lambda x: (x[0], x[1].claim_id))]
                       + [c for _, c in sorted(quiet, key=lambda x: (-x[0], x[1].claim_id))])
@@ -161,7 +165,8 @@ def propose(memory_path: Path, today: date, *, skip: frozenset[str] = frozenset(
         markdown_parser.write(path, {
             "kind": "followup", "required_input": "choice", "status": "pending", "priority": 0.5,
             "entity_id": pick.page, "entity_name": names.name(pick.page), "predicate": pick.predicate,
-            "claim_id": pick.claim_id, "title": TITLE, "created_date": today.isoformat()}, BODY)
+            "claim_id": pick.claim_id, "title": TITLE, "created_date": today.isoformat()},
+            _body(memory_path, pick, names.name(pick.page)))
         report.written.append(f"inbox/{path.name}")
         open_keys.append(pick.key)
         asked |= eligible.get(pick.key, set())
@@ -169,6 +174,22 @@ def propose(memory_path: Path, today: date, *, skip: frozenset[str] = frozenset(
     if report.written:
         bank_index.invalidate(memory_path)
     return report
+
+
+def _body(memory_path: Path, pick: _Candidate, page_name: str) -> str:
+    """The card's body names its thread (owner decision A, 2026-10-22): the page, the claim's own words and why it
+    is asked now. :data:`BODY` only when the claim can no longer be read."""
+    from api.services.claims import parse_claims
+
+    text = ""
+    try:
+        body = markdown_parser.parse(Path(memory_path) / "entities" / f"{pick.page}.md").body
+        text = next((c.text for c in parse_claims(body) if c.id == pick.claim_id), "")
+    except Exception as exc:  # noqa: BLE001 — a card is still worth asking with the plain body
+        logger.warning(f"follow-up body: claim unreadable ({type(exc).__name__})")
+    if not text:
+        return BODY
+    return f"{page_name}: “{text}” — {pick.why or 'a follow-up'}."
 
 
 def commit_message(report: Report, today: date) -> str:

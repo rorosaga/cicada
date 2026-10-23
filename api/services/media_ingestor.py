@@ -22,7 +22,7 @@ import os
 import re
 import tempfile
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import parse_qs, urljoin, urlparse
@@ -75,8 +75,12 @@ class RawItem:
     # ``api/services/saved_at.py`` — each of the five source-specific formats
     # is converted at parse time, never carried raw). ``None`` means unknown
     # — a source that provides no date, or one that failed to parse — and
-    # must never be guessed at downstream. Distinct from the episode's
-    # ``timestamp``/entity's ``created`` (when Cicada ingested the item).
+    # must never be guessed at downstream. Owner decision B (2026-10-22): a
+    # NEW save's episode takes this day (or ``added_at``'s instant) as its
+    # ``timestamp`` and id day, as a calendar event takes its start; with no
+    # date, and on episodes written before, ``timestamp`` is when Cicada took
+    # it in (ids are never renamed, ruling 34). The media entity's ``created``
+    # is still the ingest day.
     added: str | None = None
     # G191: the same save as an exact instant (aware UTC ISO, seconds), only from a
     # source that records one — Chrome's ``date_added``, Safari's Reading List
@@ -1969,23 +1973,53 @@ def _entity_body(meta: MediaMeta, note: str | None) -> str:
     return "\n".join(lines)
 
 
+def _saved_moment(day: str | None, instant: str | None) -> datetime | None:
+    """When the person saved it, as an aware UTC moment no later than now: the recorded instant, else noon UTC of the
+    recorded day (the same calendar day in every zone from UTC-11 to UTC+11). ``None`` when neither is readable."""
+    now = datetime.now(timezone.utc)
+    for value in (instant, f"{day}T12:00:00+00:00" if day else None):
+        if not value:
+            continue
+        try:
+            moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if moment.tzinfo is not None:
+            return min(moment.astimezone(timezone.utc), now)
+    return None
+
+
+def _saved_day(day: str | None, instant: str | None, moment: datetime | None) -> str:
+    """The day the episode id carries: a recorded instant's local day (ruling 34), else the recorded day itself — noon
+    UTC is the next calendar day above UTC+12, so a day-only save never goes through the moment — never after today;
+    with neither, today."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    if moment is None:
+        return today
+    if day and _saved_moment(None, instant) is None:  # the moment came from the day alone
+        return min(day, today)
+    return episode_ids.id_day(moment)
+
+
 def write_media_episode(
     episodes_dir: Path, item: RawItem, meta: MediaMeta, media_entity_id: str
 ) -> str:
     episodes_dir.mkdir(parents=True, exist_ok=True)
-    ep_date = datetime.now().strftime("%Y-%m-%d")
-    episode_id = episode_ids.next_episode_id(episodes_dir, ep_date)
-    # Aware UTC (G114 R2) — the old naive `now` + a bare "Z" suffix stamped
-    # LOCAL time and labelled it UTC, off by the machine's offset.
-    timestamp = episode_ids.utc_now_iso()
-    saved_date = ep_date
-
     # G99d seam guard (Devin round 1, PR #26): `RawItem.added` is
     # contractually pre-normalized, but validate here anyway — the one place
     # every write of this value funnels through — so a future producer that
     # forgets to normalize (as Pinterest's `created_at` did) can never leak a
     # raw value into frontmatter or the body.
     validated_added = saved_at.validate(item.added)
+    validated_instant = saved_at.validate_instant(item.added_at)
+    # Owner decision B (2026-10-22): a NEW save is dated when the person saved it — its id day and its timestamp —
+    # when the source records that (the instant, else the day); with no recorded date, when Cicada took it in. Aware
+    # UTC (G114 R2). An existing episode is never renamed (ruling 34): this runs only for a new file.
+    saved_moment = _saved_moment(validated_added, validated_instant)
+    timestamp = saved_moment.isoformat() if saved_moment else episode_ids.utc_now_iso()
+    ep_date = _saved_day(validated_added, validated_instant, saved_moment)
+    episode_id = episode_ids.next_episode_id(episodes_dir, ep_date)
+    saved_date = ep_date
 
     body = episode_scrub.scrub_body(_episode_body(
         meta, item.url, saved_date, item.note, folder=item.folder, reason=item.reason,
@@ -2010,9 +2044,9 @@ def write_media_episode(
         # G99d — when the user actually saved/bookmarked this, recovered from
         # the source export (normalized in api/services/saved_at.py). Absent
         # (never a guess) when the source gave no date or it failed to parse.
-        # Distinct from `timestamp` above, which is when Cicada ingested it.
+        # Since owner decision B (2026-10-22) `timestamp` above is this save's own moment too, for a new save; on an
+        # episode written before it, `timestamp` is when Cicada ingested it.
         frontmatter["saved_at"] = validated_added
-    validated_instant = saved_at.validate_instant(item.added_at)
     if validated_instant:
         # G191 — the instant the browser recorded the save, when it records one.
         frontmatter["added_at"] = validated_instant

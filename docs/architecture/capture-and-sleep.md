@@ -36,7 +36,10 @@ Seven rails hold across all of them:
   this pass (at most `FRESH_CAP` = 3 listed), each with its episode and `added_at`, the browser's own instant (aware
   UTC, seconds; Chrome's `date_added`, Safari's Reading List `DateAdded`, `saved_at.instant_from_*`). The episode
   keeps `added_at` beside the day in `saved_at`, so the record says *when* a page that may since have changed was
-  saved. A moved bookmark is a URL already held, so a reorganisation is never fresh. **A re-save is fresh (G191 v3,
+  saved. **A new save is dated when it was saved (owner decision B, 2026-10-22):** its episode's `timestamp` and id
+  day are `added_at` (the id its local day), else `saved_at` itself as the id day and noon UTC of it as the timestamp
+  (never later than now), so Sleep and Ask read the save on its own day, as a calendar event is read on its start; with no recorded date it is the day Cicada took it in, and an
+  existing episode is never renamed (ruling 34). The media page's `created` stays the ingest day. A moved bookmark is a URL already held, so a reorganisation is never fresh. **A re-save is fresh (G191 v3,
   owner 2026-10-15):** a link the bank holds that this channel's file newly saved — absent from the channel's last
   seen-set and present now, or stamped by the browser later than the newest instant the last sync saw (the seen-set
   keeps `newest_added`) — is reported with `resave: true` and its own episode, by the sync and the early look alike
@@ -1231,10 +1234,16 @@ on the conversation it read (no model), a `project_birth` record and drops any t
   ruling's text mentions is not available; the folder name stands in for it, disclosed).
 - **words** — one sentence of a person's own turn (`user`, or a meeting `speaker`) names it within five words of
   *project* (or *proyecto*, *projet*, *Projekt*, *progetto*, *projeto*, plurals), inside one clause (no comma, colon,
-  semicolon or parenthesis between them), outside a recorded gap; kept as a span `{start, end, hash, kind}` into the
+  semicolon or parenthesis between them — except one colon after the project word's clause that introduces the name,
+  "New project with Teo: fernpost", W3 2026-10-22), outside a recorded gap; kept as a span `{start, end, hash, kind}` into the
   episode, never a copy (G118). A name that itself contains "project" does not call itself one.
 Stage 2 promotes a `project` exactly when one of the batch's extractions of that name carries a record (the oldest
 conversation's wins); everything else, however often mentioned, waits on its pending line like any name below the bar.
+"A project" is the type the create will write (`_written_type`: a sibling's `project` overrides a `concept` when the
+payloads merge), never only the chosen mention's (W4). A project mention with no match whose recorded alias names
+exactly one project page — on disk, else born this batch — brings that page to the judge (W2): "same" makes it the
+page's update, "unsure" asks the person, "different" or a pair the person rejected leaves it a held mention. An alias
+brings its page to the judge, never a decision (owner 2026-10-08).
 Stage 5 writes the record once, as the page's `born:` frontmatter (`storage.md`). A watched folder the person named as
 a project (`folder_source.ensure_project`) is born `{origin: words, via: folder}`. Pages that existed before the rule are
 never archived or deleted for it; `python -m api.scripts.project_origins_dry_run --bank <path> [--json] [--quotes]` lists
@@ -1493,6 +1502,15 @@ listed as an alias. Four gaps caused it, each closed:
   full name with the handle as its alias. The raw spelling still resolves edges and claims (`name_to_id`). A pending
   line parked under that spelling folds into the page the full name resolves to, with its text, credits and held claims,
   and leaves the store through `promoted_pending`.
+
+- **A held name meets the page its alias names (W1, benchmarks/newuser 2026-10-22).** Specific names are judged
+  first, so a full name said once (aliases the short name and a handle) is held before the short name its other
+  conversations promote has a page. After the loop, every held person name — this batch's and the pending store's —
+  whose recorded alias is the name of exactly one person page raises "Possible duplicate of …"
+  (`_held_alias_questions`); an alias two pages answer to asks nothing. At most three such questions about a name with
+  no page are open at once (`MAX_HELD_ALIAS_QUESTIONS`), so a first Sleep over a long pending store never floods the
+  inbox; dismissing a "Possible duplicate" card records the pair in `_merge_rejected.yaml`, like "not the same", so
+  the line re-read from the store is not asked again.
 
 Nothing here settles who a person is (ruling 29): every lead ends in the person's question. A duplicate question about
 a name still parked below the promotion bar is live while its pending line exists (`inbox_service._subject_gone`,

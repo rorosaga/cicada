@@ -252,6 +252,7 @@ async def resolve(
     person_index = person_leads.PersonIndex(existing)
     lead_pairs: set[tuple[str, str]] = set()
     named_handle_lines = _named_handle_lines(settings.memory_path)
+    held_people: list[tuple[dict, list[dict]]] = []   # person names this batch held below the bar (W1, below)
 
     # A self-reference's facts are the owner's: they land on the owner page, under
     # its own name and type (a "User" concept must not retype or rename it). With
@@ -352,6 +353,17 @@ async def resolve(
                     gate=lookahead.gate if lookahead is not None else None,
                 )
 
+            if match is None and _written_type(entity, siblings) == "project":
+                # W2 (benchmarks/newuser, 2026-10-22): a project mention whose own recorded alias names exactly one
+                # project page brings that page to the judge — never a decision (owner 2026-10-08,
+                # `capture-and-sleep.md`). A pair already judged keeps its verdict (the cache); a pair the person said
+                # were different is not brought.
+                alias_page = _project_alias_candidate(entity, siblings, existing_by_name, resolved_creates)
+                if alias_page is not None and not _said_different(settings.memory_path, name, alias_page["id"]):
+                    match = _pick_match(name, await _judge_candidates(
+                        entity, [alias_page], llm_match_cache, settings,
+                        gate=lookahead.gate if lookahead is not None else None,
+                        connections=connections.get(name_lower, "")))
             if match is not None and match["decision"] == "same":
                 candidate = match["candidate"]
                 name_to_id[name_lower] = candidate["id"]
@@ -444,7 +456,9 @@ async def resolve(
             # Ruling 36 D4 (G141): a project is born from a repository the person works in or their own words calling
             # it one (`project_birth`), never from the rule above alone; below it, it stays a mention.
             birth = project_birth.birth_of(entity, siblings)
-            if (entity.get("type") or "").lower() == "project":
+            # W4: the gate reads the type the create will WRITE — a sibling's "project" overrides a "concept" when the
+            # payloads merge (`_merge_entity_payload`), so a page was once written as a project with no birth.
+            if _written_type(entity, siblings) == "project":
                 should_promote = birth is not None
 
             if ambiguous_match and match.get("lead") is not None:
@@ -476,7 +490,7 @@ async def resolve(
                     "untimed": bool(entity.get("untimed")),
                     "trigger": "sleep/promotion",
                 }
-                if birth is not None and (entity.get("type") or "").lower() == "project":
+                if birth is not None and _written_type(entity, siblings) == "project":
                     resolved_creates[entity_id]["project_birth"] = birth
                 if card is not None:
                     # Stage 5 writes the card's sources and photo on the page it creates (`contacts_local.seed_page`).
@@ -503,6 +517,8 @@ async def resolve(
                     promoted_pending.append(name)
             else:
                 confidence = float(entity.get("confidence", 0.3) or 0.3)
+                if (entity.get("type") or "").lower() == "person" and not ambiguous_match:
+                    held_people.append((entity, siblings))
                 # A placeholder person is asked for a name once it has a page (`role_people`), never "Who or
                 # what is Partner?" — whose answer would become the page's prose, not its name.
                 if confidence < CONFIDENCE_THRESHOLD and not ambiguous_match and not entity.get(role_people.UNNAMED_KEY):
@@ -550,6 +566,9 @@ async def resolve(
             change["entity"]["name"] = contacts_local.card_name(change["contacts_card"])
     if card_creates:
         logger.info(f"Stage 2: {len(card_creates)} page(s) promoted on a waiting card's first mention")  # never a name
+    if not cancelled:
+        pending_actions.extend(_held_alias_questions(held_people, existing, resolved_creates, clarifier,
+                                                     settings.memory_path))
     resolved = list(resolved_updates.values()) + list(resolved_creates.values())
     for raw, full in named_handles.items():
         if full in name_to_id and raw not in name_to_id:
@@ -1253,6 +1272,138 @@ def _fold_named_handle_lines(change: dict, name_lower: str, lines: dict[str, lis
         _fold_pending(change, renamed)
         name_to_id.setdefault(line.name.lower(), change["id"])
         promoted_pending.append(line.name)
+
+
+def _written_type(entity: dict, siblings) -> str:
+    """The type a create from ``entity`` and its ``siblings`` is written with — ``_merge_entity_payload``'s rule, read
+    in the order the loop merges them: an empty or ``concept`` type takes the next mention's."""
+    kind = str(entity.get("type") or "").lower()
+    for sibling in siblings:
+        if not kind or kind == "concept":
+            kind = str(sibling.get("type") or kind or "concept").lower()
+    return kind or "concept"
+
+
+def _project_alias_candidate(entity: dict, siblings, existing_by_name: dict[str, dict],
+                             created_by_id: dict[str, dict]) -> dict | None:
+    """The judge's candidate for a project mention whose recorded alias is the name (or an alias) of exactly ONE
+    project page — on disk, else born in this batch. ``None`` when no alias names one, or two do."""
+    names = {person_leads.handle_key(a) for e in (entity, *siblings) for a in (e.get("aliases") or [])
+             if str(a).strip()} - {person_leads.handle_key(entity.get("name") or "")}
+    if not names:
+        return None
+    hits: dict[str, dict] = {}
+    for data in existing_by_name.values():
+        candidate = {"source": "existing", "id": data["id"], "data": data}
+        fm = data.get("frontmatter") or {}
+        keys = {person_leads.handle_key(fm.get("name") or data["id"])} | {
+            person_leads.handle_key(a) for a in (fm.get("aliases") or []) if str(a).strip()}
+        if _candidate_type(candidate) == "project" and names & keys:
+            hits[data["id"]] = candidate
+    if not hits:
+        for pid, change in created_by_id.items():
+            candidate = {"source": "created", "id": pid, "data": change}
+            created = change.get("entity") or {}
+            keys = {person_leads.handle_key(created.get("name") or pid)} | {
+                person_leads.handle_key(a) for a in (created.get("aliases") or []) if str(a).strip()}
+            if _candidate_type(candidate) == "project" and names & keys:
+                hits[pid] = candidate
+    if len(hits) != 1:
+        return None
+    return next(iter(hits.values()))
+
+
+#: W1's bound: at most this many questions about a name with no page are open at once, so the first Sleep over a bank
+#: whose pending store holds years of names raises three, and the next only as the person answers or dismisses one.
+MAX_HELD_ALIAS_QUESTIONS = 3
+
+
+def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: list[dict],
+                          resolved_creates: dict[str, dict], clarifier: ClarificationManager,
+                          memory_path) -> list[tuple[Callable, tuple, dict]]:
+    """W1 (benchmarks/newuser, 2026-10-22; G209): a person name held below the promotion bar — this batch's, or a line
+    an earlier run parked — whose recorded alias is the name of exactly one person page (on disk, or born in this
+    batch) raises the "Possible duplicate of …" question. Never a merge: who a person is takes the person's own answer
+    (ruling 29). An alias two pages answer to asks nothing; a pair the person said were different (or dismissed) is
+    never asked. At most ``MAX_HELD_ALIAS_QUESTIONS`` questions about a name with no page are open at once.
+
+    Specific names are judged first, so a full name said once ("Teodor Brandt", aliases "Teo", "tbrandt") is held
+    before the short name its other conversations promote ("Teo") has a page — the two never met."""
+    pages: dict[str, list[tuple[str, str]]] = {}
+    for page in existing:
+        fm = page.get("frontmatter") or {}
+        if str(fm.get("type") or "").lower() == "person" and page.get("id"):
+            pages.setdefault(person_leads.handle_key(person_leads.page_name(page)), []).append(
+                (str(page["id"]), person_leads.page_name(page)))
+    for pid, change in resolved_creates.items():
+        entity = change.get("entity") or {}
+        if str(entity.get("type") or "").lower() == "person":
+            pages.setdefault(person_leads.handle_key(entity.get("name") or ""), []).append(
+                (pid, str(entity.get("name") or pid)))
+
+    from api.services import pending_store
+
+    held: dict[str, tuple[str, set[str], dict]] = {}
+    for entity, siblings in held_people:
+        name = str(entity.get("name") or "").strip()
+        names = {a for e in (entity, *siblings) for a in (e.get("aliases") or []) if str(a).strip()}
+        held[person_leads.handle_key(name)] = (name, names, entity)
+    try:
+        lines = pending_store.load(Path(memory_path)) if memory_path else []
+    except Exception:  # noqa: BLE001 — an unreadable store holds nothing to ask about
+        lines = []
+    for line in lines:
+        if str(line.type or "").lower() == "person" and person_leads.handle_key(line.name) not in held:
+            held[person_leads.handle_key(line.name)] = (
+                line.name, set(line.aliases or []),
+                {"name": line.name, "source_episode": line.source_episode, "confidence": line.confidence})
+
+    from api.services.inbox_generator import find_open
+
+    page_ids = {str(page.get("id")) for page in existing} | set(resolved_creates)
+    room = MAX_HELD_ALIAS_QUESTIONS - _open_held_duplicates(Path(memory_path), page_ids)
+    actions: list[tuple[Callable, tuple, dict]] = []
+    for key, (name, aliases, entity) in held.items():
+        hits = {hit for alias in aliases if person_leads.handle_key(alias) != key
+                for hit in pages.get(person_leads.handle_key(alias), [])}
+        if len({pid for pid, _ in hits}) != 1:
+            continue
+        pid, page_name = next(iter(hits))
+        if _said_different(memory_path, name, pid):
+            continue
+        if find_open(Path(memory_path), "merge_suggestion", sanitize_id(name), pid) is None:
+            if room <= 0:
+                continue
+            room -= 1
+        said = sorted(a for a in aliases if person_leads.handle_key(a) == person_leads.handle_key(page_name))
+        actions.append((clarifier.create, (), {
+            "entity_name": name,
+            "source_episode": entity.get("source_episode", ""),
+            "uncertainty_type": f"Possible duplicate of {page_name}",
+            "suggested_classification": f"person — could refer to the same person as {page_name}",
+            "suggested_confidence": float(entity.get("confidence", 0.0) or 0.0),
+            "source_context": f"A conversation also called {name} “{said[0] if said else page_name}”, "
+                              f"the name {page_name}'s page carries.",
+            "source_episode_timestamp": entity.get("source_episode_timestamp"),
+        }))
+    return actions
+
+
+def _open_held_duplicates(memory_path: Path, page_ids: set[str]) -> int:
+    """How many open "Possible duplicate" questions are about a name that has no page — W1's own, and a G209 lead's
+    on a held name."""
+    from api.services import markdown_parser
+
+    count = 0
+    for path in sorted((memory_path / "inbox").glob("inbox-*.md")):
+        try:
+            fm = markdown_parser.parse(path).frontmatter
+        except Exception:  # noqa: BLE001 — an unreadable item is not counted
+            continue
+        if (fm.get("kind") == "merge_suggestion" and fm.get("status") == "pending"
+                and str(fm.get("entity_id") or "") not in page_ids):
+            count += 1
+    return count
 
 
 def _create_lead_clarification(clarifier: ClarificationManager, lead: "person_leads.Lead",
