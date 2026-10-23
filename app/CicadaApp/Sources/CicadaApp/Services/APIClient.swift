@@ -528,6 +528,12 @@ struct SavedWhyOptions: Codable, Equatable, Sendable {
     var reasons: [Reason] = []
     var projects: [Project] = []
     var maxText: Int = 500
+    /// G191 v7 — the reason bank the panel suggests a few from (`saved_why.MORE`), beside the fixed row. Empty from an
+    /// older backend, which would refuse a bank key: the panel then suggests nothing.
+    var more: [Reason] = []
+
+    /// Every reason the panel can hold a tap for, in the order an answer lists them: the fixed row, then the bank.
+    var order: [String] { reasons.map(\.key) + more.map(\.key) }
 
     /// G191 v4 — the four fixed reasons (`saved_why.REASONS` on the backend, same keys and words), so the panel can
     /// show at once before the backend's options arrive. The backend's list replaces it as soon as it answers.
@@ -537,6 +543,36 @@ struct SavedWhyOptions: Codable, Equatable, Sendable {
         .init(key: "read_later", label: "To read later"),
         .init(key: "someday", label: "Useful someday"),
     ], projects: [], maxText: 500)
+}
+
+extension SavedWhyOptions {
+    private enum CodingKeys: String, CodingKey { case reasons, projects, maxText, more }
+
+    /// Decoded field by field so a backend older than G191 v7 (no `more`) still decodes.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        reasons = try c.decodeIfPresent([Reason].self, forKey: .reasons) ?? []
+        projects = try c.decodeIfPresent([Project].self, forKey: .projects) ?? []
+        maxText = try c.decodeIfPresent(Int.self, forKey: .maxText) ?? 500
+        more = (try? c.decodeIfPresent([Reason].self, forKey: .more)) ?? []
+    }
+}
+
+/// G191 v7 — `POST /sources/saved-why/suggest`: how close each bank reason is to the saved link, by the search model
+/// only when it is already installed (`basis` `model`), else nothing (`none`) and the panel ranks on its own.
+struct SavedWhyModelScores: Codable, Equatable, Sendable {
+    struct Score: Codable, Equatable, Sendable {
+        let key: String
+        let score: Double
+    }
+    var basis: String = "none"
+    var scores: [Score] = []
+
+    /// The scores by key, or nil when no model scored the bank.
+    var byKey: [String: Double]? {
+        guard basis == "model", !scores.isEmpty else { return nil }
+        return Dictionary(scores.map { ($0.key, $0.score) }, uniquingKeysWith: { first, _ in first })
+    }
 }
 
 /// G191 — one answer as the source record carries it (`GET /sources` → `savedWhy` / `savedWhyHistory`): the reason
@@ -615,9 +651,13 @@ protocol SavedWhyAPI: Sendable {
     func saveWhy(url: String, answer: SavedWhyAnswer, at: Date, addedAt: String?) async throws
     /// 2026-10-19 — the star on a page already saved: change the answer said at `at` (`PUT /sources/saved-why`).
     func editSavedWhy(url: String, at: String, answer: SavedWhyAnswer) async throws -> SavedWhyReply
+    /// G191 v7 — the search model's similarity of each bank reason to the saved link, only when it is installed.
+    func savedWhySuggest(url: String, title: String) async throws -> SavedWhyModelScores
 }
 
 extension SavedWhyAPI {
+    func savedWhySuggest(url: String, title: String) async throws -> SavedWhyModelScores { SavedWhyModelScores() }
+
     /// A client that cannot edit (tests that never edit): refused as the backend refuses an unknown answer.
     func editSavedWhy(url: String, at: String, answer: SavedWhyAnswer) async throws -> SavedWhyReply {
         throw APIError.httpError(422, "editing is not supported here")
@@ -2451,6 +2491,12 @@ actor APIClient {
     /// G191 — the one-tap answers to "What made you save this?" (`GET /sources/saved-why/options`).
     func savedWhyOptions() async throws -> SavedWhyOptions {
         try await get("/sources/saved-why/options")
+    }
+
+    /// G191 v7 — the installed search model's similarity of each bank reason to this link (`basis: none` without it;
+    /// the backend never downloads the model for this). The title and link are never logged.
+    func savedWhySuggest(url: String, title: String) async throws -> SavedWhyModelScores {
+        try await post("/sources/saved-why/suggest", body: ["url": url, "title": title])
     }
 
     /// G191 — the person's answer, attached by the backend to that bookmark's episode (`POST /sources/saved-why`).

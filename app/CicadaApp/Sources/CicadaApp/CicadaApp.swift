@@ -444,6 +444,8 @@ struct CicadaApp: App {
             await SavedBookmarkLookup.live(channel: channel, items: store.sources.value ?? [])
         }
         saveWhy.onNamed = { [bookmarkBubbles] item in bookmarkBubbles.bookmarkNamed(item) }
+        // G191 v7 — the person's earlier answers in the active memory rank the suggested reasons (nothing new stored).
+        saveWhy.pastPicks = { [store] in SaveWhySuggest.picks(from: store.sources.value ?? []) }
         bookmarkBubbles.start()
         // G191 v3 — the app's own diff needs a "before" for each watched browser: read once now, so the
         // first bookmark after launch is named from the file without waiting for the backend.

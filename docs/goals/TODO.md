@@ -10,6 +10,8 @@
 
 ## Current state and evidence
 
+- **2026-10-23 — the notch, second version (G191 v7, G221, a note on G219; branch `feat/save-notch-v2`).** The ask-why field grows to five lines then scrolls (eases 0.12 s, none under Reduce Motion; DESIGN_RULES ruling 2026-10-23: a field growing with typed words is not a DR-60 keyboard command). The four reasons stay the fixed row; a 38-reason bank (`saved_why.MORE`, `more` on the options) feeds three to six suggested chips ranked on the Mac with no generative model (site, the link's words, the person's past picks, EmbeddingGemma's similarity only when installed via the read-only `POST /sources/saved-why/suggest`). Documented, not built: saves in other apps (**G221**, recommended: a Chrome extension seeing the person's own save click, G206/G71 lists confirming — five owner decisions), the v2 classifier option (Foundation Models or the image encoder over a screenshot; needs a ruling against "No LLM at capture time"), and the Composio note on G219 (native first; Composio only as an optional entry the person's own agent uses). **Open for the owner:** G221's decisions; whether bank reasons should deepen site exploration; whether typed line breaks should be kept when stored.
+
 - **2026-10-23 — ruling 38 recorded; `/v1` generated from the remote tool table (G213; branch
   `feat/v1-from-tool-table`).** The owner answered the four follow-up decisions (ruling 38: API, phone, syncs, traces
   with screenshots). Built here: `agent_api.OPS` is generated from `REMOTE_TOOLS` minus `EXCLUDED` (only the

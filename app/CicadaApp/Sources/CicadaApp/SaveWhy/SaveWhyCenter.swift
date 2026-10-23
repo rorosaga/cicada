@@ -201,6 +201,18 @@ final class SaveWhyCenter {
     /// The open panel is a bookmark Cicada already holds (the star on a saved page), adopted by `adopt`.
     @ObservationIgnored private(set) var onSaved = false
 
+    // G191 v7 — suggested reasons from the bank, ranked on the Mac (`SaveWhySuggest`).
+    /// The open panel's suggestions, in the order shown (empty until its link is known).
+    private(set) var suggestions: [SavedWhyOptions.Reason] = []
+    /// When they appeared (uptime seconds): a tap on one inside `SaveWhyPolicy.armDelay` was aimed at what was there.
+    @ObservationIgnored private(set) var suggestionsAt: TimeInterval?
+    /// The link the suggestions were ranked for, so a later bind of the same link never re-ranks under the person.
+    @ObservationIgnored private var suggestedFor: String?
+    @ObservationIgnored private var suggesting: Task<Void, Never>?
+    /// Every earlier answer in the active memory as a pick (the Store's sources) — the "from our bank" signal. Nil in
+    /// tests that do not set it: the site and the words rank alone.
+    @ObservationIgnored var pastPicks: (@MainActor () -> [SaveWhySuggest.Pick])?
+
     init(prefs: SaveWhyPrefs = SaveWhyPrefs(defaults: .standard), api: any SavedWhyAPI = APIClient.shared,
          presenter: (any SaveWhyPresenting)? = nil, now: @escaping () -> Date = Date.init,
          uptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
@@ -316,7 +328,7 @@ final class SaveWhyCenter {
         let cachedOptions = self.cachedOptions ?? .basic
         if self.cachedOptions == nil { Task { await refreshOptions() } }
         marks["bubble"] = uptime()
-        open(SaveWhyPanelState(pendingIn: channel, order: cachedOptions.reasons.map(\.key),
+        open(SaveWhyPanelState(pendingIn: channel, order: cachedOptions.order,
                                maxText: cachedOptions.maxText), options: cachedOptions, confirmed: false)
         bubbleFrame = frame
         armBound(SaveWhyPolicy.pendingBound)
@@ -343,6 +355,7 @@ final class SaveWhyCenter {
         confirmed = true
         onSaved = true
         marks["existing"] = uptime()
+        considerSuggestions()
         SaveWhyTimings.logger.info("save-why: the star on a saved bookmark (\(found.answer == nil ? "no answer yet" : "answer filled in", privacy: .public))")
     }
 
@@ -359,6 +372,7 @@ final class SaveWhyCenter {
         marks["named"] = uptime()
         if isShowing, !confirmed, state?.channel == item.channel {
             state?.bind(item)
+            considerSuggestions()
             armBound(SaveWhyPolicy.confirmBound)
             return
         }
@@ -376,7 +390,7 @@ final class SaveWhyCenter {
         // G191 v4: never wait on the backend for the options (the instant look must not touch the network).
         let cachedOptions = self.cachedOptions ?? .basic
         if self.cachedOptions == nil { Task { await refreshOptions() } }
-        open(SaveWhyPanelState(item: item, order: cachedOptions.reasons.map(\.key), maxText: cachedOptions.maxText),
+        open(SaveWhyPanelState(item: item, order: cachedOptions.order, maxText: cachedOptions.maxText),
              options: cachedOptions, confirmed: false)
         armBound(SaveWhyPolicy.confirmBound)
     }
@@ -396,12 +410,59 @@ final class SaveWhyCenter {
         noBookmark = false
         onSaved = false
         unconfirmedAnswer = nil
+        suggesting?.cancel()
+        suggestions = []
+        suggestionsAt = nil
+        suggestedFor = nil
         state = panel
         shownAt = uptime()
         marks["shown"] = shownAt
         presenter?.show(self)
         logShown(channel: panel.channel)
         run(SaveWhyPanelState.opening())
+        considerSuggestions()
+    }
+
+    /// G191 v7 — once the open panel's link is known, rank the bank's reasons for it and let a few fade in under the
+    /// fixed row: by the site, the link's words and the person's past picks, plus the search model's similarity only
+    /// when the backend has it installed and answers within `SaveWhyPolicy.suggestBudget`. Once per link: a later bind
+    /// of the same link never reorders chips on screen. A reason already chosen (an answer being edited) leads.
+    func considerSuggestions() {
+        guard let panel = state, panel.isOpen, let item = panel.item, suggestedFor != item.url else { return }
+        if options.more.isEmpty, let cached = cachedOptions, !cached.more.isEmpty {
+            // A panel opened before the options arrived (the four stood in): the bank the backend knows, now.
+            options.more = cached.more
+            state?.allow(cached.more.map(\.key))
+        }
+        let bank = options.more
+        guard !bank.isEmpty else { return }
+        suggestedFor = item.url
+        let picks = pastPicks?() ?? []
+        let api = self.api
+        suggesting?.cancel()
+        suggesting = Task { @MainActor [weak self] in
+            let model = await Self.modelScores(api: api, url: item.url, title: item.title)
+            guard let self, !Task.isCancelled, self.isShowing, self.state?.item?.url == item.url else { return }
+            let pinned = bank.map(\.key).filter { self.state?.isSelected(reason: $0) == true }
+            self.suggestions = SaveWhySuggest.rank(url: item.url, title: item.title, bank: bank, picks: picks,
+                                                   model: model, pinned: pinned)
+            self.suggestionsAt = self.uptime()
+            self.marks["suggested"] = self.suggestionsAt
+        }
+    }
+
+    /// The installed search model's scores, or nil — no model, no answer, or none within the budget.
+    nonisolated static func modelScores(api: any SavedWhyAPI, url: String, title: String) async -> [String: Double]? {
+        await withTaskGroup(of: [String: Double]?.self) { group in
+            group.addTask { (try? await api.savedWhySuggest(url: url, title: title))?.byKey }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(SaveWhyPolicy.suggestBudget))
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
     }
 
     /// G191 v4 — one log line per question: how long after the browser's file event it showed, and by which way in.
@@ -509,6 +570,7 @@ final class SaveWhyCenter {
             state?.bind(item)
             confirmed = true
             marks["confirmed"] = uptime()
+            considerSuggestions()
             return
         }
         confirmed = true
@@ -586,7 +648,7 @@ final class SaveWhyCenter {
             guard state?.isWriting != true else { return }
             send(.superseded)
         }
-        open(SaveWhyPanelState(item: item, order: fetched.reasons.map(\.key), maxText: fetched.maxText),
+        open(SaveWhyPanelState(item: item, order: fetched.order, maxText: fetched.maxText),
              options: fetched, confirmed: true)
     }
 
@@ -606,7 +668,7 @@ final class SaveWhyCenter {
             ?? SaveWhyPreview.sampleOptions
         if isShowing { send(.escape) }
         let item = SaveWhyPreview.sample(channel: channel)
-        open(SaveWhyPanelState(item: item, order: fetched.reasons.map(\.key), maxText: fetched.maxText),
+        open(SaveWhyPanelState(item: item, order: fetched.order, maxText: fetched.maxText),
              options: fetched, confirmed: true)
         previewing = true
     }
@@ -623,6 +685,12 @@ final class SaveWhyCenter {
         default: guarded = false
         }
         if guarded, let shownAt, uptime() - shownAt < SaveWhyPolicy.armDelay {
+            lastIgnored = event
+            return
+        }
+        // G191 v7: the suggestions arrive after the panel; a click that lands on one as it appears was aimed elsewhere.
+        if case .tapReason(let key) = event, suggestions.contains(where: { $0.key == key }),
+           let suggestionsAt, uptime() - suggestionsAt < SaveWhyPolicy.armDelay {
             lastIgnored = event
             return
         }

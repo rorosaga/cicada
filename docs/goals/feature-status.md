@@ -9,6 +9,8 @@ Status, in order: `proposed` → `building` (a branch exists) → `PR #n` (open 
 
 | ID | Feature | Status | PR | Updated |
 |---|---|---|---|---|
+| [G191](memory-evolution.md#g191) | The notch, second version: the field grows to five lines then scrolls (eases, none under Reduce Motion); the four reasons stay the fixed row and three to six from a 38-reason bank fade in, ranked by the site, the link's words, the person's past picks and the search model only when installed (no generative model) | building (`feat/save-notch-v2`) | — | 2026-10-23 |
+| [G221](memory-evolution.md#g221) | Saves in other apps (YouTube, Instagram, LinkedIn, X, Pinterest): a browser extension sees the person's own save click, the lists confirm; owner decisions listed | proposed | — | 2026-10-23 |
 | [G218](memory-evolution.md#g218) | Activity traces: what the person did on the computer, with times, screenshots included from the start (off by default; outside every bank, encrypted at rest, never on the network; one-click wipe, retention limits) | proposed (decided: ruling 38) | — | 2026-10-23 |
 | [G219](memory-evolution.md#g219) | Ways in from the apps where ideas used to live: Apple Reminders first, then Notion (export, then API), then Obsidian, then Todoist; one-way, never write-back | proposed (decided: ruling 38) | — | 2026-10-23 |
 | [G220](memory-evolution.md#g220) | A "show me" skill: on-screen, step-by-step walkthroughs with a cursor and drawings (the owner builds it outside this repo) | building (owner) | — | 2026-10-23 |
