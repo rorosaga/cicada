@@ -1,0 +1,175 @@
+{
+  "_why": "G191 v7: the panel reasons on both sides. api/tests/test_saved_why.py and the app SaveWhySuggestTests read this file; change a reason on one side only and both fail.",
+  "reasons": [
+    {
+      "key": "design",
+      "label": "The design"
+    },
+    {
+      "key": "product",
+      "label": "The product"
+    },
+    {
+      "key": "read_later",
+      "label": "To read later"
+    },
+    {
+      "key": "someday",
+      "label": "Useful someday"
+    }
+  ],
+  "more": [
+    {
+      "key": "funny",
+      "label": "Found it funny"
+    },
+    {
+      "key": "video_asset",
+      "label": "Asset for a video"
+    },
+    {
+      "key": "moodboard",
+      "label": "For a moodboard"
+    },
+    {
+      "key": "inspiration",
+      "label": "Inspiration"
+    },
+    {
+      "key": "aesthetic",
+      "label": "The aesthetic"
+    },
+    {
+      "key": "product_idea",
+      "label": "A product idea"
+    },
+    {
+      "key": "tool_to_try",
+      "label": "A tool to try"
+    },
+    {
+      "key": "to_buy",
+      "label": "To buy"
+    },
+    {
+      "key": "gift_idea",
+      "label": "A gift idea"
+    },
+    {
+      "key": "reference",
+      "label": "A reference"
+    },
+    {
+      "key": "recipe",
+      "label": "A recipe to try"
+    },
+    {
+      "key": "to_watch",
+      "label": "To watch later"
+    },
+    {
+      "key": "to_listen",
+      "label": "To listen to"
+    },
+    {
+      "key": "to_learn",
+      "label": "To learn from"
+    },
+    {
+      "key": "how_to",
+      "label": "A how-to"
+    },
+    {
+      "key": "research",
+      "label": "Research"
+    },
+    {
+      "key": "typography",
+      "label": "The typography"
+    },
+    {
+      "key": "ui_pattern",
+      "label": "A UI pattern"
+    },
+    {
+      "key": "palette",
+      "label": "The colours"
+    },
+    {
+      "key": "photo",
+      "label": "The photo"
+    },
+    {
+      "key": "art",
+      "label": "The art"
+    },
+    {
+      "key": "music",
+      "label": "The music"
+    },
+    {
+      "key": "quote",
+      "label": "A quote I liked"
+    },
+    {
+      "key": "idea",
+      "label": "An idea to explore"
+    },
+    {
+      "key": "to_share",
+      "label": "To share"
+    },
+    {
+      "key": "news",
+      "label": "News to follow"
+    },
+    {
+      "key": "someone_to_follow",
+      "label": "Someone to follow"
+    },
+    {
+      "key": "for_work",
+      "label": "For work"
+    },
+    {
+      "key": "place",
+      "label": "A place to go"
+    },
+    {
+      "key": "travel",
+      "label": "Travel idea"
+    },
+    {
+      "key": "outfit",
+      "label": "Outfit idea"
+    },
+    {
+      "key": "home",
+      "label": "For the home"
+    },
+    {
+      "key": "workout",
+      "label": "A workout"
+    },
+    {
+      "key": "code",
+      "label": "Code to reuse"
+    },
+    {
+      "key": "good_writing",
+      "label": "Good writing"
+    },
+    {
+      "key": "data",
+      "label": "Interesting data"
+    },
+    {
+      "key": "event",
+      "label": "An event to go to"
+    },
+    {
+      "key": "advice",
+      "label": "Good advice"
+    }
+  ]
+}

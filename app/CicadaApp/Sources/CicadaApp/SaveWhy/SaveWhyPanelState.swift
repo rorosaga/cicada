@@ -91,7 +91,9 @@ struct SaveWhyPanelState: Equatable {
     private(set) var item: FreshBookmark?
     /// The browser the bookmark is being made in (the pending panel's only fact).
     let channel: String
-    let order: [String]
+    /// Every reason a tap is held for, in the order an answer lists them: the fixed row, then the bank the panel
+    /// suggests from (G191 v7).
+    private(set) var order: [String]
     private(set) var phase: Phase = .asking
     private(set) var reasons: Set<String> = []
     private(set) var draft = ""
@@ -161,6 +163,17 @@ struct SaveWhyPanelState: Equatable {
 
     /// The effects of opening: the question's own timer.
     static func opening() -> [Effect] { [.startTimer(SaveWhyPolicy.askTimeout)] }
+
+    /// G191 v7 — reasons the panel may now suggest (the bank arrived after it opened): taps on them are held too. A
+    /// reason an edited answer kept unseen becomes a shown one when it is offered, so it is never counted twice.
+    mutating func allow(_ keys: [String]) {
+        let added = keys.filter { !order.contains($0) }
+        guard !added.isEmpty else { return }
+        order += added
+        let shown = keptReasons.filter(added.contains)
+        keptReasons.removeAll(where: added.contains)
+        reasons.formUnion(shown)
+    }
 
     /// The bookmark arrived (a pending panel) or a newer read named it more exactly: keep every tap and word.
     mutating func bind(_ bookmark: FreshBookmark) {

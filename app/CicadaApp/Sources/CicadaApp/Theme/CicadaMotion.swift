@@ -161,6 +161,26 @@ enum CicadaMotion {
         reduceMotion ? reducedFadeDuration : notchShrinkDuration
     }
 
+    /// G191 v7 — the field growing a line as the words wrap or break (owner 2026-10-23: "vertically expand smoothly").
+    /// Shorter than a key repeat, so the growth never trails the typing. Not a keyboard command (DR-60 lists those):
+    /// the content's own size changing; height is movement, so none under Reduce Motion (DR-66; `SaveWhyField`).
+    static let fieldGrowDuration: TimeInterval = 0.12
+    /// G191 v7 — the suggested reasons arriving under the fixed row once the link is known: the card makes room and the
+    /// chips fade in (owner: "more options that appear smoothly").
+    static let suggestInDuration: TimeInterval = 0.2
+
+    static func fieldGrow(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : CicadaCurve.out(fieldGrowDuration)
+    }
+    /// The card making room for the suggestions: movement, so none under Reduce Motion.
+    static func suggestGrow(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : CicadaCurve.out(suggestInDuration)
+    }
+    /// The suggestions' own fade: DR-66's short fade under Reduce Motion.
+    static func suggestFade(reduceMotion: Bool) -> Animation {
+        reduceMotion ? fade : CicadaCurve.out(suggestInDuration)
+    }
+
     /// STATE 0 → 1 by pointer: the list's width on the drawer curve. Width is movement, so nil under
     /// Reduce Motion.
     static func columns(reduceMotion: Bool) -> Animation? {

@@ -4233,8 +4233,27 @@ class SavedWhyProject(CamelModel):
 
 class SavedWhyOptions(CamelModel):
     reasons: list[SavedWhyOption] = []
+    #: G191 v7 — the reason bank the panel suggests a few from; `reasons` stays the fixed row.
+    more: list[SavedWhyOption] = []
     projects: list[SavedWhyProject] = []
     max_text: int = 500
+
+
+class SavedWhySuggestRequest(CamelModel):
+    """G191 v7 — the saved link the panel asks the search model about (never stored, never logged)."""
+    url: str
+    title: str = ""
+
+
+class SavedWhySuggestScore(CamelModel):
+    key: str
+    score: float
+
+
+class SavedWhySuggestResponse(CamelModel):
+    #: `model` when the installed search model scored the bank, `none` when it is not installed.
+    basis: str = "none"
+    scores: list[SavedWhySuggestScore] = []
 
 
 class BookmarkFolderNode(CamelModel):

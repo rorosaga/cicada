@@ -823,6 +823,48 @@ retired reason or a project the panel cannot show is kept. A saved bookmark neve
 answer for that save's own moment. Remove in Chrome's bubble withdraws it, writing nothing. Without the Automation grant
 the star on a saved page still opens the pending question, which leaves on its own unless touched.
 
+**Ask why, v7 — the notch, second version (2026-10-23, branch `feat/save-notch-v2`; owner, paraphrased: the field
+should grow smoothly for the first few lines and then scroll; more reasons that appear smoothly, chosen from a bank by
+what is being saved).** *The field grows.* `TextField(axis: .vertical)` starts at one line and grows a line at a time as
+the words wrap or break (⌥⏎, the Mac's line break in a field; Return still saves) up to **five lines**
+(`SaveWhyField.maxLines`), then scrolls inside. Five because the words cap at 500 characters and a line holds about 60,
+so five show ≈ 300 — most answers whole — while the card stays a short drop from the notch. The height is measured, not
+left to AppKit (`SaveWhyField.lineCount`: the text's own breaks plus wrapping at the field's measured width, in the
+field's font), so the card and the notch's shape grow with it in one transaction: `CicadaMotion.fieldGrow` (0.12 s,
+`CicadaCurve.out`), in one frame under Reduce Motion. DR-60 lists keyboard *commands*; a field growing to hold typed words
+is the content's own size, which the owner asked to be smooth — dated ruling in DESIGN_RULES (2026-10-23). The window is
+made `SaveWhyField.growthReserve` taller than the card up front (clear below it, the view top-aligned), so it never resizes
+while the person writes; a click that reaches that clear band leaves, as a click anywhere else does, and never takes the
+keyboard (`SaveWhyNSPanel.isBelowCard`, the card's height reported by the view). The words are stored as before — whitespace folded to single spaces by the panel and the
+backend. Fixed in passing: the field now shows the panel's own words (an answer filled in on a saved page arrives after
+the panel shows; before, its chips filled in and its words never did). *More reasons, by what is saved.* The four stay
+the fixed first row (`SavedWhyOptions.basic`, unchanged keys, labels and order — nothing a person relies on moves). The
+backend's options add `more`, a bank of 38 short reasons (`saved_why.MORE`: Found it funny · Asset for a video · For a
+moodboard · Inspiration · The aesthetic · A product idea · A tool to try · To buy · A gift idea · A reference · A recipe
+to try · To watch later · To listen to · To learn from · A how-to · Research · The typography · A UI pattern · The colours
+· The photo · The art · The music · A quote I liked · An idea to explore · To share · News to follow · Someone to follow ·
+For work · A place to go · Travel idea · Outfit idea · For the home · A workout · Code to reuse · Good writing ·
+Interesting data · An event to go to · Good advice). Once the panel's link is known — at once for a diff- or
+backend-opened panel, when the file names it for Chrome's pending bubble panel, after `adopt` for a saved page —
+`SaveWhyCenter.considerSuggestions` ranks the bank (`SaveWhySuggest.rank`, pure) and three to six fade in under the fixed
+row as the same toggles (`SaveWhySuggestedChips`; the card makes room on `CicadaMotion.suggestGrow`, the chips fade on
+`suggestFade`; only the fade under Reduce Motion). **No generative model at save time:** the score is a sum of four
+local signals — the site (`sitePriors`, the registrable domain or a host ending in a listed one: youtube.com → To watch
+later, Asset for a video; pinterest.com → For a moodboard, The aesthetic; github.com → A tool to try, Code to reuse …,
+weight 3), the link's own words (title and path, never the query; `wordPriors`, weight 2), the person's own past picks
+(every answer in the active memory's Store sources, `SaveWhySuggest.picks`: 1.5 per pick on the same site up to 3, 0.4
+per pick anywhere up to 5 — nothing new is stored for it) and, only when the backend has EmbeddingGemma installed and
+answers `POST /sources/saved-why/suggest` within `SaveWhyPolicy.suggestBudget` (0.35 s), its cosine similarity scaled to
+0–2 (`api.md`); otherwise that term is absent. Ties keep the bank's order; with no signal the three generic ones stand
+(Inspiration · A reference · An idea to explore). A reason already chosen (an edited answer's) is shown first, so
+nothing selected is hidden. Ranked once per link — a late model answer or a repeated bind never reorders chips on screen
+— and a tap on a suggestion within `armDelay` of it appearing is ignored, as the panel's own first half second is. A
+chosen suggestion is posted exactly as a reason always was (`SavedWhyAnswer.reasons`, the key; the backend writes its
+label). An older backend sends no `more`, and the panel then suggests nothing (it would refuse an unknown key). Tested in
+`SaveWhySuggestTests` (growth cap, fixed row, ranking by site / words / past picks / model / no model, the stored shape,
+the budget, no download path in the panel's sources); the backend in `test_saved_why.py`. Shots (render harness — the real
+panel needs a Chrome bookmark): `~/cicada-redesign-2026-10-22/shots/save-notch/`. Detecting saves in other apps is G221.
+
 **Bookmarks in the menu bar (G191 v3).** The status menu's **Bookmarks…** (⌘B) opens `BookmarkHistoryController`, a
 Maccy-like panel under the status item (borderless, key without activating the app, closed by Esc, a click elsewhere or
 opening a row): a search field, then every bookmark (`origin` `<browser>-bookmark`) from the Store's `sources`

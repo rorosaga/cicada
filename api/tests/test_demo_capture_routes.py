@@ -83,6 +83,8 @@ HANDLED_ELSEWHERE = {
         "stores the secret in ~/.cicada/secrets.env; only restamps the bank's sync_state.json, no content",
     ("POST", "/sources/connectors/{connector_id}/authorize"): "returns a sign-in link, takes nothing in",
     ("PUT", "/reading/settings"): "a machine-wide setting (~/.cicada/reading.json); writes no bank",
+    ("POST", "/sources/saved-why/suggest"):
+        "G191 v7: scores the reason bank against a link with the installed search model; reads no bank, writes nothing",
     ("PUT", "/agent-methods"):
         "a machine-wide choice (~/.cicada/agent_methods.json); the skill page beside it is guarded by "
         "demo_guard inside skill_pages.ensure and reports `demo` without writing (test_agent_methods_rest.py)",

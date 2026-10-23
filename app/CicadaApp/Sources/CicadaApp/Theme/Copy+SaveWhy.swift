@@ -8,6 +8,8 @@ extension Copy {
         /// G191 v4: the field is the "something else" beside the four reasons.
         static let placeholder = "Something else…"
         static let wordsLabel = "Your own words about why you saved it"
+        /// G191 v7 — VoiceOver's name for the reasons suggested for this link, under the fixed four.
+        static let suggestedLabel = "More reasons that might fit this link"
         static let save = "Save"
         /// Esc reaches the panel only once it has been clicked (it never takes the keyboard from the browser), so
         /// the hint names the ways that always work. v3: any number of reasons; leaving keeps them.

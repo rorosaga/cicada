@@ -12,6 +12,7 @@ import base64
 import json
 import subprocess
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -376,3 +377,110 @@ def test_a_client_time_is_bounded(tmp_path, monkeypatch, at):
                                           json={"url": NEW_C["url"], "reasons": ["design"], "at": at})
     assert r.status_code == 422
     assert (memory / "episodes" / f"{episode_id}.md").read_text() == before
+
+
+# --- G191 v7: the reason bank and its suggestions -------------------------------------------------------------------
+
+_REASONS_FIXTURE = Path(__file__).parent / "fixtures" / "saved_why_reasons.json"
+
+
+def test_the_fixed_row_is_unchanged_and_the_bank_rides_beside_it(tmp_path, monkeypatch):
+    """G191 v7 (owner 2026-10-23: "let's have a lot of options"): `reasons` is still the four, in order — nothing a
+    person or an older app relies on moves — and `more` carries the bank the panel suggests from. The app reads the
+    same fixture (`SaveWhySuggestTests`), so a reason changed on one side fails both."""
+    fixture = json.loads(_REASONS_FIXTURE.read_text())
+    assert [(r["key"], r["label"]) for r in fixture["reasons"]] == list(saved_why.REASONS.items())
+    assert [(r["key"], r["label"]) for r in fixture["more"]] == list(saved_why.MORE.items())
+    assert 30 <= len(saved_why.MORE) <= 40
+    assert not set(saved_why.MORE) & set(saved_why.REASONS) and not set(saved_why.MORE) & set(saved_why.RETIRED)
+    assert len(set(saved_why.MORE.values())) == len(saved_why.MORE)            # no two chips read the same
+    assert all(k.replace("_", "").isalpha() and k.islower() for k in saved_why.MORE)
+    body = _client(_bank(tmp_path), monkeypatch).get("/sources/saved-why/options").json()
+    assert [r["key"] for r in body["reasons"]] == ["design", "product", "read_later", "someday"]
+    assert [(r["key"], r["label"]) for r in body["more"]] == list(saved_why.MORE.items())
+
+
+def test_a_bank_reason_is_stored_exactly_as_a_fixed_one(tmp_path, monkeypatch):
+    """The storage format is unchanged: the key in `saved_why.reasons`, the label as the person's line in the section,
+    `labels` on the wire — a bank reason is one more known key, after the fixed ones in `LABELS`' order."""
+    memory = _bank(tmp_path, git=True)
+    episode_id = _saved_c(memory)
+    r = _client(memory, monkeypatch).post("/sources/saved-why", json={
+        "url": NEW_C["url"], "reasons": ["moodboard", "design"], "text": "the colours\non the hero"})
+    assert r.status_code == 200, r.text
+    body = r.json()["savedWhy"]
+    assert body["reasons"] == ["design", "moodboard"] and body["labels"] == ["The design", "For a moodboard"]
+    assert body["text"] == "the colours on the hero"                       # whitespace folded, as it always was
+    parsed = markdown_parser.parse(memory / "episodes" / f"{episode_id}.md")
+    assert parsed.frontmatter["saved_why"]["reasons"] == ["design", "moodboard"]
+    assert "- The design\n- For a moodboard\n- the colours on the hero" in parsed.body
+    assert set(parsed.frontmatter["saved_why"]) == {"reasons", "project", "text", "at"}
+
+
+def test_an_unknown_reason_is_still_refused(tmp_path, monkeypatch):
+    memory = _bank(tmp_path, git=True)
+    _saved_c(memory)
+    r = _client(memory, monkeypatch).post("/sources/saved-why", json={"url": NEW_C["url"], "reasons": ["vibes"]})
+    assert r.status_code == 422
+
+
+def test_suggestions_never_download_the_search_model(tmp_path, monkeypatch):
+    """The search-model rail: with EmbeddingGemma not installed the bank is scored by nothing — `basis: none` — and
+    nothing downloads, loads a model, reads a key or reaches the network for it."""
+    from api.services import embedding_models, model_fetch, onnx_embedder, providers
+
+    def boom(*a, **k):
+        raise AssertionError("a suggestion must never fetch or load a model")
+
+    monkeypatch.setattr(onnx_embedder, "find", lambda *a, **k: None)
+    for module, name in ((model_fetch, "install"), (model_fetch, "install_vision"),
+                         (embedding_models, "start_download"), (providers, "cached_embed_fn_for_model"),
+                         (providers, "resolve_embed_fn_for_model"), (providers, "resolve_embed_fn")):
+        monkeypatch.setattr(module, name, boom)
+    assert saved_why.model_scores(title="A video", url="https://www.youtube.com/watch?v=x") == {
+        "basis": "none", "scores": []}
+    r = _client(_bank(tmp_path), monkeypatch).post("/sources/saved-why/suggest",
+                                                   json={"url": "https://www.youtube.com/watch?v=x", "title": "A video"})
+    assert r.status_code == 200 and r.json() == {"basis": "none", "scores": []}
+
+
+def test_suggestions_ask_only_for_the_preferred_model_already_on_disk(monkeypatch):
+    """Only EmbeddingGemma's own folder counts — never the bundled small model or a metered embedding service."""
+    from api.services import onnx_embedder
+
+    asked = []
+    monkeypatch.setattr(onnx_embedder, "find", lambda model_id, *a, **k: asked.append(model_id))
+    saved_why.installed_search_model({})
+    assert asked == [onnx_embedder.PREFERRED_ID]
+
+
+def test_the_installed_model_scores_every_bank_reason_from_the_title_and_site(monkeypatch):
+    """With a model in hand the scores are cosine similarities, one per bank reason in the bank's order, and the
+    words it reads are the title, the host and the path — never the query string (it may carry a token)."""
+    import numpy as np
+
+    seen: list[str] = []
+    vocab = {"video": 0, "watch": 0, "youtube": 0, "moodboard": 1, "pin": 1, "recipe": 2}
+
+    def embed(texts, *, is_query=False):
+        out = []
+        for t in texts:
+            if is_query:
+                seen.append(t)
+            v = np.full(3, 0.01, dtype=np.float32)
+            for w in t.lower().split():
+                if w in vocab:
+                    v[vocab[w]] += 1
+            out.append(v)
+        return np.vstack(out)
+
+    result = saved_why.model_scores(title="A video", url="https://www.youtube.com/watch?v=abc&token=s3cret",
+                                    embed=embed)
+    assert result["basis"] == "model"
+    assert [s["key"] for s in result["scores"]] == list(saved_why.MORE)
+    scores = {s["key"]: s["score"] for s in result["scores"]}
+    assert scores["video_asset"] > scores["recipe"] and scores["to_watch"] > scores["moodboard"]
+    assert seen == ["A video youtube com watch"]
+    assert saved_why.model_scores(title="A video", url="https://www.youtube.com/watch?v=abc", embed=embed) == \
+        saved_why.model_scores(title="A video", url="https://www.youtube.com/watch?v=abc", embed=embed)
+    assert saved_why.model_scores(title="", url="", embed=embed) == {"basis": "none", "scores": []}

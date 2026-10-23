@@ -29,6 +29,8 @@ from api.models.schemas import (
     SavedWhyRecord,
     SavedWhyRequest,
     SavedWhyResponse,
+    SavedWhySuggestRequest,
+    SavedWhySuggestResponse,
     SourceChannel,
     SourceChannelsResponse,
     SourceListResponse,
@@ -619,9 +621,18 @@ SAVED_WHY_BUSY = "Sleep is updating your memory — your answer wasn't saved. Tr
 
 @router.get("/sources/saved-why/options", response_model=SavedWhyOptions)
 async def saved_why_options(settings: Settings = Depends(get_settings)) -> SavedWhyOptions:
-    """G191 — the one-tap answers to "What made you save this?": the fixed reasons plus up to three of the person's
-    live projects (open backlog first, then the most recently mentioned). Deterministic — no model call."""
+    """G191 — the one-tap answers to "What made you save this?": the four fixed reasons (v4), the bank the panel
+    suggests a few from (`more`, v7) and the cap on the words; `projects` always empty. Deterministic — no model call."""
     return SavedWhyOptions.model_validate(await run_in_threadpool(saved_why.options, settings.memory_path))
+
+
+@router.post("/sources/saved-why/suggest", response_model=SavedWhySuggestResponse)
+async def saved_why_suggest(request: SavedWhySuggestRequest) -> SavedWhySuggestResponse:
+    """G191 v7 — how close each reason in the bank is to the saved link's title and site, by the search model **only
+    when it is already installed** (never a download, never a metered service): `basis: none` otherwise, and the
+    panel ranks by the site and the person's past picks alone. Read-only, no model of a new kind, nothing logged."""
+    return SavedWhySuggestResponse.model_validate(
+        await run_in_threadpool(lambda: saved_why.model_scores(title=request.title, url=request.url)))
 
 
 @router.post("/sources/saved-why", response_model=SavedWhyResponse, dependencies=_DEMO_GATE)

@@ -136,7 +136,8 @@ def test_someday_is_an_answer_and_an_unknown_reason_is_refused(tmp_path, monkeyp
     r = client.post("/sources/saved-why", json={"url": A["url"], "reasons": ["someday"]})
     assert r.status_code == 200, r.text
     assert r.json()["savedWhy"]["labels"] == ["Useful someday"]
-    assert client.post("/sources/saved-why", json={"url": A["url"], "reasons": ["inspiration"]}).status_code == 422
+    # G191 v7: "inspiration" joined the reason bank (`saved_why.MORE`); a key in no list is still refused.
+    assert client.post("/sources/saved-why", json={"url": A["url"], "reasons": ["vibes"]}).status_code == 422
 
 
 def test_someday_explores_the_minimal_capture_like_read_later():

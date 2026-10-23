@@ -52,8 +52,56 @@ REASONS: dict[str, str] = {
 RETIRED: dict[str, str] = {
     "technique": "A technique to reuse",
 }
+#: The reason bank (G191 v7, owner 2026-10-23: "more options that appear smoothly based on the content being saved …
+#: found it funny, good asset for video, moodboard potential, interesting design, product, inspiration, aesthetic …
+#: let's have a lot of options"). Never the panel's fixed row — :data:`REASONS` stays exactly as it was, so nothing a
+#: person relies on moves — but the pool the panel suggests a few from, ranked on the Mac by the site, the link's own
+#: words and the person's past picks (``SaveWhySuggest``), plus the search model's similarity only when it is already
+#: installed (:func:`model_scores`). A chosen one is stored like any reason: its key in ``saved_why`` and its label as
+#: the person's line in the section. Keys are permanent: a reason dropped from the bank moves to :data:`RETIRED`, never
+#: out of :data:`LABELS`. The app carries the same keys (``SavedWhyOptions.bank``), pinned by a test on both sides.
+MORE: dict[str, str] = {
+    "funny": "Found it funny",
+    "video_asset": "Asset for a video",
+    "moodboard": "For a moodboard",
+    "inspiration": "Inspiration",
+    "aesthetic": "The aesthetic",
+    "product_idea": "A product idea",
+    "tool_to_try": "A tool to try",
+    "to_buy": "To buy",
+    "gift_idea": "A gift idea",
+    "reference": "A reference",
+    "recipe": "A recipe to try",
+    "to_watch": "To watch later",
+    "to_listen": "To listen to",
+    "to_learn": "To learn from",
+    "how_to": "A how-to",
+    "research": "Research",
+    "typography": "The typography",
+    "ui_pattern": "A UI pattern",
+    "palette": "The colours",
+    "photo": "The photo",
+    "art": "The art",
+    "music": "The music",
+    "quote": "A quote I liked",
+    "idea": "An idea to explore",
+    "to_share": "To share",
+    "news": "News to follow",
+    "someone_to_follow": "Someone to follow",
+    "for_work": "For work",
+    "place": "A place to go",
+    "travel": "Travel idea",
+    "outfit": "Outfit idea",
+    "home": "For the home",
+    "workout": "A workout",
+    "code": "Code to reuse",
+    "good_writing": "Good writing",
+    "data": "Interesting data",
+    "event": "An event to go to",
+    "advice": "Good advice",
+}
 #: Every reason an answer can hold, offered first, in the order an answer lists them.
-LABELS: dict[str, str] = {**REASONS, **RETIRED}
+LABELS: dict[str, str] = {**REASONS, **MORE, **RETIRED}
 #: The free-text answer's cap — a short note, never a document.
 MAX_TEXT = 500
 #: The body section the answer lives in. Its own heading, so a reason the person typed elsewhere (a Telegram
@@ -83,13 +131,84 @@ class Answer:
 
 
 def options(memory_path: Path) -> dict:
-    """The panel's choices: the four reasons and the cap on the words. ``projects`` stays on the wire, always empty,
-    so an app built before G191 v4 shows no project chips either."""
+    """The panel's choices: the four reasons, the bank it suggests from (``more``, G191 v7) and the cap on the words.
+    ``reasons`` is unchanged since G191 v4, so an older app shows the same four; ``projects`` stays on the wire, always
+    empty, so an app built before G191 v4 shows no project chips either."""
     return {
         "reasons": [{"key": k, "label": v} for k, v in REASONS.items()],
+        "more": [{"key": k, "label": v} for k, v in MORE.items()],
         "projects": [],
         "max_text": MAX_TEXT,
     }
+
+
+#: The bank's label vectors per model id, computed once per process.
+_LABEL_VECTORS: dict[str, object] = {}
+_NONE = {"basis": "none", "scores": []}
+
+
+def installed_search_model(environ=None):
+    """EmbeddingGemma's folder when it is already installed and this Mac runs it, else None. Only a look at what is on
+    disk (``onnx_embedder.find``) — never a download, a fetch or a key: the model arrives only on the person's click
+    (the search-model rail), and a metered embedding service is never asked for a suggestion."""
+    import os
+
+    from api.services import onnx_embedder
+
+    return onnx_embedder.find(onnx_embedder.PREFERRED_ID, os.environ if environ is None else environ)
+
+
+def model_scores(*, title: str, url: str, environ=None, embed=None, model_id: str = "") -> dict:
+    """G191 v7 — how close each bank reason is to the saved link's own words by the local search model, **only when
+    it is already installed**: ``{"basis": "model", "scores": [{key, score}]}`` (cosine, in the bank's order), else
+    ``{"basis": "none", "scores": []}`` and the Mac's own ranking stands alone. No network, no new model, nothing
+    written, nothing logged (the query rail: the title and link are never logged).
+
+    ``embed`` (tests) stands in for the installed model: ``embed(texts, is_query=...) -> 2-D array``."""
+    import numpy as np
+
+    words = " ".join(f"{title or ''} {site_words(url)}".split())
+    if not words:
+        return dict(_NONE)
+    if embed is None:
+        spec = installed_search_model(environ)
+        if spec is None:
+            return dict(_NONE)
+        from api.services import providers
+
+        try:
+            embed, model_id = providers.cached_embed_fn_for_model(spec.id)
+        except Exception:  # noqa: BLE001 — a model that will not load suggests nothing; the Mac's ranking stands
+            return dict(_NONE)
+    keys = tuple(MORE)
+    try:
+        labels = _LABEL_VECTORS.get(model_id) if model_id else None
+        if labels is None:
+            labels = np.asarray(embed([MORE[k] for k in keys], is_query=False), dtype=np.float32)
+            labels = labels / np.maximum(np.linalg.norm(labels, axis=1, keepdims=True), 1e-9)
+            if model_id:
+                _LABEL_VECTORS[model_id] = labels
+        query = np.asarray(embed([words], is_query=True), dtype=np.float32)[0]
+        query = query / max(float(np.linalg.norm(query)), 1e-9)
+        sims = labels @ query
+    except Exception:  # noqa: BLE001 — a suggestion is never an error
+        return dict(_NONE)
+    return {"basis": "model", "scores": [{"key": k, "score": round(float(s), 4)} for k, s in zip(keys, sims)]}
+
+
+def site_words(url: str) -> str:
+    """The link's host and path as words ("youtube com watch"), never its query or fragment (which may carry a token)."""
+    from urllib.parse import urlsplit
+
+    try:
+        parts = urlsplit((url or "").strip())
+    except ValueError:
+        return ""
+    host = (parts.hostname or "").removeprefix("www.")
+    text = f"{host.replace('.', ' ')} {parts.path}"
+    for sep in "/-_.+":
+        text = text.replace(sep, " ")
+    return " ".join(w for w in text.split() if not w.isdigit())
 
 
 def _project_name(memory_path: Path, project: str, *, live: bool = True) -> str | None:

@@ -53,6 +53,10 @@ enum SaveWhyPolicy {
     static let bubbleCloseCheck: TimeInterval = 0.25
     /// G191 live — the budget from the browser writing its bookmark file to the panel on screen.
     static let showBudget: TimeInterval = 2
+    /// G191 v7 — how long the suggestions wait for the installed search model's scores once the link is known; past it
+    /// (or with no model installed) they arrive ranked by the site, the words and the person's past picks alone, and a
+    /// late answer never reorders chips already on screen. Under `armDelay`, so they are there before a tap counts.
+    static let suggestBudget: TimeInterval = 0.35
 
     struct Inputs {
         var enabled: Bool
