@@ -35,7 +35,7 @@ struct AgentWiring: Codable, Hashable, Identifiable {
     let connect: [AgentWiringStep]
     let detail: String?
     /// G149 — the recall hooks' state (`on | off | stale | invalid | n/a`) and
-    /// the two command sets Settings → Agents → Remembers automatically may
+    /// the two command sets the Agents page → Remembers automatically may
     /// run. They are kept apart from `connect` because onboarding's Turn on
     /// runs `connect` and nothing else (R-H11).
     let autorecall: String

@@ -364,6 +364,10 @@ def resolve_llm_fn(
         # leaving `completion` unset here changes no inferred behavior.
         import litellm
 
+        from api.services import price_supplement
+
+        price_supplement.apply(litellm)
+
         completion = litellm.completion
     if sink is None:
         sink = telemetry.record
@@ -516,7 +520,7 @@ def resolve_llm_fn(
         only its own), so a trip there would outlive the window it measured,
         until the backend restarts. Final review H1: a plain throttle still
         trips in any scope, so every caller that resolves a plan through
-        Settings → Engines runs in its own purging scope — Sleep
+        Settings → Intelligence runs in its own purging scope — Sleep
         (``sleep:<id>``), each Ask call (``ask:<uuid>``) and each link
         backfill, tail or on-demand (``links:<uuid>``). What still lands in
         ``_unscoped`` reaches a plan only through an explicit

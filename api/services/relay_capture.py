@@ -94,6 +94,10 @@ def capture_turns(ctx: mcp_tools.ToolContext, message, previous_reply=None, *, a
 
             return mcp_tools.Reply(demo_guard.AGENT_REFUSAL, code="demo_bank")
         return mcp_tools.Reply(f"Not captured ({reason}).", code=reason)
+    # G207: a relayed conversation has no end event — its quick read waits for the quiet window.
+    from api.services import awake_read
+
+    awake_read.after_capture(memory_path, result.episode_id, status=result.status)
     return mcp_tools.Reply(_REPLIES.get(result.status, "Captured."), code=None,
                            data={"status": result.status, "episode_id": result.episode_id})
 

@@ -33,7 +33,7 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   LaunchAgent plist sets it; `install.sh` never rewrites a plist behind a running backend, so an
   older plist needs the key added by hand.
 - **`CICADA_ALLOW_LOGO_FETCH=off`** disables logo fetching entirely, and media previews with it (below). The test suite runs that way
-  and injects fetchers instead. It also gates the icons of the sites Settings, Reading the web, lists (G166): those
+  and injects fetchers instead. It also gates the icons of the sites Reading in your browser (the Sources page) lists (G166): those
   come from the icon service only and the login-walled site is never contacted for its favicon (nor, since
   `fetch_logo` skips its first two rungs for a walled host, is a company or tool page's logo domain when it is one).
   It also gates a saved link's own site icon (owner ruling 2026-10-19; everywhere a saved link is drawn, 2026-10-20):
@@ -76,15 +76,18 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   time being a transient miss; the body streamed and cut past 512 KB; kept only as a
   PNG or JPEG of 16–1024 px by its bytes (SVG refused whatever its header). `d=404` makes "no photo" a 404, so no
   default image is cached as a photo.
-- **`CICADA_ALLOW_PERSON_PHOTO_PROXY=on`** (owner 2026-10-09, **off by default**) is the ToS rail's one exception: a
-  person's photo through the unavatar.io avatar proxy, from an X or LinkedIn profile link already in the person page's
-  `sources:` (`https://x.com/<handle>` or twitter.com, one path segment; `https://www.linkedin.com/in/<slug>` — never a
-  post, a company page or a guess). LinkedIn needs a login, so the proxy scrapes on Cicada's behalf; the owner chose
+- **`CICADA_ALLOW_PERSON_PHOTO_PROXY`** (owner 2026-10-09; **on by default since ruling 36 D5, 2026-10-22** — the
+  owner: "photo gate ON"; `off` still closes it) is the ToS rail's one exception: a
+  person's photo through the unavatar.io avatar proxy, from an X, Instagram or LinkedIn profile link already in the
+  person page's `sources:` and given as their own account (`https://x.com/<handle>` or twitter.com, one path segment;
+  `https://www.instagram.com/<handle>`, one path segment, D5; `https://www.linkedin.com/in/<slug>` — never a post, a
+  company page, a guess, or a link Cicada or an agent only proposed and the person has not taken). LinkedIn needs a login, so the proxy scrapes on Cicada's behalf; the owner chose
   that knowingly, and the person turns it on knowingly: each lookup tells a third party whom they know. It never runs
   past the two gates above. **What leaves the Mac, exactly:** the handle or slug, to unavatar.io only —
-  `https://unavatar.io/x/<handle>?fallback=false` and `https://unavatar.io/linkedin/user:<slug>?fallback=false` — with
+  `https://unavatar.io/x/<handle>?fallback=false`, `https://unavatar.io/instagram/<handle>?fallback=false` and
+  `https://unavatar.io/linkedin/user:<slug>?fallback=false` — with
   the same fixed User-Agent, no cookie, no credential, no name and no page text; and, as with any request, the Mac's
-  network address. Asked only after the email and GitHub rungs miss, X before LinkedIn. `fallback=false` is unavatar's
+  network address. Asked only after the email and GitHub rungs miss, X, then Instagram, then LinkedIn. `fallback=false` is unavatar's
   documented "404 when there is no avatar", so a default image is never cached as a photo. Every hop must stay on
   `unavatar.io` (a redirect elsewhere is refused and remembered as a miss) and pass `net_guard`; the same 4 s, 512 KB
   and raster-only rules. At most 25 lookups a UTC day across the install (the proxy's anonymous allowance per IP),
@@ -144,7 +147,7 @@ a litellm upgrade. A model the table does not list still runs; on OpenRouter its
 and the Usage aggregates, never `$0` (ruling 12).
 
 **The Neural Engine search model's download (owner 2026-10-09).** EmbeddingGemma 2 (`api/services/model_fetch.py`) is
-fetched only when the person asks: *Turn on* beside *Understand what you mean* in Settings → Search & files (the version picker and its confirm left the
+fetched only when the person asks: *Turn on* beside *Understand what you mean* in Settings → Privacy & data (the version picker and its confirm left the
 app on 2026-10-22; `cicada index install` is the other door) — a selection alone never downloads
 (`POST /embeddings/install` with `model`; the size is stated before the click from
 the pins, `downloadBytes`), `make embedding-model-gemma2`, or `install.sh` on macOS 15+ — never on a schedule, never by Sleep,
@@ -160,7 +163,7 @@ check and `scripts/fetch-embedding-model.sh`.
 
 **The image encoder is its own click (design taste, 2026-10-14).** The same pinned revision's `vision_files` — the
 vision `.mlpackage` and `position_embeddings.f16`, about 309 MB — are fetched only when the person presses *Turn on*
-beside *Understand images* in Settings → Search & files (dimmed until the text encoder is here, so it is a second click;
+beside *Understand images* in Settings → Privacy & data (dimmed until the text encoder is here, so it is a second click;
 the Looks page's own shortcut went with the page on 2026-10-20) (`POST /embeddings/install` with `model` and
 `part: "vision"`), or runs `make
 embedding-model-vision`; the text encoder is fetched first when it isn't here — the Looks shortcut's one click, whose
@@ -172,7 +175,7 @@ item only (fetched once, on the person's click, through `net_guard` under the To
 
 **The remote connector (G135) — the one way in from outside this Mac.** Off by default
 (`~/.cicada/remote/settings.json`). When on, a **second listener on `127.0.0.1:8765`**
-(`CICADA_REMOTE_PORT`) serves **only MCP** — none of the FastAPI routers — to cloud AI apps
+(`CICADA_REMOTE_PORT`) serves **only MCP and the agent API** (below) — none of the FastAPI routers — to cloud AI apps
 through a tunnel **the person** runs (Tailscale Funnel or ngrok); **Cicada never starts, stops or
 reconfigures a tunnel** — `GET /remote/status` only detects one — on PATH or in
 the standard install folders, since an older LaunchAgent's PATH is bare (F2-back R-B15). Access is a per-connector
@@ -209,7 +212,7 @@ IDN, a host two parsers read apart — is refused before any fetch, so the host 
 checks the client and the redirect URI first (exact match; an `http` loopback URI matches on any port, RFC 8252 — Claude
 Code's), and a mismatch is an error page, never a redirect (no open redirect); then it shows an eight-character code
 and waits (meta refresh, no script, no form, a strict CSP, framing denied; it names no app). **The person approves by
-typing that code** into the app — Settings → Agents → From anywhere, "A sign-in is waiting" — and only then sees who it
+typing that code** into the app — Settings → Devices → From anywhere, "A sign-in is waiting" — and only then sees who it
 is and where it returns, choosing the scopes (what the app asked, else the defaults) and the expiry (7/30/90 days). The
 app never lists codes and never offers a request to approve with a click (security review of #359: whoever starts a
 sign-in collects its result from `/authorize/wait`'s redirect, PKCE included, so a stranger who registers an app called
@@ -247,6 +250,16 @@ rather than refuse a new one, and any client — registered or a metadata docume
 is pruned after a day. A redirect URI with a backslash, a control character or a port that does not parse is refused,
 registered or presented. **Origin:** refused everywhere except a GET of the two
 sign-in pages (a browser navigation). Not supported: `private_key_jwt`, `client_credentials`, OpenID scopes.
+
+**The agent API on the listener (G213; owner 2026-10-22, ruling 36 D3 — amends "serves only MCP").** A cloud agent
+that cannot speak MCP (a texted personal agent, an agent that builds its own client from an OpenAPI document) can
+reach only a public URL, so the listener also answers `POST /v1/<op>`, `GET /v1/me`, `GET /v1/openapi.json`,
+`GET /v1/llms.txt` and `GET /llms.txt` — the same operations, envelope and status codes as the backend's own `/v1`
+(`api.md`, "The agent API"), run by `api/remote/agent_api.call` through the one shared `RemoteRuntime`. Same gate,
+same order: the `Origin` refusal, the token (`cic_at_`, `cic_rc_`, or an agent token `cic_api_` — which opens `/v1`
+only, never `/mcp`), the per-connector rate limit, the 1 MB body cap; the `sources` scope still gates every verbatim
+word of the person's, and a claim is `origin: remote:<id>`, never the person's own words. The two documents are open
+(static, nothing about the person). No FastAPI router is reachable through it.
 
 **The tunnel for sign-in is the person's, to this listener only.** claude.ai and ChatGPT reach the Mac from their own
 servers, so the person exposes the G135 listener's port publicly with a stable hostname — `tailscale funnel --bg 8765`
@@ -295,7 +308,7 @@ added: the backend and the MCP server never open a site (`test_explore_tools.py`
 through the whole flow), so none of the three gates applies to it, and the connector gate is untouched. The person's own
 agent visits each saved site **in their everyday signed-in Chrome session by default** (owner D2, amended): every
 capture is marked `signed_in: true`, and the person's accounts carry the terms-of-service risk (the v3 acknowledgement
-says so, D3). A switch in Settings, Reading the web, turns that off: the agent then explores in a private, cookie-less
+says so, D3). A switch in Reading in your browser (the Sources page) turns that off: the agent then explores in a private, cookie-less
 `Target.createBrowserContext` the script creates and disposes of (verified drivable through browser-harness in a test
 Chrome; an agent that cannot open one hands the site back as `skipped`, never falling back to the signed-in session).
 The ToS rail's spirit binds the script: a wall or captcha is recorded `needs_login`/`blocked` with no screenshot and
@@ -316,6 +329,12 @@ authentication, ever.
 shared `base.forget()` removes them on disconnect, so a fields-vs-stored drift can't orphan a
 secret. Where a vendor bills per request (X's "owned reads"), the sync result carries the count so a
 cost is stated plainly rather than hidden behind a "connected" checkbox.
+**A key is checked before it is saved (G50/G215, 2026-10-22):** one free GET of the provider's own model list, sent
+only to that provider's fixed host (`key_check.PROBES`), on the person's Save, through `net_guard`, 6 s, no cookies,
+nothing logged. A refused key is never saved; an unreachable provider is "Save without checking", the person's choice.
+Only the key's last four characters ever leave the backend (`keyHint`). Every key a card stores is in
+`MANAGED_KEY_ENV`, stripped from every `claude`/`codex` child (`scrubbed_env`). Where the key lives next (OS secret
+store; never projected into the environment) is a pending rail amendment — research providers-2 §4.5.
 Cicada's own Codex sign-in lives in `~/.cicada/codex/` — Codex's files, never opened by Cicada,
 never in a bank.
 

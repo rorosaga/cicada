@@ -27,10 +27,17 @@ struct ConnectionStatus: Identifiable, Codable, Hashable {
     /// Meaningful only on `claude-plan`; absent on an older backend.
     let useForSleep: Bool
     let login: LoginHint?
+    /// G50 (key cards only, #425): the key's last four, where it lives (`file` | `environment`), when its provider
+    /// last accepted it, and what the provider's own terms mean for a personal memory. Absent on an older backend.
+    var keyHint: String? = nil
+    var keyStore: String? = nil
+    var verifiedAt: String? = nil
+    var termsNote: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, label, kind, available, connected, plan, planLabel, tier, account
         case priceUsdMonth, priceNote, billing, engineRole, detail, how, powers, useForSleep, login
+        case keyHint, keyStore, verifiedAt, termsNote
     }
 
     /// Memberwise init — declaring `init(from:)` below suppresses the
@@ -91,6 +98,10 @@ struct ConnectionStatus: Identifiable, Codable, Hashable {
         powers = try c.decodeIfPresent([String].self, forKey: .powers) ?? []
         useForSleep = (try? c.decode(Bool.self, forKey: .useForSleep)) ?? false
         login = try c.decodeIfPresent(LoginHint.self, forKey: .login)
+        keyHint = try? c.decodeIfPresent(String.self, forKey: .keyHint)
+        keyStore = try? c.decodeIfPresent(String.self, forKey: .keyStore)
+        verifiedAt = try? c.decodeIfPresent(String.self, forKey: .verifiedAt)
+        termsNote = try? c.decodeIfPresent(String.self, forKey: .termsNote)
     }
 
     var isSubscription: Bool { billing == "subscription" }

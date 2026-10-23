@@ -8,26 +8,34 @@ final class OnboardingSourceTests: XCTestCase {
         return try String(contentsOf: file, encoding: .utf8)
     }
 
-    /// R-OB5 — "an untouched engine choice keeps the configured engine": F-05 writes nothing itself; only
-    /// `EngineChooser`'s click does (R-AG12's one write rule).
-    func testWhoReadsWritesNothingOfItsOwn() throws {
-        let text = try source("Views/Onboarding/WhoReadsPage.swift")
-        XCTAssertTrue(text.contains("EngineChooser()"))
-        for write in [".apply(", ".set(mode:", "saveEngine", "PUT"] { XCTAssertFalse(text.contains(write), write) }
+    /// R-OB5 (kept by v2) — an untouched step keeps the configured engine: the Intelligence step writes only from a
+    /// click inside a row (`IntelligenceRow`'s Sign in / Verify / Use), never on appear, Continue or Skip.
+    func testTheIntelligenceStepWritesOnlyFromARowsClick() throws {
+        let text = try source("Views/Onboarding/IntelligenceStep.swift")
+        XCTAssertTrue(text.contains("IntelligenceRow("), "Settings → Intelligence's own row")
+        XCTAssertEqual(text.components(separatedBy: "engineVM.apply(").count - 1, 1, "only Use writes")
+        XCTAssertTrue(text.contains("private func use("))
+        XCTAssertFalse(text.contains("kind == \"local\""), "D1: a local model is never pitched")
+        for write in [".set(mode:", "saveEngine", "PUT"] { XCTAssertFalse(text.contains(write), write) }
     }
 
-    /// R-OB14 — F-06 turns nothing on for the person: no switch is set on appear.
-    func testKeepRunningSetsNothingOnAppear() throws {
-        let text = try source("Views/Onboarding/KeepRunningPage.swift")
-        XCTAssertFalse(text.contains("setEnabled(true)"))
-        XCTAssertTrue(text.contains("BackgroundServiceButton"), "the same control as Settings → General")
-        XCTAssertTrue(try source("Views/Settings/SettingsGeneralView.swift").contains("BackgroundServiceButton"))
-    }
-
-    /// R-OB12 — onboarding bundles; Settings → Agents never does (R-H11).
-    func testOnlyOnboardingBundlesRecall() throws {
-        XCTAssertTrue(try source("Views/Onboarding/AgentsPage.swift").contains("bundleAutoRecall: true"))
+    /// R-OB12 — onboarding's Connect bundles Remembers automatically; Settings' Agents never does (R-H11). Connect for
+    /// me runs only through `AgentConnect.run` with the one wiring answer's binaries (R-FA15), its commands shown first.
+    func testOnlyOnboardingBundlesRecallAndConnectRunsSettingsOwnPath() throws {
+        XCTAssertTrue(try source("Support/OnboardingSteps.swift").contains("AgentSteps.recallSteps(for: wiring)"))
+        let step = try source("Views/Onboarding/AgentsStep.swift")
+        XCTAssertTrue(step.contains("AgentConnect.run(steps, runtime: runtime, binaries: binaries)"))
+        XCTAssertTrue(step.contains("CommandBox(command:"), "the commands are shown before Run")
         XCTAssertFalse(try source("Views/Connect/ConnectView.swift").contains("bundleAutoRecall"))
+    }
+
+    /// The Sources step opens the Sources page's own detail for Messages and the browser-read accounts, so every consent
+    /// and switch there is the page's (one source of words), and ticks go through the one turn-on.
+    func testTheSourcesStepReusesTheSourcesPagesRows() throws {
+        let text = try source("Views/Onboarding/SourcesStep.swift")
+        XCTAssertTrue(text.contains("SourceCatalogDetail(row:"))
+        XCTAssertTrue(text.contains("onTick(entry, !on)"))
+        XCTAssertTrue(try source("Views/Onboarding/OnboardingView.swift").contains("runner.start(entry.id"))
     }
 
     /// Seam 1 — the one door opens the paged flow; the demo is still `SetupRunner.demoPlan` (seam 2).
@@ -55,7 +63,7 @@ final class OnboardingSourceTests: XCTestCase {
 
     /// R-OB15 / DR-18 / G153 — the quote is not the quote face and not a cited span.
     func testTheQuoteIsNeverTheQuoteFace() throws {
-        let text = try source("Views/Onboarding/ReadyPage.swift")
+        let text = try source("Views/Onboarding/DonePage.swift")
         XCTAssertFalse(text.contains("quoteFont"))
         XCTAssertFalse(text.contains("CitedSpan"))
     }
@@ -66,11 +74,11 @@ final class OnboardingSourceTests: XCTestCase {
         XCTAssertFalse(try source("Views/Onboarding/OnboardingView.swift").contains("PaintedScene"))
     }
 
-    /// DR-38 (QA 2026-10-16) — "Connect or disconnect agents any time in Settings → Agents" is the frame's foot line
-    /// on the Agents step; the page itself does not say it again.
-    func testTheAgentsStepSaysItsSettingsPointerOnce() throws {
-        XCTAssertFalse(try source("Views/Onboarding/AgentsPage.swift").contains("Copy.agentsFoot"))
-        XCTAssertTrue(try source("Views/Onboarding/OnboardingView.swift").contains("Copy.agentsFoot"))
+    /// Design-refs pattern 12 — the working steps show Skip beside the one primary.
+    func testTheWorkingStepsShowAVisibleSkip() throws {
+        let text = try source("Views/Onboarding/OnboardingView.swift")
+        XCTAssertTrue(text.contains("if page.skippable"))
+        XCTAssertTrue(text.contains("Copy.onboardingSkip"))
     }
 
     /// QA 2026-10-16 — every step opens at its top: the frame's one ScrollView is identified by the step, so a step

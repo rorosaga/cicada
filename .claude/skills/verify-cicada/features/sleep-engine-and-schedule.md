@@ -11,7 +11,7 @@ The person chooses what Sleep reads with (Auto, Claude plan, ChatGPT plan, a key
 
 ## How to get to it (user POV)
 
-- Settings → Engines and Settings → Sleep; the Sleep page's engine menu.
+- Settings → Intelligence and Settings → Sleep; the Sleep page's engine menu.
 - `GET/PUT /sleep/engine`, `GET/PUT /sleep/schedule`, `GET/PUT /sleep/run-options`.
 - `cicada engine list`, `cicada sleep engine`, `cicada sleep schedule`, `cicada sleep options`.
 
@@ -30,4 +30,4 @@ Preconditions:
 
 - The run pins `CICADA_LLM_MODE=agent` in the environment, so the app's engine chooser cannot move it; a PUT that changes the engine is answered but the environment wins. Do not choose a metered key or the ChatGPT plan in a verify run.
 - `plan-claude` masks the plan's account email as `verify@example.invalid` in every answer. Any other email in an answer or a screenshot is the person's: delete it.
-- Forbidden in a verify run: the Connect, Disconnect and Sign in buttons in Settings → Engines and Plans & keys (Disconnect signs the real `claude` out) (a terminal login, a ChatGPT device code, a key). They act on the real account.
+- Forbidden in a verify run: the Connect, Disconnect and Sign in buttons in Settings → Intelligence and its Plans & keys group (Disconnect signs the real `claude` out) (a terminal login, a ChatGPT device code, a key). They act on the real account.

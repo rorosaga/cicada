@@ -124,11 +124,11 @@ def test_scheduled_cycle_with_the_plan_switch_off_keeps_the_chosen_key_without_p
 
 
 def test_scheduled_auto_cycle_with_the_plan_switch_off_probes_no_plan_and_never_a_key(tmp_path, monkeypatch):
-    """Rulings 4 + 31: Auto on a schedule the switch closes asks only whether the local model runs — never a plan —
-    and with none running it has no engine rather than a metered key nobody chose."""
+    """Rulings 4 + 31 + 36 D1: Auto on a schedule the switch closes probes nothing — never a plan, and no longer a
+    local model (Auto has no local rung) — and has no engine rather than a metered key nobody chose."""
     asked, resolved, kwargs = _scheduled_backfill(tmp_path, monkeypatch, mode="auto", plan_switch=False,
                                                   connected={"claude-plan", "chatgpt-plan"})
-    assert asked == [engine_select.OLLAMA_CONNECTION_ID]
+    assert asked == []
     assert resolved.llm_mode == "auto" and kwargs["engine"] == engine_select.NO_ENGINE_LABEL
     assert resolved.no_engine_reason
 

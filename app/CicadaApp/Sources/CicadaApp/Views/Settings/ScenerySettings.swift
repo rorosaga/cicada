@@ -2,8 +2,10 @@ import SwiftUI
 
 /// Settings → Sleep. Per-viewer scenery only; no action here starts work or fetches weather.
 struct ScenerySettings: View {
+    enum Part { case all, preview, source }
     let mood: BookwormState
     let lampLit: Bool
+    var part: Part = .all
     @Environment(\.spriteSnapshotDate) private var snapshotDate
     @AppStorage(SceneryMode.defaultsKey) private var sourceRaw = SceneryMode.localWeather.rawValue
     @AppStorage(ManualScenery.timeKey) private var timeRaw = "day"
@@ -15,7 +17,21 @@ struct ScenerySettings: View {
         let scenery = Scenery.resolve(mode: mode, clock: SceneStore.shared.phase,
                                       forecast: LocalWeatherReader.shared.base(for: SceneStore.shared.timeZoneIdentifier),
                                       mood: mood, manual: manual)
-        SettingsGroupCard(header: Copy.Scenery.group) {
+        // D6 (owner brief, 2026-10-22): the study room's preview leads the page, the hours follow (`SettingsSleepView`),
+        // then where the scenery comes from.
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+            if part != .source {
+                SettingsGroupCard {
+                    SettingsRow(.sceneryPreview, title: Copy.Scenery.preview,
+                        control: { EmptyView() }) {
+                SceneryRoomArt(lampLit: lampLit, scenery: scenery, cell: 1) {
+                    BookwormView(state: mood, latticeCell: 1, lighting: scenery.lighting, lampLit: lampLit)
+                }
+            }
+                }
+            }
+            if part != .preview {
+            SettingsGroupCard {
             SettingsRow(.scenerySource, title: Copy.Scenery.source,
                         detail: mode == .localWeather ? Copy.Scenery.disclosure : nil) {
                 if snapshotDate != nil {
@@ -59,11 +75,6 @@ struct ScenerySettings: View {
                     }
                 }
             }
-            SettingsDivider()
-            SettingsRow(.sceneryPreview, title: Copy.Scenery.preview, detail: scenery.text,
-                        control: { EmptyView() }) {
-                SceneryRoomArt(lampLit: lampLit, scenery: scenery, cell: 1) {
-                    BookwormView(state: mood, latticeCell: 1, lighting: scenery.lighting, lampLit: lampLit)
                 }
             }
         }

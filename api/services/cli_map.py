@@ -117,7 +117,8 @@ ROWS: tuple[Row, ...] = (
         (_p("subject"), _f("observer"), _f("context"), _f("history", "bool"))),
     Row(("source", "list"), "cicada_sources", "Where a page's facts can be checked.", (_p("entity_id"),)),
     Row(("source", "add"), "cicada_add_source", "Record where a fact can be checked.",
-        (_p("subject"), _p("ref"), _f("predicate"), _f("access"), _f("kind"), _f("entity")), mutates=True),
+        (_p("subject"), _p("ref"), _f("predicate"), _f("access"), _f("kind"), _f("entity"), _f("inferred", "bool"),
+         _f("evidence", "json")), mutates=True),
     Row(("source", "change"), "cicada_change_source", "Fix or drop a source you added.",
         (_p("subject"), _p("ref"), _p("action"), _f("predicate"), _f("reason"), _f("new_ref"),
          _f("new_predicate"), _f("access"), _f("entity")), mutates=True),
@@ -202,6 +203,9 @@ ROWS: tuple[Row, ...] = (
     # G71 (2026-10-16): a proposed spelling, not exposed — the agent reads the lists in the person's browser.
     Row(("read", "youtube"), "cicada_record_youtube_list", "Record what the person's YouTube list showed.",
         (_p("list"), _p("outcome"), _f("videos", "json"), _f("via")), mutates=True),
+    # G206 (2026-10-22): a proposed spelling, not exposed — the agent reads the lists in the person's browser.
+    Row(("read", "saved"), "cicada_record_saved_list", "Record what the person's saved list on a site showed.",
+        (_p("platform"), _p("outcome"), _f("items", "json"), _f("via")), mutates=True),
     # 2026-10-16 (the linkedin-people skill): a proposed spelling, not exposed — the agent reads in the person's browser.
     Row(("read", "profile"), "cicada_record_profile", "Record what one person's LinkedIn profile shows now.",
         (_p("entity_id"), _p("url"), _p("outcome"), _f("company"), _f("position"), _f("quotes", "json"),
@@ -319,6 +323,20 @@ ROWS: tuple[Row, ...] = (
          (_p("device_name"),), via="backend", mutates=True, person=True),
     _app(("device", "list"), "Your devices, and whether each one's token still works.", via="backend"),
     _app(("device", "revoke"), "Revoke a device's token at once.", (_p("device_id"),), via="backend", mutates=True,
+         person=True),
+    # G212 (2026-10-22): a one-time code a new device trades once for its own token (`POST /pair`).
+    _app(("device", "pair"), "Show a one-time code (and its QR payload) a new device trades for its own token "
+         "(--kind capture for a phone, the default; full for a computer).",
+         (_f("url"), _f("kind")), via="backend", mutates=True, person=True),
+    # G213 (2026-10-22): a token for an agent that speaks HTTP, not MCP, and the paragraph to give it.
+    _app(("agent", "add"), "Make a token for a personal agent on the HTTP agent API, and the paragraph to give it.",
+         (_p("agent_name"), _f("scope", "list"), _f("days", "int"), _f("url")), via="backend", mutates=True,
+         person=True),
+    # G213 (owner 2026-10-22): look at this machine, then confirm each step — agents, a device, an agent's token.
+    _app(("setup",), "Find what is on this machine and connect it, one confirmed step at a time.",
+         (_f("url"), _f("pair", "bool"), _f("agent")), via="backend", mutates=True, person=True),
+    _app(("agent", "list"), "The agents holding an agent-API token, and whether each still works.", via="backend"),
+    _app(("agent", "revoke"), "Revoke an agent's token at once.", (_p("agent_id"),), via="backend", mutates=True,
          person=True),
 )
 

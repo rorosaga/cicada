@@ -38,8 +38,8 @@ final class RecommendedSkillTests: XCTestCase {
         XCTAssertEqual(SkillAgent.stateLabel("unknown"), "Set up in the agent")
     }
 
-    func testSkillsIsACustomizeRow() {
-        XCTAssertEqual(SettingsGroup.customize.sections, [.integrations, .reading, .agents, .remote, .devices, .skills])
-        XCTAssertEqual(SettingsSection.skills.icon, "sparkles")
+    /// D6: Settings → Skills went; the Skills page holds them, and a saved "skills" section lands there.
+    func testSkillsLiveOnTheSkillsPage() {
+        XCTAssertEqual(SettingsSection.retired["skills"], .page(.skills))
     }
 }

@@ -222,6 +222,9 @@ def _item_from_file(
         suggested_confidence=fm.get("suggested_confidence"),
         merge_target_hint=fm.get("merge_target_hint"),
         asks=_opt_str(fm.get("asks")),
+        rows=([r for r in fm.get("rows") if isinstance(r, dict) and r.get("id") and r.get("page") and r.get("ref")]
+              if str(fm.get("asks") or "") == "sources" and isinstance(fm.get("rows"), list) else None),
+        review=bool(fm.get("review")) if str(fm.get("asks") or "") == "sources" else False,
         source_episode=_opt_str(fm.get("source_episode")),
         source_episode_timestamp=_opt_str(fm.get("source_episode_timestamp")),
         claim_id=_opt_str(fm.get("claim_id")),
@@ -304,6 +307,12 @@ def _subject_gone(memory_path: Path, entity_id: str, kind: str) -> bool:
         return False
     filepath = resolve_entity_file(memory_path, entity_id)
     if filepath is None:
+        if kind == "merge_suggestion":
+            # G209: Stage 2 asks "is <name> the same as <page>?" about a name it parked below the promotion bar —
+            # no page yet, still in memory. Gone only once its pending line is too.
+            from api.services import pending_store
+
+            return sanitize_id(entity_id) not in pending_store.waiting_ids(memory_path)
         return kind != "clarification"
     # The page's header through `bank_index` (mtime-gated): a warm process re-parses no page that did not move
     # (inbox lag, 2026-10-17). A malformed or vanished page is `None` — fail open, as a parse error always was.
@@ -380,14 +389,15 @@ def served_counts(memory_path: Path) -> tuple[int, dict[str, int]]:
     ``"decay"`` default; a malformed file is absent from both paths.
     """
     today = str(date.today())
-    total = 0
-    by_kind: Counter = Counter()
+    requests = len(agent_request_items(memory_path))
+    total = requests
+    by_kind: Counter = Counter({"agent_request": requests} if requests else {})
     for f in bank_index.files(memory_path, "inbox"):
         if not f.stem.startswith("inbox-"):
             continue
         fm = f.frontmatter
         if "kind" not in fm:
-            items = load_inbox(memory_path)
+            items = agent_request_items(memory_path) + load_inbox(memory_path)
             return len(items), dict(Counter(i.kind.value for i in items))
         kind = str(fm["kind"])
         if _hidden(
@@ -398,6 +408,17 @@ def served_counts(memory_path: Path) -> tuple[int, dict[str, int]]:
         total += 1
         by_kind[kind] += 1
     return total, dict(by_kind)
+
+
+def agent_request_items(memory_path: Path) -> list[InboxItem]:
+    """G205: the open agent requests (``agent_requests``, outside the bank) as inbox items, newest first. Never in a
+    demo bank: a real request must not show in the demo's screenshots."""
+    from api.services import agent_requests, demo_guard
+
+    if demo_guard.is_demo(memory_path):
+        return []
+    rows = sorted(agent_requests.open_requests(memory_path), key=lambda r: str(r.get("created_at") or ""), reverse=True)
+    return [InboxItem(**agent_requests.as_inbox_item(r)) for r in rows]
 
 
 def load_inbox(memory_path: Path, *, include_deferred: bool = False) -> list[InboxItem]:
@@ -1206,6 +1227,8 @@ async def _route_resolution(kind: str, path, parsed, request, settings, item_id:
         )
     elif kind == "clarification" and str(parsed.frontmatter.get("asks") or "") == "name":
         entity_id, skipped, extra_lines = await _resolve_name(path, parsed, request, settings)
+    elif kind == "clarification" and str(parsed.frontmatter.get("asks") or "") == "sources":
+        entity_id, skipped, extra_lines = await _resolve_where_to_check(path, parsed, request, settings)
     elif kind in ("clarification", "merge_suggestion"):
         entity_id, skipped, extra_lines = await _resolve_clarification(
             path, parsed, request, settings
@@ -2311,6 +2334,43 @@ async def _resolve_name(path, parsed, request, settings) -> tuple[str, bool, lis
     return outcome.page_id, False, lines
 
 
+async def _resolve_where_to_check(path, parsed, request, settings) -> tuple[str, bool, list[str]]:
+    """G61 "Where to check" (ruling 36 D5; owner 2026-10-22: one grouped review). The item lists waiting links as
+    ``rows`` (each its page, link, kind and evidence). ``row`` names the one answered; without it, every row is.
+    ``yes`` takes each answered row's link on its page (``accepted`` — their own account for a picture, a tracked
+    source for ruling 26); ``no`` or a dismiss removes it, remembered as the person's removal, so nothing proposes it
+    again. A link already taken or removed on its page is left as it is. The item keeps the rows not answered (and is
+    removed when none is left). ``skip`` writes nothing. Returns ``(first page id, skipped, manifest lines)``."""
+    from api.services import source_proposals
+
+    fm = parsed.frontmatter
+    rows = [r for r in fm.get("rows") or [] if isinstance(r, dict)]
+    action = (request.action or "").strip().lower()
+    key = (request.option_key or "").strip()
+    if action == "skip":
+        return str(rows[0].get("page") or "") if rows else "", True, []
+    if key == source_proposals.YES and action in ("resolve", "answer", ""):
+        take = True
+    elif key == source_proposals.NO or action == "dismiss":
+        take = False
+    else:
+        raise HTTPException(400, "Choose yes or no.")
+    wanted = (request.row or "").strip()
+    target = [r for r in rows if r.get("id") == wanted] if wanted else rows
+    if not target:
+        raise HTTPException(404, "That link is no longer waiting in this question.")
+    # In this thread, holding the page lock (re-entrant within a thread: Sleep's settle already holds it here).
+    pages = source_proposals.answer_rows(settings.memory_path, target, take)
+    left = [r for r in rows if r not in target]
+    if left:
+        source_proposals._write_item(path, dict(fm), left, review=bool(fm.get(source_proposals.REVIEW)))
+    else:
+        path.unlink()
+    trigger = f"inbox/clarification/resolved:{'yes' if take else 'no'}"
+    first = pages[0] if pages else str(target[0].get("page") or "")
+    return first, False, [f"entities/{p}.md: updated (trigger: {trigger})" for p in pages[1:]]
+
+
 # ---------- G198: an agent's proposed page edit ----------
 
 PAGE_EDIT_STALE = ("The page changed since this edit was proposed, so it no longer applies: {why} Leave it as it "
@@ -2535,6 +2595,16 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
         path.unlink()
 
     elif action == "dismiss":
+        other = _opt_str(parsed.frontmatter.get("merge_target_hint"))
+        if str(parsed.frontmatter.get("kind") or "") == "merge_suggestion" and other:
+            # Dismissing "Is A the same as B?" is "stop asking": the pair is remembered like a reject, or the next
+            # Sleep raises the same question again (G209 W1, a held name re-read from the pending store).
+            from api.services import merge_rejections
+
+            merge_rejections.add_rejected(settings.memory_path, entity_id, other)
+            path.unlink()
+            return entity_id, False, [f"{merge_rejections.FILE}: updated (source: {path.stem}, "
+                                      "trigger: inbox/merge_suggestion/dismissed)"]
         path.unlink()
 
     elif action == "merge" and request.merge_target:
@@ -2601,9 +2671,25 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
 
         if not rename:
             # Survivor == existing target: absorb the mention into the target.
-            note = f"\n\n_Resolved ambiguous mention '{mention}' into this entity._"
+            from api.services import pending_store, person_leads
+
+            note = "\n\n" + person_leads.answered_note(mention)
             new_body = append_note(target.body, note)
+            pageless = bool(mention) and (not entity_id or resolve_entity_file(settings.memory_path, entity_id) is None)
+            if pageless:
+                # G209: a name still below the promotion bar has no page to fold. The answer makes it one of the target's
+                # names, and Stage 2 reads the note above as the person's own verdict, so the name lands here from now
+                # on instead of being asked about again.
+                names = [str(a) for a in target.frontmatter.get("aliases") or [] if str(a).strip()]
+                own = str(target.frontmatter.get("name") or "")
+                if mention.lower() != own.lower() and all(a.lower() != mention.lower() for a in names):
+                    target.frontmatter["aliases"] = [*names, mention]
             markdown_parser.write(target_path, target.frontmatter, new_body)
+            # Its pending line leaves the store; a line still holding claims stays until Stage 2 resolves the name to
+            # this page and Stage 5.56 writes them here (`pending_store.take`).
+            taken = pageless and pending_store.take(settings.memory_path, mention)[1]
+            store_lines = ([f"{pending_store.PENDING_STORE_FILE}: updated (trigger: inbox/merge_suggestion/resolved:merge)"]
+                           if taken else [])
             # A question asked about a PAGE (a placeholder person named in the inbox, `role_people.answer_name`,
             # flagged `fold_page`) folds that page into the target through the one merge primitive — its claims,
             # sources and references follow. Any other item was asked about a mention: a page promoted under that
@@ -2622,7 +2708,7 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 return target_path.stem, False, _merge_manifest(merged["paths"],
                                                                 removed=f"entities/{mention_path.stem}.md")
             path.unlink()
-            entity_id = target_path.stem
+            return target_path.stem, False, store_lines
         else:
             # Survivor == the cleaner mention: keep the cleaner name/id.
             survivor_path = target_path.parent / f"{survivor_slug}.md"

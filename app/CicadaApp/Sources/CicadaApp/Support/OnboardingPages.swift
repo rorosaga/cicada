@@ -1,29 +1,57 @@
 import CoreGraphics
 import SwiftUI
 
-/// R-OB1 — the paged onboarding's six steps (G145). *See how* (F-03) is a sheet over Import, never a step.
+/// Onboarding v2 (G217, G92, ruling 36 D1/D6; 2026-10-22) — five steps, one verb each, a visible Skip on the three
+/// working steps: Welcome · Intelligence · Agents · Sources · Done. *See how* is a sheet over Sources, never a step.
+/// It replaced the seven-step flow (Import, Agents, Skills, Who reads, Keep it running); `init(stored:)` maps every
+/// name either flow could have stored, so a person who quit mid-way on any build resumes on the nearest step.
 enum OnboardingPage: Int, CaseIterable, Comparable {
-    /// `skills` (owner 2026-10-15): after Agents — the skills that let those agents see websites and use apps.
-    case welcome, `import`, agents, skills, whoReads, keepRunning, ready
+    case welcome, intelligence, agents, sources, done
 
-    static let stepCount = 7
+    static let stepCount = 5
     static func < (a: OnboardingPage, b: OnboardingPage) -> Bool { a.rawValue < b.rawValue }
 
     var step: Int { rawValue + 1 }
     var next: OnboardingPage? { OnboardingPage(rawValue: rawValue + 1) }
     var previous: OnboardingPage? { OnboardingPage(rawValue: rawValue - 1) }
-    /// Welcome and You're set are the room over a card; the working pages are the split frame, the room in its pane.
-    var isSplit: Bool { self != .welcome && self != .ready }
+    /// Welcome and Done are the room over a card; the working steps are the split frame, the room in its pane.
+    var isSplit: Bool { self != .welcome && self != .done }
+    /// The working steps carry a visible Skip (design-refs pattern 12): nothing on them is required.
+    var skippable: Bool { isSplit }
 
-    /// The worm's mood in onboarding's room (owner 2026-10-16: the study room replaced the paintings), so each step's
-    /// room says what the step is about: awake to say hello, reading for what comes in and who reads it, happy to meet
-    /// the agents and skills and when it is set, asleep for what keeps running while the Mac rests.
+    /// The name a step is stored under (`OnboardingState.savedStep`) — a word, never the raw value, so a reorder
+    /// never moves a stored step.
+    var storedName: String {
+        switch self {
+        case .welcome: "welcome"
+        case .intelligence: "intelligence"
+        case .agents: "agents"
+        case .sources: "sources"
+        case .done: "done"
+        }
+    }
+
+    /// Hyrum mode B: every step name a build could have stored, mapped to the step that now holds its job. The
+    /// seven-step flow's Import became Sources, Who reads became Intelligence, and Skills and Keep it running (gone
+    /// from onboarding; both live on in the Skills page and Settings → General) land on the step after them.
+    init?(stored: String) {
+        switch stored {
+        case "welcome": self = .welcome
+        case "intelligence", "whoReads": self = .intelligence
+        case "agents": self = .agents
+        case "sources", "import", "skills": self = .sources
+        case "done", "ready", "keepRunning": self = .done
+        default: return nil
+        }
+    }
+
+    /// The worm's mood in onboarding's room (owner 2026-10-16: the study room is onboarding's one illustration,
+    /// DR-13): awake to say hello, reading for who reads and what comes in, happy to meet the agents and when set.
     var roomMood: BookwormState {
         switch self {
         case .welcome: .awake
-        case .import, .whoReads: .reading
-        case .agents, .skills, .ready: .happy
-        case .keepRunning: .sleeping(stage: 1)
+        case .intelligence, .sources: .reading
+        case .agents, .done: .happy
         }
     }
 }
@@ -54,7 +82,8 @@ enum OnboardingLayout {
     static let cardMaxWidth: CGFloat = 640
     static let cardBottom: CGFloat = 48
     static let gutter: CGFloat = 16
-    static let twoColumnImport: CGFloat = 700
+    /// The Sources grid's tile: wide enough for its two-line consent caption at 1×, so a 532 pt column holds 3.
+    static let sourceTile: CGFloat = 150
 
     /// The room's pane gives way before the column does, and goes rather than become a sliver: it is art only
     /// (DR-13), so losing it loses no word.
@@ -66,10 +95,5 @@ enum OnboardingLayout {
 
     static func cardWidth(windowWidth w: CGFloat, scale: CGFloat) -> CGFloat {
         max(0, min(cardMaxWidth * scale, w - 2 * gutter * scale))
-    }
-
-    /// F-02's categories in two columns only when both fit.
-    static func importColumns(columnWidth: CGFloat, scale: CGFloat) -> Int {
-        columnWidth >= twoColumnImport * scale ? 2 : 1
     }
 }

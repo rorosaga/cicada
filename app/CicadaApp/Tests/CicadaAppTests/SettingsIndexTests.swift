@@ -21,7 +21,7 @@ final class SettingsIndexTests: XCTestCase {
         XCTAssertEqual(SettingsIndex.search("phone", in: all).first?.entry.id, .remoteSwitch)
         XCTAssertEqual(SettingsIndex.search("dark", in: all).first?.entry.id, .appearance)
         XCTAssertTrue(SettingsIndex.search("schedule", in: all).contains { $0.entry.id == .sleepRuns })
-        XCTAssertEqual(SettingsIndex.search("engines", in: all).first?.entry.id, .page(.engines))
+        XCTAssertEqual(SettingsIndex.search("intelligence", in: all).first?.entry.id, .page(.intelligence))
         XCTAssertEqual(SettingsIndex.search("tele", in: all).first?.entry.id, .telemetry)
         XCTAssertEqual(SettingsIndex.search("backup", in: all).first?.entry.id, .bankExport)
     }
@@ -32,9 +32,9 @@ final class SettingsIndexTests: XCTestCase {
         XCTAssertEqual(hits.first?.entry.id, .page(.sleep), "the section itself outranks its rows")
     }
 
-    func testFromAnywhereRowsLandOnItsHeader() {
+    func testFromAnywhereRowsLandOnItsGroup() {
         let entry = SettingsIndex.staticEntries.first { $0.id == .remoteSwitch }
-        XCTAssertEqual(entry?.anchor, .page(.remote), "R-O12 — Track R's view carries no anchors")
+        XCTAssertEqual(entry?.anchor, .fromAnywhere, "R-O12 — Track R's view carries no anchors; B1 — its group does")
     }
 
     func testDynamicEntriesComeFromSnapshotsAndCarryNoSecret() {
@@ -42,12 +42,8 @@ final class SettingsIndexTests: XCTestCase {
                                           available: true, connected: true, plan: nil, planLabel: nil,
                                           tier: nil, account: "bob-example@example.com", priceUsdMonth: nil,
                                           priceNote: nil, billing: "usage", engineRole: nil, detail: nil, login: nil)
-        let agents = AgentCatalog.all
-        let entries = SettingsIndex.dynamicEntries(channels: [], harnessRows: [], exportOnly: [.youtube],
-                                                   connections: [connection], agents: agents)
-        XCTAssertTrue(entries.contains { $0.id == .connection("byok-openai") && $0.section == .plansAndKeys })
-        XCTAssertTrue(entries.contains { $0.id == .agent("claude-code") && $0.section == .agents })
-        XCTAssertTrue(entries.contains { $0.id == .exportOnly("youtube") && $0.section == .integrations })
+        let entries = SettingsIndex.dynamicEntries(connections: [connection])
+        XCTAssertTrue(entries.contains { $0.id == .connection("byok-openai") && $0.section == .intelligence })
         let text = entries.map { ([$0.title, $0.detail ?? ""] + $0.keywords).joined(separator: " ") }.joined()
         XCTAssertFalse(text.contains("example.com"), "an account line is not a search keyword")
         XCTAssertFalse(text.contains("/x/repo"), "a command is not a search keyword")
@@ -57,7 +53,7 @@ final class SettingsIndexTests: XCTestCase {
         let hits = SettingsIndex.search("engine", in: all)
         let groups = SettingsIndex.grouped(hits).map(\.section)
         XCTAssertEqual(groups, SettingsSection.allCases.filter { groups.contains($0) }, "results read in sidebar order")
-        XCTAssertEqual(SettingsIndex.counts(hits)[.engines], hits.filter { $0.entry.section == .engines }.count)
+        XCTAssertEqual(SettingsIndex.counts(hits)[.intelligence], hits.filter { $0.entry.section == .intelligence }.count)
     }
 
     func testLiveValues() {

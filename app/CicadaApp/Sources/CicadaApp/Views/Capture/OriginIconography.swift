@@ -233,7 +233,7 @@ enum OriginIconography {
     /// asset map (R-L4). `ConnectedChannelRow.logoName` delegates here through
     /// `origin(forChannel:)`, and `source_overview.SourceSpec.mark` is already
     /// an origin id, so the Sleep desk, the Sources grid, the `+` catalog and
-    /// Settings → Integrations cannot disagree about what a source looks like.
+    /// the Sources page cannot disagree about what a source looks like.
     ///
     /// `mcp` shares Claude Code's mark: it is the same harness under its
     /// legacy id. Safari and Apple Notes are deliberately absent — R-L3

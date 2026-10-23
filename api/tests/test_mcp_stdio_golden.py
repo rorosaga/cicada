@@ -8,13 +8,18 @@ and the ask/enrich services at their OWN modules, and `_backend_post` /
 `SESSION` / `get_memory_path` on the server (which the stdio wrappers read at
 call time), never a helper that moves. Dates in the bank are relative to today
 (replies carry ages such as "4 months ago"), and today's ISO date is replaced
-by `<today>` before comparing. Re-record ONLY for a deliberate reply change:
+by `<today>` before comparing; recall's age words for a fixed day ("last said 9 months ago on 2026-01-05", G210) become
+`last said <age> on <day>`, pinned by `test_recall_age.py` instead. Re-record ONLY for a deliberate reply change:
 `CICADA_RECORD_GOLDEN=1`.
+
+G199 (2026-10-22): each entry is the whole `tools/call` result an agent receives (`call_tool`): its text, and for a
+refusal `isError` and `structuredContent`. A read reply is fenced as reference data (G200 A9).
 """
 from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import urllib.request
 from datetime import date, timedelta
@@ -26,6 +31,8 @@ from _stdio_server import stdio_server
 from api.services import ask_service, markdown_parser, media_ingestor, predicates, vector_index
 
 FIXTURE = Path(__file__).parent / "fixtures" / "mcp_stdio_golden.json"
+#: Recall's age words move with the calendar for a fixed day; the day itself stays in the comparison.
+_AGE = re.compile(r"last said [a-z0-9 ]+? on (\d{4}-\d{2}-\d{2})")
 
 
 def _ago(days: int) -> str:
@@ -112,8 +119,8 @@ def server(tmp_path, monkeypatch):
     return srv
 
 
-def _replies(srv) -> dict[str, str]:
-    t = srv.handle_tool
+def _replies(srv) -> dict[str, dict]:
+    t = srv.call_tool
     today = date.today().isoformat()
     out = {
         "recall": t("cicada_recall", {"query": "alpha project"}),
@@ -144,7 +151,12 @@ def _replies(srv) -> dict[str, str]:
     out["ask"] = t("cicada_ask", {"query": "what does alpha use?"})
     out["save_url"] = t("cicada_save_url", {"url": "https://example.com/post", "note": "worth keeping"})
     out["save_url_bad"] = t("cicada_save_url", {"url": "ftp://example.com/x"})
-    return {k: v.replace(today, "<today>") for k, v in out.items()}
+    out["recall_no_query"] = t("cicada_recall", {})
+    out["ask_top_k_word"] = t("cicada_ask", {"query": "what does alpha use?", "top_k": "lots"})
+    out["ask_top_k_digits"] = t("cicada_ask", {"query": "what does alpha use?", "top_k": "3"})
+    out["timeline_since_words"] = t("cicada_timeline", {"since": "last tuesday"})
+    return {k: json.loads(_AGE.sub(r"last said <age> on \1", json.dumps(v).replace(today, "<today>")))
+            for k, v in out.items()}
 
 
 def test_stdio_tool_replies_are_byte_identical(server):

@@ -55,7 +55,7 @@ def test_build_carries_contract_state_and_capabilities(tmp_path):
     assert "in your own words" in text and "quote=<their exact words>" in text and 'mode="list"' in text
     assert "skip=true" in text and "Never guess an answer" in text
     assert "Recommended option" not in text and "quote the Cause" not in text
-    assert handshake.CONTRACT_VERSION == 18, ("G140 named its tools (3), bridge lines joined (G138, 4), then G141 named "
+    assert handshake.CONTRACT_VERSION == 20, ("G140 named its tools (3), bridge lines joined (G138, 4), then G141 named "
                                              "cicada_project (5) and cicada_note_progress (6); G149 item 8 (the "
                                              "From Cicada note) and G150's backlog tools both took 7 on parallel "
                                              "branches, so the merge moves past both (8, R-H13); G166's reading "
@@ -63,7 +63,8 @@ def test_build_carries_contract_state_and_capabilities(tmp_path):
                                              "merge of both moves past it (11); G61 S3-a names the source tools (12); G61 S3 the check (13); "
                                              "G110 names cicada_continue (14), optional State guidance (15); "
                                              "questions come up naturally (16); G198 names cicada_edit_page, merged "
-                                             "past both 16s (17); ruling 34's video hand-back names its lease_token (18)")
+                                             "past both 16s (17); ruling 34's video hand-back names its lease_token (18); G200 A7 drops the HTTP routes and adds the "
+                                             "desktop variant (19)")
     assert "cicada_edit_page(subject, reason, edits)" in text
     assert "cicada_write_claim" in text and "evidence" in text and "sources" in text
     assert state_dictionary.WORLD_FACTS_NOTE in text
@@ -72,7 +73,9 @@ def test_build_carries_contract_state_and_capabilities(tmp_path):
     assert "inbox: 1 pending" in text
     assert "11111111-2222-4333-8444-555555555555" in text and "claude --resume" in text
     # capability notes
-    assert "decay_class" in text and "/episodes/{id}/span" in text
+    assert "decay_class" in text and "cicada_sources(entity_id)" in text
+    # G200 A7: no HTTP route an MCP agent cannot call
+    assert "POST /" not in text and "GET /" not in text
     assert "resum" in text.lower()
     # budget
     assert len(text) // 4 <= handshake.MAX_TOKENS, len(text)
@@ -161,8 +164,8 @@ def test_installing_the_plugin_never_serves_yesterdays_primer(tmp_path):
 
 def test_no_state_degrades_to_the_static_contract(tmp_path):
     text = handshake.build(None, variant="generic", bank="memory")
-    assert "## Contract" in text and "no `_state.md` yet" in text
-    assert "GET /state?refresh=true" in text
+    assert "## Contract" in text and "has no now-view yet" in text and "next Sleep cycle writes it" in text
+    assert "GET /" not in text, "G200 A7: no HTTP route an MCP agent cannot call"
     assert len(text) // 4 <= handshake.MAX_TOKENS
 
 

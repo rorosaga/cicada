@@ -117,9 +117,11 @@ def test_a_remote_claim_is_the_apps_with_its_own_commit(runtime, memory):
 def test_a_remote_app_can_never_write_the_persons_own_words(runtime, memory, observer):
     page = memory / "entities" / "alpha-project.md"
     before, head = page.read_text(), _git(memory, "rev-parse", "HEAD")
-    text, _ = runtime.call(_connector(), "cicada_write_claim", {
+    text, status = runtime.call(_connector(), "cicada_write_claim", {
         "subject": "alpha-project", "predicate": "lives-in", "object": "Lisbon", "observer": observer})
-    assert "own words" in text
+    # G199: the schema this connection was shown (`agent | external`) refuses it at the door, before the body's own
+    # "never the person's own words" guard is reached.
+    assert status == "invalid" and text.startswith("Invalid arguments: `observer` must be one of `agent`, `external`")
     assert page.read_text() == before and _git(memory, "rev-parse", "HEAD") == head
 
 
@@ -403,7 +405,7 @@ def test_stdio_inbox_ids_take_the_same_shape(memory):
     assert sent == ["/inbox/inbox-005/resolve"]
 
 
-@pytest.mark.parametrize("raw, expected", [(None, 6), (3, 3), (10_000, 12), (-5, 1), ("abc", 6), (1e400, 6)])
+@pytest.mark.parametrize("raw, expected", [(None, 6), (3, 3), (10_000, 12), (-5, 1), ("7", 7)])
 def test_ask_top_k_is_clamped_before_either_path(runtime, monkeypatch, raw, expected):
     seen = []
     monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: (_ for _ in ()).throw(OSError("offline")))
@@ -412,3 +414,12 @@ def test_ask_top_k_is_clamped_before_either_path(runtime, monkeypatch, raw, expe
     args = {"query": "q"} if raw is None else {"query": "q", "top_k": raw}
     assert runtime.call(_connector(scopes={"ask"}, cid="as12cd34"), "cicada_ask", args)[1] == "ok"
     assert seen == [expected]
+
+
+@pytest.mark.parametrize("raw", ["abc", 1e400, 2.5, True])
+def test_ask_top_k_that_is_not_an_integer_is_refused_at_the_door(runtime, monkeypatch, raw):
+    """G199: the schema says integer; a non-integer is refused before the body runs (it used to read as 6)."""
+    seen = []
+    monkeypatch.setattr(ask_service, "answer_query", lambda *a, **k: seen.append(1))
+    text, status = runtime.call(_connector(scopes={"ask"}, cid="as12cd34"), "cicada_ask", {"query": "q", "top_k": raw})
+    assert status == "invalid" and text.startswith("Invalid arguments: `top_k` must be an integer") and seen == []

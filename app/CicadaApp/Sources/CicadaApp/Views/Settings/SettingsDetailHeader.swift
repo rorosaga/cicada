@@ -14,10 +14,20 @@ struct SettingsDetailHeader: View {
         let back: () -> Void
     }
 
-    let section: SettingsSection
+    let section: SettingsHeading
     var subpage: Subpage? = nil
     var trailing: AnyView? = nil
     @Environment(\.settingsHeaderTrailingInset) private var trailingInset
+
+    init(section: SettingsSection, subpage: Subpage? = nil, trailing: AnyView? = nil) {
+        self.init(heading: SettingsHeading(section), subpage: subpage, trailing: trailing)
+    }
+
+    init(heading: SettingsHeading, subpage: Subpage? = nil, trailing: AnyView? = nil) {
+        self.section = heading
+        self.subpage = subpage
+        self.trailing = trailing
+    }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingMD) {
@@ -47,10 +57,12 @@ struct SettingsDetailHeader: View {
                         .tracking(CicadaTheme.displayTracking(size: 22))
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .accessibilityAddTraits(.isHeader)
-                    Text(section.subtitle)
-                        .font(CicadaTheme.bodyFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .lineLimit(1)
+                    if !section.subtitle.isEmpty {
+                        Text(section.subtitle)
+                            .font(CicadaTheme.bodyFont)
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                            .lineLimit(1)
+                    }
                 }
             }
             Spacer(minLength: CicadaTheme.spacingMD)
@@ -59,21 +71,60 @@ struct SettingsDetailHeader: View {
         .padding(.trailing, trailingInset)
         .padding(.top, CicadaTheme.spacingXL)
         .padding(.bottom, CicadaTheme.spacingSM)
-        .settingsRow(.page(section))
+        .settingsRow(section.anchor)
     }
+}
+
+/// What a page header shows: a live section's title, or — for a view a retired section left behind (D6: Integrations,
+/// Reading the web and Agents, kept whole for the pages that absorb their rows) — that page's own words and its old
+/// anchor (`page:<raw>`).
+struct SettingsHeading {
+    let title: String
+    let pageTitle: String
+    let subtitle: String
+    let anchor: SettingsRowID
+
+    init(_ section: SettingsSection) {
+        title = section.title
+        pageTitle = section.pageTitle
+        subtitle = section.subtitle
+        anchor = .page(section)
+    }
+
+    init(retired raw: String, title: String, subtitle: String = "") {
+        self.title = title
+        pageTitle = title
+        self.subtitle = subtitle
+        anchor = SettingsRowID("page:\(raw)")
+    }
+
+    static var integrations: SettingsHeading { .init(retired: "integrations", title: Copy.integrations) }
+    static var reading: SettingsHeading { .init(retired: "reading", title: Copy.Reading.inBrowserTitle) }
+    static var agents: SettingsHeading { .init(retired: "agents", title: Copy.agents) }
+    static var skills: SettingsHeading { .init(retired: "skills", title: Copy.skills) }
 }
 
 /// One Settings page: its header, then its group cards, in the one scroll
 /// view that can land on a row. No header wash on any page (DR-13).
 struct SettingsPage<Content: View>: View {
-    let section: SettingsSection
+    let section: SettingsHeading
     var trailing: AnyView? = nil
     @ViewBuilder var content: () -> Content
+
+    init(section: SettingsSection, trailing: AnyView? = nil, @ViewBuilder content: @escaping () -> Content) {
+        self.init(heading: SettingsHeading(section), trailing: trailing, content: content)
+    }
+
+    init(heading: SettingsHeading, trailing: AnyView? = nil, @ViewBuilder content: @escaping () -> Content) {
+        self.section = heading
+        self.trailing = trailing
+        self.content = content
+    }
 
     var body: some View {
         SettingsScroll {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                SettingsDetailHeader(section: section, trailing: trailing)
+                SettingsDetailHeader(heading: section, trailing: trailing)
                 content()
             }
             .padding(.horizontal, CicadaTheme.spacingXL)

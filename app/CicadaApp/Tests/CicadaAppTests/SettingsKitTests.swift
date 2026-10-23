@@ -22,8 +22,6 @@ final class SettingsKitTests: XCTestCase {
 
     func testGroupTitlesComeFromCopy() {
         XCTAssertEqual(SettingsGroup.cicada.title, Copy.groupCicada)
-        XCTAssertEqual(SettingsGroup.customize.title, Copy.groupCustomize)
-        XCTAssertEqual(SettingsGroup.enginesAndKeys.title, Copy.groupEnginesAndKeys)
     }
 
     // MARK: Row ids

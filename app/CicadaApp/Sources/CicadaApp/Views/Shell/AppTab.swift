@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The eight primary views (the ninth, Looks, went on 2026-10-20: a look lives on the page of the thing it shows). Raw values are this tab's **stable identity** —
+/// The nine primary views (Looks went on 2026-10-20: a look lives on the page of the thing it shows; Agents took its ⌘9 on 2026-10-22). Raw values are this tab's **stable identity** —
 /// the persisted selection (`cicada.selectedTab`) and the ⌘-slot order in
 /// `allCases` — so a surviving tab's raw value must never move, even when its
 /// label changes.
@@ -34,6 +34,10 @@ enum AppTab: String, CaseIterable {
     /// G141 PJ-5 — the eighth page, ⌘8 (owner ruling 2026-09-23: the first free cell after Sources, so no existing
     /// shortcut moves; DESIGN_RULES §9, DR-22). A new raw value, so `restored(from:)` needs no mapping.
     case projects = "Projects"
+    /// Ruling 36 D6 / G217 — the ninth page, ⌘9: every agent that reads and writes Cicada, by provider umbrella (it was
+    /// the Agents page). Appended so no existing shortcut moves (DR-22). A new raw value; a saved Settings
+    /// `"agents"` section lands here through `SettingsSection.retired`.
+    case agents = "Agents"
 
     /// Decodes a persisted selection, mapping every retired tab to whichever
     /// page inherited its content. Anything unrecognised falls back to Home.
@@ -61,6 +65,7 @@ enum AppTab: String, CaseIterable {
         case .sources: "tray.2"
         case .projects: "point.topleft.down.to.point.bottomright.curvepath"
         case .skills: "puzzlepiece.extension"
+        case .agents: "cable.connector"
         }
     }
 

@@ -328,6 +328,10 @@ PERSON_ARGV = {
     "skills publish": ["skills", "publish", "release-notes", "--agent", "codex"],
     "device add": ["device", "add", "laptop"],
     "device revoke": ["device", "revoke", "ab12cd34"],
+    "device pair": ["device", "pair"],
+    "agent add": ["agent", "add", "Texting Agent"],
+    "setup": ["setup"],
+    "agent revoke": ["agent", "revoke", "ab12cd34"],
     "engine connect": ["engine", "connect", "claude-plan"],
 }
 

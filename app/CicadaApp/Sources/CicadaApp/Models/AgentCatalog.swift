@@ -1,6 +1,6 @@
 import Foundation
 
-/// R-AG1 — the agents Settings → Agents offers, in the order the owner named them, pinned to the backend's
+/// R-AG1 — the agents the Agents page offers, in the order the owner named them, pinned to the backend's
 /// `agent_live.LIVE_AGENTS` by `api/tests/fixtures/agent_catalog.json`. `featured` (the first nine) is what phase
 /// B's onboarding shows; Gemini CLI stays for installs that already registered it, and "Another agent" (last)
 /// covers every agent the list does not name.

@@ -62,6 +62,8 @@ GATED = {
     ("PUT", "/capture/local-source/wispr-flow/settings"): "/capture/local-source/wispr-flow/settings",
     # G166: "Ask an agent" can save a page (without a fetch), so it is gated like a save.
     ("POST", "/reading/asks"): "/reading/asks",
+    # G212: a note a paired device sends, staged into the active bank.
+    ("POST", "/capture/note"): "/capture/note",
     # G166: "Add to your graph" writes a skill page into the bank.
     ("POST", "/agent-methods/skills/{skill}/page"): "/agent-methods/skills/browser-harness/page",
 }

@@ -91,6 +91,8 @@ DERIVED_ARTIFACTS = (
     # Audit A02/K01: an atomic page write's staging file (`markdown_parser._stage`)
     # and the other temp-then-replace writers' — never a page, never versioned.
     ".*.tmp",
+    # G207: the quick read's provisional records (`awake_read`) — Sleep's reading replaces them, never versioned.
+    ".awake",
 )
 
 _EXCLUDE_HEADER = "# Cicada: derived, rebuildable artifacts - never versioned (G99, G136)"
@@ -671,6 +673,10 @@ def create_bank(root: Path, name: str, description: str = "", *, seed_owner: boo
         from api.services import owner_identity
 
         owner_identity.seed_owner_page(path)
+        # Owner 2026-10-22: a new memory consolidates nightly by default (the demo, seed_owner=False, does not).
+        from api.services import sleep_scheduler
+
+        sleep_scheduler.seed_new_bank_schedule(path)
     return slug
 
 
@@ -1000,7 +1006,8 @@ def export_zip(root: Path, name: str, dest_dir: Path, *, now: datetime | None = 
             at_top = rel == Path(".")
             dirnames[:] = [
                 d for d in dirnames
-                if not (here / d).is_symlink() and not (at_top and (d == TRASH_DIRNAME or (in_place and d in _ROOT_ONLY)))
+                if not (here / d).is_symlink()
+                and not (at_top and (d == TRASH_DIRNAME or d in DERIVED_ARTIFACTS or (in_place and d in _ROOT_ONLY)))
             ]
             for fn in filenames:
                 full = here / fn

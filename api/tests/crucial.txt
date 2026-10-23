@@ -11,6 +11,9 @@ test_crucial_tier.py
 test_capture_needs_no_model.py
 test_capture_hook.py::test_cicada_cli_spawns_carry_capture_off
 test_capture_hook.py::test_hook_module_imports_nothing_from_api
+# G207 (ruling 36 D2): the job after capture only queues in the capture's thread; its quick read is provisional
+test_awake_read.py::test_after_capture_only_queues_and_debounces
+test_awake_read.py::test_quick_read_writes_a_provisional_record_and_nothing_else
 
 ## Capture: a transcript is read only under the harness root as <session_id>.jsonl within the cap (G105)
 test_capture_transcript.py::test_refuses_paths_outside_the_harness_root
@@ -85,6 +88,9 @@ test_entity_types.py::test_the_create_branch_holds_the_set_even_when_a_payload_s
 test_page_quality.py::test_a_second_conversation_promotes_crediting_both_with_what_each_said
 test_owner_self_reference.py::test_every_self_reference_lands_on_the_owner_page_and_no_user_page_is_written
 
+## A project is born from a repository the hook observed or the person's own words, never consolidation alone (ruling 36 D4)
+test_project_birth.py::test_consolidation_alone_never_mints_a_project_even_over_two_conversations
+
 ## Claims and evidence spans: exact -> whitespace -> case-insensitive, never fuzzy; provenance never blocks memory
 test_evidence.py::test_locate_exact_then_normalised_then_case_insensitive_never_fuzzy
 test_evidence.py::test_verify_falls_back_to_reasoning_never_a_faked_span
@@ -110,6 +116,13 @@ test_handshake.py::test_never_secrets_never_transcripts
 test_handshake_r12.py::test_every_argument_the_local_primer_names_is_in_the_schema
 test_handshake_r12.py::test_every_argument_a_remote_primer_names_is_in_its_schema
 test_handshake_r12.py::test_every_argument_the_recall_note_names_is_in_the_schema
+
+## One tool-call contract on both doors: checked against the advertised schema, a refusal is isError, no exception text (G199)
+test_mcp_error_contract.py::test_both_doors_refuse_the_same_bad_value
+test_mcp_error_contract.py::test_a_refusal_is_flagged_with_its_code
+test_mcp_error_contract.py::test_an_exception_never_carries_its_message
+test_mcp_error_contract.py::test_the_leniency_ships_in_exactly_one_release
+test_mcp_error_contract.py::test_an_empty_graph_recall_with_stored_words_is_an_answer_fenced_on_remote
 
 ## Privacy: the person's words need the `sources` scope; the query and the prompt are never logged
 test_ask_source_words.py::test_without_the_sources_scope_no_conversation_words_are_shown
@@ -149,6 +162,10 @@ test_auth.py::test_cors_allows_loopback_origins_only
 ## Portability: no owner name primes a prompt
 test_owner_name_portability.py::test_no_llm_prompt_is_primed_with_a_person
 
+## Portability: a bank commits under a neutral identity, never one git guessed from the account (G203)
+test_headless_server.py::test_a_guessed_identity_never_reaches_a_bank_commit
+test_headless_server.py::test_a_bank_switched_to_at_runtime_gets_the_neutral_identity
+
 ## Test isolation: the suite never touches the real home, a developer's .env, or a real bank
 test_suite_home_isolation.py
 test_system_benchmark_isolation.py::test_unmarked_bank_and_home_are_refused_before_import
@@ -161,3 +178,7 @@ test_fetch_embedding_model.py::test_the_release_build_and_the_checkout_share_one
 
 ## CLAUDE.md stays under its size limit and every architecture doc exists
 test_claude_md_size.py
+
+## Where to check (ruling 36 D5): a proposal is never trusted, drawn or re-checked; Sleep settles it only on the person's own located words
+test_where_to_check.py::test_a_profile_in_the_pages_own_text_is_proposed_untrusted_with_one_question_and_no_face
+test_where_to_check.py::test_without_the_persons_own_words_naming_it_nothing_is_settled

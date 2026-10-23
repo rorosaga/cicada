@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings → Search & files (owner, 2026-10-14): *What Cicada can look through*. One place for the folders Cicada
+/// Settings → Privacy & data (owner, 2026-10-14): *What Cicada can look through*. One place for the folders Cicada
 /// keeps (G133, moved from Integrations → Notes & files) and for how well search understands what it finds (moved from
 /// Memory → Search model and the Looks page), in plain words — the owner: "without mentioning embeddings".
 ///
@@ -22,6 +22,7 @@ import SwiftUI
 /// (`AddFolderRow` → `NSOpenPanel` → `LocalSourceWatcher`); *Look inside* comes before a folder joins memory
 /// (`AddFolderSheet`); while Sleep runs a switch waits and the button says why (`ProjectWriteGate.sleepRunning`).
 /// `GET /embeddings` is not a Store domain: read when the page opens, polled while a download or re-read runs.
+/// Since D6 it is a group on Privacy & data, not a page (`SettingsSection.retired["searchFiles"]`).
 struct SearchFilesView: View {
     @Environment(Store.self) private var store
     @State private var embeddings: EmbeddingsStatus?
@@ -31,70 +32,27 @@ struct SearchFilesView: View {
     @State private var acting = false
 
     private var sleeping: Bool { ProjectWriteGate.sleepRunning(store.status.value) }
-    private var inDemo: Bool { DemoMode.isShowing(store.banks.value, bank: store.bank) }
-    private var folderChannels: [SourceChannel]? {
-        store.channels.value.map { $0.filter { $0.id.hasPrefix("folder:") } }
-    }
 
     var body: some View {
-        SettingsPage(section: .searchFiles) {
-            foldersGroup
+        // D6: one group on Privacy & data — "Search runs on this Mac" and the sharper-model download. The folders are
+        // sources now (the Sources page); Memory's fade card shows only when it holds a suggestion or a chosen pace.
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             understandGroup
-            Text(Copy.SearchFiles.privacyLine)
-                .font(CicadaTheme.metaFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, CicadaTheme.spacingXS)
+            FadePaceCard()
+                .settingsRow(.memoryGroup)
         }
         .task { await loadEmbeddings() }
         // Polls only while a download or the background re-read runs; the id flips when it ends, which cancels it.
         .task(id: embeddings?.isBusy == true) { await pollWhileBusy() }
     }
 
-    // MARK: Folders
-
-    private var foldersGroup: some View {
-        SettingsGroupCard(header: Copy.SearchFiles.foldersGroup) {
-            let demoReason = inDemo ? Copy.SearchFiles.addFolderDemoHelp : nil
-            if let folders = folderChannels {
-                if folders.isEmpty {
-                    AddFolderRow.empty(disabledReason: demoReason)
-                } else {
-                    ForEach(folders) { channel in
-                        FolderChannelRow(channel: channel)
-                        SettingsDivider()
-                    }
-                    addRow(disabledReason: demoReason)
-                }
-            } else if let error = store.domainErrors[.channels] {
-                WarningLine(text: error, warning: true)
-                    .padding(CicadaTheme.spacingMD)
-            } else {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    ProgressView().controlSize(.small)
-                    Text(Copy.SearchFiles.checkingFolders)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-                .padding(CicadaTheme.spacingMD)
-            }
-        }
-        .settingsRow(.searchFolders)
-    }
-
-    private func addRow(disabledReason: String?) -> AddFolderRow {
-        var row = AddFolderRow.folder
-        row.disabledReason = disabledReason
-        return row
-    }
-
     // MARK: How search understands
 
     private var understandGroup: some View {
-        SettingsGroupCard(header: Copy.SearchFiles.understandGroup) {
+        SettingsGroupCard {
             let meaning = SearchUnderstanding.meaning(embeddings, sleeping: sleeping)
                 ?? (loadFailed ? UnderstandRow(detail: Copy.SearchFiles.loadFailed, failed: true) : nil)
-            SettingsRow(.searchMeaning, title: Copy.SearchFiles.meaningTitle, detail: plainDetail(meaning, note: meaningNote)) {
+            SettingsRow(.searchMeaning, title: Copy.SearchFiles.runsHere, detail: plainDetail(meaning, note: meaningNote)) {
                 consentControl(meaning)
             } below: {
                 consentBelow(meaning, note: meaningNote, title: Copy.SearchFiles.meaningTitle)
@@ -198,4 +156,52 @@ struct SearchFilesView: View {
             if !status.isBusy { return }
         }
     }
+}
+
+/// The watched folders, as one group (the folder list and *Add a folder*). It left Settings with D6 — folders are a
+/// source — and is kept whole for the Sources page's *This Mac* group to embed; until then each folder is a source row
+/// on the Sources page and *Add a source* adds one.
+struct WatchedFoldersGroup: View {
+    @Environment(Store.self) private var store
+    private var inDemo: Bool { DemoMode.isShowing(store.banks.value, bank: store.bank) }
+    private var folderChannels: [SourceChannel]? {
+        store.channels.value.map { $0.filter { $0.id.hasPrefix("folder:") } }
+    }
+
+
+    var body: some View {
+        SettingsGroupCard(header: Copy.SearchFiles.foldersGroup) {
+            let demoReason = inDemo ? Copy.SearchFiles.addFolderDemoHelp : nil
+            if let folders = folderChannels {
+                if folders.isEmpty {
+                    AddFolderRow.empty(disabledReason: demoReason)
+                } else {
+                    ForEach(folders) { channel in
+                        FolderChannelRow(channel: channel)
+                        SettingsDivider()
+                    }
+                    addRow(disabledReason: demoReason)
+                }
+            } else if let error = store.domainErrors[.channels] {
+                WarningLine(text: error, warning: true)
+                    .padding(CicadaTheme.spacingMD)
+            } else {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    ProgressView().controlSize(.small)
+                    Text(Copy.SearchFiles.checkingFolders)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+                .padding(CicadaTheme.spacingMD)
+            }
+        }
+        .settingsRow(.searchFolders)
+    }
+
+    private func addRow(disabledReason: String?) -> AddFolderRow {
+        var row = AddFolderRow.folder
+        row.disabledReason = disabledReason
+        return row
+    }
+
 }

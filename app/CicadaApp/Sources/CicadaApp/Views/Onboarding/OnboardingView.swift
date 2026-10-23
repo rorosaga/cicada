@@ -1,14 +1,15 @@
 import AppKit
 import SwiftUI
 
-/// Round-4 phase B (G145) — the paged onboarding, one full-window layer over the shell (R-IB11's placement kept):
-/// Welcome and You're set are the study room over a card; the working pages are the split frame — the room in its
-/// pane (`OnboardingRoom`, owner 2026-10-16: the room replaced the paintings), then the column: the topbar ("Step n
-/// of 7 · k still coming in", Set up later), the page,
-/// the foot (Back, the page's line, its one primary with ⏎). It decides nothing itself: pages are `OnboardingPage`,
-/// geometry `OnboardingLayout`, steps `OnboardingFlow` run by `SetupRunner`, every row and count `SetupProgress`
-/// (R-OB4). Get started is the owner PUT alone (R-OB2); after it a tick or a drop starts at once. Esc closes See how,
-/// then — on a rerun only — the flow (R-OB19).
+/// Onboarding v2 (G217, G92, ruling 36; 2026-10-22; built on round 4 phase B, G145) — one full-window layer over the
+/// shell (R-IB11's placement kept), five steps of one verb each: Welcome and Done are the study room over a card; the
+/// three working steps (Intelligence, Agents, Sources) are the split frame — the room in its pane (`OnboardingRoom`,
+/// the one illustration, DR-13), then the column: the topbar ("Step n of 5 · k still coming in", Set up later), the
+/// step, the foot (Back, a visible Skip, the one primary Continue with ⏎). It decides nothing itself: steps are
+/// `OnboardingPage`, what each shows `OnboardingSteps`, geometry `OnboardingLayout`, button plans `OnboardingFlow` run
+/// by `SetupRunner`, every source row and count `SetupProgress` (R-OB4). Continue on Welcome is the owner PUT alone
+/// (R-OB2); after it a tick or a drop starts at once. The step reached is kept per bank (`OnboardingState.saveStep`),
+/// so quitting mid-way resumes there. Esc closes See how, then — on a rerun only — the flow (R-OB19).
 struct OnboardingView: View {
     let mode: OnboardingMode
     let dropTargeted: Bool
@@ -29,9 +30,7 @@ struct OnboardingView: View {
     @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
     @Environment(SleepEngineViewModel.self) private var engineVM
     @Environment(SleepViewModel.self) private var sleepVM
-    @Environment(LoginItemService.self) private var loginItems
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage(MenuBarPreference.defaultsKey) private var showsMenuBar = true
 
     @State private var page: OnboardingPage = .welcome
     @State private var furthest: OnboardingPage = .welcome
@@ -42,12 +41,9 @@ struct OnboardingView: View {
     @State private var busy = false
     @State private var failure: String?
     @State private var seeHow: ChatVendor?
-    /// Held here, not by F-04, so You're set reads the last answer (R-OB13).
+    /// Held here, not by the Agents step, so Open Cicada records the agents it saw connect (R-OB13).
     @State private var live = AgentLiveProbe()
-    /// The skills step's ticks, held by the frame: Continue posts them (the consent), wherever the page is.
-    @State private var skillsStep = SkillsStepModel()
     @State private var browsers = BrowserInventory.empty
-    @State private var memoryRoot: String?
     @State private var allowRequested: Set<FoundItemID> = []
     @State private var pageShownAt = Date()
     @FocusState private var rootFocused: Bool
@@ -122,7 +118,7 @@ struct OnboardingView: View {
         .onChange(of: intake.welcomeDrops.map(\.id)) { old, new in startDrops(new.filter { !old.contains($0) }) }
         // ⌘⇧I and the menu bar's Import a file… while onboarding shows (R-IB15), a turn later: a modal panel must
         // not run inside a view update.
-        .onChange(of: intake.welcomeChooseRequest) { _, _ in Task { @MainActor in ImportPage.chooseFile(intake) } }
+        .onChange(of: intake.welcomeChooseRequest) { _, _ in Task { @MainActor in SourcesStep.chooseFile(intake) } }
         // R-OB7 — a Full Disk Access grant lands while Cicada is in the background.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await inventory.refresh() }
@@ -131,6 +127,8 @@ struct OnboardingView: View {
         .onChange(of: page) { _, next in
             furthest = max(furthest, next)
             pageShownAt = Date()
+            // Resume where the person was if they quit mid-way — only once the name is saved (R-OB2).
+            if ownerSaved, next != .welcome { OnboardingState.saveStep(next, bank: store.bank) }
         }
         // The name field took focus and gave it back on ⏎: return it to the root, so the next ⏎ is Get started.
         .onChange(of: editingName) { _, editing in if !editing { rootFocused = true } }
@@ -184,65 +182,42 @@ struct OnboardingView: View {
     @ViewBuilder
     private func pageContent(width: CGFloat, snapshots s: [SetupRowSnapshot]) -> some View {
         switch page {
-        case .import:
-            ImportPage(entries: entries, snapshots: Dictionary(uniqueKeysWithValues: s.map { ($0.id, $0) }),
-                       browsers: browsers, memoryRoot: memoryRoot,
-                       columnWidth: width - 2 * CicadaTheme.scaled(OnboardingLayout.columnPadding),
-                       dropTargeted: dropTargeted, onTick: tick, onSeeHow: { seeHow = $0 })
-        case .agents: AgentsPage(live: live)
-        case .skills: SkillsStepPage(model: skillsStep)
-        case .whoReads: WhoReadsPage(scheduleLine: scheduleLine(.whoReads))
-        case .keepRunning: KeepRunningPage()
-        case .welcome, .ready: EmptyView()
+        case .intelligence: IntelligenceStep()
+        case .agents: AgentsStep(live: live)
+        case .sources:
+            SourcesStep(imports: entries, snapshots: Dictionary(uniqueKeysWithValues: s.map { ($0.id, $0) }),
+                        dropTargeted: dropTargeted,
+                        needsAccess: Set(inventory.items.filter { $0.readiness == .needsPermission }.map(\.id)),
+                        onTick: tick, onSeeHow: { seeHow = $0 })
+        case .welcome, .done: EmptyView()
         }
     }
 
+    /// Back, a visible Skip on the working steps (design-refs pattern 12), and the one primary. Skip and Continue both
+    /// move on and write nothing of their own: what a step changed, a click inside it already wrote.
     private var foot: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
             TextButton(title: Copy.onboardingBack) { if let previous = page.previous { go(previous, .pointer) } }
-            footLine
             Spacer(minLength: CicadaTheme.spacingSM)
+            if page.skippable {
+                TextButton(title: Copy.onboardingSkip) { advance(.pointer) }
+            }
             PrimaryActionButton(title: Copy.onboardingContinue) { advance(.pointer) }
             KeyHint("⏎")
         }
     }
 
-    @ViewBuilder
-    private var footLine: some View {
-        switch page {
-        case .import:
-            OnboardingPointerLine(lead: Copy.importMoreSources, section: .integrations,
-                                  label: Copy.onboardingSettingsIntegrations)
-        case .agents:
-            OnboardingPointerLine(lead: Copy.agentsFoot, section: .agents, label: Copy.onboardingSettingsAgents)
-        case .skills:
-            // Skip: nothing installs, and the answer is kept so nothing asks again.
-            TextButton(title: Copy.Skills.skip) {
-                let step = skillsStep
-                step.noThanks()
-                Task { await step.submit() }
-                if let next = page.next { go(next, .pointer) }
-            }
-        case .whoReads, .keepRunning:
-            // R-OB17 — "Everything stays on this Mac" only when nothing is read off it; F-06 says the same as F-05.
-            Label(WhoReadsPage.footLine(engineVM.response), systemImage: "lock")
-                .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
-        case .welcome, .ready:
-            EmptyView()
-        }
-    }
-
-    /// F-05's and F-07's schedule sentence from the real schedule, the per-bank "asked" record and both previews
-    /// (`OnboardingScheduleLine`) — a rerun after a schedule was chosen is never told nothing reads on its own.
-    private func scheduleLine(_ page: OnboardingScheduleLine.Page) -> String? {
-        let _ = runner.checklistRevision
-        let asked = GettingStartedState.load(bank: store.bank)?.scheduleAsked ?? false
+    /// Done's one line (`DoneLine`) from the real schedule, both previews and what is still coming in — a rerun after
+    /// a schedule was chosen reads that schedule, and a first run is never told "tonight" on a manual schedule.
+    private func doneLine(_ snapshots: [SetupRowSnapshot]) -> String {
         let honesty = HonestyInputs.from(schedule: sleepVM.schedule, response: engineVM.response,
                                          connections: store.connections.value ?? [])
-        return OnboardingScheduleLine.line(page, loaded: sleepVM.scheduleLoaded, asked: asked, honesty: honesty)
+        return DoneLine.line(brought: DoneLine.brought(snapshots), canReadNow: DoneLine.canReadNow(engineVM.response),
+                             scheduleLoaded: sleepVM.scheduleLoaded, honesty: honesty,
+                             nowKey: DoneLine.nowKey(engineVM.response))
     }
 
-    // MARK: Welcome and You're set
+    // MARK: Welcome and Done
 
     private func card(size: CGSize) -> some View {
         let width = OnboardingLayout.cardWidth(windowWidth: size.width, scale: CGFloat(CicadaTheme.uiScale))
@@ -253,12 +228,8 @@ struct OnboardingView: View {
                             onGetStarted: { advance(.pointer) }, onSetUpLater: mode == .rerun ? closeRerun : setUpLater,
                             onTryDemo: tryDemo)
             } else {
-                ReadyPage(summary: SetupProgress.summary(snapshots, keepsUp: { SetupProgress.keepsUp($0, apps: apps) }),
-                          agents: ReadySummary.agents(connected: live.connected),
-                          agentMarks: AgentCatalog.featured.filter { live.connected.contains($0.id) },
-                          startup: ReadySummary.startup(opensAtLogin: loginItems.state == .on, menuBar: showsMenuBar),
-                          scheduleLine: scheduleLine(.ready),
-                          busy: busy, onBack: { go(.keepRunning, .pointer) }, onOpen: { advance(.pointer) })
+                DonePage(line: doneLine(snapshots), busy: busy, onBack: { go(.sources, .pointer) },
+                         onOpen: { advance(.pointer) })
             }
         }
         .frame(width: width)
@@ -286,12 +257,7 @@ struct OnboardingView: View {
         guard !busy, seeHow == nil else { return }
         switch page {
         case .welcome: getStarted(input)
-        case .ready: openCicada()
-        case .skills:
-            // Continuing past the skills step is the consent: what stays ticked installs in the background.
-            let step = skillsStep
-            Task { await step.submit() }
-            if let next = page.next { go(next, input) }
+        case .done: openCicada()
         default: if let next = page.next { go(next, input) }
         }
     }
@@ -317,7 +283,7 @@ struct OnboardingView: View {
             if case .failed(let why) = runner.phase { failure = why; return }
             ownerSaved = true
             startDrops(intake.welcomeDrops.map(\.id))
-            go(.import, input)
+            go(.intelligence, input)
         }
     }
 
@@ -372,6 +338,11 @@ struct OnboardingView: View {
 
     /// R-OB15 — mark, record the agents Cicada saw connect, offer the tour (seam 3), Home.
     private func openCicada() {
+        // Owner 2026-10-22: once right after onboarding when the person brought something in — a run they started.
+        if DoneLine.readsNow(brought: DoneLine.brought(snapshots), canReadNow: DoneLine.canReadNow(engineVM.response)) {
+            let vm = sleepVM
+            Task { await vm.triggerManually() }
+        }
         run(OnboardingFlow.finishSteps(recorded: OnboardingFlow.recordedAgents(connected: live.connected)))
     }
 
@@ -403,13 +374,20 @@ struct OnboardingView: View {
         if engineVM.response == nil { Task { await engineVM.load() } }
         // The schedule line (`OnboardingScheduleLine`) shows nothing until the schedule is known — Home's guard.
         if !sleepVM.scheduleLoaded { Task { await sleepVM.load() } }
+        // A person who quit mid-way resumes on the step they reached, once their name is saved (Hyrum mode B:
+        // `OnboardingPage(stored:)` maps every name a build stored). Welcome is never a resume point.
+        if mode != .rerun, let saved = OnboardingState.savedStep(bank: store.bank),
+           let savedName = owner?.name, OnboardingFlow.canStart(name: savedName) {
+            ownerSaved = true
+            furthest = saved
+            page = saved
+        }
         browsers = await Task.detached(priority: .userInitiated) { BrowserInventory.live() }.value
-        memoryRoot = (try? await APIClient.shared.fetchHealth())?.memoryRoot
         await inventory.refresh()
     }
 }
 
-/// "Step n of 7 · k still coming in" and Set up later (R-OB1). The segments link to any page already reached, never
+/// "Step n of 5 · k still coming in" and Set up later (R-OB1). The segments link to any page already reached, never
 /// past Get started (`OnboardingNav.canJump`). Below the titlebar band, never in it (R-OB23).
 private struct OnboardingTopbar: View {
     let page: OnboardingPage

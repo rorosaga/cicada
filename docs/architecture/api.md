@@ -109,6 +109,78 @@ it. `/devices*` touch no bank (`bank_binding.NO_BANK_WRITE`). On the client the 
 stdio MCP server and the CLI; the base URL is `CICADA_API_BASE` (`runtime_layout.api_base`: https, or http to a
 loopback tunnel only). No installer creates, copies or logs either.
 
+**Pairing a device with a one-time code (G212, 2026-10-22).** `POST /devices/pairing` (master token only, under
+`/devices`; body `{url?}`) answers 201 `{pairing: {id, createdAt, expiresAt, state, deviceId}, code, qr: {v: 1, url,
+code}}` — the app draws `qr` as a QR code (JSON, compact) and shows `code` (`XXXX-XXXX`, 31 unambiguous symbols, no
+I/L/O/0/1) beside it. `url` is where the new device will reach this server (https, or http to loopback only — the
+client rule; never fetched; null when omitted). The new device posts `POST /pair` `{code, name}` — an **open** path,
+the code being its credential, any case, dash optional — and gets 201 `{device, token}`: its own `cic_dev_` token,
+named by what the device reports (`clean_name`), exactly as `POST /devices` issues one. A code lives 10 minutes, is
+spent by the first redeem in the statement that checks it, is kept only as its sha256 (`devices.db`, table
+`pairings`), and at most five wait at once (409 past that). Unknown, used, cancelled and expired codes are one 404;
+`/pair` answers at most ten a minute (429). `GET /devices/pairing/{id}` says `waiting | paired | cancelled | expired`
+(and the device once paired, so the app closes its QR); `DELETE /devices/pairing/{id}` cancels. All outside every
+bank (`NO_BANK_WRITE`). **Hyrum, mode A:** stable — the paths, `qr`'s three keys and `v: 1`, the code's alphabet and
+`XXXX-XXXX` spelling, `state`'s four words; not stable — the 10-minute life, the five-code cap, the rate.
+
+**A phone is capture-only; the QR knows this machine's tailnet name (G212, owner 2026-10-22).**
+- **Kinds.** `POST /devices/pairing` takes `kind: "capture"` (the default — a phone) or `"full"` (another computer);
+  the answer adds `kind` and the pairing and device wires carry it. `cicada device add` and `POST /devices` issue
+  `full`, as before; a store from before the column reads every device as `full`. A **capture** token reaches exactly
+  `POST /sources/save`, `POST /capture/note` and `GET /capture/mine` (`auth.CAPTURE_ROUTES`, exact paths) — every
+  other route, the device routes included, is 403 "this device may only send captures" — and `/healthz` gives it the
+  open answer (status, version, bank ids; never the memory's path or counts). So a phone validates its token with
+  `GET /capture/mine`, not `GET /devices`.
+- **The QR's `url`.** `qr` is still exactly `{v: 1, url, code}`. With no `url` in the request the backend fills it from
+  the person's own `tailscale serve` of the backend port: one bounded (2 s), read-only `tailscale funnel status
+  --json` — the same ServeConfig read `GET /remote/status` already makes, no new command, no LocalAPI socket
+  (`reach.tailnet_backend`). The ServeConfig is the only local answer that proves an address reaches the backend; the
+  machine's DNS name alone would put a URL in the QR that leads nowhere until the port is served. A serve that is also
+  **funnelled** is never used (`reach.public: true`): the backend has no public port (G181). The answer's `reach`
+  (`{tailscale, url, public, serveCommand}`, null when the request named a `url`) says what the person would run when
+  nothing serves the port: `tailscale serve --bg --https=8443 <port>` — tailnet only, 8443 because 443 is where the
+  G135 listener's funnel goes and a port is served or funnelled, never both. Cicada never runs it.
+- **A thought in the person's words: `POST /capture/note`** `{text, title?, id?}` (demo-gated, Awake: no Sleep gate, no
+  model). One `user:` turn — the person's own words, never `origin: mcp` — staged through `episode_staging` (scrub,
+  one writer, `source_id` `note:<device>:<id>`), queued for Sleep, `device` stamped; `origin: phone` from a capture
+  device, `note` from any other token. Its identity is `id`, else the `Idempotency-Key`, else the words themselves.
+  Answers `{status: created|updated|unchanged, episodeId}`. Links stay on `POST /sources/save` `{url, note?}`.
+- **`GET /capture/mine`** (a device token): the asking device's newest captures, at most 20 of the newest 500
+  episodes — `{captures: [{id, title, timestamp, processed, url}]}`, never a body, never another device's.
+- **`Idempotency-Key`** on `POST /sources/save` and `POST /capture/note`: a resend with the same key gets the first
+  answer and writes nothing (`idempotency`). Measured on a scratch server: a link with a note resent **without** a key
+  writes one more "Note on …" episode; with the key, none. Keys are scoped to the sender (`device:<id>` or `server`),
+  the pinned bank's id (a replay after a bank switch runs in the bank now open) and the route, kept as sha256 with the answer's JSON in `$CICADA_HOME/idempotency/keys.db` (outside every bank),
+  for 24 h; only a 2xx is kept, so a refused save (Sleep, a bad link) runs again.
+- **Hyrum, mode A:** stable — the two kind words, `CAPTURE_ROUTES`' three routes, `qr`'s keys, `reach`'s four keys,
+  the note and mine shapes, the header name; not stable — the 24 h TTL, the 20/500 limits, the suggested 8443.
+
+**The agent API (G213, 2026-10-22).** For an agent that speaks HTTP but not MCP. `POST /v1/<op>` with
+`Authorization: Bearer <connector token>` and a JSON object body; operations `recall`, `ask`, `page`, `timeline`,
+`project`, `save_note`, `save_url`, `write_claim`, `retract_claim`, `inbox`, `resolve_inbox` — each one remote tool
+(`api/remote/agent_api.OPS`), its arguments the remote schema's minus `conversation`, run through the shared
+`RemoteRuntime` (scopes, G199 contract, Sleep and demo gates, the daily `ask` cap, fenced reads, `connector:` and
+`origin: remote:<id>` provenance, one ids-only `remote_call` row). Every answer is `{text, isError, code, data}`:
+200 (isError true for a body's refusal), 400 `invalid_arguments`, 401 `invalid_token`, 403 `denied` / `origin`,
+404 `unknown_operation`, 409 `sleep_writing` (with `Retry-After`) / `demo`, 413 `too_large`, 429 `capped` /
+`rate_limited`, 500 `error` (the class only). `GET /v1/me` names the token, its scopes, expiry and operations;
+`GET /v1/openapi.json` (OpenAPI 3.1, generated from the remote schemas) and `GET /v1/llms.txt` = `GET /llms.txt`
+describe it and are open. `/v1/*` sits outside the app-wide bearer check (`auth._OpenPaths`) and checks its own:
+**only a connector token** — the master token and a device token are the person's machines, an agent is not, so both
+are 401 there. Any `Origin` is refused. The same API rides the G135 listener (`network.md`).
+**Agent tokens:** `POST /agent-api/tokens` `{name, scopes?, expiresInDays?, baseUrl?}` (master only:
+`MASTER_ONLY_WRITE_PREFIXES`) makes a connector row with `auth: "api"` and answers once `{token, agent, prompt,
+baseUrl}` — `cic_api_<id>_<secret>`, scoped (default `search`/`read`/`record`), expiring 7/30/90, revocable at
+`DELETE /agent-api/tokens/{id}`, listed at `GET /agent-api/tokens` and never in `GET /remote/connectors`; `prompt` is
+the one paragraph the person gives the agent (base URL, the header, "read llms.txt first"). It opens `/v1` only,
+never `/mcp`, and is never rotated (revoke and make a new one). Its writes carry `harness: agent-api` (an enum, for
+frontmatter and the ledger) and `Cicada-Author: api:<name>` (the agent's name as the person typed it, `[a-z0-9-]`,
+≤ 32), a `harness` contributor. **Why the connector token, not a device token:** a device counts as local (ruling 28:
+the G198 trust list, every route); a third-party agent must be scoped, expiring and never the person's own words —
+exactly a connector. **Hyrum, mode A:** stable — the paths, operation and argument names, the envelope's four keys,
+the status codes and their `code` words, the `cic_api_` prefix, `api:` authors; not stable — reply wording (which may
+name a `cicada_…` tool; `llms.txt` maps each to its operation), `data`'s shape, the documents' prose, the rate limits.
+
 **Phase 3 (G181, 2026-10-16): the app as a client, and where memory came from.**
 - `GET /devices` is open to a device token too (read-only: `auth._DEVICE_READABLE`), so the app's Settings → Devices
   can show the person their devices from any of them; each row adds `current` (the device whose token asked). Issuing
@@ -126,6 +198,45 @@ loopback tunnel only). No installer creates, copies or logs either.
 - `CICADA_API_BASE`, else the app's `$CICADA_HOME/api_base` (written only on the person's click in Settings → Devices,
   0600): `runtime_layout._raw_base` and its stdlib twin `hook_client.raw_base` read the file only from the real
   environment or one that names its own `CICADA_HOME`, so a test's bare dict never reaches a home.
+
+**The connection model's routes (G217, G205, G212, G50/G215; 2026-10-22).** Backend only; the app's redesign reads them.
+- `GET /providers` — the one table (`agent_catalog`): `{providers: [{id, label, logo, tier, ways: [{id, label, connects,
+  tier, clients, setup, remoteApp, pill, note}], intelligence: [{connection, label, kind, note}], later}], pills,
+  featured}`. One umbrella per provider, one logo slug each (the shared logo set's); `connects` ⊆ `stdio hooks remote rest
+  messages export`; `setup` ids are `GET /agents/setup` harness ids; `intelligence.connection` is a `GET /connections` id.
+  Static per release, no ETag. **Stable:** `providers[].id`, `ways[].id` (they are `/agents/live` ids), `logo` slugs,
+  the `connects` words. **Not stable:** order, labels, notes, tier-3 rows.
+- `GET /agents/live` now answers every tracked way (`agent_catalog.TRACKED`): the eleven pills first in their old order
+  and spelling, then the rest (tier 2 and 3); a non-pill way also lights `other`, as an unmatched client always did. A
+  fourth signal, the last-seen registry `$CICADA_HOME/agents/seen.db` (`agent_seen`: catalog id, device id, `mcp|tool|
+  remote`, times, a call count — never a raw client string, query or path), is stamped by the stdio server on
+  `initialize` and every call and by `POST /tools/call`, at most once a minute per process, so detection survives
+  `CICADA_TELEMETRY=off`. Row shape unchanged (`via` stays `mcp|remote|config`).
+- `GET /devices/status` — `{devices: [{id, name, role: server|device, current, connected, how, lastSeenAt, queue}],
+  connectedWithinSeconds}`: this server first, named by its own Computer Name (macOS `scutil`, else the host name),
+  then each active device token by the name the person gave it. `how` is read from the device's last request
+  (`agent_seen.how_from_request`: a Tailscale Serve header or tailnet address → `tailscale`, another private address →
+  `lan`, a device token on loopback → `ssh`), stamped in `auth.require_token` once a minute. `queue` = that machine's
+  episodes still waiting for Sleep (`device` frontmatter; none = this server). Device tokens may read it. No ETag.
+- **Agent requests (G205).** `POST /agent-requests {site, reason?, agent?, kind?: "sign_in"}` → 201 `{id, kind, agent,
+  agentName, umbrella, logo, site, reason, createdAt, notification: {id, title, body, openUrl}}`; 422 for a non-host
+  site or an unknown kind; 409 in a demo bank. A `needs_login` from `cicada_record_read` or `cicada_record_check` files
+  one too, naming the agent. Stored in `$CICADA_HOME/agent_requests/<bank>.json` (outside every bank, flock + atomic
+  replace, 14-day expiry, one open request per agent·site·reason). `GET /inbox` serves them first as `kind:
+  "agent_request"` with `request` set and options `done` / `dismiss`; `POST /inbox/{req-…}/resolve` with `optionKey`
+  `done` lifts the site's `needs_login` pause, `dismiss` only closes it — never a bank write, no Sleep gate, 403 when
+  `via: "agent"` or a relayed quote rides along. Never served in a demo bank; agents never see the kind
+  (`APP_ONLY_INBOX_KINDS`). The requests file's mtime folds into the `inbox` sync component only once one exists, so
+  `/inbox`'s ETag moves with it and a bank that never had one keeps its old stamp.
+- **Keys are checked before they are saved (G50/G215).** `PUT /connections/byok-<p>/key {key, check?: true}` first makes
+  one free, authenticated GET of the provider's own model list (OpenRouter: its key endpoint) on a fixed host
+  (`key_check.PROBES`), 6 s, through `net_guard`, nothing logged: 422 "This key was refused by <brand>" (401/403; 400 for
+  xAI and Gemini, measured) and nothing saved; 503 when the provider could not be reached — the app offers `check:
+  false`, "Save without checking". A key card's status adds `keyHint` ("…1234"; no route returns a key), `keyStore`
+  (`file` | `environment`), `verifiedAt` (`$CICADA_HOME/key_checks.json`, names and times) and `termsNote`. New cards:
+  `byok-fireworks`, `byok-deepinfra`, `byok-together`. The xAI default moved off the retired `grok-4-1-fast-*` to
+  `xai/grok-4.20-0309-non-reasoning`, priced by `price_supplement` (a row LiteLLM 1.83.4 lacks, with its basis; a newer
+  table wins).
 
 **Bank identity (G181 phase 2).** Every bank's `banks.yaml` record carries a random `id`, minted by the backend at
 startup (`bank_registry.ensure_bank_ids`, which persists a legacy root's synthesized registry with no change to
@@ -159,7 +270,7 @@ new site capture gives a bookmark's row its thumbnail), so `VersionVector` maps 
 bookmark has left, read from the bookmark seen-set's `left` map. That file (`sources/bookmark_seen.json`) is not `*.md`, so
 the `sources` component's directory fingerprint never saw it — it now rides the component by its own mtime (client
 mapping unchanged: `sources` → `.sources`). `GET /sources/channels/{id}/items` for a bookmark channel also lists the links
-that left the browser, each with `left` (shape `g161-2`). Sources v3 (2026-10-19, shape `g161-3`): a saved link's row adds `host`, `site` and `why` (the newest *Ask why* answer, read only for the page served), and a channel-less saved import is listed by its Sources row id; `GET /sources/overview` rows carry `intent` (`saved` | `captured`, ETag shape `overview-v3`; `app.md`, "Sources page — v3"). `GET /sources/saved/{media_entity_id}/site-icon` serves a saved link's own site icon, asked of that site only (owner ruling 2026-10-19; `storage.md`); 404 = draw the monogram; `GET /sources/saved/episodes/{episode_id}/site-icon` serves the same for a Waiting row of a saved link with no page yet (2026-10-20), and `GET /sources` items carry `siteKey` (shape `site-key-1`), `GET /sleep/episodes` rows `site` (`episodes-2`) — client mappings unchanged, both are in-memory reads. Sources v4 (2026-10-19, shapes `g161-4` / `overview-v4`): an overview row adds `waiting`, `faces` and `facesMore`, and its ETag folds in `photos` (a chat face carries its photo's hash) — `VersionVector` maps `photos` to `.sourcesOverview` in the same PR; a list row drops a trailing " · <its day>", a Messages row carries `chat`, a watched day `videos` (month summaries unlisted). Review of #358 (shape `g161-5`): Messages lists one row per chat (`kind: chat`, `sittings`), a saved row's faces come from the set its list lists and only while its count is above zero, and the items ETag folds in `photos` too (`messages_photos.stamp` hashes every stored photo). New: `GET /sources/watch-history/days/{episode}` (a day's videos, ETag, not a Store domain), `GET /sources/watch-history/days/{episode}/videos/{video_id}/thumbnail`, `GET /sources/saved/{media_entity_id}/still` (marks-2: a saved YouTube video's still by its page's id, the same store; items shape `g161-6` adds `video` on such a row and `host`/`site` on a saved link's waiting episode row; the overview's ETag folds the `siteIcons` sync component — the own-site icon index, mapped by `VersionVector` to `.sourcesOverview` in the same PR — because a saved row's faces put cached icons first), `GET /sources/messages/chats/{conversation}/sittings` (ETag, not a Store domain) and `GET /sources/messages/chats/{conversation}/photo` (404 = no picture; `storage.md`). `POST /sources/sync-bookmarks` gained `leftMarked`;
+that left the browser, each with `left` (shape `g161-2`). Sources v3 (2026-10-19, shape `g161-3`): a saved link's row adds `host`, `site` and `why` (the newest *Ask why* answer, read only for the page served), and a channel-less saved import is listed by its Sources row id; `GET /sources/overview` rows carry `intent` (`saved` | `captured`, ETag shape `overview-v3`; `app.md`, "Sources page — v3"). `GET /sources/saved/{media_entity_id}/site-icon` serves a saved link's own site icon, asked of that site only (owner ruling 2026-10-19; `storage.md`); 404 = draw the monogram; `GET /sources/saved/episodes/{episode_id}/site-icon` serves the same for a Waiting row of a saved link with no page yet (2026-10-20), and `GET /sources` items carry `siteKey` (shape `site-key-1`), `GET /sleep/episodes` rows `site` (`episodes-2`) and `device`, the device id that posted it, null for this server (`episodes-3`, G212: the Sleep page's machines strip) — client mappings unchanged, both are in-memory reads. Sources v4 (2026-10-19, shapes `g161-4` / `overview-v4`): an overview row adds `waiting`, `faces` and `facesMore`, and its ETag folds in `photos` (a chat face carries its photo's hash) — `VersionVector` maps `photos` to `.sourcesOverview` in the same PR; a list row drops a trailing " · <its day>", a Messages row carries `chat`, a watched day `videos` (month summaries unlisted). Review of #358 (shape `g161-5`): Messages lists one row per chat (`kind: chat`, `sittings`), a saved row's faces come from the set its list lists and only while its count is above zero, and the items ETag folds in `photos` too (`messages_photos.stamp` hashes every stored photo). New: `GET /sources/watch-history/days/{episode}` (a day's videos, ETag, not a Store domain), `GET /sources/watch-history/days/{episode}/videos/{video_id}/thumbnail`, `GET /sources/saved/{media_entity_id}/still` (marks-2: a saved YouTube video's still by its page's id, the same store; items shape `g161-6` adds `video` on such a row and `host`/`site` on a saved link's waiting episode row; the overview's ETag folds the `siteIcons` sync component — the own-site icon index, mapped by `VersionVector` to `.sourcesOverview` in the same PR — because a saved row's faces put cached icons first), `GET /sources/messages/chats/{conversation}/sittings` (ETag, not a Store domain) and `GET /sources/messages/chats/{conversation}/photo` (404 = no picture; `storage.md`). `POST /sources/sync-bookmarks` gained `leftMarked`;
 `removalsProposed` stays on the wire and is always 0 for bookmarks. `GET /sources/saved-why/options` serves the four
 reasons and an always-empty `projects`; `POST`/`PUT /sources/saved-why` still accept a retired reason (`technique`) and a
 project (an edit may keep an archived one).
@@ -179,7 +290,7 @@ saving it answers) and answers with `history`. The app reaches both through `Sto
 (no `VersionVector` mapping, fetched on demand like provenance). A timeline item carries at most
 12 participants plus `participantsTotal`, and a cluster group at most 8 names no page holds yet
 (round 4 D6). A list row's `activity` is the window's first day only — the row bar's start, all the list draws from it;
-the detail keeps the series (`PROJECT_SHAPE` g141-4, 2026-10-19: 40 % of the list's body at 700 projects). The person's writes (G141 PJ-3b) —
+the detail keeps the series (`PROJECT_SHAPE` g141-4, 2026-10-19: 40 % of the list's body at 700 projects). g141-5 (2026-10-22, ruling 36 D4): a row carries `origin` (`repo` | `words` | null — read from the page alone, no conversation), the detail `origin` {kind, stored, why, day, episode, quote, repoName, via}, the six standard `sections` (`project_sections.SECTIONS`: overview · timeline · done · expected · design · people; each {key, title, writtenBy, entries ≤ 40 + more, markdown}) and `people` (every linked person page). The person's writes (G141 PJ-3b) —
 `POST /projects/{id}/milestones`, `PATCH /projects/{id}/milestones/{slug}`, `POST /projects/{id}/happenings`
 (the Log: one time phrase becomes the day, a companion episode keeps the words), `POST
 /projects/{id}/threads/{claim_id}` and `POST /projects/{id}/withdraw` (happenings only) — answer **409**

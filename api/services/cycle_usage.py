@@ -632,6 +632,10 @@ def list_price_per_million(model: str | None) -> tuple[float | None, float | Non
     try:
         import litellm
 
+        from api.services import price_supplement
+
+        price_supplement.apply(litellm)
+
         table = litellm.model_cost
         candidates = [model] + ([model.split("/", 1)[1]] if "/" in model else [])
         for cand in candidates:

@@ -229,10 +229,8 @@ final class CalendarReaderTests: XCTestCase {
     /// R-FA13 — the row is the app's; the backend's `calendar-local` channel is never a second row or search entry.
     func testTheCalendarRowIsTheAppsAndTheChannelIsNotIndexedTwice() {
         XCTAssertEqual(IntegrationCategory.of(channelId: "calendar-local"), .feedsAndCalendars)
-        let dynamic = SettingsIndex.dynamicEntries(channels: [SourceChannel(id: "calendar-local", label: "Calendar")],
-                                                   harnessRows: [], exportOnly: [], connections: [], agents: [])
-        XCTAssertFalse(dynamic.contains { $0.id == .channel("calendar-local") })
-        XCTAssertTrue(SettingsIndex.staticEntries.contains { $0.id == .calendarApp && $0.section == .integrations })
+        // D6: the row left Settings with Integrations for the Sources page; its anchor keeps that home.
+        XCTAssertEqual(SettingsIndex.retiredRows[.calendarApp], .page(.sources))
         XCTAssertEqual(OriginIconography.appBundleId(for: "calendar-local"), "com.apple.iCal",
                        "the installed Calendar app's icon, never a committed Apple mark (DR-52)")
         XCTAssertEqual(OriginIconography.symbol(for: "calendar-local"), "calendar")

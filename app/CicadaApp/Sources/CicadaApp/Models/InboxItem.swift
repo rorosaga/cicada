@@ -22,6 +22,9 @@ enum InboxKind: String, Codable {
     // G198: an agent's change to a page's words or aliases, waiting for the person (the agent is not on their list
     // of agents that edit pages directly). Options `apply` / `dismiss` come from the server; `body` previews it.
     case pageEdit = "page_edit"
+    // G205: an agent asking the person to do something only they can (today: sign in to a site so it can read a page).
+    // Drawn as a small card above the questions, never as a question row; sent as a Mac notification once.
+    case agentRequest = "agent_request"
     // Forward-compat fallback (matches `EntityType`/`Epistemic`/`SourceTrust`'s
     // existing pattern in this codebase). Before this, an unrecognized raw
     // value threw `DecodingError.dataCorrupted` out of `InboxItem.init(from:)`,
@@ -47,6 +50,7 @@ enum InboxKind: String, Codable {
         case .removal: "Removed bookmark"
         case .followup: "Follow-up"
         case .pageEdit: "Page edit"
+        case .agentRequest: "Agent request"
         case .unknown: "Update available"
         }
     }
@@ -63,6 +67,7 @@ enum InboxKind: String, Codable {
         case .removal: "bookmark.slash"
         case .followup: "arrow.uturn.backward.circle"
         case .pageEdit: "pencil"
+        case .agentRequest: "person.crop.circle.badge.questionmark"
         case .unknown: "questionmark.circle"
         }
     }
@@ -238,6 +243,85 @@ struct InboxFold: Codable, Equatable {
     }
 }
 
+/// G205 — what an agent asks of the person (`InboxItem.request`, `agent_requests.py`): the agent by catalog id and
+/// name, its umbrella's logo slug, the site, its reason, and the notification's ready-made words.
+struct AgentRequestInfo: Codable, Equatable {
+    struct Notification: Codable, Equatable {
+        var title: String
+        var body: String
+        var openUrl: String?
+    }
+
+    var agent: String
+    var agentName: String
+    var umbrella: String?
+    var logo: String?
+    var site: String?
+    var reason: String?
+    var notification: Notification?
+
+    init(agent: String, agentName: String, umbrella: String? = nil, logo: String? = nil, site: String? = nil,
+         reason: String? = nil, notification: Notification? = nil) {
+        self.agent = agent; self.agentName = agentName; self.umbrella = umbrella; self.logo = logo
+        self.site = site; self.reason = reason; self.notification = notification
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        agent = try c.decodeIfPresent(String.self, forKey: .agent) ?? "other"
+        agentName = try c.decodeIfPresent(String.self, forKey: .agentName) ?? ""
+        umbrella = try c.decodeIfPresent(String.self, forKey: .umbrella)
+        logo = try c.decodeIfPresent(String.self, forKey: .logo)
+        site = try c.decodeIfPresent(String.self, forKey: .site)
+        reason = try c.decodeIfPresent(String.self, forKey: .reason)
+        notification = try? c.decodeIfPresent(Notification.self, forKey: .notification)
+    }
+}
+
+/// G61 "Where to check" (ruling 36 D5, #422) — one waiting link of the grouped review (`asks: "sources"`): its page,
+/// the link, what kind of link it is, who added it and where it was found (offsets, never a copy).
+struct WhereToCheckRow: Codable, Equatable, Identifiable {
+    struct Evidence: Codable, Equatable {
+        var episode: String?
+        var start: Int?
+        var end: Int?
+        var kind: String?
+        var page: Bool?
+    }
+
+    var id: String
+    var page: String
+    var pageName: String
+    var pageType: String
+    var ref: String
+    var predicate: String
+    var linkKind: String
+    var label: String
+    var addedBy: String
+    var evidence: Evidence?
+
+    init(id: String, page: String, pageName: String = "", pageType: String = "", ref: String, predicate: String = "",
+         linkKind: String = "website", label: String = "", addedBy: String = "", evidence: Evidence? = nil) {
+        self.id = id; self.page = page; self.pageName = pageName; self.pageType = pageType; self.ref = ref
+        self.predicate = predicate; self.linkKind = linkKind; self.label = label; self.addedBy = addedBy
+        self.evidence = evidence
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        page = try c.decode(String.self, forKey: .page)
+        pageName = try c.decodeIfPresent(String.self, forKey: .pageName) ?? ""
+        pageType = try c.decodeIfPresent(String.self, forKey: .pageType) ?? ""
+        ref = try c.decode(String.self, forKey: .ref)
+        predicate = try c.decodeIfPresent(String.self, forKey: .predicate) ?? ""
+        linkKind = try c.decodeIfPresent(String.self, forKey: .linkKind) ?? "website"
+        label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
+        addedBy = try c.decodeIfPresent(String.self, forKey: .addedBy) ?? ""
+        evidence = try? c.decodeIfPresent(Evidence.self, forKey: .evidence)
+    }
+}
+
 /// Decodes to nil instead of throwing, so one unreadable element never loses its siblings.
 private struct Lenient<T: Codable>: Codable {
     let value: T?
@@ -294,6 +378,11 @@ struct InboxItem: Identifiable, Codable {
     /// and a fold's two names. Derived by the server at read; optional, so an older server or cache still decodes.
     var subject: InboxSubject? = nil
     var fold: InboxFold? = nil
+    /// G205 — an `agent_request`'s agent, site, reason and notification words. Lenient; nil on every other kind.
+    var request: AgentRequestInfo? = nil
+    /// G61 "Where to check" — the links waiting (`asks: "sources"`), and whether this is the ONE grouped review.
+    var rows: [WhereToCheckRow]? = nil
+    var review: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case id, kind, requiredInput, status, priority
@@ -302,7 +391,7 @@ struct InboxItem: Identifiable, Codable {
         case uncertaintyType, suggestedClassification, suggestedConfidence, mergeTargetHint, asks
         case entityType, sourceEpisode, sourceEpisodeTimestamp, claimId, cause
         case extractorConfidence, extractorModel, recommendedKey, informational, checks
-        case subject, fold
+        case subject, fold, request, rows, review
     }
 
     init(from decoder: Decoder) throws {
@@ -357,7 +446,15 @@ struct InboxItem: Identifiable, Codable {
         // Lenient like `checks`: a review field this build cannot read costs the field, never the card.
         subject = (try? c.decodeIfPresent(InboxSubject.self, forKey: .subject)) ?? nil
         fold = (try? c.decodeIfPresent(InboxFold.self, forKey: .fold)) ?? nil
+        request = (try? c.decodeIfPresent(AgentRequestInfo.self, forKey: .request)) ?? nil
+        rows = ((try? c.decodeIfPresent([Lenient<WhereToCheckRow>].self, forKey: .rows)) ?? nil)?.compactMap(\.value)
+        review = (try? c.decodeIfPresent(Bool.self, forKey: .review)) ?? false
     }
+
+    /// G61 — the one grouped "Confirm N links" review, drawn as its own card above the questions.
+    var isWhereToCheckReview: Bool { asks == "sources" && review && !(rows ?? []).isEmpty }
+    /// Drawn above the questions, never as a question row (G205 agent requests, the G61 grouped review).
+    var isTopCard: Bool { kind == .agentRequest || isWhereToCheckReview }
 
     /// Display name for the card header, falling back to the title when no
     /// entity name is attached (pure clarification with no entity yet).

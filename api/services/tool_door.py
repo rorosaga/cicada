@@ -36,7 +36,9 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import quote
 
-from api.services import agent_commits, bank_binding, cli_map, mcp_tools, write_admission
+from loguru import logger
+
+from api.services import agent_commits, bank_binding, cli_map, mcp_tools, tool_contract, write_admission
 
 SURFACES = ("mcp", "cli")
 MAX_SKIPPED = 500
@@ -138,6 +140,8 @@ DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
     "cicada_record_profile": lambda c, a: mcp_tools.record_profile(
         c, _s(a, "entity_id"), _s(a, "url"), _s(a, "outcome"), a.get("company"), a.get("position"), a.get("quotes"),
         a.get("summary"), a.get("via")),
+    "cicada_record_saved_list": lambda c, a: mcp_tools.record_saved_list(c, _s(a, "platform"), _s(a, "outcome"),
+                                                                         a.get("items"), a.get("via")),
     "cicada_record_youtube_list": lambda c, a: mcp_tools.record_youtube_list(c, _s(a, "list"), _s(a, "outcome"),
                                                                              a.get("videos"), a.get("via")),
     "cicada_reading_queue": lambda c, a: mcp_tools.reading_queue(c, a.get("limit")),
@@ -152,7 +156,8 @@ DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
     "cicada_retract_claim": lambda c, a: mcp_tools.retract_claim(c, _s(a, "subject"), _s(a, "claim_id"),
                                                                  _s(a, "reason"), a.get("evidence")),
     "cicada_add_source": lambda c, a: mcp_tools.add_source(c, _s(a, "subject"), _s(a, "ref"), a.get("predicate"),
-                                                           a.get("access"), a.get("kind"), a.get("entity")),
+                                                           a.get("access"), a.get("kind"), a.get("entity"),
+                                                           bool(a.get("inferred", False)), a.get("evidence")),
     "cicada_change_source": lambda c, a: mcp_tools.change_source(
         c, _s(a, "subject"), _s(a, "ref"), a.get("predicate"), _s(a, "action"), a.get("reason"), a.get("new_ref"),
         a.get("new_predicate"), a.get("access"), a.get("entity")),
@@ -206,6 +211,9 @@ class Answer:
     code: str | None = None
     data: dict | None = None
     error: str | None = None
+    #: ``mcp_tools.Reply.segments`` (additive on the wire): which parts are Cicada's own words, so the client's door
+    #: fences only the stored ones.
+    segments: list | None = None
 
 
 def run(tool: str, arguments: dict, *, ctx: mcp_tools.ToolContext, state: SessionState, surface: str, options: dict,
@@ -229,12 +237,20 @@ def run(tool: str, arguments: dict, *, ctx: mcp_tools.ToolContext, state: Sessio
                          root=root, memory_path=memory_path, bank_name=bank_name)
     except DoorError:
         raise
-    except Exception as exc:  # noqa: BLE001 - the stdio server's own `Error: {e}` reply, to the person's own agent
-        return Answer(text="", error=str(exc) or type(exc).__name__)
+    except Exception as exc:  # noqa: BLE001 - G199: the class, never the message (it can carry a path or a quote)
+        # The class and the innermost file:line in this server's log, never the message or an argument; the client
+        # (stdio or `cicada`) is told when, so the person finds the line.
+        from datetime import datetime, timezone
+
+        when = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+        logger.warning(f"tool door: {tool} failed: {tool_contract.where(exc)}")
+        return Answer(text="", error=tool_contract.failure_text(
+            exc, log=f"the Cicada server's log ({tool}, {when})").removeprefix("Error: "))
     state.state_hint_sent = ctx.state_hint_sent
     if isinstance(reply, Answer):
         return reply
-    return Answer(text=str(reply), code=getattr(reply, "code", None), data=getattr(reply, "data", None))
+    return Answer(text=str(reply), code=getattr(reply, "code", None), data=getattr(reply, "data", None),
+                  segments=getattr(reply, "segments", None))
 
 
 class _nolock:

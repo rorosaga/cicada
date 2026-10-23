@@ -1,7 +1,7 @@
 import Foundation
 
 /// G147 — `GET /memory/decay-suggestions` and `PUT /memory/decay-tuning` (both answer this
-/// shape). Not a Store domain — fetched when Settings → Memory opens, like the search index's
+/// shape). Not a Store domain — fetched when Settings → Privacy & data opens, like the search index's
 /// status — so no ETag and no `VersionVector` mapping. Lenient: a suggestion this build
 /// cannot read is dropped alone, never the page.
 struct DecayTuningResponse: Decodable, Equatable {

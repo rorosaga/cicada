@@ -18,8 +18,9 @@ Preconditions:
 - A run is up and `$CV doctor` is all `ok` (backend, scratch root, plan).
 - One Sleep run has finished.
 
-- **Run detail.** Run `$CV api GET /sleep/history`, take the newest run's drain id, then `$CV api GET /sleep/runs/<drain_id>`.
-- **Contributors.** Run `$CV api GET /contributors`. Cicada and the haiku author from the Sleep commit.
+- **Run detail.** Run `$CV api GET /sleep/history`, take the `drainId` of the newest row with `kind: sleep` (inbox rows carry none), then `$CV api GET /sleep/runs/<drain_id>`. Batches with their commit, calls, plan windows before and after, and per model the tokens with `basis` and `equivCostUsd`.
+- **Contributors.** Run `$CV api GET /contributors`. One row per `Cicada-Author` (`claude-haiku-*`, `cicada`, `user`, `verify`), each with commits and files; git's author field (`Verify Run`) is never what it shows.
+- **App.** `vclick 'button.*Description: Sleep,'`, `vclick 'button Past reads$'`. `Last cycle … What it cost, Claude plan · under 1% of your weekly limit`.
 
 ## Gotchas
 

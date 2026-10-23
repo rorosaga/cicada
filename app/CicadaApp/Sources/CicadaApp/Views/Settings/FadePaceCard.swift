@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// G147 — Settings → Memory's "How things fade": what Cicada suggests from your own
+/// G147 — Settings → Privacy & data's "How things fade": what Cicada suggests from your own
 /// "Still tracking…?" answers, and the pace you chose per kind of page. Agent proposes, person
 /// disposes (UX principle 3): nothing changes how anything fades until Apply. Direction D: one
 /// group card of Settings rows (DR-37, DR-33), Apply and Reset neutral and Not now a text button —
@@ -19,12 +19,18 @@ struct FadePaceCard: View {
         return DecayTuningModel.rows(response, notNow: DecayTuningModel.decodeNotNow(notNowRaw))
     }
 
+    /// D6: the explainer left Settings (the page cards' "?", UI-B); the card shows only while it holds a suggestion
+    /// or a chosen pace — the control stays reachable, the words go.
     var body: some View {
-        SettingsGroupCard(header: Copy.fadeHeader) {
-            SettingsRow(.fadePace, title: Copy.fadePaceTitle, detail: note ?? Copy.fadePaceDetail)
-            ForEach(rows) { row in
-                SettingsDivider()
-                typeRow(row)
+        Group {
+            if !rows.isEmpty {
+                SettingsGroupCard(header: Copy.fadeHeader) {
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                        if index > 0 { SettingsDivider() }
+                        typeRow(row)
+                    }
+                }
+                .settingsRow(.fadePace)
             }
         }
         .task { await load() }

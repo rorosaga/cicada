@@ -445,7 +445,11 @@ class SqliteVecIndexer:
             return self._sync_kind_locked(kind, staged, extra_meta)
 
     def _sync_kind_locked(self, kind: str, staged: list[tuple[str, str, dict]],
-                          extra_meta: dict[str, str] | None = None) -> dict[str, int]:
+                          extra_meta: dict[str, str] | None = None,
+                          only_stems: set[str] | None = None) -> dict[str, int]:
+        """``only_stems`` (G207 step 0): ``staged`` is just those documents' passages. Only their own rows may change
+        or go; every other row stays as it is, and a table this sync cannot diff (another model, another width) is
+        left alone — ``skipped`` — rather than rebuilt from a part of the bank. With no table yet it builds one."""
         unique_keys: list[str] = []
         seen: dict[str, int] = {}
         for key, _text, _meta in staged:
@@ -463,6 +467,10 @@ class SqliteVecIndexer:
             # The model this table is built with, before the diff: the bank's, or — deferred — its own.
             embed_fn, model = self._build_embedder(kind, self._recorded_kind_model(conn, kind))
             existing = self._existing_rows(conn, kind, model)
+            partial = only_stems is not None
+            if partial and (not staged or (existing is None and self._has_table(conn, kind))):
+                stats["skipped"] = 1
+                return stats
             if not staged:
                 # Nothing to index: no table, whatever model the old one was built with (a table left behind
                 # under another model would read as a switch still to do).
@@ -490,7 +498,8 @@ class SqliteVecIndexer:
             todo = [i for i, k in enumerate(unique_keys)
                     if k not in rows_by_key or rows_by_key[k][1] != hashes[i]]
             wanted = set(unique_keys)
-            gone = [k for k in rows_by_key if k not in wanted]
+            gone = [k for k in rows_by_key if k not in wanted
+                    and (not partial or k.split("#", 1)[0] in only_stems)]
             meta_json = [json.dumps(m) for _k, _t, m in staged]
             meta_moved = [i for i, k in enumerate(unique_keys)
                           if k in rows_by_key and rows_by_key[k][1] == hashes[i]
@@ -505,6 +514,9 @@ class SqliteVecIndexer:
                 return stats
             embeddings = self._embed_documents(embed_fn, [staged[i][1] for i in todo], model) if todo else None
             if embeddings is not None and dim and int(embeddings.shape[1]) != dim:
+                if partial:
+                    stats["skipped"] = 1
+                    return stats
                 return full()  # same model name, different width: nothing is reusable
 
             vec_table, meta_table = f"vec_{kind}", f"meta_{kind}"
@@ -546,6 +558,10 @@ class SqliteVecIndexer:
             return stats
         finally:
             conn.close()
+
+    @staticmethod
+    def _has_table(conn: sqlite3.Connection, kind: str) -> bool:
+        return conn.execute("SELECT 1 FROM sqlite_master WHERE name = ?", (f"meta_{kind}",)).fetchone() is not None
 
     def _write_index_meta(
         self, conn: sqlite3.Connection, *, model: str, dim: int, kind: str | None = None,
@@ -815,8 +831,29 @@ class SqliteVecIndexer:
         """
         if not self.episodes_dir.exists():
             return 0
+        bodies = self._episode_bodies(sorted(self.episodes_dir.glob("*.md")))
+        episodes_added = len(bodies)
+        stats, passages = self._sync_episode_bodies(bodies)
+        logger.info(
+            f"Vector episode index synced: {episodes_added} episodes / {passages} passages "
+            f"({stats['embedded']} embedded, {stats['reused']} reused, {stats['removed']} removed)"
+        )
+        return episodes_added
+
+    def index_episode_stems(self, stems: list[str]) -> dict[str, int]:
+        """G207 step 0: embed just these episodes' passages, right after capture, so recall can find a conversation
+        before Sleep reads it. The same cut and the same model as the table already holds (never a switch: a table
+        this sync cannot diff is ``skipped``), and no other episode's rows are touched. A stem with no file or an
+        empty body changes nothing (Sleep's whole sync removes what is gone)."""
+        wanted = {str(s) for s in stems if s}
+        paths = [self.episodes_dir / f"{s}.md" for s in sorted(wanted)]
+        bodies = self._episode_bodies([p for p in paths if p.is_file()])
+        stats, _passages = self._sync_episode_bodies(bodies, only_stems=wanted)
+        return stats
+
+    def _episode_bodies(self, filepaths) -> list[tuple[str, str, dict]]:
         bodies: list[tuple[str, str, dict]] = []
-        for filepath in sorted(self.episodes_dir.glob("*.md")):
+        for filepath in filepaths:
             try:
                 parsed = markdown_parser.parse(filepath)
             except Exception:
@@ -833,7 +870,9 @@ class SqliteVecIndexer:
                 "title": str(fm.get("title", "")),
                 "file_path": str(filepath),
             }))
-        episodes_added = len(bodies)
+        return bodies
+
+    def _sync_episode_bodies(self, bodies, only_stems: set[str] | None = None) -> tuple[dict[str, int], int]:
         # The cut is read under the write lock, with the diff it decides (review of #349): read before it, Sleep's
         # sync could stage the old cut while the background job was committing the new one, then find every passage
         # changed and re-embed the whole bank at the old cut inside Sleep — and stamp the old cut back.
@@ -848,13 +887,9 @@ class SqliteVecIndexer:
                     meta["chunk_index"] = chunk_idx
                     meta["chunk_count"] = len(chunks)
                     staged.append((f"{stem}#{chunk_idx}", chunk, meta))
-            stats = self._sync_kind_locked("episodes", staged, {CHUNKING_KEY: layout})
+            stats = self._sync_kind_locked("episodes", staged, {CHUNKING_KEY: layout}, only_stems=only_stems)
         self.last_sync["episodes"] = stats
-        logger.info(
-            f"Vector episode index synced: {episodes_added} episodes / {len(staged)} passages "
-            f"({stats['embedded']} embedded, {stats['reused']} reused, {stats['removed']} removed)"
-        )
-        return episodes_added
+        return stats, len(staged)
 
     def similarity(self, query: str, texts: list[str], *, kind: str = "episodes") -> list[float]:
         """How near each of ``texts`` is to ``query`` (cosine), both embedded by the model ``kind``'s table was

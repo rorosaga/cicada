@@ -17,11 +17,16 @@ Saved videos form a queue an agent works through; after watching, it records a s
 Preconditions:
 
 - A run is up and `$CV doctor` is all `ok` (backend, scratch root, plan).
-- A saved video link (save one with `cicada_save_url`; that save fetches the page's title from this Mac, see saved-links-and-reading).
+- A link saved with `cicada_save_url` (saved-links-and-reading).
 
-- **Queue.** Run `$CV mcp call cicada_video_queue '{}'`. The saved video.
-- **Claim.** Run `$CV mcp call cicada_video_claim '{}'` until empty; release one with `{"release": [{"url": ..., "code": ..., "reason": "verify"}]}`.
-- **Watch.** Run `$CV mcp call cicada_record_watch '{"url": ..., "summary": "verify", "excerpts": [{"t": 12, "quote": "..."}], "basis": "transcript"}'`. `$CV api GET /videos/state` shows it watched.
+- **Queue.** Run `$CV mcp call cicada_video_queue '{}'` and `$CV mcp call cicada_video_claim '{}'`. On a run with no provider video: `Nothing is waiting in the person's video queue.`
+- **Watch.** Run `$CV mcp call cicada_record_watch '{"url": "https://example.com/paper", "summary": "verify", "excerpts": [{"t": 12, "quote": "verify quote"}], "basis": "transcript"}'` on the saved link. `Recorded the watch …`, an episode and a `describes` claim.
+- **State.** Run `$CV api GET /videos/state`. Lists provider videos only, so it stays empty here.
+
+**Not driven in a verify run: the queue's lease lifecycle.** A video enters the queue only as a provider's video link
+(YouTube and friends), and saving one fetches that provider's page, which the run keeps to `example.com`. The nearest
+checks: the steps above, and the `verify-video-queue` skill, which model-checks claim, lease, refresh, release and the
+watch credit in TLA+. A release carries the lease: `{"release": [{"url": …, "lease_token": …, "code": …, "reason": "verify"}]}`.
 
 ## Gotchas
 

@@ -29,6 +29,9 @@
   apart, multi-hop across two conversations, counting/listing across 3+ conversations, dated-event order, abstention
   traps, a Spanish share), one plan call per question, then a review sheet you accept or reject before use. See
   *Hard questions* below.
+- `benchmarks/newuser/` — **a stranger's first two months**: an invented person through the real doors (ChatGPT and
+  Claude.ai exports, Claude Code hooks, bookmarks, calendar), one Sleep on the plan at haiku, 25 questions over MCP
+  stdio, graded and repeated. Run before each release; see its README.
 - `benchmarks/system/` — the whole-system integrity benchmark (synthetic, offline fake engine).
 - `benchmarks/recall_ab.py` — page-ranking A/B (finds the right page; does not grade the answer).
 

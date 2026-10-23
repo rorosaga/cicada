@@ -10,16 +10,15 @@ final class SearchFilesTests: XCTestCase {
 
     // MARK: The section
 
-    func testTheSectionSitsBetweenPrivacyAndMemoryWithItsOwnPageTitle() {
-        let cicada = SettingsGroup.cicada.sections
-        XCTAssertEqual(cicada.firstIndex(of: .searchFiles), cicada.firstIndex(of: .privacy).map { $0 + 1 })
-        XCTAssertEqual(cicada.firstIndex(of: .memory), cicada.firstIndex(of: .searchFiles).map { $0 + 1 })
-        XCTAssertEqual(SettingsSection.searchFiles.title, "Search & files")
-        XCTAssertEqual(SettingsSection.searchFiles.pageTitle, "What Cicada can look through")
-        XCTAssertEqual(SettingsSection.memory.pageTitle, SettingsSection.memory.title, "other pages keep one name")
-        XCTAssertEqual(SettingsSection.searchFiles.rawValue, "searchFiles", "a new case: no persisted value moves")
-        XCTAssertEqual(SettingsSection.restored(from: "memory"), .memory)
-        XCTAssertEqual(Copy.SearchFiles.pointer, "Settings → Search & files")
+    /// D6 (2026-10-22): Search & memory became one row on Privacy & data ("Search runs on this Mac"); its saved
+    /// values (and Memory's) open on that row; folders went to the Sources page.
+    func testSearchIsARowOnPrivacy() {
+        XCTAssertNil(SettingsSection(rawValue: "searchFiles"))
+        XCTAssertEqual(SettingsSection.restoredLanding(from: "searchFiles", legacyAgentsMode: nil).section, .privacy)
+        XCTAssertEqual(SettingsSection.restoredLanding(from: "searchFiles", legacyAgentsMode: nil).row, .searchMeaning)
+        XCTAssertEqual(SettingsSection.restored(from: "memory"), .privacy)
+        XCTAssertEqual(SettingsIndex.retiredRows[.searchFolders], .page(.sources))
+        XCTAssertEqual(Copy.SearchFiles.runsHere, "Search runs on this Mac")
     }
 
     // MARK: The lint (the owner: "without mentioning embeddings")
@@ -40,7 +39,7 @@ final class SearchFilesTests: XCTestCase {
         XCTAssertGreaterThan(Copy.SearchFiles.defaultVisible.count, 50, "a lint over nothing passes vacuously")
         for text in Copy.SearchFiles.defaultVisible { assertPlain(text) }
         // The page's own section words, and what the moved folder rows say.
-        for text in [SettingsSection.searchFiles.title, SettingsSection.searchFiles.pageTitle, SettingsSection.searchFiles.subtitle,
+        for text in [Copy.SearchFiles.runsHere,
                      LocalSourceRowText.sleepLine(FolderSyncResult()), LocalSourceCopy.folderMissing,
                      LocalSourceCopy.folderPermissionFix, Copy.Folders.manageHelp, Copy.Folders.writtenByAnAgent,
                      Copy.Folders.writtenByAnAgentHelp, Copy.Folders.addTitle] {
@@ -66,7 +65,7 @@ final class SearchFilesTests: XCTestCase {
 
     func testTheHiddenSearchKeywordsAreKept() {
         let all = SettingsIndex.staticEntries + SettingsIndex.pageEntries
-        let page = all.filter { $0.section == .searchFiles }
+        let page = all.filter { $0.section == .privacy }
         let keywords = Set(page.flatMap(\.keywords))
         // "rebuild" left with the rebuild row (settings defaults, owner 2026-10-22); the rest land on the meaning row.
         for kept in ["index", "model", "embedding", "embeddings", "semantic", "vectors", "search", "find"] {
@@ -74,26 +73,20 @@ final class SearchFilesTests: XCTestCase {
         }
         XCTAssertEqual(SettingsIndex.search("embeddings", in: all).first?.entry.id, .searchMeaning)
         XCTAssertEqual(SettingsIndex.search("images", in: all).first?.entry.id, .searchImages)
-        XCTAssertEqual(SettingsIndex.search("add a folder", in: all).first?.entry.id, .searchFolders)
         XCTAssertEqual(SettingsIndex.search("search version", in: all).first?.entry.id, .searchMeaning,
                        "the version is the meaning row's one choice now")
-        XCTAssertTrue(SettingsIndex.search("look through", in: all).contains { $0.entry.id == .page(.searchFiles) },
-                      "the page title finds the page")
+        XCTAssertEqual(SettingsIndex.search("search & memory", in: all).first?.entry.section, .privacy,
+                       "the old page's name finds its row")
         for gone in ["searchModel", "searchIndex", "searchAdvanced"] {
             XCTAssertNil(SettingsIndex.entry(for: SettingsRowID(gone), in: all), gone)
         }
     }
 
+    /// D6: every app-read source is managed on the Sources page, folders included.
     @MainActor
-    func testAFolderIsIndexedOnSearchAndFilesAndOtherChannelsStayOnIntegrations() {
-        let entries = SettingsIndex.dynamicEntries(
-            channels: [SourceChannel(id: "folder:alpha-project-1a2b", label: "alpha-project", connected: true),
-                       SourceChannel(id: "rss", label: "RSS", connected: true)],
-            harnessRows: [], exportOnly: [], connections: [], agents: [])
-        XCTAssertEqual(entries.first { $0.id == .channel("folder:alpha-project-1a2b") }?.section, .searchFiles)
-        XCTAssertEqual(entries.first { $0.id == .channel("rss") }?.section, .integrations)
-        XCTAssertEqual(ChannelActions.settingsSection(for: "folder:alpha-project-1a2b"), .searchFiles)
-        XCTAssertEqual(ChannelActions.settingsSection(for: LocalSourceWatcher.wisprChannel), .integrations)
+    func testEveryChannelIsManagedOnTheSourcesPage() {
+        XCTAssertEqual(ChannelActions.settingsSection(for: "folder:alpha-project-1a2b"), .page(.sources))
+        XCTAssertEqual(ChannelActions.settingsSection(for: LocalSourceWatcher.wisprChannel), .page(.sources))
     }
 
     func testFoldersLeftIntegrationsAndThePointerMoved() throws {
@@ -104,9 +97,8 @@ final class SearchFilesTests: XCTestCase {
         XCTAssertTrue(source.contains("FoldersPointerRow()"))
         XCTAssertTrue(LocalSourceCopy.folderNotSetUpHere.contains(Copy.SearchFiles.pointer))
         let page = try String(contentsOf: Self.source("Views/Settings/SearchFilesView.swift"), encoding: .utf8)
+        XCTAssertTrue(page.contains("struct WatchedFoldersGroup"), "the folder group is kept whole for Sources")
         XCTAssertTrue(page.contains("FolderChannelRow(channel:"))
-        XCTAssertEqual(page.components(separatedBy: "PrimaryActionButton(").count - 1, 0,
-                       "the page's one primary action is the empty state's Add a folder… (AddFolderRow.empty)")
     }
 
     func testTheMovedRowsFollowTheButtonAndColourRules() throws {
@@ -151,8 +143,8 @@ final class SearchFilesTests: XCTestCase {
         let v = try JSONDecoder().decode(DesignVision.self, from: Data(#"{"supported": true, "downloadBytes": 894000000, "includesText": true}"#.utf8))
         XCTAssertTrue(v.includesText)
         XCTAssertTrue(Copy.Looks.pictureDownload(v.downloadBytes, includesMeaning: true).contains("894 MB"))
-        XCTAssertTrue(Copy.Looks.pictureDownload(v.downloadBytes, includesMeaning: true).contains("Understand what you mean"))
-        XCTAssertFalse(Copy.Looks.pictureDownload(309_000_000).contains("Understand what you mean"))
+        XCTAssertTrue(Copy.Looks.pictureDownload(v.downloadBytes, includesMeaning: true).contains("sharper search"))
+        XCTAssertFalse(Copy.Looks.pictureDownload(309_000_000).contains("sharper search"))
         for text in [Copy.Looks.pictureOff, Copy.Looks.pictureUnsupported, Copy.Looks.pictureMissing] {
             XCTAssertFalse(text.lowercased().contains("model"), text)
             XCTAssertFalse(text.lowercased().contains("picture"), "images everywhere, Looks included: \(text)")

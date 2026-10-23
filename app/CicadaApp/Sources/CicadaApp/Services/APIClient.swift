@@ -1308,9 +1308,12 @@ struct EpisodeQueueItem: Codable, Identifiable {
     /// Owner 2026-10-20 — a saved link's site key (a bookmark or saved post Sleep has not read yet): the row draws that
     /// site's own mark (`SavedLinkMark`), never the browser's. Nil for every other episode and from an older backend.
     let site: String?
+    /// G212 — the device id that posted it (nil: this server, or an older backend), for the machines strip's queues.
+    var device: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, timestamp, source, origin, title, preview, chars, processed, copyKind, copyValue, changedAt, site
+        case device
     }
 
     init(from decoder: Decoder) throws {
@@ -1327,6 +1330,7 @@ struct EpisodeQueueItem: Codable, Identifiable {
         copyValue = try c.decodeIfPresent(String.self, forKey: .copyValue)
         changedAt = try c.decodeIfPresent(String.self, forKey: .changedAt)
         site = try c.decodeIfPresent(String.self, forKey: .site)
+        device = try c.decodeIfPresent(String.self, forKey: .device)
     }
 }
 
@@ -2312,6 +2316,13 @@ actor APIClient {
         try await post("/inbox/\(id)/resolve", body: body)
     }
 
+    /// G61 "Where to check" (#422) — one row of the grouped review answered: `yes` takes that link on its page, `no`
+    /// removes it (remembered, never proposed again). The item keeps the rows not answered.
+    func resolveWhereToCheckRow(id: String, row: String, take: Bool) async throws {
+        try await post("/inbox/\(encodedID(id))/resolve",
+                       body: ["action": take ? "resolve" : "dismiss", "optionKey": take ? "yes" : "no", "row": row])
+    }
+
     /// Owner ruling 2026-10-16 — "Settled by a check": the questions a web lookup or the person's agent settled
     /// (`GET /inbox/settled`). Not a Store domain: fetched when the Inbox opens and after an undo (`SettledChecks`).
     func fetchSettledChecks() async throws -> [SettledCheck] {
@@ -3063,7 +3074,7 @@ actor APIClient {
 
     /// `GET /embeddings` — which model the active bank's vectors use, what the next index sync
     /// builds with, the models this Mac can run and the larger model's install. Not a Store
-    /// domain, no ETag; Settings → Memory polls it only while an install runs.
+    /// domain, no ETag; Settings → Privacy & data polls it only while an install runs.
     func fetchEmbeddings() async throws -> EmbeddingsStatus { try await get("/embeddings") }
 
     /// `POST /embeddings/choice` — `nil` goes back to the default. 400 for a model Cicada does not
@@ -3330,6 +3341,13 @@ actor APIClient {
 
     // MARK: - Devices (G181 phase 3)
 
+    /// `GET /devices/status` (G212) — this server and each device by its own name, connected or not, how it connects
+    /// and what waits for it. Not a Store domain and no ETag (it changes by the minute): the Sleep page polls it while
+    /// it shows and holds the answer in memory.
+    func fetchMachineStatus() async throws -> MachineStatusList {
+        try await get("/devices/status", timeout: Self.refreshTimeout)
+    }
+
     /// `GET /devices` — outside every bank, so never a Store domain (`DeviceDirectory` keeps it in memory).
     func getDevicesList() async throws -> DeviceList {
         try await get("/devices", timeout: Self.refreshTimeout)
@@ -3345,6 +3363,55 @@ actor APIClient {
         struct Answer: Decodable { let device: DeviceRecord }
         let data = try await delete("/devices/\(encodedID(id))")
         return try decoder.decode(Answer.self, from: data).device
+    }
+
+    // MARK: - The connection model (G217, G212, G213)
+
+    /// `GET /providers` — static per release, so no ETag and no Store domain: fetched once per launch, kept in memory.
+    func fetchProviders() async throws -> ProvidersResponse {
+        try await get("/providers", timeout: Self.refreshTimeout)
+    }
+
+    /// `GET /devices/status` — not a Store domain (it changes by the minute); polled while a view shows it.
+    func fetchDeviceStatus() async throws -> DeviceStatusResponse {
+        try await get("/devices/status", timeout: Self.refreshTimeout)
+    }
+
+    /// `POST /devices/pairing` — the master token's alone; `url` is where the new device will reach this server.
+    func createPairing(url: String?, kind: PairingKind = .capture) async throws -> PairingCreated {
+        // `kind` is #432's (an older backend ignores it): a phone's capture-only token, or a computer's full one.
+        var body: [String: Any] = ["kind": kind.rawValue]
+        if let url { body["url"] = url }
+        return try await post("/devices/pairing", body: body)
+    }
+
+    func pairingState(_ id: String) async throws -> PairingAnswer {
+        try await get("/devices/pairing/\(encodedID(id))", timeout: Self.refreshTimeout)
+    }
+
+    func cancelPairing(_ id: String) async throws {
+        _ = try await delete("/devices/pairing/\(encodedID(id))")
+    }
+
+    /// `PUT /connections/{id}/key` with the check flag (G50): 422 = refused (nothing saved), 503 = unreachable — the
+    /// caller then offers "Save without checking", which resends with `check: false`.
+    func saveKey(_ id: String, key: String, check: Bool) async throws -> ConnectionStatus {
+        try await put("/connections/\(encodedID(id))/key", body: ["key": key, "check": check])
+    }
+
+    /// `GET /agent-api/tokens` (G213) — machine-global, outside every bank; not a Store domain.
+    func fetchAgentTokens() async throws -> [AgentToken] {
+        struct Answer: Decodable { var tokens: [AgentToken] }
+        let answer: Answer = try await get("/agent-api/tokens", timeout: Self.refreshTimeout)
+        return answer.tokens
+    }
+
+    func createAgentToken(name: String) async throws -> AgentTokenCreated {
+        try await post("/agent-api/tokens", body: ["name": name])
+    }
+
+    func revokeAgentToken(_ id: String) async throws {
+        _ = try await delete("/agent-api/tokens/\(encodedID(id))")
     }
 
     // MARK: - Generic Helpers

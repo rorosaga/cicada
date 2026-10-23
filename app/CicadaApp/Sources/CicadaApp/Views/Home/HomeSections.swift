@@ -99,7 +99,10 @@ struct HomeEmptyBlock: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
-            BookwormView(state: .awake, pointSize: 24)
+            // One icon (2026-10-22): the worm stays in the study room (DR-13), never on Home's working surface.
+            Image(systemName: "tray.and.arrow.down")
+                .font(CicadaTheme.font(size: 20))
+                .foregroundStyle(CicadaTheme.textTertiary)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(Copy.homeNothingYetTitle)
@@ -284,8 +287,8 @@ struct NeedsYouSection: View {
 // MARK: - Needs your browser (G166)
 
 /// Its own block, not a line inside Needs you (whose count is the Inbox's): the saved pages whose sites Cicada's reader
-/// could not read and the person has not allowed yet, with up to three of those sites' icons. It links to Settings →
-/// Reading the web, the page that owns the number; nothing here asks or reads anything. Hidden at zero and once every
+/// could not read and the person has not allowed yet, with up to three of those sites' icons. It links to the
+/// Sources page, which owns the number (D6); nothing here asks or reads anything. Hidden at zero and once every
 /// listed site is allowed.
 struct ReadingSitesSection: View {
     @Environment(Store.self) private var store
@@ -318,7 +321,7 @@ struct ReadingSitesSection: View {
         .task(id: store.sources.loadedAt) { await cache.refresh() }
     }
 
-    private func open() { _ = router.openSettings(.reading, row: .readingSites) }
+    private func open() { router.open(.readingInBrowser) }
 }
 
 // MARK: - Last read

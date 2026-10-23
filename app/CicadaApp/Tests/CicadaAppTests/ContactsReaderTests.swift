@@ -265,10 +265,8 @@ final class ContactsReaderTests: XCTestCase {
 
     func testTheRowIsTheAppsAndTheChannelIsNotIndexedTwice() {
         XCTAssertEqual(IntegrationCategory.of(channelId: "contacts-local"), .feedsAndCalendars)
-        let dynamic = SettingsIndex.dynamicEntries(channels: [SourceChannel(id: "contacts-local", label: "Contacts")],
-                                                   harnessRows: [], exportOnly: [], connections: [], agents: [])
-        XCTAssertFalse(dynamic.contains { $0.id == .channel("contacts-local") })
-        XCTAssertTrue(SettingsIndex.staticEntries.contains { $0.id == .contactsApp && $0.section == .integrations })
+        // D6: the row left Settings with Integrations for the Sources page; its anchor keeps that home.
+        XCTAssertEqual(SettingsIndex.retiredRows[.contactsApp], .page(.sources))
         XCTAssertEqual(OriginIconography.appBundleId(for: "contacts-local"), "com.apple.AddressBook",
                        "the installed Contacts app's icon, never a committed Apple mark (DR-52)")
     }

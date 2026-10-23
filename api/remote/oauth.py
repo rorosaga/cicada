@@ -27,7 +27,7 @@ What it is, end to end:
   hour; refresh tokens (``cic_rt_``) rotate on every use, and a rotated one presented again (past a short grace
   for a client's own concurrent refresh) revokes the whole grant. Every token is stored as its sha256 only,
   compared in constant time, and maps to a connector row — the same hashed, scoped, expiring and revocable row a
-  link connector is — so Settings → From anywhere revokes it and the grant can never outlive the connector.
+  link connector is — so Settings → Devices → From anywhere revokes it and the grant can never outlive the connector.
 * **Rate limits.** Registration, authorization and document fetches each have a bucket; the token and revocation
   endpoints have one per client id (a valid refresh is let through a spent bucket, so nobody can starve an app's
   renewal by spamming its public client id). At most :data:`MAX_PENDING` requests wait; past it the oldest of the
@@ -1083,8 +1083,8 @@ def _wait_page(handle: str, user_code: str, client: Client | None, redirect_uri:
     refresh = f"<meta http-equiv=\"refresh\" content=\"{WAIT_REFRESH_S};url=/authorize/wait?r={html.escape(handle)}\">"
     return _page(
         "Type this code in Cicada",
-        f"To let the app you are connecting reach your memory, open Cicada on your Mac — Settings, Agents, From "
-        f"anywhere — and type this code there. This page then sends you back to {host} by itself. If you didn't "
+        f"To let the app you are connecting reach your memory, open Cicada on your Mac — Settings, Devices, Apps "
+        f"outside this machine — and type this code there. This page then sends you back to {host} by itself. If you didn't "
         "start this, close this page: nothing happens without the code.",
         extra_head=refresh, body_html=f"<div class=\"code\">{html.escape(user_code)}</div>")
 

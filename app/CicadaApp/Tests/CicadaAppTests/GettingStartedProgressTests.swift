@@ -37,7 +37,7 @@ final class GettingStartedProgressTests: XCTestCase {
                                                       items: [item(.agent("claude-desktop"), .ready)],
                                                       settled: [.agent("cursor")]))
         XCTAssertEqual(rows[0].state, .needsAction(Copy.foundClaudeDesktopDetail))
-        XCTAssertEqual(rows[0].settingsLink, .agents)
+        XCTAssertEqual(rows[0].settingsLink, .page(.agents))
         XCTAssertEqual(rows[1].state, .on, "Cursor owns its config; the opened confirm is all Cicada can know")
     }
 

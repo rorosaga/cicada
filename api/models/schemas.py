@@ -653,7 +653,7 @@ class DecaySuggestion(CamelModel):
 
 class DecayTuningResponse(CamelModel):
     """``GET /memory/decay-suggestions`` and ``PUT /memory/decay-tuning`` (G147).
-    Not a Store domain — fetched when Settings → Memory opens — so no ETag."""
+    Not a Store domain — fetched when Settings → Privacy & data opens — so no ETag."""
 
     bank: str
     window_days: int
@@ -736,6 +736,17 @@ class EntitySource(CamelModel):
     tracked: Optional[bool] = None
     refresh_checker: Optional[str] = None
     refresh_due: Optional[str] = None
+    # G61 "Where to check" (ruling 36 D5, 2026-10-22): an entry inferred from the record that waits for the person
+    # (`proposed`) and where it was found (`evidence`: `{episode, start, end}` or `{page: true}`, offsets never a
+    # copy); and, derived at read for the card's chip row, what the link is (`linkKind`: github | x | instagram |
+    # linkedin | scholar | orcid | repo | contacts | website | app | path | note), its words (`label`) and the site
+    # key `GET /entities/{id}/sources/icon/{site}` serves for it (`iconSite`, null when that route would 404 —
+    # always on a person's page, G159).
+    proposed: bool = False
+    evidence: Optional[dict] = None
+    link_kind: Optional[str] = None
+    label: Optional[str] = None
+    icon_site: Optional[str] = None
 
 
 class SourceRefreshRequest(CamelModel):
@@ -1698,7 +1709,51 @@ class TimelineWindow(CamelModel):
     end: Optional[str] = None
 
 
+class ProjectOrigin(CamelModel):
+    """Where a project page came from (ruling 36 D4, `project_birth`): ``kind`` is ``repo`` | ``words`` | None
+    (neither — consolidation alone made it, or nothing on the record shows which). ``stored`` = the page carries its
+    birth record; else it is derived on read. ``quote`` is the person's own sentence for ``words`` while the
+    conversation still holds it; ``via`` is ``folder`` (a watched folder they named) or ``declared`` (a repository
+    they declared on the page)."""
+    kind: Optional[str] = None
+    stored: bool = False
+    why: str = ""
+    day: Optional[str] = None
+    episode: Optional[str] = None
+    quote: Optional[str] = None
+    repo_name: Optional[str] = None
+    via: Optional[str] = None
+
+
+class ProjectSectionEntry(CamelModel):
+    kind: str                    # item | milestone | backlog | person | look
+    ref: str                     # an item id, a milestone slug, a backlog item id, a page id, a look record id
+    text: str = ""
+    day: Optional[str] = None
+    status: Optional[str] = None
+
+
+class ProjectSection(CamelModel):
+    """One of the standard sections every project shares (`project_sections.SECTIONS`), in their order. ``written_by``
+    names the writers of what it shows; ``markdown`` is the page's own prose for overview and design."""
+    key: str                     # overview | timeline | done | expected | design | people
+    title: str
+    written_by: list[str] = []
+    entries: list[ProjectSectionEntry] = []
+    markdown: Optional[str] = None
+    more: int = 0
+
+
+class ProjectPerson(CamelModel):
+    id: str
+    name: str
+    role: str = ""
+    count: int = 0
+    last_seen: Optional[str] = None
+
+
 class ProjectRow(ProjectRef):
+    origin: Optional[str] = None  # repo | words, from the birth record or a declaration; None = not on record
     planned: bool = False
     last_moment_day: Optional[str] = None
     median_gap_days: Optional[float] = None
@@ -1730,6 +1785,9 @@ class ProjectTimeline(CamelModel):
     cluster: ProjectCluster = Field(default_factory=ProjectCluster)
     conversations: list[TimelineConversation] = []
     partial: bool = False
+    origin: ProjectOrigin = Field(default_factory=ProjectOrigin)
+    sections: list[ProjectSection] = []
+    people: list[ProjectPerson] = []
 
 
 # G141 PJ-3b (§5.3) — the person's writes from the Projects page. Every day on
@@ -2201,6 +2259,10 @@ class InboxKind(str, Enum):
     # G198: an agent's edit of a page's words or aliases, waiting for the person (the agent is not on their list of
     # agents that edit pages directly). `apply` writes it under the agent and the person; `dismiss` leaves the page.
     page_edit = "page_edit"
+    # G205: an agent asks the person for something only they can do (today: sign in to a site in their own browser
+    # so it can read a page). Machine-wide outside the bank (`agent_requests`), served here above the questions,
+    # resolved only by the person's tap (`done` | `dismiss`), never in a conversation.
+    agent_request = "agent_request"
 
 
 class RequiredInput(str, Enum):
@@ -2327,6 +2389,45 @@ class InboxFold(CamelModel):
     example: Optional[str] = None      # the anchor claim's sentence, clipped
 
 
+class WhereToCheckRow(CamelModel):
+    """One waiting link of a where-to-check item (G61, owner 2026-10-22)."""
+
+    id: str
+    page: str
+    page_name: str = ""
+    page_type: str = ""
+    ref: str
+    predicate: str = ""
+    link_kind: str = "website"
+    label: str = ""
+    added_by: str = ""
+    # `{episode, start, end, kind?}` (a span into the person's or an agent's words) or `{page: true}`.
+    evidence: Optional[dict] = None
+
+
+class AgentRequestNotification(CamelModel):
+    """G205: what the app posts as a Mac notification — ids and the agent's own words, never episode text."""
+
+    id: str
+    title: str
+    body: str
+    open_url: Optional[str] = None
+
+
+class AgentRequestInfo(CamelModel):
+    """G205: who is asking (a catalog way id, its name, its umbrella and logo slug for the tile) and for what."""
+
+    kind: str
+    agent: str
+    agent_name: str
+    umbrella: Optional[str] = None
+    logo: Optional[str] = None
+    site: Optional[str] = None
+    reason: Optional[str] = None
+    created_at: Optional[str] = None
+    notification: AgentRequestNotification
+
+
 class InboxItem(CamelModel):
     # G61 S3 (shadow): what agents reported from a source for this item, newest first. Additive; nothing reads it to act.
     checks: list[InboxCheckFinding] = []
@@ -2363,6 +2464,12 @@ class InboxItem(CamelModel):
     # A clarification that asks for a person's name (``"name"``, `role_people`): the app draws a name field and
     # "I'd rather not say"; an older build sees its option and Other… and still answers it. Null otherwise.
     asks: Optional[str] = None
+    # G61 "Where to check" (`asks: "sources"`, owner 2026-10-22): the links waiting, one row each — `{id, page,
+    # pageName, pageType, ref, predicate, linkKind, label, addedBy, evidence?}` — answered one by one with
+    # `row: <id>` on resolve, or all at once without it; `review` marks the ONE grouped review (a one-row item without
+    # it is one Sleep may settle on the person's own words). Additive: an older build draws the yes/no options.
+    rows: Optional[list[WhereToCheckRow]] = None
+    review: bool = False
     # G115 Phase 1 — all additive so an older app build still decodes.
     entity_type: Optional[str] = None
     source_episode: Optional[str] = None
@@ -2382,6 +2489,8 @@ class InboxItem(CamelModel):
     # build ignores both).
     subject: Optional[InboxSubject] = None
     fold: Optional[InboxFold] = None
+    # G205: set on an ``agent_request`` item only.
+    request: Optional[AgentRequestInfo] = None
 
 
 class InboxResolveRequest(CamelModel):
@@ -2412,6 +2521,9 @@ class InboxResolveRequest(CamelModel):
     # The backend refuses such a caller an answer only the person gives (a proposed page edit). Defense in depth: the
     # tool refuses first; a process that skips the tool can write the bank's files anyway.
     via: Optional[str] = None
+    # G61 "Where to check" (owner 2026-10-22): the one row of a where-to-check review this answer is about (its `id`);
+    # absent, `yes`/`no` answers every row of the item.
+    row: Optional[str] = None
 
 
 class SettledCheck(CamelModel):
@@ -3121,6 +3233,9 @@ class EpisodeQueueItem(CamelModel):
     # `channel_items.saved_episode_url`), the name its row's site mark is drawn under; None for every other episode. The icon itself is asked by the episode's id
     # (`GET /sources/saved/episodes/{id}/site-icon`), never by this name.
     site: Optional[str] = None
+    # G212 — the device id that posted it (`device` frontmatter, G181 phase 3; None = this server), so the Sleep page's
+    # machines strip opens each machine's own queue. An id, never a name (`GET /devices/status` names it).
+    device: Optional[str] = None
 
 
 SCHEDULE_MODES = ("manual", "daily", "interval", "after_import")
@@ -3163,7 +3278,7 @@ class ScheduleResponse(ScheduleConfig):
 
 
 # --------------------------------------------------------------------------- #
-# G122 — GET/PUT /sleep/engine: the Settings → Engines engine & model picker.
+# G122 — GET/PUT /sleep/engine: the Settings → Intelligence engine & model picker.
 # --------------------------------------------------------------------------- #
 
 
@@ -3265,7 +3380,7 @@ class SleepEngineResponse(CamelModel):
     source: str  # "env" | "prefs" | "default"
     candidates: list[SleepEngineCandidate]
     preview: SleepEnginePreviews
-    allow_overage: bool = False  # R-E13: Settings → Engines "Keep going on extra usage"
+    allow_overage: bool = False  # R-E13: Settings → Intelligence "Keep going on extra usage"
     # R-AG12: ``mode`` is what runs; ``selected`` is the CARD that choice
     # belongs to (``openrouter`` for a ``byok`` mode with an ``openrouter/``
     # model, else the mode itself), so the app highlights the right card
@@ -3283,6 +3398,9 @@ class SleepEngineResponse(CamelModel):
     # A run of this bank is reading on the engine it resolved at its start or Continue, and that is not
     # what the choice above resolves to now: the change applies from the next start or Continue.
     run_keeps_engine: bool = False
+    # Ruling 36 D1: the day the one-time step kept this person's local model as their explicit choice (Auto no longer
+    # reaches one), while it still is; the app says so in one line. ``None`` for everyone else.
+    auto_local_kept_on: Optional[str] = None
 
 
 class SleepReserveStatus(CamelModel):
@@ -3502,7 +3620,7 @@ class BankTrashResponse(BankListResponse):
 
 
 class SearchIndexStatus(CamelModel):
-    """G139 — Settings → Memory's search-index row. `state` is
+    """G139 — Settings → Privacy & data's search-index row. `state` is
     `search_index.ensure_fresh`'s own word."""
     state: str
     built_at: Optional[str] = None
@@ -3665,7 +3783,7 @@ class AgentWiringRow(CamelModel):
     registered server. ``autosave: invalid`` is a settings file that does not
     parse (F8: ``registry.status`` alone would have said ``absent``).
     ``autorecall`` (G149) is the recall hooks' state; ``autorecall_on``/
-    ``autorecall_off`` are what Settings → Agents runs, apart from ``connect``."""
+    ``autorecall_off`` are what the Agents page runs, apart from ``connect``."""
 
     id: str
     installed: bool = False
@@ -4894,6 +5012,13 @@ class ConnectionStatus(CamelModel):
     # meaningful on `claude-plan`; a machine-global preference, never a probe.
     use_for_sleep: bool = False
     login: Optional[LoginHint] = None
+    # G50/G215 (key cards only): the key's last four characters ("…a1b2" — no route returns a key), where it lives
+    # (``file``: secrets.env 0600; ``environment``: a shell export the backend inherited), when its provider last
+    # accepted it, and what the provider's own terms mean for a personal memory (never a price, ruling 12).
+    key_hint: Optional[str] = None
+    key_store: Optional[str] = None
+    verified_at: Optional[str] = None
+    terms_note: Optional[str] = None
 
 
 class LoginSession(CamelModel):

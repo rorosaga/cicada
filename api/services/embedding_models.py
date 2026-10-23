@@ -11,7 +11,7 @@ default changed.
 
 The model a bank's vectors are built with, first hit wins:
 
-1. the person's choice for that bank (Settings → Search & files), kept in
+1. the person's choice for that bank (Settings → Privacy & data), kept in
    ``$CICADA_HOME/embedding-models.json`` — outside every bank and every git repo;
 2. the model the bank's index already records, when this machine can run it and the
    embedding settings were not set explicitly (an explicit ``CICADA_EMBEDDING_*``
@@ -633,7 +633,7 @@ def _download_bytes(model_id: str) -> int:
 
 
 def status(bank: Path, settings, environ=os.environ) -> dict:
-    """What Settings → Search & files shows for the active bank."""
+    """What Settings → Privacy & data shows for the active bank."""
     building = build_model(bank, settings, environ)
     recorded = recorded_model(bank)
     choice = bank_choice(bank, environ)

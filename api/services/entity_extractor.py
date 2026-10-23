@@ -14,7 +14,7 @@ from tqdm import tqdm
 
 from api.config import Settings
 from api.services import (correspondents, decay_policy, engine_errors, entity_types, episode_time, evidence, fact_policy,
-                          promotion, section_provenance, source_dates)
+                          project_birth, promotion, section_provenance, source_dates)
 from api.services.json_parse import parse_json_object
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
@@ -409,6 +409,7 @@ async def _extract_chunk(
     date_note: str | None = None,
     owner: str | None = None,
     source_note: str | None = None,
+    stage: str = "extraction",
     _attempt: int = 0,
 ) -> dict:
     """Extract entities from a single chunk via LLM.
@@ -423,7 +424,7 @@ async def _extract_chunk(
         from api.services.providers import resolve_llm_fn
 
         llm_fn = resolve_llm_fn(
-            settings, model=settings.litellm_model, completion=litellm.acompletion, stage="extraction"
+            settings, model=settings.litellm_model, completion=litellm.acompletion, stage=stage
         )
         response = await llm_fn(
             messages=[
@@ -452,7 +453,7 @@ async def _extract_chunk(
         await asyncio.sleep(backoff)
         return await _extract_chunk(
             ep_id, chunk, chunk_idx, total_chunks, settings, source=source, gap_note=gap_note, date_note=date_note,
-            owner=owner, source_note=source_note,
+            owner=owner, source_note=source_note, stage=stage,
             _attempt=_attempt + 1,
         )
 
@@ -470,8 +471,12 @@ async def extract(
     on_episode_skipped: Callable[[dict], None] | None = None,
     stop_check: Callable[[], bool] | None = None,
     today: date | None = None,
+    stage: str = "extraction",
 ) -> list[dict]:
     """Extract entities and relationships from unprocessed episodes (parallel).
+
+    ``stage`` labels every call's usage event (G207: the quick read after capture is ``"quick_read"``); the prompt
+    and everything it returns are the same.
 
     ``today`` (G194 A1): the day every chunk's date note calls today — fixed once for the whole fan-out, so a run
     that crosses midnight tells every conversation the same thing. ``None`` is the machine-local day
@@ -632,6 +637,7 @@ async def extract(
                         **({"date_note": date_note} if date_note else {}),
                         **({"owner": owner} if owner else {}),
                         **({"source_note": source_note} if source_note else {}),
+                        **({"stage": stage} if stage != "extraction" else {}),
                     )
                     all_entities.extend(parsed.get("entities", []))
                     chunk_rels = [r for r in (parsed.get("relationships", []) or []) if isinstance(r, dict)]
@@ -663,6 +669,16 @@ async def extract(
                         narration += len(facts) - len(kept)
                         entity["key_facts"] = kept
                     entity["mention_exchanges"], entity["named_by_person"] = promotion.measure(entity, units)
+                    sanitize_entity_type(entity)
+                    entity.pop("project_birth", None)   # computed here from the conversation, never the model's to say
+                    if entity.get("type") == "project":
+                        # Ruling 36 D4: where this conversation could give the project its page (`project_birth`).
+                        born = project_birth.at_extraction(
+                            entity, episode_id=ep_id, frontmatter=episode, text=content,
+                            day=ep_day.isoformat() if ep_day and not untimed else None,
+                            override=episode.get("evidence_kind"), gaps=gaps)
+                        if born is not None:
+                            entity["project_birth"] = born
                     section_provenance.attach(entity, ep_id, content)
                     entity["source_episode"] = ep_id
                     entity["source_episode_timestamp"] = None if untimed else episode.get("timestamp")

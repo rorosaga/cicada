@@ -272,6 +272,28 @@ endings:
     past:
       - worked at
       - interned at       # a synonym of works-at above: said, it is never a current place on its own
+  # 2026-10-22 (benchmarks/newuser): a colleague from a job the person left was folded into a current collaboration.
+  works-with:
+    over:
+      - used to work with
+      - no longer works with
+      - stopped working with
+      - previously worked with
+      - formerly worked with
+    past:
+      - worked with       # a synonym of works-with above: said, it is never a current collaboration on its own
+      - collaborated with
+  # 2026-10-22 (benchmarks/newuser): a tool the person dropped stayed "used" after the decision was reversed.
+  uses:
+    over:
+      - dropped
+      - stopped using
+      - no longer uses
+      - moved off
+      - migrated off
+      - migrated away from
+      - switched away from
+      - abandoned
 
 # ---------------------------------------------------------------------------
 # WHERE THE TRUTH LIVES (G61 phase 2 S1, spec R-AC8 — G121's world/personal

@@ -460,22 +460,3 @@ struct SkillPreview: Decodable, Equatable, Sendable {
     var choices: [Choice]?
 }
 
-/// `GET /skills/onboarding`.
-struct SkillsOnboardingOffer: Decodable, Equatable, Sendable {
-    struct Suggestion: Decodable, Equatable, Sendable, Identifiable {
-        var id: String
-        var title: String?
-        var line: String?
-        var skill: String?
-        var asks: String?
-        var `default`: Bool?
-        /// The person said no on an earlier run: it starts off, always.
-        var declined: Bool?
-        var needsUv: Bool?
-        var installed: Bool?
-    }
-
-    var suggestions: [Suggestion] = []
-    var uv = UvInfo()
-    var agents: [String] = []
-}

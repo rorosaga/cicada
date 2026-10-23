@@ -98,7 +98,7 @@ has not trusted — "Refusing to load formula rorosaga/cicada/cicada from untrus
   service that runs `opt/cicada/libexec`; another Cicada's service, hooks and MCP entry are left alone. On a Mac whose
   memory lives on a server (`CICADA_API_BASE` or the app's `~/.cicada/api_base`, phase 3) `install.sh` installs no
   local backend at all: the hooks, MCP and `cicada` already talk to the server. Use one install per Mac.
-- **Known limit:** the backend computes its own repo path with `resolve()`, so the app's Settings → Agents, run
+- **Known limit:** the backend computes its own repo path with `resolve()`, so the app's the Agents page, run
   against a Homebrew backend, would register hooks under the Cellar path; use `cicada-setup` to connect agents on a
   Homebrew install.
 
@@ -196,13 +196,32 @@ says so and names the pages it found, never a keyless call.
 
 ## Commits with no git identity
 
-A fresh server has no `user.name`/`user.email`, and git refuses to commit. `git_service.ensure_commit_identity_sync`,
-called by `bank_registry.scaffold_bank` (every startup and every new bank), sets a repo-local
-`Cicada <cicada@localhost>` **only when git resolves no identity**. It never overrides one that resolves (environment,
-global or system) and never writes `~/.gitconfig`. `install.sh`'s first commit does the same. Who wrote a change is
-the `Cicada-Author` trailer's job, not git's author field, so nothing about provenance changes.
+A fresh server has no `user.name`/`user.email`, and git refuses to commit; a fresh Mac has none either, and git guesses
+one from the account (its full name and `user@hostname`), so every commit of a bank handed to someone else would carry
+both (G203). `git_service.ensure_commit_identity_sync` runs for every bank that becomes active: `scaffold_bank` (startup
+and every new or copied bank) and `run_bank_migrations` (every runtime switch, the demo's two doors included, before any
+migration commits). It fills, in the bank's own config, **only the half nobody configured** with the neutral value
+(`user.name Cicada`, `user.email cicada@localhost`). Each half is asked of git with `user.useConfigOnly=true` and the
+other half stood in, so a guessed half counts as missing; `EMAIL` counts as a configured email, since git honours it.
+A configured half is the person's choice and stays: a global `user.name` with no email commits as that name with the
+neutral email, rather than having the name hidden in this bank. It never writes `~/.gitconfig` and never rewrites a
+commit already made: a bank's older commits keep the author they were made under. `install.sh`'s first commit asks the
+same way, half by half. Who wrote a change
+is the `Cicada-Author` trailer's job, not git's author field, so nothing about provenance changes (the readers are in
+`storage.md`, "Git — versioning and provenance").
+
+**A verify run on a headless host (2026-10-22).** The verify skill (`.claude/skills/verify-cicada/`) runs Sleep on the
+plan through `claude`. On a Linux host with no keychain the plan signs in through `CLAUDE_CODE_OAUTH_TOKEN`: export it
+in the shell that runs `cv launch`, and `cv` hands it to the engine's `claude` child alone, through a 0600 file in the
+run dir, never the scratch backend's environment; `cv cleanup` deletes the file and masks the value in the evidence.
 
 ## Clients on other machines (phase 2)
+
+**A phone or another machine pairs by code (G212, 2026-10-22):** `cicada device pair [--kind capture|full]` (or the
+app's QR) shows a one-time code; the device trades it once at `POST /pair` for its own token — a phone's is
+capture-only (`api.md`, "A phone is capture-only"). The QR names this machine's tailnet address for the backend only
+when the person already serves the backend port to their tailnet themselves, e.g. `tailscale serve --bg --https=8443
+8000` — tailnet only, never funnel; the backend still binds 127.0.0.1 and Cicada runs no tunnel command.
 
 Owner rulings 2026-10-16 (TODO ruling 28): per-device tokens; the transcript rail amended; a tailnet device of the
 person's counts as local for the G198 trust list.
@@ -322,7 +341,7 @@ On a server the app:
   path and the server's dedup makes a resend harmless;
 - refuses the demo (`ServerLinkError.demoStaysLocal`, before any request): a demo is a This Mac thing.
 
-**Settings → Devices** (Customize, after From anywhere): *Where your memory lives* — the choice above and, only while
+**Settings → Devices** (Customize, after Agents; From anywhere is its last group since the Hyrum audit's B1): *Where your memory lives* — the choice above and, only while
 this app runs on a server, "This app is using <host> now.", reachable or not and as of when (`/healthz`, every 30 s
 while open), and how many captures wait on this Mac (the outbox and the hooks' spool, G202) — plus, on either mode, those kept for a server this Mac no longer uses — and *Your devices*: each
 device's name, when it was added and last seen, and *this Mac* on its own row. On This Mac (the master token) the page

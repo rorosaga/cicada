@@ -26,7 +26,7 @@ struct CicadaApp: App {
     @State private var graphVM: GraphViewModel
     @State private var inboxVM: InboxViewModel
     @State private var sleepVM: SleepViewModel
-    /// G122: the engine-and-model picker (Settings → Engines since G139 A3). No `Store`
+    /// G122: the engine-and-model picker (Settings → Intelligence since G139 A3). No `Store`
     /// dependency (ruling 6 — a plain `APIClient` round trip, nothing else
     /// observes this domain) — constructed bare, unlike every view model
     /// above it.
@@ -96,7 +96,7 @@ struct CicadaApp: App {
     /// never opens them). Lights ride `browserWatcher` (R-LS26).
     @State private var localSources: LocalSourceWatcher
     /// Round-4 D2 (C6, C7): the Calendar app's events, read by the app through EventKit only after Connect in
-    /// Settings → Integrations, and posted to the backend (R-FA11).
+    /// the Sources page, and posted to the backend (R-FA11).
     @State private var calendarReader = CalendarReader()
     /// Round 4 (G160 first slice): Chrome's open tab groups, read by the app from its session file only after the
     /// person turns on their own switch (R-SR3), and posted per memory.
@@ -104,7 +104,7 @@ struct CicadaApp: App {
     /// G71 (2026-10-16): the YouTube videos watched in Chrome, read by the app from Chrome's History (a copy, YouTube
     /// video pages only) only after the person turns on its own switch, and posted per memory as one entry per day.
     @State private var watchHistory: WatchHistoryWatcher
-    /// Round 4 (G154): the Mac's address book, read by the app only after Connect in Settings → Integrations and
+    /// Round 4 (G154): the Mac's address book, read by the app only after Connect on the Sources page and
     /// posted per memory, where it enriches the people Cicada already knows (R-SR8, R-SR10).
     @State private var contactsReader: ContactsReader
     /// G179: the Messages conversations the person ticked, read by the app from `chat.db` (Full Disk Access) and posted
@@ -415,7 +415,7 @@ struct CicadaApp: App {
         // Arms the per-browser watches and catches up on anything
         // saved while the app was closed.
         browserWatcher.start(store: store)
-        // G191 — off until the person turns it on (Settings → Integrations → Browsers).
+        // G191 — off until the person turns it on (the Sources page → Browsers).
         saveWhy.attach(presenter: saveWhyPanel)
         saveWhy.start()
         bookmarkBubbles.isWanted = { [saveWhy, browserWatcher] channel in

@@ -106,6 +106,8 @@ PROBE_SITES = {
                             "settle admits itself (`_settle_one`, `web_lookup._settle_admitted`)",
     "api/services/inbox_tend.py": "the tidy's stop check before each judge call; each settle admits itself and asks "
                                   "again (`_settle_one`)",
+    "api/services/awake_read.py": "the early check before an embed or a quick read's model call (G207); the "
+                                  "provisional record's write admits itself and asks again",
 }
 
 
@@ -360,6 +362,10 @@ NONE = "none: reads or computes; writes nothing"
 DOOR = ("door: runs one MCP tool's own body for another of the person's machines (G181 phase 2) — each tool is "
         "classified in TOOLS below and takes its own admission there, as a stdio call would")
 
+#: G213: the agent API — one remote tool per operation, through `RemoteRuntime.call`, which holds the bank's admission
+#: for a write itself (shown by `test_a_remote_write_answers_busy_inside_admission`).
+REMOTE = "remote: runs one remote tool through RemoteRuntime.call, which takes admission for a write itself"
+
 ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /ask": (NONE, None),
     "POST /inbox/{item_id}/resolve": (ADMITTED, "api.services.inbox_service.resolve"),
@@ -405,7 +411,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /intake/import": (CAPTURE, None),
     "PUT /agent-methods": (HELD, "api.services.skill_pages.ensure"),
     "POST /agent-methods/skills/{skill}/page": (HELD, "api.services.skill_pages.ensure"),
-    "POST /sources/save": (ADMITTED, None),
+    "POST /sources/save": (ADMITTED, "api.routers.sources._save_source"),   # G212: wrapped by its Idempotency-Key
     "POST /sources/saved-why": (ADMITTED, None),       # G191: the answer on the link's episode, committed alone
     "PUT /sources/saved-why": (ADMITTED, None),        # G191 v3: the person's edit of one answer, committed alone
     "POST /sources/bookmarks/remove": (ADMITTED, None),   # G191 v3: the page archived, the episode tombstoned
@@ -457,8 +463,15 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /capture/telegram": (INTAKE, None),
     "POST /capture/transcript": (CAPTURE, None),
     "POST /capture/turn": (CAPTURE, None),   # capture-everywhere: the same writer as the Stop hook
+    "POST /capture/note": (CAPTURE, None),   # G212: a note a device sent, staged like every source-keyed capture
     "POST /capture/session": (CAPTURE, None),   # G181 phase 2: a session read on its own machine, the same writer
     "POST /tools/call": (DOOR, None),
+    "POST /v1/{op}": (REMOTE, None),
+    "POST /agent-api/tokens": (OUTSIDE, None),
+    "DELETE /agent-api/tokens/{token_id}": (OUTSIDE, None),
+    "POST /devices/pairing": (OUTSIDE, None),
+    "DELETE /devices/pairing/{pairing_id}": (OUTSIDE, None),
+    "POST /pair": (OUTSIDE, None),
     "POST /devices": (OUTSIDE, None),
     "DELETE /devices/{device_id}": (OUTSIDE, None),
     "POST /capture/hook-context": (OUTSIDE, None),   # G110: may refresh the continuity index in $CICADA_HOME
@@ -477,6 +490,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /connections/{connection_id}/login": (OUTSIDE, None),
     "POST /connections/{connection_id}/logout": (OUTSIDE, None),
     "PUT /connections/{connection_id}/key": (OUTSIDE, None),
+    "POST /agent-requests": (OUTSIDE, None),   # G205: $CICADA_HOME/agent_requests, never the bank
     "DELETE /connections/{connection_id}/key": (OUTSIDE, None),
     "PUT /connections/{connection_id}/prefs": (OUTSIDE, None),
     "PUT /reading/settings": (OUTSIDE, None),
@@ -543,6 +557,8 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_record_refresh": (ADMITTED, "record_refresh"),
     # G71 (2026-10-16): Watch later saves media pages, history writes day episodes — committed alone, in one hold.
     "cicada_record_youtube_list": (ADMITTED, "record_youtube_list"),
+    # G206 (2026-10-22): saved posts become media pages and their episodes — committed alone, in one hold.
+    "cicada_record_saved_list": (ADMITTED, "record_saved_list"),
     # 2026-10-16: one person's LinkedIn profile — an episode and their page, committed alone, in one hold.
     "cicada_record_profile": (ADMITTED, "record_profile"),
     # G110: reads the bank's transcript episodes only (projection + paging); its metadata index and session registry
@@ -870,6 +886,8 @@ MIGRATIONS: dict[str, tuple[str, str | None]] = {
     "repair_paper_contexts": (MIGRATION, None),
     "rewrite_placeholder_summaries": (MIGRATION, None),
     "repair_paper_claim_text": (MIGRATION, None),
+    # G203: writes only the bank's `.git/config` (a missing user.name / user.email), under the bank's git lock, never a page
+    "git_service.ensure_commit_identity_sync": (MIGRATION, None),
     # the paused run's sidecar and its re-armed job live outside every bank
     "sleep_paused.recover_after_restart": (OUTSIDE, None),
     "sleep_autocontinue.rearm_after_restart": (OUTSIDE, None),

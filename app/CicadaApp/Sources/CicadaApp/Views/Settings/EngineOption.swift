@@ -1,6 +1,6 @@
 import Foundation
 
-/// R-E4 / R-E25 — every decision the engine row (Settings → Engines since
+/// R-E4 / R-E25 — every decision the engine row (Settings → Intelligence since
 /// G139) makes, as pure functions with table tests, so `EngineChooser` is a
 /// renderer.
 ///
@@ -176,7 +176,7 @@ enum EngineOption {
     }
 }
 
-/// Settings → Engines, Auto first (settings defaults pass 2, owner 2026-10-22; ruling 31): the page opens on one
+/// Settings → Intelligence, Auto first (settings defaults pass 2, owner 2026-10-22; ruling 31): the page opens on one
 /// sentence saying what reads now and why, and every other engine waits under *Use a different engine*. Pure, so
 /// every state is tested without a view.
 struct EngineHeadline: Equatable {

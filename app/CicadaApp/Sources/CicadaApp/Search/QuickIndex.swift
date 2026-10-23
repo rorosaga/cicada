@@ -208,7 +208,10 @@ extension QuickIndex {
     static func settingsDocs() -> [Doc] {
         (SettingsIndex.pageEntries + SettingsIndex.staticEntries).enumerated().map { i, entry in
             let isPage = entry.id == .page(entry.section)
-            let row = FindRow(key: FindRowKey(kind: .setting, id: isPage ? entry.section.rawValue : entry.id.rawValue),
+            // Hyrum audit B1: a page that became a group keeps its page's key, so a recent of it still resolves.
+            let formerPage = SettingsSection.retired.first { $0.value.row == entry.id }?.key
+            let key = isPage ? entry.section.rawValue : formerPage ?? entry.id.rawValue
+            let row = FindRow(key: FindRowKey(kind: .setting, id: key),
                               group: .settings, title: entry.title,
                               detail: isPage ? Copy.settings : Copy.PaletteSettings.detail(entry.section.title),
                               mark: .symbol(entry.section.icon), tieBreak: -Double(i),

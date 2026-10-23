@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// The state of Settings → Reading the web (G166). Last-known-good: a fetch that fails keeps the previous answer (the
+/// The state of the Sources page (G166). Last-known-good: a fetch that fails keeps the previous answer (the
 /// never-blank rule). Collaborators are injected so a test drives it with no network, like `AutoRecallModel`. Not a Store
 /// domain: fetched when the page opens and refreshed after every write.
 @MainActor
@@ -221,13 +221,21 @@ final class ReadingAgentModel {
     }
 }
 
-/// Settings → Reading the web (G166): "With an agent" (the person's own agent reads pages Cicada's reader could not, in
+/// the Sources page (G166): "With an agent" (the person's own agent reads pages Cicada's reader could not, in
 /// their own signed-in browser; off by default), "How your agent reads" (a choice the person makes — never something
 /// Cicada detects) and "Sites that need your browser" (every site Cicada's reader could not read, each with its favicon,
 /// a measured count and a switch). Turning on raises the first-use sheet and nothing changes until its button is pressed.
 /// Direction D: group cards of Settings rows, neutral controls, the sheet's one prominent action.
+///
+/// Hyrum audit B23 (2026-10-22): while the switch is off, how the agent reads and watches waits under one fold (DR-39);
+/// the choices are still the person's to make ahead, and a search hit or link on one opens the fold.
 struct ReadingWebView: View {
     @State private var model = ReadingAgentModel()
+    /// DR-39 — the person's own open or closed, per viewer, never synced. A landing opens it for this view only
+    /// (`methodsLanded`), so following a link never rewrites what the person chose.
+    @AppStorage("cicada.reading.methodsOpen") private var methodsStored = false
+    @State private var methodsLanded = false
+    private var methodsOpen: Bool { methodsStored || methodsLanded }
     @State private var showSheet = false
     /// The site whose switch raised the sheet: it rides the "Turn on" call.
     @State private var pendingSite: String?
@@ -252,7 +260,13 @@ struct ReadingWebView: View {
         .onChange(of: openSkill?.id, initial: true) { _, open in
             focus?.escapeBack = escapeBack(skillOpen: open != nil)
         }
-        .onChange(of: focus?.landedNonce ?? 0) { _, _ in openSkill = nil }
+        .onChange(of: focus?.landedNonce ?? 0) { _, _ in
+            openSkill = nil
+            if let row = focus?.landed, ReadingMethodsFold.holds(row) { methodsLanded = true }
+        }
+        // A landing from another page selects this one and lands in the same pass, before this view exists, so only the
+        // row still washed (`highlighted`, the hold) counts here; a landing long past never reopens the fold.
+        .onAppear { if let row = focus?.highlighted, ReadingMethodsFold.holds(row) { methodsLanded = true } }
         .onDisappear { focus?.escapeBack = nil }
     }
 
@@ -273,7 +287,7 @@ struct ReadingWebView: View {
     }
 
     private var page: some View {
-        SettingsPage(section: .reading) {
+        SettingsPage(heading: .reading) {
             SettingsGroupCard(header: Copy.Reading.withAgentGroup) {
                 SettingsRow(.readingAgent, title: Copy.Reading.switchTitle,
                             detail: model.note ?? Copy.Reading.switchDetail) {
@@ -311,8 +325,22 @@ struct ReadingWebView: View {
                 }
             }
             youtubeGroup
-            methodsGroup
-            watchMethodsGroup
+            if model.enabled {
+                methodsGroup
+                watchMethodsGroup
+            } else if model.methods != nil || model.watchMethods != nil {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                    DisclosureHeader(title: Copy.Reading.methodsFold, isOpen: methodsOpen) {
+                        if methodsOpen { methodsStored = false; methodsLanded = false } else { methodsStored = true }
+                    }
+                    if methodsOpen {
+                        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+                            methodsGroup
+                            watchMethodsGroup
+                        }
+                    }
+                }
+            }
             sitesGroup
             neverExploreGroup
         }
@@ -695,5 +723,37 @@ enum ReadingSwitchHelp {
         guard let settings else { return Copy.Reading.loadFailed }
         if settings.ackedAt != nil, !settings.ackCurrent { return Copy.Reading.reAskHelp }
         return ""
+    }
+}
+
+/// Which landings open Reading's method fold (Hyrum audit B23): the two groups and any one choice in them.
+enum ReadingMethodsFold {
+    static func holds(_ row: SettingsRowID) -> Bool {
+        row == .readingMethods || row == .watchingMethods
+            || row.item(of: "readingMethod") != nil || row.item(of: "watchingMethod") != nil
+    }
+}
+
+/// Reading the web's switches as a sheet on the Sources page (D6 retired the Settings page; 2026-10-22 fix round):
+/// the master switch behind the one-time versioned consent sheet (on by default once accepted), the signed-in session
+/// (ruling 25), the YouTube lists, Never explore, how the agent reads and watches, and the sites that need the browser.
+/// `ReadingWebView` itself, unchanged, with the Skills data it reads and a Done.
+struct ReadingInBrowserSheet: View {
+    var onClose: () -> Void
+    @State private var skillsVM = SkillsViewModel()
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ReadingWebView()
+                .environment(skillsVM)
+                .task { await skillsVM.load() }
+            HStack {
+                Spacer()
+                NeutralButton(title: Copy.Reading.done, size: .compact, shortcut: .cancelAction) { onClose() }
+            }
+            .padding(CicadaTheme.spacingMD)
+        }
+        .frame(width: CicadaTheme.scaled(680), height: CicadaTheme.scaled(620))
+        .background(CicadaTheme.bgBase)
     }
 }

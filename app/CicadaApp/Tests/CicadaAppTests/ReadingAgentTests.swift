@@ -402,15 +402,14 @@ final class ReadingAgentTests: XCTestCase {
 
     // MARK: Settings — the section and its rows
 
-    func testTheSectionSitsAfterIntegrationsAndItsRowsAreIndexed() {
-        let all = SettingsSection.allCases
-        XCTAssertEqual(all.firstIndex(of: .reading), all.firstIndex(of: .integrations).map { $0 + 1 })
-        XCTAssertEqual(SettingsSection.reading.group, .customize)
-        XCTAssertEqual(SettingsSection.reading.title, "Reading the web")
-        XCTAssertEqual(SettingsSection(rawValue: "reading"), .reading, "the raw value is a machine key")
+    /// D6 (2026-10-22): Reading the web left Settings — per-site reading lives on sources; every row's anchor and the
+    /// saved section land on the Sources page.
+    func testReadingTheWebLandsOnTheSourcesPage() {
+        XCTAssertNil(SettingsSection(rawValue: "reading"))
+        XCTAssertEqual(SettingsSection.retired["reading"], .readingInBrowser)
         for id in [SettingsRowID.readingAgent, .readingMethods, .watchingMethods, .readingSites] {
-            XCTAssertTrue(SettingsIndex.staticIDs.contains(id))
-            XCTAssertTrue(SettingsIndex.staticEntries.contains { $0.id == id && $0.section == .reading })
+            XCTAssertFalse(SettingsIndex.staticIDs.contains(id))
+            XCTAssertEqual(SettingsIndex.retiredRows[id], .readingInBrowser)
         }
     }
 

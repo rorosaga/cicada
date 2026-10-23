@@ -11,7 +11,7 @@ enum FoundTurnOnResult: Equatable {
     case needsPermission
     /// Cursor asks the person itself; nothing more for Cicada to know.
     case openedApp
-    case finishInSettings(SettingsSection)
+    case finishInSettings(SettingsHome)
     /// Re-probed and still not on, with nothing Cicada could run: no verdict of
     /// its own — the host clears its row so the fresh derived readiness shows
     /// (I-b final review, finding 1: a sticky `.failed` here outlived a later
@@ -47,7 +47,7 @@ enum AppSourceDrivers {
     /// Flow's column whitelist); a driver only calls them. Missing collaborators register nothing.
     ///
     /// Wispr Flow's speaker names are never guessed here: the driver keeps the person's `ownerSpeakerNames` as they
-    /// are (provenance never guesses who spoke; they are set in Settings → Integrations → Wispr Flow).
+    /// are (provenance never guesses who spoke; they are set on the Sources page → Wispr Flow).
     ///
     /// Contacts and the tab groups default to nil so a host that has neither (the `+` strip, a test) keeps compiling
     /// and registers nothing for them — their rows then finish in Integrations, as any unregistered source does.
@@ -196,7 +196,7 @@ enum FoundTurnOn {
             deps.open(url)
             return .openedApp
         case .agent("claude-desktop"):
-            return .finishInSettings(.agents)
+            return .finishInSettings(.page(.agents))
         case .agent(let agentId):
             guard let wiring = deps.wiring(), let agent = wiring.agents.first(where: { $0.id == agentId }) else {
                 return .failed(Copy.foundBackendDown)
@@ -245,7 +245,7 @@ enum FoundTurnOn {
             return .on(IntakeSummary.headline(outcome))
         case .app(let appId):
             // R-OB9 — a registered source turns on here; anything else still finishes in Integrations.
-            guard let driver = deps.apps[appId] else { return .finishInSettings(.integrations) }
+            guard let driver = deps.apps[appId] else { return .finishInSettings(.page(.sources)) }
             do {
                 let line = try await driver.start()
                 await deps.refresh()
@@ -258,7 +258,7 @@ enum FoundTurnOn {
         }
     }
 
-    /// R-OB8 — untick: stop keeping up, keep what came in. An agent is disconnected in Settings → Agents, and a drop
+    /// R-OB8 — untick: stop keeping up, keep what came in. An agent is disconnected on the Agents page, and a drop
     /// is never un-imported (`IntakeRouter.cancel`'s rule), so neither stops here.
     static func stop(_ id: FoundItemID, deps: FoundTurnOnDeps) async {
         switch id {

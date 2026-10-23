@@ -141,7 +141,7 @@ final class SleepAtRestTests: XCTestCase {
         let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/CicadaApp/Views/Sleep/SleepHero.swift"), encoding: .utf8)
-        XCTAssertTrue(source.contains("EngineQuickMenuButton(size: .compact)"), "the engine menu at the row's height")
+        XCTAssertTrue(source.contains("EngineLabelButton(size: .compact)"), "D6: the engine label at the row's height")
         XCTAssertTrue(source.contains("NeutralButton(title: Copy.SleepV5.options, size: .compact"), "Options in the row")
         XCTAssertFalse(source.contains("TextButton(title: Copy.SleepV5.readingOptions"), "no floating Reading options…")
     }

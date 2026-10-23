@@ -69,6 +69,12 @@ NO_BANK_WRITE = frozenset({
     # G181 phase 2: the person's device tokens live in $CICADA_HOME, outside every bank.
     ("POST", "/devices"),
     ("DELETE", "/devices/{device_id}"),
+    # G212 pairing and G213 agent tokens: $CICADA_HOME too.
+    ("POST", "/devices/pairing"),
+    ("DELETE", "/devices/pairing/{pairing_id}"),
+    ("POST", "/pair"),
+    ("POST", "/agent-api/tokens"),
+    ("DELETE", "/agent-api/tokens/{token_id}"),
 })
 #: Routes that write into ``?bank=`` when it is given, and into the active bank when it is not.
 EXPLICIT_QUERY_TARGET = frozenset({("POST", "/intake/import")})

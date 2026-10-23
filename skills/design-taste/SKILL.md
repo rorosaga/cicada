@@ -46,5 +46,5 @@ and never anything that shows other people's private data.
 
 `cicada_design_search(image_path="/abs/path/example.png")` finds the saved looks
 most like a picture. It needs the image model on their Mac; if the answer says
-it isn't on, tell them they can turn it on in Cicada's Settings → Search & files
+it isn't on, tell them they can turn it on in Cicada's Settings → Privacy & data
 (Understand images).

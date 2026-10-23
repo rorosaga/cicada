@@ -1,14 +1,14 @@
 import SwiftUI
 
 /// The engine picker in a glass card, or — `.compact` — the Welcome's form of
-/// it. `.full` is `EngineChooser`, the one component Settings → Engines renders
+/// it. `.full` is `EngineChooser`, the one component Settings → Intelligence renders
 /// too (G139, R-O8).
 ///
 /// Track I part b (R-IB13) adds `Style.compact`, the form onboarding shows
 /// through `EngineChoice`: the four engines a new person can name, each with
 /// its cost model in words (G117, never a price), a ring on the pick or else on
 /// the engine that can run, and one honesty line — no model field, no overage
-/// switch, no previews (Settings → Engines keeps those). With a `pick` binding
+/// switch, no previews (Settings → Intelligence keeps those). With a `pick` binding
 /// a click only moves the ring and the Welcome's Start writes it; without one a
 /// click commits through `SleepEngineViewModel.set` as the chooser does.
 struct EngineCard: View {
@@ -110,12 +110,12 @@ private struct CompactEngineChooser: View {
         if let hint = EngineOption.signInHint(response.candidates) {
             HStack(spacing: CicadaTheme.spacingXS) {
                 Text(hint).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
-                SettingsInlineLink(section: .plansAndKeys, label: Copy.plansAndKeys)
+                SettingsInlineLink(section: .intelligence, row: .plansAndKeys, label: Copy.plansAndKeys)
                     .font(CicadaTheme.captionFont)
             }
         }
 
-        // R-AG14 — the same note Settings → Engines shows, for the card the Welcome would write
+        // R-AG14 — the same note Settings → Intelligence shows, for the card the Welcome would write
         // (the pick) or else the saved one, so phase B's Who reads inherits it.
         let note = LeavesMacNote.text(selected: pick?.wrappedValue ?? selectedCard, provider: response.provider,
                                       manualEngine: response.preview?.manual.engine, providers: response.providers)

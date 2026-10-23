@@ -49,7 +49,7 @@ extension Copy {
     /// Not "main profile": a Safari that looks empty is usually one macOS is hiding until Full Disk Access is on.
     static let safariNothingYet = "Nothing from Safari yet — turn it on to bring your bookmarks in"
     static let browserTryAgain = "Try again"
-    static let browserSyncNow = "Sync now"
+    static let browserSyncNow = "Refresh"
     static func browsersUnsupported(_ names: [String]) -> String {
         switch names.count {
         case 0: ""
@@ -81,7 +81,7 @@ extension Copy {
     static let tabGroupsUpToDate = "Already up to date"
     static let tabGroupsUnreadable = "Chrome keeps its open tabs in a form Cicada can't read yet."
     static let tabGroupsSyncFailed = "Couldn't bring your tab groups in. Cicada will try again."
-    static let tabGroupsTurnOnFirst = "Turn on Chrome's open tab groups in Settings → Integrations first — Cicada reads them only after you do."
+    static let tabGroupsTurnOnFirst = "Turn on Chrome's open tab groups on the Sources page first — Cicada reads them only after you do."
     static let tabGroupUnnamed = "Unnamed group"
 
     // MARK: YouTube watch history from Chrome (G71, 2026-10-16)
@@ -103,7 +103,7 @@ extension Copy {
     }
     static let watchHistoryUnreadable = "Chrome's history couldn't be read just now. Cicada will try again."
     static let watchHistorySyncFailed = "Couldn't bring your YouTube history in. Cicada will try again."
-    static let watchHistoryTurnOnFirst = "Turn on YouTube history in Settings → Integrations first — Cicada reads it only after you do."
+    static let watchHistoryTurnOnFirst = "Turn on YouTube history on the Sources page first — Cicada reads it only after you do."
     /// The import drop's switch (Takeout, TikTok): history is brought in as days, never as saves.
     static let importIncludeHistory = "Include watch history"
     static let importIncludeHistoryDetail = "Kept as one entry per day of what you watched — never as saved links."
@@ -130,12 +130,12 @@ extension Copy {
         "\(UsageFormat.count(contacts, locale: locale)) \(contacts == 1 ? "contact" : "contacts") · " + matchedPeople(people, locale: locale)
     }
     static let contactsConnect = "Connect"
-    static let contactsSyncNow = "Sync now"
+    static let contactsSyncNow = "Refresh"
     static let contactsDisconnect = "Disconnect"
     static let contactsStopTitle = "Stop reading your contacts?"
     static let contactsStopDetail = "What Cicada already learned about people stays."
     static let contactsStop = "Stop reading"
-    static let contactsConnectFirst = "Connect Contacts in Settings → Integrations first — Cicada reads them only after you do."
+    static let contactsConnectFirst = "Connect Contacts on the Sources page first — Cicada reads them only after you do."
     static let contactsSyncFailed = "Couldn't sync your contacts. Cicada will try again."
     static let contactsCardRef = "Their card in Contacts"
 

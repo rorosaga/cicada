@@ -182,6 +182,12 @@ final class SleepViewModel {
     private let fetchQueue: () async throws -> SleepQueueResponse
     private let fetchRun: (String) async throws -> SleepRunDetail
 
+    /// G212 — the machines under the room (`GET /devices/status`), polled while the Sleep page shows. Machine-global
+    /// (the devices are this server's, not a bank's), so a bank switch keeps them; not a Store domain, in memory only.
+    /// Fetched here so no file under Views/Sleep reaches `APIClient` itself (R-Z10, `RoomFeedTests`).
+    private(set) var machines: [MachineStatus] = []
+    private let fetchMachines: () async throws -> MachineStatusList
+
     init(
         store: Store,
         fetchSleepStatus: @escaping () async throws -> SleepStatusResponse = {
@@ -225,8 +231,12 @@ final class SleepViewModel {
         },
         fetchSchedule: @escaping () async throws -> ScheduleConfig = {
             try await APIClient.shared.fetchSchedule()
+        },
+        fetchMachines: @escaping () async throws -> MachineStatusList = {
+            try await APIClient.shared.fetchMachineStatus()
         }
     ) {
+        self.fetchMachines = fetchMachines
         self.fetchEpisodes = fetchEpisodes
         self.fetchSchedule = fetchSchedule
         self.requestEnd = requestEnd
@@ -549,6 +559,11 @@ final class SleepViewModel {
 
     func loadQueue() async {
         if let next = try? await fetchQueue() { queue = next }
+    }
+
+    /// One poll of the machines strip; a failed poll keeps the last answer (never blank).
+    func loadMachines() async {
+        if let list = try? await fetchMachines() { machines = list.devices }
     }
 
     /// A run's detail, cached by id and freshness key: a second open under the same key is a dictionary hit; a

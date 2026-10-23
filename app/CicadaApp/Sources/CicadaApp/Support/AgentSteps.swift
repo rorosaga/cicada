@@ -53,7 +53,7 @@ enum AgentSteps {
             if bundled && text != nil { detail += " " + Copy.agentStepAlsoRecalls }
             out.append((Copy.agentStepSend(entry.name), detail, false, text == nil ? [] : actions, text, false))
             // Connect for me not offered (already connected, or no setup yet): recall gets its own step, so the person
-            // can still turn it on here without a trip to Settings → Agents.
+            // can still turn it on here without a trip to the Agents page.
             if !recall.isEmpty && !bundled {
                 out.append((Copy.autoRecallGroup, Copy.agentStepRecallHow, false, [.autoRecall(recall)], nil, false))
             }

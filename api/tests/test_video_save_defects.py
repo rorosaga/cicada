@@ -40,17 +40,17 @@ def srv(tmp_path, monkeypatch):
 def test_both_replies_name_the_episode_and_a_duplicates_note_is_kept(srv):
     server, memory = srv
     first = server.handle_tool("cicada_save_url", {"url": URL})
-    entity, episode = re.search(r"\(entity (\S+), episode (ep_[0-9_-]+)\)", first).groups()
+    entity, episode = re.search(r"\(entity `([^`]+)`, episode `(ep_[0-9_-]+)`\)", first).groups()
     again = server.handle_tool("cicada_save_url", {"url": URL, "note": "It explains\nalpha indexing."})
-    assert again.startswith(f'Already saved: "A clip" (entity {entity}, episode {episode}).')
-    note_ep = re.search(r"Your note was kept as episode (ep_[0-9_-]+)", again).group(1)
+    assert again.startswith(f'Already saved: "A clip" (entity `{entity}`, episode `{episode}`).')
+    note_ep = re.search(r"Your note was kept as episode `(ep_[0-9_-]+)`", again).group(1)
     parsed = markdown_parser.parse(memory / "episodes" / f"{note_ep}.md")
     assert parsed.frontmatter["media_entity_id"] == entity and parsed.frontmatter["processed"] is False
     assert parsed.body.endswith("## Note\nassistant: It explains alpha indexing.")
     assert evidence.verify(memory, note_ep, "explains alpha indexing").kind == "assistant", \
         "an agent's summary is never the person's words"
     repeat = server.handle_tool("cicada_save_url", {"url": URL, "note": "It explains\nalpha indexing."})
-    assert f"kept as episode {note_ep}" in repeat, "one episode per (page, note)"
+    assert f"kept as episode `{note_ep}`" in repeat, "one episode per (page, note)"
 
 
 def test_no_note_writes_no_episode(srv):

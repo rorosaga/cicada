@@ -1,6 +1,6 @@
 import Foundation
 
-/// G179 — Messages in Settings → Integrations, and the waiting bubbles on the Sleep page and Home. Provider-neutral:
+/// G179 — Messages on the Sources page, and the waiting bubbles on the Sleep page and Home. Provider-neutral:
 /// an agent is named only by the person's own contact name for it.
 extension Copy {
     enum Messages {
@@ -20,7 +20,7 @@ extension Copy {
         }
         static let choose = "Choose…"
         static let chooseHelp = "Pick which conversations Cicada reads"
-        static let syncNow = "Sync now"
+        static let syncNow = "Refresh"
         static let tryAgain = "Try again"
         static let done = "Done"
         static let loading = "Looking for conversations…"

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Wire mirror of `api.models.schemas.SleepEngineCandidate` — one row of the
-/// G122 Settings → Engines picker's segmented control. Deliberately NOT a
+/// G122 Settings → Intelligence picker's segmented control. Deliberately NOT a
 /// reuse of `ConnectionStatus` (that model carries login/billing fields no
 /// candidate needs) — a candidate only needs enough to render a segment and, once
 /// selected, a model list. Since the 2026-09-28 ruling it may also carry one `usage`
@@ -91,7 +91,7 @@ struct SleepEngineResponse: Codable, Hashable {
     let source: String
     let candidates: [SleepEngineCandidate]
     let preview: SleepEnginePreviews?
-    /// R-E13 — the Settings → Engines "Keep going on extra usage" switch;
+    /// R-E13 — the Settings → Intelligence "Keep going on extra usage" switch;
     /// absent on an older backend → false (off is the safe default: a Claude
     /// plan cycle stops at the included usage rather than billing past it).
     let allowOverage: Bool
@@ -111,10 +111,13 @@ struct SleepEngineResponse: Codable, Hashable {
     /// choice above resolves to now — the change applies from the next start or Continue. Absent on an older
     /// backend → false.
     var runKeepsEngine: Bool = false
+    /// Ruling 36 D1: the day the one-time step kept this person's local model as their choice (Auto no longer reaches
+    /// one), while it still is. Settings → Intelligence says so in one line. Absent on an older backend → nil.
+    var autoLocalKeptOn: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case mode, model, disambiguationModel, source, candidates, preview, allowOverage
-        case selected, provider, providers, reserve, runKeepsEngine
+        case selected, provider, providers, reserve, runKeepsEngine, autoLocalKeptOn
     }
 
     init(
@@ -152,6 +155,7 @@ struct SleepEngineResponse: Codable, Hashable {
         providers = ((try? c.decodeIfPresent([SleepEngineProvider].self, forKey: .providers)) ?? nil) ?? []
         reserve = (try? c.decodeIfPresent(SleepReserveStatus.self, forKey: .reserve)) ?? nil
         runKeepsEngine = ((try? c.decodeIfPresent(Bool.self, forKey: .runKeepsEngine)) ?? nil) ?? false
+        autoLocalKeptOn = (try? c.decodeIfPresent(String.self, forKey: .autoLocalKeptOn)) ?? nil
     }
 }
 

@@ -68,7 +68,7 @@ def test_the_manifest_records_a_licence_and_a_restriction_for_every_asset():
     for asset in _manifest()["assets"]:
         assert asset["licence"].strip(), asset["id"]
         assert asset["restrictions"].strip(), asset["id"]
-        assert asset["origin"] in {"commons", "repo", "recut", "legacy"}, asset["id"]
+        assert asset["origin"] in {"commons", "repo", "set", "recut", "legacy"}, asset["id"]
 
 
 def test_a_repo_mark_is_pinned_to_a_commit_on_the_vendor_s_own_repository():
@@ -79,7 +79,8 @@ def test_a_repo_mark_is_pinned_to_a_commit_on_the_vendor_s_own_repository():
 
     pinned = re.compile(r"^https://raw\.githubusercontent\.com/[^/]+/[^/]+/[0-9a-f]{40}/.+\.svg$")
     repo_assets = [a for a in _manifest()["assets"] if a["origin"] == "repo"]
-    assert {a["id"] for a in repo_assets} == {"opencode", "opencode-dark", "openrouter"}
+    # G217 (2026-10-22): the curated set replaced the three repo marks (opencode, opencode-dark, openrouter).
+    assert repo_assets == []
     for asset in repo_assets:
         assert pinned.match(asset["sourceUrl"]), asset["id"]
         assert re.fullmatch(r"[0-9a-f]{64}", asset.get("svgSha256", "")), asset["id"]
@@ -90,3 +91,30 @@ def test_the_two_identical_claude_rasters_are_retired():
     byte-identical legacy rasters are unlicensed dead bytes once nothing draws them."""
     ids = {a["id"] for a in _manifest()["assets"]}
     assert not ids & {"claude-code", "claude-desktop"}
+
+
+def test_a_set_mark_is_built_from_its_committed_reviewed_source():
+    """G217 — one mark per umbrella from `app/assets/logo-set/`, rebuilt offline: the source is the reviewed one."""
+    set_assets = [a for a in _manifest()["assets"] if a["origin"] == "set"]
+    assert len(set_assets) >= 49
+    for asset in set_assets:
+        source = _REPO_ROOT / asset["setFile"]
+        assert source.is_file(), asset["id"]
+        assert _sha256(source) == asset["svgSha256"], f"{asset['id']}: its source changed without a rebuild"
+        assert asset["sourceUrl"].startswith("https://"), asset["id"]
+
+
+def test_one_mark_per_umbrella_the_duplicates_are_retired():
+    """G217 (owner 2026-10-22): Codex and ChatGPT sit under OpenAI's mark, Gemini CLI under Gemini's."""
+    ids = {a["id"] for a in _manifest()["assets"]}
+    assert not ids & {"codex", "codex-dark", "chatgpt", "chatgpt-dark", "gemini-cli"}
+    assert {"openai", "openai-dark", "gemini", "claude", "grok", "meta", "instagram"} <= ids
+
+
+def test_every_umbrella_logo_in_the_provider_table_ships():
+    from api.services import agent_catalog
+
+    ids = {a["id"] for a in _manifest()["assets"]}
+    for umbrella in agent_catalog.UMBRELLAS:
+        if umbrella.logo:
+            assert umbrella.logo in ids, umbrella.id

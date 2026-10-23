@@ -197,7 +197,7 @@ else
     pass "Sleep engine: at least one connection is live"
   else
     fail "Sleep engine: no connection is live — Sleep has nothing to run on"
-    note "open Settings → Plans & keys, or run: claude auth login"
+    note "open Settings → Intelligence → Plans & keys, or run: claude auth login"
   fi
 fi
 
@@ -300,7 +300,7 @@ else
 fi
 
 # 13. Implicit recall hooks (G149). Registered by install.sh unless CICADA_RECALL=off, and turned
-#     on or off in Settings → Agents. Absent is a choice, not a failure; half-registered or stale
+#     on or off on the Agents page. Absent is a choice, not a failure; half-registered or stale
 #     (a moved repo) is a failure, like the Stop hook's.
 S1=1; S2=1
 if [ "$PLUGIN_ON" -eq 1 ]; then
@@ -317,10 +317,10 @@ elif [ "$S1" -eq 0 ] && [ "$S2" -eq 0 ]; then
   pass "Recall hooks registered in $CLAUDE_SETTINGS (Claude Code remembers automatically)"
 elif [ "$S1" -eq 1 ] && [ "$S2" -eq 1 ]; then
   pass "Recall hooks are off for Claude Code"
-  note "Settings → Agents → Remembers automatically turns them on"
+  note "the Agents page → Remembers automatically turns them on"
 else
   fail "Recall hooks half-registered or stale in $CLAUDE_SETTINGS"
-  note "run ./install.sh (or Settings → Agents → Update) to fix them"
+  note "run ./install.sh (or the Agents page → Update) to fix them"
 fi
 
 # Local Cursor startup and chat capture are independent of MCP connectivity and of each other.
@@ -331,9 +331,9 @@ if [ -d "$HOME/.cursor" ] && [ -x "$VENV_PY" ]; then
   if [ "$CURSOR_STATE" -eq 0 ]; then
     pass "Cursor sessionStart hook configured (installed delivery unverified)"
   elif [ "$CURSOR_STATE" -eq 1 ]; then
-    pass "Cursor startup hook off — Settings → Agents turns it on"
+    pass "Cursor startup hook off — the Agents page turns it on"
   else
-    fail "Cursor startup hook stale or invalid — repair hooks.json or use Settings → Agents → Update"
+    fail "Cursor startup hook stale or invalid — repair hooks.json or use the Agents page → Update"
   fi
   CURSOR_SAVE=0
   "$VENV_PY" "$REPO/api/hooks/cursor_registry.py" status --hook capture \
@@ -341,9 +341,9 @@ if [ -d "$HOME/.cursor" ] && [ -x "$VENV_PY" ]; then
   if [ "$CURSOR_SAVE" -eq 0 ]; then
     pass "Cursor chat capture configured (installed delivery unverified; see capture.log)"
   elif [ "$CURSOR_SAVE" -eq 1 ]; then
-    pass "Cursor chat capture off — Settings → Agents → Cursor turns it on"
+    pass "Cursor chat capture off — the Agents page → Cursor turns it on"
   else
-    fail "Cursor capture hooks stale or invalid — repair hooks.json or use Settings → Agents"
+    fail "Cursor capture hooks stale or invalid — repair hooks.json or use the Agents page"
   fi
   note "Cursor MCP connectivity is separate from both hooks"
 fi

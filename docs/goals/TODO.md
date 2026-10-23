@@ -4,10 +4,82 @@
 
 **Memory-quality pickup:** fix the relevant G183/G177 write-integrity gaps, repair G185’s reported test regression, then use [the first-memory-trial runbook](2026-10-06-first-memory-trial.md). Do a small trial before a full user-started drain. The immediate product question is whether asking ordinary questions about your life feels useful and trustworthy.
 
-[Implementation review: every G ID](BACKLOG_IMPLEMENTATION_REVIEW.md) · [Active reasoning by priority](memory-evolution.md) · [Completed work](DONE.md) · [Reference context / original prompts](BACKLOG_CONTEXT.md) · [Working method](working-method.md) · [Cognition comparison](../research/2026-10-06-agent-memory-repo.md) · [Source/video gaps](../research/2026-10-06-source-refresh-and-video-gaps.md) · [Provider/source modularity](../specs/2026-10-06-provider-and-ingestion-modularity.md) · [Benchmark rebuild](../specs/2026-10-06-system-benchmark-rebuild.md)
+[Feature status: one line per feature](feature-status.md) · [Implementation review: every G ID](BACKLOG_IMPLEMENTATION_REVIEW.md) · [Active reasoning by priority](memory-evolution.md) · [Completed work](DONE.md) · [Reference context / original prompts](BACKLOG_CONTEXT.md) · [Working method](working-method.md) · [Cognition comparison](../research/2026-10-06-agent-memory-repo.md) · [Source/video gaps](../research/2026-10-06-source-refresh-and-video-gaps.md) · [Provider/source modularity](../specs/2026-10-06-provider-and-ingestion-modularity.md) · [Benchmark rebuild](../specs/2026-10-06-system-benchmark-rebuild.md)
+
+**Pick up here (2026-10-22, redesign):** read ruling 36 (the owner's answers D1–D6 to the redesign proposal), then [`feature-status.md`](feature-status.md) for what is building. Branches in flight: `feat/awake-read` (G207), `fix/people-dedup` (G209), `feat/update-sources` (G61); queued: connection model and providers (G217, G50), agent API (G213), app (G217's pages, needs a Mac). **Decided after review (2026-10-22, in ruling 36):** a new install's Auto uses a signed-in plan, a key offered as an equal option; ruling 4c stays and the quick read follows it; G213's API rides the G135 listener; "Where to check" as one grouped inbox review; `rich` + `questionary` approved. Nothing waits on the owner from this ruling.
 
 ## Current state and evidence
 
+- **2026-10-22 — the new user, second pass (G148, G209, G141; ruling 37; branch `fix/new-user-memory-2`).** Ruling 37
+  (owner): a fold from the shipped seed settles by rule and a follow-up names its thread; a new save is dated when it
+  was saved. Also from the newuser write-ups: a held full name whose alias is exactly one person page asks "same
+  person?" (W1, never a merge); a project mention whose alias names one project page brings it to the judge (W2); "New project
+  with X: name" counts as the person's words (W3); the D4 gate reads the type a create writes (W4). Numbers on the
+  G148 row and in the PR.
+- **2026-10-22 — the new-user benchmark and what it fixed (G148; branch `fix/new-user-memory`).** `benchmarks/newuser`
+  loads an invented person through the real doors onto a verify-cicada scratch backend, sleeps once (plan, haiku) and
+  asks 25 questions over MCP stdio; rerun it before each release (its README). Branch base 23.0/25 → 24.0/25 (three
+  repeats each, no spread). Fixed: calendar events dated the day they happened (`calendar_local`), "worked with" /
+  "dropped" endings (seed), skills grounded only on conversations (`skill_grounding`, `inbox_tend.record_origin`),
+  created pages counted (`change_timeline`, `git_service.CREATED_ACTIONS`), recent conversations without calendar
+  entries (`state_dictionary`). The written-up findings (G209, G141, G21, G112) are on the G148 row.
+- **2026-10-22 — projects born from a repository or the person's words (G141, ruling 36 D4; branch `feat/projects-v2`).** Stage 2 mints a project page only on a birth record Stage 1 computed with no model: a harness session the hook observed in a checkout of that folder name, or one clause of the person's own turn calling it a project; `born:` is written once; six standard sections and the people involved ride the timeline wire (g141-5); `api.scripts.project_origins_dry_run` lists every existing project page as repo / words / neither, read only. The hook reads no git remote (G110 D2), so the folder name stands in — disclosed on the row. **Next:** the acting owner runs the dry run on the real bank and asks the owner before any review list; the SwiftUI page is specced in `app.md` (needs a Mac).
+- **2026-10-22 — the redesign's decisions recorded (ruling 36; branch `docs/redesign-2026-10-22`).** The owner's answers D1–D6 are ruling 36: a key secured properly or the person's own Claude Code / Codex, never a local default (amends ruling 31); a quick read after each conversation, on by default only if measured better (amends the capture rail); the agent tiers plus an HTTP API for agents without MCP, served on the G135 listener; projects from a repository or the person's words; the person's-photo gate on with sources on people; Settings in six. Backlog: new G205–G207, G209, G210, G212, G213, G216 (done, #418) and G217 (the connection model — the briefs' "G204" was taken); G208, G211, G214, G215 fold into G61, G141, G91 + G135, G50 as redirects. `feature-status.md` tracks each line.
+- **2026-10-22 — the MCP error and argument contract (branch `mcp-error-contract`; G199, G200 A7/A9, Hyrum audit
+  A1/A4/A6).** Both doors check a call against the schema they advertise, once, before a body runs
+  (`tool_contract.check`): a bad argument answers `isError: true` with ``Invalid arguments: `<field>` …`` naming every
+  problem; `since` must be a date or a number of days, `cicada_project`'s `tz` a real zone. A refusal keeps its
+  sentence and answers `isError: true` with `structuredContent: {code, data, message}`, from the command line's own
+  `REFUSAL_CODES` (now also `invalid_arguments`, `out_of_range`, `error`), so a code means the same thing to the CLI and
+  to an agent; ~140 refusal sentences in `mcp_tools` carry codes. An exception names its class only (stdio, the tool
+  door, remote). Every read reply is fenced as reference data on both doors; a write's provider lines are marked the
+  same way on both. The primer (contract 19) names no HTTP route and picks its variant by exact client name, with a
+  `desktop` variant for `claude-ai`. Recall's state cursor says `pending_as_of` / `refresh_with`; confidence shows two
+  places; `cicada_recall_detail` drops five bookkeeping keys and never ends a part inside a fence it can avoid. The
+  golden fixture now pins whole `tools/call` results. **Dated follow-up: the leniency ships in exactly one release, the
+  first after v0.6.0 (which predates it) — 0.7.0 by the minor bumps since 0.4.0 — and the release after it refuses a
+  digit, decimal or `"true"`/`"false"` string where the schema says a number or boolean:** remove the lenient branches
+  in `tool_contract._value`. `test_mcp_error_contract.test_the_leniency_ships_in_exactly_one_release` fails on any
+  later `VERSION`, and on a patch release first (0.6.1 must move `LENIENT_RELEASE` to itself). Review fix round: a
+  read reply is fenced whatever its code, with Cicada's own directions outside the markers (`Reply.framed`); a recall
+  with stored words is never `empty_graph`; enums match without case; tolerated values (`engine`, `basis`, shot kinds,
+  roles) have no enum; a release batch keeps its good rows; every door logs the failing file:line, no message; the
+  writers' catch-alls no longer leak exception text. Tool and argument names are unchanged (G180 names no rename yet); `cicada_resolve_inbox`
+  also takes `item_id`, unlisted. Left out: the claims fence rendered through the one wire builder (A6), and fencing
+  the command line's text.
+- **2026-10-22 — ready for background agents: every verify recipe driven, the plan token only in the engine's child,
+  CI on `dev`, a neutral bank identity (G203; branch `agent-ready-ci`).** The 19 recipes in
+  `.claude/skills/verify-cicada/features/` that had never run were driven with `cv` on scratch banks: 4 worked as
+  written, 11 were wrong (request shapes, selectors, a CLI step that is person-only, Ask needing `--search-model`) and
+  are fixed, and 4 now say which part cannot be driven and give the nearest check (the video lease lifecycle, a site
+  exploration, the remote listener and OAuth, the bank menu without focus). One product defect found: G204 (`cicada_write_claim` names an
+  id that is not on the page when it folds into Sleep's claim). `cv` no longer puts `CLAUDE_CODE_OAUTH_TOKEN` in the
+  scratch backend's env: a 0600 file in the run dir, read into the engine's `claude` child by `plan-claude`, deleted and
+  masked at cleanup (`cv selftest` 87/87; `cv` also drops it from its own env, so no child of `cv` inherits it). `.github/workflows/dev-ci.yml` runs the backend crucial tier on pushes and
+  PRs to `dev` (260 passed on `ubuntu-latest`). A bank fills only the half of its git identity nobody configured with
+  `Cicada` / `cicada@localhost`, at startup and at every runtime switch, instead of the account's guessed name and host. Evidence:
+  `~/cicada-harness-run-2026-10-22/round2-agents/`.
+- **2026-10-22 — Settings in eleven sections (Hyrum audit B1, with B11, B12, B23; G139; branch `settings-regroup`).**
+  Memory's one card joined Search & files (now *Search & memory*), From anywhere joined Devices (now *Devices &
+  access*), Plans & keys closes Engines. Each moved page is a group under its old header anchor (`page:memory`,
+  `page:remote`, `page:plansAndKeys`); `SettingsSection.retired` opens a saved selection, the old `agentsMode` and a ⌘K
+  recent on the new home, never General. General has one *Getting started* card; the command-line tool is on Agents;
+  Reading folds its method pickers while off. Every "Settings → <old section>" in app copy, backend sentences and docs
+  says the new path; `SettingsAnchorsTests` fails if an entry, deep link, retired value or pointer stops resolving.
+  Found on the way: a query with a bare "&" ("Plans & keys", "Privacy & data") matched nothing (`QuickMatch.tokens`
+  drops a punctuation-only word beside a real one; alone, or an emoji, it stays a token), and a landing below
+  late-loading cards stopped short (the row lands again on each move inside a 3 s window, never animated, until the
+  person scrolls). Review round: a saved old section lands on its group; folds open on a landing without storing it. Presentation only. Not done: B5 (shared step renderer). Pass 2's "B1 is the owner's
+  call" stands as the merge gate. Detail: `app.md` (Settings), the audit's *B1 as built*.
+- **2026-10-22 — a recall stays under the harness's result cap whatever the bank holds (branch `fix/recall-size`).**
+  On the live install a recall for a person's handle returned 221,719 characters (1,782 lines); Claude Code refuses an
+  MCP result over its cap, so the agent got only an error. Cause: the owner page's ~2,300 `related` ids printed on one
+  `Related:` line and Key Facts always kept whole. Now: `RECALL_BUDGET` 40,000 characters (20,000 remote, under its
+  24,000 cap), the `Related:` line at 12 names plus "… and N more" with the page-read call, Summary and Key Facts
+  cut at whole lines within the per-entity budget ("- … and N more on the full page"), the inbox block at 5 questions,
+  the cold-start hub list at 8,000, and a whole-result guard that leaves out the lowest-ranked pages first and names
+  them. Line shapes and headings unchanged; under the budget a reply is byte for byte what it was (golden passes).
+  Synthetic bank over MCP stdio: 149,058 characters before, 14,087 after (`cv mcp call cicada_recall`).
 - **2026-10-22 — the 0.6.0 release build type-checks on the runner (branch `fix/release-typecheck`).** Release run
   39714438472 failed: `SaveWhyPanel.swift:394` "unable to type-check this expression in reasonable time" on the
   macos-26 runner (it built on the dev Mac). A release build with `-warn-long-expression-type-checking=150` and
@@ -1447,3 +1519,131 @@ A whole row moves to DONE only after its remaining implementation and required a
     skills and versions, read-only from the plugins' own manifests) before it can reason about the real harness —
     the first slice of G201. **Revisit** the 8-week and 90-day figures after the first two model changes with the
     sidecar in place; the cap of 12 if the owner's proven set outgrows it with evals still winning.
+36. **The redesign: three nouns, the person's own engine, a quick read after each conversation, more doors for agents
+    (owner, 2026-10-22; answers D1–D6 to the acting owner's redesign proposal, plus extra answers; amends ruling 31, the
+    capture rail "No LLM at capture time", the default of the 2026-10-09 person's-photo exception, and the G135
+    listener's "serves only MCP"; G217, G50, G61,
+    G91, G135, G139, G141, G166, G205–G213, G216).** The proposal (kept outside the repo, with its six research
+    reports: plans and keys, harnesses, the app inventory, memory quality, agents/API/phone, Supermemory) organised
+    everything that connects to Cicada as three nouns — **Sources** feed it, **Intelligence** consolidates it,
+    **Agents** read and write it — and put six decisions first. The owner answered each; the answers are binding as
+    below. Measurements quoted here were taken read-only on the owner's bank or on scratch and demo banks, and each
+    row named carries its own basis. **Ids:** the redesign's worker briefs cited G204 for the connection model, but
+    G204 was already taken on `dev` (#416's `cicada_write_claim` finding), so the connection model is **G217**;
+    G208, G211, G214 and G215 fold into the rows that already held them (G61, G141, G91 + G135, G50) and stay as
+    redirects, so every id the briefs cite resolves.
+    **D1 — Intelligence: a key secured properly, or the person's own Claude Code or Codex, their choice; a local model
+    is never a default (amends ruling 31).** Owner: "local ai is unrealistic for most people. Lets be realistic. Yes
+    bringing your own key would work and we can give that option and we have to secure it properly, but also lets let
+    them use claude code and codex if they want. Also if possible look into grok subscriptions (spacexai)." And:
+    "stop pushing Ollama … maybe later try a super small one and measure." **What changes:** ruling 31's Auto ladder
+    ends at "a running local model"; that rung goes — a local model runs only when the person picks it. An API key is a
+    first-class path, equal to a plan in onboarding and Settings → Intelligence, verified before it is saved, and held
+    "properly" (today a 0600 `~/.cicada/secrets.env`; the secure store is G50's open item). Added keys: the OpenAI
+    platform key, and Gemini or Google Vertex once the difference is verified (G50). **What stays:** ruling 31's core —
+    no metered key nobody chose; a key reads only when chosen; `engine_select.SUBSCRIPTION_MODES` the one guard.
+    **What a new install starts on (owner, 2026-10-22, answering the review of #420):** with nothing chosen, Auto uses
+    the person's plan if they are signed in — Claude Code, then Codex — so ruling 31's plan-first Auto stays, minus the
+    local rung; onboarding offers an API key as an equal option, and because Anthropic's terms leave the plan a grey
+    zone, that step says in words what will run. **Ruling 4c stays** (owner, same answer): scheduled runs may use the
+    plan, on by default for new installs too. **Why a plan is offered, and said in words.** Anthropic's legal and compliance page (code.claude.com/docs/en/legal-and-compliance, fetched
+    2026-10-22) says developers building products "should use API key authentication" and may not "route requests
+    through Free, Pro, or Max plan credentials on behalf of their users", and also that nothing prevents "an end user
+    from signing in to the unmodified Claude Code binary with their own Claude subscription". Cicada spawns the
+    person's own unmodified `claude`, never sees or stores its token, and bills the person's own limits — between the
+    two sentences; saying in words what runs, beside an equally easy key, means the person knows the choice and a
+    block strands nobody. OpenAI documents "Sign in with ChatGPT" for Codex and access tokens "for trusted scripts,
+    schedulers", so the Codex path is the friendlier of the two. **Grok (xAI) subscriptions:** RESEARCH — nothing is
+    built until a documented way for a person's own subscription to run an unattended job exists. Revisit if Anthropic
+    or OpenAI changes those terms, or if a person with only a plan is blocked.
+    **D2 — A quick read right after a conversation ends; on by default when it measures better, no setting (amends
+    the capture rail "No LLM at capture time").** Owner: "i agree with recommended but that opt-in should be the
+    default if provides better performance and no need to have this as something that can be changed on settings."
+    **Capture stays file I/O:** the hook, `/capture/*` and every capture writer keep calling no model and return as
+    fast as today. **Step 0 (no rail change):** a new conversation is searchable and recallable as soon as it lands —
+    its vectors embedded off the capture path through the existing worker (never during Sleep), its words already in
+    the FTS index, its excerpts in recall labelled "not yet read by Sleep". Measured: recall's excerpt leg is
+    vector-only and a new episode has 0 vector chunks before Sleep, so recall cannot see today's conversations at all
+    (`mcp_tools._leann_search_episodes`, `sleep_cycle.py:2299`). **Step 1 (the amendment):** a separate job, after a
+    conversation ends, reads it once with a small model and writes **provisional** claims that Sleep later confirms or
+    drops; nothing it writes is the person's own words or settles an inbox question. It ships **on by default only if
+    it measures better** than Sleep alone on the bar G207 sets (recall and Ask on the verify banks, and Sleep's confirm
+    rate of the provisional claims); if it does not, it does not ship — there is no switch either way. Cost basis: Sleep
+    makes about 15 model calls per conversation (measured 2026-10-21); the quick read is one call, about 6k tokens in
+    and 1k out under Cicada's caps — about 1¢ per conversation on a key at $1/$5 per million (an assumed small-model
+    price, to be checked), and plan usage on a plan. **On a plan it follows ruling 4c's switch** like a scheduled run,
+    since nobody started it (owner, 2026-10-22, answering the review of #420).
+    **D3 — Agents: the featured nine, the popular second tier, the personal agents, and an HTTP API for agents that
+    cannot use MCP.** Owner: "yes go with recommended but also keep the actual popular ones. There is a lot of movement
+    in the personal agent space like muse, grokbot, instinct, dots (openai), i would lean into these too." With a
+    screenshot of a texted agent answering that it cannot plug into MCP directly but could work with an API or a web
+    app: "so maybe a call to work on the api. Also the cli setup should be cool, kind of those like the vercel ones."
+    **Tier 1** (logo, setup prompt, live detection) stays the existing nine (`agent_live.FEATURED`). **Tier 2** (logo,
+    the generic setup prompt, detection by `clientInfo`): VS Code/Copilot, Gemini/Antigravity CLI, Zed, Cline, Goose,
+    Windsurf (now Devin Desktop), Kiro, Warp, Amp. **Personal agents** reach Cicada through three doors, never one
+    integration each: the G135 connector (Grok Bot, Poke, the Claude, ChatGPT and Gemini apps, Meta's Muse by URL, OpenAI's Dots through the ChatGPT connector),
+    the HTTP API (agents that only speak HTTP), and Messages (a texted agent, G179). Product facts for these are
+    reported by press and vendor blogs, not first-party docs, and are re-checked before any copy ships. **The HTTP
+    API (G213)** is a thin mirror of the bodies `/tools/call` already runs, with OpenAPI and an `llms.txt`, authorised
+    by a G135 connector token with its scopes and provenance (a remote claim is never the person's own words). **It rides
+    the G135 listener, behind the same tokens** (owner, 2026-10-22, answering the review of #420) — this amends the
+    remote-connector rail's "serves only MCP": cloud agents reach only a public URL, and the listener is the one door
+    the person may make public. The G213 PR changes that rail line in CLAUDE.md. **The CLI** gains a Vercel-style
+    `cicada setup` (detect, confirm, a checklist, a non-TTY path) with `rich` and `questionary` as dependencies,
+    approved by the owner the same day (G213).
+    **D4 — A project is born from a repository, or from the person's own words.** Owner: "agree with the recommended.
+    Projects tho can as you say be started from just me talking to claude about something that spans outside software
+    only, so its able to track knowledge on it over the different conversations and stuff. … Design stuff can be
+    exposed in these markdowns as well and what changes a bit is also the interface, of what is exposed, timeline,
+    what has been done, what is expected and sections that can be standard throughout projects in general. People that
+    somehow can be involved to projects will be linked to them and such." A project page is born from a repository the
+    person works in with an agent (the git remote the hook already observes, G110 D2) or when the person says, in any
+    conversation, software or not, that something is a project. Consolidation alone never mints one. Every project
+    carries the same standard sections (timeline, done, expected, design, people involved — each person linked).
+    Existing projects with neither origin go to one review list after a dry run the owner reads (G141).
+    **D5 — People's photos from X and LinkedIn: the gate turns on, shipped with sources on people (amends the
+    2026-10-09 exception's "off by default").** Owner: "yes go with recommended, but also i think this update sources
+    (maybe come up with a better name), is of extreme importance, so any agent and cicada as well can provide/have a
+    heads up as to where to check the info, and the user through the app too. We need to keep it generalizable as well
+    bc it might as well be a personal website, a google scholar account or anything literally that will escape my
+    knowledge…" `CICADA_ALLOW_PERSON_PHOTO_PROXY` defaults on; every other term of the exception is unchanged (only
+    from an X or LinkedIn link already on the page and given as the person's own account, through unavatar.io, no
+    service sent a name, the person can still turn it off). It ships together with sources on people, because alone
+    it fetches nothing: measured, 0 of 277 person pages carry a source and 276 show initials. Agents and Cicada may
+    propose a source by inference, with the evidence that names it; a proposal is not trusted — no picture, no
+    refresh — until the person takes it or their own located words name the account (ruling 29). Contacts count as a
+    source ("Sources also should include contacts, run tests for that too"). **The name is "Where to check"** (owner,
+    2026-10-22); the agent-facing definition is G61's. Proposals arrive as **one grouped inbox review** ("Confirm N
+    links"), never one question per page — a dry run on the owner's bank would have added 36 questions to an inbox of
+    218 (owner, same answer).
+    **D6 — Settings in six; Sources and Agents become pages; Devices shows what is connected.** Owner: "yeah that makes
+    sense and adding status stuff like to see if my server or other box is connected that's great. Also the connection
+    has to be clear, it must be setup easily enough like claude does it in their apps. … something like that with just
+    going to a link or detecting cicada over tailscale would be cool. Also refer to the mac not as my mac but as its
+    name in the app (the machine's own name)." Settings: General · You · Intelligence · Sleep · Devices · Privacy &
+    data, under 400 words of copy (today 11 sections, 107 controls, about 2,030 words with folds closed — measured on
+    the demo bank after #417). Sources and Agents are sidebar pages. Devices lists each machine by **the machine's own
+    name**, never "this Mac", with a connected dot and how (Tailscale, SSH, local), and pairs another machine by a link
+    or a code, finding Cicada over Tailscale where it can (G212, G217).
+    **Extra answers.** Logos come from each vendor's own brand page or repository, never redrawn; one umbrella per
+    provider (Anthropic: Claude Code and Claude; OpenAI: Codex and ChatGPT) with the ways to connect beneath it;
+    Instagram joins the sources (G217). A person's own links (socials, contact) may show as a row at the top of their
+    page in the link-view grammar — the owner left it to the acting owner; proposed yes in G61. Phones: the Claude,
+    ChatGPT and Gemini apps reach Cicada through the G135 connector, added on the web and synced to the phone, which
+    needs a public URL (Funnel, not Serve) (G135); a minimal capture app in a new repository, `cicada-app` (share a
+    link or post, attach a note, pair the phone as a device), is started (G91). Every feature's status is tracked in
+    [`feature-status.md`](feature-status.md), one line per row. **Revisit** D1 on a change in either vendor's terms;
+    D2's default if a later measurement reverses the first; D5 if a fetched photo is ever shown on the wrong person.
+37. **The new user's inbox and saved items (owner, 2026-10-22; answers to the benchmarks/newuser report, W5 and W8;
+    amends ruling 29's fold rule and the G99d dating of saves).** **A — a fold Cicada ships settles by rule.** A
+    "Confirm a predicate fold" question whose fold is listed in the shipped predicate seed (`synonyms`) is curated, like
+    an ending: Sleep settles it (`seed_fold`, engine-free, undoable under "Settled by Sleep"); only a fold the bank
+    learned still reaches the judge or the person. A follow-up card's body names its thread: the page, the claim's own
+    words and why it is asked now. **B — a saved item is dated when it was saved.** A NEW save's or import's episode
+    takes the save's own instant (`added_at`), else noon UTC of its day (`saved_at`), never later than now, as its
+    `timestamp` and id day — as a calendar event takes its start (#435); a save with no recorded date keeps the day
+    Cicada took it in; existing episodes are never renamed (ruling 34). **Why.** On the synthetic new user (counts only,
+    `benchmarks/newuser`): the first inbox was three or four fold questions about the seed's own synonyms and one
+    unexplained "How did it go?"; bookmarks saved in August read as saved on the import day. **Revisit** A if the
+    person undoes `seed_fold` settles often (`GET /consumption/feedback`'s `sleepSettles`); B if a source's recorded
+    save date proves unreliable.

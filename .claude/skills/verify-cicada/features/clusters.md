@@ -19,8 +19,8 @@ Preconditions:
 - A run is up and `$CV doctor` is all `ok` (backend, scratch root, plan).
 - A bank with several pages (a two-conversation journey gives few; seed more conversations for a meaningful grid).
 
-- **Open.** `vclick 'button.*Description: Clusters,'` then `$CV app shot clusters`. Clusters or the empty state.
-- **Page.** Click a page tile (`vclick 'button Description: alpha-project'`). Its detail opens in the right column.
+- **Open.** `vclick 'button.*Description: Clusters,'` then `$CV app shot clusters`. Filters with counts (`All`, `People`, `Projects`, `Looks`…) and the tiles.
+- **Page.** Click a tile by its type and name: `vclick 'button Project, alpha-project'`. Its detail opens in the right column (`Project Active · …`).
 
 ## Gotchas
 

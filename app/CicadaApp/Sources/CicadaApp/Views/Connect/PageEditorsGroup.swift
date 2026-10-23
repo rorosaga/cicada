@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings → Agents → "Editing pages" (G198, owner ruling 2026-10-14: "a list of trusted models or agents that we give
+/// the Agents page → "Editing pages" (G198, owner ruling 2026-10-14: "a list of trusted models or agents that we give
 /// permission to write into the page directly"). One row per agent on this Mac with a switch: an agent that is on
 /// fixes a page's words or aliases at once, its reason in the page's history; any other agent's edit waits in the
 /// inbox for one tap (UX principle 3). Until the person changes the list, the backend's defaults are on (owner,

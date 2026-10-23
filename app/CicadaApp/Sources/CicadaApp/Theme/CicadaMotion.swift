@@ -67,6 +67,11 @@ enum CicadaMotion {
     static let linkPreviewOpenDelay: TimeInterval = 0.25
     static let linkPreviewCloseDelay: TimeInterval = 0.08
 
+    /// A Settings landing keeps its row on screen this long while the page's late cards arrive (Agents' setup steps,
+    /// the devices list): each move of the row above the fold lands again, never animated. A bound, not an
+    /// animation; the person's own scroll, a new search or a sidebar pick ends it sooner (`SettingsFocus`).
+    static let settingsLandingWindow: TimeInterval = 3.0
+
     /// Clouds drift, grass never moves (R-M6): at most 8 pt either way over a
     /// 60–120 s period — peripheral, never noticed as movement — at no more
     /// than 30 frames a second.

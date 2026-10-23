@@ -253,6 +253,27 @@ def load(memory_path: Path) -> list[PendingEntity]:
     return out
 
 
+#: ``waiting_ids``' cache: store path -> ((mtime_ns, size), the ids). An inbox read asks it once per question.
+_IDS_CACHE: dict[str, tuple[tuple[int, int], frozenset[str]]] = {}
+
+
+def waiting_ids(memory_path: Path) -> frozenset[str]:
+    """The page ids the parked names would get (``sanitize_id(line.name)``): a name below the promotion bar is still
+    in memory, so a question about it is live (G209). Read once per change of the file."""
+    path = store_path(memory_path)
+    try:
+        st = path.stat()
+    except OSError:
+        return frozenset()
+    stamp = (st.st_mtime_ns, st.st_size)
+    cached = _IDS_CACHE.get(str(path))
+    if cached is not None and cached[0] == stamp:
+        return cached[1]
+    ids = frozenset(sanitize_id(e.name) for e in load(memory_path) if e.name)
+    _IDS_CACHE[str(path)] = (stamp, ids)
+    return ids
+
+
 def save(memory_path: Path, entries: list[PendingEntity]) -> None:
     """Replace the file with ``entries`` — atomically (R-HP11).
 

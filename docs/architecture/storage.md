@@ -703,6 +703,45 @@ Round 4 (C2–C4):
   reason, answer, entity_id, entity_name, predicate, evidence?: {episode, start, end}}` — a span into the person's words,
   never a copy — committed in the resolver's own commit, which is what `inbox_tend.undo` reverses (three-way); the
   question returns with `sleep_settle: undone`.
+  **Where to check (G61, G208, ruling 36 D5, 2026-10-22).** The name sources carry in every surface: *a link where the
+  current state of this thing can be checked — a profile, a personal site, a publication list, a repository or any
+  page; Cicada re-checks it on a schedule and agents check it before answering about the thing.* The key stays
+  `sources:`. **Proposals:** an entry inferred rather than named carries `proposed: true` and `evidence` (`{episode,
+  start, end, kind?}` — a span, never a copy — or `{page: true}`); `fact_sources.is_proposed` is the one test. A
+  proposal is never trusted, never the person's own account (`person_photo.is_own_account`), never tracked
+  (`source_refresh.tracked`); taking it (`accepted`, from the question or the card's `sources/change`) drops `proposed`
+  and keeps `evidence`. Two writers: an agent's `cicada_add_source(inferred=true, evidence=[{episode, quote}])` (`mcp.md`;
+  a profile ref stored in its canonical form, the quote located or dropped) and **Sleep's tail step**
+  `source_proposals.propose` (`_where_to_check_safely`, after the LinkedIn and Contacts rematches, before any poll):
+  engine-free, no fetch, per active page — a **person** page's GitHub, X, Instagram, LinkedIn, Google Scholar or ORCID
+  profile URL (`source_proposals.profile_of`, one canonical form each) written in the page's own text, or in a line of
+  the person's OWN turn (`user`, not an agent's saved note) in one of the page's newest 40 conversations that also
+  names the page; a **project/tool** page's GitHub repository whose name is the page's own. Never a URL from a name,
+  never a handle off a saved post's path. Skipped when the ref (in any spelling of the same profile) is already a source
+  or in `sources_removed` under any fact, or past a cap; ≤ 4 a page a run; pages dirty before the run are skipped; one
+  `cicada` commit `Where to check <date>` (trigger `sleep/where-to-check`), restored on a failed commit. **One grouped
+  review (owner 2026-10-22, review of #422 — the dry run would have added 36 questions to an inbox of 218):** every
+  waiting proposal, an agent's too, is a row of ONE item — `kind: clarification`, `asks: sources`, `review: true`,
+  title "Confirm N links", `rows: [{id, page, page_name, page_type, ref, predicate, link_kind, label, added_by,
+  evidence?}]` (`id` a stable hash of page + link), options `yes` / `no` (all rows), `required_input: choice`; the step
+  adds and removes rows every run and removes the item when none waits, so it is idempotent. The one exception is a
+  link Sleep may settle (`source_proposals.strict_quote`, below): it waits in a one-row item of its own (no `review`,
+  `entity_id` its page), which Sleep's tend settles through the resolver — undoable like every settle; an undone one
+  (`sleep_settle: undone`) stays the person's one-row question and is never folded into the review. **The answer**
+  (`inbox_service._resolve_where_to_check`): `row: <id>` on resolve answers that row, none answers every row; `yes`
+  takes the row's proposal on its page, `no` (or a dismiss) removes it with a `user` tombstone, so nothing proposes it
+  again; the item keeps the rows not answered; `skip` writes nothing; committed as the person's answer (trigger
+  `inbox/clarification/resolved:yes|no`). `GET /inbox` serves `rows` (camelCase) and `review` on these items.
+  **Sleep settles only by ruling 29, strictly** (`inbox_tend` rule `named_account`, engine-free, `strict_quote`): the
+  evidence is a located line of the person's own turn; it carries that very link; it names exactly ONE page, this one
+  (no other page's name or alias is in it); and the link's account name (GitHub, X, Instagram, LinkedIn) is the page's
+  name or an alias, normalised — co-occurrence is never proof ("<page-a> told me to follow <someone else's link>" goes
+  to the person; so does an id-only profile such as Scholar or ORCID). Anything else is `person_only` (no engine, no
+  record read, no trace row may settle it). **Wire:** `GET /entities/{id}/sources` adds `proposed`, `evidence`, and — derived for the card's chip row —
+  `linkKind` (`github | x | instagram | linkedin | scholar | orcid | repo | contacts | website | app | path | note`,
+  `source_proposals.link_kind`), `label` and `iconSite` (the site key `…/sources/icon/{site}` serves, null wherever that
+  route 404s — always on a person's page, G159). A dry run (`scripts/where_to_check_dry_run.py --memory <bank>
+  [--summary]`) lists what the step would propose, reading files only.
 - `website` (G61 S3-b) — the official-site ROLE: a `sources:` entry with `predicate: website`, many allowed. Stage 1 may
   propose ONE for a `company`, `tool` or `project` (an optional `website` field on the extracted entity;
   `site_sources.sanitize_website` keeps only an https origin of a public host that is not a platform (`PLATFORM_HOSTS`:
@@ -881,8 +920,9 @@ Round 4 (C2–C4):
   name|link`, owner 2026-10-17; an alias-only match waits for the person to take it) — otherwise never Cicada's own
   writers, an unidentified proposal, an "Only I know" note, or a link Stage
   5.56 attached from a claim's cited words (always under a `world`/`artifact` predicate, which no profile predicate
-  is; a test pins it) — then, only while `CICADA_ALLOW_PERSON_PHOTO_PROXY` is on (off by
-  default, owner 2026-10-09), an X profile link and a LinkedIn `/in/` link, asked through the avatar proxy within an
+  is; a test pins it), and never a proposal still waiting for the person (`proposed: true`, "Where to check" below) —
+  then, while `CICADA_ALLOW_PERSON_PHOTO_PROXY` is on (on by default since ruling 36 D5, 2026-10-22; off from
+  2026-10-09), an X profile link, an Instagram profile link (D5) and a LinkedIn `/in/` link, asked through the avatar proxy within an
   install-wide daily budget (`network.md`). Fetched once, on demand, by `GET /entities/{id}/photo` (never by
   `/graph`, never by Sleep) and cached at `$CICADA_HOME/pictures/<bank>/people/<id>.<png|jpg>` with `meta.json`
   (`{key, fetched_at, miss, transient, ext, sha}`; `key` is a hash over the identifiers, so the email's hash is never
@@ -929,6 +969,12 @@ Round 4 (C2–C4):
   capped at 52, and unioned by a merge (`decay_policy.merged_keeps`). Not an episode id and never read as one.
 - `paths:` (G133) — on a `project` page a watched folder anchors: `[{path, device}]`, where that
   folder lives on which Mac. For display and relink only; the backend never opens it.
+- `born:` (G141, ruling 36 D4) — on a `project` page, where it came from, written once where the page is born and
+  never rewritten: `{origin: repo|words, day, episode, repo?: {name, family}, span?: {start, end, hash, kind},
+  via?: folder}`. `repo.family` is the hook's `family_hash` (a hash, never a path); `span` points into the episode's
+  evidence text and is read back only while `evidence.span_status` says current or grown (`project_birth.quote`).
+  A page without it (older than the rule) is classified on read (`project_birth.classify`: a declared `repos:` →
+  repo, `paths:`/`folder` → words, then the cited conversations) and never rewritten for it (`capture-and-sleep.md`).
 - `media.kind: paper` + `paper:` (G133) — a paper page: `arxiv_id`, `doi`, `authors`, `published`,
   `venue`, `sections`, and `metadata_status` once a lookup failed. The ids are the identity
   (`media-arxiv-<id>` / `media-doi-<hash>`); the abstract is a `describes` claim from
@@ -1271,7 +1317,7 @@ every model. `GET /embeddings` carries `recommended` (the better model this Mac 
 index writer is the backend's); a full table rebuild runs in one transaction from its `DROP` to its commit.
 A fresh bank is built with the small model unless `CICADA_EMBEDDING_MODEL_LOCAL` names another; a bank built with it is
 queried with it (the recorded model, as for every bank). **Each bank's vectors are built with its own model**
-(`embedding_models.build_model`, G182 phase 3): the person's choice for that bank (Settings → Search & files,
+(`embedding_models.build_model`, G182 phase 3): the person's choice for that bank (Settings → Privacy & data,
 kept in `$CICADA_HOME/embedding-models.json`, outside every bank), else the model its index already records when this
 Mac can run it and no `CICADA_EMBEDDING_*` was set explicitly (unless it is a former default and EmbeddingGemma 2 runs
 here — above), else the configured default — so a change of default never re-embeds a bank unannounced (the one
@@ -1321,6 +1367,16 @@ built both ways into throwaway indexes outside the bank, its words index too, a 
 (exit 0 = no worse; a metered model needs `--allow-metered`; query text is printed only with `--show-queries`). On the
 synthetic bank, where half the queries are claim sentences and the prose is a 30-word vocabulary, `prose` loses every
 claim-sentence query (search MRR 0.927 → 0.743) and ties every name query.
+
+### The quick read's provisional records (G207, 2026-10-22)
+`<bank>/.awake/<episode>.json`, one per conversation a quick read covered (`awake_read`, its only writer). It holds
+the body revision, the read time, the engine and model, the provisional claims (each `Claim.to_dict()`, G118 spans
+included, on pages that exist), and the held names (name, type, page id they would key to, claim count). It is a
+**derived artifact**: listed in `bank_registry.DERIVED_ARTIFACTS`, so it is git-excluded, skipped by a bank copy and
+an export, and never committed. Losing it costs only the wait until Sleep. Recall reads a record only while its
+episode is `processed: false`, and Sleep's `settle` deletes it when it retires the episode. It is never a page,
+never a claims fence and never a `pending_store` line: Sleep stays the authority (`capture-and-sleep.md`, "After
+capture").
 
 ### SQLite FTS5 (lexical index, G136)
 `api/services/search_index.py`. One `search_index.db` per bank, **beside `vector_index.db` and never
@@ -1454,6 +1510,17 @@ Cicada-Author: gpt-5.4-mini
 Cicada-Engine: claude-cli
 Cicada-Session: <id>
 ```
+
+**Git's author field is not provenance (G203, 2026-10-22).** A bank commits under whatever identity git is configured
+with, and the half nobody configured is the neutral `Cicada` / `cicada@localhost` that `ensure_commit_identity_sync` sets in
+the bank whenever it becomes active (never a guess from the account; `headless.md`, "Commits with no git identity"). Who wrote a change is read only from the
+trailers. Every reader of a bank's history today takes the trailers and none takes `%an`/`%ae`: the page history and
+blame (`git_service._parse_authors`, `page_blame`, G198), the contributors view and its calendar
+(`get_contributors`, `consumption_stats`), claim recovery (`claim_recovery`, `%(trailers:key=Cicada-Author)`), the
+coexist reopen and the Sleep page's history. Seen 2026-10-22 on a scratch bank where every commit's git author was the
+neutral one: blame named `verify` accepted by `user`, contributors listed `cicada`, `user`, `verify` and the model, and
+history named `claude-haiku-*`. The one `%an` reader, `repo_context` (and the app's `GitRunner`), reads a declared
+workspace repo, never a bank.
 
 **Triggers:** `sleep/extraction`, `sleep/promotion`, `sleep/conflict_resolution`, `sleep/decay`,
 `sleep/state`, `sleep/expiry`, `sleep/followup`, `sleep/source-links`, `maintenance/source-links`, `sleep/site-check`, `capture/calendar`, `capture/tab-groups`, `capture/contacts`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`,

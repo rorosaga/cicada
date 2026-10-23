@@ -181,6 +181,19 @@ def test_saying_the_name_later_adopts_the_page_instead_of_writing_a_second_one(t
     assert [p.stem for p in (bank / "entities").glob("*.md")] == ["owner"]  # no bob-example.md beside it
 
 
+def test_saying_the_same_name_again_keeps_the_one_adopted_page(tmp_path):
+    """Onboarding v2 (2026-10-22): Back to Welcome and Continue again saves the same name twice. The adopted page
+    keeps its id (`owner`), so the name's own slug never exists — the second save must find the page by its name,
+    never mint `bob-example.md` beside it (seen live: two owner nodes on a fresh bank's graph)."""
+    slug = bank_registry.create_bank(tmp_path, "Research")
+    bank = tmp_path / "banks" / slug
+    assert owner_identity.ensure_owner_entity(bank, "Bob Example") == ("owner", False)
+    assert owner_identity.ensure_owner_entity(bank, "  bob example ") == ("owner", False)
+    assert [p.stem for p in (bank / "entities").glob("*.md")] == ["owner"]
+    # A different name is still a different page (R3: reconciling an older name is entity merge's job).
+    assert owner_identity.ensure_owner_entity(bank, "Carol Example") == ("carol-example", True)
+
+
 def test_the_plain_name_still_resolves_in_stage_2_and_the_owner_words_reach_the_page(tmp_path):
     owner_identity.save_owner({"name": "Bob Example", "entity_id": "bob-example"})
     slug = bank_registry.create_bank(tmp_path, "Fresh")
@@ -195,3 +208,57 @@ def test_the_plain_name_still_resolves_in_stage_2_and_the_owner_words_reach_the_
     assert owner_id == "bob-example"
     resolve = claim_pipeline.subject_resolver(name_to_id, owner_id)
     assert resolve("the user") == "bob-example" and resolve("Bob Example") == "bob-example"
+
+
+# --- the nightly default for a new memory (owner 2026-10-22) ---------------------------------------------------------
+
+
+def test_a_new_memory_consolidates_nightly_and_an_existing_one_keeps_its_setting(tmp_path):
+    from api.services import sleep_scheduler
+
+    slug = bank_registry.create_bank(tmp_path, "Research")
+    cfg = sleep_scheduler.load_schedule(tmp_path / "banks" / slug)
+    assert (cfg.mode, cfg.hour, cfg.minute) == ("daily", 3, 0)
+
+    # An existing bank with no schedule file is still manual: nothing rewrites it.
+    old = tmp_path / "old-bank"
+    bank_registry.scaffold_bank(old)
+    (old / "entities").mkdir(exist_ok=True)
+    (old / "entities" / "someone.md").write_text("---\nname: Someone\ntype: person\n---\n", encoding="utf-8")
+    assert owner_identity.seed_owner_if_brand_new(old) is None
+    assert sleep_scheduler.load_schedule(old).mode == "manual"
+
+    # A schedule the person chose is never overwritten by the seed.
+    sleep_scheduler.save_schedule(old, sleep_scheduler.ScheduleConfig(mode="interval", hour=3, minute=0))
+    assert sleep_scheduler.seed_new_bank_schedule(old) is False
+    assert sleep_scheduler.load_schedule(old).mode == "interval"
+
+
+def test_the_demo_bank_gets_no_schedule(tmp_path):
+    from api.services import sleep_scheduler
+
+    slug = bank_registry.create_bank(tmp_path, "Demo", seed_owner=False)
+    assert not (tmp_path / "banks" / slug / sleep_scheduler.SCHEDULE_FILE).exists()
+
+
+def test_a_first_boot_records_the_new_install_so_auto_never_adopts_a_local_model(tmp_path, monkeypatch):
+    """Re-review 2026-10-22 (ruling 36 D1): the boot that seeds a brand-new bank also records Auto's local-rung step as
+    `checked`, the same signal that writes the nightly schedule."""
+    import json
+
+    from api.services import engine_select
+    from api.services.connections import registry as connection_registry
+
+    root = tmp_path / "root"
+    root.mkdir()
+    monkeypatch.setenv("CICADA_MEMORY_ROOT", str(root))
+    monkeypatch.setenv("CICADA_API_AUTH", "off")
+    config.get_settings.cache_clear()
+    bank_index.invalidate()
+    with TestClient(main.app):
+        pass
+    prefs = json.loads((tmp_path / "home" / connection_registry.PREFS_FILE_NAME).read_text())
+    record = prefs[engine_select.SLEEP_ENGINE_PREF_KEY][engine_select.AUTO_LOCAL_RECORD_KEY]
+    assert record["outcome"] == "checked" and record["new_install"] is True
+    assert "mode" not in prefs[engine_select.SLEEP_ENGINE_PREF_KEY]
+

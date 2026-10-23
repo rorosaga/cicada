@@ -57,8 +57,11 @@ extension Copy {
         static let demoStaysLocal = "The demo runs only when your memory lives on this Mac."
 
         // MARK: Settings → Devices
+        /// Ruling 36 D6 (2026-10-22): the page is "Devices" again; From anywhere is its folded last group.
         static let sidebar = "Devices"
-        static let subtitle = "Which of your devices reach your memory"
+        /// The name between B1 and D6; Settings search still finds the page by it.
+        static let formerSidebar = "Devices & access"
+        static let subtitle = "Which of your devices and apps reach your memory"
         static let devicesGroup = "Your devices"
         static let connectionIndexTitle = "Server connection"
         static func connectionServer(_ host: String) -> String { "This app is using \(host) now." }

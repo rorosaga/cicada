@@ -69,7 +69,7 @@ extension Copy {
         }
     }
     static let backgroundInstall = "Install"
-    // G180 — Settings → General → Command-line tool (ruling 21). Provider-neutral: agents, never a named one.
+    // G180 — the Agents page → Command-line tool (ruling 21; on General until the Hyrum audit's B11). Provider-neutral: agents, never a named one.
     static let cliToolTitle = "Command-line tool"
     static let cliToolInstall = "Install the command-line tool"
     static let cliToolInstallHelp = "Adds one link, ~/.local/bin/cicada. No password needed."
@@ -108,8 +108,8 @@ extension Copy {
     // MARK: Engines (A3, R-O8)
     static let engines = "Engines"
     /// Settings defaults, pass 2 (owner 2026-10-22): what the page is for, in plain words, naming no provider or model.
-    static let enginesSubtitle = "What Cicada reads your conversations with."
-    static let settingsEngines = "\(settings) → \(engines)"
+    static let enginesSubtitle = "Who reads your conversations, and what it signs in with."
+    static let settingsEngines = "\(settings) → \(Intelligence.title)"
     static let enginesChooseGroup = "Engine"
     /// The heading over the one switch that only matters on the API key card.
     static let apiKeyGroup = "API key"
@@ -130,7 +130,10 @@ extension Copy {
 
     // MARK: Customize (A1, R-O11)
     static let remoteSubtitle = "Let AI apps outside this Mac use your memory."
-    static let settingsFromAnywhere = "\(settings) → \(fromAnywhere)"
+    /// The Plans & keys group's refresh on Engines (Hyrum audit B1): the tooltip, and what VoiceOver names.
+    static let checkAgain = "Check again"
+    static let checkPlansAndKeysAgain = "Check plans and keys again"
+    static let settingsFromAnywhere = "\(settings) → \(Devices.sidebar) → \(DevicesPage.apps)"
     static let agentsOnThisMacGroup = "Agents on this Mac"
     static let agentsCloudTitle = "claude.ai, ChatGPT and your phone"
     static let agentsCloudDetail = "Cloud apps can't start a program on your Mac, so they reach Cicada through a link. You can also bring web chats in with the + on the Sleep page."
@@ -199,13 +202,13 @@ extension Copy {
     static let calendarNotReady = "Your calendars aren't ready to read yet — Cicada will try again."
     /// Sync now on the `calendar-local` card before Calendar was connected (G142): the app reads EventKit only after
     /// the person's own Connect, so a Sources card never starts that first read.
-    static let calendarConnectFirst = "Connect Calendar in Settings → Integrations first — Cicada reads it only after you do."
+    static let calendarConnectFirst = "Connect Calendar on the Sources page first — Cicada reads it only after you do."
     static func calendarSyncedSummary(_ events: Int?, locale: Locale = .autoupdatingCurrent) -> String {
         guard let events else { return "Calendar synced" }
         return "Calendar synced · \(UsageFormat.count(events, locale: locale)) \(events == 1 ? "event" : "events")"
     }
     static let calendarConnect = "Connect"
-    static let calendarSyncNow = "Sync now"
+    static let calendarSyncNow = "Refresh"
     static let calendarDisconnect = "Disconnect"
     static let openPrivacySettings = "Open Privacy Settings"
     static let calendarStopTitle = "Stop reading your calendars?"
@@ -288,6 +291,8 @@ extension Copy {
     /// (final review): each Stop re-reads the whole transcript
     /// (`transcript_capture.capture_transcript`), so "once, never again" was false.
     static let transcriptsFact = "When an agent finishes a reply, Cicada reads that conversation to keep your words and the agent's final answer. It never opens those files for anything else."
+    /// D6's word budget: the fact in one line.
+    static let transcriptsShort = "Read only for your words and the agent's final answer."
     static let bankActive = "Active"
     static func bankCounts(entities: Int, episodes: Int) -> String {
         "\(UsageFormat.count(entities)) \(entities == 1 ? "entity" : "entities") · \(UsageFormat.count(episodes)) \(episodes == 1 ? "episode" : "episodes")"
@@ -372,7 +377,7 @@ extension Copy {
     static let openRouterFinishInBrowser = "Finish signing in in your browser — this card updates itself."
     static let openRouterCouldNotOpen = "Couldn't open OpenRouter's sign-in page. Paste a key instead."
 
-    // MARK: Who reads — Settings → Engines (R-AG11, R-AG12, R-AG14)
+    // MARK: Who reads — Settings → Intelligence (R-AG11, R-AG12, R-AG14)
     /// The OpenRouter card's name where a preview line names it (`EngineOption.previewName`).
     static let openRouterName = "OpenRouter"
     static let leavesMacLead = "This is where information leaves your Mac."
@@ -400,11 +405,16 @@ extension Copy {
         static func usingLocal(_ label: String) -> String { "Using \(label) on this Mac — no plan is signed in." }
         static let usingKey = "Using your API key."
         static let nothingYet = "Nothing to read with yet. Sign in to a plan and Auto uses it."
-        static let rule = "Auto uses a plan you're signed in to first, then a model running on this Mac. "
+        /// Ruling 36 D1 (2026-10-22): Auto has no local rung.
+        static let rule = "Auto uses your Claude plan if you're signed in, else your ChatGPT plan. "
             + "It never uses an API key you didn't choose."
         static let chosen = "You chose this engine instead of Auto."
         static let backToAuto = "Back to Auto"
-        static let backToAutoHelp = "Let Cicada pick: your plan first, then a model on this Mac"
+        static let backToAutoHelp = "Let Cicada pick your signed-in plan"
+        /// Ruling 36 D1's one-time step, said once it kept a local model as the person's choice.
+        static func keptLocal(_ day: String) -> String {
+            "Auto no longer uses a model on this Mac, so on \(day) Cicada kept yours as your choice."
+        }
         static let differentEngine = "Use a different engine"
     }
 

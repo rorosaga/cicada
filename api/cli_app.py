@@ -27,6 +27,7 @@ import asyncio
 import json
 import os
 import re
+import sys
 import time
 import uuid
 from dataclasses import dataclass
@@ -1071,7 +1072,7 @@ def _run_sign_in(plan: PlanSignIn, binary: str) -> int:
 def cmd_engine_connect(boot, args) -> Result:
     """Ruling 4b (owner, 2026-10-16): "Just have to set them up somehow" — a plan on a server, signed in by its own
     CLI in the person's own terminal ("Yeah chat too": the ChatGPT plan as well). Only plans are connected here; a key
-    goes in Settings → Plans & keys or `~/.cicada/secrets.env`."""
+    goes in Settings → Intelligence → Plans & keys or `~/.cicada/secrets.env`."""
     import sys
 
     plan = PLAN_SIGN_INS.get(args.connection)
@@ -1360,6 +1361,83 @@ def cmd_device_revoke(boot, args) -> Result:
                   data={"device": device}, warnings=_warn(boot))
 
 
+def cmd_device_pair(boot, args) -> Result:
+    require_person("Making a pairing code")
+    body: dict = {"url": args.url} if getattr(args, "url", None) else {}
+    if getattr(args, "kind", None):
+        body["kind"] = args.kind
+    answer = call(boot, "POST", "/devices/pairing", body=body, bank_header=False)
+    code, pairing = answer.get("code") or "", answer.get("pairing") or {}
+    qr = json.dumps(answer.get("qr") or {}, separators=(",", ":"))
+    text = "\n".join([
+        f"Pairing code: {code}   (good until {pairing.get('expiresAt')}, once)",
+        f"QR payload: {qr}",
+        f"Kind: {answer.get('kind') or 'capture'} ("
+        f"{'links and notes only' if (answer.get('kind') or 'capture') == 'capture' else 'every route a device may use'})",
+        *([f"No address in the QR: run `{answer['reach']['serveCommand']}` yourself for your tailnet, then pair "
+           "again, or pass --url."] if not (answer.get("qr") or {}).get("url")
+          and (answer.get("reach") or {}).get("serveCommand") else []),
+        "On the new device: scan it in the Cicada app, or post {\"code\", \"name\"} to <server>/pair. It gets its own "
+        "device token; `cicada device list` shows it, `cicada device revoke <id>` ends it."])
+    return Result(text=text, data=answer, warnings=_warn(boot))
+
+
+def _agent_line(t: dict) -> str:
+    used = f", last used {t['lastUsedAt']}" if t.get("lastUsedAt") else ""
+    return (f"{t.get('id')}  {t.get('name')}  [{','.join(t.get('scopes') or [])}]  "
+            f"({t.get('state')}, until {t.get('expiresAt')}{used})")
+
+
+def cmd_agent_add(boot, args) -> Result:
+    require_person("Making an agent token")
+    body: dict = {"name": args.agent_name}
+    if getattr(args, "scope", None):
+        body["scopes"] = list(args.scope)
+    if getattr(args, "days", None):
+        body["expiresInDays"] = int(args.days)
+    if getattr(args, "url", None):
+        body["baseUrl"] = args.url
+    answer = call(boot, "POST", "/agent-api/tokens", body=body, bank_header=False)
+    agent = answer.get("agent") or {}
+    text = "\n".join([
+        f"Agent '{agent.get('name')}' ({agent.get('id')}), {', '.join(agent.get('scopes') or [])}, until "
+        f"{agent.get('expiresAt')}. Give it this, once — Cicada keeps only the token's hash:",
+        "",
+        answer.get("prompt") or "",
+        "",
+        f"Revoke it with `cicada agent revoke {agent.get('id')}`. A cloud agent needs a public address: pass --url."])
+    return Result(text=text, data=answer, warnings=_warn(boot))
+
+
+def cmd_agent_list(boot, args) -> Result:
+    tokens = call(boot, "GET", "/agent-api/tokens").get("tokens") or []
+    return Result(text="\n".join(_agent_line(t) for t in tokens) or "No agent tokens yet (`cicada agent add <name>`).",
+                  data={"tokens": tokens}, warnings=_warn(boot))
+
+
+def cmd_agent_revoke(boot, args) -> Result:
+    require_person("Revoking an agent token")
+    answer = call(boot, "DELETE", f"/agent-api/tokens/{quote(args.agent_id, safe='')}", bank_header=False)
+    agent = answer.get("agent") or {}
+    return Result(text=f"Revoked '{agent.get('name')}' ({agent.get('id')}): its next request is refused.",
+                  data=answer, warnings=_warn(boot))
+
+
+def cmd_setup(boot, args) -> Result:
+    require_person("Setting up Cicada")
+    from api import cli_setup
+
+    def send(method, path, body=None):
+        return call(boot, method, path, body=body, bank_header=False) if method != "GET" else call(boot, method, path)
+
+    interactive = sys.stdin.isatty() and sys.stderr.isatty()
+    result = cli_setup.run_setup(call=send, ui=cli_setup.Ui(interactive), url=getattr(args, "url", None),
+                                 pair_now=True if getattr(args, "pair", None) else None,
+                                 agent_name=getattr(args, "agent", None) or None)
+    result.warnings = _warn(boot) + list(result.warnings)
+    return result
+
+
 COMMANDS = {
     "page list": cmd_page_list, "page history": cmd_page_history, "page decay": cmd_page_decay,
     "graph": cmd_graph, "find": cmd_find,
@@ -1380,6 +1458,9 @@ COMMANDS = {
     "skills off": cmd_skills_off, "skills refresh": cmd_skills_refresh, "skills remove": cmd_skills_remove,
     "skills publish": cmd_skills_publish,
     "device add": cmd_device_add, "device list": cmd_device_list, "device revoke": cmd_device_revoke,
+    "device pair": cmd_device_pair,
+    "setup": cmd_setup,
+    "agent add": cmd_agent_add, "agent list": cmd_agent_list, "agent revoke": cmd_agent_revoke,
 }
 
 

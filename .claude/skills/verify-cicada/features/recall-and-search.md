@@ -22,7 +22,7 @@ Preconditions:
 - A run is up and `$CV doctor` is all `ok` (backend, scratch root, plan).
 - Sleep has made `alpha-project` (see sleep-cycle).
 
-- **MCP recall.** Run `$CV mcp call cicada_recall '{"query": "alpha-project spectrogram"}'`. The text starts with a `cicada-hints` block whose `suggested_entities` include `alpha-project`, then the page summary.
+- **MCP recall.** Run `$CV mcp call cicada_recall '{"query": "alpha-project spectrogram"}'`. The text starts with the "Reference data from Cicada" header, then the `cicada-hints` block (Cicada's own, outside the `<<<cicada-reference` markers) whose `suggested_entities` include `alpha-project`, then the page summary between the markers.
 - **Detail.** Run `$CV mcp call cicada_recall_detail '{"entity_id": "alpha-project"}'`. The full page with its claims.
 - **CLI.** Run `$CV cli -- recall alpha-project` and `$CV cli -- get alpha-project`. Same page.
 - **API.** Run `$CV api GET '/search?q=alpha&mode=prefix'`. A hit for `alpha-project`.

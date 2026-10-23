@@ -64,16 +64,16 @@ def test_hints_block_bytes_are_unchanged_for_a_caller_holding_every_tool():
 
 def test_recall_drops_the_state_cursors_handshake_pointer_only_when_the_caller_lacks_it(tmp_path, monkeypatch):
     memory = _bank(tmp_path, git=False)
-    monkeypatch.setattr(mcp_tools, "_state_hint", lambda _m: {"pending": 2, "next_tool": "cicada_handshake"})
+    monkeypatch.setattr(mcp_tools, "_state_hint", lambda _m: {"pending_as_of": 2, "refresh_with": "cicada_handshake"})
 
     def ctx(available):
         return mcp_tools.ToolContext(memory_path=lambda: memory, session_id="s", harness="unknown",
                                      available=available)
 
     stdio = _payload(mcp_tools.recall(ctx(None), "alpha project"))
-    assert stdio["state"]["next_tool"] == "cicada_handshake"
+    assert stdio["state"]["refresh_with"] == "cicada_handshake"
     cli_only = _payload(mcp_tools.recall(ctx(frozenset({"cicada_recall"})), "alpha project"))
-    assert "next_tool" not in cli_only["state"] and cli_only["state"]["pending"] == 2
+    assert "refresh_with" not in cli_only["state"] and cli_only["state"]["pending_as_of"] == 2
 
 
 # --- the command, in process ----------------------------------------------------------------------

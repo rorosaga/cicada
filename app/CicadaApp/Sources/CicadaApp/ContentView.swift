@@ -19,7 +19,7 @@ struct ContentView: View {
     // rather than the old machine-global `hasSeenConnectGuide` flag: switching
     // to a fresh bank must show it again even on a Mac that already onboarded
     // a different one. `FirstRunGate` still decides, and unknown is still
-    // never empty. Settings → Agents keeps the long-form wiring.
+    // never empty. the Agents page keeps the long-form wiring.
     @State private var showFirstRun = false
     /// First run, or Settings → General's *Run setup again* (R-IB16).
     @State private var welcomeMode: OnboardingMode = .firstRun
@@ -40,7 +40,7 @@ struct ContentView: View {
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(SleepEngineViewModel.self) private var sleepEngineVM
     @Environment(ConnectionsViewModel.self) private var connectionsVM
-    /// G126 R9 — consumes a Settings → Integrations "Import in Sleep →"
+    /// G126 R9 — consumes a the Sources page "Import in Sleep →"
     /// hand-off by switching the rail's own selection.
     @Environment(AppRouter.self) private var router
     /// G152 — the guided tour: modal over the page area, the rail and the titlebar inert under it.
@@ -99,6 +99,10 @@ struct ContentView: View {
         // (from the on-disk cache or the network), are the two events that turn
         // an unknown input into a known one.
         .onChange(of: store.bank) { _, _ in evaluateFirstRun() }
+        // G205 — a new agent request is posted once as a Mac notification, whichever page shows.
+        .onChange(of: inboxVM.agentRequests.map(\.id), initial: true) { _, _ in
+            AgentRequestNotifier.shared.observe(inboxVM.agentRequests)
+        }
         // G118 slice 2 (R-PU26) — the Reader and its cache belong to no bank:
         // episode ids restart every day in every bank, so a switch closes the
         // Reader and forgets every cached document rather than show another
@@ -301,14 +305,14 @@ struct ContentView: View {
         // The Welcome is an overlay, not a modal sheet, so without this the
         // shell under it stays live: Home's field takes keyboard focus and
         // swallows typing, Tab and VoiceOver reach the hidden rail and cards,
-        // ⌘1–8 switch a hidden tab, and in rerun mode Home's Esc answers before
+        // ⌘1–9 switch a hidden tab, and in rerun mode Home's Esc answers before
         // the Welcome's (I-b final review, finding 3). Inert while it shows.
         // R-DS25 — the page under the Settings panel never answers ⌘F.
         .environment(\.pageFindSuppressed, router.settingsOpen)
         // R-HO7 — Home's band rests while the Welcome covers it; the Welcome's own painting is in the overlay,
         // outside this environment.
         .environment(\.scenePaused, showFirstRun)
-        // R-DS21 — the Settings panel is modal the same way: ⌘1–8 and page controls are inert.
+        // R-DS21 — the Settings panel is modal the same way: ⌘1–9 and page controls are inert.
         .disabled(showFirstRun || router.settingsOpen)
         .accessibilityHidden(showFirstRun || router.settingsOpen)
         // Track I T5 (R-IA24) — drop anywhere: one window-level target, the veil
@@ -561,6 +565,8 @@ struct ContentView: View {
             ProjectsPage()
         case .skills:
             SkillsPage()
+        case .agents:
+            AgentsSidebarPage()
         }
     }
 }

@@ -145,6 +145,27 @@ def test_normalization_spelling_only(memory):
     assert _decide(memory, "inbox-002") == (None, "needs_judge")   # a meaning, not a spelling: only the judge
 
 
+def test_a_fold_cicada_ships_settles_by_rule_and_a_learned_one_still_asks(memory):
+    """Owner decision A (2026-10-22): a fold from Cicada's own shipped seed (``synonyms``) is curated, like an
+    ending — settled by Sleep, undoable; only a fold the bank learned asks. benchmarks/newuser: a stranger's first
+    inbox was three "Confirm a predicate fold" questions about the seed's own synonyms."""
+    _entity(memory, "tool-a", type="tool")
+    _item(memory, "inbox-001", kind="normalization", entity_id="tool-a", raw_predicate="built with",
+          canonical_predicate="uses", claim_id="clm_x")
+    _item(memory, "inbox-002", kind="normalization", entity_id="tool-a", raw_predicate="Collaborates With",
+          canonical_predicate="works-with", claim_id="clm_y")
+    _item(memory, "inbox-003", kind="normalization", entity_id="tool-a", raw_predicate="leans on",
+          canonical_predicate="uses", claim_id="clm_z")      # a bank-learned fold: not in the shipped seed
+    _item(memory, "inbox-004", kind="normalization", entity_id="tool-a", raw_predicate="built with",
+          canonical_predicate="depends-on", claim_id="clm_w")   # the seed folds it elsewhere: not this fold
+    for item in ("inbox-001", "inbox-002"):
+        d, _ = _decide(memory, item)
+        assert (d.rule, d.request) == ("seed_fold", {"action": "resolve", "option_key": "0"})
+    assert _decide(memory, "inbox-003") == (None, "needs_judge")
+    assert _decide(memory, "inbox-004") == (None, "needs_judge")
+    assert "seed_fold" in inbox_tend.ENGINE_FREE and "seed_fold" in inbox_tend.RULES
+
+
 def test_decay_one_off_only(memory):
     _entity(memory, "example-gadget", type="tool", source_episodes=["ep_2026-05-01_001"])
     _entity(memory, "bob-example", type="person", source_episodes=["ep_2026-05-01_001"])

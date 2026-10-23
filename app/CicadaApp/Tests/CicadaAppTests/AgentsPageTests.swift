@@ -1,8 +1,8 @@
 import XCTest
 @testable import CicadaApp
 
-/// G139 / A1 / R-O11 / R-O12 — From anywhere is a row of its own, Agents is
-/// about this Mac.
+/// G139 / A1 / R-O11 / R-O12 — From anywhere is not part of Agents, which is about this Mac. Since the Hyrum audit's
+/// B1 it is a group on Devices & access.
 final class AgentsPageTests: XCTestCase {
     private func source(_ relative: String) throws -> String {
         let root = URL(fileURLWithPath: #filePath)
@@ -11,26 +11,26 @@ final class AgentsPageTests: XCTestCase {
         return try String(contentsOf: root.appendingPathComponent(relative), encoding: .utf8)
     }
 
-    func testFromAnywhereIsItsOwnCustomizeRow() {
-        XCTAssertEqual(SettingsSection.remote.rawValue, "remote")
-        XCTAssertEqual(SettingsSection.remote.group, .customize)
-        // A prefix, not the whole list: Task 8 appends Skills, and
-        // `RecommendedSkillTests.testSkillsIsACustomizeRow` pins the full group then.
-        XCTAssertEqual(Array(SettingsGroup.customize.sections.prefix(4)), [.integrations, .reading, .agents, .remote])
-        XCTAssertEqual(SettingsSection.remote.title, Copy.fromAnywhere)
-        XCTAssertEqual(Copy.settingsFromAnywhere, "\(Copy.settings) → \(Copy.fromAnywhere)")
+    /// Hyrum audit B1 (2026-10-22): From anywhere is a group on Devices & access; its old raw value opens there.
+    func testFromAnywhereIsAGroupOnDevicesAndAccess() {
+        XCTAssertNil(SettingsSection(rawValue: "remote"))
+        XCTAssertEqual(SettingsSection.restored(from: "remote"), .devices)
+        XCTAssertEqual(SettingsSection.retired["remote"]?.row, .fromAnywhere)
+        XCTAssertEqual(SettingsSection.devices.group, .cicada)
+        XCTAssertEqual(Copy.settingsFromAnywhere, "\(Copy.settings) → \(Copy.Devices.sidebar) → \(Copy.DevicesPage.apps)")
     }
 
-    /// Someone who left Agents on its old "From anywhere" segment reopens there.
+    /// Someone who left Agents on its old "From anywhere" segment reopens where From anywhere lives now.
     func testTheRetiredSegmentMapsOntoTheNewRowOnce() {
-        XCTAssertEqual(SettingsSection.restored(from: "agents", legacyAgentsMode: "anywhere"), .remote)
-        XCTAssertEqual(SettingsSection.restored(from: "agents", legacyAgentsMode: "thisMac"), .agents)
+        XCTAssertEqual(SettingsSection.restored(from: "agents", legacyAgentsMode: "anywhere"), .devices)
+        // D6: Agents is a sidebar page; a saved "agents" opens Settings on General.
+        XCTAssertEqual(SettingsSection.restored(from: "agents", legacyAgentsMode: "thisMac"), .general)
         XCTAssertEqual(SettingsSection.restored(from: "sleep", legacyAgentsMode: "anywhere"), .sleep)
         XCTAssertEqual(SettingsSection.restored(from: nil, legacyAgentsMode: nil), .general)
     }
 
     func testTrackRsViewIsHostedNotRewritten() throws {
-        XCTAssertTrue(try source("Views/Settings/FromAnywhereView.swift").contains("RemoteAccessView()"))
+        XCTAssertTrue(try source("Views/Settings/DevicesSettingsView.swift").contains("RemoteAccessView()"))
         let connect = try source("Views/Connect/ConnectView.swift")
         XCTAssertFalse(connect.contains("RemoteAccessView"), "the segment swap is gone")
         XCTAssertFalse(connect.contains("cicada.agentsMode"))

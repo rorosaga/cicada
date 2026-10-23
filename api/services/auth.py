@@ -58,6 +58,10 @@ TOKEN_FILE_NAME = "api_token"
 _STATIC_OPEN_PATHS = frozenset({
     "/healthz",
     "/capture/telegram",
+    # G213: the agent API's how-to, the same text at both spellings; static, nothing about the person.
+    "/llms.txt",
+    # G212: a device redeems a one-time pairing code the person's own screen showed; the code is its credential.
+    "/pair",
 })
 
 
@@ -96,7 +100,9 @@ class _OpenPaths:
     def __contains__(self, path: object) -> bool:
         if not isinstance(path, str):
             return False
-        return path in _STATIC_OPEN_PATHS or _is_oauth_callback_path(path)
+        return (path in _STATIC_OPEN_PATHS or _is_oauth_callback_path(path)
+                # G213: the agent API checks its own bearer — a connector token, never this one (`routers/agent_api`).
+                or path.startswith("/v1/"))
 
 
 _OPEN_PATHS = _OpenPaths()
@@ -132,9 +138,11 @@ def bearer_admits(authorization: str | None) -> bool:
     if not device_tokens.looks_like(supplied):
         return False
     try:
-        return device_tokens.store().verify(supplied) is not None
+        device = device_tokens.store().verify(supplied)
     except Exception:  # noqa: BLE001 — fail closed
         return False
+    # G212: a capture-only device (a phone) gets the open answer — liveness and identity, never the memory's path.
+    return device is not None and device.kind != "capture"
 
 
 def get_token() -> str:
@@ -157,12 +165,19 @@ def get_token() -> str:
 #: the person on the server, never of a device. Reading the list is not (G181 phase 3): a device's app shows the
 #: person which of their devices reach this server (ids, names and times only), and still cannot add or revoke one.
 MASTER_ONLY_PREFIXES = ("/devices",)
-_DEVICE_READABLE = frozenset({("GET", "/devices")})
+#: G212: a device's app also reads the devices' status (names, connected, how, queue) — reading, never minting.
+_DEVICE_READABLE = frozenset({("GET", "/devices"), ("GET", "/devices/status")})
 #: Writes only the master token may make under these prefixes: minting, rotating or turning on a G135 remote
 #: connector. A connector token a device minted would outlive the device's own revocation (and the listener it turns
 #: on faces the person's tunnel), so a device may read the connector state and revoke, never create or open.
-MASTER_ONLY_WRITE_PREFIXES = ("/remote",)
+MASTER_ONLY_WRITE_PREFIXES = ("/remote", "/agent-api")
 _MASTER_ONLY_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH"})
+
+
+#: G212 (owner 2026-10-22): everything a capture-only device token (a paired phone's) may reach — send a link with a
+#: note, send a note, read back its own recent captures. Exact paths, never prefixes; `/healthz` is open to anyone.
+#: Every other route answers 403 to it, the device routes included.
+CAPTURE_ROUTES = frozenset({("POST", "/sources/save"), ("POST", "/capture/note"), ("GET", "/capture/mine")})
 
 
 def _master_only(path: str, method: str = "GET") -> bool:
@@ -210,9 +225,17 @@ async def require_token(
         raise HTTPException(status_code=401, detail="missing or invalid bearer token")
     if _master_only(request.url.path, request.method):
         raise HTTPException(status_code=403, detail="only the server's own token may do this")
+    if device.kind == "capture" and (request.method.upper(), request.url.path) not in CAPTURE_ROUTES:
+        raise HTTPException(status_code=403, detail="this device may only send captures")
     request.state.device = device
     device_context.bind(device.id)
     try:
         device_tokens.store().touch(device.id)
     except Exception:  # noqa: BLE001 - a usage stamp never fails a request
         pass
+    from api.services import agent_seen
+
+    # G212: how the device reached this server (loopback = its tunnel, a tailnet address or Serve header = Tailscale),
+    # read from the request alone. Throttled to a write a minute; never fails a request.
+    agent_seen.stamp_device(device.id, agent_seen.how_from_request(
+        peer=request.client.host if request.client else None, headers=request.headers, device=True))

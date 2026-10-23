@@ -338,7 +338,7 @@ def test_a_run_with_no_engine_stops_before_stage_one_and_spends_nothing(tmp_path
     asyncio.run(sleep_cycle.run(config.Settings(), "sleep_test"))
     state = sleep_cycle.get_sleep_state()
     assert called == [], "nothing was read"
-    assert "No engine to read with" in (state.error or "") and "Settings → Engines" in state.error
+    assert "No engine to read with" in (state.error or "") and "Settings → Intelligence" in state.error
     assert len(sleep_cycle._get_unprocessed_episodes(memory)) == 2
 
 

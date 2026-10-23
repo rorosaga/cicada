@@ -34,7 +34,7 @@ def since_day(raw, today: date) -> str:
     except ValueError:
         pass
     try:
-        n = max(1, min(int(text), MAX_SINCE_DAYS))
+        n = max(1, min(int(text[:-1] if text[-1:] in ("d", "D") else text), MAX_SINCE_DAYS))
     except ValueError:
         n = DEFAULT_SINCE_DAYS
     return (today - timedelta(days=n)).isoformat()

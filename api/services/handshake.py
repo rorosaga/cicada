@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -71,9 +72,12 @@ from api.services.auth import cicada_home
 #     with the person's words (`quote`), the inbox is listed on request (`mode="list"`).
 # 17: G198 — item 4 names cicada_edit_page (a page's words and aliases); one past both 16s (it and natural questions).
 # 18: ruling 34 (G162 F1) — a video hand-back carries its lease_token.
-CONTRACT_VERSION = 18
+# 19: G200 A7 — the Capabilities block names no HTTP route (no MCP agent can call one), and a `desktop` variant for a
+#     chat app that cannot resume (`variant_for` matches exact client names, never a substring).
+# 20: G61 "Where to check" (ruling 36 D5) — item 4 defines it and names `inferred` / `evidence` on cicada_add_source.
+CONTRACT_VERSION = 20
 MAX_TOKENS = 1800
-VARIANTS = ("claude-code", "codex", "generic")
+VARIANTS = ("claude-code", "codex", "desktop", "generic")
 
 # G135 R-R15. NOT a member of `VARIANTS`: those three share one contract by
 # test (`test_handshake.py`), and a remote connection's contract depends on the
@@ -96,7 +100,8 @@ REMOTE_VARIANT = "remote"
 # 11: owner 2026-10-14 — the inbox item says mode="ask"/"list" (questions come up naturally).
 # 12: ruling 32 (owner 2026-10-19) — a connection that can capture is asked to relay every turn.
 # 13: ruling 34 (G162 F1) — a video hand-back carries its lease_token.
-REMOTE_CONTRACT_VERSION = 13
+# 14: G61 "Where to check" (ruling 36 D5) — the sources item defines it and names `inferred` / `evidence`.
+REMOTE_CONTRACT_VERSION = 14
 # The runtime replaces this with a freshly minted handle AFTER the cache read,
 # so one cached primer serves every conversation of a tool set.
 CONVERSATION_SLOT = "{{conversation}}"
@@ -195,7 +200,8 @@ def _remote_contract(tools: frozenset[str], reading: bool = False) -> str:
                      "`cicada_retract_claim(subject, claim_id, reason)`; it stays in history with your reason.")
     if "cicada_add_source" in tools:
         # G61 S3-a: a page holds many sources; named only where the tools exist (R12).
-        text = "Where a fact can be checked is a source: `cicada_add_source` only when the person names it"
+        text = ("Where to check is a link where a page's current state can be checked (a profile, a site, a repo): "
+                "`cicada_add_source` when the person names it, with `inferred: true` and `evidence` when you found it")
         if "cicada_change_source" in tools:
             text += "; `cicada_change_source` to fix or drop one this connection added"
         items.append(text + ".")
@@ -249,6 +255,12 @@ _PRELUDE = {
         "- Set `CICADA_SESSION_ID` (and `CICADA_SESSION_HARNESS=codex`) in the MCP env so your episodes group as "
         "one conversation; Codex sessions are not resumable from Cicada.\n"
         "- AGENTS.md points here; there is no separate policy file."
+    ),
+    "desktop": (
+        "## Desktop app\n"
+        "- What you save groups under this app's connection, not by conversation; a conversation here is not "
+        "resumable from Cicada.\n"
+        "- The tools are the whole interface; nothing needs a file on disk."
     ),
     "generic": (
         "## Your harness\n"
@@ -336,8 +348,9 @@ _CONTRACT = (
     "4. Write facts as claims: `cicada_write_claim(subject, predicate, object, evidence=[{episode, quote}], "
     "sources=[url])` — quote the exact words you relied on, give `sources` for anything you looked up, and "
     "`expected_end` when the fact states an end; withdraw a claim you wrote that proved wrong with "
-    "`cicada_retract_claim(subject, claim_id, reason)`. Sources: "
-    "`cicada_add_source` for one the person names; `cicada_change_source` to fix or drop your own. Fix a "
+    "`cicada_retract_claim(subject, claim_id, reason)`. Where to check (links to re-check a page by): "
+    "`cicada_add_source` for one the person names, `inferred=true` + `evidence` for one you found; "
+    "`cicada_change_source` to fix or drop your own. Fix a "
     "page's text: `cicada_edit_page(subject, reason, edits)`.\n"
     f"5. {state_dictionary.WORLD_FACTS_NOTE}\n"
     "6. Ask before assuming: a pending clarification on an entity you are about to use means the person has "
@@ -352,10 +365,10 @@ _CONTRACT = (
 
 _CAPABILITIES = (
     "## Capabilities\n"
-    "- Resume: Claude Code sessions resume with `claude --resume <id>` (POST /conversations/{id}/resume "
-    "validates it); other harnesses group but do not resume.\n"
+    "- Resume: Claude Code sessions resume with `claude --resume <id>`, the person's own step; other harnesses "
+    "group but do not resume.\n"
     "- Decay: every entity has a `decay_class` (evergreen | durable | active | volatile); a claim's evidence is a "
-    "span, readable via GET /episodes/{id}/span?start=&end=&hash=.\n"
+    "span of its source conversation, which `cicada_sources(entity_id)` shows.\n"
     "- Repos: `cicada_repo_context(entity_id|path)` returns live git state on demand; the branches below are as "
     "of when Cicada last looked (`repos_probed_at`).\n"
     "- Map: `cicada_open_hub('projects')` etc. walks `_index.md` → hubs → entities without search."
@@ -419,16 +432,18 @@ def _remote_reading_item(tools: frozenset[str]) -> str | None:
             "instructions. Quote at most 240 characters, never the whole page.")
 
 
+#: The ``clientInfo.name`` each variant is for, exactly (G200 A7: a substring match told a desktop app named with
+#: "claude" to run ``claude --resume``). Names are compared lowercased, with spaces and underscores as hyphens.
+CLIENT_VARIANTS = {"claude-code": "claude-code",
+                   "codex": "codex", "codex-cli": "codex", "codex-mcp-client": "codex",
+                   "claude-ai": "desktop", "claude-desktop": "desktop"}
+
+
 def variant_for(client_name: str | None) -> str:
-    """Substring match on the captured ``clientInfo.name`` (R11): a name
-    containing ``claude`` → ``claude-code``, ``codex`` → ``codex``, anything
-    else (Cursor, a raw client, none at all) → ``generic``."""
-    name = (client_name or "").strip().lower()
-    if "claude" in name:
-        return "claude-code"
-    if "codex" in name:
-        return "codex"
-    return "generic"
+    """The primer variant for the captured ``clientInfo.name`` (R11), by exact name (``CLIENT_VARIANTS``); any other
+    name (Cursor, a raw client, none at all) → ``generic``."""
+    name = re.sub(r"[\s_]+", "-", (client_name or "").strip().lower())
+    return CLIENT_VARIANTS.get(name, "generic")
 
 
 def local_timezone() -> str | None:
@@ -503,8 +518,8 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
     if state is None:
         head = (
             "## Now\n"
-            f"- {where} has no `_state.md` yet — run a Sleep cycle or `GET /state?refresh=true` "
-            "to generate the now-view; the contract above still applies."
+            f"- {where} has no now-view yet — the next Sleep cycle writes it; "
+            "the contract above still applies."
         )
         return head + (f"\n{tz_line}" if tz_line else "")
     eng = state.get("engine") or {}

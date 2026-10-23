@@ -59,7 +59,7 @@ def test_initialize_without_client_info_is_generic(server, bank):
 def test_initialize_with_no_state_file_still_answers(server, bank):
     (bank / "_state.md").unlink()
     result = server.initialize_result({"clientInfo": {"name": "codex-cli"}})
-    assert "## Contract" in result["instructions"] and "no `_state.md` yet" in result["instructions"]
+    assert "## Contract" in result["instructions"] and "has no now-view yet" in result["instructions"]
 
 
 def test_handshake_tool_returns_the_same_text(server, bank):
@@ -75,7 +75,7 @@ def test_recall_hints_carry_the_state_once_per_process(server, bank, monkeypatch
     monkeypatch.setattr(server.mcp_tools, "_leann_search_episodes", lambda *a, **k: [])
     first = server.handle_recall("alpha project")
     assert "`" * 3 + "cicada-hints" in first
-    assert '"state"' in first and '"alpha-project"' in first and '"pending": 1' in first
+    assert '"state"' in first and '"alpha-project"' in first and '"pending_as_of": 1' in first
     second = server.handle_recall("alpha project")
     assert '"state"' not in second, "the cursor rides once per conversation"
 

@@ -269,7 +269,7 @@ struct LogoImage: View {
     /// the call sites that have no app behind them (the platform rows) read
     /// exactly as before. R6 — this is the SAME precedence `OriginMark` runs,
     /// deliberately: the Sleep desk, the Sources grid, the `+` catalog and
-    /// Settings → Integrations must not disagree about what Safari looks like.
+    /// the Sources page must not disagree about what Safari looks like.
     static func platformTile(name: String, bundleId: String? = nil, size: CGFloat = 40,
                              systemFallback: String = "app") -> some View {
         PlatformTile(name: name, bundleId: bundleId, size: size, systemFallback: systemFallback)
@@ -286,10 +286,11 @@ private struct PlatformTile: View {
     let systemFallback: String
 
     /// 8pt at the reference 40pt size, scaling proportionally either way.
-    private var cornerRadius: CGFloat { size * 0.2 }
+    private var cornerRadius: CGFloat { size * 0.25 }
     private var markSize: CGFloat { Self.markSize(for: size) }
 
-    static func markSize(for size: CGFloat) -> CGFloat { size * 0.6 }
+    /// G217: the same 26-in-36 proportion as `LogoTile`, so a platform tile and a connection tile read alike.
+    static func markSize(for size: CGFloat) -> CGFloat { size * 26 / 36 }
 
     var body: some View {
         ZStack {

@@ -2,7 +2,7 @@ import Foundation
 
 /// Design taste (owner, 2026-10-14) — the looks' words, on the pages of the things they show since 2026-10-20 (DR-59: sentence case, plain verbs, no "!"). Provider-
 /// neutral (owner 2026-09-30) and plain (Search & files, owner 2026-10-14): "understand images", the same words as
-/// Settings → Search & files, never a model; a download says its size before the click.
+/// Settings → Privacy & data, never a model; a download says its size before the click.
 extension Copy {
     enum Looks {
         static let page = "Looks"
@@ -72,7 +72,7 @@ extension Copy {
         static func pictureDownload(_ bytes: Int, includesMeaning: Bool = false) -> String {
             let mb = max(1, Int((Double(bytes) / 1_000_000).rounded()))
             return includesMeaning
-                ? "A one-time download of about \(mb) MB, which also sets up Understand what you mean. It stays on this Mac; your screenshots never leave it."
+                ? "A one-time download of about \(mb) MB, which also sets up the sharper search. It stays on this Mac; your screenshots never leave it."
                 : "A one-time download of about \(mb) MB. It stays on this Mac; your screenshots never leave it."
         }
         static let turnOn = "Turn on"

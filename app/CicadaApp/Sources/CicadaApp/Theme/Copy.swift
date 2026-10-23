@@ -36,7 +36,7 @@ enum Copy {
 
     /// The canonical way to send someone to the connections settings. Built
     /// from the parts above so a rename can never desync the two halves.
-    static let settingsPlansAndKeys = "\(settings) → \(plansAndKeys)"
+    static let settingsPlansAndKeys = "\(settings) → \(engines) → \(plansAndKeys)"
     /// Ditto, for the Sleep section.
     static let settingsSleep = "\(settings) → \(sleepSettings)"
     /// Ditto, for the General tab (G130).
@@ -207,7 +207,7 @@ enum Copy {
     /// quota is a real budget, just not a dollar one.
     static let sleepEngineExplainer =
         "Sleep runs on your Claude plan through Claude Code: it spends plan quota, not money. "
-        + "When you start a cycle yourself, and on the schedule unless you turn that off in Settings → Sleep; if the "
+        + "When you start a cycle yourself, and on the schedule unless you turn that off in Settings → Intelligence; if the "
         + "plan throttles it stops cleanly with the queue intact."
 
     // MARK: Engines (Track E — R-E4, R-E13, R-E24, R-E28)
@@ -336,7 +336,7 @@ enum Copy {
     /// above this is now literally "Sleep", and `CopyConstantsTests`'s
     /// `testSubtitlesAreShortAndDoNotRepeatTheirTitle` bans a subtitle that
     /// repeats its own title.
-    /// G139 (A3): the engine moved to Settings → Engines, so "Who runs…"
+    /// G139 (A3): the engine moved to Settings → Intelligence, so "Who runs…"
     /// stopped being true of this section.
     static let sleepSettingsSubtitle = "When Cicada consolidates what it captured."
     static let generalSubtitle = "Appearance, text size and setup."
@@ -428,11 +428,12 @@ enum Copy {
     /// Graph's own blank canvas — the G117 row's opening evidence — finally
     /// says why it's empty and names the one thing to do about it.
     /// The title already says "Nothing here yet" (DR-38: it was said twice, QA 2026-10-16).
-    static let emptyGraphMessage = "Connect a source or import a chat export."
+    static let emptyGraphTitle = "Your memory starts here."
+    static let emptyGraphMessage = "Talk to a connected agent, or drop a chat export here."
     static let emptyInboxMessage = "Questions appear here after a Sleep cycle."
     static let emptySourcesMessage = "Nothing has fed this memory yet."
 
-    /// Settings → Integrations with BOTH domains loaded and both empty —
+    /// the Sources page with BOTH domains loaded and both empty —
     /// which on a working install means the backend is not answering, since
     /// `channel_registry` always yields thirteen rows. Never shown while a
     /// fetch is in flight or an error is latched (`IntegrationsView.

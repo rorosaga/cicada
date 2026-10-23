@@ -94,6 +94,7 @@ RULES: dict[str, str] = {
     "judged_same": "Both pages describe the same thing",
     "judged_different": "The two pages describe different things",
     "spelling_fold": "The two labels differ only in spelling",
+    "seed_fold": "Cicada's own word list says the two labels mean the same",
     "one_off": "Mentioned once and nothing else rests on it",
     "newest_evidence": "Your newest dated statement settles it",
     "multi_valued": "Both can be true at once: every value was already kept",
@@ -105,10 +106,11 @@ RULES: dict[str, str] = {
     "in_passing": "Mentioned once in passing; nothing ties it to your life",
     "newest_words": "Your newest words on it say this",
     "own_settings": "About Cicada's own settings, which Cicada already knows: Settings shows them",
+    "named_account": "You gave this link for them in your own words",
 }
 #: The rules that read only the bank: re-run inside each settle, which goes ahead only when they still agree.
-ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "one_off", "newest_evidence",
-                         "multi_valued", "in_passing", "newest_words", "own_settings"})
+ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "seed_fold", "one_off", "newest_evidence",
+                         "multi_valued", "in_passing", "newest_words", "own_settings", "named_account"})
 #: The judged kinds (owner, 2026-10-17: the inbox keeps only what genuinely needs the person).
 JUDGED_KINDS = frozenset({"merge_suggestion", "conflict", "normalization", "decay"})
 MAX_REASON_CHARS = 160
@@ -366,7 +368,24 @@ def _normalization_rule(item_id: str, fm: dict) -> tuple[Decision | None, str]:
     if _spelling(raw) and _spelling(raw) == _spelling(canonical):
         return Decision(item_id, "normalization", "spelling_fold", {"action": "resolve", "option_key": "0"},
                         answer=f"{raw} is {canonical}"), ""
+    if _shipped_fold(raw, canonical):
+        # Owner decision A (2026-10-22): a fold from Cicada's own shipped seed is curated, like an ending — Sleep
+        # settles it, undoable; only a fold the bank learned asks.
+        return Decision(item_id, "normalization", "seed_fold", {"action": "resolve", "option_key": "0"},
+                        answer=f"{raw} is {canonical}"), ""
     return None, "needs_judge"   # the judge folds only a same meaning; a changed meaning stays
+
+
+def _shipped_fold(raw: str, canonical: str) -> bool:
+    """Whether the predicate seed Cicada ships (its ``synonyms``, never a bank's own map) folds ``raw`` into
+    ``canonical``. ``inverse_pairs`` flip a direction and are not folds."""
+    from api.services import predicates
+
+    synonyms = predicates._load_seed_map().get("synonyms") or {}
+    slug = predicates._slugify_predicate
+    want = slug(raw)
+    return bool(want) and any(slug(str(k)) == want and slug(str(v)) == slug(canonical)
+                              for k, v in synonyms.items() if isinstance(synonyms, dict))
 
 
 def _decay_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | None, str]:
@@ -538,6 +557,12 @@ def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
                         guard=_guard(memory_path, str(fm.get("entity_id") or ""))), ""
     if page_state == "unreadable":
         return None, "unreadable_page"   # never retired on a read error: the person (or a repair) looks at it
+    if kind == "clarification" and str(fm.get("asks") or "") == "sources":
+        # G61 "Where to check" (ruling 36 D5): only the person's own located words giving that very link for this page
+        # settle it; nothing else (no engine, no other rule) ever reads it.
+        from api.services import source_proposals
+
+        return source_proposals.settle_rule(memory_path, item_id, fm)
     if kind in ("conflict", "clarification"):
         from api.services import web_settle
 
@@ -659,12 +684,30 @@ def _saved_item(ep_fm: dict, spans) -> bool:
     from a saving door (its origin or source) or carries the page's ``url``."""
     if any(getattr(t, "marker", None) is not None for t in spans):
         return False
+    return bool(ep_fm.get("url")) or any(saved_origin(ep_fm.get(k)) for k in ("origin", "source"))
+
+
+def saved_origin(tag) -> bool:
+    """Whether an episode's ``origin`` or ``source`` is a saving door (a bookmark, a saved post, a feed, a history):
+    what came through it is the saved page's text, not something the person said."""
     from api.services import source_overview
 
+    t = str(tag or "").strip().lower()
+    if not t:
+        return False
     saved = set(_SAVED_ORIGINS)
     saved |= {o for spec in source_overview.CATALOG if spec.kind in ("browser", "social", "feed") for o in spec.origins}
-    tags = {str(ep_fm.get(k) or "").strip().lower() for k in ("origin", "source")} - {""}
-    return bool(ep_fm.get("url")) or any(t in saved or t.endswith(_SAVED_SUFFIXES) for t in tags)
+    return t in saved or t.endswith(_SAVED_SUFFIXES)
+
+
+#: Calendar entries: an event's title is the calendar's words (``entity_resolver.CARD_REFUSED_SOURCES``' rule).
+_CALENDAR_ORIGINS = frozenset({"calendar", "calendar-local"})
+
+
+def record_origin(tag) -> bool:
+    """A record, not a conversation: a saved item (:func:`saved_origin`) or a calendar entry. Neither grounds a skill
+    nor is a conversation an agent can pick up (benchmarks/newuser, 2026-10-22)."""
+    return str(tag or "").strip().lower() in _CALENDAR_ORIGINS or saved_origin(tag)
 
 
 _CODE_SHAPE = re.compile(r"\w_\w|::|\(\)|->|^[$@]\w|^--?\w|^`.+`$")
@@ -1359,8 +1402,8 @@ def touched(memory_path: Path, episodes: list[dict], items: list[tuple[Path, dic
     convos = [(eid, lines) for eid, lines in convos if eid and lines]
     for path, fm, _body in items:
         kind = str(fm.get("kind") or "")
-        if kind not in CONVERSATION_KINDS or _blocked(fm, today):
-            continue   # taken back, or put off by the person: never touched
+        if kind not in CONVERSATION_KINDS or _blocked(fm, today) or str(fm.get("asks") or "") == "sources":
+            continue   # taken back, or put off by the person (a where-to-check question: its own rule only)
         full = inbox_ask_gate.with_page_names(memory_path, fm)
         cited = None
         for eid, lines in convos:
@@ -2256,6 +2299,7 @@ VETTED_RULES: dict[str, tuple[frozenset[str] | None, frozenset]] = {
     "own_settings": (frozenset({"conflict", "clarification"}), frozenset({None})),
     "same_spelling": (frozenset({"merge_suggestion"}), frozenset({"merge"})),
     "spelling_fold": (frozenset({"normalization"}), frozenset({"resolve"})),
+    "seed_fold": (frozenset({"normalization"}), frozenset({"resolve"})),
     "one_off": (frozenset({"decay"}), frozenset({"archive"})),
     "newest_evidence": (frozenset({"conflict"}), frozenset({"resolve"})),
     "multi_valued": (frozenset({"conflict"}), frozenset({"dismiss"})),
@@ -2268,6 +2312,7 @@ VETTED_RULES: dict[str, tuple[frozenset[str] | None, frozenset]] = {
     "judged_archive": (frozenset({"decay"}), frozenset({"archive"})),
     "judged_keep": (frozenset({"decay"}), frozenset({"keep_active"})),
     "said_on_record": (RECORD_KINDS, frozenset({"resolve", "answer"})),
+    "named_account": (frozenset({"clarification"}), frozenset({"resolve"})),
 }
 #: The rules an engine read: only these may carry the judging model and its engine as the commit's author.
 VETTED_ENGINE_RULES = frozenset({"judged_same", "judged_different", "judged_fold", "judged_conflict",
@@ -2484,6 +2529,9 @@ def vetted_decision(memory_path: Path, row: dict) -> tuple[Decision, str | None]
         raise Unvetted("bad_rule")
     if str(fm.get("asks") or "") == "name" and rule != "said_on_record":
         raise Unvetted("the_persons")   # who someone is: only the person's own words (ruling 29, role_people)
+    if (str(fm.get("asks") or "") == "sources") != (rule == "named_account") and rule != "subject_gone":
+        # Where to check (ruling 36 D5): only its own rule settles it, and its rule settles nothing else.
+        raise Unvetted("the_persons" if str(fm.get("asks") or "") == "sources" else "bad_rule")
     request = plan.get("request")
     if request is not None and not isinstance(request, dict):
         raise Unvetted("bad_request")

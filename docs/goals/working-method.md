@@ -40,10 +40,21 @@ list is what a reviewer checks:
 | Suite | Command | Expected |
 |---|---|---|
 | Crucial tier | `make test-crucial` | **0 failures** — 247 backend tests in ~16 s, 47 Swift tests in ~4 s (+ build), 2026-10-19 |
+| Dev CI | `.github/workflows/dev-ci.yml` (`make test-crucial-backend` on `ubuntu-latest`) | **0 failures** — 258 backend tests in ~32 s, ~1.5 min with the venv, 2026-10-22 |
 | Bench tier | `make test-bench` | 12 tests, ~50 s, 2026-10-19: **1 known failure**, `test_projects_bench.py` (the 2,500-page project list's p95 is ~230 ms against its 80 ms budget; it was an unrun `CICADA_BENCH=1` opt-in until the marker). Run on a quiet machine |
 | Backend | `api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider` | October 5 audit on `4264e297`: 6,016 passed, **1 known G185 failure**, 1 skipped; rerun for the change |
 | App | `cd app/CicadaApp && swift test` | **0 failures** |
 | Graph (JS) | `node --test app/CicadaApp/Tests/graph/*.test.js` | **0 failures.** Pass the glob, not the directory — a bare directory arg fails with a bare "test failed". |
+
+**A checkout without its own `api/.venv` fails four tests by design (2026-10-22).** A scratch worktree run with the
+main checkout's interpreter (`~/code/cicada/api/.venv/bin/python -m pytest`) fails
+`test_backlog_import::test_the_script_runs_twice_and_the_second_run_changes_nothing`,
+`test_check_census::test_the_script_prints_the_census_and_refuses_a_non_bank`,
+`test_cli_launcher::test_a_two_link_chain_resolves_the_checkout_and_keeps_the_cwd` and
+`test_prose_repair::test_cli_inventory_bootstraps_scratch_and_has_no_apply`: each runs a script or launcher that uses
+*the checkout's own* `api/.venv` (the launcher refuses with "no Python environment", the scripts fall back to a bare
+`python3` without `loguru`). All four pass once the worktree has `api/.venv` (a symlink to the main venv is enough:
+`ln -s ~/code/cicada/api/.venv <worktree>/api/.venv`). Not a regression; link the venv before a full run.
 
 **Current disclosed backend failure is G185** ([audit status](audit-2026-10-05/STATUS.md)); do not hide it or classify an unrelated regression as expected. Counts above are dated reported evidence. PR #50 removed the old twelve failures, including the following causes:
 
@@ -106,6 +117,18 @@ Sleep cycle (Claude plan, haiku), the CLI and a second copy of the app (a per-ru
 `CFFIXED_USER_HOME`) on scratch state, never touching the live install, and keeps a feature map of every user-facing
 feature with its recipe. `--checkout <path>` runs another worktree's branch. Use it instead of driving the person's
 app or backend.
+
+**CI on `dev` (2026-10-22).** `.github/workflows/dev-ci.yml` runs the backend half of the crucial tier on every push to
+`dev` and every PR into it: `ubuntu-latest`, Python 3.12.11 (the version `api/.venv` runs), `uv sync --frozen` from
+`api/uv.lock`, then `make test-crucial-backend`; actions pinned to commit SHAs (Node 24 releases), checkout without
+persisted credentials, 20-minute timeout; a newer push to a PR cancels its older run, while every commit on `dev` keeps
+its own result. A red check on a background agent's PR means a rail's guard broke on a clean Linux box; read it before
+reviewing the diff. The Swift half needs a Mac and stays a local step. **Cost:** the repo is public, so GitHub-hosted
+standard runners cost nothing; the run is ~1.5 min, most of it the lock's wheels (torch among them, from PyPI each
+time). **Known flaky or machine-bound in the tier:** none on the first runs (258 passed on the runner and on the Mac,
+2026-10-22). The tier already leaves out the machine-bound tests: the `bench` marker never joins it (`conftest.py`
+refuses one), and a systemd check skips itself where `systemd-analyze` cannot parse a unit. A test that turns flaky
+there gets a line here with its cause and the run that showed it, never a silent skip.
 
 **A Swift test that hangs inside an AppKit render is the machine, not the test (2026-10-20).** The first layer-backed
 `NSView` in an `xctest` process runs `+[NSApplication initialize]`, which opens the general pasteboard over a

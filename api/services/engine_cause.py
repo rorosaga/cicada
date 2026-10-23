@@ -76,12 +76,12 @@ def sentence(cause: str, *, plan_hint: bool = False) -> str:
         return f"The API key reached its spending limit — the provider refused every call. {fix}."
     if cause == "auth":
         return ("The provider refused the API key — it is missing, mistyped, revoked or expired. "
-                "Check the key in Settings → Plans & keys.")
+                "Check the key in Settings → Intelligence → Plans & keys.")
     if cause == "model_not_found":
-        # Settings → Engines no longer edits a model id (settings defaults, owner 2026-10-22): an unknown model was set
+        # Settings → Intelligence no longer edits a model id (settings defaults, owner 2026-10-22): an unknown model was set
         # outside the app's choices, so the fix is another engine there, or the model where it was set.
         return ("The provider does not know the model Sleep is set to use. "
-                "Choose another engine in Settings → Engines, or change the model where it was set.")
+                "Choose another engine in Settings → Intelligence, or change the model where it was set.")
     if cause == "rate_limited":
         fix = "Continue later, or raise the key's rate limit with the provider"
         if plan_hint:

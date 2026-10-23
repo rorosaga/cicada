@@ -38,7 +38,7 @@ extension Copy {
             browser.map { "Saving in \($0)…" } ?? "Saving your bookmark…"
         }
 
-        // MARK: Settings → Integrations → Browsers
+        // MARK: the Sources page → Browsers
         static let switchTitle = "Ask why when I bookmark something"
         static let switchDetail = "When you bookmark a page, a small question grows out of the top of the screen: what made you save it? Pick any reasons and add a few words; they are kept with the bookmark and the time you saved it. Saving a page again asks again. Never after an import or a reorganised bookmark bar."
         /// G191 v3 — what Cicada watches to ask at once, in plain words: window positions only, no permission.
@@ -83,7 +83,7 @@ extension Copy {
     enum Bookmarks {
         static let menuItem = "Bookmarks…"
         static let searchPrompt = "Search bookmarks and why you saved them"
-        static let none = "No bookmarks yet. Turn on a browser under Settings → Integrations."
+        static let none = "No bookmarks yet. Turn on a browser on the Sources page."
         static let noMatch = "Nothing matches."
         static func footer(_ total: Int) -> String {
             total == 1 ? "1 bookmark · Return opens it in Cicada" : "\(UsageFormat.count(total)) bookmarks · Return opens one in Cicada"

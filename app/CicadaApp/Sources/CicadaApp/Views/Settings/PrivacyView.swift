@@ -35,15 +35,14 @@ struct PrivacyView: View {
         SettingsPage(section: .privacy) {
             SettingsGroupCard {
                 // Settings defaults (owner 2026-10-22): the folder in words; Show in Finder is the way to it, never a path.
-                SettingsRow(.memoryLocation, title: Copy.memoryLocationTitle, detail: Copy.memoryLocationDetail) {
+                SettingsRow(.memoryLocation, title: Copy.memoryLocationTitle) {
                     Button(Copy.showInFinder) {
                         if let root = memoryRoot { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: root)]) }
                     }
                     .disabled(memoryRoot == nil)
                 }
-            }
-            SettingsGroupCard(header: Copy.banksTitle) {
-                SettingsRow(.banks, title: Copy.banksTitle, detail: Copy.banksDetail) { EmptyView() } below: {
+                SettingsDivider()
+                SettingsRow(.banks, title: Copy.banksTitle) { EmptyView() } below: {
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                         ForEach(banks) { bank in
                             HStack(spacing: CicadaTheme.spacingSM) {
@@ -60,7 +59,7 @@ struct PrivacyView: View {
                     }
                 }
                 SettingsDivider()
-                SettingsRow(.bankExport, title: Copy.bankExportTitle, detail: exporting ?? exportNote ?? Copy.bankExportDetail) {
+                SettingsRow(.bankExport, title: Copy.bankExportTitle, detail: exporting ?? exportNote) {
                     Menu(Copy.exportMenu) {
                         ForEach(banks) { bank in Button(bank.name) { export(bank) } }
                     }
@@ -68,7 +67,7 @@ struct PrivacyView: View {
                     .disabled(exporting != nil || banks.isEmpty)
                 }
                 SettingsDivider()
-                SettingsRow(.bankDelete, title: Copy.bankDeleteTitle, detail: deleteProblem ?? Copy.bankDeleteDetail) {
+                SettingsRow(.bankDelete, title: Copy.bankDeleteTitle, detail: deleteProblem) {
                     Menu(Copy.deleteMenu) {
                         ForEach(deletable) { bank in Button(bank.name, role: .destructive) { pendingDelete = bank } }
                     }
@@ -76,40 +75,41 @@ struct PrivacyView: View {
                     .disabled(deletable.isEmpty)
                 }
             }
+            // D6: Search & memory's one row — search runs on this Mac, and the sharper-model download.
+            SearchFilesView()
             SettingsGroupCard(header: Copy.reachingTheInternet) {
                 // Spelled out, not through a helper: `SettingsRowLintTests` finds a
                 // row by its literal `SettingsRow(.<id>,`.
-                SettingsRow(.outboundConnectors, title: Copy.outboundConnectorsTitle, detail: Copy.outboundConnectorsDetail) {
+                SettingsRow(.outboundConnectors, title: Copy.outboundConnectorsTitle) {
                     gateValue(status?.gates?.connectorFetch)
                 }
                 SettingsDivider()
-                SettingsRow(.outboundFeeds, title: Copy.outboundFeedsTitle, detail: Copy.outboundFeedsDetail) {
+                SettingsRow(.outboundFeeds, title: Copy.outboundFeedsTitle) {
                     gateValue(status?.gates?.feedFetch)
                 }
                 SettingsDivider()
-                SettingsRow(.outboundLogos, title: Copy.outboundLogosTitle, detail: Copy.outboundLogosDetail) {
+                SettingsRow(.outboundLogos, title: Copy.outboundLogosTitle) {
                     gateValue(status?.gates?.logoFetch)
                 }
             }
             SettingsGroupCard {
                 // Settings defaults pass 2: the ledger is switched where the backend starts, never here; the row's one
                 // link says where (the docs page that names the step).
-                SettingsRow(.telemetry, title: Copy.telemetryTitle,
-                            detail: status?.telemetry.map { $0 == "off" ? Copy.telemetryOff : Copy.telemetryOn }) {
+                SettingsRow(.telemetry, title: Copy.telemetryTitle) {
                     SettingsHelpLink(url: Copy.SettingsHelp.usageLedger,
                                      label: Copy.SettingsHelp.usageLedgerLink(off: status?.telemetry == "off"))
                 }
                 SettingsDivider()
-                SettingsRow(.credentials, title: Copy.credentialsTitle, detail: Copy.credentialsDetail) {
+                SettingsRow(.credentials, title: Copy.credentialsTitle) {
                     Button(Copy.removeAllKeys, role: .destructive) { confirmRemoveKeys = true }
                         .disabled(keyed.isEmpty)
                 }
                 SettingsDivider()
-                SettingsRow(.remoteAccess, title: Copy.remoteAccessTitle, detail: remoteLine) {
-                    SettingsInlineLink(section: .remote, label: Copy.fromAnywhere)
+                SettingsRow(.remoteAccess, title: Copy.remoteAccessTitle) {
+                    SettingsInlineLink(section: .devices, row: .fromAnywhere, label: remoteLine ?? Copy.fromAnywhere)
                 }
                 SettingsDivider()
-                SettingsRow(.transcripts, title: Copy.transcriptsTitle, detail: Copy.transcriptsFact)
+                SettingsRow(.transcripts, title: Copy.transcriptsTitle, detail: Copy.transcriptsShort)
             }
         }
         .task { await load() }

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings → Agents → "From anywhere" (G135, R-R7).
+/// Settings → Devices → "From anywhere" (G135, R-R7; its own page until the Hyrum audit's B1, 2026-10-22).
 ///
 /// Three cards, in the order a person sets this up: the master switch (off by
 /// default — nothing listens until it is on), how apps reach this Mac (Cicada
@@ -21,27 +21,36 @@ struct RemoteAccessView: View {
     @State private var showNewConnector = false
     @State private var rotated: RemoteConnectorCreated?
     @State private var pendingRevoke: RemoteConnector?
+    /// Hyrum audit B1 review: the group is the last one on Devices & access, so the public-address check (up to 3 s, a
+    /// request to the person's own tunnel) waits until the group is on screen, instead of running on every visit.
+    @Environment(\.settingsViewportHeight) private var viewportHeight
+    @State private var onScreen = false
+    @State private var probedOnScreen = false
 
+    /// Drawn inside Settings → Devices's one scroll view (Hyrum audit B1), so it has none of its own.
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                switchCard
-                if status?.enabled == true {
-                    if !signIns.isEmpty { signInCard }
-                    reachCard
-                    connectorsCard
-                }
-                if let problem {
-                    Text(problem)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.danger)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+            switchCard
+            if status?.enabled == true {
+                if !signIns.isEmpty { signInCard }
+                reachCard
+                connectorsCard
             }
-            .padding(.horizontal, CicadaTheme.spacingXL)
-            .padding(.bottom, CicadaTheme.spacingXXL)
+            if let problem {
+                Text(problem)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .task { await refresh(probe: true) }
+        .task { await refresh(probe: false); await probeIfShown() }
+        .onGeometryChange(for: Bool.self) { proxy in
+            let frame = proxy.frame(in: .named(SettingsScrollSpace.viewport))
+            return viewportHeight > 0 && frame.minY < viewportHeight && frame.maxY > 0
+        } action: { shown in
+            onScreen = shown
+            Task { await probeIfShown() }
+        }
         .task(id: status?.enabled ?? false) { await pollWhileOn() }
         .sheet(isPresented: $showNewConnector) {
             NewConnectorSheet {
@@ -294,6 +303,13 @@ struct RemoteAccessView: View {
             problem = "Couldn't deny those sign-ins: \(error.localizedDescription)"
         }
         await refreshSignIns()
+    }
+
+    /// Once per visit, while the switch is on and the group can be seen. Turning it on probes on its own.
+    private func probeIfShown() async {
+        guard onScreen, !probedOnScreen, status?.enabled == true else { return }
+        probedOnScreen = true
+        await refresh(probe: true)
     }
 
     private func refresh(probe: Bool) async {

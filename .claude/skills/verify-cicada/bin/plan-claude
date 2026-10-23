@@ -2,7 +2,9 @@
 """The Sleep engine's `claude` for a verify run (CICADA_CLAUDE_CLI points here).
 
 The backend runs on a scratch HOME, which hides the Claude plan's sign-in (login keychain, default config dir). This
-gives the real HOME back to this one child, only for the exact argv shapes api/services/agent_engine.py builds:
+gives the real HOME back to this one child and, on a headless host, the plan token from the run's 0600 file
+(CICADA_VERIFY_PLAN_TOKEN_FILE; the backend's env never holds the value), only for the exact argv shapes
+api/services/agent_engine.py builds:
 
   auth status [--json]                       answered with the account fields masked
   -p <PINNED_FLAGS> [--allowedTools WebSearch] --model <haiku> [--system-prompt=...] [--effort w] [--json-schema {}]
@@ -92,6 +94,10 @@ def main() -> None:
     argv = sys.argv[1:]
     env = {k: v for k, v in os.environ.items() if k not in STRIPPED_ENV}
     env["HOME"] = pwd.getpwuid(os.getuid()).pw_dir
+    token_file = env.pop("CICADA_VERIFY_PLAN_TOKEN_FILE", "")
+    if token_file:
+        with open(token_file) as fh:
+            env["CLAUDE_CODE_OAUTH_TOKEN"] = fh.read().strip()
     if argv in (["auth", "status"], ["auth", "status", "--json"]):
         import subprocess
 

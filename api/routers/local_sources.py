@@ -282,7 +282,7 @@ async def capture_wispr_flow(req: WisprFlowPayload, settings: Settings = Depends
     memory_path = settings.memory_path
     current = wispr_flow.load_settings(memory_path)
     if not current["enabled"]:
-        raise HTTPException(409, "Wispr Flow is turned off for this memory — turn it on in Settings → Integrations.")
+        raise HTTPException(409, "Wispr Flow is turned off for this memory — switch it on from the Sources page.")
     if len(req.meetings) > wispr_flow.MAX_MEETINGS or len(req.history or []) > wispr_flow.MAX_HISTORY:
         raise HTTPException(413, "too many rows in one request — send them in smaller batches")
     # `by_alias=False` is load-bearing: `CamelModel` sets `serialize_by_alias=True`, so a bare

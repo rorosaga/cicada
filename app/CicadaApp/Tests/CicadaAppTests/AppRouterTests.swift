@@ -19,7 +19,7 @@ final class AppRouterTests: XCTestCase {
     func testRouteToAddSourceStagesTileAndTab() {
         let router = AppRouter()
         router.routeToAddSource(.instagram)
-        XCTAssertEqual(router.pendingTab, .sleep, "the import door lives on the Sleep page since the Feed folded into it")
+        XCTAssertEqual(router.pendingTab, .sources, "G217: a tile opens its entry in the one catalogue, the Sources page")
         XCTAssertEqual(router.pendingAddSource, .instagram)
     }
 
@@ -100,9 +100,9 @@ final class AppRouterTests: XCTestCase {
 
     func testTwoOpensOfOneSectionAreTwoRequests() {
         let router = AppRouter()
-        router.openSettings(.integrations)
+        router.openSettings(.intelligence)
         let first = router.pendingSettings
-        router.openSettings(.integrations)
+        router.openSettings(.intelligence)
         XCTAssertNotEqual(first, router.pendingSettings, "the nonce makes a second link re-land")
     }
 

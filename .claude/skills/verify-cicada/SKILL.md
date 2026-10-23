@@ -36,7 +36,7 @@ kills only pids it recorded whose command line still carries the marker it recor
 
 | Surface | How a run is kept apart | What still touches the real account |
 |---|---|---|
-| Backend | `HOME`, `CICADA_HOME`, `CICADA_MEMORY_PATH`, `CICADA_PORT`, `CICADA_REMOTE_PORT` all scratch; `LITELLM_MODE=PRODUCTION` so no `.env` is walked into; commits as `Verify Run <verify@example.invalid>`; the owner named `Verify Person` (`--no-owner` skips that); a clean env (only `PATH`, `TMPDIR`, locale, `USER` and, when set, `CLAUDE_CODE_OAUTH_TOKEN` pass through); refuses a checkout with an `api/.env` | nothing |
+| Backend | `HOME`, `CICADA_HOME`, `CICADA_MEMORY_PATH`, `CICADA_PORT`, `CICADA_REMOTE_PORT` all scratch; `LITELLM_MODE=PRODUCTION` so no `.env` is walked into; commits as `Verify Run <verify@example.invalid>`; the owner named `Verify Person` (`--no-owner` skips that); a clean env (only `PATH`, `TMPDIR`, locale and `USER` pass through; never `CLAUDE_CODE_OAUTH_TOKEN`, see below); refuses a checkout with an `api/.env` | nothing |
 | Network | `CICADA_ALLOW_CONNECTOR_FETCH=off`, `CICADA_ALLOW_LOGO_FETCH=off`, `CICADA_ALLOW_FEED_FETCH=off`, `HF_HUB_OFFLINE=1` | the Sleep engine's model calls and its web lookup (the plan's own search, ruling 27); `--search-model`'s pinned download; and what the person's own act fetches, which no gate stops: `POST /sources/save`, `cicada_save_url`, `cicada_record_watch` on an unsaved link (fetches the page's title through `net_guard`). Use `https://example.com/...` links only |
 | Sleep engine | `CICADA_LLM_MODE=agent`, every model `haiku`, `CICADA_CLAUDE_CLI=bin/plan-claude` | `plan-claude` gives the `claude` child the real HOME so it finds the plan sign-in. It runs only `auth status [--json]` (answered with the email masked to `verify@example.invalid`) and the exact argv `api/services/agent_engine.py` builds: `-p` first, the pinned flags with their values (`--tools ""` or `WebSearch` plus its `--allowedTools`, `--setting-sources ""`), `--model haiku`, and only `--system-prompt=`, `--effort`, `--json-schema` after. It strips every key the engine strips and refuses `CICADA_CAPTURE` not `off`. `cv selftest` proves both against the engine module |
 | MCP server | spawned per call with the run's env; session `verify-<run id>`, harness `verify` | nothing |
@@ -46,14 +46,24 @@ kills only pids it recorded whose command line still carries the marker it recor
 Observed 2026-10-22: a scratch `HOME` (or `CLAUDE_CONFIG_DIR`) makes `claude auth status` report `loggedIn: false`,
 which is why `plan-claude` exists. The backend's documented headless path, `CLAUDE_CODE_OAUTH_TOKEN` from
 `claude setup-token`, also works without the real HOME, but minting that token is the person's step, never an agent's.
-When the caller's shell has `CLAUDE_CODE_OAUTH_TOKEN` (a headless Linux run), `cv` passes that one variable to the
-run's processes so Sleep reaches the plan; it is never written to `run.json`, evidence or a log.
+When the caller's shell has `CLAUDE_CODE_OAUTH_TOKEN` (a headless Linux run), `cv` takes it out of its own environment
+as it starts, so none of its children (the backend, the MCP server, the CLI, git, the app build) inherits it. Once
+`run.json` exists, `launch` writes the value into a 0600 file in the run dir (`secrets/claude-oauth-token`), and the
+run's env carries only that file's path (`CICADA_VERIFY_PLAN_TOKEN_FILE`). `plan-claude` reads it into the engine's
+`claude` child alone, the way it gives that child the real HOME on a Mac. `cleanup` deletes the file and masks any
+copy of the value under the evidence dir and the run's `logs/` (which `--keep-state` keeps). `cv selftest` proves each
+step against a stand-in token, including a `launch` that dies before `run.json`.
 
 ## Launch
 
 ```sh
 $CV launch [--run-id ID] [--checkout PATH] [--evidence DIR] [--port N] [--search-model] [--no-owner] [--timeout 120]
+          [--env CICADA_AWAKE_READ=on ...]
 ```
+
+`--env KEY=VALUE` (repeatable) sets a feature's own switch in the backend's env; only `CICADA_AWAKE_*` keys pass (the
+G207 awake read: `CICADA_AWAKE_READ=on`, `CICADA_AWAKE_QUIET_S=10` to read a conversation ten seconds after its last
+turn). Never a credential, a path or an engine.
 
 Starts `python -m uvicorn api.main:app` from the checkout (default: the one holding the current directory; pass
 `--checkout` to verify another worktree's branch with this skill) on a free port, with that checkout's venv (else its
@@ -184,7 +194,7 @@ deletes the run dir unless `--keep-state`. Evidence is never removed. After a fa
 - Never press a Connect, Disconnect, Sign in, Sign out, Install, Set up, Turn on/off or Update button in the app in a
   verify run, nor Open Cicada at login (it registers this copy as the person's login item), Restart Cicada (`open -n`
   drops the scratch home), Open in Cursor, Remove bookmark (drives Chrome) or Allow Contacts / Allow… (TCC prompts):
-  Settings → Engines, Plans & keys, Integrations, Agents, Skills and General. The Claude plan's Disconnect signs
+  Settings → Intelligence (with its Plans & keys group), Integrations, Agents, Skills and General. The Claude plan's Disconnect signs
   the real `claude` out. `vclick` and `cv app click` refuse them; their `--allow-forbidden` only skips the check and
   never makes the press safe. They reach the real keychain, browsers, Contacts or Calendar,
   launchd or the harness configs, and an OAuth sign-in's callback defaults to `localhost:8000`, the person's own

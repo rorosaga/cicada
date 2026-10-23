@@ -86,7 +86,7 @@ embedding-model:
 
 # EmbeddingGemma 2 on the Neural Engine (macOS 15+, owner 2026-10-09): its pinned files (api/data/
 # embeddinggemma-2.lock.json, each sha256-checked) into $${CICADA_HOME:-~/.cicada}/models, compiled and warmed
-# once. The same code the app's Settings → Memory → Search model runs. A running backend then moves the active
+# once. The same code the app's Settings → Privacy & data runs. A running backend then moves the active
 # bank to it in the background (restart it, or pick the model in Settings).
 embedding-model-gemma2:
 	$(PYTHON) -m api.services.model_fetch

@@ -19,13 +19,15 @@ from api.services import (conflict_resolver as cr, entity_body as eb, entity_ext
 from api.services.claims import strip_claims_block
 
 
-def _extraction(n: int, *, name: str = "alpha-project", confidence: float = 0.8, **extra) -> dict:
+def _extraction(n: int, *, name: str = "alpha-project", confidence: float = 0.8, born: bool = True, **extra) -> dict:
     """Stage 1's output for one conversation, through Stage 1's own seams."""
     ep_id = f"ep_{2025 + (n - 1) // 12}-{(n - 1) % 12 + 1:02d}-15_001"
     day = ep_id[3:13]
     body = f"user: Synthetic observation-{n:02d}. {name} evaluated option-{n:02d}."
     entity = {
         "name": name, "type": "project", "confidence": confidence,
+        # Ruling 36 D4: a project needs an origin to get a page; this file is about credit, not birth.
+        **({"project_birth": {"origin": "words", "episode": ep_id}} if born else {}),
         "summary": f"{name} is a synthetic project discussed in observation {n:02d}.",
         "key_facts": [f"{name} evaluated option-{n:02d}."],
         "history_entries": [{"date": day, "event": f"Evaluated option-{n:02d}."}],
@@ -141,7 +143,7 @@ def test_a_name_still_pending_keeps_what_every_mention_said(bank, monkeypatch):
         def rebuild_pending_index(self): return len(parked)
 
     monkeypatch.setattr(er, "SqliteVecIndexer", Indexer)
-    extracted = [_extraction(n, confidence=0.5) for n in (1, 2)]
+    extracted = [_extraction(n, confidence=0.5, born=False) for n in (1, 2)]
     result = _resolve(extracted, [], _settings(bank, threshold=3))
     assert result["changes"] == []
     assert len(parked) == 1

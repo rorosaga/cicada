@@ -190,7 +190,9 @@ def test_the_route_is_camel_case_and_never_runs_a_cli(homes, monkeypatch):
         body = TestClient(main.app).get("/agents/live").json()
     finally:
         config.get_settings.cache_clear()
-    assert [a["id"] for a in body["agents"]] == FIXTURE["live"]
+    # G217: the app's eleven pills first, in its order, then every other way the catalog tracks.
+    ids = [a["id"] for a in body["agents"]]
+    assert ids[:len(FIXTURE["live"])] == FIXTURE["live"] and ids == list(agent_live.TRACKED)
     assert set(body["agents"][0]) == {"id", "connected", "lastSeenAt", "via"}
 
 

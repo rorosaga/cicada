@@ -17,11 +17,15 @@ REFUSAL_CODES = frozenset({
     "person_only",
     # G181 phase 2: a command that reads the memory folder, run on a client of a server (the folder is there).
     "on_server",
+    # G199: a tool body's own refusals. The MCP doors answer every code here with `isError: true`
+    # (`tool_contract.is_error`), so a code means the same thing on the command line and to an agent.
+    "invalid_arguments", "out_of_range", "error",
 })
 
 EXIT_CODES = {"usage": 2, "not_found": 1, "empty_graph": 1, "bank_mismatch": 3, "root_mismatch": 3,
               "root_unverified": 3, "demo_bank": 4, "sandbox_denied": 5, "backend_down": 6, "backend_timeout": 6,
               "sleep_writing": 1, "refused": 1, "unauthorized": 1, "person_only": 1, "on_server": 1,
+              "invalid_arguments": 2, "out_of_range": 2, "error": 70,
               "backend_error": 70, "internal": 70, "bootstrap": 70}
 
 

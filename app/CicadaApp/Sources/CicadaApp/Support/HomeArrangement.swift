@@ -37,6 +37,34 @@ enum HomeSetup {
     }
 }
 
+/// Owner fix round (2026-10-22): after onboarding v2, Getting started never asks again what onboarding just covered.
+/// The rows already on or coming in fold into one line; only open rows (off, needs the person, failed) stay; the past
+/// chats and *Also on this Mac* offers — onboarding's Sources and Agents steps — go. Before onboarding (or on a bank it
+/// never ran for) everything shows as before.
+struct GettingStartedFold: Equatable {
+    var openRows: [GettingStartedRow]
+    /// How many rows folded into the one line (0: no line).
+    var covered: Int
+    var showsPastChats: Bool
+    var showsAlsoFound: Bool
+
+    static func of(rows: [GettingStartedRow], onboarded: Bool, showsPastChats: Bool,
+                   showsAlsoFound: Bool) -> GettingStartedFold {
+        guard onboarded else {
+            return GettingStartedFold(openRows: rows, covered: 0, showsPastChats: showsPastChats,
+                                      showsAlsoFound: showsAlsoFound)
+        }
+        let open = rows.filter {
+            switch $0.state {
+            case .on, .working: false
+            case .off, .needsAction, .failed: true
+            }
+        }
+        return GettingStartedFold(openRows: open, covered: rows.count - open.count, showsPastChats: false,
+                                  showsAlsoFound: false)
+    }
+}
+
 /// How Getting started shows itself on Home.
 enum GettingStartedPresentation: Equatable {
     /// No record, hidden, or graduated with nothing left.

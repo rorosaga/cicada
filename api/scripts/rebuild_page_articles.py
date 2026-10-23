@@ -16,7 +16,7 @@ between batches if Sleep starts. A slow or absent backend is asked again before 
 which it was — Sleep running, or the backend slow, unreachable or unreadable. ``--rewrite`` also rewrites pages that already have an article (one written today
 counts as done, so a rerun continues).
 
-The engine is the one a Sleep run the person starts would use: the engine chosen in Settings → Engines (a plan when
+The engine is the one a Sleep run the person starts would use: the engine chosen in Settings → Intelligence (a plan when
 one is chosen and connected), resolved before any call and named in the output (``engine``, never a key). Nothing
 connected: refused before any call. An API key, billed per call: refused unless ``--allow-metered`` is passed — a
 rebuild on a metered key spends money, so it is agreed to by name.

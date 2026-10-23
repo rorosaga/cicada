@@ -374,7 +374,7 @@ async def sleep_queue(
 
 
 #: Bumped when a row of `GET /sleep/episodes` gains a field or changes for the same files (folded into its ETag).
-EPISODES_SHAPE = "episodes-2"   # episodes-2: `site` (owner 2026-10-20)
+EPISODES_SHAPE = "episodes-3"   # episodes-3: `device` (G212); episodes-2: `site` (owner 2026-10-20)
 
 
 @router.get("/sleep/episodes", response_model=list[EpisodeQueueItem])
@@ -424,6 +424,7 @@ async def sleep_episodes(
                 copy_value=value or ep["id"],
                 changed_at=episode_copy.changed_at(fm) or ep["timestamp"],
                 site=reading_hosts.mark_key(url) if (url := channel_items.saved_episode_url(fm)) else None,
+                device=str(fm.get("device") or "") or None,
             )
         )
     return items
@@ -513,7 +514,7 @@ async def put_schedule(
 
 @router.get("/sleep/engine", response_model=SleepEngineResponse)
 async def get_sleep_engine(settings: Settings = Depends(get_settings)):
-    """G122 — Settings → Engines's engine & model picker: what's configured
+    """G122 — Settings → Intelligence's engine & model picker: what's configured
     now, every candidate's live state, and both trigger-source previews
     (ruling 4 made visible, not hidden — see `SleepEnginePreviews`)."""
     return await sleep_engine_prefs.build_response(settings, get_registry(settings))

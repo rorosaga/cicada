@@ -120,6 +120,12 @@ class Item:
         return f"{BACKLOG_DIR}/{self.project}/{self.id}.md"
 
 
+def _where(exc: BaseException) -> str:
+    from api.services import tool_contract
+
+    return tool_contract.where(exc)
+
+
 def _error(message: str, **extra) -> dict:
     return {"action": "error", "error": message, **extra}
 
@@ -702,8 +708,8 @@ def add_item(memory_path: Path, *, project: str, title: str, description: str = 
         item.last_note_by = by if item.notes else None
         return {"action": "added", "item": item, "paths": [item.path]}
     except Exception as exc:  # noqa: BLE001 — never raise on a normal input
-        logger.warning(f"backlog.add_item failed: {type(exc).__name__}: {exc}")
-        return _error(f"{type(exc).__name__}: {exc}")
+        logger.warning(f"backlog.add_item failed: {_where(exc)}")
+        return _error(f"it didn\'t work ({type(exc).__name__}); nothing was written", failed=True)
 
 
 def _update(memory_path: Path, project: str, item: str, change) -> dict:
@@ -760,8 +766,8 @@ def add_note(memory_path: Path, *, project: str, item: str, note: str, author: s
 
         return _update(memory_path, project, item, change)
     except Exception as exc:  # noqa: BLE001
-        logger.warning(f"backlog.add_note failed: {type(exc).__name__}: {exc}")
-        return _error(f"{type(exc).__name__}: {exc}")
+        logger.warning(f"backlog.add_note failed: {_where(exc)}")
+        return _error(f"it didn\'t work ({type(exc).__name__}); nothing was written", failed=True)
 
 
 def update_item(memory_path: Path, *, project: str, item: str, author: str, title: str | None = None,
@@ -811,8 +817,8 @@ def update_item(memory_path: Path, *, project: str, item: str, author: str, titl
 
         return _update(memory_path, project, item, change)
     except Exception as exc:  # noqa: BLE001
-        logger.warning(f"backlog.update_item failed: {type(exc).__name__}: {exc}")
-        return _error(f"{type(exc).__name__}: {exc}")
+        logger.warning(f"backlog.update_item failed: {_where(exc)}")
+        return _error(f"it didn\'t work ({type(exc).__name__}); nothing was written", failed=True)
 
 
 def commit_message(paths: list[str], *, action: str, subject: str, trigger: str, day: str, author: str = USER,

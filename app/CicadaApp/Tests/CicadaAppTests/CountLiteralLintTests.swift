@@ -34,7 +34,7 @@ final class CountLiteralLintTests: XCTestCase {
     /// columns and the Reader (DS-2, R-DI23): positions, counts and ages on every row — and the Graph's
     /// views (DS-3a): the Legend's counts and the entity column's tab counts — and the D list
     /// pages (DS-3c): Clusters' counts and the list pages' words — and the Projects page (G141 PJ-5): every row's
-    /// counts and ages — and G147's pace words (FadeWords): "mentioned across 12 weeks" — and G147's Settings → Memory pace
+    /// counts and ages — and G147's pace words (FadeWords): "mentioned across 12 weeks" — and G147's Settings → Search & memory pace
     /// rows (DecayTuning, FadePaceCard).
     static let scope = [
         "/Views/Sources/",

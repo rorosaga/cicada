@@ -341,3 +341,18 @@ def test_the_size_cap_gives_up_current_before_standing_and_keeps_the_agreements(
     assert len(state_dictionary.render(fm, body).encode("utf-8")) <= state_dictionary.MAX_BYTES
     assert not fm["people"] and not fm["focus"], "current rows go first"
     assert fm["preferences"] and fm["projects"], "the working agreements and the projects stay"
+
+
+def test_recent_conversations_are_conversations_not_calendar_entries(tmp_path):
+    """benchmarks/newuser (2026-10-22): a new user's handshake listed three calendar events as their "Recent
+    conversations" (harness `unknown`), because a calendar entry is source-keyed like an import. An event or a
+    saved item is a record, not a conversation an agent can pick up."""
+    memory = _bank(tmp_path)
+    for i, (origin, sid) in enumerate((("claude-export", "claude-export:conv-1"),
+                                       ("calendar-local", "calendar-local:evt-1"),
+                                       ("chrome-tab-group", "tab-group:chrome:default:g1"))):
+        markdown_parser.write(memory / "episodes" / f"ep_2026-09-0{i + 1}_001.md",
+                              {"id": f"ep_2026-09-0{i + 1}_001", "timestamp": f"2026-09-0{i + 1}T10:00:00+00:00",
+                               "origin": origin, "source": origin, "source_id": sid, "title": f"t{i}"}, "x")
+    ids = [c["id"] for c in state_dictionary._conversations(memory, 10)]
+    assert ids == ["claude-export:conv-1"]

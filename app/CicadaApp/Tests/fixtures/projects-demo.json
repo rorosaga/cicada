@@ -53,6 +53,7 @@
       "verbatim": false
      }
     ],
+    "origin": null,
     "parent": "rover-arm-project",
     "planned": true,
     "progress": {
@@ -146,6 +147,7 @@
       "verbatim": false
      }
     ],
+    "origin": null,
     "parent": null,
     "planned": true,
     "progress": {
@@ -173,6 +175,7 @@
     "name": "Alpha Project",
     "oneLiner": "A synthetic project for trying Cicada.",
     "openThreads": [],
+    "origin": null,
     "parent": null,
     "planned": false,
     "progress": {
@@ -198,6 +201,7 @@
     "name": "Beta Project",
     "oneLiner": "A synthetic project for trying Cicada.",
     "openThreads": [],
+    "origin": null,
     "parent": "alpha-project",
     "planned": false,
     "progress": {
@@ -223,6 +227,7 @@
     "name": "Gamma Project",
     "oneLiner": "A synthetic project for trying Cicada.",
     "openThreads": [],
+    "origin": null,
     "parent": null,
     "planned": false,
     "progress": {
@@ -248,6 +253,7 @@
     "name": "Garden Sensor Project",
     "oneLiner": "Soil sensors that report from the garden.",
     "openThreads": [],
+    "origin": null,
     "parent": null,
     "planned": false,
     "progress": {
@@ -268,6 +274,7 @@
     "name": "Delta Project",
     "oneLiner": "A synthetic project for trying Cicada.",
     "openThreads": [],
+    "origin": null,
     "parent": null,
     "planned": false,
     "progress": {
@@ -288,6 +295,7 @@
     "name": "Epsilon Project",
     "oneLiner": "A synthetic project for trying Cicada.",
     "openThreads": [],
+    "origin": null,
     "parent": null,
     "planned": false,
     "progress": {
@@ -308,6 +316,7 @@
     "name": "Eta Project",
     "oneLiner": "A synthetic project for trying Cicada.",
     "openThreads": [],
+    "origin": null,
     "parent": null,
     "planned": false,
     "progress": {
@@ -328,6 +337,7 @@
     "name": "Iota Project",
     "oneLiner": "A synthetic project for trying Cicada.",
     "openThreads": [],
+    "origin": null,
     "parent": null,
     "planned": false,
     "progress": {
@@ -348,6 +358,7 @@
     "name": "Kappa Project",
     "oneLiner": "A synthetic project for trying Cicada.",
     "openThreads": [],
+    "origin": null,
     "parent": null,
     "planned": false,
     "progress": {
@@ -368,6 +379,7 @@
     "name": "Lambda Project",
     "oneLiner": "A synthetic project for trying Cicada.",
     "openThreads": [],
+    "origin": null,
     "parent": null,
     "planned": false,
     "progress": {
@@ -388,6 +400,7 @@
     "name": "Mu Project",
     "oneLiner": "A synthetic project for trying Cicada.",
     "openThreads": [],
+    "origin": null,
     "parent": null,
     "planned": false,
     "progress": {
@@ -408,6 +421,7 @@
     "name": "Theta Project",
     "oneLiner": "A synthetic project for trying Cicada.",
     "openThreads": [],
+    "origin": null,
     "parent": null,
     "planned": false,
     "progress": {
@@ -428,6 +442,7 @@
     "name": "Zeta Project",
     "oneLiner": "A synthetic project for trying Cicada.",
     "openThreads": [],
+    "origin": null,
     "parent": null,
     "planned": false,
     "progress": {
@@ -797,11 +812,30 @@
     "next": null,
     "threads": []
    },
+   "origin": {
+    "day": null,
+    "episode": null,
+    "kind": null,
+    "quote": null,
+    "repoName": null,
+    "stored": false,
+    "via": null,
+    "why": "It cites no conversation, declares no repository and names no folder."
+   },
    "partial": false,
    "pending": {
     "newestDay": null,
     "unconsolidated": 0
    },
+   "people": [
+    {
+     "count": 1,
+     "id": "carol-example",
+     "lastSeen": "2026-08-02",
+     "name": "Carol Example",
+     "role": "works on this project"
+    }
+   ],
    "project": {
     "children": [],
     "created": "2026-08-02",
@@ -811,6 +845,119 @@
     "parent": null,
     "status": "active"
    },
+   "sections": [
+    {
+     "entries": [],
+     "key": "overview",
+     "markdown": "Soil sensors that report from the garden.",
+     "more": 0,
+     "title": "Overview",
+     "writtenBy": [
+      "sleep",
+      "cicada_edit_page"
+     ]
+    },
+    {
+     "entries": [
+      {
+       "day": "2026-09-14",
+       "kind": "item",
+       "ref": "m:ep_2026-09-14_003:2026-09-14",
+       "status": "said",
+       "text": "Garden Sensor Project uses Tool Example G"
+      },
+      {
+       "day": "2026-08-24",
+       "kind": "item",
+       "ref": "m:ep_2026-08-24_001:2026-08-24",
+       "status": "said",
+       "text": "Garden Sensor Project uses Tool Example C"
+      },
+      {
+       "day": "2026-08-02",
+       "kind": "item",
+       "ref": "m:ep_2026-08-02_001:2026-08-02",
+       "status": "said",
+       "text": "Bob Example works on Garden Sensor Project"
+      }
+     ],
+     "key": "timeline",
+     "markdown": null,
+     "more": 0,
+     "title": "Timeline",
+     "writtenBy": [
+      "progress",
+      "derived"
+     ]
+    },
+    {
+     "entries": [],
+     "key": "done",
+     "markdown": null,
+     "more": 0,
+     "title": "Done",
+     "writtenBy": [
+      "progress"
+     ]
+    },
+    {
+     "entries": [],
+     "key": "expected",
+     "markdown": null,
+     "more": 0,
+     "title": "Expected",
+     "writtenBy": [
+      "progress",
+      "backlog"
+     ]
+    },
+    {
+     "entries": [
+      {
+       "day": null,
+       "kind": "look",
+       "ref": "../design/2026-09-22-studio-example-com.md",
+       "status": null,
+       "text": "Pastel portfolio"
+      },
+      {
+       "day": null,
+       "kind": "look",
+       "ref": "../assets/design/2026-09-22-studio-example-com.png",
+       "status": null,
+       "text": "Pastel portfolio"
+      }
+     ],
+     "key": "design",
+     "markdown": null,
+     "more": 0,
+     "title": "Design",
+     "writtenBy": [
+      "person",
+      "cicada_edit_page",
+      "design_refs"
+     ]
+    },
+    {
+     "entries": [
+      {
+       "day": "2026-08-02",
+       "kind": "person",
+       "ref": "carol-example",
+       "status": "works on this project",
+       "text": "Carol Example"
+      }
+     ],
+     "key": "people",
+     "markdown": null,
+     "more": 0,
+     "title": "People involved",
+     "writtenBy": [
+      "sleep",
+      "progress"
+     ]
+    }
+   ],
    "tzName": "UTC",
    "window": {
     "end": "2026-09-14",
@@ -1916,11 +2063,30 @@
      }
     ]
    },
+   "origin": {
+    "day": null,
+    "episode": null,
+    "kind": null,
+    "quote": null,
+    "repoName": null,
+    "stored": false,
+    "via": null,
+    "why": "It cites no conversation, declares no repository and names no folder."
+   },
    "partial": false,
    "pending": {
     "newestDay": "2026-09-23",
     "unconsolidated": 1
    },
+   "people": [
+    {
+     "count": 1,
+     "id": "hana-example",
+     "lastSeen": "2026-09-22",
+     "name": "Hana Example",
+     "role": "from"
+    }
+   ],
    "project": {
     "children": [],
     "created": "2026-08-19",
@@ -1930,6 +2096,170 @@
     "parent": "rover-arm-project",
     "status": "active"
    },
+   "sections": [
+    {
+     "entries": [],
+     "key": "overview",
+     "markdown": "The first demo of the rover arm picking a part.",
+     "more": 0,
+     "title": "Overview",
+     "writtenBy": [
+      "sleep",
+      "cicada_edit_page"
+     ]
+    },
+    {
+     "entries": [
+      {
+       "day": "2026-09-23",
+       "kind": "item",
+       "ref": "clm_pick-and-place-demo_happened_7ab9b8cd_2026-09-23",
+       "status": "ongoing",
+       "text": "Bob is connecting to Lab Cluster Example to run the Pick And Place Demo"
+      },
+      {
+       "day": "2026-09-22",
+       "kind": "item",
+       "ref": "clm_pick-and-place-demo_happened_488da33d_2026-09-22",
+       "status": "done",
+       "text": "Bob got the lab cluster onboarding guide from Hana Example; it walks through connecting to Lab Cluster Example"
+      },
+      {
+       "day": "2026-09-22",
+       "kind": "item",
+       "ref": "m:ep_2026-09-22_003:2026-09-22",
+       "status": "said",
+       "text": "Lab Cluster Example hosts Pick And Place Demo"
+      },
+      {
+       "day": "2026-09-09",
+       "kind": "item",
+       "ref": "m:ep_2026-09-09_002:2026-09-09",
+       "status": "said",
+       "text": "Rover Arm Project uses Tool Example E"
+      },
+      {
+       "day": "2026-08-30",
+       "kind": "item",
+       "ref": "m:ep_2026-08-30_002:2026-08-30",
+       "status": "said",
+       "text": "Rover Arm Project uses Tool Example F"
+      },
+      {
+       "day": "2026-08-19",
+       "kind": "item",
+       "ref": "m:ep_2026-08-19_001:2026-08-19",
+       "status": "said",
+       "text": "Pick And Place Demo part of Rover Arm Project"
+      },
+      {
+       "day": "2026-08-09",
+       "kind": "item",
+       "ref": "m:ep_2026-08-09_001:2026-08-09",
+       "status": "said",
+       "text": "Rover Arm Project uses Tool Example D"
+      },
+      {
+       "day": "2026-07-22",
+       "kind": "item",
+       "ref": "m:ep_2026-07-22_001:2026-07-22",
+       "status": "said",
+       "text": "Pick And Place Demo due 2026-10-05"
+      }
+     ],
+     "key": "timeline",
+     "markdown": null,
+     "more": 0,
+     "title": "Timeline",
+     "writtenBy": [
+      "progress",
+      "derived"
+     ]
+    },
+    {
+     "entries": [
+      {
+       "day": "2026-09-22",
+       "kind": "item",
+       "ref": "clm_pick-and-place-demo_happened_488da33d_2026-09-22",
+       "status": "done",
+       "text": "Bob got the lab cluster onboarding guide from Hana Example; it walks through connecting to Lab Cluster Example"
+      }
+     ],
+     "key": "done",
+     "markdown": null,
+     "more": 0,
+     "title": "Done",
+     "writtenBy": [
+      "progress"
+     ]
+    },
+    {
+     "entries": [
+      {
+       "day": "2026-10-05",
+       "kind": "milestone",
+       "ref": "due-2026-10-05",
+       "status": "planned",
+       "text": "Pick And Place Demo"
+      }
+     ],
+     "key": "expected",
+     "markdown": null,
+     "more": 0,
+     "title": "Expected",
+     "writtenBy": [
+      "progress",
+      "backlog"
+     ]
+    },
+    {
+     "entries": [
+      {
+       "day": null,
+       "kind": "look",
+       "ref": "../design/2026-09-14-launch-example-com.md",
+       "status": null,
+       "text": "Bright product launch"
+      },
+      {
+       "day": null,
+       "kind": "look",
+       "ref": "../assets/design/2026-09-14-launch-example-com.png",
+       "status": null,
+       "text": "Bright product launch"
+      }
+     ],
+     "key": "design",
+     "markdown": null,
+     "more": 0,
+     "title": "Design",
+     "writtenBy": [
+      "person",
+      "cicada_edit_page",
+      "design_refs"
+     ]
+    },
+    {
+     "entries": [
+      {
+       "day": "2026-09-22",
+       "kind": "person",
+       "ref": "hana-example",
+       "status": "from",
+       "text": "Hana Example"
+      }
+     ],
+     "key": "people",
+     "markdown": null,
+     "more": 0,
+     "title": "People involved",
+     "writtenBy": [
+      "sleep",
+      "progress"
+     ]
+    }
+   ],
    "tzName": "UTC",
    "window": {
     "end": "2026-10-05",
@@ -3562,11 +3892,30 @@
      }
     ]
    },
+   "origin": {
+    "day": null,
+    "episode": null,
+    "kind": null,
+    "quote": null,
+    "repoName": null,
+    "stored": false,
+    "via": null,
+    "why": "It cites no conversation, declares no repository and names no folder."
+   },
    "partial": false,
    "pending": {
     "newestDay": "2026-09-23",
     "unconsolidated": 1
    },
+   "people": [
+    {
+     "count": 1,
+     "id": "hana-example",
+     "lastSeen": "2026-09-22",
+     "name": "Hana Example",
+     "role": "from"
+    }
+   ],
    "project": {
     "children": [
      "pick-and-place-demo"
@@ -3578,6 +3927,218 @@
     "parent": null,
     "status": "active"
    },
+   "sections": [
+    {
+     "entries": [],
+     "key": "overview",
+     "markdown": "A small arm that picks parts off a tray.",
+     "more": 0,
+     "title": "Overview",
+     "writtenBy": [
+      "sleep",
+      "cicada_edit_page"
+     ]
+    },
+    {
+     "entries": [
+      {
+       "day": "2026-09-23",
+       "kind": "item",
+       "ref": "clm_pick-and-place-demo_happened_7ab9b8cd_2026-09-23",
+       "status": "ongoing",
+       "text": "Bob is connecting to Lab Cluster Example to run the Pick And Place Demo"
+      },
+      {
+       "day": "2026-09-22",
+       "kind": "item",
+       "ref": "clm_pick-and-place-demo_happened_488da33d_2026-09-22",
+       "status": "done",
+       "text": "Bob got the lab cluster onboarding guide from Hana Example; it walks through connecting to Lab Cluster Example"
+      },
+      {
+       "day": "2026-09-22",
+       "kind": "item",
+       "ref": "m:ep_2026-09-22_003:2026-09-22",
+       "status": "said",
+       "text": "Lab Cluster Example hosts Pick And Place Demo"
+      },
+      {
+       "day": "2026-09-09",
+       "kind": "item",
+       "ref": "m:ep_2026-09-09_002:2026-09-09",
+       "status": "said",
+       "text": "Rover Arm Project uses Tool Example E"
+      },
+      {
+       "day": "2026-08-30",
+       "kind": "item",
+       "ref": "clm_rover-arm-project_happened_f7b29ccb_2026-08-30",
+       "status": "ongoing",
+       "text": "Bob started calibrating the gripper camera"
+      },
+      {
+       "day": "2026-08-19",
+       "kind": "item",
+       "ref": "m:ep_2026-08-19_001:2026-08-19",
+       "status": "said",
+       "text": "Pick And Place Demo part of Rover Arm Project"
+      },
+      {
+       "day": "2026-08-09",
+       "kind": "item",
+       "ref": "clm_rover-arm-project_happened_3f016540_2026-08-09",
+       "status": "done",
+       "text": "The arm is fully assembled"
+      },
+      {
+       "day": "2026-07-22",
+       "kind": "item",
+       "ref": "m:ep_2026-07-22_001:2026-07-22",
+       "status": "said",
+       "text": "Pick And Place Demo due 2026-10-05"
+      },
+      {
+       "day": "2026-07-15",
+       "kind": "item",
+       "ref": "clm_rover-arm-project_happened_0ccb3300_2026-07-15",
+       "status": "done",
+       "text": "Bob started the Rover Arm Project"
+      }
+     ],
+     "key": "timeline",
+     "markdown": null,
+     "more": 0,
+     "title": "Timeline",
+     "writtenBy": [
+      "progress",
+      "derived"
+     ]
+    },
+    {
+     "entries": [
+      {
+       "day": "2026-09-22",
+       "kind": "item",
+       "ref": "clm_pick-and-place-demo_happened_488da33d_2026-09-22",
+       "status": "done",
+       "text": "Bob got the lab cluster onboarding guide from Hana Example; it walks through connecting to Lab Cluster Example"
+      },
+      {
+       "day": "2026-08-09",
+       "kind": "item",
+       "ref": "clm_rover-arm-project_happened_3f016540_2026-08-09",
+       "status": "done",
+       "text": "The arm is fully assembled"
+      },
+      {
+       "day": "2026-08-09",
+       "kind": "milestone",
+       "ref": "arm-assembled",
+       "status": "done",
+       "text": "Arm assembled"
+      },
+      {
+       "day": "2026-07-15",
+       "kind": "item",
+       "ref": "clm_rover-arm-project_happened_0ccb3300_2026-07-15",
+       "status": "done",
+       "text": "Bob started the Rover Arm Project"
+      }
+     ],
+     "key": "done",
+     "markdown": null,
+     "more": 0,
+     "title": "Done",
+     "writtenBy": [
+      "progress"
+     ]
+    },
+    {
+     "entries": [
+      {
+       "day": "2026-10-01",
+       "kind": "milestone",
+       "ref": "first-grasp",
+       "status": "planned",
+       "text": "First grasp"
+      },
+      {
+       "day": "2026-10-05",
+       "kind": "milestone",
+       "ref": "due-2026-10-05",
+       "status": "planned",
+       "text": "Pick And Place Demo"
+      },
+      {
+       "day": "2026-11-02",
+       "kind": "milestone",
+       "ref": "due-2026-11-02",
+       "status": "planned",
+       "text": "Lab showcase"
+      },
+      {
+       "day": "2026-09-21",
+       "kind": "backlog",
+       "ref": "RAP5",
+       "status": "doing",
+       "text": "Pick a wrist servo"
+      },
+      {
+       "day": "2026-09-20",
+       "kind": "backlog",
+       "ref": "RAP3",
+       "status": "open",
+       "text": "Swap the gripper camera for a global-shutter one"
+      },
+      {
+       "day": "2026-09-17",
+       "kind": "backlog",
+       "ref": "RAP4",
+       "status": "open",
+       "text": "Add a soft stop when the arm leaves the tray"
+      }
+     ],
+     "key": "expected",
+     "markdown": null,
+     "more": 0,
+     "title": "Expected",
+     "writtenBy": [
+      "progress",
+      "backlog"
+     ]
+    },
+    {
+     "entries": [],
+     "key": "design",
+     "markdown": null,
+     "more": 0,
+     "title": "Design",
+     "writtenBy": [
+      "person",
+      "cicada_edit_page",
+      "design_refs"
+     ]
+    },
+    {
+     "entries": [
+      {
+       "day": "2026-09-22",
+       "kind": "person",
+       "ref": "hana-example",
+       "status": "from",
+       "text": "Hana Example"
+      }
+     ],
+     "key": "people",
+     "markdown": null,
+     "more": 0,
+     "title": "People involved",
+     "writtenBy": [
+      "sleep",
+      "progress"
+     ]
+    }
+   ],
    "tzName": "UTC",
    "window": {
     "end": "2026-11-02",

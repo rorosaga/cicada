@@ -38,8 +38,8 @@ enum SourceCard {
     /// Which quick action, if any, a source offers — sync wins when a row somehow advertises both (R-D3: no catalog
     /// row does today).
     static func quickAction(for source: SourceOverview) -> String? {
-        if source.actions.contains("sync") { return "Sync now" }
-        if source.actions.contains("poll") { return "Poll now" }
+        if source.actions.contains("sync") { return "Refresh" }
+        if source.actions.contains("poll") { return "Refresh" }
         return nil
     }
 

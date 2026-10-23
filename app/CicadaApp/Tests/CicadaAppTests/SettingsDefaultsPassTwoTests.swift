@@ -81,11 +81,9 @@ final class SettingsDefaultsPassTwoTests: XCTestCase {
                        ["agent", "codex", "openrouter", "local", "byok"])
     }
 
-    func testSettingsFoldsAndOnboardingKeepsTheFullRow() throws {
-        XCTAssertTrue(try source("Sources/CicadaApp/Views/Settings/EnginesView.swift")
-            .contains("EngineChooser(foldsOtherEngines: true)"))
-        XCTAssertTrue(try source("Sources/CicadaApp/Views/Onboarding/WhoReadsPage.swift").contains("EngineChooser()"),
-                      "onboarding's Who reads is the choice itself (F-05): every card stays on show")
+    /// Onboarding v2 (2026-10-22) replaced Who reads' full chooser with Intelligence's own rows (ruling 36 D1).
+    func testSettingsFoldsAndOnboardingUsesIntelligencesRows() throws {
+        XCTAssertTrue(try source("Sources/CicadaApp/Views/Onboarding/IntelligenceStep.swift").contains("IntelligenceRow("))
         let chooser = try source("Sources/CicadaApp/Views/Settings/EngineChooser.swift")
         XCTAssertTrue(chooser.contains("@AppStorage(EngineChooser.othersOpenKey)"), "DR-39: remembered per viewer")
         XCTAssertEqual(EngineChooser.othersOpenKey, "cicada.engines.othersOpen")
@@ -94,7 +92,7 @@ final class SettingsDefaultsPassTwoTests: XCTestCase {
         XCTAssertTrue(chooser.contains("Copy.EngineHeadline.backToAuto"))
         // Every trust control the page had is still drawn outside the fold.
         for needle in ["overageToggle(response)", "previewSection(preview)", "leavesMacNote(for: response)",
-                       "connectionStep(for: candidate)", ".settingsRow(.engineChoice)", "pinnedNote(response)"] {
+                       "connectionStep(for: candidate)", "pinnedNote(response)"] {
             XCTAssertTrue(chooser.contains(needle), needle)
         }
     }
@@ -104,14 +102,15 @@ final class SettingsDefaultsPassTwoTests: XCTestCase {
         for word in ["model", "claude", "chatgpt", "openai", "anthropic", "ollama", "openrouter", "llm"] {
             XCTAssertFalse(subtitle.contains(word), "the subtitle names \(word)")
         }
-        XCTAssertEqual(SettingsSection.engines.subtitle, Copy.enginesSubtitle)
     }
 
     func testASearchForAnotherEngineStillLandsOnTheChoice() {
         let all = SettingsIndex.staticEntries + SettingsIndex.pageEntries
-        for query in ["different engine", "back to auto", "openrouter"] {
+        for query in ["different engine", "back to auto"] {
             XCTAssertTrue(SettingsIndex.search(query, in: all).prefix(3).map(\.entry.id).contains(.engineChoice), query)
         }
+        // D6: a provider's name finds the plans and keys it signs in with.
+        XCTAssertTrue(SettingsIndex.search("openrouter", in: all).prefix(3).map(\.entry.id).contains(.plansAndKeys))
     }
 
     // MARK: Plans & keys, in words

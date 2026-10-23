@@ -67,9 +67,22 @@ final class AppRouter {
     /// the Feed folded into it (2026-10-16).
     func routeToAddSource(_ tile: AddSourceTile) {
         closeSettings()
-        pendingTab = .sleep
+        // G217 — the tile's entry in the one catalogue (the Sources page), which opens its flow.
+        pendingTab = .sources
         pendingAddSource = tile
         activateMainWindow()
+    }
+
+    /// G217 — the one catalogue of ways in is the Sources page (ruling 36 D6).
+    func routeToSources() {
+        closeSettings()
+        pendingTab = .sources
+        activateMainWindow()
+    }
+
+    /// G217 — where a chat export and an agent's conversations live: the Agents sidebar page.
+    func routeToAgents() {
+        routeToPage(.agents)
     }
 
     /// Sets both fields together, for the same reason `routeToAddSource`
@@ -165,7 +178,7 @@ final class AppRouter {
         activateMainWindow()
     }
 
-    /// The Skills page (owner 2026-10-15) — Settings → Skills and a skill's detail hand off here: installing,
+    /// The Skills page (owner 2026-10-15) — the Skills page and a skill's detail hand off here: installing,
     /// updating and sharing skills is that page's.
     func routeToSkills() {
         closeSettings()
@@ -290,6 +303,32 @@ final class AppRouter {
         pendingSettings = SettingsRequest(section: section, row: row)
         settingsOpen = true
         return activateMainWindow()
+    }
+
+    /// D6 — a retired Settings page's new home: a row in the panel, or the sidebar page it became (Settings closes).
+    func open(_ home: SettingsHome) {
+        switch home {
+        case let .settings(section, row): openSettings(section, row: row)
+        case let .page(tab): routeToPage(tab)
+        case .readingInBrowser: routeToReadingInBrowser()
+        }
+    }
+
+    /// The Sources page with its *Reading in your browser* sheet open (Reading the web's switches since D6).
+    var pendingReadingSheet = false
+
+    func routeToReadingInBrowser() {
+        closeSettings()
+        pendingTab = .sources
+        pendingReadingSheet = true
+        activateMainWindow()
+    }
+
+    /// Close Settings and show a sidebar page — Sources, Agents or Skills, where three retired Settings pages went.
+    func routeToPage(_ tab: AppTab) {
+        closeSettings()
+        pendingTab = tab
+        activateMainWindow()
     }
 
     func closeSettings() {

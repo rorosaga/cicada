@@ -28,7 +28,7 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     // Devices (G181 phase 3): the server this app uses (in Where your memory lives), and the person's devices
     static let devicesConnection = SettingsRowID("devicesConnection")
     static let devicesList = SettingsRowID("devicesList")
-    // General → Setup → Command-line tool (G180, TODO ruling 21)
+    // Agents → Command-line tool (G180, TODO ruling 21; on General's Setup card until the Hyrum audit's B11)
     static let commandLineTool = SettingsRowID("commandLineTool")
     // General → Getting to know Cicada (G152, G117 round 4)
     static let guidedTour = SettingsRowID("guidedTour")
@@ -89,6 +89,9 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let ownerHandle = SettingsRowID("ownerHandle")
     static let ownerEmail = SettingsRowID("ownerEmail")
     static let ownerPage = SettingsRowID("ownerPage")
+    // You (D6): the owner's photo, and Your profiles — the owner page's Where-to-check links (G61)
+    static let ownerPhoto = SettingsRowID("ownerPhoto")
+    static let ownerProfiles = SettingsRowID("ownerProfiles")
     // Privacy & data (Task 6)
     static let memoryLocation = SettingsRowID("memoryLocation")
     static let banks = SettingsRowID("banks")
@@ -107,6 +110,12 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let searchMeaning = SettingsRowID("searchMeaning")
     static let searchImages = SettingsRowID("searchImages")
     static let fadePace = SettingsRowID("fadePace")
+    // Hyrum audit B1 (2026-10-22): three pages became groups on another page, and each group keeps the anchor its page
+    // header had (`page:<old raw value>`), so a link, a search entry or a harness script that named the old page
+    // lands on the group. `SettingsSection.retired` names their new pages; `SettingsAnchorsTests` holds both.
+    static let memoryGroup = SettingsRowID("page:memory")
+    static let fromAnywhere = SettingsRowID("page:remote")
+    static let plansAndKeys = SettingsRowID("page:plansAndKeys")
 
     /// Every section's header — what a section-level hit lands on (R-O14).
     static func page(_ section: SettingsSection) -> SettingsRowID { SettingsRowID("page:\(section.rawValue)") }

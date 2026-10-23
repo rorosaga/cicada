@@ -1,6 +1,6 @@
 """Fetch EmbeddingGemma 2 for the Neural Engine once, into ``$CICADA_HOME/models`` (owner 2026-10-09).
 
-One implementation for every door: Settings → Search & files in a release app (``embedding_models``'
+One implementation for every door: Settings → Privacy & data in a release app (``embedding_models``'
 install job), ``make embedding-model-gemma2`` and ``install.sh`` in a checkout (``python -m
 api.services.model_fetch``). It reads the pins in ``api/data/embeddinggemma-2.lock.json`` — one revision of
 ``FluidInference/embeddinggemma-2-coreml``, every file's size and sha256 — and nothing else is fetched: no
@@ -74,7 +74,7 @@ def pins() -> dict:
     try:
         return json.loads(PINS.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        # The person reads this (Settings → Search & files): no repo path, no family name — the log has the file.
+        # The person reads this (Settings → Privacy & data): no repo path, no family name — the log has the file.
         from loguru import logger
 
         logger.warning(f"model_fetch: the pins file {PINS.name} can't be read: {type(exc).__name__}")

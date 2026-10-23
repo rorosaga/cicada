@@ -85,7 +85,7 @@ struct FeedRowsContent: View {
             // G117 — one honest empty state, one action; an export can land right here (R-IA27). The room above is
             // the other door (DESIGN §3.5).
             EmptyStateView(title: Copy.Lists.nothingSaved, message: Copy.SleepTabs.savedEmpty,
-                           actionLabel: "Open Integrations", settingsSection: .integrations,
+                           actionLabel: "Open Sources", settingsSection: .page(.sources),
                            onDropFiles: { intake.accept(urls: $0, from: .emptyState(.sleep)) })
         case .noMatch:
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {

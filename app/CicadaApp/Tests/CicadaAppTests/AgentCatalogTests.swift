@@ -30,13 +30,11 @@ final class AgentCatalogTests: XCTestCase {
         XCTAssertEqual(AgentCatalog.entry(for: "other")?.symbol, IntegrationHarnessRows.otherAgentsSymbol)
     }
 
-    func testAnotherAgentIsSettingsOnlyAndFoundBySearch() {
+    /// D6: agents left Settings for the Agents page, so Settings search no longer indexes them.
+    func testAnotherAgentIsNotFeatured() {
         let other = AgentCatalog.entry(for: "other")!
         XCTAssertFalse(other.featured, "onboarding keeps the owner's nine (R-AG1)")
         XCTAssertEqual(other.kind, .anyAgent)
-        let entries = SettingsIndex.dynamicEntries(channels: [], harnessRows: [], exportOnly: [], connections: [],
-                                                   agents: AgentCatalog.all)
-        XCTAssertTrue(SettingsIndex.search("windsurf", in: entries).contains { $0.entry.id == .agent("other") })
     }
 
     func testTheClaudeAppLandsOnTheClaudePill() {

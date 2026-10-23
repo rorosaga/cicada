@@ -61,27 +61,27 @@ code and docs but not yet driven: drive it before trusting it, and fix the file 
 | [Sleep](./sleep-cycle.md) | trigger, status, commits and trailers, promotion, history | 2026-10-22: `cv sleep` on the plan at haiku (2 processed, 0 requeued, 0 left), commit trailers, page made |
 | [Sleep engine and schedule](./sleep-engine-and-schedule.md) | engine readiness and choice, schedule, run options | 2026-10-22: `GET /sleep/engine`; Plans & keys read in the app, email masked |
 | [Recall and search](./recall-and-search.md) | `cicada_recall`, detail, `cicada recall/get/find`, the app's find | 2026-10-22: MCP recall (meaning query), CLI recall, Home find in the app |
-| [Ask](./ask.md) | `POST /ask`, `cicada_ask`, Home's Ask | |
+| [Ask](./ask.md) | `POST /ask`, `cicada_ask`, Home's Ask | 2026-10-22: `POST /ask`, `cicada_ask`, Home's Ask; fixed (needs `--search-model`) |
 | [Home](./home.md) | the field, needs-you, today, last read | 2026-10-22: app, read and screenshot |
 | [Graph explorer](./graph-explorer.md) | `/graph`, `cicada graph`, the Graph page, focus a node | 2026-10-22: `GET /graph`, Graph page by pixel click |
-| [Entity pages and the Reader](./entity-pages.md) | read, history, blame, edit, picture, decay, evidence span | |
-| [Claims and provenance](./claims-and-provenance.md) | write, retract, claims and spans | |
-| [Clusters](./clusters.md) | the Clusters grid | |
+| [Entity pages and the Reader](./entity-pages.md) | read, history, blame, edit, picture, decay, evidence span | 2026-10-22: read, history, propose, apply, blame, the page from Clusters; fixed |
+| [Claims and provenance](./claims-and-provenance.md) | write, retract, claims and spans | 2026-10-22: write, stored span, trailers, retract; fixed (a restated Sleep fact, G204) |
+| [Clusters](./clusters.md) | the Clusters grid | 2026-10-22: the grid and a tile's page; fixed (tile selector) |
 | [Projects](./projects.md) | list, detail, progress, milestones, `cicada_project` | 2026-10-22: app list and detail, `cicada_project` |
-| [Project backlog](./backlog.md) | add, note, list | |
-| [Inbox](./inbox.md) | list, ask gate, answer, undo a settle | |
-| [Sources](./sources.md) | overview, channels, a page's sources | |
-| [Saved links and reading](./saved-links-and-reading.md) | save a link, the reading queue, reads by the person's agent | |
-| [Video queue and watching](./video.md) | queue, claim, record a watch | |
-| [Exploring saved sites](./site-exploration.md) | explore state and queue (read only in a verify run) | |
-| [Design looks](./design-looks.md) | save and search a look | |
-| [Skills](./skills.md) | Installed, Discover, Drafts, propose and create | |
-| [Timeline, handshake and continuity](./timeline-and-continuity.md) | `initialize` handshake, timeline, continue | 2026-10-22: `cv mcp init` handshake only |
-| [Memory banks and the demo](./memory-banks.md) | list, create, switch, the demo bank's capture guard | |
-| [Imports and intake](./imports-and-intake.md) | drop, File → Import, `cicada import` | |
+| [Project backlog](./backlog.md) | add, note, list | 2026-10-22: add, note, list, the app's Backlog; fixed (note step) |
+| [Inbox](./inbox.md) | list, ask gate, answer, undo a settle | 2026-10-22: list, ask gate, answer, settled; fixed (gate and answer shapes) |
+| [Sources](./sources.md) | overview, channels, a page's sources | 2026-10-22: overview, add a source, Sources page; as written |
+| [Saved links and reading](./saved-links-and-reading.md) | save a link, the reading queue, reads by the person's agent | 2026-10-22: save (MCP and Home), queue on and off; fixed |
+| [Video queue and watching](./video.md) | queue, claim, record a watch | 2026-10-22: empty queue and claim, a watch on a saved link; the lease lifecycle cannot be driven |
+| [Exploring saved sites](./site-exploration.md) | explore state and queue (read only in a verify run) | 2026-10-22: state, candidates, queue; a run cannot be driven |
+| [Design looks](./design-looks.md) | save and search a look | 2026-10-22: save onto a page, search by words; fixed (exact call) |
+| [Skills](./skills.md) | Installed, Discover, Drafts, propose and create | 2026-10-22: list, a held draft, Skills page; fixed |
+| [Timeline, handshake and continuity](./timeline-and-continuity.md) | `initialize` handshake, timeline, continue | 2026-10-22: handshake, timeline, continue |
+| [Memory banks and the demo](./memory-banks.md) | list, create, switch, the demo bank's capture guard | 2026-10-22: list, demo guard, leave; the bank menu not driven (needs focus) |
+| [Imports and intake](./imports-and-intake.md) | drop, File → Import, `cicada import` | 2026-10-22: preview, sniff and import over the app's route; fixed (CLI import is person-only) |
 | [Settings](./settings.md) | the Settings panel's sections (read only where they write the real home) | 2026-10-22: `cicada settings owner`; Plans & keys opened, read only |
-| [Local integrations](./integrations.md) | browsers, Calendar, Contacts, Messages, folders (read only) | |
-| [Connect agents](./agents-connect.md) | Settings → Agents (read only) | |
-| [From anywhere: remote connector and devices](./remote-and-devices.md) | the remote listener, OAuth, device tokens | |
+| [Local integrations](./integrations.md) | browsers, Calendar, Contacts, Messages, folders (read only) | 2026-10-22: a watched folder, Integrations and Search & memory read; fixed |
+| [Connect agents](./agents-connect.md) | the Agents page (read only) | 2026-10-22: `/agents/wiring`, the Agents page read; as written |
+| [From anywhere: remote connector and devices](./remote-and-devices.md) | the remote listener, OAuth, device tokens | 2026-10-22: status, a device token issued, used and revoked; the listener and OAuth cannot be driven |
 | [The `cicada` command](./cli-status.md) | status, commands, JSON envelope | 2026-10-22: `cicada status`, `cicada recall`, `sleep start` refused `person_only` |
-| [Usage, prices and contributors](./usage-and-contributors.md) | run detail, consumption, contributors | |
+| [Usage, prices and contributors](./usage-and-contributors.md) | run detail, consumption, contributors | 2026-10-22: run detail, contributors, Past reads; as written |

@@ -22,7 +22,9 @@ from loguru import logger
 from pydantic import BaseModel, Field, model_validator
 
 from api.config import Settings, get_settings
-from api.services import bank_registry, continuity_sessions, demo_guard, episode_ids, hook_recall, harness_integrations
+from api.services import (
+    awake_read, bank_registry, continuity_sessions, demo_guard, episode_ids, harness_integrations, hook_recall,
+)
 from api.services.telegram_capture import (
     TELEGRAM_WEBHOOK_SECRET_ENV,
     ensure_webhook_secret,
@@ -225,6 +227,8 @@ async def capture_transcript_endpoint(
         raise HTTPException(status_code=400, detail=result.reason)
     if target.redirected_from:
         logger.info(f"capture: the demo bank is open — saved the {req.harness} session into '{target.name}'")
+    awake_read.after_capture(memory_path, result.episode_id, status=result.status, settings=settings,
+                             hook_event=req.hook_event)
     return {
         "status": result.status,
         "episodeId": result.episode_id,
@@ -303,6 +307,8 @@ async def capture_session_endpoint(req: SessionCaptureRequest, request: Request,
         raise HTTPException(status_code=400, detail=result.reason)
     if target.redirected_from:
         logger.info(f"capture: the demo bank is open — saved the {req.harness} session into '{target.name}'")
+    awake_read.after_capture(memory_path, result.episode_id, status=result.status, settings=settings,
+                             hook_event=req.hook_event)
     return {"status": result.status, "episodeId": result.episode_id, "turnsUser": result.turns_user,
             "turnsAssistant": result.turns_assistant, "summary": result.summary, "bank": target.name,
             "bankId": filed, "redirectedFrom": target.redirected_from}
@@ -366,6 +372,8 @@ async def capture_turn_endpoint(req: TurnCaptureRequest, settings: Settings = De
         raise HTTPException(status_code=400, detail=result.reason)
     if target.redirected_from:
         logger.info(f"capture: the demo bank is open — saved the {req.harness} turn into '{target.name}'")
+    awake_read.after_capture(memory_path, result.episode_id, status=result.status, settings=settings,
+                             hook_event=req.hook_event)
     return {"status": result.status, "episodeId": result.episode_id, "turnsUser": result.turns_user,
             "turnsAssistant": result.turns_assistant, "bank": target.name, "bankId": filed,
             "redirectedFrom": target.redirected_from}
@@ -436,3 +444,96 @@ async def hook_context_endpoint(req: HookContextRequest, settings: Settings = De
     hook_recall.record(req.event, req.harness, result, latency_ms=latency_ms, model=req.model, bank=bank)
     return {"additionalContext": result.text, "injected": list(result.injected),
             "reason": result.reason, "latencyMs": latency_ms}
+
+
+# ── G212 (owner 2026-10-22): a paired phone's captures ─────────────────────────────────────────────────────────────
+# A phone paired as `capture` (`device_tokens.KINDS`) reaches only `/sources/save` (a link and its note), the note
+# route below, and its own recent captures (`auth.CAPTURE_ROUTES`). Both routes take any token; the list is a device's.
+
+
+NOTE_MAX_CHARS = 16_000
+MINE_LIMIT = 20
+MINE_SCAN = 500
+
+
+class NoteCaptureRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=NOTE_MAX_CHARS)
+    title: str | None = Field(None, max_length=200)
+    #: The client's own id for this note. A resend with the same id (or the same ``Idempotency-Key``) is the same note:
+    #: one episode, staged by ``source_id``. With neither, the words themselves are the identity (the same words twice
+    #: are kept once).
+    id: str | None = Field(None, min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.:-]+$")
+
+
+@router.post("/capture/note", dependencies=[Depends(refuse_capture_into_demo)])
+async def capture_note(req: NoteCaptureRequest, request: Request, settings: Settings = Depends(get_settings)):
+    """A thought the person typed or shared on another of their devices: **their own words** (a ``user:`` turn, never
+    an agent's ``origin: mcp``), one episode per note, scrubbed and staged like every source-keyed writer
+    (``episode_staging``), queued for Sleep. Capture (Awake): no Sleep gate, no model. The device that sent it is
+    stamped by ``device_context``; a capture-only phone's note is ``origin: phone``, any other ``origin: note``.
+    ``Idempotency-Key`` makes a resend the first answer (``idempotency``)."""
+    import hashlib
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from api.services import episode_staging, idempotency, when as when_mod
+
+    if not req.text.strip():
+        raise HTTPException(status_code=400, detail="The note is empty.")
+    device = getattr(request.state, "device", None)
+    who = device.id if device is not None else "server"
+    key = idempotency.clean_key(request.headers.get(idempotency.HEADER))
+    ident = req.id or (hashlib.sha256(key.encode()).hexdigest()[:24] if key else
+                       "words-" + hashlib.sha256(req.text.strip().encode()).hexdigest()[:24])
+    memory_path = Path(settings.memory_path)
+
+    async def work():
+        now = datetime.now(timezone.utc)
+        instant = when_mod.utc_z(now)
+        origin = "phone" if device is not None and device.kind == "capture" else "note"
+        draft = episode_staging.EpisodeDraft(
+            title=(req.title or "").strip() or "Note", source_id=f"note:{who}:{ident}", timestamp=instant,
+            original_date=now.date().isoformat(), source=origin, origin=origin,
+            turns=[episode_staging.Turn(text=req.text, speaker="user", ts=instant)], writer="note")
+        result = await asyncio.to_thread(
+            lambda: episode_staging.stage([draft], memory_path / "episodes", bank=memory_path.name))
+        status = "created" if result.created else ("updated" if result.updated else "unchanged")
+        return 200, {"status": status, "episodeId": result.episode_ids.get(draft.source_id)}
+
+    _, body, _ = await idempotency.run_once(idempotency.scope_of(request), "/capture/note", key, work)
+    return body
+
+
+@router.get("/capture/mine")
+async def my_captures(request: Request, settings: Settings = Depends(get_settings)):
+    """The newest captures the asking device sent (at most 20 of the newest 500 episodes): ids, titles, times,
+    whether Sleep has read each, and a saved link's URL — never another device's, never the body. A device token
+    only: the server's own token has no captures of its own here."""
+    from pathlib import Path
+
+    from api.services import markdown_parser
+
+    device = getattr(request.state, "device", None)
+    if device is None:
+        raise HTTPException(status_code=400, detail="Only a device's own token has captures to list.")
+    episodes_dir = Path(settings.memory_path) / "episodes"
+
+    def scan() -> list[dict]:
+        files = sorted(episodes_dir.glob("ep_*.md"), key=lambda p: p.name, reverse=True)[:MINE_SCAN]
+        mine: list[dict] = []
+        for path in files:
+            try:
+                fm = markdown_parser.parse(path).frontmatter or {}
+            except Exception:  # noqa: BLE001 — one unreadable file never hides the rest
+                continue
+            if fm.get("device") != device.id:
+                continue
+            mine.append({"id": fm.get("id") or path.stem, "title": fm.get("title"),
+                         "timestamp": str(fm.get("timestamp") or ""), "processed": bool(fm.get("processed")),
+                         "url": fm.get("url") or fm.get("source_url")})
+            if len(mine) >= MINE_LIMIT:
+                break
+        mine.sort(key=lambda e: e["timestamp"], reverse=True)
+        return mine
+
+    return {"captures": await asyncio.to_thread(scan)}

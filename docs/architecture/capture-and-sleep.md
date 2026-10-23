@@ -36,7 +36,10 @@ Seven rails hold across all of them:
   this pass (at most `FRESH_CAP` = 3 listed), each with its episode and `added_at`, the browser's own instant (aware
   UTC, seconds; Chrome's `date_added`, Safari's Reading List `DateAdded`, `saved_at.instant_from_*`). The episode
   keeps `added_at` beside the day in `saved_at`, so the record says *when* a page that may since have changed was
-  saved. A moved bookmark is a URL already held, so a reorganisation is never fresh. **A re-save is fresh (G191 v3,
+  saved. **A new save is dated when it was saved (owner decision B, 2026-10-22):** its episode's `timestamp` and id
+  day are `added_at` (the id its local day), else `saved_at` itself as the id day and noon UTC of it as the timestamp
+  (never later than now), so Sleep and Ask read the save on its own day, as a calendar event is read on its start; with no recorded date it is the day Cicada took it in, and an
+  existing episode is never renamed (ruling 34). The media page's `created` stays the ingest day. A moved bookmark is a URL already held, so a reorganisation is never fresh. **A re-save is fresh (G191 v3,
   owner 2026-10-15):** a link the bank holds that this channel's file newly saved — absent from the channel's last
   seen-set and present now, or stamped by the browser later than the newest instant the last sync saw (the seen-set
   keeps `newest_added`) — is reported with `resave: true` and its own episode, by the sync and the early look alike
@@ -283,6 +286,9 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   names. Apple Calendar (G142): the app reads EventKit after the one standard permission prompt and
   posts a rolling window to `POST /sources/calendar-local/sync` (one request = the whole window).
   `calendar_local.py` stages each event keyed `calendar-local:<id>`:
+  - a new episode for an event that has already begun is dated its start (timestamp and id day; read on time,
+    2026-10-16 — a first sync's past month was otherwise a month of mentions today); one still ahead is dated the day
+    Cicada learned of it; an existing episode keeps its id and first stamp (benchmarks/newuser, 2026-10-22);
   - notes are scrubbed, then cut at 2,000 characters;
   - a link keeps no query;
   - an event gone from the window is tombstoned, only for the calendars the request named;
@@ -321,7 +327,10 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   promotion*); Sleep's engine-free tail matches the cards still waiting against the night's pages
   (`_rematch_contacts_safely` → `contacts_local.rematch`, right after the LinkedIn rematch; its own `cicada` commit,
   `sleep/contacts`; dirty pages skipped; undone on a failed commit; never the owner's page, never a demo bank), and a
-  matched card stops waiting. **Stopping Contacts forgets them (review of #391):** Disconnect, or the app finding
+  matched card stops waiting. Right after it, the tail's **Where to check** step (`_where_to_check_safely` →
+  `source_proposals.propose`, ruling 36 D5, 2026-10-22) proposes the profile links and own repositories already on the
+  record as sources and keeps one question per page about them — engine-free, no fetch, its own `cicada` commit
+  (`sleep/where-to-check`), dirty pages skipped, undone on a failed commit (`storage.md`, "Where to check"). **Stopping Contacts forgets them (review of #391):** Disconnect, or the app finding
   access refused or taken away in System Settings, calls `DELETE /sources/contacts-local/waiting`, which deletes every
   bank's `contacts.json` and thumbnails (Contacts is app-wide; token-gated like every route; counts only), so no first
   mention and no tail rematch uses a card again; what matched pages already gained stays. LinkedIn's kept export has
@@ -406,7 +415,7 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   the target is in another sitting; attachments are described (kind, name, size, type) beside their
   `[image: …]` words; an unsent message (`date_retracted`, or `date_edited` with the words gone) stays only as where
   it was and who sent it (`unsent_turns`), its text never kept. Sittings saved before 2026-10-20 have none of this until
-  the person clicks **Read again** in Settings → Integrations → Messages (`MessagesWatcher.readAgain`: every ticked
+  the person clicks **Read again** on the Sources page → Messages (`MessagesWatcher.readAgain`: every ticked
   chat's cursor back to its first message; nothing re-reads automatically) — a sitting whose words did not change gets
   its extras frontmatter-only and is not read by Sleep again. **The exports** fill the same shape where the export has
   it: ChatGPT's uploads (`metadata.attachments`: name, size, type; an unnamed picture otherwise), a generated image and
@@ -732,6 +741,55 @@ extractor keeps crosses the wire:
   the turns after it), so the episode keeps their order; Cursor's prompt hook
   never flushes (it holds the person's message). Bounded at 2,000 entries / 128 MiB, oldest dropped and counted in
   the log. The recall hooks read the same base and token; they do not spool (a read).
+
+**After capture: the awake read (G207, ruling 36 D2, 2026-10-22).** A captured conversation is usable before Sleep
+reads it, through a separate job that never runs inside the capture write. `/capture/transcript`, `/capture/session`
+and `/capture/turn`, the relay (`cicada_capture_turns`) and an inline import call `awake_read.after_capture` /
+`after_import` once their writer has returned. That call only queues a job on one daemon worker
+(`cicada-awake-read`), keyed by bank, episode and kind, so a burst of turns debounces into one job. Only a `created`
+or `updated` write queues anything. A job held back by Sleep, a re-embed or the admission is retried after
+`RETRY_S` (120 s).
+
+- **Step 0, no model** (`index_now`): `INDEX_SETTLE_S` (3 s) after the capture, the episode's passages are embedded
+  into the episode table (`vector_index.index_episode_stems`). That is a targeted upsert: the same cut and model as
+  the table holds, no other episode's rows touched, and a table it cannot diff (another model, another width) is
+  `skipped`, never rebuilt from part of the bank. It gives way to Sleep within one chunk of `STOPPABLE_CHUNK` (64) texts (`should_stop`, review of #423), writing nothing
+  of the batch and freeing the index's write lock for Sleep's own sync, and is retried after; a big import is queued in
+  jobs of `IMPORT_INDEX_BATCH` (64) conversations so finished ones stay. It does not start while Sleep runs, while a search-model re-embed is
+  running, waiting or due (`embedding_models.pending_switch`), with a hosted embedder (`runs_on_device`), or in a
+  demo bank. The word index needs no job: it is fresh on every read (`search_index.ensure_fresh`, a 1 s TTL).
+- **Step 1, the quick read** (`quick_read`): when the conversation ends. A Stop fires every turn, so "ends" means a
+  `SessionEnd` flush (`ENDED_S`, 5 s), an import of at most `IMPORT_READ_MAX` (5) conversations, or `QUIET_S`
+  (600 s) with no new capture; a relayed conversation has no end event and waits for the quiet window. The read is
+  Stage 1's own extractor (`entity_extractor.extract(..., stage="quick_read")`), run once, with the person's engine
+  resolved like a scheduled run (`resolve_settings(user_triggered=False)`, rulings 4 and 31) and its small model
+  (`agent_disambiguation_model` / `codex_disambiguation_model` / `litellm_disambiguation_model`). It keeps only the
+  claims whose subject is a page that exists (the pages' names and aliases, plus the owner's self-references,
+  through `claim_pipeline.subject_resolver`). A name with no page is *held* in the record for Sleep's promotion,
+  never minted and never parked in `pending_store` (Sleep reads the conversation itself, so nothing is counted
+  twice). The output is one provisional record, `<bank>/.awake/<episode>.json` (`storage.md`). It is written under
+  `write_admission.admitted`, off the event loop, never across the model call, and not at all when Sleep read the
+  episode meanwhile. The same body revision is never read twice. At most `READS_PER_HOUR` (20) reads per process;
+  past that a conversation waits for Sleep, which is logged. Nothing provisional writes a page, a claims fence, a
+  pending line or a commit.
+- **Sleep settles** (`awake_read.settle`, right after `_mark_episodes_processed`): each provisional claim of a
+  retired episode is **confirmed** (the same deterministic claim id is now on its page), **corrected** (the page
+  holds a claim from that conversation with the same subject and predicate) or **dropped**. The counts are logged as
+  numbers only, then the record is deleted. A record whose episode was edited again stays for the run that reads
+  the new revision.
+- **`CICADA_AWAKE_READ`** = `off` | `index` (step 0) | `on` (steps 0 and 1). When unset: step 0, plus step 1 when
+  `awake_read.QUICK_READ_DEFAULT` says so. There is no Settings switch (owner D2). The suite's conftest sets `off`.
+  The default was decided by `benchmarks/awake_bench.py` (the numbers are in the PR and below).
+- **Measured (2026-10-22, saga-01, Claude plan, haiku for answer, judge and quick read, 3 repeats, 12 questions;
+  11 answerable only from a new conversation, 1 control):** easy set (6 new conversations): (a) today **1/12** every
+  run (only the control), (b) step 0 **12/12** every run, (c) step 0 + 1 **12/12** every run. Hard variant (the same
+  plus 30 unslept distractors): (a) 1, 1, 1; (b) 12, 12, 12; (c) 12, 12, 12, and 12, 12, 12 again on the final ranking of the provisional block. Today's recall states the stale fact on
+  9–11 of 36 answers (contradicted); (b) and (c) on none. The quick read costs **1 call per conversation** (1.01 with one retry in 108), about
+  10.8k input tokens (mostly Stage 1's own prompt) and 1.0–1.6k output, 6–8 s. In the verify run, Sleep's settle
+  of one quick read was 3 confirmed, 1 corrected, 1 dropped. **(c) does not beat (b), so step 1 is built but off**
+  (`QUICK_READ_DEFAULT = False`): step 0 alone closes the measured gap. Revisit when a set where (b) is below its
+  ceiling exists (more new conversations than recall's 3 excerpt slots can hold on one topic, or questions that need
+  a fact joined across conversations).
 
 ### Sleep — 5-stage nightly batch
 1. **Entity & relationship extraction** — LLM over episode chunks, structured output.
@@ -1083,7 +1141,7 @@ an unclassified extraction rejection retains its legacy call retry. Calls outsid
 is sorted (`engine_cause`, text first, then litellm's class names) into a spending or credit limit reached, a refused
 key, an unknown model, or a rate limit, and the stop's sentence — the drain's, the paused record's and `error` — says
 that cause and its fix in provider-neutral words: raise the key's limit or add credit with the provider; check the key
-in Settings → Plans & keys; choose another engine in Settings → Engines, or change the model where it was set (Settings no longer edits a model id, 2026-10-22); continue later. A scheduled run that ruling 4
+in Settings → Intelligence → Plans & keys; choose another engine in Settings → Intelligence, or change the model where it was set (Settings no longer edits a model id, 2026-10-22); continue later. A scheduled run that ruling 4
 kept off the plan (`engine_select.SCHEDULE_DEGRADED`) also names *Scheduled runs may use my plan* in Settings → Sleep
 as a fix — named, never flipped (ruling 4b). The provider's raw text never reaches the wire. A cause outranks G117's
 "no engine chosen" guess (a refused key on such an install names both doors); no recognised cause keeps the generic
@@ -1164,6 +1222,32 @@ Home's "Last read" shows the last batch's pages. Details' last-cycle figures —
 Entities are NOT extracted from every mention — that pollutes the graph. First mention stays in the
 vector index only; promotion needs **2+ separate conversations**, OR substantive discussion (>3
 exchanges) in one, OR an explicit link to an existing high-confidence entity.
+
+**A project is born from a repository or the person's words, never from this rule (ruling 36 D4, G141,
+2026-10-22; `api/services/project_birth.py`).** For a `project` mention the rungs below do not apply. Stage 1 computes,
+on the conversation it read (no model), a `project_birth` record and drops any the model's JSON carried:
+- **repo** — the episode is a harness session the hook observed in a git checkout (`workspace_identity` with a
+  `family_hash`, bound to the stored `project_dir` by its `cwd_hash`; G110 D2), and the mention's name or an alias,
+  folded (case, accents, punctuation), is the checkout's folder name: the last component of `project_dir`, or the one
+  before a `.worktrees`/`worktrees` folder. Read from the two stored strings only — the backend never opens, stats or
+  runs git in the path, and **no remote is read** (D2 allows the hook only the `rev-parse` pair, so the remote the
+  ruling's text mentions is not available; the folder name stands in for it, disclosed).
+- **words** — one sentence of a person's own turn (`user`, or a meeting `speaker`) names it within five words of
+  *project* (or *proyecto*, *projet*, *Projekt*, *progetto*, *projeto*, plurals), inside one clause (no comma, colon,
+  semicolon or parenthesis between them — except one colon after the project word's clause that introduces the name,
+  "New project with Teo: fernpost", W3 2026-10-22), outside a recorded gap; kept as a span `{start, end, hash, kind}` into the
+  episode, never a copy (G118). A name that itself contains "project" does not call itself one.
+Stage 2 promotes a `project` exactly when one of the batch's extractions of that name carries a record (the oldest
+conversation's wins); everything else, however often mentioned, waits on its pending line like any name below the bar.
+"A project" is the type the create will write (`_written_type`: a sibling's `project` overrides a `concept` when the
+payloads merge), never only the chosen mention's (W4). A project mention with no match whose recorded alias names
+exactly one project page — on disk, else born this batch — brings that page to the judge (W2): "same" makes it the
+page's update, "unsure" asks the person, "different" or a pair the person rejected leaves it a held mention. An alias
+brings its page to the judge, never a decision (owner 2026-10-08).
+Stage 5 writes the record once, as the page's `born:` frontmatter (`storage.md`). A watched folder the person named as
+a project (`folder_source.ensure_project`) is born `{origin: words, via: folder}`. Pages that existed before the rule are
+never archived or deleted for it; `python -m api.scripts.project_origins_dry_run --bank <path> [--json] [--quotes]` lists
+each with the origin the bank can show and why, read only, for the owner before any review list is raised.
 
 **The bar is measured, not guessed (page quality, 2026-10-09; `api/services/promotion.py`).** A clean run of 296
 conversations wrote 70% of its 3,588 pages from one conversation (median 85 words, 3 facts): a function in the
@@ -1394,6 +1478,57 @@ usually 1 call; one that shares a word and names its alias holder usually costs 
 holder is judged first. A judge call with no alias candidate gets the prompt it always got, byte for byte. Link recon
 (`match_existing`) does not read aliases.
 
+**One person, one page: leads, never merges (G209, 2026-10-22).** A live bank held one person three times: a
+full-name page already listing a handle as an alias, a page titled by the handle (both born in one Sleep run), and
+a pending line `handle (Full Name)`. Measured there: 14 of 277 person pages carried a name that another person page
+listed as an alias. Four gaps caused it, each closed:
+- **In-cycle alias parity.** `_created_llm_candidates` reads an in-cycle create's aliases the way
+  `_existing_llm_candidates` reads a page's. A same-type create listing the name is judged first, with the alias
+  note, the create's other names (`_alias_context`) and the name's batch connections. A name with no shared word now
+  meets the create, where before it got no candidate at all. Same rule as on disk: `same` merges, `unsure` asks.
+- **An exact page no longer hides the alias.** When a name matches its own person page and another person page lists
+  that name as an alias or links it as an account, Stage 2 files "Possible duplicate of …" with no model call
+  (`person_leads.PersonIndex.leads_for`, `_create_lead_clarification`). The context says the lead in words ("<holder>
+  already lists "<name>" among the other names it goes by"). The mention is still credited to its own page: it is
+  never a merge. A pair the person called different (`merge_rejections`) is never asked again. A mention of the name
+  closes an open duplicate question only when it merged into the page that question proposed
+  (`check_organic_resolution(merged_into=)`).
+- **A linked account is a lead.** A profile link on a person page (`x.com/<h>`, its `/status/` posts,
+  `github.com/<h>` but not a repository under it, `instagram.com/<h>`, `linkedin.com/in/<h>`, in `sources:` or in the
+  body) makes a new person name equal to that handle a question, never a page: the name parks as a pending line, and the
+  question context names the account. A handle is never derived from a name; it must already be written on the page.
+- **`Full Name (handle)` / `handle (Full Name)`** in a person extraction (`person_leads.split_named_handle`: one side a
+  handle, `@x` or one lowercase token that is not a relation word, and the other two or more words) is keyed by the
+  full name with the handle as its alias. The raw spelling still resolves edges and claims (`name_to_id`). A pending
+  line parked under that spelling folds into the page the full name resolves to, with its text, credits and held claims,
+  and leaves the store through `promoted_pending`.
+
+- **A held name meets the page its alias names (W1, benchmarks/newuser 2026-10-22).** Specific names are judged
+  first, so a full name said once (aliases the short name and a handle) is held before the short name its other
+  conversations promote has a page. After the loop, every held person name — this batch's and the pending store's —
+  whose recorded alias is the name of exactly one person page raises "Possible duplicate of …"
+  (`_held_alias_questions`); an alias two pages answer to asks nothing. At most three such questions about a name with
+  no page are open at once (`MAX_HELD_ALIAS_QUESTIONS`), so a first Sleep over a long pending store never floods the
+  inbox; dismissing a "Possible duplicate" card records the pair in `_merge_rejected.yaml`, like "not the same", so
+  the line re-read from the store is not asked again.
+
+Nothing here settles who a person is (ruling 29): every lead ends in the person's question. A duplicate question about
+a name still parked below the promotion bar is live while its pending line exists (`inbox_service._subject_gone`,
+`pending_store.waiting_ids`). Before 2026-10-22 it was read as "no longer in your memory", hidden from the inbox and
+retired by Sleep's tending the same night. That predated G209 and also hit Stage 2's own `unsure` duplicates.
+**The person's answer sticks (review of #421).** A "same" answer on a name with no page adds the name to the target's
+aliases and takes its pending line (a line still holding claims stays until they are written there). Stage 2 then reads
+the answer's note on the page (`person_leads.answered_same`) as the person's own verdict: the name goes to that page,
+with no judge and no question. A "different" answer (`merge_rejections`) drops that page from both the lead and the
+judge's `unsure`, so the name promotes or parks by the usual rule and is never held back by a question that will not be
+asked again.
+`python -m api.scripts.person_leads_dry_run --bank <path> [--json]` lists every lead for a bank: page↔page, a parked
+name another page carries, and a parked `handle (Full Name)` line with its page. Each lead shows whether its question is
+open or was answered "different". It writes nothing. Proven on a scratch bank (plan, haiku): four conversations naming
+`<person-a>`, `<person-a> (<handle-a>)` and `@<handle-a>` in one batch. Before, they made two pages and no question;
+after, they make one page, because haiku judged the alias `same`. An agent-added X profile link plus two conversations
+naming that handle raised "Is <handle> the same as <person>?", which the inbox served after Sleep.
+
 **A reference is not recorded as a new alias (2026-10-08, narrowed in fix round 1).** An alias is another NAME for the
 thing; a phrase that only points at it inside one conversation ("the lock", "this project", "la base") is not.
 `alias_policy.is_reference` is deliberately narrow: two or more words, all lowercase, no digit, the first an article or
@@ -1417,7 +1552,9 @@ other writer added — a person's merge included — is counted and kept.
 evidence_entities, confidence}`; the old writer kept only the name and description, so every skill page was born
 with `source_episodes: []`, `created` = the cycle's day, no section provenance and no `related`, was written only
 when absent (a pattern found again never moved its page), and decayed with zero mention weeks. Now
-`skill_grounding.ground` matches each evidence name, without a model, to this batch's conversations (Stage 1's names,
+`skill_grounding.ground` matches each evidence name, without a model, to this batch's conversations — conversations
+only: a saved item or a calendar entry (`inbox_tend.record_origin`) is a record, never evidence of how the person
+works (benchmarks/newuser, 2026-10-22: two bookmarks had grounded a "skill") — (Stage 1's names,
 Stage 2's `name_to_id`, the changes' own sources), keeps those where two of the named entities came up together (every conversation of the one, when only one of them
 came up in the batch), and hands `apply_changes` an ordinary `create`/`update` change: dates from those
 conversations, the Summary's section provenance citing each as `reasoning` (an inference, never a quotation), a
@@ -1730,7 +1867,7 @@ dates plus the weeks the person answered *keep* to a decay question (`kept_on`; 
 together counts once); `f(w) = max(0.25, 1 / (1 + 0.6·ln w))` (`decay_spacing_alpha` /
 `decay_spacing_floor`) — fifty mentions in one afternoon are one week, and a page that came up across
 twelve weeks fades about 2.5× slower. The per-type pace comes from `<bank>/_decay_tuning.yaml`,
-written only when the person applies a suggestion in Settings → Memory; suggestions are derived from
+written only when the person applies a suggestion in Settings → Privacy & data; suggestions are derived from
 the bank's own decay answers in git history (`GET /memory/decay-suggestions`) and never applied on
 their own. One function, `decay_policy.effective`, serves the pass and the entity wire's derived
 `decay` block. Claims fade the same way (`claim_reconciler._decay_claims`: weeks from the claim's

@@ -69,9 +69,9 @@ final class FindPaletteTests: XCTestCase {
     /// destination), and it is remembered like any row that navigates.
     func testASettingsRowOpensThroughTheOneDoor() {
         let m = model()
-        m.setQuery("integrations")
-        let key = FindRowKey(kind: .setting, id: SettingsSection.integrations.rawValue)
-        XCTAssertEqual(m.activate(key), .settings(.integrations, row: nil))
+        m.setQuery("intelligence")
+        let key = FindRowKey(kind: .setting, id: SettingsSection.intelligence.rawValue)
+        XCTAssertEqual(m.activate(key), .settings(.intelligence, row: nil))
         XCTAssertEqual(m.recents.first, key)
     }
 

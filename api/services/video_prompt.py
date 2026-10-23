@@ -25,7 +25,7 @@ from pathlib import Path
 MAX_CHARS = 1200
 
 #: Provider-neutral; an instruction, not a promise (R-RW8). The person's consent
-#: is the single reading permission — Settings → Agents.
+#: is the single reading permission — the Agents page.
 BROWSER_CLAUSE = (
     "The person has allowed you to use their signed-in browser. If a video needs a sign-in, open it there. "
     "Do not type credentials, post, comment or change anything. If it still won't open, hand it back with "

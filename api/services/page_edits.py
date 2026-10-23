@@ -95,6 +95,16 @@ _HEADING = re.compile(r"^(#{2,3})\s+(.+?)\s*$")
 _WORD = re.compile(r"\w", re.UNICODE)
 
 
+def _flag(value, default: bool, where: str) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.strip().lower() in ("true", "false"):
+        return value.strip().lower() == "true"
+    raise EditError(f"{where} must be true or false.")
+
+
 class EditError(ValueError):
     """An edit Cicada refuses, with a sentence the agent (or the person) can act on. Nothing was written."""
 
@@ -178,9 +188,9 @@ def parse_request(edits=None, section=None, text=None, add_aliases=None, remove_
                 if (bad := _structural(value)) is not None:
                     raise EditError(f"Edit {i}: `{part}` holds {bad}; edit the words inside a section, or use "
                                     "`section` to rewrite one.")
-            every = bool(raw.get("all", False))
-            pin = raw.get("pin")
-            pin = every if pin is None else bool(pin)
+            # G199 fix round: `"false"` (a CLI's JSON, an agent's string) is false — `bool("false")` made it true.
+            every = _flag(raw.get("all"), False, f"Edit {i}: `all`")
+            pin = _flag(raw.get("pin"), every, f"Edit {i}: `pin`")
             if pin and len(old) > PIN_MAX:
                 pin = False
             request.edits.append({"old": old, "new": new, "all": every, "pin": pin})

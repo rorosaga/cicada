@@ -18,7 +18,7 @@ Where a value can be set:
 
 ## The engine is fixed
 
-Settings → Engines says *"Cicada's setup on this Mac fixes the engine, so a choice here won't take effect."* when
+Settings → Intelligence says *"Cicada's setup on this Mac fixes the engine, so a choice here won't take effect."* when
 `CICADA_LLM_MODE` is set (one of `auto`, `agent`, `codex`, `local`, `byok`). It outranks the choice made in the app and
 in `cicada sleep engine`, which answer that the engine is fixed rather than change nothing silently.
 

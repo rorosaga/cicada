@@ -23,6 +23,29 @@ history — stays reachable through the tool under the default scopes (a 3,500-c
 past any client's limit; eliding its fence instead lost the ids an agent needs to withdraw its own claim, review
 round 1). `cicada get --start N` is the same; `--from`/`--count`/`--line-numbers` slice the whole page.
 
+**Recall's size (2026-10-22).** A `cicada_recall` reply stays under `RECALL_BUDGET` (40,000 characters, about
+10,000 tokens, well under Claude Code's default 25,000-token MCP cap; `REMOTE_RECALL_BUDGET` 20,000 on the remote
+connector) whatever the bank holds — a recall that named the owner's page was 221,719 characters and reached the agent
+only as an error. Each hit's `Related:` line shows at most `RECALL_RELATED_SHOWN` (12) names, those this recall also
+returned first, then `… and N more — <page read, start=1> lists them all`; `summarize_for_recall` keeps Summary and Key
+Facts first but cuts them at whole lines within the hit's budget (Key Facts keep at least a third), ending a cut list
+with `- … and N more on the full page`; a hit's body is backstopped at 6,000 characters; the inbox block shows at most
+5 questions, the cold-start hub list 8,000 characters. A reply still over the budget leaves out its lowest-ranked page
+blocks first (never the top one) and says which in one line (`_fit_recall`); under the budget it is unchanged byte
+for byte. Headings and line shapes are the same; only lengths change.
+
+**Before Sleep (G207, 2026-10-22).** Recall's "Related conversation excerpts" (under the `sources` scope, R-R22)
+rank-fuse two legs, keeping 3: the vector leg (`_leann_search_episodes`), which step 0 fills right after capture
+(`capture-and-sleep.md`, "After capture"), and a word leg over the FTS passages (`_lexical_search_episodes`:
+`search_service.search(kinds=("episode",), vectors=False)`, bm25, ~400 characters of the stored body around the
+matched line, the dropped-middle marker blanked). An excerpt from a conversation still `processed: false` reads
+`- [<episode>] (<day>, not yet read by Sleep) …`; a read one is unchanged. When a quick read ran, a block **"Not yet
+read by Sleep (provisional …)"** follows the page summaries. It holds up to 12 provisional claim lines
+(`- [[Page]] <claim text> — \`<claim id>\`, from <episode>`): the top hits' pages first, then claims sharing a word
+with the query. Then one line names up to 5 held names that match a query word. It is shown only while the episode
+is unread, it is an ordinary block under `_fit_recall`'s budget, and it is Cicada's reading, not the person's
+verbatim words, so it follows the claim leg's scope.
+
 **Recall (G140).** Three legs fused by one RRF (`search_service.rrf_fuse`): the stored vectors, the
 FTS lexical leg (names, aliases and prose, word by word), and current claims mapped to their
 subject — so an alias or a relationship label reaches its page. Each leg is filtered against the pages as their
@@ -34,8 +57,13 @@ members, `cicada get <name>`) resolves through `search_index.entity_names` — t
 `(mtime_ns, size)` did not move, a parse for the ones that did — with a stem match winning over a name match; the inbox
 block's causes parse only the pages they land on; and `litellm` is imported only when a model is called. Measured on a
 synthetic 3,600-page / 1,500-episode bank with a model-free embedder: 2.15 s → 0.45 s median per fresh-process call,
-warm 0.35–1.0 s → 0.08 s, byte-identical replies (2026-10-09). The top three pages carry a bounded
-"Changed recently" block (claims closed in the last 30 days, ≤ 5 lines);
+warm 0.35–1.0 s → 0.08 s, byte-identical replies (2026-10-09). **Each page's heading says its age and state, never a
+raw confidence (G210, 2026-10-22):** `### <name> (<type>, last said 3 weeks ago on <day> · fading)`
+(`entity_bands.said_line`: today, yesterday, N days under two weeks, N weeks under two months, N months under two years,
+then years; `active`/`fading`/`archived`; no day, only the state). Confidence still ranks nothing. The top three pages
+carry a bounded "Changed recently" block (claims closed in the last 30 days, ≤ 5 lines), each line saying the day the
+fact stopped: `"X" — superseded on <day> by "Y"`, `ended on <day> (its stated end)`, `withdrawn on <day> by …`,
+`closed on <day>`;
 `cicada_get_perspective(history=true)` lists every earlier claim. **`cicada_timeline(since)`**
 answers "what changed" from the commit manifests on demand — ids and counts only, nothing stored,
 `read` scope remotely. **`cicada_record_watch`** records what an agent's own tools saw in a saved
@@ -97,7 +125,16 @@ fact can be checked when there is no claim to write — only a source the person
 agent guessed; it is not `cicada_sources` (conversations). `record` scope remotely, where a path, a
 repo or `access: local` is refused; it commits alone under the harness. `cicada_write_claim(sources=)`
 takes a string or `{ref, access}`. Since G61 S3-a (contract 12, remote 9) the primer names it, and takes an optional
-`entity` (an existing page that knows more about the source). **`cicada_change_source(subject, ref, predicate, action,
+`entity` (an existing page that knows more about the source). **Where to check (ruling 36 D5, contract 20, remote 14,
+2026-10-22):** the tool, the primer and the skill carry one definition — *a link where the current state of this thing
+can be checked — a profile, a personal site, a publication list, a repository or any page; Cicada re-checks it on a
+schedule and agents check it before answering about the thing* — and the tool takes `inferred: true` with `evidence:
+[{episode, quote}]` (≤ 3, the first located one kept as a span) for a source the agent found itself, on the record or
+in research. That lands as a proposal (`proposed: true`, `storage.md` "Where to check"): untrusted, no picture, no
+re-check, joined to the page's one question on the next Sleep; the reply says it waits for the person's yes. A profile
+ref is stored in its canonical form with its kind as the predicate when none is given. The direct add (the person
+named it) is unchanged. The CLI table's proposed `source add` row (`cli_map`, not exposed yet) names both arguments,
+so the CLI↔MCP parity test holds when it ships. **`cicada_change_source(subject, ref, predicate, action,
 reason, new_ref?, new_predicate?, access?, entity?)`** corrects (`update`) or removes (`remove`, `reason` required) a source
 the caller added — keyed `(ref, predicate)`; `record` scope remotely, a remote caller never names a path, a repo or `access:
 local`; refused with nothing written in a demo bank, while Sleep runs, for no such page or key, for an entry that is not the
@@ -185,7 +222,7 @@ read on the Sleep tail (`network.md`); a login-walled one (LinkedIn and the like
 without a machine-readable fact are the person's own agent's, through two stdio-only tools on a small lease queue outside
 every bank (`$CICADA_HOME/refresh_queue/<bank>.json`, the explore queue's rules: one live lease per site across every
 agent, 15 minutes, a wall pauses the site a week). **`cicada_refresh_claim(limit?, release?)`** leases due sources (default
-1, ≤ 5) only while agent reading is on and acknowledged, the site is turned on in Reading the web, not Never explore, and —
+1, ≤ 5) only while agent reading is on and acknowledged, the site is turned on in Reading in your browser, not Never explore, and —
 for a walled page — the signed-in session is allowed (ruling 25 D2); it lists what memory holds now for that fact.
 `release` hands one back (`needs_login | blocked` pause the site; `failed | skipped`). **`cicada_record_refresh(entity_id,
 source, lease_token, outcome, predicate?, value?, ended?, quotes?, captured_at?, summary?, via?)`** records `read` (the
@@ -366,9 +403,11 @@ contacted, not even for its favicon; a 404 is retried once with `www.`, only a s
 service is told the site's name (the registrable domain, never a saved subdomain), under `CICADA_ALLOW_LOGO_FETCH`.
 **The app half (G166).** `VersionVector.mapping["reading"] = [.sources]`, so an agent's outcome (an ask-store write, no
 bank write) refreshes Sleep › Saved over SSE; `MediaFeedItem.read` (`MediaReadState`, decoded leniently — an older backend, or
-a value this build cannot read, drops the block and never the row). **Settings → Reading the web** (`SettingsSection.reading`,
-in Customize after Integrations; `ReadingWebView`, `ReadingAgentModel`; not a Store domain — fetched when the page opens and
-answered by every write) has three groups. *With an agent*: "Let an agent read pages for you", off by default; turning it on
+a value this build cannot read, drops the block and never the row). **Reading in your browser** (a sheet from the Sources page's
+header since D6, `ReadingInBrowserSheet` around `ReadingWebView`; `ReadingAgentModel`; not a Store domain — fetched when it opens and
+answered by every write) has three groups. *With an agent*: "Let an agent read pages for you" — **on by default behind the
+first-use sheet** (owner 2026-10-22: `reading_settings` stores only an off, and nothing reads until the current sheet is
+accepted); turning it on
 raises `SettingsSheet`'s first-use sheet (what asking does, that Cicada only asks, Cicada's instruction to the agent — no
 credentials typed, nothing posted, messaged or changed — with the honest limit that it can't see or enforce what happens in
 the browser, the sites' terms, an "I understand" that must be ticked, DR-41 — **no site picker**) and nothing changes until "Turn on", which sends the acknowledgement in one
@@ -393,10 +432,10 @@ hand-off sentence). It is drawn only when something was recorded, an agent may b
 it", with the site's icon at 16 pt, and **Let an agent read <site>** beside Ask an agent — one `PUT` when the sheet is
 already acknowledged, else the same first-use sheet; a page of an allowed site reads "Waiting for your agent · <site> is
 allowed"; a disabled Ask carries the server's own `reason`); an ordinary page with agent reading off draws nothing.
-Settings → Agents keeps one row, "Reading pages", linking here. **Home** gains its own block, *Needs your browser*
+the Agents page keeps one row, "Reading pages", linking here. **Home** gains its own block, *Needs your browser*
 (`ReadingSitesSection` between Needs you and Last read, over `ReadingSitesCache` — in memory, ETag-revalidated when Home
 appears or the sources move, emptied on a bank switch, never a Store domain): "N saved pages need your browser to be read"
-(the server's `waitingNotAllowed`), up to three of those sites' icons, linking to Settings → Reading the web; hidden at
+(the server's `waitingNotAllowed`), up to three of those sites' icons, linking to the Sources page; hidden at
 zero and once every listed site is allowed, and never counted in Needs you. The wall
 is not shown only there: the saved row's second line says "Needs sign-in" (`ReadWords.rowFlag`) and `ContentView`
 toasts a link that just hit one (`ReadWords.newlyWalled`; the first look after launch or a bank switch announces
@@ -406,7 +445,7 @@ as "<agent> noted: …". No line says "in your browser" of what an agent did, or
 **YouTube lists (G71 / G166, owner 2026-10-16: "the agent being able to go to youtube using the browser to monitor
 stuff … like for youtube watch later/history").** The third door onto the watch record (`capture-and-sleep.md`, *Watch
 history*), on this section's rails: Cicada never spawns a browser, never signs in and never fetches either page; it only
-offers. **Consent:** agent reading on (its sheet acknowledged) AND the person turned the list on in Reading the web
+offers. **Consent:** agent reading on (its sheet acknowledged) AND the person turned the list on in Reading in your browser
 (`reading.json` `youtube_lists`, `{watch_later|history: day}`, off by default, refused without a current acknowledgement). The switch is a **standing ask for exactly that page**, not
 a site grant: it never lets a wall page of youtube.com, or any other page of it, be recorded — the one dated exception
 to "only a link the person asked about, or a wall page of a site they allowed" (owner 2026-10-16, CLAUDE.md's rail). **The offer** (`youtube_lists.py`; state in
@@ -425,6 +464,46 @@ folder `Watch later`, origin `youtube-playlist` — a video already saved by any
 through `watch_history` (door `agent`, the page's day; a row without a day is left out). Committed alone as the harness
 with its session trailer. **Not built:** a video removed from Watch later on YouTube stays saved here (the read only
 adds); the agent reads a few screens, so a long list fills over several reads.
+
+**Saved lists on X, Instagram and LinkedIn (G206, redesign 2026-10-22, ruling 36).** The YouTube lists' shape, per
+walled site: X Bookmarks (`https://x.com/i/bookmarks`), Instagram Saved (the profile's Saved tab, reached from
+`https://www.instagram.com/` — Cicada keeps no profile name) and LinkedIn Saved posts
+(`https://www.linkedin.com/my-items/saved-posts/`). Cicada never spawns a browser, never signs in and never fetches a list
+page; it only offers. **Consent:** agent reading on (its sheet acknowledged) AND the person turned that site's list on
+(`reading.json` `saved_lists`, `{x|instagram|linkedin: day}`, off by default, refused without a current acknowledgement;
+`PUT /reading/settings` `savedLists` patch, the Sources page's switch; `GET /reading/settings` carries `savedLists`
+and `saved` — per site the last read, its outcome, item count and pause, plus `readsToday`/`dailyReads`). Like a YouTube
+list it is a **standing ask for exactly that page**, never a site grant: it lets no other page of the site be recorded.
+**The offer** (`saved_lists.py`; state in `$CICADA_HOME/saved_lists.json`, ids, enums, counts and times only,
+`flock`ed): a list is due when allowed, not paused and not read for this bank in 20 hours; **one site's list at a time**
+(the first due, in the order X, Instagram, LinkedIn) and **at most 10 recorded reads a UTC day per bank** across the
+three (G206's bound, the LinkedIn profile read's, until measured). `cicada_reading_queue` (stdio only) appends its
+lines — the page, what to read (each post's link, author and the words it shows), only the list (never the feed or
+messages), never click anything that changes it (no unsave, like, follow or reply), never sign in — and
+`reading_queue.counts` counts a due list as one of the person's asks. **`cicada_record_saved_list(platform, outcome,
+items?, via?)`** (`record` scope, stdio only — `catalog.NEVER_REMOTE`; a proposed CLI row `read saved`, not exposed)
+under one admission and page lock: refused, writing nothing, in a demo bank, with reading off, for an unknown platform or
+outcome, a list not turned on, or the day's reads spent. `needs_login`/`blocked` pause **that site's** list for 7 days
+(no bank write; a sign-in on X says nothing about Instagram) and file a G205 agent request — "<Agent> is asking you to
+sign in to x.com, to read your bookmarks" — when the `agent_requests` module is present (a no-op before G205 lands;
+`saved_lists.resume_site` is what its "I signed in" should call); turning the list on again lifts the pause. A `read`
+(≤ 200 items a call): each item must be a post of that site (`saved_lists.canonical`: an X status, an Instagram
+`/p/`, `/reel/` or `/tv/`, a LinkedIn `feed/update/urn:li:…` or `/posts/…`; the rest are counted and left out), saved
+through `media_ingestor.write_prepared` with no fetch, under the list's own origin and folder (`x-bookmarks`/`Bookmarks`,
+`instagram-saved`/`Saved`, `linkedin-saved`/`Saved Items` — the export archives' own), so `history_index.kind` makes it
+**index-only: `processed: true`, `processed_by: index`, never read by a model** (ruling 30). Dedup is by URL: the post's
+other spellings (X's `i/web/status`, `twitter.com`, Instagram and LinkedIn without `www`) ride as `url_index` aliases, so
+a post an archive, a connector or a pasted link already saved is a duplicate; the platform's own ids are never asked
+for. The post's words become the title (≤ 80) and description (≤ 500), scrubbed; they are the post's, never the
+person's (no `note`). Committed alone as the harness with its session trailer. **Not built:** a post unsaved on the site
+stays saved here (the read only adds); the app's switch (spec in `app.md`, "Saved lists in your browser").
+
+**A walled post's title (2026-10-22).** The backend never fetches an X, Instagram or LinkedIn post (R-RW4), so a saved
+one is titled from its URL alone (`media_ingestor._walled_post_title`): "Post by @<user>" for an X status (before, its
+bare numeric status id), "Post on X" for `i/web/status`, "Instagram post"/"Instagram reel", "LinkedIn post" for a
+`feed/update` URN. `media_ingestor.is_placeholder_title` counts both today's fallback and the old bare-id title as a
+placeholder, so an agent's read (`page_read._apply_title`) still replaces either, and the reading queue never prints one
+as a title.
 
 **One person's LinkedIn profile (owner 2026-10-16: "extracting people profiles from my LinkedIn connections (maybe
 could be a skill)").** The connections import (`capture-and-sleep.md`, *LinkedIn connections*) leaves a person page
@@ -463,7 +542,7 @@ at once on Sources and stoppable in one tap (`POST /explore/stop`: waiting sites
 never opens a browser and never schedules an agent.
 - **The candidates** (`explore_candidates.py`): saved links minus `reading_hosts.classify`'s refusals (secrets, local,
   AI apps, videos, papers, redirectors), private workspaces, junk/archived pages, walled sites the person has not turned
-  on in Reading the web, and **Never explore** sites. Depth comes from the person's reason (D4; slice 2 below).
+  on in Reading in your browser, and **Never explore** sites. Depth comes from the person's reason (D4; slice 2 below).
 - **Depth follows the person's reason (slice 2, owner 2026-10-14 evening; `explore_plan.py`).** By default a visit is
   the saved page alone: a viewport, a thumbnail and the metadata. The reason is read deterministically — **no model in
   the backend** — from G191's `saved_why.reasons` ids and project, the person's own words (`saved_why.text`, a
@@ -1202,7 +1281,19 @@ tunnel; `runtime_layout.api_base`), this machine holds no bank. Unset, every doo
   `feed list`, a platform export's import) refuses `on_server` (exit 1). With the server unreachable every command but
   `status` refuses `backend_down` (exit 6); a refused token is `unauthorized`.
 - **Devices** (`cicada device add <name>|list|revoke <id>`, person-only, `via="backend"`, run on the server): the
-  token is printed once; only its hash is kept (`api.md`, "Device tokens").
+  token is printed once; only its hash is kept (`api.md`, "Device tokens"). `cicada device pair [--url <address>]`
+  (G212) prints a one-time code and its QR payload for a new device (`api.md`, "Pairing a device").
+- **Agents on the HTTP agent API** (`cicada agent add <name> [--scope …] [--days 7|30|90] [--url <address>]|list|revoke
+  <id>`, G213, person-only, `via="backend"`): prints the paragraph to give the agent, token inside, once (`api.md`,
+  "The agent API").
+- **`cicada setup`** (G213, owner 2026-10-22; person-only, `via="backend"`, `api/cli_setup.py`): finds the server
+  (`/healthz`), the agents on this machine and whether each reaches Cicada (`GET /agents/wiring`), and a way in from
+  outside (`GET /remote/status`, detection only), prints a checklist, then asks before each step — run an agent's
+  `connect` commands exactly as shown (`display == shlex.join(argv)`, else never run), pair a device (a code, its QR
+  payload, a wait with a spinner), make an agent token and print its paragraph. Without a terminal it asks nothing and
+  reports, unless `--pair` / `--agent <name>` name a step (`--url` gives the address). `rich` and `questionary` are
+  imported by this command only; without them it prints the same steps plainly. It fetches nothing and starts no
+  tunnel.
 
 **The CLI (G180, TODO ruling 21; plan revision 3, build unit 1, 2026-10-07).** `cicada` is a second, thin door onto the
 same bodies as the MCP server, for agents with a shell: they run a command and read `--help` only when they need it,
@@ -1364,7 +1455,7 @@ the CLI.
   then `CICADA_SESSION_ID`/`CICADA_SESSION_HARNESS`. `stdio_identity` is G48's minting policy, re-exported by
   `mcp/server.py` as `resolve_session_identity`. `cli_identity` never mints and keeps a harness named without an id.
 - **Gating.** `_hints_block` has a `can_open_hub` argument and names no action when the caller holds neither the detail
-  tool nor the hub tool. Recall drops the state cursor's `next_tool` when the caller lacks `cicada_handshake`.
+  tool nor the hub tool. Recall drops the state cursor's `refresh_with` when the caller lacks `cicada_handshake`.
   `render_question` (`can_answer`) drops `skip=true if unanswered` for a caller without `cicada_resolve_inbox`, and
   keeps the question and its choices. A remote connection keeps its current rendering until the G135 owner decides. Stdio holds
   every tool, and remote always holds the handshake and holds the hub tool whenever it holds recall, so both are
@@ -1378,7 +1469,7 @@ the CLI.
     `runtime_layout.LAUNCHERS` and `CicadaRuntime.launcherNames` list it.
   - A developer checkout has `scripts/cicada`. `make cli` / `./install.sh --cli` (`scripts/install-cli.sh`) link
     `~/.local/bin/cicada` to it.
-  - The app's Settings → General *Install the command-line tool* links `~/.local/bin/cicada` to the runtime's own
+  - The app's the Agents page *Install the command-line tool* (General until the Hyrum audit's B11) links `~/.local/bin/cicada` to the runtime's own
     launcher (`app.md`). The script and the button share the never-replace rules.
   - A Swift end-to-end test runs outer shim → inner launcher → CLI in a synthetic bundle: caller's folder kept, a
     moved app exits 127 with the repair sentence, and the next rewrite works.
@@ -1398,9 +1489,7 @@ the CLI.
   answers `Could not write claim: observer '<value>' is not one of 'owner', 'agent', 'external' or 'external:<name>' …;
   nothing was written.`; absent or empty is still `agent`. `cicada_save_episode` with missing, empty or blank `content`
   answers `Nothing saved: \`content\` must be the text to keep, and it was empty.` Both are `Reply(code="refused")`,
-  so the command line exits 1. They are prose on the success channel like every refusal today; `isError` for refusals,
-  `structuredContent` and validation of every argument against its schema are the rest of G199, which re-records the
-  golden fixture once with A1/A4/A6/A7/A9.
+  so the command line exits 1, and both MCP doors answer them `isError: true` (next section).
 - **The advertised `observer` pattern names no person** (A11): `^(owner|agent|external|external:[a-z0-9][a-z0-9-]{0,63})$`
   (`mcp_tools.OBSERVER_PATTERN`). The legacy observer value old local installs send is still accepted by the body
   (`mcp_tools.observer_accepted`) and still stored as the owner; it is in no schema or description
@@ -1417,6 +1506,82 @@ the CLI.
 - **Episode ids** carry the conversation's local day (ruling 34; `capture-and-sleep.md`). An id is opaque to an agent:
   `cicada_ask` dates each line by the local day its turn was said, never by the id.
 
+## The tool-call contract (G199, G200 A7/A9, Hyrum audit A1/A4/A6; 2026-10-22)
+
+One module, `api/services/tool_contract.py`, holds the rules both MCP doors keep. Each door checks a call against its
+OWN advertised table (stdio `TOOLS` in `mcp/server.py`, remote `REMOTE_TOOLS`), once, before a body runs.
+
+- **Arguments are checked against the schema** (`tool_contract.check`): `type` (unions too), `required`, `enum`,
+  `pattern`, `maxLength`, `maxItems`, `items`, nested objects, `anyOf`. An enum is matched without regard to case,
+  spaces or hyphens and passed on as its canonical value (`"Watch Later"` is `watch_later`). An argument whose body
+  keeps the record and drops an unknown value with a note has no enum: its values are in its description
+  (`cicada_record_watch`'s `engine` and `basis`, a shot's `kind`, a page's `chosen_by`, a snippet's `lang`, a
+  participant's `role`). A release batch (`cicada_video_claim`, `cicada_refresh_claim`, `cicada_explore_claim`
+  `release`) is checked only as a list of objects (`ROWS_CHECKED_BY_BODY`): the body judges each row, hands back the
+  good ones and names the bad. `duration`, an excerpt's `t` and a design `region` take numbers. A failure answers
+  ``Invalid arguments: `top_k` must be an integer (got the string "lots").`` with every problem named, code
+  `invalid_arguments`, and nothing run. `since` on `cicada_timeline` and `cicada_project` is a date or a number of days
+  (`SINCE_SCHEMA`: `"7"`, `"7d"`, `7`, `2026-09-01`); `"last tuesday"` used to fall back to the default window in
+  silence. `cicada_project`'s `tz` must be a zone `when.is_zone` reads (it used to fall back to UTC).
+- **Leniency kept, and said.** `null` for an optional argument is no argument. An argument the tool does not take is
+  dropped with a `Note:` naming it (a stdio-trained agent's `quote` on the remote `cicada_resolve_inbox` is no longer
+  lost in silence). `cicada_resolve_inbox` also takes `item_id` for `id`, unlisted (`ALIASES`; its sibling
+  `cicada_record_check` spells it so). **For one release only** — the first after v0.6.0, which shipped before this
+  code (`LENIENT_RELEASE`, 0.7.0 by the minor bumps since 0.4.0) — a digit string where the schema says integer, a
+  decimal string where it says number, or `"true"`/`"false"` where it says boolean, is read as that value with a
+  `Note:` saying the next release refuses it. `test_the_leniency_ships_in_exactly_one_release` fails if a patch
+  release comes first (it must move `LENIENT_RELEASE` to itself) and on any release after it.
+- **The command line and `/tools/call` run no schema check** (their callers are argparse and Cicada's own stdio
+  client, which checks first); the two cases that used to read wrong there are now refused or read right in the
+  bodies themselves: an unreadable `since` (`tool_contract.since_problem`, the door's words) and a JSON `"false"` on
+  an edit's `pin` or `all` (`page_edits._flag`).
+- **A refusal says so.** A body returns its sentence as `mcp_tools.Reply(text, code=…)`; every code in the command
+  line's `cli_types.REFUSAL_CODES` (`not_found`, `refused`, `invalid_arguments`, `out_of_range`, `error`, `demo_bank`,
+  `empty_graph`, …) answers `isError: true` plus `structuredContent: {code, data, message}` on both doors, and the
+  same code is the command line's `ok: false` and exit code. The sentence itself is unchanged, and `content` is still
+  the whole reply, so a 2024-11-05 client that ignores `structuredContent` reads what it always read. `duplicate`
+  (an episode already saved) is an answer, not an error. The tool bodies' `Error: …`, `Not recorded: …`,
+  `Not saved: …`, `Nothing changed — …` and not-found sentences carry codes (typed by a codemod over `mcp_tools`).
+- **An exception names its class, never its message** (`tool_contract.failure_text`). A message can carry a path or
+  the caller's own words. The person still gets what they need to debug: every door logs `tool_contract.where(exc)` —
+  the class and the three innermost frames as `file:line in function`, repo-relative, no message, no argument (the
+  query is never logged). Stdio answers `Error: that didn't work (ValueError); where it failed is in the MCP server's
+  log.` and prints `cicada-mcp: <tool> failed: ValueError at api/services/x.py:12 in f < …` on stderr. The tool door
+  logs the same line in the backend log and answers `… is in the Cicada server's log (<tool>, HH:MM:SS UTC).`, so a
+  `cicada` command run against a server says when to look. The remote door logs it and tells the cloud app only the
+  class. A body's own catch-alls (`ask`, `save_url`, `sources`, `get_perspective`, `resolve_inbox`, and the
+  `agentic_write`, `backlog` and `progress` writers) name the class only, log where, and code the reply `error`.
+- **Third-party text is marked one way on both doors** (A9). A body's reply from a read tool — `catalog.READ_TOOLS`
+  (recall, recall_detail, open_hub, sources, ask, get_perspective, check_nudges, timeline, project, backlog,
+  reading_queue, video_queue) and, on stdio, `cicada_pending`, `cicada_design_search` and `cicada_continue` — is fenced
+  **whatever its code** (a refusal can carry stored words): `REFERENCE_HEADER`, then the stored words between the
+  `<<<cicada-reference` / `cicada-reference>>>` markers (`tool_contract.reference`). Cicada's own directions stay
+  outside the markers where the body keeps them apart (`Reply.framed`, `segments`, carried over `/tools/call` too):
+  recall's `cicada-hints` block, a `recall_detail` part's "the rest:" footer, the inbox's resolve and check lines. The
+  other stdio-only reads (explore queue, site map, skills) and a write's reply that carries a provider's words (a video
+  title, a site) mark those lines with the same header and markers (`_untrusted_block`). A door's own refusal
+  (invalid arguments, an exception) is Cicada's sentence and is not fenced. The command line's text is not fenced. A
+  `Note:` about the call sits after the block. A recall with no page but with hints, inbox blurbs or conversation
+  excerpts is an answer, not `empty_graph`; only a recall that found nothing is that refusal.
+- **The recall hints** (A1). The `cicada-hints` fence, its info string and its keys (`suggested_entities`,
+  `relevant_hub`, `hub_members_preview`, `next_tool`, `note`, `state`) are stable; key order, the prose `note` and the
+  precision of a number are not. The once-per-process `state` names its cursor's keys as the cursor's:
+  `pending_as_of` (was `pending`) and `refresh_with` (was a second `next_tool`). A hit's heading shows confidence to
+  two places.
+- **`cicada_recall_detail`** (A6) leaves Sleep's bookkeeping out of the page it returns (`section_provenance`,
+  `layout_version`, `decayed_through`, `learned_on`, `decay_rate`; `decay_class` stays). A part ends before a code fence
+  it would cut when it can; a fence longer than a part is cut, and the footer says the cut is inside that block, which
+  goes on. The parts are still the page's own bytes, and the claims fence is still the page's own JSONL.
+- **Names and arguments are frozen** (A4). G180 names no new tool names yet; the lean-MCP grouping, when it is decided,
+  keeps the old names callable and unlisted, with a removal date in TODO.md and a test.
+- **The handshake** (A7, `CONTRACT_VERSION` 19): the variant is picked by exact `clientInfo.name`
+  (`handshake.CLIENT_VARIANTS`: `claude-code`; `codex`, `codex-cli`, `codex-mcp-client`; `claude-ai`, `claude-desktop`
+  → `desktop`; anything else `generic`), never a substring, so a desktop app is never told to run `claude --resume`.
+  The primer names no HTTP route (`POST /conversations/{id}/resume`, `GET /episodes/{id}/span`, `GET /state` are gone):
+  resume is the person's step, and a claim's span is shown by `cicada_sources`.
+- **The fixture.** `api/tests/fixtures/mcp_stdio_golden.json` pins whole `tools/call` results (`call_tool`), refusals
+  and the leniency note included; `api/tests/test_mcp_error_contract.py` holds the rest.
+
 ## The remote connector's sign-in and capture (ruling 32, owner 2026-10-19)
 
 - **Sign-in.** The G135 listener is also an OAuth 2.1 authorization server (`api/remote/oauth.py`; the whole flow,
@@ -1424,7 +1589,7 @@ the CLI.
   rotating `cic_rt_` refresh token; the gate verifies an access token against the connector row it maps to, so tool
   lists, scopes, the Sleep gate, the ledger and every write's provenance (`Cicada-Author: <app harness>`,
   `Cicada-Session: rc_…`) are the link connector's, unchanged. The secret link (`/c/<token>/mcp`) still works; the docs
-  and the From anywhere page steer Claude and ChatGPT to sign-in, which puts no secret in a URL.
+  and the From anywhere group steer Claude and ChatGPT to sign-in, which puts no secret in a URL.
 - **`cicada_capture_turns(message, previous_reply?, conversation)`** (`record` scope, remote only —
   `catalog.REMOTE_ONLY`, so `test_remote_tools.py` classifies every stdio tool plus it). Not read-only, idempotent, not
   destructive and not open-world: an app that confirms writes (ChatGPT) asks the person, who can allow it always.
