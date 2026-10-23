@@ -358,3 +358,51 @@ def test_settings_on_disk_are_sealed_and_a_tampered_settings_file_reads_as_off(s
     path.write_bytes(bytes(data))
     assert store.settings()["enabled"] is False
     assert json.dumps(trace_store.DEFAULTS)   # defaults stay serialisable
+
+
+# --- review of #456 -----------------------------------------------------------------------------------------------
+
+
+def test_forget_reaches_a_span_filed_under_yesterday_that_runs_past_midnight(store):
+    """B1: a span from 23:40 to 00:19 is filed under the day it started and still reaches into a forget at 00:20."""
+    midnight = datetime(2026, 10, 24, 0, 0, tzinfo=timezone.utc)
+    store.add_spans([_span("span-late-01", midnight - timedelta(minutes=20), minutes=39, title="alpha-project")],
+                    now=midnight + timedelta(minutes=19))
+    assert store.forget(15, now=midnight + timedelta(minutes=20)) == {"spans": 1, "frames": 0}
+    assert store.timeline((midnight - timedelta(days=1)).date())["spans"] == []
+
+
+def test_forget_reaches_only_as_far_as_nothing_was_promoted(store):
+    with pytest.raises(trace_store.PayloadError):
+        store.forget(trace_store.FORGET_MAX_MINUTES + 1, now=NOW)
+    assert trace_store.PROMOTE_HOLD == timedelta(minutes=trace_store.FORGET_MAX_MINUTES)
+
+
+def test_an_unlisted_browser_flagged_by_the_app_keeps_no_title_and_no_screenshot(store):
+    """B3: a browser missing from the list (a beta, a fork) is a browser when the app says it opens https: links."""
+    store.update({"browsers": ["chrome"]})
+    store.add_spans([_span("span-0001", NOW - timedelta(minutes=10), bundle="org.example.NewBrowser", app="New",
+                           title="Private page", browser=True)], now=NOW)
+    assert "title" not in store.timeline(NOW.date())["spans"][0]
+    with pytest.raises(trace_store.TracesOff):
+        store.add_frame({"id": "frame-0001", "at": NOW.isoformat(), "bundle_id": "org.example.NewBrowser",
+                         "host": "docs.example", "browser": True, "width": 10, "height": 10}, _jpeg(), now=NOW)
+    # A listed browser that is not allowed for addresses keeps no screenshot either, host or not.
+    with pytest.raises(trace_store.TracesOff):
+        store.add_frame({"id": "frame-0002", "at": NOW.isoformat(), "bundle_id": "com.apple.Safari",
+                         "host": "docs.example", "width": 10, "height": 10}, _jpeg(), now=NOW)
+
+
+def test_a_crash_while_making_the_key_leaves_no_half_written_key(tmp_path, monkeypatch):
+    path = tmp_path / "traces.key"
+    provider = trace_keys.FileKeyProvider(path)
+
+    def boom(*_a, **_k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(trace_keys.os, "link", boom)
+    with pytest.raises(OSError):
+        provider.create()
+    assert not path.exists() and list(tmp_path.iterdir()) == []
+    monkeypatch.undo()
+    assert len(provider.create()) == trace_keys.KEY_BYTES

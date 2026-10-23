@@ -162,7 +162,7 @@ def test_a_demo_bank_receives_nothing_but_the_trace_is_kept_outside_it(client):
 def test_the_day_summary_is_counted_index_only_and_never_a_mention(client):
     c, memory = client
     _on(c, daily_summary=True)
-    yesterday = (_now() - timedelta(days=1)).replace(hour=10, minute=0, second=0)
+    yesterday = (_now() - timedelta(days=1, minutes=20)).replace(hour=10, minute=0, second=0)
     c.post("/sources/traces/sync", json={"spans": [
         _span("span-0001", yesterday, minutes=40, bundle_id="com.example.Editor", app="Editor",
               title="alpha-project plan"),
@@ -181,7 +181,7 @@ def test_the_day_summary_is_counted_index_only_and_never_a_mention(client):
 def test_learn_from_traces_queues_the_summary_for_sleep_and_nothing_else(client):
     c, memory = client
     _on(c, daily_summary=True, learn_from_summary=True)
-    yesterday = (_now() - timedelta(days=1)).replace(hour=10, minute=0, second=0)
+    yesterday = (_now() - timedelta(days=1, minutes=20)).replace(hour=10, minute=0, second=0)
     c.post("/sources/traces/sync", json={"spans": [
         _span("span-0001", yesterday, minutes=40, bundle_id="com.example.Editor", app="Editor")]})
     summary = _watch_days(memory)[f"traces-day:{yesterday.date().isoformat()}"]
@@ -191,7 +191,7 @@ def test_learn_from_traces_queues_the_summary_for_sleep_and_nothing_else(client)
 def test_without_the_summary_switch_nothing_but_youtube_reaches_the_bank(client):
     c, memory = client
     _on(c)
-    yesterday = _now() - timedelta(days=1)
+    yesterday = _now() - timedelta(days=1, minutes=20)
     c.post("/sources/traces/sync", json={"spans": [
         _span("span-0001", yesterday, minutes=40, bundle_id="com.example.Editor", app="Editor", title="alpha")]})
     assert _watch_days(memory) == {}
@@ -300,3 +300,54 @@ def test_a_youtube_span_shorter_than_a_watch_is_not_promoted(tmp_path):
     start = _now() - timedelta(minutes=5)
     result = s.add_spans([_span("span-0001", start, minutes=0.25, url=f"https://youtu.be/{VID}")])
     assert trace_memory.youtube_watches(s, result.pages) == []
+
+
+# --- review of #456, B1: nothing forget can reach is ever in the bank or git ---------------------------------------
+
+
+def _log(memory: Path) -> str:
+    return subprocess.run(["git", "-C", str(memory), "log", "--format=%H"], capture_output=True, text=True).stdout
+
+
+def test_a_watch_forgotten_within_15_minutes_never_reaches_the_bank_or_git(client):
+    c, memory = client
+    _on(c)
+    before = _log(memory)
+    start = _now() - timedelta(minutes=8)
+    r = c.post("/sources/traces/sync", json={"spans": [
+        _span("span-0001", start, minutes=6, title="Bridge design - YouTube",
+              url=f"https://www.youtube.com/watch?v={VID}")]})
+    assert r.json()["kept"] == 1 and r.json()["promoted_files"] == 0    # held: younger than the forget window
+    assert c.post("/sources/traces/forget", json={"minutes": 15}).json()["spans"] == 1
+    c.post("/sources/traces/sync", json={"spans": []})
+    assert _watch_days(memory) == {}
+    assert _log(memory) == before
+    grep = subprocess.run(["git", "-C", str(memory), "grep", "-l", VID], capture_output=True, text=True).stdout
+    assert grep == ""
+
+
+def test_a_watch_is_promoted_once_it_is_older_than_the_forget_window(tmp_path):
+    memory = _bank(tmp_path)
+    s = trace_store.TraceStore(root=tmp_path / "t", keys=trace_store.trace_keys.FileKeyProvider(tmp_path / "k"))
+    now = _now()
+    s.turn_on(trace_store.CONSENT_VERSION, now=now - timedelta(hours=1))
+    s.update({"browsers": ["chrome"]})
+    s.add_spans([_span("span-0001", now - timedelta(minutes=10), minutes=6,
+                       url=f"https://www.youtube.com/watch?v={VID}")], now=now)
+    assert trace_memory.promote(memory, s, s.settings(), now=now) == []
+    later = now + trace_store.PROMOTE_HOLD
+    assert trace_memory.promote(memory, s, s.settings(), now=later)
+    assert _watch_days(memory)
+    assert trace_memory.promote(memory, s, s.settings(), now=later + timedelta(minutes=1)) == []   # once
+
+
+def test_yesterdays_summary_waits_until_its_last_moments_are_past_the_forget_window(tmp_path):
+    memory = _bank(tmp_path)
+    s = trace_store.TraceStore(root=tmp_path / "t", keys=trace_store.trace_keys.FileKeyProvider(tmp_path / "k"))
+    midnight = datetime.combine(_now().date(), datetime.min.time(), tzinfo=timezone.utc)
+    s.turn_on(trace_store.CONSENT_VERSION, now=midnight - timedelta(hours=2))
+    s.update({"daily_summary": True})
+    s.add_spans([_span("span-0001", midnight - timedelta(minutes=50), minutes=45, bundle_id="com.example.Editor",
+                       app="Editor")], now=midnight - timedelta(minutes=1))
+    assert trace_memory.promote(memory, s, s.settings(), now=midnight + timedelta(minutes=5)) == []
+    assert trace_memory.promote(memory, s, s.settings(), now=midnight + timedelta(minutes=20))

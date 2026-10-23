@@ -59,6 +59,32 @@ struct TraceCapturedFrame: Equatable, Sendable {
     var height: Int
 }
 
+/// Which apps are browsers beyond the named list: every app macOS registers to open https: links (Launch Services, no
+/// network). An unlisted browser — a beta, a fork, a new one — then fails closed (review of #456, B3).
+protocol TraceBrowserRegistry: Sendable {
+    func opensWebLinks(_ bundleId: String) -> Bool
+}
+
+/// The front window of an app, chosen from the window server's list, which is ordered front to back
+/// (`CGWindowListCopyWindowInfo(.optionOnScreenOnly)`): the first normal-layer window that app owns. ScreenCaptureKit's
+/// own window list has no documented order and counts covered windows as on screen, so it never chooses (B2).
+enum TraceWindowPick {
+    static func frontWindowID(in entries: [[String: Any]], pid: Int32) -> UInt32? {
+        for entry in entries {
+            guard (entry["kCGWindowOwnerPID"] as? Int).map(Int32.init) == pid
+                    || (entry["kCGWindowOwnerPID"] as? Int32) == pid,
+                  (entry["kCGWindowLayer"] as? Int ?? -1) == 0 else { continue }
+            if let bounds = entry["kCGWindowBounds"] as? [String: Any],
+               let w = bounds["Width"] as? Double, let h = bounds["Height"] as? Double, w < 64 || h < 64 {
+                continue
+            }
+            if let id = entry["kCGWindowNumber"] as? Int { return UInt32(id) }
+            if let id = entry["kCGWindowNumber"] as? UInt32 { return id }
+        }
+        return nil
+    }
+}
+
 /// Screenshots (Screen Recording, ScreenCaptureKit). Only the front app's front window is captured — the window the
 /// recorder already vetted (not private, not excluded) — never the whole display, so nothing behind it is taken.
 protocol TraceScreenCapture: Sendable {

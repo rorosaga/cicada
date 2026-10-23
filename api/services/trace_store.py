@@ -54,6 +54,11 @@ MAX_SHOT_SIDE = 2560
 OCR_CAP = 8000
 SEARCH_LIMIT = 50
 QUERY_CAP = 200
+#: "Forget the last N minutes" reaches at most this far back — and nothing younger than this ever leaves the store for
+#: the bank (``trace_memory.promote`` holds every span until it is this old), so a forget always runs before anything
+#: it covers could reach git (security review of #456, B1).
+FORGET_MAX_MINUTES = 15
+PROMOTE_HOLD = timedelta(minutes=FORGET_MAX_MINUTES)
 _ID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 _DAY_FILE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.log$")
 _DAY_DIR = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -76,6 +81,9 @@ DEFAULTS: dict = {
     "paused_since": None,
     "paused_until": None,
     "digest_through": None,
+    #: The instant up to which spans were offered to the bank (``trace_memory.promote``); never later than now minus
+    #: :data:`PROMOTE_HOLD`.
+    "promoted_through": None,
 }
 #: What a person's PUT may change (consent, pause and the digest cursor have their own doors).
 EDITABLE = frozenset({"screenshots", "titles", "title_apps", "browsers", "excluded_apps", "excluded_sites",
@@ -278,6 +286,24 @@ class TraceStore:
             self._write_settings(values)
             return values
 
+    def set_promoted_through(self, at: datetime) -> None:
+        with self._locked():
+            if self._key_or_none() is None:
+                return
+            values = self.settings()
+            values["promoted_through"] = _iso(at)
+            self._write_settings(values)
+
+    def spans_ended_between(self, after: datetime | None, until: datetime) -> list[dict]:
+        """Spans whose end is in ``(after, until]`` — what promotion offers the bank next."""
+        first = local_day((after or until - timedelta(days=TIMELINE_DAYS)) - MAX_SPAN)
+        out = []
+        for span in self.spans_between(first, local_day(until)):
+            end = parse_instant(span.get("end"))
+            if end is not None and end <= until and (after is None or end > after):
+                out.append(span)
+        return out
+
     def set_digest_through(self, day: date | None) -> None:
         with self._locked():
             if self._key_or_none() is None:
@@ -362,7 +388,7 @@ class TraceStore:
                     result.excluded += 1
                     return None
                 row["url"], row["host"] = cleaned
-        verified = bundle not in trace_policy.KNOWN_BROWSERS or "url" in row
+        verified = not trace_policy.is_browser(bundle, bool(raw.get("browser"))) or "url" in row
         if verified and raw.get("title") and trace_policy.title_allowed(bundle, titles_on=bool(values["titles"]),
                                                            title_apps=set(values["title_apps"])):
             title = trace_policy.clean_title(raw.get("title"))
@@ -398,7 +424,8 @@ class TraceStore:
             host = trace_policy.normalize_host(str(meta.get("host") or ""))
             if host and trace_policy.host_excluded(host, set(values["excluded_sites"])):
                 raise TracesOff("that site is never recorded")
-            if bundle in trace_policy.KNOWN_BROWSERS and not host:
+            if trace_policy.is_browser(bundle, bool(meta.get("browser"))) and (
+                    not host or trace_policy.url_browser(bundle) not in values["browsers"]):
                 raise TracesOff("a browser window is kept only when it is known not to be private")
             if not trace_policy.title_allowed(bundle, titles_on=bool(values["titles"]),
                                               title_apps=set(values["title_apps"])):
@@ -427,8 +454,10 @@ class TraceStore:
 
     def forget(self, minutes: int, *, now: datetime | None = None) -> dict:
         """"Forget the last N minutes": every span that reaches into them and every screenshot taken in them."""
-        if not 1 <= int(minutes) <= 24 * 60:
-            raise PayloadError("forget between 1 minute and a day")
+        if not 1 <= int(minutes) <= FORGET_MAX_MINUTES:
+            # Older moments may already be in memory (a watched day); forgetting further back would promise what it
+            # cannot keep. Wipe removes everything the store holds.
+            raise PayloadError(f"forget between 1 and {FORGET_MAX_MINUTES} minutes")
         moment = now or _now()
         cutoff = moment - timedelta(minutes=int(minutes))
         removed = {"spans": 0, "frames": 0}
@@ -436,8 +465,11 @@ class TraceStore:
             key = self._key_or_none()
             if key is None:
                 return removed
-            days = {local_day(cutoff).isoformat(), local_day(moment).isoformat()}
-            for day in sorted(days):
+            # A span is filed under the day it started, and can be up to MAX_SPAN long: a span from 23:40 to 00:19
+            # lives in yesterday's file and still reaches into a forget at 00:20 (review of #456, B1).
+            first, last = local_day(cutoff - MAX_SPAN), local_day(moment)
+            days = [(first + timedelta(days=i)).isoformat() for i in range((last - first).days + 1)]
+            for day in days:
                 kept, gone = self._partition(key, "timeline", day,
                                              lambda r: parse_instant(r.get("end")) is not None
                                              and parse_instant(r["end"]) <= cutoff)

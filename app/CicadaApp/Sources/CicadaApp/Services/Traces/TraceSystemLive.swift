@@ -123,11 +123,14 @@ struct LiveTraceScreenCapture: TraceScreenCapture {
         // ScreenCaptureKit raises the Screen Recording prompt when access is missing: never reach it without the
         // preflight's yes.
         guard CGPreflightScreenCaptureAccess() else { throw CaptureError.noAccess }
+        // The front window from the window server's front-to-back list, then that exact window in ScreenCaptureKit
+        // (whose own list is unordered and counts covered windows as on screen — review of #456, B2).
+        let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] ?? []
+        guard let frontID = TraceWindowPick.frontWindowID(in: info, pid: pid) else { throw CaptureError.noWindow }
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
-        guard let window = content.windows.first(where: {
-            $0.owningApplication?.processID == pid && $0.windowLayer == 0 && $0.isOnScreen
-                && $0.frame.width >= 64 && $0.frame.height >= 64
-        }) else { throw CaptureError.noWindow }
+        guard let window = content.windows.first(where: { $0.windowID == frontID && $0.owningApplication?.processID == pid })
+        else { throw CaptureError.noWindow }
         let filter = SCContentFilter(desktopIndependentWindow: window)
         let config = SCStreamConfiguration()
         let scale = min(1.0, Double(maxSide) / Double(max(window.frame.width, window.frame.height)))
@@ -150,6 +153,28 @@ struct LiveTraceScreenCapture: TraceScreenCapture {
 }
 
 /// Apple's on-device recognizer. `usesLanguageCorrection` on, accurate level; nothing leaves this Mac.
+/// Launch Services' https: handlers, refreshed every ten minutes (an app installed since is a browser soon after).
+final class LiveTraceBrowserRegistry: TraceBrowserRegistry, @unchecked Sendable {
+    private let lock = NSLock()
+    private var ids: Set<String> = []
+    private var readAt: Date?
+
+    func opensWebLinks(_ bundleId: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if readAt == nil || Date().timeIntervalSince(readAt!) > 600 {
+            var probe = URLComponents()
+            probe.scheme = "https"
+            probe.host = "example.invalid"   // never opened: only asks which apps are registered for the scheme
+            if let url = probe.url {
+                ids = Set(NSWorkspace.shared.urlsForApplications(toOpen: url).compactMap { Bundle(url: $0)?.bundleIdentifier })
+            }
+            readAt = Date()
+        }
+        return ids.contains(bundleId)
+    }
+}
+
 struct LiveTraceTextRecognizer: TraceTextRecognizer {
     func recognize(jpeg: Data) async -> String {
         guard let source = CGImageSourceCreateWithData(jpeg as CFData, nil),

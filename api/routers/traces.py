@@ -63,6 +63,8 @@ class FrameRequest(BaseModel):
     width: int
     height: int
     private: bool = False
+    #: The app found this app registered to open https: links (B3): a browser, kept only through a verified tab.
+    browser: bool = False
     image: str
     text: str = ""
 
@@ -154,8 +156,7 @@ async def sync_traces(req: SyncRequest, settings: Settings = Depends(get_setting
     promoted = 0
     try:
         values = await run_in_threadpool(s.settings)
-        paths = await run_in_threadpool(trace_memory.promote, memory_path, s, result.pages, values,
-                                        bank=memory_path.name)
+        paths = await run_in_threadpool(trace_memory.promote, memory_path, s, values, bank=memory_path.name)
         promoted = len(paths)
         if paths:
             await folder_source.commit_paths_for(memory_path, paths, subject="Activity traces",

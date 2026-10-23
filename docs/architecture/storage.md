@@ -1255,13 +1255,20 @@ traces/shots/<YYYY-MM-DD>/<id>.enc   the screenshot itself (downscaled JPEG), se
   app; a URL only from an allowed Chromium browser, scheme + host + path + content keys (`v` on YouTube), the path
   scrubbed; a browser row keeps a title, and a browser screenshot is kept, only beside such a URL (the one case the
   window is known not to be private — Safari's, Firefox's and Arc's private windows cannot be told apart); every title
-  and recognized text scrubbed (`episode_scrub`). Turned off or paused, nothing is written (a span reaching into a
+  and recognized text scrubbed (`episode_scrub`). **The browser list is a floor, never the test** (B3): the app marks
+  every app macOS registers to open `https:` links as a browser (`browser: true` on a row or a frame), and the store
+  keeps such a row's title, or its screenshot, only beside a verified URL from a browser the person allowed. Turned off or paused, nothing is written (a span reaching into a
   pause is cut at it).
 - **Retention** (a sweep on every write, at backend start and hourly — `trace_store.sweep_if_present` in the lifespan
   scheduler — so it holds while traces are off): the timeline 30 days, screenshots and their text 7 days; the person may
   shorten either, never lengthen. A store whose key is gone is cleared (sealed bytes with no key are noise); a key file
   that is refused (below) records nothing and deletes nothing on its own.
-- **Forget the last N minutes** drops every span reaching into them and every screenshot taken in them. **Wipe** deletes
+- **Forget the last N minutes** (N ≤ 15, `FORGET_MAX_MINUTES`) drops every span reaching into them — read from every
+  day file a span could start in, back to `cutoff − MAX_SPAN`, so a span from 23:40 to 00:19 is reached at 00:20 — and
+  every screenshot taken in them. **Nothing younger than the forget window ever leaves the store** (review of #456,
+  B1): promotion offers the bank only spans that ended at least `PROMOTE_HOLD` (15 min) ago, from the store, past a
+  sealed cursor (`promoted_through`), and a day summary waits until its day's last moments are that old — so a forget
+  always runs before anything it covers could reach the bank or git. **Wipe** deletes
   the folder, the settings and the key (crypto-shredding: a copy taken before reads as noise) and so turns traces off.
   What was already promoted into the bank (a watched day, a day summary) stays; the sheet says so.
 - **What crosses into the bank** (`trace_memory`, only what the person's switches allow, nothing for a demo bank, one

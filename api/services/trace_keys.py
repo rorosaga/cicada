@@ -97,13 +97,23 @@ class FileKeyProvider:
             pass
         key = secrets.token_bytes(KEY_BYTES)
         data = (_HEADER + base64.b64encode(key).decode("ascii") + "\n").encode("ascii")
-        # O_EXCL: never replace a key that exists (that would shred the store silently); 0600 from the first byte.
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        # Written whole to a private temporary file, then linked into place: a crash never leaves a half-written key
+        # (review of #456), and link() fails when a key exists, so one is never replaced (that would shred the store
+        # silently). 0600 from the first byte.
+        tmp = path.parent / f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
-            os.write(fd, data)
-            os.fsync(fd)
+            try:
+                os.write(fd, data)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            os.link(tmp, path)
         finally:
-            os.close(fd)
+            try:
+                tmp.unlink()
+            except FileNotFoundError:
+                pass
         exclude_from_backup(path)
         return key
 

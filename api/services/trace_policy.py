@@ -54,15 +54,26 @@ URL_BROWSERS: dict[str, tuple[str, ...]] = {
 #: Query keys kept because they name the content, per host suffix.
 CONTENT_KEYS: dict[str, frozenset[str]] = {"youtube.com": frozenset({"v"})}
 
-#: Every browser Cicada knows. A browser row keeps a title only beside a URL read from an allowed Chromium browser —
+#: Browsers Cicada knows by name. A browser row keeps a title only beside a URL read from an allowed Chromium browser —
 #: the only case where the window is known not to be private (Safari's, Firefox's and Arc's private windows cannot be
-#: told apart by scripting, so their rows keep the app and the times).
+#: told apart by scripting, so their rows keep the app and the times). **This list is a floor, never the test:** the
+#: app also marks as a browser every app macOS registers to open ``https:`` links (``browser: true`` on a row or a
+#: frame), so a browser missing here — a beta, a fork, a new one — fails closed (review of #456, B3).
 KNOWN_BROWSERS: frozenset[str] = frozenset(
     {b for ids in URL_BROWSERS.values() for b in ids} | {
         "com.apple.Safari", "com.apple.SafariTechnologyPreview", "org.mozilla.firefox",
-        "org.mozilla.firefoxdeveloperedition", "company.thebrowser.Browser", "com.operasoftware.Opera",
-        "com.kagi.kagimacOS", "app.zen-browser.zen", "com.duckduckgo.macos.browser", "org.torproject.torbrowser",
+        "org.mozilla.firefoxdeveloperedition", "org.mozilla.nightly", "company.thebrowser.Browser",
+        "company.thebrowser.dia", "com.operasoftware.Opera", "com.operasoftware.OperaGX", "com.kagi.kagimacOS",
+        "app.zen-browser.zen", "com.duckduckgo.macos.browser", "org.torproject.torbrowser", "org.chromium.Chromium",
+        "com.microsoft.edgemac.Beta", "com.microsoft.edgemac.Dev", "com.microsoft.edgemac.Canary",
+        "com.brave.Browser.beta", "com.brave.Browser.nightly", "net.mullvad.mullvadbrowser",
+        "io.gitlab.librewolf-community", "com.openai.atlas", "ai.perplexity.comet",
     })
+
+
+def is_browser(bundle_id: str, flagged: bool = False) -> bool:
+    """A browser by name, or one the app found registered for ``https:`` links (``flagged``)."""
+    return bool(flagged) or bundle_id in KNOWN_BROWSERS
 
 URL_CAP = 400
 TITLE_CAP = 300

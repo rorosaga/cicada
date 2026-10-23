@@ -22,7 +22,8 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from api.services import demo_guard, episode_ids, episode_staging, history_index, media_ingestor, watch_history
+from api.services import (demo_guard, episode_ids, episode_staging, history_index, media_ingestor, trace_store,
+                          watch_history)
 from api.services.trace_store import TraceStore, local_day, parse_instant
 
 #: A YouTube page in front for less than this is a click, not a watch (G156: a stray click is not a memory).
@@ -126,7 +127,8 @@ def write_digests(memory_path: Path, store: TraceStore, values: dict, *, now: da
     if not values.get("daily_summary"):
         return []
     moment = now or datetime.now(timezone.utc)
-    yesterday = local_day(moment) - timedelta(days=1)
+    # A day is summarised only once its last moments are past the forget window too (B1).
+    yesterday = local_day(moment - trace_store.PROMOTE_HOLD) - timedelta(days=1)
     through = values.get("digest_through")
     try:
         done = date.fromisoformat(str(through)) if through else None
@@ -164,16 +166,26 @@ def write_digests(memory_path: Path, store: TraceStore, values: dict, *, now: da
     return paths
 
 
-def promote(memory_path: Path, store: TraceStore, pages: list[dict], values: dict, *,
-            now: datetime | None = None, bank: str | None = None) -> list[str]:
+def promote(memory_path: Path, store: TraceStore, values: dict, *, now: datetime | None = None,
+            bank: str | None = None) -> list[str]:
     """Everything a sync may put into the active bank: YouTube watches and, behind its switch, the day summaries.
-    Nothing for a demo bank. Returns bank-relative paths for the caller's one commit."""
+
+    **Held until forget can no longer reach it** (review of #456, B1): only spans that ended at least
+    ``trace_store.PROMOTE_HOLD`` ago are offered, from the store, past a cursor (``promoted_through``) — so "Forget the
+    last 15 minutes" always runs before anything it covers reaches the bank or git. Nothing for a demo bank (the
+    cursor does not move there, so the watches wait for the real bank). Returns bank-relative paths for one commit."""
     if demo_guard.is_demo(Path(memory_path)):
         return []
+    moment = now or datetime.now(timezone.utc)
+    until = moment - trace_store.PROMOTE_HOLD
+    after = parse_instant(values.get("promoted_through"))
     paths: list[str] = []
-    if values.get("youtube_to_watch_history", True):
-        watches = youtube_watches(store, pages)
-        if watches:
-            paths += watch_history.record(Path(memory_path), watches, bank=bank).paths
-    paths += write_digests(Path(memory_path), store, values, now=now, bank=bank)
+    if after is None or after < until:
+        pages = [s for s in store.spans_ended_between(after, until) if s.get("url")]
+        if values.get("youtube_to_watch_history", True):
+            watches = youtube_watches(store, pages)
+            if watches:
+                paths += watch_history.record(Path(memory_path), watches, bank=bank).paths
+        store.set_promoted_through(until)
+    paths += write_digests(Path(memory_path), store, values, now=moment, bank=bank)
     return sorted(set(paths))

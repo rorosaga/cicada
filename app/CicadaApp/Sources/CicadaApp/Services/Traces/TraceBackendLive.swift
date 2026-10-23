@@ -9,6 +9,6 @@ extension TraceRecorder {
     static func live() -> TraceRecorder {
         TraceRecorder(backend: APIClient.shared, workspace: LiveTraceWorkspace(), idle: LiveTraceIdleProbe(),
                       titles: LiveTraceWindowTitles(), tabs: LiveTraceBrowserTabs(), capture: LiveTraceScreenCapture(),
-                      recognizer: LiveTraceTextRecognizer())
+                      recognizer: LiveTraceTextRecognizer(), registry: LiveTraceBrowserRegistry())
     }
 }

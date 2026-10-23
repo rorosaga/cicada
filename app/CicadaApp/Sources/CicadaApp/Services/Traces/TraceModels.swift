@@ -135,9 +135,11 @@ struct TraceSpan: Codable, Equatable, Sendable {
     var app: String
     var title: String?
     var url: String?
+    /// The app opens https: links (a browser, listed or not): the backend keeps its title only beside a verified URL.
+    var browser: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case id, start, end, app, title, url
+        case id, start, end, app, title, url, browser
         case bundleId = "bundle_id"
     }
 }
@@ -169,9 +171,10 @@ struct TraceFramePost: Codable, Equatable, Sendable {
     var height: Int
     var image: String
     var text: String
+    var browser = false
 
     enum CodingKeys: String, CodingKey {
-        case id, at, app, host, width, height, image, text
+        case id, at, app, host, width, height, image, text, browser
         case bundleId = "bundle_id", spanId = "span_id"
     }
 }

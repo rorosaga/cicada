@@ -87,15 +87,22 @@ final class TraceRecorderTests: XCTestCase {
     final class Capture: TraceScreenCapture, @unchecked Sendable {
         var access = true
         private(set) var captures = 0
+        var onCapture: (@MainActor () -> Void)?
         func hasAccess() -> Bool { access }
         func captureFrontWindow(pid: Int32, maxSide: Int) async throws -> TraceCapturedFrame {
             captures += 1
+            if let onCapture { await onCapture() }
             return TraceCapturedFrame(jpeg: Data([0xFF, 0xD8, 0xFF, 0xE0]), width: 640, height: 400)
         }
     }
 
     struct Recognizer: TraceTextRecognizer {
         func recognize(jpeg: Data) async -> String { "recognized words" }
+    }
+
+    final class Registry: TraceBrowserRegistry, @unchecked Sendable {
+        var webApps: Set<String> = []
+        func opensWebLinks(_ bundleId: String) -> Bool { webApps.contains(bundleId) }
     }
 
     // MARK: Harness
@@ -107,6 +114,7 @@ final class TraceRecorderTests: XCTestCase {
     var titles: Titles!
     var tabs: Tabs!
     var capture: Capture!
+    var registry: Registry!
     var connection = ServerConnection(mode: .thisMac, source: .none)
 
     static let editor = TraceFrontApp(bundleId: "com.example.Editor", name: "Editor", pid: 101)
@@ -123,9 +131,10 @@ final class TraceRecorderTests: XCTestCase {
         titles = Titles()
         tabs = Tabs()
         capture = Capture()
+        registry = Registry()
         // A ticker that never fires on its own: the test drives every tick.
         return TraceRecorder(backend: backend, workspace: workspace, idle: idle, titles: titles, tabs: tabs,
-                             capture: capture, recognizer: Recognizer(), connection: { [unowned self] in connection },
+                             capture: capture, recognizer: Recognizer(), registry: registry, connection: { [unowned self] in connection },
                              now: { [unowned self] in clock }, ownBundleId: "com.rorosaga.cicada.test",
                              tickInterval: .seconds(3600))
     }
@@ -301,6 +310,78 @@ final class TraceRecorderTests: XCTestCase {
         await recorder.flush(force: true)
         let span = try XCTUnwrap(backend.spans.first)
         XCTAssertNil(span.title)
+    }
+
+    // MARK: Review of #456
+
+    /// B3: an app macOS registers for https: links is a browser even when no list names it.
+    func testAnUnlistedBrowserIsNeverDescribedNorCaptured() async throws {
+        let recorder = makeRecorder()
+        registry.webApps = ["org.example.NewBrowser"]
+        await recorder.start()
+        workspace.front = TraceFrontApp(bundleId: "org.example.NewBrowser", name: "New", pid: 120)
+        await run(recorder, for: 400)
+        await settle()
+        XCTAssertEqual(titles.reads, 0, "its window title (a private window's, maybe) is never read")
+        XCTAssertEqual(capture.captures, 0)
+        workspace.front = Self.editor
+        await run(recorder, for: 10)
+        await recorder.flush(force: true)
+        let span = try XCTUnwrap(backend.spans.first)
+        XCTAssertNil(span.title)
+        XCTAssertEqual(span.browser, true, "the flag tells the backend to refuse its title and frames too")
+    }
+
+    /// B2: a frame is kept only if what was vetted is still in front when it was taken.
+    func testAFrameTakenAfterTheTabTurnedPrivateIsDropped() async {
+        let recorder = makeRecorder()
+        await recorder.start()
+        workspace.front = Self.chrome
+        capture.onCapture = { [unowned self] in
+            self.tabs.tab = TraceBrowserTab(url: "https://docs.example/secret", title: "Secret", isPrivate: true)
+        }
+        await recorder.tick()
+        await settle()
+        XCTAssertEqual(capture.captures, 1)
+        XCTAssertTrue(backend.frames.isEmpty, "the incognito window came forward: its frame is never posted")
+    }
+
+    func testAFrameTakenAfterAnotherAppCameForwardIsDropped() async {
+        let recorder = makeRecorder()
+        await recorder.start()
+        workspace.front = Self.editor
+        capture.onCapture = { [unowned self] in
+            self.workspace.front = TraceFrontApp(bundleId: "com.example.Other", name: "Other", pid: 999)
+        }
+        await recorder.tick()
+        await settle()
+        XCTAssertEqual(capture.captures, 1)
+        XCTAssertTrue(backend.frames.isEmpty)
+    }
+
+    func testAnUnchangedBrowserFrameIsKeptAndMarkedAsABrowser() async {
+        let recorder = makeRecorder()
+        await recorder.start()
+        workspace.front = Self.chrome
+        await recorder.tick()
+        await settle()
+        XCTAssertEqual(backend.frames.count, 1)
+        XCTAssertEqual(backend.frames.first?.browser, true)
+        XCTAssertEqual(backend.frames.first?.host, "www.youtube.com")
+    }
+
+    /// B2: the front window is the window server's first normal-layer window of the app, never ScreenCaptureKit's.
+    func testTheFrontWindowIsTheFirstNormalWindowInTheFrontToBackList() {
+        let entries: [[String: Any]] = [
+            ["kCGWindowOwnerPID": 50, "kCGWindowLayer": 0, "kCGWindowNumber": 1],            // another app on top
+            ["kCGWindowOwnerPID": 102, "kCGWindowLayer": 25, "kCGWindowNumber": 2],           // the app's menu-bar item
+            ["kCGWindowOwnerPID": 102, "kCGWindowLayer": 0, "kCGWindowNumber": 3,
+             "kCGWindowBounds": ["Width": 20.0, "Height": 20.0]],                               // a tiny helper window
+            ["kCGWindowOwnerPID": 102, "kCGWindowLayer": 0, "kCGWindowNumber": 4],            // its front window
+            ["kCGWindowOwnerPID": 102, "kCGWindowLayer": 0, "kCGWindowNumber": 5],            // a covered (incognito?) one
+        ]
+        XCTAssertEqual(TraceWindowPick.frontWindowID(in: entries, pid: 102), 4)
+        XCTAssertNil(TraceWindowPick.frontWindowID(in: entries, pid: 7))
     }
 
     // MARK: Pause, lock, secure input, idle

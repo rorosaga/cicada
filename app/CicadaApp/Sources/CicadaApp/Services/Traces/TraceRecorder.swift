@@ -48,6 +48,7 @@ final class TraceRecorder {
     @ObservationIgnored private let tabs: any TraceBrowserTabs
     @ObservationIgnored private let capture: any TraceScreenCapture
     @ObservationIgnored private let recognizer: any TraceTextRecognizer
+    @ObservationIgnored private let registry: any TraceBrowserRegistry
     @ObservationIgnored private let connection: () -> ServerConnection
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let ownBundleId: String?
@@ -66,7 +67,7 @@ final class TraceRecorder {
     /// At most this many frames wait for text recognition and posting.
     nonisolated static let frameQueueCap = 3
 
-    private struct OpenSpan: Equatable {
+    struct OpenSpan: Equatable {
         var id: String
         var start: Date
         var lastSeen: Date
@@ -78,6 +79,8 @@ final class TraceRecorder {
         var pid: Int32
         /// A screenshot may describe it (not a browser whose tab is unverified, not a title-off app).
         var describable: Bool
+        /// A browser (by name, or registered to open https: links): described only through a verified tab.
+        var isBrowser: Bool
         var key: String { "\(bundleId)\u{1}\(title ?? "")\u{1}\(url ?? "")" }
     }
 
@@ -97,7 +100,8 @@ final class TraceRecorder {
 
     init(backend: any TraceBackend, workspace: any TraceWorkspace, idle: any TraceIdleProbe,
          titles: any TraceWindowTitles, tabs: any TraceBrowserTabs, capture: any TraceScreenCapture,
-         recognizer: any TraceTextRecognizer, connection: @escaping () -> ServerConnection = { .current },
+         recognizer: any TraceTextRecognizer, registry: any TraceBrowserRegistry,
+         connection: @escaping () -> ServerConnection = { .current },
          now: @escaping () -> Date = Date.init, ownBundleId: String? = Bundle.main.bundleIdentifier,
          tickInterval: Duration = .seconds(5), cadence: TraceFrameCadence = TraceFrameCadence()) {
         self.backend = backend
@@ -107,6 +111,7 @@ final class TraceRecorder {
         self.tabs = tabs
         self.capture = capture
         self.recognizer = recognizer
+        self.registry = registry
         self.connection = connection
         self.now = now
         self.ownBundleId = ownBundleId
@@ -294,7 +299,9 @@ final class TraceRecorder {
         var url: String?
         var host: String?
         var describable = policy.titleAllowed(front.bundleId)
-        let isBrowser = policy.isBrowser(front.bundleId)
+        // Any app macOS registers to open https: links is a browser, listed or not (review of #456, B3): an unlisted
+        // browser's private window is never described.
+        let isBrowser = policy.isBrowser(front.bundleId) || registry.opensWebLinks(front.bundleId)
         if isBrowser {
             // A browser window is described only once its tab is read and known not to be private.
             describable = false
@@ -317,7 +324,7 @@ final class TraceRecorder {
 
         let next = OpenSpan(id: Self.newId(), start: moment, lastSeen: moment, bundleId: front.bundleId,
                             app: front.name, title: title, url: url, host: host, pid: front.pid,
-                            describable: describable)
+                            describable: describable, isBrowser: isBrowser)
         var isNew = false
         if var current = open, current.key == next.key {
             current.lastSeen = moment
@@ -336,7 +343,8 @@ final class TraceRecorder {
         let end = max(span.start, moment)
         guard end.timeIntervalSince(span.start) >= Self.minSpan else { return }
         pending.append(TraceSpan(id: span.id, start: TraceClock.stamp(span.start), end: TraceClock.stamp(end),
-                                 bundleId: span.bundleId, app: span.app, title: span.title, url: span.url))
+                                 bundleId: span.bundleId, app: span.app, title: span.title, url: span.url,
+                                 browser: span.isBrowser ? true : nil))
         if pending.count > Self.pendingCap { pending.removeFirst(pending.count - Self.pendingCap) }
         pendingCount = pending.count
     }
@@ -375,8 +383,22 @@ final class TraceRecorder {
         let maxSide = cadence.maxSide
         Task { [weak self] in
             guard let frame = try? await capture.captureFrontWindow(pid: span.pid, maxSide: maxSide) else { return }
-            await self?.enqueue(frame, span: span, at: moment)
+            guard let self, await self.stillShows(span) else { return }
+            await self.enqueue(frame, span: span, at: moment)
         }
+    }
+
+    /// After a capture: is what was vetted still what is in front? The same app, and for a browser the same page in a
+    /// window still known not to be private — otherwise the frame may show another window (an incognito one brought
+    /// forward in between) and is dropped (review of #456, B2).
+    func stillShows(_ span: OpenSpan) async -> Bool {
+        guard let front = workspace.frontmost(), front.pid == span.pid, front.bundleId == span.bundleId else {
+            return false
+        }
+        guard span.isBrowser else { return true }
+        guard let expected = span.url, let tab = await tabs.frontTab(bundleId: span.bundleId), !tab.isPrivate,
+              let cleaned = policy.cleanURL(tab.url) else { return false }
+        return cleaned.url == expected
     }
 
     private func enqueue(_ frame: TraceCapturedFrame, span: OpenSpan, at moment: Date) async {
@@ -384,7 +406,8 @@ final class TraceRecorder {
         guard settings.enabled, settings.screenshots, !pausedNow() else { return }
         let post = TraceFramePost(id: Self.newId(), at: TraceClock.stamp(moment), bundleId: span.bundleId,
                                   app: span.app, host: span.host ?? "", spanId: span.id, width: frame.width,
-                                  height: frame.height, image: frame.jpeg.base64EncodedString(), text: "")
+                                  height: frame.height, image: frame.jpeg.base64EncodedString(), text: "",
+                                  browser: span.isBrowser)
         frameQueue.append(post)
         if frameQueue.count > Self.frameQueueCap { frameQueue.removeFirst(frameQueue.count - Self.frameQueueCap) }
         await drainFrames()
