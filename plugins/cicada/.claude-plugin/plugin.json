@@ -1,7 +1,7 @@
 {
   "name": "cicada",
   "displayName": "Cicada",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Connects Claude Code to the Cicada on this machine: the memory tools (MCP), the cicada skill, the hooks that save each session (Stop, with PreCompact and SessionEnd as a flush) and the hooks that add what Cicada remembers (SessionStart, UserPromptSubmit). Needs Cicada installed: the app, or a source checkout set up with install.sh.",
   "author": {
     "name": "Rodrigo Sagastegui",
