@@ -50,7 +50,7 @@
   `desktop` variant for `claude-ai`. Recall's state cursor says `pending_as_of` / `refresh_with`; confidence shows two
   places; `cicada_recall_detail` drops five bookkeeping keys and never ends a part inside a fence it can avoid. The
   golden fixture now pins whole `tools/call` results. **The leniency shipped in 0.7.0 only and ended in 0.7.1
-  (`fix/g199-end-leniency`):** a digit, decimal or `"true"`/`"false"` string where the schema says a number or boolean
+  (#445):** a digit, decimal or `"true"`/`"false"` string where the schema says a number or boolean
   is refused on both doors like any other wrong type (`invalid_arguments`, the sentence saying to send it without
   quotes); the lenient branches in `tool_contract._value` and the dating test are gone. Review fix round: a
   read reply is fenced whatever its code, with Cicada's own directions outside the markers (`Reply.framed`); a recall
