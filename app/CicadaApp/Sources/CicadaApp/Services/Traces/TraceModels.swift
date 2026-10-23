@@ -72,10 +72,24 @@ struct TracePolicyLists: Codable, Equatable, Sendable {
     var titleOffApps: [String] = []
     var urlBrowsers: [String: [String]] = [:]
     var contentKeys: [String: [String]] = [:]
+    /// Every browser the backend knows (`trace_policy.KNOWN_BROWSERS`): described only through a verified tab.
+    var knownBrowsers: [String] = []
 
     enum CodingKeys: String, CodingKey {
         case neverApps = "never_apps", selfPrefix = "self_prefix", titleOffApps = "title_off_apps"
-        case urlBrowsers = "url_browsers", contentKeys = "content_keys"
+        case urlBrowsers = "url_browsers", contentKeys = "content_keys", knownBrowsers = "known_browsers"
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        neverApps = try c.decodeIfPresent([String].self, forKey: .neverApps) ?? []
+        selfPrefix = try c.decodeIfPresent(String.self, forKey: .selfPrefix) ?? "com.rorosaga.cicada"
+        titleOffApps = try c.decodeIfPresent([String].self, forKey: .titleOffApps) ?? []
+        urlBrowsers = try c.decodeIfPresent([String: [String]].self, forKey: .urlBrowsers) ?? [:]
+        contentKeys = try c.decodeIfPresent([String: [String]].self, forKey: .contentKeys) ?? [:]
+        knownBrowsers = try c.decodeIfPresent([String].self, forKey: .knownBrowsers) ?? []
     }
 }
 

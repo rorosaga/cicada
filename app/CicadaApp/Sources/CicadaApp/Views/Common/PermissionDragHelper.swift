@@ -196,7 +196,6 @@ final class PermissionDragHelper {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false   // depth is a ring, not a shadow (DR-9)
-        panel.isMovableByWindowBackground = true
         return panel
     }
 
@@ -218,7 +217,7 @@ final class PermissionDragHelper {
     private func showDragCard() {
         guard dragPanel == nil, !model.isFinished else { return }
         let panel = Self.makePanel()
-        panel.isMovableByWindowBackground = false   // a drag on it is the app tile's drag
+        // Not movable by its background (the default): a drag on it is the app tile's drag.
         let host = NSHostingView(rootView: PermissionDragCard(appURL: Bundle.main.bundleURL,
                                                               name: Self.appName,
                                                               icon: NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)))

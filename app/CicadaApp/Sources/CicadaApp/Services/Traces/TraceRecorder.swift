@@ -294,7 +294,7 @@ final class TraceRecorder {
         var url: String?
         var host: String?
         var describable = policy.titleAllowed(front.bundleId)
-        let isBrowser = TracePolicy.knownBrowsers.contains(front.bundleId)
+        let isBrowser = policy.isBrowser(front.bundleId)
         if isBrowser {
             // A browser window is described only once its tab is read and known not to be private.
             describable = false
@@ -421,12 +421,16 @@ final class TraceRecorder {
 }
 
 extension TracePolicy {
-    /// Every browser Cicada knows. Its windows are described only when the tab was read and is not private.
-    static let knownBrowsers: Set<String> = [
+    /// The browsers known before the backend's list arrives (the recorder records nothing before it does, so this is a
+    /// floor). The full list is the backend's (`trace_policy.KNOWN_BROWSERS`, served as `known_browsers`).
+    static let floorBrowsers: Set<String> = [
         "com.google.Chrome", "com.google.Chrome.beta", "com.google.Chrome.dev", "com.google.Chrome.canary",
         "com.brave.Browser", "com.microsoft.edgemac", "com.vivaldi.Vivaldi", "com.apple.Safari",
-        "com.apple.SafariTechnologyPreview", "org.mozilla.firefox", "org.mozilla.firefoxdeveloperedition",
-        "company.thebrowser.Browser", "com.operasoftware.Opera", "com.kagi.kagimacOS", "app.zen-browser.zen",
-        "com.duckduckgo.macos.browser", "org.torproject.torbrowser",
+        "com.apple.SafariTechnologyPreview", "org.mozilla.firefox", "company.thebrowser.Browser",
     ]
+
+    /// A browser: its windows are described only when the tab was read and is known not to be private.
+    func isBrowser(_ bundleId: String) -> Bool {
+        Self.floorBrowsers.contains(bundleId) || lists.knownBrowsers.contains(bundleId)
+    }
 }

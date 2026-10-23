@@ -153,4 +153,5 @@ def served() -> dict:
     """The lists the app applies before anything leaves it (``GET /sources/traces/settings``)."""
     return {"never_apps": sorted(NEVER_APPS), "self_prefix": SELF_PREFIX, "title_off_apps": sorted(TITLE_OFF_APPS),
             "url_browsers": {name: list(ids) for name, ids in URL_BROWSERS.items()},
+            "known_browsers": sorted(KNOWN_BROWSERS),
             "content_keys": {host: sorted(keys) for host, keys in CONTENT_KEYS.items()}}
