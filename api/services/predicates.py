@@ -317,6 +317,7 @@ def build_endings_fn(memory_path: Path | None) -> EndingFn:
     found: dict[str, set[tuple[str, str]]] = {}
     folds: dict[str, set[str]] = {}
     roots: dict[str, set[str]] = {}   # a predicate slug -> the canonicals whose `over` labels end it
+    dependents: dict[str, set[str]] = {}   # a predicate slug -> the canonicals it rests on (W7, 2026-10-23)
     for data in sources:
         for k, v in ((data.get("synonyms") or {}) if isinstance(data, dict) else {}).items():
             folds.setdefault(_slugify_predicate(str(k)), set()).add(_slugify_predicate(str(v)))
@@ -332,6 +333,10 @@ def build_endings_fn(memory_path: Path | None) -> EndingFn:
                 slug = _slugify_predicate(str(member))
                 if slug:
                     roots.setdefault(slug, set()).add(canon)
+            for member in modes.get("dependents") or []:
+                slug = _slugify_predicate(str(member))
+                if slug:
+                    dependents.setdefault(slug, set()).add(canon)
             for mode in (ENDING_OVER, ENDING_PAST):
                 for label in modes.get(mode) or []:
                     slug = _slugify_predicate(str(label))
@@ -355,24 +360,33 @@ def build_endings_fn(memory_path: Path | None) -> EndingFn:
             over.setdefault(hit.canonical, set()).add(slug)
     ending.over = over  # type: ignore[attr-defined]
 
+    def _listed(table: dict[str, set[str]], predicate: str) -> str | None:
+        slug = _slugify_predicate(predicate or "")
+        if not slug:
+            return None
+        if slug in table:
+            hits = table[slug]
+        else:
+            prefixes = [root for root in table if slug.startswith(root + "-")]
+            if not prefixes:
+                return None
+            hits = table[max(prefixes, key=len)]
+        return next(iter(hits)) if len(hits) == 1 else None
+
     def ended_by(predicate: str) -> str | None:
         """The canonical whose ``over`` labels also end a belief under ``predicate`` (2026-10-23): the canonical
         itself, a predicate its ``also_ends`` lists, or either one qualified by more words (``uses-for-sign-in``,
         ``stores-data-in-supabase-postgres``) — the longest listed prefix decides. ``None`` when nothing lists it or
         two canonicals do (when unsure, nothing closes)."""
-        slug = _slugify_predicate(predicate or "")
-        if not slug:
-            return None
-        if slug in roots:
-            hits = roots[slug]
-        else:
-            prefixes = [root for root in roots if slug.startswith(root + "-")]
-            if not prefixes:
-                return None
-            hits = roots[max(prefixes, key=len)]
-        return next(iter(hits)) if len(hits) == 1 else None
+        return _listed(roots, predicate)
+
+    def depends_on(predicate: str) -> str | None:
+        """The canonical a belief under ``predicate`` rests on (``dependents``, W7 2026-10-23): ``reports-to`` rests on
+        ``works-at``, so it closes with the job its ``premises`` name. Same matching as :func:`ended_by`."""
+        return _listed(dependents, predicate)
 
     ending.ended_by = ended_by  # type: ignore[attr-defined]
+    ending.depends_on = depends_on  # type: ignore[attr-defined]
     return ending
 
 

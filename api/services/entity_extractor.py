@@ -48,7 +48,9 @@ Output valid JSON with this exact structure:
       "source": "Entity Name A",
       "target": "Entity Name B",
       "label": "specific relationship verb phrase",
-      "evidence_quote": "the exact words from the transcript this relationship rests on (verbatim, at most 240 characters)"
+      "evidence_quote": "the exact words from the transcript this relationship rests on (verbatim, at most 240 characters)",
+      "ends": "YYYY-MM-DD   (optional; see ENDS below)",
+      "at": "Organisation Name   (optional; reports to / managed by / manages only; see AT below)"
     }
   ],
   "values": [
@@ -189,11 +191,27 @@ EXTRACTION GUIDELINES:
   physical, real-world place (a city, an office, a campus, a venue) as type `location`. When in doubt
   and the string is a slash/tilde path, prefer `directory`.
 - Relationships are critical — capture every meaningful connection between entities with a specific
-  verb phrase (e.g. "works at", "built with", "supervised by", "depends on", "evaluated against",
-  "replaced by", "due"). Use short verb phrases, not full sentences or generic "related to".
+  verb phrase in the active voice, source first (e.g. "works at", "built with", "supervised by", "depends on",
+  "evaluated against", "dropped", "due"). Use short verb phrases, not full sentences or generic "related to".
 - "works at" says the place is CURRENT. A job or role that ended is labelled by its ending — "left",
   "previously worked at" — never "works at". Two places at once (a job and a lab, a day job and a side
   project) are two "works at" relationships; one never replaces the other.
+- A SWITCH IS SAID ABOUT WHAT SWITCHED. When the user's words say they dropped, stopped using, moved off or
+  switched away from something FOR A PROJECT (the project is named in that turn, or is plainly what that turn is
+  about), the source is the PROJECT: "<project> dropped <old thing>", and what takes its place is "<project> uses
+  <new thing>". Never write a project's switch only on the user ("<user> dropped <old thing>"), and never label it
+  "replaces" or "replaced by" — those say which thing took whose place, and read backwards.
+- ENDS (optional): the day a relationship stops or stopped being true, when the conversation states that day —
+  a last day at a job, a contract's end, the day something was dropped. Always an absolute YYYY-MM-DD resolved
+  from the conversation's date as TIME says: said on 2026-03-04, "my last day is a week from today" is
+  2026-03-11; "yesterday was my last day" is 2026-03-03. On an ending ("left", "dropped") it is the day it ended;
+  on any other relationship ("works at" with a last day ahead) it is the day it will stop. Omit it when no day is
+  stated, or when the day is unclear — never a relative phrase, never a guess.
+- AT (optional, only on "reports to", "managed by" and "manages"): the organisation that working relationship
+  belongs to, when the conversation says it (the user's manager at the company they work at: "at" is that
+  company).
+  Omit it when the conversation does not say where. Write the user's own working relationships from the user's
+  side, the user as the source: "<user> reports to <manager>", never "<manager> manages <user>".
 - EVIDENCE QUOTE (required on every relationship): copy the shortest passage of the transcript,
   VERBATIM and at most 240 characters, that states this relationship — the sentence the user or
   assistant actually wrote, not your paraphrase. If the relationship is your own inference across
@@ -818,6 +836,21 @@ def _claim_date(timestamp: str | None, episode_id: str) -> str:
     return day.isoformat() if day is not None else ""
 
 
+_ISO_DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _stated_day(raw) -> str | None:
+    """A relationship's ``ends`` as an ISO day, or ``None``: only an absolute date that exists — nothing relative is
+    stored (W7, 2026-10-23); the prompt resolves "a week from today" against the conversation's day."""
+    text = str(raw or "").strip()
+    if not _ISO_DAY.fullmatch(text):
+        return None
+    try:
+        return date.fromisoformat(text).isoformat()
+    except ValueError:
+        return None
+
+
 def _emit_claim_id(subject: str, predicate: str, obj: str, valid_from: str) -> str:
     digest = hashlib.sha1(
         f"{subject}\x00{predicate}\x00{obj}\x00{valid_from}".encode("utf-8")
@@ -853,6 +886,8 @@ def entities_to_claims(
     to_id = resolve_id or sanitize_id
 
     normalize = predicates.load_normalizer(memory_path) if memory_path is not None else None
+    endings = predicates.build_endings_fn(memory_path)
+    depends_on = getattr(endings, "depends_on", lambda _p: None)
 
     claims: list = []
     by_id: dict[str, Claim] = {}
@@ -877,6 +912,16 @@ def entities_to_claims(
                 predicate = _slug_label(raw_label)
             ep = str(rel.get("source_episode", "") or episode_id)
             valid_from = _claim_date(rel.get("source_episode_timestamp"), ep)
+            # W7 (2026-10-23): a stated day. On an ending ("left", "dropped") it is the day it ended, so the
+            # belief it closes closes then, not on the day it was said; on any other label it is a stated end.
+            ends = _stated_day(rel.get("ends"))
+            expected_end = None
+            if ends:
+                hit = endings(raw_label)
+                if hit is not None and hit.mode == predicates.ENDING_OVER:
+                    valid_from = ends
+                elif hit is None and (not valid_from or ends >= valid_from):
+                    expected_end = ends
             cid = _emit_claim_id(subject, predicate, obj, valid_from)
             rel_evidence = [
                 Evidence.from_dict(e) for e in (rel.get("evidence") or []) if isinstance(e, dict)
@@ -893,6 +938,7 @@ def entities_to_claims(
                 if first.observer != observer:
                     # G179: the person's own words (or Cicada's reading) back it too — no longer only theirs.
                     first.observer = "agent"
+                first.expected_end = first.expected_end or expected_end
                 continue
             claim = Claim(
                 id=cid,
@@ -910,9 +956,14 @@ def entities_to_claims(
                 source_episodes=[ep] if ep else [],
                 origin=origin,
                 evidence=rel_evidence,
+                expected_end=expected_end,
             )
             # The pre-normalization label (for the Stage-3 normalization audit).
             setattr(claim, "predicate_raw", raw_label)
+            at = str(rel.get("at", "") or "").strip()
+            if at and depends_on(predicate):
+                # W7: the organisation a working relationship belongs to — Stage 3 ties it to that job's claim.
+                setattr(claim, "premise_at", to_id(at))
             by_id[cid] = claim
             claims.append(claim)
         for value in extraction.get("values", []) or []:
