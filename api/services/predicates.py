@@ -390,6 +390,30 @@ def build_endings_fn(memory_path: Path | None) -> EndingFn:
     return ending
 
 
+@lru_cache(maxsize=1)
+def _value_groups() -> dict[frozenset, str]:
+    from api.services.claims import value_key, value_predicate
+
+    groups: dict[frozenset, set[str]] = {}
+    raw = _load_seed_map().get("value_attributes")
+    for name, spellings in (raw.items() if isinstance(raw, dict) else []):
+        for spelling in spellings if isinstance(spellings, list) else []:
+            key = value_key(value_predicate(str(spelling)))
+            if key:
+                groups.setdefault(key, set()).add(str(name))
+    # A spelling two names list is ambiguous: it joins nothing.
+    return {key: next(iter(names)) for key, names in groups.items() if len(names) == 1}
+
+
+def value_attribute_group(predicate: str) -> str | None:
+    """The declared name of a value predicate's attribute (the seed's ``value_attributes``, 2026-10-23), or ``None``.
+    Two value predicates under one name are one attribute — "latest release" and "released version" — so the newer
+    closes the older; one listed nowhere still matches only by its own words (``claims.same_value_attribute``)."""
+    from api.services.claims import value_key
+
+    return _value_groups().get(value_key(predicate))
+
+
 def is_single_valued(memory_path: Path | None, predicate: str) -> bool:
     """One-shot convenience wrapper around :func:`build_cardinality_fn`."""
     return build_cardinality_fn(memory_path)(predicate)

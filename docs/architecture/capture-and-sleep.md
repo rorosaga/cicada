@@ -1707,6 +1707,12 @@ type, an installed agent skill's page, a dropped page, or a page another change 
 `skills_detected` counts the grounded skills. No contradiction check runs on a skill update (owner ruling
 2026-10-09: no extra model call).
 The same repair script grounds the existing unsourced skill pages from the Sleep commit that created each one.
+**A summary that outlived its facts (W6, 2026-10-23).** Because the prose is written once, a skill born before a switch
+keeps describing the old stack ("<person-a> reviews the <tool> pull requests" after the project dropped the tool). Such a
+skill is left out of the handshake's *How to work with me* on the next cursor rebuild, which every Sleep runs
+(`skill_staleness`, `storage.md` "The handshake"); no model call is added. Rewriting the summary instead would need
+Stage 4 to be shown the stale skills and allowed to replace their prose — a few hundred input tokens on the call it
+already makes, and a change to the "prose is not touched" rule above — and is not done.
 
 **A new skill page needs two conversations (owner ruling 2026-10-09).** The bar is entity promotion's. A skill
 `ground` finds in only one conversation is not written and not lost: `skill_grounding.settle` (Stage 5, after the

@@ -196,8 +196,8 @@ EXTRACTION GUIDELINES:
 - "works at" says the place is CURRENT. A job or role that ended is labelled by its ending — "left",
   "previously worked at" — never "works at". Two places at once (a job and a lab, a day job and a side
   project) are two "works at" relationships; one never replaces the other.
-- A SWITCH IS SAID ABOUT WHAT SWITCHED. When the user's words say they dropped, stopped using, moved off or
-  switched away from something FOR A PROJECT (the project is named in that turn, or is plainly what that turn is
+- A SWITCH IS SAID ABOUT WHAT SWITCHED. When the user's words say they dropped, stopped using, moved off,
+  moved from or switched away from something — "moved from A to B", "replaced A with B" included — FOR A PROJECT (the project is named in that turn, or is plainly what that turn is
   about), the source is the PROJECT: "<project> dropped <old thing>", and what takes its place is "<project> uses
   <new thing>". Never write a project's switch only on the user ("<user> dropped <old thing>"), and never label it
   "replaces" or "replaced by" — those say which thing took whose place, and read backwards.

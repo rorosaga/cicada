@@ -253,3 +253,66 @@ def test_a_skill_with_no_dated_provenance_is_kept(tmp_path):
                            "related": [PROJECT, "tool-example"], "tags": []},
                           "## Summary\nFor alpha-project, use Tool Example.")
     assert _prefs(memory) == ["old-skill"], "when unsure, kept"
+
+
+# --- addition (acting owner, 2026-10-23, from a live test): changed facts beside their replacements -----------------
+
+def _value(memory: Path, day: str, n: int, attribute: str, value: str, *, now: str | None = None) -> dict:
+    ep = f"ep_{day}_{n:03d}"
+    extracted = [{"episode_id": ep, "episode_timestamp": f"{day}T10:00:00", "origin": "claude-code", "entities": [],
+                  "relationships": [],
+                  "values": [{"entity": "alpha-project", "attribute": attribute, "value": value,
+                              "source_episode": ep, "source_episode_timestamp": f"{day}T10:00:00"}]}]
+    return claim_pipeline.run_claim_pipeline(extracted, [], memory, _settings(memory), now_date=now or day)
+
+
+def _open_values(memory: Path) -> dict[str, str]:
+    return {c.predicate: c.object for c in _claims(memory, PROJECT) if c.object_kind == "literal" and c.valid_to is None}
+
+
+def test_a_newer_release_under_another_wording_closes_the_older(tmp_path):
+    memory = _bank(tmp_path)
+    _value(memory, "2026-09-02", 1, "latest release", "0.3.1")
+    _value(memory, "2026-10-21", 2, "released version", "0.6.0")
+    assert list(_open_values(memory).values()) == ["0.6.0"]
+    (old,) = [c for c in _claims(memory, PROJECT) if c.object == "0.3.1"]
+    assert old.valid_to == "2026-10-21", "closed on the day the newer value was said"
+
+
+def test_an_older_release_read_late_stays_history(tmp_path):
+    memory = _bank(tmp_path)
+    _value(memory, "2026-10-21", 1, "released version", "0.6.0")
+    _value(memory, "2026-09-02", 2, "latest release", "0.3.1", now="2026-10-22")
+    assert list(_open_values(memory).values()) == ["0.6.0"], "the newest dated evidence wins (ruling 26)"
+
+
+def test_values_outside_a_declared_group_still_coexist(tmp_path):
+    memory = _bank(tmp_path)
+    _value(memory, "2026-09-02", 1, "release", "0.3.1")
+    _value(memory, "2026-10-21", 2, "python version", "3.12")
+    assert sorted(_open_values(memory).values()) == ["0.3.1", "3.12"], "no fold by guess"
+
+
+def test_moved_from_a_to_b_closes_every_a_variant_and_keeps_b(tmp_path):
+    memory = _bank(tmp_path)
+    _sleep(memory, "2026-08-20", 1, "alpha-project",
+           [("uses", "Index Example"), ("uses for vector search", "Index Example"), ("built on", "Index Example"),
+            ("depends on", "Index Example"), ("stores data in", "Index Example")])
+    _sleep(memory, "2026-10-05", 2, "alpha-project",
+           [("moved from", "Index Example"), ("uses", "Vec Example"), ("replaced with", "Vec Example")])
+    still = [(c.predicate, c.object) for c in _claims(memory, PROJECT) if c.valid_to is None]
+    assert not [s for s in still if s[1] == "index-example"], still
+    assert ("uses", "vec-example") in still, "what replaced it is current; 'replaced with' never ends it"
+
+
+def test_replaced_a_with_b_said_by_an_agent_never_closes_the_persons_own_use(tmp_path):
+    memory = _bank(tmp_path)
+    own = Claim(id="clm_own", text="alpha-project uses Index Example", subject=PROJECT, predicate="uses",
+                object="index-example", valid_from="2026-08-20", source_trust="user_stated", origin="manual_edit",
+                source_episodes=["ep_2026-08-20_001"])
+    path = memory / "entities" / f"{PROJECT}.md"
+    parsed = markdown_parser.parse(path)
+    markdown_parser.write(path, parsed.frontmatter, write_claims(parsed.body, [own]))
+    _sleep(memory, "2026-10-05", 2, "alpha-project", [("replaced", "Index Example")])
+    (kept,) = [c for c in _claims(memory, PROJECT, "uses") if c.id == "clm_own"]
+    assert kept.valid_to is None
