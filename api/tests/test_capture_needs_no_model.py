@@ -18,6 +18,8 @@ CAPTURE_WRITERS = (
     "api.services.turn_capture",
     "api.services.episode_staging",
     "api.services.telegram_capture",
+    "api.services.reminders_local",   # G219
+    "api.services.notion_export",     # G219
 )
 MODEL_CLIENTS = ("litellm", "openai", "anthropic", "sentence_transformers", "torch", "onnxruntime",
                  "api.services.entity_extractor", "api.services.ask_service", "api.services.agent_engine",

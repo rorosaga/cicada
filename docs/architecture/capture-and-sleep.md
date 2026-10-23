@@ -312,6 +312,56 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   tombstone the window); Disconnect stops it and deletes nothing. A subscribed ICS calendar's event is dated the
   same way since 2026-10-23 (`calendar_registry._begun_at`: its start once begun, else the day it was polled), and
   its fetch goes through `net_guard` on every hop, as the RSS poll's does (`network.md`).
+  Apple Reminders (G219, the G142 path; one way, never written back — ruling 38): the app reads EventKit after the one
+  Reminders prompt (`requestFullAccessToReminders`; macOS has no read-only grant, so the row says "full access" before
+  it) and posts the lists the person ticked — nothing is pre-ticked, and nothing is read before a tick — to
+  `POST /sources/reminders-local/sync`: every open reminder of those lists plus those completed since `completedSince`
+  (the app sends 90 days). `reminders_local.py` stages each keyed `reminders-local:<calendarItemExternalIdentifier>`:
+  - the body holds the title, the list (and its account), the status, created, due (a bare day when it has no
+    time), priority, a link without its query, and the notes scrubbed then cut at 2,000 characters; the title is
+    scrubbed too;
+  - **dated when it happened:** a completed reminder at its completion, an open one at its creation, neither known the
+    day Cicada learned of it; the due date is a fact in the body and `reminder_due`, never the episode's date. A
+    reminder completed after it was first read moves to its completion in place (`EpisodeDraft.redate`; the id keeps
+    its first day, ruling 34);
+  - tombstoned only when its list is named, it was not posted, and it could have been — open when last read, or
+    completed on or after `completedSince`; one completed before that aged out of the read, not out of Reminders, and
+    is kept; an unticked list says nothing about its reminders;
+  - the person's own words (`evidence_kind: user`), except in a list the person marked "Others add to it", whose items
+    are `assistant` (never the person's own, the folder rule) with `reminder_list_shared: true`;
+  - a record, not a conversation (`inbox_tend.record_origin`, beside calendar entries): never a skill's grounding or
+    a conversation to pick up; turning a completed reminder into a done happening, or a dated one into a planned
+    milestone, is Sleep's reading of the episode (G141), never capture's;
+  - 413 above 5,000 reminders, 422 for a `completedSince` with no offset, 409 in a demo bank; one `user` commit per sync
+    (`capture/reminders`), scoped to what it wrote.
+  The app half (`RemindersReader`, `EventKitRemindersStore`): `CalendarReader`'s triggers (launch, a debounced
+  `EKEventStoreChanged`, every 3 hours, a bank switch, Refresh, a tick); a read whose ticked lists are not there is
+  never posted (it would tombstone them); unticking the last list posts nothing; Disconnect bumps a generation every
+  await re-checks, so a read in flight when the person pressed it never posts and never turns the row back on. **Not
+  built (slice):** a list the person names as a project's backlog mapping into G150 items with no model — the G219 row
+  holds the design.
+  A Notion export (G219 slice 1; ruling 38): the Markdown & CSV zip on the one intake (`/intake/sniff`,
+  `/intake/import`; `notion_export.looks_like` decides by names — most `.md`/`.csv` files carry Notion's 32-hex id, and
+  no chat export's files are present; part zips are read one level down). `notion_export.parse_zip` makes documents
+  (`body`, `evidence_kind: user`, origin `notion-export`, scrub writer `notion`; `episode_staging.draft_from_export`
+  takes a `body` beside `messages`): a plain page keyed `notion:<page id>` with its breadcrumb (`In: Parent › Child`),
+  links to other pages reduced to their words and embedded files left out (web links kept), a title over sub-pages and
+  nothing else skipped, a long page split by H2 like a watched folder's file (`notion:<id>#<slug>`). **One episode per
+  database row**, not per database: a row is one idea with its own date (dated by its *Created* property, else *Last
+  edited*; read on time), an edit re-queues that row alone, and a row maps one to one onto a backlog item later; the
+  CSV row (`_all.csv` preferred) gives every property and the row's own page its body, joined by title in the
+  database's folder (a title Notion cut in the file name matches by prefix); a CSV row with no page is kept, keyed
+  `notion:<database id>:<title hash>`. Rows sharing a title ("Untitled") each take the page whose own property block
+  agrees with the CSV row, and the page's own properties win, so a re-export in another order never swaps them. A
+  page with no date of its own (every plain page, a row with no Created / Last edited) is stamped the import day but
+  is **untimed**: source `notion-export-undated`, one of `episode_time.UNTIMED_SOURCES` (the memory-export rule), so
+  its facts are kept and nothing it mentions counts as mentioned that day; dated rows keep source `notion-export`. A
+  row whose *Created by* names someone other than the bank's owner is `assistant` (never the person's words); with no
+  owner name known, a database more than one person created is; a page or table with no *Created by* is the person's.
+  **What is read is bounded:** only `.md` and `.csv` members (16 MB each, 256 MB in all, checked on the declared size
+  and while reading), part zips one level down only (256 MB each, a zip inside a part never opened); everything left
+  out is a preview warning. A second import of the same zip skips everything (the stager's hash); an edited page
+  updates in place. A page missing from a later export is never tombstoned — an export can be one page's.
   Chrome's open tab groups (round 4, G160 first slice): the app reads the default profile's
   `Sessions/Session_<n>` (SNSS; only a clear version-3 file carrying its initial-state marker, never `Tabs_*`, never
   the encrypted directory; commands 25/27 and each member tab's current navigation — never the page state after its

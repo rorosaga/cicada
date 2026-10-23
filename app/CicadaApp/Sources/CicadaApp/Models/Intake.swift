@@ -10,10 +10,13 @@ struct IntakeIgnored: Codable, Hashable {
 
 struct IntakeCounts: Codable, Hashable {
     var conversations = 0, memories = 0, projects = 0, prompts = 0, items = 0
+    /// G219: a Notion export's plain pages and database rows.
+    var pages = 0, rows = 0
 
-    init(conversations: Int = 0, memories: Int = 0, projects: Int = 0, prompts: Int = 0, items: Int = 0) {
+    init(conversations: Int = 0, memories: Int = 0, projects: Int = 0, prompts: Int = 0, items: Int = 0,
+         pages: Int = 0, rows: Int = 0) {
         self.conversations = conversations; self.memories = memories; self.projects = projects
-        self.prompts = prompts; self.items = items
+        self.prompts = prompts; self.items = items; self.pages = pages; self.rows = rows
     }
 
     init(from decoder: Decoder) throws {
@@ -23,11 +26,14 @@ struct IntakeCounts: Codable, Hashable {
         projects = (try? c.decodeIfPresent(Int.self, forKey: .projects)) ?? 0
         prompts = (try? c.decodeIfPresent(Int.self, forKey: .prompts)) ?? 0
         items = (try? c.decodeIfPresent(Int.self, forKey: .items)) ?? 0
+        pages = (try? c.decodeIfPresent(Int.self, forKey: .pages)) ?? 0
+        rows = (try? c.decodeIfPresent(Int.self, forKey: .rows)) ?? 0
     }
 
     static func + (a: IntakeCounts, b: IntakeCounts) -> IntakeCounts {
         IntakeCounts(conversations: a.conversations + b.conversations, memories: a.memories + b.memories,
-                     projects: a.projects + b.projects, prompts: a.prompts + b.prompts, items: a.items + b.items)
+                     projects: a.projects + b.projects, prompts: a.prompts + b.prompts, items: a.items + b.items,
+                     pages: a.pages + b.pages, rows: a.rows + b.rows)
     }
 }
 

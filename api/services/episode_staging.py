@@ -185,7 +185,21 @@ def normalise_timestamp(ts) -> str | None:
 
 
 def draft_from_export(episode: dict) -> EpisodeDraft:
-    """The chat importers' dict shape as a draft (G20 callers unchanged)."""
+    """The chat importers' dict shape as a draft (G20 callers unchanged). A document export (G219: a Notion page)
+    carries ``body`` instead of ``messages``, with its own scrub ``writer`` and frontmatter ``extra``."""
+    if episode.get("body") is not None:
+        return EpisodeDraft(
+            title=episode.get("title") or "",
+            source_id=episode.get("source_id"),
+            source_updated_at=episode.get("source_updated_at"),
+            timestamp=episode.get("timestamp"),
+            original_date=episode.get("original_date"),
+            source=episode.get("source", "unknown"),
+            origin=episode.get("origin"),
+            body=str(episode["body"]),
+            writer=str(episode.get("writer") or "import"),
+            extra=dict(episode.get("extra") or {}),
+        )
     return EpisodeDraft(
         title=episode.get("title") or "",
         source_id=episode.get("source_id"),

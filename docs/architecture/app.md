@@ -1137,6 +1137,26 @@ agent reads (`agent_methods`), not an install.
   row no channel speaks for, so a reader turned off never returns through its episodes); a row's last sync is the newest
   capture write (`captured_at` / `last_turn_at`), not a session's start; Instagram's line says what G206 shipped and a
   saved list switched on reads Connected.
+- **Reminders and Notion (G219, ruling 38: one way in, never written back; 2026-10-23).** *This Mac* gains
+  **Reminders** after Contacts (`SourceCatalog.fixed`, id `reminders-local`, the installed Reminders app's icon,
+  `com.apple.reminders`). Its detail is `RemindersRow`: `CalendarRow`'s line and buttons (Connect · Refresh ·
+  Disconnect behind "Stop reading your reminders?"; Open Privacy Settings when refused) with the Off line saying,
+  before the prompt, that macOS only offers full access and Cicada only reads; once connected, *Lists to read* — one
+  checkbox per list on this Mac, nothing pre-ticked — and beside every list, before it is ticked, *Others add to it*
+  (its items are read as someone else's words; offered before the tick so a shared list's first read is never stored
+  as the person's). The reader is `RemindersReader` (`.shared`, in the environment beside `CalendarReader`;
+  `RemindersStore` the EventKit seam, `EventKitRemindersStore` the real one, tests inject a fake and never raise a
+  prompt): ticks and Connect live in this Mac's defaults (`cicada.reminders.enabled`, `.lists`, `.shared`), Refresh on
+  a card routes through `ChannelActions.SyncRoute.remindersLocal` and never starts a first read. **Status is honest
+  (#448):** `LocalReaders.on(reminders:)` is `isOn` — connected, macOS still says yes, and at least one list ticked —
+  so a Reminders connected with nothing ticked, or disconnected here, reads **Off** whatever synced before; the dot
+  reads Connected and the last sync once the backend's always-listed `reminders-local` row has synced. Not added to
+  onboarding's tiles: the grid already holds Calendar, Contacts, each browser, Messages, YouTube, X, Instagram and chat
+  history, and Reminders needs its list picker (it would be a fifth "open" tile); it is one click away on Sources.
+  *Exports* gains **Notion** (id `notion`, origin `notion-export`): its detail says how to export (Settings → Export,
+  Markdown & CSV with subpages) and holds the one intake's drop (`IntakePanel`); the preview reads "Notion pages" with
+  "N pages · N database rows" (`IntakeCounts.pages`/`rows`, `IntakeSummary`), and the row reads Connected once an
+  import fed memory (the backend's `notion` origin row, like a chat export).
 - **Inbox top cards (G205, G61):** `agent_request` (`InboxKind.agentRequest`) and the grouped *Confirm N links* review
   (`asks: sources`, `review: true`) are cards above the questions, out of the list, its tabs and the quick review
   (`InboxViewModel.questions`). A request: the agent's tile, *Sign in to <site>*, whose and why, **I signed in**

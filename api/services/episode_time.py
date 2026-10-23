@@ -26,7 +26,10 @@ from api.services import bank_index
 #: the thing (liveness is not mention); the re-check's own beliefs are dated by their capture instead.
 #: ``web-check`` (TODO ruling 27): what a web lookup read about a public thing — never the person mentioning it either.
 #: ``traces-day`` (G218): a day of activity traces, counted — what was on screen is not the person mentioning it.
-UNTIMED_SOURCES = frozenset({"claude_memory", "agent_relay", "source-refresh", "web-check", "traces-day"})
+#: ``notion-export-undated`` (G219, review of #455): a Notion page with no date of its own, stamped the day it was
+#: imported — its facts are kept, but the import day is not when anything in it was said. Dated rows stay timed.
+UNTIMED_SOURCES = frozenset({"claude_memory", "agent_relay", "source-refresh", "web-check", "traces-day",
+                             "notion-export-undated"})
 
 
 def counts_as_activity(frontmatter: dict | None) -> bool:

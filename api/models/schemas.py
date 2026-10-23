@@ -3686,6 +3686,9 @@ class IntakeCounts(CamelModel):
     projects: int = 0
     prompts: int = 0
     items: int = 0
+    # G219: a Notion export's plain pages and database rows.
+    pages: int = 0
+    rows: int = 0
 
 
 class IntakeDelta(CamelModel):
@@ -4629,6 +4632,51 @@ class CalendarLocalSyncRequest(CamelModel):
 
 
 class CalendarLocalSyncResponse(CamelModel):
+    created: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    tombstoned: int = 0
+    bank: str = ""
+
+
+class RemindersLocalList(CamelModel):
+    """One Reminders list the person ticked (G219). ``shared``: the person said others add to it, so its items are
+    never read as the person's own words."""
+
+    id: str
+    title: str = ""
+    account: Optional[str] = None
+    shared: bool = False
+
+
+class RemindersLocalReminder(CamelModel):
+    """One EventKit reminder (G219). ``id`` = ``calendarItemExternalIdentifier``. Every time is ISO-8601 with its
+    offset; ``due`` may be a bare date (an all-day due date)."""
+
+    id: str
+    list_id: str = ""
+    title: str = ""
+    notes: Optional[str] = None
+    url: Optional[str] = None
+    created: Optional[str] = None
+    last_modified: Optional[str] = None
+    completed: bool = False
+    completed_at: Optional[str] = None
+    due: Optional[str] = None
+    due_all_day: bool = False
+    priority: int = 0
+
+
+class RemindersLocalSyncRequest(CamelModel):
+    """``POST /sources/reminders-local/sync`` (G219). One request carries every open reminder of the lists it names
+    plus those completed since ``completed_since`` — a tombstone needs the complete set."""
+
+    completed_since: str
+    lists: list[RemindersLocalList] = []
+    reminders: list[RemindersLocalReminder] = []
+
+
+class RemindersLocalSyncResponse(CamelModel):
     created: int = 0
     updated: int = 0
     unchanged: int = 0

@@ -68,6 +68,9 @@ enum SourceDisplayName {
         "calendar": "Calendars",
         "telegram": "Telegram",
         "notes": "Apple Notes",
+        // G219: Apple Reminders and a Notion export (`source_overview.CATALOG`'s G219 rows).
+        "reminders-local": "Reminders",
+        "notion": "Notion",
         "files": "Files & links",
         "wispr-flow": "Wispr Flow",
         // The open families a live bank produces (A2/A4).

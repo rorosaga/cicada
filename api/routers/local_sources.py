@@ -8,6 +8,9 @@ the API; none is on the Telegram / OAuth-callback exemption list.
 Apple Calendar (G142): EventKit is read by the app; the window's events are
 posted here.
 
+Apple Reminders (G219, the G142 path): the app reads the lists the person ticked through EventKit and posts their open
+reminders plus those completed in the last 90 days; one way, never written back.
+
 Chrome's open tab groups (round 4, G160): the app reads the profile's session
 file; one snapshot per group is posted here.
 
@@ -54,6 +57,8 @@ from api.models.schemas import (
     MessagesSyncRequest,
     MessagesSyncResponse,
     MessagesWaitingResponse,
+    RemindersLocalSyncRequest,
+    RemindersLocalSyncResponse,
     TabGroupsSyncRequest,
     TabGroupsSyncResponse,
     WatchHistorySyncRequest,
@@ -72,6 +77,7 @@ from api.services import (
     messages_source,
     paper_metadata,
     papers,
+    reminders_local,
     sync_state,
     tab_groups,
     watch_history,
@@ -319,6 +325,26 @@ async def sync_calendar_local(req: CalendarLocalSyncRequest, settings: Settings 
     await folder_source.commit_paths_for(memory_path, out.pop("paths"), subject="Calendar sync",
                                          trigger="capture/calendar", channel=calendar_local.CHANNEL_ID)
     return CalendarLocalSyncResponse(**out, bank=memory_path.name)
+
+
+@router.post("/sources/reminders-local/sync", response_model=RemindersLocalSyncResponse, dependencies=_DEMO_GATE)
+async def sync_reminders_local(req: RemindersLocalSyncRequest, settings: Settings = Depends(get_settings)):
+    """G219: stage the reminders of the lists the person ticked, read by the app through EventKit. 413 above
+    ``reminders_local.MAX_REMINDERS``; 422 for a ``completedSince`` with no offset; nothing staged either way. One
+    ``user`` commit per sync (trigger ``capture/reminders``), scoped to the episodes it wrote — a no-change re-read
+    commits nothing. Episodes only, never an entity page or a backlog item (capture, ungated by rail)."""
+    memory_path = settings.memory_path
+    if len(req.reminders) > reminders_local.MAX_REMINDERS:
+        raise HTTPException(413, f"at most {reminders_local.MAX_REMINDERS} reminders per sync")
+    try:
+        out = await run_in_threadpool(reminders_local.sync, memory_path, req.model_dump(by_alias=False),
+                                      bank=memory_path.name)
+    except reminders_local.PayloadError as exc:
+        raise HTTPException(422, str(exc))
+    sync_state.record_sync(memory_path, reminders_local.CHANNEL_ID, count=out.pop("live"))
+    await folder_source.commit_paths_for(memory_path, out.pop("paths"), subject="Reminders sync",
+                                         trigger="capture/reminders", channel=reminders_local.CHANNEL_ID)
+    return RemindersLocalSyncResponse(**out, bank=memory_path.name)
 
 
 @router.post("/sources/tab-groups/sync", response_model=TabGroupsSyncResponse, dependencies=_DEMO_GATE)

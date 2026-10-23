@@ -45,6 +45,8 @@ GATED = {
     # G71 (2026-10-16): the YouTube videos watched in Chrome — day episodes.
     ("POST", "/sources/watch-history/sync"): "/sources/watch-history/sync",
     ("POST", "/sources/contacts-local/sync"): "/sources/contacts-local/sync",
+    # G219: Apple Reminders — the ticked lists, episodes only.
+    ("POST", "/sources/reminders-local/sync"): "/sources/reminders-local/sync",
     # 2026-10-16: LinkedIn connections — the import writes person pages; the preview is pointless into a demo bank.
     ("POST", "/sources/linkedin-connections/preview"): "/sources/linkedin-connections/preview",
     ("POST", "/sources/linkedin-connections/import"): "/sources/linkedin-connections/import",

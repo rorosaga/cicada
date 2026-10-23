@@ -17,6 +17,7 @@ extension Copy {
         static let connect = "Connect"
         static let connectCalendar = "Connect the calendar"
         static let connectContacts = "Connect Contacts"
+        static let connectReminders = "Connect Reminders"
         static let connectNotes = "Connect Notes"
         static let chooseChats = "Choose chats"
         static let addFolder = "Add a folder"
@@ -31,6 +32,10 @@ extension Copy {
         static let folders = "Folders"
         static let filesAndLinks = "Files and links"
         static let chatExports = "Chat exports"
+        /// G219 slice 1: a Notion export, imported once through the one intake; Cicada never writes to Notion.
+        static let notionHow = "In Notion, open Settings, then Export all workspace content (or Export on one page), "
+            + "choose Markdown & CSV with subpages, and drop the zip here. Pages and database rows come in as they are, "
+            + "dated when they were created; importing again only adds what changed. Cicada never writes to Notion."
         static let calendarFeeds = "Calendar feeds"
 
         static let whatCameIn = "What came in"

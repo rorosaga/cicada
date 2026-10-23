@@ -28,6 +28,8 @@ final class ChannelSyncRoutingTests: XCTestCase {
         "contacts-local",
         // G71 (2026-10-16): the YouTube videos watched in Chrome, emitted once synced.
         "chrome-youtube-history",
+        // G219: Apple Reminders, always listed so the Sources page can offer Connect.
+        "reminders-local",
     ]
 
     func testEverySyncIdTheRegistryEmitsHasAHandler() {

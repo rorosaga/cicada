@@ -41,7 +41,8 @@ from api.models.schemas import (
     IntakeTitle,
 )
 from api.routers import conversations as conv
-from api.services import bank_registry, demo_guard, episode_staging, intake_jobs, media_ingestor, saved_exports
+from api.services import (bank_registry, demo_guard, episode_staging, intake_jobs, media_ingestor, notion_export,
+                          saved_exports)
 
 router = APIRouter()
 
@@ -101,6 +102,7 @@ _SOURCE_LABELS = {
     "claude_projects": "Claude — Projects",
     "chatgpt": "ChatGPT — Conversations",
     "gemini": "Gemini — Activity",
+    "notion": "Notion — Pages",
 }
 
 
@@ -142,7 +144,7 @@ def source_label(parsed: ParsedExport) -> str:
     return _SOURCE_LABELS.get(parsed.format, parsed.format)
 
 
-def parse_export(content: bytes, filename: str) -> ParsedExport:
+def parse_export(content: bytes, filename: str, *, owner_names: tuple[str, ...] = ()) -> ParsedExport:
     """Detect and parse one file — a zip, a JSON export, a Takeout activity page —
     into episodes, every one stamped with its origin (R-IA7). Raises
     ``HTTPException(400, reason)``; the reason is written for the person (the
@@ -151,7 +153,7 @@ def parse_export(content: bytes, filename: str) -> ParsedExport:
     base = PurePosixPath(path).name
     low = base.lower()
     if low.endswith(".zip"):
-        return _parse_zip(content)
+        return _parse_zip(content, owner_names=owner_names)
     if low in SKIPPED_MEMBERS:
         return ParsedExport(ignored=[{"name": base, "reason": SKIPPED_MEMBERS[low]}])
     if low.endswith((".html", ".htm")):
@@ -244,7 +246,7 @@ def _parse_json(content: bytes, base: str) -> ParsedExport:
                         counts={key: len(episodes)})
 
 
-def _parse_zip(content: bytes) -> ParsedExport:
+def _parse_zip(content: bytes, *, owner_names: tuple[str, ...] = ()) -> ParsedExport:
     """Every member a parser knows, not just the first (design §9.1 item 2; the
     G76-disclosed gap: a Claude zip's memories.json and projects.json were
     dropped because conversations.json won). Named extras go to ``ignored[]``;
@@ -253,6 +255,8 @@ def _parse_zip(content: bytes) -> ParsedExport:
         zf = zipfile.ZipFile(io.BytesIO(content))
     except zipfile.BadZipFile as e:
         raise HTTPException(400, f"Invalid zip file: {e}")
+    if notion_export.looks_like(zf):
+        return _parse_notion(zf, owner_names)
     out = ParsedExport()
     others = 0
     artifacts: set[str] = set()
@@ -317,6 +321,22 @@ def _parse_zip(content: bytes) -> ParsedExport:
     elif others:
         out.warnings.append(f"{others} other files in the zip aren't conversations (images, attachments, settings).")
     return out
+
+
+NOTION_EMPTY_REASON = "This Notion export has no page with words in it."
+
+
+def _parse_notion(zf: zipfile.ZipFile, owner_names: tuple[str, ...] = ()) -> ParsedExport:
+    """G219: a Notion Markdown & CSV export — its pages and database rows as documents (``notion_export``), a row
+    another person created kept as theirs. Staged like a chat export: the same preview, the same delta, the stager."""
+    try:
+        parsed = notion_export.parse_zip(zf, owner_names)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    if not parsed.episodes:
+        raise HTTPException(400, NOTION_EMPTY_REASON)
+    return ParsedExport(parsed.episodes, "notion", {"notion"}, {notion_export.ORIGIN}, parsed.members,
+                        warnings=parsed.warnings, counts={"pages": parsed.pages, "rows": parsed.rows})
 
 
 # --- What staging WOULD do (R-IA5) --------------------------------------------
@@ -406,13 +426,25 @@ def date_range(episodes: list[dict]) -> tuple[str | None, str | None]:
     return (dates[0], dates[-1]) if dates else (None, None)
 
 
+def owner_names(target: Path, settings: Settings | None = None) -> tuple[str, ...]:
+    """The bank owner's name, for an export that names its authors (a Notion row's "Created by"); empty when the bank
+    has no owner page yet — never raises."""
+    from api.services import owner_identity
+
+    try:
+        name = owner_identity.owner_name(target, settings)
+    except Exception:  # noqa: BLE001 - no owner is no owner
+        return ()
+    return (name,) if name else ()
+
+
 def import_bytes(content: bytes, filename: str, settings: Settings, *, bank: str | None = None,
                  defer: bool = False) -> ImportResult:
     """Parse, plan, stage — the one import every route shares (R-IA10). With
     ``defer`` (only ``POST /intake/import``), a large write is handed back as
     ``pending`` for the job runner instead of staged here (R-IA12)."""
     name, target, active = resolve_target(settings, bank)
-    parsed = parse_export(content, filename)
+    parsed = parse_export(content, filename, owner_names=owner_names(target, settings))
     date_from, date_to = date_range(parsed.episodes)
     staging = plan(parsed.episodes, target)
     legacy = {id(e) for e in staging.legacy}
@@ -483,7 +515,12 @@ def sniff_bytes(content: bytes, filename: str, settings: Settings, bank: str | N
         saved = _saved_sniff(content, filename, include_history)
         return saved or IntakeSniffResponse(recognized=False, reason=EMPTY_EXPORT_REASON)
     try:
-        parsed = parse_export(content, filename)
+        _, sniff_target, _ = resolve_target(settings, bank, scaffold=False)
+        names = owner_names(sniff_target, settings)
+    except HTTPException:
+        names = ()      # an unknown or demo bank refuses below, where it always did
+    try:
+        parsed = parse_export(content, filename, owner_names=names)
     except HTTPException as exc:
         reason = str(exc.detail)
         if (reason == NOT_GEMINI_REASON and media_ingestor.is_takeout_activity_html(content)

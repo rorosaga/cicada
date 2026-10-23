@@ -2615,6 +2615,12 @@ actor APIClient {
         try await postData("/sources/calendar-local/sync", json: try JSONEncoder().encode(payload))
     }
 
+    /// G219: `POST /sources/reminders-local/sync` — the ticked lists' open reminders plus those completed in the last
+    /// 90 days, read by the app through EventKit (`RemindersReader`); the backend stages, scrubs and tombstones them.
+    func syncLocalReminders(_ payload: RemindersSyncPayload) async throws -> RemindersSyncResult {
+        try await postData("/sources/reminders-local/sync", json: try JSONEncoder().encode(payload))
+    }
+
     /// G154: the whole address book, as names and which facts each card holds (never a value).
     func syncLocalContacts(_ payload: ContactsSyncPayload) async throws -> ContactsSyncResult {
         try await postData("/sources/contacts-local/sync", json: try JSONEncoder().encode(payload))
