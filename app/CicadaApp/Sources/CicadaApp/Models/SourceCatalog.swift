@@ -177,6 +177,9 @@ enum SourceCatalog {
     /// G206 (#426): the sites whose saved list the person's own agent can keep current from their signed-in browser
     /// (`reading_settings.SAVED_LISTS`).
     static let savedListSites: Set<String> = ["x", "instagram", "linkedin"]
+    /// An overview row an import shares with a reader on this Mac → that reader's channel: Takeout's watch history and
+    /// Chrome's watched days are both `youtube-history`.
+    static let sharedWithReader: [String: String] = ["youtube-history": WatchHistoryWatcher.channel]
 
     /// One entry's status: Needs sign-in when a connector's last failure says so; Connected when a channel is connected
     /// and, for a reader this Mac runs, that reader is still on (`localReaders`: channel id → on; 2026-10-23 — a
@@ -194,10 +197,13 @@ enum SourceCatalog {
         if entry.overviewId != nil, overviewRow(for: entry, in: overview) != nil { return .connected }
         if entry.id == "chat-exports", mine.contains(where: { $0.count > 0 }) { return .connected }
         // An account's import that fed memory counts, as a chat export does (2026-10-23, live test: YouTube read Off
-        // over a Takeout's thousands of episodes). Only an overview row no channel speaks for — an import — so a
-        // reader turned off on this Mac never comes back as Connected through its own episodes.
-        if entry.group == .accounts,
-           overview.contains(where: { row in row.channelId == nil && row.episodes > 0 && entry.channels.contains(row.id) }) {
+        // over a Takeout's thousands of episodes). Only an overview row no channel speaks for — an import — and not one a
+        // reader on this Mac also writes while that reader is off (`youtube-history` holds Chrome's watched days too),
+        // so a reader turned off never comes back as Connected through its own episodes (review of #448).
+        if entry.group == .accounts, overview.contains(where: { row in
+            row.channelId == nil && row.episodes > 0 && entry.channels.contains(row.id)
+                && !(sharedWithReader[row.id].map { localReaders[$0] == false } ?? false)
+        }) {
             return .connected
         }
         if let site = entry.site, entry.verb == .turnOn, readableSites.contains(site) { return .connected }

@@ -91,6 +91,69 @@ final class AppleNotesWatcherTests: XCTestCase {
         XCTAssertEqual(reads, 1, "no read after Disconnect")
     }
 
+    /// A read that suspends; the test resumes it when it chooses.
+    private final class Gate {
+        var waiting: CheckedContinuation<Void, Never>?
+        var reads = 0
+    }
+
+    private func gated(_ gate: Gate) -> AppleNotesWatcher {
+        AppleNotesWatcher(defaults: defaults, period: .seconds(3600), notesRunning: { true }, read: {
+            gate.reads += 1
+            await withCheckedContinuation { gate.waiting = $0 }
+            return Self.result
+        })
+    }
+
+    private func untilWaiting(_ gate: Gate) async {
+        for _ in 0..<1000 where gate.waiting == nil { await Task.yield() }
+    }
+
+    /// Review of #448 — the launch or bank-switch read is unattended: a Disconnect pressed while it reads wins. Before,
+    /// the late answer turned Notes back on, saved that and armed a new two-hour timer.
+    func testADisconnectDuringAnUnattendedReadStaysOff() async throws {
+        defaults.set(true, forKey: AppleNotesWatcher.enabledKey)
+        let gate = Gate()
+        let w = gated(gate)
+        let read = Task { await w.syncIfOpen() }
+        await untilWaiting(gate)
+        XCTAssertNotNil(gate.waiting, "the read is suspended")
+        w.disconnect()
+        gate.waiting?.resume()
+        await read.value
+        XCTAssertFalse(w.enabled)
+        XCTAssertFalse(defaults.bool(forKey: AppleNotesWatcher.enabledKey))
+        XCTAssertFalse(w.isArmed, "no new timer")
+        XCTAssertEqual(w.status, .off)
+    }
+
+    /// The person's own Refresh, then Disconnect while it reads: off, unarmed — the Refresh does not turn it back on.
+    func testADisconnectDuringThePersonsOwnReadStaysOff() async throws {
+        defaults.set(true, forKey: AppleNotesWatcher.enabledKey)
+        let gate = Gate()
+        let w = gated(gate)
+        let read = Task { try await w.syncNow() }
+        await untilWaiting(gate)
+        w.disconnect()
+        gate.waiting?.resume()
+        _ = try await read.value
+        XCTAssertFalse(w.enabled)
+        XCTAssertFalse(defaults.bool(forKey: AppleNotesWatcher.enabledKey))
+        XCTAssertFalse(w.isArmed)
+        XCTAssertEqual(w.status, .off)
+    }
+
+    /// An unattended read never turns Notes on, even if the flag was off when it began (it cannot begin then).
+    func testAnUnattendedReadNeverTurnsNotesOn() async {
+        var reads = 0
+        let w = watcher { reads += 1 }
+        await w.syncIfOpen()
+        await w.bankChanged()
+        XCTAssertEqual(reads, 0)
+        XCTAssertFalse(w.enabled)
+        XCTAssertFalse(w.isArmed)
+    }
+
     func testAnUnattendedFailureKeepsItOnAndSaysWhy() async throws {
         var fail = false
         let w = AppleNotesWatcher(defaults: defaults, period: .seconds(3600), notesRunning: { true }, read: {

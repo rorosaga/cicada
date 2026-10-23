@@ -1112,7 +1112,7 @@ the website's logo … Clicking again on Sources takes me back to the main Sourc
   row of a link Sleep has not made a page of yet asks by its episode (`SavedItemText.door`; the list names its site,
   `channel_items` `g161-6`). **A saved YouTube video's row draws its still** (`VideoStill`, the watched day's view, at
   64 × 36; `GET /sources/saved/{id}/still`, `SourcePictures.savedStillPath`), not the site's mark (owner 2026-10-20).
-- **Saved lists in your browser (G206, spec 2026-10-22; first slice built 2026-10-23 on the catalogue's detail: the switch, its off line and the first-use sheet first — the last-read line and *Try again* are not built yet).** On a saved source's detail
+- **Saved lists in your browser (G206, spec 2026-10-22; first slice built 2026-10-23 on the catalogue's detail: the switch, its off line and the first-use sheet first, whose Turn on then enables agent reading and that list in one call, never a `sites` grant — the last-read line and *Try again* are not built yet).** On a saved source's detail
   column for X, Instagram and LinkedIn, one row under the sync row: label "Read my <Bookmarks|Saved|Saved posts> in my
   browser" (`SectionLabel` above it reads *In your browser*, DR-20/47) with a `Toggle` bound to
   `GET /reading/settings` `savedLists.<site>` and written by `PUT /reading/settings {"savedLists": {"<site>": bool}}`

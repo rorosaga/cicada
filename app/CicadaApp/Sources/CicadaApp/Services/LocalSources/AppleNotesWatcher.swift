@@ -37,6 +37,8 @@ final class AppleNotesWatcher {
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var periodic: Task<Void, Never>?
     @ObservationIgnored private var inFlight = false
+    /// Bumped by every Disconnect, so a read that started before one never undoes it.
+    @ObservationIgnored private var disconnects = 0
 
     init(defaults: UserDefaults = .standard, period: Duration = .seconds(2 * 60 * 60),
          now: @escaping () -> Date = Date.init,
@@ -61,12 +63,14 @@ final class AppleNotesWatcher {
 
     /// The person's own read (Connect, Refresh, onboarding's tick): reads now even with Notes closed — they asked —
     /// and from then on keeps up. A refusal (Automation off) leaves it off and is thrown in the reader's own words.
+    /// Only this path turns Notes on; a Disconnect pressed while it reads wins (review of #448).
     @discardableResult
     func syncNow() async throws -> NoteSyncResult {
-        let wasOn = enabled
+        let generation = disconnects
         status = .syncing
         do {
             let result = try await read()
+            guard generation == disconnects else { status = .off; return result }   // disconnected meanwhile
             if !enabled {
                 enabled = true
                 defaults.set(true, forKey: Self.enabledKey)
@@ -75,12 +79,13 @@ final class AppleNotesWatcher {
             status = .synced(at: now())
             return result
         } catch {
-            status = wasOn ? .failed(error.localizedDescription) : .off
+            status = enabled && generation == disconnects ? .failed(error.localizedDescription) : .off
             throw error
         }
     }
 
     func disconnect() {
+        disconnects += 1
         enabled = false
         defaults.set(false, forKey: Self.enabledKey)
         periodic?.cancel()
@@ -91,13 +96,26 @@ final class AppleNotesWatcher {
     /// A bank switch: the new memory gets the notes too (a demo bank answers 409, said as a failure).
     func bankChanged() async { await syncIfOpen() }
 
-    /// The unattended read: only while on, one at a time, and only with Notes already open.
+    /// The unattended read: only while on, one at a time, and only with Notes already open. It never turns Notes on:
+    /// a Disconnect that lands while it reads leaves it off, unarmed, its status untouched by the late answer.
     func syncIfOpen() async {
         guard enabled, !inFlight, notesRunning() else { return }
         inFlight = true
         defer { inFlight = false }
-        _ = try? await syncNow()
+        let generation = disconnects
+        status = .syncing
+        do {
+            _ = try await read()
+            guard enabled, generation == disconnects else { return }
+            status = .synced(at: now())
+        } catch {
+            guard enabled, generation == disconnects else { return }
+            status = .failed(error.localizedDescription)
+        }
     }
+
+    /// Whether the two-hour timer is set (tests: a Disconnect during a read leaves it unset).
+    var isArmed: Bool { periodic != nil }
 
     private func arm() {
         guard periodic == nil else { return }

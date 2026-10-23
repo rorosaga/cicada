@@ -29,9 +29,11 @@ final class ReadingAgentModel {
         var writeYouTube: @MainActor ([String: Bool]) async throws -> ReadingSettingsResponse = {
             try await APIClient.shared.setReadingSettings(youtubeLists: $0)
         }
-        /// G206 — a saved-list patch `{x|instagram|linkedin: true|false}` (the Sources page's switch, 2026-10-23).
-        var writeSaved: @MainActor ([String: Bool]) async throws -> ReadingSettingsResponse = {
-            try await APIClient.shared.setReadingSettings(savedLists: $0)
+        /// G206 — a saved-list patch `{x|instagram|linkedin: true|false}` (the Sources page's switch, 2026-10-23); the
+        /// flag turns agent reading on with the first-use acknowledgement in the same call — and never a `sites` grant.
+        var writeSaved: @MainActor ([String: Bool], Bool) async throws -> ReadingSettingsResponse = { lists, enable in
+            try await APIClient.shared.setReadingSettings(agentEnabled: enable ? true : nil, acknowledge: enable,
+                                                          savedLists: lists)
         }
 
         @MainActor static var live: Deps {
@@ -96,12 +98,15 @@ final class ReadingAgentModel {
 
     /// G206 — turn one site's saved list on or off. Refused (422, said in the backend's sentence) while agent reading is
     /// off or its acknowledgement is not current; on again lifts a sign-in pause.
+    ///
+    /// `acknowledge` (the first-use sheet's Turn on, in its saved-list mode) turns agent reading on with the
+    /// acknowledgement and the list in one call — the site itself is never granted (review of #448).
     @discardableResult
-    func setSavedList(_ site: String, _ on: Bool) async -> Bool {
+    func setSavedList(_ site: String, _ on: Bool, acknowledge: Bool = false) async -> Bool {
         busy = true
         defer { busy = false }
         do {
-            settings = try await deps.writeSaved([site: on])
+            settings = try await deps.writeSaved([site: on], acknowledge && on)
             note = nil
             return true
         } catch APIError.httpError(let code, let body) where code == 422 {
@@ -694,6 +699,9 @@ struct ReadingFirstUseSheet: View {
     let model: ReadingAgentModel
     let site: String?
     let label: String?
+    /// G206 — the sheet was raised by a saved list's switch: Turn on enables agent reading and that list, never the
+    /// site's pages (review of #448: it granted the site and left the list off).
+    var savedList = false
     let done: () -> Void
     @State private var understood = false
     @State private var failure: String?
@@ -709,7 +717,7 @@ struct ReadingFirstUseSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let label {
-                Text(Copy.Reading.sheetAlsoAllows(label))
+                Text(savedList ? Copy.Reading.sheetAlsoReadsList(label) : Copy.Reading.sheetAlsoAllows(label))
                     .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
             }
@@ -727,7 +735,12 @@ struct ReadingFirstUseSheet: View {
                 TextButton(title: Copy.Reading.sheetNotNow, action: done)
                 PrimaryActionButton(title: Copy.Reading.sheetTurnOn) {
                     Task {
-                        if await model.setEnabled(true, acknowledge: true, site: site) { done() }
+                        let ok = if savedList, let site {
+                            await model.setSavedList(site, true, acknowledge: true)
+                        } else {
+                            await model.setEnabled(true, acknowledge: true, site: site)
+                        }
+                        if ok { done() }
                         else { failure = model.note }
                     }
                 }

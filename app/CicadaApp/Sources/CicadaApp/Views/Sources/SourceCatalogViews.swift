@@ -133,6 +133,8 @@ struct SourceCatalogDetail: View {
     @Environment(ReadingAgentModel.self) private var reading
     /// The site whose switch raised the first-use sheet (acknowledgement not current).
     @State private var consentSite: String?
+    /// Whether that switch was the site's saved list (G206), so the sheet turns on the list, never the site.
+    @State private var consentSavedList = false
     @Environment(LocalSourceWatcher.self) private var localSources
     @State private var flowTile: AddSourceTile?
     @State private var browsers = BrowserInventory.empty
@@ -178,7 +180,8 @@ struct SourceCatalogDetail: View {
         .task { await reading.loadSettings() }
         .sheet(isPresented: Binding(get: { consentSite != nil }, set: { if !$0 { consentSite = nil } })) {
             SettingsSheet(title: Copy.Reading.sheetTitle, onClose: { consentSite = nil }) {
-                ReadingFirstUseSheet(model: reading, site: consentSite, label: row.entry.title) { consentSite = nil }
+                ReadingFirstUseSheet(model: reading, site: consentSite, label: row.entry.title,
+                                     savedList: consentSavedList) { consentSite = nil }
             }
         }
         .task {
@@ -320,6 +323,7 @@ struct SourceCatalogDetail: View {
         Task { @MainActor in
             await reading.loadSettings()
             if on, reading.needsFirstUseSheet || !(reading.settings?.agentEnabled ?? false) {
+                consentSavedList = true
                 consentSite = site
             } else {
                 _ = await reading.setSavedList(site, on)
@@ -333,6 +337,7 @@ struct SourceCatalogDetail: View {
         Task { @MainActor in
             await reading.loadSettings()
             if on, reading.needsFirstUseSheet {
+                consentSavedList = false
                 consentSite = site
             } else {
                 _ = await reading.setSite(site, allowed: on)

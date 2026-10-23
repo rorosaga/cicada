@@ -147,6 +147,23 @@ final class SourceCatalogTests: XCTestCase {
         XCTAssertEqual(row("instagram", in: r)?.status, .connected)
     }
 
+    /// Review of #448 — `youtube-history` also holds Chrome's watched days, so with Chrome's history switch off it no
+    /// longer makes YouTube Connected; a saved playlist import still does.
+    func testChromesWatchedDaysNeverKeepYouTubeConnectedOnceItsSwitchIsOff() {
+        let history = SourceOverview(id: "youtube-history", label: "YouTube history", kind: .social, episodes: 12)
+        let playlists = SourceOverview(id: "youtube", label: "YouTube", kind: .social, episodes: 4)
+        let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
+        let off = [WatchHistoryWatcher.channel: false]
+        XCTAssertEqual(row("youtube", in: SourceCatalog.rows(entries: entries, channels: [], overview: [history],
+                                                             readableSites: [], localReaders: off))?.status, .off)
+        XCTAssertEqual(row("youtube", in: SourceCatalog.rows(entries: entries, channels: [],
+                                                             overview: [history, playlists], readableSites: [],
+                                                             localReaders: off))?.status, .connected)
+        XCTAssertEqual(row("youtube", in: SourceCatalog.rows(entries: entries, channels: [], overview: [history],
+                                                             readableSites: []))?.status, .connected,
+                       "with no reader on this Mac switched off, a Takeout history import counts")
+    }
+
     /// G206 (#426) — a saved list the person's agent keeps current is a connection; the copy no longer says "coming".
     func testASavedListOnIsConnectedAndTheInstagramCopySaysWhatExists() {
         let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
