@@ -333,6 +333,29 @@ def test_a_watch_forgotten_within_15_minutes_never_reaches_the_bank_or_git(clien
     assert grep == ""
 
 
+def test_a_promotion_writes_episodes_only_so_it_stays_capture_class(tmp_path):
+    """`POST /sources/traces/sync` is classified CAPTURE in test_write_admission_sites (no write admission, like every
+    Awake writer) because a promotion writes nothing but episodes. Both switches on, a watch and a summary promoted:
+    every path it returns, and every file it changed in the bank, is an episode — never an entity page."""
+    memory = _bank(tmp_path)
+    before = {p: p.read_bytes() for p in memory.rglob("*") if p.is_file() and ".git" not in p.parts}
+    s = trace_store.TraceStore(root=tmp_path / "t", keys=trace_store.trace_keys.FileKeyProvider(tmp_path / "k"))
+    now = _now()
+    yesterday = (now - timedelta(days=1)).replace(hour=10, minute=0, second=0)
+    s.turn_on(trace_store.CONSENT_VERSION, now=yesterday - timedelta(hours=1))
+    s.update({"browsers": ["chrome"], "daily_summary": True, "learn_from_summary": True})
+    s.add_spans([_span("span-0001", yesterday, minutes=40, bundle_id="com.example.Editor", app="Editor"),
+                 _span("span-0002", yesterday + timedelta(minutes=40), minutes=6,
+                       url=f"https://www.youtube.com/watch?v={VID}")], now=now)
+    paths = trace_memory.promote(memory, s, s.settings(), now=now)
+    assert any("traces-day" in (memory / p).read_text() for p in paths)   # the summary
+    assert any("watch-history:" in (memory / p).read_text() for p in paths)   # the watched day
+    assert paths and all(p.startswith("episodes/") for p in paths)
+    changed = {p.relative_to(memory).as_posix() for p in memory.rglob("*")
+               if p.is_file() and ".git" not in p.parts and before.get(p) != p.read_bytes()}
+    assert changed and all(p.startswith("episodes/") for p in changed), changed
+
+
 def test_a_watch_is_promoted_once_it_is_older_than_the_forget_window(tmp_path):
     memory = _bank(tmp_path)
     s = trace_store.TraceStore(root=tmp_path / "t", keys=trace_store.trace_keys.FileKeyProvider(tmp_path / "k"))

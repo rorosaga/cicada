@@ -469,6 +469,20 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     # G91 (ruling 38): a device's shared photo or file — its episode staged like a note, its bytes outside every bank.
     "POST /capture/file": (CAPTURE, None),
     "POST /capture/session": (CAPTURE, None),   # G181 phase 2: a session read on its own machine, the same writer
+    # G218 activity traces: `trace_store` is the one writer of `$CICADA_HOME/traces/`, outside every bank.
+    "PUT /sources/traces/settings": (OUTSIDE, None),
+    "POST /sources/traces/on": (OUTSIDE, None),
+    "POST /sources/traces/off": (OUTSIDE, None),
+    "POST /sources/traces/pause": (OUTSIDE, None),
+    "POST /sources/traces/frames": (OUTSIDE, None),
+    "POST /sources/traces/forget": (OUTSIDE, None),
+    "POST /sources/traces/wipe": (OUTSIDE, None),     # what was already promoted stays the bank's, untouched
+    "POST /sources/traces/search": (NONE, None),      # a POST only so the words never reach an access log
+    # The spans go outside every bank; `trace_memory.promote` then writes EPISODES ONLY into the bank — watched days
+    # and their month rollups through `watch_history.record` (the writer `/sources/watch-history/sync` uses) and the
+    # day summary through `episode_staging.stage`, each under STAGE_LOCK + episode_lock — committed alone by
+    # `commit_paths_for`. Awake capture never takes admission (write_admission's rail); pinned in test_trace_routes.
+    "POST /sources/traces/sync": (CAPTURE, None),
     "POST /tools/call": (DOOR, None),
     "POST /v1/{op}": (REMOTE, None),
     "POST /agent-api/tokens": (OUTSIDE, None),

@@ -1,6 +1,10 @@
 """The G20 stager as a service (R-F1 seam; R-LS1 … R-LS4, R-LS10)."""
 from __future__ import annotations
 
+import contextlib
+from datetime import datetime, timezone
+from pathlib import Path
+
 from api.routers import conversations as conv
 from api.services import episode_staging as st
 from api.services import markdown_parser
@@ -159,3 +163,68 @@ def test_the_router_names_are_compat_wrappers_over_the_service(tmp_path):
     fm = _only(tmp_path / "episodes")[1].frontmatter
     assert fm["turns"] == [{"offset": 0, "ts": "2026-02-24T13:00:00+00:00", "speaker": "user"}]
     assert conv._stage_episodes(eps, tmp_path / "episodes") == (0, 0, 1)
+
+
+def _record_locks(monkeypatch):
+    """Every directory the episode lock is taken on, resolved (the real lock still runs)."""
+    real, taken = st.episode_ids.episode_lock, []
+
+    @contextlib.contextmanager
+    def recording(directory):
+        taken.append(Path(directory).resolve())
+        with real(directory):
+            yield
+
+    monkeypatch.setattr(st.episode_ids, "episode_lock", recording)
+    return taken
+
+
+def _redating(sid, text, *, sha, ts):
+    draft = _draft(sid, text, sha=sha, ts=ts)
+    draft.redate = True
+    return draft
+
+
+def test_moved_is_a_pure_comparison_safe_on_unreadable_timestamps(monkeypatch):
+    """#447 put the per-path episode lock on ``_moved``, whose first argument is a timestamp: it locked the working
+    directory, and a stored ``None`` raised a TypeError (``Path(None)``). It takes no lock and never raises."""
+    taken = _record_locks(monkeypatch)
+    later = "2026-09-02T10:00:00+00:00"
+    for unreadable in (None, "", "not a time", "2026-09-01T10:00:00", 12345, ["x"], {"a": 1}, object()):
+        assert st._moved(unreadable, later) is False, unreadable
+        assert st._moved(later, unreadable) is False, unreadable
+    assert st._moved("2026-09-01T10:00:00+00:00", later) is True
+    assert st._moved("2026-09-01T12:00:00+02:00", "2026-09-01T10:00:00Z") is False  # one moment, two spellings
+    assert st._moved(datetime(2026, 9, 1, 10, tzinfo=timezone.utc), later) is True  # a YAML-parsed datetime
+    assert taken == []
+
+
+def test_a_redate_over_a_missing_stored_timestamp_neither_crashes_nor_locks_elsewhere(tmp_path, monkeypatch):
+    ep_dir = tmp_path / "episodes"
+    st.stage([_draft("folder:f1:a.md", "text", sha="s1")], ep_dir)
+    path, parsed = _only(ep_dir)
+    fm = dict(parsed.frontmatter)
+    fm.pop("timestamp")
+    markdown_parser.write(path, fm, parsed.body)
+    st.bank_index.invalidate()
+    taken = _record_locks(monkeypatch)
+    result = st.stage([_redating("folder:f1:a.md", "text", sha="s1", ts="2026-09-05T10:00:00+00:00")], ep_dir)
+    assert result.skipped == 1 and "timestamp" not in _only(ep_dir)[1].frontmatter  # unreadable: never moved
+    assert set(taken) <= {ep_dir.resolve()}
+
+
+def test_a_redate_and_a_restamp_each_write_under_the_episodes_own_lock(tmp_path, monkeypatch):
+    """``_redate`` and ``_restamp`` are read-modify-writes of one episode (audit A01). #447 inserted ``_moved`` and
+    ``_redate`` between ``_restamp`` and its decorator, so ``_restamp`` lost the lock; it has it back."""
+    ep_dir = tmp_path / "episodes"
+    st.stage([_draft("folder:f1:a.md", "text", sha="s1")], ep_dir)
+    taken = _record_locks(monkeypatch)
+    st._restamp(_only(ep_dir)[0], _draft("folder:f1:a.md", "text", sha="s2"))
+    assert taken == [ep_dir.resolve()]
+    taken.clear()
+    result = st.stage([_redating("folder:f1:a.md", "text", sha="s2", ts="2026-09-05T10:00:00+00:00")], ep_dir)
+    fm = _only(ep_dir)[1].frontmatter
+    assert result.updated == 1 and fm["processed"] is False
+    assert st._when(st.normalise_timestamp(fm["timestamp"])) == datetime(2026, 9, 5, 10, tzinfo=timezone.utc)
+    assert st._when(st.normalise_timestamp(fm["redated_from"])) == datetime(2026, 9, 1, 10, tzinfo=timezone.utc)
+    assert taken and set(taken) == {ep_dir.resolve()}
