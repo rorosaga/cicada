@@ -450,14 +450,20 @@ def value_key(predicate: str) -> frozenset[str]:
 def same_value_attribute(a: str, b: str) -> bool:
     """Two value predicates name one attribute: the same words, or one's words all inside the other's when the
     smaller names at least two ("5k personal best" and "personal best 5k time"). A one-word attribute matches
-    only itself, so "age" never meets "dog age"."""
+    only itself, so "age" never meets "dog age" — unless the seed declares both spellings one attribute
+    (``predicates.value_attribute_group``: "latest release" and "released version", 2026-10-23)."""
     ka, kb = value_key(a), value_key(b)
     if not ka or not kb:
         return False
     if ka == kb:
         return True
     small, large = (ka, kb) if len(ka) <= len(kb) else (kb, ka)
-    return len(small) >= 2 and small <= large
+    if len(small) >= 2 and small <= large:
+        return True
+    from api.services.predicates import value_attribute_group
+
+    group = value_attribute_group(a)
+    return group is not None and group == value_attribute_group(b)
 
 
 def is_event(claim) -> bool:

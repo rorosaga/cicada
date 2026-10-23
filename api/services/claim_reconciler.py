@@ -37,7 +37,7 @@ from loguru import logger
 from api.models.schemas import DecayClass
 from api.services import decay_policy, episode_time, inbox_questions, predicates
 from api.services.claims import (HAPPENED, MILESTONE, Claim, Evidence, event_cardinality, is_event, is_record,
-                                 is_value_claim, same_value_attribute)
+                                 is_value_claim, same_value_attribute, stated_end)
 
 # A cardinality oracle: predicate -> True (single-valued) | False (multi-valued).
 CardinalityFn = Callable[[str], bool]
@@ -254,8 +254,9 @@ def _reinforce(existing: Claim, incoming: Claim, *, today: str | None = None, un
         existing.evidence.append(ev)
         cited.add(ev.episode)
     # G140 Q-R6: a restatement that names an end is the newer statement of it;
-    # one that names none leaves the known end alone.
-    if incoming.expected_end:
+    # one that names none leaves the known end alone. An agent's stated end never lands on the person's own claim
+    # (``is_human``), as an agent's ending never closes it (``ending_shadowed_by_human``).
+    if incoming.expected_end and not (is_human(existing) and not is_human(incoming)):
         existing.expected_end = incoming.expected_end
 
 
@@ -823,11 +824,90 @@ def _place_ending(new: Claim, ending: "predicates.Ending", slot: list[Claim], se
         if _date_key(said) < _date_key(_max_date(t.valid_from, _said(t, untimed))):
             audit.append({"action": "ending_older", "kept": t.id, "by": new.id})
             continue
+        if _date_key(new.valid_from) > _date_key(today):
+            # W7: an end still ahead ("my last day is a week from today") is a stated end, not a closing — a future
+            # `valid_to` would hide the belief the day it was said. Expiry closes it on that day.
+            t.expected_end = new.valid_from
+            audit.append({"action": "ends_on", "kept": t.id, "by": new.id, "on": new.valid_from})
+            continue
         _close_event(t, by=new)
         audit.append({"action": "ended", "closed": t.id, "by": new.id})
     new.valid_to = new.valid_from
     slot.append(new)
     return new
+
+
+def _job_for(claim: Claim, slot: list[Claim], canonical: str, at_id: str) -> Claim | None:
+    """The job ``claim`` rests on (W7): the subject's ``canonical`` belief about the organisation ``at_id`` that was
+    current the day ``claim`` began, else an open one, else the latest. A born-closed record (an ending, or "previously
+    worked at" with nothing open) is history, never a premise."""
+    jobs = [c for c in slot if c.subject == claim.subject and c.predicate == canonical
+            and _norm_object(c.object) == _norm_object(at_id) and not is_event(c) and not is_record(c)
+            and not (c.valid_to is not None and c.valid_to == c.valid_from)]
+    if not jobs:
+        return None
+    day = _date_key(claim.valid_from)
+    covering = [c for c in jobs if _date_key(c.valid_from) <= day and (c.valid_to is None or day <= c.valid_to)]
+    return (covering or [c for c in jobs if open_(c)] or [max(jobs, key=lambda c: _date_key(c.valid_from))])[0]
+
+
+def link_premises(pairs: list[tuple[Claim, str]], reconciled: dict[str, list[Claim]],
+                  depends_on: Callable[[str], str | None]) -> None:
+    """W7 (2026-10-23): a working relationship said with the organisation it belongs to ("reports to Dana" at Acme)
+    names the subject's job there in ``premises``, so it closes with that job (:func:`close_dependents`). Run after a
+    pass has placed every claim: the job may be read after the relationship in one batch. Nothing is guessed — a
+    relationship with no organisation, or none the subject holds a job at, names no premise."""
+    for claim, at_id in pairs:
+        canonical = depends_on(claim.predicate)
+        if not canonical or not at_id:
+            continue
+        job = _job_for(claim, reconciled.get(claim.subject, []), canonical, at_id)
+        if job is not None and job.id not in claim.premises:
+            claim.premises.append(job.id)
+
+
+def close_dependents(slot: list[Claim], depends_on: Callable[[str], str | None], today: str,
+                     audit: list[dict] | None = None, untimed=frozenset()) -> list[str]:
+    """W7 (2026-10-23): close each open relationship whose ``premises`` name a job on the same subject that has
+    ended — closed, or its stated end passed — on the job's own last day, the way ``also_ends`` closes a tool's
+    other uses. Only a predicate the seed's ``dependents`` list for that job's canonical; never one said after the
+    job ended (it is news); never the person's own claim when an agent's word ended the job (``is_human``). Nothing
+    is superseded: nothing replaced it. Returns the closed ids."""
+    by_id = {c.id: c for c in slot}
+    closed: list[str] = []
+    for dep in slot:
+        if not open_(dep) or not dep.premises or is_event(dep) or is_record(dep):
+            continue
+        canonical = depends_on(dep.predicate)
+        if not canonical:
+            continue
+        for pid in dep.premises:
+            job = by_id.get(pid)
+            if job is None or job.subject != dep.subject or job.predicate != canonical:
+                continue
+            end = job.valid_to
+            if end is None:
+                stated = stated_end(job)
+                end = stated if stated and stated < today else None
+            if not end:
+                continue
+            # Who ended the job: the claim that closed it, else the job itself (its own stated end). A closer that
+            # is not on the page is unknown, so the person's own relationship stays.
+            closer = by_id.get(job.superseded_by) if job.superseded_by else job
+            if is_human(dep) and (closer is None or not is_human(closer)):
+                if audit is not None:
+                    audit.append({"action": "dependent_shadowed_by_human", "kept": dep.id, "job": job.id})
+                break
+            if _date_key(_said(dep, untimed) or dep.valid_from) > _date_key(end):
+                if audit is not None:
+                    audit.append({"action": "dependent_said_after", "kept": dep.id, "job": job.id})
+                break
+            dep.valid_to = _max_date(end, dep.valid_from)
+            closed.append(dep.id)
+            if audit is not None:
+                audit.append({"action": "dependent_ended", "closed": dep.id, "job": job.id})
+            break
+    return closed
 
 
 def reconcile_stage3(
@@ -904,6 +984,8 @@ def reconcile_stage3(
 
     # A memory export entry says nothing about when (`episode_time`): read once for the pass.
     untimed = episode_time.untimed_ids(memory_path)
+    depends_on = getattr(endings_fn, "depends_on", None)
+    premise_pairs: list[tuple[Claim, str]] = []
     for new in incoming_claims:
         sub = new.subject
         referenced_subjects.add(sub)
@@ -940,6 +1022,8 @@ def reconcile_stage3(
         canonical = (ended_by(new.predicate) if ended_by else None) or new.predicate
         over = getattr(endings_fn, "over", {}).get(canonical, frozenset())
         kept = _place_claim(new, slot, settings, today, cardinality_fn, nudges, audit, untimed, over, canonical)
+        if kept is not None and getattr(new, "premise_at", None):
+            premise_pairs.append((kept, new.premise_at))
         if raw_label:
             raw_slug = predicates._slugify_predicate(str(raw_label))
             if raw_slug and raw_slug != new.predicate:
@@ -957,6 +1041,12 @@ def reconcile_stage3(
                 delattr(c, "_lift_check")
                 if c.faded_by_age:
                     _lift_to_repeat_floor(c, sub, settings, decay_class_fn, subject_fn, untimed, today)
+
+    if depends_on is not None:
+        # W7: a working relationship closes with the job it rests on — linked once every claim is placed.
+        link_premises(premise_pairs, reconciled, depends_on)
+        for sub in referenced_subjects:
+            close_dependents(reconciled.get(sub, []), depends_on, today, audit, untimed)
 
     for (_raw_slug, canonical), entry in folds.items():
         if entry["kept"]:   # nothing stored under the fold (rejected, or a conflict asked) — nothing to ask

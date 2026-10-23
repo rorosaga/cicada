@@ -314,6 +314,34 @@ relative; with none open it is closed history, never a current place. **Order ne
 the page (a "left" claim, or an ending record's own words) is kept as closed history, whatever order the claims are
 read in, and a re-read of a claim the page holds closed (same id, G104) only adds its sources — a page never holds one
 id twice. No fold question is raised for an ending. Stage 1's prompt says "works at" means current.
+**A switch is said about what switched (2026-10-23, owner):** an ending closes only claims on its own subject — "<person>
+dropped <tool>" never closes a project's use of it. Stage 1's prompt writes a project's switch on the project
+("<project> dropped <tool>", "<project> uses <new>"), in the active voice and never as "replaces" / "replaced by"; the
+seed's `uses` endings also read `replaced`, `replaces` and `switched from`, which close only that subject's open use
+(newuser replays of the drop conversation, haiku: 18/20 on the project before, 20/20 after); `moved from`,
+`moved away from` and `migrated from` too, and the prompt names "moved from A to B" and "replaced A with B" — a
+"replaced with <b>" label is no ending, so what replaced the old thing stays current (live test, 2026-10-23).
+**One value, several wordings (2026-10-23, live test):** a stated value's attribute matches another by its words
+(`claims.same_value_attribute`), and a one-word attribute only itself, so "latest release: 0.3.1" stayed open beside
+"released version: 0.6.0". The seed's `value_attributes` declares spellings that are one attribute (`release`: release,
+latest release, released version, release version, latest/current version, version;
+`predicates.value_attribute_group`); under one name the newer value closes the older on the usual value rules (the
+newest dated evidence wins, an older value read late is history, the person's own words never closed by an agent's).
+Nothing outside the list is joined.
+**A stated day (W7, 2026-10-23):** a Stage 1 relationship may carry `ends`, an absolute day the model resolves from the
+conversation's day ("my last day is a week from today"); anything but a real ISO date is dropped, so nothing relative is
+stored (`entity_extractor._stated_day`). On an `over` label it dates the ending (the job closes on the last day, not
+the day it was said); on any other label it is the claim's `expected_end`. An ending still ahead of the day Sleep reads
+it sets `expected_end` on what it would close instead of a future `valid_to`, and expiry closes it on the day.
+**What rests on a job (W7):** the seed's `dependents` under `works-at` (`reports-to`, `managed-by`, `manages`,
+`managed`, and their qualified labels; `EndingFn.depends_on`). Stage 1 gives such a relationship the organisation it
+belongs to (`at`) and writes the person's own working relationships from their side; Stage 3 then names the subject's
+job at that organisation in the claim's existing `premises` (`claim_reconciler.link_premises`, after every claim of
+the pass is placed). When the job ends — an ending, or its stated end passing in `claim_expiry` — each open dependent
+naming it closes on the job's last day (`close_dependents`): same subject only, never one said after the job ended,
+never the person's own claim unless the job's end came from the person too (the claim that closed it, or the job's own
+stated end, `is_human`; a closer missing from the page counts as not), nothing superseded. A relationship with no `at`
+names no job and stays open (nothing is guessed from timing).
 **Repairing a bank:** `python -m api.services.coexist_reopen --bank <path> [--plan <file>] [--said-since <day> | --all]`
 is a dry run (counts by reason, and the places it would reopen — and those the window keeps closed — by when they were
 last said; the plan holds ids, paths, commits and reasons, never text). **The window defaults to places said in the
@@ -513,7 +541,10 @@ app writes), no MCP tool accepts an `origin`, and `is_human` protects the person
 entries — an agent's different state on them coexists with a divergence item.
 
 **Stated ends (G140).** A claim may carry `expected_end` — the date the fact itself says it stops
-being true — and a G17 `due` claim's ISO-date object is its own. Never a future `valid_to`, which
+being true — and a G17 `due` claim's ISO-date object is its own. An agent writes it through
+`cicada_write_claim`; Stage 1 through a relationship's `ends` (W7, above). A restatement carries its end onto the
+claim it restates, except an agent's onto the person's own (`is_human`; review of #459), as an agent's ending never
+closes it. Never a future `valid_to`, which
 every reader takes to mean *closed*. Sleep's engine-free tail closes such a claim the day after its
 end (`claim_expiry`), in its own `Expiry <date>` commit (`Cicada-Author: cicada`, trigger
 `sleep/expiry`); a failed commit restores the pages rather than leaving them for the next
@@ -1335,7 +1366,12 @@ drops a project. **v4 (G150)** adds `backlog_open` (items open or doing) to a pr
 tokens of primer: what Cicada is, a per-harness prelude (the contract never varies), the contract
 itself, the now-view, and capability notes. The now-view is **Standing** — the person's page and
 one-liner (through G117's resolver), their timezone (per request, never in `_state.md`, part of the
-cache key), *How to work with me* (standing `skill` pages by confidence alone), long-standing
+cache key), *How to work with me* (standing `skill` pages by confidence alone, less any whose summary rests on a
+belief that closed after it was written — `skill_staleness`, W6 2026-10-23: a claim between two pages the skill draws
+on, open on the newest day its summary cites and closed after it, whose object the summary names and whose predicate an
+ending closes (`skill_staleness.endable`: the seed's endings, `also_ends`, `dependents`); no model call, each page's
+claims parsed once per rebuild, and the page itself is unchanged — never below three rows
+(`state_dictionary.PREFERENCE_FLOOR`): the least stale fill up to it, marked "(may be out of date)"), long-standing
 durable/evergreen pages — then **Current** — projects, each project with its `now`/`next` (G141),
 pages in focus in the last 14 days, people, recent conversations (G140, schema v2). A test holds R12 for every argument either primer names, for
 every remote scope set. Contract item 3 names `cicada_note_progress` (G141 PJ-3a; remotely only when the

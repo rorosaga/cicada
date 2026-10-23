@@ -5,8 +5,12 @@ until a model decides to remove it; Cicada's volatile class (G66) fades it
 over weeks. A fact that STATES its end should close at that end. Two stated
 ends exist, both explicit — nothing here reads prose, and no LLM runs:
 
-* ``Claim.expected_end`` — written by an agent through ``cicada_write_claim``;
+* ``Claim.expected_end`` — written by an agent through ``cicada_write_claim``, or by Stage 1 from a stated day
+  (``ends``, W7 2026-10-23);
 * a G17 ``due`` claim's own ISO-date object.
+
+A closed job also closes, on the same page and day, the relationships whose ``premises`` name it ("reports to" at
+that job; ``claim_reconciler.close_dependents``, the seed's ``dependents``).
 
 ``expire`` closes every open claim whose end is strictly before today (an end
 is inclusive — "until Friday" is current on Friday): ``valid_to`` = the end,
@@ -84,6 +88,9 @@ def expire(memory_path: Path, today: date, *, skip: frozenset[str] = frozenset()
     if not entities.is_dir():
         return report
     day = today.isoformat()
+    from api.services import claim_reconciler, predicates
+
+    depends_on = getattr(predicates.build_endings_fn(memory_path), "depends_on", None)
     for path in sorted(entities.glob("*.md")):
         if f"entities/{path.name}" in skip:
             continue
@@ -111,6 +118,9 @@ def expire(memory_path: Path, today: date, *, skip: frozenset[str] = frozenset()
                 continue
             claim.valid_to = closing_date(claim)
             closed.append(claim.id)
+        if closed and depends_on is not None:
+            # W7: a job that reached its stated end takes the relationships resting on it ("reports to") along.
+            closed += claim_reconciler.close_dependents(claims, depends_on, day)
         if not closed:
             continue
         markdown_parser.write(path, parsed.frontmatter, write_claims(parsed.body, claims))

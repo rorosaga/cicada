@@ -261,6 +261,12 @@ multi_valued:
 #         two canonicals list is ambiguous and ends nothing. Never a fold: the
 #         claim keeps its own predicate, and `past` reinforces only the
 #         canonical itself.
+#   dependents (2026-10-23, W7): predicates on the SAME subject that end when a
+#         belief under this canonical ends, if they name it in `premises` —
+#         "reports to Priya" said with "at Lumenfold" rests on "works at
+#         Lumenfold" and closes on the day the job does (Stage 3 and expiry).
+#         Qualified labels match as for also_ends. Never the person's own
+#         claim under an agent's word.
 # ---------------------------------------------------------------------------
 endings:
   works-at:
@@ -280,6 +286,12 @@ endings:
     past:
       - worked at
       - interned at       # a synonym of works-at above: said, it is never a current place on its own
+    # 2026-10-23 (benchmarks/newuser W7): the old manager stayed "reports to" after the job ended.
+    dependents:
+      - reports-to
+      - managed-by
+      - manages
+      - managed
   # 2026-10-22 (benchmarks/newuser): a colleague from a job the person left was folded into a current collaboration.
   works-with:
     over:
@@ -301,7 +313,15 @@ endings:
       - migrated off
       - migrated away from
       - switched away from
+      - switched from
+      - moved from        # 2026-10-23 (live test): "moved from <a> to <b>" left every <a> variant current
+      - moved away from
+      - migrated from
       - abandoned
+      # 2026-10-23 (benchmarks/newuser): 2 of 20 replays of the drop wrote "<project> replaces <tool>". Only the same
+      # subject's open use closes, so "<tool-b> replaces <tool>" (no use of it open) keeps its own label.
+      - replaced
+      - replaces
     # 2026-10-23 (benchmarks/newuser): "dropped <tool>" closed only a plain `uses <tool>`; the same project's
     # "uses for auth and data", "stores data in", "depends on" and "backed by" the same tool stayed current.
     also_ends:
@@ -314,6 +334,28 @@ endings:
       - stores-in
       - authenticates-with
       - integrates-with
+
+# ---------------------------------------------------------------------------
+# VALUE ATTRIBUTES (2026-10-23, from a live test): spellings of one stated value
+# (Stage 1's `values[]`, `value-of-<attribute>`, single-valued) that the word
+# match in `claims.same_value_attribute` cannot join — a one-word attribute
+# matches only itself, so "latest release: 0.3.1" sat open beside "released
+# version: 0.6.0". A spelling is compared by its words (filler like "latest",
+# "current" aside); spellings under one name are one attribute, so the newer
+# value closes the older under the usual rules (newest dated evidence wins; the
+# person's own words never closed by an agent's). Declared, never guessed: an
+# attribute listed nowhere still matches only by its own words.
+# ---------------------------------------------------------------------------
+value_attributes:
+  release:
+    - release
+    - latest release
+    - released version
+    - release version
+    - version released
+    - latest version
+    - current version
+    - version
 
 # ---------------------------------------------------------------------------
 # WHERE THE TRUTH LIVES (G61 phase 2 S1, spec R-AC8 — G121's world/personal

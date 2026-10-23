@@ -10,6 +10,16 @@
 
 ## Current state and evidence
 
+- **2026-10-23 — the new user, fourth pass (G148, G112; branch `fix/newuser-memory-4`).** A switch said for a project
+  is written on the project (Stage 1's prompt; the seed's `uses` endings read `replaced`/`replaces`/`switched from`) —
+  the owner's decision below keeps endings same-subject; a Stage 4 skill whose summary rests on a belief that closed
+  after it leaves the handshake's *How to work with me* (`skill_staleness`, W6, no model call); Stage 1 stores a stated
+  last day as an absolute date (`ends`) and a manager said with the job's organisation closes with the job
+  (`premises`, seed `dependents`, W7); from a live test, a newer value under another wording closes the older
+  (seed `value_attributes`) and "moved from A to B" ends A's uses. Drop replays (haiku): 18/20 on the project
+  before, 20/20 after. newuser: 24.5/25
+  by hand in each of four Sleeps (baseline 24). Evidence: `~/cicada-verify-evidence/m4-*`.
+
 - **2026-10-23 — the notch, second version (G191 v7, G221, a note on G219; branch `feat/save-notch-v2`).** The ask-why field grows to five lines then scrolls (eases 0.12 s, none under Reduce Motion; DESIGN_RULES ruling 2026-10-23: a field growing with typed words is not a DR-60 keyboard command). The four reasons stay the fixed row; a 38-reason bank (`saved_why.MORE`, `more` on the options) feeds three to six suggested chips ranked on the Mac with no generative model (site, the link's words, the person's past picks, EmbeddingGemma's similarity only when installed via the read-only `POST /sources/saved-why/suggest`). Documented, not built: saves in other apps (**G221**, recommended: a Chrome extension seeing the person's own save click, G206/G71 lists confirming — five owner decisions), the v2 classifier option (Foundation Models or the image encoder over a screenshot; needs a ruling against "No LLM at capture time"), and the Composio note on G219 (native first; Composio only as an optional entry the person's own agent uses). **Open for the owner:** G221's decisions; whether bank reasons should deepen site exploration; whether typed line breaks should be kept when stored.
 
 - **2026-10-23 — ruling 38 recorded; `/v1` generated from the remote tool table (G213; branch
@@ -34,9 +44,9 @@
   `EndingFn.ended_by`); a held full name whose given name is one person page's whole title asks "same person?"
   (`entity_resolver._given_name_pages`, W1's cap and `merge_rejections`); `## Related` names each link by the newest
   open claim behind it, not the first edge ever extracted (`conflict_resolver.related_edges`, refreshed by the claim
-  pass). newuser: 24, 23.5, 24 of 25 by hand over three Sleeps (baseline 24). **Open for the owner:** one Sleep in five
-  put the drop on the person's page, so the project's uses stayed current — closing a project's belief from an ending
-  said about the person would be a new cross-subject rule. Evidence: `~/cicada-verify-evidence/nu3-*`.
+  pass). newuser: 24, 23.5, 24 of 25 by hand over three Sleeps (baseline 24). **Answered (owner, 2026-10-23):** one Sleep in five
+  put the drop on the person's page, so the project's uses stayed current — the rule stays same-subject and the fix is
+  at extraction (ruling 37, dated line C; fourth pass). Evidence: `~/cicada-verify-evidence/nu3-*`.
 
 - **2026-10-23 — something never called a project gets a page (G141; D4 amendment in ruling 36; PR #441,
   branch `fix/project-fallback-page`).** The judge joins the spellings of one thing with no birth; over the promotion bar
@@ -1693,6 +1703,12 @@ A whole row moves to DONE only after its remaining implementation and required a
     unexplained "How did it go?"; bookmarks saved in August read as saved on the import day. **Revisit** A if the
     person undoes `seed_fold` settles often (`GET /consumption/feedback`'s `sleepSettles`); B if a source's recorded
     save date proves unreliable.
+    **C — an ending closes only its own subject's claims (owner, 2026-10-23).** Only an ending said about the project
+    closes the project's claims; "the person dropped X" never closes a project's use of X by rule. When the person's own
+    words say they dropped or switched X for a project (the project named, or plainly the subject of that turn), Stage 1
+    writes the ending on the project as its subject. **Why.** #442's one Sleep in five that put the drop on the person's
+    page; a cross-subject rule would let a remark about the person end beliefs about everything they touch.
+    **Revisit** if the drop replays fall below 19/20 on the project.
 38. **The follow-ups: one API generated from the tool table, a capture-only phone, one-way syncs, traces with
     screenshots (owner, 2026-10-23; answers to the four decisions in the follow-ups proposal, `followups-2026-10-23.md`,
     kept outside the repo with the redesign research, recorded as rows by #451; G213, G91, G219, G218).**
