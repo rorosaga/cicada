@@ -13,7 +13,7 @@ from api.config import Settings
 from api.models.schemas import DecayClass
 from api.services import (
     alias_policy, decay_policy, decay_tuning, engine_errors, entity_article, entity_body, entity_types, episode_time,
-    fact_sources, json_parse, markdown_parser, page_edits, role_people, section_provenance, source_dates,
+    fact_sources, json_parse, markdown_parser, page_edits, project_birth, role_people, section_provenance, source_dates,
 )
 from api.services.providers import resolve_llm_fn
 
@@ -772,6 +772,10 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             if entity_type == "project" and isinstance(change.get("project_birth"), dict):
                 # Ruling 36 D4: where the project came from, written once where the page is born (`project_birth`).
                 frontmatter["born"] = change["project_birth"]
+            elif change.get(project_birth.PROPOSED_KEY) == "project" and entity_type == project_birth.FALLBACK_TYPE:
+                # Owner 2026-10-23: a thing Stage 1 called a project with no birth, over the promotion bar — a concept
+                # page that a later birth makes the project (`project_birth.retype_on_birth`).
+                frontmatter[project_birth.PROPOSED_KEY] = "project"
             if change.get("contacts_card") and entity_type == "person":
                 # Owner ruling 2026-10-20: a page promoted on a waiting card's first mention is born with the card's
                 # sources and photo — what a Contacts sync writes on a matched page (`contacts_local.seed_page`).
@@ -816,6 +820,9 @@ def apply_changes(changes: list[dict], memory_path) -> None:
 
         elif action == "update" and filepath.exists():
             parsed = markdown_parser.parse(filepath)
+            # Owner 2026-10-23: the person called a fallback page's thing a project (or a repository gave it one): the
+            # same page becomes the project, `born` written once — before anything below reads the page's type.
+            project_birth.retype_on_birth(parsed.frontmatter, change.get("project_birth"))
             # A memory export entry alone is no re-mention ("facts yes, activity no", `episode_time`): its facts
             # and source land below, but the last mention, the silence clock and the status stay.
             mentioned = not change.get("untimed")

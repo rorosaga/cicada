@@ -1238,7 +1238,24 @@ on the conversation it read (no model), a `project_birth` record and drops any t
   "New project with Teo: fernpost", W3 2026-10-22), outside a recorded gap; kept as a span `{start, end, hash, kind}` into the
   episode, never a copy (G118). A name that itself contains "project" does not call itself one.
 Stage 2 promotes a `project` exactly when one of the batch's extractions of that name carries a record (the oldest
-conversation's wins); everything else, however often mentioned, waits on its pending line like any name below the bar.
+conversation's wins); everything else is never a project page.
+**The fallback page (owner 2026-10-23, amends D4; `entity_resolver._settle_unborn`).** A project mention with no record
+and no match is decided after the per-name loop, so the thing shows in the app without breaking D4. Each such name is
+weighed by the judge — never by an alias alone — against what it may already be: the project pages on disk and born this
+batch, the fallback pages, this batch's other unborn names and the project lines an earlier batch parked
+(`_unborn_candidates`: what shares a conversation first, then a word or alias, then the rest, latest first, at most 12;
+a pair sharing no word gets a note saying that is no lead either way). "Same" as a page makes it that page's update; the
+names judged the same as each other form one group, and **the ordinary rule is read over the group**: 2+ conversations
+between its names, or one name substantive or linked on its own. A group over the bar gets ONE page under the name heard
+in the most conversations, the other spellings as aliases, every member's pending line and held claims folded in, typed
+`concept` — the closed set's general type, the only one of the ten that holds an endeavour that is not a person,
+organisation, place, tool, skill or folder — and marked `proposed_type: project`. A group below the bar is held, each
+name on its own line, as before. "Unsure" against a page asks the person and holds the name. A later mention judged the
+same as a fallback page lands on it (`_candidate_types` lets a project mention meet the page at the judge); one that
+carries a birth rides to Stage 5, which makes **the same page** the project — `type: project`, `born:` written once, the
+marker gone (`project_birth.retype_on_birth`, only on a `concept` carrying the marker and no `born`; a project page or a
+page born with another type is never retyped). A birth inside the batch that creates a fallback page makes it a project
+from the start.
 "A project" is the type the create will write (`_written_type`: a sibling's `project` overrides a `concept` when the
 payloads merge), never only the chosen mention's (W4). A project mention with no match whose recorded alias names
 exactly one project page — on disk, else born this batch — brings that page to the judge (W2): "same" makes it the
