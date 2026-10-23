@@ -574,3 +574,37 @@ def test_a_held_birth_still_mints_the_project_as_today(tmp_path, monkeypatch):
     assert (change["action"], change["entity"]["type"], change["project_birth"]) == ("create", "project", born)
     assert set(change["source_episodes"]) == {EP_A, EP_B} and out["promoted_pending"] == ["Delta Plan"]
 
+
+def _inbox_titles(memory) -> list[str]:
+    return sorted(str(markdown_parser.parse(p).frontmatter.get("title", "")) for p in (memory / "inbox").glob("*.md"))
+
+
+def _resolve_unsure(memory, mention, page, monkeypatch):
+    async def unsure(*_a, **_k):
+        return "unsure"
+
+    async def batch(new_name, new_type, new_description, entries, settings, *, new_connections=""):
+        return ["unsure" for _ in entries]
+    monkeypatch.setattr(entity_resolver, "_llm_judge_same_entity", unsure)
+    monkeypatch.setattr(entity_resolver, "_llm_judge_batch", batch)
+    return asyncio.run(entity_resolver.resolve([{"episode_id": EP_D, "relationships": [], "entities": [mention]}],
+                                               [page], _settings(memory)))
+
+
+def test_unsure_against_a_page_with_no_shared_word_holds_without_asking(canoe_page, monkeypatch):
+    """benchmarks/newuser: "Epoxy & fiberglass workshop" against the canoe's page, unsure. No word or conversation in
+    common is no question for the person: the name is held, never a second page, and nothing reaches the inbox."""
+    memory, page = canoe_page
+    before = _inbox_titles(memory)
+    out = _resolve_unsure(memory, _project("Epoxy workshop", EP_D, TS_D), page, monkeypatch)   # over the bar alone
+    assert out["changes"] == []
+    assert _inbox_titles(memory) == before
+    assert "Epoxy workshop" in {line.name for line in pending_store.load(memory)}
+
+
+def test_unsure_against_a_page_that_shares_a_word_asks(canoe_page, monkeypatch):
+    memory, page = canoe_page
+    out = _resolve_unsure(memory, _project("Strip canoe trailer", EP_D, TS_D), page, monkeypatch)
+    assert out["changes"] == []
+    assert any("Strip canoe trailer" in t for t in _inbox_titles(memory))
+

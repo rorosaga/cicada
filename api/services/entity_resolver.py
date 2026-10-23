@@ -1428,9 +1428,9 @@ def _unborn_candidates(u: _Unborn, groups: list[list[_Unborn]], pages, stored: d
     def place(candidate: dict, other: list[str], cited: set[str], recency: str, *, group: bool = False) -> None:
         candidate["names"] = other
         if episodes & cited:
-            tiers[0].append(candidate)
+            tiers[0].append({**candidate, "shared": True})
         elif shares_word(other):
-            tiers[1].append(candidate)
+            tiers[1].append({**candidate, "shared": True})
         elif group:
             tiers[2].append(candidate)
         else:
@@ -1513,10 +1513,15 @@ async def _settle_unborn(
             else:   # a line an earlier batch parked: the two are one group from now on
                 groups.append([stored.pop(candidate["line"]), u])
             continue
-        if match is not None and candidate["source"] in ("existing", "created"):
-            # Unsure about a page: asked, and held — never a second page beside the one it may be (as in the loop).
-            pending_actions.append((_create_duplicate_clarification, (),
-                                    {"clarifier": clarifier, "entity": u.entity, "candidate": candidate}))
+        unsure_pages = [c for c, decision in judged if decision == "unsure" and c["source"] in ("existing", "created")]
+        if unsure_pages:
+            # Unsure about a page: held — never a second page beside the one it may be (as in the loop) — and asked
+            # only when the two share a word or a conversation. A pair with no lead at all ("Epoxy workshop" against
+            # "Cedar-strip canoe") is no question for the person: the name waits, and its next mention is judged again.
+            asked = next((c for c in unsure_pages if c.get("shared")), None)
+            if asked is not None:
+                pending_actions.append((_create_duplicate_clarification, (),
+                                        {"clarifier": clarifier, "entity": u.entity, "candidate": asked}))
             hold(u.name, u.entity, u.siblings, True)
             continue
         groups.append([u])

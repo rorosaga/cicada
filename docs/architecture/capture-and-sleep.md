@@ -1250,7 +1250,9 @@ between its names, or one name substantive or linked on its own. A group over th
 in the most conversations, the other spellings as aliases, every member's pending line and held claims folded in, typed
 `concept` — the closed set's general type, the only one of the ten that holds an endeavour that is not a person,
 organisation, place, tool, skill or folder — and marked `proposed_type: project`. A group below the bar is held, each
-name on its own line, as before. "Unsure" against a page asks the person and holds the name. A later mention judged the
+name on its own line, as before. "Unsure" against a page holds the name (never a second page beside it) and asks the
+person only when the two share a word or a conversation — the first newuser run asked "Is Epoxy & fiberglass workshop
+the same as Cedar-strip canoe?", a pair with no lead, which is no question for a stranger. A later mention judged the
 same as a fallback page lands on it (`_candidate_types` lets a project mention meet the page at the judge); one that
 carries a birth rides to Stage 5, which makes **the same page** the project — `type: project`, `born:` written once, the
 marker gone (`project_birth.retype_on_birth`, only on a `concept` carrying the marker and no `born`; a project page or a
