@@ -1829,7 +1829,10 @@ constraining the prose; git is the safety net, the claims and the dated timeline
   on the page the edge starts from (this page's, or the other page's for an inbound edge) with that object and the
   label's normalized predicate: the newest open one names the link; with none open, the first label no claim speaks
   to, as before; a link whose every label's claims are closed keeps its first label marked "(until <day>)" and goes
-  after the rest. No link is dropped, confidence plays no part, and a page with no claims renders as it did. A page with a stamped article is
+  after the rest. No link is dropped, confidence plays no part, and a page with no claims renders as it did. Stage 5
+  rebuilds Related before the batch's claims exist, so the claim pass renames the links of each page whose claims it
+  changes from the claims it writes (`conflict_resolver.refresh_related`, only the Related block); an inbound link on
+  the other page follows at that page's next write. A page with a stamped article is
   never handed to the orientation or legacy rewrite, whatever the settings: both replace the lead the writer owns; an
   inbox answer on it takes the fallback append.
 - **Inputs**, numbered: the record after this update's deterministic union (`f` facts with the days their rows'

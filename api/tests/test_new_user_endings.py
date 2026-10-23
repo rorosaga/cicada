@@ -147,6 +147,25 @@ def test_a_past_tense_label_still_reinforces_only_its_own_predicate(tmp_path):
     assert ("works-with-on-mobile", "carol-example") in _open(memory, PERSON), "past tense never closes"
 
 
+def test_the_pages_related_follows_the_drop_in_the_same_pass(tmp_path):
+    """Stage 5 rebuilds Related before the batch's claims exist, so the page kept "<tool-a> — uses for auth" after the
+    drop until its next write; the claim pass now renames the link from the claims it writes."""
+    import yaml
+
+    memory = _bank(tmp_path)
+    markdown_parser.write(memory / "entities" / "tool-example.md",
+                          {"name": "Tool Example", "type": "tool", "status": "active"}, "## Summary\nA tool.")
+    page = memory / "entities" / f"{PROJECT}.md"
+    parsed = markdown_parser.parse(page)
+    markdown_parser.write(page, parsed.frontmatter, parsed.body + "\n\n## Related\n- [[Tool Example]] — uses for auth\n")
+    (memory / "graph_edges.yaml").write_text(yaml.dump({"edges": [
+        {"source": PROJECT, "target": "tool-example", "label": "uses for auth"}]}), encoding="utf-8")
+    _sleep(memory, "2026-08-28", 1, "alpha-project", [("uses for auth", "Tool Example")])
+    assert "- [[Tool Example]] — uses for auth\n" in markdown_parser.parse(page).body
+    _sleep(memory, "2026-10-09", 2, "alpha-project", [("dropped", "Tool Example")])
+    assert "- [[Tool Example]] — uses for auth (until 2026-10-09)" in markdown_parser.parse(page).body
+
+
 def test_which_predicates_an_ending_also_ends():
     ended_by = predicates.build_endings_fn(None).ended_by
     for predicate in ("uses", "uses-for-sign-in", "depends-on", "backed-by", "stores-data-in-tool-example-postgres"):

@@ -391,6 +391,20 @@ def run_claim_pipeline(
     page_less_subjects: list[str] = []
     page_less_claim_ids: list[str] = []
     page_less_offers: dict[str, list[Claim]] = {}
+    edges_by_entity: dict | None = None
+
+    def _fresh_related(subject: str, frontmatter: dict, body: str, claims: list[Claim]) -> str:
+        nonlocal edges_by_entity
+        from api.services import conflict_resolver
+
+        try:
+            if edges_by_entity is None:   # one read of graph_edges.yaml per pass, only when a page changed
+                edges_by_entity = conflict_resolver._edges_by_entity(memory_path)
+            return conflict_resolver.refresh_related(subject, frontmatter, body, memory_path, edges_by_entity, claims)
+        except Exception as e:  # noqa: BLE001 - a derived view never costs the claims
+            logger.warning(f"Related refresh skipped for a page: {type(e).__name__}")
+            return body
+
     for subject, claims in reconciled.items():
         if not claims:
             continue
@@ -417,6 +431,9 @@ def run_claim_pipeline(
             # below) instead of overwriting claims we could not read.
             parse_claims(parsed.body, strict=True)
             new_body = write_claims(parsed.body, claims)
+            if new_body != parsed.body:
+                # Related names each link by the claims as now written, not as Stage 5 read them before this pass.
+                new_body = _fresh_related(subject, parsed.frontmatter, new_body, claims)
             # R-HP8: the conversation a released claim was heard in credits the page.
             credited = _credit_episodes(parsed.frontmatter, credit.get(subject))
             if new_body != parsed.body or credited:

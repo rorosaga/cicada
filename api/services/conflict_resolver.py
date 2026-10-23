@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -1248,8 +1249,11 @@ def _edges_by_entity(memory_path) -> dict[str, list[dict]]:
     return by_entity
 
 
-def _reconcile_related(entity_id: str, frontmatter: dict, memory_path, edges_by_entity: dict[str, list[dict]]) -> str:
+def _reconcile_related(entity_id: str, frontmatter: dict, memory_path, edges_by_entity: dict[str, list[dict]],
+                       own_claims: list | None = None) -> str:
     """Rebuild the ``## Related`` block from `related` slugs + graph_edges.yaml.
+
+    ``own_claims``: the page's claims as about to be written (the claim pipeline's); by default, as on disk.
 
     Related is a derived view — graph_edges.yaml is canonical, read once per write pass (:func:`_edges_by_entity`).
     Display names are read only for the ids actually referenced, so per-entity cost stays proportional to its degree.
@@ -1281,7 +1285,8 @@ def _reconcile_related(entity_id: str, frontmatter: dict, memory_path, edges_by_
             continue
     own = entities_dir / f"{entity_id}.md"
     try:
-        claims_by_page[entity_id] = _page_claims(markdown_parser.parse(own).body) if own.exists() else []
+        claims_by_page[entity_id] = (list(own_claims) if own_claims is not None
+                                     else _page_claims(markdown_parser.parse(own).body) if own.exists() else [])
     except Exception:  # noqa: BLE001 - an unreadable page labels its links as the edges say
         claims_by_page[entity_id] = []
 
@@ -1295,6 +1300,24 @@ def _reconcile_related(entity_id: str, frontmatter: dict, memory_path, edges_by_
         normalize = None
     edges = related_edges(entity_id, edges, claims_by_page, normalize)
     return entity_body.render_related(related_slugs, edges, id_to_name, id_to_type, normalize)
+
+
+_RELATED_SECTION = re.compile(r"^## Related[ \t]*\n(?P<block>.*?)(?=^## |^```claims[ \t]*$|\Z)", re.M | re.S)
+
+
+def refresh_related(entity_id: str, frontmatter: dict, body: str, memory_path, edges_by_entity: dict[str, list[dict]],
+                    claims: list) -> str:
+    """``body`` with its ``## Related`` block named by ``claims`` — the claim pipeline's write, after Stage 3 closed or
+    opened a belief (2026-10-23): the page's Related is rebuilt at Stage 5, before this batch's claims exist, so a job
+    left or a tool dropped would read as current until the page's next write. Every other byte is kept; a page with no
+    Related section, or a block that would come out empty, is left as it is."""
+    match = _RELATED_SECTION.search(body)
+    if match is None:
+        return body
+    block = _reconcile_related(entity_id, frontmatter, memory_path, edges_by_entity, own_claims=claims)
+    if not block.strip() or block.strip() == match.group("block").strip():
+        return body
+    return body[:match.start("block")] + block.strip("\n") + "\n\n" + body[match.end("block"):].lstrip("\n")
 
 
 def _page_claims(body: str) -> list:
