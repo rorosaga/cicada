@@ -10,6 +10,16 @@
 
 ## Current state and evidence
 
+- **2026-10-23 — the owner's five follow-ups recorded (docs only; branch `docs/followups-2026-10-23`).** Phone
+  sources extend **G91** (stays capture-only; next a device build, `/capture/file`, App Intents, on-device voice);
+  tools over an API extend **G213** (`/v1` generated from the remote tool table, names in `cli_map`, 11 → 27
+  operations, one G199 contract, no third door); activity traces are **G218** (DECIDE: off by default, outside every
+  bank, encrypted, never on the network, screenshots a separate opt-in); syncs are **G219** (Apple Reminders through
+  EventKit, then Notion export and API, one-way, never write-back; pointers on G13 and G142); the "show me" skill is
+  **G220** (the owner builds it; pointer on G138). Each row ends in its owner decisions with a recommended answer. The
+  proposal, with prior-art sources, is kept outside the repo with the redesign research
+  (`followups-2026-10-23.md`). **Open for the owner:** the decisions on each row; G218 needs a ruling before any code.
+
 - **2026-10-23 — the new user, third pass (G148, G209; PR #442, branch `fix/newuser-memory-3`).** A drop ends the project's
   qualified and related uses of the tool, not only a plain `uses` (seed `endings.uses.also_ends`,
   `EndingFn.ended_by`); a held full name whose given name is one person page's whole title asks "same person?"
