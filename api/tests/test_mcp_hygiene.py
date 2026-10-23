@@ -5,7 +5,7 @@
   and the command line, which calls the same body or the door).
 - A11: no advertised schema names the legacy observer value; the body still accepts it.
 - A10: ``ping`` answers ``{}``, unparseable JSON ``-32700`` with a null id, ``tools/call`` with no name ``-32602``;
-  stdio read tools carry ``readOnlyHint`` from the remote ``READ_TOOLS``.
+  stdio read tools carry ``readOnlyHint`` (2026-10-23: from ``cli_map.read_only_tools()``, test_tool_annotations).
 - Ruling 34: a hook capture's id carries the conversation's local day (or the client's posted offset); an id once
   minted is never renamed; ``ask_sources`` reads the day a conversation was said from its timestamp.
 

@@ -74,10 +74,16 @@ def test_unsupported_events_and_unsafe_sessions_never_post(tmp_path, monkeypatch
     assert out == {"continue": True} and sent == [] and observed == []
 
 
-@pytest.mark.parametrize("key", ["CICADA_CAPTURE", "CICADA_RECALL", "CURSOR_CODE_REMOTE"])
+@pytest.mark.parametrize("key", ["CICADA_RECALL", "CURSOR_CODE_REMOTE"])
 def test_disabled_or_remote_never_post(tmp_path, monkeypatch, key):
     out, sent, observed = fire(tmp_path, monkeypatch, extra_env={key: "true" if key == "CURSOR_CODE_REMOTE" else "off"})
     assert out == {"continue": True} and sent == [] and observed == []
+
+
+def test_capture_off_alone_still_gets_the_startup_note(tmp_path, monkeypatch):
+    """2026-10-23: ``CICADA_CAPTURE=off`` stops capture only; the startup note answers to ``CICADA_RECALL``."""
+    out, sent, _ = fire(tmp_path, monkeypatch, extra_env={"CICADA_CAPTURE": "off"})
+    assert out == {"continue": True, "additional_context": "light pointer"} and len(sent) == 1
 
 
 @pytest.mark.parametrize("roots", [[], ["/synthetic/a", "/synthetic/b"], ["relative"], ["/bad\nroot"]])

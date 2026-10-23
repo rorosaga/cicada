@@ -91,6 +91,7 @@ def render_first_page(data: bytes, *, timeout_s: float = TIMEOUT_S) -> bytes | N
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(p for p in (root, env.get("PYTHONPATH", "")) if p)
     env["CICADA_CAPTURE"] = "off"
+    env["CICADA_RECALL"] = "off"
     try:
         done = subprocess.run([sys.executable, "-m", "api.services.pdf_page"], input=data, capture_output=True,
                               env=env, timeout=timeout_s, check=False, close_fds=True)

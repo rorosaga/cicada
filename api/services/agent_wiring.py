@@ -175,11 +175,38 @@ FLUSH_EVENTS = ("PreCompact", "SessionEnd")
 
 def flush_steps(h: Harness, *, home: Path, repo: Path, python: str) -> list[dict]:
     """install.sh's flush registrations: the Stop hook's own command under each
-    of :data:`FLUSH_EVENTS`."""
+    of :data:`FLUSH_EVENTS`. Codex caps a SessionEnd hook at 3 s and warns on
+    every start when asked for more (2026-10-23), so its flush asks for 3."""
+    def timeout(event: str) -> list[str]:
+        if h.id == "codex" and event == "SessionEnd":
+            return ["--timeout", str(hook_registry.CODEX_SESSION_END_TIMEOUT_S)]
+        return []
+
     return [_step("flush", [*runtime_layout.registry_argv(python, repo), "install",
                             "--settings", str(home / h.settings), "--event", event,
-                            "--command", hook_command(python, repo, h.id)], [f"~/{h.settings}"])
+                            "--command", hook_command(python, repo, h.id), *timeout(event)], [f"~/{h.settings}"])
             for event in FLUSH_EVENTS]
+
+
+#: Codex's own instructions file, read on every session (2026-10-23). Cicada's block there is what tells Codex to use
+#: Cicada at all: a live test showed Codex with the server attached and no note never calling a Cicada tool.
+CODEX_AGENTS_MD = ".codex/AGENTS.md"
+
+
+def agents_md_step(*, home: Path, repo: Path, python: str) -> dict:
+    """Add (or refresh) Cicada's one marked block in ``~/.codex/AGENTS.md`` — ``registry.py agents-md-install``:
+    idempotent, the rest of the file kept byte for byte; ``install.sh --uninstall`` removes it."""
+    return _step("agents-md", [*runtime_layout.registry_argv(python, repo), "agents-md-install",
+                               "--settings", str(home / CODEX_AGENTS_MD)], [f"~/{CODEX_AGENTS_MD}"])
+
+
+def agents_md_state(home: Path) -> str:
+    """``on`` (today's block) · ``stale`` (older words) · ``off`` · ``invalid`` (unpaired markers: never touched)."""
+    try:
+        state = hook_registry.agents_md_status(home / CODEX_AGENTS_MD)
+    except hook_registry.RegistryError:
+        return "invalid"
+    return {"present": "on", "absent": "off", "stale": "stale"}[state]
 
 
 GEMINI_SETTINGS = ".gemini/settings.json"
@@ -317,7 +344,9 @@ def server_spec(*, memory_root: Path, repo: Path, python: str) -> dict:
 
 CURSOR_INSTALL = "cursor://anysphere.cursor-deeplink/mcp/install"
 CLAUDE_DESKTOP_CONFIG = "~/Library/Application Support/Claude/claude_desktop_config.json"
-PROMPT_MAX_CHARS = 1200
+#: 1,200 until 2026-10-23, when Codex's prompt gained a third command (its AGENTS.md block, C5: the prompt runs what
+#: `connect` runs) — commands are never shortened (R4B-11), so the budget grew instead.
+PROMPT_MAX_CHARS = 1500
 _PRODUCT = {"claude-code": "Claude Code", "codex": "Codex", "gemini-cli": "Gemini CLI"}
 _NEW_SESSION = "Once it's done, start a new conversation so it can see your memory."
 
@@ -332,12 +361,14 @@ def cursor_deeplink(spec: dict) -> str:
 def setup_prompt(product: str, steps: list[dict]) -> str:
     """What a person pastes into an agent (C5): every command verbatim and
     numbered, nothing else numbered, a request to change nothing else, and what
-    it does not do. ≈ 420 characters of prose, so the commands fit the 1,200 cap
-    for a checkout path up to about 60 characters — a command is never shortened
+    it does not do. ≈ 420 characters of prose, so the commands fit the 1,500 cap
+    (three for Codex) for a checkout path up to about 60 characters — a command is never shortened
     (R4B-11)."""
     numbered = "\n".join(f"{i}. {s['display']}" for i, s in enumerate(steps, 1))
     why = ("The first lets you read and add to my memory; the second saves our conversations into Cicada "
            "after each reply." if len(steps) > 1 else "It lets you read and add to my memory.")
+    if len(steps) > 2:
+        why += " The third adds a short note about Cicada to your own instructions file."
     return (f"Please connect Cicada, the memory app on this Mac, to {product}. Run these commands exactly as "
             f"written, one at a time, and change nothing else:\n\n{numbered}\n\n{why} If one says Cicada is "
             "already set up, that's fine. This uploads nothing: my memory stays on this computer. Then tell me "
@@ -449,8 +480,12 @@ def setup(harness: str, *, home: Path, memory_root: Path, repo: Path = REPO_ROOT
                               "nothing to run. Tell me in one sentence that it is already set up.",
                     "argv": [], "display": [],
                     "note": "Claude Code reaches Cicada through the Cicada plugin. Nothing to add."}
-        return _prompt_setup(harness, [mcp_step(h, binary, memory_root=memory_root, repo=repo, python=python),
-                                       hook_step(h, home=home, repo=repo, python=python)])
+        steps = [mcp_step(h, binary, memory_root=memory_root, repo=repo, python=python),
+                 hook_step(h, home=home, repo=repo, python=python)]
+        if harness == "codex":
+            # C5: the prompt runs what `connect` would — for Codex that includes the AGENTS.md block (2026-10-23).
+            steps.append(agents_md_step(home=home, repo=repo, python=python))
+        return _prompt_setup(harness, steps)
     if harness == "gemini-cli":
         binary = resolve("gemini") or "gemini"
         return _prompt_setup(harness, [gemini_mcp_step(binary, memory_root=memory_root, repo=repo, python=python),
@@ -606,6 +641,13 @@ async def _harness(h: Harness, *, home: Path, memory_root: Path, repo: Path, pyt
         connect.append(mcp_step(h, binary, memory_root=memory_root, repo=repo, python=python))
     if autosave in ("off", "stale"):
         connect.append(hook_step(h, home=home, repo=repo, python=python))
+    extra: dict = {}
+    if h.id == "codex":
+        # 2026-10-23: the AGENTS.md block rides in `connect` (what Connect and `cicada setup` run), never on a probe
+        # that timed out — nothing is offered on a guess (R-IA15).
+        extra["agents_md"] = agents_md_state(home)
+        if extra["agents_md"] in ("off", "stale") and recall in ("on", "off"):
+            connect.append(agents_md_step(home=home, repo=repo, python=python))
     # G110 gate A: the flush is its own list, not part of `connect` — the setup
     # prompt runs exactly `connect` (C5) and four commands do not fit it. The app
     # appends these to a Connect it is already running (`AgentWiring.turnOnSteps`),
@@ -620,7 +662,7 @@ async def _harness(h: Harness, *, home: Path, memory_root: Path, repo: Path, pyt
         detail = f"The Cicada plugin is enabled but {why}, so Claude Code uses Cicada's own entries."
     return {"id": h.id, "installed": True, "binary": binary, "recall": recall,
             "autosave": autosave, "autosave_flush": flush, "flush_on": flush_on, "connect": connect,
-            "detail": detail}
+            "detail": detail, **extra}
 
 
 CONFIG_AGENT_BINARIES = {"gemini-cli": "gemini", "opencode": "opencode", "hermes": "hermes", "openclaw": "openclaw"}

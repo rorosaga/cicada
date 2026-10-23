@@ -120,6 +120,18 @@ enum AgentConnectPolicy {
         }
         let registry = runtime.registryArgv
         guard argv.count >= 2, Array(argv[0...1]) == registry else { return false }
+        // 2026-10-23 — Cicada's one marked block in Codex's own `~/.codex/AGENTS.md` (`registry.py
+        // agents-md-install`: idempotent, the rest of the file kept). That file and that verb only.
+        if argv.count == 5, argv[2] == "agents-md-install" {
+            return argv[3] == "--settings" && !argv[4].contains("/../") && argv[4].hasSuffix("/.codex/AGENTS.md")
+        }
+        // 2026-10-23 — Codex caps a SessionEnd hook at 3 s (`registry.CODEX_SESSION_END_TIMEOUT_S`): its capture
+        // flush may carry exactly `--timeout 3`, and nothing else may carry a timeout.
+        var argv = argv
+        if argv.count == 11, Array(argv[9...10]) == ["--timeout", "3"], argv[6] == "SessionEnd",
+           argv[4].hasSuffix("/.codex/hooks.json") {
+            argv = Array(argv[0..<9])
+        }
         // G149 — remove only Cicada's recall entries (`--hook recall`) from a harness settings file.
         if argv.count == 7, argv[2] == "uninstall" {
             return argv[3] == "--settings" && !argv[4].contains("/../")
@@ -149,12 +161,14 @@ enum AgentConnect {
     static let scrubbedKeys = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "GEMINI_API_KEY"]
 
     /// `CICADA_CAPTURE=off` so nothing Cicada runs is captured back as an episode
-    /// (R8); the binary's own directory first on PATH, because a Finder-launched
+    /// (R8), and `CICADA_RECALL=off` so nothing it runs gets memory injected (the two
+    /// switches are separate since 2026-10-23; a spawn is silent on both); the binary's own directory first on PATH, because a Finder-launched
     /// app's PATH is the bare system one.
     static func environment(_ base: [String: String], binary: String) -> [String: String] {
         var env = base
         for key in scrubbedKeys { env.removeValue(forKey: key) }
         env["CICADA_CAPTURE"] = "off"
+        env["CICADA_RECALL"] = "off"
         let dir = URL(fileURLWithPath: binary).deletingLastPathComponent().path
         env["PATH"] = dir + ":" + (base["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin")
         return env

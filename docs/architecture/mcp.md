@@ -72,7 +72,14 @@ video, and never keeps a transcript. **`cicada_project(project, since?, tz?)`** 
 scope remotely) answers where a project stands — next milestones, what passed with no word, the Sleep
 queue, what happened and what is around it — from the engine-free read model, printing every relative
 word beside its absolute date ("yesterday (2026-09-22)"); a quote of the person's words needs
-`sources` remotely. **`cicada_continue(session?, before?)`** (G110 slice 1a, stdio only — `catalog.NEVER_REMOTE`,
+`sources` remotely. Its first line is the status from evidence (2026-10-23, `project_text.status_word`): `active`
+inside the quiet threshold, `quiet` past it, `resting` past 90 days, `fading`/`archived` from decay — never
+`planned` because a milestone exists; the milestone count follows as its own fact. Activity is every day a claim
+about the project was said, a progress note's day, and every day an agent session ran in its repository
+(`project_timeline._repo_days`: the hook's own observation in an episode's frontmatter, consolidated or not; the wire's
+`lastRepoDay`, PROJECT_SHAPE g141-6). "Happened" lists a conversation only where the project is discussed in substance
+(`_substantive`: two claims about it, or a quarter of what was said there), led by what was said about the project.
+**`cicada_continue(session?, before?)`** (G110 slice 1a, stdio only — `catalog.NEVER_REMOTE`,
 because it reads the person's verbatim words for a folder the caller names; slice 4 decides its scope) reads where the
 work stopped: exact folder first, then the same hook-observed git checkout; other worktrees are related choices,
 never an automatically adopted role. An exact episode id or full session id selects its history explicitly.
@@ -627,7 +634,8 @@ wiring stay `install.sh`'s and the app's).
   (`<repo>/api/.venv/bin/python <repo>/api/hooks/<name>.py`, a developer build) or else the app's
   `$CICADA_HOME/bin/cicada-hook` launcher (a release, G182). With neither it writes one line to stderr and exits 0 —
   nothing on stdout, which would become the agent's context. Every capture rail stays in the scripts it runs:
-  `CICADA_CAPTURE=off` (Cicada's own spawns; Sleep's `claude -p` also runs `--safe-mode`, which disables plugins), one
+  `CICADA_CAPTURE=off` stops capture and `CICADA_RECALL=off` recall (Cicada's own spawns set both; Sleep's `claude -p`
+  also runs `--safe-mode`, which disables plugins), one
   episode per session, the transcript read by the backend only under the harness root. The plugin's `recall` setting
   (*Remember automatically*, on by default) silences only the recall hooks.
 - **The skill the handshake names.** The Claude Code prelude names the `cicada` skill that is there
@@ -682,8 +690,19 @@ same way.
 - **Repeats.** A per-session window keeps a page from being re-sent on consecutive turns.
 - **The bank.** It reads the bank a capture would write into: the real bank while the demo is open, and
   nothing when there is none.
-- **When it is skipped.** `CICADA_CAPTURE=off` spawns, `CICADA_RECALL=off`, and a Codex sub-agent's prompt.
-  Codex also runs a new hook only after the person trusts it at startup.
+- **When it is skipped.** `CICADA_RECALL=off` (the person's switch, and every CLI Cicada spawns, which sets it beside
+  `CICADA_CAPTURE=off`: Sleep's own model calls never get memory injected) and a Codex sub-agent's prompt. Since
+  2026-10-23 `CICADA_CAPTURE=off` alone no longer silences recall — saving a session and reading memory into it are
+  different consents, so a test or worker session run with capture off still shows the note. Codex also runs a new
+  hook only after the person trusts it at startup.
+- **Codex's AGENTS.md (2026-10-23).** Codex attached to the server but given no note never called a Cicada tool. One
+  short block between `<!-- cicada:begin … -->` and `<!-- cicada:end -->` in `~/.codex/AGENTS.md` tells it to call
+  `cicada_continue()` and `cicada_recall` first (`registry.py agents-md-install`: idempotent, an older block replaced in
+  place, the rest of the file byte for byte, unpaired markers never touched). `GET /agents/wiring` reports it as
+  Codex's `agents_md` and lists the `agents-md` step in `connect` while it is off or stale (never on a timed-out probe),
+  so the Agents page's Connect and `cicada setup` add it — setup runs whatever `connect` lists, even for an agent that
+  already reaches Cicada; `install.sh` adds it with Codex's hooks and `--uninstall` removes it. Codex's SessionEnd
+  flush is registered with `--timeout 3` (Codex's cap; it warned on every start at 5).
 - **The ledger.** One `hook_recall` ledger row per firing, ids and enums only, filed beside `read`.
 - **Waiting reads (G166).** While agent reading is on, a session hears once — at SessionStart, or on its first prompt —
   "N links are waiting in Cicada's reading queue for an agent to read" (`hook_recall.with_reading_note`), and again only
@@ -1224,6 +1243,26 @@ before generic semantic neighbours. Prompt budgeting reserves claims from both
 sides of a change. Implicit recall rechecks each selected page's claims against
 markdown; every type's recall summary strips claim fences before truncation.
 
+**Ask on a busy page and a named page (2026-10-23 live test).** Three defects, one fix each:
+- *The newest fact reaches the model.* A page's claims were ordered by the words they share with the question alone
+  and then cut by the prompt budget, so on a page of hundreds of current claims "latest release: 0.3.1" beat "released
+  version: 0.6.0", said two weeks later. `ask_service._rank_claims`: for a question with no past cue (`_wants_history`),
+  the claims sharing a word alternate with the same claims newest first (`_claim_day`: `valid_from`, else
+  `recorded_at`, else the id's day), the rest follow newest first; "latest/now/current…" (`_asks_latest`) puts the
+  newest first. A past question keeps the word order, newest first among equals. Confidence never ranks. And
+  `text_fold.stem` folds a silent final "e", so "release" and "released" are one word.
+- *A sentence is never a page.* A claim's object is sometimes a whole sentence; resolving it as a page raised
+  `OSError: [Errno 63] File name too long` and the error emptied the whole retrieval ("no page exists" for a page
+  recall found). `id_utils.is_page` refuses a name past 255 bytes and any `OSError`; both resolvers and
+  `ask_service._load_entity` use it, and one bad claim hit is skipped, never fatal. The same error broke Sleep's
+  Stage 5.5 wikilink step, which resolves through `id_utils` too.
+- *A page the question names is retrieved.* Ask is claim-first; `ask_service._named_pages` adds recall's lexical leg
+  (`search_service.lexical_entity_hits`), kept to pages whose whole name or alias the question says, ahead of the
+  vector hits.
+- *Latency.* Of a median ~12 s (max ~22 s), the model call is ~10–19 s (the telemetry's `duration_ms` for
+  `stage: ask` on the plan: a `claude -p` spawn writing 1–3k output tokens); retrieval and the context build are
+  ~1 s warm, ~2.5 s cold. No cut was taken: the output is the answer, and a smaller effort would trade quality.
+
 ---
 
 **Skills through Cicada (the Skills page, owner 2026-10-15).** Three stdio tools, never remote (`NEVER_REMOTE`),
@@ -1496,8 +1535,13 @@ the CLI.
   (`test_owner_name_portability`).
 - **JSON-RPC basics** (A10, additive): `ping` answers `{}` (a notification, none); a line that is not JSON answers
   `-32700 Parse error` with `id: null`, one that is JSON but not an object `-32600`; `tools/call` without a `name`
-  answers `-32602`. Every stdio tool in the remote `catalog.READ_TOOLS` carries `annotations.readOnlyHint: true`, so the
-  two doors agree on which tools only read; no other annotation is added.
+  answers `-32602`. Every stdio tool that only reads carries `annotations.readOnlyHint: true`, from one list the tool
+  table owns: `cli_map.read_only_tools()`, every row with `mutates=False` (2026-10-23 — the remote `READ_TOOLS` used
+  before leaves out the stdio-only reads, so Codex asked for approval on every `cicada_continue` and `codex exec`
+  refused it). A cache outside every bank, an ids-only ledger row or the process's own memory is not a write; the
+  bank, the inbox, a queue lease or an agent folder is. `test_tool_annotations` holds every stdio tool, the remote
+  definitions and the remote `READ_TOOLS`/`WRITE_TOOLS` to it, and no write is ever read-only; no other annotation
+  is added.
 - **Teaching material** (A8): `SKILL.md` (and its byte copy in the plugin) shows the current bank layout
   (`banks/<bank>/…`), points corrections at `cicada_edit_page` / `cicada_write_claim` / `cicada_resolve_inbox` instead
   of "never edit", and names the plugin as the Claude Code door when the tools are missing. A type hub's blurb tells an

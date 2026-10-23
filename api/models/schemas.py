@@ -1756,6 +1756,7 @@ class ProjectRow(ProjectRef):
     origin: Optional[str] = None  # repo | words, from the birth record or a declaration; None = not on record
     planned: bool = False
     last_moment_day: Optional[str] = None
+    last_repo_day: Optional[str] = None  # newest day an agent session ran in its repository (g141-6)
     median_gap_days: Optional[float] = None
     open_threads: list[OpenThread] = []
     milestones: list[MilestoneRow] = []
@@ -1781,6 +1782,7 @@ class ProjectTimeline(CamelModel):
     activity: list[ActivityDay] = []
     moment_days: list[str] = []
     last_moment_day: Optional[str] = None
+    last_repo_day: Optional[str] = None  # newest day an agent session ran in its repository (g141-6)
     median_gap_days: Optional[float] = None
     cluster: ProjectCluster = Field(default_factory=ProjectCluster)
     conversations: list[TimelineConversation] = []
@@ -3771,7 +3773,7 @@ class AgentWiringStep(CamelModel):
     ``display == shlex.join(argv)`` so the disclosure can never show one thing
     and run another; ``touches`` are ``~/``-relative (R-IA15)."""
 
-    step: Literal["mcp", "hook", "flush", "autorecall", "autorecall-off"]
+    step: Literal["mcp", "hook", "flush", "autorecall", "autorecall-off", "agents-md"]
     display: str
     argv: list[str]
     touches: list[str] = []
@@ -3799,6 +3801,9 @@ class AgentWiringRow(CamelModel):
     autorecall: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
     autorecall_on: list[AgentWiringStep] = []
     autorecall_off: list[AgentWiringStep] = []
+    # 2026-10-23, Codex only: Cicada's marked block in ``~/.codex/AGENTS.md`` (``on | off | stale | invalid``); while it
+    # is off or stale, ``connect`` carries the ``agents-md`` step that adds it.
+    agents_md: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
     # Integration support/evidence, separate from MCP registration and hook config. ``via: plugin`` (owner
     # 2026-10-19): Claude Code reaches Cicada through the Cicada plugin, which carries the server and every hook, so
     # the row is on and offers no argv.

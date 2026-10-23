@@ -22,8 +22,9 @@ hook, but it may be null and nothing documents its format, a confined root or
 where the final reply sits in it, while ``prompt`` and ``text`` already are the
 two things kept — so it is never forwarded and the backend opens nothing (the
 transcripts rail). ``stop``, thoughts and tool events
-are never registered. ``CICADA_CAPTURE=off`` (Cicada's own spawns) and a remote
-or cloud session (``CURSOR_CODE_REMOTE``) post nothing. Fails open: every path
+are never registered. ``CICADA_CAPTURE=off`` stops capture and ``CICADA_RECALL=off``
+the startup note (separate switches since 2026-10-23; Cicada's own spawns set both), and a
+remote or cloud session (``CURSOR_CODE_REMOTE``) posts nothing. Fails open: every path
 exits 0 with valid JSON on stdout, and an exception's message is never logged.
 """
 from __future__ import annotations
@@ -191,7 +192,7 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None):
             else:
                 sid, outcome = _capture(payload, event, environ=environ, home=home, post=post)
             return 0
-        if any(_off(environ, key) for key in ("CICADA_CAPTURE", "CICADA_RECALL")) or remote or size > INPUT_BYTES:
+        if _off(environ, "CICADA_RECALL") or remote or size > INPUT_BYTES:
             return 0
         if not isinstance(payload, dict) or event != "sessionStart":
             return 0

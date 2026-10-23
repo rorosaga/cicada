@@ -164,12 +164,16 @@ def scrubbed_env(name: str | None = None) -> dict[str, str]:
 
     ``SCRUBBED_ENV_KEYS`` stripped, and ``CICADA_CAPTURE=off`` set: the G105
     Stop hook exits on that variable — otherwise Sleep's own prompts would be
-    captured back into the bank as episodes (R8). ``name`` is the binary's
+    captured back into the bank as episodes (R8). ``CICADA_RECALL=off`` too
+    (2026-10-23): capture and recall are separate switches now, and a spawn is
+    silent on both — Sleep's own model calls must never get the person's memory
+    injected by a SessionStart or UserPromptSubmit hook. ``name`` is the binary's
     logical name (``argv[0]`` before resolution); a ``codex`` child also gets
     ``CODEX_HOME`` = Cicada's own home, so no call site can forget it.
     """
     env = {k: v for k, v in os.environ.items() if k not in SCRUBBED_ENV_KEYS}
     env["CICADA_CAPTURE"] = "off"
+    env["CICADA_RECALL"] = "off"
     if name and os.path.basename(name) == "codex":
         env["CODEX_HOME"] = str(codex_home())
     return env

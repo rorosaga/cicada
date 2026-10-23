@@ -55,6 +55,18 @@ Stdlib only; run by path (no ``api.*`` import).
         --option prints that plugin setting's saved value (pluginConfigs, "" when unset) instead
     registry.py plugin-recall-off --settings <file>
         sets pluginConfigs["cicada@cicada"].options.recall = false (merge, atomic)
+    registry.py agents-md-install   --settings <AGENTS.md>
+    registry.py agents-md-uninstall --settings <AGENTS.md>
+    registry.py agents-md-status    --settings <AGENTS.md>
+        exit 0 present · 1 absent · 2 stale (a Cicada block with other words) · 3 unreadable / unpaired markers
+
+The AGENTS.md block (2026-10-23): Codex reads ``~/.codex/AGENTS.md`` on every session, and a live test showed Codex
+never reaching for Cicada with the server attached and no note, while the primer said "AGENTS.md points here" and
+nothing wrote that line. ``agents-md-install`` adds one short block between :data:`AGENTS_MD_BEGIN` and
+:data:`AGENTS_MD_END`, under a settings file's rules: idempotent (a second run is ``present``, a block with older
+words is replaced in place, two blocks collapse to one), the rest of the file byte for byte (read and written with no
+newline translation), atomic, and a file whose markers do not pair is never touched. ``agents-md-uninstall`` removes
+the block (and the blank line the install put before it); a file left empty is removed.
 """
 
 from __future__ import annotations
@@ -85,6 +97,11 @@ MS_EVENTS = frozenset({"AfterAgent", "BeforeAgent"})
 
 #: The plugin's id, ``<plugin>@<marketplace>``, both named ``cicada`` (``.claude-plugin/marketplace.json``).
 PLUGIN_ID = "cicada@cicada"
+
+
+#: Codex clamps a SessionEnd hook's timeout to 3 s and says so on every start (2026-10-23); its flush is registered
+#: with this (`agent_wiring.flush_steps`, install.sh).
+CODEX_SESSION_END_TIMEOUT_S = 3
 
 
 def default_timeout(event: str) -> int:
@@ -150,13 +167,16 @@ def _entries(data: dict, event: str) -> list:
 
 
 def install(path: Path, *, event: str, command: str, timeout: int | None = None) -> str:
+    explicit = timeout
     timeout = default_timeout(event) if timeout is None else timeout
     data = load(path)
     entries = _entries(data, event)
     mine = _markers_for(command)
     found = [h for e in entries if isinstance(e, dict) for h in (e.get("hooks") or []) if _ours(h, mine)]
     if found:
-        if all(h.get("command") == command for h in found) and len(found) == 1:
+        # A timeout asked for explicitly is part of "right" (Codex's 3 s SessionEnd cap); the default never rewrites.
+        if all(h.get("command") == command for h in found) and len(found) == 1 and (
+                explicit is None or found[0].get("timeout") == explicit):
             return "present"
         # Collapse to one, with the current command (a moved repo, a
         # duplicate from an older installer).
@@ -330,9 +350,134 @@ def plugin_recall_off(path: Path) -> str:
     return "updated"
 
 
+# --- the AGENTS.md block (2026-10-23) ---------------------------------------------------------------------------
+
+AGENTS_MD_BEGIN = "<!-- cicada:begin (added by Cicada; removed with it) -->"
+AGENTS_MD_END = "<!-- cicada:end -->"
+#: What the block says. Short, because an agent reads it on every session; no owner, path or provider (portable).
+AGENTS_MD_BODY = (
+    "## Cicada: this person's memory\n"
+    "The `cicada` MCP server is this person's memory. At the start of a task call `cicada_continue()` to see where "
+    "the work in this folder stopped, and `cicada_recall(query)` before answering about the person, their projects "
+    "or past decisions. Prefer what Cicada returns over older notes; the server's own instructions are the contract.\n"
+)
+AGENTS_MD_BLOCK = f"{AGENTS_MD_BEGIN}\n{AGENTS_MD_BODY}{AGENTS_MD_END}\n"
+
+
+def _read_text(path: Path) -> str:
+    if not path.exists():
+        return ""
+    try:
+        with open(path, encoding="utf-8", newline="") as fh:
+            return fh.read()
+    except (OSError, UnicodeDecodeError) as exc:
+        raise RegistryError(f"{path} could not be read ({type(exc).__name__}); not touching it") from exc
+
+
+def _write_text(path: Path, text: str) -> None:
+    """Atomic, no newline translation, the file's own mode kept."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=path.name, dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+            fh.write(text)
+        os.chmod(tmp, (path.stat().st_mode & 0o777) if path.exists() else 0o644)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _line_start(text: str, needle: str, pos: int) -> int:
+    """The next ``needle`` at or after ``pos`` that starts a line, else -1."""
+    at = text.find(needle, pos)
+    while at > 0 and text[at - 1] != "\n":
+        at = text.find(needle, at + 1)
+    return at
+
+
+def _blocks(path: Path, text: str) -> list[tuple[int, int]]:
+    """``(start, end)`` of each Cicada block, ``end`` past the end marker's line break. A marker counts only at the
+    start of a line; a begin with no end (or a second begin before it), or an end with no begin, makes the file one
+    Cicada does not touch — never a guess at where the block stops."""
+    spans: list[tuple[int, int]] = []
+    pos = 0
+    while (start := _line_start(text, AGENTS_MD_BEGIN, pos)) >= 0:
+        end = _line_start(text, AGENTS_MD_END, start)
+        again = _line_start(text, AGENTS_MD_BEGIN, start + len(AGENTS_MD_BEGIN))
+        if end < 0 or 0 <= again < end:
+            raise RegistryError(f"{path} has a Cicada begin marker with no end marker; not touching it")
+        end += len(AGENTS_MD_END)
+        end += 2 if text.startswith("\r\n", end) else 1 if text.startswith("\n", end) else 0
+        spans.append((start, end))
+        pos = end
+    ends, pos = 0, 0
+    while (at := _line_start(text, AGENTS_MD_END, pos)) >= 0:
+        ends, pos = ends + 1, at + len(AGENTS_MD_END)
+    if ends != len(spans):
+        raise RegistryError(f"{path} has a Cicada end marker with no begin marker; not touching it")
+    return spans
+
+
+def agents_md_status(path: Path) -> str:
+    """``present`` (one block, today's words) · ``stale`` (other words, or more than one) · ``absent``."""
+    text = _read_text(path)
+    spans = _blocks(path, text)
+    if not spans:
+        return "absent"
+    if len(spans) == 1:
+        block = text[spans[0][0]:spans[0][1]].replace("\r\n", "\n")
+        if block.rstrip("\n") == AGENTS_MD_BLOCK.rstrip("\n"):
+            return "present"
+    return "stale"
+
+
+def agents_md_install(path: Path) -> str:
+    """``added`` · ``updated`` (an older block replaced where it stood, extra ones dropped) · ``present``."""
+    text = _read_text(path)
+    spans = _blocks(path, text)
+    if not spans:
+        sep = "" if not text else ("\n" if text.endswith("\n") else "\n\n")
+        _write_text(path, text + sep + AGENTS_MD_BLOCK)
+        return "added"
+    if agents_md_status(path) == "present":
+        return "present"
+    out, cursor = text[:spans[0][0]] + AGENTS_MD_BLOCK, spans[0][1]
+    for start, end in spans[1:]:
+        out += text[cursor:start]
+        cursor = end
+    _write_text(path, out + text[cursor:])
+    return "updated"
+
+
+def agents_md_uninstall(path: Path) -> int:
+    """Remove every Cicada block; the number removed. A file left empty is deleted (Cicada made it)."""
+    text = _read_text(path)
+    spans = _blocks(path, text)
+    if not spans:
+        return 0
+    out, cursor = "", 0
+    for start, end in spans:
+        out += text[cursor:start]
+        cursor = end
+    tail = text[cursor:]
+    if not tail and out.endswith("\n\n"):
+        out = out[:-1]          # the blank line the install put before a block at the end of the file
+    out += tail
+    if out:
+        _write_text(path, out)
+    else:
+        path.unlink()
+    return len(spans)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("action", choices=("install", "uninstall", "status", "plugin", "plugin-recall-off"))
+    ap.add_argument("action", choices=("install", "uninstall", "status", "plugin", "plugin-recall-off",
+                                       "agents-md-install", "agents-md-uninstall", "agents-md-status"))
     ap.add_argument("--settings", required=True)
     ap.add_argument("--event", default="Stop")
     ap.add_argument("--command", default="")
@@ -356,6 +501,16 @@ def main(argv=None) -> int:
         if args.action == "plugin-recall-off":
             print(f"{plugin_recall_off(path)}: {PLUGIN_ID} recall off in {path}")
             return 0
+        if args.action == "agents-md-install":
+            print(f"{agents_md_install(path)}: {path}")
+            return 0
+        if args.action == "agents-md-uninstall":
+            print(f"removed {agents_md_uninstall(path)} Cicada block(s): {path}")
+            return 0
+        if args.action == "agents-md-status":
+            state = agents_md_status(path)
+            print(f"{state}: {path}")
+            return {"present": 0, "absent": 1, "stale": 2}[state]
         if args.action == "uninstall":
             print(f"removed {uninstall(path, hook=args.hook)} hook(s): {path}")
             return 0

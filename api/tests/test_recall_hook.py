@@ -67,10 +67,19 @@ def test_nothing_to_say_prints_nothing(tmp_path):
     assert (rc, out) == (0, "") and "no_match" in log.read_text()
 
 
-def test_capture_off_and_recall_off_exit_before_any_request(tmp_path):
-    for env, why in (({"CICADA_CAPTURE": "off"}, "CICADA_CAPTURE=off"), ({"CICADA_RECALL": "OFF"}, "CICADA_RECALL=off")):
+def test_recall_off_exits_before_any_request(tmp_path):
+    for env in ({"CICADA_RECALL": "OFF"}, {"CICADA_RECALL": "off", "CICADA_CAPTURE": "off"}):   # a Cicada spawn sets both
         rc, calls, out, log = _run(tmp_path, UPS, environ=env)
-        assert (rc, calls, out) == (0, [], "") and why in log.read_text()
+        assert (rc, calls, out) == (0, [], "") and "CICADA_RECALL=off" in log.read_text()
+
+
+def test_capture_off_alone_still_recalls(tmp_path):
+    """2026-10-23: capture and recall are separate switches — a test or worker session run with ``CICADA_CAPTURE=off``
+    (nothing saved) still gets the note; only ``CICADA_RECALL=off`` silences it."""
+    rc, calls, out, log = _run(tmp_path, UPS, environ={"CICADA_CAPTURE": "off"})
+    assert rc == 0 and len(calls) == 1
+    assert NOTE in json.loads(out)["hookSpecificOutput"]["additionalContext"]
+    assert "CICADA_CAPTURE" not in log.read_text()
 
 
 def test_a_codex_sub_agent_prompt_is_skipped(tmp_path):

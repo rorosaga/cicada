@@ -865,8 +865,10 @@ flush* (G110 gate A: `autosaveFlush` = `on|off|stale|invalid|n/a` for the captur
 do not fit it; `autosave` stays the Stop hook alone, so an install from before the flush still reads on; the app
 appends `flushOn` only to a Connect it is already running, `AgentWiring.turnOnSteps`, and install.sh registers it),
 plus the exact argv install.sh would run. The **app** runs them, only after the person's click (spec decision 14, D-1), with
-`CICADA_CAPTURE=off`, behind an allowlist pinned to its own checkout (which also accepts the recall hook's two
-events, the capture command under `Stop`, `PreCompact` and `SessionEnd` only, and `registry.py uninstall --hook recall`); the backend never writes a harness root. **Claude Code through the Cicada plugin**
+`CICADA_CAPTURE=off` and `CICADA_RECALL=off`, behind an allowlist pinned to its own checkout (which also accepts the recall hook's two
+events, the capture command under `Stop`, `PreCompact` and `SessionEnd` only — Codex's SessionEnd with exactly
+`--timeout 3` — `registry.py uninstall --hook recall`, and, 2026-10-23, `registry.py agents-md-install` on
+`~/.codex/AGENTS.md` only, Codex's `agents-md` step in `connect`); the backend never writes a harness root. **Claude Code through the Cicada plugin**
 (owner 2026-10-19; `mcp.md`, "The Claude Code plugin"): when the plugin is enabled, installed and able to run a Cicada
 (`registry.plugin_state` is `on`), Claude Code's row reads `recall`, `autosave` and `autosaveFlush` `on` and
 `autorecall` as the plugin's own `recall` setting, with `capabilities.via = "plugin"` and no argv at all (the plugin
@@ -876,9 +878,9 @@ why in `detail`. `AgentWiring.viaPlugin` makes *Remembers automatically* say it 
 (`Copy.autoRecallPluginOn` / `Copy.autoRecallPluginOff`) and offer no button. `GET /agents/setup?harness=` (round 4 C5, G76's in-app half) serves
 what to hand an agent instead of running anything (for Claude Code with the plugin on, a prompt that runs nothing):
 
-- for Claude Code, Codex and Gemini CLI, a plain prompt (≤ 1,200 characters) that names the exact
-  commands, built by the same step builders `/agents/wiring` uses (both steps always,
-  `display == shlex.join(argv)`);
+- for Claude Code, Codex and Gemini CLI, a plain prompt (≤ 1,500 characters) that names the exact
+  commands, built by the same step builders `/agents/wiring` uses (both steps always, and for Codex a third, its
+  `~/.codex/AGENTS.md` block, 2026-10-23; `display == shlex.join(argv)`);
 - for Cursor, its MCP install link and the startup-hook and capture-hook merge argv, plus (2026-10-14) a `prompt` for
   Cursor's own agent that adds the MCP server to `~/.cursor/mcp.json` and nothing else — both hooks stay their own
   clicks (R-H11); Remembers automatically offers the startup action independently, and the Agents page' Cursor
@@ -894,7 +896,7 @@ what to hand an agent instead of running anything (for Claude Code with the plug
 
 Every prompt names the server through `agent_wiring.server_lines` (command, one `argument:` line per argument,
 environment), so a release app's argument-less `~/.cicada/bin/cicada-mcp` reads right (G182; the config prompts used to
-index a first argument and failed there). ≤ 1,200 characters, commands and paths never shortened. No probe, no
+index a first argument and failed there). ≤ 1,500 characters, commands and paths never shortened. No probe, no
 subprocess, no ETag.
 
 Cursor's registered local IDE adapter adds a wiring row with independent MCP registration (`recall`),
@@ -1324,7 +1326,7 @@ the demo scenario's real wire, `app/CicadaApp/Tests/fixtures/projects-demo.json`
 `api/tests/test_projects_app_fixture.py`.
 
 **Projects v3 — where it came from, six standard sections (ruling 36 D4, G141; backend shipped 2026-10-22, the SwiftUI
-part is a spec and needs a Mac).** The wire is `api.md`'s g141-5. What the page does with it:
+part is a spec and needs a Mac).** The wire is `api.md`'s g141-6. What the page does with it:
 - **The row** keeps its one signal (DR-38) and adds nothing for a page with `origin` null. A row with `origin: repo`
   leads its second line with the `chevron.left.forwardslash.chevron.right` glyph (DR-53, `textTertiary`); `words`
   carries no mark — it is the common case and needs none.
