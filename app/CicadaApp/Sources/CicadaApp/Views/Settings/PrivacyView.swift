@@ -48,7 +48,8 @@ struct PrivacyView: View {
                             HStack(spacing: CicadaTheme.spacingSM) {
                                 Text(bank.name).font(CicadaTheme.bodyFont)
                                 if bank.active {
-                                    Text(Copy.bankActive).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.accent)
+                                    // A status is a dot and one word, never the accent (DR-5: not a badge; looks pass).
+                                    StatusDot(word: Copy.bankActive, on: true)
                                 }
                                 Spacer()
                                 Text(Copy.bankCounts(entities: bank.entityCount, episodes: bank.episodeCount))
@@ -126,11 +127,17 @@ struct PrivacyView: View {
         }
     }
 
-    /// "—" until the status snapshot says (a value with no guess behind it).
+    /// "—" until the status snapshot says (a value with no guess behind it); once known, a dot and one word like every
+    /// other state in Settings (looks pass 2026-10-23).
+    @ViewBuilder
     private func gateValue(_ on: Bool?) -> some View {
-        Text(on.map { $0 ? Copy.gateOn : Copy.gateOff } ?? Copy.notKnownYet)
-            .font(CicadaTheme.captionFont)
-            .foregroundStyle(CicadaTheme.textSecondary)
+        if let on {
+            StatusDot(word: on ? Copy.gateOn : Copy.gateOff, on: on)
+        } else {
+            Text(Copy.notKnownYet)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+        }
     }
 
     private func load() async {

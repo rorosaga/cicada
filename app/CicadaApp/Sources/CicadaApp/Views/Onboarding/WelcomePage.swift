@@ -3,7 +3,8 @@ import SwiftUI
 /// Onboarding v2, step 1 (G92, G217; 2026-10-22) — the card under the study room: the greeting (the saved name, else
 /// the Mac account's — W7: one click corrects it), what Cicada is in one sentence, Continue (the one primary, ⏎; it
 /// saves the name first, G117 R1) beside Set up later, and *Try the demo* as a quiet link (seam 2; hidden on a rerun,
-/// R-OB19). Under 40 words. Every word sits on the card, none on art (DR-13). The card rises once (DR-65, DR-67);
+/// R-OB19). Under 40 words. Every word sits on the card, none on art (DR-13). The card sits in the page, so it is ringed, never shadowed
+/// (DR-9, DR-10; looks pass 2026-10-23). The card rises once (DR-65, DR-67);
 /// Reduce Motion fades it in.
 struct WelcomePage: View {
     let mode: OnboardingMode
@@ -45,7 +46,7 @@ struct WelcomePage: View {
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             if !first.isEmpty && !editingName {
-                TextButton(title: Copy.welcomeNotYou(first), inline: true) { editingName = true }
+                TextButton(title: Copy.welcomeNotYou(first), inline: true, flushLeading: true) { editingName = true }
             }
             if let failure {
                 Text(failure).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
@@ -68,7 +69,7 @@ struct WelcomePage: View {
             }
         }
         .padding(CicadaTheme.spacingXL)
-        .floatingSurface(in: CicadaTheme.shape(CicadaTheme.radiusLarge))
+        .onboardingCard()
         .opacity(risen ? 1 : 0)
         .offset(y: risen || reduceMotion ? 0 : CicadaTheme.scaled(12))
         .onAppear {

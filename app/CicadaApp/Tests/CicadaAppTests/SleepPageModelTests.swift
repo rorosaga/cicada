@@ -92,7 +92,7 @@ final class SleepPageModelTests: XCTestCase {
         let page = resolve(status: try status(idleJSON), schedule: daily,
                            storeStatus: snapshot(nextSleepAt: "2026-09-24T03:00:00Z"))
         XCTAssertTrue(page.lampLit)
-        XCTAssertEqual(page.scheduleText, "Every day at 03:00")
+        XCTAssertEqual(page.scheduleText, scheduleSentence(daily))
         XCTAssertEqual(page.nextRunAt, "Sep 24, 3:00 AM")
         XCTAssertEqual(page.nextRunText, "Next run Sep 24, 3:00 AM")
         let manual = resolve(status: try status(idleJSON))

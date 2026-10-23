@@ -84,6 +84,9 @@ enum OnboardingLayout {
     static let gutter: CGFloat = 16
     /// The Sources grid's tile: wide enough for its two-line consent caption at 1×, so a 532 pt column holds 3.
     static let sourceTile: CGFloat = 150
+    /// One height for every tile (looks pass 2026-10-23): a row of tiles sized to its longest caption made the grid's
+    /// rows 100, 135 and 76 pt tall. The mark, the title, a two-line caption and the status line fit.
+    static let sourceTileHeight: CGFloat = 128
 
     /// The room's pane gives way before the column does, and goes rather than become a sliver: it is art only
     /// (DR-13), so losing it loses no word.

@@ -197,7 +197,9 @@ struct OnboardingView: View {
     /// move on and write nothing of their own: what a step changed, a click inside it already wrote.
     private var foot: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
-            TextButton(title: Copy.onboardingBack) { if let previous = page.previous { go(previous, .pointer) } }
+            TextButton(title: Copy.onboardingBack, flushLeading: true) {
+                if let previous = page.previous { go(previous, .pointer) }
+            }
             Spacer(minLength: CicadaTheme.spacingSM)
             if page.skippable {
                 TextButton(title: Copy.onboardingSkip) { advance(.pointer) }

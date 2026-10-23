@@ -55,10 +55,25 @@ func queueRowWords(_ state: QueueRowState, locale: Locale = .autoupdatingCurrent
 ///
 /// It never invents a time it was not given: an unrecognized mode from a newer
 /// backend reads as "manual only" rather than as a schedule nobody configured.
-func scheduleSentence(_ schedule: ScheduleConfig) -> String {
+///
+/// Looks pass (2026-10-23): the time reads the way the next-run half beside it does ("3:00 AM"), so one line never
+/// mixes "03:00" with "3:00 AM" (`nextRunWhen`'s format; Settings → Sleep reads the same).
+func scheduleSentence(_ schedule: ScheduleConfig, locale: Locale = .current) -> String {
     switch schedule.mode {
     case "daily":
-        return String(format: "Every day at %02d:%02d", schedule.hour, schedule.minute)
+        var parts = DateComponents()
+        parts.hour = schedule.hour
+        parts.minute = schedule.minute
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
+        guard let date = calendar.date(from: parts) else {
+            return String(format: "Every day at %02d:%02d", schedule.hour, schedule.minute)
+        }
+        let f = DateFormatter()
+        f.dateFormat = "h:mm a"
+        f.locale = locale
+        f.timeZone = calendar.timeZone
+        return "Every day at \(f.string(from: date))"
     case "interval":
         return schedule.intervalHours == 1 ? "Every hour" : "Every \(schedule.intervalHours) h"
     case "after_import":

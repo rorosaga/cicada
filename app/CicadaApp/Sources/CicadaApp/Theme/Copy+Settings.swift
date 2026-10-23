@@ -295,7 +295,7 @@ extension Copy {
     static let transcriptsShort = "Read only for your words and the agent's final answer."
     static let bankActive = "Active"
     static func bankCounts(entities: Int, episodes: Int) -> String {
-        "\(UsageFormat.count(entities)) \(entities == 1 ? "entity" : "entities") · \(UsageFormat.count(episodes)) \(episodes == 1 ? "episode" : "episodes")"
+        "\(UsageFormat.count(entities)) \(entities == 1 ? "entity" : "entities") · \(UsageFormat.count(episodes)) \(episodes == 1 ? "conversation" : "conversations")"
     }
     static let exportMenu = "Export…"
     static func exportingBank(_ name: String) -> String { "Exporting \(name)…" }

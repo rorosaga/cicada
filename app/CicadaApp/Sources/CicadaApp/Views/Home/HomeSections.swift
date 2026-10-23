@@ -223,9 +223,11 @@ struct TodaySection: View {
     /// (G125 R10), and no trailing "Sleep ›" beside it.
     private var waiting: some View {
         let status = store.status.value
-        let worm = status.map { deriveBookwormState($0, justFinishedAt: nil) } ?? .awake
         return HomeRowButton(help: Copy.homeOpenSleepHelp, action: { selectedTab = .sleep }) {
-            BookwormView(state: worm, pointSize: 24)
+            // Sleep's glyph, never the worm: the study room is the one illustration (DR-13, not on a row).
+            Image(systemName: "moon")
+                .font(CicadaTheme.icon(.list))
+                .foregroundStyle(CicadaTheme.textTertiary)
                 .accessibilityHidden(true)
             switch status?.episodes.unprocessed {
             case nil:

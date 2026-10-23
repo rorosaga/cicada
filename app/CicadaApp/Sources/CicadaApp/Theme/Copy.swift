@@ -158,7 +158,7 @@ enum Copy {
     /// draws it only when the count is at least 1, and "1 episodes waiting"
     /// is the kind of small wrongness that makes a page look generated.
     static func episodesWaiting(_ count: Int) -> String {
-        count == 1 ? "episode waiting" : "episodes waiting"
+        count == 1 ? "conversation waiting" : "conversations waiting"
     }
 
     /// What `Rested n%` is made of, on hover over the meter's label

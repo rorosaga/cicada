@@ -86,13 +86,13 @@ func bracketTail(_ state: BookwormState, debt: SleepDebtView?) -> String {
     case .happy:
         return "caught up"
     case .curious(let count):
-        return "episode\(count == 1 ? "" : "s") behind"
+        return "conversation\(count == 1 ? "" : "s") behind"
     case .reading:
         return "to read"
     case .hungry:
         let count = debt?.unprocessedCount ?? 0
         guard count > 0 else { return "overdue — hasn't consolidated in a while" }
-        return "episode\(count == 1 ? "" : "s") behind — overdue"
+        return "conversation\(count == 1 ? "" : "s") behind — overdue"
     case .error:
         return "last cycle failed"
     }

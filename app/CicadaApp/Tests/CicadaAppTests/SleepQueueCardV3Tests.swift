@@ -22,11 +22,13 @@ final class SleepQueueCardV3Tests: XCTestCase {
         XCTAssertEqual(Copy.nextRunManual, "Manual only")
     }
 
-    func test_scheduleSentence_dailyNamesTheZeroPaddedTime() {
-        XCTAssertEqual(scheduleSentence(ScheduleConfig(mode: "daily", hour: 2, minute: 0)),
-                       "Every day at 02:00")
-        XCTAssertEqual(scheduleSentence(ScheduleConfig(mode: "daily", hour: 23, minute: 45)),
-                       "Every day at 23:45")
+    /// Looks pass (2026-10-23): the same clock as the next-run half beside it, never "02:00" next to "3:00 AM".
+    func test_scheduleSentence_dailyNamesTheTimeLikeTheNextRun() {
+        let en = Locale(identifier: "en_US")
+        XCTAssertEqual(scheduleSentence(ScheduleConfig(mode: "daily", hour: 2, minute: 0), locale: en),
+                       "Every day at 2:00 AM")
+        XCTAssertEqual(scheduleSentence(ScheduleConfig(mode: "daily", hour: 23, minute: 45), locale: en),
+                       "Every day at 11:45 PM")
     }
 
     func test_scheduleSentence_intervalPluralisesAndSaysHourAtOne() {

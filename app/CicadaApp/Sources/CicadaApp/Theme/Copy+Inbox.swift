@@ -100,9 +100,9 @@ extension Copy {
         static let openInContacts = "Open in Contacts"
         static let openInContactsHelp = "Open their card in Contacts"
         static func openSourceHelp(_ where: String) -> String { "Open \(`where`)" }
-        static func informational(_ predicate: String?) -> String {
-            "These can all be true — \(predicate ?? "this") holds several values. Nothing to pick."
-        }
+        /// Looks pass (2026-10-23): the sentence named the raw predicate ("works-at holds several values"); the values
+        /// are listed right under it, so the plain claim is enough.
+        static let informational = "These can all be true at once. Nothing to pick."
         static let describeEntity = "Describe this entity"
         static let describePrompt = "Describe this entity…"
         static let existingEntity = "Existing entity"
@@ -136,7 +136,7 @@ extension Copy {
         static func lastSleep(_ phrase: String) -> String { "Last Sleep cycle \(phrase)." }
         static let sleepNotRun = "Sleep has not run yet, so nothing has been asked."
         static func waiting(_ n: Int) -> String {
-            "\(UsageFormat.count(n)) episode\(n == 1 ? "" : "s") waiting for the next cycle."
+            "\(UsageFormat.count(n)) conversation\(n == 1 ? "" : "s") waiting for the next cycle."
         }
     }
 }

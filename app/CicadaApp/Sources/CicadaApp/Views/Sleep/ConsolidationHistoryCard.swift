@@ -61,7 +61,7 @@ enum SleepHistoryPresentation {
     /// zero standing in for an unknown.
     private static func readPhrase(_ e: SleepHistoryEntry) -> String? {
         guard e.episodes > 0 else { return nil }
-        return "\(e.episodes) episode\(e.episodes == 1 ? "" : "s")"
+        return "\(e.episodes) conversation\(e.episodes == 1 ? "" : "s")"
     }
 
     /// The headline as the LINES it should be drawn on — the round-2 live
@@ -174,6 +174,8 @@ struct ConsolidationHistoryCard: View {
     var runDetails: [String: SleepRunDetail] = [:]
     var expandedRun: String? = nil
     var onToggleRun: (String) -> Void = { _ in }
+    /// The graph's names, so a changed page reads as its name, never its id (DR-54, DR-56); optional for previews.
+    @Environment(Store.self) private var store: Store?
 
     var body: some View {
         let layout = PastNightsLayout(entries)
@@ -293,7 +295,8 @@ struct ConsolidationHistoryCard: View {
         }
     }
 
-    /// Counts go through `UsageFormat` (DR-21); entity links are `accentText` (DR-5 use 5).
+    /// Counts go through `UsageFormat` (DR-21). Changed pages are neutral `Tag`s with their names, as a batched run's
+    /// detail draws them (looks pass 2026-10-23: they were a wall of accent-coloured slugs; DR-5, DR-44, DR-54).
     @ViewBuilder
     private func detail(for entry: SleepHistoryEntry) -> some View {
         if let d = details[entry.commitHash] {
@@ -322,11 +325,13 @@ struct ConsolidationHistoryCard: View {
                         .foregroundStyle(CicadaTheme.textTertiary)
                 } else {
                     FlowLayout(spacing: 6) {
+                        let names = store?.entityNames ?? .empty
                         ForEach(d.entities) { entity in
-                            Button(entity.id) { onSelectEntity?(entity.id) }
-                                .buttonStyle(.cicadaPlain)
-                                .font(CicadaTheme.metaFont)
-                                .foregroundStyle(CicadaTheme.accentText)
+                            Button { onSelectEntity?(entity.id) } label: {
+                                Tag(text: RunDetailBlock.pageLabel(entity.id, names: names))
+                            }
+                            .buttonStyle(.cicadaPlain)
+                            .help(entity.id)
                         }
                         if d.truncated {
                             Text("+ more")

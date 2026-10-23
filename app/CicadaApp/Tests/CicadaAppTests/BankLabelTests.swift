@@ -5,11 +5,11 @@ import XCTest
 /// fresh install (QA 2026-10-16).
 final class BankLabelTests: XCTestCase {
     func testOneOfEachIsSingular() {
-        XCTAssertEqual(BankSwitcher.label(name: "default", entities: 1, episodes: 1), "default (1 entity · 1 episode)")
+        XCTAssertEqual(BankSwitcher.label(name: "default", entities: 1, episodes: 1), "default (1 entity · 1 conversation)")
     }
 
     func testOtherCountsArePlural() {
-        XCTAssertEqual(BankSwitcher.label(name: "demo", entities: 74, episodes: 0), "demo (74 entities · 0 episodes)")
+        XCTAssertEqual(BankSwitcher.label(name: "demo", entities: 74, episodes: 0), "demo (74 entities · 0 conversations)")
     }
 
     func testAnEmptyBankIsItsName() {

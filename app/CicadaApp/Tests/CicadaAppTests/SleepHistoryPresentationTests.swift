@@ -53,13 +53,13 @@ final class SleepHistoryPresentationTests: XCTestCase {
     }
 
     /// G125 v3 Task 7 (budget row #18) — a cycle's row leads with what it READ
-    /// before what it wrote: "2 episodes → +12 new · 8 updated" answers "where
+    /// before what it wrote: "2 conversations → +12 new · 8 updated" answers "where
     /// did those entities come from" in the same glance.
     func testSummaryLineLeadsWithTheEpisodeCount() throws {
         XCTAssertEqual(SleepHistoryPresentation.summaryLine(try entry(created: 12, updated: 8, episodes: 2)),
-                       "2 episodes → +12 new · 8 updated")
+                       "2 conversations → +12 new · 8 updated")
         XCTAssertEqual(SleepHistoryPresentation.summaryLine(try entry(created: 3, updated: 0, episodes: 1)),
-                       "1 episode → +3 new · 0 updated")
+                       "1 conversation → +3 new · 0 updated")
     }
 
     /// P18, and the reason this is not the plan's unconditional prefix: a
@@ -90,12 +90,12 @@ final class SleepHistoryPresentationTests: XCTestCase {
         let cases: [(name: String, entry: SleepHistoryEntry, wide: [String], compact: [String])] = [
             ("a real cycle",
              try entry(created: 5, updated: 929, episodes: 18),
-             ["18 episodes → +5 new · 929 updated"],
-             ["18 episodes →", "+5 new · 929 updated"]),
+             ["18 conversations → +5 new · 929 updated"],
+             ["18 conversations →", "+5 new · 929 updated"]),
             ("one episode, singular either way",
              try entry(created: 3, updated: 0, episodes: 1),
-             ["1 episode → +3 new · 0 updated"],
-             ["1 episode →", "+3 new · 0 updated"]),
+             ["1 conversation → +3 new · 0 updated"],
+             ["1 conversation →", "+3 new · 0 updated"]),
             // Nothing to break: the written half IS the whole headline.
             ("no episode count recorded",
              try entry(created: 12, updated: 8),
@@ -139,7 +139,7 @@ final class SleepHistoryPresentationTests: XCTestCase {
                 XCTAssertTrue(joined.contains("+\(e.entitiesCreated) new"), joined)
                 XCTAssertTrue(joined.contains("\(e.entitiesUpdated) updated"), joined)
                 if e.episodes > 0 {
-                    XCTAssertTrue(joined.contains("\(e.episodes) episode"), joined)
+                    XCTAssertTrue(joined.contains("\(e.episodes) conversation"), joined)
                 }
             }
         }
