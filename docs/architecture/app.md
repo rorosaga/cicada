@@ -188,9 +188,9 @@ its window shift, else "share of the plan not recorded". Past nights' folded run
 detail does): the row has no whole-run usage on the wire.
 
 **Navigation (Direction D, DS-1).** A 56 pt icon rail (`Views/Shell/NavRail.swift`): Home, Graph, Clusters, Skills,
-Sleep, Inbox, Sources, Projects at ⌘1–8 in `AppTab.allCases` order (`RailItem`; a page switch is instant). Looks (⌘9
-from 2026-10-14) went on 2026-10-20 — its looks live on their pages' cards — and a stored "Looks" selection restores to
-Clusters. The Feed
+Sleep, Inbox, Sources, Projects, Agents at ⌘1–9 in `AppTab.allCases` order (`RailItem`; a page switch is instant). Looks
+(⌘9 from 2026-10-14) went on 2026-10-20 — its looks live on their pages' cards — and a stored "Looks" selection restores
+to Clusters; Agents took the free ⌘9 on 2026-10-22 (ruling 36 D6). The Feed
 retired into Sleep on 2026-10-16 and Skills took its cell, so ⌘4 opens Skills and no other shortcut moved (⌘ map A);
 for one release the first ⌘4 that lands on Skills toasts "The Feed is now part of Sleep (⌘5) → Saved." once per viewer
 (`FeedMovedHint`, the key only — a click on the cell never shows it), and a stored "Feed" or "Capture" selection

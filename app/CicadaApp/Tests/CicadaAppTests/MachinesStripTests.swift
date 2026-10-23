@@ -32,4 +32,20 @@ final class MachinesStripTests: XCTestCase {
         XCTAssertEqual(MachinesStrip.episodes(episodes, machine: list.devices[1]).map(\.id), ["e2"])
         XCTAssertEqual(MachinesStrip.episodes(episodes, machine: nil).count, 2)
     }
+
+    /// The strip's poll lives on the view model (no Sleep view reaches `APIClient`, R-Z10); a failed poll keeps the
+    /// last answer rather than blanking the strip.
+    @MainActor
+    func testThePollKeepsTheLastAnswerWhenOneFails() async throws {
+        let list = try JSONDecoder().decode(MachineStatusList.self, from: Data(wire.utf8))
+        var replies: [Result<MachineStatusList, Error>] = [.success(list), .failure(URLError(.notConnectedToInternet))]
+        let store = Store(cache: SnapshotCache(root: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)), api: FakeSyncAPI())
+        let vm = SleepViewModel(store: store, fetchMachines: { try replies.removeFirst().get() })
+        XCTAssertTrue(vm.machines.isEmpty)
+        await vm.loadMachines()
+        XCTAssertEqual(vm.machines.map(\.id), ["server", "dev_a", "dev_b"])
+        await vm.loadMachines()
+        XCTAssertEqual(vm.machines.map(\.id), ["server", "dev_a", "dev_b"], "a failed poll never blanks the strip")
+    }
 }
