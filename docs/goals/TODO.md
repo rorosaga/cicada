@@ -10,6 +10,15 @@
 
 ## Current state and evidence
 
+- **2026-10-23 — the new user, third pass (G148, G209; PR #442, branch `fix/newuser-memory-3`).** A drop ends the project's
+  qualified and related uses of the tool, not only a plain `uses` (seed `endings.uses.also_ends`,
+  `EndingFn.ended_by`); a held full name whose given name is one person page's whole title asks "same person?"
+  (`entity_resolver._given_name_pages`, W1's cap and `merge_rejections`); `## Related` names each link by the newest
+  open claim behind it, not the first edge ever extracted (`conflict_resolver.related_edges`, refreshed by the claim
+  pass). newuser: 24, 23.5, 24 of 25 by hand over three Sleeps (baseline 24). **Open for the owner:** one Sleep in five
+  put the drop on the person's page, so the project's uses stayed current — closing a project's belief from an ending
+  said about the person would be a new cross-subject rule. Evidence: `~/cicada-verify-evidence/nu3-*`.
+
 - **2026-10-23 — something never called a project gets a page (G141; D4 amendment in ruling 36; PR #441,
   branch `fix/project-fallback-page`).** The judge joins the spellings of one thing with no birth; over the promotion bar
   read across them, one `concept` page marked `proposed_type: project`; a later birth retypes it in place with `born`.

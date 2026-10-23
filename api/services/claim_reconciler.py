@@ -636,7 +636,8 @@ def _reconcile_milestone(new, slot, settings, *, today, nudges, audit) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _departed_on(new: Claim, slot: list[Claim], over: set[str], untimed=frozenset()) -> str | None:
+def _departed_on(new: Claim, slot: list[Claim], over: set[str], untimed=frozenset(),
+                 canonical: str | None = None) -> str | None:
     """The latest day a departure from ``new``'s place was said on this page, or ``None`` (2026-10-14 review).
 
     A departure is a claim on the same subject and object whose predicate is an ``over`` label ("left", kept under
@@ -648,7 +649,7 @@ def _departed_on(new: Claim, slot: list[Claim], over: set[str], untimed=frozense
         if c is new or c.subject != new.subject or not same_object(c, new) or is_event(c) or is_record(c):
             continue
         said_label = predicates._slugify_predicate(c.predicate) in over or (
-            c.predicate == new.predicate and c.valid_to is not None and _says_any(c.text, over))
+            c.predicate in (new.predicate, canonical) and c.valid_to is not None and _says_any(c.text, over))
         if said_label:
             days.append(_said(c, untimed) or c.valid_from)
     days = [str(d)[:10] for d in days if d]
@@ -661,7 +662,8 @@ def _says_any(text: str, labels: set[str]) -> bool:
 
 
 def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinality_fn: CardinalityFn,
-                 nudges: list[dict], audit: list[dict], untimed=frozenset(), over: set[str] = frozenset()) -> Claim | None:
+                 nudges: list[dict], audit: list[dict], untimed=frozenset(), over: set[str] = frozenset(),
+                 canonical: str | None = None) -> Claim | None:
     """One non-event incoming claim against its subject's slot (the K table).
     Returns the claim the page keeps for it — ``new``, or the existing claim a
     restatement reinforced — or ``None`` when it is not stored (a conflict to
@@ -676,7 +678,7 @@ def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinalit
         _merge_episodes(twin, new)
         return twin
     if over and not is_human(new):
-        departed = _departed_on(new, slot, over, untimed)
+        departed = _departed_on(new, slot, over, untimed, canonical)
         said = str(_said(new, untimed) or new.valid_from or today)[:10]
         if departed is not None and said <= departed:
             _stamp_new(new, settings, today=today)
@@ -768,7 +770,8 @@ def _adopt_value_attribute(new: Claim, slot: list[Claim]) -> None:
 
 
 def _place_ending(new: Claim, ending: "predicates.Ending", slot: list[Claim], settings, today: str,
-                  audit: list[dict], untimed=frozenset()) -> "Claim | bool":
+                  audit: list[dict], untimed=frozenset(),
+                  ended_by: "Callable[[str], str | None] | None" = None) -> "Claim | bool":
     """A claim whose label says a belief stopped being true (``predicates.build_endings_fn``; 2026-10-14).
 
     A multi-valued place ends only on evidence that it ended — this, a stated end (``claim_expiry``) or the
@@ -784,10 +787,21 @@ def _place_ending(new: Claim, ending: "predicates.Ending", slot: list[Claim], se
     * ``past`` — "worked at": an open belief on the same object is reinforced, never closed; with none open
       the claim is kept as closed history, never a current place.
 
+    ``ended_by`` (``EndingFn.ended_by``, 2026-10-23): an ``over`` label also closes the open beliefs whose predicate
+    the seed's ``also_ends`` ties to the canonical, or that qualify either with more words — "dropped Supabase" ends
+    "uses for auth and data Supabase" and "depends on Supabase" too, under the same guards. Each keeps its own
+    predicate. ``past`` reinforces only the canonical itself.
+
     No fold question is raised for either: the endings list is curated, not a guess.
     """
     canonical = ending.canonical
-    targets = [c for c in slot if open_(c) and c.subject == new.subject and c.predicate == canonical
+
+    def ends(c: Claim) -> bool:
+        if c.predicate == canonical:
+            return True
+        return ending.mode == predicates.ENDING_OVER and ended_by is not None and ended_by(c.predicate) == canonical
+
+    targets = [c for c in slot if open_(c) and c.subject == new.subject and ends(c)
                and same_object(c, new) and not is_event(c) and not is_record(c)]
     if not targets and not (ending.synonym or new.predicate == canonical):
         return False
@@ -918,10 +932,14 @@ def reconcile_stage3(
         # the pages keep for it — a reinforced restatement keeps the OLD id.
         raw_label = getattr(new, "predicate_raw", None)
         ending = endings_fn(str(raw_label or new.predicate))
-        if ending is not None and _place_ending(new, ending, slot, settings, today, audit, untimed) is not False:
+        ended_by = getattr(endings_fn, "ended_by", None)
+        if ending is not None and _place_ending(new, ending, slot, settings, today, audit, untimed,
+                                                ended_by) is not False:
             continue
-        over = getattr(endings_fn, "over", {}).get(new.predicate, frozenset())
-        kept = _place_claim(new, slot, settings, today, cardinality_fn, nudges, audit, untimed, over)
+        # A predicate an ending also ends (`also_ends`, or a qualified label) reads that canonical's departures.
+        canonical = (ended_by(new.predicate) if ended_by else None) or new.predicate
+        over = getattr(endings_fn, "over", {}).get(canonical, frozenset())
+        kept = _place_claim(new, slot, settings, today, cardinality_fn, nudges, audit, untimed, over, canonical)
         if raw_label:
             raw_slug = predicates._slugify_predicate(str(raw_label))
             if raw_slug and raw_slug != new.predicate:

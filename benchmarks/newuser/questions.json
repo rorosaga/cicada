@@ -34,7 +34,7 @@
   {"id": "q15", "kind": "what", "tool": "cicada_ask", "args": {"query": "What kind of canoe is Mara building, and from what wood?"},
    "expect": [["cedar"], ["15", "fifteen"]]},
   {"id": "q16", "kind": "changed", "tool": "cicada_ask", "args": {"query": "Where does the canoe project stand right now?"},
-   "expect": [["fiberglassed the outside", "outside of the hull", "outside is fiberglassed", "outside fiberglassed", "glassed the outside"], ["2026-10-18", "October 18", "Oct 18", "18 October", "Oct. 18"]]},
+   "expect": [["fiberglassed the outside", "outside of the hull", "outside is fiberglassed", "outside fiberglassed", "glassed the outside", "outside has been fiberglassed", "outside of the cedar-strip canoe hull is fiberglassed"], ["2026-10-18", "October 18", "Oct 18", "18 October", "Oct. 18"]]},
   {"id": "q17", "kind": "when", "tool": "cicada_ask", "args": {"query": "When and where was the epoxy workshop?"},
    "expect": [["October 17", "Oct 17", "2026-10-17", "17 October", "Oct. 17"], ["Alder Row", "Makerspace"]]},
   {"id": "q18", "kind": "when", "tool": "cicada_ask", "args": {"query": "When and where is Teo's birthday dinner?"},

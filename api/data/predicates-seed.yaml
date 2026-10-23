@@ -253,6 +253,14 @@ multi_valued:
 #   past: said in the past tense. It reinforces the open belief on the same
 #         object and never closes it ("worked at the lab today"); with none
 #         open it is kept as closed history, never a current place.
+#   also_ends (2026-10-23): predicates an `over` label ends too, on the same
+#         subject and object — "dropped Supabase" also ends "depends on
+#         Supabase". The canonical and each of these match their object-
+#         qualified labels as well ("uses for sign-in" is `uses-for-sign-in`,
+#         "stores data in Supabase Postgres" `stores-data-in-…`). A predicate
+#         two canonicals list is ambiguous and ends nothing. Never a fold: the
+#         claim keeps its own predicate, and `past` reinforces only the
+#         canonical itself.
 # ---------------------------------------------------------------------------
 endings:
   works-at:
@@ -294,6 +302,18 @@ endings:
       - migrated away from
       - switched away from
       - abandoned
+    # 2026-10-23 (benchmarks/newuser): "dropped <tool>" closed only a plain `uses <tool>`; the same project's
+    # "uses for auth and data", "stores data in", "depends on" and "backed by" the same tool stayed current.
+    also_ends:
+      - depends-on
+      - backed-by
+      - runs-on
+      - hosted-on
+      - deployed-on
+      - stores-data-in
+      - stores-in
+      - authenticates-with
+      - integrates-with
 
 # ---------------------------------------------------------------------------
 # WHERE THE TRUTH LIVES (G61 phase 2 S1, spec R-AC8 — G121's world/personal

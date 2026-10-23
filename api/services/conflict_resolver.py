@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -1240,14 +1241,19 @@ def _edges_by_entity(memory_path) -> dict[str, list[dict]]:
             if isinstance(target, str) and target != source:
                 by_entity.setdefault(target, []).append({
                     "source": target, "target": edge.get("source", ""), "label": edge.get("label", ""),
+                    "mirrored": True, **({"claim_id": edge["claim_id"]}
+                                         if edge.get("claim_id") else {}),
                 })
     except Exception:
         return {}
     return by_entity
 
 
-def _reconcile_related(entity_id: str, frontmatter: dict, memory_path, edges_by_entity: dict[str, list[dict]]) -> str:
+def _reconcile_related(entity_id: str, frontmatter: dict, memory_path, edges_by_entity: dict[str, list[dict]],
+                       own_claims: list | None = None) -> str:
     """Rebuild the ``## Related`` block from `related` slugs + graph_edges.yaml.
+
+    ``own_claims``: the page's claims as about to be written (the claim pipeline's); by default, as on disk.
 
     Related is a derived view — graph_edges.yaml is canonical, read once per write pass (:func:`_edges_by_entity`).
     Display names are read only for the ids actually referenced, so per-entity cost stays proportional to its degree.
@@ -1257,8 +1263,10 @@ def _reconcile_related(entity_id: str, frontmatter: dict, memory_path, edges_by_
     edges = list(edges_by_entity.get(entity_id, ()))
 
     referenced = {str(e.get("target", "")) for e in edges} | {str(s) for s in related_slugs}
+    mirrored_from = {str(e.get("target", "")) for e in edges if e.get("mirrored")}
     id_to_name: dict[str, str] = {}
     id_to_type: dict[str, str] = {}
+    claims_by_page: dict[str, list] = {}
     entities_dir = memory_path / "entities"
     for ref in referenced:
         if not ref:
@@ -1267,11 +1275,20 @@ def _reconcile_related(entity_id: str, frontmatter: dict, memory_path, edges_by_
         if not filepath.exists():
             continue
         try:
-            fm = markdown_parser.parse(filepath, ledger=False).frontmatter or {}
+            parsed_ref = markdown_parser.parse(filepath, ledger=False)
+            fm = parsed_ref.frontmatter or {}
             id_to_name[ref] = str(fm.get("name", ref.replace("-", " ").title()))
             id_to_type[ref] = str(fm.get("type") or "")
+            if ref in mirrored_from:   # an inbound edge's claims are on the page it starts from
+                claims_by_page[ref] = _page_claims(parsed_ref.body)
         except Exception:
             continue
+    own = entities_dir / f"{entity_id}.md"
+    try:
+        claims_by_page[entity_id] = (list(own_claims) if own_claims is not None
+                                     else _page_claims(markdown_parser.parse(own).body) if own.exists() else [])
+    except Exception:  # noqa: BLE001 - an unreadable page labels its links as the edges say
+        claims_by_page[entity_id] = []
 
     # Drop dangling references — an edge to a deleted entity shouldn't render.
     edges = [e for e in edges if str(e.get("target", "")) in id_to_name]
@@ -1281,7 +1298,100 @@ def _reconcile_related(entity_id: str, frontmatter: dict, memory_path, edges_by_
         normalize = predicates.load_normalizer(memory_path)
     except Exception:  # noqa: BLE001 - no map: the seed's synonyms
         normalize = None
+    edges = related_edges(entity_id, edges, claims_by_page, normalize)
     return entity_body.render_related(related_slugs, edges, id_to_name, id_to_type, normalize)
+
+
+_RELATED_SECTION = re.compile(r"^## Related[ \t]*\n(?P<block>.*?)(?=^## |^```claims[ \t]*$|\Z)", re.M | re.S)
+
+
+def refresh_related(entity_id: str, frontmatter: dict, body: str, memory_path, edges_by_entity: dict[str, list[dict]],
+                    claims: list) -> str:
+    """``body`` with its ``## Related`` block named by ``claims`` — the claim pipeline's write, after Stage 3 closed or
+    opened a belief (2026-10-23): the page's Related is rebuilt at Stage 5, before this batch's claims exist, so a job
+    left or a tool dropped would read as current until the page's next write. Every other byte is kept; a page with no
+    Related section, or a block that would come out empty, is left as it is."""
+    match = _RELATED_SECTION.search(body)
+    if match is None:
+        return body
+    block = _reconcile_related(entity_id, frontmatter, memory_path, edges_by_entity, own_claims=claims)
+    if not block.strip() or block.strip() == match.group("block").strip():
+        return body
+    return body[:match.start("block")] + block.strip("\n") + "\n\n" + body[match.end("block"):].lstrip("\n")
+
+
+def _page_claims(body: str) -> list:
+    from api.services.claims import parse_claims
+
+    try:
+        return parse_claims(body or "")
+    except Exception:  # noqa: BLE001 - a fence that cannot be read says nothing about a link
+        return []
+
+
+def related_edges(entity_id: str, edges: list[dict], claims_by_page: dict[str, list], normalize=None) -> list[dict]:
+    """One edge per linked page, labelled by what is true now (benchmarks/newuser, 2026-10-23).
+
+    ``graph_edges.yaml`` keeps every relationship ever extracted and never closes one, so the first edge to a page used
+    to name the link for good: the person's page read "<old employer> — works at" and "<new employer> — interviewing
+    with" after the job changed. Each label is read against the claims on the page the edge starts from (this page's,
+    or the other page's for an inbound edge) with the same object and predicate (the label normalized):
+
+    * a label an open claim backs is current — the newest said (``valid_from``) names the link;
+    * with none current, the first label no claim speaks to, as before;
+    * a link whose every label's claims are closed keeps its first label, marked "(until <day>)", after the rest.
+
+    Never drops a link and reads no model; a page with no claims renders as it did. Confidence plays no part."""
+    from api.services.claims import is_current, is_event, is_record
+
+    def norm(label: str) -> str:
+        text = " ".join(str(label or "").replace("-", " ").split()).lower()
+        try:
+            return (normalize or entity_body._seed_normalize)(text)
+        except Exception:  # noqa: BLE001 - a map that cannot be read: the label as written
+            return text
+
+    def state(edge: dict) -> tuple[str, str]:
+        mirrored = bool(edge.get("mirrored"))
+        source = str(edge.get("target", "")) if mirrored else entity_id
+        other = entity_id if mirrored else str(edge.get("target", ""))
+        predicate = norm(edge.get("label", ""))
+        names = {predicate, "-".join(predicate.split())}
+        # An event is born closed and a withdrawal record is no belief: neither says a link ended (R-PJ3).
+        found = [c for c in claims_by_page.get(source, ()) if (c.subject or source) == source and c.object == other
+                 and (c.predicate in names or c.id == edge.get("claim_id")) and not is_event(c) and not is_record(c)]
+        live = [c for c in found if is_current(c)]
+        if live:
+            return "open", max(str(c.valid_from or "") for c in live)
+        if found:
+            return "ended", max(str(c.valid_to or "") for c in found)
+        return "unknown", ""   # no claim read speaks to it (none written, or past the fence in a ledger)
+
+    by_target: dict[str, list[tuple[dict, str, str]]] = {}
+    for edge in edges or []:
+        target = str(edge.get("target", "")).strip()
+        if not target:
+            continue
+        rows = by_target.setdefault(target, [])
+        if str(edge.get("label", "")).strip():
+            rows.append((edge, *state(edge)))
+    current, ended = [], []
+    for target, rows in by_target.items():
+        live = [r for r in rows if r[1] == "open"]
+        unknown = [r for r in rows if r[1] == "unknown"]
+        if not rows:
+            current.append({"source": entity_id, "target": target, "label": ""})
+        elif live:
+            edge = max(live, key=lambda r: r[2])[0]   # the newest said; a tie keeps the earliest written
+            current.append({"source": entity_id, "target": target, "label": edge.get("label", "")})
+        elif unknown:
+            current.append({"source": entity_id, "target": target, "label": unknown[0][0].get("label", "")})
+        else:
+            edge, _state, day = rows[0]
+            label = str(edge.get("label", "")).strip()
+            ended.append({"source": entity_id, "target": target, "ended": True,
+                          "label": f"{label} (until {day[:10]})" if day else label})
+    return current + ended
 
 
 def _compose_entity_body(description: str, history_entries: list[dict]) -> str:
