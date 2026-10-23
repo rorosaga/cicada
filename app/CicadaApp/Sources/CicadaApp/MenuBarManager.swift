@@ -162,6 +162,13 @@ final class MenuBarManager: NSObject {
     }
     /// Tags the reminder lines so a menu open can swap them without a rebuild.
     static let exportWaitTag = 9_101
+    /// G218 — what the menu says about activity traces, read as the menu is built or opened; nil while traces are off
+    /// (nothing is shown, and nothing is captured).
+    @ObservationIgnored var traceMenu: () -> TraceMenuState? = { nil }
+    /// G218 — Pause ▸ / Resume / Forget the last 15 minutes, run by the app through the recorder.
+    @ObservationIgnored var onTraceAction: ((TraceMenuAction) -> Void)?
+    /// Tags the traces lines so a menu open can swap them without a rebuild.
+    static let traceTag = 9_102
 
     // MARK: - Setup
 
@@ -343,6 +350,8 @@ final class MenuBarManager: NSObject {
         menu.addItem(header)
 
         menu.addItem(NSMenuItem.separator())
+        // G218 — while traces record or are paused: the line that says so, Pause ▸ or Resume, Forget.
+        insertTraceItems(in: menu, at: menu.items.count)
 
         // Inbox count.
         let inboxTotal = currentSnapshot?.inbox.total ?? 0
@@ -420,6 +429,61 @@ final class MenuBarManager: NSObject {
         for item in menu.items where item.tag == Self.exportWaitTag { menu.removeItem(item) }
         let anchor = menu.items.firstIndex { $0.title.hasPrefix(Copy.MenuBar.nextSleepPrefix) }
         insertExportWaitItems(in: menu, at: anchor.map { $0 + 1 } ?? 0)
+    }
+
+    /// G218 — swaps the traces block for the current one, right after the header and its separator.
+    fileprivate func refreshTraceItems(in menu: NSMenu) {
+        for item in menu.items where item.tag == Self.traceTag { menu.removeItem(item) }
+        insertTraceItems(in: menu, at: min(2, menu.items.count))
+    }
+
+    private func insertTraceItems(in menu: NSMenu, at index: Int) {
+        guard let traces = traceMenu() else { return }
+        var items: [NSMenuItem] = []
+        let line = NSMenuItem(title: Self.traceHeader(traces), action: nil, keyEquivalent: "")
+        line.isEnabled = false
+        items.append(line)
+        if traces.isPaused {
+            let resume = NSMenuItem(title: Copy.Traces.menuResume, action: #selector(traceAction(_:)), keyEquivalent: "")
+            resume.representedObject = TraceMenuActionBox(.resume)
+            items.append(resume)
+        } else {
+            let pause = NSMenuItem(title: Copy.Traces.menuPause, action: nil, keyEquivalent: "")
+            let submenu = NSMenu()
+            for (title, choice) in [(Copy.Traces.pauseHour, TraceRecorder.PauseChoice.hour),
+                                    (Copy.Traces.pauseTomorrow, .untilTomorrow),
+                                    (Copy.Traces.pauseResumed, .untilResumed)] {
+                let item = NSMenuItem(title: title, action: #selector(traceAction(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = TraceMenuActionBox(.pause(choice))
+                submenu.addItem(item)
+            }
+            pause.submenu = submenu
+            items.append(pause)
+        }
+        let forget = NSMenuItem(title: Copy.Traces.menuForget, action: #selector(traceAction(_:)), keyEquivalent: "")
+        forget.representedObject = TraceMenuActionBox(.forget)
+        items.append(forget)
+        items.append(NSMenuItem.separator())
+        for (offset, item) in items.enumerated() {
+            if item.action != nil { item.target = self }
+            item.tag = Self.traceTag
+            menu.insertItem(item, at: index + offset)
+        }
+    }
+
+    /// "Recording traces", "Traces paused until 3:40 PM", "Traces paused until you resume".
+    nonisolated static func traceHeader(_ state: TraceMenuState) -> String {
+        switch state {
+        case .recording: Copy.Traces.menuRecording
+        case .paused(let until?): Copy.Traces.menuPausedUntil(until)
+        case .paused(nil): Copy.Traces.menuPausedUntilResumed
+        }
+    }
+
+    @objc private func traceAction(_ sender: NSMenuItem) {
+        guard let box = sender.representedObject as? TraceMenuActionBox else { return }
+        onTraceAction?(box.action)
     }
 
     private func insertExportWaitItems(in menu: NSMenu, at index: Int) {
@@ -567,6 +631,41 @@ extension MenuBarManager: NSMenuDelegate {
     /// "requested 2 hours ago" must be true when the menu opens, not when it was
     /// last rebuilt — AppKit calls this just before showing the menu.
     nonisolated func menuNeedsUpdate(_ menu: NSMenu) {
-        MainActor.assumeIsolated { self.refreshExportWaitItems(in: menu) }
+        MainActor.assumeIsolated {
+            self.refreshExportWaitItems(in: menu)
+            // G218 — whether traces record is true when the menu opens, not when it was last rebuilt. Only the
+            // status item's own menu (a Pause submenu opening asks too, and has no traces block of its own).
+            if menu === self.statusItem?.menu { self.refreshTraceItems(in: menu) }
+        }
     }
+}
+
+/// G218 — the menu's traces state: recording, or paused until a time in words (nil: until the person resumes).
+enum TraceMenuState: Equatable {
+    case recording
+    case paused(until: String?)
+
+    var isPaused: Bool { if case .paused = self { true } else { false } }
+
+    /// The recorder's state in menu terms; nil while traces are off (or on a server, or unreadable): no traces block.
+    @MainActor
+    static func of(_ recorder: TraceRecorder, now: Date = Date()) -> TraceMenuState? {
+        switch recorder.state {
+        case .recording: .recording
+        case .paused: .paused(until: TracesControlsLogic.pausedWhen(recorder.settings.pausedUntil, now: now))
+        case .off, .notThisMac, .failed: nil
+        }
+    }
+}
+
+enum TraceMenuAction: Equatable {
+    case pause(TraceRecorder.PauseChoice)
+    case resume
+    case forget
+}
+
+/// `NSMenuItem.representedObject` holds an object.
+private final class TraceMenuActionBox: NSObject {
+    let action: TraceMenuAction
+    init(_ action: TraceMenuAction) { self.action = action }
 }

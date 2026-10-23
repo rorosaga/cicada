@@ -30,6 +30,9 @@ BODY_LIMITS: dict[str, int] = {
     # framing — refused before FastAPI spools a single byte of a bigger one.
     "/capture/file": 26 * 1024 * 1024,
     "/sources/messages/photos": 24 * 1024 * 1024,
+    # G218: at most 2,000 spans of short fields; one ≤ 2 MB screenshot as base64 plus its recognized text.
+    "/sources/traces/sync": 4 * 1024 * 1024,
+    "/sources/traces/frames": 4 * 1024 * 1024,
 }
 
 NAME_TOO_LONG = b'{"detail":"Not found: a name in this address is longer than any file name can be."}'

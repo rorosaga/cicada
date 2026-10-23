@@ -185,6 +185,8 @@ enum OriginIconography {
         case "gemini-cli", "opencode", "hermes", "openclaw": "terminal"
         case "folder": "folder"
         case "wispr-flow": "waveform"
+        // G218 — activity traces (no episode carries it; its Sources row does).
+        case "traces": "timeline.selection"
         case "obsidian": "doc.text"
         case "unknown": "questionmark.circle"
         case "phone": "iphone"

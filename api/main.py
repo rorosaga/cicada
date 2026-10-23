@@ -58,6 +58,7 @@ from api.routers import (
     status,
     sync,
     tools,
+    traces,
 )
 from api.services import bank_binding, bank_registry, response_compression, search_index, sleep_refusal, sleep_scheduler
 from api.services.providers import warm_query_embedder
@@ -222,6 +223,12 @@ async def lifespan(app: FastAPI):
     cfg = sleep_scheduler.load_schedule(settings.memory_path)
     sleep_scheduler.register_job(scheduler, settings, cfg)
     app.state.scheduler = scheduler
+    # G218 — activity traces' retention (30 days for the timeline, 7 for screenshots) holds even while traces are off
+    # and nothing syncs: once now, then hourly. Creates nothing when traces were never on; never raises.
+    from api.services import trace_store
+
+    asyncio.get_running_loop().run_in_executor(None, trace_store.sweep_if_present)
+    scheduler.add_job(trace_store.sweep_if_present, "interval", hours=1, id="traces-sweep", replace_existing=True)
     # Sleep page v5: the opt-in continue-after-reset (TODO ruling 15) needs the scheduler, and a
     # paused run that had armed it re-arms after a restart (its sidecar says when).
     from api.services import sleep_autocontinue
@@ -313,6 +320,7 @@ app.include_router(state.router, tags=["state"])
 app.include_router(banks.router, tags=["banks"])
 app.include_router(settings_router.router, tags=["settings"])
 app.include_router(local_sources.router, tags=["local-sources"])
+app.include_router(traces.router, tags=["traces"])
 app.include_router(capture.router, tags=["capture"])
 app.include_router(connectors.router, tags=["connectors"])
 app.include_router(maintenance.router, tags=["maintenance"])

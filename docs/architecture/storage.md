@@ -1227,6 +1227,84 @@ writer, `api/services/site_captures.py`, turns each visit into memory; every doo
   `save_look`, so the landing picture becomes a Look even when the capture says the look is the same as last time.
   Doors: the person's click (`POST /explore/look`) and a trusted agent they asked (`cicada_explore_start(look=[…])`).
 
+### Activity traces — sealed, outside every bank (G218, ruling 38, 2026-10-23)
+
+What the person did on this Mac, with times, held so "the video I watched at 15:20" is findable later. **Off by
+default**; on only after the consent sheet (`trace_store.CONSENT_VERSION`; an older or missing consent is refused).
+The app captures (`capture-and-sleep.md`, "Activity traces"); `api/services/trace_store.py` is the **one reader and
+writer** of `$CICADA_HOME/traces/`, beside `captures/`:
+
+```
+traces/settings.enc                  the person's choices, sealed
+traces/timeline/<YYYY-MM-DD>.log     one sealed line per focus span, by the local day it started (ruling 34)
+traces/frames/<YYYY-MM-DD>.log       one sealed line per screenshot: when, which app, its recognized text
+traces/shots/<YYYY-MM-DD>/<id>.enc   the screenshot itself (downscaled JPEG), sealed
+```
+
+- **Never in a bank, never in git, never on the network, never in the telemetry ledger** (not even ids). Time Machine is
+  asked to skip the folder and the key (the sticky `com_apple_backup_excludeItem` xattr, set with no subprocess). No
+  index is written: search decrypts and scans in memory (`trace_store.search`), so there is nothing derived to leak.
+- **Encrypted at rest** (`trace_seal`): AES-256-GCM per record, a fresh 96-bit nonce each, associated data naming the
+  record's kind and day (`timeline/<day>`, `shot/<day>/<id>`, `settings`) — a flipped byte, a line moved to another
+  day's file or a screenshot renamed to another id fails its tag and is skipped and counted (`unreadable`), never
+  guessed. File names carry only dates and random ids.
+- **The policy is applied twice** (`trace_policy`, served to the app at `GET /sources/traces/settings`): never recorded
+  at all — password managers and credential sheets, the login window and screensaver, Cicada itself (`com.rorosaga.cicada*`),
+  the person's excluded apps; the whole moment dropped — a private window, an excluded site; chat and mail
+  (`TITLE_OFF_APPS`) keep the app and times only (no title, no screenshot) unless the person turns titles on for that
+  app; a URL only from an allowed Chromium browser, scheme + host + path + content keys (`v` on YouTube), the path
+  scrubbed; a browser row keeps a title, and a browser screenshot is kept, only beside such a URL (the one case the
+  window is known not to be private — Safari's, Firefox's and Arc's private windows cannot be told apart); every title
+  and recognized text scrubbed (`episode_scrub`). **The browser list is a floor, never the test** (B3): the app marks
+  every app macOS registers to open `https:` links as a browser (`browser: true` on a row or a frame), and the store
+  keeps such a row's title, or its screenshot, only beside a verified URL from a browser the person allowed. Turned off or paused, nothing is written (a span reaching into a
+  pause is cut at it).
+- **Retention** (a sweep on every write, at backend start and hourly — `trace_store.sweep_if_present` in the lifespan
+  scheduler — so it holds while traces are off): the timeline 30 days, screenshots and their text 7 days; the person may
+  shorten either, never lengthen. A store whose key is gone is cleared (sealed bytes with no key are noise); a key file
+  that is refused (below) records nothing and deletes nothing on its own.
+- **Forget the last N minutes** (N ≤ 15, `FORGET_MAX_MINUTES`) drops every span reaching into them — read from every
+  day file a span could start in, back to `cutoff − MAX_SPAN`, so a span from 23:40 to 00:19 is reached at 00:20 — and
+  every screenshot taken in them. **Nothing younger than the forget window ever leaves the store** (review of #456,
+  B1): promotion offers the bank only spans that ended at least `PROMOTE_HOLD` (15 min) ago, from the store, past a
+  sealed cursor (`promoted_through`), and a day summary waits until its day's last moments are that old — so a forget
+  always runs before anything it covers could reach the bank or git. **Wipe** deletes
+  the folder, the settings and the key (crypto-shredding: a copy taken before reads as noise) and so turns traces off.
+  What was already promoted into the bank (a watched day, a day summary) stays; the sheet says so.
+- **What crosses into the bank** (`trace_memory`, only what the person's switches allow, nothing for a demo bank, one
+  `user` commit per sync, trigger `capture/traces`): a YouTube span in front ≥ 20 s becomes a watch in the existing
+  watch-history writer (`via: traces`, `dwell_s` — the day's seconds in front for that video, the larger figure kept,
+  "N min on screen" in the day's body), on with traces (`youtube_to_watch_history`); and, behind "Keep a daily summary
+  in memory" (off by default), one counted episode per finished local day (`source: traces-day`: time per app, the
+  sites with the most time, the longest stretches with the titles the store kept), index-only (`history_index.kind` →
+  `traces`) unless "Let Sleep learn from the summary" was on when it was written (`learn_from_traces: true`) — the only
+  model read traces ever get. A summary is `evidence_kind: assistant` (never the person's words) and never a mention
+  (`episode_time.UNTIMED_SOURCES`).
+
+**Key custody — interim, an owner ruling pending (G218).** `trace_keys.KeyProvider` is the one seam; `provider()`
+returns **`FileKeyProvider`: `$CICADA_HOME/traces.key`, 0600 in the 0700 home, outside `traces/`**, created with
+`O_EXCL` (never replaced silently), refused when another account could read it or another user owns it, overwritten
+then unlinked on Wipe. It protects a copy of the store, a backup or a sync folder; it does not protect against a process
+running as the person (nor does anything else that process can ask for — the sheet says so). Why not the stronger
+options yet, researched 2026-10-23:
+- *A Keychain item* binds its access to the reader's code signature. Every developer build re-signs the app, and the
+  backend is a Python process that is not the app, so both would raise Keychain prompts (the owner's open question on
+  Keychain-via-a-signed-helper, on the credentials rail, is the same problem); a prompt is never raised by a build
+  agent, so it cannot be verified here either.
+- *A Secure Enclave key* (CryptoKit `SecureEnclave.P256`) never leaves the chip, so a copied `~/.cicada` is useless on
+  another Mac — the strongest answer. Python cannot use it: the app would unwrap a data key (ECIES) at launch and hand
+  it to the backend over its token channel, the backend holding it in memory only (traces would then be readable only
+  while the app runs, which is already when they are made). It needs the signed, stable app identity of G182's
+  Developer ID steps.
+- **Recommended for the ruling:** the Secure Enclave–wrapped data key with the in-memory hand-off once Developer ID
+  signing lands; the file key until then. Only `trace_keys.provider()` changes.
+
+**Doors.** `api/routers/traces.py`: every route 403s a device token ("Traces stay on the Mac that recorded them"); the
+remote listener serves only `/mcp` and `/v1`; no MCP tool, no Ask, no CLI reads the store (a test asserts nothing but
+`main.py` imports it); search is a POST (the query never reaches an access log); a screenshot is served `no-store` and
+only to the app, which asks Touch ID first. `request_limits` bounds `/sources/traces/sync` and `/frames` at 4 MB. A
+threat-model page (Recall's lessons → Cicada's answers) is a later slice.
+
 ### Live state + handshake (G53 / G75)
 
 **`<bank>/_state.md` is a *cursor* into the graph, never a copy of it** — YAML frontmatter plus a

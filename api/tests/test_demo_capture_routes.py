@@ -87,6 +87,12 @@ HANDLED_ELSEWHERE = {
     ("PUT", "/reading/settings"): "a machine-wide setting (~/.cicada/reading.json); writes no bank",
     ("POST", "/sources/saved-why/suggest"):
         "G191 v7: scores the reason bank against a link with the installed search model; reads no bank, writes nothing",
+    **{(method, f"/sources/traces/{path}"):
+       "G218: activity traces live in $CICADA_HOME/traces, outside every bank; trace_memory.promote writes nothing "
+       "into a demo bank (test_trace_routes.py)"
+       for method, path in [("PUT", "settings"), ("POST", "on"), ("POST", "off"), ("POST", "pause"),
+                            ("POST", "sync"), ("POST", "frames"), ("POST", "search"), ("POST", "forget"),
+                            ("POST", "wipe")]},
     ("PUT", "/agent-methods"):
         "a machine-wide choice (~/.cicada/agent_methods.json); the skill page beside it is guarded by "
         "demo_guard inside skill_pages.ensure and reports `demo` without writing (test_agent_methods_rest.py)",

@@ -2644,6 +2644,87 @@ actor APIClient {
         try await postData("/sources/watch-history/sync", json: try JSONEncoder().encode(payload))
     }
 
+    // MARK: - Activity traces (G218)
+
+    /// Every traces call goes to This Mac's own backend only (`TraceBackendGate`): a client Mac's traces never leave it.
+    private func traceGate() throws {
+        guard TraceBackendGate.allows(connection) else { throw TraceBackendError.notThisMac }
+    }
+
+    func traceSettings() async throws -> TraceSettingsAnswer {
+        try traceGate()
+        return try await get("/sources/traces/settings")
+    }
+
+    func traceTurnOn(consentVersion: Int) async throws -> TraceSettingsAnswer {
+        try traceGate()
+        return try await post("/sources/traces/on", body: ["consent_version": consentVersion])
+    }
+
+    func traceTurnOff() async throws -> TraceSettingsAnswer {
+        try traceGate()
+        return try await post("/sources/traces/off")
+    }
+
+    func traceUpdate(_ patch: [String: TracePatchValue]) async throws -> TraceSettingsAnswer {
+        try traceGate()
+        return try await putData("/sources/traces/settings", json: try JSONEncoder().encode(patch))
+    }
+
+    func tracePause(until: String?) async throws -> TraceSettingsAnswer {
+        try traceGate()
+        return try await postData("/sources/traces/pause", json: try JSONEncoder().encode(["until": until]))
+    }
+
+    func traceSync(_ spans: [TraceSpan]) async throws -> TraceSyncResult {
+        try traceGate()
+        return try await postData("/sources/traces/sync", json: try JSONEncoder().encode(["spans": spans]))
+    }
+
+    func traceAddFrame(_ frame: TraceFramePost) async throws {
+        try traceGate()
+        struct Kept: Decodable { let id: String }
+        let _: Kept = try await postData("/sources/traces/frames", json: try JSONEncoder().encode(frame))
+    }
+
+    func traceTimeline(day: String) async throws -> TraceTimeline {
+        try traceGate()
+        return try await get("/sources/traces/timeline?day=\(day)")
+    }
+
+    func traceSearch(_ query: String) async throws -> [TraceSearchHit] {
+        try traceGate()
+        struct Hits: Decodable { let hits: [TraceSearchHit] }
+        let answer: Hits = try await postData("/sources/traces/search", json: try JSONEncoder().encode(["query": query]))
+        return answer.hits
+    }
+
+    func traceFrameImage(id: String) async throws -> Data {
+        try traceGate()
+        let request = makeRequest("/sources/traces/frames/\(id)", method: "GET", json: false)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        guard (200...299).contains(http.statusCode) else {
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        return data
+    }
+
+    func traceFrameText(id: String) async throws -> TraceFrameText {
+        try traceGate()
+        return try await get("/sources/traces/frames/\(id)/text")
+    }
+
+    func traceForget(minutes: Int) async throws {
+        try traceGate()
+        _ = try await post("/sources/traces/forget", body: ["minutes": minutes]) as Data
+    }
+
+    func traceWipe() async throws -> TraceSettingsAnswer {
+        try traceGate()
+        return try await post("/sources/traces/wipe", body: ["confirm": true])
+    }
+
     // MARK: - Messages (G179)
 
     /// `GET /sources/messages/settings` — which conversations this memory has ticked.

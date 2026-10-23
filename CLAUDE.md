@@ -291,6 +291,11 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   when the look changed, full images and page text outside every bank (`$CICADA_HOME/captures`); one writer (`site_captures`).
   Depth follows the person's reason through a plan Cicada computes with no model (`explore_plan`); each site's map is
   append-only in the bank beside its captures (`captures/_sites/`, one writer `site_map`; `storage.md`).
+- **Activity traces (G218, ruling 38):** off by default; the app alone captures (preflight-only permissions, Touch ID to
+  browse screenshots) and the backend keeps them sealed in `$CICADA_HOME/traces/` — outside every bank and git, never on
+  the network, a remote door or another device, 30-day timeline / 7-day screenshots, Wipe shreds the key; a trace is not
+  a mention; only the person's switches promote (YouTube views into the watch history; a counted day summary, the one
+  thing a model may read) (`storage.md`, `capture-and-sleep.md`).
 - **Design references (2026-10-14):** one markdown file plus its screenshot per look, in the bank, one writer
   (`design_refs`), never an entity page; palette and vectors are computed here, the index lives outside the bank.
   **Owner 2026-10-20:** a look lives on the page of the thing it shows — the record's `entity:` plus a `## Looks` section

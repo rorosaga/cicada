@@ -31,8 +31,10 @@ extension ReadingAgentModel {
 enum LocalReaders {
     static func on(calendar: CalendarReader?, contacts: ContactsReader?, tabGroups: TabGroupWatcher?,
                    watchHistory: WatchHistoryWatcher?, browsers: BrowserWatcher?,
-                   notes: AppleNotesWatcher?) -> [String: Bool] {
+                   notes: AppleNotesWatcher?, traces: TraceRecorder? = nil) -> [String: Bool] {
         var on: [String: Bool] = [:]
+        // G218 — the recorder's own state: Connected only while it records.
+        if let traces { on[SourceCatalog.tracesId] = traces.isRecording }
         if let calendar { on[CalendarRow.channelId] = calendarOn(calendar.status) }
         if let contacts { on[ContactsReader.channel] = contacts.enabled }
         if let tabGroups { on[TabGroupWatcher.channel] = tabGroups.enabled }
@@ -237,6 +239,8 @@ struct SourceCatalogDetail: View {
             ContactsRow(channel: mine.first)
         case MessagesWatcher.channel:
             MessagesRow(channel: mine.first)
+        case SourceCatalog.tracesId:
+            TracesControls()
         case LocalSourceWatcher.wisprChannel:
             WisprFlowRow(channel: mine.first)
         case "folders":

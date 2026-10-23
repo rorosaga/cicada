@@ -183,3 +183,8 @@ test_claude_md_size.py
 ## Where to check (ruling 36 D5): a proposal is never trusted, drawn or re-checked; Sleep settles it only on the person's own located words
 test_where_to_check.py::test_a_profile_in_the_pages_own_text_is_proposed_untrusted_with_one_question_and_no_face
 test_where_to_check.py::test_without_the_persons_own_words_naming_it_nothing_is_settled
+
+## Activity traces (G218): sealed outside every bank, never read by an agent door, never sent from another device
+test_trace_store.py::test_nothing_on_disk_holds_a_title_an_address_or_recognized_text_in_the_clear
+test_trace_routes.py::test_no_agent_door_reads_the_traces_store
+test_trace_routes.py::test_another_device_can_neither_read_nor_send_traces
