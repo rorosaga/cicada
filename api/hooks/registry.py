@@ -365,6 +365,13 @@ AGENTS_MD_BLOCK = f"{AGENTS_MD_BEGIN}\n{AGENTS_MD_BODY}{AGENTS_MD_END}\n"
 
 
 def _read_text(path: Path) -> str:
+    # A symlinked AGENTS.md (a dotfiles copy, a shared instructions file) is the person's own arrangement: an atomic
+    # write would replace the link with a regular file and uninstall could not restore it, so it is never written
+    # through or over — the reason, and the block to paste by hand, go back instead (cursor_registry's rule).
+    if path.is_symlink():
+        raise RegistryError(
+            f"{path} is a symlink; Cicada is not touching it. To tell Codex to use Cicada, paste this block into "
+            f"the file it points to (and delete it to undo):\n\n{AGENTS_MD_BLOCK}")
     if not path.exists():
         return ""
     try:

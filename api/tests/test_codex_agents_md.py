@@ -169,3 +169,52 @@ def test_cicada_setup_runs_the_block_for_a_codex_already_connected(home):
     ran: list[list[str]] = []
     assert cli_setup.connect_agents(found, _Ui(), lambda argv: ran.append(argv) or 0) == ["codex"]
     assert ran == [registry_argv]
+
+
+# --- a symlinked AGENTS.md (review of #449) -------------------------------------------------------------------------
+
+
+def _linked(home: Path, tmp_path: Path) -> tuple[Path, Path]:
+    """``~/.codex/AGENTS.md`` as a link to a dotfiles copy the person keeps elsewhere."""
+    target = tmp_path / "dotfiles" / "AGENTS.md"
+    target.parent.mkdir(parents=True)
+    with open(target, "w", encoding="utf-8", newline="") as fh:
+        fh.write(OWN)
+    link = _agents(home)
+    link.parent.mkdir(parents=True)
+    link.symlink_to(target)
+    return link, target
+
+
+@pytest.mark.parametrize("verb", [registry.agents_md_install, registry.agents_md_uninstall, registry.agents_md_status])
+def test_a_symlinked_file_is_never_written_through_or_over(home, tmp_path, verb):
+    link, target = _linked(home, tmp_path)
+    with pytest.raises(registry.RegistryError) as err:
+        verb(link)
+    assert "symlink" in str(err.value) and registry.AGENTS_MD_BLOCK in str(err.value)   # what to paste by hand
+    assert link.is_symlink() and link.resolve() == target.resolve()
+    assert _raw(target) == OWN
+
+
+def test_a_symlinked_file_reads_invalid_and_is_never_offered(home, tmp_path):
+    _linked(home, tmp_path)
+    row = _codex(_probe(home))
+    assert row["agents_md"] == "invalid" and all(s["step"] != "agents-md" for s in row["connect"])
+
+
+def test_install_sh_reports_a_symlinked_file_and_goes_on(home, tmp_path):
+    """install.sh's unconditional Codex step: the registry says why on stderr, install.sh warns and carries on under
+    its own ``set -euo pipefail``, and the link and its target are untouched."""
+    link, target = _linked(home, tmp_path)
+    script = (Path(__file__).resolve().parents[2] / "install.sh").read_text(encoding="utf-8")
+    start = script.index("  # 2026-10-23: one marked block in Codex's own AGENTS.md")
+    block = script[start:script.index("\n  fi\n", start) + len("\n  fi\n")]
+    shell = ("set -euo pipefail\nDRY_RUN=0\nrun() { \"$@\"; }\n"
+             "ok() { printf 'OK %s\\n' \"$1\"; }\nwarn() { printf 'WARN %s\\n' \"$1\"; }\n"
+             f"{block}\necho AFTER\n")
+    done = subprocess.run(["bash", "-c", shell], capture_output=True, text=True, timeout=30,
+                          env={"PATH": "/usr/bin:/bin", "HOME": str(home), "VENV_PY": sys.executable,
+                               "HOOKS_REGISTRY": str(REGISTRY), "CODEX_AGENTS_MD": str(link)})
+    assert done.returncode == 0 and "AFTER" in done.stdout, done.stderr
+    assert "WARN Did not add the Cicada block" in done.stdout and "is a symlink" in done.stderr
+    assert link.is_symlink() and _raw(target) == OWN

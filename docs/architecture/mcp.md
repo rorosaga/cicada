@@ -698,10 +698,13 @@ same way.
 - **Codex's AGENTS.md (2026-10-23).** Codex attached to the server but given no note never called a Cicada tool. One
   short block between `<!-- cicada:begin … -->` and `<!-- cicada:end -->` in `~/.codex/AGENTS.md` tells it to call
   `cicada_continue()` and `cicada_recall` first (`registry.py agents-md-install`: idempotent, an older block replaced in
-  place, the rest of the file byte for byte, unpaired markers never touched). `GET /agents/wiring` reports it as
+  place, the rest of the file byte for byte, unpaired markers never touched; a symlinked `AGENTS.md` — a dotfiles copy —
+  is never written through or over: every verb refuses it with the block to paste by hand, the wiring reads `invalid`
+  and offers nothing, and `install.sh` warns and goes on). `GET /agents/wiring` reports it as
   Codex's `agents_md` and lists the `agents-md` step in `connect` while it is off or stale (never on a timed-out probe),
   so the Agents page's Connect and `cicada setup` add it — setup runs whatever `connect` lists, even for an agent that
-  already reaches Cicada; `install.sh` adds it with Codex's hooks and `--uninstall` removes it. Codex's SessionEnd
+  already reaches Cicada, and the Agents page offers a wired Codex that one step alone (`AgentQuickSetup.actions`);
+  `install.sh` adds it with Codex's hooks and `--uninstall` removes it. Codex's SessionEnd
   flush is registered with `--timeout 3` (Codex's cap; it warned on every start at 5).
 - **The ledger.** One `hook_recall` ledger row per firing, ids and enums only, filed beside `read`.
 - **Waiting reads (G166).** While agent reading is on, a session hears once — at SessionStart, or on its first prompt —

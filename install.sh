@@ -484,7 +484,8 @@ if command -v codex >/dev/null 2>&1; then
   if run "$VENV_PY" "$HOOKS_REGISTRY" agents-md-install --settings "$CODEX_AGENTS_MD"; then
     ok "Cicada block in $CODEX_AGENTS_MD (idempotent)"
   else
-    warn "Could not add the Cicada block to $CODEX_AGENTS_MD — its Cicada markers do not pair; fix the file and re-run"
+    # The registry printed why (a symlinked file, with the block to paste by hand; or markers that do not pair).
+    warn "Did not add the Cicada block to $CODEX_AGENTS_MD — the reason is above; the rest of the install goes on"
   fi
 fi
 # G110 gate A: the same command under PreCompact and SessionEnd, as a best-effort

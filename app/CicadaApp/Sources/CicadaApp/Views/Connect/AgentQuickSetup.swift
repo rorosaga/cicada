@@ -18,9 +18,14 @@ enum AgentQuickSetup {
     /// computed by the app itself (R-FA15).
     static func actions(catalogId: String, setup: AgentSetupPrompt?, wiring: AgentWiring?) -> [AgentQuickAction] {
         var out: [AgentQuickAction] = []
-        if let wiring, wiring.id == catalogId, wiring.installed, !wiring.connect.isEmpty,
-           !(wiring.recall == "on" && wiring.autosave == "on") {
-            out.append(.connectForMe(wiring.turnOnSteps))
+        if let wiring, wiring.id == catalogId, wiring.installed, !wiring.connect.isEmpty {
+            if !(wiring.recall == "on" && wiring.autosave == "on") {
+                out.append(.connectForMe(wiring.turnOnSteps))
+            } else if wiring.connect.allSatisfy({ $0.step == "agents-md" }) {
+                // 2026-10-23: a Codex wired before the AGENTS.md block reads fully on; its one missing step is offered
+                // alone (no `mcp add` re-run, no flush), so Connect for me adds just the block.
+                out.append(.connectForMe(wiring.connect))
+            }
         }
         if AgentCatalog.setupHarnesses.contains(catalogId), setup?.kind == "prompt",
            let prompt = setup?.prompt, !prompt.isEmpty {
