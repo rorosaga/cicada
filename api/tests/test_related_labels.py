@@ -88,3 +88,50 @@ def test_confidence_never_picks_the_label(tmp_path):
     claims["owner"][0].confidence, claims["owner"][1].confidence = 0.3, 0.95
     bank = _bank(tmp_path, JOB_CHANGE[1:4:2], claims)
     assert _related(bank, "owner") == ["- [[New Example Co]] — works at"]
+
+
+def test_a_link_an_event_backs_stays_current(tmp_path):
+    """R-PJ3: an event is born closed, and a withdrawal record is no belief — neither says a link ended."""
+    from api.services.claims import HAPPENED, RETRACT_PREDICATE
+
+    happened = _claim("owner", HAPPENED, "new-co", "2026-09-21", until="2026-09-21")
+    withdrawn = _claim("owner", RETRACT_PREDICATE, "carol-example", "2026-09-30", until="2026-09-30")
+    edges = [{"source": "owner", "target": "new-co", "label": HAPPENED},
+             {"source": "owner", "target": "carol-example", "label": RETRACT_PREDICATE},
+             {"source": "owner", "target": "gone-co", "label": "works at"}]
+    claims = {"owner": [happened, withdrawn, _claim("owner", "works-at", "gone-co", "2025-01-10", until="2025-06-30")]}
+    bank = _bank(tmp_path, edges, claims)
+    assert _related(bank, "owner") == [f"- [[New Example Co]] — {HAPPENED}", f"- [[Carol Example]] — {RETRACT_PREDICATE}",
+                                       "- [[Gone Example Co]] — works at (until 2025-06-30)"]
+
+
+def _latest_shown(block: str) -> set[str]:
+    """The names a family line shows as its latest."""
+    shown = set()
+    for line in block.splitlines():
+        if " — latest " in line:
+            names = line.split(" — latest ", 1)[1].split(" and ", 1)[0]
+            shown |= {part.strip().strip("[]") for part in names.split(",")}
+    return shown
+
+
+def test_a_hubs_rollup_keeps_current_links_before_ended_ones():
+    """A hub keeps its latest weak facts and people (`entity_body._rolled_up`); ended links sort last in the edge list,
+    so without telling the rollup they took the kept lines from current ones (review of #442)."""
+    from api.services import entity_body
+
+    n, ended = 100, 5
+    edges = [{"source": "owner", "target": f"person-{i:03d}", "label": "knows"} for i in range(n - ended)]
+    edges += [{"source": "owner", "target": f"person-{i:03d}", "label": "knows (until 2025-06-30)", "ended": True}
+              for i in range(n - ended, n)]
+    names = {f"person-{i:03d}": f"Person {i:03d}" for i in range(n)}
+    block = entity_body.render_related([], edges, names, {k: "person" for k in names})
+    kept = [line for line in block.splitlines() if line.startswith("- [[")]
+    assert kept and not any("until" in line for line in kept), "an ended link never takes a kept line"
+    assert f"- [[Person {n - ended - 1:03d}]] — knows" in kept, "the latest current link is kept"
+    assert not {f"Person {i:03d}" for i in range(n - ended, n)} & _latest_shown(block), \
+        "an ended link is never shown among a family line's latest"
+    import re
+
+    counted = sum(int(m.replace(",", "")) for m in re.findall(r": ([\d,]+) pages? — latest", block))
+    assert len(kept) + counted == n, "no link is dropped: each is a line or counted on a family line"

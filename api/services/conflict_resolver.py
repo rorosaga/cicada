@@ -1342,7 +1342,7 @@ def related_edges(entity_id: str, edges: list[dict], claims_by_page: dict[str, l
     * a link whose every label's claims are closed keeps its first label, marked "(until <day>)", after the rest.
 
     Never drops a link and reads no model; a page with no claims renders as it did. Confidence plays no part."""
-    from api.services.claims import is_current
+    from api.services.claims import is_current, is_event, is_record
 
     def norm(label: str) -> str:
         text = " ".join(str(label or "").replace("-", " ").split()).lower()
@@ -1357,8 +1357,9 @@ def related_edges(entity_id: str, edges: list[dict], claims_by_page: dict[str, l
         other = entity_id if mirrored else str(edge.get("target", ""))
         predicate = norm(edge.get("label", ""))
         names = {predicate, "-".join(predicate.split())}
+        # An event is born closed and a withdrawal record is no belief: neither says a link ended (R-PJ3).
         found = [c for c in claims_by_page.get(source, ()) if (c.subject or source) == source and c.object == other
-                 and (c.predicate in names or c.id == edge.get("claim_id"))]
+                 and (c.predicate in names or c.id == edge.get("claim_id")) and not is_event(c) and not is_record(c)]
         live = [c for c in found if is_current(c)]
         if live:
             return "open", max(str(c.valid_from or "") for c in live)
@@ -1388,7 +1389,7 @@ def related_edges(entity_id: str, edges: list[dict], claims_by_page: dict[str, l
         else:
             edge, _state, day = rows[0]
             label = str(edge.get("label", "")).strip()
-            ended.append({"source": entity_id, "target": target,
+            ended.append({"source": entity_id, "target": target, "ended": True,
                           "label": f"{label} (until {day[:10]})" if day else label})
     return current + ended
 
