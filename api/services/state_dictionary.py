@@ -123,6 +123,10 @@ _OWN_ROW_TYPES = frozenset({"project", "person", "media", "directory", "deadline
 # "How to work with me". Stage 4 writes `tags: []` today, so the row never
 # depends on it (Instinct's "autonomy calibration", R3 P5).
 WORKING_TAGS = frozenset({"autonomy", "communication-style", "working-style"})
+# W6 (review of #459): a stale skill leaves "How to work with me", but the row never
+# drops below this many — the least stale stay, marked, so the row cannot empty.
+PREFERENCE_FLOOR = 3
+STALE_MARK = "(may be out of date)"
 
 RepoResolver = Callable[..., dict]
 
@@ -238,11 +242,15 @@ def _preferences(memory_path: Path, n: int) -> list[dict]:
     sort first; ties break on id so two runs agree (R1).
 
     W6 (2026-10-23): a skill whose summary rests on a belief that has since
-    closed is left out (``skill_staleness``) — the next one takes its place."""
+    closed is left out (``skill_staleness``) — the next one takes its place —
+    but never below ``PREFERENCE_FLOOR`` rows: the least stale (fewest closed
+    beliefs) fill up to it, each marked so an agent reads it with care."""
     from api.services import skill_staleness
 
     files = {f.stem: f for f in bank_index.files(memory_path, "entities")}
     pages: dict[str, tuple[list[str], str] | None] = {}
+    parsed: dict = {}
+    ends = skill_staleness.endable(memory_path)
 
     def page(page_id: str) -> tuple[list[str], str] | None:
         if page_id not in pages:
@@ -269,14 +277,21 @@ def _preferences(memory_path: Path, n: int) -> list[dict]:
         tags = {str(t).strip().lower() for t in raw_tags} if isinstance(raw_tags, list) else set()
         rows.append((0 if tags & WORKING_TAGS else 1, -_confidence(fm), f.stem, f))
     rows.sort(key=lambda r: r[:3])
-    kept = []
+    kept, stale = [], []
     for r in rows:
         if len(kept) >= max(0, n):
             break
         body = page(r[2])
-        if body is not None and skill_staleness.closed_since(r[3].frontmatter, body[1], page):
+        closed = skill_staleness.closed_since(r[3].frontmatter, body[1], page, ends, parsed) if body else []
+        if closed:
+            stale.append((len(closed), len(stale), r[3]))
             continue
         kept.append(_row(r[3]))
+    floor = min(max(0, n), PREFERENCE_FLOOR)
+    for _count, _order, f in sorted(stale, key=lambda s: s[:2])[: max(0, floor - len(kept))]:
+        row = _row(f)
+        row["one_liner"] = f"{row['one_liner']} {STALE_MARK}"
+        kept.append(row)
     return kept
 
 

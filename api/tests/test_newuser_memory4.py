@@ -183,6 +183,54 @@ def test_the_persons_own_relationship_never_closes_under_an_agents_word():
     assert dep.valid_to == "2026-09-11"
 
 
+def _own(memory: Path, *claims: Claim):
+    """The person's own claims (a manual edit) on their page."""
+    for c in claims:
+        c.origin, c.source_trust = "manual_edit", "user_stated"
+    path = memory / "entities" / f"{PERSON}.md"
+    parsed = markdown_parser.parse(path)
+    markdown_parser.write(path, parsed.frontmatter, write_claims(parsed.body, list(claims)))
+
+
+def _own_job_and_manager(memory: Path, *, end: str | None = None):
+    _own(memory,
+         Claim(id="clm_own_job", text="Bob works at Acme", subject=PERSON, predicate="works-at",
+               object="acme-example", valid_from="2026-08-20", expected_end=end),
+         Claim(id="clm_own_dep", text="Bob reports to Dana", subject=PERSON, predicate="reports-to",
+               object="dana-example", valid_from="2026-08-20", premises=["clm_own_job"]))
+
+
+def test_an_agents_stated_end_never_closes_the_persons_own_job_or_manager(tmp_path):
+    """Review of #459: an extracted ``ends`` restating the person's own job must not land on it, so neither the job
+    nor the manager resting on it closes when expiry passes that day."""
+    memory = _bank(tmp_path)
+    _own_job_and_manager(memory)
+    _sleep(memory, "2026-09-04", 1, "Bob Example",
+           [("works at", "Acme Example", {"ends": "2026-09-11"}),
+            ("reports to", "Dana Example", {"at": "Acme Example"})])
+    claim_expiry.expire(memory, date(2026, 9, 20))
+    by_id = {c.id: c for c in _claims(memory, PERSON)}
+    assert (by_id["clm_own_job"].valid_to, by_id["clm_own_job"].expected_end) == (None, None)
+    assert by_id["clm_own_dep"].valid_to is None
+
+
+def test_the_persons_own_stated_end_still_closes_their_job_and_manager(tmp_path):
+    memory = _bank(tmp_path)
+    _own_job_and_manager(memory, end="2026-09-11")
+    claim_expiry.expire(memory, date(2026, 9, 20))
+    by_id = {c.id: c for c in _claims(memory, PERSON)}
+    assert by_id["clm_own_job"].valid_to == "2026-09-11"
+    assert by_id["clm_own_dep"].valid_to == "2026-09-11"
+
+
+def test_a_closer_missing_from_the_page_never_closes_the_persons_own_relationship():
+    depends_on = predicates.build_endings_fn(None).depends_on
+    slot, dep = _job_pair("manual_edit", "user_stated")
+    slot = [c for c in slot if c.id != "clm_left"]
+    slot[0].origin, slot[0].source_trust = "manual_edit", "user_stated"
+    assert claim_reconciler.close_dependents(slot, depends_on, "2026-09-20") == []
+
+
 def test_a_relationship_said_after_the_job_ended_is_news():
     depends_on = predicates.build_endings_fn(None).depends_on
     slot, dep = _job_pair("claude-code", "agent_extracted")
@@ -232,7 +280,61 @@ def test_a_skill_citing_a_tool_the_project_later_dropped_leaves_how_to_work_with
            [PROJECT, "tool-example"], ["ep_2026-09-06_001", "ep_2026-09-27_001"])
     _skill(memory, "short-sessions", "Keep alpha-project sessions short.", [PROJECT, "tool-example"],
            ["ep_2026-09-06_001", "ep_2026-09-27_001"])
-    assert _prefs(memory) == ["short-sessions"], "only the summary naming the dropped tool goes"
+    rows = state_dictionary._preferences(memory, 1)
+    assert [r["id"] for r in rows] == ["short-sessions"], "only the summary naming the dropped tool goes"
+    rows = state_dictionary._preferences(memory, 10)
+    assert [r["id"] for r in rows] == ["short-sessions", "review-with-carol"], "under the floor, kept last"
+    assert rows[1]["one_liner"].endswith(state_dictionary.STALE_MARK)
+    assert not rows[0]["one_liner"].endswith(state_dictionary.STALE_MARK)
+
+
+def test_how_to_work_with_me_never_empties_and_keeps_the_least_stale(tmp_path):
+    memory = _bank(tmp_path)
+    _use(memory, closed="2026-10-09")
+    path = memory / "entities" / f"{PROJECT}.md"
+    parsed = markdown_parser.parse(path)
+    markdown_parser.write(path, parsed.frontmatter, write_claims(parsed.body, [
+        Claim(id="clm_dep", text="alpha-project depends on Tool Example", subject=PROJECT, predicate="depends-on",
+              object="tool-example", valid_from="2026-08-28", valid_to="2026-10-09")]))
+    eps = ["ep_2026-09-06_001", "ep_2026-09-27_001"]
+    for i in range(5):
+        _skill(memory, f"tool-skill-{i}", f"For alpha-project, use Tool Example (way {i}).", [PROJECT, "tool-example"],
+               eps)
+    rows = state_dictionary._preferences(memory, 5)
+    assert len(rows) == state_dictionary.PREFERENCE_FLOOR, "never below the floor, never above it from stale ones"
+    assert all(r["one_liner"].endswith(state_dictionary.STALE_MARK) for r in rows)
+    assert [r["id"] for r in state_dictionary._preferences(memory, 2)] == ["tool-skill-0", "tool-skill-1"], \
+        "the floor never exceeds the row's own cap"
+
+
+def test_a_belief_no_ending_closes_never_makes_a_skill_stale(tmp_path):
+    memory = _bank(tmp_path)
+    markdown_parser.write(memory / "entities" / "tool-example.md",
+                          {"name": "Tool Example", "type": "tool", "status": "active"}, "## Summary\nA tool.")
+    path = memory / "entities" / f"{PROJECT}.md"
+    parsed = markdown_parser.parse(path)
+    markdown_parser.write(path, parsed.frontmatter, write_claims(parsed.body, [
+        Claim(id="clm_m", text="alpha-project mentions Tool Example", subject=PROJECT, predicate="mentions",
+              object="tool-example", valid_from="2026-08-28", valid_to="2026-10-09")]))
+    _skill(memory, "tool-notes", "For alpha-project, Tool Example notes go in the wiki.", [PROJECT, "tool-example"],
+           ["ep_2026-09-06_001"])
+    (row,) = state_dictionary._preferences(memory, 1)
+    assert row["id"] == "tool-notes" and not row["one_liner"].endswith(state_dictionary.STALE_MARK)
+
+
+def test_each_page_is_parsed_once_per_rebuild(tmp_path, monkeypatch):
+    from api.services import skill_staleness
+
+    memory = _bank(tmp_path)
+    _use(memory, closed=None)
+    for i in range(6):
+        _skill(memory, f"s-{i}", f"For alpha-project, use Tool Example ({i}).", [PROJECT, "tool-example"],
+               ["ep_2026-09-06_001"])
+    calls: list[int] = []
+    real = skill_staleness.parse_claims
+    monkeypatch.setattr(skill_staleness, "parse_claims", lambda body: calls.append(1) or real(body))
+    assert len(state_dictionary._preferences(memory, 10)) == 6
+    assert len(calls) == 2, "the project page and the tool page, once each"
 
 
 def test_a_skill_written_after_the_drop_or_before_the_use_stays(tmp_path):

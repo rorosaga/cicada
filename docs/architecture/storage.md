@@ -339,7 +339,8 @@ belongs to (`at`) and writes the person's own working relationships from their s
 job at that organisation in the claim's existing `premises` (`claim_reconciler.link_premises`, after every claim of
 the pass is placed). When the job ends — an ending, or its stated end passing in `claim_expiry` — each open dependent
 naming it closes on the job's last day (`close_dependents`): same subject only, never one said after the job ended,
-never the person's own claim when an agent's word ended the job, nothing superseded. A relationship with no `at`
+never the person's own claim unless the job's end came from the person too (the claim that closed it, or the job's own
+stated end, `is_human`; a closer missing from the page counts as not), nothing superseded. A relationship with no `at`
 names no job and stays open (nothing is guessed from timing).
 **Repairing a bank:** `python -m api.services.coexist_reopen --bank <path> [--plan <file>] [--said-since <day> | --all]`
 is a dry run (counts by reason, and the places it would reopen — and those the window keeps closed — by when they were
@@ -541,7 +542,9 @@ entries — an agent's different state on them coexists with a divergence item.
 
 **Stated ends (G140).** A claim may carry `expected_end` — the date the fact itself says it stops
 being true — and a G17 `due` claim's ISO-date object is its own. An agent writes it through
-`cicada_write_claim`; Stage 1 through a relationship's `ends` (W7, above). Never a future `valid_to`, which
+`cicada_write_claim`; Stage 1 through a relationship's `ends` (W7, above). A restatement carries its end onto the
+claim it restates, except an agent's onto the person's own (`is_human`; review of #459), as an agent's ending never
+closes it. Never a future `valid_to`, which
 every reader takes to mean *closed*. Sleep's engine-free tail closes such a claim the day after its
 end (`claim_expiry`), in its own `Expiry <date>` commit (`Cicada-Author: cicada`, trigger
 `sleep/expiry`); a failed commit restores the pages rather than leaving them for the next
@@ -1365,8 +1368,10 @@ itself, the now-view, and capability notes. The now-view is **Standing** — the
 one-liner (through G117's resolver), their timezone (per request, never in `_state.md`, part of the
 cache key), *How to work with me* (standing `skill` pages by confidence alone, less any whose summary rests on a
 belief that closed after it was written — `skill_staleness`, W6 2026-10-23: a claim between two pages the skill draws
-on, open on the newest day its summary cites and closed after it, whose object the summary names; no model call, and
-the page itself is unchanged), long-standing
+on, open on the newest day its summary cites and closed after it, whose object the summary names and whose predicate an
+ending closes (`skill_staleness.endable`: the seed's endings, `also_ends`, `dependents`); no model call, each page's
+claims parsed once per rebuild, and the page itself is unchanged — never below three rows
+(`state_dictionary.PREFERENCE_FLOOR`): the least stale fill up to it, marked "(may be out of date)"), long-standing
 durable/evergreen pages — then **Current** — projects, each project with its `now`/`next` (G141),
 pages in focus in the last 14 days, people, recent conversations (G140, schema v2). A test holds R12 for every argument either primer names, for
 every remote scope set. Contract item 3 names `cicada_note_progress` (G141 PJ-3a; remotely only when the

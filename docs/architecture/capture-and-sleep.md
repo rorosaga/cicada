@@ -1710,7 +1710,8 @@ The same repair script grounds the existing unsourced skill pages from the Sleep
 **A summary that outlived its facts (W6, 2026-10-23).** Because the prose is written once, a skill born before a switch
 keeps describing the old stack ("<person-a> reviews the <tool> pull requests" after the project dropped the tool). Such a
 skill is left out of the handshake's *How to work with me* on the next cursor rebuild, which every Sleep runs
-(`skill_staleness`, `storage.md` "The handshake"); no model call is added. Rewriting the summary instead would need
+(`skill_staleness`, `storage.md` "The handshake"), but the row never drops below three: the least stale stay,
+marked; only a belief an ending closes counts. No model call is added. Rewriting the summary instead would need
 Stage 4 to be shown the stale skills and allowed to replace their prose — a few hundred input tokens on the call it
 already makes, and a change to the "prose is not touched" rule above — and is not done.
 

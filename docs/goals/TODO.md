@@ -1698,16 +1698,17 @@ A whole row moves to DONE only after its remaining implementation and required a
     words and why it is asked now. **B — a saved item is dated when it was saved.** A NEW save's or import's episode
     takes the save's own instant (`added_at`), else noon UTC of its day (`saved_at`), never later than now, as its
     `timestamp` and id day — as a calendar event takes its start (#435); a save with no recorded date keeps the day
-    Cicada took it in; existing episodes are never renamed (ruling 34). **C — an ending closes only its own subject's claims (owner,
-    2026-10-23).** Only an ending said about the project closes the project's claims; "the person dropped X" never
-    closes a project's use of X by rule. When the person's own words say they dropped or switched X for a project (the
-    project named, or plainly the subject of that turn), Stage 1 writes the ending on the project as its subject. Why:
-    #442's one Sleep in five that put the drop on the person's page; a cross-subject rule would let a remark about the
-    person end beliefs about everything they touch. Revisit if the drop replays fall below 19/20 on the project. **Why.** On the synthetic new user (counts only,
+    Cicada took it in; existing episodes are never renamed (ruling 34). **Why.** On the synthetic new user (counts only,
     `benchmarks/newuser`): the first inbox was three or four fold questions about the seed's own synonyms and one
     unexplained "How did it go?"; bookmarks saved in August read as saved on the import day. **Revisit** A if the
     person undoes `seed_fold` settles often (`GET /consumption/feedback`'s `sleepSettles`); B if a source's recorded
     save date proves unreliable.
+    **C — an ending closes only its own subject's claims (owner, 2026-10-23).** Only an ending said about the project
+    closes the project's claims; "the person dropped X" never closes a project's use of X by rule. When the person's own
+    words say they dropped or switched X for a project (the project named, or plainly the subject of that turn), Stage 1
+    writes the ending on the project as its subject. **Why.** #442's one Sleep in five that put the drop on the person's
+    page; a cross-subject rule would let a remark about the person end beliefs about everything they touch.
+    **Revisit** if the drop replays fall below 19/20 on the project.
 38. **The follow-ups: one API generated from the tool table, a capture-only phone, one-way syncs, traces with
     screenshots (owner, 2026-10-23; answers to the four decisions in the follow-ups proposal, `followups-2026-10-23.md`,
     kept outside the repo with the redesign research, recorded as rows by #451; G213, G91, G219, G218).**

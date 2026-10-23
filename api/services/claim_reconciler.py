@@ -254,8 +254,9 @@ def _reinforce(existing: Claim, incoming: Claim, *, today: str | None = None, un
         existing.evidence.append(ev)
         cited.add(ev.episode)
     # G140 Q-R6: a restatement that names an end is the newer statement of it;
-    # one that names none leaves the known end alone.
-    if incoming.expected_end:
+    # one that names none leaves the known end alone. An agent's stated end never lands on the person's own claim
+    # (``is_human``), as an agent's ending never closes it (``ending_shadowed_by_human``).
+    if incoming.expected_end and not (is_human(existing) and not is_human(incoming)):
         existing.expected_end = incoming.expected_end
 
 
@@ -890,8 +891,10 @@ def close_dependents(slot: list[Claim], depends_on: Callable[[str], str | None],
                 end = stated if stated and stated < today else None
             if not end:
                 continue
-            closer = by_id.get(job.superseded_by or "") or job
-            if is_human(dep) and not is_human(closer):
+            # Who ended the job: the claim that closed it, else the job itself (its own stated end). A closer that
+            # is not on the page is unknown, so the person's own relationship stays.
+            closer = by_id.get(job.superseded_by) if job.superseded_by else job
+            if is_human(dep) and (closer is None or not is_human(closer)):
                 if audit is not None:
                     audit.append({"action": "dependent_shadowed_by_human", "kept": dep.id, "job": job.id})
                 break
