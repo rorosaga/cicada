@@ -22,6 +22,14 @@ staged file, `FileExistsError` if the name is taken) — what new episodes use (
 duplicating (`duplicate_bank`) a bank never follow or copy a symlink, at any depth and whatever it points at, so a
 link inside a bank can never pull a file from outside it into an archive or a copy.
 
+**An episode's two dates** (TODO ruling 39, owner 2026-10-24). `timestamp` is the item's own date where its source
+gives one (published, created, sent, saved, happened) and `received_at` is when Cicada received it, aware UTC, written
+once when the file is created (`episode_ids.create_episode` → `stamp_received`, right after `timestamp`; `turns` stays
+the last key) and kept by every later edit. Both sit in the frontmatter, outside the content hash, so no G118 span
+moves. A feed item also records `published_at` (its `timestamp`'s source) and its url-index entry keeps it beside the
+ingest stamp `saved_at`; a save keeps `saved_at` / `added_at` as before. Episodes from before the ruling have no
+`received_at`: unknown, never inferred (`capture-and-sleep.md`, "Both dates on every episode").
+
 ### Entity schema
 
 ```yaml
@@ -1305,7 +1313,9 @@ traces/shots/<YYYY-MM-DD>/<id>.enc   the screenshot itself (downscaled JPEG), se
 - **What crosses into the bank** (`trace_memory`, only what the person's switches allow, nothing for a demo bank, one
   `user` commit per sync, trigger `capture/traces`): a YouTube span in front ≥ 20 s becomes a watch in the existing
   watch-history writer (`via: traces`, `dwell_s` — the day's seconds in front for that video, the larger figure kept,
-  "N min on screen" in the day's body), on with traces (`youtube_to_watch_history`); and, behind "Keep a daily summary
+  "N min on screen" in the day's body), on with traces (`youtube_to_watch_history`; on by default, confirmed by the
+  owner 2026-10-24, TODO ruling 39b: "same as having agents check your accounts", read access to keep things up to
+  date); and, behind "Keep a daily summary
   in memory" (off by default), one counted episode per finished local day (`source: traces-day`: time per app, the
   sites with the most time, the longest stretches with the titles the store kept), index-only (`history_index.kind` →
   `traces`) unless "Let Sleep learn from the summary" was on when it was written (`learn_from_traces: true`) — the only

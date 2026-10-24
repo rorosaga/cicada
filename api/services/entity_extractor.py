@@ -623,7 +623,14 @@ async def extract(
         # "Facts yes, activity no" (owner 2026-10-08): a memory export entry's date is the summary's, not a
         # mention's — its pages keep the facts and the source, never its date as when the thing came up.
         untimed = not episode_time.counts_as_activity(episode)
-        date_note = source_dates.summary_note(ep_day, today) if untimed else source_dates.date_note(ep_day, today)
+        # Ruling 39: a feed item is untimed too (no mention by the person), but its date is its publisher's, so the
+        # model is told when it was published rather than that it is an assistant's summary.
+        if episode_time.is_feed_item(episode):
+            date_note = source_dates.feed_note(ep_day, today)
+        elif untimed:
+            date_note = source_dates.summary_note(ep_day, today)
+        else:
+            date_note = source_dates.date_note(ep_day, today)
         # G179: a message conversation says who its other side is, before every chunk.
         source_note = correspondent_note(episode.get("correspondent"))
         their_observer = correspondent_observer(episode.get("correspondent"))

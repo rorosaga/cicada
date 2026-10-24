@@ -3233,6 +3233,8 @@ def _get_unprocessed_episodes(
             # extracted claims so each belief records which harness it came from.
             "origin": fm.get("origin") or _derive_origin(source),
             "timestamp": str(fm.get("timestamp", "") or ""),
+            # Ruling 39: a feed item's published moment — it makes the episode no time signal (`episode_time`).
+            **({"published_at": str(fm["published_at"])} if fm.get("published_at") else {}),
             "filepath": f.path,
             # G48: which conversation produced this episode. `session_id` is
             # stamped by the MCP seam at capture; `source_id` is G20's

@@ -10,6 +10,12 @@
 
 ## Current state and evidence
 
+- **2026-10-24 — ruling 39 recorded; both dates on every episode (G218, G71; branch `feat/both-dates`).** Every new
+  episode records `received_at` beside `timestamp` (the item's own date), stamped by `create_episode`; a feed item is
+  dated by its publisher and is no time signal, so a back catalogue is neither activity nor a charge; the Reader, the
+  Sources rows and recall show the received day only when it is days later. Trace watch history stays on (39b); app
+  wording goes to the coordinator (39c). No backfill: older episodes read as unknown.
+
 - **2026-10-23 — the new user, fourth pass (G148, G112; branch `fix/newuser-memory-4`).** A switch said for a project
   is written on the project (Stage 1's prompt; the seed's `uses` endings read `replaced`/`replaces`/`switched from`) —
   the owner's decision below keeps endings same-subject; a Stage 4 skill whose summary rests on a belief that closed
@@ -1736,3 +1742,36 @@ A whole row moves to DONE only after its remaining implementation and required a
     would have put a wider token on the device most easily lost; a two-way sync is a second source of truth.
     **Revisit** 1 if an operation ever has to differ between `/mcp` and `/v1`; 2 if the AI apps' connector reads prove
     unusable on the phone; 3's order on a new user's measured intake; 4 only through the G218 row's own triggers.
+39. **Both dates recorded for everything; trace watch history stays on; app wording to the coordinator (owner,
+    2026-10-24; the trigger was the connectors report's open question "RSS items dated when polled", `connectors.md`,
+    kept outside the repo with the redesign research; G218; branch `feat/both-dates`).** The owner's words: "have both
+    dates recorded for everything when available." **(a) Both dates.** Every new episode keeps `timestamp` as the
+    item's own date where its source gives one (published, created, sent, saved, happened — as before) and records
+    `received_at`, when Cicada received it, aware UTC. `episode_ids.create_episode`, the one door every new episode
+    goes through, stamps it (the stager writes it in `write_new`); it is set once — an edit in place, a re-date
+    (`redated_from` keeps the moved `timestamp`, never the receipt), a rename, a relay upgrade and a tombstone leave it.
+    A live hook's two dates are the same moment and both are written. Existing episodes are never renamed (ruling 34)
+    and get no backfill: a missing `received_at` reads as unknown, never guessed from the id, the file or
+    `redated_from`. A test fails when a module that mints an episode id creates one without it. **Feeds:** an RSS/Atom
+    item is dated by when it was published (`pubDate`, `published` else `updated`, `dc:date`; never after now) for its
+    `timestamp` and id day, records it as `published_at`, and is **no time signal** (`episode_time.is_feed_item`, the
+    "facts yes, activity no" rule of the memory export, keyed on `published_at` or `origin: rss`). What decay reads is
+    unchanged: a page's `last_referenced` / `decayed_through` / `learned_on` and, for pace and the repeat floor, the
+    dated ids among its `source_episodes`; a feed id is not among them — no mention week, no last-said day, no
+    conversation. So a new subscription's back catalogue is no burst of activity (the old poll-day dating made it one),
+    a page a feed item creates starts its silence clock the day Cicada learned it (no `last_referenced`), and a page it
+    touches keeps its last mention and its clock. Stage 1 is told the item was published on its day and is the
+    publisher's text, not the person's words. A feed's summary is the page's description (`preview`), no longer filed
+    under `## User note` as the person's. Subscribed ICS events already followed Calendar (their start once begun,
+    ruling of 2026-10-16) and gain `received_at`; they stay a time signal, as the Calendar app's events are.
+    **Surfaces:** the received day is shown only when it is at least two days after the item's own (`received_shown`):
+    the Reader's meta line ("May 1, 2023 · added Oct 24, 2026"), a Sources list row's help and spoken label, recall's
+    episode excerpt label; otherwise one date, as before. **(b) Watch history from activity traces stays on by
+    default** — "turned on by default, same as having agents check your accounts and stuff (mainly read access, to
+    update stuff)". Traces themselves stay off by default (ruling 38 §4); this is what a trace watch does once they
+    are on (G218). **(c) App wording calls are delegated** to the coordinator's recommendation, with "avoid
+    repetition"; another PR applies them. **Why.** Dating a feed by its poll day made a back catalogue look like a day
+    of activity; dating it by its publisher alone would have started pages' clocks years ago. Keeping both, and
+    treating what a feed published as no mention by the person, answers both. **Revisit** (a)'s feed rule only if a
+    feed proves to carry the person's own words (a feed of their own posts), and its surface threshold on the owner's
+    word; (b) through the G218 row's triggers.

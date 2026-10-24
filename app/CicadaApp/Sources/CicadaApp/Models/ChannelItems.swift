@@ -28,8 +28,13 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
     /// marks-2 (owner 2026-10-20) — a saved YouTube video: the row draws its still, asked by this page's id
     /// (`GET /sources/saved/{id}/still`). Nil for every other row and from an older backend.
     var video: Bool? = nil
+    /// Ruling 39 — the day Cicada received the item, sent only when it is days after `day` (the item's own date: a
+    /// feed's back catalogue, an old bookmark). Nil for every other row and from an older backend.
+    var received: String? = nil
 
-    enum CodingKeys: String, CodingKey { case kind, id, title, day, left, host, site, why, chat, videos, sittings, video }
+    enum CodingKeys: String, CodingKey {
+        case kind, id, title, day, left, host, site, why, chat, videos, sittings, video, received
+    }
 
     init(kind: Kind, id: String, title: String, day: String? = nil, left: String? = nil, host: String? = nil,
          site: String? = nil, why: ChannelItemWhy? = nil, chat: ChannelItemChat? = nil, videos: Int? = nil,
@@ -54,6 +59,7 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         videos = try? c.decodeIfPresent(Int.self, forKey: .videos)
         sittings = try? c.decodeIfPresent(Int.self, forKey: .sittings)
         video = try? c.decodeIfPresent(Bool.self, forKey: .video)
+        received = try? c.decodeIfPresent(String.self, forKey: .received)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -70,6 +76,7 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         try c.encodeIfPresent(videos, forKey: .videos)
         try c.encodeIfPresent(sittings, forKey: .sittings)
         try c.encodeIfPresent(video, forKey: .video)
+        try c.encodeIfPresent(received, forKey: .received)
     }
 }
 
@@ -163,7 +170,14 @@ enum CapturedItems {
         guard let day = ISODay(item.day) else { return nil }
         let text = day > today ? RelativeDay.absolute(day, today: today, locale: locale)
                                : RelativeDay.compactAge(day, today: today)
-        return (text, RelativeDay.full(day, locale: locale))
+        return (text, withReceived(RelativeDay.full(day, locale: locale), item, locale: locale))
+    }
+
+    /// Ruling 39 — a row's full date, then the day Cicada received the item when the backend sent one ("3 May 2023 ·
+    /// added 24 Oct 2026"). Said in the row's help and spoken label only: the row's own line stays one date.
+    static func withReceived(_ full: String, _ item: ChannelItem, locale: Locale = .autoupdatingCurrent) -> String {
+        guard let received = ISODay(item.received) else { return full }
+        return "\(full) · \(Copy.Provenance.added(RelativeDay.full(received, locale: locale)))"
     }
 
     /// How many rows the next refresh asks for, so a revalidation covers every row already shown (the server caps a
@@ -248,6 +262,7 @@ enum SavedItemText {
     static func day(_ item: ChannelItem, today: ISODay, locale: Locale = .autoupdatingCurrent)
         -> (text: String, help: String)? {
         guard let day = ISODay(item.day) else { return nil }
-        return (RelativeDay.phrase(day, today: today, locale: locale), RelativeDay.full(day, locale: locale))
+        return (RelativeDay.phrase(day, today: today, locale: locale),
+                CapturedItems.withReceived(RelativeDay.full(day, locale: locale), item, locale: locale))
     }
 }

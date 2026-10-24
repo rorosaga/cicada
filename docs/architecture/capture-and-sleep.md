@@ -241,6 +241,19 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   episode carries `processed_by` (`sleep` vs `agent`) so a flipped flag is distinguishable from a
   consolidation. `processed_by` also takes `user` — a companion note the person wrote in the app
   (G141 PJ-3b's Log; already processed, so Sleep never re-reads it).
+- **Both dates on every episode** (TODO ruling 39, owner 2026-10-24: "have both dates recorded for everything when
+  available"). `timestamp` stays the item's own date where its source gives one — a note's last edit, a message's
+  send, a bookmark's `date_added`, a reminder's creation or completion, a Notion row's date, a watched day's first
+  watch, a calendar event's start once begun, a feed item's publication — and `received_at` (aware UTC,
+  `episode_ids.RECEIVED_KEY`) is when Cicada received it. `create_episode` stamps it on every new episode, right after
+  `timestamp` with the `turns` sidecar still last (`stamp_received`); the stager writes it in `write_new`
+  (`EpisodeDraft.received_at` pins it for a writer with a pinned clock, the demo); a writer's own value wins. It is set
+  once: an edit in place, a re-date (`redated_from` keeps the moved `timestamp`, never the receipt), a rename, a relay
+  upgrade and a tombstone leave it. A live hook's two dates are the same moment, both written. Ids are never renamed
+  for it and older episodes are not backfilled: a missing `received_at` is unknown. `test_both_dates.py` fails when a
+  module that mints an episode id creates one without it. Surfaces show the received day only when it is at least two
+  days after the item's own (`episode_time.received_shown` / `received_after`): the Reader's meta line, a Sources list
+  row's help and spoken label (`received`), recall's excerpt label.
 - **Unique across processes, revision-safe against Sleep** (audit 2026-10-02 K01/A01). A new episode
   is created with `episode_ids.create_episode`, which never replaces a file: when another process
   (a stdio MCP server, the Stop hook, the backend) took the minted id first, it mints again. Dedup
@@ -2120,6 +2133,13 @@ with no timestamp or day and `untimed: true`. A change made only of memory entri
 `last_referenced`** (`created` and `decayed_through` are the cycle's day), and on an existing page moves neither
 `last_referenced` nor `decayed_through` and recovers no status; its facts, claims (with their `valid_from`) and
 `source_episodes` are written as usual. Any real conversation in the same change dates it as before.
+**A feed item is facts, not activity either** (TODO ruling 39, owner 2026-10-24). An RSS/Atom item is dated by when it
+was published (its `timestamp` and id day, `published_at`) and records when Cicada received it (`received_at`);
+`episode_time.is_feed_item` (`published_at` set, or `origin: rss` for the items written before, dated their poll day)
+makes it untimed by the same rule, so a new subscription's back catalogue is neither a burst of mentions today nor a
+page started years ago: what decay reads is the page's `last_referenced` / `decayed_through` / `learned_on` and the
+dated ids among `source_episodes`, and a feed id is never one of them. Stage 1 is told the item's published day and
+that it is the publisher's text (`source_dates.feed_note`), not an assistant's summary.
 Below 0.2 → `status: archived` (the page stays in `entities/`); below 0.4 → a decay nudge when live silence carries it across (never for what its age took there).
 Mentioned again → promoted back at `confidence = max(current, 0.6)` on the day it was said, read live or late (read
 on time); a mention never lowers, and one from long ago revives nothing its age would not have kept alive. Evergreen

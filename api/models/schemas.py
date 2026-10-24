@@ -1231,6 +1231,11 @@ class EpisodeText(CamelModel):
     truncated: bool = False
     title: str = ""
     timestamp: Optional[str] = None
+    #: Ruling 39 (owner 2026-10-24): when Cicada received the episode (its ``received_at``), sent only when that is
+    #: days after ``timestamp``, the item's own date (`episode_time.received_shown`) — a feed's back catalogue, an old
+    #: save, an imported conversation. Null when the two are the same day or two, and for an episode from before the
+    #: ruling (unknown) and a page.
+    received_at: Optional[str] = None
     harness: Optional[str] = None
     origin: Optional[str] = None
     #: The episode's ``source`` (G166: ``page-read`` is what an agent reported from a page — the

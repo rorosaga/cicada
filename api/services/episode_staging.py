@@ -34,6 +34,10 @@ What the move adds — each additive, each inert to an episode that does not use
   or written (R-N3). The hash describes the stored text; a match on the
   unscrubbed render counts as unchanged so a new scrub rule never re-queues or
   forks a legacy episode (R-LS4).
+* Both dates (ruling 39, owner 2026-10-24) — a new episode keeps ``timestamp`` as the item's own date where the draft
+  gives one and records ``received_at``, when Cicada received it (``episode_ids.create_episode`` stamps it, the one
+  door every new episode goes through). It is set once: an edit in place, a re-date (``redated_from`` keeps the moved
+  ``timestamp``, never the receipt), a rename, a relay upgrade and a tombstone all leave it as it was.
 * ``queue_for_sleep=False`` — an episode a deterministic parser consolidated and
   Sleep never will (``processed_by: parser``, R-LS10).
 * Relay upgrade (ruling 32) — a Claude or ChatGPT export's conversation whose
@@ -130,6 +134,9 @@ class EpisodeDraft:
     #: import's; everything that dates an episode reads ``timestamp``. Off by default: a writer whose first stamp is
     #: deliberate (a future calendar event, dated the day Cicada learned of it) keeps it.
     redate: bool = False
+    #: Ruling 39: when Cicada received the item, for a writer whose clock is pinned (the demo); absent, now. Written
+    #: only when the episode is created — never by an update, so a receipt is set once.
+    received_at: str | None = None
 
 
 @dataclass
@@ -425,6 +432,8 @@ def write_new(draft: EpisodeDraft, episodes_dir: Path, body: str, digest: str,
     fm = {
         "id": episode_id,
         "timestamp": normalise_timestamp(draft.timestamp) or episode_ids.utc_now_iso(),
+        # Ruling 39: the item's own date above, when Cicada received it here — set once, at creation.
+        episode_ids.RECEIVED_KEY: normalise_timestamp(draft.received_at) or episode_ids.utc_now_iso(),
         "source": draft.source,
         "title": draft.title or "Untitled",
         "processed": False,

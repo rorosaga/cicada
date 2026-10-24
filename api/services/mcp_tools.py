@@ -35,7 +35,8 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
-from api.services import agent_commits, agentic_write, demo_guard, episode_ids, episode_scrub, search_service
+from api.services import agent_commits, agentic_write, demo_guard, episode_ids, episode_scrub, episode_time
+from api.services import search_service
 # One fence rule for every frontmatter reader (L final review, finding 2).
 from api.services import bank_index, entity_bands, link_views, markdown_parser, page_lock, search_index, write_admission
 # One header and pair of markers for text the caller did not write (R-R29, G200 A9), re-exported for the bodies here.
@@ -3846,15 +3847,22 @@ def _fuse_episode_hits(vector: list[dict], words: list[dict], top_k: int) -> lis
 
 
 def _unread_label(memory_path: Path, episode_id: str) -> str:
-    """`` (<day>, not yet read by Sleep)`` for a conversation still ``processed: false``, else ``""``."""
+    """`` (<day>, not yet read by Sleep)`` for a conversation still ``processed: false``, else ``""``. Ruling 39: the
+    day Cicada received it joins as ``added <day>`` when it is days after the item's own date (an old article from a
+    feed, an imported conversation) — `` (added <day>)`` alone on one Sleep has read."""
     try:
         f = bank_index.file(memory_path, "episodes", f"{episode_id}.md")
     except Exception:  # noqa: BLE001
         return ""
-    if f is None or (f.frontmatter or {}).get("processed"):
+    if f is None:
         return ""
-    day = str((f.frontmatter or {}).get("timestamp") or "")[:10] or episode_id[3:13]
-    return f" ({day}, not yet read by Sleep)"
+    fm = f.frontmatter or {}
+    received = episode_time.received_shown(fm)
+    added = f"added {episode_ids.local_day(received).isoformat()}" if received else None
+    if fm.get("processed"):
+        return f" ({added})" if added else ""
+    day = str(fm.get("timestamp") or "")[:10] or episode_id[3:13]
+    return " (" + ", ".join(p for p in (day, added, "not yet read by Sleep") if p) + ")"
 
 
 def _provisional_lines(memory_path: Path, query: str, subject_ids: list[str]) -> list[str]:

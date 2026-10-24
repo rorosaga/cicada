@@ -1350,6 +1350,10 @@ per channel, `cicada.sources.capturedOpen.<channel>`) lists the items that sourc
 day, newest first, twenty at a time with "Show more" (`CapturedItemsList`): under onboarding's Import rows (a preview —
 the rows open nothing there), under every Integrations row, and as the Sources detail column's content for a source
 whose items are not saved links (a saved source's column is the same list in its `.saved` style, above).
+**Both dates (TODO ruling 39, 2026-10-24):** a row's line shows the item's own day only; when the item came in days
+later (a feed's back catalogue, an old bookmark) its help and spoken label add "· added <day>"
+(`CapturedItems.withReceived`), and the Reader's meta line reads "May 1, 2023 · added Oct 24, 2026"
+(`EpisodeText.receivedAt`, `Copy.Provenance.added`).
 `GET /sources/channels/{id}/items?offset&limit` (≤ 200; `api/services/channel_items.py`)
 derives it at read from the same set the row's count means — the notes index, the calendar and tab-group episodes (never
 a tombstoned one), the bookmark seen-set joined to the url index, a channel's media pages, a folder's files — engine-free
