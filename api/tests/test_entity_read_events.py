@@ -63,9 +63,10 @@ def test_reads_land_in_a_sibling_file_and_never_tick_the_telemetry_component(hom
 
 
 def test_reads_never_invent_an_unknown_connection_in_stats(home, tmp_path):
-    from datetime import date
+    from datetime import datetime, timezone
     tm.record_read("alpha-project", surface="app", bank="demo")
-    data = __import__("asyncio").run(consumption_stats.stats(tmp_path, range_="all", today=date.today()))
+    utc_today = datetime.now(timezone.utc).date()  # the ledger's day: UTC, like the routes
+    data = __import__("asyncio").run(consumption_stats.stats(tmp_path, range_="all", today=utc_today))
     assert data["by_connection"] == [], "R12 widens G113 R7 to the read kind"
     assert data["by_stage"] and data["by_stage"][0]["stage"] == "recall"
 
