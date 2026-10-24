@@ -72,7 +72,11 @@ _CONCEPTS = [
 
 _ALL_ENTITIES = _PEOPLE + _PROJECTS + _TOOLS + _COMPANIES + _CONCEPTS  # 60
 
-_ORIGINS = ("claude-code", "safari-tab", "telegram", "rss")
+#: Every synthetic episode here is a conversation (`user: …`), so each carries a conversational origin. Ruling 39: an
+#: `rss` origin marks a feed item, which is no time signal — the fourth origin was `rss` and dropped a quarter of the
+#: demo's conversations from project activity (review of #464). A Claude Desktop conversation carries its harness and a
+#: session, as a Claude Code one does, so the Sources page shows a "Claude Desktop" row where "RSS feeds" stood.
+_ORIGINS = ("claude-code", "safari-tab", "telegram", "claude-desktop")
 
 # G61 phase 2 S0 (plan R-AC26): the works-at conflict (`inbox-003`) gets one
 # person-added source, so a freshly generated demo shows the derived hint. Since 2026-10-14 a person's places
@@ -225,8 +229,9 @@ def _write_episodes(bank_dir: Path, day: date) -> list[dict]:
         }
         if processed:
             fm["processed_by"] = "sleep"
-        if origin == "claude-code":
-            fm["harness"] = "claude-code"
+        if origin in ("claude-code", "claude-desktop"):
+            # An agent's conversation: its harness row on the Sources page ("Claude Code", "Claude Desktop").
+            fm["harness"] = origin
             fm["session_id"] = f"ses_demo_{i:03d}"
 
         body = episode_scrub.scrub_body(f"user: {sentence}", writer="demo", bank=episodes_dir.parent.name)

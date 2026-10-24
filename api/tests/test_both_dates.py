@@ -96,22 +96,26 @@ def test_every_writer_that_mints_an_episode_records_received_at():
     file itself (the demo generators) must call ``stamp_received`` before it does (or create through
     ``create_episode`` and write only to update, as the Stop hook's writer does)."""
     minting, bare = [], []
-    for directory in ("services", "routers"):
-        for path in sorted((API / directory).glob("*.py")):
-            if path.name == "episode_ids.py":
-                continue
-            tree = ast.parse(path.read_text())
-            calls = _calls(tree)
-            if not calls & set(_MINTS):
-                continue
-            minting.append(path.name)
-            if not calls & set(_DOORS):
-                bare.append(path.name)
-            for fn in ast.walk(tree):
-                if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) and _calls(fn) & set(_MINTS) \
-                        and _writes_markdown(fn) and not _calls(fn) & {"stamp_received", "create_episode"}:
-                    bare.append(f"{path.name}:{fn.name}")
-    assert "episode_staging.py" in minting and "media_ingestor.py" in minting   # the scan sees the writers
+    # All of `api/` (scripts, the CLI, connectors, services, routers) and the MCP server; never the tests or a venv.
+    sources = [p for root in (API, API.parent / "mcp") for p in sorted(root.rglob("*.py"))
+               if not {".venv", "tests", "__pycache__"} & set(p.relative_to(root).parts)]
+    for path in sources:
+        if path == API / "services" / "episode_ids.py":
+            continue
+        name = path.relative_to(API.parent).as_posix()
+        tree = ast.parse(path.read_text())
+        calls = _calls(tree)
+        if not calls & set(_MINTS):
+            continue
+        minting.append(name)
+        if not calls & set(_DOORS):
+            bare.append(name)
+        for fn in ast.walk(tree):
+            if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) and _calls(fn) & set(_MINTS) \
+                    and _writes_markdown(fn) and not _calls(fn) & {"stamp_received", "create_episode"}:
+                bare.append(f"{name}:{fn.name}")
+    # The scan sees the writers.
+    assert "api/services/episode_staging.py" in minting and "api/services/media_ingestor.py" in minting
     assert bare == []
 
 
