@@ -114,7 +114,7 @@ def test_providers_route_serves_the_table(env):
     assert google["logo"] == "gemini" and google["later"] == ["Google Cloud (Vertex)"]
     assert "billing" in google["intelligence"][0]["note"]
     assert set(google["ways"][0]) == {"id", "label", "connects", "tier", "clients", "setup", "remoteApp", "pill",
-                                      "note"}
+                                      "note", "remoteLabel"}
 
 
 # --- G217: last seen without telemetry -------------------------------------------------------------------------------
@@ -289,6 +289,44 @@ def test_a_login_wall_in_a_read_files_a_request_naming_the_agent(env):
                                      fallback="to read the page you asked it to read")
     (row,) = agent_requests.open_requests(env["memory"])
     assert (row["agent"], row["reason"], row["url_hash"]) == ("opencode", "to read the page you asked it to read", "h1")
+
+
+def test_the_claude_way_names_desktop_here_and_claude_ai_through_the_connector():
+    """Ruling 39 (2026-10-24): one way, two products. The Mac app is Claude Desktop; the web and phone apps reach
+    Cicada through the remote connector as claude.ai — and nothing that names the connector says Desktop."""
+    way = agent_catalog.way("claude")
+    assert (way.label, way.remote_label) == ("Claude Desktop", "claude.ai")
+    assert (way.name_for("local"), way.name_for("remote"), way.name_for(None)) == ("Claude Desktop", "claude.ai", None)
+    assert "Desktop" not in way.name_for("remote")
+    wired = next(w for u in agent_catalog.snapshot()["providers"] for w in u["ways"] if w["id"] == "claude")
+    assert (wired["label"], wired["remoteLabel"]) == ("Claude Desktop", "claude.ai")
+    one_name = agent_catalog.way("claude-code")
+    assert one_name.remote_label is None and one_name.name_for("remote") == one_name.name_for(None) == "Claude Code"
+
+
+def test_a_sign_in_request_names_the_surface_that_asked(env):
+    from api.services import mcp_tools
+
+    class Remote:
+        harness, client_name, connector_id = "claude-web", "claude-ai", "conn-1"
+
+    class Local:
+        harness, client_name, connector_id = "claude-desktop", "claude-ai", None
+
+    mcp_tools._ask_person_to_sign_in(Remote(), env["memory"], "web.example.com", None, fallback="to read a page")
+    mcp_tools._ask_person_to_sign_in(Local(), env["memory"], "mac.example.com", None, fallback="to read a page")
+    rows = {r["site"]: r for r in agent_requests.open_requests(env["memory"])}
+    remote, local = rows["web.example.com"], rows["mac.example.com"]
+    assert (remote["agent"], remote["via"], local["agent"], local["via"]) == ("claude", "remote", "claude", "local")
+    remote_wire, local_wire = agent_requests.wire(remote), agent_requests.wire(local)
+    assert remote_wire["agentName"] == "claude.ai"
+    assert remote_wire["notification"]["title"] == "claude.ai needs you to sign in"
+    assert not any("Desktop" in text for text in (remote_wire["agentName"], remote_wire["notification"]["title"],
+                                                   remote_wire["notification"]["body"]))
+    assert local_wire["agentName"] == "Claude Desktop"
+    # A row written before the surface was recorded names neither product.
+    legacy = {k: v for k, v in remote.items() if k != "via"}
+    assert agent_requests.wire(legacy)["agentName"] == "An agent"
 
 
 def test_requests_expire_and_never_show_in_a_demo_bank(env):

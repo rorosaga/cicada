@@ -10,7 +10,7 @@ Shape: an :class:`Umbrella` per provider (Anthropic, OpenAI, Google, xAI, Meta, 
 model host) with one logo slug — a mark in the shared logo set (``logos/manifest.json``; one mark per umbrella, never a
 second mark for a sub-product) — and beneath it:
 
-* ``ways`` — each product a person connects to Cicada (Claude Code, the Claude app, Codex, ChatGPT, Grok Build…),
+* ``ways`` — each product a person connects to Cicada (Claude Code, Claude Desktop, Codex, ChatGPT, Grok Build…),
   with how it connects (``stdio`` MCP on this machine, ``hooks`` that capture its turns, ``remote`` through the G135
   connector, ``rest`` through the HTTP API for agents that cannot do MCP, ``messages`` for a texted agent, ``export``
   for an import), its ``GET /agents/setup`` ids, the G135 connector app it uses, and the ``clientInfo.name`` words
@@ -58,11 +58,22 @@ class Way:
     home: str | None = None
     skills: str | None = None
     reads: tuple[str, ...] = ()
+    #: The name this way goes by where it reaches Cicada through the remote connector or its account's export, when
+    #: that is not the local app (ruling 39, 2026-10-24): Claude Desktop on this Mac, claude.ai on the web and the
+    #: phone. ``label`` never names the remote surface for such a way; ``None`` means one name fits every surface.
+    remote_label: str | None = None
+
+    def name_for(self, via: str | None) -> str | None:
+        """This way's name for one surface: ``"remote"`` → ``remote_label``, ``"local"`` → ``label``. ``None`` when
+        the surface is unknown and the two differ, so a caller never names one surface by the other's name."""
+        if self.remote_label is None:
+            return self.label
+        return {"remote": self.remote_label, "local": self.label}.get(via or "")
 
     def wire(self) -> dict:
         return {"id": self.id, "label": self.label, "connects": list(self.connects), "tier": self.tier,
                 "clients": list(self.clients), "setup": list(self.setup), "remoteApp": self.remote_app,
-                "pill": self.pill, "note": self.note}
+                "pill": self.pill, "note": self.note, "remoteLabel": self.remote_label}
 
 
 @dataclass(frozen=True)
@@ -101,8 +112,8 @@ UMBRELLAS: tuple[Umbrella, ...] = (
     Umbrella("anthropic", "Anthropic", "claude", 1, ways=(
         Way("claude-code", "Claude Code", ("stdio", "hooks", "remote"), clients=("claude-code", "claude code"),
             setup=("claude-code",), remote_app="claude-code", pill=True, home=".claude", skills=".claude/skills"),
-        Way("claude", "Claude app", ("stdio", "remote", "export"), clients=("claude",),
-            setup=("claude-desktop", "claude"), remote_app="claude", pill=True),
+        Way("claude", "Claude Desktop", ("stdio", "remote", "export"), clients=("claude",),
+            setup=("claude-desktop", "claude"), remote_app="claude", pill=True, remote_label="claude.ai"),
     ), intelligence=(
         Intelligence("claude-plan", "Use my Claude plan", "plan"),
         Intelligence("byok-anthropic", "Anthropic API key", "key"),

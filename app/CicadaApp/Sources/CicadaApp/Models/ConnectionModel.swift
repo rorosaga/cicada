@@ -52,12 +52,17 @@ struct ProviderWay: Decodable, Equatable, Identifiable {
     var tier: Int = 1
     var setup: [String] = []
     var note: String?
+    /// The name this way goes by through the remote connector and its account's export, when that is another product
+    /// than the local app (ruling 39: Claude Desktop here, claude.ai on the web and phone); nil = one name for all.
+    var remoteLabel: String?
 
-    init(id: String, label: String, connects: [String] = [], tier: Int = 1, setup: [String] = [], note: String? = nil) {
+    init(id: String, label: String, connects: [String] = [], tier: Int = 1, setup: [String] = [], note: String? = nil,
+         remoteLabel: String? = nil) {
         self.id = id; self.label = label; self.connects = connects; self.tier = tier; self.setup = setup; self.note = note
+        self.remoteLabel = remoteLabel
     }
 
-    enum CodingKeys: String, CodingKey { case id, label, connects, tier, setup, note }
+    enum CodingKeys: String, CodingKey { case id, label, connects, tier, setup, note, remoteLabel }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -66,6 +71,7 @@ struct ProviderWay: Decodable, Equatable, Identifiable {
         tier = c.lenient(.tier, 1)
         setup = c.lenient(.setup, [])
         note = c.lenient(.note)
+        remoteLabel = c.lenient(.remoteLabel)
     }
 }
 

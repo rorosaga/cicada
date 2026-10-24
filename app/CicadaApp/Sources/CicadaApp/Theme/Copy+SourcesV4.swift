@@ -38,4 +38,14 @@ extension Copy {
     /// Conversations' find (DR-46): the list header's magnifier opens it.
     static let conversationsTitle = "Conversations"
     static let conversationsFind = "Find a conversation by title"
+
+    /// A conversation row's count (ruling 39, 2026-10-24): the row is one conversation, and the number is how many
+    /// times it was saved — its capture plus what the agent saved in it — never "episodes" (DR-59).
+    static func conversationSaved(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        n == 1 ? "Saved once" : "Saved \(UsageFormat.count(n, locale: locale)) times"
+    }
+    /// The pages a conversation wrote, counted where the row does not list them by name.
+    static func conversationPages(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "\(UsageFormat.count(n, locale: locale)) \(n == 1 ? "page" : "pages")"
+    }
 }

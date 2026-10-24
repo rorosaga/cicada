@@ -56,15 +56,15 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   behind the versioned first-use sheet), the signed-in session (ruling 25), the YouTube lists, Never explore, how the
   agent reads and watches, the sites — in one sheet from the Sources page's header (`ReadingInBrowserSheet`); the
   retired `reading` section and its rows open it (`SettingsHome.readingInBrowser`, `AppRouter.routeToReadingInBrowser`).
-- **Status words** (fix round): *Connected* (green) when seen within the backend's window, *Set up* (grey) when
-  configured, with conversations or seen before — the line then says "last seen <day>" — else *Not set up*
-  (`Copy.Presence`), for agents and paired devices alike. An agent's detail draws the connect steps (`AgentSetupSteps`:
+- **Status words** (fix round; words ruling 39, 2026-10-24): a dot and one word from one vocabulary — *Connected*,
+  *Not connected*, *Off* (the person turned it off), *Needs sign-in* — across onboarding, the Agents page, Sources and
+  Settings; "Found" and "Not set up" are never a status. The dot and the word agree: an agent or a paired device is *Connected* (green) when seen within the backend's window, configured, with conversations or seen before — recency lives in the line ("3 min ago", "last seen <day>"), never in the dot — else *Not connected* (`Copy.Presence`: `.connected`, `.idle` (only the line's wording differs), `.notConnected`). A plan or key in Settings → Intelligence nobody connected reads *Not connected*, never *Off*. An agent's detail draws the connect steps (`AgentSetupSteps`:
   Connect for me, Open in Cursor, the copied prompt) for the product picked among its umbrella's.
 - **Sleep:** the study room's preview first, the hours, then the scenery's source (the weather sentence in one line) and
   the mascot.
-- **Agents page** (`AgentsSidebarPage`): one row per umbrella from `/providers` — `LogoTile` · name · where · last seen
-  · conversations · a dot and one word (`/agents/live`, polled every 3 s while shown; conversations summed from
-  `sourcesOverview` by harness). A row opens its detail (DR-74): products and how each connects, page edits as *Writes
+- **Agents page** (`AgentsSidebarPage`): one row per umbrella from `/providers` — `LogoTile` · name · where it was seen
+  (never where it could connect: a row nothing has seen has no line) · last seen · conversations · a dot and one word (`/agents/live`, polled every 3 s while shown; conversations summed from
+  `sourcesOverview` by harness). A row opens its detail (DR-74): products and how each connects (`AgentProducts`: a way with a `remoteLabel` is two lines — "Claude Desktop · on this machine" and "claude.ai · from anywhere · by export" — so the connector is never named after the Mac app), page edits as *Writes
   at once* / *Proposes* (G198's list), *Copy setup prompt* (`/agents/setup`), *Import its chat export*, and *Remembers
   automatically* for a harness with hooks. *Add an agent token* (DR-75) makes a G213 token and shows its paragraph once;
   active tokens list with Revoke; the command-line tool closes the page.
@@ -385,19 +385,20 @@ Back, a visible **Skip** and the one primary Continue (⏎ never animates). What
 *Welcome*: the greeting (saved name, else the Mac account's, *Not you?* corrects it), one sentence, Continue — the owner
 PUT alone and first (G117 R1; a file dropped here waits for it) — *Try the demo* and *Set up later*.
 *Intelligence* (`IntelligenceStep`, ruling 36 D1): `IntelligenceStepState` — a signed-in plan (Auto resolving to it, or
-chosen) is pre-selected in words ("Using your Claude plan — you're signed in." / "Cicada runs your own Claude Code on your
-plan."), *Use an API key* opens Settings → Intelligence's own `IntelligenceRow`s for four keys (`featuredKeys`;
+chosen) is pre-selected, the plan said once ("Using your Claude plan" / "Cicada runs your own Claude Code.", ruling 39,
+2026-10-24 — Settings' own headline keeps "— you're signed in."), *Use an API key* opens Settings → Intelligence's own `IntelligenceRow`s for four keys (`featuredKeys`;
 paste → Verify, the 422/503 sentences) with "More keys in Settings → Intelligence"; with nothing that can read, the plans
 and those keys show side by side. A local model is never offered. The step writes only from a row's click (Sign in,
 Verify, *Use* through `IntelligenceView.write(using:)`); Continue and Skip change nothing.
 *Agents* (`AgentsStep`, fix round 2026-10-22): one row per provider umbrella (`ProviderDirectory`, `GET /providers`,
 as the Agents page lists them) holding the products of it found on this machine (`AgentStepRows.rows`: `/agents/wiring`
-says installed, the Claude app is present, or `/agents/live` saw it; `umbrellas` groups them) — Anthropic: Claude Code ·
-Claude app; OpenAI: Codex. The umbrella's own mark in a `LogoTile`, never a product badge (a product no umbrella claims
-wears its vendor's mark, `umbrellaLogo`); a dot and one word (Found → Waiting → Connected, green when any product first
-calls, polled every 3 s). One *Connect* opens each found product's own action, Settings' paths: Connect for me plus
+says installed, Claude Desktop is present, or `/agents/live` saw it; `umbrellas` groups them) — Anthropic: Claude Code ·
+Claude Desktop; OpenAI: Codex. The umbrella's own mark in a `LogoTile`, never a product badge (a product no umbrella claims
+wears its vendor's mark, `umbrellaLogo`); a dot and one word (Not connected → Waiting → Connected, green when any product
+first calls, polled every 3 s; the Agents page's vocabulary, never "Found"). One *Connect* opens each found product's own
+action, Settings' paths: Connect for me plus
 Remembers automatically (R-OB12) through `AgentConnect.run` with the wiring answer's binaries — "Cicada runs exactly these
-commands…" and *Run these*, the commands behind a collapsed *Show commands* (spec decision 14); *Set up Claude*'s merge;
+commands…" and *Run these*, the commands behind a collapsed *Show commands* (spec decision 14); *Set up Claude Desktop*'s merge;
 *Open in Cursor*; else *Copy setup prompt*. A plugin-wired Claude Code is offered nothing to run. Below: *Another agent*
 (the generic prompt) and *Personal agents* → *Add an agent token* (G213, `AddAgentTokenSheet`).
 *Sources* (`SourcesStep`): `SourceTiles` — a grid of `SourceLogoTile`s: Calendar, Contacts and each supported browser
@@ -985,7 +986,7 @@ what to hand an agent instead of running anything (for Claude Code with the plug
 - for `other` (2026-10-14, "Another agent"), one generic prompt — the server spec, "add one MCP server named cicada to
   your own MCP settings, in the shape they already use", change nothing else, if you can't, say where they live and
   what to add, uploads nothing, one sentence back — that names no agent (provider-neutral copy);
-- for the Claude app, a config merge the APP performs and **no prompt**: its chat cannot edit its own config, and
+- for Claude Desktop, a config merge the APP performs and **no prompt**: its chat cannot edit its own config, and
   handing the file to some other agent would trade the app's backup-first merge for a hand edit of a file holding
   other servers' secrets.
 
@@ -1294,7 +1295,7 @@ pending from that category, as a small notification."*
   Messages lists one row per chat — its face, who it is with, its newest day and "N sittings" — opening in place to
   its sittings by day and message count, each opening in the Reader (`ChatSittingsRow`, `GET /sources/messages/chats/
   {id}/sittings`, `ChannelItemsCache.refreshSittings`); the list follows the overview too, so a chat photo reaches it. A conversation row inside its
-  harness's list shows neither the harness badge nor "1 episode" (`ConversationRow.inSourceList`). The conversations'
+  harness's list shows neither the harness badge nor "Saved once" (`ConversationRow.inSourceList`); a conversation saved more than once says "Saved 3 times" (its `episodeCount`, never "episodes", ruling 39), and the pages it wrote are neutral `Tag`s by name, the id in `.help` (as Past reads' run detail). The conversations'
   find moved out from under the header into the list's own header, behind its magnifier and ⌘F (DR-46; kept, not
   dropped, because the list holds the newest 200 and find is how an older one is reached by title, and where the
   palette's hand-off lands).

@@ -224,7 +224,7 @@ struct IntelligenceRow: View {
                        systemFallback: isLocal ? "desktopcomputer" : "key",
                        detail: detail,
                        status: isLocal ? nil : (connected ? (isKey ? Copy.Status.saved : Copy.Status.connected)
-                                                          : Copy.Status.off, connected),
+                                                          : Copy.Status.notConnected, connected),
                        quiet: isLocal) {
             actions
         } below: {

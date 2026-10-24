@@ -21,11 +21,23 @@ final class OnboardingStepsTests: XCTestCase {
 
     func testASignedInPlanIsPreselectedAndSaysWhatRuns() {
         XCTAssertEqual(IntelligenceStepState.of(response(selected: "auto", engine: "claude-cli")),
-                       .plan(line: "Using your Claude plan — you're signed in.",
-                             runs: "Cicada runs your own Claude Code on your plan.", mark: "claude"))
+                       .plan(line: "Using your Claude plan",
+                             runs: "Cicada runs your own Claude Code.", mark: "claude"))
         XCTAssertEqual(IntelligenceStepState.of(response(selected: "auto", engine: "codex-cli")),
-                       .plan(line: "Using your ChatGPT plan — you're signed in.",
-                             runs: "Cicada runs your own Codex on your plan.", mark: "openai"))
+                       .plan(line: "Using your ChatGPT plan",
+                             runs: "Cicada runs your own Codex.", mark: "openai"))
+    }
+
+    /// Ruling 39 (2026-10-24, "avoid repetition"): the card names the plan once, across both of its lines.
+    func testThePlanCardSaysThePlanOnce() {
+        for (selected, engine) in [("auto", "claude-cli"), ("auto", "codex-cli"), ("agent", "claude-cli"),
+                                   ("codex", "codex-cli")] {
+            guard case let .plan(line, runs, _) = IntelligenceStepState.of(response(selected: selected, engine: engine))
+            else { return XCTFail("\(selected)/\(engine) is the person's plan") }
+            let card = "\(line) \(runs)".lowercased()
+            XCTAssertEqual(card.components(separatedBy: "plan").count - 1, 1, card)
+            XCTAssertFalse(card.contains("signed in"), "in use already says signed in: \(card)")
+        }
     }
 
     func testNothingToReadWithShowsPlansAndKeysAsEquals() {
@@ -35,8 +47,8 @@ final class OnboardingStepsTests: XCTestCase {
 
     func testAChosenPlanReadsAsThePlanAndAKeyByItsOwnName() {
         XCTAssertEqual(IntelligenceStepState.of(response(selected: "codex", engine: "codex-cli")),
-                       .plan(line: "Using your ChatGPT plan — you're signed in.",
-                             runs: "Cicada runs your own Codex on your plan.", mark: "openai"))
+                       .plan(line: "Using your ChatGPT plan",
+                             runs: "Cicada runs your own Codex.", mark: "openai"))
         guard case let .chosen(title, _, _) = IntelligenceStepState.of(response(selected: "byok", engine: "litellm"))
         else { return XCTFail("a chosen key is shown by its own words") }
         XCTAssertEqual(title, "API key")
@@ -74,7 +86,9 @@ final class OnboardingStepsTests: XCTestCase {
         XCTAssertTrue(rows[1].connected)
         XCTAssertEqual(rows[2].action, .copy("Add Cicada"))
         XCTAssertEqual(AgentStepRows.status(rows[1], started: false).on, true)
-        XCTAssertEqual(AgentStepRows.status(rows[0], started: false).word, Copy.agentsFound)
+        XCTAssertEqual(AgentStepRows.status(rows[0], started: false).word, "Not connected",
+                       "the Agents page's word for the same state, never \"Found\" (ruling 39)")
+        XCTAssertFalse(AgentStepRows.status(rows[0], started: false).on)
         XCTAssertEqual(AgentStepRows.status(rows[0], started: true).word, Copy.Status.waiting)
     }
 
@@ -101,7 +115,8 @@ final class OnboardingStepsTests: XCTestCase {
     private var providers: [ProviderUmbrella] {
         [ProviderUmbrella(id: "anthropic", label: "Anthropic", logo: "claude",
                           ways: [ProviderWay(id: "claude-code", label: "Claude Code", setup: ["claude-code"]),
-                                 ProviderWay(id: "claude", label: "Claude app", setup: ["claude-desktop", "claude"])]),
+                                 ProviderWay(id: "claude", label: "Claude Desktop", setup: ["claude-desktop", "claude"],
+                                             remoteLabel: "claude.ai")]),
          ProviderUmbrella(id: "openai", label: "OpenAI", logo: "openai",
                           ways: [ProviderWay(id: "codex", label: "Codex", setup: ["codex"]),
                                  ProviderWay(id: "chatgpt", label: "ChatGPT", setup: ["chatgpt"])]),
@@ -119,7 +134,7 @@ final class OnboardingStepsTests: XCTestCase {
         let rows = AgentStepRows.umbrellas(providers, products: products)
         XCTAssertEqual(rows.map(\.id), ["anthropic", "openai", "hermes"])
         XCTAssertEqual(rows[0].logo, "claude", "the umbrella's mark, never Claude Code's badge")
-        XCTAssertEqual(rows[0].detail, "Claude Code · Claude app")
+        XCTAssertEqual(rows[0].detail, "Claude Code · Claude Desktop")
         XCTAssertEqual(rows[0].actionable.map(\.action), [.connect([add]), .setUpClaude],
                        "one Connect offers each product's own action")
         XCTAssertTrue(rows[1].connected)
@@ -127,7 +142,23 @@ final class OnboardingStepsTests: XCTestCase {
         XCTAssertTrue(rows[1].actionable.isEmpty)
         XCTAssertEqual(AgentStepRows.status(rows[1], started: []).on, true)
         XCTAssertEqual(AgentStepRows.status(rows[0], started: ["claude"]).word, Copy.Status.waiting)
-        XCTAssertEqual(AgentStepRows.status(rows[2], started: []).word, Copy.agentsFound)
+        XCTAssertEqual(AgentStepRows.status(rows[2], started: []).word, "Not connected")
+    }
+
+    /// Ruling 39: with no Claude Desktop on this Mac, a Claude seen calling came through the connector — it is named
+    /// claude.ai, never after the Mac app; with the app here it is Claude Desktop. Connected is green either way.
+    func testAConnectorOnlyClaudeIsNamedClaudeAiNeverDesktop() {
+        let live = ["claude": AgentLiveRow(id: "claude", connected: true, via: "remote")]
+        let remoteOnly = AgentStepRows.umbrellas(providers, products: AgentStepRows.rows(
+            wiring: AgentWiringResponse(agents: [], python: "", repo: "", memory: ""), live: live, setups: [:],
+            claudeAppInstalled: false))
+        XCTAssertEqual(remoteOnly.first?.detail, "claude.ai")
+        XCTAssertFalse(remoteOnly.contains { $0.detail.contains("Desktop") })
+        XCTAssertEqual(remoteOnly.first.map { AgentStepRows.status($0, started: []).on }, true)
+        let withApp = AgentStepRows.umbrellas(providers, products: AgentStepRows.rows(
+            wiring: AgentWiringResponse(agents: [], python: "", repo: "", memory: ""), live: live, setups: [:],
+            claudeAppInstalled: true))
+        XCTAssertEqual(withApp.first?.detail, "Claude Desktop")
     }
 
     /// No product badge stands in for an umbrella, even before `/providers` answers.
@@ -266,7 +297,7 @@ final class OnboardingStepsTests: XCTestCase {
         let frame = [Copy.onboardingStepOf(2), Copy.welcomeSetUpLater, Copy.onboardingBack, Copy.onboardingSkip,
                      Copy.onboardingContinue]
         let intelligence = words(frame + [Copy.intelTitle, Copy.intelSubline,
-                                          "Using your Claude plan — you're signed in.", Copy.intelRuns("Claude Code"),
+                                          Copy.intelUsing("Claude plan"), Copy.intelRuns("Claude Code"),
                                           Copy.intelUseKey])
         let sources = words(frame + [Copy.importTitle, Copy.sourcesSubline, Copy.sourcesHowToExport])
         let done = words([Copy.readyTitle, Copy.doneLead, Copy.doneReadNow, Copy.onboardingBack,

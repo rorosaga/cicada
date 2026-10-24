@@ -40,7 +40,7 @@ enum GettingStartedProgress {
     /// browser absent) still needs a name; these are the names the Welcome used.
     /// Round 4 (C9): every supported browser's name comes from `BrowserInventory.catalog`.
     static let fallbackTitles: [String: String] = ["agent:claude-code": "Claude Code", "agent:codex": "Codex",
-                                                   "agent:cursor": "Cursor", "agent:claude-desktop": "Claude"]
+                                                   "agent:cursor": "Cursor", "agent:claude-desktop": "Claude Desktop"]
         .merging(Dictionary(uniqueKeysWithValues: BrowserInventory.catalog.compactMap { spec in
             spec.bookmarksChannel.map { ("browser:\($0)", spec.name) }
         })) { first, _ in first }

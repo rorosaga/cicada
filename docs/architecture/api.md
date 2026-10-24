@@ -248,9 +248,11 @@ name a `cicada_…` tool; `llms.txt` maps each to its operation), `data`'s shape
 
 **The connection model's routes (G217, G205, G212, G50/G215; 2026-10-22).** Backend only; the app's redesign reads them.
 - `GET /providers` — the one table (`agent_catalog`): `{providers: [{id, label, logo, tier, ways: [{id, label, connects,
-  tier, clients, setup, remoteApp, pill, note}], intelligence: [{connection, label, kind, note}], later}], pills,
+  tier, clients, setup, remoteApp, pill, note, remoteLabel}], intelligence: [{connection, label, kind, note}], later}], pills,
   featured}`. One umbrella per provider, one logo slug each (the shared logo set's); `connects` ⊆ `stdio hooks remote rest
   messages export`; `setup` ids are `GET /agents/setup` harness ids; `intelligence.connection` is a `GET /connections` id.
+  `remoteLabel` (additive, ruling 39) names a way that is two products where it arrives through the remote
+  connector or its export (`claude`: `Claude Desktop` here, `claude.ai` there); null when one name fits.
   Static per release, no ETag. **Stable:** `providers[].id`, `ways[].id` (they are `/agents/live` ids), `logo` slugs,
   the `connects` words. **Not stable:** order, labels, notes, tier-3 rows.
 - `GET /agents/live` now answers every tracked way (`agent_catalog.TRACKED`): the eleven pills first in their old order
@@ -268,7 +270,8 @@ name a `cicada_…` tool; `llms.txt` maps each to its operation), `data`'s shape
 - **Agent requests (G205).** `POST /agent-requests {site, reason?, agent?, kind?: "sign_in"}` → 201 `{id, kind, agent,
   agentName, umbrella, logo, site, reason, createdAt, notification: {id, title, body, openUrl}}`; 422 for a non-host
   site or an unknown kind; 409 in a demo bank. A `needs_login` from `cicada_record_read` or `cicada_record_check` files
-  one too, naming the agent. Stored in `$CICADA_HOME/agent_requests/<bank>.json` (outside every bank, flock + atomic
+  one too, naming the agent by the surface it asked from (row `via: local|remote`; a remote-connector request of
+  `claude` is `claude.ai`, a local one `Claude Desktop`, a row without `via` `An agent`). Stored in `$CICADA_HOME/agent_requests/<bank>.json` (outside every bank, flock + atomic
   replace, 14-day expiry, one open request per agent·site·reason). `GET /inbox` serves them first as `kind:
   "agent_request"` with `request` set and options `done` / `dismiss`; `POST /inbox/{req-…}/resolve` with `optionKey`
   `done` lifts the site's `needs_login` pause, `dismiss` only closes it — never a bank write, no Sleep gate, 403 when

@@ -7,7 +7,7 @@ Sleep gate). Two kinds of process write it (the backend and each stdio MCP serve
 read-modify-write under an ``fcntl.flock`` and lands by temp file plus ``os.replace``. Its mtime folds into the
 ``inbox`` sync component, so the app's Inbox refreshes over SSE the moment a request lands.
 
-**A row** is ``{id, kind, agent, site, reason, created_at, url_hash?}``: ``agent`` is a catalog way id
+**A row** is ``{id, kind, agent, site, reason, created_at, url_hash?, via?}``: ``agent`` is a catalog way id
 (``agent_catalog``; its name and logo are joined at read), ``site`` a display host, ``reason`` the agent's own short
 words (scrubbed, at most :data:`MAX_REASON` characters) or Cicada's fixed sentence. No URL, no page title, no episode
 text. One open request per (agent, kind, site, reason) — asking again refreshes nothing and adds nothing.
@@ -41,6 +41,8 @@ EXPIRES_AFTER_DAYS = 14
 ID_RE = re.compile(r"^req-[a-f0-9]{8}$")
 _SITE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{0,252}$")
 ACTIONS = ("done", "dismiss")
+#: The surface a request came from: this machine (stdio, a paired device) or the remote connector (G135).
+VIAS = ("local", "remote")
 
 
 def _path(memory_path: Path) -> Path:
@@ -113,9 +115,11 @@ def clean_site(site) -> str | None:
 
 
 def ask(memory_path: Path, *, agent: str | None, site: str, reason: str | None = None, kind: str = "sign_in",
-        url_hash: str | None = None, now: datetime | None = None) -> dict | None:
+        url_hash: str | None = None, via: str | None = None, now: datetime | None = None) -> dict | None:
     """File one request (or find the open one it repeats). ``None`` when the site is not a host or the kind unknown —
-    the caller's own answer to the agent stands either way. Never raises on a full or unreadable file."""
+    the caller's own answer to the agent stands either way. Never raises on a full or unreadable file. ``via`` is the
+    surface the agent called from (``"local"`` or ``"remote"``, an enum), so a way that is two products names the
+    right one (``Way.name_for``: claude.ai over the remote connector, Claude Desktop on this Mac)."""
     if kind not in KINDS:
         return None
     host = clean_site(site)
@@ -123,14 +127,18 @@ def ask(memory_path: Path, *, agent: str | None, site: str, reason: str | None =
         return None
     agent = agent if agent and agent_catalog.way(agent) else agent_catalog.OTHER
     words = clean_reason(reason)
+    surface = via if via in VIAS else None
     moment = _now(now)
     with _locked(memory_path) as path:
         rows = [r for r in _read(path) if _alive(r, moment)]
         for row in rows:
-            if (row.get("agent"), row.get("kind"), row.get("site"), row.get("reason")) == (agent, kind, host, words):
+            if ((row.get("agent"), row.get("kind"), row.get("site"), row.get("reason"), row.get("via"))
+                    == (agent, kind, host, words, surface)):
                 return row
         row = {"id": f"req-{secrets.token_hex(4)}", "kind": kind, "agent": agent, "site": host, "reason": words,
                "created_at": moment.strftime("%Y-%m-%dT%H:%M:%SZ")}
+        if surface:
+            row["via"] = surface
         if url_hash and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", url_hash):
             row["url_hash"] = url_hash
         rows.append(row)
@@ -151,14 +159,19 @@ def is_request_id(item_id: str) -> bool:
     return bool(ID_RE.match(item_id or ""))
 
 
-def _agent_label(agent: str) -> str:
+def _agent_label(agent: str, via: str | None = None) -> str:
+    """The agent's name for the surface it asked from. A way that is two products (Claude Desktop here, claude.ai on
+    the web and phone) is named only when the row says which; an older row that does not is "An agent", never the
+    other product's name (ruling 39, 2026-10-24)."""
     way = agent_catalog.way(agent)
-    return way.label if way is not None and agent != agent_catalog.OTHER else "An agent"
+    if way is None or agent == agent_catalog.OTHER:
+        return "An agent"
+    return way.name_for(via) or "An agent"
 
 
 def notification(row: dict) -> dict:
     """What the app posts as a Mac notification: ids and the agent's own words, never episode text (G205)."""
-    who = _agent_label(str(row.get("agent") or ""))
+    who = _agent_label(str(row.get("agent") or ""), row.get("via"))
     reason = row.get("reason")
     body = f"{who} is asking you to sign in to {row['site']}" + (f", {reason}" if reason else "") + "."
     return {"id": row["id"], "title": f"{who} needs you to sign in", "body": body,
@@ -168,7 +181,7 @@ def notification(row: dict) -> dict:
 def wire(row: dict) -> dict:
     agent = str(row.get("agent") or agent_catalog.OTHER)
     umbrella = agent_catalog.umbrella_of(agent)
-    return {"kind": row.get("kind"), "agent": agent, "agentName": _agent_label(agent),
+    return {"kind": row.get("kind"), "agent": agent, "agentName": _agent_label(agent, row.get("via")),
             "umbrella": umbrella.id if umbrella is not None else None,
             "logo": umbrella.logo if umbrella is not None else None,
             "site": row.get("site"), "reason": row.get("reason"), "createdAt": row.get("created_at"),

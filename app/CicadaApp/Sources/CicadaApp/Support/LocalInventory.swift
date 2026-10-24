@@ -78,7 +78,7 @@ final class LocalInventory {
                                  content: .ownIntentionalAct, readiness: .ready, opensAnotherApp: true))
         }
         if s.installedBundles.contains(claudeDesktopBundleId) {
-            out.append(FoundItem(id: .agent("claude-desktop"), group: .agents, title: "Claude", isPresent: true,
+            out.append(FoundItem(id: .agent("claude-desktop"), group: .agents, title: "Claude Desktop", isPresent: true,
                                  content: .ownIntentionalAct,
                                  readiness: s.claudeDesktopHasCicada == true ? .alreadyOn : .ready, opensAnotherApp: true))
         }
