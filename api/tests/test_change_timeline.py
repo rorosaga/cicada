@@ -5,7 +5,8 @@ from __future__ import annotations
 
 import os
 import subprocess
-from datetime import date
+import time
+from datetime import date, datetime
 
 import pytest
 
@@ -73,6 +74,29 @@ def test_a_state_snapshot_is_not_a_change(bank):
     (d1,) = change_timeline.collect(bank, date(2026, 9, 20), date(2026, 9, 20))
     assert d1.consolidations == 1, "the Sleep cycle, never the State snapshot"
     assert change_timeline.kind_of("State snapshot 2026-09-20") is None
+
+
+@pytest.fixture
+def zone(monkeypatch):
+    """Pin the process zone (``TZ`` + ``tzset``; git reads ``TZ`` too) and restore it after."""
+    def pin(name: str) -> None:
+        monkeypatch.setenv("TZ", name)
+        time.tzset()
+    yield pin
+    monkeypatch.undo()
+    time.tzset()
+
+
+@pytest.mark.parametrize("clock", ["09:00", "17:00", "23:30"])
+def test_the_first_day_is_read_whatever_the_time_of_day_west_of_utc(bank, monkeypatch, zone, clock):
+    """git reads a bare ``--since`` date at the current time of day (``GIT_TEST_DATE_NOW`` is git's own clock for
+    that), so past 17:30 in a UTC-7 zone the padding day no longer reached a commit made at 00:30 UTC on the first
+    day asked for, and the day came back empty. Both bounds now carry a time."""
+    zone("America/Los_Angeles")
+    now = datetime.fromisoformat(f"2026-09-25T{clock}:00-07:00")
+    monkeypatch.setenv("GIT_TEST_DATE_NOW", str(int(now.timestamp())))
+    (d1,) = change_timeline.collect(bank, date(2026, 9, 20), date(2026, 9, 20))
+    assert d1.day == date(2026, 9, 20) and d1.consolidations == 1
 
 
 def test_the_reply_is_ids_and_counts_only(bank):

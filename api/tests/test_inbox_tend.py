@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -342,7 +342,8 @@ def test_the_ledger_keeps_sleep_apart_from_the_persons_verdict(memory, monkeypat
     assert _settle(memory, d)
     _restored, _p, _l, rec = inbox_tend.undo(memory, "inbox-001")
     inbox_tend.record_undo(memory, "inbox-001", rec)
-    data = run(consumption_stats.feedback(memory, range_="all", today=date.today()))
+    utc_today = datetime.now(timezone.utc).date()  # the ledger's day: UTC, like the routes
+    data = run(consumption_stats.feedback(memory, range_="all", today=utc_today))
     assert data["resolutions"] == 0                     # neither row is the person's verdict on the extractor
     assert data["sleep_settles"]["settled"] == 1 and data["sleep_settles"]["undone"] == 1
     assert data["sleep_settles"]["by_rule"]["one_off"] == {"settled": 1, "undone": 1}
