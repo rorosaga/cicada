@@ -84,6 +84,29 @@ JSON_ONLY_SUFFIX = (
     "no explanation, no markdown fences."
 )
 
+#: Every call replaces the CLI's own system prompt (perf report 2026-10-24, items 1 and 3). ``--system-prompt``
+#: replaces Claude Code's default coding-agent prompt (~2.3k tokens a call); ``--append-system-prompt`` would keep it.
+#: A caller with no system message of its own gets this one line, never the default.
+DEFAULT_SYSTEM_PROMPT = "Answer the request below directly and completely, from the text it gives you."
+
+#: Appended to every call's system prompt. The CLI still attaches context of its own beside the request, whatever
+#: ``--system-prompt`` says: the signed-in account's email address, the working directory, the platform and shell
+#: (measured on `claude` 2.1.310: no flag or variable removes the email while the plan sign-in is used). Sleep once
+#: wrote that email onto the owner page as three key facts. This tells the model it is not part of the request;
+#: ``engine_identity`` is the floor under it.
+CONTEXT_GUARD = (
+    "The tool that runs you may attach context of its own before the request: an account email address, a working "
+    "directory, the platform or shell. None of it is part of the request or of the text you were given. Never state "
+    "it, extract it, or treat it as a fact about anyone."
+)
+
+
+def system_prompt_for(system_prompt: str | None) -> str:
+    """The text every call sends as ``--system-prompt``: the caller's own (or :data:`DEFAULT_SYSTEM_PROMPT`), then
+    :data:`CONTEXT_GUARD`. Constant per stage, so the engine's prompt cache still serves it."""
+    own = (system_prompt or "").strip() or DEFAULT_SYSTEM_PROMPT
+    return own if CONTEXT_GUARD in own else f"{own}\n\n{CONTEXT_GUARD}"
+
 #: Per-stage ``--json-schema`` payloads. ONLY stages whose output shape is
 #: fully specifiable ship one: a structured-output mode that drops unlisted
 #: keys would silently gut entity extraction, and V1b verified the flag only
@@ -371,6 +394,9 @@ def build_argv(
       value from a small known set, so validate-and-reject would be the wrong
       tool here).
 
+    ``system_prompt`` is ALWAYS sent (perf report 2026-10-24): :func:`system_prompt_for` puts the default line in
+    place of an empty one and appends :data:`CONTEXT_GUARD`, so no call ever carries the CLI's own default prompt.
+
     ``effort`` (R-E11) is validated the ``model`` way — one lowercase word —
     and appended as ``--effort <level>`` only when set; ``None`` leaves the
     CLI's own default.
@@ -395,8 +421,8 @@ def build_argv(
     argv = [binary, *flags]
     if model:
         argv += ["--model", model]
-    if system_prompt:
-        argv += [f"--system-prompt={system_prompt}"]
+    # Always: with no `--system-prompt` the CLI sends its own default system prompt (items 1 and 3 above).
+    argv += [f"--system-prompt={system_prompt_for(system_prompt)}"]
     if effort:
         argv += ["--effort", effort]
     if json_schema is not None:
@@ -817,9 +843,10 @@ def complete(
         raise exc
 
     system_prompt, body = marshal_prompt(messages)
+    system_prompt = system_prompt_for(system_prompt)
     schema = schema_for_stage(stage, policy) if want_json else None
     if want_json and schema is None:
-        system_prompt = f"{system_prompt}\n\n{JSON_ONLY_SUFFIX}" if system_prompt else JSON_ONLY_SUFFIX
+        system_prompt = f"{system_prompt}\n\n{JSON_ONLY_SUFFIX}"
 
     argv = build_argv(model=model, system_prompt=system_prompt, json_schema=schema,
                       binary=binary, effort=policy.effort, tools=("WebSearch",) if policy.web_search else ())

@@ -583,13 +583,21 @@ async def _write_article(job: dict, settings: Settings) -> dict | None:
     completion = _litellm().acompletion
     llm_fn = resolve_llm_fn(settings, model=settings.effective_consolidation_model, completion=completion,
                             stage="merge")
-    response = await llm_fn(messages=[{"role": "user", "content": writer["prompt"]}],
+    response = await llm_fn(messages=entity_article.messages(writer["prompt"]),
                             response_format={"type": "json_object"})
     raw = json_parse.parse_json_object(response.choices[0].message.content)
     written = entity_article.parse(raw, writer["inputs"], name=writer["name"], aliases=writer["aliases"],
                                    known=writer["known"])
     if written is None:
         logger.debug(f"Article for {job['change']['id']}: not a valid article; the page keeps the merge")
+        return None
+    from api.services import engine_identity
+
+    plan_ids = engine_identity.identities(settings)
+    if plan_ids and engine_identity.leaks(raw, writer["prompt"], plan_ids):
+        # Perf report 2026-10-24, item 1: the article carries the plan account's identity, which the record never
+        # gave it. The page keeps the deterministic merge.
+        logger.info(f"Article for {job['change']['id']}: carried the engine's own account; the page keeps the merge")
         return None
     if written.dropped:
         logger.debug(f"Article for {job['change']['id']}: left out {written.dropped}")
@@ -1555,23 +1563,22 @@ def _max_date(left: str | None, right: str | None) -> str | None:
 
 # The merge prompt in two messages (2026-10-16 perf): the fixed rules as the system message — the same bytes every
 # call, so an engine's prompt cache serves them — and the page and its new information as the user message.
-# Every line of the one prompt it replaces is in one of the two, in its order within each.
-_SYNTHESIS_RULES = """You are updating an entity page in a personal knowledge graph.
+# Perf report 2026-10-24, item 2: the merge asks only for what is kept. It used to rewrite the whole body (~3k output
+# tokens a call), and only its Summary and the History lines it added were ever kept (`entity_body.adopt_rewrite`).
+# Every other section is carried by code, so the answer is the Summary and the new History lines, as JSON.
+_SYNTHESIS_RULES = """You are updating an entity page in a personal knowledge graph. The page reads like a short wiki article about this thing as it figures in the person's life. Code keeps every section of the page as it is except two: you write the page's new Summary and the History lines the new information adds.
 
 INSTRUCTIONS:
-1. Merge the new information into the existing page body. The page reads like a short wiki article about this thing as it figures in the person's life.
-2. The body is markdown sections in this order: `## Summary`, `## Key Facts`, `## History`, `## Links`, `## Open Questions`. Leave out `## Related` (code rebuilds it). Keep any other section exactly as it is.
-3. `## Summary`: one paragraph, 1-3 sentences, at most 600 characters: what it is, what it is to the person (built it, uses it, works with them, is deciding about it) and where it stands as of the latest dated information. Introduce the thing once: never a second sentence that says again what it is. Resolve contradictions by preferring the information with the LATER DATE (under DATES) — not whichever was read last. When the new information is dated earlier than the existing page, it never replaces the page's later statements. Details belong in `## Key Facts`, not in `## Summary`.
-4. `## Key Facts`: keep every existing bullet as written. Add a fact from the new information only when no existing bullet already says it, in any words; one fact per bullet, never two bullets for one fact. Never a bullet about the conversation itself ("was mentioned", "asked about").
-5. `## History`: add new dated entries in chronological order. Do not duplicate existing entries. If a new fact contradicts an older fact, the Summary takes the latest dated state and the earlier fact becomes a history bullet (e.g., "2026-03-15: Previously used Postgres, switched to SQLite").
-6. Preserve every wikilink ([[Entity Name]]) that appears in the existing body.
-7. Preserve specific details — dates, names, numbers.
-8. If the new information implies a change over time but the extraction did not provide an explicit dated history entry, you may use the source episode date as the fallback date for that change.
-9. Write as of when things were said, never as of today. A statement known only from conversations dated more than 90 days before today names its month and year ("In February 2025, …") and is never presented as current. Plans, intentions and states of mind ("considering", "planning", "interested in", "wants", "hopes") always name the month and year they were stated. Keep every date already written on the page. Never write "currently", "now", "recently", "this week" or "soon".
+1. `summary`: one paragraph, 1-3 sentences, at most 600 characters: what it is, what it is to the person (built it, uses it, works with them, is deciding about it) and where it stands as of the latest dated information. Introduce the thing once: never a second sentence that says again what it is. Resolve contradictions by preferring the information with the LATER DATE (under DATES) — not whichever was read last. When the new information is dated earlier than the existing page, it never replaces the page's later statements. Details belong in the page's Key Facts, not in the summary.
+2. `history`: the new dated entries, each one line "YYYY-MM-DD: what happened", in chronological order. Never an entry the existing page's History already says, in any words. If a new fact contradicts an older fact, the summary takes the latest dated state and the earlier fact becomes a history entry (e.g., "2026-03-15: Previously used Postgres, switched to SQLite"). An empty list when nothing new happened.
+3. Keep a wikilink ([[Entity Name]]) exactly as the existing body writes it when you name that thing.
+4. Preserve specific details — dates, names, numbers.
+5. If the new information implies a change over time but the extraction did not provide an explicit dated history entry, you may use the source episode date as the fallback date for that change.
+6. Write as of when things were said, never as of today. A statement known only from conversations dated more than 90 days before today names its month and year ("In February 2025, …") and is never presented as current. Plans, intentions and states of mind ("considering", "planning", "interested in", "wants", "hopes") always name the month and year they were stated. Keep every date already written on the page. Never write "currently", "now", "recently", "this week" or "soon".
 
 SUMMARY LENGTH (by entity type): skill 1 sentence; person, tool, concept, location 1-2 sentences; project, company 2-3 sentences.
 
-Output ONLY the updated markdown body. Do not include YAML frontmatter, do not wrap in code fences, do not add commentary."""
+Respond with JSON only: {"summary": "the new summary paragraph", "history": ["YYYY-MM-DD: what happened"]}"""
 
 _SYNTHESIS_INPUT = """ENTITY: {entity_name} (type: {entity_type})
 
@@ -1658,7 +1665,11 @@ async def _synthesize_entity_update(
         if restated or covered:
             logger.debug(f"Synthesis: {len(restated)} incoming fact(s) and {len(covered)} replaced orientation "
                          "sentence(s) restate the page and were not added")
-        return entity_orientation.compose(existing_body, fields, summary, restated=restated, covered=covered)
+        body = entity_orientation.compose(existing_body, fields, summary, restated=restated, covered=covered)
+        from api.services import engine_identity
+
+        plan_ids = engine_identity.identities(settings)
+        return engine_identity.scrub_lines(body, f"{existing_body}\n{prompt}", plan_ids) if plan_ids else body
 
     existing_body = strip_claims_block(existing_body)
     if not existing_body.strip() and not new_description.strip():
@@ -1691,16 +1702,57 @@ async def _synthesize_entity_update(
     )
     response = await llm_fn(
         messages=[{"role": "system", "content": _SYNTHESIS_RULES}, {"role": "user", "content": prompt}],
+        response_format={"type": "json_object"},
     )
-    body = response.choices[0].message.content or ""
-    body = body.strip()
-    if body.startswith("```"):
-        # Strip stray code fences
-        body = body.strip("`")
-        if body.lower().startswith("markdown"):
-            body = body[len("markdown"):]
-        body = body.strip()
-    return body or None
+    body = _body_from_answer(response.choices[0].message.content or "", existing_body)
+    if not body:
+        return None
+    from api.services import engine_identity
+
+    # Perf report 2026-10-24, item 1: never the plan account's identity unless what the model was given says it.
+    plan_ids = engine_identity.identities(settings)
+    return engine_identity.scrub_lines(body, f"{existing_body}\n{prompt}", plan_ids) if plan_ids else body
+
+
+def _body_from_answer(raw: str, existing_body: str) -> str | None:
+    """The merge's answer as the page body every caller already takes: the existing page with the answer's Summary
+    and its new History lines, every other section exactly as it was (``entity_body.adopt_rewrite``). An answer that
+    is not the JSON shape is read as a whole body, as the merge was before it asked for parts."""
+    from api.services import entity_body
+
+    text = (raw or "").strip()
+    parsed = json_parse.parse_json_object_or(text, {}) if "{" in text else None
+    if not isinstance(parsed, dict) or not ({"summary", "history"} & parsed.keys()):
+        if text.startswith("```"):
+            text = text.strip("`")
+            if text.lower().startswith("markdown"):
+                text = text[len("markdown"):]
+            text = text.strip()
+        return text or None
+    summary = parsed.get("summary")
+    summary = " ".join(summary.split()) if isinstance(summary, str) else ""
+    lines: list[str] = []
+    for item in parsed.get("history") if isinstance(parsed.get("history"), list) else []:
+        if isinstance(item, dict):
+            day, event = str(item.get("date") or "").strip(), str(item.get("event") or "").strip()
+            line = f"{day}: {event}" if day and event else event
+        else:
+            line = str(item or "").strip()
+            line = line[2:].strip() if line.startswith(("- ", "* ")) else line
+        line = " ".join(line.split())
+        if line:
+            lines.append(line)
+    if not summary and not lines:
+        return None
+    # Every section as the page has it, a hand-written one included (the old prompt's "keep any other section exactly
+    # as it is"); lead prose before the first heading is the Summary's, as `upgrade_legacy_to_v2` reads it.
+    sections = entity_body.parse_sections(existing_body)
+    lead = (sections.pop("", "") or "").strip()
+    if lead:
+        sections["Summary"] = "\n\n".join(p for p in (lead, (sections.get("Summary") or "").strip()) if p)
+    sections = entity_body.adopt_rewrite(sections, {"Summary": summary,
+                                                    "History": entity_body._bullets_block(lines)})
+    return entity_body.render_sections(sections) or None
 
 
 # Track P R9 — every example in here is a neutral placeholder, never a name.

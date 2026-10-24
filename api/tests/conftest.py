@@ -186,6 +186,18 @@ def _no_real_skill_tools_or_network(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_plan_account(monkeypatch):
+    """A Sleep stage on the Claude plan reads the signed-in account (`engine_identity`) to keep it out of memory. No
+    test may run the developer's `claude auth status`: every test reads no account unless it installs a placeholder."""
+    from api.services import engine_identity
+
+    monkeypatch.setattr(engine_identity, "reader", lambda: frozenset())
+    engine_identity.clear()
+    yield
+    engine_identity.clear()
+
+
+@pytest.fixture(autouse=True)
 def _no_live_sleep_probe(monkeypatch):
     """G135 final review: a stdio `cicada_write_claim` asks the backend's
     `GET /sleep/status` before committing. Unpinned, every such test would hit

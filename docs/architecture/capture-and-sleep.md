@@ -1024,6 +1024,13 @@ offline eval) and a fact the rewrite left out or rephrased was dropped or double
 source row on this path too. The cost: the rewrite can no longer delete a Key Fact it judged superseded; the dated
 History line it adds and the contradiction check's question to the person are how a superseded fact is resolved.
 
+**The legacy merge asks only for what is kept (perf report 2026-10-24, item 2).** Since only the Summary and the new
+History lines were ever kept, the call now asks for exactly those: `{"summary": …, "history": ["YYYY-MM-DD: …"]}`.
+It used to rewrite the whole body, about 3k output tokens a call and 26% of Sleep's model time. `_body_from_answer`
+builds the page body every caller already takes: the page as it is, every section kept exactly (a hand-written one
+included), with the answer's Summary and its new History lines (`adopt_rewrite`). Stage 5 and the inbox's conflict
+answer read it unchanged. An answer that is not that JSON is read as a whole body, as before.
+
 **A re-read is not a new mention (page quality, 2026-10-09).** Stage 3 makes no synthesis or contradiction call for
 an update whose conversations the page already credits (a resumed conversation read again, G104) when every sentence
 of its summary and every one of its facts is equal to a Summary sentence or Key Fact already on the page
@@ -1760,6 +1767,22 @@ writer's frontmatter; every later commit a Sleep commit carrying Sleep's own `sl
 now differs from what was added only in `confidence`, `status` and `decayed_through`, body unchanged (a decay commit
 stages the whole file, so a hand edit it carried shows). Anything else is kept. Same rails as the rest of the tool:
 refused while Sleep runs, dirty pages skipped, one `cicada` commit (`trigger: maintenance/skill-archive`).
+
+**Every engine call sends Cicada's own system prompt (perf report 2026-10-24, items 1 and 3).** `agent_engine.build_argv`
+always passes `--system-prompt=`, the replace form and never `--append-system-prompt`. A stage with no system message
+gets `DEFAULT_SYSTEM_PROMPT` (one line) instead of the CLI's default coding-agent prompt (~2.3k tokens a call).
+Disambiguation and the article writer have their own short ones. Every prompt ends with `CONTEXT_GUARD`, because the
+CLI still attaches context of its own. That includes **the signed-in account's email address**: on `claude` 2.1.310
+it comes from the plan sign-in, and no flag or variable removes it. In one benchmark Sleep it reached the owner page as
+three key facts. In the 2026-10-24 A/B a dev Sleep also gave the synthetic owner an alias made of the address's words
+before the `@`. The floor under the guard is `engine_identity`. On the Claude plan only, Stage 1 and the merge stage
+read the account's email from `claude auth status --json`, keep it in memory, and never log, write or send it. Its
+forms are the address, and the words before the `@` when there are two or more of three letters or more. They drop
+any item carrying a form (an alias, a fact, a history line, a link, a claim, a summary sentence, an entity named for
+it, an article) unless what the model was given says it: the episode, the owner's name and source note in the
+extraction prompt, or the merge's own input. An address or a full name the person typed is kept, and the evidence
+rail places its span as before. The account's profile name is not filtered on its own, because it is often the
+owner's own page.
 
 **The engine's own runtime is never a page.** The `claude -p` CLI still tells the model its cwd, platform and shell despite `--system-prompt` (probed 2.1.x; `--exclude-dynamic-system-prompt-sections` is ignored with it), so the extraction prompt says that is not conversation content and Stage 2 drops, with a text-free debug line, any entity named for `$CICADA_HOME` or a path under it (`agent_engine.is_runtime_path`; the scratch dir is one).
 
