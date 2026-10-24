@@ -97,7 +97,9 @@ def test_a_device_token_is_hashed_named_and_revocable(tmp_path, monkeypatch):
     device, token = store.create("  laptop\x00 ")
     assert device.name == "laptop" and token.startswith("cic_dev_" + device.id + "_")
     raw = (tmp_path / "server-home" / "devices" / "devices.db").read_bytes()
-    assert token.encode() not in raw and token.split("_")[-1].encode() not in raw
+    # The secret is url-safe base64 and may itself contain "_": strip the known prefix, never split on "_" (a split
+    # could leave a one-character tail that any sqlite file contains).
+    assert token.encode() not in raw and token.removeprefix(f"cic_dev_{device.id}_").encode() not in raw
     assert stat.S_IMODE((tmp_path / "server-home" / "devices").stat().st_mode) == 0o700
     assert stat.S_IMODE((tmp_path / "server-home" / "devices" / "devices.db").stat().st_mode) == 0o600
     assert store.verify(token).id == device.id
