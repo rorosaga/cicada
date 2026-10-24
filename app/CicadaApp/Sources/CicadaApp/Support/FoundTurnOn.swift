@@ -159,7 +159,8 @@ struct FoundTurnOnDeps {
                      calendar: CalendarReader? = nil, local: LocalSourceWatcher? = nil,
                      store: Store? = nil, contacts: ContactsReader? = nil,
                      tabGroups: TabGroupWatcher? = nil,
-                     permissionPlace: @escaping (String) -> PermissionPlace = { _ in .sources }) -> FoundTurnOnDeps {
+                     permissionPlace: @escaping (String) -> PermissionPlace = { _ in .sources },
+                     onPermissionGranted: @escaping @MainActor () -> Void = {}) -> FoundTurnOnDeps {
         var deps = FoundTurnOnDeps(
             wiring: { inventory.wiring },
             runtime: .current,
@@ -174,6 +175,8 @@ struct FoundTurnOnDeps {
         deps.disableBrowser = { watcher.disable($0) }
         deps.askFullDiskAccess = { channel in
             PermissionDragHelper.present(kind: .fullDiskAccess, place: permissionPlace(channel)) {
+                // Onboarding's grant sound (2026-10-24, `OnboardingSound`); every other host passes nothing.
+                onPermissionGranted()
                 Task { await inventory.refresh() }
             }
         }

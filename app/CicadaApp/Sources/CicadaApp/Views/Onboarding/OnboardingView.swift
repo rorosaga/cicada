@@ -47,6 +47,9 @@ struct OnboardingView: View {
     @State private var seeHow: ChatVendor?
     /// Held here, not by the Agents step, so Open Cicada records the agents it saw connect (R-OB13).
     @State private var live = AgentLiveProbe()
+    /// This run's two sounds, each at most once (owner 2026-10-24, DESIGN_RULES §9): a permission landing, the first
+    /// agent call.
+    @State private var sound = OnboardingSound()
     @State private var browsers = BrowserInventory.empty
     @State private var allowRequested: Set<FoundItemID> = []
     @State private var pageShownAt = Date()
@@ -67,6 +70,9 @@ struct OnboardingView: View {
                                      local: local, store: store, contacts: contacts, tabGroups: tabGroups,
                                      permissionPlace: { [mode] browser in
                                          mode == .rerun ? .onboardingRerun(browser: browser) : .onboarding(browser: browser)
+                                     },
+                                     onPermissionGranted: { [sound, store] in
+                                         sound.moment(.permissionGranted, inDemo: DemoMode.isActive(store.banks.value))
                                      }),
                          owner: owner, onShowHome: onShowHome, onClose: onClose,
                          onChecklistChanged: runner.checklistChanged)
@@ -131,6 +137,11 @@ struct OnboardingView: View {
             Task { await inventory.refresh() }
         }
         .onChange(of: inventory.items) { _, items in startGranted(items) }
+        // The Agents step's first call lands: its sound, once (`OnboardingSound`). An event from the person's agent,
+        // never a key in Cicada.
+        .onChange(of: live.firstCall) { old, new in
+            if old == nil, new != nil, page == .agents { playSound(.firstAgentCall) }
+        }
         .onChange(of: page) { _, next in
             furthest = max(furthest, next)
             pageShownAt = Date()
@@ -376,10 +387,17 @@ struct OnboardingView: View {
             case .off, .needsAction, .failed: false
             }
         }.keys)
-        for id in ImportTicks.startsAfterGrant(items: items, allowRequested: allowRequested, started: running) {
+        let granted = ImportTicks.startsAfterGrant(items: items, allowRequested: allowRequested, started: running)
+        // A preflight saw the grant the person was asked for: the permission sound, once.
+        if !granted.isEmpty { playSound(.permissionGranted) }
+        for id in granted {
             if let entry = entries.first(where: { $0.id == id }) { tick(entry, true) }
             allowRequested.remove(id)
         }
+    }
+
+    private func playSound(_ moment: OnboardingSoundMoment) {
+        sound.moment(moment, inDemo: DemoMode.isActive(store.banks.value))
     }
 
     private func setUpLater() {
@@ -458,6 +476,8 @@ struct OnboardingView: View {
         go(.sources, .keyboard)
         guard let browser = marker.place.browser,
               let entry = entries.first(where: { $0.id == .browser(browser) }) else { return }
+        // Back from the relaunch a grant needed, and the fresh process's preflight sees it: the permission sound.
+        if inventory.items.first(where: { $0.id == entry.id })?.readiness == .ready { playSound(.permissionGranted) }
         tick(entry, true)
     }
 }
