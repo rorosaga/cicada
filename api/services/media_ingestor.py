@@ -30,8 +30,8 @@ from urllib.parse import parse_qs, urljoin, urlparse
 from loguru import logger
 
 from api.services import (
-    bank_index, decay_policy, episode_ids, episode_scrub, history_index, markdown_parser, net_guard, saved_at,
-    video_chapters, video_urls,
+    bank_index, decay_policy, episode_ids, episode_scrub, episode_time, history_index, markdown_parser, net_guard,
+    saved_at, video_chapters, video_urls,
 )
 from api.services.id_utils import folder_tags, page_lists, sanitize_id
 
@@ -87,6 +87,11 @@ class RawItem:
     # ``DateAdded`` (``saved_at.instant_from_*``). Written to the episode as
     # ``added_at`` so the record says WHEN the page was saved, not only the day.
     added_at: str | None = None
+    # Ruling 39 (owner 2026-10-24): a feed item's own published moment (RSS ``pubDate``, Atom ``published`` /
+    # ``updated``, ``dc:date``) as aware UTC seconds, set only by ``parse_rss``. A new episode takes it as its
+    # ``timestamp`` and id day when no save date is known, records it as ``published_at``, and is no time signal
+    # (``episode_time.is_feed_item``): when Cicada received it is ``received_at``, as on every episode.
+    published_at: str | None = None
     note: str | None = None
     # Human-readable source folder/category path, e.g. "Bookmarks Bar/AI/Papers"
     # (Chrome/Safari folder tree) or a single enclosing folder name (Netscape
@@ -1421,9 +1426,15 @@ def parse_rss(xml: str) -> list[RawItem]:
 
     Handles both shapes:
     - RSS:  ``channel/item`` with ``<link>``, ``<title>``, ``<description>`` or
-      ``content:encoded`` (-> ``note``), ``<category>`` (-> ``tags``).
+      ``content:encoded`` (-> ``preview``), ``<category>`` (-> ``tags``),
+      ``<pubDate>`` / ``dc:date`` (-> ``published_at``).
     - Atom: ``<entry>`` with ``<link href=... rel="alternate">`` (alternate
-      preferred, else first link), ``<title>``, ``<summary>``, ``<category term>``.
+      preferred, else first link), ``<title>``, ``<summary>``, ``<category term>``,
+      ``<published>`` else ``<updated>`` (-> ``published_at``).
+
+    Ruling 39 (owner 2026-10-24): the feed's own text is the publisher's words, never the person's — it rides
+    ``preview`` (the description when the page gave none), not ``note``, which the episode files under
+    ``## User note`` as the person's own. Before the ruling a feed's summary landed there.
 
     Tags are namespace-stripped (``{ns}tag`` -> ``tag``). Entries with no usable
     link are skipped. A malformed document yields ``[]`` (never raises) so a bad
@@ -1475,8 +1486,8 @@ def parse_rss(xml: str) -> list[RawItem]:
         if not link:
             continue
         title = first_child_text(entry, "title")
-        # Body: content:encoded (RSS) > description (RSS) > summary (Atom).
-        note = (
+        # The publisher's text: content:encoded (RSS) > description (RSS) > summary (Atom).
+        summary = (
             first_child_text(entry, "encoded")
             or first_child_text(entry, "description")
             or first_child_text(entry, "summary")
@@ -1491,9 +1502,36 @@ def parse_rss(xml: str) -> list[RawItem]:
             url=link.strip(),
             title=title or None,
             tags=tags,
-            note=note or None,
+            preview=summary or None,
+            published_at=_feed_published(
+                first_child_text(entry, "pubDate") or first_child_text(entry, "published")
+                or first_child_text(entry, "date") or first_child_text(entry, "updated")),
         ))
     return items
+
+
+def _feed_published(raw: str | None) -> str | None:
+    """A feed entry's own date (ruling 39) — RFC 822 (RSS ``pubDate``) or ISO 8601 (Atom, ``dc:date``) — as aware UTC
+    seconds, or ``None`` when absent or unreadable (never guessed). A stamp with no zone is read as UTC, the feed
+    formats' own default; one in the future past tomorrow or before the sane floor is refused (``saved_at``)."""
+    text = (raw or "").strip()
+    if not text:
+        return None
+    moment: datetime | None = None
+    try:
+        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        from email.utils import parsedate_to_datetime
+
+        try:
+            moment = parsedate_to_datetime(text)
+        except (TypeError, ValueError, IndexError):
+            moment = None
+    if moment is None:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return saved_at.validate_instant(moment.isoformat())
 
 
 async def ingest_feed(
@@ -2018,8 +2056,19 @@ def write_media_episode(
     saved_moment = _saved_moment(validated_added, validated_instant)
     timestamp = saved_moment.isoformat() if saved_moment else episode_ids.utc_now_iso()
     ep_date = _saved_day(validated_added, validated_instant, saved_moment)
-    episode_id = episode_ids.next_episode_id(episodes_dir, ep_date)
+    # The body's "Saved" line keeps the day the link came in (a feed item was never saved on its published day).
     saved_date = ep_date
+    # Ruling 39 (owner 2026-10-24): a feed item with no save date is dated when it was published — its timestamp and
+    # id day, never after now — and says so (`published_at`, which also makes it no time signal, `episode_time`).
+    published = saved_at.validate_instant(item.published_at) if saved_moment is None else None
+    if published:
+        published_moment = _saved_moment(None, published)
+        if published_moment is not None:
+            timestamp = published_moment.isoformat()
+            ep_date = min(episode_ids.id_day(published_moment), datetime.now().strftime("%Y-%m-%d"))
+        else:
+            published = None
+    episode_id = episode_ids.next_episode_id(episodes_dir, ep_date)
 
     body = episode_scrub.scrub_body(_episode_body(
         meta, item.url, saved_date, item.note, folder=item.folder, reason=item.reason,
@@ -2050,6 +2099,8 @@ def write_media_episode(
     if validated_instant:
         # G191 — the instant the browser recorded the save, when it records one.
         frontmatter["added_at"] = validated_instant
+    if published:
+        frontmatter[episode_time.PUBLISHED_KEY] = published
     if item.origin:
         frontmatter["origin"] = item.origin
     if item.session_id:
@@ -2572,6 +2623,9 @@ def write_prepared(prepared: PreparedItem, memory_path: Path, idx: dict, *, appe
     validated_added = saved_at.validate(item.added)
     if validated_added:
         idx[h]["content_saved_at"] = validated_added
+    # Ruling 39: a feed item's own published moment beside the ingest stamp, so its row can show both dates.
+    if published := saved_at.validate_instant(item.published_at):
+        idx[h][episode_time.PUBLISHED_KEY] = published
     index_aliases(item, idx, h)
     return IngestResult(
         status="created",

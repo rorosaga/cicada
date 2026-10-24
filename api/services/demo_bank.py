@@ -230,6 +230,7 @@ def _write_episodes(bank_dir: Path, day: date) -> list[dict]:
             fm["session_id"] = f"ses_demo_{i:03d}"
 
         body = episode_scrub.scrub_body(f"user: {sentence}", writer="demo", bank=episodes_dir.parent.name)
+        episode_ids.stamp_received(fm, now=fm["timestamp"])   # ruling 39: a synthetic capture, received as it happened
         markdown_parser.write(episodes_dir / f"{ep_id}.md", fm, body)
         records.append({"id": ep_id, "sentence": sentence, "entities": (a_id, b_id, c_id), "date": ep_date_str})
     return records
@@ -671,6 +672,7 @@ def _write_scenario(bank_dir: Path, today: date) -> dict:
                 episode_staging.Turn(text=assistant, speaker="assistant", ts=f"{day}T{hour:02d}:05:00+00:00"),
             ])
             episode_staging.set_turn_stamps(fm, episode_staging.stamps_for(draft, body))
+        episode_ids.stamp_received(fm, now=fm["timestamp"])   # ruling 39: a synthetic capture, received as it happened
         markdown_parser.write(eps / f"{ep_id}.md", fm, body)
         ids[key] = ep_id
         paths.append(f"episodes/{ep_id}.md")

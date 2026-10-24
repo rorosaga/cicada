@@ -115,13 +115,17 @@ def create_episode(episodes_dir: Path, frontmatter: dict, body: str) -> str:
     is updated in place. Returns the id actually written.
 
     G181 phase 3: when a per-device token signed the request this runs in (``device_context``), the episode records
-    ``device: <id>`` unless its writer already set one."""
+    ``device: <id>`` unless its writer already set one.
+
+    Ruling 39 (owner 2026-10-24, "both dates recorded for everything"): every new episode records ``received_at``,
+    when Cicada received it (:func:`stamp_received`), beside ``timestamp``, the item's own date."""
     episode_id = str(frontmatter["id"])
     parsed = parse_episode_id(episode_id)
     # G181 phase 3: a new episode written while serving a device's request says which device it came from.
     from api.services import device_context
 
     device_context.stamp(frontmatter)
+    stamp_received(frontmatter)
     if parsed is None:
         raise ValueError(f"not an episode id: {episode_id!r}")
     for _ in range(CREATE_ATTEMPTS):
@@ -132,6 +136,34 @@ def create_episode(episodes_dir: Path, frontmatter: dict, body: str) -> str:
             episode_id = next_episode_id(episodes_dir, parsed[0])
             frontmatter["id"] = episode_id
     raise FileExistsError(f"no free episode id for {parsed[0]} after {CREATE_ATTEMPTS} attempts")
+
+
+#: Ruling 39 (owner 2026-10-24): the frontmatter key of when Cicada received an episode — aware UTC, written once
+#: when the episode file is created (:func:`create_episode`) and never changed after: an edit in place, a re-date
+#: (``redated_from``), a relay upgrade or a tombstone keeps it. ``timestamp`` stays the item's own date (published,
+#: created, sent, saved, happened) where its source gives one; for a live capture the two are the same moment. An
+#: episode written before the ruling has none, and a missing one reads as unknown — never guessed from the id, the
+#: file's mtime or ``redated_from``.
+RECEIVED_KEY = "received_at"
+
+
+def stamp_received(frontmatter: dict, *, now: str | None = None) -> dict:
+    """Set ``received_at`` on a NEW episode's frontmatter (a writer's own value wins), placed right after
+    ``timestamp`` (else right after ``id``) so an episode's two dates read together. Every other key keeps its order,
+    so the per-turn sidecar stays the last key (R-PB4). Mutates and returns ``frontmatter`` (:func:`create_episode`
+    updates the caller's dict in place)."""
+    if frontmatter.get(RECEIVED_KEY):
+        return frontmatter
+    value = now or utc_now_iso()
+    items = [(k, v) for k, v in frontmatter.items() if k != RECEIVED_KEY]
+    anchor = "timestamp" if any(k == "timestamp" for k, _ in items) else "id"
+    frontmatter.clear()
+    for key, val in items:
+        frontmatter[key] = val
+        if key == anchor:
+            frontmatter[RECEIVED_KEY] = value
+    frontmatter.setdefault(RECEIVED_KEY, value)
+    return frontmatter
 
 
 # --- The one critical section (audit K01 / A01) ----------------------------------

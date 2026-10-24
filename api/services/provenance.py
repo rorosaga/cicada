@@ -205,6 +205,7 @@ def episode_document(
         truncated=truncated,
         title=_opt(fm.get("title") if is_episode else fm.get("name")) or doc_id,
         timestamp=_opt(fm.get("timestamp")),
+        received_at=episode_time.received_shown(fm) if is_episode else None,
         harness=_opt(fm.get("harness")),
         origin=_opt(fm.get("origin")) or _opt(fm.get("source")),
         source=_opt(fm.get("source")),

@@ -6,8 +6,12 @@ claims and their sources are written from them like from any conversation. But t
 summary was last edited, not when anything in it came up, so a mention there never counts as the thing being
 mentioned, coming up or active on that day. Time signals come from real conversations only.
 
-This is the one predicate every time reader asks. It reads the stored ``source``, so it holds for banks consolidated
-before the rule existed: nothing is rewritten, and the episodes themselves keep their timestamps.
+Feed items join the rule under ruling 39 (owner 2026-10-24, :data:`FEED_ORIGINS`): what a feed published is no
+mention by the person either, whether it is dated by its publisher or by the poll that fetched it.
+
+This is the one predicate every time reader asks. It reads the stored ``source`` (and a feed's ``origin`` and
+``published_at``), so it holds for banks consolidated before the rule existed: nothing is rewritten, and the episodes
+themselves keep their timestamps.
 """
 from __future__ import annotations
 
@@ -31,11 +35,59 @@ from api.services import bank_index
 UNTIMED_SOURCES = frozenset({"claude_memory", "agent_relay", "source-refresh", "web-check", "traces-day",
                              "notion-export-undated"})
 
+#: Ruling 39 (owner 2026-10-24): a feed item (RSS/Atom) is dated by when it was published (``timestamp``, and its
+#: ``published_at``) and records when Cicada received it (``received_at``). It is something the outside world
+#: published, never the person mentioning anything — so it is no time signal, whichever date it carries: a new
+#: subscription's back catalogue is no burst of fresh activity (it used to be, dated the day it was polled), and a
+#: years-old article neither starts a page's clock years ago nor charges anything (its facts land like a memory
+#: export entry's: a page it creates starts its silence clock the day Cicada learned it; a page it touches keeps its
+#: last mention). ``origin: rss`` covers the feed items written before the ruling (dated their poll day);
+#: ``published_at`` covers every feed item since, the subscribed poll's, ``/sources/rss``'s and an uploaded feed
+#: file's alike.
+FEED_ORIGINS = frozenset({"rss"})
+#: The frontmatter key of a feed item's own published moment (aware UTC) — only a feed's writer sets it.
+PUBLISHED_KEY = "published_at"
+
+
+def is_feed_item(frontmatter: dict | None) -> bool:
+    """A feed item: published by someone else and received by subscription or a feed import (ruling 39)."""
+    fm = frontmatter or {}
+    return bool(fm.get(PUBLISHED_KEY)) or str(fm.get("origin") or "").strip().lower() in FEED_ORIGINS
+
 
 def counts_as_activity(frontmatter: dict | None) -> bool:
-    """False for an episode whose date is not a mention's (a memory export entry); True for everything else."""
+    """False for an episode whose date is not a mention's (a memory export entry, a feed item); True for everything
+    else."""
     source = str((frontmatter or {}).get("source") or "").strip().lower()
-    return source not in UNTIMED_SOURCES
+    return source not in UNTIMED_SOURCES and not is_feed_item(frontmatter)
+
+
+#: Ruling 39: the received date is shown beside an item's own date only when it is at least this many days later —
+#: a conversation captured the evening it began, or a save posted the next morning, says its one date once.
+RECEIVED_SHOWN_AFTER_DAYS = 2
+
+
+def received_shown(frontmatter: dict | None) -> str | None:
+    """The episode's ``received_at`` when a surface should show it beside the item's own date ("published 2023-05-01 ·
+    added today"), else ``None``: unknown (an episode from before ruling 39), unreadable, or within
+    :data:`RECEIVED_SHOWN_AFTER_DAYS` of the item's own day. Days are the person's (``episode_ids.local_day``)."""
+    from api.services import episode_ids
+
+    fm = frontmatter or {}
+    parsed = episode_ids.parse_episode_id(str(fm.get("id") or ""))
+    return received_after(fm.get("timestamp") or (parsed[0] if parsed else None), fm.get(episode_ids.RECEIVED_KEY))
+
+
+def received_after(own, received) -> str | None:
+    """``received`` (as stored) when its day is at least :data:`RECEIVED_SHOWN_AFTER_DAYS` after ``own``'s, else
+    ``None`` — the one rule behind every "· added <day>" (an episode's two dates, a saved link's own date and its
+    ingest). Either unreadable is ``None``: nothing is guessed."""
+    from api.services import episode_ids
+
+    got, day = episode_ids.local_day(received), episode_ids.local_day(own)
+    if got is None or day is None or (got - day).days < RECEIVED_SHOWN_AFTER_DAYS:
+        return None
+    return str(received)
 
 
 def untimed_ids(memory_path: Path | str | None) -> frozenset[str]:
@@ -55,32 +107,35 @@ def untimed_ids(memory_path: Path | str | None) -> frozenset[str]:
     return frozenset(out)
 
 
-_SOURCE_LINE = re.compile(r"^source:[ \t]*['\"]?([^'\"\r\n#]*?)['\"]?[ \t]*(?:#.*)?$")
+_KEY_LINE = re.compile(r"^(source|origin|published_at):[ \t]*['\"]?([^'\"\r\n#]*?)['\"]?[ \t]*(?:#.*)?$")
 
 
-#: One awk pass prints each episode's top-level ``source:`` value, reading only its frontmatter (``nextfile`` at the
-#: closing fence). One process instead of one open-and-read per episode: the card is often opened while a startup
-#: index build holds the interpreter, and each of thousands of file reads then waited its turn (owner page, 2026-10-14:
+#: One awk pass prints each episode's top-level ``source:``, ``origin:`` and ``published_at:`` values — what
+#: :func:`counts_as_activity` reads — from its frontmatter only (``nextfile`` at the closing fence, or once all three
+#: are seen). One process instead of one open-and-read per episode: the card is often opened while a startup index
+#: build holds the interpreter, and each of thousands of file reads then waited its turn (owner page, 2026-10-14:
 #: 1.7 s of a cold open on a synthetic bank of 2,000 conversations, ~0.1 s of it the reads themselves).
 _AWK = r"""
-FNR == 1 { inside = ($0 == "---"); if (!inside) nextfile; next }
+FNR == 1 { inside = ($0 == "---"); seen = 0; if (!inside) nextfile; next }
 inside && $0 == "---" { nextfile }
-inside && /^source:/ { v = $0; sub(/^source:[ \t]*/, "", v); sub(/[ \t]*#.*$/, "", v); gsub(/^['"]|['"]$/, "", v);
-                       print FILENAME "\t" v; nextfile }
+inside && /^(source|origin|published_at):/ {
+    k = $0; sub(/:.*$/, "", k); v = $0; sub(/^[a-z_]+:[ \t]*/, "", v); sub(/[ \t]*#.*$/, "", v);
+    gsub(/^['"]|['"]$/, "", v); print FILENAME "\t" k "\t" v; if (++seen == 3) nextfile }
 """
 
 
-#: ``{episodes dir: (its mtime, {path: source})}`` — an episode's source never changes, and a new or removed episode
-#: changes the directory's mtime. Per process, disposable, like `bank_index`.
-_MEMO: dict[str, tuple[int | None, dict[str, str]]] = {}
+#: ``{episodes dir: (its mtime, {path: keys})}`` — an episode's source, origin and published date never change, and a
+#: new or removed episode changes the directory's mtime. Per process, disposable, like `bank_index`.
+_MEMO: dict[str, tuple[int | None, dict[str, dict]]] = {}
 
 
 _AWK_BIN = "/usr/bin/awk" if os.path.exists("/usr/bin/awk") else "awk"
 
 
-def _sources(paths: list[Path]) -> dict[str, str] | None:
-    """``{path: source}`` for the episodes that state one (one awk pass, in batches); ``None`` when awk cannot run."""
-    out: dict[str, str] = {}
+def _sources(paths: list[Path]) -> dict[str, dict] | None:
+    """``{path: {key: value}}`` of the keys :data:`_AWK` reads, for the episodes that state any (one awk pass, in
+    batches); ``None`` when awk cannot run."""
+    out: dict[str, dict] = {}
     for start in range(0, len(paths), 500):
         batch = [str(p) for p in paths[start:start + 500]]
         try:
@@ -90,33 +145,37 @@ def _sources(paths: list[Path]) -> dict[str, str] | None:
         if proc.returncode != 0:
             return None
         for line in proc.stdout.decode("utf-8", errors="replace").splitlines():
-            name, _, value = line.partition("\t")
-            out[name] = value.strip()
+            name, _, rest = line.partition("\t")
+            key, _, value = rest.partition("\t")
+            out.setdefault(name, {}).setdefault(key, value.strip())
     return out
 
 
-def _source_of(path: Path) -> str | None:
-    """One episode's ``source:`` read from its frontmatter lines without YAML; ``None`` when it cannot be read."""
+def _source_of(path: Path) -> dict | None:
+    """One episode's ``source:``, ``origin:`` and ``published_at:`` read from its frontmatter lines without YAML;
+    ``None`` when it cannot be read."""
+    found: dict = {}
     try:
         with open(path, encoding="utf-8") as fh:
             if fh.readline().rstrip("\r\n") != "---":
-                return ""
+                return found
             for line in fh:
                 line = line.rstrip("\r\n")
                 if line == "---":
-                    return ""
-                match = _SOURCE_LINE.match(line)
+                    return found
+                match = _KEY_LINE.match(line)
                 if match:
-                    return match.group(1).strip()
+                    found.setdefault(match.group(1), match.group(2).strip())
     except OSError:
         return None
-    return ""
+    return found
 
 
 def untimed_among(memory_path: Path | str | None, ids) -> frozenset[str]:
     """:func:`untimed_ids` restricted to ``ids`` — what one page's decay reads (its ``source_episodes``) — without a
     YAML parse of every episode in the bank: a cold card open used to parse every episode's frontmatter for it (owner
-    page, 2026-10-14: seconds on a bank of imported conversations). The ``source:`` lines come from one awk pass
+    page, 2026-10-14: seconds on a bank of imported conversations). The ``source:``, ``origin:`` and ``published_at:``
+    lines come from one awk pass
     (:data:`_AWK`), or a line-by-line read when awk cannot run. An id with no file of its own name falls back to the
     full scan, which also matches episodes by their ``id:`` field."""
     if memory_path is None:
@@ -145,11 +204,11 @@ def untimed_among(memory_path: Path | str | None, ids) -> frozenset[str]:
     found = _sources(missing) if missing else {}
     if found is not None:
         for path in missing:
-            known[str(path)] = found.get(str(path), "")
+            known[str(path)] = found.get(str(path), {})
         found = known
     out: set[str] = set()
     for eid, path in zip(wanted, paths):
-        source = found.get(str(path), "") if found is not None else _source_of(path)
-        if (source or "").strip().lower() in UNTIMED_SOURCES:
+        keys = found.get(str(path), {}) if found is not None else _source_of(path)
+        if not counts_as_activity(keys or {}):
             out.add(eid)
     return frozenset(out)

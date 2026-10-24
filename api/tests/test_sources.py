@@ -100,14 +100,16 @@ def test_parse_rss_basic_fields():
     assert first.title == "First Post"
     assert first.url == "https://example.com/first-post"
     assert "python" in first.tags and "testing" in first.tags
-    assert first.note  # description carried into note
+    # Ruling 39: the publisher's description is the page's description, never the person's note.
+    assert first.preview and first.note is None
 
 
-def test_parse_rss_content_encoded_as_note():
+def test_parse_rss_content_encoded_as_preview():
     items = media_ingestor.parse_rss(RSS_FEED)
     second = items[1]
     assert second.title == "Second Post"
-    assert second.note is not None and "Rich body" in second.note
+    assert second.preview is not None and "Rich body" in second.preview
+    assert second.note is None
 
 
 def test_parse_rss_youtube_link_preserved_for_canonicalization():

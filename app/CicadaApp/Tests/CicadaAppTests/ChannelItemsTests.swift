@@ -105,6 +105,22 @@ final class ChannelItemsTests: XCTestCase {
         XCTAssertNil(CapturedItems.age(ChannelItem(kind: .page, id: "c", title: "C"), today: today))
     }
 
+    /// Ruling 39 — a row whose item came in days after its own date says that day in its help and spoken label; the
+    /// row's own line stays one date.
+    func testARowSaysWhenAnOldItemCameInOnlyInItsHelp() throws {
+        let today = ISODay(year: 2026, month: 10, day: 24)
+        let json = #"{"kind": "episode", "id": "a", "title": "Old article", "day": "2023-05-01", "received": "2026-10-24"}"#
+        let item = try JSONDecoder().decode(ChannelItem.self, from: Data(json.utf8))
+        XCTAssertEqual(item.received, "2026-10-24")
+        let age = try XCTUnwrap(CapturedItems.age(item, today: today, locale: us))
+        XCTAssertEqual(age.help, "Monday, May 1, 2023 · added Saturday, October 24, 2026")
+        XCTAssertFalse(age.text.contains("added"))
+        let saved = try XCTUnwrap(SavedItemText.day(item, today: today, locale: us))
+        XCTAssertTrue(saved.help.hasSuffix("· added Saturday, October 24, 2026"))
+        let plain = ChannelItem(kind: .episode, id: "b", title: "B", day: "2026-10-23")
+        XCTAssertFalse(try XCTUnwrap(CapturedItems.age(plain, today: today, locale: us)).help.contains("added"))
+    }
+
     func testARefreshCoversEveryRowShownUpToTheServersCap() {
         XCTAssertEqual(CapturedItems.refreshLimit(shown: 0), 20)
         XCTAssertEqual(CapturedItems.refreshLimit(shown: 20), 20)

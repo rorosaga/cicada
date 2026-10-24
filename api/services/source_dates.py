@@ -102,6 +102,19 @@ def summary_note(day: date | None, today: date) -> str:
             "happened: never date a fact to it, and never write anything from it as current or recent.]\n\n")
 
 
+def feed_note(day: date | None, today: date) -> str:
+    """The line put before every chunk of a feed item instead of :func:`date_note` (ruling 39, owner 2026-10-24): its
+    date is when it was published, so what it says holds as of then — but it is the publisher's text, never the person
+    mentioning, saying or doing anything, on that day or any other."""
+    published = f"published {day.isoformat()}" if day is not None else "of unknown date"
+    note = (f"{DATE_NOTE_PREFIX} this is an item from a feed the person follows, {published}; today is "
+            f"{today.isoformat()}. It is the publisher's text, not the person's words: never write it as something "
+            "the person said, did or is doing.")
+    if is_old(day, today):
+        note += f" It is older than {OLD_AFTER_DAYS} days: write what it says as of {month_year(day)}, never as current."
+    return note + "]\n\n"
+
+
 def describe(day) -> str:
     """A day for a prompt line: the ISO day, or ``unknown`` — never a guess."""
     parsed = parse_day(day)
