@@ -572,7 +572,7 @@ async def extract(
     # kept only in memory; an item carrying it is dropped below unless the conversation itself says it.
     from api.services import engine_identity
 
-    plan_ids = await asyncio.to_thread(engine_identity.identities, settings)
+    plan_ids = await engine_identity.aidentities(settings)
 
     def _note_failed(episode: dict, exc: BaseException) -> None:
         if on_episode_failed is not None:

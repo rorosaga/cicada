@@ -299,7 +299,7 @@ async def write(result: Survey, settings, jobs: list[Job] | None = None) -> Surv
 
     from api.services import engine_identity
 
-    plan_ids = engine_identity.identities(settings)
+    plan_ids = await engine_identity.aidentities(settings)
     in_a_row = result._in_a_row   # carried across batches: pages failing in a row is the run's, not a batch's
 
     async def one(job: Job) -> None:

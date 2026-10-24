@@ -593,7 +593,7 @@ async def _write_article(job: dict, settings: Settings) -> dict | None:
         return None
     from api.services import engine_identity
 
-    plan_ids = engine_identity.identities(settings)
+    plan_ids = await engine_identity.aidentities(settings)
     if plan_ids and engine_identity.leaks(raw, writer["prompt"], plan_ids):
         # Perf report 2026-10-24, item 1: the article carries the plan account's identity, which the record never
         # gave it. The page keeps the deterministic merge.
@@ -1668,7 +1668,7 @@ async def _synthesize_entity_update(
         body = entity_orientation.compose(existing_body, fields, summary, restated=restated, covered=covered)
         from api.services import engine_identity
 
-        plan_ids = engine_identity.identities(settings)
+        plan_ids = await engine_identity.aidentities(settings)
         return engine_identity.scrub_lines(body, f"{existing_body}\n{prompt}", plan_ids) if plan_ids else body
 
     existing_body = strip_claims_block(existing_body)
@@ -1710,7 +1710,7 @@ async def _synthesize_entity_update(
     from api.services import engine_identity
 
     # Perf report 2026-10-24, item 1: never the plan account's identity unless what the model was given says it.
-    plan_ids = engine_identity.identities(settings)
+    plan_ids = await engine_identity.aidentities(settings)
     return engine_identity.scrub_lines(body, f"{existing_body}\n{prompt}", plan_ids) if plan_ids else body
 
 
