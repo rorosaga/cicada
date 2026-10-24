@@ -1246,6 +1246,15 @@ before generic semantic neighbours. Prompt budgeting reserves claims from both
 sides of a change. Implicit recall rechecks each selected page's claims against
 markdown; every type's recall summary strips claim fences before truncation.
 
+**Ask's retrieval does each piece of work once (perf 2026-10-24).** The prompt is byte for byte what it was (40
+synthetic questions compared); on the owner-scale synthetic bank the time to the model call went p50 599 → 443 ms,
+p95 810 → 663 ms. A page's closed claims are tested against its sentences through one predicate built per page
+(`ask_service._repeater`: the texts folded once, the literal values in one pattern) instead of claim by claim with a
+pattern compiled per claim; a citation's evidence reads the claims retrieval already parsed; `text_fold.subject_terms`
+works out each text's words once (an LRU of 16,384 texts, a fresh set per call). The model call is still ~90 % of an
+Ask: ~1.2 s of fixed CLI start, then output (~800 tokens at haiku, about half of it thinking; `--effort low` measured no
+faster).
+
 **Ask on a busy page and a named page (2026-10-23 live test).** Three defects, one fix each:
 - *The newest fact reaches the model.* A page's claims were ordered by the words they share with the question alone
   and then cut by the prompt budget, so on a page of hundreds of current claims "latest release: 0.3.1" beat "released

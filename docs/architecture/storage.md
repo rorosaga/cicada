@@ -1494,6 +1494,16 @@ built both ways into throwaway indexes outside the bank, its words index too, a 
 (exit 0 = no worse; a metered model needs `--allow-metered`; query text is printed only with `--show-queries`). On the
 synthetic bank, where half the queries are claim sentences and the prose is a 30-word vocabulary, `prose` loses every
 claim-sentence query (search MRR 0.927 → 0.743) and ties every name query.
+**Decay's bookkeeping is not what a page says (perf 2026-10-24).** In `full` mode the embedded text leaves out the claim
+keys a night's decay moves while the words stay — `confidence`, `decayed_through`, `faded_by_age` — taken out of the
+claims fence's JSON lines only (`vector_index.without_decay_marks`; prose and a quoted key inside a claim's text are
+kept). Before, every page decay charged (~1,500 a night on the owner's bank) hashed as changed and was re-embedded with
+the same words: on the owner-scale synthetic bank one decay night re-embedded 2,001 of 2,001 pages, ~30 ms a page with
+the small on-device model on all cores; now 0 (44 on a real fake-engine drain, the pages whose words moved). An entity
+vector no longer carries a confidence. The first sync after the change re-embeds each page once. Search is no worse:
+`benchmarks.perf.embed_ab` (e5, 600 synthetic pages, 200 labeled queries) gives every page a cosine ≥ 0.998 to its old
+vector and MRR 0.629 → 0.625, inside one decay night's own movement under the old text (0.629 → 0.635); the newuser
+bank's MRR is unchanged.
 
 ### The quick read's provisional records (G207, 2026-10-22)
 `<bank>/.awake/<episode>.json`, one per conversation a quick read covered (`awake_read`, its only writer). It holds

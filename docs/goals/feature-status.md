@@ -9,6 +9,7 @@ Status, in order: `proposed` → `building` (a branch exists) → `PR #n` (open 
 
 | ID | Feature | Status | PR | Updated |
 |---|---|---|---|---|
+| [G148](memory-evolution.md#g148) | Perf harness (`benchmarks/perf`: Sleep by stage from the ledger, recall, Ask, primer, index, sources, memory) and four measured fixes: decay no longer re-embeds pages whose words did not move, an unchanged bookmarks file writes and commits nothing, Ask retrieval does each piece of work once, a page's Related labels index its claims once | building (`perf/memory-sources`) | — | 2026-10-24 |
 | [G191](memory-evolution.md#g191) | The notch, second version: the field grows to five lines then scrolls (eases, none under Reduce Motion); the four reasons stay the fixed row and three to six from a 38-reason bank fade in, ranked by the site, the link's words, the person's past picks and the search model only when installed (no generative model) | building (`feat/save-notch-v2`) | — | 2026-10-23 |
 | [G221](memory-evolution.md#g221) | Saves in other apps (YouTube, Instagram, LinkedIn, X, Pinterest): a browser extension sees the person's own save click, the lists confirm; owner decisions listed | proposed | — | 2026-10-23 |
 | [G218](memory-evolution.md#g218) | Activity traces: what the person did on the computer, with times, screenshots included from the start (off by default; outside every bank, encrypted at rest, never on the network; one-click wipe, retention limits) | PR #456 (ruling 38; key custody interim) | #456 | 2026-10-23 |

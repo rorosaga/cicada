@@ -103,6 +103,65 @@ def test_the_index_follows_the_setting_and_a_change_re_embeds_every_page(tmp_pat
         config.get_settings.cache_clear()
 
 
+# --- decay's bookkeeping is not what a page says (perf 2026-10-24) ---------------------------------------------------
+
+def _claim_line(confidence, through, text="Alpha Project uses beta tool", **extra) -> str:
+    from api.services.claims import _jsonl_line
+
+    return _jsonl_line({"id": "clm_1", "text": text, "subject": "alpha-project", "confidence": confidence,
+                        "valid_from": "2026-08-03", "decayed_through": through, **extra})
+
+
+def _decayed_body(confidence, through, text="Alpha Project uses beta tool", **extra) -> str:
+    return ("## Summary\nAlpha Project is about gardening. Its notes say \"confidence\": 0.9, verbatim.\n\n"
+            f"```claims\n{_claim_line(confidence, through, text, **extra)}\n```\n")
+
+
+def test_full_leaves_decay_bookkeeping_out_of_the_fence_and_only_there():
+    fm = {"name": "Alpha Project", "type": "project"}
+    one = _entity_embed_text(fm, _decayed_body(0.54, "2026-08-03"), "alpha-project")
+    night = _entity_embed_text(fm, _decayed_body(0.52, "2026-08-10", faded_by_age="2026-08-10"), "alpha-project")
+    assert one == night, "a night's decay moves no word of the embedded text"
+    assert '"decayed_through"' not in one and '"faded_by_age"' not in night
+    assert '"confidence": 0.9, verbatim' in one, "prose outside the fence is the page's words, kept as written"
+    assert '"valid_from": "2026-08-03"' in one and "Alpha Project uses beta tool" in one
+    said = 'She said "confidence": 0.2, then left'
+    assert json.dumps(said)[1:-1] in _entity_embed_text(fm, _decayed_body(0.5, None, text=said), "alpha-project"), \
+        "a key quoted in a claim's own text is escaped in the JSON line and never taken out"
+
+
+def test_full_still_moves_when_a_claim_says_something_else():
+    fm = {"name": "Alpha Project", "type": "project"}
+    assert _entity_embed_text(fm, _decayed_body(0.5, "2026-08-03"), "alpha-project") != \
+        _entity_embed_text(fm, _decayed_body(0.5, "2026-08-03", text="Alpha Project dropped beta tool"),
+                           "alpha-project")
+
+
+def test_a_decay_night_re_embeds_no_page_and_an_edit_re_embeds_its_page(tmp_path, monkeypatch):
+    monkeypatch.delenv("CICADA_ENTITY_EMBED_TEXT", raising=False)
+    config.get_settings.cache_clear()
+    page = tmp_path / "entities" / "alpha-project.md"
+    try:
+        _bank(tmp_path)
+        markdown_parser.write(page, {"name": "Alpha Project", "type": "project", "confidence": 0.6},
+                              _decayed_body(0.54, "2026-08-03"))
+        idx = SqliteVecIndexer(tmp_path, embed_fn=fake_embed, model_name="fake")
+        idx.index_entities()
+        assert idx.last_sync["entities"]["embedded"] == 2
+        markdown_parser.write(page, {"name": "Alpha Project", "type": "project", "confidence": 0.58},
+                              _decayed_body(0.52, "2026-08-10"))
+        idx.index_entities()
+        assert idx.last_sync["entities"] == {"embedded": 0, "reused": 2, "removed": 0, "rebuilt": 0}
+        assert idx.search_entities("gardening", top_k=1)[0]["metadata"]["confidence"] == 0.58, \
+            "the page's metadata still follows it"
+        markdown_parser.write(page, {"name": "Alpha Project", "type": "project", "confidence": 0.58},
+                              _decayed_body(0.52, "2026-08-10", text="Alpha Project dropped beta tool"))
+        idx.index_entities()
+        assert idx.last_sync["entities"]["embedded"] == 1
+    finally:
+        config.get_settings.cache_clear()
+
+
 # --- the side-by-side recall test ------------------------------------------------------------------------------------
 
 

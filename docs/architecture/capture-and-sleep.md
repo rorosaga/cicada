@@ -87,7 +87,11 @@ Seven rails hold across all of them:
   count as no re-save, each reason but the first recorded in `removals_skipped`. A move or rename keeps the URL in the
   file, so it never marks. **No inbox question:** until v4 the sync asked "Still keep …?" (`removal`, G129 slice 2) — it
   existed because the bookmark sync had no other way to say a link had left the browser and no way to remove one from
-  Cicada; now the status says the first and the bookmark page's Remove does the second. A pending bookmark removal
+  Cicada; now the status says the first and the bookmark page's Remove does the second. **An unchanged file is no news (perf 2026-10-24):** the
+seen-set is rewritten only when its hashes, folder scope, `newest_added` or `left` map move
+(`bookmark_seen.entry_unchanged`); a sync that changes none of them writes nothing and commits nothing. Before, every
+wake of an unchanged file (the watch fires on each write Chrome makes) rewrote the file with a new `at` and made a
+`Bookmark sync` commit, and the file's mtime ticked the app's sources domain. A pending bookmark removal
   question is retired on the channel's next sync, its link marked from the day it was asked (`_retire_removal_questions`,
   trigger `sync/bookmark_left`); papers' `removal` questions are untouched.
 - **Capture must not depend on a model deciding to call a tool** (G105). Every Claude Code and
@@ -913,7 +917,10 @@ or `updated` write queues anything. A job held back by Sleep, a re-embed or the 
 
 **Claim preservation (G148 regression):** Stage 5 rewrites prose with the stored `claims` fences removed from section parsing, then reattaches those fences unchanged. Rebuilding `Related` cannot remove beliefs before the claim pipeline reconciles them; synthesis output never authors a claims fence.
 
-**`Related` reads the edges once:** `apply_changes` builds each entity's edges from `graph_edges.yaml` on the first update that needs them and reuses them for every page that pass merges (nothing in the pass writes the file); every reader of that file uses `markdown_parser.load_yaml`, the libyaml safe loader. The file grows with the claims; on a 2,000-page synthetic bank one pure-Python read cost ~3.8 s and was paid once per merged entity (`benchmarks/scale`). The hot readers (`apply_changes`, `_write_graph_edges`, `graph_builder`'s regenerate, upsert and graph read) go through `markdown_parser.load_yaml_file`, which parses the file once per change of its (inode, mtime, size) and hands each caller a private copy; `write_yaml` leaves what it wrote there, so a read straight after another step's write is a copy, not a parse (2026-10-16: a batch parsed the ~5 MB owner-scale file ~5 times at ~1.1 s each; a 3-batch synthetic drain went 147 s → 120 s).
+**`Related` reads the edges once:** `apply_changes` builds each entity's edges from `graph_edges.yaml` on the first update that needs them and reuses them for every page that pass merges (nothing in the pass writes the file); every reader of that file uses `markdown_parser.load_yaml`, the libyaml safe loader. The file grows with the claims; on a 2,000-page synthetic bank one pure-Python read cost ~3.8 s and was paid once per merged entity (`benchmarks/scale`). The hot readers (`apply_changes`, `_write_graph_edges`, `graph_builder`'s regenerate, upsert and graph read) go through `markdown_parser.load_yaml_file`, which parses the file once per change of its (inode, mtime, size) and hands each caller a private copy; `write_yaml` leaves what it wrote there, so a read straight after another step's write is a copy, not a parse (2026-10-16: a batch parsed the ~5 MB owner-scale file ~5 times at ~1.1 s each; a 3-batch synthetic drain went 147 s → 120 s). Each link's label is read against the claims on the page it starts from; `related_edges` indexes a page's claims by
+object once per rebuild instead of scanning the whole fence per edge (perf 2026-10-24: the owner page's thousands of
+links × thousands of claims on every owner write and every `refresh_related`; a 2-batch owner-scale drain spent 7.0 s
+in `_reconcile_related`, now 1.3 s, labels identical — `test_related_labels.py` checks them against a full scan).
 
 **One batch's page reads come from a cache (2026-10-16, owner decision 1).** Every step of a batch re-reads the pages —
 ~212k parses on a 3-batch owner-scale drain. `_run_batch` runs each batch inside `markdown_parser.page_cache(bank)`:

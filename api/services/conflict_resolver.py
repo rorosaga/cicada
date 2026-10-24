@@ -1351,6 +1351,18 @@ def related_edges(entity_id: str, edges: list[dict], claims_by_page: dict[str, l
         except Exception:  # noqa: BLE001 - a map that cannot be read: the label as written
             return text
 
+    # Each page's claims by object, built once (perf 2026-10-24): every edge used to scan its source page's whole
+    # fence, so the owner page — thousands of links, thousands of claims — cost edges × claims on every write.
+    by_object: dict[str, dict[str, list]] = {}
+
+    def about(source: str, other: str) -> list:
+        index = by_object.get(source)
+        if index is None:
+            index = by_object[source] = {}
+            for c in claims_by_page.get(source, ()):
+                index.setdefault(c.object, []).append(c)
+        return index.get(other, [])
+
     def state(edge: dict) -> tuple[str, str]:
         mirrored = bool(edge.get("mirrored"))
         source = str(edge.get("target", "")) if mirrored else entity_id
@@ -1358,7 +1370,7 @@ def related_edges(entity_id: str, edges: list[dict], claims_by_page: dict[str, l
         predicate = norm(edge.get("label", ""))
         names = {predicate, "-".join(predicate.split())}
         # An event is born closed and a withdrawal record is no belief: neither says a link ended (R-PJ3).
-        found = [c for c in claims_by_page.get(source, ()) if (c.subject or source) == source and c.object == other
+        found = [c for c in about(source, other) if (c.subject or source) == source
                  and (c.predicate in names or c.id == edge.get("claim_id")) and not is_event(c) and not is_record(c)]
         live = [c for c in found if is_current(c)]
         if live:
