@@ -135,3 +135,58 @@ def test_a_hubs_rollup_keeps_current_links_before_ended_ones():
 
     counted = sum(int(m.replace(",", "")) for m in re.findall(r": ([\d,]+) pages? — latest", block))
     assert len(kept) + counted == n, "no link is dropped: each is a line or counted on a family line"
+
+
+def test_labels_match_a_scan_of_every_claim_on_a_large_page():
+    """Perf 2026-10-24: each page's claims are indexed by object once instead of scanned per edge (the owner page:
+    thousands of links × thousands of claims on every write). The result is the one a full scan of every claim gives,
+    written out here as the reference."""
+    import random
+
+    from api.services.claims import is_current, is_event, is_record
+
+    rng = random.Random(3)
+    targets = [f"page-{i:03d}" for i in range(60)]
+    verbs = ["works-at", "uses", "builds", "knows"]
+    claims = {"owner": [], **{t: [] for t in targets}}
+    for _ in range(900):
+        target = rng.choice(targets)
+        since = f"2026-0{rng.randint(1, 9)}-1{rng.randint(0, 9)}"
+        until = rng.choice([None, None, f"2026-10-0{rng.randint(1, 9)}"])
+        if rng.random() < 0.2:
+            claims[target].append(_claim(target, rng.choice(verbs), "owner", since, until))
+        else:
+            claims["owner"].append(_claim("owner", rng.choice(verbs), target, since, until))
+    edges = [{"target": t, "label": rng.choice(verbs), "mirrored": rng.random() < 0.3} for t in targets for _ in (0, 1)]
+
+    def reference(entity_id):
+        def state(edge):
+            mirrored = bool(edge.get("mirrored"))
+            source = edge["target"] if mirrored else entity_id
+            other = entity_id if mirrored else edge["target"]
+            names = {edge["label"].replace("-", " "), edge["label"]}
+            found = [c for c in claims.get(source, ()) if (c.subject or source) == source and c.object == other
+                     and c.predicate in names and not is_event(c) and not is_record(c)]
+            live = [c for c in found if is_current(c)]
+            if live:
+                return "open", max(str(c.valid_from or "") for c in live)
+            if found:
+                return "ended", max(str(c.valid_to or "") for c in found)
+            return "unknown", ""
+
+        current, ended = [], []
+        for target in dict.fromkeys(e["target"] for e in edges):
+            rows = [(e, *state(e)) for e in edges if e["target"] == target]
+            live = [r for r in rows if r[1] == "open"]
+            unknown = [r for r in rows if r[1] == "unknown"]
+            if live:
+                current.append({"source": entity_id, "target": target, "label": max(live, key=lambda r: r[2])[0]["label"]})
+            elif unknown:
+                current.append({"source": entity_id, "target": target, "label": unknown[0][0]["label"]})
+            else:
+                edge, _state, day = rows[0]
+                ended.append({"source": entity_id, "target": target, "ended": True,
+                              "label": f"{edge['label']} (until {day[:10]})" if day else edge["label"]})
+        return current + ended
+
+    assert conflict_resolver.related_edges("owner", edges, claims, normalize=lambda text: text) == reference("owner")
